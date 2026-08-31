@@ -9,6 +9,24 @@ const RESUME_TWO_PAGE_MIN_PAGE_WORDS = 240;
 const COVER_MIN_WORDS = 325;
 const COVER_MAX_WORDS = 475;
 
+/**
+ * @typedef {object} QualityIssue
+ * @property {string} code
+ * @property {string} message
+ * @property {"review" | "fail"} severity
+ */
+
+/**
+ * @typedef {object} DocumentAudit
+ * @property {string} status
+ * @property {number} pageCount
+ * @property {number} words
+ * @property {number[]} pageWords
+ * @property {string[]} [sections]
+ * @property {QualityIssue[]} issues
+ */
+
+/** @param {unknown} html */
 function stripHtml(html) {
   return String(html || "")
     .replace(/<script[\s\S]*?<\/script>/gi, " ")
@@ -24,11 +42,13 @@ function stripHtml(html) {
     .trim();
 }
 
+/** @param {unknown} text */
 function countWords(text) {
   const t = String(text || "").trim();
   return t ? t.split(/\s+/).length : 0;
 }
 
+/** @param {unknown} html */
 function extractPageHtml(html) {
   const pages = [];
   const re = /<article\b[^>]*class=["'][^"']*\bpage\b[^"']*["'][^>]*>[\s\S]*?(?=<article\b[^>]*class=["'][^"']*\bpage\b[^"']*["']|<\/body>|$)/gi;
@@ -39,6 +59,7 @@ function extractPageHtml(html) {
   return pages.length ? pages : [html];
 }
 
+/** @param {unknown} html */
 function extractSections(html) {
   const sections = new Set();
   const re = /data-section=["']([^"']+)["']/gi;
@@ -49,6 +70,7 @@ function extractSections(html) {
   return Array.from(sections);
 }
 
+/** @param {unknown} buffer */
 export function countPdfPages(buffer) {
   if (!buffer) return 0;
   const text = Buffer.isBuffer(buffer)
@@ -57,6 +79,7 @@ export function countPdfPages(buffer) {
   return (text.match(/\/Type\s*\/Page\b/g) || []).length;
 }
 
+/** @param {unknown} html */
 export function analyzeHtml(html) {
   const pageHtml = extractPageHtml(html);
   const pageWords = pageHtml.map((page) => countWords(stripHtml(page)));
@@ -68,25 +91,45 @@ export function analyzeHtml(html) {
   };
 }
 
+/**
+ * @param {string} code
+ * @param {string} message
+ * @param {"review" | "fail"} [severity]
+ * @returns {QualityIssue}
+ */
 function issue(code, message, severity = "review") {
   return { code, message, severity };
 }
 
+/** @param {QualityIssue[]} issues */
 function statusFor(issues) {
   if (issues.some((item) => item.severity === "fail")) return "fail";
   if (issues.length) return "review";
   return "pass";
 }
 
+/**
+ * @param {import("node:fs").PathLike | undefined} path
+ * @param {BufferEncoding} [encoding]
+ */
 async function readOptional(path, encoding) {
-  if (!existsSync(path)) return null;
-  return readFile(path, encoding);
+  const checkedPath = /** @type {import("node:fs").PathLike} */ (path);
+  if (!existsSync(checkedPath)) return null;
+  return encoding ? readFile(checkedPath, encoding) : readFile(checkedPath);
 }
 
+/**
+ * @param {string[]} sections
+ * @param {string[]} names
+ */
 function hasAnySection(sections, names) {
   return names.some((name) => sections.includes(name));
 }
 
+/**
+ * @param {{ htmlPath?: import("node:fs").PathLike, pdfPath?: import("node:fs").PathLike }} [paths]
+ * @returns {Promise<DocumentAudit | null>}
+ */
 export async function auditResume({ htmlPath, pdfPath } = {}) {
   const html = await readOptional(htmlPath, "utf8");
   const pdf = await readOptional(pdfPath);
@@ -139,6 +182,10 @@ export async function auditResume({ htmlPath, pdfPath } = {}) {
   };
 }
 
+/**
+ * @param {{ htmlPath?: import("node:fs").PathLike, pdfPath?: import("node:fs").PathLike }} [paths]
+ * @returns {Promise<DocumentAudit | null>}
+ */
 export async function auditCoverLetter({ htmlPath, pdfPath } = {}) {
   const html = await readOptional(htmlPath, "utf8");
   const pdf = await readOptional(pdfPath);
@@ -178,7 +225,9 @@ export async function auditCoverLetter({ htmlPath, pdfPath } = {}) {
   };
 }
 
+/** @param {string} dir */
 export async function auditApplicationMaterials(dir) {
+  /** @type {Record<string, DocumentAudit>} */
   const documents = {};
   const resume = await auditResume({
     htmlPath: join(dir, "resume.html"),

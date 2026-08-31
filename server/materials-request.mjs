@@ -25,6 +25,24 @@ const FEATURES = new Set(["resume", "cover_letter", "both"]);
 const MAX_NOTES_LEN = 4000;
 const DEFAULT_TIMEOUT_MS = 30_000;
 
+/**
+ * @typedef {object} MaterialsRequestPayload
+ * @property {string} slug
+ * @property {string} company
+ * @property {string} title
+ * @property {string} feature
+ * @property {string} jobUrl
+ * @property {string} notes
+ */
+
+/**
+ * @typedef {object} MaterialsRequestOptions
+ * @property {string} [bin]
+ * @property {number} [timeoutMs]
+ * @property {string} [applicationsRoot]
+ * @property {boolean} [skipTelegram]
+ */
+
 function defaultBin() {
   return resolvePath(
     __dirname,
@@ -40,6 +58,10 @@ export function getMaterialsRequestBin() {
   return process.env.HERMES_MATERIALS_REQUEST_BIN || defaultBin();
 }
 
+/**
+ * @param {unknown} value
+ * @param {number} [max]
+ */
 function trimString(value, max) {
   if (typeof value !== "string") return "";
   const trimmed = value.replace(/\r/g, "").trim();
@@ -50,29 +72,39 @@ function trimString(value, max) {
 /**
  * Validate and normalise a materials request body. Throws with
  * .statusCode = 400 when the body is unusable.
+ * @param {Record<string, unknown> | null | undefined} body
+ * @returns {MaterialsRequestPayload}
  */
 export function normalizeRequestBody(body) {
   const slug = trimString(body && body.slug);
   if (!slug || !SLUG_PATTERN.test(slug)) {
-    const err = new Error("Invalid slug");
+    const err = /** @type {Error & { statusCode: number }} */ (
+      new Error("Invalid slug")
+    );
     err.statusCode = 400;
     throw err;
   }
   const feature = trimString(body && body.feature);
   if (!FEATURES.has(feature)) {
-    const err = new Error("feature must be one of resume, cover_letter, both");
+    const err = /** @type {Error & { statusCode: number }} */ (
+      new Error("feature must be one of resume, cover_letter, both")
+    );
     err.statusCode = 400;
     throw err;
   }
   const company = trimString(body && body.company, 200);
   const title = trimString(body && body.title, 200);
   if (!company) {
-    const err = new Error("company is required");
+    const err = /** @type {Error & { statusCode: number }} */ (
+      new Error("company is required")
+    );
     err.statusCode = 400;
     throw err;
   }
   if (!title) {
-    const err = new Error("title is required");
+    const err = /** @type {Error & { statusCode: number }} */ (
+      new Error("title is required")
+    );
     err.statusCode = 400;
     throw err;
   }
@@ -85,6 +117,9 @@ export function normalizeRequestBody(body) {
  * Spawn the Hermes wrapper. Resolves with the parsed JSON output on
  * stdout. Rejects with a tagged Error when the script exits non-zero
  * or output isn't JSON.
+ * @param {MaterialsRequestPayload} payload
+ * @param {MaterialsRequestOptions} [options]
+ * @returns {Promise<Record<string, unknown>>}
  */
 export function spawnMaterialsRequest(payload, options = {}) {
   const bin = options.bin || getMaterialsRequestBin();
@@ -109,6 +144,7 @@ export function spawnMaterialsRequest(payload, options = {}) {
     let stderr = "";
     let settled = false;
 
+    /** @type {import("node:child_process").ChildProcessByStdio<null, import("node:stream").Readable, import("node:stream").Readable>} */
     let child;
     try {
       child = spawn(bin, args, {
@@ -116,7 +152,10 @@ export function spawnMaterialsRequest(payload, options = {}) {
         env: process.env,
       });
     } catch (err) {
-      const e = new Error(`Failed to spawn materials-request bin: ${err.message}`);
+      const error = /** @type {{ message: unknown }} */ (err);
+      const e = /** @type {Error & { statusCode: number }} */ (
+        new Error(`Failed to spawn materials-request bin: ${error.message}`)
+      );
       e.statusCode = 500;
       return rejectFn(e);
     }
@@ -125,7 +164,9 @@ export function spawnMaterialsRequest(payload, options = {}) {
       if (settled) return;
       settled = true;
       try { child.kill("SIGKILL"); } catch {}
-      const e = new Error(`materials-request timed out after ${timeoutMs}ms`);
+      const e = /** @type {Error & { statusCode: number }} */ (
+        new Error(`materials-request timed out after ${timeoutMs}ms`)
+      );
       e.statusCode = 504;
       rejectFn(e);
     }, timeoutMs);
@@ -137,7 +178,9 @@ export function spawnMaterialsRequest(payload, options = {}) {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      const e = new Error(`materials-request spawn error: ${err.message}`);
+      const e = /** @type {Error & { statusCode: number }} */ (
+        new Error(`materials-request spawn error: ${err.message}`)
+      );
       e.statusCode = 500;
       rejectFn(e);
     });
@@ -147,6 +190,7 @@ export function spawnMaterialsRequest(payload, options = {}) {
       settled = true;
       clearTimeout(timer);
       const text = stdout.trim();
+      /** @type {Record<string, unknown> | null} */
       let parsed = null;
       if (text) {
         try { parsed = JSON.parse(text); } catch { parsed = null; }
@@ -172,7 +216,9 @@ export function spawnMaterialsRequest(payload, options = {}) {
       const message = parsed && parsed.error
         ? parsed.error
         : (stderr.trim() || `materials-request exited ${code}`);
-      const e = new Error(message);
+      const e = /** @type {Error & { statusCode: number }} */ (
+        new Error(/** @type {string} */ (message))
+      );
       e.statusCode = code === 1 ? 400 : 502;
       rejectFn(e);
     });

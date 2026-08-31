@@ -22,6 +22,8 @@ import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 
+/** @typedef {import("ajv").ValidateFunction<unknown>} ProfileValidator */
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 const SCHEMA_PATH = resolvePath(
@@ -34,6 +36,7 @@ const SCHEMA_PATH = resolvePath(
   "user-profile.schema.json",
 );
 
+/** @type {ProfileValidator | null} */
 let cachedValidator = null;
 
 function loadValidator() {
@@ -41,8 +44,14 @@ function loadValidator() {
   const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
   // The schema declares draft-2020-12; use the Ajv2020 entrypoint so the
   // metaschema resolves without a network fetch.
-  const ajv = new Ajv2020({ allErrors: true, strict: false });
-  addFormats(ajv);
+  const Ajv2020Constructor = /** @type {typeof import("ajv/dist/2020.js").default} */ (
+    /** @type {unknown} */ (Ajv2020)
+  );
+  const addFormatsPlugin = /** @type {typeof import("ajv-formats").default} */ (
+    /** @type {unknown} */ (addFormats)
+  );
+  const ajv = new Ajv2020Constructor({ allErrors: true, strict: false });
+  addFormatsPlugin(ajv);
   cachedValidator = ajv.compile(schema);
   return cachedValidator;
 }
@@ -65,6 +74,7 @@ export function resolveProfilePath() {
   return join(homedir(), ".jobbored", "profile.json");
 }
 
+/** @param {string} path */
 async function ensureParentDir(path) {
   const parent = dirname(path);
   if (!existsSync(parent)) {
@@ -87,13 +97,23 @@ export async function readProfile() {
   try {
     raw = await readFile(path, "utf8");
   } catch (err) {
-    return { ok: false, reason: "read_failed", detail: String(err.message || err) };
+    const error = /** @type {{ message?: unknown } | null | undefined} */ (err);
+    return {
+      ok: false,
+      reason: "read_failed",
+      detail: String(error?.message || err),
+    };
   }
   try {
     const profile = JSON.parse(raw);
     return { ok: true, profile, path };
   } catch (err) {
-    return { ok: false, reason: "invalid_json", detail: String(err.message || err) };
+    const error = /** @type {{ message?: unknown } | null | undefined} */ (err);
+    return {
+      ok: false,
+      reason: "invalid_json",
+      detail: String(error?.message || err),
+    };
   }
 }
 
@@ -101,6 +121,7 @@ export async function readProfile() {
  * Validate against the ajv schema. Returns { ok: true, profile } or
  * { ok: false, errors: [...] }. Does not mutate input.
  */
+/** @param {unknown} candidate */
 export function validateProfile(candidate) {
   const validate = loadValidator();
   const ok = validate(candidate);
@@ -129,10 +150,13 @@ export function validateProfile(candidate) {
  * Always stamps `updatedAt` to "now" before writing; preserves `createdAt`
  * if the caller didn't provide one and a previous file existed.
  */
+/** @param {Record<string, unknown>} candidate */
 export async function writeProfileAtomic(candidate) {
   const validation = validateProfile(candidate);
   if (!validation.ok) {
-    const err = new Error("invalid_profile");
+    const err = /** @type {Error & { code: string, errors: unknown }} */ (
+      new Error("invalid_profile")
+    );
     err.code = "INVALID_PROFILE";
     err.errors = validation.errors;
     throw err;
@@ -378,8 +402,12 @@ export function listStarterTemplateIds() {
  * Build a starter template profile. Returns null for unknown IDs so the
  * caller can 404. Each call returns a fresh deep copy.
  */
+/** @param {unknown} id */
 export function buildStarterTemplate(id) {
-  const factory = TEMPLATES[String(id || "").trim()];
+  const factory =
+    TEMPLATES[
+      /** @type {keyof typeof TEMPLATES} */ (String(id || "").trim())
+    ];
   if (!factory) return null;
   return factory();
 }

@@ -58,6 +58,41 @@ const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
 const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 
+/** @typedef {"gemini" | "openrouter" | "local" | "openai_compatible" | "openai" | "anthropic"} ProfileRescoreProvider */
+/** @typedef {Record<string, unknown>} UnknownRecord */
+/** @typedef {Error & { code: string }} WorkerConfigError */
+/** @typedef {{ client_email: string, private_key: string, token_uri: string }} ServiceAccount */
+/**
+ * @typedef {object} ProviderDefinition
+ * @property {string} displayName
+ * @property {string} defaultModel
+ * @property {string} [defaultBaseUrl]
+ * @property {boolean} requiresApiKey
+ * @property {string[]} apiKeyEnvVars
+ * @property {string[]} modelEnvVars
+ * @property {string[]} [baseUrlEnvVars]
+ */
+/**
+ * @typedef {object} ProviderConfigInput
+ * @property {unknown} [provider]
+ * @property {unknown} [apiKey]
+ * @property {unknown} [geminiApiKey]
+ * @property {unknown} [openRouterApiKey]
+ * @property {unknown} [openAIApiKey]
+ * @property {unknown} [anthropicApiKey]
+ * @property {unknown} [model]
+ * @property {unknown} [geminiModel]
+ * @property {unknown} [baseUrl]
+ * @property {unknown} [requiredEnvVars]
+ */
+/** @typedef {{ provider: string, apiKey: string, model: string, baseUrl: string, requiredEnvVars: string[] }} ProfileRescoreProviderConfig */
+/** @typedef {{ name?: unknown, rank?: number, keywords?: unknown[], evidence?: unknown }} ProfileStrength */
+/** @typedef {{ identity?: { primaryNarrative?: unknown }, strengths?: ProfileStrength[], wants?: unknown[], avoids?: unknown[], tieBreakers?: UnknownRecord }} UserProfile */
+/** @typedef {{ sourceId: string, sourceLabel: string, title: string, company: string, location: string, url: string, compensationText: string, descriptionText: string }} RawListing */
+/** @typedef {{ name?: unknown, rationale?: unknown }} PerStrengthScore */
+/** @typedef {{ fitScore: number, band: string, perStrength: PerStrengthScore[], concerns: unknown[], matches: unknown[], rationale: string, leadAngle: string }} ScoreResponse */
+
+/** @type {Readonly<Record<ProfileRescoreProvider, ProviderDefinition>>} */
 const PROVIDER_DEFINITIONS = Object.freeze({
   gemini: {
     displayName: "Gemini",
@@ -234,6 +269,7 @@ function resolveWorkerConfigPath() {
   );
 }
 
+/** @param {unknown} p */
 function expandTilde(p) {
   if (typeof p !== "string") return "";
   const trimmed = p.trim();
@@ -265,7 +301,9 @@ function resolveServiceAccountPath() {
 export async function loadWorkerConfig() {
   const path = resolveWorkerConfigPath();
   if (!existsSync(path)) {
-    const err = new Error(`worker-config.json not found at ${path}`);
+    const err = /** @type {WorkerConfigError} */ (
+      new Error(`worker-config.json not found at ${path}`)
+    );
     err.code = "WORKER_CONFIG_MISSING";
     throw err;
   }
@@ -274,13 +312,18 @@ export async function loadWorkerConfig() {
   try {
     parsed = JSON.parse(raw);
   } catch (e) {
-    const err = new Error(`worker-config.json is not valid JSON: ${e.message}`);
+    const error = /** @type {{ message: unknown }} */ (e);
+    const err = /** @type {WorkerConfigError} */ (
+      new Error(`worker-config.json is not valid JSON: ${error.message}`)
+    );
     err.code = "WORKER_CONFIG_INVALID";
     throw err;
   }
   const sheetId = String(parsed && parsed.sheetId ? parsed.sheetId : "").trim();
   if (!sheetId) {
-    const err = new Error("worker-config.json has no sheetId");
+    const err = /** @type {WorkerConfigError} */ (
+      new Error("worker-config.json has no sheetId")
+    );
     err.code = "WORKER_CONFIG_NO_SHEET";
     throw err;
   }
@@ -289,6 +332,7 @@ export async function loadWorkerConfig() {
 
 /* ─── Google auth ────────────────────────────────────────────────────────── */
 
+/** @param {string} input */
 function toBase64Url(input) {
   return Buffer.from(input, "utf8")
     .toString("base64")
@@ -297,8 +341,12 @@ function toBase64Url(input) {
     .replace(/=+$/g, "");
 }
 
+/**
+ * @param {string} rawJson
+ * @returns {ServiceAccount}
+ */
 function parseServiceAccount(rawJson) {
-  const parsed = JSON.parse(rawJson);
+  const parsed = /** @type {UnknownRecord} */ (JSON.parse(rawJson));
   if (!parsed || !parsed.client_email || !parsed.private_key) {
     throw new Error("Service account JSON missing client_email / private_key");
   }
@@ -309,6 +357,10 @@ function parseServiceAccount(rawJson) {
   };
 }
 
+/**
+ * @param {ServiceAccount} serviceAccount
+ * @param {string} [scope]
+ */
 async function exchangeServiceAccountToken(serviceAccount, scope = SHEETS_SCOPE) {
   const iat = Math.floor(Date.now() / 1000);
   const payload = {
@@ -345,12 +397,13 @@ async function exchangeServiceAccountToken(serviceAccount, scope = SHEETS_SCOPE)
     );
   }
   const data = await resp.json();
-  if (!data || !data.access_token) {
+  if (!data || typeof data !== "object" || !("access_token" in data) || !data.access_token) {
     throw new Error("Service account token response missing access_token");
   }
   return String(data.access_token);
 }
 
+/** @param {{ overrideToken?: string }} [options] */
 export async function resolveSheetsAccessToken({ overrideToken } = {}) {
   // Highest precedence: explicit per-call override (used in tests).
   if (overrideToken && String(overrideToken).trim()) {
@@ -367,15 +420,20 @@ export async function resolveSheetsAccessToken({ overrideToken } = {}) {
     const text = await readFile(filePath, "utf8");
     return exchangeServiceAccountToken(parseServiceAccount(text));
   }
-  const err = new Error(
+  const err = /** @type {WorkerConfigError} */ (new Error(
     "No Google Sheets credential found. Set JOBBORED_GOOGLE_SERVICE_ACCOUNT_FILE or place a service-account-key.json next to the discovery worker.",
-  );
+  ));
   err.code = "NO_SHEETS_CREDENTIAL";
   throw err;
 }
 
 /* ─── Sheets read + write ────────────────────────────────────────────────── */
 
+/**
+ * @param {string} sheetId
+ * @param {string} token
+ * @returns {Promise<unknown[][]>}
+ */
 async function readPipelineRows(sheetId, token) {
   const url = new URL(
     `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(READ_RANGE)}`,
@@ -392,10 +450,16 @@ async function readPipelineRows(sheetId, token) {
     throw new Error(`Pipeline read failed: HTTP ${resp.status}${body ? ` — ${body.slice(0, 240)}` : ""}`);
   }
   const json = await resp.json();
-  const values = Array.isArray(json && json.values) ? json.values : [];
+  const values =
+    json && typeof json === "object" && "values" in json && Array.isArray(json.values)
+      ? /** @type {unknown[][]} */ (json.values)
+      : [];
   return values;
 }
 
+/**
+ * @param {{ sheetId: string, token: string, rowNumber: number, fitScore: number, fitAssessment: string, talkingPoints: string }} input
+ */
 async function writeRowScoreCells({
   sheetId,
   token,
@@ -448,6 +512,7 @@ async function writeRowScoreCells({
 
 /* ─── Chat provider config ─────────────────────────────────────────────── */
 
+/** @param {unknown[]} values */
 function firstNonEmpty(values) {
   for (const value of values) {
     const text = String(value || "").trim();
@@ -456,10 +521,15 @@ function firstNonEmpty(values) {
   return "";
 }
 
+/**
+ * @param {NodeJS.ProcessEnv} env
+ * @param {string[]} names
+ */
 function firstEnv(env, names) {
   return firstNonEmpty(names.map((name) => env[name]));
 }
 
+/** @param {unknown} value */
 function normalizeProviderName(value) {
   const raw = String(value || "gemini")
     .trim()
@@ -472,28 +542,39 @@ function normalizeProviderName(value) {
   return raw || "gemini";
 }
 
+/** @param {string} provider */
 function getProviderDefinition(provider) {
-  return PROVIDER_DEFINITIONS[provider] || null;
+  return PROVIDER_DEFINITIONS[
+    /** @type {ProfileRescoreProvider} */ (provider)
+  ] || null;
 }
 
+/** @param {string} provider */
 function providerDisplayName(provider) {
   const definition = getProviderDefinition(provider);
   if (definition) return definition.displayName;
   return provider || "LLM provider";
 }
 
+/** @param {unknown} value */
 function stripTrailingSlash(value) {
   return String(value || "").trim().replace(/\/+$/, "");
 }
 
+/** @param {string} provider */
 function defaultModelForProvider(provider) {
   return getProviderDefinition(provider)?.defaultModel || "";
 }
 
+/** @param {string} provider */
 function defaultBaseUrlForProvider(provider) {
   return getProviderDefinition(provider)?.defaultBaseUrl || "";
 }
 
+/**
+ * @param {ProviderConfigInput} [input]
+ * @returns {ProfileRescoreProviderConfig}
+ */
 function normalizeProfileRescoreProviderConfig(input = {}) {
   const provider = normalizeProviderName(input.provider);
   const apiKey = firstNonEmpty([
@@ -520,6 +601,7 @@ function normalizeProfileRescoreProviderConfig(input = {}) {
   };
 }
 
+/** @param {NodeJS.ProcessEnv} [env] */
 export function getProfileRescoreProviderConfigFromEnv(env = process.env) {
   const provider = normalizeProviderName(
     firstEnv(env, [
@@ -606,7 +688,9 @@ export function getProfileRescoreProviderStatus(
 
 /* ─── Prompt + response handling (mirrors profile-aware-scorer.ts) ─────── */
 
+/** @param {UserProfile} profile */
 function buildSystemPrompt(profile) {
+  /** @type {string[]} */
   const lines = [];
   lines.push("You are scoring how well a job listing matches the user below.");
   lines.push("");
@@ -634,6 +718,7 @@ function buildSystemPrompt(profile) {
   }
   if (profile.tieBreakers) {
     const tb = profile.tieBreakers;
+    /** @type {string[]} */
     const parts = [];
     if (tb.salaryTransparencyImportance)
       parts.push(`salary transparency=${tb.salaryTransparencyImportance}`);
@@ -650,6 +735,7 @@ function buildSystemPrompt(profile) {
   return lines.join("\n");
 }
 
+/** @param {RawListing} rawListing */
 function buildUserPrompt(rawListing) {
   const desc = String(rawListing.descriptionText || "").slice(0, 6000);
   return [
@@ -662,6 +748,7 @@ function buildUserPrompt(rawListing) {
   ].join("\n");
 }
 
+/** @param {UserProfile} profile */
 function buildResponseSchema(profile) {
   const strengthNames = [...(profile.strengths || [])]
     .sort((a, b) => (a.rank ?? 99) - (b.rank ?? 99))
@@ -695,6 +782,7 @@ function buildResponseSchema(profile) {
   };
 }
 
+/** @param {number} score */
 function deriveBand(score) {
   if (score >= 9) return "Exceptional";
   if (score >= 8) return "Strong";
@@ -702,17 +790,30 @@ function deriveBand(score) {
   return "Low";
 }
 
+/** @param {unknown} payload */
 function extractGeminiText(payload) {
   if (!payload || typeof payload !== "object") return "";
-  const candidates = payload.candidates;
+  const record = /** @type {UnknownRecord} */ (payload);
+  const candidates = record.candidates;
   if (!Array.isArray(candidates) || candidates.length === 0) return "";
-  const parts = candidates[0]?.content?.parts;
+  const candidate = candidates[0];
+  if (!candidate || typeof candidate !== "object" || !("content" in candidate)) {
+    return "";
+  }
+  const content = candidate.content;
+  if (!content || typeof content !== "object" || !("parts" in content)) return "";
+  const parts = content.parts;
   if (!Array.isArray(parts)) return "";
   return parts
-    .map((p) => (p && typeof p.text === "string" ? p.text : ""))
+    .map((p) =>
+      p && typeof p === "object" && "text" in p && typeof p.text === "string"
+        ? p.text
+        : "",
+    )
     .join("");
 }
 
+/** @param {string} raw */
 function tryParseEmbeddedJson(raw) {
   for (let start = 0; start < raw.length; start += 1) {
     const opener = raw[start];
@@ -756,6 +857,10 @@ function tryParseEmbeddedJson(raw) {
   return undefined;
 }
 
+/**
+ * @param {unknown} text
+ * @param {string} providerLabel
+ */
 function parseJsonFromProviderText(text, providerLabel) {
   const raw = String(text || "").trim();
   if (!raw) throw new Error(`${providerLabel} returned empty content`);
@@ -768,13 +873,20 @@ function parseJsonFromProviderText(text, providerLabel) {
       const embedded = tryParseEmbeddedJson(cleaned);
       if (embedded !== undefined) return embedded;
     }
-    throw new Error(`${providerLabel} returned invalid JSON: ${err.message}`);
+    const error = /** @type {{ message: unknown }} */ (err);
+    throw new Error(`${providerLabel} returned invalid JSON: ${error.message}`);
   }
 }
 
+/**
+ * @param {unknown} parsed
+ * @param {string} providerLabel
+ * @returns {ScoreResponse}
+ */
 function normalizeScoreResponse(parsed, providerLabel) {
+  const value = /** @type {UnknownRecord} */ (parsed);
   const rawScore =
-    typeof parsed.fitScore === "number" ? parsed.fitScore : Number(parsed.fitScore);
+    typeof value.fitScore === "number" ? value.fitScore : Number(value.fitScore);
   if (!Number.isFinite(rawScore)) {
     throw new Error(`${providerLabel} response missing numeric fitScore`);
   }
@@ -783,17 +895,18 @@ function normalizeScoreResponse(parsed, providerLabel) {
   return {
     fitScore,
     band,
-    perStrength: Array.isArray(parsed.perStrength) ? parsed.perStrength : [],
-    concerns: Array.isArray(parsed.concerns) ? parsed.concerns.filter(Boolean) : [],
-    matches: Array.isArray(parsed.matches) ? parsed.matches.filter(Boolean) : [],
-    rationale: String(parsed.rationale || ""),
+    perStrength: Array.isArray(value.perStrength) ? value.perStrength : [],
+    concerns: Array.isArray(value.concerns) ? value.concerns.filter(Boolean) : [],
+    matches: Array.isArray(value.matches) ? value.matches.filter(Boolean) : [],
+    rationale: String(value.rationale || ""),
     leadAngle:
-      typeof parsed.leadAngle === "string" && parsed.leadAngle.trim()
-        ? parsed.leadAngle.trim()
+      typeof value.leadAngle === "string" && value.leadAngle.trim()
+        ? value.leadAngle.trim()
         : "",
   };
 }
 
+/** @param {UserProfile} profile */
 function buildChatJsonSystemPrompt(profile) {
   return [
     buildSystemPrompt(profile),
@@ -804,6 +917,9 @@ function buildChatJsonSystemPrompt(profile) {
   ].join("\n");
 }
 
+/**
+ * @param {{ profile: UserProfile, rawListing: RawListing, geminiApiKey: string, geminiModel: string }} input
+ */
 async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel }) {
   const model = geminiModel || DEFAULT_GEMINI_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
@@ -832,6 +948,9 @@ async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiMod
   return normalizeScoreResponse(parseJsonFromProviderText(text, "Gemini"), "Gemini");
 }
 
+/**
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput }} input
+ */
 async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   const label = providerDisplayName(cfg.provider);
@@ -844,6 +963,7 @@ async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig
     temperature: 0.2,
     max_tokens: 2048,
   };
+  /** @type {Record<string, string>} */
   const headers = { "Content-Type": "application/json" };
   if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
   const resp = await fetch(`${cfg.baseUrl}/chat/completions`, {
@@ -855,11 +975,16 @@ async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig
     const errBody = await resp.text().catch(() => "");
     throw new Error(`${label} HTTP ${resp.status}: ${errBody.slice(0, 240)}`);
   }
-  const json = await resp.json().catch(() => null);
+  const json = /** @type {{ choices?: Array<{ message?: { content?: string } }> } | null} */ (
+    await resp.json().catch(() => null)
+  );
   const text = String(json?.choices?.[0]?.message?.content || "");
   return normalizeScoreResponse(parseJsonFromProviderText(text, label), label);
 }
 
+/**
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput }} input
+ */
 async function scoreOneWithAnthropic({ profile, rawListing, providerConfig }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   const body = {
@@ -882,7 +1007,9 @@ async function scoreOneWithAnthropic({ profile, rawListing, providerConfig }) {
     const errBody = await resp.text().catch(() => "");
     throw new Error(`Anthropic HTTP ${resp.status}: ${errBody.slice(0, 240)}`);
   }
-  const json = await resp.json().catch(() => null);
+  const json = /** @type {{ content?: Array<{ type?: string, text?: string }> } | null} */ (
+    await resp.json().catch(() => null)
+  );
   const text = Array.isArray(json?.content)
     ? json.content
         .filter((part) => part && part.type === "text")
@@ -892,6 +1019,9 @@ async function scoreOneWithAnthropic({ profile, rawListing, providerConfig }) {
   return normalizeScoreResponse(parseJsonFromProviderText(text, "Anthropic"), "Anthropic");
 }
 
+/**
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput }} input
+ */
 async function scoreOneWithProvider({ profile, rawListing, providerConfig }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   if (cfg.provider === "gemini") {
@@ -910,6 +1040,10 @@ async function scoreOneWithProvider({ profile, rawListing, providerConfig }) {
 
 /* ─── Per-row pipeline: build RawListing → score → format cells ──────────── */
 
+/**
+ * @param {unknown[]} row
+ * @returns {RawListing}
+ */
 function buildRawListingFromRow(row) {
   return {
     sourceId: "rescore",
@@ -923,6 +1057,7 @@ function buildRawListingFromRow(row) {
   };
 }
 
+/** @param {RawListing} rawListing */
 async function maybeFetchDescription(rawListing) {
   // Many Pipeline rows arrive from extraction without description text stashed
   // back in the sheet. For rescore we try a best-effort re-scrape; failure is
@@ -935,13 +1070,21 @@ async function maybeFetchDescription(rawListing) {
       title: rawListing.title,
       company: rawListing.company,
     });
-    const text = String((scraped && (scraped.description || scraped.bodyText)) || "").trim();
+    const scrapeOutput = /** @type {typeof scraped & { bodyText?: unknown }} */ (scraped);
+    const text = String(
+      (scraped && (scraped.description || scrapeOutput.bodyText)) ||
+        "",
+    ).trim();
     return text;
   } catch (_err) {
     return "";
   }
 }
 
+/**
+ * @param {ScoreResponse} score
+ * @param {string} applicationComplexity
+ */
 function buildFitAssessment(score, applicationComplexity) {
   const lines = [
     `${score.band} fit (${score.fitScore}/10) · ${applicationComplexity || "single"}-step apply`,
@@ -956,6 +1099,7 @@ function buildFitAssessment(score, applicationComplexity) {
   return lines.join("\n");
 }
 
+/** @param {ScoreResponse} score */
 function buildTalkingPoints(score) {
   if (score.leadAngle) return score.leadAngle;
   if (Array.isArray(score.perStrength) && score.perStrength.length) {
@@ -970,6 +1114,12 @@ function buildTalkingPoints(score) {
 
 /* ─── Concurrency + worker loop ─────────────────────────────────────────── */
 
+/**
+ * @template T
+ * @param {T[]} items
+ * @param {number} concurrency
+ * @param {(item: T) => Promise<void>} onItem
+ */
 async function runWithConcurrency(items, concurrency, onItem) {
   const queue = items.slice();
   const workers = Array.from({ length: Math.max(1, concurrency) }, () =>
@@ -984,6 +1134,7 @@ async function runWithConcurrency(items, concurrency, onItem) {
   await Promise.all(workers);
 }
 
+/** @param {unknown[]} row */
 function classifyRowForRescore(row) {
   const url = String(row[COL.LINK] || "").trim();
   if (!url) return { kind: "skip", reason: "no_url" };
@@ -999,16 +1150,17 @@ function classifyRowForRescore(row) {
  * Walk the Pipeline sheet and rescore every row with a URL.
  *
  * @param {object} args
- * @param {object} args.profile - the canonical UserProfile JSON
+ * @param {UserProfile} args.profile - the canonical UserProfile JSON
  * @param {string} args.sheetId - target Google Sheet ID
- * @param {object} [args.providerConfig] - selected chat provider config
+ * @param {ProviderConfigInput} [args.providerConfig] - selected chat provider config
  * @param {string} [args.geminiApiKey] - legacy Gemini API key
  * @param {string} [args.geminiModel] - legacy Gemini model
  * @param {string} [args.overrideToken] - explicit Sheets access token (for tests)
  * @param {boolean} [args.dryRun] - if true, returns the rescorable row count
  *                                  without calling an LLM or writing anything.
- * @param {(evt: object) => void} [args.onProgress] - per-row + terminal events
+ * @param {(evt: Record<string, unknown>) => void} [args.onProgress] - per-row + terminal events
  * @param {AbortSignal} [args.signal] - early abort
+ * @param {number} [args.maxRows] - cap rows processed during this run
  * @returns {Promise<{rescored:number, skipped:number, failed:number, total:number}>}
  */
 export async function rescoreAllPipelineRows({
@@ -1029,6 +1181,7 @@ export async function rescoreAllPipelineRows({
   if (!sheetId) {
     throw new Error("rescoreAllPipelineRows: sheetId is required");
   }
+  /** @param {Record<string, unknown>} evt */
   const emit = (evt) => {
     if (typeof onProgress === "function") {
       try {
@@ -1043,8 +1196,11 @@ export async function rescoreAllPipelineRows({
   const rows = await readPipelineRows(sheetId, token);
 
   const effectiveMax =
-    Number.isInteger(maxRows) && maxRows > 0 ? Math.min(maxRows, MAX_ROWS) : MAX_ROWS;
+    typeof maxRows === "number" && Number.isInteger(maxRows) && maxRows > 0
+      ? Math.min(maxRows, MAX_ROWS)
+      : MAX_ROWS;
   const counted = rows.slice(0, effectiveMax);
+  /** @type {Array<{ rowNumber: number, row: unknown[] }>} */
   const candidates = [];
   let skipped = 0;
   for (let i = 0; i < counted.length; i += 1) {
@@ -1142,7 +1298,9 @@ export async function rescoreAllPipelineRows({
         kind: "progress",
         row: rowNumber,
         status: "failed",
-        reason: String(err && err.message ? err.message : err),
+        reason: String(
+          (/** @type {{ message?: unknown } | null | undefined} */ (err))?.message || err,
+        ),
       });
     } finally {
       lastCallEnd = Date.now();

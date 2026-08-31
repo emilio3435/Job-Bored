@@ -6,6 +6,12 @@
 import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
 
+/** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingOptions} ScrapeJobPostingOptions */
+/** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingResult} ScrapeJobPostingResult */
+/** @typedef {Record<string, unknown>} UnknownRecord */
+/** @typedef {import("cheerio").CheerioAPI} CheerioApi */
+/** @typedef {import("cheerio").Cheerio<import("domhandler").AnyNode>} CheerioSelection */
+
 const FETCH_TIMEOUT_MS = 18000;
 const MAX_HTML_BYTES = 4 * 1024 * 1024;
 const SERPAPI_ENDPOINT = "https://serpapi.com/search.json";
@@ -92,6 +98,7 @@ const JUNK_BULLET_LINE = new RegExp(
 const JUNK_BULLET_FRACTION = 0.35;
 
 /** Penalize JSON-LD blobs that look like site chrome or wrong product pitch */
+/** @param {string} text */
 function ldTextLooksLikeNoise(text) {
   if (!text || text.length < 40) return true;
   const low = text.toLowerCase();
@@ -128,6 +135,7 @@ const SKILL_DENYLIST = new Set(
   ].map((s) => s.toLowerCase()),
 );
 
+/** @param {unknown} s */
 function normalizeSpace(s) {
   return String(s || "")
     .replace(/\r\n/g, "\n")
@@ -136,6 +144,7 @@ function normalizeSpace(s) {
     .trim();
 }
 
+/** @param {unknown} value */
 function normalizeMatchText(value) {
   return normalizeSpace(value)
     .toLowerCase()
@@ -145,6 +154,7 @@ function normalizeMatchText(value) {
     .trim();
 }
 
+/** @param {unknown} value */
 function tokenSet(value) {
   return new Set(
     normalizeMatchText(value)
@@ -153,6 +163,10 @@ function tokenSet(value) {
   );
 }
 
+/**
+ * @param {unknown} left
+ * @param {unknown} right
+ */
 function tokenOverlapRatio(left, right) {
   const leftTokens = tokenSet(left);
   const rightTokens = tokenSet(right);
@@ -164,10 +178,12 @@ function tokenOverlapRatio(left, right) {
   return hits / Math.max(leftTokens.size, 1);
 }
 
+/** @param {string} url */
 function isLinkedInJobUrl(url) {
   return Boolean(linkedInJobId(url));
 }
 
+/** @param {string} url */
 function linkedInJobId(url) {
   let parsed;
   try {
@@ -187,6 +203,7 @@ function linkedInJobId(url) {
   return hashMatch ? hashMatch[1] : "";
 }
 
+/** @param {URL} parsed */
 function linkedInPathJobId(parsed) {
   const segments = parsed.pathname.split("/").filter(Boolean);
   const jobPostingIndex = segments.findIndex((segment) => segment === "jobPosting");
@@ -204,6 +221,7 @@ function linkedInPathJobId(parsed) {
   return match ? match[1] : "";
 }
 
+/** @param {ScrapeJobPostingOptions} [options] */
 function getSerpApiKey(options = {}) {
   return String(
     options.serpApiKey ||
@@ -214,6 +232,7 @@ function getSerpApiKey(options = {}) {
   ).trim();
 }
 
+/** @param {Pick<ScrapeJobPostingOptions, "title" | "company">} [options] */
 function buildSerpApiQuery(options = {}) {
   const title = normalizeSpace(options.title || "");
   const company = normalizeSpace(options.company || "")
@@ -223,27 +242,39 @@ function buildSerpApiQuery(options = {}) {
   return [title, company].filter(Boolean).join(" ").trim();
 }
 
+/**
+ * @param {UnknownRecord} raw
+ * @returns {string[]}
+ */
 function collectSerpApiCandidateUrls(raw) {
+  /** @type {string[]} */
   const candidates = [];
+  /** @param {unknown} value */
   const push = (value) => {
     if (typeof value === "string" && /^https?:/i.test(value)) candidates.push(value);
   };
-  const applyOptions = Array.isArray(raw && raw.apply_options)
-    ? raw.apply_options
+  const rawApplyOptions = raw.apply_options;
+  const applyOptions = Array.isArray(rawApplyOptions)
+    ? rawApplyOptions
     : [];
   for (const option of applyOptions) {
-    if (option && typeof option === "object") push(option.link);
+    if (option && typeof option === "object" && "link" in option) push(option.link);
   }
-  const relatedLinks = Array.isArray(raw && raw.related_links)
-    ? raw.related_links
+  const rawRelatedLinks = raw.related_links;
+  const relatedLinks = Array.isArray(rawRelatedLinks)
+    ? rawRelatedLinks
     : [];
   for (const link of relatedLinks) {
-    if (link && typeof link === "object") push(link.link);
+    if (link && typeof link === "object" && "link" in link) push(link.link);
   }
   push(raw && raw.share_link);
   return candidates;
 }
 
+/**
+ * @param {UnknownRecord} raw
+ * @param {string} originalUrl
+ */
 function pickSerpApiUrl(raw, originalUrl) {
   const candidates = collectSerpApiCandidateUrls(raw);
   const originalId = linkedInJobId(originalUrl);
@@ -255,6 +286,11 @@ function pickSerpApiUrl(raw, originalUrl) {
   return nonLinkedIn || candidates[0] || originalUrl;
 }
 
+/**
+ * @param {UnknownRecord} raw
+ * @param {{ title: string, company: string }} context
+ * @param {string} originalUrl
+ */
 function scoreSerpApiJob(raw, context, originalUrl) {
   const title = typeof raw.title === "string" ? raw.title.trim() : "";
   const company = typeof raw.company_name === "string" ? raw.company_name.trim() : "";
@@ -273,20 +309,36 @@ function scoreSerpApiJob(raw, context, originalUrl) {
   return score;
 }
 
+/**
+ * @param {unknown[]} jobs
+ * @param {{ title: string, company: string }} context
+ * @param {string} originalUrl
+ * @returns {UnknownRecord | null}
+ */
 function pickSerpApiJob(jobs, context, originalUrl) {
   let best = null;
   let bestScore = -Infinity;
   for (const raw of jobs) {
     if (!raw || typeof raw !== "object") continue;
-    const score = scoreSerpApiJob(raw, context, originalUrl);
+    const score = scoreSerpApiJob(
+      /** @type {UnknownRecord} */ (raw),
+      context,
+      originalUrl,
+    );
     if (score > bestScore) {
-      best = raw;
+      best = /** @type {UnknownRecord} */ (raw);
       bestScore = score;
     }
   }
   return bestScore >= 70 ? best : null;
 }
 
+/**
+ * @param {string} query
+ * @param {string} apiKey
+ * @param {typeof globalThis.fetch} fetchImpl
+ * @returns {Promise<unknown[]>}
+ */
 async function fetchSerpApiJobs(query, apiKey, fetchImpl) {
   const url = new URL(SERPAPI_ENDPOINT);
   url.searchParams.set("engine", "google_jobs");
@@ -305,12 +357,22 @@ async function fetchSerpApiJobs(query, apiKey, fetchImpl) {
     });
     if (!response.ok) throw new Error(`SerpApi HTTP ${response.status}`);
     const body = await response.json();
-    return Array.isArray(body && body.jobs_results) ? body.jobs_results : [];
+    return body &&
+      typeof body === "object" &&
+      "jobs_results" in body &&
+      Array.isArray(body.jobs_results)
+      ? body.jobs_results
+      : [];
   } finally {
     clearTimeout(timer);
   }
 }
 
+/**
+ * @param {string} originalUrl
+ * @param {ScrapeJobPostingOptions} [options]
+ * @returns {Promise<ScrapeJobPostingResult | null>}
+ */
 async function scrapeLinkedInViaSerpApi(originalUrl, options = {}) {
   if (!isLinkedInJobUrl(originalUrl)) return null;
   const context = {
@@ -352,13 +414,19 @@ async function scrapeLinkedInViaSerpApi(originalUrl, options = {}) {
   };
 }
 
+/** @param {unknown} html */
 function stripTags(html) {
   if (!html || typeof html !== "string") return "";
   const $ = cheerio.load(html);
   return normalizeSpace($.text());
 }
 
+/**
+ * @param {CheerioApi} $
+ * @returns {unknown[]}
+ */
 function collectJsonLdBlocks($) {
+  /** @type {unknown[]} */
   const out = [];
   $('script[type="application/ld+json"]').each((_, el) => {
     const raw = $(el).html();
@@ -374,21 +442,28 @@ function collectJsonLdBlocks($) {
   return out;
 }
 
+/**
+ * @param {unknown[]} blocks
+ * @returns {UnknownRecord[]}
+ */
 function findJobPostingObjects(blocks) {
+  /** @type {UnknownRecord[]} */
   const jobs = [];
+  /** @param {unknown} node */
   function walk(node) {
     if (!node || typeof node !== "object") return;
-    const t = node["@type"];
+    const record = /** @type {UnknownRecord} */ (node);
+    const t = record["@type"];
     const types = Array.isArray(t) ? t : t ? [t] : [];
     if (types.some((x) => String(x).toLowerCase() === "jobposting")) {
-      jobs.push(node);
+      jobs.push(record);
     }
     if (Array.isArray(node)) {
       for (const x of node) walk(x);
     } else {
-      for (const k of Object.keys(node)) {
+      for (const k of Object.keys(record)) {
         if (k === "@context") continue;
-        walk(node[k]);
+        walk(record[k]);
       }
     }
   }
@@ -396,14 +471,15 @@ function findJobPostingObjects(blocks) {
   return jobs;
 }
 
+/** @param {UnknownRecord} j */
 function textFromJobPostingLd(j) {
   const title = j.title || j.name || null;
   let desc = "";
   const d = j.description;
   if (typeof d === "string") {
     desc = d.includes("<") ? stripTags(d) : normalizeSpace(d);
-  } else if (d && typeof d === "object" && d["@type"] === "HTMLString") {
-    desc = stripTags(String(d.value || d));
+  } else if (d && typeof d === "object" && "@type" in d && d["@type"] === "HTMLString") {
+    desc = stripTags(String("value" in d ? d.value || d : d));
   }
   const qual =
     j.qualifications ||
@@ -421,6 +497,8 @@ function textFromJobPostingLd(j) {
 /**
  * Pick the JobPosting block whose description is most likely the real role
  * (longest substantive text, penalized for nav-like content).
+ * @param {UnknownRecord[]} jobPostings
+ * @returns {UnknownRecord | null}
  */
 function pickBestJobPostingLd(jobPostings) {
   if (!jobPostings.length) return null;
@@ -438,12 +516,20 @@ function pickBestJobPostingLd(jobPostings) {
       j.hiringOrganization &&
       typeof j.hiringOrganization === "object"
     ) {
-      const orgName = String(j.hiringOrganization.name || "").toLowerCase();
+      const org = /** @type {UnknownRecord} */ (j.hiringOrganization);
+      const orgName = String(org.name || "").toLowerCase();
       if (orgName && !orgName.includes("apollo") && low.includes("apollo"))
         score -= 8000;
     }
     if (j.datePosted) score += 50;
-    if (j.hiringOrganization?.name) score += 80;
+    if (
+      j.hiringOrganization &&
+      typeof j.hiringOrganization === "object" &&
+      "name" in j.hiringOrganization &&
+      j.hiringOrganization.name
+    ) {
+      score += 80;
+    }
     if (j.baseSalary || j.salaryCurrency) score += 40;
     if (score > bestScore) {
       bestScore = score;
@@ -455,6 +541,7 @@ function pickBestJobPostingLd(jobPostings) {
 
 /**
  * Remove global chrome before we read paragraphs/lists (JSON-LD is collected first).
+ * @param {CheerioApi} $
  */
 function pruneDomForJobExtraction($) {
   $(
@@ -491,11 +578,22 @@ const DESCRIPTION_SELECTORS_BROAD = [
   ".content",
 ];
 
+/**
+ * @param {CheerioApi} $
+ * @returns {{ text: string, containerSelector: string | null, $container: CheerioSelection | null }}
+ */
 function findBestDescriptionFromDom($) {
   let best = "";
+  /** @type {string | null} */
   let containerSelector = null;
+  /** @type {CheerioSelection | null} */
   let $bestEl = null;
 
+  /**
+   * @param {string} sel
+   * @param {number} minLen
+   * @param {boolean} broad
+   */
   const trySel = (sel, minLen, broad) => {
     $(sel).each((_, node) => {
       const $el = $(node);
@@ -529,6 +627,10 @@ function findBestDescriptionFromDom($) {
   };
 }
 
+/**
+ * @param {CheerioApi} $
+ * @param {CheerioSelection} root
+ */
 function largestTextBlock($, root) {
   let best = "";
   const scope = root && root.length ? root : $.root();
@@ -539,7 +641,13 @@ function largestTextBlock($, root) {
   return best;
 }
 
+/**
+ * @param {CheerioApi} $
+ * @param {string[]} keywords
+ * @param {CheerioSelection | null} scope
+ */
 function extractSectionBullets($, keywords, scope) {
+  /** @type {string[]} */
   const bullets = [];
   const lower = keywords.map((k) => k.toLowerCase());
   const $root = scope && scope.length ? scope : $.root();
@@ -571,7 +679,13 @@ function extractSectionBullets($, keywords, scope) {
   return bullets;
 }
 
+/**
+ * @param {CheerioApi} $
+ * @param {CheerioSelection | null} scope
+ * @param {number} [max]
+ */
 function extractListBullets($, scope, max = 50) {
+  /** @type {string[]} */
   const out = [];
   const $root = scope && scope.length ? scope : $.root();
   $root.find("ul li, ol li").each((_, li) => {
@@ -581,7 +695,9 @@ function extractListBullets($, scope, max = 50) {
   return out.slice(0, max);
 }
 
+/** @param {string[]} bullets */
 function filterJunkBullets(bullets) {
+  /** @type {string[]} */
   const out = [];
   for (const b of bullets) {
     const s = String(b).trim();
@@ -593,6 +709,7 @@ function filterJunkBullets(bullets) {
   return out;
 }
 
+/** @param {string} text */
 function guessRequirementsFromText(text) {
   const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
   const req = [];
@@ -629,12 +746,15 @@ function guessRequirementsFromText(text) {
   return req.slice(0, 30);
 }
 
+/** @param {string} s */
 function escapeRegExp(s) {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**
  * Skills = known tech terms found in text (no generic Title Case word harvesting).
+ * @param {string} text
+ * @param {string[]} requirements
  */
 function extractSkillsFromText(text, requirements) {
   const bag = new Set();
@@ -689,6 +809,8 @@ function extractSkillsFromText(text, requirements) {
 
 /**
  * @param {string} url
+ * @param {ScrapeJobPostingOptions} [options]
+ * @returns {Promise<ScrapeJobPostingResult>}
  */
 export async function scrapeJobPosting(url, options = {}) {
   const target = validateScrapeTarget(url);

@@ -112,7 +112,7 @@ describe("repo validation surface", () => {
     assert.match(pkg.scripts["typecheck:repo"], /node --check app\.js/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check scripts\/setup\.mjs/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check discovery-coach\.js/);
-    assert.match(pkg.scripts["typecheck:repo"], /node --check server\/ats-scorecard\.mjs/);
+    assert.match(pkg.scripts["typecheck:repo"], /npm run typecheck:server/);
     assert.equal(
       pkg.scripts["web-only:https"],
       "COMMAND_CENTER_TLS=1 node dev-server.mjs",
