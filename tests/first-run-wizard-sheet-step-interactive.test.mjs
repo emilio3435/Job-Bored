@@ -231,6 +231,13 @@ function loadIntegratedHarness({
       calls.merge.push(patch);
       if (patch && patch.sheetId) coreState.sheetId = patch.sheetId;
     },
+    setSHEET_ID: (id) => {
+      coreState.sheetId = id;
+    },
+    verifyExistingSheetAccess: async ({ sheetId }) => {
+      calls.merge.push({ verifiedSheetId: sheetId });
+      return { ok: true, reason: "headers_ok" };
+    },
     setInitialSheetAccessResolved: () => {},
     getStarterPipelineHeaders: () => ["Company", "Role", "Status"],
     getStarterPipelineHeaderRange: () => "Pipeline!A1:C1",
@@ -489,7 +496,7 @@ describe("first-run wizard — Sheet step stays interactive under a stray showSh
     );
   });
 
-  it("the link/paste control responds to its handler after a stray showSheetAccessGate", () => {
+  it("the link/paste control responds to its handler after a stray showSheetAccessGate", async () => {
     const h = loadIntegratedHarness({ initialSheetId: "" });
     h.wizard.reopenFirstRunWizard();
     h.setup.showSheetAccessGate("loading");
@@ -499,6 +506,7 @@ describe("first-run wizard — Sheet step stays interactive under a stray showSh
     input.value =
       "https://docs.google.com/spreadsheets/d/abc123def456ghi789/edit";
     saveBtn.__fire("click", {});
+    await flush();
 
     const status = h.document.getElementById("firstRunSheetStatus");
     assert.notEqual(

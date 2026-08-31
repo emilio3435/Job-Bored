@@ -423,7 +423,7 @@ describe("SetupDoctor keep_alive findings", () => {
         };
       },
     });
-    const out = await api.autoHeal({});
+    const out = await api.autoHeal({ consent: true });
     assert.equal(out.fixed.length, 1);
     assert.equal(out.fixed[0].id, "keep_alive_not_installed");
     assert.equal(seen.url, "/__proxy/install-keep-alive");
@@ -480,7 +480,7 @@ describe("SetupDoctor keep_alive findings", () => {
         };
       },
     });
-    const out = await api.autoHeal({});
+    const out = await api.autoHeal({ consent: true });
     assert.equal(out.fixed.length, 1);
     assert.equal(out.fixed[0].id, "keep_alive_stale");
     assert.equal(calls[0].method, "DELETE");
@@ -609,5 +609,45 @@ describe("SetupDoctor pipeline tab repair", () => {
     assert.equal(out.fixed.some((finding) => finding.id === "pipeline_headers_wrong"), true);
     assert.equal(writes.length, 1);
     assert.deepEqual(writes[0].values, [pipelineSchema.headerRow]);
+  });
+});
+
+describe("F2C-P2-SCOPE: Setup Doctor previews writes and requires consent", () => {
+  it("previewFixes lists exact write/delete scope without mutating", async () => {
+    const { api } = loadDoctor({
+      keepAliveStatusState: { installed: false },
+      location: { hostname: "localhost", origin: "http://localhost:8080" },
+    });
+    assert.equal(typeof api.previewFixes, "function");
+    const preview = await api.previewFixes({});
+    assert.equal(Array.isArray(preview.actions), true);
+    for (const action of preview.actions) {
+      assert.ok(action.id);
+      assert.ok(Array.isArray(action.writes) || Array.isArray(action.deletes));
+    }
+  });
+
+  it("autoHeal refuses keep-alive install without explicit consent", async () => {
+    const calls = [];
+    const { api } = loadDoctor({
+      keepAliveStatusState: { installed: false },
+      location: { hostname: "localhost", origin: "http://localhost:8080" },
+      fetch: async (url, init) => {
+        calls.push({ url: String(url), method: init && init.method });
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, installedAt: "now", jobLabel: "job" }),
+        };
+      },
+    });
+    const outcome = await api.autoHeal({ ctx: {}, consent: false });
+    assert.equal(
+      calls.some((c) => String(c.url).includes("install-keep-alive")),
+      false,
+      "keep-alive must not install without consent",
+    );
+    assert.equal(outcome.ok, false);
+    assert.ok(outcome.needsConsent === true || (outcome.blocked && outcome.blocked.length > 0));
   });
 });

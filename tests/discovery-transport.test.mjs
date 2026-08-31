@@ -12,6 +12,7 @@ import {
   isStableTransport,
   buildQuickTunnelCommand,
   buildNamedTunnelCommand,
+  inferTransportKindFromUrl,
 } from "../scripts/lib/discovery-transport.mjs";
 
 test("normalizeTransportPreference maps CLI/env spellings and rejects junk", () => {
@@ -100,4 +101,19 @@ test("buildNamedTunnelCommand builds run argv and requires a name", () => {
     args: ["tunnel", "run", "jobbored-discovery"],
   });
   assert.throws(() => buildNamedTunnelCommand(""));
+});
+
+test("F2C-SETUP05-TRANSPORT: Cloudflare Quick Tunnel is not normalized as ngrok", () => {
+  assert.equal(
+    inferTransportKindFromUrl("https://foo-bar-baz.trycloudflare.com"),
+    TRANSPORT_CLOUDFLARE_QUICK,
+  );
+  assert.equal(
+    inferTransportKindFromUrl("https://abc.ngrok-free.app"),
+    TRANSPORT_NGROK,
+  );
+  assert.notEqual(
+    inferTransportKindFromUrl("https://foo-bar-baz.trycloudflare.com"),
+    TRANSPORT_NGROK,
+  );
 });

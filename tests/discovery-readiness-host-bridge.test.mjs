@@ -91,3 +91,72 @@ test("fallback readiness snapshot calls host helpers lazily after app.js wires t
   assert.equal(snapshot.savedWebhookUrl, "");
   assert.equal(snapshot.views.settings.title, "No discovery webhook configured");
 });
+
+function loadReadinessWithEngine(state) {
+  const window = {
+    JobBoredApp: {
+      configCore: {
+        appsScriptDeployStateCache: null,
+        discoveryReadinessSnapshotCache: null,
+        DISCOVERY_ENGINE_STATE_CONNECTED: "connected",
+        DISCOVERY_ENGINE_STATE_STUB_ONLY: "stub_only",
+        DISCOVERY_ENGINE_STATE_UNVERIFIED: "unverified",
+      },
+    },
+    JobBoredDiscovery: {
+      engineState: {
+        getEffectiveDiscoveryEngineStatus() {
+          return { state };
+        },
+        getSettingsFieldValue() {
+          return "";
+        },
+        normalizeDiscoveryWebhookIdentity(value) {
+          return String(value || "").trim();
+        },
+      },
+    },
+  };
+  const context = vm.createContext({
+    console,
+    URL,
+    window,
+  });
+  vm.runInContext(readinessSource, context, {
+    filename: "discovery-readiness.js",
+  });
+  return window.JobBoredDiscovery.readiness;
+}
+
+test("F2C-SETUP03-READY: unverified/partial webhook is not green Discovery ready", () => {
+  const readiness = loadReadinessWithEngine("unverified");
+  const view = readiness.getDiscoverySettingsView({
+    savedWebhookUrl: "https://relay.example.workers.dev/webhook",
+    savedWebhookKind: "worker",
+    appsScriptState: "none",
+    localRecoveryState: "ok",
+  });
+  assert.notEqual(view.tone, "success");
+  assert.notEqual(view.chipTone, "success");
+  assert.equal(view.runDiscoveryEnabled, false);
+  assert.doesNotMatch(
+    `${view.title} ${view.chipLabel}`,
+    /discovery ready/i,
+    "unverified state must not be labeled Discovery ready",
+  );
+  assert.equal(view.chipLabel, "Ready to test");
+});
+
+test("F2C-SETUP03-READY: recovery is distinct from verified connected", () => {
+  const readiness = loadReadinessWithEngine("connected");
+  const view = readiness.getDiscoverySettingsView({
+    savedWebhookUrl: "https://relay.example.workers.dev/webhook",
+    savedWebhookKind: "worker",
+    appsScriptState: "none",
+    localRecoveryState: "tunnel_rotated",
+  });
+  assert.equal(view.runDiscoveryEnabled, false);
+  assert.notEqual(view.tone, "success");
+  assert.equal(view.chipLabel, "Needs recovery");
+});
+
