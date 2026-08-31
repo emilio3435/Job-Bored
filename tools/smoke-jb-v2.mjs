@@ -33,6 +33,7 @@ import { readFileSync, existsSync, statSync } from "node:fs";
 import { join, dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { spawnSync } from "node:child_process";
+import { assembleIndex } from "../scripts/assemble-index.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const ROOT = resolve(dirname(__filename), "..");
@@ -134,7 +135,13 @@ test("smoke 5/13: each region JS file exists and is loaded", () => {
 // Check 6 — Settings toggle markup exists in Setup tab.
 // ---------------------------------------------------------------------------
 test("smoke 6/13: Settings → Setup tab contains the v2 toggle", () => {
-  const html = readRoot("index.html");
+  const indexHtml = readRoot("index.html");
+  assert.match(
+    indexHtml,
+    /@include\s+partials\/settings-modal\.html/,
+    "settings modal include missing from index.html",
+  );
+  const html = assembleIndex(ROOT);
   assert.match(html, /id=["']settingsJbV2Toggle["']/, "toggle input missing");
   assert.match(html, /role=["']switch["']/, "switch role missing");
   assert.match(
@@ -193,19 +200,27 @@ test("smoke 9/13: jb-v2-switch CSS is token-only", () => {
 // Check 10 — legacy canonical hooks survive (flag-OFF must keep working).
 // ---------------------------------------------------------------------------
 test("smoke 10/13: app.js retains legacy canonical hooks", () => {
-  const src = readRoot("app.js");
+  const writeback = readRoot("sheets-writeback.js");
+  const compat = readRoot("app-compat.js");
+  const store = readRoot("user-content-store.js");
+  const controller = readRoot("pipeline-controller.js");
   assert.match(
-    src,
+    writeback,
     /async function updateJobStatus\(/,
     "updateJobStatus signature changed/missing — legacy writeback at risk",
   );
   assert.match(
-    src,
-    /completeOnboarding\(\)/,
+    compat,
+    /sheetsWrite\.updateJobStatus/,
+    "app-compat must still forward updateJobStatus to sheetsWrite",
+  );
+  assert.match(
+    store,
+    /async function completeOnboarding\(/,
     "completeOnboarding call site missing",
   );
   assert.match(
-    src,
+    controller,
     /const expandedJobKeys = new Set\(\)/,
     "expandedJobKeys set missing — expand persistence broken",
   );
