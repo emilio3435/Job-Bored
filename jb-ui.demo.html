@@ -7,6 +7,7 @@
     <link rel="stylesheet" href="tokens-v2.css" />
     <link rel="stylesheet" href="jb-v2.css" />
     <link rel="stylesheet" href="jb-ui.css" />
+    <link rel="stylesheet" href="jb-a11y.css" />
     <style>
       /* Demo-only layout. Token-only (no raw hex). */
       body { margin: 0; padding: 32px; }
@@ -237,6 +238,31 @@
       </div>
     </section>
 
+    <!-- F3-D shared a11y primitives (live region, overlay, 44px Move-to) -->
+    <section class="jb-demo jb-demo--a11y" aria-labelledby="h-a11y">
+      <h2 id="h-a11y" class="jb-handwritten">A11y primitives</h2>
+      <div
+        id="jb-live-region"
+        class="jb-live-region"
+        role="status"
+        aria-live="polite"
+        aria-atomic="true"
+      ></div>
+      <div
+        class="jb-overlay"
+        role="dialog"
+        aria-modal="true"
+        aria-label="Example overlay"
+      >
+        <p>Focus stays inside this dialog until it closes.</p>
+        <button type="button">Close</button>
+      </div>
+      <div class="jb-demo__row">
+        <button type="button" class="jb-move-to" aria-label="Move to stage">Move to</button>
+      </div>
+    </section>
+
     <script type="module" src="jb-ui.js"></script>
+    <script src="jb-a11y.js"></script>
   </body>
 </html>

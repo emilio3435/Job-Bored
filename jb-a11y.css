@@ -1,0 +1,136 @@
+/* jb-a11y.css — F3-D overlay, live region, Move-to, phone geometry.
+   Token-only (no raw hex). Shared by v1/v2; F4-D consumes the 320/375/393
+   breakpoints and --jb-touch-min. */
+
+:root {
+  --jb-touch-min: 44px;
+  --jb-keyboard-inset: 0px;
+}
+
+.jb-live-region {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+.jb-overlay {
+  position: relative;
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-ink, var(--text));
+  border: 1px solid var(--jb-line, var(--border));
+  animation: jb-overlay-in 160ms ease-out;
+}
+
+@keyframes jb-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+.jb-move-to-wrap {
+  position: relative;
+  display: inline-flex;
+  bottom: env(keyboard-inset-bottom, var(--jb-keyboard-inset, 0px));
+}
+
+.jb-move-to {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 44px;
+  min-width: 44px;
+  padding: 0 12px;
+  border: 1px solid var(--jb-line, var(--border));
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-ink, var(--text));
+  font: inherit;
+  cursor: pointer;
+}
+
+.jb-move-to[aria-expanded="true"] {
+  background: var(--jb-surface-raised, var(--bg-raised));
+}
+
+.jb-move-to__menu {
+  position: absolute;
+  z-index: 4;
+  left: 0;
+  top: 100%;
+  margin: 4px 0 0;
+  padding: 4px 0;
+  list-style: none;
+  min-width: 100%;
+  background: var(--jb-paper, var(--surface));
+  border: 1px solid var(--jb-line, var(--border));
+  transition: opacity 120ms ease-out;
+}
+
+.jb-move-to__menu[hidden] {
+  display: none;
+}
+
+.jb-move-to__menu button {
+  display: block;
+  width: 100%;
+  min-height: 44px;
+  min-width: 44px;
+  text-align: left;
+  padding: 0 12px;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  cursor: pointer;
+}
+
+@media (max-width: 393px) {
+  .jb-move-to,
+  .jb-move-to__menu button {
+    min-height: var(--jb-touch-min, 44px);
+    min-width: var(--jb-touch-min, 44px);
+  }
+  .jb-move-to-wrap {
+    bottom: env(keyboard-inset-bottom, var(--jb-keyboard-inset, 0px));
+  }
+}
+
+@media (max-width: 375px) {
+  .jb-move-to,
+  .jb-move-to__menu button {
+    min-height: var(--jb-touch-min, 44px);
+    min-width: var(--jb-touch-min, 44px);
+  }
+  .jb-overlay {
+    max-width: 100%;
+  }
+}
+
+@media (max-width: 320px) {
+  .jb-move-to,
+  .jb-move-to__menu button {
+    min-height: var(--jb-touch-min, 44px);
+    min-width: var(--jb-touch-min, 44px);
+  }
+  .jb-move-to-wrap {
+    width: 100%;
+  }
+  .jb-move-to {
+    width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .jb-overlay {
+    animation: none;
+    transition: none;
+  }
+  .jb-move-to__menu {
+    transition: none;
+  }
+}

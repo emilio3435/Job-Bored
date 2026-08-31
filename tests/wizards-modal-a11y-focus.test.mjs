@@ -279,3 +279,29 @@ describe("accessible names — discovery drawer + resume-generation modal inputs
     );
   });
 });
+
+describe("F3-D shared overlay primitive — wizards consume one owner", () => {
+  it("ships jb-a11y.js with createOverlayOwner + announceToast for wizard reuse", () => {
+    const a11yJs = readFileSync(join(repoRoot, "jb-a11y.js"), "utf8");
+    assert.match(
+      a11yJs,
+      /createOverlayOwner/,
+      "wizards must be able to share one overlay owner instead of per-module inert lists",
+    );
+    assert.match(
+      a11yJs,
+      /announceToast/,
+      "global toasts must be announcible through the shared live-region helper",
+    );
+    assert.match(
+      a11yJs,
+      /labelFitProfileControl/,
+      "Fit Profile inputs must be labelable through the shared helper",
+    );
+    assert.match(
+      a11yJs,
+      /createMoveToAction/,
+      "board cards need a shared 44px Move-to action constructor",
+    );
+  });
+});
