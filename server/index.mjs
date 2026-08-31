@@ -51,7 +51,7 @@ import {
 import { migrateLegacyProfileIfPresent } from "./legacy-profile-migrator.mjs";
 import {
   analyzeResumeToProfile,
-  getStoredResumeText,
+  resolveResumeTextForAnalysis,
 } from "./profile-from-resume.mjs";
 import {
   getProfileRescoreProviderConfigFromEnv,
@@ -418,19 +418,20 @@ app.post("/profile/template/:id", (req, res) => {
 /**
  * POST /profile/from-resume
  *
- * Reads the user's stored resume text from a known location (worker config,
- * ~/.jobbored/resume.txt, or legacy hermes), runs it through the configured
- * profile AI provider, and returns a draft v1 UserProfile for the wizard to
- * display. Does NOT save.
+ * Prefers request-body `resumeText` (browser-staged, not persisted). Falls
+ * back to stored resume text (worker config, ~/.jobbored/resume.txt, or
+ * legacy hermes). Runs the configured profile AI provider and returns a
+ * draft v1 UserProfile for the wizard. Does NOT save the profile or the
+ * staged resume.
  *
  * 200 { ok: true, profile, source }   — got a draft profile
  * 404 { ok: false, reason: "no_resume_stored" }
  * 500 { ok: false, reason: "profile_provider_error", message }
  */
-app.post("/profile/from-resume", async (_req, res) => {
+app.post("/profile/from-resume", async (req, res) => {
   let stored;
   try {
-    stored = await getStoredResumeText();
+    stored = await resolveResumeTextForAnalysis(req.body);
   } catch (err) {
     return res.status(500).json({
       ok: false,

@@ -1199,6 +1199,15 @@
     return getResume(id);
   }
 
+  /**
+   * Browser-local resume text staged for Fit Profile analysis.
+   * Returns extracted text only — never secrets, never written to disk.
+   */
+  async function getStagedResumeTextForAnalysis() {
+    const resume = await getActiveResume();
+    return String(resume && resume.extractedText ? resume.extractedText : "").trim();
+  }
+
   window.CommandCenterUserContent = {
     openDb: openDb,
     newId: newId,
@@ -1228,6 +1237,7 @@
     setActiveResumeId,
     getActiveResumeId,
     getActiveResume,
+    getStagedResumeTextForAnalysis,
     listWritingSamples,
     addWritingSample,
     deleteWritingSample,

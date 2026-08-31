@@ -173,6 +173,7 @@ function loadWizard({
   hash = "",
   readyState = "complete",
   fetchImpl,
+  userContent,
 } = {}) {
   const { document } = makeFakeDom();
   document.readyState = readyState;
@@ -190,6 +191,7 @@ function loadWizard({
   const windowListeners = new Map();
   const window = {
     COMMAND_CENTER_CONFIG: config || {},
+    CommandCenterUserContent: userContent || undefined,
     location: { protocol, hash, pathname: "/dash", search: "?x=1" },
     addEventListener(type, fn) {
       if (!windowListeners.has(type)) windowListeners.set(type, []);
@@ -392,6 +394,14 @@ describe("fit-profile-wizard — API base resolution (split-port and file:// set
     const { form } = loadWizard({ config: {}, protocol: "file:" });
     assert.equal(form.profileUrl("/profile"), "http://127.0.0.1:3847/profile");
   });
+
+  it("F2B-DISC01-ORIGIN: getProfileApiBase is exported so the drawer and backcompat reuse the same resolver", () => {
+    const { form } = loadWizard({
+      config: { jobBoredApiUrl: "http://127.0.0.1:3847///" },
+    });
+    assert.equal(typeof form.getProfileApiBase, "function");
+    assert.equal(form.getProfileApiBase(), "http://127.0.0.1:3847");
+  });
 });
 
 // ============================================================
@@ -593,6 +603,31 @@ describe("fit-profile-wizard — mergeStateFromProfile normalizes external profi
     assert.equal(state.hardConstraints.workMode, "hybrid_ok");
     assert.equal(state.hardConstraints.acceptableLocations.length, 0);
     assert.equal(state.hardConstraints.skipTitles.length, 0);
+  });
+
+  it("F2B-PROFILE01-EDIT: mergeStateFromProfile + buildPayload round-trip schema tieBreakers so a save cannot drop them", () => {
+    const { form } = loadWizard();
+    const saved = {
+      identity: {
+        targetRoles: ["Staff Engineer"],
+        targetSeniority: "ic_staff",
+        primaryNarrative:
+          "Staff backend engineer; a decade of distributed systems shipped at scale.",
+      },
+      strengths: [{ name: "Distributed systems", rank: 1 }],
+      hardConstraints: { workMode: "remote_only" },
+      tieBreakers: {
+        salaryTransparencyImportance: "high",
+        companyCredibilityImportance: "low",
+        applicationComplexityAversion: "medium",
+      },
+    };
+    const state = form.mergeStateFromProfile(saved);
+    const payload = form.buildPayload(state);
+    assert.deepEqual(
+      JSON.parse(JSON.stringify(payload.tieBreakers)),
+      saved.tieBreakers,
+    );
   });
 });
 
@@ -902,6 +937,123 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
     assert.ok(hint, "the failure must be explained next to the card");
     assert.match(hint.textContent, /Gemini exploded/);
     assert.equal(activeStep(env.root()), 1);
+  });
+
+  it("F2B-PROFILE02-RESUME: resume prefill POSTs browser-local extractedText as resumeText without forwarding secrets", async () => {
+    const staged = "I shipped distributed systems at Acme for ten years.";
+    const env = loadWizard({
+      userContent: {
+        async getActiveResume() {
+          return { extractedText: staged };
+        },
+        async getStagedResumeTextForAnalysis() {
+          return staged;
+        },
+      },
+      fetchImpl: resumeFetch({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          profile: ENGINEER_TEMPLATE,
+          source: "staged_request",
+        }),
+      }),
+    });
+    env.fireHashChange("#/onboarding/fit-profile");
+    clickResumeCard(env);
+    await flush();
+    const call = env.fetchCalls.find((c) =>
+      String(c.url).includes("/profile/from-resume"),
+    );
+    assert.ok(call, "must POST /profile/from-resume");
+    assert.equal(call.method, "POST");
+    assert.ok(call.body, "staged resume must travel in the request body");
+    const body = JSON.parse(call.body);
+    assert.equal(body.resumeText, staged);
+    assert.equal(body.apiKey, undefined);
+    assert.equal(body.googleAccessToken, undefined);
+  });
+});
+
+// ============================================================
+// F2B-PROFILE01-EDIT — explicit create vs edit-in-place
+// ============================================================
+
+const SAVED_PROFILE_WITH_TIE_BREAKERS = {
+  version: 1,
+  identity: {
+    targetRoles: ["Staff Engineer"],
+    targetSeniority: "ic_staff",
+    primaryNarrative:
+      "Staff backend engineer; a decade of distributed systems shipped at scale.",
+  },
+  strengths: [{ name: "Distributed systems", rank: 1 }],
+  wants: ["hands-on coding"],
+  hardConstraints: { workMode: "remote_only" },
+  tieBreakers: {
+    salaryTransparencyImportance: "high",
+    companyCredibilityImportance: "low",
+    applicationComplexityAversion: "medium",
+  },
+};
+
+describe("F2B-PROFILE01-EDIT — Open full wizard on a saved profile is edit-in-place", () => {
+  it("mode:edit fetches the saved profile, skips the blank template picker, and keeps tie-breakers", async () => {
+    const env = loadWizard({
+      fetchImpl: async (url, opts = {}) => {
+        const method = (opts && opts.method) || "GET";
+        if (String(url).endsWith("/profile") && method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({
+              ok: true,
+              profile: SAVED_PROFILE_WITH_TIE_BREAKERS,
+            }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => null };
+      },
+    });
+    await env.window.openFitProfileWizard({ mode: "edit" });
+    await flush();
+    const root = env.root();
+    assert.equal(root.dataset.mode, "edit");
+    assert.equal(
+      activeStep(root),
+      2,
+      "edit-in-place starts at Identity, not a blank create picker",
+    );
+    walkToReview(root);
+    const payload = reviewPayload(root);
+    assert.deepEqual(payload.identity.targetRoles, ["Staff Engineer"]);
+    assert.deepEqual(
+      payload.tieBreakers,
+      SAVED_PROFILE_WITH_TIE_BREAKERS.tieBreakers,
+    );
+  });
+
+  it("mode:create stays on the template picker even when a saved profile exists", async () => {
+    const env = loadWizard({
+      fetchImpl: async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          profile: SAVED_PROFILE_WITH_TIE_BREAKERS,
+        }),
+      }),
+    });
+    await env.window.openFitProfileWizard({ mode: "create" });
+    await flush();
+    const root = env.root();
+    assert.equal(root.dataset.mode, "create");
+    assert.equal(activeStep(root), 1);
+    assert.ok(
+      findTemplateCard(root, "Engineer"),
+      "create mode must still offer templates",
+    );
   });
 });
 

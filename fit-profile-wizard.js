@@ -89,6 +89,13 @@
   // The legacy 127.0.0.1:3847 fallback only kicks in for the deprecated
   // file:// dev workflow where there is no http origin to be relative to.
   function getProfileApiBase() {
+    if (
+      typeof window !== "undefined" &&
+      window.JobBoredProfileApi &&
+      typeof window.JobBoredProfileApi.getProfileApiBase === "function"
+    ) {
+      return window.JobBoredProfileApi.getProfileApiBase();
+    }
     var cfg = (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
     var raw =
       cfg.jobBoredApiUrl ||
@@ -134,10 +141,32 @@
    * Returns the v1 UserProfile draft. Throws on 404/500 with a code we can
    * branch on in the caller (`no_resume_stored`, `gemini_*`).
    */
+  async function getStagedResumeText() {
+    var UC = typeof window !== "undefined" ? window.CommandCenterUserContent : null;
+    if (!UC) return "";
+    try {
+      if (typeof UC.getStagedResumeTextForAnalysis === "function") {
+        return String((await UC.getStagedResumeTextForAnalysis()) || "").trim();
+      }
+      if (typeof UC.getActiveResume === "function") {
+        var resume = await UC.getActiveResume();
+        return resume && resume.extractedText
+          ? String(resume.extractedText).trim()
+          : "";
+      }
+    } catch (_) {
+      return "";
+    }
+    return "";
+  }
+
   async function fetchProfileFromResume() {
+    var staged = await getStagedResumeText();
+    var body = staged ? { resumeText: staged } : {};
     var res = await fetch(profileUrl("/profile/from-resume"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
     });
     var data = await res.json().catch(function () {
       return null;
@@ -323,7 +352,30 @@
       hardConstraints.salaryFloor = null;
     }
     p.hardConstraints = hardConstraints;
+    var tieBreakers = normalizeTieBreakers(state.tieBreakers);
+    if (tieBreakers) p.tieBreakers = tieBreakers;
     return p;
+  }
+
+  var TIE_BREAKER_KEYS = [
+    "salaryTransparencyImportance",
+    "companyCredibilityImportance",
+    "applicationComplexityAversion",
+  ];
+  var TIE_BREAKER_LEVELS = { high: true, medium: true, low: true };
+
+  function normalizeTieBreakers(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    var out = {};
+    var kept = 0;
+    TIE_BREAKER_KEYS.forEach(function (key) {
+      var value = raw[key];
+      if (typeof value === "string" && TIE_BREAKER_LEVELS[value]) {
+        out[key] = value;
+        kept += 1;
+      }
+    });
+    return kept ? out : null;
   }
 
   /**
@@ -982,6 +1034,7 @@
 
   var wizardState = null;
   var wizardEls = {};
+  var wizardMode = "create";
 
   function ensureWizardRoot() {
     var root = document.getElementById("fitProfileWizard");
@@ -1314,6 +1367,7 @@
     if (typeof profile.starterTemplate === "string") {
       state.starterTemplate = profile.starterTemplate;
     }
+    state.tieBreakers = normalizeTieBreakers(profile.tieBreakers);
     return state;
   }
 
@@ -1361,6 +1415,7 @@
   }
 
   function goToStep(n) {
+    if (wizardMode === "edit" && n < 2) n = 2;
     if (n < 1 || n > TOTAL_STEPS) return;
     showWizardError("");
     Object.keys(wizardEls.panels).forEach(function (k) {
@@ -1370,7 +1425,7 @@
     wizardEls.panels[n].dataset.active = "true";
     wizardEls.stepLabel.textContent = "Step " + n + " of " + TOTAL_STEPS;
     wizardEls.progressFill.style.width = Math.round((n / TOTAL_STEPS) * 100) + "%";
-    wizardEls.backBtn.disabled = n === 1;
+    wizardEls.backBtn.disabled = n === 1 || (wizardMode === "edit" && n === 2);
     if (n === TOTAL_STEPS) {
       wizardEls.nextBtn.style.display = "none";
       wizardEls.saveBtn.style.display = "";
@@ -1439,15 +1494,60 @@
     }
   }
 
-  function openWizard() {
-    if (!wizardState) {
-      wizardState = emptyProfile();
+  function applyWizardMode(mode) {
+    wizardMode = mode === "edit" ? "edit" : "create";
+    if (wizardEls.root) {
+      wizardEls.root.dataset.mode = wizardMode;
+      var title = document.getElementById("fpWizardTitle");
+      if (title) {
+        title.textContent =
+          wizardMode === "edit" ? "Edit fit profile" : "Fit profile setup";
+      }
     }
+  }
+
+  function enterCreateMode() {
+    wizardState = emptyProfile();
+    applyWizardMode("create");
+    goToStep(1);
+  }
+
+  function enterEditMode(profile) {
+    wizardState = mergeStateFromProfile(profile);
+    applyWizardMode("edit");
+    goToStep(2);
+  }
+
+  function openWizard(opts) {
+    opts = opts || {};
+    var requested = opts.mode === "edit" ? "edit" : "create";
+    if (!wizardState) wizardState = emptyProfile();
     buildWizardShell();
     wizardEls.root.dataset.active = "true";
     document.body.style.overflow = "hidden";
-    currentStep = 1;
-    goToStep(1);
+    applyWizardMode(requested);
+
+    if (requested === "create") {
+      enterCreateMode();
+      return Promise.resolve();
+    }
+
+    if (opts.profile && typeof opts.profile === "object") {
+      enterEditMode(opts.profile);
+      return Promise.resolve();
+    }
+
+    return fetchProfile()
+      .then(function (data) {
+        if (data && data.ok && data.profile) {
+          enterEditMode(data.profile);
+          return;
+        }
+        enterCreateMode();
+      })
+      .catch(function () {
+        enterCreateMode();
+      });
   }
 
   function closeWizard(opts) {
@@ -1486,6 +1586,7 @@
     renderHardConstraints: renderHardConstraints,
     fetchProfile: fetchProfile,
     saveProfile: saveProfile,
+    getProfileApiBase: getProfileApiBase,
     profileUrl: profileUrl,
     constants: {
       WANTS_MAX: WANTS_MAX,
