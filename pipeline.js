@@ -22,17 +22,43 @@
 
   var REGION_SELECTOR = '[data-region="pipeline"]';
 
-  // Stage list mirrors PIPELINE_STAGES in dawn-data.js, with "new" surfaced as
-  // the user-facing Discovered column.
-  var STAGES = [
-    { key: "new",          label: "Discovered" },
-    { key: "researching",  label: "Researching" },
-    { key: "applied",      label: "Applied" },
-    { key: "phone-screen", label: "Phone screen" },
-    { key: "interviewing", label: "Interviewing" },
-    { key: "offer",        label: "Offer" },
-    { key: "expired",      label: "Dismissed" },
+  /* ── Canonical stage vocabulary ─────────────────────────────────────────
+     Runtime source is window.JobBoredStages (stage-registry.js), which mirrors
+     the status enum of schemas/pipeline-row.v1.json. STAGE_FALLBACK below is
+     used only when that script is absent; tests/stage-registry-canonical.test.mjs
+     pins it — and every other board's copy — to the schema.
+
+     This board previously carried its own seven-stage list: Rejected and Passed
+     did not exist at all (a card moved there simply disappeared) and Expired was
+     relabelled "Dismissed", which is a different write entirely — see
+     tests/closure-model-convergence.test.mjs. */
+  var STAGE_FALLBACK = [
+    ["new", "New"], ["researching", "Researching"], ["applied", "Applied"],
+    ["phone-screen", "Phone Screen"], ["interviewing", "Interviewing"],
+    ["offer", "Offer"], ["rejected", "Rejected"], ["passed", "Passed"],
+    ["expired", "Expired"],
   ];
+
+  /* Board-local display labels. The KEY is canonical; only the column heading
+     differs, and only where the sheet label reads badly on a kanban. */
+  var STAGE_DISPLAY_LABEL = {
+    "new": "Discovered",
+    "phone-screen": "Phone screen",
+  };
+
+  function stageRegistry() {
+    return (root && root.JobBoredStages) || null;
+  }
+
+  var STAGES = (function () {
+    var reg = stageRegistry();
+    var pairs = reg
+      ? reg.pairs()
+      : STAGE_FALLBACK.map(function (p) { return { key: p[0], label: p[1] }; });
+    return pairs.map(function (s) {
+      return { key: s.key, label: STAGE_DISPLAY_LABEL[s.key] || s.label };
+    });
+  })();
 
   var EMPTY_COPY = {
     "new":          "Newly discovered roles land here.",
@@ -41,7 +67,9 @@
     "phone-screen": "Recruiter call? Park it here.",
     "interviewing": "Loops in flight live here.",
     "offer":        "Negotiate from here.",
-    "expired":      "Dismissed or closed postings rest here for reference.",
+    "rejected":     "Roles that passed on you rest here.",
+    "passed":       "Roles you passed on rest here.",
+    "expired":      "Postings that closed rest here for reference.",
   };
 
   var SORT_DEFAULT = "urgency";
@@ -979,6 +1007,24 @@
         appliedAgeHtml +
         '</footer>' : '',
     ].join("");
+
+    /* P0-D hand-off: the compact recruiter strip. Feature-detected — the
+       board renders exactly as before when recruiter-strip.js is not in the
+       page. Appended after the innerHTML assignment so the strip's own nodes
+       survive it. */
+    if (root.JobBoredRecruiterStrip &&
+        typeof root.JobBoredRecruiterStrip.renderCompact === "function") {
+      var recruiterMount = document.createElement("div");
+      recruiterMount.className = "pipe-sticker__recruiter-mount";
+      root.JobBoredRecruiterStrip.renderCompact(recruiterMount, {
+        jobKey: card.jobKey,
+        contact: job && job.contact,
+        lastHeardFrom: job && job.lastHeardFrom,
+        replied: job && job.responseFlag,
+        followUpDate: job && job.followUpDate,
+      });
+      el.appendChild(recruiterMount);
+    }
 
     return el;
   }

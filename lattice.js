@@ -24,29 +24,55 @@
   var CLOSED_KEY = "jb-v2-lattice-show-closed";
   var LOSING_RENDERER = true;
   var CANONICAL_BOARD = "pipeline";
-  var STAGES = [
-    "New",
-    "Researching",
-    "Applied",
-    "Phone Screen",
-    "Interviewing",
-    "Offer",
-    "Rejected",
-    "Passed",
-    "Expired",
+  /* ── Canonical stage vocabulary ────────────────────────────────────
+     Runtime source is window.JobBoredStages (stage-registry.js), which mirrors
+     the status enum of schemas/pipeline-row.v1.json. STAGE_FALLBACK below is
+     used only when that script is absent; tests/stage-registry-canonical.test.mjs
+     pins it — and every other board's copy — to the schema.
+
+     This board keys columns by the Sheet label (window.updateJobStatus writes
+     the label straight into Pipeline!M), so STAGES is the label list. It stays
+     converged even though F2-A keeps the board dormant: JB_LATTICE.STAGES and
+     setStage remain reachable, and a stage list that drifts here is a stage
+     list that writes the wrong label the day this board is reactivated. */
+  var STAGE_FALLBACK = [
+    ["new", "New"], ["researching", "Researching"], ["applied", "Applied"],
+    ["phone-screen", "Phone Screen"], ["interviewing", "Interviewing"],
+    ["offer", "Offer"], ["rejected", "Rejected"], ["passed", "Passed"],
+    ["expired", "Expired"],
   ];
-  var CLOSED = { Rejected: true, Passed: true };
-  var STAGE_DOT_KEY = {
-    New: "new",
-    Researching: "researching",
-    Applied: "applied",
-    "Phone Screen": "phone",
-    Interviewing: "interviewing",
-    Offer: "offer",
-    Rejected: "rejected",
-    Passed: "passed",
-    Expired: "expired",
-  };
+
+  function stageRegistry() {
+    return (typeof window !== "undefined" && window.JobBoredStages) || null;
+  }
+
+  var STAGES = (function () {
+    var reg = stageRegistry();
+    return reg ? reg.STATUSES.slice() : STAGE_FALLBACK.map(function (p) { return p[1]; });
+  })();
+
+  /* Terminal outcomes, hidden behind the "show closed" pill. Expired is NOT
+     closed — an expired posting is a fact about the posting, not an outcome. */
+  var CLOSED = (function () {
+    var reg = stageRegistry();
+    var keys = reg ? reg.CLOSED_KEYS : ["rejected", "passed"];
+    var out = {};
+    keys.forEach(function (k) {
+      out[reg ? reg.LABELS[k] : k.charAt(0).toUpperCase() + k.slice(1)] = true;
+    });
+    return out;
+  })();
+
+  /* Sheet label -> <jb-stage-dot stage="..."> token ("Phone Screen" is spelled
+     "phone" in tokens-v2.css). */
+  var STAGE_DOT_KEY = (function () {
+    var reg = stageRegistry();
+    var out = {};
+    STAGE_FALLBACK.forEach(function (p) {
+      out[p[1]] = reg ? reg.DOT_KEYS[p[0]] : (p[0] === "phone-screen" ? "phone" : p[0]);
+    });
+    return out;
+  })();
 
   // ---- helpers ----------------------------------------------------------
 
@@ -382,7 +408,7 @@
     var favorite = !!job.favorite;
     var rich = isLatticeRichCardEnabled();
     var enr = (job && job._postingEnrichment) || null;
-    var stageRaw = normalizeStage(job.status);   // "Phone Screen"
+    var stageRaw = normalizeStage(job.status);   // canonical Sheet label
     var stageKey = stageCssKey(stageRaw);        // "phone-screen"
 
     // ── Adaptive fields (each shown only when data is present) ──────────
