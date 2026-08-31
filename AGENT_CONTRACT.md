@@ -168,6 +168,11 @@ them. Empty/null source values MUST be omitted entirely (do not emit
 | data-follow-up       | job.followUpDate                                        | drives the orange Deadline callout |
 | data-tags            | job.tags (CSV)                                          |                                    |
 | data-fit             | job.fitScore                                            | numeric, clamped 1–10 by VM        |
+| data-enrichment-source | job._postingEnrichment._scrapeSource                  | `cheerio`, `gemini-url-context`, or `title-and-company`; omitted when empty |
+| data-enriched-at     | job._postingEnrichment.scrapedAt                        | fetch timestamp as stored; the dossier formats it and shows its age |
+| data-enrichment-fallback | job._postingEnrichment._scrapeFallbackReason        | omitted when no fallback occurred; escaped before render |
+| data-enrichment-parse-mode | job._postingEnrichment._parseMode                 | `schema` / `loose` / `repaired`; anything but `schema` classifies unknown |
+| data-edit-lock       | job._editLock                                           | comma-separated user-overridden field ids (Sheet column Y); outranks scrape lineage |
 | data-replied         | normalized job.responseFlag (`Yes`/`No`/`Unknown`)      | omitted when the source is empty; drives the `reply` band |
 | data-last-contact    | job.lastHeardFrom                                       | omitted when the source is empty   |
 | data-talking-points  | job.talkingPoints                                       | fallback JD section if no snippet  |
@@ -223,6 +228,10 @@ rename or reshape these payloads without orchestrator approval.
 > `jb:closure:change` intent bus. `window.JobBoredPipelineTransitions` (`pipeline-transitions.js`) is
 > the only cell writer for stage/closure moves. The `isClosed` homonym is deliberate: Stages treats
 > Expired as archived (not closed for UI visibility); Transitions treats Expired as closed for writes.
+>
+> `window.JobBoredDossierProvenance` has exactly one definer, `dossier-field-provenance.js`, exposing
+> both `stampProvenance` (fetch-path stamping, 3-day TTL, profileRevision) and `classify` (visible
+> label vocabulary). `dossier-provenance.js` must never be loaded.
 
 `field` enum for `jb:role:writeback`:
 `"stage" | "heardBack" | "reply" | "followupAt" | "passed"`.
