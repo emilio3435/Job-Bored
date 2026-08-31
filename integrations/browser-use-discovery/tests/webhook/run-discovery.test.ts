@@ -259,13 +259,23 @@ test("runDiscovery checkpoints every phase and includes the active budget state"
   const { dependencies } = createGroundedTimeoutDependencies();
   const checkpoints: Array<{
     phase: string;
-    budget?: { totalMs?: number; remainingMs?: number };
+    checkpointedAt: string;
+    budget?: {
+      capturedAt?: string;
+      totalMs?: number;
+      remainingMs?: number;
+    };
   }> = [];
   dependencies.sourceTimeoutMs = 5_000;
   Object.assign(dependencies, {
     checkpointRunProgress(checkpoint: {
       phase: string;
-      budget?: { totalMs?: number; remainingMs?: number };
+      checkpointedAt: string;
+      budget?: {
+        capturedAt?: string;
+        totalMs?: number;
+        remainingMs?: number;
+      };
     }) {
       checkpoints.push(checkpoint);
     },
@@ -289,6 +299,14 @@ test("runDiscovery checkpoints every phase and includes the active budget state"
         typeof checkpoint.budget.remainingMs === "number",
     ),
     "scout checkpoints should persist the active run budget",
+  );
+  assert.ok(
+    checkpoints
+      .filter((checkpoint) => checkpoint.budget)
+      .every((checkpoint) =>
+        checkpoint.budget?.capturedAt?.startsWith("2026-04-09T"),
+      ),
+    "persisted budget state should identify when the budget was sampled",
   );
 });
 

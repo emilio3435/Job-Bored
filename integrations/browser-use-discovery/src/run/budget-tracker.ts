@@ -142,7 +142,6 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
         }
       }
 
-      checkpoint();
       return null;
     },
 
@@ -169,7 +168,6 @@ export function createBudgetTracker(config: BudgetTrackerConfig): BudgetTracker 
         };
       }
 
-      checkpoint();
       return {
         multiplier: status.pageLimitMultiplier,
         diagnostic: null,

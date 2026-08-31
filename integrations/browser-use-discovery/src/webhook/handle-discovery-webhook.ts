@@ -158,6 +158,13 @@ export async function handleDiscoveryWebhook(
     : baseStatusPath;
   const pollAfterMs = Math.max(1000, dependencies.asyncPollAfterMs || 2000);
   const baseRunLogger = dependencies.runDependencies.log;
+  const logRunEvent = (
+    event: string,
+    details: Record<string, unknown>,
+  ): void => {
+    baseRunLogger?.(event, details);
+    dependencies.log?.(event, details);
+  };
 
   // Per-request Google access token (the dashboard's GIS sign-in path). Held
   // ONLY in this scope; never persisted, never logged, stripped from the
@@ -176,18 +183,24 @@ export async function handleDiscoveryWebhook(
   const baseRunDependencies: RunDiscoveryDependencies = {
     ...dependencies.runDependencies,
     runId,
-    log: (event: string, details: Record<string, unknown>) => {
-      baseRunLogger?.(event, details);
-      dependencies.log?.(event, details);
-    },
+    log: logRunEvent,
     checkpointRunProgress: (progress: DiscoveryRunProgress) => {
-      const current = dependencies.runStatusStore?.get(runId);
-      if (!current || current.terminal) return;
-      dependencies.runStatusStore?.put({
-        ...current,
-        progress,
-        updatedAt: progress.checkpointedAt,
-      });
+      try {
+        const current = dependencies.runStatusStore?.get(runId);
+        if (!current || current.terminal) return;
+        dependencies.runStatusStore?.put({
+          ...current,
+          progress,
+          updatedAt: progress.checkpointedAt,
+        });
+      } catch (error) {
+        logRunEvent("discovery.run_status.checkpoint_write_failed", {
+          runId,
+          phase: progress.phase,
+          sequence: progress.sequence,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     },
   };
   const runDependencies: RunDiscoveryDependencies =
@@ -390,14 +403,26 @@ export async function handleDiscoveryWebhook(
       }
       safety.markTerminal();
       safety.clear();
-      dependencies.runStatusStore?.put(
-        buildFailedRunStatus(
-          buildRunningRunStatus(acceptedStatus, startedAt),
-          error,
-          now().toISOString(),
-        ),
-      );
       const message = error instanceof Error ? error.message : String(error);
+      try {
+        dependencies.runStatusStore?.put(
+          buildFailedRunStatus(
+            buildRunningRunStatus(acceptedStatus, startedAt),
+            error,
+            now().toISOString(),
+          ),
+        );
+      } catch (statusError) {
+        dependencies.log?.("discovery.run_status.terminal_write_failed", {
+          runId,
+          mode: runMode,
+          status: "failed",
+          error:
+            statusError instanceof Error
+              ? statusError.message
+              : String(statusError),
+        });
+      }
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,

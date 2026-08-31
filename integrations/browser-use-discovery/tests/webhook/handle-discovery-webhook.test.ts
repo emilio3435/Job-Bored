@@ -854,6 +854,222 @@ test("handleDiscoveryWebhook does not let late async success overwrite timeout t
   assert.match(afterLateSuccess.message, /exceeded its maximum duration/i);
 });
 
+test("handleDiscoveryWebhook ignores a late progress checkpoint after timeout terminalization", async () => {
+  let releaseRun;
+  const backgroundRun = new Promise((resolve) => {
+    releaseRun = resolve;
+  });
+  const defaultRunDiscovery = makeDependencies().runDiscovery;
+  const dependencies = makeDependencies({
+    runSynchronously: false,
+    maxRunDurationMs: 1,
+    runDiscovery: async (request, trigger, runDependencies) => {
+      await backgroundRun;
+      runDependencies.checkpointRunProgress({
+        phase: "write",
+        sequence: 9,
+        checkpointedAt: "2026-04-09T12:00:02.000Z",
+      });
+      return defaultRunDiscovery(request, trigger, runDependencies);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    makeRequestWithSecret(SHARED_HEADER_VALUE),
+    dependencies,
+  );
+
+  assert.equal(response.status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+  const timedOut = dependencies.runStatusStore.get("run_queued");
+  assert.equal(timedOut.status, "partial");
+  assert.equal(timedOut.terminal, true);
+  const stateCountAfterTimeout = dependencies.runStatusStore.states.length;
+
+  releaseRun();
+  await backgroundRun;
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  const afterLateCheckpoint = dependencies.runStatusStore.get("run_queued");
+  assert.equal(afterLateCheckpoint.status, "partial");
+  assert.equal(afterLateCheckpoint.progress, undefined);
+  assert.equal(
+    dependencies.runStatusStore.states.length,
+    stateCountAfterTimeout,
+  );
+});
+
+test("handleDiscoveryWebhook degrades a failed progress checkpoint without rejecting the run", async () => {
+  const memoryStore = createMemoryRunStatusStore();
+  const events = [];
+  const checkpointFailingStore = {
+    states: memoryStore.states,
+    put(payload) {
+      if (payload.progress) {
+        throw new Error("run state directory is read-only");
+      }
+      memoryStore.put(payload);
+    },
+    get: memoryStore.get,
+    close() {},
+  };
+  const defaultRunDiscovery = makeDependencies().runDiscovery;
+  const dependencies = makeDependencies({
+    runStatusStore: checkpointFailingStore,
+    runDiscovery: async (request, trigger, runDependencies) => {
+      runDependencies.checkpointRunProgress({
+        phase: "scout",
+        sequence: 2,
+        checkpointedAt: "2026-04-09T12:00:00.500Z",
+      });
+      const result = await defaultRunDiscovery(
+        request,
+        trigger,
+        runDependencies,
+      );
+      return {
+        ...result,
+        run: {
+          ...result.run,
+          runId: runDependencies.runId,
+        },
+      };
+    },
+    log(event, details) {
+      events.push({ event, details });
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    makeRequestWithSecret(SHARED_HEADER_VALUE),
+    dependencies,
+  );
+  assert.equal(response.status, 202);
+  const completed = await waitForRunStatus(
+    checkpointFailingStore,
+    "run_queued",
+    (status) => status?.terminal === true,
+  );
+
+  assert.equal(completed?.status, "completed");
+  assert.ok(
+    events.some(
+      (entry) =>
+        entry.event === "discovery.run_status.checkpoint_write_failed" &&
+        entry.details.phase === "scout",
+    ),
+  );
+});
+
+test("handleDiscoveryWebhook contains a terminal failure status write error", async () => {
+  const memoryStore = createMemoryRunStatusStore();
+  const events = [];
+  const terminalFailingStore = {
+    states: memoryStore.states,
+    put(payload) {
+      if (payload.status === "failed") {
+        throw new Error("run state volume is full");
+      }
+      memoryStore.put(payload);
+    },
+    get: memoryStore.get,
+    close() {},
+  };
+  const dependencies = makeDependencies({
+    runStatusStore: terminalFailingStore,
+    runDiscovery: async () => {
+      throw new Error("source failed");
+    },
+    log(event, details) {
+      events.push({ event, details });
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    makeRequestWithSecret(SHARED_HEADER_VALUE),
+    dependencies,
+  );
+  assert.equal(response.status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 0));
+
+  assert.equal(terminalFailingStore.get("run_queued")?.status, "running");
+  assert.ok(
+    events.some(
+      (entry) =>
+        entry.event === "discovery.run_status.terminal_write_failed" &&
+        entry.details.status === "failed",
+    ),
+  );
+});
+
+test("handleDiscoveryWebhook contains a watchdog terminal status write error", async () => {
+  const memoryStore = createMemoryRunStatusStore();
+  const events = [];
+  const terminalFailingStore = {
+    states: memoryStore.states,
+    put(payload) {
+      if (payload.status === "partial") {
+        throw new Error("run state volume is full");
+      }
+      memoryStore.put(payload);
+    },
+    get: memoryStore.get,
+    close() {},
+  };
+  const dependencies = makeDependencies({
+    runStatusStore: terminalFailingStore,
+    maxRunDurationMs: 1,
+    runDiscovery: async () => new Promise(() => {}),
+    log(event, details) {
+      events.push({ event, details });
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    makeRequestWithSecret(SHARED_HEADER_VALUE),
+    dependencies,
+  );
+  assert.equal(response.status, 202);
+  await new Promise((resolve) => setTimeout(resolve, 10));
+
+  assert.equal(terminalFailingStore.get("run_queued")?.status, "running");
+  assert.ok(
+    events.some(
+      (entry) =>
+        entry.event === "discovery.run_status.terminal_write_failed" &&
+        entry.details.status === "partial",
+    ),
+  );
+});
+
 test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only runs do not fail with canonicalUrl is required", async () => {
   const rawMemoryStore = createDiscoveryMemoryStore(":memory:");
 

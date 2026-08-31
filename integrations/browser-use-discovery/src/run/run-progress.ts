@@ -1,12 +1,17 @@
+export const RUN_PROGRESS_PHASES = [
+  "initializing",
+  "scout",
+  "score",
+  "exploit",
+  "write",
+  "learn",
+] as const;
+
 export type DiscoveryRunProgressPhase =
-  | "initializing"
-  | "scout"
-  | "score"
-  | "exploit"
-  | "write"
-  | "learn";
+  (typeof RUN_PROGRESS_PHASES)[number];
 
 export interface DiscoveryRunBudgetProgress {
+  capturedAt?: string;
   totalMs: number;
   remainingMs: number;
   remainingRatio: number;

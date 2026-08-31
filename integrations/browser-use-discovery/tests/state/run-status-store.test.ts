@@ -1,5 +1,14 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
+import {
+  chmod,
+  mkdir,
+  mkdtemp,
+  readdir,
+  readFile,
+  rm,
+  stat,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import test from "node:test";
@@ -11,6 +20,7 @@ import {
   buildRunningRunStatus,
   createDiscoveryRunStatusStore,
 } from "../../src/state/run-status-store.ts";
+import type { DurableDiscoveryRunStatusPayload } from "../../src/state/run-status-store.ts";
 import type { RunDiscoveryResult } from "../../src/run/run-discovery.ts";
 
 interface TestRunProgress {
@@ -18,6 +28,7 @@ interface TestRunProgress {
   sequence: number;
   checkpointedAt: string;
   budget?: {
+    capturedAt?: string;
     totalMs: number;
     remainingMs: number;
     remainingRatio: number;
@@ -26,6 +37,14 @@ interface TestRunProgress {
     pageLimitMultiplier: number;
     skippedCompanies: string[];
   };
+}
+
+async function getOnlySnapshotPath(runDirectory: string): Promise<string> {
+  const snapshotFiles = (await readdir(runDirectory)).filter((name) =>
+    name.endsWith(".json"),
+  );
+  assert.equal(snapshotFiles.length, 1);
+  return join(runDirectory, snapshotFiles[0]);
 }
 
 interface TestDurableRunStatus extends DiscoveryRunStatusPayload {
@@ -73,6 +92,7 @@ test("run status snapshots rehydrate complete phase and budget state in a fresh 
         sequence: 4,
         checkpointedAt: "2026-08-30T12:00:04.000Z",
         budget: {
+          capturedAt: "2026-08-30T12:00:03.000Z",
           totalMs: 60_000,
           remainingMs: 42_000,
           remainingRatio: 0.7,
@@ -184,6 +204,207 @@ test("a truncated run snapshot does not crash boot and becomes a queryable failu
   }
 });
 
+test("a valid JSON snapshot with an invalid payload fails loud without crashing boot", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put(buildAccepted("run_invalid_schema"));
+    writer.close();
+
+    const snapshotPath = await getOnlySnapshotPath(runDirectory);
+    await writeFile(
+      snapshotPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        runId: "run_invalid_schema",
+        writtenAt: "2026-08-30T12:00:01.000Z",
+        status: {
+          ...buildAccepted("run_invalid_schema"),
+          status: "unknown",
+        },
+      })}\n`,
+      "utf8",
+    );
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    const endpointPayload = restarted.get("run_invalid_schema");
+    restarted.close();
+
+    assert.equal(endpointPayload?.status, "failed");
+    assert.equal(endpointPayload?.terminal, true);
+    assert.match(endpointPayload?.error || "", /does not match schema/i);
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a snapshot whose runId disagrees with its filename fails loud under the filename runId", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put(buildAccepted("run_filename"));
+    writer.close();
+
+    const snapshotPath = await getOnlySnapshotPath(runDirectory);
+    const mismatchedStatus = buildAccepted("run_payload");
+    await writeFile(
+      snapshotPath,
+      `${JSON.stringify({
+        schemaVersion: 1,
+        runId: "run_payload",
+        writtenAt: mismatchedStatus.updatedAt,
+        status: mismatchedStatus,
+      })}\n`,
+      "utf8",
+    );
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    const endpointPayload = restarted.get("run_filename");
+
+    assert.equal(endpointPayload?.status, "failed");
+    assert.match(endpointPayload?.error || "", /does not match its filename/i);
+    assert.equal(restarted.get("run_payload"), null);
+    restarted.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable snapshot remains a queryable failure when its repair write also fails", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put(buildAccepted("run_unreadable"));
+    writer.close();
+
+    const snapshotPath = await getOnlySnapshotPath(runDirectory);
+    await rm(snapshotPath);
+    await mkdir(snapshotPath);
+    const events: string[] = [];
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory, {
+      log(event) {
+        events.push(event);
+      },
+    });
+    const endpointPayload = restarted.get("run_unreadable");
+    restarted.close();
+
+    assert.equal(endpointPayload?.status, "failed");
+    assert.equal(endpointPayload?.terminal, true);
+    assert.match(endpointPayload?.error || "", /could not be parsed/i);
+    assert.ok(
+      events.includes(
+        "discovery.run_status.corrupt_snapshot_rewrite_failed",
+      ),
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("an unreadable snapshot file fails loud without crashing boot", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put(buildAccepted("run_unreadable_file"));
+    writer.close();
+
+    const snapshotPath = await getOnlySnapshotPath(runDirectory);
+    await chmod(snapshotPath, 0o000);
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    const endpointPayload = restarted.get("run_unreadable_file");
+    restarted.close();
+
+    assert.equal(endpointPayload?.status, "failed");
+    assert.equal(endpointPayload?.terminal, true);
+    assert.match(endpointPayload?.error || "", /could not be parsed/i);
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("a newly created run-state directory is private to its owner", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const store = createDiscoveryRunStatusStore(runDirectory);
+    store.close();
+
+    assert.equal((await stat(runDirectory)).mode & 0o777, 0o700);
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("boot ignores unrelated JSON filenames instead of creating phantom runs", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.close();
+    await writeFile(join(runDirectory, "notes!.json"), "{}\n", "utf8");
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    restarted.close();
+
+    assert.deepEqual(await readdir(runDirectory), ["notes!.json"]);
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("boot sweeps an orphaned atomic-write temporary file", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put(buildAccepted("run_with_orphan"));
+    writer.close();
+
+    const snapshotPath = await getOnlySnapshotPath(runDirectory);
+    const temporaryPath = `${snapshotPath}.tmp-123-456-deadbeef`;
+    await writeFile(temporaryPath, await readFile(snapshotPath, "utf8"), "utf8");
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    assert.equal(restarted.get("run_with_orphan")?.status, "accepted");
+    restarted.close();
+
+    assert.equal(
+      (await readdir(runDirectory)).filter((name) => name.includes(".tmp-"))
+        .length,
+      0,
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("put rejects invalid run status payloads", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const store = createDiscoveryRunStatusStore(runDirectory);
+    const invalidPayload = {
+      ...buildAccepted("run_invalid_put"),
+      status: "unknown",
+    } as unknown as DurableDiscoveryRunStatusPayload;
+
+    assert.throws(
+      () => store.put(invalidPayload),
+      /run status payload is not JSON-safe/i,
+    );
+    store.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 test("terminal snapshots remain queryable without recovery mutation", async () => {
   const { tempDirectory, runDirectory } = await makeRunDirectory();
 
@@ -242,6 +463,17 @@ test("terminal snapshots remain queryable without recovery mutation", async () =
     });
 
     const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put({
+      ...buildRunningRunStatus(
+        buildAccepted("run_completed"),
+        "2026-08-30T12:00:02.000Z",
+      ),
+      progress: {
+        phase: "write",
+        sequence: 5,
+        checkpointedAt: "2026-08-30T12:00:05.000Z",
+      },
+    });
     writer.put(expected);
     writer.close();
 
