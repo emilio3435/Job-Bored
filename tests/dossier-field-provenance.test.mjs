@@ -267,10 +267,12 @@ describe("F3A-DOSSIER01-PROV — cache TTL and visible freshness", () => {
     const now = 1_800_000_000_000;
     const fresh = {
       scrapedAt: now - 60 * 60 * 1000,
+      description: "A complete job description that is safe to restore from cache.",
       postingSummary: "still fresh",
     };
     const stale = {
       scrapedAt: now - FOUR_DAYS_MS,
+      description: "A complete but expired job description.",
       postingSummary: "too old",
     };
     assert.equal(
