@@ -25,6 +25,7 @@ import {
   buildRunStatusPath,
   type DiscoveryRunStatusStore,
 } from "../state/run-status-store.ts";
+import { buildEffectiveIntent } from "../discovery/effective-intent.ts";
 import { validateSheetsCredentialReadiness } from "../sheets/credential-readiness.ts";
 import {
   appendRunStatusToken,
@@ -634,12 +635,9 @@ function parseWebhookRequest(
       };
     }
 
-    // VAL-API-006/VAL-API-008: Run intent must be request-authoritative.
-    // If discoveryProfile is provided, at least one of targetRoles or keywordsInclude
-    // must be non-blank. Blank intent fails with explicit guidance to use AI Suggester.
-    // NOTE: We only validate when discoveryProfile is explicitly provided.
-    // When discoveryProfile is absent, we allow the request to proceed (the preflight
-    // and later intent-gating in the execution path will handle it).
+    // VAL-API-006/VAL-API-008 / F1C-DISC03: Run intent must be request-authoritative.
+    // The shared effective-intent helper treats searchPlan, profileSnapshot, and
+    // mergedUserProfile as intent — not just top-level discoveryProfile fields.
     const profile = discoveryProfile as Record<string, unknown>;
     const searchPlan = isPlainObject(profile.searchPlan)
       ? (profile.searchPlan as Record<string, unknown>)
@@ -647,22 +645,13 @@ function parseWebhookRequest(
     const searchPlanQuery = isPlainObject(searchPlan.query)
       ? (searchPlan.query as Record<string, unknown>)
       : {};
-    const rawTargetRoles = firstNonBlankString(
-      profile.targetRoles,
-      searchPlanQuery.targetRoles,
-    );
-    const rawKeywordsInclude = firstNonBlankString(
-      profile.keywordsInclude,
-      searchPlanQuery.keywordsInclude,
-    );
-    const targetRolesBlank =
-      rawTargetRoles == null ||
-      (typeof rawTargetRoles === "string" && !rawTargetRoles.trim());
-    const keywordsBlank =
-      rawKeywordsInclude == null ||
-      (typeof rawKeywordsInclude === "string" && !rawKeywordsInclude.trim());
-
-    if (targetRolesBlank && keywordsBlank) {
+    const effectiveIntent = buildEffectiveIntent({
+      discoveryProfile: profile,
+      mergedUserProfile: isPlainObject(payload.mergedUserProfile)
+        ? payload.mergedUserProfile
+        : null,
+    });
+    if (effectiveIntent.blank) {
       return {
         ok: false,
         message:
@@ -831,6 +820,29 @@ function parseWebhookRequest(
   if (!companyBlocklistResult.ok) return companyBlocklistResult;
   const companyAllowlist = companyAllowlistResult.value;
   const companyBlocklist = companyBlocklistResult.value;
+  if (
+    payload.mergedUserProfile != null &&
+    !isPlainObject(payload.mergedUserProfile)
+  ) {
+    return {
+      ok: false,
+      message: "mergedUserProfile must be an object when present.",
+    };
+  }
+  const mergedUserProfile = isPlainObject(payload.mergedUserProfile)
+    ? sanitizeMergedUserProfile(payload.mergedUserProfile)
+    : undefined;
+  if (
+    payload.allowUnrestrictedFallback != null &&
+    typeof payload.allowUnrestrictedFallback !== "boolean"
+  ) {
+    return {
+      ok: false,
+      message: "allowUnrestrictedFallback must be a boolean when present.",
+    };
+  }
+  const allowUnrestrictedFallback =
+    payload.allowUnrestrictedFallback === true ? true : undefined;
   const normalizedDiscoveryProfile = isPlainObject(discoveryProfile)
     ? normalizeDiscoveryProfile(discoveryProfile)
     : undefined;
@@ -867,6 +879,8 @@ function parseWebhookRequest(
       ...(trigger ? { trigger } : {}),
       ...(companyAllowlist.length ? { companyAllowlist } : {}),
       ...(companyBlocklist.length ? { companyBlocklist } : {}),
+      ...(mergedUserProfile ? { mergedUserProfile } : {}),
+      ...(allowUnrestrictedFallback ? { allowUnrestrictedFallback: true } : {}),
     },
   };
 }
@@ -880,6 +894,28 @@ function parseWebhookRequest(
  *  - hard cap per field — anything beyond fails closed so a misconfigured
  *    client doesn't silently send an oversized payload
  */
+const MERGED_PROFILE_SECRET_KEYS = new Set([
+  "resumeText",
+  "extractedText",
+  "text",
+  "rawResume",
+  "googleAccessToken",
+  "apiKey",
+  "password",
+  "secret",
+]);
+
+function sanitizeMergedUserProfile(
+  raw: Record<string, unknown>,
+): NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (MERGED_PROFILE_SECRET_KEYS.has(key)) continue;
+    out[key] = value;
+  }
+  return out as NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]>;
+}
+
 function parseCompanyList(
   raw: unknown,
   fieldName: string,
@@ -944,15 +980,6 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function firstNonBlankString(...values: unknown[]): string {
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed) return trimmed;
-  }
-  return "";
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -996,6 +1023,9 @@ function normalizeDiscoveryProfile(
     out.keywordsExclude = raw.keywordsExclude;
   if (typeof raw.maxLeadsPerRun === "string")
     out.maxLeadsPerRun = raw.maxLeadsPerRun;
+  if (raw.groundedWebEnabled === true || raw.groundedWebEnabled === false) {
+    out.groundedWebEnabled = raw.groundedWebEnabled;
+  }
 
   // Normalize ultraPlanTuning if present
   if (isPlainObject(raw.ultraPlanTuning)) {

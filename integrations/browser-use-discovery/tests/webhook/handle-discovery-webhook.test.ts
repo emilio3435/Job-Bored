@@ -3558,6 +3558,113 @@ test("companyBlocklist: rejects non-array value with 400", async () => {
   assert.match(body.message, /array/i);
 });
 
+const F1C_MERGED_USER_PROFILE = {
+  version: 1,
+  identity: {
+    targetRoles: ["Staff backend engineer"],
+    targetSeniority: "ic_staff",
+    primaryNarrative:
+      "I build distributed backends and want to keep doing that at a product company.",
+  },
+  strengths: [{ name: "Distributed systems", rank: 1 }],
+  hardConstraints: { workMode: "remote_only" },
+};
+
+test("F1C-DISC02-PROFILE: mergedUserProfile survives the worker parser and is used", async () => {
+  let received: any = null;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async (req) => {
+      received = req;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        mergedUserProfile: {
+          ...F1C_MERGED_USER_PROFILE,
+          resumeText: "SECRET_RESUME_TEXT_MUST_NOT_SURVIVE",
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok(
+    [200, 202].includes(response.status),
+    `Expected 200/202, got ${response.status}: ${response.body}`,
+  );
+  assert.ok(received, "runDiscovery must receive the parsed request");
+  assert.equal(received.mergedUserProfile.identity.targetRoles[0], "Staff backend engineer");
+  assert.equal(received.mergedUserProfile.hardConstraints.workMode, "remote_only");
+  assert.equal(received.mergedUserProfile.resumeText, undefined);
+});
+
+test("F1C-DISC05-GW: groundedWebEnabled=false survives parser normalize", async () => {
+  let received: any = null;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async (req) => {
+      received = req;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          targetRoles: "Senior Engineer",
+          sourcePreset: "browser_plus_ats",
+          groundedWebEnabled: false,
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status), response.body);
+  assert.equal(received?.discoveryProfile?.groundedWebEnabled, false);
+});
+
+
 // ─── Round-2 quality sweep: webhook hardening ────────────────────────────
 // Cluster: worker hardening — body cap, secret compare, runStatus token.
 // These pin behavior we rely on at the HTTP boundary and at every auth
