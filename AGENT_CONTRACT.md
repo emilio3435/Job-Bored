@@ -209,6 +209,7 @@ rename or reshape these payloads without orchestrator approval.
 | `jb:ats:state:request` | dossier Workshop       | `app.js` (state bus)       | `{ jobKey }`                                                           |
 | `jb:ats:modal:open`    | dossier Workshop       | `app.js` (state bus)       | `{ jobKey }`                                                           |
 | `jb:role:writeback`    | dossier Workshop       | `flowing-writes.js`        | `{ jobKey, field, value }` — see field enum below                      |
+| `jb:role:open`         | Today queue            | (none yet)                 | `{ jobKey, source }` — **cancelable** intent; unclaimed, `today.js` performs the same navigation dawn's open-dossier action does |
 | `jb:a11y:dialog:opened` | `jb-a11y.js`          | observability only         | `{ el, depth }`                                                        |
 | `jb:a11y:dialog:closed` | `jb-a11y.js`          | observability only         | `{ el, depth, reason }`                                                |
 | `jb:closure:change`    | dawn / pipeline board / expired review | integrator shim (`app-bootstrap.js`) | `{ jobKey, action: "dismiss"\|"restore"\|"expire"\|"unexpire", source }` — **cancelable**: the shim claims it with `preventDefault()` then writes via `JobBoredPipelineTransitions.planTransition` + `applyCells`; unexpire stays on `updateJobStatus("Researching")` until the planner grows that action |

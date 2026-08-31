@@ -229,6 +229,10 @@ if (typeof window !== "undefined") {
   window.JobBored.toggleFavorite = toggleFavorite;
   window.JobBored.editJobField = editJobField;
   window.JobBored.applyPipelineStageWrite = applyPipelineStageWrite;
+  window.JobBored.getTodayQueue = function (opts) {
+    var api = window.JobBoredToday && window.JobBoredToday.data;
+    return api ? api.getTodayQueue(opts) : { items: [], counts: {}, empty: true };
+  };
   window.JobBored.applyPipelineNotesWrite = applyPipelineNotesWrite;
   window.JobBored.ingestJobUrl = ingestJobUrl;
   window.JobBored.openIngestManualFallback = openIngestManualFallback;

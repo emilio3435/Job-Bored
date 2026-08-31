@@ -209,6 +209,7 @@
     <link rel="stylesheet" href="jb-a11y.css" />
     <link rel="stylesheet" href="lattice.css" />
     <link rel="stylesheet" href="dawn.css" />
+    <link rel="stylesheet" href="today.css" />
     <link rel="stylesheet" href="flowing-chrome.css" />
     <link rel="stylesheet" href="pipeline.css" />
     <link rel="stylesheet" href="role.css" />
@@ -229,9 +230,10 @@
     <script src="company-cap.js" defer></script>
     <script src="lattice.js" defer></script>
     <script src="metrics-date-window.js" defer></script>
-    <script src="today-queue.js" defer></script>
     <script src="dawn-data.js" defer></script>
     <script src="dawn.js" defer></script>
+    <script src="today-data.js" defer></script>
+    <script src="today.js" defer></script>
     <script src="flowing-store.js" defer></script>
     <script src="flowing-chrome.js" defer></script>
     <script src="hosted-api-auth.js" defer></script>
@@ -250,7 +252,8 @@
     <!-- <script src="letter.js" defer></script>                       -->
     <script src="mark-submitted.js" defer></script>
     <script src="flowing-writes.js" defer></script>
-    <script src="scribe-session.js" defer></script>
+    <script src="scribe-state.js" defer></script>
+    <script src="scribe-score-adapter.js" defer></script>
     <script src="scribe.js" defer></script>
     <script src="pipeline-transition-adapter.js" defer></script>
     <script src="jb-v2-boot-contract.js" defer></script>
@@ -322,6 +325,14 @@
     <!-- Each region renders only when body.jb-v2 is set. Legacy markup -->
     <!-- remains in place outside these blocks for the off-flag fallback. -->
     <!-- ============================================================ -->
+
+    <!-- region:today:start -->
+    <!-- R3 owns this block: the Today attention queue.                -->
+    <!-- Renders only when body.jb-v2 is set (see today.js / today.css). -->
+    <!-- Ranks reply > interview prep > overdue follow-up > staleness >  -->
+    <!-- fit; reads window.JobBored.getPipelineJobs(), never the DOM.    -->
+    <section data-region="today" aria-label="Today (v2)"></section>
+    <!-- region:today:end -->
 
     <!-- region:dawn:start -->
     <!-- DAWN owns this block: Daily Brief / overview dashboard.       -->
