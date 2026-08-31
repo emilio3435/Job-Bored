@@ -152,12 +152,17 @@ The `?sheet=` URL parameter also accepts a full URL or a raw id.
 
 ### 4. Deploy
 
-Upload the files anywhere static files are served:
+The source `index.html` contains partial includes. Before any static-host deploy,
+run `node scripts/assemble-index.mjs --write` and publish the assembled document
+as the deployed `index.html`, alongside the remaining static assets. Publishing
+the raw checkout produces an incomplete dashboard.
 
-- **GitHub Pages** — push to a repo and enable Pages
-- **Vercel** — `npx vercel --prod`
-- **Netlify** — drag and drop the folder
-- **Cloudflare Pages** — connect your repo
+- **GitHub Pages** — choose **Settings → Pages → Source: GitHub Actions**; the
+  included workflow assembles and deploys the complete artifact
+- **Vercel** — configure the static build to assemble first and promote
+  `index.assembled.html` to the deployed `index.html`
+- **Netlify** — use a build-based deploy with the same assembly/promotion step
+- **Cloudflare Pages** — connect the repo and publish an assembled staging directory
 - **Local** — `npm run web-only` and open `http://localhost:8080` (the dev
   server expands the `<!-- @include -->` partials; naive static servers like
   `python3 -m http.server` do not, so the dashboard renders incomplete)
@@ -218,7 +223,7 @@ This is useful for sharing dashboard links or switching between multiple job sea
 ### Write-Back (requires Google sign-in)
 
 - Update job status with one click
-- "Mark Applied" shortcut (sets status + today's date)
+- **Mark Applied** opens a confirmation for the applied date, source, optional receipt/checklist note, and follow-up date. The Sheet write starts only after confirmation and offers a short Undo window.
 - Inline notes editing
 - **Last contact** and **Did they reply?** (columns R–S when present in the sheet)
 - Optimistic updates with toast notifications
@@ -227,6 +232,7 @@ This is useful for sharing dashboard links or switching between multiple job sea
 
 - **Run discovery** sends a POST to `discoveryWebhookUrl` in `config.js` so your agent (Hermes, n8n, Apps Script, etc.) can start **another** search pass.
 - Each request includes `schemaVersion` **1**, a new `variationKey`, and optional `discoveryProfile` from **Discovery drawer → Search** (target roles, locations, keywords — stored in IndexedDB on this device). The shared payload builder also adds a non-secret profile snapshot and deterministic search plan when current resume/preferences/schedule context is available.
+- Immediately before the POST, the drawer renders the effective roles, locations, sources, and company filters from that canonical payload. An unknown-only company allowlist fails closed unless unrestricted fallback was explicitly approved.
 - Local worker runs may include a transient `googleAccessToken` for that run only. It lets the user-owned worker write to the Sheet without storing OAuth credentials; it is stripped from persisted config/state and must not be logged raw.
 - The Browser Use discovery worker writes run summaries to a `DiscoveryRuns` tab when configured. The dashboard reads that tab for run history; missing `DiscoveryRuns` is fine until the first logged run.
 - The dashboard-managed **Apps Script deploy is only a stub** for webhook verification and `[CC test]` smoke tests. It does **not** discover real jobs unless you replace that code with real logic or point the dashboard at another discovery engine.

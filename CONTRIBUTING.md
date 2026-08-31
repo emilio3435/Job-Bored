@@ -29,7 +29,8 @@ unblocked counts as a contribution too.
   step, no bundler, every script tag is its own debuggable unit. Cross-module
   references go through a [bridge layer](bridge-registry.js) — search there
   if a function feels orphaned.
-- **The test gate is real.** 1,800+ tests run on every PR. The gate
+- **The test gate is real.** 2,300+ root tests run on every PR, followed by
+  the discovery worker suite. The gate
   (`npm test`) must end **0 fail / 0 skip**. Lint, typecheck, and Playwright
   smoke also have to be clean. Red PRs don't merge.
 
@@ -61,9 +62,9 @@ Greenfield-mode (skips any saved state) lives at
 This is the contract:
 
 ```bash
-npm test                  # 1,800+ behavioral tests via scripts/run-tests.mjs
+npm test                  # 2,300+ behavioral tests via scripts/run-tests.mjs
 npx eslint .              # zero warnings (no-undef + no-unused-vars + a few)
-npm run typecheck:repo    # JSDoc-driven type checking
+npm run typecheck:repo    # worker/server TypeScript + browser/script syntax
 npm run test:contract:all # discovery webhook + Pipeline schema fixtures
 ```
 

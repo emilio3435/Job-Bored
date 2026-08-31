@@ -1,9 +1,8 @@
 # JB-A11Y.md — JobBored accessibility primitives (T0 / lane P0-F)
 
 **Owner:** lane P0-F (T0 program), reconciled onto the repair base by lane R1.
-**Status:** shipped standalone; consumed by fit-profile-wizard.js. Lanes R2 (lattice stage menu),
-R3 (scribe announcements) and R4 (discovery drawer, Mark-submitted confirm gate) adopt it next —
-on the reconciliation branch those are the lanes that were P0-A / P0-E / P0-B+P0-D under T0.
+**Status:** shipped and integrated. Current consumers include the Fit Profile wizard, Pipeline
+stage menu, Scribe announcements, discovery drawer, auth toasts, and Applied confirmation flow.
 
 **Reconciliation note (lane R1).** This file replaced a same-named F3-D primitive that exposed a
 flat API (`createOverlayOwner`, `announceToast`, `labelFitProfileControl`, `createMoveToAction`)
@@ -12,8 +11,8 @@ the 320/375/393 phone breakpoints plus the `env(keyboard-inset-bottom, …)` han
 `jb-a11y.css`, re-expressed on the live `.jb-a11y-*` selectors, and the shared fixture
 `tests/fixtures/phone-geometry.json`.
 **Scope:** one classic-defer script (`jb-a11y.js`) exposing `window.JobBoredA11y`, plus its
-stylesheet (`jb-a11y.css`). The API surface is LOCKED by `T0-SUBSTRATE.md` §2 — additions are
-allowed, reshapes are not.
+stylesheet (`jb-a11y.css`). Behavioral tests and the consumers listed above pin the API surface;
+reshape it only with the corresponding callers and contract tests in the same change.
 
 Sibling of `JB-UI.md`. The rules there (no raw hex, `--jb-*` tokens, `block__element` naming,
 `data-*` for state) apply here too — with one deliberate divergence, documented below.
@@ -26,7 +25,8 @@ Sibling of `JB-UI.md`. The rules there (no raw hex, `--jb-*` tokens, `block__ele
 <link rel="stylesheet" href="tokens-v2.css">
 <link rel="stylesheet" href="jb-a11y.css">
 ...
-<script src="jb-a11y.js" defer></script>   <!-- EARLY: before jb-ui.js -->
+<script src="jb-ui.js" defer></script>
+<script src="jb-a11y.js" defer></script>
 ```
 
 `jb-a11y.js` is a **classic global IIFE, not an ES module.** The dashboard has no build step;
@@ -34,8 +34,8 @@ Sibling of `JB-UI.md`. The rules there (no raw hex, `--jb-*` tokens, `block__ele
 browser parse-fail the *entire* file silently — `jb-ui.js:472-474` carries the same warning. Attach
 to `window.JobBoredA11y`, never `export`.
 
-It must load **before every consumer** (jb-ui.js at index.html:224 is the safe upper bound; the
-wizard/modal consumers start at :1578). It reads nothing at load time, so an early position is free.
+It must load **before every consumer**. The current `index.html` loads it immediately after
+`jb-ui.js`; neither module reads the other at load time, and all consumers load later.
 
 ### Feature-detect at the call site
 
@@ -373,7 +373,7 @@ This is the honest split. **Nothing in the "needs browser" column is claimed gre
 | `field.build` / `associate` pairing (incl. composites) | vm-simulated | `jb-a11y-fit-profile-labels.test.mjs` |
 | every `fp-field__label` associated (count pin) | **source-pinned** | `jb-a11y-fit-profile-labels.test.mjs` |
 | fit-profile adoption of `dialog.open` + handle close | **source-pinned** | `jb-a11y-dialog-containment.test.mjs` |
-| discovery-drawer still has no inert/restore (open gap) | **source-pinned (today's truth)** | `jb-a11y-dialog-containment.test.mjs` |
+| discovery drawer uses `drawer.open` and handle-based close | source-audited; primitive behavior vm-simulated | `discovery-drawer.js`, `jb-a11y-dialog-behavior.test.mjs` |
 | stage menu markup, ARIA, keyboard, `commitMove` contract, revert copy | vm-simulated | `jb-a11y-move-to-stage.test.mjs` |
 | primitive is not a writer (no `updateJobStatus`, no I/O) | **source-pinned** | `jb-a11y-move-to-stage.test.mjs` |
 | 2.75rem floor declared; no raw hex; not v2-scoped | **CSS-pinned** | `jb-a11y-move-to-stage.test.mjs` |
@@ -403,20 +403,15 @@ covers them:
 
 ---
 
-## Integration surface (integrator-owned; this lane does not edit these)
+## Integration status
 
-- `index.html` — ALREADY SATISFIED on the reconciliation base: the stylesheet is at :209 and the
-  script at :226. Those slots sit *after* `jb-ui.js` rather than before it, which the T0 lane had
-  asked for; the order is inert (neither file references the other, and every consumer loads
-  later), so the slots stay where they are rather than churning the file. Still open: add
-  `role="status" aria-live="polite"` to `#toastContainer`.
-- `auth-session.js` — one feature-detected line in `showToast` mirroring into
-  `JobBoredA11y.live.announce`.
-- `package.json` — add `node --check jb-a11y.js` to the `typecheck:repo` allowlist chain.
-- `AGENT_CONTRACT.md` — rows for the `jb:a11y:dialog:*` event family.
-
-Exact hunks with anchor lines are in
-`evidence/t0/p0-f/LANE-REPORT-p0-f.md` § "Hand-off recipes".
+- `index.html` loads the stylesheet and script before every consumer.
+- `auth-session.js` mirrors visual toasts into `JobBoredA11y.live.announce`.
+- `pipeline.js` uses the shared stage menu; `scribe.js` uses the live region; and
+  `discovery-drawer.js` uses the shared drawer owner for inert containment and focus restore.
+- `submission-flow.js` uses `dialog.confirm` before recording Applied.
+- `package.json` includes `jb-a11y.js` in `typecheck:repo`, and `AGENT_CONTRACT.md` documents the
+  `jb:a11y:dialog:*` event family.
 
 ---
 
