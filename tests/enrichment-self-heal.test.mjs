@@ -9,10 +9,10 @@
       or any other triage step. Every scraper failure mode
       silently self-heals to the LLM-only path."
 
-   These are static-analysis tests against app.js — they don't
-   spin up a browser. The point is to prevent regressions where
-   someone re-introduces a setup-modal call or a 'npm start'
-   toast inside the enrichment flow.
+   Most checks are static analysis, with a small VM harness for
+   causal runtime contracts that do not need a browser. The point
+   is to prevent regressions where someone re-introduces setup
+   friction or blocks the self-healing path before it can run.
    ============================================================ */
 
 import assert from "node:assert/strict";
@@ -49,6 +49,74 @@ function loadPostingInsights({ config = {}, fetchImpl } = {}) {
   vm.createContext(ctx);
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
   return ctx.window.CommandCenterJobPostingInsights;
+}
+
+function loadPostingEnrichment({ online = true } = {}) {
+  const jobs = [{
+    title: "Senior Media Strategist",
+    company: "Acme Media",
+    location: "Remote",
+    link: "https://jobs.example/roles/123",
+  }];
+  const toasts = [];
+  const enrichCalls = [];
+  const storage = new Map();
+  const host = {
+    getJobPostingScrapeUrl: () => "",
+    isScraperUrlBlockedOnThisPage: () => false,
+    getUserContent: () => null,
+    refreshDrawerIfOpen() {},
+    renderPipeline() {},
+    showToast(message, kind) {
+      toasts.push({ message, kind });
+    },
+  };
+  const window = {
+    JobBoredApp: {
+      core: {
+        getPipelineData: () => jobs,
+        host,
+      },
+    },
+    CommandCenterJobPostingInsights: {
+      canEnrichWithLLM: () => true,
+      fetchViaGeminiUrlContext: async () => null,
+      enrichFromScrape: async (...args) => {
+        enrichCalls.push(args);
+        return VALID_POSTING_INSIGHTS;
+      },
+    },
+    addEventListener() {},
+    dispatchEvent() {},
+  };
+  const ctx = {
+    window,
+    document: { dispatchEvent() {} },
+    navigator: { onLine: online },
+    localStorage: {
+      getItem: (key) => storage.get(key) ?? null,
+      setItem: (key, value) => storage.set(key, value),
+    },
+    CustomEvent: class CustomEvent {
+      constructor(type, init = {}) {
+        this.type = type;
+        this.detail = init.detail;
+      }
+    },
+    AbortController,
+    URL,
+    clearTimeout,
+    console: { log() {}, warn() {}, error() {} },
+    setTimeout,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(postingEnrichmentJs, ctx, { filename: "posting-enrichment.js" });
+  return {
+    api: window.JobBoredApp.postingEnrichment,
+    enrichCalls,
+    jobs,
+    toasts,
+  };
 }
 
 function makePostingFetchStub(responder) {
@@ -150,7 +218,25 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
     assert.ok(
       /_enrichmentPreconditionsOk\s*\(/.test(slice),
-      "preconditions (key + offline + race) must be checked before any fetch",
+      "provider configuration and race preconditions must be checked before any fetch",
+    );
+  });
+
+  it("does not block uncached enrichment when navigator.onLine is false", async () => {
+    const { api, enrichCalls, jobs, toasts } = loadPostingEnrichment({ online: false });
+
+    await api.fetchJobPostingEnrichment(0);
+
+    assert.equal(
+      enrichCalls.length,
+      1,
+      "navigator.onLine is only a hint and must not prevent the self-healing path",
+    );
+    assert.ok(jobs[0]._postingEnrichment?.scrapedAt);
+    assert.equal(enrichCalls[0][0].url, jobs[0].link);
+    assert.ok(
+      !toasts.some(({ message }) => /offline|reconnect/i.test(message)),
+      "the app must not claim it will retry on reconnect when no retry listener exists",
     );
   });
 

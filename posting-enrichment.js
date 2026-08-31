@@ -182,15 +182,11 @@ function applyEnrichmentCache(jobs) {
 const AI_PROVIDER_CONFIG_MISSING_TOAST =
   "Configure your selected AI provider in Settings → AI Providers to enable posting insights.";
 
-/** Race guard + offline + key gate. Returns true when it's safe to
+/** Race guard + provider-config gate. Returns true when it's safe to
  *  proceed. Side-effect: shows a single toast on the no-go path. */
 function _enrichmentPreconditionsOk(job) {
   if (!job) return false;
   if (job._enrichmentLoading) return false;
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    host().showToast("You're offline — insights will load when you reconnect.", "info");
-    return false;
-  }
   const canLlm = !!(
     window.CommandCenterJobPostingInsights &&
     window.CommandCenterJobPostingInsights.canEnrichWithLLM()
