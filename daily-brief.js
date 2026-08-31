@@ -787,22 +787,10 @@
     if (mainGrid) mainGrid.classList.remove("brief-dashboard--empty");
 
     const todayJobs = jobsFoundToday(getPipelineData());
+    const overdue = overdueFollowUps(getPipelineData());
     const upcoming = upcomingFollowUps48h(getPipelineData());
-    const todaySelector = window.JobBoredTodayQueue;
-    let overdue;
-    let stale;
-    let waiting;
-    if (todaySelector && typeof todaySelector.select === "function") {
-      const selected = todaySelector.select(getPipelineData(), { now: new Date() });
-      const jobsFrom = (kind) => (selected.byKind[kind] || []).map((item) => item.job);
-      overdue = jobsFrom("overdue-follow-up");
-      waiting = jobsFrom("waiting-on-reply");
-      stale = jobsFrom("stale-application");
-    } else {
-      overdue = overdueFollowUps(getPipelineData());
-      stale = getPipelineData().filter(isStaleApplied);
-      waiting = waitingOnReplyJobs(getPipelineData());
-    }
+    const stale = getPipelineData().filter(isStaleApplied);
+    const waiting = waitingOnReplyJobs(getPipelineData());
 
     const w = getInsightDateWindows();
     const discRecent = countDateFoundInWindow(
