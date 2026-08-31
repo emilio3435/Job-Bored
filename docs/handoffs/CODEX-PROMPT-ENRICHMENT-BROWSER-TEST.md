@@ -133,7 +133,7 @@ For each, capture the toast text and confirm NO setup modal opens (the `#scraper
 |------|-------|----------------|-------------|
 | No key | Delete `resumeGeminiApiKey` from `config.js`, reload | "Add a Gemini API key in Settings → AI Providers to enable posting insights." | Zero fetches to `127.0.0.1:3847` and zero to `generativelanguage.googleapis.com` |
 | Bad key | Set `resumeGeminiApiKey: "AIzaBOGUS"`, reload, click a role | "Gemini rejected the API key — re-enter it in Settings → AI Providers." | After this fails, close the Dossier and re-open the SAME role — confirm the pipeline retries (does NOT serve from cache) |
-| Offline | DevTools Network → "Offline" mode, click a role | "You're offline — insights will load when you reconnect." | Zero fetches |
+| Offline | DevTools Network → "Offline" mode, click a role | Provider/network failure from the attempted enrichment request; no generic offline/reconnect claim | The pipeline starts, attempts the configured provider, and remains retryable when the role is reopened |
 | Race click | Click "fetch posting" twice in <500ms | Only ONE pipeline run | Network tab shows only one Gemini fetch sequence; second click silently dropped |
 
 ### Step 6 — Reduced motion

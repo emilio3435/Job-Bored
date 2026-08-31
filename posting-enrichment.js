@@ -75,7 +75,12 @@ function getEnrichmentCacheLookupKeys(job) {
 }
 
 function isUsableCachedEnrichment(enrichment) {
-  return !!(enrichment && enrichment.scrapedAt && !enrichment.llmError);
+  return !!(
+    enrichment &&
+    enrichment.scrapedAt &&
+    !enrichment.llmError &&
+    String(enrichment.description || "").trim()
+  );
 }
 
 function _loadEnrichmentCache() {
@@ -182,15 +187,11 @@ function applyEnrichmentCache(jobs) {
 const AI_PROVIDER_CONFIG_MISSING_TOAST =
   "Configure your selected AI provider in Settings → AI Providers to enable posting insights.";
 
-/** Race guard + offline + key gate. Returns true when it's safe to
+/** Race guard + provider-config gate. Returns true when it's safe to
  *  proceed. Side-effect: shows a single toast on the no-go path. */
 function _enrichmentPreconditionsOk(job) {
   if (!job) return false;
   if (job._enrichmentLoading) return false;
-  if (typeof navigator !== "undefined" && navigator.onLine === false) {
-    host().showToast("You're offline — insights will load when you reconnect.", "info");
-    return false;
-  }
   const canLlm = !!(
     window.CommandCenterJobPostingInsights &&
     window.CommandCenterJobPostingInsights.canEnrichWithLLM()
@@ -211,9 +212,9 @@ async function _tryScrape(jobLink, context = {}) {
   if (!base) return null;
   if (host().isScraperUrlBlockedOnThisPage(base)) return null;
   const ctrl = new AbortController();
-  // 8s is plenty for the local Cheerio service; longer waits feel
-  // broken and the LLM-only path produces useful output anyway.
-  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  // Cover Cheerio (up to 18s) plus a SerpApi Google Jobs fallback (~12s)
+  // after a fast 4xx/5xx. The LLM-only path still runs if this aborts.
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
   try {
     const res = await fetch(`${base}/api/scrape-job`, {
       method: "POST",

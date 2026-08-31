@@ -138,7 +138,7 @@ For each:
 |------|-------|----------|
 | No Gemini key | Delete the `resumeGeminiApiKey` line from `config.js` | Click a role → no Cheerio fetch attempted, no Gemini fetch attempted, single toast: "Add a Gemini API key in Settings → AI Providers to enable posting insights." No setup modal opens. |
 | Bad Gemini key | Set `resumeGeminiApiKey` to `"sk-bogus"` | Click a role → loading skeleton appears → fetch returns 401 → toast: "Gemini rejected the API key — re-enter it in Settings → AI Providers." Brief does NOT cache the result (verify by closing + reopening the dossier and confirming it retries). |
-| Browser offline | DevTools Network → "Offline" | Click a role → no fetch attempted → toast: "You're offline — insights will load when you reconnect." |
+| Browser offline | DevTools Network → "Offline" | Click a role → enrichment starts and the configured provider request is attempted → the resulting provider/network error is shown. The app must not short-circuit on `navigator.onLine` or promise an automatic reconnect retry. |
 | Race click | Click "fetch posting" twice quickly | Only one Gemini call in the Network tab. Second click is silently ignored (race guard). |
 
 ---
