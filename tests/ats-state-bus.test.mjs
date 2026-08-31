@@ -335,3 +335,38 @@ describe("ATS state bus", () => {
     assert.equal(modal.hidden, true);
   });
 });
+
+describe("F3B-SCRIBE02-SCORE — ATS bus payload is fixture-consumable by Scribe session", () => {
+  it("a success bus detail paints real axis scores for the matching jobKey and never a demo heuristic", () => {
+    const sessionPath = join(repoRoot, "scribe-session.js");
+    const window = addEventTargetMethods({});
+    const document = addEventTargetMethods({});
+    const context = vm.createContext({ window, document, console });
+    vm.runInContext(readFileSync(sessionPath, "utf8"), context, {
+      filename: "scribe-session.js",
+    });
+    const session = context.window.JobBoredScribeSession.create();
+    session.bindRole({
+      jobKey: "ats:cover_letter:job-1:abc",
+      title: "Staff Engineer",
+      company: "Acme",
+    });
+    session.setDocument({
+      feature: "cover_letter",
+      versionNumber: 1,
+      text: "A real draft with enough body to score.",
+    });
+    const result = buildScorecard();
+    session.bindAtsEvidence({
+      jobKey: "ats:cover_letter:job-1:abc",
+      status: "success",
+      result,
+      error: null,
+    });
+    const visible = session.visibleScorecard();
+    assert.equal(visible.source, "ats");
+    assert.equal(visible.overall, 88);
+    assert.equal(visible.axes.req, 90);
+    assert.doesNotMatch(String(visible.model || ""), /demo-scorecard-v1/);
+  });
+});
