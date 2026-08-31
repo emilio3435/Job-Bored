@@ -63,6 +63,56 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
     globalThis.fetch = originalFetch;
   });
 
+  it("allows the setup auth-probe header through browser CORS preflight", async () => {
+    const worker = await loadWorker();
+    const env = {
+      TARGET_URL: "https://upstream.example/webhook",
+      CORS_ORIGIN: "http://localhost:8080",
+    };
+    const req = createRequest({
+      method: "OPTIONS",
+      url: "https://relay.example.workers.dev/webhook",
+      headers: {
+        Origin: "http://localhost:8080",
+        "Access-Control-Request-Method": "POST",
+        "Access-Control-Request-Headers":
+          "content-type,x-discovery-auth-probe",
+      },
+    });
+
+    const res = await worker.fetch(req, env);
+
+    assert.equal(res.status, 204);
+    assert.match(
+      res.headers.get("Access-Control-Allow-Headers") || "",
+      /X-Discovery-Auth-Probe/i,
+      "the browser must be allowed to send the wizard's handshake header",
+    );
+    assert.equal(captured.calls.length, 0, "preflight must not reach upstream");
+  });
+
+  it("forwards the setup auth-probe header to the discovery worker", async () => {
+    const worker = await loadWorker();
+    const env = { TARGET_URL: "https://upstream.example/webhook" };
+    const req = createRequest({
+      method: "POST",
+      url: "https://relay.example.workers.dev/webhook",
+      headers: {
+        "Content-Type": "application/json",
+        "x-discovery-auth-probe": "1",
+      },
+      body: '{"event":"command-center.discovery"}',
+    });
+
+    await worker.fetch(req, env);
+
+    assert.equal(
+      captured.calls[0].init.headers["x-discovery-auth-probe"],
+      "1",
+      "setup verification must remain a side-effect-free handshake after the relay",
+    );
+  });
+
   it("injects DISCOVERY_SECRET as x-discovery-secret on the upstream POST", async () => {
     const worker = await loadWorker();
     const env = {

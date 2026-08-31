@@ -180,6 +180,18 @@ function getRemoteDiscoveryWebhookHost(rawUrl) {
   return hostname;
 }
 
+function getDiscoveryTunnelOrigin(rawUrl) {
+  const value = String(rawUrl || "").trim();
+  if (!value) return "";
+  try {
+    const parsed = new URL(value);
+    if (parsed.protocol !== "https:" || !parsed.host) return "";
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch (_) {
+    return "";
+  }
+}
+
 async function diagnoseDownstreamChain(snapshot) {
   const probes = host().getDiscoveryWizardProbesApi();
   const diagnosis = {
@@ -233,12 +245,11 @@ async function diagnoseDownstreamChain(snapshot) {
     const liveNgrokUrl = await probes.probeNgrokTunnels();
     diagnosis.tunnel.url = liveNgrokUrl;
     diagnosis.tunnel.active = !!liveNgrokUrl;
-    if (
-      liveNgrokUrl &&
-      snapshot.tunnelPublicUrl &&
-      liveNgrokUrl !== snapshot.tunnelPublicUrl
-    ) {
-      diagnosis.tunnel.stale = true;
+    if (liveNgrokUrl && snapshot.tunnelPublicUrl) {
+      const liveOrigin = getDiscoveryTunnelOrigin(liveNgrokUrl);
+      const savedOrigin = getDiscoveryTunnelOrigin(snapshot.tunnelPublicUrl);
+      diagnosis.tunnel.stale =
+        !liveOrigin || !savedOrigin || liveOrigin !== savedOrigin;
     }
     diagnosis.tunnel.status = liveNgrokUrl
       ? diagnosis.tunnel.stale
@@ -252,9 +263,11 @@ async function diagnoseDownstreamChain(snapshot) {
     diagnosis.tunnel.active &&
     diagnosis.tunnel.url
   ) {
-    const savedTarget = snapshot.relayTargetUrl.replace(/\/+$/, "");
-    const liveBase = diagnosis.tunnel.url.replace(/\/+$/, "");
-    if (!savedTarget.startsWith(liveBase)) {
+    const savedTargetOrigin = getDiscoveryTunnelOrigin(
+      snapshot.relayTargetUrl,
+    );
+    const liveOrigin = getDiscoveryTunnelOrigin(diagnosis.tunnel.url);
+    if (!savedTargetOrigin || savedTargetOrigin !== liveOrigin) {
       diagnosis.relay.targetMismatch = true;
     }
     diagnosis.relay.status = diagnosis.relay.targetMismatch
@@ -290,20 +303,10 @@ async function diagnoseDownstreamChain(snapshot) {
   } else if (diagnosis.tunnel.stale || diagnosis.relay.targetMismatch) {
     const liveRaw = diagnosis.tunnel.url || "";
     const liveNorm = liveRaw.replace(/\/+$/, "") || "unknown";
-    const tunnelOrigin = (u) => {
-      try {
-        const s = String(u || "").trim();
-        if (!s) return "";
-        const parsed = new URL(s);
-        return `${parsed.protocol}//${parsed.host}`;
-      } catch (_) {
-        return String(u || "").replace(/\/+$/, "");
-      }
-    };
-    const liveOrigin = liveRaw ? tunnelOrigin(liveRaw) : "";
+    const liveOrigin = getDiscoveryTunnelOrigin(liveRaw);
     let oldDisplay = "";
     if (diagnosis.relay.targetMismatch && snapshot.relayTargetUrl) {
-      const relayOrig = tunnelOrigin(snapshot.relayTargetUrl);
+      const relayOrig = getDiscoveryTunnelOrigin(snapshot.relayTargetUrl);
       if (relayOrig && liveOrigin && relayOrig !== liveOrigin) {
         oldDisplay = relayOrig;
       }
@@ -314,7 +317,7 @@ async function diagnoseDownstreamChain(snapshot) {
       snapshot.tunnelPublicUrl &&
       liveOrigin
     ) {
-      const pubOrig = tunnelOrigin(snapshot.tunnelPublicUrl);
+      const pubOrig = getDiscoveryTunnelOrigin(snapshot.tunnelPublicUrl);
       if (pubOrig && pubOrig !== liveOrigin) {
         oldDisplay = snapshot.tunnelPublicUrl.replace(/\/+$/, "");
       }
@@ -323,7 +326,7 @@ async function diagnoseDownstreamChain(snapshot) {
       oldDisplay =
         snapshot.tunnelPublicUrl ||
         (snapshot.relayTargetUrl
-          ? tunnelOrigin(snapshot.relayTargetUrl)
+          ? getDiscoveryTunnelOrigin(snapshot.relayTargetUrl)
           : "") ||
         "unknown";
     }

@@ -7,6 +7,7 @@ All notable changes to JobBored are recorded in the [GitHub Releases](https://gi
 In-flight improvements since the last tagged release:
 
 - **Job-posting enrichment** — blocked ATS pages (Indeed 401, Lever 404, thin SPAs) now fall back to Google Jobs via SerpApi instead of 502ing with an empty JD. Empty-description caches no longer block a later scrape, and the unreliable `navigator.onLine` gate is gone.
+- **Discovery setup reliability** — Step 7 now treats trailing-slash variants as the same live tunnel, while the Cloudflare relay allows and forwards the side-effect-free authentication probe used by the browser connection test.
 - **Discovery hardening** — constant-time webhook secret compare, Gemini client timeouts, length caps on ingested payloads, and an ingest safety timer to keep partial runs from blocking forever.
 - **Data integrity** — atomic resume save to IndexedDB with honest `VersionError` propagation, plus fixes for fake-IDB hangs and two regex typos in the data-integrity test cluster.
 - **Security** — proxy probes gated behind a feature flag, a real CSP on the dashboard, the XSS sink in the discovery drawer removed, and `baseUrl` validation across the network surface.
