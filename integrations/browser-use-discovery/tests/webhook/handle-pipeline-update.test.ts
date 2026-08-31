@@ -60,7 +60,14 @@ test("rejects invalid JSON with 400", async () => {
 test("rejects missing sheetId with 400", async () => {
   const { deps } = makeDeps();
   const res = await handlePipelineUpdateWebhook(
-    makeRequest({ bodyText: JSON.stringify({ job: { url: "x" }, fields: { stage: "Offer" } }) }),
+    makeRequest({
+      bodyText: JSON.stringify({
+        event: "command-center.pipeline-update",
+        schemaVersion: 1,
+        job: { url: "x" },
+        fields: { stage: "Offer" },
+      }),
+    }),
     deps,
   );
   assert.equal(res.status, 400);
@@ -70,7 +77,15 @@ test("rejects missing sheetId with 400", async () => {
 test("rejects invalid stage with 400", async () => {
   const { deps } = makeDeps();
   const res = await handlePipelineUpdateWebhook(
-    makeRequest({ bodyText: JSON.stringify({ sheetId: "sheet_1234567890", job: { url: "x" }, fields: { stage: "Chatting" } }) }),
+    makeRequest({
+      bodyText: JSON.stringify({
+        event: "command-center.pipeline-update",
+        schemaVersion: 1,
+        sheetId: "sheet_1234567890",
+        job: { url: "x" },
+        fields: { stage: "Chatting" },
+      }),
+    }),
     deps,
   );
   assert.equal(res.status, 400);
@@ -80,7 +95,15 @@ test("rejects invalid stage with 400", async () => {
 test("rejects missing identity with 400", async () => {
   const { deps } = makeDeps();
   const res = await handlePipelineUpdateWebhook(
-    makeRequest({ bodyText: JSON.stringify({ sheetId: "sheet_1234567890", job: {}, fields: { stage: "Offer" } }) }),
+    makeRequest({
+      bodyText: JSON.stringify({
+        event: "command-center.pipeline-update",
+        schemaVersion: 1,
+        sheetId: "sheet_1234567890",
+        job: {},
+        fields: { stage: "Offer" },
+      }),
+    }),
     deps,
   );
   assert.equal(res.status, 400);
@@ -114,3 +137,60 @@ test("returns 502 when the patch throws", async () => {
   const res = await handlePipelineUpdateWebhook(makeRequest(), deps);
   assert.equal(res.status, 502);
 });
+
+test("F1A-P2-VALIDATE: unknown event fails closed before mutation", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handlePipelineUpdateWebhook(
+    makeRequest({
+      bodyText: JSON.stringify({
+        event: "command-center.discovery",
+        schemaVersion: 1,
+        sheetId: "sheet_1234567890",
+        job: { url: "https://acme.com/jobs/1" },
+        fields: { stage: "Interviewing" },
+      }),
+    }),
+    deps,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.body, /event must be command-center\.pipeline-update/);
+  assert.equal(calls.length, 0, "unknown event must not call patchPipeline");
+});
+
+test("F1A-P2-VALIDATE: missing event fails closed before mutation", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handlePipelineUpdateWebhook(
+    makeRequest({
+      bodyText: JSON.stringify({
+        schemaVersion: 1,
+        sheetId: "sheet_1234567890",
+        job: { url: "https://acme.com/jobs/1" },
+        fields: { stage: "Interviewing" },
+      }),
+    }),
+    deps,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.body, /event must be command-center\.pipeline-update/);
+  assert.equal(calls.length, 0);
+});
+
+test("F1A-P2-VALIDATE: unknown fields fail closed before mutation", async () => {
+  const { deps, calls } = makeDeps();
+  const res = await handlePipelineUpdateWebhook(
+    makeRequest({
+      bodyText: JSON.stringify({
+        event: "command-center.pipeline-update",
+        schemaVersion: 1,
+        sheetId: "sheet_1234567890",
+        job: { url: "https://acme.com/jobs/1" },
+        fields: { stage: "Interviewing", mysteryColumn: "should-not-write" },
+      }),
+    }),
+    deps,
+  );
+  assert.equal(res.status, 400);
+  assert.match(res.body, /unknown/i);
+  assert.equal(calls.length, 0, "unknown fields must not call patchPipeline");
+});
+
