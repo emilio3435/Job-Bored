@@ -51,7 +51,12 @@ describe("dev-server HTTPS surface", () => {
     });
     const port = server.address().port;
     try {
-      const response = await fetchHttpsText(`https://localhost:${port}/`);
+      const address = server.address();
+      const host =
+        address && typeof address === "object" && address.address === "::1"
+          ? "[::1]"
+          : "127.0.0.1";
+      const response = await fetchHttpsText(`https://${host}:${port}/`);
       assert.equal(response.statusCode, 200);
       assert.match(String(response.headers["content-type"] || ""), /text\/html/i);
       assert.match(response.body, /JobBored/i);

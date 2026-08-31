@@ -1,12 +1,18 @@
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
+import {
+  decodeRequestPathname,
+  parseRequestUrl,
+  resolveListenHost,
+  resolvePublicFile,
+} from "./scripts/lib/static-path-guard.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
 import {
   detectTailscale,
@@ -461,16 +467,23 @@ const STATIC_SECURITY_HEADERS = {
   "referrer-policy": "no-referrer",
 };
 
+function writeStaticGuardResponse(res, status) {
+  const message =
+    status === 400 ? "Bad request" : status === 403 ? "Forbidden" : "Not found";
+  res.writeHead(status, {
+    "content-type": "text/plain",
+    ...STATIC_SECURITY_HEADERS,
+  });
+  res.end(message);
+}
+
 async function serveStatic(urlPath, res) {
-  let filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
-  try {
-    const info = await stat(filePath);
-    if (info.isDirectory()) filePath = join(filePath, "index.html");
-  } catch {
-    res.writeHead(404, { "content-type": "text/plain", ...STATIC_SECURITY_HEADERS });
-    res.end("Not found");
+  const resolved = await resolvePublicFile(urlPath, { root: ROOT });
+  if (!resolved.ok) {
+    writeStaticGuardResponse(res, resolved.status || 404);
     return;
   }
+  const filePath = resolved.filePath;
   try {
     const ext = extname(filePath).toLowerCase();
     const ct = MIME[ext] || "application/octet-stream";
@@ -479,6 +492,7 @@ async function serveStatic(urlPath, res) {
     // be served as raw bytes. Reading binary files with "utf8" replaces every
     // non-UTF-8 byte with U+FFFD and corrupts the payload on re-encode, which
     // breaks .webp/.png/.ico/.woff* assets even though they exist on disk.
+    // Expand includes only AFTER realpath/deny (F4-D owns expander semantics).
     if (ext === ".html") {
       let data = await readFile(filePath, "utf8");
       if (/<!--\s*@include\s+/.test(data)) {
@@ -500,8 +514,7 @@ async function serveStatic(urlPath, res) {
     });
     res.end(data);
   } catch {
-    res.writeHead(404, { "content-type": "text/plain", ...STATIC_SECURITY_HEADERS });
-    res.end("Not found");
+    writeStaticGuardResponse(res, 404);
   }
 }
 
@@ -2082,8 +2095,21 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       : () => {};
 
   return (req, res) => {
-    const url = new URL(req.url || "/", `http://localhost:${currentPort}`);
-    const pathname = decodeURIComponent(url.pathname);
+    const parsed = parseRequestUrl(
+      req.url,
+      `http://127.0.0.1:${currentPort}`,
+    );
+    if (!parsed.ok) {
+      writeStaticGuardResponse(res, parsed.status || 400);
+      return;
+    }
+    const url = parsed.url;
+    const decoded = decodeRequestPathname(url.pathname);
+    if (!decoded.ok) {
+      writeStaticGuardResponse(res, decoded.status || 400);
+      return;
+    }
+    const pathname = decoded.pathname;
 
     if (req.method === "OPTIONS" && pathname.startsWith("/__proxy/")) {
       res.writeHead(204, {
@@ -2384,11 +2410,13 @@ export function createDevServer({
 
 export function startDevServer({
   port = DEFAULT_PORT,
+  host,
   logger = console,
   tls = false,
   discoveryWorkerStarter,
 } = {}) {
   const requestedPort = normalizePort(port);
+  const listenHost = resolveListenHost({ host });
   const useTls = normalizeBooleanFlag(tls);
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
@@ -2401,11 +2429,12 @@ export function startDevServer({
       discoveryWorkerStarter,
     });
     server.once("error", reject);
-    server.listen(requestedPort, () => {
+    server.listen(requestedPort, listenHost, () => {
       const address = server.address();
       const actualPort =
         address && typeof address === "object" ? address.port : requestedPort;
-      log(`  Dev server listening on ${useTls ? "https" : "http"}://localhost:${actualPort}`);
+      const displayHost = listenHost.includes(":") ? `[${listenHost}]` : listenHost;
+      log(`  Dev server listening on ${useTls ? "https" : "http"}://${displayHost}:${actualPort}`);
       if (useTls) {
         log(`  Local TLS certificate: ${TLS_CERT_PATH}`);
       }
