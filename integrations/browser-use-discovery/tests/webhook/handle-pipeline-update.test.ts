@@ -43,7 +43,6 @@ test("rejects non-POST with 405", async () => {
   const res = await handlePipelineUpdateWebhook(makeRequest({ method: "GET" }), deps);
   assert.equal(res.status, 405);
 });
-
 test("rejects bad secret with 401", async () => {
   const { deps } = makeDeps();
   const res = await handlePipelineUpdateWebhook(makeRequest({ headers: { "x-discovery-secret": "wrong" } }), deps);
@@ -193,4 +192,3 @@ test("F1A-P2-VALIDATE: unknown fields fail closed before mutation", async () => 
   assert.match(res.body, /unknown/i);
   assert.equal(calls.length, 0, "unknown fields must not call patchPipeline");
 });
-

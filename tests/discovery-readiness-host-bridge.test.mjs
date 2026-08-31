@@ -91,7 +91,6 @@ test("fallback readiness snapshot calls host helpers lazily after app.js wires t
   assert.equal(snapshot.savedWebhookUrl, "");
   assert.equal(snapshot.views.settings.title, "No discovery webhook configured");
 });
-
 function loadReadinessWithEngine(state) {
   const window = {
     JobBoredApp: {
@@ -159,4 +158,3 @@ test("F2C-SETUP03-READY: recovery is distinct from verified connected", () => {
   assert.notEqual(view.tone, "success");
   assert.equal(view.chipLabel, "Needs recovery");
 });
-

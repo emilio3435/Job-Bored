@@ -328,7 +328,6 @@ describe("flowing-writes stage row resolution", () => {
     assert.equal(marked.ok, false, "Mark submitted must reject the drag-only Applied claim");
   });
 });
-
 function loadTransitions() {
   const src = readFileSync(join(repoRoot, "pipeline-transitions.js"), "utf8");
   const context = { window: {}, globalThis: {}, console };
@@ -376,4 +375,3 @@ describe("F1-A flowing-writes vs canonical stage registry", () => {
     assert.equal(values["Pipeline!P7"], "2026-09-07");
   });
 });
-

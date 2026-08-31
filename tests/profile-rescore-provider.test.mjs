@@ -97,7 +97,6 @@ describe("profile rescore provider config", () => {
     assert.equal(status.provider, "gemini");
   });
 });
-
 describe("rescoreAllPipelineRows provider behavior", () => {
   it("dryRun counts rows without requiring any LLM provider config", async () => {
     const originalFetch = globalThis.fetch;
@@ -396,4 +395,3 @@ describe("F0D provider isolation for profile rescore", () => {
     }
   });
 });
-

@@ -65,7 +65,6 @@ test("patch updates status and appends a dated note, matched by url", async () =
     false,
   );
 });
-
 test("re-posting the same note is idempotent", async () => {
   const existing = [rowFor({ url: "https://acme.com/jobs/1", notes: "[2026-06-18] recruiter replied" })];
   const { fetchImpl, calls } = mockFetch(existing);
@@ -142,4 +141,3 @@ test("F1A-P2-VALIDATE: unknown patch fields fail closed and write nothing", asyn
   );
   assert.equal(calls.some((c) => /values:batchUpdate/.test(c.url)), false);
 });
-

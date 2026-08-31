@@ -243,7 +243,6 @@ describe("read-path 401 after failed refresh", () => {
     assert.equal(sheetsApiCalls, 2);
   });
 });
-
 describe("read-path non-401 API errors mid-session", () => {
   it("renders the recorded Sheets API error in #errorStateHint instead of the static guess", async () => {
     const { calls, elements, sheetsRead } = createHarness({
@@ -362,4 +361,3 @@ describe("F2D-AUTH02-CAP sheet read vs write capability", () => {
     assert.equal(result.mode, "readonly");
   });
 });
-

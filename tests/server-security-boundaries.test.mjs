@@ -102,7 +102,6 @@ describe("server security boundaries", () => {
     assert.equal(validateScrapeTarget("http://224.0.0.1/x").ok, false);
   });
 });
-
 describe("DNS-aware scrape validation", () => {
   it("blocks public hostnames that resolve to a private address", async () => {
     const lookupImpl = async () => [{ address: "169.254.169.254", family: 4 }];
@@ -215,4 +214,3 @@ describe("F0D-F11-FWD trusted request origin parts", () => {
     );
   });
 });
-

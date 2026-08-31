@@ -212,4 +212,3 @@ describe("F2C-SETUP01-PRESERVE: Settings save omits absent discovery fields", ()
     assert.equal(patches[0].discoveryWebhookSecret, "new-secret");
   });
 });
-

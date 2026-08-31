@@ -401,7 +401,6 @@ describe("OAuth session storage boundary", () => {
     assert.equal(harness.calls.loadAllData, 0);
   });
 });
-
 describe("F2D-PRIV01-DOCS storage and provider data flow", () => {
   /**
    * WHY: SECURITY.md / README.md claimed OAuth tokens were memory-only while
@@ -453,4 +452,3 @@ describe("F2D-PRIV01-DOCS storage and provider data flow", () => {
     );
   });
 });
-
