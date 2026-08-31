@@ -239,7 +239,13 @@ describe("F0A-SEC01-DOT private artifacts", () => {
         "/integrations/browser-use-discovery/.env",
         "/config.js",
         "/discovery-local-bootstrap.json",
+        "/integrations/browser-use-discovery/service-account-key.json",
         "/integrations/browser-use-discovery/state/worker-config.json",
+        "/integrations/hermes-job-hunt/applications/acme/private.json",
+        "/integrations/hermes-job-hunt/state/submit-locks.db",
+        "/integrations/hermes-job-hunt/evidence/receipt.json",
+        "/integrations/hermes-job-hunt/profile/profile.md",
+        "/integrations/hermes-job-hunt/profile/sources/resumes/private.pdf",
       ];
       for (const probe of probes) {
         const response = await rawRequest(port, probe);
@@ -262,7 +268,13 @@ describe("F0A-SEC01-DOT private artifacts", () => {
         join("integrations", "browser-use-discovery", ".env"),
         "config.js",
         "discovery-local-bootstrap.json",
+        join("integrations", "browser-use-discovery", "service-account-key.json"),
         join("integrations", "browser-use-discovery", "state", "worker-config.json"),
+        join("integrations", "hermes-job-hunt", "applications", "acme", "private.json"),
+        join("integrations", "hermes-job-hunt", "state", "submit-locks.db"),
+        join("integrations", "hermes-job-hunt", "evidence", "receipt.json"),
+        join("integrations", "hermes-job-hunt", "profile", "profile.md"),
+        join("integrations", "hermes-job-hunt", "profile", "sources", "resumes", "private.pdf"),
         join(".git", "HEAD"),
       ];
       for (const rel of files) {

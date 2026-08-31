@@ -7,7 +7,27 @@ export const LISTEN_HOST_ENV = "COMMAND_CENTER_LISTEN_HOST";
 const DENIED_BASENAMES = new Set([
   "config.js",
   "discovery-local-bootstrap.json",
+  "service-account-key.json",
 ]);
+
+const DENIED_PATHS = new Set([
+  "integrations/browser-use-discovery/worker.log",
+  "integrations/hermes-job-hunt/profile/profile.md",
+  "integrations/hermes-job-hunt/profile/voice.md",
+  "integrations/hermes-job-hunt/profile/resume-bullets.md",
+  "integrations/hermes-job-hunt/profile/job-preferences.md",
+  "integrations/hermes-job-hunt/profile/materials-quality.md",
+  "integrations/hermes-job-hunt/profile/merge_report.md",
+  "integrations/hermes-job-hunt/profile/profile-sources-needed.md",
+]);
+
+const DENIED_PATH_PREFIXES = [
+  "integrations/browser-use-discovery/state",
+  "integrations/hermes-job-hunt/applications",
+  "integrations/hermes-job-hunt/state",
+  "integrations/hermes-job-hunt/evidence",
+  "integrations/hermes-job-hunt/profile/sources",
+];
 
 /**
  * Loopback by default. Remote bind only when `host` or COMMAND_CENTER_LISTEN_HOST
@@ -56,10 +76,10 @@ export function isDeniedRelativePath(relativePath) {
   const segments = posixSegments(relativePath);
   if (segments.some((segment) => segment.startsWith("."))) return true;
   if (segments.some((segment) => DENIED_BASENAMES.has(segment))) return true;
-  const joined = segments.join("/");
-  return (
-    joined === "integrations/browser-use-discovery/state" ||
-    joined.startsWith("integrations/browser-use-discovery/state/")
+  const joined = segments.join("/").toLowerCase();
+  if (DENIED_PATHS.has(joined)) return true;
+  return DENIED_PATH_PREFIXES.some(
+    (prefix) => joined === prefix || joined.startsWith(`${prefix}/`),
   );
 }
 

@@ -3973,6 +3973,10 @@ test("F1B-RUN02-PERSIST: async work must not begin before running-status persist
 
 test("F1B-RUN05-FINAL: catastrophic async failure writes one durable history row", async () => {
   const rows: Array<{ status: string; error: string }> = [];
+  let resolveHistoryWritten!: () => void;
+  const historyWritten = new Promise<void>((resolve) => {
+    resolveHistoryWritten = resolve;
+  });
   const dependencies = makeDependencies({
     runSynchronously: false,
     runDiscovery: async () => {
@@ -3987,6 +3991,7 @@ test("F1B-RUN05-FINAL: catastrophic async failure writes one durable history row
       discoveryRunsLogger: {
         append: async (_sheetId: string, row: { status: string; error: string }) => {
           rows.push({ status: row.status, error: row.error });
+          resolveHistoryWritten();
           return { ok: true, created: false };
         },
       },
@@ -4012,20 +4017,19 @@ test("F1B-RUN05-FINAL: catastrophic async failure writes one durable history row
     dependencies,
   );
   assert.equal(response.status, 202);
-  await waitForRunStatus(
-    { get: () => (rows[0] ? { status: "failed", terminal: true } : null) },
-    "run_queued",
-    (state) => !!state,
-    250,
-  );
-  await new Promise((resolve) => setTimeout(resolve, 20));
+  await historyWritten;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, "failure");
   assert.match(rows[0].error, /exploded/i);
 });
 
-test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays idempotent", async () => {
+test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays idempotent", async (t) => {
+  t.mock.timers.enable({ apis: ["setTimeout"] });
   const rows: Array<{ status: string }> = [];
+  let resolveHistoryWritten!: () => void;
+  const historyWritten = new Promise<void>((resolve) => {
+    resolveHistoryWritten = resolve;
+  });
   const dependencies = makeDependencies({
     runSynchronously: false,
     maxRunDurationMs: 15,
@@ -4039,6 +4043,7 @@ test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays
       discoveryRunsLogger: {
         append: async (_sheetId: string, row: { status: string }) => {
           rows.push({ status: row.status });
+          resolveHistoryWritten();
           return { ok: true, created: false };
         },
       },
@@ -4064,7 +4069,8 @@ test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays
     dependencies,
   );
   assert.equal(response.status, 202);
-  await new Promise((resolve) => setTimeout(resolve, 80));
+  t.mock.timers.tick(15);
+  await historyWritten;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, "partial");
 });

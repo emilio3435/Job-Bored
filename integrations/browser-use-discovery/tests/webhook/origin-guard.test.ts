@@ -68,6 +68,9 @@ test("F1B-P2-CORS: nested run IDs are rejected in the documented { ok:false, mes
   assert.match(nested.body.message, /nested/i);
   const encoded = parseRunStatusPath!("/runs/foo%2Fbar");
   assert.equal(encoded.ok, false);
+  const malformed = parseRunStatusPath!("/runs/%");
+  assert.equal(malformed.ok, false);
+  assert.equal(malformed.ok ? 0 : malformed.status, 400);
   const ok = parseRunStatusPath!("/runs/run_abc");
   assert.deepEqual(ok, { ok: true, runId: "run_abc" });
 });
