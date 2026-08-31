@@ -26,6 +26,53 @@ export function normalizeAllowedBrowserOrigins(
 }
 
 /**
+ * Host/protocol used for same-origin CORS matching.
+ * Ignores X-Forwarded-Host / X-Forwarded-Proto; those headers are
+ * attacker-controlled unless a trusted proxy rewrites Host itself.
+ *
+ * @param {{ get?: (name: string) => unknown, headers?: Record<string, unknown>, secure?: unknown, protocol?: unknown }} req
+ */
+export function trustedRequestOriginParts(req) {
+  /** @param {string} name */
+  const header = (name) => {
+    if (req && typeof req.get === "function") return req.get(name);
+    const headers = req && req.headers ? req.headers : {};
+    const direct = headers[name];
+    if (direct != null) return direct;
+    const lower = String(name).toLowerCase();
+    return headers[lower];
+  };
+  const requestOrigin = cleanString(header("origin"));
+  const requestHost = cleanString(header("host"));
+  const requestProtocol = req && req.secure
+    ? "https"
+    : cleanString(req && req.protocol ? req.protocol : "http")
+        .replace(/:$/, "")
+        .split(",")[0]
+        .trim() || "http";
+  return { requestOrigin, requestHost, requestProtocol };
+}
+
+/**
+ * Strip common provider secret shapes from a string before it is logged or
+ * returned to a browser. Unknown evidence stays unknown; this is not a
+ * guarantee against every leak format.
+ * @param {unknown} value
+ */
+export function redactSecrets(value) {
+  let text = String(value ?? "");
+  text = text.replace(/sk-[A-Za-z0-9_-]{8,}/g, "[redacted]");
+  text = text.replace(/AIza[0-9A-Za-z_-]{20,}/g, "[redacted]");
+  text = text.replace(/(Bearer\s+)\S+/gi, "$1[redacted]");
+  text = text.replace(
+    /((?:api[_-]?key|access[_-]?token)\s*[=:]\s*)[^\s"'\\]+/gi,
+    "$1[redacted]",
+  );
+  text = text.replace(/([?&](?:key|api_key|access_token)=)[^&\s]+/gi, "$1[redacted]");
+  return text;
+}
+
+/**
  * @param {unknown} requestOrigin
  * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown }} [options]
  */

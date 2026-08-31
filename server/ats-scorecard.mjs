@@ -84,6 +84,8 @@ const SYSTEM_PROMPT =
 
 const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free";
+const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
+const MAX_PROVIDER_TIMEOUT_MS = 120_000;
 
 /** @typedef {"gemini" | "openai" | "anthropic" | "openrouter" | "openai_compatible"} AtsProvider */
 /** @typedef {Record<string, unknown>} UnknownRecord */
@@ -318,8 +320,10 @@ function buildProviderHttpError({
   fallbackMessage,
 }) {
   const details = extractProviderErrorDetails(payload);
-  const message = details.message || fallbackMessage || `${providerDisplayName(provider)} request failed`;
-  const error = /** @type {ProviderApiError} */ (new Error(message));
+  const statusLabel = Number.isInteger(upstreamStatus)
+    ? `${providerDisplayName(provider)} HTTP ${upstreamStatus}`
+    : fallbackMessage || `${providerDisplayName(provider)} request failed`;
+  const error = /** @type {ProviderApiError} */ (new Error(statusLabel));
   error.name = "ProviderApiError";
   error.provider = provider;
   error.upstreamStatus = Number.isInteger(upstreamStatus) ? upstreamStatus : undefined;
@@ -331,27 +335,49 @@ function buildProviderHttpError({
   return error;
 }
 
+/** @param {unknown} cause */
+function isAbortLikeError(cause) {
+  if (!cause || typeof cause !== "object") return false;
+  const name = "name" in cause ? String(cause.name) : "";
+  return name === "AbortError" || name === "TimeoutError";
+}
+
 /**
  * @param {AtsProvider} provider
  * @param {unknown} cause
  * @returns {ProviderApiError & { cause: unknown }}
  */
 function buildProviderRequestError(provider, cause) {
-  const errorLike = /** @type {{ message?: unknown } | null | undefined} */ (cause);
-  const detail =
-    errorLike && errorLike.message
-      ? String(errorLike.message).trim()
-      : String(cause || "network failure");
+  const timedOut = isAbortLikeError(cause);
   const error = /** @type {ProviderApiError & { cause: unknown }} */ (
-    new Error(`${providerDisplayName(provider)} request failed: ${detail}`)
+    new Error(
+      timedOut
+        ? `${providerDisplayName(provider)} request timed out`
+        : `${providerDisplayName(provider)} request failed`,
+    )
   );
   error.name = "ProviderApiError";
   error.provider = provider;
-  error.providerCode = "network_error";
+  error.providerCode = timedOut ? "timeout" : "network_error";
   error.classification = "upstream";
   error.retryable = true;
   error.cause = cause;
   return error;
+}
+
+export function providerFetchTimeoutMs() {
+  const raw = Number(process.env.ATS_PROVIDER_TIMEOUT_MS);
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(Math.trunc(raw), MAX_PROVIDER_TIMEOUT_MS);
+  }
+  return DEFAULT_PROVIDER_TIMEOUT_MS;
+}
+
+/** @param {AbortSignal} [externalSignal] */
+function providerFetchSignal(externalSignal) {
+  const timeoutSignal = AbortSignal.timeout(providerFetchTimeoutMs());
+  if (!externalSignal) return timeoutSignal;
+  return AbortSignal.any([timeoutSignal, externalSignal]);
 }
 
 /** @param {unknown} schema */
@@ -592,6 +618,7 @@ async function callGeminiJson(userPrompt, apiKey, model) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(body),
+        signal: providerFetchSignal(),
       });
     } catch (error) {
       throw buildProviderRequestError("gemini", error);
@@ -653,6 +680,7 @@ async function callOpenAIJson(userPrompt, apiKey, model) {
           Authorization: `Bearer ${apiKey}`,
         },
         body: JSON.stringify(body),
+        signal: providerFetchSignal(),
       });
     } catch (error) {
       throw buildProviderRequestError("openai", error);
@@ -704,6 +732,7 @@ async function callOpenAICompatibleJson({
         method: "POST",
         headers,
         body: JSON.stringify(body),
+        signal: providerFetchSignal(),
       });
     } catch (error) {
       throw buildProviderRequestError(provider, error);
@@ -754,6 +783,7 @@ async function callAnthropicJson(userPrompt, apiKey, model) {
           "anthropic-version": "2023-06-01",
         },
         body: JSON.stringify(body),
+        signal: providerFetchSignal(),
       });
     } catch (error) {
       throw buildProviderRequestError("anthropic", error);
@@ -820,7 +850,6 @@ export function getProviderConfigFromEnv() {
       process.env.ATS_OPENAI_COMPATIBLE_API_KEY ||
         process.env.ATS_OPENAI_COMPAT_API_KEY ||
         process.env.OPENAI_COMPATIBLE_API_KEY ||
-        process.env.OPENAI_API_KEY ||
         "",
     ).trim(),
     geminiModel: String(process.env.ATS_GEMINI_MODEL || "gemini-3.5-flash").trim(),

@@ -12,7 +12,9 @@ import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import {
   normalizeAllowedBrowserOrigins,
+  redactSecrets,
   resolveAllowedBrowserOrigin,
+  trustedRequestOriginParts,
   validateScrapeTargetWithDns,
 } from "./security-boundaries.mjs";
 import {
@@ -167,15 +169,7 @@ function getAtsProviderErrorMetadata(error) {
 }
 
 app.use((req, res, next) => {
-  const requestOrigin = String(req.get("origin") || "").trim();
-  const requestHost = String(
-    req.get("x-forwarded-host") || req.get("host") || "",
-  ).trim();
-  const requestProtocol = String(
-    req.get("x-forwarded-proto") || (req.secure ? "https" : req.protocol || "http"),
-  )
-    .split(",")[0]
-    .trim();
+  const { requestOrigin, requestHost, requestProtocol } = trustedRequestOriginParts(req);
   const allowOrigin = resolveAllowedBrowserOrigin(requestOrigin, {
     allowedOrigins: ALLOWED_BROWSER_ORIGINS,
     requestHost,
@@ -248,8 +242,8 @@ app.post("/api/scrape-job", async (req, res) => {
     });
     res.json(result);
   } catch (e) {
-    const msg = errorMessage(e, "Scrape failed");
-    res.status(502).json({ error: msg });
+    const msg = redactSecrets(errorMessage(e, "Scrape failed"));
+    res.status(502).json({ error: msg, code: "UPSTREAM_ERROR" });
   }
 });
 
@@ -270,11 +264,19 @@ app.post("/api/ats-scorecard", async (req, res) => {
       `[ats-scorecard] requestId=${requestId} ok model=${scorecard.model} overallScore=${scorecard.overallScore}`,
     );
   } catch (e) {
-    const msg = errorMessage(e, "ATS scorecard failed");
-    const status = /required|invalid|must be/i.test(msg) ? 400 : 502;
     const metadata = getAtsProviderErrorMetadata(e);
+    const rawMsg = errorMessage(e, "ATS scorecard failed");
+    const status = metadata
+      ? 502
+      : /required|invalid|must be/i.test(rawMsg)
+        ? 400
+        : 502;
+    const publicError = metadata
+      ? "Upstream provider request failed"
+      : redactSecrets(rawMsg);
     const responseBody = {
-      error: msg,
+      error: publicError,
+      code: status === 400 ? "INVALID_REQUEST" : "UPSTREAM_ERROR",
       requestId,
       ...(metadata && metadata.provider ? { provider: metadata.provider } : {}),
       ...(metadata && metadata.upstreamStatus != null
@@ -291,7 +293,9 @@ app.post("/api/ats-scorecard", async (req, res) => {
         : {}),
     };
     res.status(status).json(responseBody);
-    console.warn(`[ats-scorecard] requestId=${requestId} status=${status} error=${msg}`);
+    console.warn(
+      `[ats-scorecard] requestId=${requestId} status=${status} error=${redactSecrets(rawMsg)}`,
+    );
   }
 });
 
@@ -820,11 +824,22 @@ app.get("/api/applications/:slug/files/:filename", async (req, res) => {
 
 app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, next) => {
   if (!err) return next();
-  const error = /** @type {{ type?: unknown }} */ (err);
+  const error = /** @type {{ type?: unknown, status?: unknown, statusCode?: unknown }} */ (err);
   if (error.type === "entity.too.large") {
     return res.status(413).json({
       error:
         "Request body too large for ATS endpoint. Reduce payload size or raise server JSON limit.",
+      code: "PAYLOAD_TOO_LARGE",
+    });
+  }
+  const status = Number(error.status || error.statusCode);
+  if (
+    error.type === "entity.parse.failed" ||
+    (err instanceof SyntaxError && status === 400)
+  ) {
+    return res.status(400).json({
+      error: "Malformed JSON body",
+      code: "INVALID_JSON",
     });
   }
   return next(err);
