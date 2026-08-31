@@ -1,5 +1,6 @@
 import type { RawListing } from "../contracts.ts";
 import { toPlainText } from "../browser/selectors/shared.ts";
+import { safeFetch } from "../net/safe-fetch.ts";
 
 type FetchImpl = typeof globalThis.fetch;
 
@@ -200,12 +201,16 @@ async function fetchJson(
 > {
   let response: Response;
   try {
-    response = await fetchImpl(endpoint, {
-      method: "GET",
-      headers: {
-        Accept: "application/json",
+    response = await safeFetch(
+      endpoint,
+      {
+        method: "GET",
+        headers: {
+          Accept: "application/json",
+        },
       },
-    });
+      { fetchImpl },
+    );
   } catch (error) {
     return {
       ok: false,
