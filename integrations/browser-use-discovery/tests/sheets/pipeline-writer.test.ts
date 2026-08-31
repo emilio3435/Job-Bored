@@ -934,3 +934,96 @@ test("buildLeadRow emits COLUMN_COUNT (25) cells with a trailing empty Edit Lock
     "a newly-discovered row carries an EMPTY Edit Lock cell (nothing locked yet)",
   );
 });
+
+test("F1D-PIPE07-ID merges alternate ATS URLs for the same provider job id", async () => {
+  const existingRow = row([
+    "2026-04-01",
+    "Staff Platform Engineer",
+    "Acme Labs",
+    "Austin, TX",
+    "https://boards.greenhouse.io/acme/jobs/12345?gh_src=linkedin",
+    "Greenhouse",
+  ]);
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [existingRow],
+    responses: [responseJson({ updatedRows: 1 })],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  const result = await writer.write("sheet_123", [
+    makeLead({
+      title: "Staff Platform Engineer",
+      company: "Acme Labs",
+      location: "Austin, TX",
+      url: "https://job-boards.greenhouse.io/acme/jobs/12345",
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      metadata: {
+        runId: "run_1",
+        variationKey: "var_1",
+        sourceQuery: "Staff Platform Engineer Acme",
+        canonicalUrl: "https://job-boards.greenhouse.io/acme/jobs/12345",
+        externalJobId: "12345",
+        fingerprintKey: "provider:greenhouse:12345",
+        semanticKey: "acmelabs|staff platform engineer|austin tx|unknown",
+      },
+    }),
+  ]);
+
+  assert.equal(result.updated, 1);
+  assert.equal(result.appended, 0);
+  const updateCall = calls.find((call) => /values:batchUpdate$/.test(call.url));
+  assert.ok(updateCall, "provider identity match must update the existing row");
+  const updatedRow = JSON.parse(updateCall.body).data[0].values[0];
+  assert.equal(
+    updatedRow[4],
+    "https://job-boards.greenhouse.io/acme/jobs/12345",
+  );
+});
+
+test("F1D-PIPE07-ID keeps distinct locations as distinct rows", async () => {
+  const existingRow = row([
+    "2026-04-01",
+    "Account Executive",
+    "Acme Labs",
+    "Austin, TX",
+    "https://boards.greenhouse.io/acme/jobs/111",
+    "Greenhouse",
+  ]);
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW],
+    dataRows: [existingRow],
+    responses: [responseJson({ appendedRows: 1 })],
+  });
+  const writer = createPipelineWriter(runtimeConfig, {
+    fetchImpl,
+    now: () => new Date("2026-04-09T12:00:00.000Z"),
+  });
+
+  const result = await writer.write("sheet_123", [
+    makeLead({
+      title: "Account Executive",
+      company: "Acme Labs",
+      location: "New York, NY",
+      url: "https://boards.greenhouse.io/acme/jobs/222",
+      sourceId: "greenhouse",
+      sourceLabel: "Greenhouse",
+      metadata: {
+        runId: "run_1",
+        variationKey: "var_1",
+        sourceQuery: "Account Executive NYC",
+        externalJobId: "222",
+      },
+    }),
+  ]);
+
+  assert.equal(result.updated, 0);
+  assert.equal(result.appended, 1);
+  const appendCall = calls.find((call) => /:append/.test(call.url));
+  assert.ok(appendCall);
+  assert.equal(JSON.parse(appendCall.body).values[0][3], "New York, NY");
+});

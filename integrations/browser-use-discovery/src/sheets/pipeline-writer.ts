@@ -9,6 +9,12 @@ import {
   type PipelineWriteResult,
 } from "../contracts.ts";
 import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
+import {
+  decideIntakeMergeReview,
+  matchPipelineIdentity,
+  reconstructIntakeIdentityFromRow,
+  serializeIntakeIdentity,
+} from "../normalize/intake-identity.ts";
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 
 /**
@@ -134,6 +140,83 @@ function inspectHeaderRow(values: unknown[][]): {
 
 function normalizeRowLink(row: string[]): string {
   return normalizeLeadUrl(row[4] || "");
+}
+
+type ExistingPipelineRow = { rowNumber: number; row: string[] };
+
+function listingFromRow(row: string[]) {
+  return {
+    title: row[1] || "",
+    company: row[2] || "",
+    location: row[3] || "",
+    url: row[4] || "",
+    sourceId: row[5] || "",
+  };
+}
+
+function listingFromLead(lead: NormalizedLead) {
+  return {
+    title: lead.title || "",
+    company: lead.company || "",
+    location: lead.location || "",
+    url: lead.url || "",
+    sourceId: lead.sourceId || "",
+    metadata: {
+      ...(lead.metadata || {}),
+      jobId: lead.metadata?.externalJobId,
+      postingId: lead.metadata?.externalJobId,
+    },
+  };
+}
+
+function findExistingIdentityMatch(
+  lead: NormalizedLead,
+  existingByLink: Map<string, ExistingPipelineRow>,
+  existingByProvider: Map<string, ExistingPipelineRow>,
+  existingBySemantic: Map<string, ExistingPipelineRow>,
+): { match: ExistingPipelineRow; decision: ReturnType<typeof decideIntakeMergeReview> } | null {
+  const incoming = listingFromLead(lead);
+  const identity = serializeIntakeIdentity(incoming);
+  const canonical = identity.canonicalUrl || normalizeLeadUrl(lead.url || "");
+  const candidates: ExistingPipelineRow[] = [];
+  if (canonical && existingByLink.has(canonical)) {
+    candidates.push(existingByLink.get(canonical)!);
+  }
+  if (identity.providerJobKey && existingByProvider.has(identity.providerJobKey)) {
+    candidates.push(existingByProvider.get(identity.providerJobKey)!);
+  }
+  if (identity.semanticKey && existingBySemantic.has(identity.semanticKey)) {
+    candidates.push(existingBySemantic.get(identity.semanticKey)!);
+  }
+  const seen = new Set<number>();
+  for (const candidate of candidates) {
+    if (seen.has(candidate.rowNumber)) continue;
+    seen.add(candidate.rowNumber);
+    const decision = decideIntakeMergeReview(
+      matchPipelineIdentity(listingFromRow(candidate.row), incoming),
+    );
+    if (decision.action === "append") continue;
+    return { match: candidate, decision };
+  }
+  return null;
+}
+
+function rememberExistingIdentity(
+  existing: ExistingPipelineRow,
+  existingByLink: Map<string, ExistingPipelineRow>,
+  existingByProvider: Map<string, ExistingPipelineRow>,
+  existingBySemantic: Map<string, ExistingPipelineRow>,
+): void {
+  const identity = reconstructIntakeIdentityFromRow(existing.row);
+  if (identity.canonicalUrl && !existingByLink.has(identity.canonicalUrl)) {
+    existingByLink.set(identity.canonicalUrl, existing);
+  }
+  if (identity.providerJobKey && !existingByProvider.has(identity.providerJobKey)) {
+    existingByProvider.set(identity.providerJobKey, existing);
+  }
+  if (identity.semanticKey && !existingBySemantic.has(identity.semanticKey)) {
+    existingBySemantic.set(identity.semanticKey, existing);
+  }
 }
 
 function clampScore(score: number | null): string {
@@ -640,22 +723,29 @@ export function createPipelineWriter(
       accessToken,
       fetchImpl,
     );
-    const existingByLink = new Map<
-      string,
-      { rowNumber: number; row: string[] }
-    >();
+    const existingByLink = new Map<string, ExistingPipelineRow>();
+    const existingByProvider = new Map<string, ExistingPipelineRow>();
+    const existingBySemantic = new Map<string, ExistingPipelineRow>();
     let existingDuplicateCount = 0;
 
     existingRows.forEach((row, index) => {
       const cells = toRowCells(row);
       const link = normalizeRowLink(cells);
-      if (!link) return;
       const rowNumber = index + 2;
-      if (existingByLink.has(link)) {
-        existingDuplicateCount += 1;
-        return;
+      const existing = { rowNumber, row: cells };
+      if (link) {
+        if (existingByLink.has(link)) {
+          existingDuplicateCount += 1;
+        } else {
+          existingByLink.set(link, existing);
+        }
       }
-      existingByLink.set(link, { rowNumber, row: cells });
+      rememberExistingIdentity(
+        existing,
+        existingByLink,
+        existingByProvider,
+        existingBySemantic,
+      );
     });
 
     const deduped = dedupeIncomingLeads(leads);
@@ -666,21 +756,46 @@ export function createPipelineWriter(
     let updated = 0;
     let appended = 0;
     let skippedDuplicates = deduped.skippedDuplicates;
+    const warnings: string[] = existingDuplicateCount
+      ? [
+          `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,
+        ]
+      : [];
 
     for (const lead of uniqueLeads) {
       const leadRow = buildLeadRow(lead, now());
       const link = leadRow[4];
       if (!link) continue;
-      const match = existingByLink.get(link);
-      if (match) {
+      const identityHit = findExistingIdentityMatch(
+        lead,
+        existingByLink,
+        existingByProvider,
+        existingBySemantic,
+      );
+      if (identityHit) {
+        const match = identityHit.match;
         if (match.row[22]) {
           skippedBlacklist.push({ url: link, title: lead.title || "" });
           continue;
         }
+        if (identityHit.decision.action === "review") {
+          skippedDuplicates += 1;
+          warnings.push(
+            `Merge review: semantic identity collision for ${link} with Pipeline row ${match.rowNumber}.`,
+          );
+          continue;
+        }
+        const merged = mergeExistingRow(match.row, leadRow);
         updates.push({
           rowNumber: match.rowNumber,
-          values: mergeExistingRow(match.row, leadRow),
+          values: merged,
         });
+        rememberExistingIdentity(
+          { rowNumber: match.rowNumber, row: merged },
+          existingByLink,
+          existingByProvider,
+          existingBySemantic,
+        );
         updated += 1;
         continue;
       }
@@ -689,14 +804,14 @@ export function createPipelineWriter(
         continue;
       }
       appends.push(leadRow);
+      rememberExistingIdentity(
+        { rowNumber: existingRows.length + appends.length + 1, row: leadRow },
+        existingByLink,
+        existingByProvider,
+        existingBySemantic,
+      );
       appended += 1;
     }
-
-    const warnings = existingDuplicateCount
-      ? [
-          `Found ${existingDuplicateCount} duplicate existing Pipeline rows for normalized Link values.`,
-        ]
-      : [];
 
     await batchUpdateRows(sheetId, updates, accessToken, fetchImpl, sheetName);
     try {
