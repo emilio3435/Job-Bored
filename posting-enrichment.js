@@ -75,7 +75,12 @@ function getEnrichmentCacheLookupKeys(job) {
 }
 
 function isUsableCachedEnrichment(enrichment) {
-  return !!(enrichment && enrichment.scrapedAt && !enrichment.llmError);
+  return !!(
+    enrichment &&
+    enrichment.scrapedAt &&
+    !enrichment.llmError &&
+    String(enrichment.description || "").trim()
+  );
 }
 
 function _loadEnrichmentCache() {
@@ -207,9 +212,9 @@ async function _tryScrape(jobLink, context = {}) {
   if (!base) return null;
   if (host().isScraperUrlBlockedOnThisPage(base)) return null;
   const ctrl = new AbortController();
-  // 8s is plenty for the local Cheerio service; longer waits feel
-  // broken and the LLM-only path produces useful output anyway.
-  const timer = setTimeout(() => ctrl.abort(), 8_000);
+  // Cover Cheerio (up to 18s) plus a SerpApi Google Jobs fallback (~12s)
+  // after a fast 4xx/5xx. The LLM-only path still runs if this aborts.
+  const timer = setTimeout(() => ctrl.abort(), 20_000);
   try {
     const res = await fetch(`${base}/api/scrape-job`, {
       method: "POST",
