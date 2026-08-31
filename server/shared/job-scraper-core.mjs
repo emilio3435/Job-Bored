@@ -253,14 +253,14 @@ function collectSerpApiCandidateUrls(raw) {
   const push = (value) => {
     if (typeof value === "string" && /^https?:/i.test(value)) candidates.push(value);
   };
-  const rawApplyOptions = raw.apply_options;
+  const rawApplyOptions = raw && raw.apply_options;
   const applyOptions = Array.isArray(rawApplyOptions)
     ? rawApplyOptions
     : [];
   for (const option of applyOptions) {
     if (option && typeof option === "object" && "link" in option) push(option.link);
   }
-  const rawRelatedLinks = raw.related_links;
+  const rawRelatedLinks = raw && raw.related_links;
   const relatedLinks = Array.isArray(rawRelatedLinks)
     ? rawRelatedLinks
     : [];

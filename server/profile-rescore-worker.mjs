@@ -92,7 +92,7 @@ const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
 /** @typedef {{ name?: unknown, rationale?: unknown }} PerStrengthScore */
 /** @typedef {{ fitScore: number, band: string, perStrength: PerStrengthScore[], concerns: unknown[], matches: unknown[], rationale: string, leadAngle: string }} ScoreResponse */
 
-/** @type {Readonly<Record<ProfileRescoreProvider, ProviderDefinition>>} */
+/** @type {Readonly<Partial<Record<ProfileRescoreProvider, ProviderDefinition>>>} */
 const PROVIDER_DEFINITIONS = Object.freeze({
   gemini: {
     displayName: "Gemini",

@@ -1,14 +1,32 @@
 import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
 import { existsSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { dirname, join, relative } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 import { getRepoInstallPlan, installRepo } from "../scripts/install-repo.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const EXPECTED_SERVER_SOURCES = [
+  "server/application-materials.mjs",
+  "server/ats-request-payload.mjs",
+  "server/ats-scorecard.mjs",
+  "server/brand-logos.mjs",
+  "server/index.mjs",
+  "server/job-scraper.mjs",
+  "server/legacy-profile-migrator.mjs",
+  "server/materials-quality.mjs",
+  "server/materials-repair.mjs",
+  "server/materials-request.mjs",
+  "server/profile-from-resume.mjs",
+  "server/profile-rescore-worker.mjs",
+  "server/security-boundaries.mjs",
+  "server/shared/job-scraper-core.mjs",
+  "server/user-profile.mjs",
+];
 
 function readManifestCommands() {
   const manifest = readFileSync(join(repoRoot, ".factory/services.yaml"), "utf8");
@@ -114,6 +132,10 @@ describe("repo validation surface", () => {
     assert.match(pkg.scripts["typecheck:repo"], /node --check discovery-coach\.js/);
     assert.match(pkg.scripts["typecheck:repo"], /npm run typecheck:server/);
     assert.equal(
+      pkg.scripts["typecheck:server"],
+      "tsc --noEmit --project server/tsconfig.json",
+    );
+    assert.equal(
       pkg.scripts["web-only:https"],
       "COMMAND_CENTER_TLS=1 node dev-server.mjs",
     );
@@ -132,6 +154,26 @@ describe("repo validation surface", () => {
 
     const gitignore = await readFile(join(repoRoot, ".gitignore"), "utf8");
     assert.match(gitignore, /integrations\/browser-use-discovery\/package-lock\.json/);
+  });
+
+  it("keeps every production server module in the strict TypeScript program", () => {
+    const configPath = join(repoRoot, "server", "tsconfig.json");
+    const tscPath = join(repoRoot, "node_modules", "typescript", "lib", "tsc.js");
+    const output = execFileSync(
+      process.execPath,
+      [tscPath, "--listFilesOnly", "--project", configPath],
+      { cwd: repoRoot, encoding: "utf8" },
+    );
+    const programFiles = new Set(
+      output
+        .trim()
+        .split(/\r?\n/)
+        .map((path) => relative(repoRoot, path).replaceAll("\\", "/")),
+    );
+    assert.equal(EXPECTED_SERVER_SOURCES.length, 15);
+    for (const source of EXPECTED_SERVER_SOURCES) {
+      assert.ok(programFiles.has(source), `${source} is missing from server/tsconfig.json`);
+    }
   });
 
   it("keeps documented npm run commands backed by package scripts", async () => {

@@ -83,6 +83,14 @@ const API_ACCESS_TOKEN = String(
 ).trim();
 
 /**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
  * @param {unknown} error
  * @param {unknown} fallback
  */
@@ -225,7 +233,8 @@ if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
 
 app.post("/api/scrape-job", async (req, res) => {
   try {
-    const raw = req.body && req.body.url;
+    const body = isRecord(req.body) ? req.body : {};
+    const raw = body.url;
     if (!raw || typeof raw !== "string") {
       return res.status(400).json({ error: "Body must include { url: string }" });
     }
@@ -234,8 +243,8 @@ app.post("/api/scrape-job", async (req, res) => {
       return res.status(400).json({ error: target.error });
     }
     const result = await scrapeJobPosting(target.url, {
-      title: typeof req.body.title === "string" ? req.body.title : "",
-      company: typeof req.body.company === "string" ? req.body.company : "",
+      title: typeof body.title === "string" ? body.title : "",
+      company: typeof body.company === "string" ? body.company : "",
     });
     res.json(result);
   } catch (e) {
@@ -315,7 +324,7 @@ app.get("/profile", async (_req, res) => {
 
 app.post("/profile", async (req, res) => {
   const candidate = req.body;
-  if (!candidate || typeof candidate !== "object" || Array.isArray(candidate)) {
+  if (!isRecord(candidate)) {
     return res.status(400).json({
       ok: false,
       reason: "invalid_profile",
@@ -370,7 +379,8 @@ app.get("/api/brand-logos", async (_req, res) => {
 
 app.post("/api/brand-logos/resolve", async (req, res) => {
   try {
-    const result = await runResolver({ force: !!(req.body && req.body.force) });
+    const body = isRecord(req.body) ? req.body : {};
+    const result = await runResolver({ force: !!body.force });
     res.json({ ok: true, logos: result });
   } catch (e) {
     sendAppError(res, e);
@@ -649,7 +659,8 @@ app.post("/api/applications/:slug/request", async (req, res) => {
   try {
     /* The body's slug must agree with the URL slug to keep the
      * contract obvious and avoid accidental cross-slug requests. */
-    const body = { ...(req.body || {}), slug: req.params.slug };
+    const requestBody = isRecord(req.body) ? req.body : {};
+    const body = { ...requestBody, slug: req.params.slug };
     const payload = normalizeRequestBody(body);
     const result = await spawnMaterialsRequest(payload);
     res.json(result);
@@ -664,11 +675,12 @@ app.post("/api/applications/:slug/request", async (req, res) => {
  * expand sparse drafts or collapse overlong ones automatically. */
 app.post("/api/applications/:slug/repair", async (req, res) => {
   try {
+    const body = isRecord(req.body) ? req.body : {};
     const manifest = await buildManifest(req.params.slug);
     const { payload: rawPayload, repair } = buildRepairRequestPayload(manifest, {
-      feature: req.body && req.body.feature,
-      jobUrl: req.body && (req.body.jobUrl || req.body.job_url),
-      notes: req.body && req.body.notes,
+      feature: body.feature,
+      jobUrl: body.jobUrl || body.job_url,
+      notes: body.notes,
     });
     const payload = normalizeRequestBody(rawPayload);
     const result = await spawnMaterialsRequest(payload);
@@ -717,7 +729,7 @@ app.get("/api/applications/:slug/job-description", async (req, res) => {
 app.put("/api/applications/:slug/job-description", async (req, res) => {
   try {
     const slug = req.params.slug;
-    const body = req.body || {};
+    const body = isRecord(req.body) ? req.body : {};
     const result = await writeJobDescription(slug, body.text, {
       source: body.source,
       jobUrl: body.jobUrl || body.job_url,
@@ -736,12 +748,13 @@ app.put("/api/applications/:slug/job-description", async (req, res) => {
 app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
   try {
     const slug = req.params.slug;
+    const body = isRecord(req.body) ? req.body : {};
     if (!isValidSlug(slug)) {
       res.status(400).json({ ok: false, error: "Invalid slug" });
       return;
     }
-    const url = (req.body && typeof req.body.jobUrl === "string") ? req.body.jobUrl.trim()
-              : (req.body && typeof req.body.job_url === "string") ? req.body.job_url.trim()
+    const url = typeof body.jobUrl === "string" ? body.jobUrl.trim()
+              : typeof body.job_url === "string" ? body.job_url.trim()
               : "";
     if (!url) {
       res.status(400).json({ ok: false, error: "jobUrl required" });
@@ -753,8 +766,8 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       return;
     }
     const scraped = await scrapeJobPosting(target.url, {
-      title: typeof req.body.title === "string" ? req.body.title : "",
-      company: typeof req.body.company === "string" ? req.body.company : "",
+      title: typeof body.title === "string" ? body.title : "",
+      company: typeof body.company === "string" ? body.company : "",
     });
     const scrapeOutput = /** @type {typeof scraped & { bodyText?: unknown }} */ (scraped);
     const text = (scraped && (scraped.description || scrapeOutput.bodyText || ""))
