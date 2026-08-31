@@ -12,6 +12,19 @@ export function normalizeAllowedBrowserOrigins(
   options?: { listenHost?: unknown },
 ): string[];
 
+export function trustedRequestOriginParts(req: {
+  get?: (name: string) => unknown;
+  headers?: Record<string, unknown>;
+  secure?: boolean;
+  protocol?: unknown;
+}): {
+  requestOrigin: string;
+  requestHost: string;
+  requestProtocol: string;
+};
+
+export function redactSecrets(value: unknown): string;
+
 export function resolveAllowedBrowserOrigin(
   requestOrigin: unknown,
   options?: {
