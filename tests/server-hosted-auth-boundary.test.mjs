@@ -1,11 +1,13 @@
 import { after, before, test } from "node:test";
 import { strict as assert } from "node:assert";
 import { spawn } from "node:child_process";
-import { mkdtempSync, mkdirSync, rmSync } from "node:fs";
+import { mkdtempSync, mkdirSync, readFileSync, rmSync } from "node:fs";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
-import { join, resolve } from "node:path";
+import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 import { setTimeout as sleep } from "node:timers/promises";
+import vm from "node:vm";
 
 const API_TOKEN = "hosted-test-token";
 let tmpDir = "";
@@ -136,4 +138,48 @@ test("hosted scraper CORS allows browser auth headers only for configured origin
     headers: { Origin: "https://evil.example" },
   });
   assert.equal(disallowedOrigin.status, 403);
+});
+
+function loadHostedApiAuth() {
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const source = readFileSync(join(repoRoot, "hosted-api-auth.js"), "utf8");
+  const win = {};
+  vm.runInNewContext(source, { window: win, console }, { filename: "hosted-api-auth.js" });
+  return win.JobBoredHostedApiAuth;
+}
+
+test("F2D-AUTH03-HOSTED packaged caller helper attaches hosted API auth", async () => {
+  /**
+   * WHY: hosted/container scraper routes require JOBBORED_API_TOKEN, but
+   * packaged browser fetches (scrape-job, /profile, /api/applications) omit
+   * Authorization / X-Api-Token. The isolated helper is the caller-side
+   * contract; F0-D keeps no-token hosted calls denied.
+   */
+  const helper = loadHostedApiAuth();
+  assert.equal(typeof helper.applyHostedApiAuth, "function");
+  assert.equal(helper.getHostedApiToken({ jobBoredApiToken: "  abc  " }), "abc");
+  assert.equal(helper.getHostedApiToken({}), "");
+
+  const withToken = helper.applyHostedApiAuth(
+    { method: "GET", headers: { Accept: "application/json" } },
+    API_TOKEN,
+  );
+  assert.equal(withToken.headers.Authorization, `Bearer ${API_TOKEN}`);
+  assert.equal(withToken.headers["X-Api-Token"], API_TOKEN);
+
+  const withoutToken = helper.applyHostedApiAuth({ method: "GET" }, "");
+  assert.equal(withoutToken.headers.Authorization, undefined);
+  assert.equal(withoutToken.headers["X-Api-Token"], undefined);
+
+  const authed = await fetch(
+    `${baseUrl}/profile`,
+    helper.applyHostedApiAuth({ method: "GET" }, API_TOKEN),
+  );
+  assert.equal(authed.status, 200);
+
+  const denied = await fetch(
+    `${baseUrl}/profile`,
+    helper.applyHostedApiAuth({ method: "GET" }, ""),
+  );
+  assert.equal(denied.status, 401);
 });
