@@ -6,12 +6,15 @@ import {
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
 } from "../../src/contracts.ts";
 import {
+  classifyCareerSurfacePageType,
   classifyCareerSurfaceSourcePolicy,
   detectCareerSurfaceCandidatesFromHtml,
   isPreflightReadyCareerSurface,
   isThirdPartyJobBoardHost,
+  mergeCareerSurfaceCandidates,
   resolveCareerSurfaceCandidate,
 } from "../../src/discovery/career-surface-resolver.ts";
+import { extractLinksFromHtml } from "../../src/browser/providers/shared.ts";
 import { collectGroundedWebListings } from "../../src/grounding/grounded-search.ts";
 
 // Third-party job board hosts that should remain non-extractable
@@ -844,3 +847,135 @@ test("VAL-LOOP-BROWSER-003: hint resolution fails explicitly with hint_resolutio
 // This is verified by "career surface resolver detects first-party paths, ATS links, sitemap URLs, and job schema URLs"
 // and "collectGroundedWebListings upgrades employer pages into canonical career surfaces before extraction"
 // which test that embedded surfaces are discovered and used for exploitation.
+
+test("F4A-P2-MARKUP: malformed anchors cannot abort HTML detection", () => {
+  const company = { name: "Notion", domains: ["notion.so"] };
+  const detection = detectCareerSurfaceCandidatesFromHtml({
+    url: "https://www.notion.so/company",
+    finalUrl: "https://www.notion.so/company",
+    company,
+    sourceLane: "company_surface",
+    html: `
+      <html>
+        <body>
+          <a href="http://[">broken</a>
+          <a href="javascript:alert(1)">xss</a>
+          <a href="">empty</a>
+          <a href="/careers">Careers</a>
+        </body>
+      </html>
+    `,
+  });
+  const urls = detection.candidates.map((entry) => entry.url);
+  assert.ok(
+    urls.includes("https://www.notion.so/careers"),
+    "Valid career link must survive sibling malformed anchors",
+  );
+  assert.equal(
+    urls.some((url) => url.includes("javascript:") || url.includes("http://[")),
+    false,
+    "Malformed anchors must not masquerade as postings",
+  );
+});
+
+test("F4A-P2-MARKUP: search pages cannot masquerade as job postings", () => {
+  assert.equal(
+    classifyCareerSurfacePageType(
+      "https://jobs.lever.co/notion/search",
+      "Search jobs at Notion",
+    ),
+    "listings",
+  );
+  assert.equal(
+    classifyCareerSurfacePageType(
+      "https://www.notion.so/careers/search?q=platform",
+      "Search open roles",
+    ),
+    "listings",
+  );
+  assert.equal(
+    classifyCareerSurfacePageType(
+      "https://jobs.lever.co/notion/platform-engineer",
+      "Platform Engineer",
+    ),
+    "job",
+  );
+
+  const company = { name: "Notion", domains: ["notion.so"] };
+  const search = resolveCareerSurfaceCandidate(
+    {
+      url: "https://jobs.lever.co/notion/search",
+      title: "Search jobs at Notion",
+    },
+    company,
+  );
+  assert.ok(search);
+  assert.notEqual(search?.surfaceType, "job_posting");
+  assert.equal(search?.pageType, "listings");
+});
+
+test("F4A-P2-MARKUP: canonical source dedupe merges tracking twins and keeps distinct jobs", () => {
+  const company = { name: "Notion", domains: ["notion.so"] };
+  const merged = mergeCareerSurfaceCandidates(
+    [
+      {
+        url: "https://jobs.lever.co/notion/platform-engineer?lever-via=test",
+        title: "Platform Engineer",
+        pageType: "job",
+        reason: "ATS job",
+        sourceDomain: "jobs.lever.co",
+      },
+      {
+        url: "https://jobs.lever.co/notion/platform-engineer",
+        title: "Platform Engineer",
+        pageType: "job",
+        reason: "ATS job canonical",
+        sourceDomain: "jobs.lever.co",
+      },
+      {
+        url: "https://jobs.lever.co/notion/product-designer",
+        title: "Product Designer",
+        pageType: "job",
+        reason: "Distinct ATS job",
+        sourceDomain: "jobs.lever.co",
+      },
+    ],
+    company,
+  );
+  const urls = merged.map((entry) => entry.url).sort();
+  assert.equal(merged.length, 2, "Tracking variants of one job must collapse; distinct jobs must remain");
+  assert.ok(urls.some((url) => url.includes("platform-engineer")));
+  assert.ok(urls.some((url) => url.includes("product-designer")));
+});
+
+test("F4A-P2-MARKUP: extractLinksFromHtml skips malformed hrefs without aborting the lane", () => {
+  const listings = extractLinksFromHtml(
+    `
+      <a href="http://[">Broken</a>
+      <a href="javascript:alert(1)">XSS</a>
+      <a href="https://jobs.lever.co/notion/platform-engineer">Platform Engineer</a>
+    `,
+    {
+      matched: true,
+      sourceId: "lever",
+      sourceLabel: "Lever",
+      providerType: "lever",
+      surfaceType: "provider_board",
+      boardUrl: "https://jobs.lever.co/notion",
+      canonicalUrl: "https://jobs.lever.co/notion",
+      finalUrl: "https://jobs.lever.co/notion",
+      boardToken: "notion",
+      confidence: 1,
+      warnings: [],
+      sourceLane: "ats_provider",
+      metadata: { companyName: "Notion" },
+    },
+    /./i,
+  );
+  assert.equal(listings.length, 1);
+  assert.equal(listings[0]?.title, "Platform Engineer");
+  assert.equal(
+    listings[0]?.url,
+    "https://jobs.lever.co/notion/platform-engineer",
+  );
+});
