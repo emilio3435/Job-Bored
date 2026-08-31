@@ -189,4 +189,17 @@ describe("F3C-UX01-TODAY — default Today queue membership", () => {
     assert.equal(followUp.action.event, "jb:role:writeback");
     assert.equal(followUp.action.detail.field, "heardBack");
   });
+
+  it("no longer ships a second Today engine", () => {
+    assert.equal(
+      existsSync(join(repoRoot, "today-queue.js")),
+      false,
+      "today-queue.js was the duplicate ranking engine — one capability, one implementation",
+    );
+    assert.equal(
+      /JobBoredTodayQueue/.test(read("daily-brief.js")),
+      false,
+      "daily-brief.js must be back on its own local detectors",
+    );
+  });
 });
