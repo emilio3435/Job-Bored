@@ -83,6 +83,11 @@
               <button
                 type="button"
                 class="runs-filter-chip"
+                data-runs-filter-status="partial"
+              >Partial</button>
+              <button
+                type="button"
+                class="runs-filter-chip"
                 data-runs-filter-status="failure"
               >Failure</button>
             </div>
@@ -105,14 +110,15 @@
           <table class="runs-table" id="runsTable">
             <thead>
               <tr>
-                <th data-runs-sort="runAt" scope="col">Run at</th>
-                <th data-runs-sort="trigger" scope="col">Trigger</th>
-                <th data-runs-sort="status" scope="col">Status</th>
-                <th data-runs-sort="durationS" scope="col">Duration</th>
-                <th data-runs-sort="companiesSeen" scope="col">Companies</th>
-                <th data-runs-sort="leadsWritten" scope="col">Leads</th>
-                <th data-runs-sort="source" scope="col">Source</th>
-                <th data-runs-sort="variationKey" scope="col">Variation</th>
+                <th data-runs-sort="runAt" scope="col" tabindex="0" aria-sort="descending">Run at</th>
+                <th data-runs-sort="trigger" scope="col" tabindex="0" aria-sort="none">Trigger</th>
+                <th data-runs-sort="status" scope="col" tabindex="0" aria-sort="none">Status</th>
+                <th data-runs-sort="durationS" scope="col" tabindex="0" aria-sort="none">Duration</th>
+                <th data-runs-sort="companiesSeen" scope="col" tabindex="0" aria-sort="none">Companies</th>
+                <th data-runs-sort="leadsWritten" scope="col" tabindex="0" aria-sort="none">Leads</th>
+                <th data-runs-sort="leadsUpdated" scope="col" tabindex="0" aria-sort="none">Updated</th>
+                <th data-runs-sort="source" scope="col" tabindex="0" aria-sort="none">Source</th>
+                <th data-runs-sort="variationKey" scope="col" tabindex="0" aria-sort="none">Variation</th>
                 <th scope="col">Error</th>
               </tr>
             </thead>
