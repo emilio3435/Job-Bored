@@ -336,37 +336,20 @@ describe("ATS state bus", () => {
   });
 });
 
-describe("F3B-SCRIBE02-SCORE — ATS bus payload is fixture-consumable by Scribe session", () => {
-  it("a success bus detail paints real axis scores for the matching jobKey and never a demo heuristic", () => {
-    const sessionPath = join(repoRoot, "scribe-session.js");
-    const window = addEventTargetMethods({});
-    const document = addEventTargetMethods({});
-    const context = vm.createContext({ window, document, console });
-    vm.runInContext(readFileSync(sessionPath, "utf8"), context, {
-      filename: "scribe-session.js",
-    });
-    const session = context.window.JobBoredScribeSession.create();
-    session.bindRole({
-      jobKey: "ats:cover_letter:job-1:abc",
-      title: "Staff Engineer",
-      company: "Acme",
-    });
-    session.setDocument({
-      feature: "cover_letter",
-      versionNumber: 1,
-      text: "A real draft with enough body to score.",
-    });
-    const result = buildScorecard();
-    session.bindAtsEvidence({
-      jobKey: "ats:cover_letter:job-1:abc",
-      status: "success",
-      result,
-      error: null,
-    });
-    const visible = session.visibleScorecard();
-    assert.equal(visible.source, "ats");
-    assert.equal(visible.overall, 88);
-    assert.equal(visible.axes.req, 90);
-    assert.doesNotMatch(String(visible.model || ""), /demo-scorecard-v1/);
-  });
-});
+/* The F3B-SCRIBE02-SCORE block that lived here drove scribe-session.js, the
+   Scribe state helper this reconciliation deleted. Its rule — a success bus
+   detail paints REAL axis scores for the matching jobKey and never a demo
+   heuristic — is proved more strongly against the surviving modules, through
+   the real jb:ats:state listener and the real rendered DOM rather than a
+   helper's return value:
+
+     tests/scribe-real-score.test.mjs
+       "renders the REAL dimensionScores and the REAL overallScore from a
+        success payload on the bus"
+       "the demo scorer is gone from the source — no heuristic axis numbers
+        and no demo-scorecard-v1 stamp anywhere"
+       "does not paint a success scored against a DIFFERENT role over the
+        bound role's draft"            <- the jobKey match, now discriminating
+       "still paints the score once the same role is scored again"
+
+   Nothing above this line changed. */
