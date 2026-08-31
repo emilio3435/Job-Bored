@@ -26,18 +26,21 @@ describe("Expired pipeline status contract", () => {
     const pipelineRender = read("pipeline-render.js");
     const brief = read("daily-brief.js");
 
+    // Stage lists now come from stage-registry.js (window.JobBoredStages);
+    // each consumer keeps only the pinned STAGE_FALLBACK mirror. Expired must
+    // still reach the end of every one of them, and stay an archived column.
     assert.match(
       pipelineController,
-      /const STAGE_ORDER = \[[\s\S]*"Expired"[\s\S]*\];/,
+      /const STAGE_FALLBACK = \[[\s\S]*\["expired", "Expired"\][\s\S]*\];/,
     );
-    assert.match(
-      pipelineController,
-      /const STAGE_ARCHIVE = new Set\(\["Rejected", "Passed", "Expired"\]\)/,
+    assert.ok(
+      pipelineController.includes("reg.ARCHIVE_KEYS.map"),
+      "the archive set should come from the registry's ARCHIVE_KEYS (rejected/passed/expired)",
     );
     assert.match(sheetsWrite, /case "Expired":[\s\S]*Pipeline!P/);
-    assert.match(
-      pipelineRender,
-      /const statuses = \[[\s\S]*"Expired"[\s\S]*\];/,
+    assert.ok(
+      pipelineRender.includes("const statuses = STAGE_ORDER;"),
+      "the drawer status dropdown should offer the canonical stage list, not a fourth copy",
     );
     assert.match(brief, /const expired = getPipelineData\(\)\.filter/);
     assert.match(
@@ -47,12 +50,16 @@ describe("Expired pipeline status contract", () => {
   });
 
   it("keeps v2 pipeline adapters from dropping Expired rows", () => {
-    // dawn-data.js carries the canonical stage definition that backs the
-    // sheet contract — its label still mirrors the schema enum.
-    assert.match(read("dawn-data.js"), /\{ key: "expired",\s+label: "Expired"/);
-    // pipeline.js is the user-facing kanban; it surfaces the same stage
-    // under the gentler "Dismissed" label while preserving the schema key.
-    assert.match(read("pipeline.js"), /\{ key: "expired",\s+label: "Dismissed"/);
+    // Every v2 adapter mirrors the schema label for Expired. pipeline.js used
+    // to relabel it "Dismissed", which named a completely different write
+    // (dismissJob -> Pipeline!W); see tests/closure-model-convergence.test.mjs.
+    assert.match(read("dawn-data.js"), /\["expired", "Expired"\]/);
+    assert.match(read("pipeline.js"), /\["expired", "Expired"\]/);
+    assert.equal(
+      /"expired":\s*"Dismissed"/.test(read("pipeline.js")),
+      false,
+      "the Expired column must not be labelled Dismissed",
+    );
     assert.match(read("pipeline.css"), /--pipe-col-expired/);
     assert.match(read("flowing-writes.js"), /"expired": "Expired"/);
   });

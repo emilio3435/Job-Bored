@@ -106,6 +106,20 @@ function loadDawnWithToday(doc) {
   return win.JobBoredDawn.data;
 }
 
+/** dawn-data.js alone, with window.JobBoredToday stubbed (or absent). The real
+ *  today-data.js is the Today lane's file; this pins the handoff contract. */
+function loadDawnWithTodayData(doc, todayGlobal) {
+  const dawnSrc = readFileSync(dawnDataPath, "utf8");
+  const win = {};
+  if (todayGlobal) win.JobBoredToday = todayGlobal;
+  vm.runInNewContext(
+    dawnSrc,
+    { window: win, document: doc, Date, Number, Object, String, Math, Array, parseInt, isNaN, console },
+    { filename: "dawn-data.js" },
+  );
+  return win.JobBoredDawn.data;
+}
+
 describe("F3C-UX01-TODAY — default Today queue membership", () => {
   it("selects overdue follow-up, waiting-on-reply, and stale-application work", () => {
     const api = loadTodayQueue();
@@ -189,8 +203,18 @@ describe("F3C-UX01-TODAY — default Today queue membership", () => {
     );
   });
 
-  it("default Dawn view-model exposes the Today queue from card membership fields", () => {
-    assert.equal(existsSync(todayQueuePath), true, "today-queue.js must exist");
+  /* R2 reconciliation: the Today queue has ONE ranking engine —
+     JobBoredToday.data (today-data.js). dawn-data.buildToday keeps the VM's
+     `today` slot so nothing reading the VM has to change, but it no longer
+     classifies anything itself: two engines meant the daily brief could call a
+     card "stale" while the Today section called the same card "reply".
+
+     Membership and band ordering are pinned against the real engine in
+     tests/today-queue-ranking.test.mjs (Today lane). What belongs HERE is the
+     handoff: that the VM slot is fed by that engine, that it is fed the card
+     membership fields the engine classifies on, and that it degrades to an
+     empty list rather than to a second opinion. */
+  it("builds the Dawn view-model Today slot from JobBoredToday.data, not a second engine", () => {
     const cards = [
       makeCard({
         key: "overdue-1",
@@ -208,33 +232,67 @@ describe("F3C-UX01-TODAY — default Today queue membership", () => {
         title: "Backend",
         company: "Bravo",
         appliedAt: daysAgo(9),
-      }),
-      makeCard({
-        key: "stale-1",
-        index: 3,
-        stage: "applied",
-        title: "Platform",
-        company: "Charlie",
-        appliedAt: daysAgo(21),
         replied: "yes",
       }),
-      makeCard({
-        key: "fresh-1",
-        index: 4,
-        stage: "applied",
-        title: "Fresh",
-        company: "Delta",
-        appliedAt: daysAgo(1),
-        followUp: daysAhead(4),
-      }),
     ];
-    const api = loadDawnWithToday(makeDoc(cards));
+
+    const calls = [];
+    const queued = [
+      { jobKey: 0, band: "follow-up", title: "Staff Engineer" },
+      { jobKey: 1, band: "reply", title: "Backend" },
+    ];
+    const api = loadDawnWithTodayData(makeDoc(cards), {
+      data: {
+        getTodayQueue(opts) {
+          calls.push(opts);
+          return { items: queued, counts: {}, empty: false };
+        },
+      },
+    });
+
     const vmObj = api.getDawnViewModel({ doc: makeDoc(cards), now: NOW });
     assert.ok(Array.isArray(vmObj.today), "getDawnViewModel() must expose today[] (F3C-UX01-TODAY)");
-    const byKey = Object.fromEntries(vmObj.today.map((item) => [item.jobKey, item.kind]));
-    assert.equal(byKey["overdue-1"], "overdue-follow-up");
-    assert.equal(byKey["waiting-1"], "waiting-on-reply");
-    assert.equal(byKey["stale-1"], "stale-application");
-    assert.equal(byKey["fresh-1"], undefined);
+    assert.deepEqual(
+      vmObj.today,
+      queued,
+      "the slot must be the canonical engine's items, not a locally re-ranked copy",
+    );
+
+    assert.equal(calls.length, 1, "the queue should be built once per view-model");
+    const handed = calls[0];
+    assert.equal(handed.now, NOW, "the engine must classify against the caller's clock");
+    assert.ok(Array.isArray(handed.jobs) && handed.jobs.length === 2);
+    const overdue = handed.jobs.find((j) => j.jobKey === "overdue-1");
+    assert.ok(overdue, "every board card must reach the engine");
+    // The engine classifies on these four fields; dropping any of them from the
+    // handoff makes the whole queue silently empty instead of failing.
+    assert.equal(overdue.status, "Applied", "the Sheet status label, not the CSS stage key");
+    assert.equal(overdue.appliedDate, daysAgo(6));
+    assert.equal(overdue.followUpDate, daysAgo(3));
+    assert.equal(
+      handed.jobs.find((j) => j.jobKey === "waiting-1").responseFlag,
+      "yes",
+      "the reply flag decides the top band and must survive the handoff",
+    );
+  });
+
+  it("leaves the Today slot empty when today-data.js is not in the page", () => {
+    // Same absence guard the JobBoredTodayQueue lookup had: a missing script
+    // means no Today list, never a fallback ranking nobody can see the rules of.
+    const cards = [
+      makeCard({
+        key: "overdue-1",
+        index: 1,
+        stage: "applied",
+        title: "Staff Engineer",
+        company: "Acme",
+        followUp: daysAgo(3),
+        appliedAt: daysAgo(6),
+      }),
+    ];
+    const api = loadDawnWithTodayData(makeDoc(cards), null);
+    const vmObj = api.getDawnViewModel({ doc: makeDoc(cards), now: NOW });
+    assert.ok(Array.isArray(vmObj.today));
+    assert.equal(vmObj.today.length, 0, "no engine means no queue, not a fallback ranking");
   });
 });

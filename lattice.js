@@ -945,17 +945,7 @@
 
   // ---- write-back via setStage (delegates to existing updateJobStatus) --
 
-  function setStage(dataIndex, newStage, prevStage) {
-    var adapter = window.JobBoredPipelineTransitionAdapter;
-    if (adapter && typeof adapter.move === "function") {
-      adapter.move({
-        jobKey: String(dataIndex),
-        fromStage: prevStage,
-        toStage: newStage,
-        dataIndex: dataIndex,
-        source: "lattice-board",
-      });
-    }
+  function legacyStatusWrite(dataIndex, newStage, prevStage) {
     if (typeof window.updateJobStatus === "function") {
       // Pass prevStage explicitly: handleStageChange has already mutated
       // job.status optimistically, so updateJobStatus can no longer read the
@@ -965,6 +955,33 @@
       return window.updateJobStatus(dataIndex, newStage, prevStage);
     }
     return Promise.resolve(false);
+  }
+
+  function setStage(dataIndex, newStage, prevStage) {
+    var adapter = window.JobBoredPipelineTransitionAdapter;
+    if (adapter && typeof adapter.move === "function") {
+      /* The adapter owns the outcome once it reports handled: it either
+         applied the planner's patch batch, handed the move to flowing-writes
+         on jb:pipeline:move, or dispatched jb:write:failed. Calling
+         updateJobStatus on top of any of those writes the row twice — the
+         reason this board is dormant does not make that safe, because
+         JB_LATTICE.setStage stays reachable. */
+      return Promise.resolve(
+        adapter.move({
+          jobKey: String(dataIndex),
+          fromStage: prevStage,
+          toStage: newStage,
+          dataIndex: dataIndex,
+          source: "lattice-board",
+        }),
+      ).then(function (result) {
+        if (result && result.handled) return result.ok !== false;
+        return legacyStatusWrite(dataIndex, newStage, prevStage);
+      }, function () {
+        return legacyStatusWrite(dataIndex, newStage, prevStage);
+      });
+    }
+    return legacyStatusWrite(dataIndex, newStage, prevStage);
   }
 
   function moveStage(dataIndex, fromStage, dir) {

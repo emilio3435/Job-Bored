@@ -100,6 +100,224 @@ describe("F2A-MOVE: board movement calls F1-A adapter", () => {
     assert.equal(result.ok, true);
   });
 
+  /* F2A-MOVE-REPAIR: the adapter used to call applyTransition(payload) with a
+     single argument. The real F1-A signature is applyTransition(input, patchApi),
+     so every live board drop failed missing_row / missing_patch_api, the failure
+     result was never read, and the jb:pipeline:move fallback never fired: the
+     card moved optimistically and the Sheet was never written, silently.
+
+     The repaired contract: a board move ends in EXACTLY ONE of
+       - the planner write applied (patches handed to patchApi.applyCells),
+       - jb:pipeline:move dispatched so flowing-writes owns the write,
+       - jb:write:failed dispatched with NO write at all.
+     Every branch below pins one of those three. */
+  describe("F2A-MOVE-REPAIR: a board move never ends in silence", () => {
+    const ROW = {
+      sheetRow: 7,
+      status: "Researching",
+      notes: "",
+      appliedDate: "",
+      followUpDate: "",
+      lastContact: "",
+      dismissedAt: "",
+    };
+
+    /** The real F1-A planner, loaded the way pipeline-atomic-transition does. */
+    function realWriter() {
+      const window = {};
+      vm.runInNewContext(readFileSync(join(repoRoot, "pipeline-transitions.js"), "utf8"), {
+        window,
+        Date,
+        Object,
+        String,
+        Number,
+        Array,
+        Math,
+        Promise,
+        isNaN,
+        console,
+      });
+      return window.JobBoredPipelineTransitions;
+    }
+
+    function loadWithHost({ host, transitions } = {}) {
+      const loaded = loadAdapter({ transitions: transitions || realWriter() });
+      if (host !== undefined) loaded.adapter.host = host;
+      return loaded;
+    }
+
+    it("applies the planned patches through the host patchApi and dispatches nothing", async () => {
+      const applied = [];
+      const { adapter, dispatched } = loadWithHost({
+        host: {
+          getRow: (jobKey) => (jobKey === "K7" ? ROW : null),
+          patchApi: { applyCells: (patches) => { applied.push(patches); return true; } },
+        },
+      });
+
+      const result = await adapter.move({
+        jobKey: "K7",
+        fromStage: "researching",
+        toStage: "interviewing",
+        source: "pipeline-board",
+      });
+
+      assert.equal(result.ok, true, "a resolvable row + patchApi must produce a real write");
+      assert.equal(applied.length, 1, "exactly one batch of cells reaches the Sheet");
+      assert.ok(
+        applied[0].some((p) => p.column === "M" && p.value === "Interviewing"),
+        "the Status cell must be in the batch",
+      );
+      assert.equal(
+        dispatched.length,
+        0,
+        "a completed write must not ALSO dispatch jb:pipeline:move — that is a double write",
+      );
+    });
+
+    it("falls back to jb:pipeline:move when no host row can be resolved", async () => {
+      const { adapter, dispatched } = loadWithHost({ host: null });
+
+      const result = await adapter.move({
+        jobKey: "K8",
+        fromStage: "researching",
+        toStage: "offer",
+        source: "pipeline-board",
+      });
+
+      const move = dispatched.find((e) => e.type === "jb:pipeline:move");
+      assert.ok(move, "missing_row must fall through to the event channel, not swallow the move");
+      assert.equal(move.detail.jobKey, "K8");
+      assert.equal(move.detail.toStage, "offer");
+      assert.equal(result.code, "missing_row", "the planner's reason is reported, not hidden");
+      assert.equal(
+        dispatched.some((e) => e.type === "jb:write:failed"),
+        false,
+        "a move that was handed to flowing-writes has not failed",
+      );
+    });
+
+    it("falls back to jb:pipeline:move when the host has a row but no patchApi", async () => {
+      const { adapter, dispatched } = loadWithHost({ host: { getRow: () => ROW } });
+
+      const result = await adapter.move({
+        jobKey: "K9",
+        fromStage: "researching",
+        toStage: "offer",
+        source: "pipeline-board",
+      });
+
+      assert.ok(
+        dispatched.some((e) => e.type === "jb:pipeline:move" && e.detail.jobKey === "K9"),
+        "missing_patch_api must fall through to the event channel",
+      );
+      assert.equal(result.code, "missing_patch_api");
+    });
+
+    it("falls back to jb:pipeline:move when Applied needs a confirmation the board cannot give", async () => {
+      const applied = [];
+      const { adapter, dispatched } = loadWithHost({
+        host: {
+          getRow: () => ROW,
+          patchApi: { applyCells: (patches) => { applied.push(patches); return true; } },
+        },
+      });
+
+      const result = await adapter.move({
+        jobKey: "K10",
+        fromStage: "researching",
+        toStage: "applied",
+        source: "pipeline-board",
+      });
+
+      assert.equal(applied.length, 0, "an unconfirmed Applied move must write nothing here");
+      assert.ok(
+        dispatched.some((e) => e.type === "jb:pipeline:move" && e.detail.toStage === "applied"),
+        "the drag must reach flowing-writes so the submission confirmation gate can run",
+      );
+      assert.equal(result.code, "confirmation_required");
+    });
+
+    it("dispatches jb:write:failed and writes nothing for a stage that does not exist", async () => {
+      const applied = [];
+      const { adapter, dispatched } = loadWithHost({
+        host: {
+          getRow: () => ROW,
+          patchApi: { applyCells: (patches) => { applied.push(patches); return true; } },
+        },
+      });
+
+      const result = await adapter.move({
+        jobKey: "K11",
+        fromStage: "researching",
+        toStage: "ghosted",
+        source: "pipeline-board",
+      });
+
+      assert.equal(applied.length, 0, "an unknown stage must never reach the Sheet");
+      assert.equal(
+        dispatched.some((e) => e.type === "jb:pipeline:move"),
+        false,
+        "re-dispatching an unknown stage would just move the same failure downstream",
+      );
+      const failed = dispatched.find((e) => e.type === "jb:write:failed");
+      assert.ok(failed, "the optimistic card move must be rolled back, not left lying");
+      assert.equal(failed.detail.jobKey, "K11");
+      assert.equal(
+        failed.detail.kind,
+        "pipeline:move",
+        "pipeline.js only rolls back events whose kind is pipeline:move",
+      );
+      assert.equal(failed.detail.reason, "unknown_stage");
+      assert.equal(result.ok, false);
+    });
+
+    it("reports the write as handled so lattice does not also call updateJobStatus", async () => {
+      const { adapter } = loadWithHost({
+        host: {
+          getRow: () => ROW,
+          patchApi: { applyCells: () => true },
+        },
+      });
+
+      const result = await adapter.move({
+        jobKey: "K12",
+        fromStage: "researching",
+        toStage: "offer",
+        source: "lattice-board",
+      });
+
+      assert.equal(
+        result.handled,
+        true,
+        "lattice.js suppresses its legacy updateJobStatus on result.handled — without " +
+          "the flag every lattice move writes the row twice",
+      );
+    });
+
+    it("surfaces jb:write:failed when the patch write itself throws", async () => {
+      const { adapter, dispatched } = loadWithHost({
+        host: {
+          getRow: () => ROW,
+          patchApi: { applyCells: () => { throw new Error("sheets 503"); } },
+        },
+      });
+
+      const result = await adapter.move({
+        jobKey: "K13",
+        fromStage: "researching",
+        toStage: "offer",
+        source: "pipeline-board",
+      });
+
+      assert.equal(result.ok, false);
+      const failed = dispatched.find((e) => e.type === "jb:write:failed");
+      assert.ok(failed, "a throwing write must not look like a success");
+      assert.equal(failed.detail.jobKey, "K13");
+      assert.equal(failed.detail.kind, "pipeline:move");
+    });
+  });
+
   it("mocks the writer until F1-A lands and still emits jb:pipeline:move", async () => {
     const { adapter, dispatched } = loadAdapter();
     const payload = { jobKey: "K2", fromStage: "researching", toStage: "applied", source: "pipeline-board" };
