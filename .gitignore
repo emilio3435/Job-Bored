@@ -71,3 +71,6 @@ prompts/go-live/
 prompts/lanes/
 prompts/reports/
 .serena/
+# Lane swarm scratch — never publish
+.lane-evidence/
+LANE-REPORT-*.md

@@ -140,6 +140,34 @@ test("hosted scraper CORS allows browser auth headers only for configured origin
   assert.equal(disallowedOrigin.status, 403);
 });
 
+test("F0D-F11-FWD spoofed forwarded host/proto must not widen CORS", async () => {
+  const spoofed = await fetch(`${baseUrl}/profile`, {
+    method: "OPTIONS",
+    headers: {
+      Origin: "https://evil.example",
+      "X-Forwarded-Host": "evil.example",
+      "X-Forwarded-Proto": "https",
+      "Access-Control-Request-Method": "GET",
+    },
+  });
+  assert.equal(spoofed.status, 403);
+  assert.notEqual(
+    spoofed.headers.get("access-control-allow-origin"),
+    "https://evil.example",
+  );
+
+  const spoofedGet = await fetch(`${baseUrl}/profile`, {
+    headers: {
+      Origin: "https://evil.example",
+      "X-Forwarded-Host": "evil.example",
+      "X-Forwarded-Proto": "https",
+    },
+  });
+  assert.equal(spoofedGet.status, 403);
+  const body = await json(spoofedGet);
+  assert.equal(body.error, "Origin not allowed for this server.");
+});
+
 function loadHostedApiAuth() {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
   const source = readFileSync(join(repoRoot, "hosted-api-auth.js"), "utf8");

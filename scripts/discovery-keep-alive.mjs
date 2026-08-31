@@ -12,6 +12,10 @@ import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
 import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
+import {
+  TRANSPORT_CLOUDFLARE_QUICK,
+  inferTransportKindFromUrl,
+} from "./lib/discovery-transport.mjs";
 
 export const KEEP_ALIVE_LABEL = "ai.jobbored.discovery.keepalive";
 export const DEFAULT_POLL_INTERVAL_MS = 30_000;
@@ -300,6 +304,94 @@ export async function runKeepAliveCheck(options = {}) {
   }
 
   const port = resolveLocalPort(bootstrap);
+  const transportKind =
+    (bootstrap.transport && bootstrap.transport.kind) ||
+    inferTransportKindFromUrl(
+      (bootstrap.transport && bootstrap.transport.publicUrl) ||
+        bootstrap.publicTargetUrl ||
+        "",
+    );
+  if (transportKind === TRANSPORT_CLOUDFLARE_QUICK) {
+    const publicUrl = normalizeNgrokPublicUrl(
+      (bootstrap.transport && bootstrap.transport.publicUrl) ||
+        bootstrap.publicTargetUrl ||
+        "",
+    );
+    if (!publicUrl) {
+      appendJsonLog("cloudflare_quick_url_missing", { port }, logOptions);
+      return { ok: false, reason: "cloudflare_quick_url_missing" };
+    }
+    const health = await verifyNgrokWorkerIdentity(publicUrl, {
+      fetchImpl: options.fetchImpl,
+    });
+    if (!health.ok) {
+      appendJsonLog(
+        "cloudflare_quick_health_mismatch",
+        { port, publicUrl, health },
+        logOptions,
+      );
+      return {
+        ok: false,
+        reason: "cloudflare_quick_health_mismatch",
+        publicUrl,
+        health,
+      };
+    }
+    const targetUrl = resolveRelayTargetUrl(bootstrap, publicUrl);
+    const previous = readJsonFile(paths.statePath) || {};
+    if (
+      previous.lastNgrokUrl === publicUrl &&
+      previous.lastTargetUrl === targetUrl &&
+      previous.lastRedeployAt
+    ) {
+      writeJsonFile(paths.statePath, {
+        ...previous,
+        schemaVersion: 1,
+        jobLabel: KEEP_ALIVE_LABEL,
+        lastRunAt: nowIso,
+        lastNgrokUrl: publicUrl,
+        lastTargetUrl: targetUrl,
+      });
+      appendJsonLog("cloudflare_quick_url_unchanged", { publicUrl }, logOptions);
+      return {
+        ok: true,
+        redeployed: false,
+        reason: "unchanged",
+        lastNgrokUrl: publicUrl,
+      };
+    }
+    const wrangler = runWranglerTargetSecretPut({
+      spawnSyncImpl,
+      workerName: bootstrap.workerName,
+      targetUrl,
+    });
+    if (!wrangler || wrangler.status !== 0) {
+      appendJsonLog(
+        "wrangler_failed",
+        {
+          status: wrangler && wrangler.status,
+          stderr: wrangler && wrangler.stderr,
+        },
+        logOptions,
+      );
+      return { ok: false, reason: "wrangler_failed" };
+    }
+    writeJsonFile(paths.statePath, {
+      schemaVersion: 1,
+      jobLabel: KEEP_ALIVE_LABEL,
+      lastRunAt: nowIso,
+      lastRedeployAt: nowIso,
+      lastNgrokUrl: publicUrl,
+      lastTargetUrl: targetUrl,
+    });
+    appendJsonLog("cloudflare_quick_resync", { publicUrl, targetUrl }, logOptions);
+    return {
+      ok: true,
+      redeployed: true,
+      lastNgrokUrl: publicUrl,
+      lastTargetUrl: targetUrl,
+    };
+  }
   const explicitNgrokUrl = normalizeNgrokPublicUrl(options.ngrokPublicUrl);
   const ngrokTarget = explicitNgrokUrl
     ? { ngrokUrl: explicitNgrokUrl, reason: "" }

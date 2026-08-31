@@ -51,6 +51,7 @@ import {
   normalizeLeadWithDiagnostics,
   type LeadNormalizationRejection,
 } from "../normalize/lead-normalizer.ts";
+import { dedupeLeadsForProductionRun } from "../normalize/intake-identity.ts";
 import {
   loadUserProfile,
   validateProfileCandidate,
@@ -2113,14 +2114,9 @@ async function runGroundedWebDiscovery(
 }
 
 /**
- * Multi-signal dedupe for normalized leads: uses normalized (title + company)
- * identity to collapse semantically duplicate opportunities that appear under
- * alternate URLs (e.g. short link vs long link, same job accessible via
- * different ATS paths, URL variants with tracking params).
- *
- * Strategy: First group by (title, company) identity. For each identity group,
- * pick the lead with the highest fitScore. This collapses alternate URLs for
- * the same job into a single entry.
+ * Multi-signal dedupe for normalized leads: uses the location/remote-aware
+ * intake fingerprint so alternate ATS URLs collapse while distinct locations
+ * remain distinct.
  *
  * VAL-LOOP-CROSS-004: Cross-lane duplicates (same opportunity from ATS+browser)
  * are collapsed and counted in the returned crossLaneDuplicates value.
@@ -2130,59 +2126,16 @@ async function runGroundedWebDiscovery(
 function dedupeNormalizedLeads(
   leads: NormalizedLead[],
 ): [NormalizedLead[], number] {
-  // Identity key -> best lead for that identity
-  const byIdentity = new Map<string, NormalizedLead>();
-  // Identity key -> source lanes seen for this identity (for cross-lane detection)
-  const lanesByIdentity = new Map<string, Set<string>>();
-
-  for (const lead of leads) {
-    if (!lead.url) continue;
-
-    // Build identity key from normalized title + company
-    const normalizedTitle = normalizeForDedup(lead.title || "");
-    const normalizedCompany = normalizeForDedup(lead.company || "");
-    if (!normalizedTitle || !normalizedCompany) continue;
-
-    const identityKey = `${normalizedTitle}|${normalizedCompany}`;
-    const existing = byIdentity.get(identityKey);
-
-    // Track source lanes for cross-lane duplicate detection
-    const leadLane = lead.metadata?.sourceLane || "unknown";
-    if (!lanesByIdentity.has(identityKey)) {
-      lanesByIdentity.set(identityKey, new Set());
-    }
-    lanesByIdentity.get(identityKey)!.add(leadLane);
-
-    // Choose the better lead: higher fitScore wins
-    const better = !existing || (lead.fitScore || 0) > (existing.fitScore || 0);
-
-    if (better) {
-      byIdentity.set(identityKey, lead);
-    }
-  }
-
-  // Count cross-lane duplicates: identity keys where both ATS and browser lanes were present
+  const result = dedupeLeadsForProductionRun(leads);
   let crossLaneDuplicates = 0;
-  for (const [identityKey, lanes] of lanesByIdentity) {
-    if (lanes.size > 1 && byIdentity.has(identityKey)) {
-      // Multiple lanes competed for this identity and one won
-      crossLaneDuplicates++;
+  for (const group of result.duplicateGroups) {
+    const lanes = new Set<string>();
+    for (const index of [group.keptIndex, ...group.droppedIndices]) {
+      lanes.add(String(leads[index]?.metadata?.sourceLane || "unknown"));
     }
+    if (lanes.size > 1) crossLaneDuplicates += 1;
   }
-
-  return [[...byIdentity.values()], crossLaneDuplicates];
-}
-
-/**
- * Normalizes a string for use as part of a dedupe identity key.
- * Strips punctuation, folds whitespace, and lowercases.
- */
-function normalizeForDedup(input: string): string {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9\s]/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
+  return [result.uniqueItems, crossLaneDuplicates];
 }
 
 function buildSourceSummary(

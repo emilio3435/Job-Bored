@@ -39,3 +39,18 @@ describe("user-content-store — discoverySetupSkipped flag trio", () => {
     }
   });
 });
+
+describe("F2B-PROFILE02-RESUME — staged browser resume text for Fit Profile analysis", () => {
+  it("exposes getStagedResumeTextForAnalysis that reads the active resume extractedText", () => {
+    assert.match(
+      userContentStoreJs,
+      /async function getStagedResumeTextForAnalysis\s*\(/,
+      "browser-local resume must be readable as staged analysis text",
+    );
+    assert.match(
+      userContentStoreJs,
+      /getStagedResumeTextForAnalysis,/,
+      "the helper must be exported on CommandCenterUserContent",
+    );
+  });
+});

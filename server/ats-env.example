@@ -33,5 +33,5 @@ ATS_ANTHROPIC_MODEL=claude-sonnet-4-6
 # LLM_MODEL=
 # LLM_BASE_URL=
 # GEMINI_API_KEY=
-# OPENAI_API_KEY=
+# OPENAI_API_KEY=          # ATS_PROVIDER=openai only. Never forwarded to openai_compatible.
 # ANTHROPIC_API_KEY=

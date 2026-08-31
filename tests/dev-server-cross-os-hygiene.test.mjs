@@ -41,7 +41,10 @@ describe("/__proxy/ngrok-tunnels soft-fail", () => {
     const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
     const port = server.address().port;
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/__proxy/ngrok-tunnels`);
+      const origin = `http://127.0.0.1:${port}`;
+      const res = await fetch(`${origin}/__proxy/ngrok-tunnels`, {
+        headers: { Origin: origin },
+      });
       assert.equal(res.status, 200);
       const body = await res.json();
       assert.ok(
@@ -60,8 +63,10 @@ describe("/__proxy/ngrok-tunnels soft-fail", () => {
     const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
     const port = server.address().port;
     try {
+      const origin = `http://127.0.0.1:${port}`;
       const res = await fetch(
-        `http://127.0.0.1:${port}/__proxy/local-health?port=${closedPort}`,
+        `${origin}/__proxy/local-health?port=${closedPort}`,
+        { headers: { Origin: origin } },
       );
       assert.equal(res.status, 502);
       const body = await res.json();

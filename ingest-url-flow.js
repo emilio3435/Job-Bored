@@ -166,6 +166,34 @@ function isPlaceholderCompanyForEnrichment(value, contextUrl) {
   );
 }
 
+function sanitizeInferredEmployer(value, contextUrl) {
+  const cleaned = String(value || "").trim();
+  if (!cleaned) return "";
+  if (isPlaceholderCompanyForEnrichment(cleaned, contextUrl)) return "";
+  return cleaned;
+}
+
+const USER_PROVIDED_JOB_TEXT_LABEL = "User-provided job description";
+
+function splitManualJobText(input) {
+  const src = input && typeof input === "object" ? input : {};
+  const jobDescription = String(src.description || "").trim();
+  const notes = String(src.notes || "").trim();
+  return {
+    notes,
+    jobText: jobDescription
+      ? USER_PROVIDED_JOB_TEXT_LABEL + ":\n" + jobDescription
+      : "",
+  };
+}
+
+function buildIngestTransportFailureAction(url, data) {
+  return {
+    label: "Add manually",
+    onClick: () => openIngestManualFallback(url, data || {}),
+  };
+}
+
 function reportIngestProgress(onProgress, progress, label, step) {
   if (typeof onProgress !== "function") return;
   try {
@@ -417,6 +445,10 @@ async function appendManualPipelineRowDirect(manual) {
     };
   }
 
+  const split = splitManualJobText({
+    description,
+    notes: src.notes,
+  });
   const row = [
     new Date().toISOString().slice(0, 10),
     title,
@@ -428,11 +460,11 @@ async function appendManualPipelineRowDirect(manual) {
     fitScore === "" ? "" : String(fitScore),
     "",
     "",
-    "",
+    split.jobText,
     "",
     "New",
     "",
-    description,
+    split.notes,
     "",
     "",
     "",
@@ -1180,12 +1212,13 @@ function handleIngestUrlResponse(data, url, options = {}) {
           data.message || "Unexpected response from worker",
           "error",
           true,
+          buildIngestTransportFailureAction(url, data),
         );
         return data;
       }
     }
   }
-  h("showToast", "Unexpected response from worker", "error", true);
+  h("showToast", "Unexpected response from worker", "error", true, buildIngestTransportFailureAction(url, data));
   return data;
 }
 
@@ -1259,14 +1292,14 @@ async function submitIngestFromToolbar() {
         },
       );
     } else if (err && err.message === "timeout") {
-      h("showToast", "Ingest timed out — try again", "error");
+      h("showToast", "Ingest timed out — try again", "error", true, buildIngestTransportFailureAction(url));
     } else if (err && err.message === "invalid_endpoint") {
       // toast already shown
     } else if (showIngestDiscoveryError(err)) {
       // Verifier copy + action already shown.
     } else {
       console.error("[JobBored] ingest-url submit failed:", err);
-      h("showToast", "Network error — could not reach worker", "error");
+      h("showToast", "Network error — could not reach worker", "error", true, buildIngestTransportFailureAction(url));
     }
   } finally {
     setIngestSubmitLoading(button, false);
@@ -1434,5 +1467,8 @@ function initIngestUrlFlow() {
     handleIngestUrlResponse,
     openIngestManualFallback,
     initIngestUrlFlow,
+    buildIngestTransportFailureAction,
+    splitManualJobText,
+    sanitizeInferredEmployer,
   });
 })();

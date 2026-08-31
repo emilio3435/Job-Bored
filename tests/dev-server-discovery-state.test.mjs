@@ -128,7 +128,7 @@ describe("GET /__proxy/discovery-state", () => {
     try {
       await withDevServer(async (baseUrl) => {
         const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
-          headers: { Origin: "http://localhost:8080" },
+          headers: { Origin: baseUrl },
         });
         assert.equal(resp.status, 200);
         const body = await resp.json();
@@ -154,7 +154,7 @@ describe("GET /__proxy/discovery-state", () => {
     try {
       await withDevServer(async (baseUrl) => {
         const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
-          headers: { Origin: "http://localhost:8080" },
+          headers: { Origin: baseUrl },
         });
         const body = await resp.json();
         assert.equal(body.recommendation, "auto_recoverable");
@@ -176,7 +176,7 @@ describe("GET /__proxy/discovery-state", () => {
     try {
       await withDevServer(async (baseUrl) => {
         const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
-          headers: { Origin: "http://localhost:8080" },
+          headers: { Origin: baseUrl },
         });
         const body = await resp.json();
         assert.equal(resp.status, 200);
@@ -199,7 +199,7 @@ describe("GET /__proxy/discovery-state", () => {
     try {
       await withDevServer(async (baseUrl) => {
         const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
-          headers: { Origin: "http://localhost:8080" },
+          headers: { Origin: baseUrl },
         });
         const body = await resp.json();
         // ngrok is retired: discovery reaches the worker over Tailscale or

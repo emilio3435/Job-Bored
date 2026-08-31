@@ -3,6 +3,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 import { buildCorsHeaders } from "../integrations/browser-use-discovery/src/http/origin-guard.ts";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -20,6 +21,29 @@ const workerTemplate = readFileSync(
   join(repoRoot, "templates", "cloudflare-worker", "worker.js"),
   "utf8",
 );
+const runTrackerJs = readFileSync(
+  join(repoRoot, "discovery-run-tracker.js"),
+  "utf8",
+);
+
+function loadRunTracker() {
+  const stored = new Map();
+  const ctx = {
+    window: {},
+    document: undefined,
+    localStorage: {
+      getItem: (k) => (stored.has(k) ? stored.get(k) : null),
+      setItem: (k, v) => stored.set(k, String(v)),
+      removeItem: (k) => stored.delete(k),
+    },
+    setTimeout,
+    clearTimeout,
+    AbortController,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(runTrackerJs, ctx, { filename: "discovery-run-tracker.js" });
+  return ctx.window.JobBoredDiscovery.runTracker;
+}
 
 describe("discovery run status polling", () => {
   it("polls the local browser-use worker on localhost instead of the public ngrok URL", () => {
@@ -240,5 +264,107 @@ describe("discovery run status polling", () => {
 
   it("keeps the Cloudflare relay template compatible with that browser header", () => {
     assert.match(workerTemplate, /Ngrok-Skip-Browser-Warning/);
+  });
+
+  it("F1B-P2-CORS: x-run-status-token is allowed through worker CORS preflight", () => {
+    const headers = buildCorsHeaders(
+      ["http://localhost:8080"],
+      "http://localhost:8080",
+    );
+    assert.match(
+      headers["Access-Control-Allow-Headers"],
+      /x-run-status-token/i,
+    );
+  });
+
+  it("F1B-RUN03-POLL: stale in-flight responses must not corrupt a newer runId", () => {
+    const api = loadRunTracker();
+    const tracker = new api.DiscoveryRunTracker("f1b_poll_runid");
+    tracker.beginTracking({ runId: "run_a", statusPath: "/runs/run_a" });
+    tracker.beginTracking({ runId: "run_b", statusPath: "/runs/run_b" });
+    tracker.updateFromStatusResponse({
+      runId: "run_a",
+      terminal: true,
+      status: "completed",
+      message: "Discovery completed — worker processed the run.",
+    });
+    const state = tracker.getState();
+    assert.equal(state.runId, "run_b");
+    assert.notEqual(state.status, "completed");
+    assert.notEqual(state.terminalKind, "completed");
+  });
+
+  it("F1B-RUN03-POLL: an older generation must not land after a newer poll session starts", () => {
+    const api = loadRunTracker();
+    const tracker = new api.DiscoveryRunTracker("f1b_poll_generation");
+    tracker.beginTracking({ runId: "run_a", statusPath: "/runs/run_a" });
+    const firstGeneration = tracker.getState().pollGeneration;
+    tracker.beginTracking({ runId: "run_b", statusPath: "/runs/run_b" });
+    const secondGeneration = tracker.getState().pollGeneration;
+    assert.ok(Number(secondGeneration) > Number(firstGeneration || 0));
+    tracker.updateFromStatusResponse(
+      {
+        runId: "run_b",
+        terminal: true,
+        status: "completed",
+        message: "stale generation",
+      },
+      { generation: firstGeneration },
+    );
+    assert.notEqual(tracker.getState().status, "completed");
+  });
+
+  it("F1B-RUN03-POLL: poll sessions expose per-poll and overall abort", () => {
+    const api = loadRunTracker();
+    assert.equal(typeof api.createAbortablePollSession, "function");
+    const session = api.createAbortablePollSession();
+    const first = session.createPollSignal(50);
+    const generation = session.bumpGeneration();
+    assert.equal(first.signal.aborted, true);
+    const overall = session.startOverallDeadline(10);
+    assert.equal(generation, session.getGeneration());
+    assert.equal(typeof overall.signal.aborted, "boolean");
+    session.abortAll();
+    assert.equal(overall.signal.aborted, true);
+    assert.equal(session.isCurrent(generation), false);
+  });
+
+  it("F1B-RUN04-SCHEMA: success terminal must not copy the status message into error", () => {
+    const api = loadRunTracker();
+    const tracker = new api.DiscoveryRunTracker("f1b_success_error");
+    tracker.beginTracking({ runId: "run_ok", statusPath: "/runs/run_ok" });
+    tracker.updateFromStatusResponse({
+      runId: "run_ok",
+      terminal: true,
+      status: "completed",
+      message: "Discovery completed — worker processed the run.",
+    });
+    const state = tracker.getState();
+    assert.equal(state.status, "completed");
+    assert.equal(state.errorMessage, "");
+    const history = tracker.toHistoryRow();
+    assert.equal(history.status, "success");
+    assert.equal(history.error, "");
+  });
+
+  it("F1B-RUN04-SCHEMA: local terminal outcomes remain queryable on the tracker", () => {
+    const api = loadRunTracker();
+    const tracker = new api.DiscoveryRunTracker("f1b_local_terminal");
+    tracker.beginTracking({
+      runId: "run_local",
+      statusPath: "/runs/run_local",
+      variationKey: "var_local",
+    });
+    tracker.updateFromStatusResponse({
+      runId: "run_local",
+      terminal: true,
+      status: "failed",
+      error: "watchdog",
+    });
+    assert.equal(tracker.isTerminal(), true);
+    const history = tracker.toHistoryRow();
+    assert.equal(history.status, "failure");
+    assert.equal(history.error, "watchdog");
+    assert.equal(history.variationKey, "var_local");
   });
 });

@@ -482,6 +482,11 @@
   }
 
   function init() {
+    if (root.JobBoredV2Boot && typeof root.JobBoredV2Boot.register === "function") {
+      root.JobBoredV2Boot.register({
+        chrome: { mount: mount, unmount: unmount },
+      });
+    }
     if (isFlagOn()) {
       mount();
     }

@@ -720,12 +720,31 @@ async function saveCommandCenterSettingsFromForm() {
     return;
   }
   if (sheetEl) sheetEl.value = sheetId;
-  const val = (id) => {
+  const settingsRoot = document.getElementById("settingsModal");
+  const readOwnedField = (id) => {
     const el = document.getElementById(id);
-    return el ? el.value.trim() : "";
+    if (!el) return undefined;
+    if (settingsRoot && typeof settingsRoot.contains === "function") {
+      if (!settingsRoot.contains(el)) return undefined;
+    }
+    return el.value.trim();
+  };
+  const val = (id) => {
+    const owned = readOwnedField(id);
+    return owned === undefined ? "" : owned;
+  };
+  const assignOwned = (payload, key, id, transform) => {
+    const owned = readOwnedField(id);
+    if (owned === undefined) return;
+    payload[key] = transform ? transform(owned) : owned;
   };
   const provEl = document.getElementById("settingsResumeProvider");
+  const providerOwned =
+    settingsRoot && typeof settingsRoot.contains === "function"
+      ? !provEl || settingsRoot.contains(provEl)
+      : !!provEl;
   const provider =
+    providerOwned &&
     provEl &&
     [
       "gemini",
@@ -739,34 +758,75 @@ async function saveCommandCenterSettingsFromForm() {
       : "gemini";
   const payload = {
     sheetId,
-    oauthClientId: val("settingsOAuthClientId"),
-    title: host().normalizeDashboardTitle(val("settingsTitle")),
-    discoveryWebhookUrl: val("settingsDiscoveryWebhookUrl"),
-    discoveryWebhookSecret: val("settingsDiscoveryWebhookSecret"),
-    jobPostingScrapeUrl: val("settingsJobPostingScrapeUrl"),
-    atsScoringMode:
-      val("settingsAtsScoringMode").toLowerCase() === "webhook"
-        ? "webhook"
-        : "server",
-    atsScoringServerUrl: val("settingsAtsScoringServerUrl"),
-    atsScoringWebhookUrl: val("settingsAtsScoringWebhookUrl"),
     resumeProvider: provider,
-    resumeGeminiApiKey: val("settingsResumeGeminiApiKey"),
-    resumeGeminiModel: val("settingsResumeGeminiModel") || resolveGeminiModel(),
-    resumeOpenAIApiKey: val("settingsResumeOpenAIApiKey"),
-    resumeOpenAIModel: val("settingsResumeOpenAIModel") || "gpt-4o-mini",
-    resumeAnthropicApiKey: val("settingsResumeAnthropicApiKey"),
-    resumeAnthropicModel:
-      val("settingsResumeAnthropicModel") || "claude-sonnet-4-6",
-    resumeOpenRouterApiKey: val("settingsResumeOpenRouterApiKey"),
-    resumeOpenRouterModel:
-      val("settingsResumeOpenRouterModel") || "openai/gpt-oss-120b:free",
-    resumeLocalBaseUrl:
-      val("settingsResumeLocalBaseUrl") || "http://127.0.0.1:11434/v1",
-    resumeLocalModel: val("settingsResumeLocalModel") || "gemma4:e2b",
-    resumeLocalApiKey: val("settingsResumeLocalApiKey"),
-    resumeGenerationWebhookUrl: val("settingsResumeGenerationWebhookUrl"),
   };
+  assignOwned(payload, "oauthClientId", "settingsOAuthClientId");
+  assignOwned(payload, "title", "settingsTitle", (value) =>
+    host().normalizeDashboardTitle(value),
+  );
+  assignOwned(payload, "discoveryWebhookUrl", "settingsDiscoveryWebhookUrl");
+  assignOwned(
+    payload,
+    "discoveryWebhookSecret",
+    "settingsDiscoveryWebhookSecret",
+  );
+  assignOwned(payload, "jobPostingScrapeUrl", "settingsJobPostingScrapeUrl");
+  assignOwned(payload, "atsScoringMode", "settingsAtsScoringMode", (value) =>
+    value.toLowerCase() === "webhook" ? "webhook" : "server",
+  );
+  assignOwned(payload, "atsScoringServerUrl", "settingsAtsScoringServerUrl");
+  assignOwned(payload, "atsScoringWebhookUrl", "settingsAtsScoringWebhookUrl");
+  assignOwned(payload, "resumeGeminiApiKey", "settingsResumeGeminiApiKey");
+  assignOwned(
+    payload,
+    "resumeGeminiModel",
+    "settingsResumeGeminiModel",
+    (value) => value || resolveGeminiModel(),
+  );
+  assignOwned(payload, "resumeOpenAIApiKey", "settingsResumeOpenAIApiKey");
+  assignOwned(
+    payload,
+    "resumeOpenAIModel",
+    "settingsResumeOpenAIModel",
+    (value) => value || "gpt-4o-mini",
+  );
+  assignOwned(payload, "resumeAnthropicApiKey", "settingsResumeAnthropicApiKey");
+  assignOwned(
+    payload,
+    "resumeAnthropicModel",
+    "settingsResumeAnthropicModel",
+    (value) => value || "claude-sonnet-4-6",
+  );
+  assignOwned(
+    payload,
+    "resumeOpenRouterApiKey",
+    "settingsResumeOpenRouterApiKey",
+  );
+  assignOwned(
+    payload,
+    "resumeOpenRouterModel",
+    "settingsResumeOpenRouterModel",
+    (value) => value || "openai/gpt-oss-120b:free",
+  );
+  assignOwned(
+    payload,
+    "resumeLocalBaseUrl",
+    "settingsResumeLocalBaseUrl",
+    (value) => value || "http://127.0.0.1:11434/v1",
+  );
+  assignOwned(
+    payload,
+    "resumeLocalModel",
+    "settingsResumeLocalModel",
+    (value) => value || "gemma4:e2b",
+  );
+  assignOwned(payload, "resumeLocalApiKey", "settingsResumeLocalApiKey");
+  assignOwned(
+    payload,
+    "resumeGenerationWebhookUrl",
+    "settingsResumeGenerationWebhookUrl",
+  );
+
 
   // Defence-in-depth: reject obviously unsafe BYOK base URLs at save-time so
   // the bad value never reaches localStorage. resume-generate.js's
@@ -825,6 +885,12 @@ async function saveCommandCenterSettingsFromForm() {
   }
   host().setSHEET_ID(sheetId);
   host().setDashboardSheetLinks();
+  if (!Object.prototype.hasOwnProperty.call(payload, "discoveryWebhookUrl")) {
+    host().syncDiscoveryButtonState();
+    showToast("Settings saved — reloading…", "success");
+    setTimeout(() => window.location.reload(), 400);
+    return;
+  }
   const savedWebhookUrl = host().normalizeDiscoveryWebhookIdentity(
     payload.discoveryWebhookUrl,
   );
@@ -853,10 +919,10 @@ async function saveCommandCenterSettingsFromForm() {
 }
 
 /**
- * Nuclear "Clear settings": wipes config, OAuth localStorage, IndexedDB user
- * content, revokes the Google access token, and sets a one-shot flag so the
- * next interactive sign-in forces the consent screen. After reload the user
- * is in a true greenfield state (no auto sign-in, no stale resume/profile).
+ * Default "Clear settings": masks config credentials in this browser.
+ * Resumes, drafts, OAuth session, and consent stay unless includeUserData
+ * is explicitly passed. After reload the user lands on the cold-start path
+ * for connection settings without losing local career documents.
  *
  * Order matters: revoke uses the in-memory token, so we must revoke BEFORE
  * clearing in-memory auth state.
@@ -871,45 +937,44 @@ async function performSettingsClearOverrides() {
     return;
   }
 
-  // 1) Revoke Google access token so silent re-auth via prompt:"none" cannot
-  //    re-issue from the prior consent grant. Best-effort — network/blocker
-  //    failures are non-fatal because we still wipe local state below.
-  try {
-    if (
-      host().getAccessToken() &&
-      window.google &&
-      google.accounts &&
-      google.accounts.oauth2 &&
-      typeof google.accounts.oauth2.revoke === "function"
-    ) {
-      await new Promise((resolve) => {
-        try {
-          google.accounts.oauth2.revoke(host().getAccessToken(), () => resolve());
-        } catch (_) {
-          resolve();
-        }
-        // Hard timeout in case Google never invokes the callback.
-        setTimeout(resolve, 1500);
-      });
+  // Default reset masks config credentials only. Resumes, drafts, OAuth
+  // session, and consent are preserved unless an explicit expanded-scope
+  // flag is passed (not the Settings Clear default).
+  const expanded = !!(arguments[0] && arguments[0].includeUserData);
+
+  if (expanded) {
+    try {
+      if (
+        host().getAccessToken() &&
+        window.google &&
+        google.accounts &&
+        google.accounts.oauth2 &&
+        typeof google.accounts.oauth2.revoke === "function"
+      ) {
+        await new Promise((resolve) => {
+          try {
+            google.accounts.oauth2.revoke(host().getAccessToken(), () => resolve());
+          } catch (_) {
+            resolve();
+          }
+          setTimeout(resolve, 1500);
+        });
+      }
+    } catch (_) {
+      /* best-effort revoke */
     }
-  } catch (_) {
-    /* best-effort revoke */
+    try {
+      host().clearSessionAuthState();
+    } catch (_) {}
+    try {
+      host().clearPersistedOAuthSession();
+    } catch (_) {}
+    try {
+      host().clearPersistedRuntimeOAuthSession();
+    } catch (_) {}
   }
 
-  // 2) Drop in-memory auth + clear OAuth localStorage (both keys).
-  try {
-    host().clearSessionAuthState();
-  } catch (_) {
-    /* clearSessionAuthState already calls clearPersisted*; defensive */
-  }
-  try {
-    host().clearPersistedOAuthSession();
-  } catch (_) {}
-  try {
-    host().clearPersistedRuntimeOAuthSession();
-  } catch (_) {}
-
-  // 3) Clear stored config overrides (sheet ID, OAuth client ID, webhook URL,
+  // Clear stored config overrides (sheet ID, OAuth client ID, webhook URL,
   //    discovery profile, etc.), then write an explicit greenfield mask.
   //
   //    The mask matters when config.js bakes in credentials (sheetId,
@@ -952,40 +1017,34 @@ async function performSettingsClearOverrides() {
     sessionStorage.removeItem("jobbored.whatsNext.snoozed");
   } catch (_) {}
 
-  // 5) Wipe IndexedDB user content (resume, samples, drafts, AI context).
-  //    Uses deleteDatabase which fully drops the DB — next openDb call will
-  //    re-create the schema empty.
-  try {
-    if (window.indexedDB && typeof indexedDB.deleteDatabase === "function") {
-      await new Promise((resolve) => {
-        let settled = false;
-        const finish = () => {
-          if (settled) return;
-          settled = true;
-          resolve();
-        };
-        try {
-          const req = indexedDB.deleteDatabase("command-center-user-content");
-          req.onsuccess = finish;
-          req.onerror = finish;
-          req.onblocked = finish;
-        } catch (_) {
-          finish();
-        }
-        // Hard timeout: blocked deletes can hang if another tab holds a connection.
-        setTimeout(finish, 1500);
-      });
+  if (expanded) {
+    try {
+      if (window.indexedDB && typeof indexedDB.deleteDatabase === "function") {
+        await new Promise((resolve) => {
+          let settled = false;
+          const finish = () => {
+            if (settled) return;
+            settled = true;
+            resolve();
+          };
+          try {
+            const req = indexedDB.deleteDatabase("command-center-user-content");
+            req.onsuccess = finish;
+            req.onerror = finish;
+            req.onblocked = finish;
+          } catch (_) {
+            finish();
+          }
+          setTimeout(finish, 1500);
+        });
+      }
+    } catch (_) {
+      /* best-effort wipe */
     }
-  } catch (_) {
-    /* best-effort wipe */
+    try {
+      localStorage.setItem(host().getForceConsentPromptKey(), "1");
+    } catch (_) {}
   }
-
-  // 6) Arm the one-shot consent flag so the next signIn() forces Google's
-  //    consent screen instead of silently re-issuing a token. This is what
-  //    makes "Clear settings" feel like a true greenfield reset for testing.
-  try {
-    localStorage.setItem(host().getForceConsentPromptKey(), "1");
-  } catch (_) {}
 
   hideSettingsClearConfirmBar();
   window.location.reload();

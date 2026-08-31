@@ -504,6 +504,21 @@
     DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH,
     COMMAND_CENTER_OVERRIDE_KEYS,
     GREENFIELD_CREDENTIAL_KEYS,
+    previewDestructiveReset() {
+      const writes = GREENFIELD_CREDENTIAL_KEYS.map((key) => ({
+        store: "config_overrides",
+        key,
+        value: "",
+      }));
+      return {
+        writes,
+        deletes: [],
+        includesResumes: false,
+        includesDrafts: false,
+        includesOAuth: false,
+        includesConsent: false,
+      };
+    },
     buildGreenfieldOverrideMask,
     readStoredConfigOverrides,
     applyConfigOverridesToWindowConfig,

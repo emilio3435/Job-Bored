@@ -25,7 +25,12 @@ import {
   buildRunStatusPath,
   type DiscoveryRunStatusStore,
 } from "../state/run-status-store.ts";
+import { buildEffectiveIntent } from "../discovery/effective-intent.ts";
 import { validateSheetsCredentialReadiness } from "../sheets/credential-readiness.ts";
+import {
+  buildDiscoveryRunLogRowFromStatus,
+  createTerminalHistoryFinalizer,
+} from "../sheets/discovery-runs-writer.ts";
 import {
   appendRunStatusToken,
   createRunStatusToken,
@@ -266,6 +271,36 @@ export async function handleDiscoveryWebhook(
   });
   dependencies.runStatusStore?.put(acceptedStatus);
 
+  const historyFinalizer = createTerminalHistoryFinalizer({
+    runId,
+    logger: runDependencies.discoveryRunsLogger,
+    log: logRunEvent,
+  });
+  const dispatchDependencies: RunDiscoveryDependencies =
+    runDependencies.discoveryRunsLogger
+      ? {
+          ...runDependencies,
+          discoveryRunsLogger: {
+            append(sheetId, row) {
+              return historyFinalizer.finalize(sheetId, row);
+            },
+          },
+        }
+      : runDependencies;
+  const writeHistoryFromStatus = (statusPayload: DiscoveryRunStatusPayload) => {
+    const sheetId = String(
+      statusPayload.request?.sheetId || parsed.request.sheetId || "",
+    ).trim();
+    if (!sheetId) return;
+    void historyFinalizer.finalize(
+      sheetId,
+      buildDiscoveryRunLogRowFromStatus(statusPayload, {
+        source: runDependencies.discoveryRunsSource || "worker",
+        trigger: parsed.request.trigger,
+      }),
+    );
+  };
+
   if (dependencies.runSynchronously) {
     const startedAt = now().toISOString();
     dependencies.runStatusStore?.put(
@@ -281,7 +316,7 @@ export async function handleDiscoveryWebhook(
       const result = await dependencies.runDiscovery(
         requestForRun,
         dispatchTrigger,
-        runDependencies,
+        dispatchDependencies,
       );
       const completedStatus = buildCompletedRunStatus(result, {
         acceptedAt,
@@ -313,9 +348,13 @@ export async function handleDiscoveryWebhook(
         outcome: completedStatus,
       } satisfies DiscoveryWebhookAck);
     } catch (error) {
-      dependencies.runStatusStore?.put(
-        buildFailedRunStatus(acceptedStatus, error, now().toISOString()),
+      const failedStatus = buildFailedRunStatus(
+        acceptedStatus,
+        error,
+        now().toISOString(),
       );
+      dependencies.runStatusStore?.put(failedStatus);
+      writeHistoryFromStatus(failedStatus);
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,
@@ -338,6 +377,22 @@ export async function handleDiscoveryWebhook(
   const startedAt = now().toISOString();
   const maxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+  const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
+  try {
+    dependencies.runStatusStore?.put(runningStatus);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    dependencies.log?.("discovery.run_status.running_persist_failed", {
+      runId,
+      mode: runMode,
+      error: detail,
+    });
+    return jsonResponse(500, {
+      ok: false,
+      message: "Discovery run status could not be persisted before dispatch.",
+      detail,
+    });
+  }
 
   // Safety backstop for the run STATUS. The run itself is bounded by the
   // in-loop budget tracker (also keyed to maxRunDurationMs) and per-source
@@ -350,13 +405,15 @@ export async function handleDiscoveryWebhook(
     runMode: "async",
     maxRunDurationMs,
     runStatusStore: dependencies.runStatusStore,
-    acceptedStatus,
+    acceptedStatus: runningStatus,
     now,
     log: dependencies.log,
+    onForceTerminal: writeHistoryFromStatus,
   });
+  safety.schedule();
 
   void dependencies
-    .runDiscovery(requestForRun, dispatchTrigger, runDependencies)
+    .runDiscovery(requestForRun, dispatchTrigger, dispatchDependencies)
     .then((result) => {
       if (safety.isTerminalStatusWritten()) {
         dependencies.log?.("discovery.run.late_completion_ignored", {
@@ -404,14 +461,13 @@ export async function handleDiscoveryWebhook(
       safety.markTerminal();
       safety.clear();
       const message = error instanceof Error ? error.message : String(error);
+      const failedStatus = buildFailedRunStatus(
+        buildRunningRunStatus(acceptedStatus, startedAt),
+        error,
+        now().toISOString(),
+      );
       try {
-        dependencies.runStatusStore?.put(
-          buildFailedRunStatus(
-            buildRunningRunStatus(acceptedStatus, startedAt),
-            error,
-            now().toISOString(),
-          ),
-        );
+        dependencies.runStatusStore?.put(failedStatus);
       } catch (statusError) {
         dependencies.log?.("discovery.run_status.terminal_write_failed", {
           runId,
@@ -423,6 +479,7 @@ export async function handleDiscoveryWebhook(
               : String(statusError),
         });
       }
+      writeHistoryFromStatus(failedStatus);
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,
@@ -430,11 +487,6 @@ export async function handleDiscoveryWebhook(
       });
       console.error("[browser-use-discovery] async discovery failed:", message);
     });
-  dependencies.runStatusStore?.put(
-    buildRunningRunStatus(acceptedStatus, startedAt),
-  );
-  // Schedule safety terminalization for async runs
-  safety.schedule();
 
   return jsonResponse(202, {
     ok: true,
@@ -634,12 +686,9 @@ function parseWebhookRequest(
       };
     }
 
-    // VAL-API-006/VAL-API-008: Run intent must be request-authoritative.
-    // If discoveryProfile is provided, at least one of targetRoles or keywordsInclude
-    // must be non-blank. Blank intent fails with explicit guidance to use AI Suggester.
-    // NOTE: We only validate when discoveryProfile is explicitly provided.
-    // When discoveryProfile is absent, we allow the request to proceed (the preflight
-    // and later intent-gating in the execution path will handle it).
+    // VAL-API-006/VAL-API-008 / F1C-DISC03: Run intent must be request-authoritative.
+    // The shared effective-intent helper treats searchPlan, profileSnapshot, and
+    // mergedUserProfile as intent — not just top-level discoveryProfile fields.
     const profile = discoveryProfile as Record<string, unknown>;
     const searchPlan = isPlainObject(profile.searchPlan)
       ? (profile.searchPlan as Record<string, unknown>)
@@ -647,22 +696,13 @@ function parseWebhookRequest(
     const searchPlanQuery = isPlainObject(searchPlan.query)
       ? (searchPlan.query as Record<string, unknown>)
       : {};
-    const rawTargetRoles = firstNonBlankString(
-      profile.targetRoles,
-      searchPlanQuery.targetRoles,
-    );
-    const rawKeywordsInclude = firstNonBlankString(
-      profile.keywordsInclude,
-      searchPlanQuery.keywordsInclude,
-    );
-    const targetRolesBlank =
-      rawTargetRoles == null ||
-      (typeof rawTargetRoles === "string" && !rawTargetRoles.trim());
-    const keywordsBlank =
-      rawKeywordsInclude == null ||
-      (typeof rawKeywordsInclude === "string" && !rawKeywordsInclude.trim());
-
-    if (targetRolesBlank && keywordsBlank) {
+    const effectiveIntent = buildEffectiveIntent({
+      discoveryProfile: profile,
+      mergedUserProfile: isPlainObject(payload.mergedUserProfile)
+        ? payload.mergedUserProfile
+        : null,
+    });
+    if (effectiveIntent.blank) {
       return {
         ok: false,
         message:
@@ -831,6 +871,29 @@ function parseWebhookRequest(
   if (!companyBlocklistResult.ok) return companyBlocklistResult;
   const companyAllowlist = companyAllowlistResult.value;
   const companyBlocklist = companyBlocklistResult.value;
+  if (
+    payload.mergedUserProfile != null &&
+    !isPlainObject(payload.mergedUserProfile)
+  ) {
+    return {
+      ok: false,
+      message: "mergedUserProfile must be an object when present.",
+    };
+  }
+  const mergedUserProfile = isPlainObject(payload.mergedUserProfile)
+    ? sanitizeMergedUserProfile(payload.mergedUserProfile)
+    : undefined;
+  if (
+    payload.allowUnrestrictedFallback != null &&
+    typeof payload.allowUnrestrictedFallback !== "boolean"
+  ) {
+    return {
+      ok: false,
+      message: "allowUnrestrictedFallback must be a boolean when present.",
+    };
+  }
+  const allowUnrestrictedFallback =
+    payload.allowUnrestrictedFallback === true ? true : undefined;
   const normalizedDiscoveryProfile = isPlainObject(discoveryProfile)
     ? normalizeDiscoveryProfile(discoveryProfile)
     : undefined;
@@ -867,6 +930,8 @@ function parseWebhookRequest(
       ...(trigger ? { trigger } : {}),
       ...(companyAllowlist.length ? { companyAllowlist } : {}),
       ...(companyBlocklist.length ? { companyBlocklist } : {}),
+      ...(mergedUserProfile ? { mergedUserProfile } : {}),
+      ...(allowUnrestrictedFallback ? { allowUnrestrictedFallback: true } : {}),
     },
   };
 }
@@ -880,6 +945,28 @@ function parseWebhookRequest(
  *  - hard cap per field — anything beyond fails closed so a misconfigured
  *    client doesn't silently send an oversized payload
  */
+const MERGED_PROFILE_SECRET_KEYS = new Set([
+  "resumeText",
+  "extractedText",
+  "text",
+  "rawResume",
+  "googleAccessToken",
+  "apiKey",
+  "password",
+  "secret",
+]);
+
+function sanitizeMergedUserProfile(
+  raw: Record<string, unknown>,
+): NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]> {
+  const out: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    if (MERGED_PROFILE_SECRET_KEYS.has(key)) continue;
+    out[key] = value;
+  }
+  return out as NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]>;
+}
+
 function parseCompanyList(
   raw: unknown,
   fieldName: string,
@@ -944,15 +1031,6 @@ function stringValue(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
-function firstNonBlankString(...values: unknown[]): string {
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed) return trimmed;
-  }
-  return "";
-}
-
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
@@ -996,6 +1074,9 @@ function normalizeDiscoveryProfile(
     out.keywordsExclude = raw.keywordsExclude;
   if (typeof raw.maxLeadsPerRun === "string")
     out.maxLeadsPerRun = raw.maxLeadsPerRun;
+  if (raw.groundedWebEnabled === true || raw.groundedWebEnabled === false) {
+    out.groundedWebEnabled = raw.groundedWebEnabled;
+  }
 
   // Normalize ultraPlanTuning if present
   if (isPlainObject(raw.ultraPlanTuning)) {

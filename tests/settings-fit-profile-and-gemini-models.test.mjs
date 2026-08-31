@@ -9,6 +9,10 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const schemaJs = readFileSync(join(repoRoot, "settings-tab-schema.js"), "utf8");
 const resumeGenerateJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 const settingsModalJs = readFileSync(join(repoRoot, "settings-modal.js"), "utf8");
+const fitProfileEditorJs = readFileSync(
+  join(repoRoot, "fit-profile-editor.js"),
+  "utf8",
+);
 
 function loadSettingsSchema() {
   const ctx = { window: {} };
@@ -37,6 +41,27 @@ describe("Settings Fit Profile tab", () => {
     assert.ok(
       schema.getSettingsTabOrder().includes("fit_profile"),
       "Fit Profile must be in tab order so clicks can activate the panel",
+    );
+  });
+
+  it("F2B-PROFILE01-EDIT: Open full wizard asks the wizard for edit-in-place, not a blank hash create", () => {
+    const start = fitProfileEditorJs.indexOf("fitProfileOpenWizardBtn");
+    assert.ok(start >= 0, "Open full wizard button must exist");
+    const snippet = fitProfileEditorJs.slice(start, start + 900);
+    assert.match(
+      snippet,
+      /openFitProfileWizard/,
+      "Settings must call the wizard opener instead of only flipping the onboarding hash",
+    );
+    assert.match(
+      snippet,
+      /mode:\s*["']edit["']/,
+      "Open full wizard on a saved profile is edit mode, not blank create",
+    );
+    assert.doesNotMatch(
+      snippet,
+      /location\.hash\s*=\s*["']#\/onboarding\/fit-profile["']/,
+      "must not bounce to the blank onboarding hash over a saved profile",
     );
   });
 });

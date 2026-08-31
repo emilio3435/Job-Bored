@@ -1,7 +1,10 @@
+import { request as httpRequest } from "node:http";
+import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
 
 const MAX_SCRAPE_REDIRECTS = 5;
+const PLATFORM_FETCH = globalThis.fetch;
 
 /** @typedef {(hostname: string, options: { all: true }) => Promise<import("node:dns").LookupAddress[]>} LookupAll */
 /** @typedef {{ ok: true, url: string } | { ok: false, error: string }} ScrapeTargetValidation */
@@ -23,6 +26,53 @@ export function normalizeAllowedBrowserOrigins(
   const explicit = normalizeList(raw);
   if (explicit.length) return explicit;
   return isLocalListenHost(listenHost) ? [...DEFAULT_LOCAL_BROWSER_ORIGINS] : [];
+}
+
+/**
+ * Host/protocol used for same-origin CORS matching.
+ * Ignores X-Forwarded-Host / X-Forwarded-Proto; those headers are
+ * attacker-controlled unless a trusted proxy rewrites Host itself.
+ *
+ * @param {{ get?: (name: string) => unknown, headers?: Record<string, unknown>, secure?: unknown, protocol?: unknown }} req
+ */
+export function trustedRequestOriginParts(req) {
+  /** @param {string} name */
+  const header = (name) => {
+    if (req && typeof req.get === "function") return req.get(name);
+    const headers = req && req.headers ? req.headers : {};
+    const direct = headers[name];
+    if (direct != null) return direct;
+    const lower = String(name).toLowerCase();
+    return headers[lower];
+  };
+  const requestOrigin = cleanString(header("origin"));
+  const requestHost = cleanString(header("host"));
+  const requestProtocol = req && req.secure
+    ? "https"
+    : cleanString(req && req.protocol ? req.protocol : "http")
+        .replace(/:$/, "")
+        .split(",")[0]
+        .trim() || "http";
+  return { requestOrigin, requestHost, requestProtocol };
+}
+
+/**
+ * Strip common provider secret shapes from a string before it is logged or
+ * returned to a browser. Unknown evidence stays unknown; this is not a
+ * guarantee against every leak format.
+ * @param {unknown} value
+ */
+export function redactSecrets(value) {
+  let text = String(value ?? "");
+  text = text.replace(/sk-[A-Za-z0-9_-]{8,}/g, "[redacted]");
+  text = text.replace(/AIza[0-9A-Za-z_-]{20,}/g, "[redacted]");
+  text = text.replace(/(Bearer\s+)\S+/gi, "$1[redacted]");
+  text = text.replace(
+    /((?:api[_-]?key|access[_-]?token)\s*[=:]\s*)[^\s"'\\]+/gi,
+    "$1[redacted]",
+  );
+  text = text.replace(/([?&](?:key|api_key|access_token)=)[^&\s]+/gi, "$1[redacted]");
+  return text;
 }
 
 /**
@@ -228,23 +278,33 @@ async function resolvedAddressesArePrivate(hostname, { lookupImpl = dnsLookup } 
 // Full validation incl. DNS resolution. Use before fetching a user-supplied URL.
 /**
  * @param {unknown} rawUrl
- * @param {{ lookupImpl?: LookupAll }} [options]
+ * @param {{ lookupImpl?: LookupAll, signal?: AbortSignal }} [options]
  * @returns {Promise<ScrapeTargetValidation>}
  */
-export async function validateScrapeTargetWithDns(rawUrl, { lookupImpl = dnsLookup } = {}) {
+export async function validateScrapeTargetWithDns(
+  rawUrl,
+  { lookupImpl = dnsLookup, signal } = {},
+) {
+  throwIfAborted(signal);
   const base = validateScrapeTarget(rawUrl);
   if (!base.ok) return base;
   const { hostname } = new URL(base.url);
-  if (await resolvedAddressesArePrivate(hostname, { lookupImpl })) {
+  const blocked = await abortable(
+    resolvedAddressesArePrivate(hostname, { lookupImpl }),
+    signal,
+  );
+  if (blocked) {
     return { ok: false, error: "Local and private-network scrape targets are not allowed" };
   }
   return base;
 }
 
-// Fetch that re-validates every redirect hop against the SSRF allowlist.
-// Mirrors `redirect: "follow"` semantics without trusting redirect targets.
-// Hop validation is synchronous/lexical so callers stay hermetic; set
-// `resolveDns: true` (or pass a `lookupImpl`) to additionally resolve each hop.
+// Fetch that re-validates every redirect hop against the SSRF allowlist
+// and pins DNS at connect time so a public preflight cannot rebind onto
+// loopback/metadata. Platform fetch (the `fetch` captured at module load)
+// is fail-closed: resolve every hop and pin the connect. Injected `fetchImpl`
+// or a test that patches `globalThis.fetch` stays hermetic unless the caller
+// passes `lookupImpl` / `resolveDns: true`.
 /**
  * @param {string} rawUrl
  * @param {RequestInit} [init]
@@ -256,18 +316,25 @@ export async function safeFetch(
   {
     fetchImpl = globalThis.fetch,
     lookupImpl,
-    resolveDns = false,
+    resolveDns,
     maxRedirects = MAX_SCRAPE_REDIRECTS,
   } = {},
 ) {
-  const wantDns = resolveDns || typeof lookupImpl === "function";
+  const signal = init && init.signal ? init.signal : undefined;
+  const injectedFetch = fetchImpl !== PLATFORM_FETCH;
+  const resolver = lookupImpl || dnsLookup;
+  const wantDns = (resolveDns ?? !injectedFetch) || typeof lookupImpl === "function";
+  const usePinnedTransport = !injectedFetch;
   let currentUrl = rawUrl;
   for (let hop = 0; hop <= maxRedirects; hop += 1) {
+    throwIfAborted(signal);
     const target = wantDns
-      ? await validateScrapeTargetWithDns(currentUrl, { lookupImpl: lookupImpl || dnsLookup })
+      ? await validateScrapeTargetWithDns(currentUrl, { lookupImpl: resolver, signal })
       : validateScrapeTarget(currentUrl);
     if (!target.ok) throw new Error(target.error);
-    const response = await fetchImpl(target.url, { ...init, redirect: "manual" });
+    const response = usePinnedTransport
+      ? await pinnedFetch(target.url, init, resolver)
+      : await abortable(fetchImpl(target.url, { ...init, redirect: "manual" }), signal);
     const status = Number(response && response.status);
     if (status >= 300 && status < 400 && response.headers && typeof response.headers.get === "function") {
       const location = response.headers.get("location");
@@ -278,6 +345,222 @@ export async function safeFetch(
     return response;
   }
   throw new Error("Too many redirects");
+}
+
+/** @param {AbortSignal | undefined} signal */
+function throwIfAborted(signal) {
+  if (signal && signal.aborted) throw abortError(signal);
+}
+
+/**
+ * @param {AbortSignal | undefined} signal
+ * @returns {Error}
+ */
+function abortError(signal) {
+  const reason = signal && "reason" in signal ? signal.reason : undefined;
+  if (reason instanceof Error) return reason;
+  if (typeof DOMException === "function") {
+    return new DOMException(
+      reason == null ? "This operation was aborted" : String(reason),
+      "AbortError",
+    );
+  }
+  const error = new Error("This operation was aborted");
+  error.name = "AbortError";
+  return error;
+}
+
+/**
+ * @template T
+ * @param {Promise<T>} promise
+ * @param {AbortSignal | undefined} signal
+ * @returns {Promise<T>}
+ */
+function abortable(promise, signal) {
+  if (!signal) return promise;
+  throwIfAborted(signal);
+  return new Promise((resolve, reject) => {
+    const onAbort = () => reject(abortError(signal));
+    signal.addEventListener("abort", onAbort, { once: true });
+    promise.then(
+      (value) => {
+        signal.removeEventListener("abort", onAbort);
+        resolve(value);
+      },
+      (error) => {
+        signal.removeEventListener("abort", onAbort);
+        reject(error);
+      },
+    );
+  });
+}
+
+/**
+ * @param {unknown} headers
+ * @returns {Record<string, string>}
+ */
+function headersToObject(headers) {
+  /** @type {Record<string, string>} */
+  const out = {};
+  if (!headers) return out;
+  if (typeof Headers === "function" && headers instanceof Headers) {
+    for (const [key, value] of headers.entries()) out[key] = value;
+    return out;
+  }
+  if (Array.isArray(headers)) {
+    for (const entry of headers) {
+      if (!entry || entry.length < 2) continue;
+      out[String(entry[0])] = String(entry[1]);
+    }
+    return out;
+  }
+  if (typeof headers === "object") {
+    for (const [key, value] of Object.entries(headers)) {
+      if (value == null) continue;
+      out[key] = Array.isArray(value) ? value.join(", ") : String(value);
+    }
+  }
+  return out;
+}
+
+/**
+ * Connect-time lookup: resolve, then refuse any private/unparseable address
+ * before TCP. This is the DNS pin — a later rebind cannot be connected to.
+ *
+ * @param {LookupAll} lookupImpl
+ * @param {AbortSignal | undefined} signal
+ */
+function createConnectLookup(lookupImpl, signal) {
+  /**
+   * @param {string} hostname
+   * @param {unknown} optionsOrCb
+   * @param {((...args: any[]) => void) | undefined} [maybeCallback]
+   */
+  return (hostname, optionsOrCb, maybeCallback) => {
+    /** @type {Record<string, unknown>} */
+    let options = {};
+    /** @type {(...args: any[]) => void} */
+    let cb = maybeCallback || (() => {});
+    if (typeof optionsOrCb === "function") {
+      cb = /** @type {(...args: any[]) => void} */ (optionsOrCb);
+    } else if (optionsOrCb && typeof optionsOrCb === "object") {
+      options = /** @type {Record<string, unknown>} */ (optionsOrCb);
+    }
+    const all = Boolean(options.all);
+    Promise.resolve()
+      .then(async () => {
+        throwIfAborted(signal);
+        if (isPrivateNetworkHostname(hostname)) {
+          throw new Error("Local and private-network scrape targets are not allowed");
+        }
+        if (isIP(hostname)) {
+          return [{ address: hostname, family: isIP(hostname) }];
+        }
+        const addresses = await abortable(lookupImpl(hostname, { all: true }), signal);
+        if (!Array.isArray(addresses) || addresses.length === 0) {
+          throw new Error("Local and private-network scrape targets are not allowed");
+        }
+        for (const row of addresses) {
+          const address = String(row && row.address || "");
+          const priv = isPrivateIpLiteral(address);
+          if (priv !== false) {
+            throw new Error("Local and private-network scrape targets are not allowed");
+          }
+        }
+        return addresses.map((row) => ({
+          address: String(row.address),
+          family: Number(row.family) || (String(row.address).includes(":") ? 6 : 4),
+        }));
+      })
+      .then((addresses) => {
+        if (all) cb(null, addresses);
+        else cb(null, addresses[0].address, addresses[0].family);
+      })
+      .catch((error) => cb(error));
+  };
+}
+
+/**
+ * @param {string} urlText
+ * @param {RequestInit} init
+ * @param {LookupAll} lookupImpl
+ * @returns {Promise<Response>}
+ */
+function pinnedFetch(urlText, init, lookupImpl) {
+  const parsed = new URL(urlText);
+  const requestFn = parsed.protocol === "https:" ? httpsRequest : httpRequest;
+  const signal = init && init.signal ? init.signal : undefined;
+  throwIfAborted(signal);
+  const headers = headersToObject(init.headers);
+  const method = String(init.method || "GET").toUpperCase();
+
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    /** @param {(value: any) => void} fn @param {any} value */
+    const finish = (fn, value) => {
+      if (settled) return;
+      settled = true;
+      fn(value);
+    };
+
+    const req = requestFn(
+      {
+        protocol: parsed.protocol,
+        hostname: parsed.hostname,
+        port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
+        path: `${parsed.pathname}${parsed.search}`,
+        method,
+        headers,
+        lookup: createConnectLookup(lookupImpl, signal),
+        signal,
+      },
+      (res) => {
+        /** @type {Buffer[]} */
+        const chunks = [];
+        res.on("data", (chunk) => {
+          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+        });
+        res.on("end", () => {
+          /** @type {Array<[string, string]>} */
+          const headerInit = [];
+          for (const [key, value] of Object.entries(res.headers)) {
+            if (value == null) continue;
+            headerInit.push([key, Array.isArray(value) ? value.join(", ") : String(value)]);
+          }
+          const response = new Response(Buffer.concat(chunks), {
+            status: res.statusCode || 0,
+            statusText: res.statusMessage || "",
+            headers: headerInit,
+          });
+          Object.defineProperty(response, "url", { value: parsed.href });
+          finish(resolve, response);
+        });
+        res.on("error", (error) => finish(reject, error));
+      },
+    );
+    req.on("error", (error) => {
+      if (signal && signal.aborted) {
+        finish(reject, abortError(signal));
+        return;
+      }
+      finish(reject, error);
+    });
+    try {
+      if (init.body && method !== "GET" && method !== "HEAD") {
+        if (typeof init.body === "string" || Buffer.isBuffer(init.body)) {
+          req.write(init.body);
+        } else {
+          req.destroy();
+          finish(reject, new Error("Unsupported request body"));
+          return;
+        }
+      }
+      req.end();
+    } catch (error) {
+      req.destroy();
+      finish(reject, error);
+    }
+  });
 }
 
 /** @param {unknown} value */

@@ -12,6 +12,7 @@
  * tests probe a brand-new ephemeral server with no discovery worker.
  */
 import assert from "node:assert/strict";
+import { request as httpRequest } from "node:http";
 import { describe, it } from "node:test";
 
 import { startDevServer } from "../dev-server.mjs";
@@ -19,6 +20,9 @@ import { startDevServer } from "../dev-server.mjs";
 const SILENT_LOGGER = { log() {}, error() {} };
 
 async function closeServer(server) {
+  if (typeof server.closeAllConnections === "function") {
+    server.closeAllConnections();
+  }
   await new Promise((resolve, reject) => {
     server.close((err) => (err ? reject(err) : resolve()));
   });
@@ -118,6 +122,41 @@ describe("dev-server security headers", () => {
       await closeServer(server);
     }
   });
+
+  it("keeps the same headers on malformed URI 400s", async () => {
+    const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
+    const port = server.address().port;
+    try {
+      const res = await new Promise((resolveReq, reject) => {
+        const req = httpRequest(
+          { host: "127.0.0.1", port, path: "/%", method: "GET", timeout: 2000 },
+          (incoming) => {
+            const chunks = [];
+            incoming.on("data", (chunk) => chunks.push(chunk));
+            incoming.on("end", () => {
+              resolveReq({
+                status: incoming.statusCode || 0,
+                headers: incoming.headers,
+                body: Buffer.concat(chunks).toString("utf8"),
+              });
+            });
+          },
+        );
+        req.on("timeout", () => {
+          req.destroy();
+          reject(new Error("malformed URI request timed out"));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+      assert.equal(res.status, 400);
+      assert.ok(res.headers["content-security-policy"]);
+      assert.equal(res.headers["x-frame-options"], "DENY");
+      assert.equal(res.headers["x-content-type-options"], "nosniff");
+    } finally {
+      await closeServer(server);
+    }
+  });
 });
 
 describe("dev-server /__proxy/* isLocalOrigin gate", () => {
@@ -129,10 +168,15 @@ describe("dev-server /__proxy/* isLocalOrigin gate", () => {
     const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
     const port = server.address().port;
     try {
-      const res = await fetch(`http://127.0.0.1:${port}/__proxy/ngrok-tunnels`);
+      const origin = `http://127.0.0.1:${port}`;
+      const res = await fetch(`http://127.0.0.1:${port}/__proxy/ngrok-tunnels`, {
+        headers: { Origin: origin },
+      });
       assert.equal(res.status, 200);
       const body = await res.json();
       assert.ok(Array.isArray(body.tunnels));
+      assert.equal(res.headers.get("access-control-allow-origin"), origin);
+      assert.notEqual(res.headers.get("access-control-allow-origin"), "*");
     } finally {
       await closeServer(server);
     }
@@ -166,5 +210,19 @@ describe("dev-server /__proxy/* isLocalOrigin gate", () => {
       /403/.test(dispatchRegion[0]),
       "expected the proxy dispatch site to 403 on non-local origins",
     );
+  });
+
+  it("403s /__proxy/ngrok-tunnels for an untrusted Origin even from loopback TCP", async () => {
+    const server = await startDevServer({ port: 0, logger: SILENT_LOGGER });
+    const port = server.address().port;
+    try {
+      const res = await fetch(`http://127.0.0.1:${port}/__proxy/ngrok-tunnels`, {
+        headers: { Origin: "https://evil.example" },
+      });
+      assert.equal(res.status, 403);
+      assert.notEqual(res.headers.get("access-control-allow-origin"), "*");
+    } finally {
+      await closeServer(server);
+    }
   });
 });

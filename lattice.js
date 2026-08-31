@@ -1,9 +1,11 @@
 /* ============================================================
    lattice.js — Phase 3 · Pipeline kanban (Lattice)
    ------------------------------------------------------------
-   Owner:     Lattice
-   Activates: only when document.body has class "jb-v2".
-   Renders:   horizontal kanban inside <section data-region="lattice">.
+   Owner:     Lattice (losing v2 renderer — F2-A)
+   Activates: does not mount. Pipeline is the canonical v2 board.
+   Renders:   dormant host only. [data-region="lattice"] stays in the
+              DOM for smoke composition checks, but init() refuses to
+              paint a competing board.
    State:     reads window.pipelineData (legacy app.js array of jobs)
               and re-renders on a custom 'jb:pipeline:rendered' event,
               plus a polling fallback for store revisions while the
@@ -20,6 +22,8 @@
 
   var SCROLL_KEY = "jb-v2-lattice-scroll";
   var CLOSED_KEY = "jb-v2-lattice-show-closed";
+  var LOSING_RENDERER = true;
+  var CANONICAL_BOARD = "pipeline";
   var STAGES = [
     "New",
     "Researching",
@@ -48,6 +52,12 @@
 
   function isOn() {
     return !!(document.body && document.body.classList.contains("jb-v2"));
+  }
+
+  function isLosingRenderer() {
+    var boot = window.JobBoredV2Boot;
+    if (boot && boot.CANONICAL_BOARD && boot.CANONICAL_BOARD !== "pipeline") return false;
+    return LOSING_RENDERER && CANONICAL_BOARD === "pipeline";
   }
 
   function el(tag, attrs, kids) {
@@ -106,15 +116,20 @@
     return parts.slice(0, 2);
   }
 
-  function fitPercent(job) {
+  function fitUnitsOf(job) {
+    var api = window.JobBoredDawn && window.JobBoredDawn.data;
+    if (api && typeof api.normalizeFitUnits === "function") {
+      return api.normalizeFitUnits(job && job.fitScore);
+    }
     var raw = job && job.fitScore;
-    if (raw == null) return null;
+    if (raw == null || raw === "") return { value: null, unknown: true };
     var n = Number(raw);
-    if (!isFinite(n)) return null;
-    if (n <= 1.0001 && n >= 0) n = n * 100;
-    if (n > 100) n = 100;
-    if (n < 0) n = 0;
-    return Math.round(n);
+    if (!isFinite(n)) return { value: null, unknown: true };
+    if (n === 0) return { value: 0, unknown: false };
+    if (n > 0 && n < 1) return { value: Math.round(n * 10), unknown: false };
+    if (n >= 1 && n <= 10) return { value: Math.round(n), unknown: false };
+    if (n > 10 && n <= 100) return { value: Math.round(n / 10), unknown: false };
+    return { value: null, unknown: true };
   }
 
   function lastTouched(job) {
@@ -360,7 +375,9 @@
 
   function buildCard(job, dataIndex) {
     var stableKey = dataIndex;
-    var pct = fitPercent(job);
+    var units = fitUnitsOf(job);
+    var fitKnown = !!(units && !units.unknown && units.value != null);
+    var ringPct = fitKnown ? Math.max(0, Math.min(100, Number(units.value) * 10)) : null;
     var selected = state.selectedKey === dataIndex;
     var favorite = !!job.favorite;
     var rich = isLatticeRichCardEnabled();
@@ -438,8 +455,8 @@
               e.stopPropagation();
             },
           }, favorite ? "★" : "☆"),
-          pct != null
-            ? el("jb-fit-ring", { percent: String(pct), size: "sm", label: "Fit " + pct + "%" })
+          ringPct != null
+            ? el("jb-fit-ring", { percent: String(ringPct), size: "sm", label: "Fit " + String(units.value) + "/10" })
             : null,
         ]),
         // Identity strip — always present. Stage chip + seniority give
@@ -903,6 +920,16 @@
   // ---- write-back via setStage (delegates to existing updateJobStatus) --
 
   function setStage(dataIndex, newStage, prevStage) {
+    var adapter = window.JobBoredPipelineTransitionAdapter;
+    if (adapter && typeof adapter.move === "function") {
+      adapter.move({
+        jobKey: String(dataIndex),
+        fromStage: prevStage,
+        toStage: newStage,
+        dataIndex: dataIndex,
+        source: "lattice-board",
+      });
+    }
     if (typeof window.updateJobStatus === "function") {
       // Pass prevStage explicitly: handleStageChange has already mutated
       // job.status optimistically, so updateJobStatus can no longer read the
@@ -982,31 +1009,23 @@
 
   // ---- bootstrap --------------------------------------------------------
 
+  function unmountLattice() {
+    var rootEl = getRoot();
+    if (rootEl) rootEl.innerHTML = "";
+  }
+
   function init() {
-    if (!isOn()) {
-      // legacy mode: nothing to do; region stays empty
-      return;
+    // F2-A: Pipeline is the canonical v2 board. Lattice stays loaded so
+    // smoke composition and leftover setStage tests still resolve, but
+    // init must not paint a competing board.
+    unmountLattice();
+    if (window.JobBoredV2Boot && typeof window.JobBoredV2Boot.register === "function") {
+      window.JobBoredV2Boot.register({
+        lattice: { mount: function () {}, unmount: unmountLattice },
+      });
     }
-    render();
-    wireGlobalHotkeys();
-
-    // Re-render whenever upstream pipeline state changes. The legacy
-    // renderPipeline() runs after every store mutation; we hook a
-    // MutationObserver on #jobCards (a stable upstream container) as a
-    // cheap revision signal that does not require any app.js change.
-    var jobCards = document.getElementById("jobCards");
-    if (jobCards) {
-      var obs = new MutationObserver(debounce(function () { render(); }, 80));
-      obs.observe(jobCards, { childList: true, subtree: false });
-    }
-
-    // Custom event escape hatch for explicit re-renders if app.js
-    // ever dispatches one in future.
-    document.addEventListener("jb:pipeline:rendered", function () { render(); });
-    document.addEventListener("jb:pipeline:filters-changed", function () { render(); });
-
-    // Run self-test if URL contains ?jb-v2-test=lattice
-    if (location.search.indexOf("jb-v2-test=lattice") >= 0) selfTest();
+    if (isLosingRenderer()) return;
+    return;
   }
 
   // ---- self-test --------------------------------------------------------
@@ -1055,6 +1074,9 @@
   window.JB_LATTICE = {
     render: render,
     setStage: setStage,
+    unmount: unmountLattice,
+    LOSING_RENDERER: LOSING_RENDERER,
+    CANONICAL_BOARD: CANONICAL_BOARD,
     STAGES: STAGES.slice(),
     selfTest: selfTest,
   };

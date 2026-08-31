@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   normalizeAllowedBrowserOrigins,
+  redactSecrets,
   resolveAllowedBrowserOrigin,
+  trustedRequestOriginParts,
   validateScrapeTarget,
   validateScrapeTargetWithDns,
   safeFetch,
@@ -138,7 +140,7 @@ describe("safeFetch redirect re-validation", () => {
       return calls.length === 1 ? redirectResponse("http://169.254.169.254/meta") : okResponse();
     };
     await assert.rejects(
-      () => safeFetch("https://example.com/start", {}, { fetchImpl }),
+      () => safeFetch("https://example.com/start", {}, { fetchImpl, resolveDns: false }),
       /private-network/,
     );
     assert.equal(calls.length, 1);
@@ -150,8 +152,67 @@ describe("safeFetch redirect re-validation", () => {
       calls.push(url);
       return calls.length === 1 ? redirectResponse("https://jobs.example.org/final") : okResponse();
     };
-    const res = await safeFetch("https://example.com/start", {}, { fetchImpl });
+    const res = await safeFetch("https://example.com/start", {}, { fetchImpl, resolveDns: false });
     assert.equal(res.status, 200);
     assert.deepEqual(calls, ["https://example.com/start", "https://jobs.example.org/final"]);
   });
+
+  it("fail-closed DNS blocks a redirect hostname that resolves private", async () => {
+    const fetchImpl = async (url) => {
+      if (String(url).includes("/start")) {
+        return redirectResponse("http://rebind.example.com/meta");
+      }
+      return okResponse();
+    };
+    const lookupImpl = async (hostname) => {
+      if (hostname === "rebind.example.com") {
+        return [{ address: "169.254.169.254", family: 4 }];
+      }
+      return [{ address: "192.0.2.1", family: 4 }];
+    };
+    await assert.rejects(
+      () => safeFetch("https://example.com/start", {}, { fetchImpl, lookupImpl }),
+      /private-network/,
+    );
+  });
 });
+
+describe("F0D-F11-FWD trusted request origin parts", () => {
+  it("ignores spoofed X-Forwarded-Host and X-Forwarded-Proto", () => {
+    const req = {
+      get(name) {
+        const key = String(name).toLowerCase();
+        if (key === "origin") return "https://evil.example";
+        if (key === "x-forwarded-host") return "evil.example";
+        if (key === "x-forwarded-proto") return "https";
+        if (key === "host") return "127.0.0.1:3847";
+        return "";
+      },
+      secure: false,
+      protocol: "http",
+    };
+    const parts = trustedRequestOriginParts(req);
+    assert.equal(parts.requestHost, "127.0.0.1:3847");
+    assert.equal(parts.requestProtocol, "http");
+    assert.equal(
+      resolveAllowedBrowserOrigin(parts.requestOrigin, {
+        allowedOrigins: [],
+        requestHost: parts.requestHost,
+        requestProtocol: parts.requestProtocol,
+      }),
+      "",
+    );
+  });
+
+  it("redacts provider keys from error strings", () => {
+    assert.match(
+      redactSecrets("invalid key sk-leaked-provider-secret-SHOULD-NOT-ECHO"),
+      /\[redacted\]/,
+    );
+    assert.doesNotMatch(
+      redactSecrets("Authorization: Bearer sk-leaked-provider-secret-SHOULD-NOT-ECHO"),
+      /sk-leaked/,
+    );
+  });
+});
+

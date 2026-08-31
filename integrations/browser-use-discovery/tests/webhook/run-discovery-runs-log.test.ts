@@ -2,12 +2,14 @@ import assert from "node:assert/strict";
 import test from "node:test";
 
 import {
+  DISCOVERY_RUNS_HEADER_ROW,
   DISCOVERY_WEBHOOK_EVENT,
   DISCOVERY_WEBHOOK_SCHEMA_VERSION,
   type DiscoveryRunLogRow,
   type DiscoveryRunTrigger,
 } from "../../src/contracts.ts";
 import { runDiscovery } from "../../src/run/run-discovery.ts";
+import * as discoveryRunsWriter from "../../src/sheets/discovery-runs-writer.ts";
 
 const originalFetch = globalThis.fetch;
 
@@ -220,4 +222,107 @@ test("runDiscovery does not fail the run when discoveryRunsLogger.append throws"
   const crashLog = events.find(([event]) => event === "discovery.runs_log.append_crashed");
   assert.ok(crashLog, "expected discovery.runs_log.append_crashed log entry");
   assert.match(String(crashLog![1].message), /kaboom/);
+});
+
+test("F1B-RUN04-SCHEMA: canonical 10-cell rows with omitted trailing Error do not misparse", () => {
+  const parseDiscoveryRunsCells = (
+    discoveryRunsWriter as {
+      parseDiscoveryRunsCells?: (
+        cells: unknown[],
+        headers?: readonly string[],
+      ) => DiscoveryRunLogRow | null;
+    }
+  ).parseDiscoveryRunsCells;
+  assert.equal(typeof parseDiscoveryRunsCells, "function");
+  const parsed = parseDiscoveryRunsCells!(
+    [
+      "2026-04-21T15:12:03Z",
+      "manual",
+      "success",
+      "47",
+      "12",
+      "3",
+      "9",
+      "worker@v0.4.1",
+      "gh-1234-abcd",
+    ],
+    DISCOVERY_RUNS_HEADER_ROW,
+  );
+  assert.ok(parsed);
+  assert.equal(parsed!.leadsWritten, 3);
+  assert.equal(parsed!.leadsUpdated, 9);
+  assert.equal(parsed!.source, "worker@v0.4.1");
+  assert.equal(parsed!.variationKey, "gh-1234-abcd");
+  assert.equal(parsed!.error, "");
+});
+
+test("F1B-RUN04-SCHEMA: success text must not land in Error when writing cells", () => {
+  const discoveryRunsRowToCells = (
+    discoveryRunsWriter as {
+      discoveryRunsRowToCells?: (row: DiscoveryRunLogRow) => string[];
+    }
+  ).discoveryRunsRowToCells;
+  assert.equal(typeof discoveryRunsRowToCells, "function");
+  const cells = discoveryRunsRowToCells!({
+    runAt: "2026-04-21T15:12:03Z",
+    trigger: "manual",
+    status: "success",
+    durationS: 47,
+    companiesSeen: 12,
+    leadsWritten: 3,
+    leadsUpdated: 9,
+    source: "worker@v0.4.1",
+    variationKey: "gh-1234-abcd",
+    error: "Discovery completed — worker processed the run.",
+  });
+  assert.equal(cells.length, DISCOVERY_RUNS_HEADER_ROW.length);
+  assert.equal(cells[9], "");
+});
+
+test("F1B-RUN05-FINAL: terminal history finalizer is idempotent per runId", async () => {
+  const createTerminalHistoryFinalizer = (
+    discoveryRunsWriter as {
+      createTerminalHistoryFinalizer?: (input: {
+        runId: string;
+        logger: {
+          append(
+            sheetId: string,
+            row: DiscoveryRunLogRow,
+          ): Promise<{ ok: true; created: boolean }>;
+        };
+      }) => {
+        finalize(
+          sheetId: string,
+          row: DiscoveryRunLogRow,
+        ): Promise<{ ok: true; created: boolean } | { ok: false; reason: string }>;
+      };
+    }
+  ).createTerminalHistoryFinalizer;
+  assert.equal(typeof createTerminalHistoryFinalizer, "function");
+  const appended: DiscoveryRunLogRow[] = [];
+  const finalizer = createTerminalHistoryFinalizer!({
+    runId: "run_final",
+    logger: {
+      async append(_sheetId, row) {
+        appended.push(row);
+        return { ok: true, created: false };
+      },
+    },
+  });
+  const row: DiscoveryRunLogRow = {
+    runAt: "2026-04-21T15:12:03Z",
+    trigger: "manual",
+    status: "failure",
+    durationS: 12,
+    companiesSeen: 1,
+    leadsWritten: 0,
+    leadsUpdated: 0,
+    source: "worker@test",
+    variationKey: "var_final",
+    error: "watchdog",
+  };
+  await finalizer.finalize("sheet_abc", row);
+  await finalizer.finalize("sheet_abc", { ...row, error: "second write" });
+  assert.equal(appended.length, 1);
+  assert.equal(appended[0].error, "watchdog");
 });

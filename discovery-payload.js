@@ -435,6 +435,9 @@
       ...(source.mergedUserProfile && typeof source.mergedUserProfile === "object"
         ? { mergedUserProfile: source.mergedUserProfile }
         : {}),
+      ...(source.allowUnrestrictedFallback === true
+        ? { allowUnrestrictedFallback: true }
+        : {}),
     };
   }
 

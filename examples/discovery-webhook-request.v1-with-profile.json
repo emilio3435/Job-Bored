@@ -54,5 +54,24 @@
     }
   },
   "companyAllowlist": ["stripe", "linear", "vercel"],
-  "companyBlocklist": ["Acme Holdings"]
+  "companyBlocklist": ["Acme Holdings"],
+  "allowUnrestrictedFallback": false,
+  "mergedUserProfile": {
+    "version": 1,
+    "identity": {
+      "targetRoles": ["Staff / Principal backend engineer"],
+      "targetSeniority": "ic_staff",
+      "primaryNarrative": "I build distributed systems and want to keep doing that at a product company."
+    },
+    "strengths": [
+      {
+        "name": "Distributed systems",
+        "rank": 1,
+        "keywords": ["Go", "Postgres"]
+      }
+    ],
+    "hardConstraints": {
+      "workMode": "remote_only"
+    }
+  }
 }

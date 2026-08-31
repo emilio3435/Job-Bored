@@ -954,4 +954,103 @@ describe("Add job from URL endpoint resolution", () => {
     assert.match(responseSource, /focusPipelineJobByIndex\(existingIndex\)/);
     assert.match(ingestUrlFlowJs, /focusPipelineJobByIndex/);
   });
+
+  it("F1D-INGEST02-CTA exposes a reachable manual-entry action for v2 transport failures", () => {
+    const { api } = loadIngestManualFallbackHarness();
+    assert.equal(typeof api.buildIngestTransportFailureAction, "function");
+
+    const action = api.buildIngestTransportFailureAction(
+      "https://jobs.example.com/role",
+      { message: "Network error — could not reach worker" },
+    );
+    assert.equal(action.label, "Add manually");
+    assert.equal(typeof action.onClick, "function");
+
+    const toolbarSource = readIngestAsyncFunctionSource(
+      "submitIngestFromToolbar",
+      "\n}\n\nasync function submitIngestFromManualModal",
+    );
+    assert.match(toolbarSource, /buildIngestTransportFailureAction\(/);
+    assert.match(toolbarSource, /err && err\.message === "timeout"/);
+    assert.match(
+      ingestUrlFlowJs,
+      /Network error — could not reach worker[\s\S]{0,240}buildIngestTransportFailureAction/,
+    );
+  });
+
+  it("F1D-INGEST03-NOTES keeps manual Description out of personal Notes and labels it user-provided", async () => {
+    const appended = [];
+    const host = {
+      getSHEET_ID: () => "sheet_123",
+      getAccessToken: () => "token",
+      showSheetAccessGate() {},
+      getPipelineData: () => [],
+      getCurrentSearch: () => "",
+      getFavoritesOnly: () => false,
+      sheetsValuesAppend: async (range, values) => {
+        appended.push({ range, values });
+        return true;
+      },
+      loadAllData: async () => {},
+    };
+    const context = vm.createContext({
+      window: {
+        JobBoredDiscovery: {
+          status: {},
+          ingestUrlFlow: { host },
+        },
+      },
+      document: {
+        getElementById: () => null,
+        querySelector: () => null,
+        querySelectorAll: () => [],
+      },
+      console: { log() {}, info() {}, warn() {}, error() {} },
+      setTimeout,
+      clearTimeout,
+      Date,
+      URL,
+    });
+    vm.runInContext(ingestUrlFlowJs, context, { filename: "ingest-url-flow.js" });
+    const api = context.window.JobBoredDiscovery.ingestUrlFlow;
+
+    const split = api.splitManualJobText({
+      description: "Own the hiring-loop reliability work.",
+      notes: "Ask Dana about the panel.",
+    });
+    assert.equal(split.notes, "Ask Dana about the panel.");
+    assert.match(split.jobText, /user-provided job (description|text)/i);
+    assert.match(split.jobText, /hiring-loop reliability/);
+    assert.doesNotMatch(split.notes, /hiring-loop reliability/);
+
+    await api.handleIngestUrlSubmit("https://jobs.example.com/role", {
+      title: "Staff Platform Engineer",
+      company: "Acme Labs",
+      location: "Austin, TX",
+      description: "Own the hiring-loop reliability work.",
+    });
+
+    assert.equal(appended.length, 1);
+    const row = appended[0].values[0];
+    assert.equal(row[14], "");
+    assert.match(String(row[10] || ""), /user-provided job (description|text)/i);
+    assert.match(String(row[10] || ""), /hiring-loop reliability/);
+  });
+
+  it("F1D-INGEST04-HOST rejects Careers/Linkedin employers inferred from generic hosts", () => {
+    const { api } = loadIngestManualFallbackHarness();
+    assert.equal(typeof api.sanitizeInferredEmployer, "function");
+    assert.equal(
+      api.sanitizeInferredEmployer("Careers", "https://careers.example.com/jobs/1"),
+      "",
+    );
+    assert.equal(
+      api.sanitizeInferredEmployer("Linkedin", "https://www.linkedin.com/jobs/view/1"),
+      "",
+    );
+    assert.equal(
+      api.sanitizeInferredEmployer("Acme Labs", "https://careers.example.com/jobs/1"),
+      "Acme Labs",
+    );
+  });
 });

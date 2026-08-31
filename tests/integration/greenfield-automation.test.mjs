@@ -60,7 +60,10 @@ async function withDevServer(fn) {
 async function requestJson(baseUrl, path, { method = "POST", body = {} } = {}) {
   const response = await fetch(`${baseUrl}${path}`, {
     method,
-    headers: body == null ? undefined : { "content-type": "application/json" },
+    headers: {
+      Origin: baseUrl,
+      ...(body == null ? {} : { "content-type": "application/json" }),
+    },
     body: body == null ? undefined : JSON.stringify(body),
   });
   const text = await response.text();

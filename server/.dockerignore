@@ -1,0 +1,6 @@
+# Never send local secrets or env files into the image build context.
+# Dockerfile uses `COPY . .`; these patterns are the only guard.
+.env
+.env.*
+node_modules
+npm-debug.log*

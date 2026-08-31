@@ -67,13 +67,38 @@ let discoveryRunProfileState = {
   fetchedAt: null,
 };
 
+function profileApiPath(path) {
+  const api =
+    (typeof window !== "undefined" &&
+      (window.JobBoredProfileApi || window.FitProfileForm)) ||
+    {};
+  if (typeof api.profileUrl === "function") return api.profileUrl(path);
+  if (typeof api.getProfileApiBase === "function") {
+    return (api.getProfileApiBase() || "") + path;
+  }
+  const cfg =
+    (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  const raw = String(cfg.jobBoredApiUrl || cfg.jobPostingScrapeUrl || "").trim();
+  if (raw) return raw.replace(/\/+$/, "") + path;
+  if (
+    typeof window !== "undefined" &&
+    window.location &&
+    window.location.protocol === "file:"
+  ) {
+    return "http://127.0.0.1:3847" + path;
+  }
+  return path;
+}
+
 /**
  * Load the master Fit Profile from GET /profile. Returns the profile or null.
  * Resilient to the endpoint being unavailable (treats as "no profile" state).
+ * Origin is resolved through the canonical API-base helper so a :8080
+ * dashboard does not fetch /profile against itself.
  */
 async function loadMasterFitProfile() {
   try {
-    const resp = await fetch("/profile", { method: "GET" });
+    const resp = await fetch(profileApiPath("/profile"), { method: "GET" });
     if (resp && resp.ok) {
       const data = await resp.json().catch(() => null);
       if (data && data.ok && data.profile) {
@@ -1731,6 +1756,7 @@ function initDiscoveryButton() {
     initDiscoveryDrawer,
     initDiscoverySubtabs,
     initDiscoveryButton,
+    loadMasterFitProfile,
     getEffectiveFitProfileFields,
     getDiscoveryRunProfileState() {
       return discoveryRunProfileState;

@@ -121,3 +121,27 @@ describe("discovery wizard local auto setup", () => {
     );
   });
 });
+
+describe("F2C-SETUP04-CONSENT: opening discovery setup never silently installs keep-alive", () => {
+  it("openDiscoverySetupWizard always renders review and does not call installKeepAliveOnce", async () => {
+    const { readFile } = await import("node:fs/promises");
+    const source = await readFile(
+      join(repoRoot, "discovery-wizard-ui.js"),
+      "utf8",
+    );
+    const start = source.indexOf("async function openDiscoverySetupWizard");
+    assert.ok(start >= 0, "openDiscoverySetupWizard must exist");
+    const nextFn = source.indexOf("\nasync function ", start + 10);
+    const body = source.slice(start, nextFn === -1 ? undefined : nextFn);
+    assert.match(
+      body,
+      /renderDiscoverySetupWizard|render\(\)/,
+      "opening setup must always render review state",
+    );
+    assert.doesNotMatch(
+      body,
+      /installKeepAliveOnce\s*\(/,
+      "opening setup must not silently install keep-alive",
+    );
+  });
+});

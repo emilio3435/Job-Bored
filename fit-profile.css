@@ -18,6 +18,11 @@
   display: block;
 }
 
+/* Edit-in-place never offers the blank template picker. */
+.fp-wizard[data-mode="edit"] .fp-wizard__panel[data-step="1"] {
+  display: none;
+}
+
 .fp-wizard__inner {
   max-width: 720px;
   margin: 0 auto;

@@ -177,6 +177,32 @@ export async function getStoredResumeText() {
   return null;
 }
 
+/**
+ * Resolve resume text for POST /profile/from-resume.
+ *
+ * Browser-staged `resumeText` wins so IndexedDB-only resumes can prefill
+ * Fit Profile. The staged text is NOT written to disk and secret-looking
+ * body fields (apiKey, tokens) are ignored.
+ *
+ * @param {unknown} body
+ * @returns {Promise<{ text: string, source: string, path: string|null } | null>}
+ */
+export async function resolveResumeTextForAnalysis(body) {
+  const record = body && typeof body === "object" && !Array.isArray(body)
+    ? /** @type {Record<string, unknown>} */ (body)
+    : null;
+  const staged =
+    record && typeof record.resumeText === "string" ? record.resumeText.trim() : "";
+  if (staged) {
+    return {
+      text: staged.slice(0, MAX_RESUME_INPUT_CHARS),
+      source: "staged_request",
+      path: null,
+    };
+  }
+  return getStoredResumeText();
+}
+
 /* ─── Provider config ──────────────────────────────────────────────────── */
 
 /**
@@ -268,6 +294,8 @@ export function getProfileProviderConfig() {
     };
   }
   if (provider === "openai_compatible" || provider === "local") {
+    // Ambient OPENAI_API_KEY is openai-provider only and must not be forwarded
+    // to arbitrary compatible endpoints.
     return {
       provider,
       apiKey: readFirstEnv([
