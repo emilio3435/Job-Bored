@@ -990,23 +990,6 @@
     }
   }
 
-  // ---- search "/" hotkey -----------------------------------------------
-
-  function wireGlobalHotkeys() {
-    document.addEventListener("keydown", function (e) {
-      if (!isOn()) return;
-      if (e.key !== "/") return;
-      var tag = (document.activeElement && document.activeElement.tagName) || "";
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      var input = document.querySelector('[data-region="lattice"] .jb-lat__search');
-      if (input) {
-        e.preventDefault();
-        input.focus();
-        input.select && input.select();
-      }
-    });
-  }
-
   // ---- bootstrap --------------------------------------------------------
 
   function unmountLattice() {
