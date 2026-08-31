@@ -1763,8 +1763,22 @@
     region.__pipePending = region.__pipePending || [];
     region.__pipePending.push({ jobKey: drag.jobKey, fromStage: drag.fromStage, toStage: toStage });
 
+    emitBoardMove({ jobKey: drag.jobKey, fromStage: drag.fromStage, toStage: toStage });
+  }
+
+  function emitBoardMove(detail) {
+    var adapter = root.JobBoredPipelineTransitionAdapter;
+    if (adapter && typeof adapter.move === "function") {
+      adapter.move({
+        jobKey: detail.jobKey,
+        fromStage: detail.fromStage,
+        toStage: detail.toStage,
+        source: "pipeline-board",
+      });
+      return;
+    }
     document.dispatchEvent(new CustomEvent("jb:pipeline:move", {
-      detail: { jobKey: drag.jobKey, fromStage: drag.fromStage, toStage: toStage },
+      detail: detail,
     }));
   }
 
@@ -1843,8 +1857,14 @@
   function init() {
     root.JobBoredPipeline = root.JobBoredPipeline || {};
     root.JobBoredPipeline.scheduleRender = scheduleRender;
+    root.JobBoredPipeline.clearRegion = clearRegion;
     root.JobBoredPipeline.focusSearch = focusSearch;
     root.JobBoredPipeline.focusJob = focusJob;
+    if (root.JobBoredV2Boot && typeof root.JobBoredV2Boot.register === "function") {
+      root.JobBoredV2Boot.register({
+        pipeline: { mount: scheduleRender, unmount: clearRegion },
+      });
+    }
     // Wire the materials index once. Cards render without badges
     // until the catalog resolves; we re-render on success.
     document.addEventListener("jb:materials:changed", function () {
