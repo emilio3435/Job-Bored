@@ -564,7 +564,8 @@ export async function runDiscovery(
   // use grounded search ATS host fallback to discover ATS boards
   // This is the "host search fallback" for ATS seeding
   let atsHostSearchCandidates: GroundedSearchCandidate[] = [];
-  if (hasAtsLanes && !hasSeedSufficiency && dependencies.groundedSearchClient?.searchAtsHosts) {
+  const groundedSearchClient = dependencies.groundedSearchClient;
+  if (hasAtsLanes && !hasSeedSufficiency && groundedSearchClient?.searchAtsHosts) {
     dependencies.log?.("discovery.run.ats_host_search_fallback_started", {
       runId,
       reason: "seed_sufficiency_not_met",
@@ -578,7 +579,7 @@ export async function runDiscovery(
         "ats_sources",
         sourceTimeoutMs,
         (signal) =>
-          dependencies.groundedSearchClient.searchAtsHosts!({
+          groundedSearchClient.searchAtsHosts!({
             run,
             sourceIds: config.effectiveSources.filter(
               (sid): sid is (typeof atsSourceIds)[number] =>
