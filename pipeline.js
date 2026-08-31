@@ -1026,7 +1026,44 @@
       el.appendChild(recruiterMount);
     }
 
+    attachStageMenu(el, card, stageKey);
+
     return el;
+  }
+
+  /* MOBILE-01 (P0-F hand-off, re-hosted): the explicit, labelled, >=44px
+     "Move to stage" control for people who cannot drag.
+
+     T0 attached this primitive in lattice.js. F2-A makes lattice the losing
+     renderer — it unmounts and never paints — so attaching it there would leave
+     the app's only keyboard/touch stage-move path rendered nowhere at all. It
+     belongs on the board that actually paints.
+
+     The primitive never writes: commitMove is injected and routes through
+     JobBoredPipelineTransitionAdapter, the same choke point the drag path uses,
+     so a menu move and a drag move cannot diverge. Unlike a drag there is no
+     optimistic DOM shuffle — nothing is under the user's finger to keep in
+     place — so the card settles when jb:write:succeeded triggers a re-render,
+     and a refused move leaves the board telling the truth about where the row
+     is. Feature-detected: with jb-a11y.js absent the card renders as before. */
+  function attachStageMenu(el, card, stageKey) {
+    var A11y = root.JobBoredA11y;
+    if (!A11y || !A11y.stageMenu || typeof A11y.stageMenu.attach !== "function") return;
+    A11y.stageMenu.attach(el, {
+      stages: STAGES.map(function (s) { return { key: s.key, label: s.label }; }),
+      current: stageKey,
+      jobKey: card.jobKey == null ? "" : String(card.jobKey),
+      commitMove: function (jobKey, toStage, fromStage) {
+        if (!toStage || toStage === fromStage) return Promise.resolve(false);
+        return Promise.resolve(
+          emitBoardMove({ jobKey: jobKey, fromStage: fromStage, toStage: toStage })
+        ).then(function (result) {
+          // ok:false means the adapter dispatched jb:write:failed and wrote
+          // nothing; the menu must revert its label rather than claim the move.
+          return !(result && result.ok === false);
+        }, function () { return false; });
+      },
+    });
   }
 
   function emptyPlaceholderHtml(stageKey) {
@@ -1812,20 +1849,23 @@
     emitBoardMove({ jobKey: drag.jobKey, fromStage: drag.fromStage, toStage: toStage });
   }
 
+  /** Returns the adapter's outcome so a caller that needs to know whether the
+   *  move was accepted (the stage menu) can wait on it. The drag path ignores
+   *  it and settles on jb:write:succeeded / jb:write:failed as before. */
   function emitBoardMove(detail) {
     var adapter = root.JobBoredPipelineTransitionAdapter;
     if (adapter && typeof adapter.move === "function") {
-      adapter.move({
+      return adapter.move({
         jobKey: detail.jobKey,
         fromStage: detail.fromStage,
         toStage: detail.toStage,
         source: "pipeline-board",
       });
-      return;
     }
     document.dispatchEvent(new CustomEvent("jb:pipeline:move", {
       detail: detail,
     }));
+    return Promise.resolve({ ok: true, mocked: true });
   }
 
   /* ------------------------------ lifecycle ----------------------------- */
