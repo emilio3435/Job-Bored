@@ -3,7 +3,9 @@ import { describe, it } from "node:test";
 
 import {
   normalizeAllowedBrowserOrigins,
+  redactSecrets,
   resolveAllowedBrowserOrigin,
+  trustedRequestOriginParts,
   validateScrapeTarget,
   validateScrapeTargetWithDns,
   safeFetch,
@@ -174,3 +176,43 @@ describe("safeFetch redirect re-validation", () => {
     );
   });
 });
+
+describe("F0D-F11-FWD trusted request origin parts", () => {
+  it("ignores spoofed X-Forwarded-Host and X-Forwarded-Proto", () => {
+    const req = {
+      get(name) {
+        const key = String(name).toLowerCase();
+        if (key === "origin") return "https://evil.example";
+        if (key === "x-forwarded-host") return "evil.example";
+        if (key === "x-forwarded-proto") return "https";
+        if (key === "host") return "127.0.0.1:3847";
+        return "";
+      },
+      secure: false,
+      protocol: "http",
+    };
+    const parts = trustedRequestOriginParts(req);
+    assert.equal(parts.requestHost, "127.0.0.1:3847");
+    assert.equal(parts.requestProtocol, "http");
+    assert.equal(
+      resolveAllowedBrowserOrigin(parts.requestOrigin, {
+        allowedOrigins: [],
+        requestHost: parts.requestHost,
+        requestProtocol: parts.requestProtocol,
+      }),
+      "",
+    );
+  });
+
+  it("redacts provider keys from error strings", () => {
+    assert.match(
+      redactSecrets("invalid key sk-leaked-provider-secret-SHOULD-NOT-ECHO"),
+      /\[redacted\]/,
+    );
+    assert.doesNotMatch(
+      redactSecrets("Authorization: Bearer sk-leaked-provider-secret-SHOULD-NOT-ECHO"),
+      /sk-leaked/,
+    );
+  });
+});
+

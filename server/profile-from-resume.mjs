@@ -268,6 +268,8 @@ export function getProfileProviderConfig() {
     };
   }
   if (provider === "openai_compatible" || provider === "local") {
+    // Ambient OPENAI_API_KEY is openai-provider only and must not be forwarded
+    // to arbitrary compatible endpoints.
     return {
       provider,
       apiKey: readFirstEnv([

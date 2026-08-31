@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { analyzeAtsScorecard, getAtsConfigStatus } from "../server/ats-scorecard.mjs";
+import { analyzeAtsScorecard, getAtsConfigStatus, getProviderConfigFromEnv } from "../server/ats-scorecard.mjs";
 
 function buildPayload() {
   return {
@@ -66,6 +66,7 @@ const ATS_ENV_KEYS = [
   "ATS_OPENAI_COMPAT_BASE_URL",
   "OPENAI_COMPATIBLE_BASE_URL",
   "OPENAI_BASE_URL",
+  "ATS_PROVIDER_TIMEOUT_MS",
 ];
 
 function setTestProviderEnv(overrides = {}) {
@@ -478,7 +479,8 @@ describe("analyzeAtsScorecard provider parsing", () => {
 
     try {
       await assert.rejects(() => analyzeAtsScorecard(buildPayload()), (error) => {
-        assert.match(String(error?.message || ""), /Rate limit/);
+        assert.match(String(error?.message || ""), /Gemini HTTP 429/);
+        assert.doesNotMatch(String(error?.message || ""), /Rate limit/);
         assert.equal(error?.provider, "gemini");
         assert.equal(error?.upstreamStatus, 429);
         assert.equal(error?.classification, "rate_limit");
@@ -522,6 +524,84 @@ describe("analyzeAtsScorecard provider parsing", () => {
         return true;
       });
       assert.equal(calls, 1);
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+    }
+  });
+
+  it("F0D-F07-AMBIENT does not copy OPENAI_API_KEY onto openai_compatible", () => {
+    const restoreEnv = setTestProviderEnv({
+      ATS_PROVIDER: "openai_compatible",
+      OPENAI_API_KEY: "sk-ambient-should-not-copy",
+      ATS_OPENAI_COMPATIBLE_API_KEY: "",
+      ATS_OPENAI_COMPATIBLE_MODEL: "local-model",
+      ATS_OPENAI_COMPATIBLE_BASE_URL: "http://127.0.0.1:11434/v1",
+    });
+    try {
+      const cfg = getProviderConfigFromEnv();
+      assert.equal(cfg.openAICompatibleApiKey, "");
+    } finally {
+      restoreEnv();
+    }
+  });
+
+  it("F0D-F05-REDACT omits provider body and keys from thrown upstream errors", async () => {
+    const restoreEnv = setTestProviderEnv();
+    const originalFetch = globalThis.fetch;
+    const secret = "sk-gemini-secret-SHOULD-NOT-LEAK";
+    globalThis.fetch = async () =>
+      new Response(
+        JSON.stringify({
+          error: { message: `quota exceeded for key ${secret}`, status: "INTERNAL" },
+        }),
+        { status: 502, headers: { "content-type": "application/json" } },
+      );
+    try {
+      await assert.rejects(() => analyzeAtsScorecard(buildPayload()), (error) => {
+        const message = String(error?.message || "");
+        assert.doesNotMatch(message, new RegExp(secret));
+        assert.doesNotMatch(message, /quota exceeded for key/i);
+        assert.equal(error?.upstreamStatus, 502);
+        return true;
+      });
+    } finally {
+      globalThis.fetch = originalFetch;
+      restoreEnv();
+    }
+  });
+
+  it("F0D-F06-TIMEOUT ATS LLM fetches pass an abort signal and abort hangers", async () => {
+    const restoreEnv = setTestProviderEnv({
+      ATS_PROVIDER_TIMEOUT_MS: "80",
+    });
+    const originalFetch = globalThis.fetch;
+    /** @type {AbortSignal | undefined} */
+    let fetchSignal;
+    globalThis.fetch = async (_url, init = {}) => {
+      fetchSignal = init.signal;
+      if (!init.signal) {
+        throw new Error("missing abort signal");
+      }
+      await new Promise((_, reject) => {
+        const timer = setTimeout(() => reject(new Error("test hung without abort")), 1500);
+        init.signal.addEventListener("abort", () => {
+          clearTimeout(timer);
+          const abortError = new Error("aborted");
+          abortError.name = "TimeoutError";
+          reject(abortError);
+        });
+      });
+      return new Response("unreachable");
+    };
+    try {
+      await assert.rejects(() => analyzeAtsScorecard(buildPayload()), (error) => {
+        const message = String(error?.message || error?.cause?.message || error?.name || "");
+        assert.match(message, /timed out|timeout|abort|TimeoutError/i);
+        return true;
+      });
+      assert.ok(fetchSignal, "LLM fetch must receive an AbortSignal");
+      assert.equal(fetchSignal.aborted, true);
     } finally {
       globalThis.fetch = originalFetch;
       restoreEnv();

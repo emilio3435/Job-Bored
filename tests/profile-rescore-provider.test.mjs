@@ -281,3 +281,119 @@ describe("POST /profile/rescore provider validation", () => {
     }
   });
 });
+
+describe("F0D provider isolation for profile rescore", () => {
+  it("F0D-F07-AMBIENT does not copy OPENAI_API_KEY onto openai_compatible", () => {
+    const cfg = getProfileRescoreProviderConfigFromEnv({
+      PROFILE_RESCORE_PROVIDER: "openai_compatible",
+      OPENAI_API_KEY: "sk-ambient-rescore-should-not-copy",
+      PROFILE_RESCORE_OPENAI_COMPATIBLE_MODEL: "local-model",
+      PROFILE_RESCORE_OPENAI_COMPATIBLE_BASE_URL: "http://127.0.0.1:11434/v1",
+    });
+    assert.equal(cfg.apiKey, "");
+  });
+
+  it("F0D-F05-REDACT omits provider body from rescore HTTP errors", async () => {
+    const originalFetch = globalThis.fetch;
+    const secret = "sk-rescore-secret-SHOULD-NOT-LEAK";
+    globalThis.fetch = async (url, options = {}) => {
+      const href = String(url);
+      const method = String(options.method || "GET").toUpperCase();
+      if (href.includes("sheets.googleapis.com") && method === "GET") {
+        return jsonResponse({ values: [pipelineRow()] });
+      }
+      if (href.includes("/chat/completions")) {
+        return new Response(`invalid api key ${secret} Authorization: Bearer ${secret}`, {
+          status: 502,
+          headers: { "content-type": "text/plain" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const events = [];
+    try {
+      const result = await rescoreAllPipelineRows({
+        profile: sampleProfile(),
+        sheetId: "sheet-1",
+        overrideToken: "sheet-token",
+        providerConfig: {
+          provider: "openrouter",
+          apiKey: "or-key",
+          model: "openai/gpt-oss-120b:free",
+          baseUrl: "https://openrouter.ai/api/v1",
+        },
+        onProgress: (event) => events.push(event),
+      });
+      assert.equal(result.failed, 1);
+      const failed = events.find((event) => event.status === "failed");
+      const serialized = JSON.stringify(events);
+      assert.doesNotMatch(serialized, new RegExp(secret));
+      assert.doesNotMatch(String(failed?.reason || ""), /invalid api key/i);
+    } finally {
+      globalThis.fetch = originalFetch;
+    }
+  });
+
+  it("F0D-F06-TIMEOUT disconnect cancellation aborts in-flight LLM fetch", async () => {
+    const originalFetch = globalThis.fetch;
+    /** @type {AbortSignal | undefined} */
+    let llmSignal;
+    globalThis.fetch = async (url, options = {}) => {
+      const href = String(url);
+      const method = String(options.method || "GET").toUpperCase();
+      if (href.includes("sheets.googleapis.com") && method === "GET") {
+        return jsonResponse({ values: [pipelineRow()] });
+      }
+      if (href.includes("/chat/completions")) {
+        llmSignal = options.signal;
+        return new Promise((_, reject) => {
+          const onAbort = () => {
+            const err = new Error("aborted");
+            err.name = "AbortError";
+            reject(err);
+          };
+          if (options.signal?.aborted) {
+            onAbort();
+            return;
+          }
+          options.signal?.addEventListener("abort", onAbort, { once: true });
+        });
+      }
+      if (href.includes("example.test")) {
+        return new Response("<html><body>Senior Growth Engineer at Acme. Build growth systems.</body></html>", {
+          status: 200,
+          headers: { "content-type": "text/html" },
+        });
+      }
+      return new Response("not found", { status: 404 });
+    };
+    const ac = new AbortController();
+    const pending = rescoreAllPipelineRows({
+      profile: sampleProfile(),
+      sheetId: "sheet-1",
+      overrideToken: "sheet-token",
+      providerConfig: {
+        provider: "openrouter",
+        apiKey: "or-key",
+        model: "openai/gpt-oss-120b:free",
+        baseUrl: "https://openrouter.ai/api/v1",
+      },
+      signal: ac.signal,
+    });
+    pending.catch(() => {});
+    try {
+      for (let i = 0; i < 40 && !llmSignal; i += 1) {
+        await sleep(25);
+      }
+      assert.ok(llmSignal, "LLM fetch must receive an AbortSignal");
+      ac.abort();
+      await sleep(50);
+      assert.equal(llmSignal.aborted, true);
+      await pending;
+    } finally {
+      ac.abort();
+      globalThis.fetch = originalFetch;
+    }
+  });
+});
+
