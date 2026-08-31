@@ -838,15 +838,62 @@
     return { issues: findings, ranAt: Date.now() };
   }
 
+  function previewActionForIssue(issue) {
+    const writes = [];
+    const deletes = [];
+    if (issue.id === "keep_alive_not_installed") {
+      writes.push({ path: "/__proxy/install-keep-alive", method: "POST" });
+    }
+    if (issue.id === "keep_alive_stale") {
+      deletes.push({ path: "/__proxy/install-keep-alive", method: "DELETE" });
+      writes.push({ path: "/__proxy/install-keep-alive", method: "POST" });
+    }
+    if (issue.id === "pipeline_headers_wrong") {
+      writes.push({ path: "Pipeline!A1", method: "PUT" });
+    }
+    if (issue.id === "pipeline_tab_missing") {
+      writes.push({ path: "spreadsheets.batchUpdate", method: "POST" });
+    }
+    return {
+      id: issue.id,
+      title: issue.title,
+      writes,
+      deletes,
+      requiresConsent:
+        issue.id === "keep_alive_not_installed" ||
+        issue.id === "keep_alive_stale",
+    };
+  }
+
+  async function previewFixes(ctx) {
+    const report = await diagnose(ctx || {});
+    return {
+      actions: report.issues.map((issue) => previewActionForIssue(issue)),
+      issues: report.issues,
+    };
+  }
+
+  function isConsentRequiredIssue(id) {
+    return id === "keep_alive_not_installed" || id === "keep_alive_stale";
+  }
+
   async function autoHeal(opts) {
     const ctx = (opts && opts.ctx) || {};
+    const consent = !!(opts && opts.consent);
     const onProgress =
       opts && typeof opts.onProgress === "function" ? opts.onProgress : null;
     const report = await diagnose(ctx);
     const fixed = [];
     const blocked = [];
     let stoppedForUser = null;
+    let needsConsent = false;
     for (const finding of report.issues) {
+      if (isConsentRequiredIssue(finding.id) && !consent) {
+        blocked.push(finding);
+        needsConsent = true;
+        if (!stoppedForUser) stoppedForUser = finding;
+        continue;
+      }
       if (!finding.autoFixable) {
         blocked.push(finding);
         if (!stoppedForUser) stoppedForUser = finding;
@@ -874,6 +921,7 @@
       fixed,
       blocked,
       stoppedForUser,
+      needsConsent,
     };
   }
 
@@ -997,6 +1045,7 @@
 
   const api = {
     diagnose,
+    previewFixes,
     autoHeal,
     handleFailure,
     renderInline,

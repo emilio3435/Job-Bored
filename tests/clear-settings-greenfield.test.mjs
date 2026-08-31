@@ -200,10 +200,10 @@ describe("Clear settings greenfields config.js installs", () => {
       [...GREENFIELD_CREDENTIAL_KEYS].sort(),
       "the resulting mask must contain EXACTLY the greenfield credential keys (no more, no less)",
     );
-    assert.equal(
+    assert.notEqual(
       store.get(FORCE_CONSENT_KEY),
       "1",
-      "the one-shot force-consent flag must survive the clear so the next sign-in shows the consent screen",
+      "default Clear settings must not rewrite OAuth consent",
     );
     assert.equal(reloaded, true, "clear must end in a reload");
   });
@@ -308,6 +308,105 @@ describe("greenfield reset clears the session-only whats-next 'Later' snooze", (
       fn,
       new RegExp(`sessionStorage\\.removeItem\\(["']${SNOOZE_KEY}["']\\)`),
       "performSettingsClearOverrides must clear the session 'Later' snooze",
+    );
+  });
+});
+
+describe("F2C-P2-SCOPE: default destructive reset does not delete resumes/drafts/OAuth/consent", () => {
+  it("default clear previews config-mask writes and does not drop IndexedDB user content", async () => {
+    let deletedDb = false;
+    const store = new Map();
+    store.set(
+      OVERRIDE_KEY,
+      JSON.stringify({ sheetId: "1Old", oauthClientId: "x.apps.googleusercontent.com" }),
+    );
+    const timers = [];
+    const ctx = {
+      localStorage: {
+        getItem: (k) => (store.has(k) ? store.get(k) : null),
+        setItem: (k, v) => store.set(k, String(v)),
+        removeItem: (k) => store.delete(k),
+      },
+      sessionStorage: {
+        removeItem() {},
+      },
+      window: {
+        location: { reload() {} },
+        indexedDB: {
+          deleteDatabase() {
+            deletedDb = true;
+            return { onsuccess: null, onerror: null, onblocked: null };
+          },
+        },
+      },
+      indexedDB: {
+        deleteDatabase() {
+          deletedDb = true;
+          return { onsuccess: null, onerror: null, onblocked: null };
+        },
+      },
+      setTimeout(fn) {
+        timers.push(fn);
+        return timers.length;
+      },
+      clearTimeout() {},
+      JSON,
+      Promise,
+      Object,
+      String,
+      console,
+      host: () => ({
+        canUseLocalStorage: () => true,
+        getAccessToken: () => "live-token",
+        clearSessionAuthState() {},
+        clearPersistedOAuthSession() {},
+        clearPersistedRuntimeOAuthSession() {},
+        getCommandCenterConfigOverrideKey: () => OVERRIDE_KEY,
+        getDiscoveryTransportSetupKey: () => "command_center_discovery_transport_setup",
+        getDiscoveryRunTrackerKey: () => "command_center_discovery_run_tracker",
+        getForceConsentPromptKey: () => FORCE_CONSENT_KEY,
+        buildGreenfieldOverrideMask: () => {
+          const mask = {};
+          for (const k of GREENFIELD_CREDENTIAL_KEYS) mask[k] = "";
+          return mask;
+        },
+        previewDestructiveReset: () => ({
+          writes: GREENFIELD_CREDENTIAL_KEYS.map((key) => ({
+            store: "config_overrides",
+            key,
+            value: "",
+          })),
+          deletes: [],
+          includesResumes: false,
+          includesDrafts: false,
+          includesOAuth: false,
+          includesConsent: false,
+        }),
+      }),
+      showToast() {},
+      hideSettingsClearConfirmBar() {},
+    };
+    vm.createContext(ctx);
+    vm.runInContext(
+      extractFunction(settingsModalJs, "performSettingsClearOverrides"),
+      ctx,
+      { filename: "settings-modal.js#performSettingsClearOverrides" },
+    );
+    const done = vm.runInContext("performSettingsClearOverrides()", ctx);
+    for (let i = 0; i < 20; i++) {
+      await new Promise((resolve) => setImmediate(resolve));
+      timers.splice(0).forEach((fn) => fn());
+    }
+    await done;
+    assert.equal(
+      deletedDb,
+      false,
+      "default reset must not delete resumes/drafts IndexedDB",
+    );
+    assert.notEqual(
+      store.get(FORCE_CONSENT_KEY),
+      "1",
+      "default reset must not rewrite OAuth consent by default",
     );
   });
 });

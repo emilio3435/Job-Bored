@@ -2337,13 +2337,20 @@
   function bind() {
     if (bound) return;
     cacheElements();
-    if (!els.runBtn) return;
+    const hasScheduleControls = !!(
+      els.scheduleLocalEnable ||
+      els.scheduleLocalTime ||
+      els.scheduleCloudEnable ||
+      els.scheduleCloudTime ||
+      els.autoRefreshToggle
+    );
+    if (!els.runBtn && !hasScheduleControls) return;
     // Fire-and-forget: populate resume from the Resume tab's store. Runs in
     // parallel with the rest of bind(); UI stays responsive.
     autoPopulateResumeFromStore();
     if (els.file) els.file.addEventListener("change", handleFileChange);
     if (els.clearBtn) els.clearBtn.addEventListener("click", handleClearResume);
-    els.runBtn.addEventListener("click", handleRun);
+    if (els.runBtn) els.runBtn.addEventListener("click", handleRun);
     if (els.refreshBtn) els.refreshBtn.addEventListener("click", handleRefresh);
     if (els.autoRefreshToggle) {
       els.autoRefreshToggle.addEventListener(

@@ -2543,51 +2543,11 @@ async function openDiscoverySetupWizard(options = {}) {
       const verdict =
         await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
       if (verdict && verdict.ready) {
-        // Belt-and-suspenders: greenfield users who land on a healthy
-        // discovery stack still need keep-alive installed so the next ngrok
-        // rotation doesn't break them. installKeepAliveOnce is idempotent
-        // (localStorage-gated), so running it here is safe even if the
-        // explicit "Fix tunnel" path also called it earlier.
-        if (typeof host().installKeepAliveOnce === "function") {
-          try {
-            host().installKeepAliveOnce();
-          } catch (_) {
-            /* never block the user on keep-alive bookkeeping */
-          }
-        }
+        // Recovery may bring the stack up, but opening setup must still
+        // render review state and never silently install keep-alive.
         if (typeof host().showToast === "function") {
           host().showToast("Discovery is already set up.", "info");
         }
-        // Discovery is connected — persist discoverySetupComplete so the
-        // "Finish setup — X of 2" bar converges and the discovery->go-live
-        // auto-chain doesn't keep re-opening. The wizard never renders on
-        // this lane, so the onClose finish path that normally sets the flag
-        // never fires. Flag-only (no go-live auto-open) keeps this safe for
-        // non-onboarding callers (e.g. reconfiguring discovery from Settings).
-        try {
-          const UC =
-            typeof host().getUserContent === "function"
-              ? host().getUserContent()
-              : null;
-          if (UC && typeof UC.completeDiscoverySetup === "function") {
-            if (typeof UC.openDb === "function") await UC.openDb();
-            await UC.completeDiscoverySetup();
-          }
-        } catch (e) {
-          console.warn("[JobBored] persist discovery complete (autodetect):", e);
-        }
-        try {
-          const banner =
-            typeof window !== "undefined" &&
-            window.JobBoredApp &&
-            window.JobBoredApp.whatsNextBanner;
-          if (banner && typeof banner.refreshBanner === "function") {
-            void Promise.resolve(banner.refreshBanner()).catch(() => {});
-          }
-        } catch (_) {
-          /* banner refresh is best-effort */
-        }
-        return;
       }
     } catch (err) {
       // Autodetect failure is never fatal — fall through to the wizard.

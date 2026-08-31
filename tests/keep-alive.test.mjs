@@ -147,6 +147,7 @@ test("getKeepAliveStatus reports installed and not-installed states", () => {
   try {
     assert.deepEqual(getKeepAliveStatus({ platform: "darwin", homeDir }), {
       installed: false,
+      artifactPresent: false,
     });
 
     const paths = getKeepAlivePaths({ homeDir });
@@ -162,12 +163,40 @@ test("getKeepAliveStatus reports installed and not-installed states", () => {
       "utf8",
     );
 
-    assert.deepEqual(getKeepAliveStatus({ platform: "darwin", homeDir }), {
-      installed: true,
-      jobLabel: KEEP_ALIVE_LABEL,
-      lastRunAt: "2026-05-06T12:01:00.000Z",
-      lastNgrokUrl: "https://abc.ngrok-free.app",
+    const loaded = getKeepAliveStatus({
+      platform: "darwin",
+      homeDir,
+      spawnSyncImpl: () => ({
+        status: 0,
+        stdout: `123\t0\t${KEEP_ALIVE_LABEL}\n`,
+        stderr: "",
+      }),
     });
+    assert.equal(loaded.installed, true);
+    assert.equal(loaded.jobLabel, KEEP_ALIVE_LABEL);
+    assert.equal(loaded.lastRunAt, "2026-05-06T12:01:00.000Z");
+  } finally {
+    cleanup(homeDir);
+  }
+});
+
+test("F2C-SETUP09-ACTIVE: plist existence without an active job is not installed", () => {
+  const homeDir = tempHome();
+  try {
+    const paths = getKeepAlivePaths({ homeDir });
+    mkdirSync(join(homeDir, "Library", "LaunchAgents"), { recursive: true });
+    writeFileSync(paths.launchAgentPath, "plist", "utf8");
+    const status = getKeepAliveStatus({
+      platform: "darwin",
+      homeDir,
+      spawnSyncImpl: () => ({
+        status: 1,
+        stdout: "",
+        stderr: "Could not find service",
+      }),
+    });
+    assert.equal(status.installed, false);
+    assert.equal(status.artifactPresent, true);
   } finally {
     cleanup(homeDir);
   }
@@ -390,20 +419,7 @@ test("runKeepAliveCheck still resyncs a rotating cloudflare_quick transport", as
     );
     const recorder = spawnRecorder();
     const fetchImpl = async (url) => {
-      if (String(url) === "http://127.0.0.1:4040/api/tunnels") {
-        return new Response(
-          JSON.stringify({
-            tunnels: [
-              {
-                public_url: "https://abc.ngrok-free.app",
-                config: { addr: "http://127.0.0.1:8644" },
-              },
-            ],
-          }),
-          { status: 200, headers: { "content-type": "application/json" } },
-        );
-      }
-      if (String(url) === "https://abc.ngrok-free.app/health") {
+      if (String(url) === "https://abc.trycloudflare.com/health") {
         return discoveryWorkerHealthResponse();
       }
       throw new Error(`unexpected fetch: ${url}`);
@@ -417,11 +433,14 @@ test("runKeepAliveCheck still resyncs a rotating cloudflare_quick transport", as
       nowIso: "2026-05-30T12:07:00.000Z",
     });
 
-    // Unstable transport keeps the existing resync path (a wrangler call fires).
     assert.equal(result.ok, true);
     assert.equal(result.redeployed, true);
     assert.equal(recorder.calls.length, 1);
     assert.equal(recorder.calls[0].command, "wrangler");
+    assert.equal(
+      recorder.calls[0].options.input,
+      "https://abc.trycloudflare.com/webhook\n",
+    );
   } finally {
     cleanup(homeDir);
     cleanup(workDir);
@@ -471,6 +490,53 @@ test("runKeepAliveCheck does not use a non-matching ngrok tunnel", async () => {
     assert.equal(result.ok, false);
     assert.equal(result.reason, "no_matching_tunnel");
     assert.equal(recorder.calls.length, 0);
+  } finally {
+    cleanup(homeDir);
+    cleanup(workDir);
+  }
+});
+
+test("F2C-SETUP05-TRANSPORT: cloudflare_quick keep-alive does not probe the ngrok API", async () => {
+  const homeDir = tempHome();
+  const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
+  try {
+    const bootstrapStatePath = join(workDir, "discovery-local-bootstrap.json");
+    writeFileSync(
+      bootstrapStatePath,
+      JSON.stringify({
+        localPort: 8644,
+        localWebhookUrl: "http://127.0.0.1:8644/webhook",
+        workerName: "jobbored-discovery-relay-local",
+        transport: {
+          kind: "cloudflare_quick",
+          stable: false,
+          publicUrl: "https://foo-bar-baz.trycloudflare.com",
+        },
+        publicTargetUrl: "https://foo-bar-baz.trycloudflare.com/webhook",
+      }),
+      "utf8",
+    );
+    const urls = [];
+    const result = await runKeepAliveCheck({
+      homeDir,
+      bootstrapStatePath,
+      spawnSyncImpl: () => ({ status: 0, stdout: "", stderr: "" }),
+      fetchImpl: async (url) => {
+        urls.push(String(url));
+        if (String(url).includes("trycloudflare.com/health")) {
+          return discoveryWorkerHealthResponse();
+        }
+        throw new Error(`unexpected fetch: ${url}`);
+      },
+      nowIso: "2026-05-06T12:05:00.000Z",
+    });
+    assert.equal(
+      urls.some((url) => url.includes("127.0.0.1:4040")),
+      false,
+      "Cloudflare Quick Tunnel must not be probed as ngrok",
+    );
+    assert.equal(result.ok, true);
+    assert.notEqual(result.reason, "ngrok_url_missing");
   } finally {
     cleanup(homeDir);
     cleanup(workDir);
