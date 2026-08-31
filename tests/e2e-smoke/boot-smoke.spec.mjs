@@ -8,52 +8,28 @@
  *
  * The suite spawns the real dev server (dev-server.mjs) in-process on a
  * random port and loads the dashboard in greenfield mode (?greenfield=1),
- * the same first-boot a brand-new clone sees.
+ * the same first-boot a brand-new clone sees. Google, Sheets, fonts, and
+ * config.js are served from tests/e2e-fixtures/hermetic-harness.mjs so the
+ * checkout's config.js and live Google are never touched.
  *
  * Run:
  *   npm run test:e2e-smoke
  */
 
 import { test, expect } from "@playwright/test";
-import { copyFileSync, existsSync, rmSync } from "node:fs";
-import { join, resolve } from "node:path";
-import { startDevServer } from "../../dev-server.mjs";
+import {
+  installHermeticNetworkFence,
+  startHermeticApp,
+} from "../e2e-fixtures/hermetic-harness.mjs";
 
-const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
-const CONFIG_PATH = join(REPO_ROOT, "config.js");
-const CONFIG_EXAMPLE_PATH = join(REPO_ROOT, "config.example.js");
-
-// The dashboard polls the optional local materials API (server/index.mjs,
-// default 127.0.0.1:3847) at boot. Tests must never depend on — or touch —
-// another local process, so those calls are answered in-page with empty
-// catalogs. This is environment isolation, not a console-error allowlist:
-// every error raised by the app's own code still fails the boot assertion.
-const MATERIALS_API_GLOBS = [
-  "**://127.0.0.1:3847/**",
-  "**://localhost:3847/**",
-];
-
-const quietLogger = { log() {}, warn() {}, error() {} };
-
-let server = null;
-let baseUrl = "";
-let createdConfigJs = false;
+let app = null;
 
 test.beforeAll(async () => {
-  // index.html loads config.js, which is gitignored (npm run setup creates
-  // it from the example). Provision it for fresh checkouts/CI; never clobber
-  // a developer's real config.js, and clean up only what we created.
-  if (!existsSync(CONFIG_PATH)) {
-    copyFileSync(CONFIG_EXAMPLE_PATH, CONFIG_PATH);
-    createdConfigJs = true;
-  }
-  server = await startDevServer({ port: 0, logger: quietLogger });
-  baseUrl = `http://127.0.0.1:${server.address().port}`;
+  app = await startHermeticApp();
 });
 
 test.afterAll(async () => {
-  if (server) await new Promise((done) => server.close(done));
-  if (createdConfigJs) rmSync(CONFIG_PATH, { force: true });
+  if (app) await app.close();
 });
 
 /**
@@ -69,20 +45,15 @@ async function bootGreenfield(page) {
   page.on("pageerror", (err) => {
     consoleErrors.push(`pageerror: ${err.message}`);
   });
-  for (const glob of MATERIALS_API_GLOBS) {
-    await page.route(glob, (route) =>
-      route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        headers: { "access-control-allow-origin": "*" },
-        body: JSON.stringify({ ok: true, applications: [], queue: [] }),
-      }),
-    );
-  }
-  await page.goto(`${baseUrl}/?greenfield=1`, { waitUntil: "load" });
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  await page.goto(`${app.baseUrl}/?greenfield=1`, { waitUntil: "load" });
   await expect(page.locator("#sheetAccessGateScreen")).toBeVisible({
     timeout: 15_000,
   });
+  expect(
+    fence.unexpectedExternal,
+    "greenfield boot must not escape the hermetic network fence",
+  ).toEqual([]);
   return consoleErrors;
 }
 
@@ -116,19 +87,19 @@ test("greenfield boot produces zero console errors", async ({ page }) => {
 });
 
 test("every <script src> in the served HTML returns 200", async ({ page }) => {
-  const res = await fetch(`${baseUrl}/`);
+  const res = await fetch(`${app.baseUrl}/`);
   expect(res.status).toBe(200);
   // Strip HTML comments first — the browser never requests commented-out
   // script tags, so neither should this check.
   const html = (await res.text()).replace(/<!--[\s\S]*?-->/g, "");
   const srcs = [...html.matchAll(/<script[^>]*\ssrc="([^"]+)"/g)].map((m) =>
-    new URL(m[1], `${baseUrl}/`).toString(),
+    new URL(m[1], `${app.baseUrl}/`).toString(),
   );
   expect(srcs.length, "served HTML should reference scripts").toBeGreaterThan(0);
 
   // Judge each script by the response the browser itself received while
-  // booting — the same network stack real users hit, and it covers external
-  // scripts (e.g. the GSI client) without a separate Node-side fetch.
+  // booting — the same network stack real users hit. External scripts
+  // (GSI) are fulfilled by the hermetic fence, not the live Google host.
   const responseStatus = new Map();
   page.on("response", (response) => {
     responseStatus.set(response.url(), response.status());

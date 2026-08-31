@@ -5,8 +5,11 @@ import { defineConfig } from "@playwright/test";
 // (or: npx playwright test --config tests/e2e-smoke/playwright.config.mjs)
 //
 // Kept separate from the root playwright.config.mjs (tests/e2e) so CI can run
-// just this fast, hermetic suite. scripts/run-tests.mjs never picks these
-// files up — the unit gate stays browser-free.
+// just this fast, hermetic suite. Specs must use
+// tests/e2e-fixtures/hermetic-harness.mjs (no live Google/Sheets, no config.js
+// writes). scripts/run-tests.mjs never picks these files up — the unit gate
+// stays browser-free.
+// CI: advisory until Gates A–D; see docs/HERMETIC-BROWSER-GATE.md.
 export default defineConfig({
   testDir: ".",
   testMatch: /.*\.spec\.mjs/,
