@@ -3641,6 +3641,162 @@ test("F1C-DISC02-PROFILE: mergedUserProfile survives the worker parser and is us
   assert.equal(received.mergedUserProfile.resumeText, undefined);
 });
 
+test("F1C-DISC03-INTENT: mergedUserProfile alone satisfies empty-company preflight", async () => {
+  let runDiscoveryCalled = false;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_123",
+        mode: "hosted",
+        timezone: "UTC",
+        companies: [],
+        atsCompanies: [],
+        includeKeywords: [],
+        excludeKeywords: [],
+        targetRoles: [],
+        locations: [],
+        remotePolicy: "",
+        seniority: "",
+        maxLeadsPerRun: 25,
+        enabledSources: ["grounded_web"],
+        schedule: { enabled: false, cron: "" },
+      }),
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        mergedUserProfile: F1C_MERGED_USER_PROFILE,
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status), response.body);
+  assert.equal(runDiscoveryCalled, true);
+});
+
+test("F1C-DISC06-ALLOW: unknown-only allowlist fails preflight without explicit fallback", async () => {
+  let runDiscoveryCalled = false;
+  const dependencies = makeDependencies({
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      mergeDiscoveryConfig,
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: { targetRoles: "Senior Engineer" },
+        companyAllowlist: ["unknown-company"],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(response.body, /allowlist/i);
+  assert.equal(runDiscoveryCalled, false);
+});
+
+test("F1C-DISC06-ALLOW: a company found only in history satisfies preflight", async () => {
+  let runDiscoveryCalled = false;
+  const dependencies = makeDependencies({
+    runSynchronously: true,
+    runDiscovery: async () => {
+      runDiscoveryCalled = true;
+      return makeDependencies().runDiscovery({} as any, "manual" as any, {} as any);
+    },
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+      loadStoredWorkerConfig: async () => ({
+        sheetId: "sheet_123",
+        mode: "hosted",
+        timezone: "UTC",
+        companies: [],
+        atsCompanies: [],
+        companyHistory: [{ name: "Figma", companyKey: "figma" }],
+        includeKeywords: [],
+        excludeKeywords: [],
+        targetRoles: [],
+        locations: [],
+        remotePolicy: "",
+        seniority: "",
+        maxLeadsPerRun: 25,
+        enabledSources: ["grounded_web"],
+        schedule: { enabled: false, cron: "" },
+      }),
+      mergeDiscoveryConfig,
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        companyAllowlist: ["Figma"],
+      }),
+    },
+    dependencies,
+  );
+
+  assert.ok([200, 202].includes(response.status), response.body);
+  assert.equal(runDiscoveryCalled, true);
+});
+
 test("F1C-DISC05-GW: groundedWebEnabled=false survives parser normalize", async () => {
   let received: any = null;
   const dependencies = makeDependencies({
@@ -3683,6 +3839,43 @@ test("F1C-DISC05-GW: groundedWebEnabled=false survives parser normalize", async 
 
   assert.ok([200, 202].includes(response.status), response.body);
   assert.equal(received?.discoveryProfile?.groundedWebEnabled, false);
+});
+
+test("F1C-DISC05-GW: groundedWebEnabled rejects schema-invalid non-booleans", async () => {
+  const dependencies = makeDependencies({
+    runDependencies: {
+      ...makeDependencies().runDependencies,
+      runtimeConfig: {
+        ...makeDependencies().runDependencies.runtimeConfig,
+        webhookSecret: SHARED_HEADER_VALUE,
+      },
+    },
+  });
+
+  const response = await handleDiscoveryWebhook(
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-discovery-secret": SHARED_HEADER_VALUE,
+      },
+      bodyText: JSON.stringify({
+        event: DISCOVERY_WEBHOOK_EVENT,
+        schemaVersion: DISCOVERY_WEBHOOK_SCHEMA_VERSION,
+        sheetId: "sheet_123",
+        variationKey: "var_123",
+        requestedAt: "2026-04-09T12:00:00.000Z",
+        discoveryProfile: {
+          targetRoles: "Senior Engineer",
+          groundedWebEnabled: "false",
+        },
+      }),
+    },
+    dependencies,
+  );
+
+  assert.equal(response.status, 400);
+  assert.match(response.body, /groundedWebEnabled.*boolean/i);
 });
 
 

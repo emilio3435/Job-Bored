@@ -92,7 +92,7 @@
       company.companyKey,
       company.normalizedName,
       company.name,
-    ].map(function (value) {
+    ].concat(company.aliases || [], company.domains || []).map(function (value) {
       return cleanString(value).toLowerCase();
     }).filter(Boolean);
     var extra = [];
@@ -171,14 +171,14 @@
         : {};
 
     var targetRoles = firstNonEmptyLists(
-      splitList(profile.targetRoles),
       splitList(query.targetRoles),
+      splitList(profile.targetRoles),
       splitList(snapshot.targetRoles),
       splitList(identity.targetRoles),
     );
     var includeKeywords = firstNonEmptyLists(
-      splitList(profile.keywordsInclude),
       splitList(query.keywordsInclude),
+      splitList(profile.keywordsInclude),
       splitList(snapshot.keywordsInclude),
     );
     var excludeKeywords = unique(
@@ -188,22 +188,22 @@
       ),
     );
     var locations = firstNonEmptyLists(
-      splitList(profile.locations),
       splitList(query.locations),
+      splitList(profile.locations),
       splitList(snapshot.locations),
     );
     var remotePolicy =
-      cleanString(profile.remotePolicy) ||
       cleanString(query.remotePolicy) ||
+      cleanString(profile.remotePolicy) ||
       cleanString(snapshot.remotePolicy) ||
       "";
     var seniority =
-      cleanString(profile.seniority) ||
       cleanString(query.seniority) ||
+      cleanString(profile.seniority) ||
       cleanString(snapshot.seniority) ||
       cleanString(identity.targetSeniority) ||
       "";
-    var sourcePreset = cleanString(profile.sourcePreset || query.sourcePreset);
+    var sourcePreset = cleanString(query.sourcePreset || profile.sourcePreset);
     var groundedWebEnabled =
       profile.groundedWebEnabled === false
         ? false
@@ -268,9 +268,9 @@
     var history = filterBySet(source.companyHistory, skip, false);
     var catalog = dedupeCompanies(companies.concat(history, atsCompanies));
     var catalogKeys = keySet(
-      catalog.map(function (company) {
-        return companyFilterKey(company);
-      }),
+      catalog.reduce(function (keys, company) {
+        return keys.concat(companyMatchKeys(company));
+      }, []),
     );
     var allowUnrestrictedFallback = source.allowUnrestrictedFallback === true;
     var allowlistResolution = {
@@ -336,6 +336,20 @@
     var source = isPlainObject(raw) ? cloneJson(raw) : {};
     var patch = isPlainObject(mutations) ? mutations : {};
     var id = cleanString(sheetId);
+    var directKeys = ["config", "default", "workerConfig"];
+    for (var d = 0; d < directKeys.length; d += 1) {
+      var directKey = directKeys[d];
+      if (!isPlainObject(source[directKey])) continue;
+      var direct = {};
+      Object.keys(source[directKey]).forEach(function (field) {
+        direct[field] = source[directKey][field];
+      });
+      Object.keys(patch).forEach(function (field) {
+        direct[field] = patch[field];
+      });
+      source[directKey] = direct;
+      return source;
+    }
     for (var i = 0; i < GROUP_KEYS.length; i += 1) {
       var key = GROUP_KEYS[i];
       if (!isPlainObject(source[key])) continue;

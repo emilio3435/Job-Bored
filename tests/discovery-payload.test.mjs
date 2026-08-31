@@ -179,6 +179,24 @@ test("F1C-DISC03-INTENT: shared effective intent is not blank_intent when search
   assert.equal(effective.intentContractVersion, 1);
 });
 
+test("F1C-DISC03-INTENT: browser effective intent gives the active searchPlan priority", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const effective = intent.buildEffectiveIntent({
+    discoveryProfile: {
+      targetRoles: "Broad profile role",
+      keywordsInclude: "broad keyword",
+      searchPlan: {
+        query: {
+          targetRoles: "Rotated plan role",
+          keywordsInclude: "rotated keyword",
+        },
+      },
+    },
+  });
+  assert.deepEqual(effective.targetRoles, ["Rotated plan role"]);
+  assert.deepEqual(effective.includeKeywords, ["rotated keyword"]);
+});
+
 test("F1C-DISC03-INTENT: master Fit Profile targetRoles are not blank_intent", () => {
   const intent = require("../discovery-effective-intent.js");
   const effective = intent.buildEffectiveIntent({

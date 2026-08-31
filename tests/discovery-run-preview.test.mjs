@@ -8,6 +8,7 @@ import vm from "node:vm";
 
 const require = createRequire(import.meta.url);
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+require("../discovery-effective-intent.js");
 const payloadApi = require("../discovery-payload.js");
 
 let previewApi = null;
@@ -69,8 +70,20 @@ test("DISC-03: mergedUserProfile roles count as effective run intent", () => {
 
   assert.equal(preview.hasIntent, true);
   assert.deepEqual(preview.roles, ["Staff engineer"]);
-  assert.deepEqual(preview.locations, ["Remote US"]);
+  assert.deepEqual(preview.locations, ["Remote"]);
   assert.equal(preview.intentMode, "fit_profile");
+});
+
+test("DISC-03: preview gives the active search plan the same priority as the worker", () => {
+  const built = payloadApi.buildDiscoveryWebhookPayload(makeInput());
+  built.discoveryProfile.targetRoles = "Broad profile role";
+  built.discoveryProfile.searchPlan.query.targetRoles = "Rotated plan role";
+  built.mergedUserProfile = {
+    identity: { targetRoles: ["Master profile role"] },
+  };
+
+  const preview = present(built);
+  assert.deepEqual(preview.roles, ["Rotated plan role"]);
 });
 
 test("DISC-03 legacy mode: mergedUserProfile null uses free-form payload intent", () => {
@@ -191,8 +204,8 @@ test("DISC preview parity fixture is canonical and presents its exact versioned 
   assert.strictEqual(preview.request, fixture);
   assert.equal(preview.variationKey, "preview-parity-20260831");
   assert.equal(preview.profileHash, "f5768552");
-  assert.deepEqual(preview.roles, ["Staff engineer"]);
-  assert.deepEqual(preview.locations, ["Remote US"]);
+  assert.deepEqual(preview.roles, ["Staff backend engineer", "Platform Engineer"]);
+  assert.deepEqual(preview.locations, ["Chicago"]);
   assert.deepEqual(preview.sources.lanes, ["serpapi_google_jobs", "ats_provider"]);
 });
 

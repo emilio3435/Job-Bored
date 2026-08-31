@@ -88,22 +88,21 @@
         ? payload.mergedUserProfile
         : null;
     var plan = profile.searchPlan;
-    var query = plan.query && typeof plan.query === "object" ? plan.query : {};
-    var mergedIdentity = merged && merged.identity ? merged.identity : {};
-    var mergedConstraints =
-      merged && merged.hardConstraints ? merged.hardConstraints : {};
-    var mergedRoles = list(mergedIdentity.targetRoles);
-    var mergedLocations = list(mergedConstraints.acceptableLocations);
-    var roles = mergedRoles.length
-      ? mergedRoles
-      : list(query.targetRoles || profile.targetRoles);
-    var locations = mergedLocations.length
-      ? mergedLocations
-      : list(query.locations || profile.locations);
-    var includeKeywords = list(query.keywordsInclude || profile.keywordsInclude);
-    var keywordExclusions = list(
-      query.keywordsExclude || profile.keywordsExclude,
-    );
+    var effectiveApi = root && root.JobBoredEffectiveIntent;
+    if (!effectiveApi || typeof effectiveApi.buildEffectiveIntent !== "function") {
+      fail(
+        "EFFECTIVE_INTENT_UNAVAILABLE",
+        "Discovery run preview requires window.JobBoredEffectiveIntent.",
+      );
+    }
+    var effective = effectiveApi.buildEffectiveIntent({
+      discoveryProfile: profile,
+      mergedUserProfile: merged,
+    });
+    var roles = effective.targetRoles;
+    var locations = effective.locations;
+    var includeKeywords = effective.includeKeywords;
+    var keywordExclusions = effective.excludeKeywords;
     var profileAvoids = list(merged && merged.avoids);
     var allow = list(payload.companyAllowlist).map(function (value) {
       return { value: value, status: "unknown" };
@@ -145,7 +144,7 @@
         }),
       },
       sources: {
-        preset: clean(profile.sourcePreset || query.sourcePreset),
+        preset: clean(effective.sourcePreset),
         lanes: lanes,
         selectedLane: clean(plan.selected && plan.selected.sourceLane),
         groundedWebEnabled: profile.groundedWebEnabled !== false,

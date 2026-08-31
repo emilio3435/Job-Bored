@@ -1125,6 +1125,10 @@ export type StoredWorkerConfig = {
 export type EffectiveDiscoveryConfig = StoredWorkerConfig & {
   variationKey: string;
   requestedAt: string;
+  /** Per-run company restriction outcome; blocked_unresolved disables all lanes. */
+  allowlistResolution: AllowlistResolution;
+  /** True only when this request explicitly authorized broad fallback. */
+  allowUnrestrictedFallback: boolean;
   sourcePreset: SourcePreset;
   /** Resolved UltraPlan tuning flags (with preset-specific defaults). */
   ultraPlanTuning: UltraPlanTuning;

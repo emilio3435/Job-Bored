@@ -41,6 +41,26 @@ test("F1C-DISC03-INTENT: worker effective intent uses searchPlan when top-level 
   assert.equal(effective.intentContractVersion, 1);
 });
 
+test("F1C-DISC03-INTENT: searchPlan query overrides broader profile fields", () => {
+  const effective = buildEffectiveIntent({
+    discoveryProfile: {
+      targetRoles: "Broad profile role",
+      keywordsInclude: "broad keyword",
+      searchPlan: {
+        planVersion: 1,
+        generatedAt: "2026-04-08T12:00:00.000Z",
+        seed: "seed",
+        query: {
+          targetRoles: "Rotated plan role",
+          keywordsInclude: "rotated keyword",
+        },
+      },
+    },
+  });
+  assert.deepEqual(effective.targetRoles, ["Rotated plan role"]);
+  assert.deepEqual(effective.includeKeywords, ["rotated keyword"]);
+});
+
 test("F1C-DISC03-INTENT: worker effective intent uses mergedUserProfile targetRoles", () => {
   const effective = buildEffectiveIntent({
     discoveryProfile: { targetRoles: "", keywordsInclude: "" },
@@ -74,6 +94,35 @@ test("F1C-DISC04-BLOCK: blocklist is subtracted from ATS and normal pools after 
     resolved.atsCompanies.map((company) => company.companyKey),
     ["linear"],
   );
+});
+
+test("F1C-DISC04-BLOCK: company names and skip aliases use the same matching vocabulary", () => {
+  const resolved = resolveEffectiveCompanyPools({
+    companies: [
+      { name: "Acme Holdings", companyKey: "acme-holdings" },
+      { name: "Beta Labs", companyKey: "beta-labs" },
+    ],
+    atsCompanies: [],
+    companyAllowlist: ["Beta Labs"],
+    negativeCompanyKeys: ["Acme Holdings"],
+  });
+  assert.equal(resolved.allowlistResolution.mode, "restricted");
+  assert.deepEqual(
+    resolved.companies.map((company) => company.companyKey),
+    ["beta-labs"],
+  );
+});
+
+test("F1C-DISC04-BLOCK: domain blocklist entries suppress matching companies", () => {
+  const resolved = resolveEffectiveCompanyPools({
+    companies: [{
+      name: "Acme Holdings",
+      companyKey: "acme-holdings",
+      domains: ["jobs.acme.example"],
+    }],
+    companyBlocklist: ["jobs.acme.example"],
+  });
+  assert.deepEqual(resolved.companies, []);
 });
 
 test("F1C-DISC05-GW: grounded-web opt-out wins over preset/enabledSources", () => {

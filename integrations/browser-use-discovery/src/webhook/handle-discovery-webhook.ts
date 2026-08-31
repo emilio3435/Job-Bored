@@ -525,28 +525,48 @@ async function validateDiscoveryPreflight(
     };
   }
 
+  let resolvedConfig;
+  if (typeof runDependencies.mergeDiscoveryConfig === "function") {
+    try {
+      resolvedConfig = runDependencies.mergeDiscoveryConfig(storedConfig, request);
+    } catch (error) {
+      return {
+        status: 500,
+        message: "Discovery worker config could not be resolved.",
+        detail: error instanceof Error ? error.message : String(error),
+      };
+    }
+  }
+  if (resolvedConfig?.allowlistResolution?.mode === "blocked_unresolved") {
+    const unknown = resolvedConfig.allowlistResolution.unknown.join(", ");
+    return {
+      status: 400,
+      message: "companyAllowlist did not match the configured company catalog.",
+      detail: unknown
+        ? `Unknown companyAllowlist entries: ${unknown}.`
+        : "The companyAllowlist could not be resolved.",
+      remediation:
+        "Choose companies from the configured catalog, or explicitly set allowUnrestrictedFallback to true.",
+    };
+  }
+
   // NOTE: Empty companies array is now allowed (unrestricted company scope).
   // VAL-API-010: Empty companies config must not hard-fail preflight when intent is non-blank.
   // VAL-API-011: Blank-intent guardrail still fails closed when companies is empty,
   // even under unrestricted company scope. This catches the case where discoveryProfile
   // is absent or both targetRoles and keywordsInclude are blank.
 
-  const companiesEmpty =
-    !Array.isArray(storedConfig.companies) || storedConfig.companies.length === 0;
+  const companiesEmpty = resolvedConfig
+    ? resolvedConfig.companies.length === 0 &&
+      (resolvedConfig.atsCompanies || []).length === 0
+    : !Array.isArray(storedConfig.companies) || storedConfig.companies.length === 0;
 
   if (companiesEmpty) {
-    // Check if intent is blank
-    const profile = request.discoveryProfile;
-    const rawTargetRoles = profile?.targetRoles;
-    const rawKeywordsInclude = profile?.keywordsInclude;
-    const targetRolesBlank =
-      rawTargetRoles == null ||
-      (typeof rawTargetRoles === "string" && !rawTargetRoles.trim());
-    const keywordsBlank =
-      rawKeywordsInclude == null ||
-      (typeof rawKeywordsInclude === "string" && !rawKeywordsInclude.trim());
-
-    if (targetRolesBlank && keywordsBlank) {
+    const effectiveIntent = buildEffectiveIntent({
+      discoveryProfile: request.discoveryProfile,
+      mergedUserProfile: request.mergedUserProfile,
+    });
+    if (effectiveIntent.blank) {
       // Blank intent with empty companies → explicit 400 failure
       return {
         status: 400,
@@ -655,6 +675,16 @@ function parseWebhookRequest(
 
   // Validate sourcePreset enum when provided inside discoveryProfile.
   if (isPlainObject(discoveryProfile)) {
+    if (
+      "groundedWebEnabled" in discoveryProfile &&
+      typeof discoveryProfile.groundedWebEnabled !== "boolean"
+    ) {
+      return {
+        ok: false,
+        message:
+          "discoveryProfile.groundedWebEnabled must be a boolean when present.",
+      };
+    }
     if ("sourcePreset" in discoveryProfile) {
       const sourcePreset = discoveryProfile.sourcePreset;
       if (typeof sourcePreset !== "string") {
@@ -690,12 +720,6 @@ function parseWebhookRequest(
     // The shared effective-intent helper treats searchPlan, profileSnapshot, and
     // mergedUserProfile as intent — not just top-level discoveryProfile fields.
     const profile = discoveryProfile as Record<string, unknown>;
-    const searchPlan = isPlainObject(profile.searchPlan)
-      ? (profile.searchPlan as Record<string, unknown>)
-      : {};
-    const searchPlanQuery = isPlainObject(searchPlan.query)
-      ? (searchPlan.query as Record<string, unknown>)
-      : {};
     const effectiveIntent = buildEffectiveIntent({
       discoveryProfile: profile,
       mergedUserProfile: isPlainObject(payload.mergedUserProfile)
@@ -820,6 +844,7 @@ function parseWebhookRequest(
           message: "discoveryProfile.searchPlan must be an object when present.",
         };
       }
+      const searchPlan = profile.searchPlan as Record<string, unknown>;
       if (
         "query" in searchPlan &&
         searchPlan.query != null &&
@@ -828,9 +853,12 @@ function parseWebhookRequest(
         return {
           ok: false,
           message:
-            "discoveryProfile.searchPlan.query must be an object when present.",
+          "discoveryProfile.searchPlan.query must be an object when present.",
         };
       }
+      const searchPlanQuery = isPlainObject(searchPlan.query)
+        ? (searchPlan.query as Record<string, unknown>)
+        : {};
       const planSourcePreset = searchPlanQuery.sourcePreset;
       if (
         planSourcePreset != null &&

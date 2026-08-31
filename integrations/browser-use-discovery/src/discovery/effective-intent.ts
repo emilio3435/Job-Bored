@@ -11,7 +11,6 @@ import { ATS_SOURCE_IDS } from "../contracts.ts";
 import {
   buildCompanyKeySet,
   companyFilterKey,
-  filterSkippedCompanies,
 } from "./company-keys.ts";
 
 export const INTENT_CONTRACT_VERSION = 1 as const;
@@ -67,7 +66,13 @@ function firstNonEmptyLists(...lists: string[][]): string[] {
 
 function companyMatchKeys(company: CompanyTarget): string[] {
   const raw = unique(
-    [company.companyKey, company.normalizedName, company.name]
+    [
+      company.companyKey,
+      company.normalizedName,
+      company.name,
+      ...(company.aliases || []),
+      ...(company.domains || []),
+    ]
       .map((value) => cleanString(value).toLowerCase())
       .filter(Boolean),
   );
@@ -118,14 +123,14 @@ export function buildEffectiveIntent(input: {
   const identity = isPlainObject(merged.identity) ? merged.identity : {};
 
   const targetRoles = firstNonEmptyLists(
-    splitList(profile.targetRoles),
     splitList(query.targetRoles),
+    splitList(profile.targetRoles),
     splitList(snapshot.targetRoles),
     splitList(identity.targetRoles),
   );
   const includeKeywords = firstNonEmptyLists(
-    splitList(profile.keywordsInclude),
     splitList(query.keywordsInclude),
+    splitList(profile.keywordsInclude),
     splitList(snapshot.keywordsInclude),
   );
   const excludeKeywords = unique([
@@ -134,20 +139,20 @@ export function buildEffectiveIntent(input: {
     ...splitList(snapshot.keywordsExclude),
   ]);
   const locations = firstNonEmptyLists(
-    splitList(profile.locations),
     splitList(query.locations),
+    splitList(profile.locations),
     splitList(snapshot.locations),
   );
   const remotePolicy =
-    cleanString(profile.remotePolicy) ||
     cleanString(query.remotePolicy) ||
+    cleanString(profile.remotePolicy) ||
     cleanString(snapshot.remotePolicy);
   const seniority =
-    cleanString(profile.seniority) ||
     cleanString(query.seniority) ||
+    cleanString(profile.seniority) ||
     cleanString(snapshot.seniority) ||
     cleanString(identity.targetSeniority);
-  const sourcePreset = cleanString(profile.sourcePreset || query.sourcePreset);
+  const sourcePreset = cleanString(query.sourcePreset || profile.sourcePreset);
   const groundedWebEnabled =
     profile.groundedWebEnabled === false
       ? false
@@ -213,21 +218,18 @@ export function resolveEffectiveCompanyPools(input: {
   const allowRaw = unique(
     Array.isArray(input.companyAllowlist) ? [...input.companyAllowlist] : [],
   );
-  let companies = filterSkippedCompanies(
-    [...(input.companies || [])],
-    skip,
+  let companies = [...(input.companies || [])].filter(
+    (company) => !matchesKeySet(company, skip),
   );
-  let atsCompanies = filterSkippedCompanies(
-    [...(input.atsCompanies || [])],
-    skip,
+  let atsCompanies = [...(input.atsCompanies || [])].filter(
+    (company) => !matchesKeySet(company, skip),
   );
-  const history = filterSkippedCompanies(
-    [...(input.companyHistory || [])],
-    skip,
+  const history = [...(input.companyHistory || [])].filter(
+    (company) => !matchesKeySet(company, skip),
   );
   const catalog = dedupeCompanies([...companies, ...history, ...atsCompanies]);
   const catalogKeys = buildCompanyKeySet(
-    catalog.map((company) => companyFilterKey(company)),
+    catalog.flatMap((company) => companyMatchKeys(company)),
   );
   const allowUnrestrictedFallback = input.allowUnrestrictedFallback === true;
   let allowlistResolution: AllowlistResolution = {
@@ -294,6 +296,22 @@ const GROUP_KEYS = [
   "bySheetId",
   "configs",
 ] as const;
+const DIRECT_KEYS = ["config", "default", "workerConfig"] as const;
+
+export function pickSheetConfigPayload(raw: unknown, sheetId: string): unknown {
+  if (!isPlainObject(raw)) return raw;
+  for (const key of DIRECT_KEYS) {
+    if (isPlainObject(raw[key])) return raw[key];
+  }
+  for (const key of GROUP_KEYS) {
+    if (!isPlainObject(raw[key])) continue;
+    const group = raw[key] as AnyRecord;
+    if (sheetId) return isPlainObject(group[sheetId]) ? group[sheetId] : null;
+    const first = Object.values(group).find((value) => isPlainObject(value));
+    if (first) return first;
+  }
+  return raw;
+}
 
 export function applySheetConfigMutation(
   raw: unknown,
@@ -305,6 +323,11 @@ export function applySheetConfigMutation(
     : {};
   const patch = isPlainObject(mutations) ? mutations : {};
   const id = cleanString(sheetId);
+  for (const key of DIRECT_KEYS) {
+    if (!isPlainObject(source[key])) continue;
+    source[key] = { ...(source[key] as AnyRecord), ...patch };
+    return source;
+  }
   for (const key of GROUP_KEYS) {
     if (!isPlainObject(source[key])) continue;
     const group = source[key] as AnyRecord;

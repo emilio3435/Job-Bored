@@ -32,6 +32,7 @@ import { ATS_SOURCE_IDS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
 import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
 import { effectiveAtsCompanySeeds } from "../discovery/company-keys.ts";
+import { resolveEffectiveCompanyPools } from "../discovery/effective-intent.ts";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
 import type { DiscoveryMemoryStore } from "../contracts.ts";
 import type { SourceAdapterRegistry } from "../browser/source-adapters.ts";
@@ -566,7 +567,7 @@ export async function runDiscovery(
   const hasSeedSufficiency = hasConfiguredSeeds || hasMemorySeeds;
 
   // Build the final ATS company list: configured first, then memory
-  const atsCompaniesToSearch: CompanyTarget[] = [
+  let atsCompaniesToSearch: CompanyTarget[] = [
     ...configuredAtsCompanies,
     ...memoryAtsCompanies,
   ];
@@ -658,6 +659,16 @@ export async function runDiscovery(
       }
     }
   }
+
+  const runtimeAtsPools = resolveEffectiveCompanyPools({
+    atsCompanies: atsCompaniesToSearch,
+    companyAllowlist:
+      config.allowlistResolution?.mode === "restricted"
+        ? request.companyAllowlist
+        : [],
+    companyBlocklist: request.companyBlocklist,
+  });
+  atsCompaniesToSearch = runtimeAtsPools.atsCompanies;
 
   // Only iterate ATS detection when an ATS lane is actually active. Browser-only
   // runs (sourcePreset === "browser_only") exclude greenhouse/lever/ashby via
@@ -1232,23 +1243,65 @@ export async function runDiscovery(
   const [dedupedLeads, crossLaneDuplicates] = dedupeNormalizedLeads(normalizedLeads);
   loopCounters.crossLaneDuplicates = crossLaneDuplicates;
   loopCounters.duplicateSuppressions = normalizedLeads.length - dedupedLeads.length;
-  let leadsToWrite = selectLeadsForWrite(dedupedLeads, config);
+  const restrictedCompanyAllowlist =
+    config.allowlistResolution?.mode === "restricted"
+      ? [...config.companies, ...(config.atsCompanies || [])].flatMap(
+          (company) => [
+            company.name,
+            company.companyKey,
+            company.normalizedName,
+            ...(company.aliases || []),
+            ...(company.domains || []),
+          ].filter((value): value is string => Boolean(value)),
+        )
+      : [];
+  const hasCompanyRestrictions =
+    Boolean(restrictedCompanyAllowlist?.length) ||
+    Boolean(request.companyBlocklist?.length);
+  const companyScopedLeads = hasCompanyRestrictions
+    ? dedupedLeads.filter((lead) => {
+        let domain = "";
+        try {
+          domain = new URL(lead.url).hostname;
+        } catch {
+          domain = "";
+        }
+        return resolveEffectiveCompanyPools({
+          companies: [{
+            name: lead.company,
+            companyKey: lead.metadata.companyKey,
+            domains: domain ? [domain] : [],
+          }],
+          companyAllowlist: restrictedCompanyAllowlist,
+          companyBlocklist: request.companyBlocklist,
+        }).companies.length > 0;
+      })
+    : dedupedLeads;
+  if (companyScopedLeads.length !== dedupedLeads.length) {
+    dependencies.log?.("discovery.run.company_restrictions_filtered", {
+      runId,
+      suppressedCount: dedupedLeads.length - companyScopedLeads.length,
+      allowlistRestricted: Boolean(restrictedCompanyAllowlist?.length),
+      blocklistRestricted: Boolean(request.companyBlocklist?.length),
+    });
+  }
+  let leadsToWrite = selectLeadsForWrite(companyScopedLeads, config);
   const maxLeadCapApplied =
-    config.maxLeadsPerRun > 0 && dedupedLeads.length > config.maxLeadsPerRun;
+    config.maxLeadsPerRun > 0 && companyScopedLeads.length > config.maxLeadsPerRun;
   if (maxLeadCapApplied) {
     dependencies.log?.("discovery.run.write_selection_capped", {
       runId,
       maxLeadsPerRun: config.maxLeadsPerRun,
-      dedupedLeadCount: dedupedLeads.length,
+      dedupedLeadCount: companyScopedLeads.length,
       leadsToWriteCount: leadsToWrite.length,
-      suppressedByCap: dedupedLeads.length - leadsToWrite.length,
+      suppressedByCap: companyScopedLeads.length - leadsToWrite.length,
     });
   }
   dependencies.log?.("discovery.run.write_started", {
     runId,
     sheetId: config.sheetId,
     normalizedLeadCount: normalizedLeads.length,
-    dedupedLeadCount: dedupedLeads.length,
+    dedupedLeadCount: companyScopedLeads.length,
     leadsToWriteCount: leadsToWrite.length,
     maxLeadsPerRun: config.maxLeadsPerRun,
     maxLeadCapApplied,
