@@ -139,7 +139,7 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_WORKER_CONFIG` / `BROWSER_USE_DISCOVERY_CONFIG_PATH`: path to worker config JSON, defaults to `~/.jobbored/browser-use-discovery/worker-config.json`
 - `BROWSER_USE_DISCOVERY_WORKER_ENV` / `BROWSER_USE_DISCOVERY_ENV_FILE`: path to the ignored local env file, defaults to `~/.jobbored/browser-use-discovery/.env`
 - `BROWSER_USE_DISCOVERY_STATE_DB_PATH`: path to the worker memory database
-- `BROWSER_USE_DISCOVERY_RUN_STATE_DIR`: directory for atomic JSON run lifecycle snapshots; defaults to `run-state/` beside the worker state database
+- `BROWSER_USE_DISCOVERY_RUN_STATE_DIR`: directory for atomic JSON run lifecycle snapshots; defaults to `run-state/` beside the worker state database. This directory has single-writer ownership: do not point concurrent worker processes at the same path.
 - `BROWSER_USE_DISCOVERY_BROWSER_COMMAND`: optional browser automation command; when unset, the worker first tries the bundled `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` wrapper if it exists, then falls back to plain `browser-use`, and finally falls back to direct fetch on command failure
 - `BROWSER_USE_DISCOVERY_LLM_PROVIDER`: generic chat/JSON LLM provider; use `openrouter` as the setup default, or select `local`, `openai`, `openai_compatible`, `anthropic`, or `gemini`
 - `BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY` / `_MODEL` / `_BASE_URL`: OpenRouter generic LLM config
@@ -160,6 +160,14 @@ Environment variables:
 - `BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_JSON`: optional inline Google OAuth token JSON
 - `BROWSER_USE_DISCOVERY_GOOGLE_OAUTH_TOKEN_FILE`: optional Google OAuth token JSON file path
 - `BROWSER_USE_DISCOVERY_WEBHOOK_SECRET`: optional shared secret for the webhook layer
+
+Run-state snapshots currently have no automatic retention policy and are all
+loaded into memory at worker boot. Operators should monitor disk and heap usage
+for long-lived workers until bounded retention is added. In nonterminal status
+payloads, `progress.budget.capturedAt` records when the carried-forward budget
+sample was taken; later phase checkpoints do not present an old sample as
+fresh. Normal completed/failed payloads omit `progress`, while restart recovery
+failures retain it to identify the interrupted phase.
 
 ### Google Sheets credential precedence
 

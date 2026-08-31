@@ -51,23 +51,33 @@ export function createSafetyTimer(
     if (safetyTimer !== null) return;
     safetyTimer = setTimeout(() => {
       if (terminalStatusWritten) return;
-      terminalStatusWritten = true;
       const currentStatus =
         options.runStatusStore?.get(options.runId) ?? options.acceptedStatus;
       const nowIso = options.now().toISOString();
-      options.runStatusStore?.put({
-        ...currentStatus,
-        status: "partial",
-        terminal: true,
-        message:
-          "Discovery run exceeded its maximum duration; reporting partial results.",
-        completedAt: nowIso,
-        updatedAt: nowIso,
-        warnings: [
-          ...(currentStatus.warnings || []),
-          `Run marked terminal after ${options.maxRunDurationMs}ms. Sources still finishing in the background are bounded by the run budget and per-source timeouts.`,
-        ],
-      });
+      try {
+        options.runStatusStore?.put({
+          ...currentStatus,
+          status: "partial",
+          terminal: true,
+          message:
+            "Discovery run exceeded its maximum duration; reporting partial results.",
+          completedAt: nowIso,
+          updatedAt: nowIso,
+          warnings: [
+            ...(currentStatus.warnings || []),
+            `Run marked terminal after ${options.maxRunDurationMs}ms. Sources still finishing in the background are bounded by the run budget and per-source timeouts.`,
+          ],
+        });
+      } catch (error) {
+        options.log?.("discovery.run_status.terminal_write_failed", {
+          runId: options.runId,
+          mode: options.runMode,
+          status: "partial",
+          error: error instanceof Error ? error.message : String(error),
+        });
+        return;
+      }
+      terminalStatusWritten = true;
       options.log?.("discovery.run.force_terminalized", {
         runId: options.runId,
         mode: options.runMode,

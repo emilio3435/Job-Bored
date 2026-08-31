@@ -275,6 +275,7 @@ const discoveryRunsLogger = createDiscoveryRunsLogger({
 });
 const runStatusStore = createDiscoveryRunStatusStore(
   runtimeConfig.runStateDirectory,
+  { log: logEvent },
 );
 const abandonedRunCount = runStatusStore.markNonTerminalRunsAbandoned?.(
   new Date().toISOString(),

@@ -220,7 +220,12 @@ export async function runDiscovery(
     budget?: DiscoveryRunBudgetProgress,
     checkpointedAt = dependencies.now().toISOString(),
   ): void {
-    if (budget) latestBudgetProgress = budget;
+    if (budget) {
+      latestBudgetProgress = {
+        ...budget,
+        capturedAt: checkpointedAt,
+      };
+    }
     dependencies.checkpointRunProgress?.({
       phase,
       sequence: ++progressSequence,
@@ -769,6 +774,7 @@ export async function runDiscovery(
         reducePageLimitThreshold: 0.5,
         pageLimitReductionFactor: 0.5,
         onCheckpoint: (budget) => {
+          // This budget tracker is scoped to the scout lane.
           checkpointRunProgress("scout", toRunBudgetProgress(budget));
         },
       });

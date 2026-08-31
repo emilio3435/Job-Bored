@@ -14,13 +14,17 @@ import { join } from "node:path";
 
 import type {
   DiscoveryRunLifecycle,
+  DiscoveryRunStatus,
   DiscoveryRunStatusPayload,
   DiscoverySourceSummary,
   DiscoveryWebhookRequestV1,
   TriggerKind,
 } from "../contracts.ts";
 import type { RunDiscoveryResult } from "../run/run-discovery.ts";
-import type { DiscoveryRunProgress } from "../run/run-progress.ts";
+import {
+  RUN_PROGRESS_PHASES,
+  type DiscoveryRunProgress,
+} from "../run/run-progress.ts";
 
 const DEFAULT_ACCEPTED_MESSAGE = "Discovery accepted — worker queued the run.";
 const DEFAULT_RUNNING_MESSAGE = "Discovery is running.";
@@ -28,18 +32,26 @@ const DEFAULT_FAILED_MESSAGE = "Discovery failed — worker could not finish the
 
 const RUN_STATUS_SNAPSHOT_SCHEMA_VERSION = 1;
 const RUN_STATUS_FILE_SUFFIX = ".json";
-const RUN_STATUS_VALUES = new Set<string>([
+const RUN_STATUS_VALUES = [
   "accepted",
   "running",
   "completed",
   "partial",
   "empty",
   "failed",
-]);
+] as const satisfies readonly DiscoveryRunStatus[];
+const RUN_STATUS_VALUE_SET = new Set<string>(RUN_STATUS_VALUES);
+const RUN_PROGRESS_PHASE_SET = new Set<string>(RUN_PROGRESS_PHASES);
+type DurableDiscoveryRunStatus = (typeof RUN_STATUS_VALUES)[number];
 
 export interface DurableDiscoveryRunStatusPayload
   extends DiscoveryRunStatusPayload {
+  status: DurableDiscoveryRunStatus;
   progress?: DiscoveryRunProgress;
+}
+
+export interface DiscoveryRunStatusStoreOptions {
+  log?(event: string, details: Record<string, unknown>): void;
 }
 
 export interface DiscoveryRunStatusStore {
@@ -156,14 +168,16 @@ export function buildFailedRunStatus(
 
 export function createDiscoveryRunStatusStore(
   snapshotDirectory: string,
+  options: DiscoveryRunStatusStoreOptions = {},
 ): DiscoveryRunStatusStore {
   const resolvedDirectory = String(snapshotDirectory || "").trim();
   const persistenceEnabled =
     resolvedDirectory.length > 0 && resolvedDirectory !== ":memory:";
   const statuses = new Map<string, DurableDiscoveryRunStatusPayload>();
   if (persistenceEnabled) {
-    mkdirSync(resolvedDirectory, { recursive: true });
-    loadRunStatusSnapshots(resolvedDirectory, statuses);
+    mkdirSync(resolvedDirectory, { recursive: true, mode: 0o700 });
+    sweepTemporaryRunStatusSnapshots(resolvedDirectory, options);
+    loadRunStatusSnapshots(resolvedDirectory, statuses, options);
   }
 
   function put(payload: DurableDiscoveryRunStatusPayload): void {
@@ -180,7 +194,7 @@ export function createDiscoveryRunStatusStore(
       ...payload,
       runId,
       updatedAt,
-      ...(existing?.progress && !payload.progress
+      ...(existing?.progress && !payload.progress && !payload.terminal
         ? { progress: existing.progress }
         : {}),
     };
@@ -230,6 +244,7 @@ export function createDiscoveryRunStatusStore(
 function loadRunStatusSnapshots(
   snapshotDirectory: string,
   statuses: Map<string, DurableDiscoveryRunStatusPayload>,
+  options: DiscoveryRunStatusStoreOptions,
 ): void {
   for (const filename of readdirSync(snapshotDirectory)) {
     if (!filename.endsWith(RUN_STATUS_FILE_SUFFIX)) continue;
@@ -253,7 +268,42 @@ function loadRunStatusSnapshots(
         error,
       );
       statuses.set(runIdFromFilename, failure);
-      writeRunStatusSnapshot(snapshotDirectory, failure);
+      try {
+        writeRunStatusSnapshot(snapshotDirectory, failure);
+      } catch (writeError) {
+        options.log?.(
+          "discovery.run_status.corrupt_snapshot_rewrite_failed",
+          {
+            runId: runIdFromFilename,
+            filename,
+            error: formatError(writeError),
+          },
+        );
+      }
+    }
+  }
+}
+
+function sweepTemporaryRunStatusSnapshots(
+  snapshotDirectory: string,
+  options: DiscoveryRunStatusStoreOptions,
+): void {
+  const temporaryMarker = `${RUN_STATUS_FILE_SUFFIX}.tmp-`;
+  for (const filename of readdirSync(snapshotDirectory)) {
+    const markerIndex = filename.indexOf(temporaryMarker);
+    if (markerIndex <= 0) continue;
+    const snapshotFilename = filename.slice(
+      0,
+      markerIndex + RUN_STATUS_FILE_SUFFIX.length,
+    );
+    if (!decodeRunIdFromSnapshotFilename(snapshotFilename)) continue;
+    try {
+      unlinkSync(join(snapshotDirectory, filename));
+    } catch (error) {
+      options.log?.("discovery.run_status.temp_cleanup_failed", {
+        filename,
+        error: formatError(error),
+      });
     }
   }
 }
@@ -304,12 +354,11 @@ function encodeRunIdForSnapshotFilename(runId: string): string {
 }
 
 function decodeRunIdFromSnapshotFilename(filename: string): string {
-  try {
-    const encoded = filename.slice(0, -RUN_STATUS_FILE_SUFFIX.length);
-    return Buffer.from(encoded, "base64url").toString("utf8").trim();
-  } catch {
-    return "";
-  }
+  const encoded = filename.slice(0, -RUN_STATUS_FILE_SUFFIX.length);
+  const decoded = Buffer.from(encoded, "base64url").toString("utf8").trim();
+  return decoded && encodeRunIdForSnapshotFilename(decoded) === filename
+    ? decoded
+    : "";
 }
 
 function toWireSafeRunStatus(
@@ -401,7 +450,7 @@ function isRunStatusPayload(
     isRecord(value) &&
     typeof value.runId === "string" &&
     typeof value.status === "string" &&
-    RUN_STATUS_VALUES.has(value.status) &&
+    RUN_STATUS_VALUE_SET.has(value.status) &&
     typeof value.terminal === "boolean" &&
     typeof value.message === "string" &&
     (value.trigger === "manual" || value.trigger === "scheduled") &&
@@ -427,9 +476,7 @@ function isRunProgress(value: unknown): value is DiscoveryRunProgress {
   return (
     isRecord(value) &&
     typeof value.phase === "string" &&
-    ["initializing", "scout", "score", "exploit", "write", "learn"].includes(
-      value.phase,
-    ) &&
+    RUN_PROGRESS_PHASE_SET.has(value.phase) &&
     typeof value.sequence === "number" &&
     Number.isInteger(value.sequence) &&
     value.sequence > 0 &&
@@ -441,6 +488,7 @@ function isRunProgress(value: unknown): value is DiscoveryRunProgress {
 function isRunBudgetProgress(value: unknown): boolean {
   return (
     isRecord(value) &&
+    (value.capturedAt === undefined || typeof value.capturedAt === "string") &&
     typeof value.totalMs === "number" &&
     typeof value.remainingMs === "number" &&
     typeof value.remainingRatio === "number" &&
