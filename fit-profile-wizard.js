@@ -242,6 +242,42 @@
     return node;
   }
 
+  /** Lazily resolve the shared a11y primitive (jb-a11y.js is a separate
+   *  classic script and may load after this one). */
+  function a11y() {
+    return typeof window !== "undefined" ? window.JobBoredA11y : null;
+  }
+
+  /**
+   * Build a field label AND associate it with its control.
+   *
+   * Every fp-field__label in this file goes through here. Before the T0 a11y
+   * lane these labels were bare `<label class="fp-field__label">` nodes with no
+   * `for` and no wrapping — visually labeled, programmatically anonymous, so a
+   * screen reader announced "edit text, blank" for the primary narrative, the
+   * salary floor, the seniority select and the rest (audit claim A11Y-02).
+   *
+   * The primitive picks the right association: `for`/`id` for a real control,
+   * `aria-labelledby` + `role=group` for the composites here (the chip inputs
+   * and the work-mode radio group), where `for=` on a <div> would be dead
+   * markup that reviews clean and announces nothing.
+   *
+   * Degrades to today's behavior (a visually-correct label) if jb-a11y.js is
+   * absent — this file must never hard-depend on another script's load order.
+   *
+   * @param {string} text
+   * @param {Element} [control]
+   * @returns {Element}
+   */
+  function fieldLabel(text, control) {
+    var label = el("label", { class: "fp-field__label" }, text);
+    var api = a11y();
+    if (api && api.field && control) {
+      api.field.associate(label, control);
+    }
+    return label;
+  }
+
   function clearChildren(node) {
     while (node && node.firstChild) node.removeChild(node.firstChild);
   }
@@ -538,10 +574,11 @@
     var box = el("div");
 
     // Target roles
+    var rolesList = renderTargetRolesList(state, onChange);
     box.appendChild(
       el("div", { class: "fp-field" }, [
-        el("label", { class: "fp-field__label" }, "Target roles"),
-        renderTargetRolesList(state, onChange),
+        fieldLabel("Target roles", rolesList),
+        rolesList,
       ]),
     );
 
@@ -558,7 +595,7 @@
     });
     box.appendChild(
       el("div", { class: "fp-field" }, [
-        el("label", { class: "fp-field__label" }, "Target seniority"),
+        fieldLabel("Target seniority", senSelect),
         senSelect,
       ]),
     );
@@ -587,7 +624,7 @@
     });
     box.appendChild(
       el("div", { class: "fp-field" }, [
-        el("label", { class: "fp-field__label" }, "Years of relevant experience"),
+        fieldLabel("Years of relevant experience", yearsInput),
         yearsInput,
       ]),
     );
@@ -616,7 +653,7 @@
     updateCounter();
     box.appendChild(
       el("div", { class: "fp-field" }, [
-        el("label", { class: "fp-field__label" }, "Primary narrative"),
+        fieldLabel("Primary narrative", narrativeTextarea),
         narrativeTextarea,
         counter,
         el(
@@ -921,23 +958,24 @@
     });
     box.appendChild(
       el("div", { class: "fp-field" }, [
-        el("label", { class: "fp-field__label" }, "Work mode"),
+        fieldLabel("Work mode", radioGroup),
         radioGroup,
       ]),
     );
 
     // Acceptable locations
+    var locationsChips = renderChipInput({
+      values: hc.acceptableLocations || [],
+      placeholder: "City or metro, then Enter (e.g., Austin)",
+      max: ACCEPTABLE_LOCATIONS_MAX,
+      onChange: function (next) {
+        hc.acceptableLocations = next;
+        onChange();
+      },
+    });
     locationField = el("div", { class: "fp-field" }, [
-      el("label", { class: "fp-field__label" }, "Acceptable locations"),
-      renderChipInput({
-        values: hc.acceptableLocations || [],
-        placeholder: "City or metro, then Enter (e.g., Austin)",
-        max: ACCEPTABLE_LOCATIONS_MAX,
-        onChange: function (next) {
-          hc.acceptableLocations = next;
-          onChange();
-        },
-      }),
+      fieldLabel("Acceptable locations", locationsChips),
+      locationsChips,
       el(
         "p",
         { class: "fp-field__hint" },
@@ -978,7 +1016,7 @@
     });
     var salaryRow = el("div", { class: "fp-inline-row" }, [
       el("div", { style: { flex: "1 1 200px" } }, [
-        el("label", { class: "fp-field__label" }, "Salary floor (USD/year)"),
+        fieldLabel("Salary floor (USD/year)", salaryFloorInput),
         salaryFloorInput,
       ]),
       el("label", { class: "fp-toggle-label" }, [
@@ -1001,24 +1039,25 @@
     });
     box.appendChild(
       el("div", { class: "fp-field" }, [
-        el("label", { class: "fp-field__label" }, "Work authorization"),
+        fieldLabel("Work authorization", authSelect),
         authSelect,
       ]),
     );
 
     // Skip titles
+    var skipTitlesChips = renderChipInput({
+      values: hc.skipTitles || [],
+      placeholder: "Title substring to hard-reject",
+      max: SKIP_TITLES_MAX,
+      onChange: function (next) {
+        hc.skipTitles = next;
+        onChange();
+      },
+    });
     box.appendChild(
       el("div", { class: "fp-field" }, [
-        el("label", { class: "fp-field__label" }, "Skip titles"),
-        renderChipInput({
-          values: hc.skipTitles || [],
-          placeholder: "Title substring to hard-reject",
-          max: SKIP_TITLES_MAX,
-          onChange: function (next) {
-            hc.skipTitles = next;
-            onChange();
-          },
-        }),
+        fieldLabel("Skip titles", skipTitlesChips),
+        skipTitlesChips,
         el(
           "p",
           { class: "fp-field__hint" },
@@ -1035,7 +1074,12 @@
   var wizardState = null;
   var wizardEls = {};
   var wizardMode = "create";
+  /** Handle returned by JobBoredA11y.dialog.open while the wizard is open. */
+  var wizardDialogHandle = null;
 
+  // The role/aria-modal/aria-labelledby attributes stay here so the node is
+  // correct the instant it exists; JobBoredA11y.dialog.open respects an
+  // accessible name the markup already declares and will not double-label it.
   function ensureWizardRoot() {
     var root = document.getElementById("fitProfileWizard");
     if (!root) {
@@ -1521,11 +1565,41 @@
   function openWizard(opts) {
     opts = opts || {};
     var requested = opts.mode === "edit" ? "edit" : "create";
+    // Capture the opener BEFORE the shell renders, for the same reason the
+    // settings modal does (settings-modal.js:522-528): whatever menu or button
+    // launched the wizard may lose focus on the way in.
+    var opener =
+      typeof document !== "undefined" && document.activeElement
+        ? document.activeElement
+        : null;
     if (!wizardState) wizardState = emptyProfile();
     buildWizardShell();
     wizardEls.root.dataset.active = "true";
     document.body.style.overflow = "hidden";
     applyWizardMode(requested);
+    // Containment + Escape + focus restore now come from the shared primitive
+    // instead of being absent. Attached HERE, above the three mode branches,
+    // so every return path (create, supplied-profile edit, fetched edit) is
+    // covered — and AFTER data-active="true", because focus() is a no-op on a
+    // display:none element and .fp-wizard only displays at [data-active="true"]
+    // (fit-profile.css:7-19).
+    //
+    // Re-opening an already-open wizard still rebuilds the shell above (the
+    // pre-migration behavior); it must NOT push a second entry onto the dialog
+    // stack for the same element, which would leak an inert set.
+    var api = a11y();
+    if (!wizardDialogHandle && api && api.dialog && typeof api.dialog.open === "function") {
+      wizardDialogHandle = api.dialog.open(wizardEls.root, {
+        opener: opener,
+        label: "Fit profile setup",
+        onClose: function (reason) {
+          wizardDialogHandle = null;
+          // Escape is handled by the primitive; mirror it into our own
+          // teardown so the overlay actually hides.
+          if (reason === "escape") closeWizard();
+        },
+      });
+    }
 
     if (requested === "create") {
       enterCreateMode();
@@ -1551,6 +1625,11 @@
   }
 
   function closeWizard(opts) {
+    // Release inert + restore focus first; null the handle up front so the
+    // primitive's onClose does not recurse back into closeWizard.
+    var handle = wizardDialogHandle;
+    wizardDialogHandle = null;
+    if (handle) handle.close();
     if (wizardEls.root) wizardEls.root.dataset.active = "false";
     document.body.style.overflow = "";
     if (opts && opts.navigateHome) {

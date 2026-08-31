@@ -280,28 +280,88 @@ describe("accessible names — discovery drawer + resume-generation modal inputs
   });
 });
 
-describe("F3-D shared overlay primitive — wizards consume one owner", () => {
-  it("ships jb-a11y.js with createOverlayOwner + announceToast for wizard reuse", () => {
-    const a11yJs = readFileSync(join(repoRoot, "jb-a11y.js"), "utf8");
+describe("shared overlay primitive — wizards consume one owner", () => {
+  // RECONCILIATION NOTE (lane R1): this block used to pin the F3-D flat API
+  // (createOverlayOwner / announceToast / labelFitProfileControl /
+  // createMoveToAction). jb-a11y.js is now the T0 primitive with the locked
+  // namespaced API, and the four rules below are the same four rules on the
+  // shipped names. The rest of this file is untouched.
+  const a11yJs = readFileSync(join(repoRoot, "jb-a11y.js"), "utf8");
+  const fitProfileJs = readFileSync(
+    join(repoRoot, "fit-profile-wizard.js"),
+    "utf8",
+  );
+
+  it("exposes ONE dialog owner rather than a per-module inert list", () => {
     assert.match(
       a11yJs,
-      /createOverlayOwner/,
-      "wizards must be able to share one overlay owner instead of per-module inert lists",
+      /dialog:\s*\{|dialog\.open|open:\s*openDialog/,
+      "wizards must share one dialog owner instead of each keeping its own inert list",
     );
     assert.match(
       a11yJs,
-      /announceToast/,
+      /\.inert\s*=\s*true/,
+      "the shared owner is what applies inert — that is the containment mechanism",
+    );
+    assert.match(
+      a11yJs,
+      /stack/i,
+      "a LIFO stack is what makes stacked wizards close in the right order",
+    );
+  });
+
+  it("announces global toasts through the shared live region", () => {
+    assert.match(
+      a11yJs,
+      /live[\s\S]{0,80}announce/,
       "global toasts must be announcible through the shared live-region helper",
     );
     assert.match(
       a11yJs,
-      /labelFitProfileControl/,
+      /aria-live/,
+      "the helper must own a real aria-live region, not just a log call",
+    );
+  });
+
+  it("labels controls through the shared field helper", () => {
+    assert.match(
+      a11yJs,
+      /associate/,
       "Fit Profile inputs must be labelable through the shared helper",
     );
     assert.match(
+      fitProfileJs,
+      /field\.associate\(/,
+      "the Fit Profile wizard must actually consume it — an unused helper " +
+        "leaves the audited labels anonymous exactly as before",
+    );
+  });
+
+  it("gives board cards a shared touch-sized stage action", () => {
+    assert.match(
       a11yJs,
-      /createMoveToAction/,
-      "board cards need a shared 44px Move-to action constructor",
+      /stageMenu/,
+      "board cards need a shared, keyboard-operable stage action constructor",
+    );
+    assert.match(
+      a11yJs,
+      /jb-a11y-touch-target/,
+      "that action must carry the shared 44px touch-target class",
+    );
+  });
+
+  it("is consumed by the fit-profile wizard, not merely shipped", () => {
+    // The silent failure this pins: jb-a11y.js loads, every wizard keeps its
+    // own (absent) containment, and nothing fails.
+    assert.match(
+      fitProfileJs,
+      /window\.JobBoredA11y/,
+      "the wizard must read the shared global",
+    );
+    assert.match(
+      fitProfileJs,
+      /dialog\.open\(\s*wizardEls\.root/,
+      "the wizard root must be handed to the shared dialog owner",
     );
   });
 });

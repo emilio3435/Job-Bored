@@ -129,25 +129,56 @@ describe("first-run wizard — prefers-reduced-motion respect", () => {
   });
 });
 
-describe("F3-D overlay primitive — prefers-reduced-motion respect", () => {
-  it("kills overlay entrance animation under reduced motion in jb-a11y.css", () => {
-    const a11yCss = readFileSync(join(repoRoot, "jb-a11y.css"), "utf8");
-    const idx = a11yCss.indexOf("@media (prefers-reduced-motion: reduce)");
+describe("shared a11y primitive — prefers-reduced-motion respect", () => {
+  // RECONCILIATION NOTE (lane R1): this block used to pin `.jb-overlay
+  // { animation: none }` and `.jb-move-to__menu { transition: none }` — the
+  // F3-D class names. jb-a11y.css is now the T0 primitive and renders
+  // .jb-a11y-* only, so those two assertions would have pinned rules that
+  // reach no pixel. The rule they encoded — no motion the user cannot turn
+  // off — is re-expressed generically below, which also covers motion added
+  // to the primitive later.
+  it("neutralizes every motion the primitive declares", () => {
+    const css = readFileSync(join(repoRoot, "jb-a11y.css"), "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "");
+    const reducedIdx = css.indexOf("@media (prefers-reduced-motion: reduce)");
     assert.notEqual(
-      idx,
+      reducedIdx,
       -1,
       "jb-a11y.css must carry a prefers-reduced-motion block",
     );
-    const block = a11yCss.slice(idx, a11yCss.indexOf("}\n}", idx) + 3);
+    const reduced = css.slice(reducedIdx);
     assert.match(
-      block,
-      /\.jb-overlay\s*\{[^}]*animation:\s*none/s,
-      "shared overlay entrance must be neutralized under reduced motion",
+      reduced,
+      /transition:\s*none/,
+      "the reduced-motion block must actually switch motion off",
     );
-    assert.match(
-      block,
-      /\.jb-move-to__menu\s*\{[^}]*transition:\s*none/s,
-      "Move-to menu motion must be neutralized under reduced motion",
+
+    // Every selector that declares motion OUTSIDE the reduced-motion block
+    // must be named INSIDE it. Add an animated .jb-a11y-* rule without
+    // neutralizing it and this fails — which is the point.
+    const motionful = [];
+    const ruleRe = /([^{}]+)\{([^{}]*)\}/g;
+    let m;
+    while ((m = ruleRe.exec(css.slice(0, reducedIdx))) !== null) {
+      const selectors = m[1].trim();
+      const body = m[2];
+      if (selectors.startsWith("@")) continue;
+      if (!/(?:^|;|\s)(?:transition|animation):\s*(?!none)/.test(body)) continue;
+      for (const sel of selectors.split(",")) {
+        const cls = sel.trim().match(/\.jb-a11y-[a-z0-9_-]+/i);
+        if (cls) motionful.push(cls[0]);
+      }
+    }
+    assert.ok(
+      motionful.length > 0,
+      "sanity: the primitive does declare motion, so this pin has something to check",
     );
+    for (const sel of new Set(motionful)) {
+      assert.ok(
+        reduced.includes(sel),
+        `${sel} animates but is not listed in the prefers-reduced-motion block — ` +
+          "motion the user asked not to see would still play",
+      );
+    }
   });
 });
