@@ -215,10 +215,16 @@
     return out;
   }
 
-  function sourceLanes(sourcePreset) {
+  function sourceLanes(sourcePreset, groundedWebEnabled) {
     if (sourcePreset === "ats_only") return ["ats_provider"];
-    if (sourcePreset === "browser_only") return ["grounded_web", "serpapi_google_jobs"];
-    return ["serpapi_google_jobs", "grounded_web", "ats_provider"];
+    if (sourcePreset === "browser_only") {
+      return groundedWebEnabled === false
+        ? ["serpapi_google_jobs"]
+        : ["grounded_web", "serpapi_google_jobs"];
+    }
+    return groundedWebEnabled === false
+      ? ["serpapi_google_jobs", "ats_provider"]
+      : ["serpapi_google_jobs", "grounded_web", "ats_provider"];
   }
 
   function pick(values, index) {
@@ -293,7 +299,10 @@
     var locations = splitList(profile.locations);
     var seniority = splitList(profile.seniority);
     var companyTypes = deriveCompanyTypes(profile, preferences, text);
-    var lanes = sourceLanes(profile.sourcePreset || "");
+    var lanes = sourceLanes(
+      profile.sourcePreset || "",
+      profile.groundedWebEnabled,
+    );
     var snapshot = buildProfileSnapshot({
       discoveryProfile: profile,
       resume: input.resume,
