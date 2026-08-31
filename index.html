@@ -206,6 +206,7 @@
     <link rel="stylesheet" href="jb-type.css" />
     <link rel="stylesheet" href="jb-deco.css" />
     <link rel="stylesheet" href="jb-ui.css" />
+    <link rel="stylesheet" href="jb-a11y.css" />
     <link rel="stylesheet" href="lattice.css" />
     <link rel="stylesheet" href="dawn.css" />
     <link rel="stylesheet" href="flowing-chrome.css" />
@@ -222,15 +223,22 @@
     <link rel="stylesheet" href="fit-profile.css" />
     <link rel="stylesheet" href="jb-v2-legacy-hide.css" />
     <script src="jb-ui.js" defer></script>
+    <script src="jb-a11y.js" defer></script>
     <script src="welcome.js" defer></script>
     <script src="company-cap.js" defer></script>
     <script src="lattice.js" defer></script>
+    <script src="metrics-date-window.js" defer></script>
+    <script src="today-queue.js" defer></script>
     <script src="dawn-data.js" defer></script>
     <script src="dawn.js" defer></script>
     <script src="flowing-store.js" defer></script>
     <script src="flowing-chrome.js" defer></script>
+    <script src="hosted-api-auth.js" defer></script>
+    <script src="pipeline-transitions.js" defer></script>
     <script src="pipeline.js" defer></script>
     <script src="role.js" defer></script>
+    <script src="structured-output-validator.js" defer></script>
+    <script src="dossier-field-provenance.js" defer></script>
     <script src="role-brief.js" defer></script>
     <script src="role-materials.js" defer></script>
     <script src="materials-queue.js" defer></script>
@@ -239,8 +247,12 @@
     <!-- materials panel; PART 04 is gone.                             -->
     <!-- <script src="role-workshop.js" defer></script>                -->
     <!-- <script src="letter.js" defer></script>                       -->
+    <script src="mark-submitted.js" defer></script>
     <script src="flowing-writes.js" defer></script>
+    <script src="scribe-session.js" defer></script>
     <script src="scribe.js" defer></script>
+    <script src="pipeline-transition-adapter.js" defer></script>
+    <script src="jb-v2-boot-contract.js" defer></script>
     <script>
       // JB-V2 flag plumbing (Atlas). Sets body.jb-v2 from URL ?jb-v2=1|0
       // or localStorage 'jb-v2-flag'. URL param wins and persists.
@@ -1579,6 +1591,7 @@
     <script src="visual-themes.js" defer></script>
     <script src="user-content-store.js" defer></script>
     <script src="onboarding-telemetry.js" defer></script>
+    <script src="discovery-effective-intent.js" defer></script>
     <script src="discovery-payload.js" defer></script>
     <script src="discovery-autodetect.js" defer></script>
     <script src="discovery-shared-helpers.js" defer></script>
@@ -1606,6 +1619,7 @@
     <script src="settings-jb-v2-tab.js" defer></script>
     <script src="settings-discovery-adapters.js" defer></script>
     <script src="settings-profile-tab.js?v=4" defer></script>
+    <script src="profile-api-base.js" defer></script>
     <script src="fit-profile-wizard.js" defer></script>
     <script src="fit-profile-editor.js" defer></script>
     <script src="fit-profile-backcompat.js" defer></script>
@@ -1635,6 +1649,7 @@
     <script src="discovery-run-tracker.js?v=1" defer></script>
     <script src="config-overrides.js?v=1" defer></script>
     <script src="app-config-core.js?v=2" defer></script>
+    <script src="google-sheet-capability.js" defer></script>
     <script src="auth-session.js?v=1" defer></script>
     <script src="sheet-access-setup.js?v=2" defer></script>
     <script src="apps-script-relay-helpers.js?v=1" defer></script>

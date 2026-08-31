@@ -28,6 +28,7 @@ import {
   buildLocalControlCorsHeaders,
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
+import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -471,15 +472,7 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
 // (and any data: font payload) loads cleanly; frame-src lets GSI render
 // its sign-in iframe.
 const STATIC_SECURITY_HEADERS = {
-  "content-security-policy":
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://accounts.google.com; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: https:; " +
-    "font-src 'self' data: https://fonts.gstatic.com; " +
-    "connect-src 'self' https://accounts.google.com https://sheets.googleapis.com https://script.google.com https://script.googleusercontent.com https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://openrouter.ai https://fonts.gstatic.com http://127.0.0.1:* http://localhost:* https://*.ts.net https://*.workers.dev https://*.trycloudflare.com https://*.ngrok-free.app https://*.ngrok.app https://*.ngrok.io; " +
-    "frame-src https://accounts.google.com; " +
-    "frame-ancestors 'none'",
+  "content-security-policy": buildContentSecurityPolicy(),
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",
