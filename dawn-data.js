@@ -112,6 +112,9 @@
         foundAt: card.getAttribute("data-found-at") || "",
         salary: card.getAttribute("data-salary") || "",
         jobUrl: card.getAttribute("data-job-url") || "",
+        appliedDate: card.getAttribute("data-applied-at") || "",
+        followUpDate: card.getAttribute("data-follow-up") || "",
+        responseFlag: card.getAttribute("data-replied") || "",
       });
     });
     return out;
@@ -424,6 +427,41 @@
     ];
   }
 
+  var STAGE_TO_STATUS = {
+    "new": "New",
+    "researching": "Researching",
+    "applied": "Applied",
+    "phone-screen": "Phone Screen",
+    "interviewing": "Interviewing",
+    "offer": "Offer",
+    "rejected": "Rejected",
+    "passed": "Passed",
+    "expired": "Expired",
+  };
+
+  function jobsToTodayRecords(jobs) {
+    return (jobs || []).map(function (j) {
+      return {
+        jobKey: j.key,
+        key: j.key,
+        title: j.title,
+        company: j.company,
+        status: STAGE_TO_STATUS[j.stage] || j.stage,
+        stage: j.stage,
+        appliedDate: j.appliedDate || "",
+        followUpDate: j.followUpDate || "",
+        responseFlag: j.responseFlag || "",
+      };
+    });
+  }
+
+  function buildToday(jobs, nowDate) {
+    var selector = root.JobBoredTodayQueue;
+    if (!selector || typeof selector.select !== "function") return [];
+    var selected = selector.select(jobsToTodayRecords(jobs), { now: nowDate });
+    return selected && Array.isArray(selected.items) ? selected.items : [];
+  }
+
   /** 6-row 30-day funnel for the brief — uses kanban-card counts. */
   function buildFunnel30d(jobs) {
     var byStage = { "new": 0, "researching": 0, "applied": 0, "phone-screen": 0, "interviewing": 0, "offer": 0, "expired": 0 };
@@ -462,6 +500,7 @@
     var funnel30d = buildFunnel30d(jobs);
     var leads = buildLeads(jobs, nowDate, 5);
     var byTheNumbers = buildByTheNumbers(funnel30d);
+    var today = buildToday(jobs, nowDate);
 
     return {
       date: readDate(doc),
@@ -486,6 +525,7 @@
       leads: leads,
       byTheNumbers: byTheNumbers,
       funnel30d: funnel30d,
+      today: today,
     };
   }
 
@@ -536,6 +576,7 @@
         { kind: "offer",        label: "Offer",        count: 0 },
         { kind: "expired",      label: "Expired",      count: 0 },
       ],
+      today: [],
     };
   }
 

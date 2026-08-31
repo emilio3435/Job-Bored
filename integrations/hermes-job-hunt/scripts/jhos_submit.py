@@ -29,6 +29,12 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from urllib.parse import urlparse, urlencode, parse_qs
 
+from approval_contract import (
+    GATE1_PASS_VALUE,
+    GATE2_TARGET,
+    GATE2_TIMEOUT_SECONDS,
+)
+
 # ─── Constants ────────────────────────────────────────────────────────
 def env_path(name, default):
     return Path(os.environ.get(name) or default).expanduser()
@@ -55,9 +61,6 @@ COL_NOTES = 14        # O: Notes
 COL_APPROVAL = 23     # X: Approval Status
 
 COLUMN_COUNT = 24     # A through X
-
-GATE2_TARGET = "telegram:-1003800236296:314"
-GATE2_TIMEOUT_SECONDS = 600  # 10 minutes
 
 
 # ─── URL Normalization ────────────────────────────────────────────────
@@ -208,15 +211,12 @@ def lock_release(job_url: str, task_id: str) -> tuple[bool, str]:
         conn.close()
 
 
-# Statuses that do NOT satisfy Gate 1 — anything else passes
-GATE1_BLOCK_STATUSES = {"New", "", "Rejected", "Passed"}
-
-
-# ─── Gate 1: Pipeline Interest Signal ────────────────────────────────
+# ─── Gate 1: Pipeline Approval Status (approval-contract.v1.json) ────
 def gate1_check(job_url: str, sheet_id: str, access_token: str) -> dict:
-    """Read Pipeline and check if Status (Column M) signals interest.
-    Gate 1 passes when Status is anything other than New/blank/Rejected/Passed.
-    Returns {approved, row_number, status, title, company, link}.
+    """Read Pipeline Approval Status (Column X).
+
+    Gate 1 passes only when approvalStatus == Approved. Fail closed otherwise.
+    Returns {approved, row_number, status, approvalStatus, title, company, link}.
     """
     import urllib.request
     normalized = normalize_url(job_url)
@@ -241,15 +241,21 @@ def gate1_check(job_url: str, sheet_id: str, access_token: str) -> dict:
         link = normalize_url(row[COL_LINK])
         if link == normalized:
             status = (row[COL_STATUS] or "").strip()
-            approved = status not in GATE1_BLOCK_STATUSES
+            approval_status = (row[COL_APPROVAL] or "").strip()
+            approved = approval_status == GATE1_PASS_VALUE
             return {
                 "approved": approved,
                 "row_number": i + 2,  # 1-indexed, header is row 1
                 "status": status,
+                "approvalStatus": approval_status,
                 "title": row[1],
                 "company": row[2],
                 "link": row[COL_LINK],
-                "gate1_reason": f"Status '{status}' signals interest" if approved else f"Status '{status}' does not signal interest (must be beyond New)",
+                "gate1_reason": (
+                    f"Approval Status '{approval_status}' permits submit"
+                    if approved
+                    else f"Approval Status '{approval_status}' does not permit submit (requires '{GATE1_PASS_VALUE}')"
+                ),
             }
 
     return {"approved": False, "error": "Job URL not found in Pipeline", "searched_url": normalized}
