@@ -83,6 +83,151 @@
     return (job && job.enrichment) || {};
   }
 
+  function provenanceApi() {
+    var w = typeof window !== "undefined" ? window : null;
+    return (w && w.JobBoredDossierProvenance)
+      || (typeof globalThis !== "undefined" && globalThis.JobBoredDossierProvenance)
+      || null;
+  }
+
+  function structuredOutputApi() {
+    var w = typeof window !== "undefined" ? window : null;
+    return (w && w.JobBoredStructuredOutput)
+      || (typeof globalThis !== "undefined" && globalThis.JobBoredStructuredOutput)
+      || null;
+  }
+
+  function looksLikeDelimiterFallback(raw) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return true;
+    if (/^```(?:json|javascript|js|ts|xml|html|txt)?$/i.test(s)) return true;
+    if (/^```/.test(s) && s.length < 24) return true;
+    if (/^<\|[\w.-]+\|>/.test(s)) return true;
+    if (/^<\/?[a-zA-Z][\w:-]*\s*\/?>$/.test(s)) return true;
+    if (/^-{3,}$/.test(s) || /^\*{3,}$/.test(s) || /^_{3,}$/.test(s)) return true;
+    if (/^(mustHaves|niceToHaves|responsibilities|toolsAndStack|talkingPoints|extraKeywords)\s*:?\s*$/i.test(s)) {
+      return true;
+    }
+    if (/^#{1,6}\s+\S+(?:\s+\S+){0,3}$/.test(s) &&
+        /must-?haves?|responsibilities|nice-?to-?haves?|tools?|stack|keywords?|output/i.test(s)) {
+      return true;
+    }
+    return false;
+  }
+
+  function recoverJsonArrayFallback(raw) {
+    var t = String(raw == null ? "" : raw).trim();
+    if (!/^\s*\[/.test(t)) return null;
+    try {
+      var parsed = JSON.parse(t);
+      if (!Array.isArray(parsed)) return null;
+      return parsed.map(function (x) { return String(x == null ? "" : x).trim(); }).filter(Boolean);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function localValidateEnrichment(enr) {
+    var src = enr && typeof enr === "object" ? enr : {};
+    var out = {};
+    var keys = Object.keys(src);
+    var i;
+    for (i = 0; i < keys.length; i++) out[keys[i]] = src[keys[i]];
+    var listFields = [
+      "mustHaves", "responsibilities", "niceToHaves",
+      "toolsAndStack", "talkingPoints", "extraKeywords",
+    ];
+    var pollutedFields = [];
+    for (i = 0; i < listFields.length; i++) {
+      var name = listFields[i];
+      var arr = Array.isArray(src[name]) ? src[name] : [];
+      var kept = [];
+      var polluted = false;
+      for (var j = 0; j < arr.length; j++) {
+        var item = String(arr[j] == null ? "" : arr[j]).trim();
+        var recovered = recoverJsonArrayFallback(item);
+        if (recovered) {
+          polluted = true;
+          for (var r = 0; r < recovered.length; r++) {
+            if (!looksLikeDelimiterFallback(recovered[r])) kept.push(recovered[r]);
+          }
+          continue;
+        }
+        if (looksLikeDelimiterFallback(item)) {
+          polluted = true;
+          continue;
+        }
+        kept.push(item);
+      }
+      out[name] = kept;
+      if (polluted) pollutedFields.push(name);
+    }
+    if ((src.reviewState && src.reviewState.status === "needs_review") || pollutedFields.length) {
+      out.reviewState = {
+        status: "needs_review",
+        reason: (src.reviewState && src.reviewState.reason) ||
+          "Malformed model delimiters polluted structured fields.",
+        pollutedFields: pollutedFields.length
+          ? pollutedFields
+          : ((src.reviewState && src.reviewState.pollutedFields) || []),
+      };
+    } else {
+      out.reviewState = { status: "ok", reason: "", pollutedFields: [] };
+    }
+    return out;
+  }
+
+  function reviewedEnrichment(job) {
+    var enr = _enr(job);
+    var api = structuredOutputApi();
+    if (api && typeof api.validateEnrichment === "function") {
+      return api.validateEnrichment(enr);
+    }
+    return localValidateEnrichment(enr);
+  }
+
+  function postingGrounding(enr) {
+    var prov = enr && enr.provenance;
+    if (prov && prov.grounding) return String(prov.grounding);
+    var source = String((enr && enr._scrapeSource) || "").trim();
+    var desc = String((enr && (enr.description || enr.bodyText)) || "").trim();
+    if (source === "title-and-company" || (enr && enr._scrapeBlocked)) return "inferred";
+    if ((source === "cheerio" || source === "gemini-url-context") && desc.length >= 80) {
+      return "posting";
+    }
+    return "unknown";
+  }
+
+  function ledeTagFor(enr, fromLlm, totalWords) {
+    var api = provenanceApi();
+    if (api && typeof api.ledeTag === "function") {
+      return api.ledeTag(enr, { fromLlm: fromLlm, jdWordCount: totalWords });
+    }
+    if (!fromLlm) {
+      var tag = "Compressed by JobBored AI";
+      if (totalWords > 0) {
+        tag += " · from " + totalWords + " word" + (totalWords === 1 ? "" : "s");
+      }
+      return tag;
+    }
+    var grounding = postingGrounding(enr);
+    if (grounding === "posting") return "AI Summary · grounded in the posting";
+    if (grounding === "inferred") return "AI Summary · inferred from title and company";
+    return "AI Summary · source unverified";
+  }
+
+  function freshnessLabel(enr) {
+    if (enr && enr.provenance && enr.provenance.freshness && enr.provenance.freshness.label) {
+      return String(enr.provenance.freshness.label);
+    }
+    var api = provenanceApi();
+    if (api && typeof api.freshness === "function") {
+      var fresh = api.freshness(enr);
+      return fresh && fresh.label ? String(fresh.label) : "";
+    }
+    return "";
+  }
+
   function isEnrichmentLoading(job) {
     var enr = _enr(job);
     return enr.status === "loading";
@@ -241,18 +386,52 @@
     var fromLlm = !!(enr && enr.postingSummary
       && String(enr.postingSummary).trim() === lede);
     var totalWords = jdTotalWords(job.jdSections);
-    var tag;
-    if (fromLlm) {
-      tag = "AI Summary · grounded in the posting";
-    } else {
-      tag = "Compressed by JobBored AI";
-      if (totalWords > 0) {
-        tag += " · from " + totalWords + " word" + (totalWords === 1 ? "" : "s");
-      }
-    }
+    var tag = ledeTagFor(enr, fromLlm, totalWords);
+    var grounding = fromLlm ? postingGrounding(enr) : "compressed";
+    var fresh = freshnessLabel(enr);
+    var freshHtml = fresh
+      ? ' <span class="brief__freshness">' + escapeHtml(fresh) + '</span>'
+      : "";
     return '<div class="brief__lede-block">' +
       '<p class="brief__lede">' + escapeHtml(lede) + '</p>' +
-      '<div class="brief__lede-tag">' + escapeHtml(tag) + '</div>' +
+      '<div class="brief__lede-tag" data-grounding="' + escapeHtml(grounding) + '">' +
+        escapeHtml(tag) + freshHtml +
+      '</div>' +
+    '</div>';
+  }
+
+  function renderReviewState(enr) {
+    var state = enr && enr.reviewState;
+    if (!state || state.status !== "needs_review") return "";
+    var reason = String(state.reason ||
+      "Structured AI output contained malformed delimiters. Treat remaining claims as unverified until you read the posting.");
+    return '<section class="brief__review" data-review-status="needs_review" role="status">' +
+      '<h3 class="section-label">Needs review</h3>' +
+      '<p class="brief__review-body">' + escapeHtml(reason) + '</p>' +
+    '</section>';
+  }
+
+  function renderEvidence(enr) {
+    var prov = enr && enr.provenance;
+    if (!prov) return "";
+    var parts = [];
+    if (prov.source && prov.source !== "unknown") {
+      parts.push('<span class="brief__evidence-source">source: ' +
+        escapeHtml(String(prov.source).replace(/-/g, " ")) + '</span>');
+    }
+    if (prov.confidence && prov.confidence !== "unknown") {
+      parts.push('<span class="brief__confidence">confidence: ' +
+        escapeHtml(String(prov.confidence)) + '</span>');
+    }
+    if (prov.profileRevision) {
+      parts.push('<span class="brief__profile-rev" data-profile-revision="' +
+        escapeHtml(String(prov.profileRevision)) + '">profile revision recorded</span>');
+    }
+    if (!parts.length) return "";
+    return '<div class="brief__evidence" data-grounding="' +
+      escapeHtml(String(prov.grounding || "unknown")) +
+      '" data-source="' + escapeHtml(String(prov.source || "unknown")) + '">' +
+      parts.join('<span class="dot">·</span>') +
     '</div>';
   }
 
@@ -461,34 +640,40 @@
     if (!shouldRun()) return;
     var job = (vm && vm.job) || {};
 
-    var hookText = pickHook(job);
-    var mastheadHtml = renderMasthead(job);
-    var loadingHtml = renderEnrichmentLoading(job);
+    var reviewed = reviewedEnrichment(job);
+    var viewJob = Object.assign({}, job, { enrichment: reviewed });
 
-    if (isEnrichmentLoading(job)) {
+    var hookText = pickHook(viewJob);
+    var mastheadHtml = renderMasthead(viewJob);
+    var loadingHtml = renderEnrichmentLoading(viewJob);
+
+    if (isEnrichmentLoading(viewJob)) {
       briefRoot.innerHTML = mastheadHtml + loadingHtml;
       return;
     }
 
     var hookHtml = renderHook(hookText);
-    var ledeHtml = renderLede(job, hookText);
-    var fitHtml = renderFitAngle(job);
-    var enrichedSectionsHtml = renderEnrichedSections(job);
-    var skimHtml = renderSkim(job);
-    var tagsHtml = renderTagsAndSkills(job);
-    var pointsHtml = renderTalkingPoints(job);
-    var notesHtml = renderNotes(job);
+    var ledeHtml = renderLede(viewJob, hookText);
+    var reviewHtml = renderReviewState(reviewed);
+    var evidenceHtml = renderEvidence(reviewed);
+    var fitHtml = renderFitAngle(viewJob);
+    var enrichedSectionsHtml = renderEnrichedSections(viewJob);
+    var skimHtml = renderSkim(viewJob);
+    var tagsHtml = renderTagsAndSkills(viewJob);
+    var pointsHtml = renderTalkingPoints(viewJob);
+    var notesHtml = renderNotes(viewJob);
 
     // Full-width editorial "lead" band — hook + AI lede span the whole
     // brief so the reader meets the role's framing before the two-column
     // spread (left = role detail, right = at-a-glance / talking points).
     var leadHtml = (hookHtml || ledeHtml)
-      ? '<div class="brief__lead">' + hookHtml + ledeHtml + '</div>'
-      : "";
+      ? '<div class="brief__lead">' + hookHtml + ledeHtml + evidenceHtml + '</div>'
+      : evidenceHtml;
 
     briefRoot.innerHTML = mastheadHtml +
       loadingHtml +
       leadHtml +
+      reviewHtml +
       '<div class="brief__body">' +
         '<div class="brief__col brief__col--main">' +
           fitHtml + enrichedSectionsHtml +

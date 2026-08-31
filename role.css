@@ -547,6 +547,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 .brief__lede-tag {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 14px;
   font-family: var(--mono);
@@ -562,6 +563,43 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   border-radius: 50%;
   background: var(--mint-deep);
   box-shadow: 0 0 0 3px rgba(110, 159, 135, 0.18);
+}
+.brief__lede-tag[data-grounding="inferred"]::before,
+.brief__lede-tag[data-grounding="unknown"]::before {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(196, 149, 74, 0.18);
+}
+.brief__freshness {
+  letter-spacing: 0.12em;
+  color: var(--mute);
+}
+.brief__evidence {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin-top: 10px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.brief__review {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(196, 149, 74, 0.35);
+  background: rgba(196, 149, 74, 0.08);
+}
+.brief__review .section-label {
+  color: var(--amber);
+}
+.brief__review-body {
+  margin: 6px 0 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
 /* At-a-glance facts panel */

@@ -1,0 +1,35 @@
+{
+  "id": "F3A-DOSSIER01-PROV-title-company",
+  "why": "Title and company alone are not posting text. The Dossier must not label those inferences as grounded in the posting, must keep empty fields unknown, and must expose cache freshness.",
+  "job": {
+    "title": "Senior Media Strategist",
+    "company": "Acme Media",
+    "location": "Remote",
+    "link": "https://jobs.example/roles/123"
+  },
+  "enrichment": {
+    "url": "https://jobs.example/roles/123",
+    "title": "Senior Media Strategist",
+    "description": "",
+    "requirements": [],
+    "skills": [],
+    "scrapedAt": 1710000000000,
+    "_scrapeBlocked": true,
+    "_scrapeFallbackReason": "url-context-and-scraper-unavailable",
+    "_scrapeSource": "title-and-company",
+    "inferredTitle": "Senior Media Strategist",
+    "inferredCompany": "Acme Media",
+    "inferredLocation": "",
+    "postingSummary": "Acme Media is hiring a Senior Media Strategist to lead paid media.",
+    "roleInOneLine": "Senior Media Strategist at Acme Media.",
+    "mustHaves": ["Paid media strategy", "Client communication"],
+    "responsibilities": ["Build media plans"],
+    "niceToHaves": [],
+    "toolsAndStack": [],
+    "atsFitScore": 40,
+    "atsFitRationale": "Posting text was not available; score is conservative.",
+    "fitAngle": "Lead with cross-channel strategy work.",
+    "talkingPoints": ["Scaled campaigns"],
+    "extraKeywords": ["media"]
+  }
+}

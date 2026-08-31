@@ -425,7 +425,7 @@ describe("dossier brief structure", () => {
     context.window.JobBoredDossierBrief.renderBrief(mount, fixtureVm());
 
     assert.match(mount.innerHTML, /<p class="brief__lede">Linear is looking for/);
-    assert.match(mount.innerHTML, /<div class="brief__lede-tag">Compressed by JobBored AI/);
+    assert.match(mount.innerHTML, /<div class="brief__lede-tag"[^>]*>Compressed by JobBored AI/);
   });
 
   it("lede is suppressed when first JD body equals the hook text", () => {
@@ -692,8 +692,13 @@ describe("dossier brief — AI enrichment sections", () => {
     );
     assert.match(
       mount.innerHTML,
-      /<div class="brief__lede-tag">AI Summary · grounded in the posting<\/div>/,
-      "lede tag should advertise the LLM as the source",
+      /<div class="brief__lede-tag"[^>]*>AI Summary · source unverified/,
+      "an LLM summary without scrape lineage is unverified, not posting-grounded",
+    );
+    assert.doesNotMatch(
+      mount.innerHTML,
+      /grounded in the posting/,
+      "missing source must never be labeled posting-grounded",
     );
   });
 
