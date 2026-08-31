@@ -613,6 +613,9 @@ body.jb-v2 [data-region="scribe"] .scribe-status {
 body.jb-v2 [data-region="scribe"] .scribe-status[data-state="busy"] {
   color: var(--jb-warn);
 }
+body.jb-v2 [data-region="scribe"] .scribe-status[data-state="error"] {
+  color: var(--jb-warn);
+}
 body.jb-v2 [data-region="scribe"] .scribe-status[data-state="ok"] {
   color: var(--jb-mint-deep);
 }

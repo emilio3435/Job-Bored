@@ -48,13 +48,23 @@
     { key: "conf",    label: "Confidence",   help: "Concrete claims" },
   ];
 
-  /** @type {{rendered:boolean, smoke:boolean, debounceTimer:any, lastEditAt:number}} */
+  /** @type {{rendered:boolean, smoke:boolean, debounceTimer:any, lastEditAt:number, session:any, refineBound:boolean}} */
   const state = {
     rendered: false,
     smoke: false,
     debounceTimer: null,
     lastEditAt: 0,
+    session: null,
+    refineBound: false,
   };
+
+  function getSession() {
+    if (state.session) return state.session;
+    const factory = window.JobBoredScribeSession;
+    if (!factory || typeof factory.create !== "function") return null;
+    state.session = factory.create();
+    return state.session;
+  }
 
   function isV2() {
     return !!(document.body && document.body.classList.contains("jb-v2"));
@@ -104,7 +114,7 @@
         <header class="scribe-topbar" role="toolbar" aria-label="Cover letter actions">
           <div class="scribe-topbar__role">
             <span class="scribe-topbar__role-name">Draft for</span>
-            <span class="scribe-topbar__role-target" data-scribe-target>Senior role · Company</span>
+            <span class="scribe-topbar__role-target" data-scribe-target>No role selected</span>
           </div>
 
           <div class="scribe-tabs" role="tablist" aria-label="Document">
@@ -160,7 +170,7 @@
               </div>
               <div class="scribe-axes" id="scribeAxes" role="list"></div>
               <footer class="scribe-scorecard__foot">
-                <span data-scribe-model>model demo-scorecard-v1 · 0.0s</span>
+                <span data-scribe-model>model no document to score · —</span>
                 <a href="#" data-scribe-audit
                    aria-label="Open audit log for the most recent scorecard run">audit log</a>
               </footer>
@@ -256,6 +266,17 @@
     editor.innerHTML = html;
     editor.dataset.empty = html ? "false" : "true";
     updateCounter(editor);
+    const session = getSession();
+    if (session) {
+      const snap = session.snapshot();
+      const current = snap.document || {};
+      session.setDocument({
+        feature: current.feature || "cover_letter",
+        versionNumber: current.versionNumber,
+        draftId: current.draftId,
+        text,
+      });
+    }
   }
 
   function syncEditorIntoLegacy() {
@@ -297,27 +318,6 @@
   // ---------------------------------------------------------
   // Scorecard rendering
   // ---------------------------------------------------------
-  function deriveAxisScores(text) {
-    // Lightweight heuristic — kept here only as a *fallback* render
-    // until the legacy ATS pipeline emits a fresh result. The legacy
-    // pipeline owns the real numbers.
-    const len = (text || "").length;
-    const wordCount = text ? text.split(/\s+/).filter(Boolean).length : 0;
-    const hasNumbers = /\d/.test(text || "");
-    const hasYouVoice = /\byou\b/i.test(text || "");
-    const sentenceCount = (text || "").split(/[.!?]+/).filter((s) => s.trim().length).length;
-    const seed = Math.min(95, Math.max(5, Math.round(40 + Math.log(1 + wordCount) * 10)));
-
-    return {
-      req: Math.min(100, Math.round(seed * 0.95)),
-      exp: Math.min(100, Math.round(seed * (hasNumbers ? 1.05 : 0.85))),
-      impact: Math.min(100, Math.round(seed * (hasNumbers ? 1.1 : 0.7))),
-      parse: Math.min(100, Math.round(70 + Math.min(20, Math.floor(len / 200)))),
-      tone: Math.min(100, Math.round(seed * (hasYouVoice ? 1.0 : 0.9))),
-      conf: Math.min(100, Math.round(seed * (sentenceCount > 4 ? 1.0 : 0.8))),
-    };
-  }
-
   function renderScorecard(scores, meta) {
     const region = getRegion();
     if (!region) return;
@@ -326,9 +326,12 @@
     const modelEl = region.querySelector("[data-scribe-model]");
     if (!fit || !axesEl) return;
 
-    const overall = Math.round(
-      AXES.reduce((sum, a) => sum + (Number(scores[a.key]) || 0), 0) / AXES.length,
-    );
+    const overallFromMeta = meta && Number.isFinite(Number(meta.overall));
+    const overall = overallFromMeta
+      ? Math.max(0, Math.min(100, Math.round(Number(meta.overall))))
+      : Math.round(
+          AXES.reduce((sum, a) => sum + (Number(scores[a.key]) || 0), 0) / AXES.length,
+        );
     fit.setAttribute("percent", String(overall));
     fit.setAttribute("label", `Overall ATS match ${overall}%`);
 
@@ -366,7 +369,7 @@
     }).join("");
 
     if (modelEl && meta) {
-      modelEl.textContent = `model ${meta.model || "demo-scorecard-v1"} · ${meta.timing || "—"}`;
+      modelEl.textContent = `model ${meta.model || "unscored"} · ${meta.timing || "—"}`;
     }
   }
 
@@ -418,26 +421,6 @@
       `,
       )
       .join("");
-  }
-
-  function defaultGaps(scores) {
-    const ranked = AXES.slice()
-      .map((a) => ({ ...a, pct: scores[a.key] }))
-      .sort((a, b) => a.pct - b.pct)
-      .slice(0, 3);
-    return ranked.map((a, i) => ({
-      axis: a.label,
-      text: `${a.label} reads ${a.pct}%. Add a concrete example or rephrase the matching paragraph.`,
-      anchor: i,
-    }));
-  }
-
-  function defaultTalking() {
-    return [
-      "Lead with one outcome metric in the opener.",
-      "Mirror the role's required keywords in the second paragraph.",
-      "Close with availability + a single clear ask.",
-    ];
   }
 
   // ---------------------------------------------------------
@@ -505,6 +488,7 @@
 
     if (printBtn) {
       printBtn.addEventListener("click", () => {
+        flushForExport();
         if (!clickLegacy("resumeGeneratePrint")) window.print();
       });
     }
@@ -523,6 +507,7 @@
     }
     if (doneBtn) {
       doneBtn.addEventListener("click", () => {
+        flushForExport();
         clickLegacy("resumeGenerateDone") || clickLegacy("resumeGenerateClose");
       });
     }
@@ -536,16 +521,14 @@
           fb.value = refineInput.value;
           fb.dispatchEvent(new Event("input", { bubbles: true }));
         }
+        const session = getSession();
+        if (session) {
+          session.noteUnsavedText(plainTextFromEditor(getEditor()));
+          session.beginRefine({ feedback: refineInput ? refineInput.value : "" });
+        }
         setStatus("refining…", "busy");
-        if (clickLegacy("resumeGenerateRefine")) {
-          // After a short delay, snapshot the legacy textarea back
-          // into the editor (refine writes back to #resumeGenerateOutput).
-          window.setTimeout(() => {
-            setEditorFromLegacy();
-            scoreFromCurrent();
-            setStatus("refined", "ok");
-          }, 350);
-        } else {
+        if (!clickLegacy("resumeGenerateRefine")) {
+          if (session) session.completeRefine({ ok: false, error: "refine handler missing" });
           setStatus("refine handler missing", "busy");
         }
       });
@@ -573,7 +556,9 @@
       if (state.debounceTimer) window.clearTimeout(state.debounceTimer);
       state.debounceTimer = window.setTimeout(() => {
         syncEditorIntoLegacy();
-        scoreFromCurrent();
+        const session = getSession();
+        if (session) session.noteUnsavedText(plainTextFromEditor(editor));
+        paintFromSession();
         setStatus("scored", "ok");
       }, DEBOUNCE_MS);
     });
@@ -615,20 +600,152 @@
   }
 
   // ---------------------------------------------------------
-  // Score from current editor text (fallback render only;
-  // the legacy ATS pipeline still owns real scoring).
+  // Score from session: real ATS evidence, or a labeled empty /
+  // unavailable state. Never paint an unlabeled demo heuristic.
   // ---------------------------------------------------------
-  function scoreFromCurrent() {
-    const text = plainTextFromEditor(getEditor());
-    const start = performance.now();
-    const scores = deriveAxisScores(text);
-    const elapsed = ((performance.now() - start) / 1000).toFixed(2);
-    renderScorecard(scores, {
-      model: "demo-scorecard-v1",
-      timing: `${elapsed}s`,
+  function paintFromSession() {
+    const session = getSession();
+    const visible = session
+      ? session.visibleScorecard()
+      : {
+          overall: 0,
+          axes: { req: 0, exp: 0, impact: 0, parse: 0, tone: 0, conf: 0 },
+          model: "ATS evidence unavailable",
+          source: "unavailable",
+          gaps: [],
+          talking: [],
+        };
+    renderScorecard(visible.axes, {
+      overall: visible.overall,
+      model: visible.model,
+      timing: visible.source === "ats" ? "evidence" : "—",
     });
-    renderGaps(defaultGaps(scores));
-    renderTalking(defaultTalking());
+    renderGaps(visible.gaps);
+    renderTalking(visible.talking);
+  }
+
+  function applyRoleLabel() {
+    const region = getRegion();
+    if (!region) return;
+    const el = region.querySelector("[data-scribe-target]");
+    if (!el) return;
+    const session = getSession();
+    el.textContent = session ? session.roleLabel() : "No role selected";
+  }
+
+  function flushForExport() {
+    syncEditorIntoLegacy();
+    const session = getSession();
+    if (!session) return;
+    session.noteUnsavedText(plainTextFromEditor(getEditor()));
+    const persist = getPersistFn();
+    void session.flush(persist ? { persist } : {});
+  }
+
+  function getPersistFn() {
+    const UC = window.CommandCenterUserContent;
+    const session = getSession();
+    if (!session || !UC || typeof UC.saveGeneratedDraft !== "function") return null;
+    return async (payload) => {
+      const saved = await UC.saveGeneratedDraft({
+        feature: payload.feature || "cover_letter",
+        mode: "edit",
+        text: payload.text,
+        job: session.snapshot().role,
+        parentDraftId: payload.parentDraftId,
+      });
+      if (!saved) return {};
+      return { draftId: saved.id, versionNumber: saved.versionNumber };
+    };
+  }
+
+  function onDraftSaved(evt) {
+    const detail = (evt && evt.detail) || {};
+    const session = getSession();
+    if (!session) return;
+    const snap = session.snapshot();
+    if (snap.refine.status !== "refining") return;
+    if (detail.mode && detail.mode !== "refine") return;
+    setEditorFromLegacy();
+    session.completeRefine({
+      ok: true,
+      text: plainTextFromEditor(getEditor()),
+      draftId: detail.draftId,
+      versionNumber: detail.versionNumber,
+    });
+    paintFromSession();
+    setStatus("refined", "ok");
+  }
+
+  function onRefineFailed(evt) {
+    const detail = (evt && evt.detail) || {};
+    const session = getSession();
+    if (!session) return;
+    if (session.snapshot().refine.status !== "refining") return;
+    const error = String(detail.error || "refine failed");
+    session.completeRefine({ ok: false, error });
+    setStatus(error, "error");
+  }
+
+  function onAtsState(evt) {
+    const detail = (evt && evt.detail) || {};
+    const session = getSession();
+    if (!session) return;
+    session.bindAtsEvidence({
+      jobKey: detail.jobKey,
+      status: detail.status,
+      result: detail.result,
+      error: detail.error,
+    });
+    paintFromSession();
+  }
+
+  function onRoleOpened(evt) {
+    const detail = (evt && evt.detail) || {};
+    const session = getSession();
+    if (!session) return;
+    let title = "";
+    let company = "";
+    try {
+      const recents = window.JobBoredFlowing && window.JobBoredFlowing.recents;
+      const list = recents && typeof recents.list === "function" ? recents.list() : [];
+      const hit = (list || []).find((row) => row && row.jobKey === detail.jobKey);
+      if (hit) {
+        title = hit.role || hit.title || "";
+        company = hit.company || "";
+      }
+    } catch (_e) {
+      /* recents are optional */
+    }
+    session.bindRole({
+      jobKey: detail.jobKey,
+      title,
+      company,
+    });
+    applyRoleLabel();
+    paintFromSession();
+  }
+
+  function onRoleClosed() {
+    const session = getSession();
+    if (session) session.clearRole();
+    applyRoleLabel();
+    paintFromSession();
+  }
+
+  function bindSessionEvents() {
+    if (state.refineBound) return;
+    state.refineBound = true;
+    window.addEventListener("jb:draft:saved", onDraftSaved);
+    document.addEventListener("jb:draft:saved", onDraftSaved);
+    window.addEventListener("jb:draft:refine:failed", onRefineFailed);
+    document.addEventListener("jb:draft:refine:failed", onRefineFailed);
+    window.addEventListener("jb:ats:state", onAtsState);
+    document.addEventListener("jb:ats:state", onAtsState);
+    window.addEventListener("jb:role:opened", onRoleOpened);
+    document.addEventListener("jb:role:opened", onRoleOpened);
+    window.addEventListener("jb:role:closed", onRoleClosed);
+    document.addEventListener("jb:role:closed", onRoleClosed);
   }
 
   // ---------------------------------------------------------
@@ -681,8 +798,10 @@
     wireActions(region);
     wireEditor(region);
     wireAppearance(region);
+    bindSessionEvents();
     setEditorFromLegacy();
-    scoreFromCurrent();
+    applyRoleLabel();
+    paintFromSession();
 
     // Re-pull body when legacy textarea changes elsewhere
     // (e.g. a fresh generation finished).
@@ -693,7 +812,7 @@
         const since = Date.now() - state.lastEditAt;
         if (since > DEBOUNCE_MS + 50) {
           setEditorFromLegacy();
-          scoreFromCurrent();
+          paintFromSession();
         }
       });
     }
@@ -716,8 +835,44 @@
   // Public smoke handle for manual invocation (also gated by URL).
   window.JB_SCRIBE = Object.freeze({
     smoke: runSmoke,
-    rescore: scoreFromCurrent,
+    rescore: paintFromSession,
     syncEditorIntoLegacy: syncEditorIntoLegacy,
     setEditorFromLegacy: setEditorFromLegacy,
+    getSelectedRole: function () {
+      const session = getSession();
+      return session ? session.snapshot().role : null;
+    },
+    getDocument: function () {
+      const session = getSession();
+      return session ? session.snapshot().document : null;
+    },
+    bindRole: function (input) {
+      const session = getSession();
+      if (!session) return null;
+      const role = session.bindRole(input);
+      applyRoleLabel();
+      paintFromSession();
+      return role;
+    },
+    bindDocument: function (input) {
+      const session = getSession();
+      if (!session) return null;
+      const doc = session.setDocument(input);
+      if (input && input.text != null) {
+        const ta = getLegacyOutput();
+        if (ta) ta.value = String(input.text);
+        setEditorFromLegacy();
+      }
+      applyRoleLabel();
+      paintFromSession();
+      return doc;
+    },
+    bindAtsEvidence: function (input) {
+      const session = getSession();
+      if (!session) return null;
+      const ats = session.bindAtsEvidence(input);
+      paintFromSession();
+      return ats;
+    },
   });
 })();

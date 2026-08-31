@@ -7,6 +7,7 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const scribeJs = readFileSync(join(repoRoot, "scribe.js"), "utf8");
+const scribeSessionJs = readFileSync(join(repoRoot, "scribe-session.js"), "utf8");
 
 // ============================================================
 // Behavioral coverage for scribe.js — the v2 ATS + cover-letter
@@ -291,6 +292,7 @@ function makeDom() {
 
   const docListeners = [];
   const body = new FakeElement("body");
+  const documentListeners = new Map();
   const document = {
     readyState: "complete",
     body,
@@ -301,6 +303,21 @@ function makeDom() {
     querySelectorAll: (sel) => body.querySelectorAll(sel),
     addEventListener: (type, fn) => {
       docListeners.push({ type, fn });
+      const bucket = documentListeners.get(type) || [];
+      bucket.push(fn);
+      documentListeners.set(type, bucket);
+    },
+    removeEventListener: (type, fn) => {
+      const bucket = documentListeners.get(type) || [];
+      documentListeners.set(
+        type,
+        bucket.filter((entry) => entry !== fn),
+      );
+    },
+    dispatchEvent: (evt) => {
+      if (!evt.target) evt.target = document;
+      for (const fn of documentListeners.get(evt.type) || []) fn.call(document, evt);
+      return true;
     },
   };
 
@@ -416,11 +433,29 @@ function loadScribe({
   const printCalls = [];
   const clipboardWrites = [];
   const consoleLines = [];
+  const windowListeners = new Map();
   const window = {
     location: { search },
     setTimeout: (fn, ms) => timers.set(fn, ms),
     clearTimeout: (id) => timers.clear(id),
     print: () => printCalls.push(1),
+    addEventListener: (type, fn) => {
+      const bucket = windowListeners.get(type) || [];
+      bucket.push(fn);
+      windowListeners.set(type, bucket);
+    },
+    removeEventListener: (type, fn) => {
+      const bucket = windowListeners.get(type) || [];
+      windowListeners.set(
+        type,
+        bucket.filter((entry) => entry !== fn),
+      );
+    },
+    dispatchEvent: (evt) => {
+      if (!evt.target) evt.target = window;
+      for (const fn of windowListeners.get(evt.type) || []) fn.call(window, evt);
+      return true;
+    },
   };
   const ctx = {
     window,
@@ -440,6 +475,7 @@ function loadScribe({
     navigator: { clipboard: { writeText: (text) => clipboardWrites.push(text) } },
   };
   vm.createContext(ctx);
+  vm.runInContext(scribeSessionJs, ctx, { filename: "scribe-session.js" });
   vm.runInContext(scribeJs, ctx, { filename: "scribe.js" });
 
   return {
@@ -727,7 +763,17 @@ describe("scribe — toolbar actions bridge to the legacy modal controls", () =>
     assert.equal(env.q("[data-scribe-status]").textContent, "refining…");
     assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "busy");
 
-    env.timers.flush();
+    env.window.dispatchEvent(
+      Object.assign(new FakeEvent("jb:draft:saved", { bubbles: true }), {
+        detail: {
+          jobKey: "job-1",
+          feature: "cover_letter",
+          draftId: "draft-2",
+          mode: "refine",
+          versionNumber: 2,
+        },
+      }),
+    );
     assert.equal(
       env.byId("scribeEditor").textContent,
       "Refined draft with a stronger opener.",
@@ -858,7 +904,28 @@ describe("scribe — scorecard: ring, axes, tiers, and gap callouts tell one sto
   });
 
   it("gap callouts target the three WEAKEST axes — the user's attention goes where the score is lowest", () => {
-    const env = loadScribe({ legacyText: "" });
+    const env = loadScribe({ legacyText: LONG_DRAFT });
+    env.JB.bindRole({
+      jobKey: "ats:cover_letter:job-1:abc",
+      title: "Staff Engineer",
+      company: "Acme",
+    });
+    env.JB.bindAtsEvidence({
+      jobKey: "ats:cover_letter:job-1:abc",
+      status: "success",
+      result: {
+        overallScore: 55,
+        confidence: 0.4,
+        model: "fixture-scorecard-v1",
+        dimensionScores: {
+          requirementsCoverage: 10,
+          experienceRelevance: 20,
+          impactClarity: 30,
+          atsParseability: 90,
+          toneFit: 80,
+        },
+      },
+    });
     const axes = readAxes(env);
     const weakest = axes
       .slice()
@@ -877,6 +944,27 @@ describe("scribe — scorecard: ring, axes, tiers, and gap callouts tell one sto
 describe("scribe — gap callouts deep-link into the editor", () => {
   it("clicking a gap callout scrolls to and flashes the anchored paragraph, and the flash decays instead of sticking forever", () => {
     const env = loadScribe({ legacyText: "Para one.\n\nPara two.\n\nPara three." });
+    env.JB.bindRole({
+      jobKey: "ats:cover_letter:job-1:abc",
+      title: "Staff Engineer",
+      company: "Acme",
+    });
+    env.JB.bindAtsEvidence({
+      jobKey: "ats:cover_letter:job-1:abc",
+      status: "success",
+      result: {
+        overallScore: 40,
+        confidence: 0.4,
+        model: "fixture-scorecard-v1",
+        dimensionScores: {
+          requirementsCoverage: 10,
+          experienceRelevance: 20,
+          impactClarity: 30,
+          atsParseability: 90,
+          toneFit: 80,
+        },
+      },
+    });
     const gapBtn = env.q('[data-scribe-anchor-target="p-0"]');
     assert.ok(gapBtn, "first gap callout must target paragraph p-0");
     const p0 = env.q('[data-scribe-anchor="p-0"]');
@@ -941,3 +1029,205 @@ describe("scribe — smoke harness is URL-gated, honest, and inert in production
     assert.ok(results.every((r) => r.ok === true));
   });
 });
+
+// ============================================================
+// F3-B named red claims — selected role, real ATS, refine flush
+// ============================================================
+
+describe("F3B-SCRIBE01-ROLE — Scribe selected-role and document version state", () => {
+  it("does not advertise a demo role when no role is bound (disconnected demo copy is the defect)", () => {
+    const env = loadScribe();
+    const target = env.q("[data-scribe-target]");
+    assert.ok(target, "role target must exist");
+    assert.notEqual(
+      target.textContent.trim(),
+      "Senior role · Company",
+      "hardcoded demo role copy must not stand in for selected-role state",
+    );
+    assert.equal(typeof env.JB.getSelectedRole, "function", "explicit selected-role getter");
+    assert.equal(typeof env.JB.getDocument, "function", "explicit document-version getter");
+    assert.equal(env.JB.getSelectedRole(), null, "boot with no role bound yields null, not a fake role");
+    const doc = env.JB.getDocument();
+    assert.ok(doc === null || doc.versionNumber == null, "no document version until a draft is bound");
+  });
+
+  it("bindRole/bindDocument make the topbar and getters track the selected role and version", () => {
+    const env = loadScribe();
+    assert.equal(typeof env.JB.bindRole, "function");
+    assert.equal(typeof env.JB.bindDocument, "function");
+    env.JB.bindRole({
+      jobKey: "acme::staff-engineer",
+      title: "Staff Engineer",
+      company: "Acme",
+    });
+    env.JB.bindDocument({
+      feature: "cover_letter",
+      versionNumber: 3,
+      draftId: "draft-3",
+      text: "Version three body.",
+    });
+    assert.equal(env.JB.getSelectedRole().jobKey, "acme::staff-engineer");
+    assert.equal(env.JB.getDocument().versionNumber, 3);
+    assert.match(env.q("[data-scribe-target]").textContent, /Staff Engineer/);
+    assert.match(env.q("[data-scribe-target]").textContent, /Acme/);
+  });
+});
+
+describe("F3B-SCRIBE02-SCORE — visible ATS score is real evidence or clearly labeled", () => {
+  it("empty document must not show a misleading nonzero demo score", () => {
+    const env = loadScribe({ legacyText: "" });
+    const ring = parseInt(env.q("#scribeFitRing").getAttribute("percent"), 10);
+    assert.equal(ring, 0, "empty document overall must be 0, not a demo heuristic");
+    for (const axis of readAxes(env)) {
+      assert.equal(axis.pct, 0, `${axis.label} must be 0 on an empty document`);
+    }
+    const model = env.q("[data-scribe-model]").textContent;
+    assert.doesNotMatch(
+      model,
+      /demo-scorecard-v1/,
+      "demo-scorecard-v1 must not be presented as the visible score source for an empty document",
+    );
+    assert.match(
+      model,
+      /empty|unavailable|unscored|no document|no ats/i,
+      "empty/unscored state must be labeled",
+    );
+  });
+
+  it("consumes fixture ATS evidence for the bound role instead of inventing demo-scorecard-v1 numbers", () => {
+    const env = loadScribe({ legacyText: LONG_DRAFT });
+    assert.equal(typeof env.JB.bindRole, "function");
+    assert.equal(typeof env.JB.bindAtsEvidence, "function");
+    env.JB.bindRole({
+      jobKey: "ats:cover_letter:job-1:abc",
+      title: "Staff Engineer",
+      company: "Acme",
+    });
+    env.JB.bindAtsEvidence({
+      jobKey: "ats:cover_letter:job-1:abc",
+      status: "success",
+      result: {
+        overallScore: 88,
+        confidence: 0.72,
+        model: "fixture-scorecard-v1",
+        dimensionScores: {
+          requirementsCoverage: 90,
+          experienceRelevance: 84,
+          impactClarity: 79,
+          atsParseability: 93,
+          toneFit: 87,
+        },
+      },
+    });
+    const ring = parseInt(env.q("#scribeFitRing").getAttribute("percent"), 10);
+    assert.equal(ring, 88, "visible ring must use the fixture overallScore");
+    const axes = Object.fromEntries(readAxes(env).map((a) => [a.label, a.pct]));
+    assert.equal(axes.Req, 90);
+    assert.equal(axes.Experience, 84);
+    assert.equal(axes.Impact, 79);
+    assert.equal(axes.Parseability, 93);
+    assert.equal(axes.Tone, 87);
+    assert.equal(axes.Confidence, 72);
+    assert.match(env.q("[data-scribe-model]").textContent, /fixture-scorecard-v1/);
+    assert.doesNotMatch(env.q("[data-scribe-model]").textContent, /demo-scorecard-v1/);
+  });
+});
+
+describe("F3B-SCRIBE03-FLUSH — refine completion and persisted flush before Done/Print", () => {
+  it("does not report refine success on a timer when the async refine never completed", () => {
+    const env = loadScribe({ legacyText: "First draft." });
+    env.byId("scribeRefineInput").value = "make it shorter";
+    env.byId("scribeRefineBtn").click();
+    assert.equal(env.q("[data-scribe-status]").textContent, "refining…");
+    env.timers.flush();
+    assert.notEqual(
+      env.q("[data-scribe-status]").textContent,
+      "refined",
+      "a 350ms snapshot must not fake refine success",
+    );
+    assert.equal(
+      env.q("[data-scribe-status]").textContent,
+      "refining…",
+      "status stays refining until async completion",
+    );
+  });
+
+  it("marks refined only after jb:draft:saved (mode=refine) and snapshots the persisted text", () => {
+    const env = loadScribe({ legacyText: "First draft." });
+    env.byId("scribeRefineInput").value = "make it shorter";
+    env.byId("scribeRefineBtn").click();
+    env.els.output.value = "Refined draft with a stronger opener.";
+    env.window.dispatchEvent(
+      Object.assign(new FakeEvent("jb:draft:saved", { bubbles: true }), {
+        detail: {
+          jobKey: "job-1",
+          feature: "cover_letter",
+          draftId: "draft-2",
+          mode: "refine",
+          versionNumber: 2,
+        },
+      }),
+    );
+    env.document.dispatchEvent(
+      Object.assign(new FakeEvent("jb:draft:saved", { bubbles: true }), {
+        detail: {
+          jobKey: "job-1",
+          feature: "cover_letter",
+          draftId: "draft-2",
+          mode: "refine",
+          versionNumber: 2,
+        },
+      }),
+    );
+    assert.equal(
+      env.byId("scribeEditor").textContent,
+      "Refined draft with a stronger opener.",
+    );
+    assert.equal(env.q("[data-scribe-status]").textContent, "refined");
+    assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "ok");
+  });
+
+  it("Done flushes unsaved editor edits into the canonical textarea before the legacy Done click", () => {
+    const env = loadScribe({ legacyText: "Original" });
+    env.byId("scribeEditor").textContent = "Unsaved edit before done";
+    let valueAtDone = null;
+    env.els.resumeGenerateDone.addEventListener("click", () => {
+      valueAtDone = env.els.output.value;
+    });
+    env.byId("scribeDoneBtn").click();
+    assert.equal(
+      valueAtDone,
+      "Unsaved edit before done",
+      "Done must not export a stale unsaved editor buffer",
+    );
+  });
+
+  it("Print flushes unsaved editor edits before the legacy Print click", () => {
+    const env = loadScribe({ legacyText: "Original" });
+    env.byId("scribeEditor").textContent = "Unsaved edit before print";
+    let valueAtPrint = null;
+    env.els.resumeGeneratePrint.addEventListener("click", () => {
+      valueAtPrint = env.els.output.value;
+    });
+    env.byId("scribePrintBtn").click();
+    assert.equal(
+      valueAtPrint,
+      "Unsaved edit before print",
+      "Print must not export a stale unsaved editor buffer",
+    );
+  });
+
+  it("a failed refine is reported truthfully instead of as success", () => {
+    const env = loadScribe({ legacyText: "First draft." });
+    env.byId("scribeRefineInput").value = "make it shorter";
+    env.byId("scribeRefineBtn").click();
+    env.window.dispatchEvent(
+      Object.assign(new FakeEvent("jb:draft:refine:failed", { bubbles: true }), {
+        detail: { error: "provider timeout" },
+      }),
+    );
+    assert.match(env.q("[data-scribe-status]").textContent, /provider timeout|failed/i);
+    assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "error");
+  });
+});
+
