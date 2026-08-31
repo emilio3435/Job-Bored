@@ -937,10 +937,20 @@ export function mergeDiscoveryConfig(
       stored.negativeCompanyKeys,
     );
     const pool = dedupeByCompanyKey([...companies, ...historyMinusSkipped]);
-    companies = pool.filter((company) => allow.has(companyFilterKey(company)));
-    atsCompanies = atsCompanies.filter((company) =>
+    const allowedCompanies = pool.filter((company) =>
       allow.has(companyFilterKey(company))
     );
+    const allowedAtsCompanies = atsCompanies.filter((company) =>
+      allow.has(companyFilterKey(company))
+    );
+    if (
+      allowedCompanies.length > 0 ||
+      allowedAtsCompanies.length > 0 ||
+      request.allowUnrestrictedFallback !== true
+    ) {
+      companies = allowedCompanies;
+      atsCompanies = allowedAtsCompanies;
+    }
   }
 
   return {
@@ -983,7 +993,11 @@ export function mergeDiscoveryConfig(
         : {}),
     },
     sourcePreset: resolvedSourcePreset,
-    effectiveSources: computeEffectiveSources(resolvedSourcePreset, stored.enabledSources),
+    effectiveSources: computeEffectiveSources(
+      resolvedSourcePreset,
+      stored.enabledSources,
+      { groundedWebEnabled: profile.groundedWebEnabled },
+    ),
     ultraPlanTuning: resolvedUltraPlanTuning,
     groundedSearchTuning: resolvedGroundedSearchTuning,
     ...(profile.profileSnapshot ? { profileSnapshot: profile.profileSnapshot } : {}),
@@ -1092,8 +1106,10 @@ export function resolveSourcePreset(
 export function computeEffectiveSources(
   sourcePreset: SourcePreset,
   enabledSources: readonly SupportedSourceId[],
+  options: { groundedWebEnabled?: boolean | null } = {},
 ): SupportedSourceId[] {
   const allAts = [...ATS_SOURCE_IDS] as const;
+  let effectiveSources: SupportedSourceId[];
   switch (sourcePreset) {
     case "browser_only": {
       // browser_only keeps the profile-/role-driven web lanes: grounded_web
@@ -1105,14 +1121,20 @@ export function computeEffectiveSources(
       if (enabledSources.includes("serpapi_google_jobs")) {
         out.push("serpapi_google_jobs");
       }
-      return out;
+      effectiveSources = out;
+      break;
     }
     case "ats_only":
-      return allAts.filter((id) => enabledSources.includes(id));
+      effectiveSources = allAts.filter((id) => enabledSources.includes(id));
+      break;
     case "browser_plus_ats":
     default:
-      return [...enabledSources];
+      effectiveSources = [...enabledSources];
+      break;
   }
+  return options.groundedWebEnabled === false
+    ? effectiveSources.filter((id) => id !== "grounded_web")
+    : effectiveSources;
 }
 
 function buildDefaultStoredWorkerConfig(
