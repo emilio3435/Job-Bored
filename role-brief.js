@@ -228,6 +228,122 @@
     return "";
   }
 
+  var MONTH_NAMES = [
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+  ];
+
+  function _parseMode(job) {
+    var enr = _enr(job);
+    return String(enr.parseMode || enr._parseMode || "").trim().toLowerCase();
+  }
+
+  function _isRecovered(job) {
+    var mode = _parseMode(job);
+    return mode === "loose" || mode === "repaired";
+  }
+
+  function _classifyProvenance(job, field) {
+    var api = provenanceApi();
+    var classify = api && api.classify;
+    if (typeof classify === "function") {
+      try {
+        var result = classify(_enr(job), job && (job.editLock || job._editLock), field);
+        if (result && result.label) return result;
+      } catch (e) { /* unknown is the safe rendering fallback */ }
+    }
+    return { label: "unknown", source: "unknown", fetchedAt: null };
+  }
+
+  function _sourceLabel(source) {
+    var value = String(source == null ? "" : source).trim();
+    var known = {
+      "cheerio": "Cheerio",
+      "gemini-url-context": "Gemini URL Context",
+      "title-and-company": "title + company",
+      "edit-lock": "edit lock",
+      "unknown": "unknown",
+    };
+    return known[value.toLowerCase()] || value || "unknown";
+  }
+
+  /* Sheet-persisted fetch time. This is the ONLY age surface: there is no
+     separate 30-day display flag — "stale" keeps its single meaning, the
+     3-day enrichment cache TTL stamped into provenance.freshness. */
+  function _formatFetchedAt(value) {
+    if (!value) return "";
+    var date = new Date(value);
+    var time = date.getTime();
+    if (!Number.isFinite(time)) return "";
+    var absolute = MONTH_NAMES[date.getUTCMonth()] + " " + date.getUTCDate() +
+      ", " + date.getUTCFullYear();
+    var ageMs = Math.max(0, Date.now() - time);
+    var days = Math.floor(ageMs / (24 * 60 * 60 * 1000));
+    var relative = days === 0
+      ? "today"
+      : days < 30
+        ? days + " day" + (days === 1 ? "" : "s") + " ago"
+        : days < 365
+          ? Math.floor(days / 30) + " month" + (Math.floor(days / 30) === 1 ? "" : "s") + " ago"
+          : Math.floor(days / 365) + " year" + (Math.floor(days / 365) === 1 ? "" : "s") + " ago";
+    return "Fetched " + absolute + " · " + relative;
+  }
+
+  function _isStale(job) {
+    var fresh = _enr(job).provenance && _enr(job).provenance.freshness;
+    return !!(fresh && fresh.stale);
+  }
+
+  function _provenanceClass(label) {
+    var known = ["posting-grounded", "user-provided", "inferred", "unknown"];
+    return known.indexOf(label) === -1 ? "unknown" : label;
+  }
+
+  /* One per-field evidence line. Model- and scrape-controlled strings
+     (source, fallbackReason) are escaped as a single joined payload. */
+  function _renderProvenance(job, field, opts) {
+    var options = opts || {};
+    var result = _classifyProvenance(job, field);
+    var recovered = _isRecovered(job);
+    var stale = _isStale(job);
+    var parts = [];
+    if (options.prefix) parts.push(options.prefix);
+    if (recovered) parts.push("Recovered — review");
+    parts.push(result.label);
+    parts.push("source " + _sourceLabel(result.source));
+    var fetched = _formatFetchedAt(result.fetchedAt);
+    if (fetched && options.includeFetched !== false) parts.push(fetched);
+    if (stale) parts.push("stale");
+    if (options.detail) parts.push(options.detail);
+    var enr = _enr(job);
+    var fallbackReason = enr.fallbackReason || enr._scrapeFallbackReason || "";
+    if (fallbackReason && options.includeFallback !== false) {
+      parts.push("reason " + String(fallbackReason));
+    }
+    var className = options.className || "brief__provenance";
+    className += " brief__provenance--" + _provenanceClass(result.label);
+    if (recovered) className += " brief__provenance--recovered";
+    if (stale) className += " brief__provenance--stale";
+    return '<div class="' + className + '">' + escapeHtml(parts.join(" · ")) + '</div>';
+  }
+
+  function renderIdentityProvenance(job) {
+    var fields = [
+      ["Title", "title"],
+      ["Company", "company"],
+      ["Location", "location"],
+      ["Salary", "salary"],
+    ];
+    var chips = fields.map(function (entry) {
+      var result = _classifyProvenance(job, entry[1]);
+      var text = entry[0] + " · " + result.label + " · source " + _sourceLabel(result.source);
+      return '<span class="brief__identity-provenance-chip brief__provenance--' +
+        _provenanceClass(result.label) + '">' + escapeHtml(text) + '</span>';
+    }).join("");
+    return '<div class="brief__identity-provenance" aria-label="Dossier evidence">' +
+      '<span class="brief__identity-provenance-label">Evidence</span>' + chips + '</div>';
+  }
+
   function isEnrichmentLoading(job) {
     var enr = _enr(job);
     return enr.status === "loading";
@@ -367,16 +483,26 @@
     if (!eyebrow && !title && !company && !facts) return "";
 
     return '<header class="brief__masthead">' +
-      '<div class="brief__masthead-text">' + eyebrow + title + company + facts + '</div>' +
+      '<div class="brief__masthead-text">' + eyebrow + title + company + facts +
+        renderIdentityProvenance(job) + '</div>' +
       ctaCluster +
     '</header>';
   }
 
   /* -------------------- left column -------------------- */
 
-  function renderHook(hookText) {
+  function renderHook(job, hookText) {
     if (!hookText) return "";
-    return '<p class="brief__hook">' + escapeHtml(hookText) + '</p>';
+    var enr = _enr(job);
+    var field = enr.roleInOneLine && String(enr.roleInOneLine).trim() === hookText
+      ? "roleInOneLine"
+      : job.companyTagline && String(job.companyTagline).trim() === hookText
+        ? "companyTagline"
+        : "jdSnippet";
+    return '<div class="brief__hook-block">' +
+      '<p class="brief__hook">' + escapeHtml(hookText) + '</p>' +
+      _renderProvenance(job, field, { prefix: "Role framing" }) +
+    '</div>';
   }
 
   function renderLede(job, hookText) {
@@ -397,6 +523,11 @@
       '<div class="brief__lede-tag" data-grounding="' + escapeHtml(grounding) + '">' +
         escapeHtml(tag) + freshHtml +
       '</div>' +
+      _renderProvenance(job, fromLlm ? "postingSummary" : "jdSnippet", {
+        detail: !fromLlm && totalWords > 0
+          ? "from " + totalWords + " word" + (totalWords === 1 ? "" : "s")
+          : "",
+      }) +
     '</div>';
   }
 
@@ -411,30 +542,6 @@
     '</section>';
   }
 
-  function renderEvidence(enr) {
-    var prov = enr && enr.provenance;
-    if (!prov) return "";
-    var parts = [];
-    if (prov.source && prov.source !== "unknown") {
-      parts.push('<span class="brief__evidence-source">source: ' +
-        escapeHtml(String(prov.source).replace(/-/g, " ")) + '</span>');
-    }
-    if (prov.confidence && prov.confidence !== "unknown") {
-      parts.push('<span class="brief__confidence">confidence: ' +
-        escapeHtml(String(prov.confidence)) + '</span>');
-    }
-    if (prov.profileRevision) {
-      parts.push('<span class="brief__profile-rev" data-profile-revision="' +
-        escapeHtml(String(prov.profileRevision)) + '">profile revision recorded</span>');
-    }
-    if (!parts.length) return "";
-    return '<div class="brief__evidence" data-grounding="' +
-      escapeHtml(String(prov.grounding || "unknown")) +
-      '" data-source="' + escapeHtml(String(prov.source || "unknown")) + '">' +
-      parts.join('<span class="dot">·</span>') +
-    '</div>';
-  }
-
   /* Fit angle — the LLM's "why this role fits the candidate" line.
      Lives in the main column, just under the lede. Falls back to
      fitAssessment if the LLM hasn't generated a fitAngle yet. */
@@ -446,13 +553,14 @@
     if (!text) return "";
     return '<section class="brief__fit">' +
       '<h3 class="section-label">Why this role fits</h3>' +
+      _renderProvenance(job, enr.fitAngle ? "fitAngle" : "fitAssessment") +
       '<p class="brief__fit-body">' + escapeHtml(text) + '</p>' +
     '</section>';
   }
 
   /* Structured AI lists — must-haves, responsibilities, nice-to-haves,
      tools & stack. Each is opt-in: empty arrays render nothing. */
-  function _structSection(label, items, cls) {
+  function _structSection(job, label, items, cls, field) {
     var arr = Array.isArray(items)
       ? items.map(function (x) { return String(x || "").trim(); }).filter(Boolean)
       : [];
@@ -462,8 +570,10 @@
       var s = b.length > 300 ? b.slice(0, 297) + "…" : b;
       return '<li>' + escapeHtml(s) + '</li>';
     }).join("");
-    return '<section class="brief__struct brief__struct--' + cls + '">' +
+    var recoveredClass = _isRecovered(job) ? ' brief__struct--recovered' : '';
+    return '<section class="brief__struct brief__struct--' + cls + recoveredClass + '">' +
       '<h3 class="section-label">' + escapeHtml(label) + '</h3>' +
+      _renderProvenance(job, field) +
       '<ul>' + bullets + '</ul>' +
     '</section>';
   }
@@ -471,10 +581,10 @@
   function renderEnrichedSections(job) {
     var enr = _enr(job);
     return [
-      _structSection("Must-haves",       enr.mustHaves,       "must"),
-      _structSection("Responsibilities", enr.responsibilities,"resp"),
-      _structSection("Nice-to-haves",    enr.niceToHaves,     "nice"),
-      _structSection("Tools & stack",    enr.toolsAndStack,   "tools"),
+      _structSection(job, "Must-haves",       enr.mustHaves,       "must",  "mustHaves"),
+      _structSection(job, "Responsibilities", enr.responsibilities,"resp",  "responsibilities"),
+      _structSection(job, "Nice-to-haves",    enr.niceToHaves,     "nice",  "niceToHaves"),
+      _structSection(job, "Tools & stack",    enr.toolsAndStack,   "tools", "toolsAndStack"),
     ].join("");
   }
 
@@ -551,6 +661,7 @@
         key: "ATS Fit",
         val: Math.max(0, Math.min(100, Math.round(ats))),
         score: true,
+        field: "atsFitScore",
         rationale: String(enr.atsFitRationale || "").trim(),
       });
     }
@@ -558,10 +669,10 @@
       ? enr.extraKeywords.map(function (t) { return String(t || "").trim(); }).filter(Boolean)
       : [];
     if (signals.length) {
-      rows.push({ key: "Signals", val: signals.slice(0, 3).join(" · ") });
+      rows.push({ key: "Signals", val: signals.slice(0, 3).join(" · "), field: "extraKeywords" });
     }
-    if (job.salary)   rows.push({ key: "Comp", val: String(job.salary) });
-    if (job.location) rows.push({ key: "Location", val: String(job.location) });
+    if (job.salary)   rows.push({ key: "Comp", val: String(job.salary), field: "salary" });
+    if (job.location) rows.push({ key: "Location", val: String(job.location), field: "location" });
     if (!rows.length) return "";
     var inner = rows.map(function (r) {
       if (r.score) {
@@ -570,12 +681,21 @@
           '<span class="key">' + escapeHtml(r.key) + '</span>' +
           '<span class="val val--score"' + title + '>' + escapeHtml(String(r.val)) +
             '<sup style="font-size:0.55em;color:var(--mute);font-family:var(--mono);">/100</sup>' +
-          '</span>' +
+          '</span>' + _renderProvenance(job, r.field, {
+            includeFetched: false,
+            includeFallback: false,
+            className: "skim__provenance brief__provenance",
+          }) +
         '</li>';
       }
       return '<li>' +
         '<span class="key">' + escapeHtml(r.key) + '</span>' +
         '<span class="val">' + escapeHtml(String(r.val)) + '</span>' +
+        _renderProvenance(job, r.field, {
+          includeFetched: false,
+          includeFallback: false,
+          className: "skim__provenance brief__provenance",
+        }) +
       '</li>';
     }).join("");
     return '<ul class="skim">' + inner + '</ul>';
@@ -602,6 +722,9 @@
     }).join("");
     return '<section class="points">' +
       '<h3 class="section-label">Talking points</h3>' +
+      _renderProvenance(job, Array.isArray(enr.talkingPoints) && enr.talkingPoints.length
+        ? "talkingPoints"
+        : "jdSnippet") +
       '<ul>' + items + '</ul>' +
     '</section>';
   }
@@ -652,10 +775,9 @@
       return;
     }
 
-    var hookHtml = renderHook(hookText);
+    var hookHtml = renderHook(viewJob, hookText);
     var ledeHtml = renderLede(viewJob, hookText);
     var reviewHtml = renderReviewState(reviewed);
-    var evidenceHtml = renderEvidence(reviewed);
     var fitHtml = renderFitAngle(viewJob);
     var enrichedSectionsHtml = renderEnrichedSections(viewJob);
     var skimHtml = renderSkim(viewJob);
@@ -667,8 +789,8 @@
     // brief so the reader meets the role's framing before the two-column
     // spread (left = role detail, right = at-a-glance / talking points).
     var leadHtml = (hookHtml || ledeHtml)
-      ? '<div class="brief__lead">' + hookHtml + ledeHtml + evidenceHtml + '</div>'
-      : evidenceHtml;
+      ? '<div class="brief__lead">' + hookHtml + ledeHtml + '</div>'
+      : "";
 
     briefRoot.innerHTML = mastheadHtml +
       loadingHtml +
@@ -679,9 +801,20 @@
           fitHtml + enrichedSectionsHtml +
         '</div>' +
         '<div class="brief__col brief__col--side">' +
-          skimHtml + tagsHtml + pointsHtml + notesHtml +
+          skimHtml + tagsHtml + '<div data-mount="recruiter-strip"></div>' +
+          pointsHtml + notesHtml +
         '</div>' +
       '</div>';
+
+    /* The strip innerHTML-overwrites whatever element it is handed, so it
+       gets its own [data-mount] div — never a shared container. */
+    if (root.JobBoredRecruiterStrip &&
+        typeof root.JobBoredRecruiterStrip.render === "function") {
+      root.JobBoredRecruiterStrip.render(
+        briefRoot.querySelector('[data-mount="recruiter-strip"]'),
+        vm,
+      );
+    }
   }
 
   /* -------------------- expose -------------------- */
