@@ -65,35 +65,132 @@
     return Number.isFinite(n) ? n : 0;
   }
 
+  var RUN_HEADER_ALIASES = {
+    "run at": "runAt",
+    "trigger": "trigger",
+    "status": "status",
+    "duration (s)": "durationS",
+    "duration": "durationS",
+    "companies seen": "companiesSeen",
+    "companies": "companiesSeen",
+    "leads new": "leadsWritten",
+    "leads": "leadsWritten",
+    "leads written": "leadsWritten",
+    "leads updated": "leadsUpdated",
+    "source": "source",
+    "variation key": "variationKey",
+    "variation": "variationKey",
+    "error": "error",
+  };
+
+  function isNumericCell(value) {
+    if (typeof value === "number") return Number.isFinite(value);
+    if (value == null) return false;
+    var s = String(value).trim();
+    if (s === "") return false;
+    return /^-?\d+(\.\d+)?$/.test(s);
+  }
+
+  function metricFromCell(value) {
+    if (value == null || value === "") {
+      return { value: 0, availability: "unavailable" };
+    }
+    var n = typeof value === "number" ? value : parseInt(String(value), 10);
+    if (!Number.isFinite(n)) return { value: 0, availability: "unavailable" };
+    return { value: n, availability: n === 0 ? "zero" : "value" };
+  }
+
+  function detectHasLeadsUpdated(row) {
+    if (!row || row.length < 7) return false;
+    if (row.length >= 10) return true;
+    // Sheets values.get drops trailing empty Error, so a canonical 10-col
+    // success row arrives as 9 cells with numeric Leads Updated at index 6.
+    // Legacy 9-col rows put Source (a non-numeric string) at index 6.
+    return isNumericCell(row[6]);
+  }
+
+  function cellsFromHeaders(row, headers) {
+    var mapped = {};
+    if (!Array.isArray(headers)) return mapped;
+    for (var i = 0; i < headers.length; i++) {
+      var key = RUN_HEADER_ALIASES[String(headers[i] || "").trim().toLowerCase()];
+      if (key) mapped[key] = i < row.length ? row[i] : undefined;
+    }
+    return mapped;
+  }
+
+  function cellsFromPositional(row) {
+    var ten = detectHasLeadsUpdated(row);
+    return {
+      runAt: row[0],
+      trigger: row[1],
+      status: row[2],
+      durationS: row[3],
+      companiesSeen: row[4],
+      leadsWritten: row[5],
+      leadsUpdated: ten ? row[6] : undefined,
+      source: ten ? row[7] : row[6],
+      variationKey: ten ? row[8] : row[7],
+      error: ten ? row[9] : row[8],
+    };
+  }
+
+  function buildParsedRun(cells) {
+    var duration = metricFromCell(cells.durationS);
+    var companies = metricFromCell(cells.companiesSeen);
+    var leadsWritten = metricFromCell(cells.leadsWritten);
+    var leadsUpdated = metricFromCell(cells.leadsUpdated);
+    var status = String(cells.status || "");
+    var error = String(cells.error == null ? "" : cells.error);
+    var variationKey = String(cells.variationKey == null ? "" : cells.variationKey);
+    var source = String(cells.source == null ? "" : cells.source);
+    // Never let a successful status, source, or variation key occupy Error
+    // when Sheets omitted the trailing empty cell.
+    if (error && (error === status || error === source || error === variationKey)) {
+      error = "";
+    }
+    if (status === "success") error = "";
+    return {
+      runAt: String(cells.runAt || ""),
+      trigger: String(cells.trigger || ""),
+      status: status,
+      durationS: duration.value,
+      durationSAvailability: duration.availability,
+      companiesSeen: companies.value,
+      companiesSeenAvailability: companies.availability,
+      leadsWritten: leadsWritten.value,
+      leadsWrittenAvailability: leadsWritten.availability,
+      leadsUpdated: leadsUpdated.value,
+      leadsUpdatedAvailability: leadsUpdated.availability,
+      source: source,
+      variationKey: variationKey,
+      error: error,
+    };
+  }
+
   /**
    * Parse raw Sheets values (rows beneath the header, column order must match
    * DISCOVERY_RUNS_HEADER_ROW) into typed run objects.
    *
    * Input: string[][] (Sheets values.get response shape)
    * Output: Run[] where each Run matches the DiscoveryRunLogRow contract.
+   *
+   * options.headers: optional header row (F1-B versioned contract). When
+   * present, cells are mapped by header name so 9-vs-10 and trailing-empty
+   * Sheets responses cannot shift Source/Variation into Error.
    */
-  function parseDiscoveryRunsValues(values) {
+  function parseDiscoveryRunsValues(values, options) {
     if (!Array.isArray(values)) return [];
+    var headers = options && Array.isArray(options.headers) ? options.headers : null;
     var out = [];
     for (var i = 0; i < values.length; i++) {
       var row = values[i];
       if (!Array.isArray(row)) continue;
+      var cells = headers ? cellsFromHeaders(row, headers) : cellsFromPositional(row);
       // Require at least Run At + Trigger + Status — rows with all three blank
       // are abandoned cells we want to skip rather than render as junk.
-      if (!row[0] || !row[1] || !row[2]) continue;
-      var hasUpdatedColumn = row.length >= 10;
-      out.push({
-        runAt: String(row[0] || ""),
-        trigger: String(row[1] || ""),
-        status: String(row[2] || ""),
-        durationS: toInt(row[3]),
-        companiesSeen: toInt(row[4]),
-        leadsWritten: toInt(row[5]),
-        leadsUpdated: hasUpdatedColumn ? toInt(row[6]) : 0,
-        source: String(hasUpdatedColumn ? row[7] : row[6] || ""),
-        variationKey: String(hasUpdatedColumn ? row[8] : row[7] || ""),
-        error: String(hasUpdatedColumn ? row[9] : row[8] || ""),
-      });
+      if (!cells.runAt || !cells.trigger || !cells.status) continue;
+      out.push(buildParsedRun(cells));
     }
     return out;
   }
@@ -124,6 +221,7 @@
       if (triggerFilter === "scheduled" && !SCHEDULED_TRIGGERS[run.trigger]) return false;
       if (statusFilter === "success" && run.status !== "success") return false;
       if (statusFilter === "failure" && run.status !== "failure") return false;
+      if (statusFilter === "partial" && run.status !== "partial") return false;
       return true;
     });
   }
@@ -209,13 +307,35 @@
     return d.toLocaleString();
   }
 
-  function formatDuration(durationS) {
+  function formatDuration(durationS, availability) {
+    if (availability === "unavailable") {
+      return '<span class="runs-dash" data-availability="unavailable">—</span>';
+    }
     var n = toInt(durationS);
-    if (n <= 0) return "—";
-    if (n < 60) return n + "s";
-    var mins = Math.floor(n / 60);
-    var secs = n % 60;
-    return mins + "m " + secs + "s";
+    if (availability === "zero" || n <= 0) {
+      return '<span class="runs-dash" data-availability="zero">—</span>';
+    }
+    var label;
+    if (n < 60) label = n + "s";
+    else {
+      var mins = Math.floor(n / 60);
+      var secs = n % 60;
+      label = mins + "m " + secs + "s";
+    }
+    return escapeHtml(label);
+  }
+
+  function formatMetricCell(value, availability) {
+    if (availability === "unavailable") {
+      return '<span class="runs-dash" data-availability="unavailable">—</span>';
+    }
+    if (availability === "zero") {
+      return '<span data-availability="zero">' + escapeHtml(String(value || 0)) + "</span>";
+    }
+    if (value == null || value === "") {
+      return '<span class="runs-dash" data-availability="unavailable">—</span>';
+    }
+    return escapeHtml(String(value));
   }
 
   function statusBadge(status, labelOverride) {
@@ -369,10 +489,10 @@
             "</td>" +
             "<td>" + escapeHtml(triggerLabel(r.trigger)) + "</td>" +
             "<td>" + statusBadge(r.status) + "</td>" +
-            "<td>" + escapeHtml(formatDuration(r.durationS)) + "</td>" +
-            "<td>" + escapeHtml(String(r.companiesSeen)) + "</td>" +
-            "<td>" + escapeHtml(String(r.leadsWritten)) + "</td>" +
-            "<td>" + escapeHtml(String(r.leadsUpdated || 0)) + "</td>" +
+            "<td>" + formatDuration(r.durationS, r.durationSAvailability) + "</td>" +
+            "<td>" + formatMetricCell(r.companiesSeen, r.companiesSeenAvailability) + "</td>" +
+            "<td>" + formatMetricCell(r.leadsWritten, r.leadsWrittenAvailability) + "</td>" +
+            "<td>" + formatMetricCell(r.leadsUpdated, r.leadsUpdatedAvailability) + "</td>" +
             "<td>" + escapeHtml(r.source) + "</td>" +
             "<td><code>" + escapeHtml(r.variationKey) + "</code></td>" +
             '<td class="runs-error-cell"' +
@@ -642,8 +762,22 @@
       var isInitial = !state.hasLoadedOnce && !opts.silent;
       if (isInitial) {
         showTable();
-        renderSkeletonRows(tbody, 6);
-        setStatus(statusEl, "info", "Loading runs…");
+        if (state.liveJobRun) {
+          // Local terminal/active outcomes must not be hidden behind a
+          // Loading skeleton while DiscoveryRuns is still in flight.
+          renderRunsTable(tbody, [], {
+            ghost: state.ghostRun,
+            liveJobRun: state.liveJobRun,
+          });
+          setStatus(
+            statusEl,
+            "info",
+            "Showing the local run state; fetching DiscoveryRuns…",
+          );
+        } else {
+          renderSkeletonRows(tbody, 6);
+          setStatus(statusEl, "info", "Loading runs…");
+        }
       } else if (!opts.silent) {
         setStatus(statusEl, "info", "Refreshing…");
       }
@@ -701,9 +835,8 @@
           }
           return;
         }
-        if (state.liveJobRun && isTerminalJobDiscoveryRun(state.liveJobRun)) {
-          state.liveJobRun = null;
-        }
+        // Keep unmatched local terminal outcomes visible. Only
+        // hasTerminalSheetMatchForLiveRun() may drop them.
         rerender();
       } finally {
         state.loading = false;
@@ -781,13 +914,20 @@
     });
 
     // The <table> can be swapped by the empty-state renderer, so delegate
-    // the sort-header click to the (stable) .runs-table-wrap.
+    // sort-header activation (click + keyboard Enter/Space) to the stable wrap.
     if (tableWrap) {
-      tableWrap.addEventListener("click", function (event) {
+      function onSortHeaderEvent(event) {
         var target = event.target;
         if (!(target instanceof Element)) return;
         var th = target.closest("th[data-runs-sort]");
         if (!th) return;
+        if (event.type === "keydown") {
+          if (event.key === "Enter" || event.key === " ") {
+            event.preventDefault();
+          } else {
+            return;
+          }
+        }
         var key = th.getAttribute("data-runs-sort");
         if (!key) return;
         if (state.sort.key === key) {
@@ -797,7 +937,9 @@
           state.sort.direction = "desc";
         }
         rerender();
-      });
+      }
+      tableWrap.addEventListener("click", onSortHeaderEvent);
+      tableWrap.addEventListener("keydown", onSortHeaderEvent);
     }
 
     document.addEventListener("keydown", function (event) {

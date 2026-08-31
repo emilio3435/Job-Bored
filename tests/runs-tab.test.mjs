@@ -836,3 +836,231 @@ describe("discovery-run events (ghost row lifecycle)", () => {
     );
   });
 });
+
+describe("F4C-RUN04-UI: 10-column contract, loading, keyboard sort/filter", () => {
+  const CANONICAL_HEADERS = [
+    "Run At",
+    "Trigger",
+    "Status",
+    "Duration (s)",
+    "Companies Seen",
+    "Leads New",
+    "Leads Updated",
+    "Source",
+    "Variation Key",
+    "Error",
+  ];
+
+  it("keeps canonical 10-col success rows from putting variation/source/status into Error when Sheets omits the trailing empty cell", async () => {
+    const mod = await loadRunsTab();
+    const rows = [
+      [
+        "2026-04-21T15:12:03Z",
+        "manual",
+        "success",
+        47,
+        12,
+        3,
+        9,
+        "worker@v0.4.1",
+        "gh-1234-abcd",
+      ],
+    ];
+    const runs = mod.parseDiscoveryRunsValues(rows);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].status, "success");
+    assert.equal(runs[0].leadsWritten, 3);
+    assert.equal(runs[0].leadsUpdated, 9);
+    assert.equal(runs[0].source, "worker@v0.4.1");
+    assert.equal(runs[0].variationKey, "gh-1234-abcd");
+    assert.equal(runs[0].error, "", "empty Error must stay empty; variation key must not shift into Error");
+  });
+
+  it("maps by header names when a header row is supplied (F1-B versioned contract)", async () => {
+    const mod = await loadRunsTab();
+    const rows = [
+      [
+        "2026-04-21T15:12:03Z",
+        "manual",
+        "success",
+        47,
+        12,
+        3,
+        9,
+        "worker@v0.4.1",
+        "gh-1234-abcd",
+      ],
+    ];
+    const runs = mod.parseDiscoveryRunsValues(rows, { headers: CANONICAL_HEADERS });
+    assert.equal(runs[0].leadsUpdated, 9);
+    assert.equal(runs[0].error, "");
+    assert.equal(runs[0].source, "worker@v0.4.1");
+  });
+
+  it("thead lists 10 contract columns and body rows render 10 cells", async () => {
+    const html = await readFile(join(repoRoot, "partials/discovery-runs-modal.html"), "utf8");
+    const headerTags = html.match(/<th\b[^>]*>/g) || [];
+    assert.equal(headerTags.length, 10, "9 headers vs 10 cells is the RUN-04 structural defect");
+    assert.match(html, /data-runs-sort="leadsUpdated"/);
+
+    const mod = await loadRunsTab();
+    const tbody = { innerHTML: "" };
+    mod.__test.renderRunsTable(tbody, [
+      {
+        runAt: "2026-04-21T15:12:03Z",
+        trigger: "manual",
+        status: "success",
+        durationS: 47,
+        companiesSeen: 12,
+        leadsWritten: 3,
+        leadsUpdated: 9,
+        source: "worker@v0.4.1",
+        variationKey: "gh-1234-abcd",
+        error: "",
+      },
+    ]);
+    const cells = tbody.innerHTML.match(/<td\b/g) || [];
+    assert.equal(cells.length, 10);
+    assert.doesNotMatch(
+      tbody.innerHTML,
+      /runs-error-cell[^>]*>gh-1234-abcd/,
+      "success text / variation key must not land in the Error cell",
+    );
+  });
+
+  it("sortable headers are keyboard-activatable with Enter/Space", async () => {
+    const html = await readFile(join(repoRoot, "partials/discovery-runs-modal.html"), "utf8");
+    assert.match(
+      html,
+      /data-runs-sort="runAt"[^>]*tabindex="0"/,
+      "sortable headers must be in the tab order",
+    );
+    const src = await readFile(join(repoRoot, "runs-tab.js"), "utf8");
+    assert.match(
+      src,
+      /th\[data-runs-sort\][\s\S]{0,400}Enter/,
+      "sort headers must activate from the keyboard, not click-only",
+    );
+    assert.match(src, /event\.key === ["'] ["']/);
+  });
+
+  it("status=partial filter keeps only partial rows and the modal exposes a Partial chip", async () => {
+    const html = await readFile(join(repoRoot, "partials/discovery-runs-modal.html"), "utf8");
+    assert.match(html, /data-runs-filter-status="partial"/);
+
+    const mod = await loadRunsTab();
+    const sample = [
+      { runAt: "t", trigger: "manual", status: "success", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "" },
+      { runAt: "t", trigger: "cli", status: "partial", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "one board failed" },
+      { runAt: "t", trigger: "scheduled-local", status: "failure", durationS: 1, companiesSeen: 0, leadsWritten: 0, leadsUpdated: 0, source: "", variationKey: "", error: "x" },
+    ];
+    const result = mod.filterRuns(sample, { trigger: "all", status: "partial" });
+    assert.equal(result.length, 1);
+    assert.equal(result[0].status, "partial");
+  });
+
+  it("local terminal outcome is visible instead of a Loading skeleton while DiscoveryRuns fetch is in flight", async () => {
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "completed",
+        runId: "run_local_done",
+        initiatedAt: "2026-04-21T20:00:00Z",
+        completedAt: "2026-04-21T20:05:00Z",
+        trigger: "manual",
+        variationKey: "var-local",
+        leadsWritten: 6,
+      },
+      fetchImpl: () => new Promise(() => {}),
+    });
+
+    assert.equal(
+      /runs-row--skeleton/.test(dom.tbody.innerHTML),
+      false,
+      "must not stay on Loading skeleton when a local terminal run exists",
+    );
+    assert.match(dom.tbody.innerHTML, /data-runs-live="job-discovery"/);
+    assert.match(dom.tbody.innerHTML, /Completed/);
+    assert.doesNotMatch(dom.statusEl.textContent, /Loading runs/i);
+  });
+
+  it("unmatched local terminal run remains visible when the sheet already has other rows", async () => {
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "completed",
+        runId: "run_local_done",
+        initiatedAt: "2026-04-21T20:00:00Z",
+        trigger: "manual",
+        variationKey: "var-unmatched",
+        leadsWritten: 6,
+      },
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            values: [
+              [
+                "2026-04-20T10:00:00Z",
+                "scheduled-github",
+                "success",
+                30,
+                5,
+                1,
+                0,
+                "worker",
+                "other-var",
+                "",
+              ],
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+    });
+
+    assert.match(
+      dom.tbody.innerHTML,
+      /data-runs-live="job-discovery"/,
+      "local terminal outcomes must not drop just because unrelated sheet rows exist",
+    );
+    assert.match(dom.tbody.innerHTML, /var-unmatched/);
+  });
+});
+
+describe("F4C-P2-ZERO: terminal zero ≠ unavailable ≠ partial", () => {
+  it("missing numeric cells are unavailable, measured zero stays 0, partial stays partial", async () => {
+    const mod = await loadRunsTab();
+    const runs = mod.parseDiscoveryRunsValues([
+      [
+        "2026-04-21T15:12:03Z",
+        "cli",
+        "partial",
+        "",
+        "",
+        "",
+        0,
+        "worker@v0.4.1",
+        "vk-partial",
+        "one board failed",
+      ],
+    ]);
+    assert.equal(runs.length, 1);
+    assert.equal(runs[0].status, "partial");
+    assert.equal(runs[0].companiesSeenAvailability, "unavailable");
+    assert.equal(runs[0].leadsWrittenAvailability, "unavailable");
+    assert.equal(runs[0].leadsUpdatedAvailability, "zero");
+    assert.equal(runs[0].leadsUpdated, 0);
+
+    const tbody = { innerHTML: "" };
+    mod.__test.renderRunsTable(tbody, runs);
+    assert.match(tbody.innerHTML, /runs-status-badge--partial/);
+    assert.match(
+      tbody.innerHTML,
+      /data-availability="unavailable"/,
+      "unavailable metrics must not collapse into a bare 0",
+    );
+    assert.match(tbody.innerHTML, /data-availability="zero"/);
+    assert.doesNotMatch(
+      tbody.innerHTML,
+      /data-availability="unavailable"[^>]*>0</,
+      "unavailable must render an em-dash, not a measured zero",
+    );
+  });
+});
