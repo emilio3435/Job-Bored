@@ -41,6 +41,7 @@ import {
   describeGroundedSearchScope,
   type GroundedSearchClient,
   type GroundedSearchCandidate,
+  type GroundedSearchResult,
 } from "../grounding/grounded-search.ts";
 import {
   collectSerpApiGoogleJobsListings,
@@ -67,6 +68,11 @@ import {
   type BudgetCheckpoint,
   type BudgetTracker,
 } from "./budget-tracker.ts";
+import {
+  createRunAbortController,
+  withAbortableTimeout,
+  TimeoutError,
+} from "./run-abort.ts";
 import type {
   DiscoveryRunBudgetProgress,
   DiscoveryRunProgress,
@@ -135,7 +141,14 @@ export type RunDiscoveryDependencies = {
   sourceTimeoutMs?: number;
   matcherTimeoutMs?: number;
   checkpointRunProgress?(progress: DiscoveryRunProgress): void;
+  /**
+   * Optional caller abort. Linked to the run-scoped AbortController so an
+   * outer timeout or F1-B cancel can stop in-flight browser/fetch/provider work.
+   */
+  abortSignal?: AbortSignal;
 };
+
+export { TimeoutError } from "./run-abort.ts";
 
 export type RunDiscoveryResult = {
   run: DiscoveryRun;
@@ -149,46 +162,96 @@ export type RunDiscoveryResult = {
 type RejectionSummary = DiscoveryRejectionSummary;
 
 /**
- * Timeout error with attribution context for terminalization evidence.
- */
-export class TimeoutError extends Error {
-  readonly operation: string;
-  readonly sourceId: string;
-  readonly timeoutMs: number;
-
-  constructor(operation: string, sourceId: string, timeoutMs: number) {
-    super(`Timeout of ${timeoutMs}ms exceeded during ${operation} for ${sourceId}`);
-    this.name = "TimeoutError";
-    this.operation = operation;
-    this.sourceId = sourceId;
-    this.timeoutMs = timeoutMs;
-  }
-}
-
-/**
- * Wraps a promise with a timeout. If the timeout fires first, the returned
- * promise rejects with a TimeoutError that carries attribution context.
+ * Wraps work with a timeout AbortSignal linked to the active run signal.
+ * Factory work receives the composed signal so underlying I/O can cancel.
  */
 function withTimeout<T>(
   operation: string,
   sourceId: string,
   timeoutMs: number,
-  promise: Promise<T>,
+  work: Promise<T> | ((signal: AbortSignal) => Promise<T>),
+  parentSignal?: AbortSignal,
 ): Promise<T> {
-  return new Promise((resolve, reject) => {
-    const timer = setTimeout(() => {
-      reject(new TimeoutError(operation, sourceId, timeoutMs));
-    }, timeoutMs);
-    promise
-      .then((value) => {
-        clearTimeout(timer);
-        resolve(value);
-      })
-      .catch((err) => {
-        clearTimeout(timer);
-        reject(err);
-      });
-  });
+  return withAbortableTimeout(
+    operation,
+    sourceId,
+    timeoutMs,
+    work,
+    parentSignal,
+  );
+}
+
+function wrapGroundedSearchClientForExploit(
+  dependencies: RunDiscoveryDependencies,
+  cache: Array<{ company: CompanyTarget; searchResult: GroundedSearchResult }>,
+  selectedUrls: Set<string>,
+): RunDiscoveryDependencies {
+  const original = dependencies.groundedSearchClient;
+  if (!original) {
+    return dependencies;
+  }
+  return {
+    ...dependencies,
+    groundedSearchClient: {
+      ...original,
+      search: async (company, run, options) => {
+        if (options?.signal?.aborted) {
+          const reason = options.signal.reason;
+          throw reason instanceof Error ? reason : new Error("Aborted");
+        }
+        const cached = cache.find((entry) => entry.company.name === company.name);
+        if (!cached) {
+          return original.search(company, run, options);
+        }
+        return {
+          ...cached.searchResult,
+          candidates: (cached.searchResult.candidates || []).filter((candidate) =>
+            selectedUrls.has(candidate.url),
+          ),
+        };
+      },
+    },
+  };
+}
+
+function groundedCandidateToFrontierCandidate(
+  candidate: GroundedSearchCandidate,
+  observedAt: string,
+): FrontierCandidate {
+  return leadToFrontierCandidate(
+    {
+      sourceId: "grounded_web",
+      sourceLabel: "Grounded Search",
+      title: String(candidate.title || "Unknown role"),
+      company: String(candidate.sourceDomain || "Unknown"),
+      location: "",
+      url: candidate.url,
+      compensationText: "",
+      fitScore: 0.7,
+      matchScore: null,
+      favorite: false,
+      dismissedAt: null,
+      priority: "—",
+      tags: [],
+      fitAssessment: "",
+      contact: "",
+      status: "New",
+      appliedDate: "",
+      notes: "",
+      followUpDate: "",
+      talkingPoints: "",
+      logoUrl: "",
+      approvalStatus: "",
+      discoveredAt: observedAt,
+      metadata: {
+        runId: "",
+        variationKey: "",
+        sourceQuery: "",
+        sourceLane: "grounded_web",
+      },
+    },
+    "grounded_web",
+  );
 }
 
 /**
@@ -215,11 +278,20 @@ export async function runDiscovery(
   const runId = dependencies.runId || dependencies.randomId("run");
   let progressSequence = 0;
   let latestBudgetProgress: DiscoveryRunBudgetProgress | undefined;
+  let currentProgressPhase: DiscoveryRunProgressPhase = "initializing";
+  const maxRunDurationMs =
+    dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+  const runAbort = createRunAbortController(
+    dependencies.abortSignal,
+    maxRunDurationMs,
+  );
+  const runSignal = runAbort.signal;
   function checkpointRunProgress(
     phase: DiscoveryRunProgressPhase,
     budget?: DiscoveryRunBudgetProgress,
     checkpointedAt = dependencies.now().toISOString(),
   ): void {
+    currentProgressPhase = phase;
     if (budget) {
       latestBudgetProgress = {
         ...budget,
@@ -233,7 +305,24 @@ export async function runDiscovery(
       ...(latestBudgetProgress ? { budget: latestBudgetProgress } : {}),
     });
   }
-  checkpointRunProgress("initializing", undefined, startedAt);
+  // RUN-08: budgets start at run entry, not after extraction.
+  const budgetTracker = createBudgetTracker({
+    maxRunDurationMs,
+    safetyBufferMs: Math.ceil(maxRunDurationMs * 0.05),
+    reducePageLimitThreshold: 0.5,
+    pageLimitReductionFactor: 0.5,
+    onCheckpoint: (budget) => {
+      checkpointRunProgress(currentProgressPhase, toRunBudgetProgress(budget));
+    },
+  });
+  checkpointRunProgress(
+    "initializing",
+    {
+      ...budgetTracker.getStatus(),
+      skippedCompanies: budgetTracker.getSkippedCompanies(),
+    },
+    startedAt,
+  );
   const storedConfig = await dependencies.loadStoredWorkerConfig(request.sheetId);
   const config = dependencies.mergeDiscoveryConfig(storedConfig, request);
 
@@ -288,6 +377,11 @@ export async function runDiscovery(
   });
 
   const warnings: string[] = [];
+  const groundedScoutCache: Array<{
+    company: CompanyTarget;
+    searchResult: GroundedSearchResult;
+  }> = [];
+  let pendingGroundedExploit = false;
   // VAL-API-010 / VAL-ROUTE-011: Only warn about missing companies when the run
   // cannot proceed without them. If grounded_web is in effectiveSources and we
   // have valid modifier intent (targetRoles, keywordsInclude, etc.), the run can
@@ -482,14 +576,17 @@ export async function runDiscovery(
         "ats_host_search",
         "ats_sources",
         sourceTimeoutMs,
-        dependencies.groundedSearchClient.searchAtsHosts({
-          run,
-          sourceIds: config.effectiveSources.filter(
-            (sid): sid is (typeof atsSourceIds)[number] =>
-              atsSourceIds.some((atsSourceId) => atsSourceId === sid),
-          ),
-          maxResults: 10,
-        }),
+        (signal) =>
+          dependencies.groundedSearchClient.searchAtsHosts!({
+            run,
+            sourceIds: config.effectiveSources.filter(
+              (sid): sid is (typeof atsSourceIds)[number] =>
+                atsSourceIds.some((atsSourceId) => atsSourceId === sid),
+            ),
+            maxResults: 10,
+            signal,
+          }),
+        runSignal,
       );
       atsHostSearchCandidates = atsHostSearchResult.candidates || [];
       
@@ -568,10 +665,12 @@ export async function runDiscovery(
         "board_detection",
         "ats_sources",
         sourceTimeoutMs,
-        dependencies.sourceAdapterRegistry.detectBoards(
-          { company, run },
-          config.effectiveSources,
-        ),
+        () =>
+          dependencies.sourceAdapterRegistry.detectBoards(
+            { company, run },
+            config.effectiveSources,
+          ),
+        runSignal,
       ).catch((error) => {
         if (error instanceof TimeoutError) {
           const message = `Board detection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`;
@@ -626,7 +725,8 @@ export async function runDiscovery(
                   `listing_collection[${sourceId}]`,
                   sourceId,
                   sourceTimeoutMs,
-                  adapter.listJobs(boardContext),
+                  () => adapter.listJobs(boardContext),
+                  runSignal,
                 ).catch((error) => {
                   if (error instanceof TimeoutError) {
                     return [];
@@ -642,7 +742,12 @@ export async function runDiscovery(
               `listing_collection[${sourceId}]`,
               sourceId,
               sourceTimeoutMs,
-              dependencies.sourceAdapterRegistry.collectListings(run, sourceDetections),
+              () =>
+                dependencies.sourceAdapterRegistry.collectListings!(
+                  run,
+                  sourceDetections,
+                ),
+              runSignal,
             ).catch((error) => {
               if (error instanceof TimeoutError) {
                 const message = `Listing collection timed out for ${sourceId} after ${error.timeoutMs}ms: ${error.message}`;
@@ -765,56 +870,52 @@ export async function runDiscovery(
         stageOrder.push(nextStage("scout"));
       }
       loopCounters.browserScoutCount += 1;
-
-      // VAL-OBS-002: Create budget tracker for adaptive page-limit reduction and company skip decisions
-      const maxRunDurationMs = dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
-      const budgetTracker = createBudgetTracker({
-        maxRunDurationMs,
-        safetyBufferMs: Math.ceil(maxRunDurationMs * 0.05),
-        reducePageLimitThreshold: 0.5,
-        pageLimitReductionFactor: 0.5,
-        onCheckpoint: (budget) => {
-          // This budget tracker is scoped to the scout lane.
-          checkpointRunProgress("scout", toRunBudgetProgress(budget));
-        },
-      });
       checkpointRunProgress("scout", {
         ...budgetTracker.getStatus(),
         skippedCompanies: budgetTracker.getSkippedCompanies(),
       });
 
-      const groundedResult = await runGroundedWebDiscovery(
-        run,
-        dependencies,
-        rejectionSummaryBySource,
-        matchingState,
-        { sourceTimeoutMs, matcherTimeoutMs },
-        budgetTracker,
-      ).catch((error) => {
-        if (error instanceof TimeoutError) {
-          const message = `Grounded web discovery timed out after ${error.timeoutMs}ms: ${error.message}`;
-          warnings.push(message);
-          dependencies.log?.("discovery.run.grounded_timeout", {
-            runId,
-            timeoutMs: error.timeoutMs,
-          });
-          return {
-            extractionResult: createExtractionResult(run.runId, "grounded_web", ""),
-            normalizedLeads: [],
-            listingCount: 0,
-          };
+      // RUN-08: lightweight scout (search only). Deep extract waits for score.
+      if (dependencies.groundedSearchClient) {
+        const companiesToSearch =
+          config.companies.length > 0
+            ? config.companies
+            : [{ name: "" } as CompanyTarget];
+        for (const company of companiesToSearch) {
+          const skipDiagnostic = budgetTracker.checkCompanySkip(company.name);
+          if (skipDiagnostic) {
+            warnings.push(`Budget skip: ${skipDiagnostic.context}`);
+            continue;
+          }
+          try {
+            const searchResult = await withTimeout(
+              `grounded_scout[${describeGroundedSearchScope(company)}]`,
+              "grounded_web",
+              sourceTimeoutMs,
+              (signal) =>
+                dependencies.groundedSearchClient!.search(company, run, {
+                  signal,
+                }),
+              runSignal,
+            );
+            groundedScoutCache.push({ company, searchResult });
+          } catch (error) {
+            if (error instanceof TimeoutError) {
+              const message = `Grounded web scout timed out after ${error.timeoutMs}ms: ${error.message}`;
+              warnings.push(message);
+              dependencies.log?.("discovery.run.grounded_scout_timeout", {
+                runId,
+                timeoutMs: error.timeoutMs,
+              });
+              continue;
+            }
+            warnings.push(
+              `Grounded web scout failed for ${describeGroundedSearchScope(company)}: ${formatError(error)}`,
+            );
+          }
         }
-        throw error;
-      });
-      stageProgress.groundedCompleted = true;
-      listingCount += groundedResult.listingCount;
-      if (groundedResult.extractionResult) {
-        extractionResultsBySource.set(
-          "grounded_web",
-          groundedResult.extractionResult,
-        );
       }
-      normalizedLeads.push(...groundedResult.normalizedLeads);
+      pendingGroundedExploit = true;
     }
   }
 
@@ -924,7 +1025,11 @@ export async function runDiscovery(
   // VAL-LOOP-SCORE-001/003/005: Apply frontier scoring and exploit target selection
   // before deep extraction. This ensures only selected exploit targets receive
   // deep extraction work, and exploration budgets are enforced.
-  if (normalizedLeads.length > 0) {
+  const groundedScoutCandidates = groundedScoutCache.flatMap(
+    (entry) => entry.searchResult.candidates || [],
+  );
+  let selectedGroundedUrls = new Set<string>();
+  if (normalizedLeads.length > 0 || groundedScoutCandidates.length > 0) {
     // VAL-LOOP-CORE-008: Emit score stage (frontier scoring begins)
     stageOrder.push(nextStage("score"));
 
@@ -940,12 +1045,21 @@ export async function runDiscovery(
       sourcePreset: config.sourcePreset,
     };
 
-    // Build frontier candidates from normalized leads
+    // Build frontier candidates from normalized leads and lightweight scout hits
     const frontierCandidates: FrontierCandidate[] = [];
     for (const lead of normalizedLeads) {
       const sourceLane = determineLeadSourceLane(lead);
       const candidate = leadToFrontierCandidate(lead, sourceLane);
       frontierCandidates.push(candidate);
+    }
+    for (const scoutCandidate of groundedScoutCandidates) {
+      if (!scoutCandidate.url) continue;
+      if (frontierCandidates.some((candidate) => candidate.url === scoutCandidate.url)) {
+        continue;
+      }
+      frontierCandidates.push(
+        groundedCandidateToFrontierCandidate(scoutCandidate, startedAt),
+      );
     }
 
     // Apply exploit target selection with exploration budget
@@ -968,6 +1082,11 @@ export async function runDiscovery(
     // VAL-LOOP-SCORE-005: Filter leads to only selected exploit targets
     const selectedCandidateIds = new Set(
       selectionResult.selectedTargets.map((t) => t.candidateId),
+    );
+    selectedGroundedUrls = new Set(
+      selectionResult.selectedTargets
+        .map((target) => target.url)
+        .filter((url): url is string => Boolean(url)),
     );
     const suppressedCandidateIds = new Set(
       selectionResult.rejectedCandidates.map((c) => c.candidateId),
@@ -1021,6 +1140,50 @@ export async function runDiscovery(
     // Update normalizedLeads to only selected leads
     normalizedLeads.length = 0;
     normalizedLeads.push(...filteredNormalizedLeads);
+  } else if (pendingGroundedExploit) {
+    // No scouted candidates to rank; still emit exploit so deep extract can
+    // attribute empty/unavailable grounded work.
+    stageOrder.push(nextStage("exploit"));
+  }
+
+  if (pendingGroundedExploit) {
+    const exploitDependencies = wrapGroundedSearchClientForExploit(
+      dependencies,
+      groundedScoutCache,
+      selectedGroundedUrls,
+    );
+    const groundedResult = await runGroundedWebDiscovery(
+      run,
+      exploitDependencies,
+      rejectionSummaryBySource,
+      matchingState,
+      { sourceTimeoutMs, matcherTimeoutMs, abortSignal: runSignal },
+      budgetTracker,
+    ).catch((error) => {
+      if (error instanceof TimeoutError) {
+        const message = `Grounded web discovery timed out after ${error.timeoutMs}ms: ${error.message}`;
+        warnings.push(message);
+        dependencies.log?.("discovery.run.grounded_timeout", {
+          runId,
+          timeoutMs: error.timeoutMs,
+        });
+        return {
+          extractionResult: createExtractionResult(run.runId, "grounded_web", ""),
+          normalizedLeads: [],
+          listingCount: 0,
+        };
+      }
+      throw error;
+    });
+    stageProgress.groundedCompleted = true;
+    listingCount += groundedResult.listingCount;
+    if (groundedResult.extractionResult) {
+      extractionResultsBySource.set(
+        "grounded_web",
+        groundedResult.extractionResult,
+      );
+    }
+    normalizedLeads.push(...groundedResult.normalizedLeads);
   }
 
   // Add skip evidence for sources excluded by the preset (VAL-ROUTE-006)
@@ -1341,6 +1504,7 @@ export async function runDiscovery(
     }
   }
 
+  runAbort.clear();
   return {
     run,
     lifecycle: {
@@ -1444,6 +1608,7 @@ function normalizeRawListing(
     rawListing.sourceId,
     timeoutMs,
     matcherPromise,
+    input.dependencies.abortSignal,
   )
     .then((decision) =>
       finalizeMatchDecision(rawListing, run, decision || baseline, true),
@@ -1703,6 +1868,7 @@ async function processCompaniesBounded(
   timeouts: {
     sourceTimeoutMs: number;
     matcherTimeoutMs: number;
+    abortSignal?: AbortSignal;
   },
   budgetTracker: BudgetTracker | undefined,
   concurrencyTracker: ConcurrencyTracker,
@@ -1778,6 +1944,7 @@ async function processSingleCompany(
   timeouts: {
     sourceTimeoutMs: number;
     matcherTimeoutMs: number;
+    abortSignal?: AbortSignal;
   },
   budgetTracker: BudgetTracker | undefined,
 ): Promise<CompanyProcessingResult> {
@@ -1815,44 +1982,45 @@ async function processSingleCompany(
   }
 
   try {
-    const collectionPromise = collectGroundedWebListings({
-      company,
-      run,
-      runtimeConfig: dependencies.runtimeConfig,
-      groundedSearchClient: dependencies.groundedSearchClient!,
-      sessionManager: dependencies.browserSessionManager!,
-      budgetTracker,
-      // Forward the lifecycle log so diagnostic events emitted from inside
-      // collectGroundedWebListings (prose-recovery, structured-extraction,
-      // preflight dead-link records, seed preparation) actually reach the
-      // worker's stdout. Previously log was omitted, which silently swallowed
-      // every grounded-web diagnostic.
-      log: dependencies.log,
-      isDeadLinkCoolingDown: dependencies.discoveryMemoryStore?.isDeadLinkCoolingDown
-        ? (url, now) =>
-            dependencies.discoveryMemoryStore!.isDeadLinkCoolingDown!(url, now)
-        : undefined,
-      recordDeadLink: dependencies.discoveryMemoryStore?.recordDeadLink
-        ? (record) =>
-            dependencies.discoveryMemoryStore!.recordDeadLink!({
-              urlKey: record.url,
-              finalUrl: record.url,
-              host: record.host,
-              reasonCode: record.reasonCode || record.reason,
-              httpStatus: record.httpStatus ?? null,
-              lastTitle: "",
-              lastSeenAt: record.firstSeenAt,
-              failureCount: 1,
-              nextRetryAt: record.cooldownUntil,
-            } as DeadLinkRecord)
-        : undefined,
-    });
-
     const collectionResult = await withTimeout(
       `grounded_collection[${companyLabel}]`,
       "grounded_web",
       timeouts.sourceTimeoutMs,
-      collectionPromise,
+      (signal) =>
+        collectGroundedWebListings({
+          company,
+          run,
+          runtimeConfig: dependencies.runtimeConfig,
+          groundedSearchClient: dependencies.groundedSearchClient!,
+          sessionManager: dependencies.browserSessionManager!,
+          budgetTracker,
+          // Forward the lifecycle log so diagnostic events emitted from inside
+          // collectGroundedWebListings (prose-recovery, structured-extraction,
+          // preflight dead-link records, seed preparation) actually reach the
+          // worker's stdout. Previously log was omitted, which silently swallowed
+          // every grounded-web diagnostic.
+          log: dependencies.log,
+          abortSignal: signal,
+          isDeadLinkCoolingDown: dependencies.discoveryMemoryStore?.isDeadLinkCoolingDown
+            ? (url, now) =>
+                dependencies.discoveryMemoryStore!.isDeadLinkCoolingDown!(url, now)
+            : undefined,
+          recordDeadLink: dependencies.discoveryMemoryStore?.recordDeadLink
+            ? (record) =>
+                dependencies.discoveryMemoryStore!.recordDeadLink!({
+                  urlKey: record.url,
+                  finalUrl: record.url,
+                  host: record.host,
+                  reasonCode: record.reasonCode || record.reason,
+                  httpStatus: record.httpStatus ?? null,
+                  lastTitle: "",
+                  lastSeenAt: record.firstSeenAt,
+                  failureCount: 1,
+                  nextRetryAt: record.cooldownUntil,
+                } as DeadLinkRecord)
+            : undefined,
+        }),
+      timeouts.abortSignal,
     ).catch((error) => {
       if (error instanceof TimeoutError) {
         const message = `Grounded collection timed out after ${error.timeoutMs}ms for ${companyLabel}`;
@@ -1950,6 +2118,7 @@ async function runGroundedWebDiscovery(
   timeouts?: {
     sourceTimeoutMs?: number;
     matcherTimeoutMs?: number;
+    abortSignal?: AbortSignal;
   },
   budgetTracker?: BudgetTracker,
 ): Promise<{
@@ -2028,7 +2197,11 @@ async function runGroundedWebDiscovery(
     companiesToSearch,
     dependencies,
     run,
-    { sourceTimeoutMs, matcherTimeoutMs },
+    {
+      sourceTimeoutMs,
+      matcherTimeoutMs,
+      abortSignal: timeouts?.abortSignal,
+    },
     budgetTracker,
     concurrencyTracker,
   );

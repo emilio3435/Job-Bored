@@ -28,6 +28,7 @@ import {
 } from "../discovery/career-surface-resolver.ts";
 import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import type { BudgetTracker } from "../run/budget-tracker.ts";
+import { applyRetryBroadeningGate } from "../run/retry-broadening.ts";
 
 const SEARCH_SYSTEM_PROMPT = [
   "You are a job-discovery agent. Your output feeds an automated pipeline that fetches and parses each URL you return, so stale, gated, or invalid URLs waste the entire run's budget.",
@@ -404,9 +405,13 @@ async function executeQueryWithRetry(
   // Rung 1: drop location
   // Rung 2: broaden role/keywords
 
-  const ladder = buildRetryLadder(focusedQuery, run);
+  const ladder = applyRetryBroadeningGate(
+    buildRetryLadder(focusedQuery, run),
+    retryBroadeningEnabled,
+  );
 
-  // Execute each rung in order
+  // Execute each rung in order. When retryBroadeningEnabled is false the gate
+  // keeps only the focused query so disabled broadening cannot fire outbound.
   for (let i = 0; i < ladder.length; i++) {
     throwIfAborted(signal);
     const { query, rung, terminal } = ladder[i];
