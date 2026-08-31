@@ -422,11 +422,56 @@ export function isThirdPartyJobBoardHost(url: string): boolean {
   }
 }
 
+const SEARCH_PATH_SEGMENT_PATTERN =
+  /^(?:search|find|browse|filter|results|query)$/i;
+const SEARCH_PAGE_TEXT_PATTERN =
+  /\b(job search|search jobs|find jobs|browse (?:all )?jobs|filter jobs|search open roles)\b/i;
+const JOB_IDENTITY_QUERY_KEYS = [
+  "gh_jid",
+  "job",
+  "jobid",
+  "job_id",
+  "jobreq",
+  "career_job_req_id",
+  "reqid",
+];
+
+export function isCareerSearchOrFilterPage(url: string, title = ""): boolean {
+  const haystack = `${url} ${title}`.toLowerCase();
+  if (SEARCH_PAGE_TEXT_PATTERN.test(haystack)) {
+    return true;
+  }
+  try {
+    const parsed = new URL(url);
+    const last = splitPathSegments(parsed.pathname).at(-1) || "";
+    if (SEARCH_PATH_SEGMENT_PATTERN.test(last)) {
+      return true;
+    }
+    const params = parsed.searchParams;
+    const hasJobIdentity = JOB_IDENTITY_QUERY_KEYS.some((key) => {
+      const value = params.get(key) || params.get(key.toUpperCase());
+      return Boolean(value && value.trim());
+    });
+    if (hasJobIdentity) return false;
+    for (const key of ["q", "query", "keywords", "keyword", "search"]) {
+      if (params.has(key) && String(params.get(key) || "").trim()) {
+        return true;
+      }
+    }
+  } catch {
+    return false;
+  }
+  return false;
+}
+
 export function classifyCareerSurfacePageType(
   url: string,
   title: string,
 ): CareerSurfacePageType {
   const haystack = `${url} ${title}`.toLowerCase();
+  if (isCareerSearchOrFilterPage(url, title)) {
+    return "listings";
+  }
   if (DIRECT_JOB_PATH_PATTERN.test(haystack)) {
     return "job";
   }
@@ -725,10 +770,13 @@ export function normalizeCareerSurfaceCandidate(
   const canonicalUrl =
     canonicalizeCareerSurfaceUrl(candidate.canonicalUrl || providerSurface?.canonicalUrl || "") ||
     undefined;
-  const surfaceType =
+  let surfaceType =
     candidate.surfaceType ||
     providerSurface?.surfaceType ||
     inferGenericSurfaceType(url, company, pageType);
+  if (isCareerSearchOrFilterPage(url, candidate.title) && surfaceType === "job_posting") {
+    surfaceType = "provider_board";
+  }
   const hasCareerPathSignal = (() => {
     try {
       return FIRST_PARTY_PATH_PATTERN.test(new URL(url).pathname);
@@ -955,8 +1003,14 @@ export function detectCareerSurfaceCandidatesFromHtml(input: {
   const anchorPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let anchorMatch: RegExpExecArray | null;
   while ((anchorMatch = anchorPattern.exec(String(input.html || "")))) {
-    const href = anchorMatch[1] || "";
-    const resolvedUrl = canonicalizeCareerSurfaceUrl(new URL(href, baseUrl).toString());
+    const href = String(anchorMatch[1] || "").trim();
+    if (!href || /^(javascript|data|mailto|tel|vbscript):/i.test(href)) continue;
+    let resolvedUrl = "";
+    try {
+      resolvedUrl = canonicalizeCareerSurfaceUrl(new URL(href, baseUrl).toString());
+    } catch {
+      continue;
+    }
     if (!resolvedUrl) continue;
     const anchorHtml = anchorMatch[0] || "";
     const anchorTitle = uniqueStrings([
@@ -1013,7 +1067,13 @@ export function detectCareerSurfaceCandidatesFromHtml(input: {
   while ((sitemapMatch = sitemapPattern.exec(String(input.html || "")))) {
     const url = canonicalizeCareerSurfaceUrl(htmlDecode(cleanText(sitemapMatch[1] || "")));
     if (!url) continue;
-    if (FIRST_PARTY_PATH_PATTERN.test(new URL(url).pathname) || isKnownAtsCareerSurface(url)) {
+    let pathname = "";
+    try {
+      pathname = new URL(url).pathname;
+    } catch {
+      continue;
+    }
+    if (FIRST_PARTY_PATH_PATTERN.test(pathname) || isKnownAtsCareerSurface(url)) {
       pushCandidate(
         url,
         "Sitemap surfaced a canonical career URL",
@@ -1069,6 +1129,23 @@ export function scoreCareerSurfaceCandidate(
   return score;
 }
 
+function careerSurfaceDedupeKey(candidate: CareerSurfaceCandidate): string {
+  const url =
+    canonicalizeCareerSurfaceUrl(candidate.url) ||
+    canonicalizeCareerSurfaceUrl(candidate.finalUrl || "") ||
+    candidate.url;
+  if (candidate.surfaceType === "job_posting" || candidate.pageType === "job") {
+    return ["job", candidate.providerType || "", url].join("|");
+  }
+  return [
+    "surface",
+    candidate.providerType || "",
+    candidate.canonicalUrl || url,
+    candidate.boardToken || "",
+    candidate.surfaceType || "",
+  ].join("|");
+}
+
 export function mergeCareerSurfaceCandidates(
   candidates: CareerSurfaceCandidate[],
   company: CompanyTarget,
@@ -1077,10 +1154,7 @@ export function mergeCareerSurfaceCandidates(
   const byKey = new Map<string, CareerSurfaceCandidate>();
   for (const candidate of candidates) {
     const normalized = normalizeCareerSurfaceCandidate(candidate, company);
-    const key =
-      normalized.finalUrl ||
-      normalized.canonicalUrl ||
-      normalized.url;
+    const key = careerSurfaceDedupeKey(normalized);
     const existing = byKey.get(key);
     if (!existing || scoreCareerSurfaceCandidate(normalized, company) > scoreCareerSurfaceCandidate(existing, company)) {
       byKey.set(key, normalized);

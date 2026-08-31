@@ -1,10 +1,15 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
+import { ATS_SOURCE_IDS } from "../../src/contracts.ts";
+import { createAtsProviderRegistry } from "../../src/browser/providers/index.ts";
 import {
   fetchAshbyJob,
+  fetchAtsJobByRegistry,
   fetchGreenhouseJob,
   fetchLeverJob,
+  resolveAtsPublicExecution,
+  selectRegisteredAtsSources,
 } from "../../src/sources/ats-public-fetchers.ts";
 
 function fetchReturning(body: unknown, status = 200): typeof fetch {
@@ -146,4 +151,66 @@ test("fetchAshbyJob returns not_found on 404", async () => {
   if (result.ok) return;
   assert.equal(result.reason, "not_found");
   assert.equal(result.httpStatus, 404);
+});
+
+test("F4A-RUN07-REG: production gating uses the 14-provider registry, not Greenhouse/Lever/Ashby only", () => {
+  const registry = createAtsProviderRegistry();
+  assert.deepEqual(
+    registry.providers.map((provider) => provider.id),
+    [...ATS_SOURCE_IDS],
+  );
+
+  const selected = selectRegisteredAtsSources(
+    ["workday", "greenhouse", "personio", "not_a_board", "grounded_web"],
+    registry,
+  );
+  assert.deepEqual(selected.selected.sort(), ["greenhouse", "personio", "workday"]);
+  assert.ok(
+    selected.selected.includes("workday"),
+    "Workday is a registered ATS source and must be selected, not gated to GH/Lever/Ashby",
+  );
+  assert.deepEqual(
+    selected.unknown.sort(),
+    ["grounded_web", "not_a_board"],
+  );
+
+  const allRequested = selectRegisteredAtsSources([...ATS_SOURCE_IDS], registry);
+  assert.deepEqual(allRequested.selected.sort(), [...ATS_SOURCE_IDS].sort());
+  assert.equal(allRequested.unknown.length, 0);
+  assert.equal(allRequested.selected.length, 14);
+});
+
+test("F4A-RUN07-REG: public fetchers execute GH/Lever/Ashby and mark other registry providers unsupported", async () => {
+  const greenhouse = resolveAtsPublicExecution("greenhouse");
+  assert.equal(greenhouse.status, "executable");
+  assert.equal(greenhouse.sourceId, "greenhouse");
+
+  const workday = resolveAtsPublicExecution("workday");
+  assert.equal(workday.status, "unsupported");
+  if (workday.status !== "unsupported") return;
+  assert.equal(workday.sourceId, "workday");
+  assert.match(workday.reason, /unsupported|no public/i);
+
+  const unknown = resolveAtsPublicExecution("not_a_board");
+  assert.equal(unknown.status, "unknown");
+  if (unknown.status !== "unknown") return;
+  assert.match(unknown.reason, /not a registered/i);
+
+  for (const sourceId of ATS_SOURCE_IDS) {
+    const resolved = resolveAtsPublicExecution(sourceId);
+    assert.notEqual(
+      resolved.status,
+      "unknown",
+      `${sourceId} is in the 14-provider registry and must not be unknown`,
+    );
+  }
+
+  const fetched = await fetchAtsJobByRegistry(
+    { provider: "workday", slug: "acme", jobId: "JR-1" },
+    { fetchImpl: fetchReturning({}) },
+  );
+  assert.equal(fetched.ok, false);
+  if (fetched.ok) return;
+  assert.equal(fetched.reason, "unsupported");
+  assert.match(fetched.message, /workday/i);
 });

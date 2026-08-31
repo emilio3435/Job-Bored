@@ -1,16 +1,121 @@
-import type { RawListing } from "../contracts.ts";
+import type { AtsSourceId, RawListing } from "../contracts.ts";
+import { ATS_SOURCE_IDS } from "../contracts.ts";
+import type { AtsProviderRegistry } from "../browser/providers/types.ts";
 import { toPlainText } from "../browser/selectors/shared.ts";
 
 type FetchImpl = typeof globalThis.fetch;
+
+export const ATS_PUBLIC_EXECUTABLE_SOURCE_IDS = [
+  "greenhouse",
+  "lever",
+  "ashby",
+] as const;
+
+export type AtsPublicExecutableSourceId =
+  (typeof ATS_PUBLIC_EXECUTABLE_SOURCE_IDS)[number];
+
+export type FetchAtsJobFailureReason =
+  | "not_found"
+  | "http_error"
+  | "parse_error"
+  | "unsupported"
+  | "unknown";
 
 export type FetchAtsJobResult =
   | { ok: true; rawListing: RawListing }
   | {
       ok: false;
-      reason: "not_found" | "http_error" | "parse_error";
+      reason: FetchAtsJobFailureReason;
       message: string;
       httpStatus?: number;
     };
+
+export type AtsPublicExecution =
+  | { status: "executable"; sourceId: AtsPublicExecutableSourceId }
+  | { status: "unsupported"; sourceId: AtsSourceId; reason: string }
+  | { status: "unknown"; sourceId: string; reason: string };
+
+export type RegisteredAtsSelection = {
+  selected: AtsSourceId[];
+  unknown: string[];
+};
+
+export function isRegisteredAtsSourceId(sourceId: string): sourceId is AtsSourceId {
+  return (ATS_SOURCE_IDS as readonly string[]).includes(sourceId);
+}
+
+export function selectRegisteredAtsSources(
+  requested: readonly string[],
+  registry?: Pick<AtsProviderRegistry, "getProvider">,
+): RegisteredAtsSelection {
+  const selected: AtsSourceId[] = [];
+  const unknown: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of requested) {
+    const sourceId = String(raw || "").trim();
+    if (!sourceId || seen.has(sourceId)) continue;
+    seen.add(sourceId);
+    const registered = registry
+      ? !!registry.getProvider(sourceId as AtsSourceId)
+      : isRegisteredAtsSourceId(sourceId);
+    if (registered && isRegisteredAtsSourceId(sourceId)) {
+      selected.push(sourceId);
+      continue;
+    }
+    unknown.push(sourceId);
+  }
+  return { selected, unknown };
+}
+
+export function hasRegisteredAtsExecutionLane(
+  effectiveSources: readonly string[],
+  registry?: Pick<AtsProviderRegistry, "getProvider">,
+): boolean {
+  return selectRegisteredAtsSources(effectiveSources, registry).selected.length > 0;
+}
+
+export function resolveAtsPublicExecution(sourceId: string): AtsPublicExecution {
+  const id = String(sourceId || "").trim();
+  if ((ATS_PUBLIC_EXECUTABLE_SOURCE_IDS as readonly string[]).includes(id)) {
+    return {
+      status: "executable",
+      sourceId: id as AtsPublicExecutableSourceId,
+    };
+  }
+  if (isRegisteredAtsSourceId(id)) {
+    return {
+      status: "unsupported",
+      sourceId: id,
+      reason: `No public ATS JSON fetcher is configured for registered provider "${id}". Use the provider registry browser/public-feed lane instead.`,
+    };
+  }
+  return {
+    status: "unknown",
+    sourceId: id,
+    reason: `"${id}" is not a registered ATS provider.`,
+  };
+}
+
+export async function fetchAtsJobByRegistry(
+  input: { provider: string; slug: string; jobId: string },
+  deps: { fetchImpl?: typeof fetch } = {},
+): Promise<FetchAtsJobResult> {
+  const resolved = resolveAtsPublicExecution(input.provider);
+  if (resolved.status === "executable") {
+    if (resolved.sourceId === "greenhouse") {
+      return fetchGreenhouseJob(input, deps);
+    }
+    if (resolved.sourceId === "lever") {
+      return fetchLeverJob(input, deps);
+    }
+    return fetchAshbyJob(input, deps);
+  }
+  return {
+    ok: false,
+    reason: resolved.status,
+    message: resolved.reason,
+  };
+}
 
 export async function fetchGreenhouseJob(
   input: { slug: string; jobId: string },
