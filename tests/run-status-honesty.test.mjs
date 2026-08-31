@@ -219,6 +219,70 @@ describe("FIX 2 — diagnosis honors the saved webhook kind", () => {
     });
     assert.equal(diagnosis.primaryFix.id, "diag_fix_local_server");
   });
+
+  it("normalizes a trailing slash but still detects a real tunnel rotation", async () => {
+    const tunnelOrigin = "https://abc123.ngrok-free.app";
+    let liveTunnelUrl = `${tunnelOrigin}/`;
+    const env = loadStatus(
+      { status: "idle", runId: "" },
+      {
+        getDiscoveryWizardProbesApi: () => ({
+          readDiscoveryTransportSetupState: () => ({}),
+          probeNgrokTunnels: async () => liveTunnelUrl,
+          probeHealthUrl: async () => true,
+          buildLocalHealthUrl: () => "http://127.0.0.1:8644/health",
+        }),
+        getDiscoveryWebhookUrl: () =>
+          "https://jobbored-relay.example.workers.dev/webhook",
+        buildDiscoveryTunnelTargetUrl: () => `${tunnelOrigin}/webhook`,
+        getDiscoveryWizardRelayApi: () => null,
+        inferCloudflareWorkerNameFromOpenWorkerUrl: () => "jobbored-relay",
+        getSuggestedCloudflareRelayWorkerName: () => "jobbored-relay",
+        getSettingsSheetIdValue: () => "",
+        buildDiscoveryRelayDeployCommandForTarget: () => "redeploy",
+        getDiscoveryRelaySuggestedOrigin: () => "http://localhost:8080",
+      },
+    );
+
+    const diagnosis = await env.status.diagnoseDownstreamChain({
+      savedWebhookUrl:
+        "https://jobbored-relay.example.workers.dev/webhook",
+      localWebhookUrl: "http://127.0.0.1:8644/webhook",
+      tunnelPublicUrl: tunnelOrigin,
+      relayTargetUrl: `${tunnelOrigin}/webhook`,
+    });
+
+    assert.equal(diagnosis.tunnel.stale, false);
+    assert.equal(diagnosis.tunnel.status, "active");
+    assert.equal(diagnosis.relay.targetMismatch, false);
+    assert.match(diagnosis.summary, /Everything looks connected/);
+
+    liveTunnelUrl = "https://rotated456.ngrok-free.app/";
+    const rotatedDiagnosis = await env.status.diagnoseDownstreamChain({
+      savedWebhookUrl:
+        "https://jobbored-relay.example.workers.dev/webhook",
+      localWebhookUrl: "http://127.0.0.1:8644/webhook",
+      tunnelPublicUrl: tunnelOrigin,
+      relayTargetUrl: `${tunnelOrigin}/webhook`,
+    });
+
+    assert.equal(rotatedDiagnosis.tunnel.stale, true);
+    assert.equal(rotatedDiagnosis.tunnel.status, "stale_url");
+    assert.equal(rotatedDiagnosis.relay.targetMismatch, true);
+    assert.match(rotatedDiagnosis.summary, /ngrok URL changed/i);
+
+    liveTunnelUrl = "not-a-url/";
+    const invalidDiagnosis = await env.status.diagnoseDownstreamChain({
+      savedWebhookUrl:
+        "https://jobbored-relay.example.workers.dev/webhook",
+      localWebhookUrl: "http://127.0.0.1:8644/webhook",
+      tunnelPublicUrl: "not-a-url",
+      relayTargetUrl: "not-a-url/webhook",
+    });
+
+    assert.equal(invalidDiagnosis.tunnel.stale, true);
+    assert.equal(invalidDiagnosis.relay.targetMismatch, true);
+  });
 });
 
 describe("FIX 3 — persisted terminal outcome is surfaced once after reload", () => {
