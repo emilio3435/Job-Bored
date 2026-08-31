@@ -186,6 +186,14 @@ export function createDiscoveryRunStatusStore(
       throw new Error("Run status payload requires a runId.");
     }
     const existing = statuses.get(runId);
+    if (existing?.terminal) {
+      options.log?.("discovery.run_status.terminal_immutable_ignored", {
+        runId,
+        existingStatus: existing.status,
+        ignoredStatus: payload.status,
+      });
+      return;
+    }
     const updatedAt =
       String(
         payload.updatedAt || payload.completedAt || payload.acceptedAt,

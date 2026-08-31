@@ -11,6 +11,111 @@
 
   const DISCOVERY_RUN_TRACKER_KEY = "command_center_discovery_run_state";
   const MAX_POLL_ERRORS = 3;
+  const DEFAULT_PER_POLL_TIMEOUT_MS = 8000;
+  const DEFAULT_OVERALL_POLL_DEADLINE_MS = 15 * 60 * 1000;
+
+  function createAbortablePollSession() {
+    let generation = 0;
+    let overallController = null;
+    let overallTimer = null;
+    const pollControllers = new Set();
+
+    function abortInFlight() {
+      for (const controller of pollControllers) {
+        try {
+          controller.abort();
+        } catch (_) {}
+      }
+      pollControllers.clear();
+    }
+
+    function abortAll() {
+      abortInFlight();
+      if (overallTimer) {
+        clearTimeout(overallTimer);
+        overallTimer = null;
+      }
+      if (overallController) {
+        try {
+          overallController.abort();
+        } catch (_) {}
+      }
+    }
+
+    return {
+      bumpGeneration() {
+        generation += 1;
+        abortInFlight();
+        return generation;
+      },
+      getGeneration() {
+        return generation;
+      },
+      createPollSignal(timeoutMs) {
+        const controller = new AbortController();
+        pollControllers.add(controller);
+        const ms = Number(timeoutMs);
+        let timer = null;
+        if (Number.isFinite(ms) && ms > 0) {
+          timer = setTimeout(() => {
+            try {
+              controller.abort();
+            } catch (_) {}
+          }, ms);
+        }
+        const cleanup = () => {
+          if (timer) clearTimeout(timer);
+          pollControllers.delete(controller);
+        };
+        if (controller.signal && typeof controller.signal.addEventListener === "function") {
+          controller.signal.addEventListener("abort", cleanup, { once: true });
+        }
+        if (overallController && overallController.signal.aborted) {
+          controller.abort();
+        } else if (
+          overallController &&
+          overallController.signal &&
+          typeof overallController.signal.addEventListener === "function"
+        ) {
+          overallController.signal.addEventListener(
+            "abort",
+            () => {
+              try {
+                controller.abort();
+              } catch (_) {}
+            },
+            { once: true },
+          );
+        }
+        return { signal: controller.signal, generation };
+      },
+      startOverallDeadline(timeoutMs) {
+        if (overallController) {
+          try {
+            overallController.abort();
+          } catch (_) {}
+        }
+        overallController = new AbortController();
+        const ms = Number(timeoutMs);
+        if (Number.isFinite(ms) && ms > 0) {
+          overallTimer = setTimeout(() => {
+            try {
+              overallController.abort();
+            } catch (_) {}
+          }, ms);
+        }
+        return { signal: overallController.signal, generation };
+      },
+      abortAll,
+      abortInFlight,
+      isCurrent(generationSnapshot) {
+        return (
+          generationSnapshot === generation &&
+          !(overallController && overallController.signal && overallController.signal.aborted)
+        );
+      },
+    };
+  }
 
   function dispatchDiscoveryRunTrackerEvent(state) {
     try {
@@ -48,7 +153,13 @@
   class DiscoveryRunTracker {
     constructor(storageKey = DISCOVERY_RUN_TRACKER_KEY) {
       this._key = storageKey;
+      this._pollSession = createAbortablePollSession();
       this._state = this._load();
+      if (Number.isFinite(this._state.pollGeneration) && this._state.pollGeneration > 0) {
+        while (this._pollSession.getGeneration() < this._state.pollGeneration) {
+          this._pollSession.bumpGeneration();
+        }
+      }
     }
 
     _load() {
@@ -87,6 +198,9 @@
             : 0,
           statusUnavailable: !!parsed.statusUnavailable,
           terminalAcknowledged: !!parsed.terminalAcknowledged,
+          pollGeneration: Number.isFinite(parsed.pollGeneration)
+            ? parsed.pollGeneration
+            : 0,
         };
       } catch (_) {
         return this._idle();
@@ -126,6 +240,7 @@
         leadsUpdated: 0,
         statusUnavailable: false,
         terminalAcknowledged: false,
+        pollGeneration: 0,
       };
     }
 
@@ -152,6 +267,10 @@
       requestedAt = "",
       statusUnavailable = false,
     }) {
+      if (this._pollSession) this._pollSession.abortAll();
+      const pollGeneration = this._pollSession
+        ? this._pollSession.bumpGeneration()
+        : 1;
       this._state = {
         status: "pending",
         runId: String(runId || "").trim(),
@@ -175,6 +294,7 @@
         leadsUpdated: 0,
         statusUnavailable: !!statusUnavailable,
         terminalAcknowledged: false,
+        pollGeneration,
       };
       this._persist(this._state);
       return this;
@@ -192,8 +312,22 @@
      * Called on each poll response.
      * @param {object} statusData  parsed /runs/{runId} JSON body
      */
-    updateFromStatusResponse(statusData) {
+    updateFromStatusResponse(statusData, options) {
       if (!statusData || typeof statusData !== "object") return this;
+      const incomingRunId = String(statusData.runId || "").trim();
+      if (incomingRunId && this._state.runId && incomingRunId !== this._state.runId) {
+        return this;
+      }
+      const incomingGeneration =
+        options && Number.isFinite(Number(options.generation))
+          ? Number(options.generation)
+          : null;
+      if (
+        incomingGeneration != null &&
+        Number(this._state.pollGeneration || 0) !== incomingGeneration
+      ) {
+        return this;
+      }
       this._state.lastPollAt = new Date().toISOString();
       this._state.statusUnavailable = false;
       const isTerminal = !!statusData.terminal;
@@ -232,7 +366,14 @@
         this._state.status = runStatus; // completed | empty | partial | failed
         this._state.terminalAt = new Date().toISOString();
         this._state.terminalKind = runStatus;
-        this._state.errorMessage = String(statusData.error || statusData.message || "");
+        if (runStatus === "completed" || runStatus === "empty") {
+          this._state.errorMessage = "";
+        } else {
+          this._state.errorMessage = String(statusData.error || "");
+          if (!this._state.errorMessage && runStatus === "failed") {
+            this._state.errorMessage = String(statusData.message || "Run failed");
+          }
+        }
         this._persist(this._state);
         return this;
       }
@@ -349,6 +490,37 @@
     isPollingError() {
       return this._state.status === "polling_error";
     }
+
+    /**
+     * Versioned DiscoveryRuns row contract for the local terminal outcome.
+     * F4-C consumes this so a local completion is not dropped while the sheet
+     * catch-up is still empty or misparsed.
+     */
+    toHistoryRow() {
+      const status = String(this._state.status || "").toLowerCase();
+      let logStatus = "failure";
+      if (status === "completed" || status === "empty") logStatus = "success";
+      else if (status === "partial") logStatus = "partial";
+      else if (status === "failed") logStatus = "failure";
+      else logStatus = "partial";
+      return {
+        runAt:
+          this._state.completedAt ||
+          this._state.terminalAt ||
+          this._state.initiatedAt ||
+          "",
+        trigger: this._state.trigger || "manual",
+        status: logStatus,
+        durationS: 0,
+        companiesSeen: this._state.companiesSeen || 0,
+        leadsWritten: this._state.leadsWritten || 0,
+        leadsUpdated: this._state.leadsUpdated || 0,
+        source: "local-tracker",
+        variationKey: this._state.variationKey || "",
+        error: logStatus === "success" ? "" : String(this._state.errorMessage || ""),
+        runId: this._state.runId || "",
+      };
+    }
   }
 
   /** Shared singleton — initialized once at module load */
@@ -357,8 +529,11 @@
   Object.assign(runTracker, {
     DISCOVERY_RUN_TRACKER_KEY,
     MAX_POLL_ERRORS,
+    DEFAULT_PER_POLL_TIMEOUT_MS,
+    DEFAULT_OVERALL_POLL_DEADLINE_MS,
     DiscoveryRunTracker,
     discoveryRunTracker,
     dispatchDiscoveryRunTrackerEvent,
+    createAbortablePollSession,
   });
 })();

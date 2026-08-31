@@ -27,6 +27,10 @@ import {
 } from "../state/run-status-store.ts";
 import { validateSheetsCredentialReadiness } from "../sheets/credential-readiness.ts";
 import {
+  buildDiscoveryRunLogRowFromStatus,
+  createTerminalHistoryFinalizer,
+} from "../sheets/discovery-runs-writer.ts";
+import {
   appendRunStatusToken,
   createRunStatusToken,
 } from "./run-status-auth.ts";
@@ -266,6 +270,36 @@ export async function handleDiscoveryWebhook(
   });
   dependencies.runStatusStore?.put(acceptedStatus);
 
+  const historyFinalizer = createTerminalHistoryFinalizer({
+    runId,
+    logger: runDependencies.discoveryRunsLogger,
+    log: logRunEvent,
+  });
+  const dispatchDependencies: RunDiscoveryDependencies =
+    runDependencies.discoveryRunsLogger
+      ? {
+          ...runDependencies,
+          discoveryRunsLogger: {
+            append(sheetId, row) {
+              return historyFinalizer.finalize(sheetId, row);
+            },
+          },
+        }
+      : runDependencies;
+  const writeHistoryFromStatus = (statusPayload: DiscoveryRunStatusPayload) => {
+    const sheetId = String(
+      statusPayload.request?.sheetId || parsed.request.sheetId || "",
+    ).trim();
+    if (!sheetId) return;
+    void historyFinalizer.finalize(
+      sheetId,
+      buildDiscoveryRunLogRowFromStatus(statusPayload, {
+        source: runDependencies.discoveryRunsSource || "worker",
+        trigger: parsed.request.trigger,
+      }),
+    );
+  };
+
   if (dependencies.runSynchronously) {
     const startedAt = now().toISOString();
     dependencies.runStatusStore?.put(
@@ -281,7 +315,7 @@ export async function handleDiscoveryWebhook(
       const result = await dependencies.runDiscovery(
         requestForRun,
         dispatchTrigger,
-        runDependencies,
+        dispatchDependencies,
       );
       const completedStatus = buildCompletedRunStatus(result, {
         acceptedAt,
@@ -313,9 +347,13 @@ export async function handleDiscoveryWebhook(
         outcome: completedStatus,
       } satisfies DiscoveryWebhookAck);
     } catch (error) {
-      dependencies.runStatusStore?.put(
-        buildFailedRunStatus(acceptedStatus, error, now().toISOString()),
+      const failedStatus = buildFailedRunStatus(
+        acceptedStatus,
+        error,
+        now().toISOString(),
       );
+      dependencies.runStatusStore?.put(failedStatus);
+      writeHistoryFromStatus(failedStatus);
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,
@@ -338,6 +376,22 @@ export async function handleDiscoveryWebhook(
   const startedAt = now().toISOString();
   const maxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+  const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
+  try {
+    dependencies.runStatusStore?.put(runningStatus);
+  } catch (error) {
+    const detail = error instanceof Error ? error.message : String(error);
+    dependencies.log?.("discovery.run_status.running_persist_failed", {
+      runId,
+      mode: runMode,
+      error: detail,
+    });
+    return jsonResponse(500, {
+      ok: false,
+      message: "Discovery run status could not be persisted before dispatch.",
+      detail,
+    });
+  }
 
   // Safety backstop for the run STATUS. The run itself is bounded by the
   // in-loop budget tracker (also keyed to maxRunDurationMs) and per-source
@@ -350,13 +404,15 @@ export async function handleDiscoveryWebhook(
     runMode: "async",
     maxRunDurationMs,
     runStatusStore: dependencies.runStatusStore,
-    acceptedStatus,
+    acceptedStatus: runningStatus,
     now,
     log: dependencies.log,
+    onForceTerminal: writeHistoryFromStatus,
   });
+  safety.schedule();
 
   void dependencies
-    .runDiscovery(requestForRun, dispatchTrigger, runDependencies)
+    .runDiscovery(requestForRun, dispatchTrigger, dispatchDependencies)
     .then((result) => {
       if (safety.isTerminalStatusWritten()) {
         dependencies.log?.("discovery.run.late_completion_ignored", {
@@ -404,14 +460,13 @@ export async function handleDiscoveryWebhook(
       safety.markTerminal();
       safety.clear();
       const message = error instanceof Error ? error.message : String(error);
+      const failedStatus = buildFailedRunStatus(
+        buildRunningRunStatus(acceptedStatus, startedAt),
+        error,
+        now().toISOString(),
+      );
       try {
-        dependencies.runStatusStore?.put(
-          buildFailedRunStatus(
-            buildRunningRunStatus(acceptedStatus, startedAt),
-            error,
-            now().toISOString(),
-          ),
-        );
+        dependencies.runStatusStore?.put(failedStatus);
       } catch (statusError) {
         dependencies.log?.("discovery.run_status.terminal_write_failed", {
           runId,
@@ -423,6 +478,7 @@ export async function handleDiscoveryWebhook(
               : String(statusError),
         });
       }
+      writeHistoryFromStatus(failedStatus);
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,
@@ -430,11 +486,6 @@ export async function handleDiscoveryWebhook(
       });
       console.error("[browser-use-discovery] async discovery failed:", message);
     });
-  dependencies.runStatusStore?.put(
-    buildRunningRunStatus(acceptedStatus, startedAt),
-  );
-  // Schedule safety terminalization for async runs
-  safety.schedule();
 
   return jsonResponse(202, {
     ok: true,
