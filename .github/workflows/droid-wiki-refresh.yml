@@ -6,6 +6,8 @@ on:
 
 jobs:
   wiki-refresh:
+    # Requires the FACTORY_API_KEY repo secret; skip cleanly until it is set.
+    if: ${{ secrets.FACTORY_API_KEY != '' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
