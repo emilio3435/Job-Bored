@@ -55,7 +55,6 @@ const PAGE_SCRIPTS = Object.freeze([
 /** Element ids app-bootstrap's cold-start path and the shell both need. */
 const MOUNT_IDS = Object.freeze([
   "dashboard",
-  "setupScreen",
   "sheetAccessGateScreen",
   "oneFlowMount",
   "discoverySetupWizardMount",
@@ -287,7 +286,6 @@ function makeHost(state, calls, overrides = {}) {
     initDiscoveryDrawer: record("initDiscoveryDrawer"),
     initDiscoverySubtabs: record("initDiscoverySubtabs"),
     initDiscoveryButton: record("initDiscoveryButton"),
-    renderSetupStarterSheetUi: record("renderSetupStarterSheetUi"),
     setInitialSheetAccessResolved: record("setInitialSheetAccessResolved"),
     setDashboardSheetLinks: record("setDashboardSheetLinks"),
     resetPostAccessBootstrap: record("resetPostAccessBootstrap"),
@@ -621,7 +619,6 @@ export function loadAuthSession({ userInfo, oauthClientId = "client_123" } = {})
         getSHEET_ID: () => "",
         getSheetId: () => "",
         setPendingSetupStarterSheetCreate() {},
-        renderSetupStarterSheetUi() {},
         loadAllData: async () => true,
         revealDashboardShell() {},
         revealSetupScreenAfterAuth() {},

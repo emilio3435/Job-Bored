@@ -297,16 +297,10 @@
     releaseAuthPrepaintGuard("show-gate");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
-    const setupScreen = document.getElementById("setupScreen");
     if (!screen || !dashboard) {
       startupLog(
         "sheet-access:missing-required-dom",
-        {
-          mode,
-          hasGateScreen: !!screen,
-          hasDashboard: !!dashboard,
-          hasSetupScreen: !!setupScreen,
-        },
+        { mode, hasGateScreen: !!screen, hasDashboard: !!dashboard },
         "error",
       );
       return;
@@ -314,7 +308,6 @@
 
     startupLog("sheet-access:show-gate", {
       mode,
-      hasSetupScreen: !!setupScreen,
       access: accessStateForLog(),
     });
 
@@ -336,18 +329,10 @@
       return;
     }
 
-    if (
-      !host().getSheetId() &&
-      host().getAccessToken() &&
-      mode !== "no-oauth"
-    ) {
-      startupLog("sheet-access:route-to-starter-setup", {
-        mode,
-        access: accessStateForLog(),
-      });
-      revealPipelineSetupStepsScreen();
-      return;
-    }
+    // The "signed in with no sheet yet" branch used to detour to a separate
+    // starter-setup screen here. Beat 1 owns that state now
+    // (ONE-FLOW-ONBOARDING-SPEC §5 B1, §7), and revealSetupScreenAfterAuth
+    // is the entry point that hands it over — the gate no longer detours.
 
     screen.dataset.gateMode = mode;
 
@@ -451,14 +436,12 @@
       statusBlock.hidden = !hasCallout;
     }
 
-    if (setupScreen) setupScreen.style.display = "none";
     dashboard.style.display = "none";
     screen.style.display = "flex";
     startupLog("sheet-access:gate-visible", {
       mode,
       gateDisplay: screen.style.display,
       dashboardDisplay: dashboard.style.display,
-      setupDisplay: setupScreen ? setupScreen.style.display : "",
     });
 
     const doctorHost = document.getElementById("sheetAccessGateDoctorPanel");
@@ -498,48 +481,38 @@
     if (screen) screen.style.display = "none";
   }
 
-  /** Show the starter Pipeline setup screen before the guided wizard takes over. */
-  function revealPipelineSetupStepsScreen() {
-    // Same flow-owns-surface guard as showSheetAccessGate /
-    // revealDashboardShell: a stray starter-setup reveal (e.g. from a
-    // sign-in-success resume or a loadAllData branch that decided to route to
-    // the setup screen) must NOT strand a setup overlay in front of a live
-    // beat, where it would swallow clicks (VAL-WIZ-013).
-    if (oneFlowOwnsSurface()) {
-      startupLog("sheet-access:reveal-starter-setup-deferred", {
-        reason: "oneflow-beat-active",
-      });
-      return;
-    }
-    releaseAuthPrepaintGuard("reveal-starter-setup");
-    const setupScreen = document.getElementById("setupScreen");
-    const dashboard = document.getElementById("dashboard");
-    startupLog(
-      "sheet-access:reveal-starter-setup",
-      {
-        hasSetupScreen: !!setupScreen,
-        hasDashboard: !!dashboard,
-        access: accessStateForLog(),
-      },
-      !setupScreen || !dashboard ? "warn" : "info",
-    );
-    hideSheetAccessGate();
-    if (setupScreen) setupScreen.style.display = "flex";
-    if (dashboard) dashboard.style.display = "none";
-    renderSetupStarterSheetUi();
-  }
-
   /**
-   * No Sheet ID yet after Google sign-in. Beat 1 owns this state now
-   * (ONE-FLOW-ONBOARDING-SPEC §5 B1): the wizard hand-off this used to
-   * perform is gone with the wizard (§7), and revealPipelineSetupStepsScreen
-   * stands down on its own while a beat is on screen. When the flow is NOT
-   * running, the starter-setup screen is still the honest destination — a
-   * signed-in user with no sheet has exactly one thing left to do.
+   * No Sheet ID yet after Google sign-in. Beat 1 owns this state
+   * (ONE-FLOW-ONBOARDING-SPEC §5 B1): it is the beat that creates or
+   * connects the sheet, so signing in without one hands straight to it.
+   *
+   * The old "One more step." screen and its reveal path are deleted (§7) —
+   * they were a third onboarding surface for a job one beat already does.
+   * The gate's error mode is the fallback when the flow
+   * module itself never loaded, so this can never strand a signed-in user.
    */
   function revealSetupScreenAfterAuth() {
     if (host().getSheetId()) return;
-    revealPipelineSetupStepsScreen();
+    if (oneFlowOwnsSurface()) return;
+    const flow = window.JobBoredOneFlow;
+    if (flow && typeof flow.open === "function") {
+      startupLog("sheet-access:hand-off-to-beat-1", {
+        access: accessStateForLog(),
+      });
+      releaseAuthPrepaintGuard("hand-off-to-beat-1");
+      hideSheetAccessGate();
+      void Promise.resolve(flow.open("google")).catch((e) => {
+        startupLog("sheet-access:beat-1-open-failed", { error: String(e) }, "error");
+        showSheetAccessGate("error");
+      });
+      return;
+    }
+    startupLog(
+      "sheet-access:no-flow-module",
+      { access: accessStateForLog() },
+      "error",
+    );
+    showSheetAccessGate("error");
   }
 
   function revealDashboardShell() {
@@ -555,76 +528,19 @@
       return;
     }
     releaseAuthPrepaintGuard("reveal-dashboard");
-    const setupScreen = document.getElementById("setupScreen");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
     startupLog(
       "sheet-access:reveal-dashboard",
       {
-        hasSetupScreen: !!setupScreen,
         hasGateScreen: !!screen,
         hasDashboard: !!dashboard,
         access: accessStateForLog(),
       },
       dashboard ? "info" : "warn",
     );
-    if (setupScreen) setupScreen.style.display = "none";
     if (screen) screen.style.display = "none";
     if (dashboard) dashboard.style.display = "block";
-  }
-
-  function renderSetupStarterSheetUi() {
-    const btn = document.getElementById("setupCreateStarterSheetBtn");
-    const status = document.getElementById("setupCreateStarterSheetStatus");
-    if (!btn || !status) return;
-
-    const hasClient = !!host().getOAuthClientId();
-    if (!hasClient) {
-      btn.disabled = false;
-      btn.textContent = "Create blank starter sheet";
-      status.textContent =
-        "Complete OAuth setup on the sign-in screen, then reload this page.";
-      return;
-    }
-    if (!core().getGisLoaded()) {
-      btn.disabled = true;
-      btn.textContent = "Loading Google sign-in…";
-      status.textContent =
-        "Reload once after signing in so Google sign-in can initialize.";
-      return;
-    }
-    if (!host().getAccessToken()) {
-      btn.disabled = false;
-      btn.textContent = "Sign in & create blank starter sheet";
-      status.textContent =
-        "This will open Google sign-in, then create a fresh Pipeline sheet with just the headers.";
-      return;
-    }
-
-    const hasSheetsScope =
-      typeof host().hasGrantedOauthScope === "function" &&
-      typeof host().getGoogleSheetsScope === "function" &&
-      host().hasGrantedOauthScope(host().getGoogleSheetsScope());
-    if (!hasSheetsScope) {
-      btn.disabled = false;
-      btn.textContent = "Grant Sheets access & create blank starter sheet";
-      status.textContent =
-        "Google signed you in but didn't grant Sheets access. Click to reopen consent and check the box allowing JobBored to manage your Google Sheets.";
-      return;
-    }
-
-    if (host().getSheetId()) {
-      btn.disabled = true;
-      btn.textContent = "Starter sheet linked";
-      status.textContent =
-        "Your Pipeline sheet is saved. The guided setup wizard is the next step.";
-      return;
-    }
-
-    btn.disabled = false;
-    btn.textContent = "Create blank starter sheet";
-    status.textContent =
-      "Signed in and ready. This creates a fresh Pipeline sheet with only the required headers.";
   }
 
   async function createBlankStarterSheet(isRetry) {
@@ -802,7 +718,6 @@
           "your Google Sheets.";
         notify(message, true);
         host().showToast(message, "error", true);
-        renderSetupStarterSheetUi();
         return;
       }
       // Sheet step precedes the explicit sign-in step in the wizard: remember
@@ -822,14 +737,8 @@
     // Committed to creating now: keep the context so a silent re-auth inside
     // createBlankStarterSheet also resumes with the right handoff behavior.
     pendingStarterSheetCreateOptions = opts;
-    const btn = document.getElementById("setupCreateStarterSheetBtn");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Creating starter sheet…";
-    }
     notify("Creating your starter sheet…");
     const created = await createBlankStarterSheet(false);
-    renderSetupStarterSheetUi();
     if (!created) {
       notify(
         "Could not create the starter sheet. Check the error message and try again.",
@@ -884,11 +793,6 @@
 
   function initSetupAndSheetAccessActions() {
     document
-      .getElementById("setupCreateStarterSheetBtn")
-      ?.addEventListener("click", () => {
-        void handleSetupCreateStarterSheet({ context: "onboarding" });
-      });
-    document
       .getElementById("sheetAccessGateSignInBtn")
       ?.addEventListener("click", () => {
         host().signIn();
@@ -915,7 +819,6 @@
         window.location.reload();
       });
     initLoginGateOAuthUi();
-    renderSetupStarterSheetUi();
   }
 
   /**
@@ -984,10 +887,8 @@
     verifyExistingSheetAccess,
     recordSheetAccessError,
     hideSheetAccessGate,
-    revealPipelineSetupStepsScreen,
     revealSetupScreenAfterAuth,
     revealDashboardShell,
-    renderSetupStarterSheetUi,
     createBlankStarterSheet,
     handleSetupCreateStarterSheet,
     setDashboardSheetLinks,

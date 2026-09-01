@@ -10,7 +10,8 @@ import {
 /* ============================================================
    ONE-FLOW spec §5 B1 — Connect Google.
 
-   B1 is the beat that replaces the login gate AND #setupScreen: signing
+   B1 is the beat that replaced the login gate AND the "One more step."
+   starter-setup screen (both deleted in L7's sweep): signing
    in and owning a Sheet stop being two chapters. These probes pin the
    four things that make it that:
 

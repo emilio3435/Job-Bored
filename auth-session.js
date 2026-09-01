@@ -631,7 +631,6 @@ function applyOAuthClientChange(clientId) {
       },
     });
     setupAuthUI();
-    host().renderSetupStarterSheetUi();
     host().renderAppsScriptDeployUi();
     host().maybeSyncSettingsModalModeAfterAuth();
     host().showSheetAccessGate(host().getOAuthClientId() ? "signin" : "loading");
@@ -715,7 +714,6 @@ function initAuth() {
       });
       setupAuthUI();
       restoreOAuthSession();
-      host().renderSetupStarterSheetUi();
       host().renderAppsScriptDeployUi();
       host().maybeSyncSettingsModalModeAfterAuth();
     } else {
@@ -936,14 +934,11 @@ function signOut() {
     // is the terminal state until the user signs back in.
     host().showSheetAccessGate(host().getOAuthClientId() ? "signin" : "loading");
   } else {
-    const setup = document.getElementById("setupScreen");
-    if (setup) setup.style.display = "none";
     if (host().getOAuthClientId()) {
       host().showSheetAccessGate("signin");
     } else {
       host().showSheetAccessGate("no-oauth");
     }
-    host().renderSetupStarterSheetUi();
   }
 }
 
@@ -1435,7 +1430,6 @@ function updateAuthUI() {
     authUser.style.display = "none";
     setAuthAvatarDisplay();
   }
-  host().renderSetupStarterSheetUi();
 }
 
 function isSignedIn() {

@@ -360,3 +360,58 @@ describe("§7 · the legacy onboarding wizard is gone; the player survives", () 
     assert.match(read("materials-feature.js"), /JobBoredOneFlow/);
   });
 });
+
+describe('§7 · #setupScreen ("One more step.") is gone', () => {
+  it("the markup, and the duplicate headline it carried, leave index.html", () => {
+    const html = read("index.html");
+    assert.equal(/id="setupScreen"/.test(html), false);
+    assert.equal(/setupCreateStarterSheetBtn/.test(html), false);
+    // The fossil §7 names: two surfaces both headlined "One more step."
+    assert.equal(/One more step\./.test(html), false);
+  });
+
+  it("nothing shows, hides, or paints a screen that does not exist", () => {
+    for (const [file, source] of shippedSources()) {
+      for (const needle of [
+        "setupScreen",
+        "revealPipelineSetupStepsScreen",
+        "renderSetupStarterSheetUi",
+      ]) {
+        assert.equal(
+          source.includes(needle),
+          false,
+          `${file} must not reach for the deleted setup screen (${needle})`,
+        );
+      }
+    }
+  });
+
+  it("the starter-sheet CREATOR stays — Beat 1 calls it", () => {
+    // spec §7: "#setupScreen — Delete; B1 owns sheet creation." The screen
+    // is the fossil; the creation path behind it is what B1 drives.
+    const setup = read("sheet-access-setup.js");
+    assert.match(setup, /async function handleSetupCreateStarterSheet\(/);
+    assert.match(setup, /async function createBlankStarterSheet\(/);
+    assert.match(setup, /handleSetupCreateStarterSheet,/, "still exported");
+    assert.match(
+      read("oneflow-beat-google.js"),
+      /handleSetupCreateStarterSheet/,
+      "B1 is the caller that keeps it alive",
+    );
+  });
+
+  it("the gate's error mode stays — a broken config still gets an honest screen", () => {
+    const setup = read("sheet-access-setup.js");
+    assert.match(setup, /mode === "error"/);
+    assert.match(read("app-bootstrap.js"), /sheetAccessGateIsInErrorMode/);
+  });
+
+  it("signed-in-with-no-sheet routes to Beat 1, not to a deleted screen", () => {
+    const setup = read("sheet-access-setup.js");
+    const fnIdx = setup.indexOf("function revealSetupScreenAfterAuth()");
+    assert.notEqual(fnIdx, -1, "the entry point auth-session calls must survive");
+    const body = setup.slice(fnIdx, fnIdx + 1200);
+    assert.match(body, /JobBoredOneFlow/, "it hands off to the flow");
+    assert.match(body, /open\("google"\)/, "specifically to Beat 1 (spec §5 B1)");
+  });
+});

@@ -1359,9 +1359,6 @@ function hideSheetAccessGate(...args) {
   return window.JobBoredApp.setup.hideSheetAccessGate(...args);
 }
 
-function revealPipelineSetupStepsScreen(...args) {
-  return window.JobBoredApp.setup.revealPipelineSetupStepsScreen(...args);
-}
 
 function revealSetupScreenAfterAuth(...args) {
   return window.JobBoredApp.setup.revealSetupScreenAfterAuth(...args);
@@ -1371,9 +1368,6 @@ function revealDashboardShell(...args) {
   return window.JobBoredApp.setup.revealDashboardShell(...args);
 }
 
-function renderSetupStarterSheetUi(...args) {
-  return window.JobBoredApp.setup.renderSetupStarterSheetUi(...args);
-}
 
 async function createBlankStarterSheet(...args) {
   return window.JobBoredApp.setup.createBlankStarterSheet(...args);
