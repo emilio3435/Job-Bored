@@ -100,6 +100,10 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
     assert.match(report, /jd_unusable/);
+    const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
+    assert.equal(pending.progress.phase, "failed");
+    await assert.rejects(readFile(join(dir, "eab-role", "resume.html")));
+    await assert.rejects(readFile(join(dir, "eab-role", "cover-letter.html")));
   });
 
   it("loops the editor once then READY when the second critic passes", async () => {
@@ -281,6 +285,10 @@ describe("createMaterialsDrafter", () => {
     });
     await drafter.runUntilIdle();
     const html = await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
+    assert.match(html, /marginal ROAS/);
+    assert.match(html, /university relationships/);
+    assert.match(html, /operator-builder mix/);
+    assert.match(html, /forecast stack/);
     assert.match(html, /data-slot="company-mention"[^>]*>EAB/);
     assert.match(html, /data-slot="company-mention-2"[^>]*>EAB/);
     assert.match(html, /data-slot="company-mention-3"[^>]*>EAB/);
@@ -314,9 +322,31 @@ describe("createMaterialsDrafter", () => {
     await readFile(join(dir, "eab-role", "resume.html"), "utf8");
     await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
-    assert.match(report, /resume_page_count_high|READY|REVIEW|review/i);
+    assert.match(report, /resume_page_count_high/);
+    assert.match(report, /^Status:\s*REVIEW/im);
+    assert.doesNotMatch(report, /^Status:\s*READY/im);
     assert.doesNotMatch(report, /^Status:\s*FAIL/im);
     await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
     assert.equal(editorCalls, 0);
+  });
+
+  it("reserves the same slug before any await so a concurrent enqueue is a no-op", async () => {
+    const drafter = createMaterialsDrafter(baseDeps(dir));
+    const payload = {
+      slug: "eab-role",
+      company: "EAB",
+      title: "Director",
+      feature: "both",
+      jobUrl: "https://example.com/job",
+      notes: "",
+    };
+    const [first, second] = await Promise.all([
+      drafter.enqueue(payload),
+      drafter.enqueue({ ...payload, notes: "loser" }),
+    ]);
+    assert.equal(second.pending_path, first.pending_path);
+    assert.equal(second.requested_at, first.requested_at);
+    await drafter.runUntilIdle();
+    await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
   });
 });

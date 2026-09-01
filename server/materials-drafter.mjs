@@ -173,20 +173,23 @@ function elapsedSeconds(stamp, nowIso) {
  */
 export function composeLetterWithNestedSlots(html, letter) {
   if (!isPlainObject(letter)) return composeCoverLetter(html, letter);
-  const $src = cheerio.load(typeof html === "string" ? html : "");
-  /** @type {Set<string>} */
-  const skip = new Set();
-  for (const [field, slot] of PARENT_LETTER_SLOTS) {
-    const $slot = $src(`[data-slot="${slot}"]`);
-    if ($slot.find("[data-slot]").length || $slot.children(".dot").length) {
-      skip.add(field);
-    }
-  }
+
   /** @type {Record<string, unknown>} */
-  const filtered = { ...letter };
-  for (const field of skip) delete filtered[field];
-  const composed = composeCoverLetter(html, filtered);
+  const rest = { ...letter };
+  for (const [field] of PARENT_LETTER_SLOTS) delete rest[field];
+  const composed = composeCoverLetter(html, rest);
   const $ = cheerio.load(composed);
+
+  for (const [field, slot] of PARENT_LETTER_SLOTS) {
+    const value = letter[field];
+    if (typeof value !== "string") continue;
+    const $slot = $(`[data-slot="${slot}"]`);
+    if (!$slot.length) continue;
+    const $keep = $slot.find("[data-slot], .dot").clone();
+    $slot.text(value);
+    $slot.append($keep);
+  }
+
   for (const [field, slots] of Object.entries(NESTED_LETTER_SLOTS)) {
     const value = letter[field];
     if (typeof value !== "string") continue;
@@ -194,18 +197,12 @@ export function composeLetterWithNestedSlots(html, letter) {
       $(`[data-slot="${slot}"]`).text(value);
     }
   }
-  if (skip.has("flourish") && typeof letter.flourish === "string") {
-    const $flourish = $('[data-slot="flourish"]');
-    const $dot = $flourish.children(".dot").clone();
-    $flourish.text(letter.flourish);
-    $flourish.append($dot);
-  }
   return $.html();
 }
 
 /**
  * HTML `article.page` count is not a real PDF page count. When PDF is skipped,
- * a lone resume_page_count_high fail must not block READY.
+ * demote a lone resume_page_count_high fail to review so HTML can still land.
  *
  * @param {Scorecard | null | undefined} scorecard
  * @param {boolean} pdfSkipped
@@ -232,10 +229,19 @@ export function adjustScorecardForSkippedPdf(scorecard, pdfSkipped) {
   /** @type {string} */
   let status;
   if (hasFail) status = "fail";
-  else if (blocking.length === 0) status = "pass";
-  else if (blocking.some((issue) => issue && issue.severity === "review")) status = "review";
+  else if (blocking.length === 0) {
+    status = issues.some((issue) => issue && issue.code === "resume_page_count_high")
+      ? "review"
+      : "pass";
+  } else if (blocking.some((issue) => issue && issue.severity === "review")) status = "review";
   else status = String((scorecard && scorecard.status) || "review");
   return { ...(scorecard || {}), issues, status };
+}
+
+/** @param {Scorecard | null | undefined} scorecard */
+function onlySkippedPdfPageCount(scorecard) {
+  const issues = scorecard && Array.isArray(scorecard.issues) ? scorecard.issues : [];
+  return issues.length > 0 && issues.every((issue) => issue && issue.code === "resume_page_count_high");
 }
 
 /**
@@ -495,11 +501,14 @@ export function createMaterialsDrafter(deps = {}) {
    * @param {string[]} [args.notes]
    */
   async function finishWithFiles(dir, pendingPath, { feature, letterHtml, resumeHtml, scorecard, notes = [] }) {
+    let wroteHtml = false;
     if (wantsLetter(feature) && typeof letterHtml === "string") {
       await writeFile(join(dir, "cover-letter.html"), letterHtml, "utf8");
+      wroteHtml = true;
     }
     if (wantsResume(feature) && typeof resumeHtml === "string") {
       await writeFile(join(dir, "resume.html"), resumeHtml, "utf8");
+      wroteHtml = true;
     }
     const status = scorecard.status === "pass" ? "READY" : "REVIEW";
     await writeFile(
@@ -511,7 +520,7 @@ export function createMaterialsDrafter(deps = {}) {
       }),
       "utf8",
     );
-    await rm(pendingPath, { force: true });
+    if (wroteHtml) await rm(pendingPath, { force: true });
   }
 
   /**
@@ -535,17 +544,17 @@ export function createMaterialsDrafter(deps = {}) {
       scrapeJob,
     });
     if ("error" in jd) {
-      await finishWithFiles(dir, pendingPath, {
-        feature: payload.feature,
-        scorecard: {
-          status: "review",
-          issues: [{
-            code: "jd_unusable",
-            message: "Cached job description is unusable and scraping the job URL failed.",
-            severity: "review",
-          }],
-        },
-      });
+      const jdIssue = {
+        code: "jd_unusable",
+        message: "Cached job description is unusable and scraping the job URL failed.",
+        severity: "review",
+      };
+      await writeFile(
+        join(dir, "qa-report.md"),
+        formatQaReport({ status: "REVIEW", issues: [jdIssue] }),
+        "utf8",
+      );
+      await failJob(job, { message: jdIssue.message });
       return;
     }
 
@@ -596,7 +605,11 @@ export function createMaterialsDrafter(deps = {}) {
     );
 
     let editorLoops = 0;
-    while (scorecard.status !== "pass" && editorLoops < MAX_EDITOR_LOOPS) {
+    while (
+      scorecard.status !== "pass" &&
+      !onlySkippedPdfPageCount(scorecard) &&
+      editorLoops < MAX_EDITOR_LOOPS
+    ) {
       editorLoops += 1;
       writerJson = await editor({
         pin: resolved,
@@ -666,19 +679,6 @@ export function createMaterialsDrafter(deps = {}) {
       };
     }
 
-    await mkdir(dir, { recursive: true });
-    const providedJd =
-      (typeof payload.jobDescription === "string" && payload.jobDescription) ||
-      (typeof payload.jdText === "string" && payload.jdText) ||
-      "";
-    if (providedJd.trim()) {
-      await writeJdFile(dir, providedJd, {
-        source: "request",
-        jobUrl: payload.jobUrl,
-        nowIso: isoNow(),
-      });
-    }
-
     const requestedAt = isoNow();
     /** @type {PendingRecord} */
     const record = {
@@ -699,23 +699,42 @@ export function createMaterialsDrafter(deps = {}) {
         elapsed_seconds: 0,
       },
     };
-    await writePending(pendingPath, record);
     inFlight.set(slug, { pendingPath, record });
-    queue.push({
-      payload,
-      pin: /** @type {object} */ (pin),
-      dir,
-      pendingPath,
-      record,
-    });
-    kick();
-    return {
-      ok: true,
-      slug,
-      pending_path: pendingPath,
-      requested_at: requestedAt,
-      accepted: true,
-    };
+
+    try {
+      await mkdir(dir, { recursive: true });
+      const providedJd =
+        (typeof payload.jobDescription === "string" && payload.jobDescription) ||
+        (typeof payload.jdText === "string" && payload.jdText) ||
+        "";
+      if (providedJd.trim()) {
+        await writeJdFile(dir, providedJd, {
+          source: "request",
+          jobUrl: payload.jobUrl,
+          nowIso: isoNow(),
+        });
+      }
+
+      await writePending(pendingPath, record);
+      queue.push({
+        payload,
+        pin: /** @type {object} */ (pin),
+        dir,
+        pendingPath,
+        record,
+      });
+      kick();
+      return {
+        ok: true,
+        slug,
+        pending_path: pendingPath,
+        requested_at: requestedAt,
+        accepted: true,
+      };
+    } catch (err) {
+      inFlight.delete(slug);
+      throw err;
+    }
   }
 
   function runUntilIdle() {
