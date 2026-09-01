@@ -172,9 +172,17 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
       "about 8 min left",
       "the spine shows the CURRENT beat's remaining-time label",
     );
+  });
+
+  it("an UNFILLED beat still renders its placeholder card, never an empty screen", async () => {
+    // L1 (arrival) filled google/ai/resume in per ONE-FLOW spec §5 B1-B3, so
+    // the placeholder claim moved to a beat whose lane has not landed yet.
+    // It stays here because it is the substrate's claim: a beat that fails to
+    // render must look unfinished rather than look shipped.
+    const { flow, document } = loadOneFlow({ beatFiles: true });
+    await flow.open("fit");
     assert.ok(
-      mount.querySelector(".oneflow-placeholder"),
-      "an unfilled beat renders its placeholder card, never an empty screen",
+      document.getElementById("oneFlowMount").querySelector(".oneflow-placeholder"),
     );
   });
 
