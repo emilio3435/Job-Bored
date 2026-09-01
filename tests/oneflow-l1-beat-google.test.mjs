@@ -89,7 +89,7 @@ describe("B1 Connect Google — the primary path (spec §5 B1)", () => {
     await env.beats.google.handleAction("google_continue");
     const stages = env.beats.google.getRenderedStages();
     assert.deepEqual(
-      stages.map((s) => s.label),
+      [...stages.map((s) => s.label)],
       [
         "Signed in as stranger@example.com ✓",
         "Creating your Pipeline sheet…",

@@ -178,7 +178,7 @@ describe("B2 Give it a brain — the check is the gate (spec §5 B2 exit)", () =
     });
     await pickAndCheck(env, "openrouter", "sk-or-abcdefgh12345678");
     assert.deepEqual(
-      env.beats.ai.getRenderedStages().map((s) => s.label),
+      [...env.beats.ai.getRenderedStages().map((s) => s.label)],
       ["Checking your key…", "✓ Connected — openai/gpt-oss-120b:free responded"],
     );
   });
@@ -276,17 +276,18 @@ describe("B2 Give it a brain — the Gemini write-through (spec §5 B2 bonus)", 
         ms: 200,
       }),
     });
-    await pickAndCheck(env, "gemini", "AIzaSyTestKeyValue1234567");
+    card(env, "gemini").dispatch("click");
+    assert.match(
+      renderedText(env.mount()),
+      /Your Gemini key also unlocks URL import and grounded search — done, no extra step\./,
+      "the line is normative, and it promises the bonus BEFORE the ask",
+    );
+    await pickAndCheck(env, null, "AIzaSyTestKeyValue1234567");
     const envCall = fetchImpl.calls.find((c) => c.url.includes(ENV_ENDPOINT));
     assert.ok(envCall, "spec §5 B2: the Gemini key unlocks the worker with zero extra asks");
     assert.equal(envCall.options.method, "POST");
     assert.equal(envCall.body.key, GEMINI_ENV_KEY);
     assert.equal(envCall.body.value, "AIzaSyTestKeyValue1234567");
-    assert.match(
-      renderedText(env.mount()),
-      /Your Gemini key also unlocks URL import and grounded search — done, no extra step\./,
-      "the line is normative",
-    );
   });
 
   it("never writes through for a non-Gemini provider", async () => {
@@ -373,7 +374,7 @@ describe("verifyResumeProviderLive — the real round-trip (spec §5 B2)", () =>
     assert.equal(fetchImpl.calls[0].body.model, "openai/gpt-oss-120b:free");
   });
 
-  it("reports ok:false with the provider's message instead of throwing", async () => {
+  it("reports ok:false with the mapped, actionable message instead of throwing", async () => {
     const fetchImpl = makeFetchDouble(() => ({
       ok: false,
       status: 401,
@@ -388,7 +389,12 @@ describe("verifyResumeProviderLive — the real round-trip (spec §5 B2)", () =>
     });
     const result = await api.verifyResumeProviderLive();
     assert.equal(result.ok, false);
-    assert.match(result.message, /auth|401/i);
+    assert.match(
+      result.message,
+      /key is invalid/i,
+      "voice rule §8.4: the check reuses the provider's own actionable mapping, not a bare HTTP code",
+    );
+    assert.match(result.message, /openrouter\.ai\/keys/);
   });
 
   it("fails Local when the base URL does not answer", async () => {

@@ -95,7 +95,7 @@ describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone b
     const env = await openBeat();
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     assert.deepEqual(
-      env.beats.resume.getWriteOrder(),
+      [...env.beats.resume.getWriteOrder()],
       ["indexeddb", "server"],
       "the server must never draft from a resume the browser has not committed",
     );
@@ -125,7 +125,7 @@ describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone b
     const env = await openBeat();
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     assert.deepEqual(
-      env.beats.resume.getRenderedStages().map((s) => s.label),
+      [...env.beats.resume.getRenderedStages().map((s) => s.label)],
       [
         "Reading your resume ✓",
         "Drafting target roles & strengths…",
