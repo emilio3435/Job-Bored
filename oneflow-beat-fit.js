@@ -413,6 +413,12 @@
     return (
       runtime.profileDraft ||
       runtime.fitProfileDraft ||
+      // B3 leaves its draft under `resumeDraft` (oneflow-beat-resume.js:429),
+      // wrapped as { profile, source, starterTemplate } — the shape
+      // normalizeDraft already unwraps. Without this alias the whole
+      // resume-first premise (spec §2.3) dies between B3 and B4: the beat
+      // renders empty and the user retypes what they just uploaded.
+      runtime.resumeDraft ||
       state.profileDraft ||
       state.fitProfileDraft ||
       {}
