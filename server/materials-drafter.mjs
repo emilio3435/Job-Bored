@@ -3,7 +3,8 @@
  * One draft at a time. Does not talk to Hermes or Telegram.
  */
 
-import { mkdir, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import * as cheerio from "cheerio";
@@ -12,8 +13,17 @@ import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { composeCoverLetter, composeResume } from "./materials-composer.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
 import { resolveJobDescription } from "./materials-jd-gate.mjs";
+import { renderPdfIfPossible } from "./materials-pdf.mjs";
+import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import { callEditor, callWriter } from "./materials-writer.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
+
+const PAGE_COUNT_CODES = new Set([
+  "resume_page_count_high",
+  "resume_two_page_sparse",
+  "resume_second_page_sparse",
+  "cover_letter_page_count",
+]);
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DEFAULT_RESUME_TEMPLATE = join(
@@ -238,6 +248,44 @@ export function adjustScorecardForSkippedPdf(scorecard, pdfSkipped) {
   return { ...(scorecard || {}), issues, status };
 }
 
+/**
+ * Replace HTML article.page counts with issues from the rendered PDFs.
+ *
+ * @param {Scorecard | null | undefined} scorecard
+ * @param {object} files
+ * @param {string} files.resumeHtml
+ * @param {string} files.letterHtml
+ * @param {string} files.resumePdfPath
+ * @param {string} files.coverLetterPdfPath
+ * @returns {Promise<Scorecard>}
+ */
+async function mergePdfPageCounts(scorecard, files) {
+  const tmp = await mkdtemp(join(tmpdir(), "jb-pdf-audit-"));
+  try {
+    const resumeHtmlPath = join(tmp, "resume.html");
+    const letterHtmlPath = join(tmp, "cover-letter.html");
+    await writeFile(resumeHtmlPath, files.resumeHtml, "utf8");
+    await writeFile(letterHtmlPath, files.letterHtml, "utf8");
+    const [resume, letter] = await Promise.all([
+      auditResume({ htmlPath: resumeHtmlPath, pdfPath: files.resumePdfPath }),
+      auditCoverLetter({ htmlPath: letterHtmlPath, pdfPath: files.coverLetterPdfPath }),
+    ]);
+    const kept = (scorecard && Array.isArray(scorecard.issues) ? scorecard.issues : []).filter(
+      (issue) => issue && !PAGE_COUNT_CODES.has(String(issue.code || "")),
+    );
+    const fromPdf = [...(resume?.issues || []), ...(letter?.issues || [])].filter(
+      (issue) => issue && PAGE_COUNT_CODES.has(String(issue.code || "")),
+    );
+    const issues = [...kept, ...fromPdf];
+    const hasFail = issues.some((issue) => issue && issue.severity === "fail");
+    /** @type {string} */
+    const status = hasFail ? "fail" : issues.length ? "review" : "pass";
+    return { ...(scorecard || {}), issues, status };
+  } finally {
+    await rm(tmp, { recursive: true, force: true });
+  }
+}
+
 /** @param {Scorecard | null | undefined} scorecard */
 function onlySkippedPdfPageCount(scorecard) {
   const issues = scorecard && Array.isArray(scorecard.issues) ? scorecard.issues : [];
@@ -305,8 +353,36 @@ async function defaultReadMasterLetter() {
   return readFile(DEFAULT_LETTER_TEMPLATE, "utf8");
 }
 
-async function defaultPdfRenderer() {
-  return { skipped: true, note: "pdf_skipped" };
+/**
+ * @param {Record<string, unknown>} [input]
+ * @returns {Promise<{ skipped: boolean, path?: string, note?: string }>}
+ */
+async function defaultPdfRenderer(input = {}) {
+  const resumeHtml = typeof input.resumeHtml === "string" ? input.resumeHtml : "";
+  const letterHtml = typeof input.letterHtml === "string" ? input.letterHtml : "";
+  const resumePdfPath = typeof input.resumePdfPath === "string" ? input.resumePdfPath : "";
+  const coverLetterPdfPath =
+    typeof input.coverLetterPdfPath === "string" ? input.coverLetterPdfPath : "";
+
+  /** @type {Array<Promise<{ skipped: boolean, path?: string, note?: string }>>} */
+  const jobs = [];
+  if (resumeHtml && resumePdfPath) {
+    jobs.push(renderPdfIfPossible(resumeHtml, resumePdfPath));
+  }
+  if (letterHtml && coverLetterPdfPath) {
+    jobs.push(renderPdfIfPossible(letterHtml, coverLetterPdfPath));
+  }
+  if (!jobs.length) return { skipped: true, note: "pdf_skipped" };
+
+  const results = await Promise.all(jobs);
+  if (results.some((result) => result.skipped)) {
+    return {
+      skipped: true,
+      note: results.find((result) => result.note)?.note || "pdf_skipped",
+    };
+  }
+  const path = results.find((result) => result.path)?.path;
+  return path ? { skipped: false, path } : { skipped: false };
 }
 
 /**
@@ -327,7 +403,7 @@ async function defaultPdfRenderer() {
  * @property {(input: Record<string, unknown>) => Promise<unknown>} [editor]
  * @property {(input: Record<string, unknown>) => Promise<Scorecard>} [critic]
  * @property {DrafterComposer} [composer]
- * @property {(input?: Record<string, unknown>) => Promise<{ skipped?: boolean, note?: string }>} [pdfRenderer]
+ * @property {(input?: Record<string, unknown>) => Promise<{ skipped?: boolean, path?: string, note?: string }>} [pdfRenderer]
  * @property {() => Date | string | number} [now]
  */
 
@@ -593,16 +669,14 @@ export function createMaterialsDrafter(deps = {}) {
     }
 
     let composed = composeBoth(writerJson);
-    let scorecard = adjustScorecardForSkippedPdf(
-      await critic({
-        letterHtml: composed.letterHtml,
-        resumeHtml: composed.resumeHtml,
-        jdText,
-        masterResumeHtml,
-        writerJson,
-      }),
-      true,
-    );
+    let rawScorecard = await critic({
+      letterHtml: composed.letterHtml,
+      resumeHtml: composed.resumeHtml,
+      jdText,
+      masterResumeHtml,
+      writerJson,
+    });
+    let scorecard = adjustScorecardForSkippedPdf(rawScorecard, true);
 
     let editorLoops = 0;
     while (
@@ -620,30 +694,40 @@ export function createMaterialsDrafter(deps = {}) {
         scorecard,
       });
       composed = composeBoth(writerJson);
-      scorecard = adjustScorecardForSkippedPdf(
-        await critic({
-          letterHtml: composed.letterHtml,
-          resumeHtml: composed.resumeHtml,
-          jdText,
-          masterResumeHtml,
-          writerJson,
-        }),
-        true,
-      );
+      rawScorecard = await critic({
+        letterHtml: composed.letterHtml,
+        resumeHtml: composed.resumeHtml,
+        jdText,
+        masterResumeHtml,
+        writerJson,
+      });
+      scorecard = adjustScorecardForSkippedPdf(rawScorecard, true);
     }
 
+    const resumePdfPath = join(dir, "resume.pdf");
+    const coverLetterPdfPath = join(dir, "cover-letter.pdf");
     const pdfResult = await pdfRenderer({
       slug: payload.slug,
       dir,
       resumeHtml: composed.resumeHtml,
       letterHtml: composed.letterHtml,
-      resumePdfPath: join(dir, "resume.pdf"),
-      coverLetterPdfPath: join(dir, "cover-letter.pdf"),
+      resumePdfPath,
+      coverLetterPdfPath,
     });
+    const pdfSkipped = Boolean(pdfResult?.skipped);
+    if (!pdfSkipped) {
+      rawScorecard = await mergePdfPageCounts(rawScorecard, {
+        resumeHtml: composed.resumeHtml,
+        letterHtml: composed.letterHtml,
+        resumePdfPath,
+        coverLetterPdfPath,
+      });
+    }
+    scorecard = adjustScorecardForSkippedPdf(rawScorecard, pdfSkipped);
     /** @type {string[]} */
     const notes = [];
-    if (pdfResult && pdfResult.skipped) {
-      notes.push(typeof pdfResult.note === "string" && pdfResult.note ? pdfResult.note : "pdf_skipped");
+    if (pdfSkipped) {
+      notes.push(typeof pdfResult?.note === "string" && pdfResult.note ? pdfResult.note : "pdf_skipped");
     }
 
     await finishWithFiles(dir, pendingPath, {

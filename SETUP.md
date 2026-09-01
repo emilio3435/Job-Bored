@@ -38,9 +38,10 @@ Packaged defaults:
 - Local discovery worker config/env defaults to
   `~/.jobbored/browser-use-discovery/worker-config.json` and
   `~/.jobbored/browser-use-discovery/.env`.
-- Optional Hermes materials workflow defaults to `~/.hermes/job-hunt/`, with
-  applications under `HERMES_APPLICATIONS_DIR` or
-  `~/.hermes/job-hunt/applications`.
+- Application materials default to `~/.jobbored/applications`. Cover letters
+  and tailored resumes are drafted on the local scraper server using the model
+  you picked at setup. Playwright is optional for PDF; without it HTML is
+  still READY and the QA report notes `pdf_skipped`.
 
 ### Pick one setup path
 
@@ -55,8 +56,8 @@ npm start
 
 Open `http://localhost:8080` and follow the on-screen setup — the login gate
 walks you through Google sign-in, and the first-run wizard connects your Sheet
-and AI provider. No manual Settings edits needed. Discovery worker and Hermes
-can be absent; the dashboard remains useful for reading/writing your `Pipeline`
+and AI provider. No manual Settings edits needed. Discovery worker can be
+absent; the dashboard remains useful for reading/writing your `Pipeline`
 Sheet. (`npm run web-only` serves the dashboard alone, without the scraper.)
 
 **2. Local discovery worker**
@@ -83,7 +84,14 @@ Dependency policy: the root `package-lock.json` owns the Browser Use discovery
 worker install. A nested `integrations/browser-use-discovery/package-lock.json`
 is intentionally ignored and should not be committed.
 
-**3. Optional Hermes materials workflow**
+**3. Optional materials drafts (local scraper)**
+
+Cover letters and tailored resumes are drafted on the local scraper server
+using the model you picked at setup (Gemini Flash is the recommended pin).
+Packages land in `~/.jobbored/applications`. Playwright is optional for PDF;
+missing it skips PDF and still allows READY.
+
+The older Hermes job-hunt tree is still installable if you want those scripts:
 
 ```bash
 npm run setup:hermes
@@ -258,8 +266,8 @@ The bootstrap exposes your local worker through one of three transports. Pick wi
 - Open a job card’s **Details** to use **Draft cover letter** or **Tailor resume**. The app combines the Pipeline row with your resume and samples, then calls your chosen provider. Your chosen AI provider receives resume, profile, and job context for that request. OAuth access tokens live in tab-scoped `sessionStorage`, not process memory-only.
 - In **Profile → AI draft preferences**, choose **Cover letter layout** and **Résumé layout** to steer structure (paragraphs vs bullets, section order, and similar). Those choices are saved in IndexedDB and are merged into the model’s system prompt as “Template requirements,” and appear on webhook payloads as `template`.
 - **Preview appearance** (Profile, and **Appearance** in the draft modal) only changes how the generated text is styled on screen and in **Print / PDF** — fonts, spacing, and accent colors. It does **not** change the model output or webhook JSON (no `visualThemeId` on the generation payload). Layout templates above still control what the model writes.
-- **Generic AI providers**: use any configured provider. OpenRouter is the default setup path; Local, OpenAI, Anthropic, Gemini, and Webhook are alternatives.
-- **OpenRouter (free default)**: shipped with `resumeProvider: "openrouter"`. Paste a free key from [https://openrouter.ai/keys](https://openrouter.ai/keys) into `resumeOpenRouterApiKey` (or Settings) — no paid plan needed. The free model `openai/gpt-oss-120b:free` is the default; pick another `:free` model id in Settings. OpenRouter is CORS-friendly from the browser.
+- **Generic AI providers**: use any configured provider. Gemini Flash is the recommended pin from first-run/Settings; Local, OpenRouter, OpenAI, Anthropic, and Webhook are alternatives. Drafts run on the local scraper server with the model you picked at setup.
+- **OpenRouter (free tier)**: paste a free key from [https://openrouter.ai/keys](https://openrouter.ai/keys) into `resumeOpenRouterApiKey` (or Settings) — no paid plan needed. The free model `openai/gpt-oss-120b:free` is an option, not the default writer. OpenRouter is CORS-friendly from the browser.
 - **Local**: set `resumeProvider` to `"local"` for a fully offline path. Defaults: `resumeLocalBaseUrl: "http://127.0.0.1:11434/v1"` (Ollama), `resumeLocalModel: "gemma4:e2b"`. Settings also offers `gemma4:e2b-mlx` (Apple Silicon, text-only). `resumeLocalApiKey` is optional — Ollama ignores it; it is only sent as `Authorization` when set. Pull the model first (e.g. `ollama pull gemma4:e2b`) or use the in-app **Download model** control in Settings → Resume.
 - **Gemini**: set `resumeProvider` to `"gemini"` and add an API key from [Google AI Studio](https://aistudio.google.com/) as `resumeGeminiApiKey`. Do not commit real keys to a public repository.
 - **OpenAI**: set `resumeProvider` to `"openai"` and add `resumeOpenAIApiKey`. **This dashboard runs in the browser** — OpenAI’s API does **not** allow direct `fetch` from web pages (CORS), so cover letter / resume generation will fail with a network error. Use **OpenRouter**, **Gemini**, **Local**, or **Webhook** and call OpenAI from your own server.
@@ -268,7 +276,7 @@ The bootstrap exposes your local worker through one of three transports. Pick wi
 - **ATS scorecard transport**: set `atsScoringMode` to `"server"` (default) to call `POST /api/ats-scorecard` on your local/deployed server, or set `"webhook"` + `atsScoringWebhookUrl` to send the ATS payload to your endpoint.
 - **Permanent ATS env setup (server mode)**: server now auto-loads `server/.env` via `dotenv`. Use `server/ats-env.example` as a template (copy to `server/.env`) so ATS provider keys persist across terminal sessions and `npm run dev` restarts. OpenRouter/OpenAI-compatible settings cover generic scorecards; Gemini is needed only when you explicitly choose Gemini for that generic provider path.
 
-OpenRouter is the first generic AI path for browser drafts, inline discovery ideas, posting summaries, scorecards, and plain JSON scoring tasks. You do **not** need a Gemini key for those generic AI flows when OpenRouter or Local is configured. Keep Gemini only if you select Gemini as the provider, or if you want optional Google-tool lanes: **URL Context** for reading a job page through Google's fetcher and **Grounded Search** for Google Search-grounded discovery. Without those Gemini Google tools, discovery still runs through SerpApi Google Jobs and your configured ATS connectors (Browser Use Cloud is the separate Add-from-URL extraction fallback, not a discovery lane).
+The local scraper server drafts materials with the model you picked at setup; Gemini Flash is the recommended pin. OpenRouter and Local remain generic AI paths for browser drafts, inline discovery ideas, posting summaries, scorecards, and plain JSON scoring tasks. Keep Gemini Google-tool lanes optional: **URL Context** for reading a job page through Google's fetcher and **Grounded Search** for Google Search-grounded discovery. Without those Gemini Google tools, discovery still runs through SerpApi Google Jobs and your configured ATS connectors (Browser Use Cloud is the separate Add-from-URL extraction fallback, not a discovery lane).
 
 See `config.example.js` for all keys. For the POST body your webhook receives, see [Resume generation webhook](#resume-generation-webhook) below.
 
