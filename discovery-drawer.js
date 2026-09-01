@@ -45,7 +45,10 @@
     let summary = legacyMessage;
     let detail = String(data.detail || "").trim();
     let nextStep = String(data.nextStep || "").trim();
-    if (!data.code && (upstreamStatus === 401 || upstreamStatus === 403)) {
+    if (
+      (!data.code || data.code === "UPSTREAM_ERROR") &&
+      (upstreamStatus === 401 || upstreamStatus === 403)
+    ) {
       summary = "The job site blocked automated access.";
       detail = `${sourceHost || "The job site"} returned HTTP ${upstreamStatus} before JobBored could read the posting.`;
       nextStep =

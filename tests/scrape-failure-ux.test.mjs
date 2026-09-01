@@ -192,12 +192,56 @@ describe("job scrape failure contract", () => {
     assert.equal(failure.body.retryable, true);
   });
 
+  it("retries a Cloudflare-style 52x response before reporting it unavailable", async () => {
+    const url = "https://jobs.example.com/roles/designer";
+    let fetchCalls = 0;
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        fetchImpl: async () => {
+          fetchCalls += 1;
+          return response("upstream timeout", { ok: false, status: 524 });
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.equal(fetchCalls, 2);
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.equal(failure.body.code, "source_unavailable");
+    assert.equal(failure.body.upstreamStatus, 524);
+    assert.match(failure.body.detail, /retried once/i);
+  });
+
   it("retries one connection failure and succeeds on the second attempt", async () => {
     let fetchCalls = 0;
     const result = await scrapeJobPosting("https://jobs.example.com/roles/designer", {
       fetchImpl: async () => {
         fetchCalls += 1;
         if (fetchCalls === 1) throw new TypeError("connection reset");
+        return response(ROLE_HTML);
+      },
+    });
+
+    assert.equal(fetchCalls, 2);
+    assert.equal(result.title, "Product Designer at Figma");
+  });
+
+  it("retries a connection failure while reading the response body", async () => {
+    let fetchCalls = 0;
+    const result = await scrapeJobPosting("https://jobs.example.com/roles/designer", {
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        if (fetchCalls === 1) {
+          return {
+            ...response(ROLE_HTML),
+            arrayBuffer: async () => {
+              throw new TypeError("connection terminated while reading");
+            },
+          };
+        }
         return response(ROLE_HTML);
       },
     });
@@ -438,6 +482,19 @@ describe("discovery drawer scrape failure copy", () => {
     assert.match(message, /^The job site blocked automated access\./);
     assert.match(message, /Next: Open one specific job/);
     assert.match(message, /Details: wellfound\.com · HTTP 403\./);
+  });
+
+  it("upgrades the prior server's generic UPSTREAM_ERROR response", () => {
+    const drawer = loadDrawer();
+    const message = drawer.formatScrapeFailure(
+      { error: "HTTP 403", code: "UPSTREAM_ERROR" },
+      502,
+      "https://wellfound.com/jobs/123-product-designer",
+    );
+
+    assert.match(message, /^The job site blocked automated access\./);
+    assert.match(message, /Why: wellfound\.com returned HTTP 403/);
+    assert.match(message, /Next: Open one specific job/);
   });
 
   it("gives a safe default for an empty failure response", () => {

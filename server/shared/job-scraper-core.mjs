@@ -16,7 +16,6 @@ const FETCH_TIMEOUT_MS = 18000;
 const MAX_HTML_BYTES = 4 * 1024 * 1024;
 const SERPAPI_ENDPOINT = "https://serpapi.com/search.json";
 const SERPAPI_TIMEOUT_MS = 12000;
-const TRANSIENT_HTTP_STATUSES = new Set([408, 425, 500, 502, 503, 504]);
 
 const UA =
   "Mozilla/5.0 (compatible; CommandCenterJobBot/1.0; +https://github.com/job-bored) AppleWebKit/537.36 Chrome/120 Safari/537.36";
@@ -394,6 +393,11 @@ function isKnownCompanyJobsIndex(url) {
   return false;
 }
 
+/** @param {number} status */
+function isTransientHttpStatus(status) {
+  return status === 408 || status === 425 || (status >= 500 && status <= 599);
+}
+
 /**
  * @param {unknown} error
  * @param {string} url
@@ -453,11 +457,7 @@ function classifyScrapeFailure(error, url, fallback = null) {
       fallback,
     });
   }
-  if (
-    upstreamStatus === 408 ||
-    upstreamStatus === 425 ||
-    (upstreamStatus && upstreamStatus >= 500 && upstreamStatus <= 599)
-  ) {
+  if (upstreamStatus && isTransientHttpStatus(upstreamStatus)) {
     return new ScrapeJobError(`HTTP ${upstreamStatus}`, {
       code: "source_unavailable",
       statusCode: 502,
@@ -1228,10 +1228,12 @@ async function fetchJobPage(url, signal, fetchImpl) {
         },
         { fetchImpl },
       );
-      if (attempt === 1 && TRANSIENT_HTTP_STATUSES.has(Number(response.status))) {
+      if (attempt === 1 && isTransientHttpStatus(Number(response.status))) {
         continue;
       }
-      return response;
+      if (!response.ok) return { response, buffer: null };
+      const buffer = await response.arrayBuffer();
+      return { response, buffer };
     } catch (error) {
       if (attempt === 1 && error instanceof TypeError) continue;
       throw error;
@@ -1274,7 +1276,8 @@ export async function scrapeJobPosting(url, options = {}) {
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let html;
   try {
-    const res = await fetchJobPage(target.url, controller.signal, fetchImpl);
+    const page = await fetchJobPage(target.url, controller.signal, fetchImpl);
+    const res = page.response;
     if (!res.ok) {
       const error = /** @type {Error & { upstreamStatus?: number }} */ (
         new Error(`HTTP ${res.status}`)
@@ -1282,7 +1285,8 @@ export async function scrapeJobPosting(url, options = {}) {
       error.upstreamStatus = Number(res.status);
       throw error;
     }
-    const buf = await res.arrayBuffer();
+    const buf = page.buffer;
+    if (!buf) throw new Error("Job page returned no response body");
     if (buf.byteLength > MAX_HTML_BYTES) {
       throw new Error("Page too large");
     }
