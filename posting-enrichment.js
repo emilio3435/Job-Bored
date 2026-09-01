@@ -278,9 +278,9 @@ async function _tryScrape(jobLink, context = {}) {
   if (!base) return null;
   if (host().isScraperUrlBlockedOnThisPage(base)) return null;
   const ctrl = new AbortController();
-  // Cover Cheerio (up to 18s) plus a SerpApi Google Jobs fallback (~12s)
-  // after a fast 4xx/5xx. The LLM-only path still runs if this aborts.
-  const timer = setTimeout(() => ctrl.abort(), 20_000);
+  // Cover Cheerio (up to 18s), SerpApi (~12s), and Gemini URL Context (~25s)
+  // after a fast 4xx/5xx. The browser URL-context lane still runs if this aborts.
+  const timer = setTimeout(() => ctrl.abort(), 45_000);
   try {
     const res = await fetch(`${base}/api/scrape-job`, {
       method: "POST",

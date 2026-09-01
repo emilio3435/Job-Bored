@@ -73,16 +73,16 @@ describe("job scrape failure contract", () => {
     assert.equal(failure.body.retryable, false);
   });
 
-  it("reports a permanent upstream block without retrying and preserves fallback diagnostics", async () => {
+  it("reports a permanent upstream block without retrying the direct page and preserves fallback diagnostics", async () => {
     const url = "https://wellfound.com/jobs/123-product-designer";
-    let fetchCalls = 0;
+    const fetchCalls = [];
     let thrown;
 
     try {
       await scrapeJobPosting(url, {
         serpApiKey: "test-serp-key",
-        fetchImpl: async () => {
-          fetchCalls += 1;
+        fetchImpl: async (requestUrl) => {
+          fetchCalls.push(String(requestUrl));
           return response("blocked", { ok: false, status: 403 });
         },
       });
@@ -90,7 +90,11 @@ describe("job scrape failure contract", () => {
       thrown = error;
     }
 
-    assert.equal(fetchCalls, 1, "a permanent 403 must not be retried");
+    assert.equal(
+      fetchCalls.filter((requestUrl) => requestUrl === url).length,
+      1,
+      "a permanent 403 must not retry the direct posting request",
+    );
     const failure = toScrapeFailureResponse(thrown, url);
     assert.equal(failure.status, 502);
     assert.equal(failure.body.code, "source_blocked");
@@ -484,8 +488,13 @@ describe("discovery drawer scrape failure copy", () => {
     );
 
     assert.match(message, /^The scraper took too long\./);
-    assert.match(message, /did not finish within 30 seconds/i);
+    assert.match(message, /did not finish within 45 seconds/i);
     assert.match(message, /continue without scraped context/i);
+    assert.match(
+      drawerJs,
+      /setTimeout\(\(\) => ctrl\.abort\(\), 45_000\)/,
+      "the browser must wait long enough for the server's final recovery lane",
+    );
   });
 
   it("explains when the browser cannot reach the local scraper", () => {

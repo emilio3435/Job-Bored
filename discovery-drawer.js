@@ -81,7 +81,7 @@
   function formatScrapeRequestError(error, sourceUrl, scraperBaseUrl) {
     if (error && error.scrapeFailureMessage) return error.scrapeFailureMessage;
     if (error && error.name === "AbortError") {
-      return "The scraper took too long. Why: It did not finish within 30 seconds. Next: Try again, or continue without scraped context.";
+      return "The scraper took too long. Why: It did not finish within 45 seconds. Next: Try again, or continue without scraped context.";
     }
     if (error instanceof TypeError) {
       const endpoint = scrapeSourceHost(scraperBaseUrl) || "the local scraper";
@@ -1597,7 +1597,7 @@ function initDiscoveryDrawer() {
       let timer = null;
       try {
         const ctrl = new AbortController();
-        timer = setTimeout(() => ctrl.abort(), 30_000);
+        timer = setTimeout(() => ctrl.abort(), 45_000);
         const res = await fetch(`${base}/api/scrape-job`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
