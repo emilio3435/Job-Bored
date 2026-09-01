@@ -49,7 +49,7 @@ function createStorage() {
 function createHandoffHarness({
   search = "",
   onboardingVisible = false,
-  onCheckOnboardingGate = null,
+  onFlowOpen = null,
 } = {}) {
   const sessionStorage = createStorage();
   const historyCalls = [];
@@ -63,6 +63,25 @@ function createHandoffHarness({
         search,
         pathname: "/index.html",
         hash: "",
+      },
+      // The one-flow controller the L6 cutover put at the head of the
+      // post-access chain (ONE-FLOW-ONBOARDING-SPEC §3.3), stubbed to the
+      // shape discovery-status-handoff.js consumes.
+      JobBoredOneFlow: {
+        async maybeStart() {
+          context.__maybeStartCalls += 1;
+          return true;
+        },
+        getState() {
+          return { beat: "google" };
+        },
+        async open() {
+          context.__flowOpen = true;
+          if (typeof onFlowOpen === "function") await onFlowOpen(context);
+        },
+        isOpen() {
+          return context.__flowOpen;
+        },
       },
     },
     history: {
@@ -79,7 +98,8 @@ function createHandoffHarness({
       },
     },
     __onboardingVisible: onboardingVisible,
-    __checkOnboardingGateCalls: 0,
+    __maybeStartCalls: 0,
+    __flowOpen: false,
     postAccessBootstrapDone: false,
     postAccessBootstrapPromise: Promise.resolve(),
     isOnboardingWizardVisible() {
@@ -96,15 +116,6 @@ function createHandoffHarness({
     },
     getDiscoveryReadinessSnapshot() {
       return { recommendedFlow: "local_agent" };
-    },
-    async checkInfraSetupGate() {
-      return false;
-    },
-    async checkOnboardingGate() {
-      context.__checkOnboardingGateCalls += 1;
-      if (typeof onCheckOnboardingGate === "function") {
-        await onCheckOnboardingGate(context);
-      }
     },
   });
 
@@ -123,12 +134,6 @@ function createHandoffHarness({
     },
     getDiscoveryReadinessSnapshot() {
       return { recommendedFlow: "local_agent" };
-    },
-    checkInfraSetupGate() {
-      return context.checkInfraSetupGate();
-    },
-    checkOnboardingGate() {
-      return context.checkOnboardingGate();
     },
   };
 
@@ -228,22 +233,20 @@ describe("Discovery cold-start handoffs", () => {
     assert.equal(harness.openCalls[0].entryPoint, "settings");
   });
 
-  it("runPostAccessBootstrapOnce checks onboarding before processing the discovery deep link and stays one-shot", async () => {
-    const harness = createHandoffHarness({
-      search: "?setup=discovery",
-      onCheckOnboardingGate(context) {
-        context.__onboardingVisible = true;
-      },
-    });
+  it("runPostAccessBootstrapOnce opens the one-flow before processing the discovery deep link and stays one-shot", async () => {
+    // Same claim as before the L6 cutover, with the flow in the legacy
+    // wizards' place: onboarding is surfaced FIRST, so a ?setup=discovery
+    // deep link defers instead of opening a second wizard over it.
+    const harness = createHandoffHarness({ search: "?setup=discovery" });
 
     await harness.run("runPostAccessBootstrapOnce()");
     await harness.run("runPostAccessBootstrapOnce()");
 
-    assert.equal(harness.context.__checkOnboardingGateCalls, 1);
+    assert.equal(harness.context.__maybeStartCalls, 1);
     assert.equal(
       harness.sessionStorage.getItem("pendingDiscoverySetup"),
       "1",
-      "should defer only after onboarding has been surfaced",
+      "should defer only after the flow has claimed the surface",
     );
     assert.deepEqual(harness.openCalls, []);
     assert.deepEqual(harness.historyCalls, ["/index.html"]);

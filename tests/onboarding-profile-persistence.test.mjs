@@ -513,7 +513,11 @@ describe("Onboarding gate behavior", () => {
     );
   });
 
-  it("onboarding is checked after access is resolved", () => {
+  it("onboarding is decided after access is resolved", () => {
+    // ONE-FLOW-ONBOARDING-SPEC §3.3: the post-auth chain asks the flow
+    // controller now, not checkOnboardingGate. The claim this test has
+    // always made — "onboarding is decided once, after access is proven"
+    // — is unchanged; only the decider moved.
     const statusHandoffJs = readFileSync(
       join(dirname(fileURLToPath(import.meta.url)), "..", "discovery-status-handoff.js"),
       "utf8",
@@ -528,8 +532,12 @@ describe("Onboarding gate behavior", () => {
     const bootstrapBody = statusHandoffJs.slice(bootstrapStart, bootstrapEnd + 1);
 
     assert.ok(
-      bootstrapBody.includes("checkOnboardingGate"),
-      "runPostAccessBootstrapOnce should call checkOnboardingGate",
+      bootstrapBody.includes("startOneFlowIfNeeded"),
+      "runPostAccessBootstrapOnce should run the one-flow entry decision",
+    );
+    assert.ok(
+      !bootstrapBody.includes("checkOnboardingGate"),
+      "and must no longer call the retired onboarding gate",
     );
   });
 });

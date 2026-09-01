@@ -202,7 +202,12 @@ describe("UserContent infraSetupComplete flag", () => {
 });
 
 describe("Infra setup gate ordering", () => {
-  it("runPostAccessBootstrapOnce gates infra setup before checkOnboardingGate", () => {
+  it("runPostAccessBootstrapOnce runs the one-flow, not the two legacy gates", () => {
+    // ONE-FLOW-ONBOARDING-SPEC §3.3: the infra-then-onboarding ordering
+    // this used to pin is gone with the L6 cutover. One controller call
+    // now owns the entry decision; the two gates survive only until L7
+    // deletes them (see tests/oneflow-l6-cutover.test.mjs for the grep
+    // table proving they are defined but no longer reachable from boot).
     const start = statusHandoffJs.indexOf(
       "function runPostAccessBootstrapOnce",
     );
@@ -211,13 +216,17 @@ describe("Infra setup gate ordering", () => {
       start,
     );
     const body = statusHandoffJs.slice(start, end);
-    const infraIdx = body.indexOf("checkInfraSetupGate");
-    const onboardingIdx = body.indexOf("checkOnboardingGate");
-    assert.ok(infraIdx !== -1, "should call checkInfraSetupGate");
-    assert.ok(onboardingIdx !== -1, "should still call checkOnboardingGate");
     assert.ok(
-      infraIdx < onboardingIdx,
-      "infra gate must run before the profile onboarding gate",
+      body.includes("startOneFlowIfNeeded"),
+      "the post-auth chain should hand off to the one-flow controller",
+    );
+    assert.ok(
+      !body.includes("checkInfraSetupGate"),
+      "the legacy infra gate must not be called from boot",
+    );
+    assert.ok(
+      !body.includes("checkOnboardingGate"),
+      "the legacy onboarding gate must not be called from boot",
     );
   });
 
@@ -428,7 +437,11 @@ describe("first-run wizard markup + wiring", () => {
     );
   });
 
-  it("wires checkInfraSetupGate through the compat + bridge layers", () => {
+  it("keeps checkInfraSetupGate wired through the compat + bridge layers", () => {
+    // The wizard and its bridge wiring survive the L6 cutover untouched —
+    // L7 owns their deletion. What changed is the CALLER: app-bootstrap's
+    // cold start now opens the demo board (spec §4), so the gate is
+    // reachable without being reached.
     assert.match(
       appCompatJs,
       /function checkInfraSetupGate\(\.\.\.args\)/,
@@ -439,8 +452,12 @@ describe("first-run wizard markup + wiring", () => {
       "bridge-registry.js should map checkInfraSetupGate to discovery.status.host",
     );
     assert.ok(
-      appBootstrapJs.includes("checkInfraSetupGate"),
-      "app-bootstrap.js should invoke the infra gate on the cold-start path",
+      !appBootstrapJs.includes("checkInfraSetupGate"),
+      "app-bootstrap.js must not open the infra wizard over the demo board",
+    );
+    assert.ok(
+      appBootstrapJs.includes("JobBoredOneFlowDemoBoard"),
+      "app-bootstrap.js should mount S0 on the cold-start path instead",
     );
   });
 });
