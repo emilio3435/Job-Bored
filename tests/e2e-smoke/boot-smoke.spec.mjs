@@ -12,6 +12,11 @@
  * config.js are served from tests/e2e-fixtures/hermetic-harness.mjs so the
  * checkout's config.js and live Google are never touched.
  *
+ * The surface under test is the one-flow's, not the credential-first
+ * onboarding it replaced: ONE-FLOW-ONBOARDING-SPEC §4 makes screen S0 —
+ * the demo board — the cold-start screen, and §3.5 puts every beat in one
+ * shell at #oneFlowMount.
+ *
  * Run:
  *   npm run test:e2e-smoke
  */
@@ -21,6 +26,11 @@ import {
   installHermeticNetworkFence,
   startHermeticApp,
 } from "../e2e-fixtures/hermetic-harness.mjs";
+
+/** Screen S0's overlay root (oneflow-demo-board.js ROOT_ID). */
+const DEMO_BOARD = "#oneFlowDemoBoard";
+/** The single shell mount every beat renders into (spec §3.5). */
+const FLOW_MOUNT = "#oneFlowMount";
 
 let app = null;
 
@@ -33,11 +43,11 @@ test.afterAll(async () => {
 });
 
 /**
- * Navigate to the greenfield dashboard and wait for boot to finish. Screen
- * S0 — the demo board — owns the first-boot surface since the one-flow
- * cutover (ONE-FLOW-ONBOARDING-SPEC §4: give before you ask), so that mount
- * is what boot is finished when it appears. Returns the list of console
- * errors and uncaught page errors collected since navigation started.
+ * Navigate to the greenfield dashboard and wait for boot to finish. Boot is
+ * finished when screen S0 has painted: since the one-flow cutover the demo
+ * board — not a credential gate — is what a zero-config visitor gets
+ * (spec §4, "give before you ask"). Returns the list of console errors and
+ * uncaught page errors collected since navigation started.
  */
 async function bootGreenfield(page) {
   const consoleErrors = [];
@@ -49,7 +59,7 @@ async function bootGreenfield(page) {
   });
   const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
   await page.goto(`${app.baseUrl}/?greenfield=1`, { waitUntil: "load" });
-  await expect(page.locator("#oneFlowMount")).toBeVisible({
+  await expect(page.locator(DEMO_BOARD)).toBeVisible({
     timeout: 15_000,
   });
   expect(
@@ -67,24 +77,25 @@ function computedVisibility(locator) {
   });
 }
 
-async function expectVisiblePrimaryAction(page, mountSelector) {
-  const shell = page.locator(`${mountSelector} .discovery-setup-wizard`);
-  await expect(shell).toBeVisible();
-  const primary = page
-    .locator(`${mountSelector} .discovery-setup-wizard__btn--primary`)
-    .first();
-  await expect(primary).toBeVisible();
-  const box = await primary.boundingBox();
-  expect(box, "primary action button should have a bounding box").not.toBeNull();
+/**
+ * A button the user can actually hit: visible to Playwright (which covers
+ * ancestor hiding) AND laid out with a non-zero box (which covers the
+ * collapsed-flex and zero-height cases toBeVisible alone would pass).
+ */
+async function expectClickableBox(locator, label) {
+  await expect(locator).toBeVisible();
+  const box = await locator.boundingBox();
+  expect(box, `${label} should have a bounding box`).not.toBeNull();
   expect(box.width).toBeGreaterThan(0);
   expect(box.height).toBeGreaterThan(0);
 }
 
 test("greenfield boot produces zero console errors", async ({ page }) => {
   const consoleErrors = await bootGreenfield(page);
-  // Boot continues after the gate appears (auth bootstrap, readiness
-  // checks); give the async tail a beat before judging the console.
-  await page.waitForTimeout(2_000);
+  // Boot continues after S0 paints (auth bootstrap, readiness checks, and
+  // the index.html blank-shell watchdog at DOMContentLoaded + 2s); give the
+  // async tail a beat before judging the console.
+  await page.waitForTimeout(3_000);
   expect(consoleErrors, "boot must be console-error free (no allowlist)").toEqual([]);
 });
 
@@ -114,20 +125,40 @@ test("every <script src> in the served HTML returns 200", async ({ page }) => {
   expect(failures, "every <script src> must load with 200").toEqual([]);
 });
 
-test("screen S0 — the demo board — is visible on greenfield boot", async ({
+test("screen S0 — the demo board — is the cold-start surface, credential gate hidden", async ({
   page,
 }) => {
   // spec §4: a cold start opens on scored demo cards, not a credential ask.
+  // The gate object still exists for its error mode; what must not happen is
+  // it rendering over a merely-empty config the way the old opening did.
   await bootGreenfield(page);
-  const board = page.locator("#oneFlowMount");
-  await expect(board).toBeVisible();
+  const board = page.locator(DEMO_BOARD);
   const computed = await computedVisibility(board);
   expect(computed.display).not.toBe("none");
   expect(computed.visibility).toBe("visible");
-  await expect(page.locator("#sheetAccessGateScreen")).not.toBeVisible();
+
+  await expect(page.locator("#sheetAccessGateScreen")).toBeHidden();
+  await expect(page.locator(FLOW_MOUNT)).toBeHidden();
 });
 
-test("JobBoredOneFlow.open() renders a beat visible by computed style", async ({
+test("demo cards render watermarked, with a fit score and a why-it-fits line", async ({
+  page,
+}) => {
+  // spec §4 content contract: the fixture board is the product, so an empty
+  // board (fixture 404, JSON drift, renderer regression) is a boot failure —
+  // the invitation card alone is not screen S0.
+  await bootGreenfield(page);
+  const cards = page.locator(`${DEMO_BOARD} .oneflow-demo__card`);
+  await expect(cards.first()).toBeVisible();
+  expect(await cards.count()).toBeGreaterThan(0);
+
+  const first = cards.first();
+  await expect(first.locator(".oneflow-demo__chip")).toHaveText("DEMO");
+  await expect(first.locator(".oneflow-demo__score")).toContainText("fit");
+  await expect(first.locator(".oneflow-demo__why")).not.toBeEmpty();
+});
+
+test("JobBoredOneFlow.open() renders a beat, and its primary action is hittable", async ({
   page,
 }) => {
   // The first-run wizard this used to open is deleted (§7). Same bug class,
@@ -136,14 +167,22 @@ test("JobBoredOneFlow.open() renders a beat visible by computed style", async ({
   // "shows" the beat but a stylesheet wins and keeps it display:none.
   await bootGreenfield(page);
   await page.evaluate(() => window.JobBoredOneFlow.open("google"));
-  const beat = page.locator("#oneFlowMount .oneflow-beat");
+  const beat = page.locator(`${FLOW_MOUNT} .oneflow-beat`);
   await expect(beat).toBeVisible();
   const computed = await computedVisibility(beat);
   expect(computed.display).not.toBe("none");
   expect(computed.visibility).toBe("visible");
+
+  await expectClickableBox(
+    page.locator(`${FLOW_MOUNT} .discovery-setup-wizard__btn--primary`).first(),
+    "the beat's primary action",
+  );
 });
 
 test("requestDiscoverySetup() renders the wizard shell with a usable primary action", async ({ page }) => {
+  // The discovery setup wizard survives the cutover as B5's connect panel
+  // and as the Settings surface; §5 B5 removed its onboarding bypass, so
+  // an onboarding-entry request must open now rather than defer.
   await bootGreenfield(page);
   const result = await page.evaluate(() =>
     window.JobBoredApp.core.host.requestDiscoverySetup({
@@ -154,5 +193,10 @@ test("requestDiscoverySetup() renders the wizard shell with a usable primary act
   expect(result, "setup request must open now, not defer").toEqual({
     deferred: false,
   });
-  await expectVisiblePrimaryAction(page, "#discoverySetupWizardMount");
+  const mount = "#discoverySetupWizardMount";
+  await expect(page.locator(`${mount} .discovery-setup-wizard`)).toBeVisible();
+  await expectClickableBox(
+    page.locator(`${mount} .discovery-setup-wizard__btn--primary`).first(),
+    "the discovery wizard's primary action",
+  );
 });
