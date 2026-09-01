@@ -441,3 +441,62 @@ describe("B6 in the real shell — the footer carries the right primary", () => 
     assert.ok(mount.querySelector(".oneflow-payoff__now"), "B6's own body renders");
   });
 });
+
+describe("B6 intent pre-check reads the SAME payload the run will send", () => {
+  it("guards on the run's own payload, not a second guess at it", async () => {
+    // If the pre-check and triggerDiscoveryRun's guard resolved intent from
+    // different sources, this beat could either block a run the worker
+    // would accept, or wave through one that bails on blank_intent — both
+    // of which reintroduce the dead end B6 exists to close.
+    const env = loadPayoff();
+    const s = {
+      messages: [],
+      busy: [],
+      completed: [],
+    };
+    await env.flow.getBeat("payoff").onAction("payoff_run_now", {
+      state: { skipped: {}, completedBeats: [] },
+      runtime: {},
+      setMessage: (t, tone) => s.messages.push([t, tone]),
+      setBusy: (id, stages) => s.busy.push([id, stages]),
+      clearBusy: () => {},
+      completeBeat: (d) => {
+        s.completed.push(d);
+        return Promise.resolve();
+      },
+      goToBeat: () => Promise.resolve(),
+    });
+    assert.equal(env.calls.payloads.length, 1, "the run payload is built once");
+    assert.equal(env.calls.intentInputs.length, 1);
+    const input = env.calls.intentInputs[0];
+    assert.ok(input.discoveryProfile, "the free-form profile feeds the check");
+    assert.ok(
+      input.mergedUserProfile,
+      "and so does the fit profile — B4's roles are intent (AGENT_CONTRACT row 120)",
+    );
+  });
+
+  it("falls back to the stored profile when no host bridge is present", async () => {
+    const env = loadPayoff();
+    delete env.window.JobBoredApp.core.host.buildDiscoveryWebhookPayload;
+    const s = { completed: [], messages: [] };
+    await env.flow.getBeat("payoff").onAction("payoff_run_now", {
+      state: { skipped: {}, completedBeats: [] },
+      runtime: {},
+      setMessage: (t, tone) => s.messages.push([t, tone]),
+      setBusy: () => {},
+      clearBusy: () => {},
+      completeBeat: (d) => {
+        s.completed.push(d);
+        return Promise.resolve();
+      },
+      goToBeat: () => Promise.resolve(),
+    });
+    assert.equal(env.calls.intentInputs.length, 1, "the check still runs");
+    assert.equal(
+      s.completed.length,
+      1,
+      "a missing bridge must not turn the payoff into a dead end",
+    );
+  });
+});

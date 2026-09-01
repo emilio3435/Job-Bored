@@ -475,29 +475,53 @@
    * so `Run discovery now` is promised full-power. If that invariant is
    * broken we say so through the message slot instead of firing a run
    * that returns blank_intent and leaves the user staring at nothing.
+   *
+   * It resolves intent from the SAME payload the run will send, through
+   * the SAME shared helper triggerDiscoveryRun guards with — otherwise
+   * this check could pass where the run bails, or block a run the worker
+   * would have accepted. A fit profile with roles counts as intent even
+   * when the free-form discovery profile is empty, which is exactly the
+   * shape B3/B4 leave behind.
    */
-  async function assertIntent() {
-    const api = window.JobBoredEffectiveIntent;
-    if (!api || typeof api.buildEffectiveIntent !== "function") return true;
-    let discoveryProfile = {};
+  async function readIntentSources() {
+    const h = appHost();
+    if (h && typeof h.buildDiscoveryWebhookPayload === "function") {
+      try {
+        const payload = await h.buildDiscoveryWebhookPayload(
+          typeof h.getSHEET_ID === "function" ? h.getSHEET_ID() : sheetId(),
+          { trigger: "onboarding_payoff" },
+        );
+        if (payload) {
+          return {
+            discoveryProfile: payload.discoveryProfile,
+            mergedUserProfile: payload.mergedUserProfile,
+          };
+        }
+      } catch (e) {
+        console.warn("[JobBored] B6: could not build the run payload:", e);
+      }
+    }
+    // No host bridge (or it failed): fall back to the stored profile so the
+    // check still means something rather than silently passing.
     const s = store();
     if (s && typeof s.getDiscoveryProfile === "function") {
       try {
-        discoveryProfile = (await s.getDiscoveryProfile()) || {};
+        return {
+          discoveryProfile: (await s.getDiscoveryProfile()) || {},
+          mergedUserProfile: null,
+        };
       } catch (_) {
-        discoveryProfile = {};
+        /* fall through */
       }
     }
-    const runtimeProfile =
-      (window.JobBoredOneFlow &&
-        typeof window.JobBoredOneFlow.getState === "function" &&
-        null) ||
-      null;
-    const effective = api.buildEffectiveIntent({
-      discoveryProfile,
-      mergedUserProfile: runtimeProfile,
-    });
-    return !api.isBlankIntent(effective);
+    return { discoveryProfile: {}, mergedUserProfile: null };
+  }
+
+  async function assertIntent() {
+    const api = window.JobBoredEffectiveIntent;
+    if (!api || typeof api.buildEffectiveIntent !== "function") return true;
+    const sources = await readIntentSources();
+    return !api.isBlankIntent(api.buildEffectiveIntent(sources));
   }
 
   function triggerRun() {
