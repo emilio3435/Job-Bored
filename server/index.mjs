@@ -630,10 +630,15 @@ app.post("/profile/rescore", async (req, res) => {
  * @param {unknown} err
  */
 function sendAppError(res, err) {
-  const error = /** @type {{ statusCode?: unknown } | null | undefined} */ (err);
+  const error = /** @type {{ statusCode?: unknown, code?: unknown } | null | undefined} */ (err);
   const status = Number(error && error.statusCode);
   const message = errorMessage(err, "Application materials error");
-  res.status(Number.isFinite(status) ? status : 500).json({ error: message });
+  /** @type {{ error: string, code?: string }} */
+  const body = { error: message };
+  if (error && typeof error.code === "string" && error.code) {
+    body.code = error.code;
+  }
+  res.status(Number.isFinite(status) ? status : 500).json(body);
 }
 
 app.get("/api/applications", async (_req, res) => {
@@ -680,10 +685,9 @@ app.post("/api/applications/:slug/request", async (req, res) => {
   }
 });
 
-/* Converts a Review-status artifact into a concrete Hermes regeneration
- * request. The quality gate decides which document needs work; this
- * endpoint turns those issue codes into repair notes that ask Hermes to
- * expand sparse drafts or collapse overlong ones automatically. */
+/* Converts a Review-status artifact into a regeneration request on the
+ * in-process drafter FIFO. The quality gate decides which document needs
+ * work; this endpoint turns those issue codes into repair notes. */
 app.post("/api/applications/:slug/repair", async (req, res) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
