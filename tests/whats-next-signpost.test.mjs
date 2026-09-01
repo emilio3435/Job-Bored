@@ -15,8 +15,10 @@ const firstRunWizardJs = readFileSync(
   join(repoRoot, "first-run-wizard.js"),
   "utf8",
 );
-const onboardingWizardJs = readFileSync(
-  join(repoRoot, "onboarding-wizard.js"),
+// The celebration player's home since ONE-FLOW-ONBOARDING-SPEC §7 moved it
+// out of onboarding-wizard.js (which L7 deletes).
+const onboardingCelebrationJs = readFileSync(
+  join(repoRoot, "onboarding-celebration.js"),
   "utf8",
 );
 const whatsNextBannerJs = readFileSync(
@@ -1681,10 +1683,12 @@ describe("celebration overlay — inerts siblings while up (click-through fix)",
   // the login gate underneath (which has the same scroll-container
   // quirk), so we keep everything mounted and use `inert` instead.
   it("playOnboardingCelebration sets inert on every body sibling at show (un-inerts the overlay first)", () => {
-    const start = onboardingWizardJs.indexOf(
+    // The player moved to onboarding-celebration.js (ONE-FLOW-ONBOARDING-SPEC
+    // §7); onboarding-wizard.js now only delegates. Same mechanic, new home.
+    const start = onboardingCelebrationJs.indexOf(
       "function playOnboardingCelebration",
     );
-    const fn = onboardingWizardJs.slice(start, start + 4500);
+    const fn = onboardingCelebrationJs.slice(start, start + 4500);
     // First, the overlay itself must be cleared of inert — the first-run
     // wizard's focus-trap inerts everything including the celebration on
     // show, so we have to opt out of its own bookkeeping.
@@ -1704,8 +1708,8 @@ describe("celebration overlay — inerts siblings while up (click-through fix)",
   });
 
   it("dismiss restores interactivity (removes inert) so the next chapter is usable", () => {
-    const fn = onboardingWizardJs.slice(
-      onboardingWizardJs.indexOf("function playOnboardingCelebration"),
+    const fn = onboardingCelebrationJs.slice(
+      onboardingCelebrationJs.indexOf("function playOnboardingCelebration"),
     );
     assert.match(
       fn,
