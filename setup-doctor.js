@@ -658,58 +658,6 @@
   });
 
   // --------------------------------------------------------------
-  // issue: gcloud can create the OAuth client for the user
-  // --------------------------------------------------------------
-
-  registerIssue({
-    id: "gcloud_can_create_oauth",
-    severity: "warn",
-    title: "gcloud can create your OAuth Client ID",
-    detail:
-      "Google Cloud CLI is installed and signed in. We can mint a Web Client ID without leaving the app.",
-    autoFixable: true,
-    detect() {
-      const w = getWin();
-      if (!w) return false;
-      const cid =
-        typeof w.getOAuthClientId === "function" ? w.getOAuthClientId() : "";
-      if (cid) return false;
-      const state = w.installDoctorState;
-      if (!state || !state.tools || !state.tools.gcloud) return false;
-      return !!(state.tools.gcloud.installed && state.tools.gcloud.loggedIn);
-    },
-    async fix() {
-      if (!isLocalhost()) return { ok: false, needsUserClick: true };
-      try {
-        const resp = await doFetch("/__proxy/oauth-bootstrap", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: "{}",
-        });
-        if (resp.status === 501) return { ok: false };
-        const body = await resp.json().catch(() => ({}));
-        if (!body || !body.ok || !body.clientId) {
-          return {
-            ok: false,
-            error: (body && body.actionable) || "oauth-bootstrap failed",
-          };
-        }
-        const w = getWin();
-        if (w && typeof w.applyOAuthClientChange === "function") {
-          try {
-            w.applyOAuthClientChange(body.clientId);
-          } catch (_) {
-            /* fall through */
-          }
-        }
-        return { ok: true, body };
-      } catch (e) {
-        return { ok: false, error: e && e.message };
-      }
-    },
-  });
-
-  // --------------------------------------------------------------
   // issue: keep-alive job not installed
   // --------------------------------------------------------------
 

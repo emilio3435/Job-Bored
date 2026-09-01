@@ -243,45 +243,12 @@
 
     const gcloudBtn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
     if (gcloudBtn) {
-      gcloudBtn.addEventListener("click", async () => {
-        gcloudBtn.disabled = true;
-        const original = gcloudBtn.textContent;
-        gcloudBtn.textContent = "Creating with gcloud…";
-        try {
-          const resp = await fetch("/__proxy/oauth-bootstrap", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
-          });
-          if (resp.status === 501) {
-            gcloudBtn.hidden = true;
-            return;
-          }
-          const body = await resp.json().catch(() => ({}));
-          if (body && body.ok && body.clientId) {
-            const altInput = document.getElementById(
-              "sheetAccessGateOAuthClientIdInputAlt",
-            );
-            if (altInput) altInput.value = body.clientId;
-            if (trySaveAndContinue(body.clientId)) {
-              host().showToast("Client ID created with gcloud.", "success");
-              return;
-            }
-          }
-          const message =
-            (body && body.actionable) ||
-            "gcloud couldn’t create a Client ID. Try the manual steps.";
-          host().showToast(message, "warning", true);
-        } catch (e) {
-          console.warn("[JobBored] oauth-bootstrap:", e);
-          host().showToast(
-            "gcloud auto-create unavailable. Try manual steps.",
-            "warning",
-          );
-        } finally {
-          gcloudBtn.disabled = false;
-          gcloudBtn.textContent = original;
-        }
+      gcloudBtn.addEventListener("click", () => {
+        host().showToast(
+          "Create your OAuth Client ID with the manual steps above.",
+          "warning",
+          true,
+        );
       });
     }
     if (openConsole) {

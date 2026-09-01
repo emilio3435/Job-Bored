@@ -222,54 +222,6 @@ describe("greenfield automation mock helpers", () => {
 });
 
 describe("greenfield automation endpoint contracts", () => {
-  it("covers OAuth auto-create happy path, while accepting Phase 0 stubs", async () => {
-    const tools = await createTempTooling();
-    try {
-      await withEnv({ PATH: tools.path }, async () => {
-        await withDevServer(async (baseUrl) => {
-          const { response, json } = await requestJson(baseUrl, "/__proxy/oauth-bootstrap", {
-            body: { projectId: "qa-project", applicationName: "JobBored QA" },
-          });
-
-          assertNotPhase0Stub(response, json, "/__proxy/oauth-bootstrap");
-
-          assert.equal(response.status, 200);
-          assert.equal(json.ok, true);
-          assert.equal(json.source, "gcloud");
-          assert.match(json.clientId, /\.apps\.googleusercontent\.com$/);
-          if (Object.hasOwn(json, "clientSecret")) {
-            assert.equal(typeof json.clientSecret, "string");
-          }
-        });
-      });
-    } finally {
-      await tools.cleanup();
-    }
-  });
-
-  it("covers OAuth fallback when gcloud is missing", async () => {
-    const tools = await createTempTooling({ gcloud: false, wrangler: false, ngrok: false, launchctl: false });
-    try {
-      await withEnv({ PATH: tools.bin }, async () => {
-        await withDevServer(async (baseUrl) => {
-          const { response, json } = await requestJson(baseUrl, "/__proxy/oauth-bootstrap", {
-            body: { projectId: "qa-project", applicationName: "JobBored QA" },
-          });
-
-          assertNotPhase0Stub(response, json, "/__proxy/oauth-bootstrap");
-
-          assert.equal(response.status, 200);
-          assert.equal(json.ok, false);
-          assert.equal(json.reason, "gcloud_missing");
-          assert.equal(typeof json.actionable, "string");
-          assert.match(json.actionable, /gcloud/i);
-        });
-      });
-    } finally {
-      await tools.cleanup();
-    }
-  });
-
   it("covers install-doctor all-missing then all-present", async () => {
     const missingTools = await createTempTooling({ gcloud: false, wrangler: false, ngrok: false, launchctl: false });
     const presentTools = await createTempTooling();

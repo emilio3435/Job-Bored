@@ -21,7 +21,7 @@ export const DEPENDENCY_INPUTS = [
 const ROOT_NODE_MODULES = "node_modules";
 const SERVER_NODE_MODULES = "server/node_modules";
 const INSTALL_STAMP_FILE = ".repo-install-state.json";
-const REQUIRED_NODE_MAJOR = 24;
+const REQUIRED_NODE_MAJOR = 20;
 
 function getInstallStampPath(repoRoot = REPO_ROOT) {
   return join(repoRoot, ROOT_NODE_MODULES, INSTALL_STAMP_FILE);
@@ -71,8 +71,8 @@ export function getNodeVersionCheck(version = process.version) {
   const major = match ? Number(match[1]) : NaN;
   return {
     version,
-    required: `>=${REQUIRED_NODE_MAJOR} <${REQUIRED_NODE_MAJOR + 1}`,
-    ok: Number.isInteger(major) && major === REQUIRED_NODE_MAJOR,
+    required: `>=${REQUIRED_NODE_MAJOR}`,
+    ok: Number.isInteger(major) && major >= REQUIRED_NODE_MAJOR,
   };
 }
 
