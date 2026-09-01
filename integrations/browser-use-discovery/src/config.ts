@@ -27,6 +27,10 @@ import {
   resolveEffectiveCompanyPools,
   resolveEffectiveSources,
 } from "./discovery/effective-intent.ts";
+// @ts-expect-error JS pin store has JSDoc, no sibling .d.mts
+import { loadLlmConfig, migrateLlmConfigFromEnv } from "../../../server/llm-config.mjs";
+// @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
+import { GEMINI_FLASH_FALLBACK, isGeminiFlashFamily } from "../../../server/model-family.mjs";
 
 export type WorkerLlmProvider =
   | ""
@@ -270,6 +274,7 @@ function resolveGroundedSearchTuning(
 export function loadRuntimeConfig(
   env: RuntimeEnv = process.env,
 ): WorkerRuntimeConfig {
+  const readHomeLlmPin = env === process.env;
   const runtimeEnv = mergeRuntimeEnvWithDotEnv(env);
   const runMode = normalizeRunMode(
     readFirst(runtimeEnv, [
@@ -344,18 +349,30 @@ export function loadRuntimeConfig(
   ) {
     googleOAuthTokenFile = defaultHermesGoogleTokenPath;
   }
-  const geminiApiKey = readFirst(runtimeEnv, [
+  let geminiApiKey = readFirst(runtimeEnv, [
     "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
     "DISCOVERY_GEMINI_API_KEY",
     "GEMINI_API_KEY",
   ]);
-  const geminiModel =
+  let geminiModel =
     readFirst(runtimeEnv, [
       "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
       "DISCOVERY_GEMINI_MODEL",
       "GEMINI_MODEL",
-    ]) || "gemini-3.5-flash";
-  const llmProvider = resolveLlmProvider(runtimeEnv);
+    ]) || GEMINI_FLASH_FALLBACK;
+  let llmProvider = resolveLlmProvider(runtimeEnv);
+  let llmApiKey = resolveLlmApiKey(runtimeEnv, llmProvider);
+  let llmModel = resolveLlmModel(runtimeEnv, llmProvider, geminiModel);
+  let llmBaseUrl = resolveLlmBaseUrl(runtimeEnv, llmProvider);
+  const pinned = applyStoredLlmPin(runtimeEnv, readHomeLlmPin, geminiModel);
+  if (pinned) {
+    llmProvider = pinned.llmProvider;
+    llmApiKey = pinned.llmApiKey;
+    llmModel = pinned.llmModel;
+    llmBaseUrl = pinned.llmBaseUrl;
+    geminiApiKey = pinned.geminiApiKey;
+    geminiModel = pinned.geminiModel;
+  }
   return {
     stateDatabasePath,
     runStateDirectory,
@@ -364,9 +381,9 @@ export function loadRuntimeConfig(
     browserUseApiKey: readFirst(runtimeEnv, ["BROWSER_USE_API_KEY"]),
     browserUseProfileId: readFirst(runtimeEnv, ["BROWSER_USE_PROFILE_ID"]),
     llmProvider,
-    llmApiKey: resolveLlmApiKey(runtimeEnv, llmProvider),
-    llmModel: resolveLlmModel(runtimeEnv, llmProvider, geminiModel),
-    llmBaseUrl: resolveLlmBaseUrl(runtimeEnv, llmProvider),
+    llmApiKey,
+    llmModel,
+    llmBaseUrl,
     geminiApiKey,
     geminiModel,
     groundedSearchMaxResultsPerCompany: parsePositiveInt(
@@ -440,6 +457,44 @@ export function loadRuntimeConfig(
   };
 }
 
+type StoredLlmPinFields = {
+  llmProvider: WorkerLlmProvider;
+  llmApiKey: string;
+  llmModel: string;
+  llmBaseUrl: string;
+  geminiApiKey: string;
+  geminiModel: string;
+};
+
+function applyStoredLlmPin(
+  runtimeEnv: RuntimeEnv,
+  readHomeLlmPin: boolean,
+  currentGeminiModel: string,
+): StoredLlmPinFields | null {
+  const hasExplicitPinPath = Boolean(
+    readFirst(runtimeEnv, ["JOBBORED_LLM_CONFIG_PATH"]),
+  );
+  // Test env objects omit the path and must not read ~/.jobbored/llm.json.
+  if (!hasExplicitPinPath && !readHomeLlmPin) return null;
+  migrateLlmConfigFromEnv(runtimeEnv);
+  const loaded = loadLlmConfig(runtimeEnv);
+  if (!loaded) return null;
+  const llmProvider = normalizeLlmProvider(loaded.provider);
+  if (!llmProvider) return null;
+  const resolvedModel = isGeminiFlashFamily(loaded.model)
+    ? GEMINI_FLASH_FALLBACK
+    : String(loaded.model || "");
+  const geminiPinned = llmProvider === "gemini";
+  return {
+    llmProvider,
+    llmApiKey: String(loaded.apiKey || ""),
+    llmModel: resolvedModel,
+    llmBaseUrl: String(loaded.baseUrl || "") || resolveLlmBaseUrl(runtimeEnv, llmProvider),
+    geminiApiKey: geminiPinned ? String(loaded.apiKey || "") : "",
+    geminiModel: geminiPinned ? resolvedModel : currentGeminiModel,
+  };
+}
+
 function resolveLlmProvider(env: RuntimeEnv): WorkerLlmProvider {
   const explicit = normalizeLlmProvider(
     readFirst(env, [
@@ -501,7 +556,7 @@ function resolveLlmModel(
     case "anthropic":
       return "claude-3-5-haiku-latest";
     case "gemini":
-      return geminiModel || "gemini-3.5-flash";
+      return geminiModel || GEMINI_FLASH_FALLBACK;
     default:
       return "";
   }

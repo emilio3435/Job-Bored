@@ -164,7 +164,7 @@ test("loadRuntimeConfig supports OpenRouter chat aliases without Gemini tools", 
   assert.equal(result.llmModel, "openai/gpt-4.1-mini");
   assert.equal(result.llmBaseUrl, "https://openrouter.ai/api/v1");
   assert.equal(result.geminiApiKey, "");
-  assert.equal(result.geminiModel, "gemini-3.5-flash");
+  assert.equal(result.geminiModel, "gemini-3.7-flash");
 });
 
 test("loadRuntimeConfig keeps chat provider config separate from Gemini Google tools", () => {
