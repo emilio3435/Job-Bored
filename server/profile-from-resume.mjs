@@ -6,6 +6,13 @@
  *
  * Wired into POST /profile/from-resume in server/index.mjs.
  *
+ * Request-body `resumeText` (browser-staged) wins over every stored
+ * location AND is cached to ~/.jobbored/resume.txt. That cache is the
+ * server half of the ONE-FLOW dual write (spec §5 B3): before it, a
+ * resume dropped into the browser was analyzed once and thrown away, so
+ * the next reader found nothing — the teardown's "resume uploaded in
+ * wizard 1 is invisible to wizard 2" bug.
+ *
  * Storage locations checked (priority order — first hit wins):
  *   1. The discovery worker's `worker-config.json` at
  *      `candidateProfile.resumeText`. Path resolved via:
@@ -20,7 +27,7 @@
  * where those exist. Gemini remains the default provider for compatibility.
  */
 
-import { readFile, readdir } from "node:fs/promises";
+import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
@@ -123,8 +130,33 @@ async function readResumeFromWorkerConfig() {
   return { text, source: "worker_config", path };
 }
 
+/** The one path both the reader and the staged-text cache use. */
+function jobboredResumePath() {
+  return join(homedir(), ".jobbored", "resume.txt");
+}
+
+/**
+ * Cache browser-staged resume text where the next reader will find it
+ * (ONE-FLOW spec §5 B3). Best-effort by design: a machine that refuses
+ * the write still gets its draft, because losing the draft over a failed
+ * cache would be a worse bug than the one this fixes.
+ *
+ * @param {string} text
+ * @returns {Promise<string|null>} the path written, or null
+ */
+async function cacheStagedResumeText(text) {
+  const path = jobboredResumePath();
+  try {
+    await mkdir(dirname(path), { recursive: true });
+    await writeFile(path, text, { encoding: "utf8", mode: 0o600 });
+    return path;
+  } catch {
+    return null;
+  }
+}
+
 async function readResumeFromJobboredText() {
-  const path = join(homedir(), ".jobbored", "resume.txt");
+  const path = jobboredResumePath();
   if (!existsSync(path)) return null;
   let raw;
   try {
@@ -187,8 +219,11 @@ export async function getStoredResumeText() {
  * Resolve resume text for POST /profile/from-resume.
  *
  * Browser-staged `resumeText` wins so IndexedDB-only resumes can prefill
- * Fit Profile. The staged text is NOT written to disk and secret-looking
- * body fields (apiKey, tokens) are ignored.
+ * Fit Profile, and it is cached to ~/.jobbored/resume.txt so the NEXT
+ * reader — a rescore, a later draft, the discovery worker — sees the same
+ * resume the browser has (ONE-FLOW spec §5 B3, the dual write). Only the
+ * `resumeText` field is ever read: secret-looking body fields (apiKey,
+ * tokens) are ignored and never written.
  *
  * @param {unknown} body
  * @returns {Promise<{ text: string, source: string, path: string|null } | null>}
@@ -200,10 +235,11 @@ export async function resolveResumeTextForAnalysis(body) {
   const staged =
     record && typeof record.resumeText === "string" ? record.resumeText.trim() : "";
   if (staged) {
+    const text = staged.slice(0, MAX_RESUME_INPUT_CHARS);
     return {
-      text: staged.slice(0, MAX_RESUME_INPUT_CHARS),
+      text,
       source: "staged_request",
-      path: null,
+      path: await cacheStagedResumeText(text),
     };
   }
   return getStoredResumeText();
@@ -416,8 +452,13 @@ apply when scoring listings. Sections:
 - strengths: 4-6 ranked capability areas. rank 1 = top strength. For each, fill keywords[] with
   3-10 terms that ACTUALLY APPEAR in the resume (skills, tools, methodologies). Optional evidence is
   a 1-sentence proof point pulled from the resume.
-- wants: leave [] — the user fills this in the wizard.
-- avoids: leave [] — the user fills this in the wizard.
+- wants: 3-5 short phrases naming what this candidate is looking for next, inferred from the
+  resume's trajectory, stated interests, and the kinds of work they chose. Write them as the
+  candidate would ("high-autonomy teams", "product-facing infrastructure work"), never as
+  scoring instructions. Infer; do not invent facts.
+- avoids: 2-4 short phrases naming what would be a step backwards for this candidate, inferred
+  from the same evidence (e.g. a senior IC's resume implies avoiding entry-level scope). Keep
+  them concrete and reviewable — the user confirms every one on the next screen.
 - hardConstraints.workMode: "any"
 - hardConstraints.salaryRequired: false
 - hardConstraints.acceptableLocations: []
@@ -951,6 +992,7 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
 
 // Expose for tests/scratch only — not part of the documented surface.
 export const __test = {
+  SYSTEM_PROMPT,
   buildChatCompletionsUrl,
   clampToUserProfile,
   getProfileProviderConfig,

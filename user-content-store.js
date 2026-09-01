@@ -543,6 +543,101 @@
     return { ...DEFAULT_DISCOVERY_SETUP_WIZARD_STATE };
   }
 
+  /* ---------- One-flow onboarding state (ONE-FLOW spec §3.2) ----------
+     ONE key owns the whole flow: which beat is live, which beats are done,
+     which optional steps were skipped, when it started, whether it finished.
+     Same read/merge/write shape as the discovery setup wizard state above,
+     so a debounced per-keystroke save can never drop a field it did not
+     name — that silent-write-loss is exactly what §3.2 requires survive a
+     mid-flow refresh. */
+
+  const ONBOARDING_FLOW_STATE_VERSION = 3;
+
+  /** The six beats of the flow, in order (spec §3.1). */
+  const ONBOARDING_FLOW_BEATS = Object.freeze([
+    "google",
+    "ai",
+    "resume",
+    "fit",
+    "discovery",
+    "payoff",
+  ]);
+
+  const DEFAULT_ONBOARDING_FLOW_STATE = {
+    version: ONBOARDING_FLOW_STATE_VERSION,
+    // "" is screen S0 — the demo board, before any beat opens.
+    beat: "",
+    completedBeats: [],
+    skipped: {},
+    startedAt: "",
+    completed: false,
+  };
+
+  function normalizeOnboardingFlowState(raw) {
+    const o = raw && typeof raw === "object" ? raw : {};
+    const beat = normalizeWizardText(o.beat, "");
+    const skippedRaw = o.skipped && typeof o.skipped === "object" ? o.skipped : {};
+    const skipped = {};
+    for (const [key, value] of Object.entries(skippedRaw)) {
+      const name = normalizeWizardText(key, "");
+      // A truth map: only recorded skips live here, so `key in skipped`
+      // reads the same as `skipped[key] === true`.
+      if (name && value) skipped[name] = true;
+    }
+    return {
+      version:
+        Number.isInteger(o.version) && o.version > 0
+          ? o.version
+          : ONBOARDING_FLOW_STATE_VERSION,
+      beat: ONBOARDING_FLOW_BEATS.includes(beat) ? beat : "",
+      completedBeats: Array.isArray(o.completedBeats)
+        ? [...new Set(
+            o.completedBeats
+              .map((id) => normalizeWizardText(id, ""))
+              .filter((id) => ONBOARDING_FLOW_BEATS.includes(id)),
+          )]
+        : [],
+      skipped,
+      startedAt: normalizeWizardText(o.startedAt, ""),
+      completed: !!o.completed,
+    };
+  }
+
+  async function getOnboardingFlowState() {
+    const s = await getSetting("onboardingFlowState");
+    if (!s || typeof s !== "object") {
+      return { ...DEFAULT_ONBOARDING_FLOW_STATE, skipped: {}, completedBeats: [] };
+    }
+    return normalizeOnboardingFlowState({
+      ...DEFAULT_ONBOARDING_FLOW_STATE,
+      ...s,
+    });
+  }
+
+  async function saveOnboardingFlowState(partial) {
+    const cur = await getOnboardingFlowState();
+    const patch = partial && typeof partial === "object" ? partial : {};
+    const next = normalizeOnboardingFlowState({
+      ...cur,
+      ...patch,
+      // Merge the skip map rather than replacing it: B5 writes one key and
+      // must not erase a skip another beat recorded.
+      skipped: { ...cur.skipped, ...(patch.skipped || {}) },
+    });
+    await setSetting("onboardingFlowState", next);
+    return next;
+  }
+
+  async function clearOnboardingFlowState() {
+    const fresh = {
+      ...DEFAULT_ONBOARDING_FLOW_STATE,
+      skipped: {},
+      completedBeats: [],
+    };
+    await setSetting("onboardingFlowState", fresh);
+    return { ...fresh };
+  }
+
   function normalizeAppsScriptDeployState(raw) {
     const o = raw && typeof raw === "object" ? raw : {};
     const trim = (k, maxLen) => {
@@ -634,30 +729,6 @@
 
   async function setWhatsNextDismissed(v) {
     await setSetting("whatsNextDismissed", !!v);
-  }
-
-  async function getSerpApiEnhancementDismissed() {
-    return !!(await getSetting("serpApiEnhancementDismissed"));
-  }
-
-  async function setSerpApiEnhancementDismissed(v) {
-    await setSetting("serpApiEnhancementDismissed", !!v);
-  }
-
-  async function getGeminiEnhancementDismissed() {
-    return !!(await getSetting("geminiEnhancementDismissed"));
-  }
-
-  async function setGeminiEnhancementDismissed(v) {
-    await setSetting("geminiEnhancementDismissed", !!v);
-  }
-
-  async function getAiProviderEnhancementDismissed() {
-    return !!(await getSetting("aiProviderEnhancementDismissed"));
-  }
-
-  async function setAiProviderEnhancementDismissed(v) {
-    await setSetting("aiProviderEnhancementDismissed", !!v);
   }
 
   async function isAllMandatorySetupComplete() {
@@ -850,6 +921,21 @@
   /** Clears the flag so the cross-rec re-recommends discovery setup. */
   async function resetDiscoverySetupCompletion() {
     await setSetting("discoverySetupComplete", false);
+  }
+
+  /**
+   * "I only use JobBored on this computer" — the honest answer the
+   * other-devices track never had (ONE-FLOW-ONBOARDING-SPEC §6). Unlike
+   * {@link isDiscoverySetupSkipped}, which stays a nudge because
+   * discovery is mandatory, this one is a real answer and permanently
+   * quiets the what's-next banner's go-live row.
+   */
+  async function isGoLiveSetupSkipped() {
+    return !!(await getSetting("goLiveSetupSkipped"));
+  }
+
+  async function setGoLiveSetupSkipped() {
+    await setSetting("goLiveSetupSkipped", true);
   }
 
   async function isDiscoverySetupSkipped() {
@@ -1226,6 +1312,8 @@
     isGoLiveSetupComplete,
     completeGoLiveSetup,
     resetGoLiveSetupCompletion,
+    isGoLiveSetupSkipped,
+    setGoLiveSetupSkipped,
     isDiscoverySetupComplete,
     completeDiscoverySetup,
     resetDiscoverySetupCompletion,
@@ -1284,16 +1372,16 @@
     clearDiscoverySetupWizardState,
     DEFAULT_DISCOVERY_SETUP_WIZARD_STATE,
     normalizeDiscoverySetupWizardState,
+    getOnboardingFlowState,
+    saveOnboardingFlowState,
+    clearOnboardingFlowState,
+    DEFAULT_ONBOARDING_FLOW_STATE,
+    ONBOARDING_FLOW_BEATS,
+    normalizeOnboardingFlowState,
     getAgentSetupDismissed,
     setAgentSetupDismissed,
     getWhatsNextDismissed,
     setWhatsNextDismissed,
-    getSerpApiEnhancementDismissed,
-    setSerpApiEnhancementDismissed,
-    getGeminiEnhancementDismissed,
-    setGeminiEnhancementDismissed,
-    getAiProviderEnhancementDismissed,
-    setAiProviderEnhancementDismissed,
     isAllMandatorySetupComplete,
   };
 })();

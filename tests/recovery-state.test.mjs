@@ -363,6 +363,61 @@ describe("Simulation overrides", () => {
     };
   }
 
+  it("does not probe localhost-only discovery endpoints from a hosted dashboard", async () => {
+    const fetchCalls = [];
+    const { probes } = await loadProbeFunctionsWithStorage({
+      window: {
+        location: {
+          hostname: "emilio3435.github.io",
+          port: "",
+        },
+      },
+      fetch: async (url) => {
+        fetchCalls.push(String(url));
+        return { ok: false, json: async () => null };
+      },
+    });
+
+    const snapshot = await probes.buildReadinessSnapshot();
+
+    assert.deepEqual(
+      fetchCalls,
+      [],
+      "hosted dashboards must not request local bootstrap or dev-server proxy routes",
+    );
+    assert.equal(snapshot.localBootstrapAvailable, false);
+    assert.equal(snapshot.tunnelLive, false);
+  });
+
+  it("keeps local bootstrap and ngrok probes enabled on localhost", async () => {
+    const fetchCalls = [];
+    const { probes } = await loadProbeFunctionsWithStorage({
+      window: {
+        location: {
+          hostname: "localhost",
+          port: "8080",
+        },
+      },
+      fetch: async (url) => {
+        fetchCalls.push(String(url));
+        return {
+          ok: true,
+          json: async () =>
+            String(url) === "discovery-local-bootstrap.json"
+              ? {}
+              : { tunnels: [] },
+        };
+      },
+    });
+
+    await probes.buildReadinessSnapshot();
+
+    assert.deepEqual(fetchCalls.sort(), [
+      "/__proxy/ngrok-tunnels",
+      "discovery-local-bootstrap.json",
+    ]);
+  });
+
   it("enables a healthy saved localhost webhook when the dashboard is local", async () => {
     const { probes, localStorage } = await loadProbeFunctionsWithStorage({
       window: {

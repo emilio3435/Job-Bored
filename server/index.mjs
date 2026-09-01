@@ -9,7 +9,10 @@ import { createReadStream } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
-import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
+import {
+  scrapeJobPosting,
+  toScrapeFailureResponse,
+} from "./shared/job-scraper-core.mjs";
 import {
   normalizeAllowedBrowserOrigins,
   redactSecrets,
@@ -231,6 +234,7 @@ app.get("/api/llm-config", (req, res) => handleGetLlmConfig(req, res));
 app.post("/api/llm-config", (req, res) => handlePostLlmConfig(req, res));
 
 app.post("/api/scrape-job", async (req, res) => {
+  let targetUrl = "";
   try {
     const body = isRecord(req.body) ? req.body : {};
     const raw = body.url;
@@ -241,14 +245,15 @@ app.post("/api/scrape-job", async (req, res) => {
     if (!target.ok) {
       return res.status(400).json({ error: target.error });
     }
+    targetUrl = target.url;
     const result = await scrapeJobPosting(target.url, {
       title: typeof body.title === "string" ? body.title : "",
       company: typeof body.company === "string" ? body.company : "",
     });
     res.json(result);
   } catch (e) {
-    const msg = redactSecrets(errorMessage(e, "Scrape failed"));
-    res.status(502).json({ error: msg, code: "UPSTREAM_ERROR" });
+    const failure = toScrapeFailureResponse(e, targetUrl);
+    res.status(failure.status).json(failure.body);
   }
 });
 
@@ -423,11 +428,13 @@ app.post("/profile/template/:id", (req, res) => {
 /**
  * POST /profile/from-resume
  *
- * Prefers request-body `resumeText` (browser-staged, not persisted). Falls
- * back to stored resume text (worker config, ~/.jobbored/resume.txt, or
- * legacy hermes). Runs the configured profile AI provider and returns a
- * draft v1 UserProfile for the wizard. Does NOT save the profile or the
- * staged resume.
+ * Prefers request-body `resumeText` (browser-staged) and caches it to
+ * ~/.jobbored/resume.txt — the server half of the ONE-FLOW resume dual
+ * write (spec §5 B3), so the next reader sees the same resume the browser
+ * has. Falls back to stored resume text (worker config,
+ * ~/.jobbored/resume.txt, or legacy hermes). Runs the configured profile
+ * AI provider and returns a draft v1 UserProfile for review. Does NOT save
+ * the profile — the user confirms that on the next screen.
  *
  * 200 { ok: true, profile, source }   — got a draft profile
  * 404 { ok: false, reason: "no_resume_stored" }
@@ -761,6 +768,7 @@ app.put("/api/applications/:slug/job-description", async (req, res) => {
  * don't duplicate scraping logic. Returns the scraped description
  * text, which the browser then PUTs back via /job-description. */
 app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
+  let targetUrl = "";
   try {
     const slug = req.params.slug;
     const body = isRecord(req.body) ? req.body : {};
@@ -780,6 +788,7 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       res.status(400).json({ ok: false, error: target.error });
       return;
     }
+    targetUrl = target.url;
     const scraped = await scrapeJobPosting(target.url, {
       title: typeof body.title === "string" ? body.title : "",
       company: typeof body.company === "string" ? body.company : "",
@@ -801,7 +810,8 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       scrapedAt: new Date().toISOString(),
     });
   } catch (e) {
-    sendAppError(res, e);
+    const failure = toScrapeFailureResponse(e, targetUrl);
+    res.status(failure.status).json({ ok: false, ...failure.body });
   }
 });
 

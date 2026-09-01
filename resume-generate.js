@@ -616,6 +616,60 @@
     return wantsParsedJson(opts) ? parseConfiguredAiJson(text) : text;
   }
 
+  /**
+   * ONE-FLOW-ONBOARDING-SPEC §5 B2: the live provider check that gates the
+   * AI beat. A REAL minimal completion against the CONFIGURED provider —
+   * not a models-list ping, because a key that lists models can still fail
+   * to generate, and "verified" has to mean the thing the user is about to
+   * depend on actually worked. `Local` therefore passes only when the
+   * Ollama base URL answers, closing the hatch where an unverified local
+   * setup broke on the first draft.
+   *
+   * Never throws: the beat renders {ok:false, message} in the shell's
+   * message slot, and a check that threw would render nothing at all.
+   *
+   * @returns {Promise<{ok: boolean, provider: string, model: string, ms: number, reply?: string, message?: string}>}
+   */
+  async function verifyResumeProviderLive() {
+    const g = getResumeGenerationConfig();
+    const provider = g.provider || "gemini";
+    const model =
+      provider === "openrouter"
+        ? g.resumeOpenRouterModel
+        : provider === "local"
+          ? g.resumeLocalModel
+          : provider === "openai"
+            ? g.resumeOpenAIModel
+            : provider === "anthropic"
+              ? g.resumeAnthropicModel
+              : g.resumeGeminiModel;
+    const startedAt = Date.now();
+    try {
+      const reply = await callConfiguredAi(
+        "You are a connection check. Reply with the single word: ok.",
+        "Reply with the single word: ok",
+        {},
+      );
+      return {
+        ok: true,
+        provider,
+        model: model || "",
+        ms: Date.now() - startedAt,
+        reply: String(reply || "").trim().slice(0, 120),
+      };
+    } catch (err) {
+      return {
+        ok: false,
+        provider,
+        model: model || "",
+        ms: Date.now() - startedAt,
+        message: String(
+          (err && err.message) || err || "The provider check failed.",
+        ),
+      };
+    }
+  }
+
   async function callOpenAI(
     bundle,
     apiKey,
@@ -971,5 +1025,6 @@
     isResumeGenerationConfigured,
     callConfiguredAi,
     parseConfiguredAiJson,
+    verifyResumeProviderLive,
   };
 })();

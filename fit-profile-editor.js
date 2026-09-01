@@ -632,7 +632,7 @@
     var explainer = el(
       "p",
       { class: "fp-settings__explainer" },
-      "Your fit profile determines how JobBored scores every job. Edit any bucket below and click Save — new discoveries will use the updated profile immediately. To rescore old listings, click Rescore all (button added by Task #6).",
+      "Your fit profile determines how JobBored scores every job. Edit any bucket below and click Save — new discoveries will use the updated profile immediately. To rescore old listings, click Rescore.",
     );
     var rescoreSlot = el("div", { id: "fit-profile-rescore-slot" });
 

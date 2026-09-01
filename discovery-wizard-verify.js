@@ -752,6 +752,15 @@
         message: "Can't reach the endpoint.",
         detail: detailParts.join(" — "),
         layer: "browser",
+        // Voice rule §8.4: every error names the next action. The taxonomy
+        // above is unchanged — this only replaces the dead end that the
+        // catch-all used to be with the first check worth running.
+        remediation: [
+          `1. Open ${endpointUrl} in a browser tab. A timeout or DNS error means the endpoint is down, not that the URL is wrong.`,
+          "2. If it is your local worker, run `npm run discovery:bootstrap-local` on this machine to start it, then Re-check.",
+          "3. If it loads there but not here, the block is CORS or the dashboard's CSP — use the Tailscale path instead of a bare origin.",
+        ].join("\n"),
+        suggestedCommand: "npm run discovery:bootstrap-local",
       });
     } finally {
       if (timeoutId != null) {

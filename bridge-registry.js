@@ -78,7 +78,6 @@
       buildDiscoveryRelayDeployCommandForTarget:
         host.buildDiscoveryRelayDeployCommandForTarget,
       getDiscoveryRelaySuggestedOrigin: host.getDiscoveryRelaySuggestedOrigin,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
       isSignedIn: host.isSignedIn,
       openDiscoverySetupWizard: host.openDiscoverySetupWizard,
       openGoLiveSetupWizard: host.openGoLiveSetupWizard,
@@ -86,9 +85,6 @@
       getDiscoveryWizardRecommendedFlow:
         host.getDiscoveryWizardRecommendedFlow,
       getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
-      checkOnboardingGate: host.checkOnboardingGate,
-      checkInfraSetupGate: host.checkInfraSetupGate,
-      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
       normalizeDiscoveryWebhookIdentity: host.normalizeDiscoveryWebhookIdentity,
       isLocalWebhookCandidateUrl: host.isLocalWebhookCandidateUrl,
       isLocalDashboardOrigin: host.isLocalDashboardOrigin,
@@ -198,7 +194,6 @@
       getPipelineData: host.getPipelineData,
       renderAreaWidget: host.renderAreaWidget,
       openJobDetail: host.openJobDetail,
-      openDiscoveryPathsModal: host.openDiscoveryPathsModal,
       getSheetId: host.getSheetId,
       setSHEET_ID: host.setSHEET_ID,
       getSHEET_ID: host.getSHEET_ID,
@@ -215,8 +210,6 @@
       getAccessToken: host.getAccessToken,
       showSheetAccessGate: host.showSheetAccessGate,
       initAuth: host.initAuth,
-      checkInfraSetupGate: host.checkInfraSetupGate,
-      renderSetupStarterSheetUi: host.renderSetupStarterSheetUi,
       loadPersistedRuntimeOAuthSession: host.loadPersistedRuntimeOAuthSession,
       loadPersistedOAuthSession: host.loadPersistedOAuthSession,
       getConfig: host.getConfig,
@@ -361,9 +354,6 @@
       clearDiscoveryWizardRuntime: host.clearDiscoveryWizardRuntime,
       persistDiscoveryWizardState: host.persistDiscoveryWizardState,
       triggerDiscoveryRun: host.triggerDiscoveryRun,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
-      hideOnboardingWizard: host.hideOnboardingWizard,
-      showOnboardingWizard: host.showOnboardingWizard,
       isSettingsModalOpen: host.isSettingsModalOpen,
       closeCommandCenterSettingsModal: host.closeCommandCenterSettingsModal,
       openCommandCenterSettingsModal: host.openCommandCenterSettingsModal,
@@ -393,8 +383,6 @@
       getDiscoveryRecoveryCopy: host.getDiscoveryRecoveryCopy,
       getDiscoverySettingsView: host.getDiscoverySettingsView,
       isLikelyCloudflareWorkerUrl: host.isLikelyCloudflareWorkerUrl,
-      probeNgrokFromLocalApi: host.probeNgrokFromLocalApi,
-      closeDiscoverySetupGuideModal: host.closeDiscoverySetupGuideModal,
       showDiscoveryVerificationToast: host.showDiscoveryVerificationToast,
       buildDiscoveryWebhookPayload: host.buildDiscoveryWebhookPayload,
       verifyDiscoveryWebhookWithSharedModel:
@@ -425,36 +413,7 @@
     goLive.host = {
       showToast: host.showToast,
       copyTextToClipboard: host.copyTextToClipboard,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
-      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
-      hideOnboardingWizard: host.hideOnboardingWizard,
-      showOnboardingWizard: host.showOnboardingWizard,
       requestDiscoverySetup: host.requestDiscoverySetup,
-      // "Maximize your results (optional)" CTA on the done step — without
-      // this wire the typeof guard silently no-ops and the enhancements
-      // wizard never opens (the hand-maintained-literal bug class).
-      requestEnhancementsSetup: host.requestEnhancementsSetup,
-    };
-
-    const enhancements = (window.JobBoredEnhancements =
-      window.JobBoredEnhancements || {});
-
-    enhancements.host = {
-      showToast: host.showToast,
-      getUserContent: host.getUserContent,
-      getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
-      getConfig: host.getConfig,
-      // Gemini key passthrough: the wizard persists the same key into the
-      // dashboard's AI Providers settings (resumeGeminiApiKey).
-      mergeStoredConfigOverridePatch: host.mergeStoredConfigOverridePatch,
-      openDrawerToSubtab: host.openDrawerToSubtab,
-      setActiveSettingsTab: host.setActiveSettingsTab,
-      openCommandCenterSettingsModal: host.openCommandCenterSettingsModal,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
-      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
-      hideOnboardingWizard: host.hideOnboardingWizard,
-      showOnboardingWizard: host.showOnboardingWizard,
-      requestEnhancementsSetup: host.requestEnhancementsSetup,
     };
 
     app.brief = app.brief || {};
@@ -558,7 +517,6 @@
         return app.setup.showSheetAccessGate(...args);
       },
       revealSetupScreenAfterAuth: host.revealSetupScreenAfterAuth,
-      renderSetupStarterSheetUi: host.renderSetupStarterSheetUi,
       handleSetupCreateStarterSheet: host.handleSetupCreateStarterSheet,
       getPendingSetupStarterSheetCreate:
         host.getPendingSetupStarterSheetCreate,
@@ -571,8 +529,6 @@
         return app.settings.maybeSyncSettingsModalModeAfterAuth(...args);
       },
       refreshPersonalPreferencesPanel: host.refreshPersonalPreferencesPanel,
-      showOnboardingWizard: host.showOnboardingWizard,
-      checkOnboardingGate: host.checkOnboardingGate,
       openCommandCenterSettingsModal(...args) {
         return app.settings.openCommandCenterSettingsModal(...args);
       },
@@ -625,8 +581,6 @@
       parseJsonSafeForSuggestions(...args) {
         return discovery.drawer.parseJsonSafeForSuggestions(...args);
       },
-      resumePendingDiscoverySetupIfNeeded:
-        host.resumePendingDiscoverySetupIfNeeded,
       normalizeDashboardTitle: host.normalizeDashboardTitle,
       parseGoogleSheetId(...args) {
         return app.configCore.parseGoogleSheetId(...args);
@@ -677,7 +631,6 @@
       recheckAppsScriptPublicAccessFromSettings:
         host.recheckAppsScriptPublicAccessFromSettings,
       copyTextToClipboard: host.copyTextToClipboard,
-      probeTunnelStaleBadge: host.probeTunnelStaleBadge,
       requestDiscoverySetup: host.requestDiscoverySetup,
       resetAppsScriptDeployModalState() {
         const configCore = getConfigCore(host);
@@ -711,7 +664,6 @@
         return host.STARTER_PIPELINE_HEADER_RANGE;
       },
       installDoctor: host.installDoctor,
-      hasPendingDiscoverySetup: host.hasPendingDiscoverySetup,
       getDataLoadFailed: host.getDataLoadFailed,
       setDataLoadFailed: host.setDataLoadFailed,
       getDashboardDataHydrated: host.getDashboardDataHydrated,

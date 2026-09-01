@@ -18,21 +18,39 @@
     return window.JobBoredApp.core;
   }
 
-  // Synchronous chokepoint signal: true while the first-run infra wizard owns
-  // the surface (infra setup incomplete). Read directly off the sibling module
-  // so every dashboard-reveal entry point can defer without a host round-trip.
-  function firstRunWizardOwnsSurface() {
+  /**
+   * Synchronous chokepoint signal: the one-flow's beats ARE the onboarding
+   * surface (ONE-FLOW-ONBOARDING-SPEC §3, and §7 deleted the first-run
+   * wizard this guard used to name). While a beat is on screen, no reveal
+   * entry point — this module, sign-in-success, restoreOAuthSession,
+   * sheets-read-load — may paint over it or tear it down. B1 is the case
+   * that matters: signing in with no sheet yet is the beat's own state.
+   */
+  function oneFlowOwnsSurface() {
     try {
-      const wizard =
-        window.JobBoredApp && window.JobBoredApp.firstRunWizard;
-      return !!(
-        wizard &&
-        typeof wizard.isFirstRunWizardActive === "function" &&
-        wizard.isFirstRunWizardActive()
-      );
+      const flow = window.JobBoredOneFlow;
+      return !!(flow && typeof flow.isOpen === "function" && flow.isOpen());
     } catch (_) {
       return false;
     }
+  }
+
+  /**
+   * "No OAuth client id yet" is Beat 1's own state (ONE-FLOW-ONBOARDING-SPEC
+   * §5 B1): the beat carries the paste field, the console deep link, and the
+   * step-by-step guide. Returns true when the flow took the surface, so the
+   * caller stops painting the gate.
+   */
+  function handOffNoOauthToBeatOne() {
+    if (oneFlowOwnsSurface()) return true;
+    const flow = window.JobBoredOneFlow;
+    if (!flow || typeof flow.open !== "function") return false;
+    startupLog("sheet-access:no-oauth-hand-off-to-beat-1", {});
+    hideSheetAccessGate();
+    void Promise.resolve(flow.open("google")).catch((e) => {
+      startupLog("sheet-access:beat-1-open-failed", { error: String(e) }, "error");
+    });
+    return true;
   }
 
   function startupLog(label, detail, level = "info") {
@@ -155,191 +173,14 @@
     if (footerSheetLink) footerSheetLink.href = sheetUrl;
   }
 
-  function syncLoginGateOAuthOriginDisplay() {
-    const originEl = document.getElementById("sheetAccessGateOAuthOriginDisplay");
-    if (originEl && typeof window !== "undefined" && window.location) {
-      originEl.textContent = window.location.origin;
-    }
-  }
-
-  function resetLoginGateOAuthWizardToChoice() {
-    const choice = document.getElementById("sheetAccessGateOAuthChoice");
-    const wizard = document.getElementById("sheetAccessGateOAuthWizard");
-    const input = document.getElementById("sheetAccessGateOAuthClientIdInput");
-    if (choice) choice.hidden = false;
-    if (wizard) wizard.hidden = true;
-    syncLoginGateOAuthOriginDisplay();
-    if (input) {
-      const stored = host().readStoredConfigOverrides().oauthClientId;
-      const s = stored != null ? String(stored).trim() : "";
-      input.value =
-        s &&
-        s !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com" &&
-        /\.apps\.googleusercontent\.com$/i.test(s)
-          ? s
-          : "";
-    }
-  }
-
-  function initLoginGateOAuthUi() {
-    const createOAuth = document.getElementById("sheetAccessGateBtnCreateOAuth");
-    const back = document.getElementById("sheetAccessGateOAuthWizardBack");
-    const save = document.getElementById("sheetAccessGateOAuthSaveBtn");
-    const openConsole = document.getElementById(
-      "sheetAccessGateOAuthOpenConsoleBtn",
-    );
-    const inputs = [
-      document.getElementById("sheetAccessGateOAuthClientIdInput"),
-      document.getElementById("sheetAccessGateOAuthClientIdInputAlt"),
-    ].filter(Boolean);
-
-    /** Accept any pasted Client ID (raw, full URL, or surrounding whitespace). */
-    function extractClientIdFromInput(raw) {
-      const t = String(raw || "").trim();
-      if (!t) return "";
-      const m = t.match(/[\w-]+\.apps\.googleusercontent\.com/i);
-      return m ? m[0] : "";
-    }
-
-    function trySaveAndContinue(raw) {
-      const id = extractClientIdFromInput(raw);
-      if (!id || id === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
-        return false;
-      }
-      host().mergeStoredConfigOverridePatch({ oauthClientId: id });
-      if (host().applyOAuthClientChange(id)) {
-        host().showToast("Signed-in setup saved.", "success");
-      } else {
-        host().showToast("Saved — reloading…", "success");
-        setTimeout(() => window.location.reload(), 400);
-      }
-      return true;
-    }
-
-    inputs.forEach((input) => {
-      input.addEventListener("input", () => {
-        trySaveAndContinue(input.value);
-      });
-    });
-
-    if (createOAuth) {
-      createOAuth.addEventListener("click", async () => {
-        const choice = document.getElementById("sheetAccessGateOAuthChoice");
-        const wizard = document.getElementById("sheetAccessGateOAuthWizard");
-        syncLoginGateOAuthOriginDisplay();
-        try {
-          await navigator.clipboard.writeText(window.location.origin);
-        } catch (_) {
-          /* clipboard may be blocked — non-fatal, the origin is still visible */
-        }
-        if (choice) choice.hidden = true;
-        if (wizard) wizard.hidden = false;
-        document
-          .getElementById("sheetAccessGateOAuthClientIdInputAlt")
-          ?.focus();
-        maybeRevealOAuthGcloudButton();
-      });
-    }
-
-    const gcloudBtn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
-    if (gcloudBtn) {
-      gcloudBtn.addEventListener("click", async () => {
-        gcloudBtn.disabled = true;
-        const original = gcloudBtn.textContent;
-        gcloudBtn.textContent = "Creating with gcloud…";
-        try {
-          const resp = await fetch("/__proxy/oauth-bootstrap", {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: "{}",
-          });
-          if (resp.status === 501) {
-            gcloudBtn.hidden = true;
-            return;
-          }
-          const body = await resp.json().catch(() => ({}));
-          if (body && body.ok && body.clientId) {
-            const altInput = document.getElementById(
-              "sheetAccessGateOAuthClientIdInputAlt",
-            );
-            if (altInput) altInput.value = body.clientId;
-            if (trySaveAndContinue(body.clientId)) {
-              host().showToast("Client ID created with gcloud.", "success");
-              return;
-            }
-          }
-          const message =
-            (body && body.actionable) ||
-            "gcloud couldn’t create a Client ID. Try the manual steps.";
-          host().showToast(message, "warning", true);
-        } catch (e) {
-          console.warn("[JobBored] oauth-bootstrap:", e);
-          host().showToast(
-            "gcloud auto-create unavailable. Try manual steps.",
-            "warning",
-          );
-        } finally {
-          gcloudBtn.disabled = false;
-          gcloudBtn.textContent = original;
-        }
-      });
-    }
-    if (openConsole) {
-      openConsole.addEventListener("click", () => {
-        window.open(
-          "https://console.cloud.google.com/apis/credentials/oauthclient",
-          "_blank",
-          "noopener",
-        );
-      });
-    }
-    if (back) {
-      back.addEventListener("click", () => {
-        resetLoginGateOAuthWizardToChoice();
-      });
-    }
-    if (save) {
-      save.addEventListener("click", () => {
-        const input = document.getElementById(
-          "sheetAccessGateOAuthClientIdInput",
-        );
-        if (!trySaveAndContinue(input ? input.value : "")) {
-          host().showToast("Paste a valid Google Client ID.", "error", true);
-        }
-      });
-    }
-  }
-
-  async function maybeRevealOAuthGcloudButton() {
-    const btn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
-    if (!btn) return;
-    btn.hidden = true;
-    try {
-      const result = await host().installDoctor();
-      if (!result || result.notImplemented) return;
-      const gcloud = result.tools && result.tools.gcloud;
-      if (gcloud && gcloud.installed && gcloud.loggedIn) {
-        btn.hidden = false;
-      }
-    } catch (_) {
-      /* leave hidden */
-    }
-  }
-
   function showSheetAccessGate(mode) {
     releaseAuthPrepaintGuard("show-gate");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
-    const setupScreen = document.getElementById("setupScreen");
     if (!screen || !dashboard) {
       startupLog(
         "sheet-access:missing-required-dom",
-        {
-          mode,
-          hasGateScreen: !!screen,
-          hasDashboard: !!dashboard,
-          hasSetupScreen: !!setupScreen,
-        },
+        { mode, hasGateScreen: !!screen, hasDashboard: !!dashboard },
         "error",
       );
       return;
@@ -347,47 +188,34 @@
 
     startupLog("sheet-access:show-gate", {
       mode,
-      hasSetupScreen: !!setupScreen,
       access: accessStateForLog(),
     });
 
-    // While the first-run wizard owns the surface, do NOT strand a gate
-    // overlay in front of the wizard. The wizard's own sign-in step handles
-    // the sign-in case, and revealDashboardShell / handleSetupCreateStarterSheet
-    // will re-show the gate (or skip it) once the wizard is dismissed or
-    // finished. This prevents transient showSheetAccessGate calls — from
-    // auth-session.js's sign-in-success path, the loadAllData interval, or a
-    // restoreOAuthSession race — from silently swallowing clicks on the
-    // wizard's Sheet-step buttons (VAL-WIZ-013). The requested mode is still
-    // recorded on dataset.gateMode so the gate resumes with the right state
-    // once the wizard releases the surface.
-    if (firstRunWizardOwnsSurface()) {
+    // While a beat owns the surface, do NOT strand a gate overlay in front
+    // of it. B1's own sign-in step handles the sign-in case. This prevents
+    // transient showSheetAccessGate calls — from auth-session.js's
+    // sign-in-success path, the loadAllData interval, or a restoreOAuthSession
+    // race — from silently swallowing clicks on the beat's buttons
+    // (VAL-WIZ-013, and spec §3.4: a token expiring mid-flow must not repaint
+    // the gate over the beat). The requested mode is still recorded on
+    // dataset.gateMode so the gate resumes with the right state once the flow
+    // releases the surface.
+    if (oneFlowOwnsSurface()) {
       startupLog("sheet-access:show-gate-deferred", {
-        reason: "first-run-wizard-active",
+        reason: "oneflow-beat-active",
         mode,
       });
       screen.dataset.gateMode = mode;
       return;
     }
 
-    if (
-      !host().getSheetId() &&
-      host().getAccessToken() &&
-      mode !== "no-oauth"
-    ) {
-      startupLog("sheet-access:route-to-starter-setup", {
-        mode,
-        access: accessStateForLog(),
-      });
-      revealPipelineSetupStepsScreen();
-      return;
-    }
+    // The "signed in with no sheet yet" branch used to detour to a separate
+    // starter-setup screen here. Beat 1 owns that state now
+    // (ONE-FLOW-ONBOARDING-SPEC §5 B1, §7), and revealSetupScreenAfterAuth
+    // is the entry point that hands it over — the gate no longer detours.
 
     screen.dataset.gateMode = mode;
 
-    const mainFlow = document.getElementById("sheetAccessGateMainFlow");
-    const oauthShell = document.getElementById("sheetAccessGateOAuthShell");
-    const panelInner = document.getElementById("sheetAccessGatePanelInner");
 
     const title = document.getElementById("sheetAccessGateTitle");
     const detail = document.getElementById("sheetAccessGateDetail");
@@ -407,8 +235,6 @@
     let showSignIn = false;
     let footText = "Google sign-in";
     let showSpinner = mode === "loading";
-
-    const showOAuthShell = mode === "no-oauth";
 
     stopLoginGateTipRotation();
 
@@ -440,13 +266,21 @@
       showSignIn = true;
       startLoginGateTipRotation();
     } else if (mode === "no-oauth") {
-      nextTitle = "";
-      nextDetail = "";
+      // The gate used to carry its own "paste or create a Client ID"
+      // sub-wizard, guide and all. Beat 1 owns that step now
+      // (ONE-FLOW-ONBOARDING-SPEC §5 B1, §7), so hand it over rather than
+      // ship the same three screens twice. If the flow module never loaded,
+      // fall through to honest copy plus Settings and Reload — never a
+      // blank panel.
+      if (handOffNoOauthToBeatOne()) return;
+      nextTitle = "Connect Google";
+      nextDetail =
+        "JobBored needs a Google OAuth Client ID before it can open your " +
+        "sheet. Add one in Settings, then reload.";
       nextStepTitle = "";
       nextStepBody = "";
       showSignIn = false;
-      footText = "Choose an option or follow the guide to create a client ID.";
-      resetLoginGateOAuthWizardToChoice();
+      footText = "Add a Client ID in Settings, then reload.";
       startLoginGateTipRotation();
     } else if (mode === "error") {
       nextTitle = "Couldn’t load this sheet";
@@ -460,21 +294,12 @@
       startLoginGateTipRotation();
     }
 
-    if (mainFlow) mainFlow.hidden = !!showOAuthShell;
-    if (oauthShell) oauthShell.hidden = !showOAuthShell;
-    if (panelInner) {
-      panelInner.classList.toggle(
-        "login-gate__panel-inner--oauth",
-        !!showOAuthShell,
-      );
-    }
-
     if (title) title.textContent = nextTitle;
     if (detail) detail.textContent = nextDetail;
     if (stepTitle) stepTitle.textContent = nextStepTitle;
     if (stepBody) stepBody.textContent = nextStepBody;
     if (signInBtn) signInBtn.hidden = !showSignIn;
-    if (settingsBtn) settingsBtn.hidden = !!showOAuthShell;
+    if (settingsBtn) settingsBtn.hidden = false;
     if (reloadBtn) reloadBtn.hidden = false;
     if (spinner) spinner.hidden = !showSpinner;
     if (foot) foot.textContent = footText;
@@ -485,14 +310,12 @@
       statusBlock.hidden = !hasCallout;
     }
 
-    if (setupScreen) setupScreen.style.display = "none";
     dashboard.style.display = "none";
     screen.style.display = "flex";
     startupLog("sheet-access:gate-visible", {
       mode,
       gateDisplay: screen.style.display,
       dashboardDisplay: dashboard.style.display,
-      setupDisplay: setupScreen ? setupScreen.style.display : "",
     });
 
     const doctorHost = document.getElementById("sheetAccessGateDoctorPanel");
@@ -532,140 +355,66 @@
     if (screen) screen.style.display = "none";
   }
 
-  /** Show the starter Pipeline setup screen before the guided wizard takes over. */
-  function revealPipelineSetupStepsScreen() {
-    // Same wizard-owns-surface guard as showSheetAccessGate / revealDashboardShell:
-    // a stray starter-setup reveal (e.g. from a sign-in-success resume or a
-    // loadAllData branch that decided to route to the setup screen) must NOT
-    // strand a setup overlay in front of the wizard, where it would swallow
-    // clicks on the Sheet-step buttons (VAL-WIZ-013).
-    if (firstRunWizardOwnsSurface()) {
-      startupLog("sheet-access:reveal-starter-setup-deferred", {
-        reason: "first-run-wizard-active",
+  /**
+   * No Sheet ID yet after Google sign-in. Beat 1 owns this state
+   * (ONE-FLOW-ONBOARDING-SPEC §5 B1): it is the beat that creates or
+   * connects the sheet, so signing in without one hands straight to it.
+   *
+   * The standalone starter-setup screen and its reveal path are deleted
+   * (§7) — a third onboarding surface for a job one beat already does.
+   * The gate's error mode is the fallback when the flow
+   * module itself never loaded, so this can never strand a signed-in user.
+   */
+  function revealSetupScreenAfterAuth() {
+    if (host().getSheetId()) return;
+    if (oneFlowOwnsSurface()) return;
+    const flow = window.JobBoredOneFlow;
+    if (flow && typeof flow.open === "function") {
+      startupLog("sheet-access:hand-off-to-beat-1", {
+        access: accessStateForLog(),
+      });
+      releaseAuthPrepaintGuard("hand-off-to-beat-1");
+      hideSheetAccessGate();
+      void Promise.resolve(flow.open("google")).catch((e) => {
+        startupLog("sheet-access:beat-1-open-failed", { error: String(e) }, "error");
+        showSheetAccessGate("error");
       });
       return;
     }
-    releaseAuthPrepaintGuard("reveal-starter-setup");
-    const setupScreen = document.getElementById("setupScreen");
-    const dashboard = document.getElementById("dashboard");
     startupLog(
-      "sheet-access:reveal-starter-setup",
-      {
-        hasSetupScreen: !!setupScreen,
-        hasDashboard: !!dashboard,
-        access: accessStateForLog(),
-      },
-      !setupScreen || !dashboard ? "warn" : "info",
+      "sheet-access:no-flow-module",
+      { access: accessStateForLog() },
+      "error",
     );
-    hideSheetAccessGate();
-    if (setupScreen) setupScreen.style.display = "flex";
-    if (dashboard) dashboard.style.display = "none";
-    renderSetupStarterSheetUi();
-  }
-
-  /** No Sheet ID yet: after Google sign-in, hand off to the first-run wizard. */
-  function revealSetupScreenAfterAuth() {
-    if (host().getSheetId()) return;
-    // Signed in with no sheet yet: the first-run wizard (Sheet → Provider) now
-    // owns this surface. Its checkInfraSetupGate requires a signed-in session
-    // (true here) and an incomplete infra flag; if it declines (infra already
-    // complete or the wizard is unavailable), fall back to the legacy
-    // standalone setup screen so the user is never stranded.
-    const wizard = window.JobBoredApp && window.JobBoredApp.firstRunWizard;
-    if (wizard && typeof wizard.checkInfraSetupGate === "function") {
-      Promise.resolve(wizard.checkInfraSetupGate())
-        .then((shown) => {
-          if (!shown) revealPipelineSetupStepsScreen();
-        })
-        .catch(() => revealPipelineSetupStepsScreen());
-      return;
-    }
-    revealPipelineSetupStepsScreen();
+    showSheetAccessGate("error");
   }
 
   function revealDashboardShell() {
-    // Authoritative gate: while the first-run wizard owns the surface (infra
-    // setup incomplete), NO reveal entry point (this fn, sign-in-success,
-    // restoreOAuthSession, sheets-read-load) may surface the dashboard or tear
-    // the wizard down. The wizard's finish path reveals it once it relinquishes.
-    if (firstRunWizardOwnsSurface()) {
+    // Authoritative gate: while a beat owns the surface, NO reveal entry
+    // point (this fn, sign-in-success, restoreOAuthSession, sheets-read-load)
+    // may surface the dashboard or tear the flow down. The flow's own payoff
+    // exit reveals it once it relinquishes.
+    if (oneFlowOwnsSurface()) {
       startupLog("sheet-access:reveal-dashboard-deferred", {
-        reason: "first-run-wizard-active",
+        reason: "oneflow-beat-active",
         access: accessStateForLog(),
       });
       return;
     }
     releaseAuthPrepaintGuard("reveal-dashboard");
-    const setupScreen = document.getElementById("setupScreen");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
     startupLog(
       "sheet-access:reveal-dashboard",
       {
-        hasSetupScreen: !!setupScreen,
         hasGateScreen: !!screen,
         hasDashboard: !!dashboard,
         access: accessStateForLog(),
       },
       dashboard ? "info" : "warn",
     );
-    if (setupScreen) setupScreen.style.display = "none";
     if (screen) screen.style.display = "none";
     if (dashboard) dashboard.style.display = "block";
-  }
-
-  function renderSetupStarterSheetUi() {
-    const btn = document.getElementById("setupCreateStarterSheetBtn");
-    const status = document.getElementById("setupCreateStarterSheetStatus");
-    if (!btn || !status) return;
-
-    const hasClient = !!host().getOAuthClientId();
-    if (!hasClient) {
-      btn.disabled = false;
-      btn.textContent = "Create blank starter sheet";
-      status.textContent =
-        "Complete OAuth setup on the sign-in screen, then reload this page.";
-      return;
-    }
-    if (!core().getGisLoaded()) {
-      btn.disabled = true;
-      btn.textContent = "Loading Google sign-in…";
-      status.textContent =
-        "Reload once after signing in so Google sign-in can initialize.";
-      return;
-    }
-    if (!host().getAccessToken()) {
-      btn.disabled = false;
-      btn.textContent = "Sign in & create blank starter sheet";
-      status.textContent =
-        "This will open Google sign-in, then create a fresh Pipeline sheet with just the headers.";
-      return;
-    }
-
-    const hasSheetsScope =
-      typeof host().hasGrantedOauthScope === "function" &&
-      typeof host().getGoogleSheetsScope === "function" &&
-      host().hasGrantedOauthScope(host().getGoogleSheetsScope());
-    if (!hasSheetsScope) {
-      btn.disabled = false;
-      btn.textContent = "Grant Sheets access & create blank starter sheet";
-      status.textContent =
-        "Google signed you in but didn't grant Sheets access. Click to reopen consent and check the box allowing JobBored to manage your Google Sheets.";
-      return;
-    }
-
-    if (host().getSheetId()) {
-      btn.disabled = true;
-      btn.textContent = "Starter sheet linked";
-      status.textContent =
-        "Your Pipeline sheet is saved. The guided setup wizard is the next step.";
-      return;
-    }
-
-    btn.disabled = false;
-    btn.textContent = "Create blank starter sheet";
-    status.textContent =
-      "Signed in and ready. This creates a fresh Pipeline sheet with only the required headers.";
   }
 
   async function createBlankStarterSheet(isRetry) {
@@ -843,7 +592,6 @@
           "your Google Sheets.";
         notify(message, true);
         host().showToast(message, "error", true);
-        renderSetupStarterSheetUi();
         return;
       }
       // Sheet step precedes the explicit sign-in step in the wizard: remember
@@ -863,14 +611,8 @@
     // Committed to creating now: keep the context so a silent re-auth inside
     // createBlankStarterSheet also resumes with the right handoff behavior.
     pendingStarterSheetCreateOptions = opts;
-    const btn = document.getElementById("setupCreateStarterSheetBtn");
-    if (btn) {
-      btn.disabled = true;
-      btn.textContent = "Creating starter sheet…";
-    }
     notify("Creating your starter sheet…");
     const created = await createBlankStarterSheet(false);
-    renderSetupStarterSheetUi();
     if (!created) {
       notify(
         "Could not create the starter sheet. Check the error message and try again.",
@@ -915,20 +657,10 @@
     if (!hadDiscoveryDeepLink) {
       await host().requestDiscoverySetup({ entryPoint: "starter_sheet_created" });
     }
-    host().showToast(
-      host().hasPendingDiscoverySetup()
-        ? "Starter sheet created. Finish onboarding to continue guided setup."
-        : "Starter sheet created. Opening guided setup…",
-      "success",
-    );
+    host().showToast("Starter sheet created. Opening guided setup…", "success");
   }
 
   function initSetupAndSheetAccessActions() {
-    document
-      .getElementById("setupCreateStarterSheetBtn")
-      ?.addEventListener("click", () => {
-        void handleSetupCreateStarterSheet({ context: "onboarding" });
-      });
     document
       .getElementById("sheetAccessGateSignInBtn")
       ?.addEventListener("click", () => {
@@ -955,23 +687,80 @@
       ?.addEventListener("click", () => {
         window.location.reload();
       });
-    initLoginGateOAuthUi();
-    renderSetupStarterSheetUi();
+  }
+
+  /**
+   * Can this session actually READ the pasted sheet? Two round trips: the
+   * spreadsheet metadata (does the token reach it at all) and the Pipeline
+   * header row (is it the sheet we can work with). Moved here from the
+   * retired first-run wizard (spec §7) because Beat 1's paste path is the
+   * one caller that survived it.
+   */
+  async function verifyExistingSheetAccess({
+    sheetId,
+    fetchImpl,
+    accessToken,
+  } = {}) {
+    const id = String(sheetId || "").trim();
+    if (!id) return { ok: false, reason: "invalid_id" };
+    const doFetch =
+      typeof fetchImpl === "function"
+        ? fetchImpl
+        : typeof fetch === "function"
+          ? fetch
+          : null;
+    const token = String(accessToken || "").trim();
+    if (typeof doFetch !== "function") {
+      return { ok: false, reason: "fetch_unavailable" };
+    }
+    if (!token) return { ok: false, reason: "no_token" };
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const metaUrl =
+        "https://sheets.googleapis.com/v4/spreadsheets/" +
+        encodeURIComponent(id) +
+        "?fields=spreadsheetId,sheets.properties.title";
+      const metaRes = await doFetch(metaUrl, { headers });
+      if (!metaRes || !metaRes.ok) {
+        return {
+          ok: false,
+          reason: "access_denied",
+          status: metaRes && metaRes.status,
+        };
+      }
+      const valuesUrl =
+        "https://sheets.googleapis.com/v4/spreadsheets/" +
+        encodeURIComponent(id) +
+        "/values/Pipeline!A1:Z1";
+      const valuesRes = await doFetch(valuesUrl, { headers });
+      if (!valuesRes || !valuesRes.ok) {
+        return {
+          ok: false,
+          reason: "headers_unreadable",
+          status: valuesRes && valuesRes.status,
+        };
+      }
+      return { ok: true, reason: "headers_ok" };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: "fetch_failed",
+        message: err && err.message ? err.message : String(err || ""),
+      };
+    }
   }
 
   Object.assign(setup, {
     showSheetAccessGate,
+    verifyExistingSheetAccess,
     recordSheetAccessError,
     hideSheetAccessGate,
-    revealPipelineSetupStepsScreen,
     revealSetupScreenAfterAuth,
     revealDashboardShell,
-    renderSetupStarterSheetUi,
     createBlankStarterSheet,
     handleSetupCreateStarterSheet,
     setDashboardSheetLinks,
     initSetupAndSheetAccessActions,
-    initLoginGateOAuthUi,
     getLastSheetAccessError() {
       return lastSheetAccessError;
     },

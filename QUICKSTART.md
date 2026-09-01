@@ -28,14 +28,13 @@ Tip: `npm run dev` starts the same thing **plus the local discovery worker** —
 recommended if you plan to set up job discovery in the wizard. (`npm run
 web-only` serves the dashboard alone.)
 
-Open `http://localhost:8080` and follow the on-screen setup:
-
-1. **Connect Google (login gate)** — paste your OAuth Client ID and sign in. No Client ID yet? Click **"I don't have a Client ID yet"** for the guided path that creates one.
-2. **First-run wizard** — connect or create your Google Sheet, then choose an AI provider. Gemini Flash is the recommended pin; Local (Ollama), OpenRouter, OpenAI, Anthropic, and Webhook are alternatives. Cover letters and tailored resumes run on the local scraper server with that setup-chosen model.
-3. **Profile onboarding** — upload or paste your resume and review the suggested roles.
-4. **Discovery setup** — click **"Set it up for me"** for the one-click Tailscale path (stable HTTPS URL that never rotates), or configure a connection manually.
-
-The flow then offers devices and power-ups before landing on your Pipeline.
+Open `http://localhost:8080` and follow the setup flow: **Google** connects the
+Sheet you own, **AI** connects the provider that powers personal results
+(Gemini Flash is the recommended pin), **Resume** reads your experience, **Fit**
+lets you review what JobBored should look for, and **Discovery** connects the
+runner that fills your Pipeline; the flow then shows the payoff and lands on
+your Pipeline. Cover letters and tailored resumes run on the local scraper
+server with that setup-chosen model.
 
 Move a card between stages by dragging it or using the stage control on the card. Every change writes straight back to your Sheet — the Sheet stays the source of truth. To tailor a resume, open any card and click **Tailor resume**.
 

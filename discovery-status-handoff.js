@@ -440,36 +440,6 @@ function clearAppsScriptDeployStatus() {
   host().renderAppsScriptDeployUi();
 }
 
-const PENDING_DISCOVERY_SETUP_KEY = "pendingDiscoverySetup";
-
-function hasPendingDiscoverySetup() {
-  try {
-    return sessionStorage.getItem(PENDING_DISCOVERY_SETUP_KEY) === "1";
-  } catch (_) {
-    return false;
-  }
-}
-
-function queuePendingDiscoverySetup() {
-  try {
-    sessionStorage.setItem(PENDING_DISCOVERY_SETUP_KEY, "1");
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-async function resumePendingDiscoverySetupIfNeeded() {
-  if (!hasPendingDiscoverySetup()) return false;
-  try {
-    sessionStorage.removeItem(PENDING_DISCOVERY_SETUP_KEY);
-  } catch (_) {
-    /* ignore */
-  }
-  await openSettingsForDiscoveryWebhook();
-  return true;
-}
-
 function stripSetupDiscoveryParam() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("setup") !== "discovery") return;
@@ -506,11 +476,15 @@ async function requestDiscoverySetup(options = {}) {
     allowWhileOnboarding = false,
     ...wizardOptions
   } = options;
-  if (
-    (host().isOnboardingWizardVisible() || host().isFirstRunWizardVisible()) &&
-    !allowWhileOnboarding
-  ) {
-    queuePendingDiscoverySetup();
+  // The one-flow is the onboarding surface (spec §3), and its Beat 5 IS
+  // discovery setup — opening the standalone wizard over the flow shell
+  // would strand the beat behind it. The two legacy wizards this also used
+  // to ask about are deleted (§7).
+  // Deferring is the whole answer: the sessionStorage queue this used to
+  // write had a writer and no caller for its resumer
+  // (ONE-FLOW-ONBOARDING-SPEC §7). Beat 5 IS discovery setup, so there is
+  // nothing to resume TO once the flow has the surface.
+  if (isOneFlowOpen() && !allowWhileOnboarding) {
     if (stripSetupParam) {
       stripSetupDiscoveryParam();
     }
@@ -1125,6 +1099,195 @@ async function handleDiscoverySetupDeepLink() {
   return true;
 }
 
+// ============================================
+// THE ONE-FLOW CUTOVER (ONE-FLOW-ONBOARDING-SPEC §3.3 / §3.4)
+//
+// This used to be the head of the legacy chain: the first-run infra
+// wizard, then the profile onboarding wizard, each owning a screen of
+// its own. Both still exist (L7 deletes them); neither is reached from
+// boot any more. The controller answers the one question that replaced
+// them — should this profile see the flow, and where does it start?
+// ============================================
+
+function oneFlow() {
+  const ns = window.JobBoredOneFlow;
+  return ns && typeof ns.maybeStart === "function" ? ns : null;
+}
+
+function userContentStore() {
+  return window.CommandCenterUserContent || null;
+}
+
+/** True while a beat owns the screen — the flow's own "wizard visible". */
+function isOneFlowOpen() {
+  const flow = oneFlow();
+  return !!(flow && typeof flow.isOpen === "function" && flow.isOpen());
+}
+
+/** The sheet a legacy profile already owns — B1's exit condition. */
+function hasConfiguredSheet() {
+  const h = host();
+  if (!h) return false;
+  const read = (name) =>
+    typeof h[name] === "function" ? String(h[name]() || "").trim() : "";
+  return !!(read("getSheetId") || read("getSHEET_ID"));
+}
+
+/**
+ * "Verified" is not a stored flag anywhere — B2 defines it as a live
+ * round trip, so migration has to spend one too. A configured provider
+ * whose key has since died therefore lands back on B2, which is exactly
+ * the beat that exists to catch it.
+ */
+async function hasVerifiedProvider() {
+  const config = window.COMMAND_CENTER_CONFIG || {};
+  if (!String(config.resumeProvider || "").trim()) return false;
+  const api = window.CommandCenterResumeGenerate;
+  if (!api || typeof api.verifyResumeProviderLive !== "function") return false;
+  try {
+    const result = await api.verifyResumeProviderLive();
+    return !!(result && result.ok);
+  } catch (e) {
+    return false;
+  }
+}
+
+/** True when the scorer's profile (`~/.jobbored/profile.json`) exists. */
+async function hasServerFitProfile() {
+  const api = window.FitProfileForm;
+  if (!api || typeof api.fetchProfile !== "function") return false;
+  try {
+    const data = await api.fetchProfile();
+    return !!(data && data.ok !== false && data.profile);
+  } catch (e) {
+    // A dead profile server is not evidence that the profile is missing;
+    // re-asking for work the user may have already done is the one thing
+    // §3.3 forbids, so an unreachable server keeps them out of B4.
+    return true;
+  }
+}
+
+/** Legacy remote policy → the work mode B4 edits. Twin of discovery-drawer.js:189. */
+function workModeFromRemotePolicy(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "any";
+  if (/remote/.test(v)) return "remote_only";
+  if (/hybrid/.test(v)) return "hybrid_ok";
+  if (/on[-\s]?site/.test(v)) return "onsite_ok";
+  return "any";
+}
+
+/** Legacy seniority label → the enum id B4 renders. */
+function seniorityFromLabel(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  const byLabel = {
+    intern: "intern",
+    entry: "entry",
+    mid: "ic_mid",
+    senior: "ic_senior",
+    staff: "ic_staff",
+    principal: "ic_principal",
+    manager: "manager",
+    director: "director",
+    head: "head",
+    vp: "vp",
+    "c-level": "c_level",
+  };
+  return byLabel[v] || "any";
+}
+
+function splitList(raw) {
+  return String(raw || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+}
+
+/**
+ * The legacy discovery profile, in the shape B4 confirms. Roles and
+ * locations the user already typed must never be asked for twice
+ * (spec §3.3, "prefilled from the discovery profile") — everything B4
+ * needs and the legacy profile never held (strengths, narrative) stays
+ * empty, so B4's own validation asks for it once.
+ */
+function fitDraftFromDiscoveryProfile(profile) {
+  const p = profile && typeof profile === "object" ? profile : {};
+  const workMode = workModeFromRemotePolicy(p.remotePolicy);
+  return {
+    version: 1,
+    identity: {
+      targetRoles: splitList(p.targetRoles),
+      targetSeniority: seniorityFromLabel(p.seniority),
+      primaryNarrative: "",
+    },
+    strengths: [],
+    hardConstraints: {
+      workMode,
+      acceptableLocations: splitList(p.locations),
+      skipTitles: splitList(p.keywordsExclude),
+    },
+  };
+}
+
+/**
+ * Spec §3.3 — where a partially set up legacy profile re-enters the
+ * flow. The ladder is read deepest-first: a user who already answered
+ * the profile questions does not re-answer the AI key screen to reach
+ * the one screen they still owe us. Every rung above B1 presupposes the
+ * sheet, so a profile without one starts at B1 regardless.
+ *
+ * Returns "" for "no opinion" — the controller's own resolver then picks
+ * the saved beat, or B1.
+ */
+async function resolveOneFlowEntryBeat() {
+  if (!hasConfiguredSheet()) return "";
+  const store = userContentStore();
+  const legacyProfileComplete =
+    store && typeof store.isOnboardingComplete === "function"
+      ? await store.isOnboardingComplete()
+      : false;
+  if (legacyProfileComplete && !(await hasServerFitProfile())) {
+    const flow = oneFlow();
+    if (flow && typeof flow.seedRuntime === "function") {
+      const profile =
+        typeof store.getDiscoveryProfile === "function"
+          ? await store.getDiscoveryProfile()
+          : null;
+      flow.seedRuntime({ profileDraft: fitDraftFromDiscoveryProfile(profile) });
+    }
+    return "fit";
+  }
+  if (await hasVerifiedProvider()) return "resume";
+  return "ai";
+}
+
+/**
+ * The head of the post-auth chain. Renders the flow only for a profile
+ * that still owes setup; a finished legacy profile is recorded as
+ * complete inside maybeStart() and never sees a beat (§3.3), with the
+ * what's-next banner carrying any remaining nudge.
+ */
+async function startOneFlowIfNeeded() {
+  const flow = oneFlow();
+  if (!flow) return false;
+  // The S0 invitation card may already have opened the flow before the
+  // session finished restoring; boot must not yank it back to an entry beat.
+  if (typeof flow.isOpen === "function" && flow.isOpen()) return false;
+  let shouldStart = false;
+  try {
+    shouldStart = await flow.maybeStart();
+  } catch (e) {
+    console.warn("[JobBored] one-flow: entry decision failed:", e);
+    return false;
+  }
+  if (!shouldStart) return false;
+  // A saved beat is a resume (§3.4) and outranks the migration ladder.
+  const saved = typeof flow.getState === "function" ? flow.getState().beat : "";
+  const target = saved ? "" : await resolveOneFlowEntryBeat();
+  await flow.open(target);
+  return true;
+}
+
 // Deliberately `var`: top-level var in a classic script lands on window, the
 // same place the old implicit-global assignments put these flags.
 var postAccessBootstrapDone = false;
@@ -1134,10 +1297,7 @@ function runPostAccessBootstrapOnce() {
   if (postAccessBootstrapDone) return postAccessBootstrapPromise;
   postAccessBootstrapDone = true;
   postAccessBootstrapPromise = (async () => {
-    const infraHandled = await host().checkInfraSetupGate();
-    if (!infraHandled) {
-      await host().checkOnboardingGate();
-    }
+    await startOneFlowIfNeeded();
     await handleDiscoverySetupDeepLink();
     // The bootstrap-time resume runs before the OAuth session restores, so
     // its signed-in gate no-ops it on every reload. Retry now that access
@@ -1155,7 +1315,6 @@ function resetPostAccessBootstrap() {
 }
 
   Object.assign(status, {
-    PENDING_DISCOVERY_SETUP_KEY: PENDING_DISCOVERY_SETUP_KEY,
     isManagedAppsScriptDeployState: isManagedAppsScriptDeployState,
     isAppsScriptPublicAccessReady: isAppsScriptPublicAccessReady,
     getAppsScriptEditorUrl: getAppsScriptEditorUrl,
@@ -1167,9 +1326,6 @@ function resetPostAccessBootstrap() {
     diagnoseDownstreamChain: diagnoseDownstreamChain,
     setAppsScriptDeployStatus: setAppsScriptDeployStatus,
     clearAppsScriptDeployStatus: clearAppsScriptDeployStatus,
-    hasPendingDiscoverySetup: hasPendingDiscoverySetup,
-    queuePendingDiscoverySetup: queuePendingDiscoverySetup,
-    resumePendingDiscoverySetupIfNeeded: resumePendingDiscoverySetupIfNeeded,
     stripSetupDiscoveryParam: stripSetupDiscoveryParam,
     focusDiscoveryWebhookFieldInSettings: focusDiscoveryWebhookFieldInSettings,
     openSettingsForDiscoveryWebhook: openSettingsForDiscoveryWebhook,
@@ -1192,6 +1348,8 @@ function resetPostAccessBootstrap() {
     renderDiscoveryRunStatus: renderDiscoveryRunStatus,
     looksLikeExpiredSearchKey: looksLikeExpiredSearchKey,
     handleDiscoverySetupDeepLink: handleDiscoverySetupDeepLink,
+    resolveOneFlowEntryBeat: resolveOneFlowEntryBeat,
+    startOneFlowIfNeeded: startOneFlowIfNeeded,
     runPostAccessBootstrapOnce: runPostAccessBootstrapOnce,
     resetPostAccessBootstrap: resetPostAccessBootstrap,
   });

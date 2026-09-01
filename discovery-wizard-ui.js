@@ -2080,6 +2080,9 @@ function buildDiscoveryWizardSteps(runtime) {
 
   // ==== orchestration moved from app.js (Phase 1b) ====
 async function renderDiscoverySetupWizard(options = {}) {
+  // A one-flow beat driving this module owns the screen (see
+  // runTailscaleAutoSetup): the legacy wizard must not render over it.
+  if (isDiscoveryWizardRenderSuppressed()) return null;
   const shell = host().getDiscoveryWizardShellApi();
   if (!shell || typeof shell.renderWizardShell !== "function") {
     await host().openCommandCenterSettingsModal();
@@ -2127,13 +2130,6 @@ async function renderDiscoverySetupWizard(options = {}) {
       void host().persistDiscoveryWizardState(state);
     },
     onClose: (reason, ctx) => {
-      // Restore onboarding if it was showing when discovery wizard opened
-      const runtime = host().getDiscoveryWizardRuntime();
-      const shouldRestoreOnboarding =
-        runtime &&
-        runtime.state &&
-        runtime.state._onboardingWasHiddenByDiscovery;
-
       // Cross-rec: a genuinely finished discovery setup — reason "finish"
       // AND the persisted result is "connected" — chains into the go-live
       // (devices) wizard via recommendGoLiveAfterDiscoveryFinish, which
@@ -2163,10 +2159,6 @@ async function renderDiscoverySetupWizard(options = {}) {
       // it must never keep showing a stale "0 of 2" (completion may have
       // persisted mid-wizard via a connected verification).
       refreshWhatsNextBannerBestEffort();
-
-      if (shouldRestoreOnboarding) {
-        host().showOnboardingWizard();
-      }
 
       if (typeof options.onClose === "function") {
         try {
@@ -2321,6 +2313,84 @@ function resolveDiscoveryWizardEntry({
 const DISCOVERY_TAILSCALE_WORKER_PORT = 8644;
 
 /**
+ * The auto-setup's four phases, in order. The labels are the strings this
+ * sequence has always written into the wizard message — they now reach the
+ * screen as a live ✓/◌/· list instead of flashing past (ONE-FLOW spec §10
+ * Phase 0: "busy states for `Set it up for me`"). A host that renders its
+ * own copy (B5 ships the spec's normative lines) passes `onStage` and maps
+ * these ids itself.
+ */
+const TAILSCALE_AUTO_STAGES = Object.freeze([
+  { id: "machine", label: "Checking Tailscale…" },
+  { id: "worker", label: "Starting the discovery worker…" },
+  { id: "publish", label: "Publishing the worker on your tailnet…" },
+  { id: "verify", label: "Verifying the connection…" },
+]);
+
+/**
+ * While a one-flow beat drives this module the FLOW owns the screen, so the
+ * legacy wizard must not paint itself over it. A depth counter (not a bool)
+ * because the sequence's shared verification re-enters render() several
+ * times; every entry has to stay suppressed until the outermost caller ends.
+ */
+let discoveryWizardRenderDepth = 0;
+
+function isDiscoveryWizardRenderSuppressed() {
+  return discoveryWizardRenderDepth > 0;
+}
+
+/**
+ * Build the stage reporter the auto-setup drives. `onStage` receives
+ * `{ id, label, state, stages }` on every transition, where `stages` is the
+ * whole list with its current states — enough for a host to re-render the
+ * live list without tracking anything itself.
+ */
+function createTailscaleStageReporter(onStage) {
+  const states = new Map(TAILSCALE_AUTO_STAGES.map((s) => [s.id, "todo"]));
+  return function reportStage(id, state) {
+    states.set(id, state);
+    const stages = TAILSCALE_AUTO_STAGES.map((stage) => ({
+      id: stage.id,
+      label: stage.label,
+      state: states.get(stage.id),
+    }));
+    if (typeof onStage === "function") {
+      const stage = TAILSCALE_AUTO_STAGES.find((s) => s.id === id);
+      onStage({ id, label: stage ? stage.label : "", state, stages });
+    }
+    return stages;
+  };
+}
+
+/**
+ * The wizard's own stage renderer: the shared shell's busy region (spec
+ * §3.5.3), so the trigger disables itself and the four strings above are
+ * on screen for the whole 20–120 s the sequence takes. A failure clears the
+ * list — a stalled ◌ row would outlive the failure it belongs to, and the
+ * honest message card is what should carry a blocked machine.
+ */
+function renderTailscaleStagesInWizard({ state, stages }) {
+  // Decoration, never a dependency: a host bridge without a shell (or a
+  // shell without the L0 busy region) must not break the setup sequence.
+  try {
+    const bridge = host();
+    const shell =
+      bridge && typeof bridge.getDiscoveryWizardShellApi === "function"
+        ? bridge.getDiscoveryWizardShellApi()
+        : null;
+    if (!shell) return;
+    if (state === "failed") {
+      if (typeof shell.clearBusy === "function") shell.clearBusy();
+      return;
+    }
+    if (typeof shell.setBusy !== "function") return;
+    shell.setBusy("wizard_tailscale_autosetup", stages);
+  } catch (e) {
+    console.warn("[JobBored] tailscale stage render:", e);
+  }
+}
+
+/**
  * One-click Tailscale setup — the plug-and-play path: probe Tailscale →
  * boot the discovery worker if it's down (worker-only, the tunnel/relay
  * phases are ngrok machinery this path doesn't need) → `tailscale serve`
@@ -2336,6 +2406,10 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
   const verify = deps.verify || handleDiscoveryWizardVerification;
   const render = deps.render || renderDiscoverySetupWizard;
+  // No onStage → the standalone wizard renders the stages itself.
+  const reportStage = createTailscaleStageReporter(
+    typeof deps.onStage === "function" ? deps.onStage : renderTailscaleStagesInWizard,
+  );
   const setAuto = (state, detail) => {
     host().updateDiscoveryWizardRuntime({
       drafts: {
@@ -2344,12 +2418,14 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       },
     });
   };
-  const stop = (state, message, tone) => {
+  const stop = (state, message, tone, stageId) => {
+    if (stageId) reportStage(stageId, "failed");
     setAuto(state, message);
     setDiscoveryWizardMessage(message, tone);
     return render();
   };
 
+  reportStage("machine", "active");
   setAuto("running", "Checking Tailscale…");
   setDiscoveryWizardMessage("Checking Tailscale…", "info");
   let ts = null;
@@ -2365,6 +2441,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       "needs_install",
       "Tailscale isn't installed yet — grab it below, then Re-check.",
       "warning",
+      "machine",
     );
   }
   if (!ts.loggedIn) {
@@ -2372,8 +2449,10 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       "needs_login",
       "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check.",
       "warning",
+      "machine",
     );
   }
+  reportStage("machine", "done");
 
   // Resolve the worker's shared secret server-side (the same resolve-or-
   // generate helper the local bootstrap uses) so the verification can
@@ -2405,6 +2484,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   } catch (_) {
     workerUp = false;
   }
+  reportStage("worker", "active");
   if (!workerUp || (secretInfo && secretInfo.wrote)) {
     setAuto("running", "Starting the discovery worker…");
     setDiscoveryWizardMessage("Starting the discovery worker…", "info");
@@ -2429,6 +2509,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
           (body && body.message) ||
             "Couldn't start the discovery worker automatically — paste a URL below, or try again.",
           "warning",
+          "worker",
         );
       }
     } catch (e) {
@@ -2437,11 +2518,14 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
         "failed",
         "Couldn't start the discovery worker automatically — paste a URL below, or try again.",
         "warning",
+        "worker",
       );
     }
   }
+  reportStage("worker", "done");
 
   // Publish the worker on the tailnet and derive the stable webhook URL.
+  reportStage("publish", "active");
   setAuto("running", "Publishing the worker on your tailnet…");
   setDiscoveryWizardMessage("Publishing the worker on your tailnet…", "info");
   let serveUrl = "";
@@ -2461,6 +2545,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
         (body && body.error) ||
           "Tailscale couldn't publish the worker — paste a URL below, or try again.",
         "warning",
+        "publish",
       );
     }
   } catch (e) {
@@ -2469,8 +2554,10 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       "failed",
       "Tailscale couldn't publish the worker — paste a URL below, or try again.",
       "warning",
+      "publish",
     );
   }
+  reportStage("publish", "done");
 
   const endpointUrl = ensureDiscoveryWebhookUrl(serveUrl);
   const runtimeNow = host().getDiscoveryWizardRuntime() || {};
@@ -2490,6 +2577,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       tailscaleAutoDetail: "",
     },
   });
+  reportStage("verify", "active");
   setDiscoveryWizardMessage("Verifying the connection…", "info");
   // Shared verification: persists URL (+ the secret draft) and advances to
   // Done on success — identical to the manual "Save and verify" path.
@@ -2499,8 +2587,10 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   const after = host().getDiscoveryWizardRuntime() || {};
   const v = after.lastVerificationResult;
   if (v && v.ok) {
+    reportStage("verify", "done");
     setAuto("", "");
   } else {
+    reportStage("verify", "failed");
     setAuto(
       "failed",
       (v && v.message) ||
@@ -2511,30 +2601,112 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   return result;
 }
 
+/**
+ * The auto-setup sequence, callable by a host that owns the screen (B5 —
+ * ONE-FLOW spec §5 B5). Same chain, same persistence, three differences:
+ * the caller's `onStage` renders the stages, the legacy wizard never paints
+ * itself over the caller, and the result comes back NORMALIZED so the host
+ * never has to read wizard internals to know what happened.
+ */
+async function runTailscaleAutoSetup(options = {}) {
+  discoveryWizardRenderDepth += 1;
+  try {
+    await runDiscoveryTailscaleAutoSetup(options);
+  } finally {
+    discoveryWizardRenderDepth -= 1;
+  }
+  const runtime = host().getDiscoveryWizardRuntime() || {};
+  const drafts =
+    runtime.drafts && typeof runtime.drafts === "object" ? runtime.drafts : {};
+  const verification = runtime.lastVerificationResult;
+  // drafts.tailscaleAutoState is cleared on success and holds the blocked
+  // reason otherwise — the same value the wizard's status card reads.
+  const blocked = String(drafts.tailscaleAutoState || "");
+  const ok = !blocked && !!(verification && verification.ok);
+  return {
+    ok,
+    state: ok ? "connected" : blocked || "failed",
+    message: ok
+      ? (verification && verification.message) || ""
+      : drafts.tailscaleAutoDetail ||
+        (verification && verification.message) ||
+        "Automatic setup didn't finish — try again, or paste a URL.",
+    endpointUrl: String(drafts.endpointUrl || ""),
+    result: verification || null,
+  };
+}
+
+/**
+ * B5's advanced escape hatch: verify a URL+secret the user pasted, through
+ * the SAME verification (and the same persistence) the standalone wizard
+ * uses — one code path, one truth about what "connected" means. Like
+ * runTailscaleAutoSetup, it keeps the legacy wizard off the screen and
+ * hands back a normalized outcome.
+ */
+async function verifyDiscoveryEndpointForFlow(options = {}) {
+  const url = String(options.url || "").trim();
+  if (!url) {
+    return {
+      ok: false,
+      state: "invalid",
+      message: "Paste the worker's HTTPS URL (including /webhook) first.",
+      endpointUrl: "",
+      result: null,
+    };
+  }
+  const secret = String(options.secret || "").trim();
+  const endpointUrl = ensureDiscoveryWebhookUrl(url) || url;
+  host().updateDiscoveryWizardRuntime({
+    drafts: {
+      endpointUrl,
+      // Never clear a secret already on file with an empty box.
+      ...(secret ? { endpointSecret: secret } : {}),
+    },
+  });
+  discoveryWizardRenderDepth += 1;
+  try {
+    await handleDiscoveryWizardVerification(endpointUrl, "test_webhook");
+  } finally {
+    discoveryWizardRenderDepth -= 1;
+  }
+  const runtime = host().getDiscoveryWizardRuntime() || {};
+  const verification = runtime.lastVerificationResult;
+  const ok = !!(verification && verification.ok);
+  return {
+    ok,
+    state: ok ? "connected" : "failed",
+    message:
+      (verification && verification.message) ||
+      "That endpoint didn't answer — check the URL and the secret, then try again.",
+    endpointUrl,
+    result: verification || null,
+  };
+}
+
 async function openDiscoverySetupWizard(options = {}) {
-  // Funnel telemetry: the discovery setup surface was entered (fires once per
-  // open, before autodetect may silently short-circuit it).
+  // Funnel telemetry: the discovery setup surface was entered (fires once
+  // per open, before the machine probe below).
   emitOnboardingEvent("discovery_opened", {
     entryPoint: options.entryPoint || "manual",
   });
   // ====== [discovery-autodetect lane: silent recover] ======
-  // Probe the local discovery stack BEFORE rendering the wizard. If
-  // everything is healthy, skip the wizard entirely. If the only problem
-  // is fixable (worker down, ngrok rotated, etc.), the autodetect module
-  // runs /__proxy/full-boot silently and re-probes. Only when human input
-  // is genuinely needed do we fall through to the wizard below.
+  // Probe the local discovery stack BEFORE rendering the wizard. When the
+  // only problem is fixable (worker down, ngrok rotated, etc.) the
+  // autodetect module runs /__proxy/full-boot and re-probes, so the wizard
+  // opens against a repaired stack instead of an alarm. The wizard always
+  // renders either way — the probe saves work, never a step.
   //
   // Module owns no UI. Endpoint contract locked in dev-server.mjs
   // handleDiscoveryState header. Pass options.skipAutodetect to bypass.
   //
-  // The ONBOARDING entry point always bypasses this lane: discovery setup is
-  // a real step of onboarding, so the wizard must render (showing its
-  // connected state when the stack is healthy) instead of short-circuiting
-  // to a toast — otherwise the celebration/gate CTAs appear to dump the user
-  // on the dashboard with nothing happening.
+  // ONE-FLOW spec §5 B5: the probe runs for EVERY entry point, onboarding
+  // included, and its verdict renders as a visible first beat of the wizard.
+  // It used to be skipped during onboarding, and to report itself through a
+  // toast that the wizard then covered — a check the user never saw either
+  // way. The wizard still always renders; only the silence is gone.
+  let autodetectNote = "";
   if (
     !options.skipAutodetect &&
-    options.entryPoint !== "onboarding" &&
     typeof window !== "undefined" &&
     window.JobBoredDiscoveryAutodetect &&
     typeof window.JobBoredDiscoveryAutodetect.recoverIfPossible === "function"
@@ -2542,33 +2714,26 @@ async function openDiscoverySetupWizard(options = {}) {
     try {
       const verdict =
         await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
-      if (verdict && verdict.ready) {
-        // Recovery may bring the stack up, but opening setup must still
-        // render review state and never silently install keep-alive.
-        if (typeof host().showToast === "function") {
-          host().showToast("Discovery is already set up.", "info");
-        }
-      }
+      // Recovery may bring the stack up, but opening setup must still
+      // render review state and never silently install keep-alive.
+      autodetectNote =
+        verdict && verdict.ready
+          ? "Checked your machine ✓ — discovery is already set up here."
+          : "Checked your machine ✓ — a few things still need connecting.";
     } catch (err) {
       // Autodetect failure is never fatal — fall through to the wizard.
       console.warn("[JobBored] discovery autodetect skipped:", err);
+      autodetectNote = "Checked your machine — the probe didn't finish, so the steps below are the source of truth.";
     }
   }
   // ====== [/discovery-autodetect lane] ======
 
-  // Remember if onboarding was showing so we can restore it after wizard closes
-  const onboardingWasVisible = host().isOnboardingWizardVisible();
-  if (onboardingWasVisible) {
-    host().hideOnboardingWizard();
-  }
+  // Nothing to hide-and-restore around this wizard any more: spec §7
+  // deleted the legacy onboarding wizard, and the one-flow defers this
+  // surface rather than being covered by it (requestDiscoverySetup).
   if (host().isSettingsModalOpen()) {
     host().closeCommandCenterSettingsModal();
   }
-  const helpModal = document.getElementById("discoveryHelpModal");
-  if (helpModal) {
-    helpModal.style.display = "none";
-  }
-  host().closeDiscoverySetupGuideModal();
   const snapshot = await host().refreshDiscoveryReadinessSnapshot({
     force: true,
     rerender: false,
@@ -2616,9 +2781,13 @@ async function openDiscoverySetupWizard(options = {}) {
       currentStep: initialStep,
       completedSteps: mergedCompleted,
       // Track that we hid onboarding so we can reshow it on close
-      _onboardingWasHiddenByDiscovery: onboardingWasVisible,
     },
     activeStepId: initialStep,
+    // The autodetect verdict rides in as the wizard's opening message, so
+    // "we checked your machine" is something the user reads, not a toast
+    // that flashed behind the modal.
+    lastWizardMessage: autodetectNote,
+    lastWizardMessageTone: "info",
     drafts: {
       ...getDiscoveryWizardDefaultDrafts(entrySnapshot),
       ...(options.drafts && typeof options.drafts === "object"
@@ -2964,29 +3133,18 @@ async function handleDiscoveryWizardAction(actionId) {
   }
 
   if (actionId === "wizard_continue_devices") {
-    // Continuous setup with a celebratory beat: suppress the onClose
-    // auto-chain, close with finish semantics, play the stage celebration,
-    // and let its CTA run recommendGoLiveAfterDiscoveryFinish — the SAME
+    // Continuous setup: suppress the onClose auto-chain, close with finish
+    // semantics, and run recommendGoLiveAfterDiscoveryFinish — the SAME
     // single opener (no-ops when devices is already complete), so go-live
-    // can never double-open. Overlay missing → the player continues
-    // immediately (existing fallback).
+    // can never double-open.
     host().updateDiscoveryWizardRuntime({ suppressGoLiveAutoOpen: true });
     if (shell && typeof shell.closeWizardShell === "function") {
       shell.closeWizardShell("finish");
     }
-    const onboarding =
-      typeof window !== "undefined" &&
-      window.JobBoredApp &&
-      window.JobBoredApp.onboarding;
-    const proceed = () => void recommendGoLiveAfterDiscoveryFinish();
-    if (
-      onboarding &&
-      typeof onboarding.playOnboardingCelebration === "function"
-    ) {
-      onboarding.playOnboardingCelebration(proceed, "devices");
-    } else {
-      proceed();
-    }
+    // No celebration here any more: spec §7 collapses four bursts to the
+    // single B6 payoff, so this finish hands straight to the go-live
+    // cross-rec instead of gating it behind a "Discovery is live!" beat.
+    void recommendGoLiveAfterDiscoveryFinish();
     return null;
   }
 
@@ -3046,7 +3204,22 @@ async function handleDiscoveryWizardAction(actionId) {
       "Running Fix setup — checking worker, tunnel, and relay...",
     );
     await renderDiscoverySetupWizard();
-    const result = await probes.requestFixSetup();
+    // Spec §10 Phase 0: the trigger disables itself and the phase is on
+    // screen for the whole run — Fix setup used to look inert for a minute.
+    if (shell && typeof shell.setBusy === "function") {
+      shell.setBusy("wizard_fix_setup", [
+        {
+          label: "Running Fix setup — checking worker, tunnel, and relay…",
+          state: "active",
+        },
+      ]);
+    }
+    let result;
+    try {
+      result = await probes.requestFixSetup();
+    } finally {
+      if (shell && typeof shell.clearBusy === "function") shell.clearBusy();
+    }
     if (result && result.ok) {
       if (result.needsAuth) {
         const authMsg = (result.phases || []).find(
@@ -3505,6 +3678,10 @@ async function handleDiscoveryWizardAction(actionId) {
   ui.openSetupWizard = openDiscoverySetupWizard;
   ui.handleAction = handleDiscoveryWizardAction;
   ui.setDiscoveryWizardMessage = setDiscoveryWizardMessage;
+  // ONE-FLOW spec §5 B5: B5's connect panel drives the same one-click
+  // Tailscale sequence this wizard runs, rendering its own stage copy.
+  ui.runTailscaleAutoSetup = runTailscaleAutoSetup;
+  ui.verifyDiscoveryEndpointForFlow = verifyDiscoveryEndpointForFlow;
   // Test seam (read in tests; never relied on from app code). Mirrors
   // go-live's root._internal — exposes the module-private discovery->go-live
   // finish handler so its persist + goLiveDone gate can be driven behaviorally.

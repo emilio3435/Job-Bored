@@ -73,8 +73,11 @@
             hasSetupApi: !!app.setup,
             screens: {
               dashboard: screenState("dashboard"),
-              setupScreen: screenState("setupScreen"),
               sheetAccessGateScreen: screenState("sheetAccessGateScreen"),
+              // Screen S0 (ONE-FLOW-ONBOARDING-SPEC §4) is the cold-start
+              // surface since the one-flow cutover: a zero-config visitor
+              // gets the demo board, and #dashboard stays hidden behind it.
+              oneFlowDemoBoard: screenState("oneFlowDemoBoard"),
             },
           };
         }
@@ -114,7 +117,7 @@
 
         function blankShellDetected(snap) {
           var screens = snap && snap.screens ? snap.screens : {};
-          return ["dashboard", "setupScreen", "sheetAccessGateScreen"].every(
+          return ["dashboard", "sheetAccessGateScreen", "oneFlowDemoBoard"].every(
             function (id) {
               var state = screens[id];
               if (!state || !state.exists) return true;
@@ -187,12 +190,11 @@
     <link rel="stylesheet" href="vendor/fonts/fonts.css" />
     <script src="https://accounts.google.com/gsi/client" async></script>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="css/onboarding-celebration.css" />
     <link rel="stylesheet" href="css/legacy-login-gate.css" />
     <link rel="stylesheet" href="css/legacy-brief.css" />
     <link rel="stylesheet" href="css/legacy-cards-drawer.css" />
     <link rel="stylesheet" href="css/legacy-materials.css" />
-    <link rel="stylesheet" href="css/legacy-onboarding.css" />
-    <link rel="stylesheet" href="css/legacy-first-run-wizard.css" />
     <link rel="stylesheet" href="css/legacy-discovery-setup-wizard.css" />
     <link rel="stylesheet" href="css/legacy-profile-modal.css" />
     <link rel="stylesheet" href="css/legacy-settings-profile.css" />
@@ -224,6 +226,10 @@
     <link rel="stylesheet" href="scribe.css" />
     <link rel="stylesheet" href="welcome.css" />
     <link rel="stylesheet" href="fit-profile.css" />
+    <!-- One-flow onboarding (docs/ONE-FLOW-ONBOARDING-SPEC.md). Loads after
+         the legacy wizard sheets so it extends the shared shell chassis
+         instead of forking it. Per-lane fenced regions live inside. -->
+    <link rel="stylesheet" href="css/oneflow.css" />
     <link rel="stylesheet" href="jb-v2-legacy-hide.css" />
     <script src="jb-ui.js" defer></script>
     <script src="jb-a11y.js" defer></script>
@@ -367,9 +373,8 @@
          (so it never competes with the separate profile wizard). Dismiss
          writes the flag and hides the section permanently; the flag
          survives reloads via user-content-store.js's settings store. The
-         two CTA buttons share their handlers with the in-wizard terminal
-         #firstRunPanelDone so the destinations stay consistent between
-         surfaces. -->
+         two CTA buttons are the only surface that offers these two
+         destinations now that the legacy wizards are gone (spec §7). -->
     <section
       data-region="whats-next"
       class="whats-next-banner"
@@ -390,12 +395,6 @@
             id="whatsNextOpenDiscovery"
             data-whats-next-action="discovery"
           >
-            <span
-              id="whatsNextDiscoveryBadge"
-              class="whats-next-banner__cta-badge"
-              hidden
-              aria-hidden="true"
-            ></span>
             Turn on job discovery
           </button>
           <button
@@ -404,12 +403,6 @@
             id="whatsNextOpenSelfHosting"
             data-whats-next-action="self_hosting"
           >
-            <span
-              id="whatsNextGoLiveBadge"
-              class="whats-next-banner__cta-badge"
-              hidden
-              aria-hidden="true"
-            ></span>
             Use JobBored on other devices
           </button>
           <button
@@ -430,14 +423,6 @@
             hidden
           >
             Later
-          </button>
-          <button
-            id="enhancementsReEntryBtn"
-            class="login-gate__text-btn whats-next-banner__later"
-            type="button"
-            hidden
-          >
-            Maximize results
           </button>
           <button
             type="button"
@@ -512,34 +497,6 @@
          body.jb-v2, the host is empty and dormant. -->
     <div data-region="welcome"></div>
     <!-- region:welcome:end -->
-
-    <!-- Setup Screen (shown when config is missing/invalid) -->
-    <div class="setup-screen" id="setupScreen" style="display: none">
-      <div class="setup-card setup-card--minimal">
-        <div class="setup-logo">
-          <img
-            class="setup-logo__img"
-            src="jobbored.svg"
-            width="160"
-            height="160"
-            alt="JobBored"
-            decoding="async"
-          />
-          <h1 class="setup-headline">One more step.</h1>
-          <p class="setup-subtitle">
-            We’ll create your Pipeline sheet in your Google Drive.
-          </p>
-        </div>
-        <button
-          type="button"
-          class="setup-form-btn setup-form-btn--primary"
-          id="setupCreateStarterSheetBtn"
-        >
-          Create my Pipeline sheet
-        </button>
-        <p class="setup-status" id="setupCreateStarterSheetStatus"></p>
-      </div>
-    </div>
 
     <div
       class="login-gate"
@@ -649,139 +606,6 @@
                     />
                   </svg>
                   <span>Log in with Google</span>
-                </button>
-              </div>
-            </div>
-            <div
-              id="sheetAccessGateOAuthShell"
-              class="login-gate__oauth-shell"
-              hidden
-            >
-              <div
-                id="sheetAccessGateOAuthChoice"
-                class="login-gate__oauth-choice"
-              >
-                <h1 class="login-gate__oauth-title">Connect Google</h1>
-                <input
-                  type="text"
-                  class="login-gate__oauth-paste-input"
-                  id="sheetAccessGateOAuthClientIdInput"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="Paste Google Client ID — auto-saves on paste"
-                  aria-label="Google OAuth Client ID"
-                />
-                <button
-                  type="button"
-                  class="login-gate__btn-google login-gate__btn-google--save-oauth"
-                  id="sheetAccessGateOAuthSaveBtn"
-                >
-                  Continue with Google
-                </button>
-                <button
-                  type="button"
-                  class="login-gate__text-btn login-gate__oauth-helper-btn"
-                  id="sheetAccessGateBtnCreateOAuth"
-                >
-                  I don’t have a Client ID yet
-                </button>
-              </div>
-              <div
-                id="sheetAccessGateOAuthWizard"
-                class="login-gate__oauth-wizard"
-                hidden
-              >
-                <h2 class="login-gate__oauth-wizard-heading">Get a Client ID</h2>
-                <p class="login-gate__oauth-wizard-intro">
-                  Free, ~3 minutes. JobBored is BYO keys — your Client ID
-                  stays in your browser. We’ve copied this site’s origin to
-                  your clipboard so you can paste it when Google asks.
-                </p>
-                <code
-                  class="login-gate__oauth-origin"
-                  id="sheetAccessGateOAuthOriginDisplay"
-                ></code>
-                <button
-                  type="button"
-                  class="login-gate__btn-google"
-                  id="sheetAccessGateOAuthOpenConsoleBtn"
-                >
-                  Open Google Cloud Console
-                </button>
-                <button
-                  type="button"
-                  class="login-gate__btn-google doctor-gcloud-btn"
-                  id="sheetAccessGateOAuthGcloudBtn"
-                  hidden
-                >
-                  Create one for me with gcloud
-                </button>
-
-                <details class="login-gate__oauth-guide">
-                  <summary class="login-gate__oauth-guide-summary">
-                    Step-by-step guide (open if it’s your first time)
-                  </summary>
-                  <ol class="login-gate__oauth-guide-list">
-                    <li>
-                      In Google Cloud Console, create or pick a project (top
-                      bar → project picker → <strong>New project</strong>).
-                    </li>
-                    <li>
-                      Configure the <strong>OAuth consent screen</strong>
-                      (left nav → APIs &amp; Services → OAuth consent
-                      screen). Pick <strong>External</strong>, fill in the
-                      app name + your email, save. You can add yourself as a
-                      test user under Audience to skip “unverified app”
-                      warnings.
-                    </li>
-                    <li>
-                      Enable the <strong>Google Sheets API</strong> and
-                      <strong>Google Drive API</strong> for the project (APIs
-                      &amp; Services → Library → search → Enable).
-                    </li>
-                    <li>
-                      Open <strong>Credentials</strong> → <strong>Create
-                      credentials</strong> → <strong>OAuth client ID</strong>
-                      → application type
-                      <strong>Web application</strong>.
-                    </li>
-                    <li>
-                      Under <strong>Authorized JavaScript origins</strong>,
-                      click <em>Add URI</em> and paste the origin shown
-                      above (already on your clipboard). Leave redirect URIs
-                      empty — JobBored doesn’t use them.
-                    </li>
-                    <li>
-                      Click <strong>Create</strong>. Google shows a popup
-                      with your Client ID — copy it and paste below.
-                    </li>
-                  </ol>
-                  <p class="login-gate__oauth-guide-foot">
-                    Stuck? The Client ID always ends in
-                    <code>.apps.googleusercontent.com</code>. If you see a
-                    “redirect_uri_mismatch” later, you picked the wrong app
-                    type — recreate as <strong>Web application</strong>.
-                  </p>
-                </details>
-
-                <p class="login-gate__oauth-wizard-intro">
-                  When Google gives you a Client ID, paste it below.
-                </p>
-                <input
-                  type="text"
-                  class="login-gate__oauth-paste-input"
-                  id="sheetAccessGateOAuthClientIdInputAlt"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="xxxx.apps.googleusercontent.com"
-                  aria-label="Google OAuth Client ID"
-                />
-                <button
-                  type="button"
-                  class="login-gate__text-btn"
-                  id="sheetAccessGateOAuthWizardBack"
-                >
-                  ← Back
                 </button>
               </div>
             </div>
@@ -1480,8 +1304,6 @@
       </footer>
     </div>
 
-<!-- @include partials/first-run-wizard.html -->
-<!-- @include partials/onboarding-wizard.html -->
     <!-- Onboarding celebration: persists after the profile step until the
          user clicks through to discovery setup — one continuous flow, no
          dashboard intermission. The handoff degrades gracefully if this
@@ -1564,7 +1386,6 @@
 <!-- @include partials/profile-materials-modal.html -->
 <!-- @include partials/linkedin-capture-modal.html -->
 <!-- @include partials/resume-generation-modals.html -->
-    <!-- @include partials/discovery-modals.html -->
 
     <!-- @include partials/discovery-drawer.html -->
     <!-- @include partials/discovery-run-preview.html -->
@@ -1583,9 +1404,12 @@
       aria-hidden="true"
     ></div>
 
+    <!-- One-flow onboarding: the single mount every beat renders into
+         (ONE-FLOW-ONBOARDING-SPEC §3.5). Ships hidden and stays hidden —
+         nothing opens it until the L6 boot cutover. -->
     <div
-      class="discovery-setup-wizard-root"
-      id="enhancementsWizardMount"
+      class="discovery-setup-wizard-root oneflow-root"
+      id="oneFlowMount"
       hidden
       aria-hidden="true"
     ></div>
@@ -1620,13 +1444,26 @@
     <script src="discovery-wizard-verify.js" defer></script>
     <script src="discovery-wizard-ui.js?v=2" defer></script>
     <script src="go-live-wizard-ui.js" defer></script>
-    <script src="enhancements-wizard-ui.js" defer></script>
+    <!-- One-flow onboarding substrate. Order is load-bearing: the flow
+         controller reads window.CommandCenterUserContent and renders
+         through discovery-wizard-shell.js (both already loaded above),
+         and every beat registers itself against window.JobBoredOneFlow,
+         so the controller tag must precede them. -->
+    <script src="onboarding-flow.js" defer></script>
+    <script src="oneflow-beat-google.js" defer></script>
+    <script src="oneflow-beat-ai.js" defer></script>
+    <script src="oneflow-beat-resume.js" defer></script>
+    <script src="oneflow-beat-fit.js" defer></script>
+    <script src="oneflow-beat-discovery.js" defer></script>
+    <script src="oneflow-beat-payoff.js" defer></script>
+    <script src="oneflow-demo-board.js" defer></script>
+    <script src="onboarding-celebration.js" defer></script>
     <script src="resume-ingest.js" defer></script>
     <script src="resume-bundle.js" defer></script>
     <script src="resume-generate.js" defer></script>
     <!-- Self-updating model catalog: live provider model lists + key pings.
          Loads after resume-generate (sources its curated options) and
-         before the first-run wizard + settings modal that consume it. -->
+         before the settings modal that consumes it. -->
     <script src="model-catalog.js" defer></script>
     <script src="job-posting-insights.js" defer></script>
     <script src="expired-review.js" defer></script>
@@ -1648,12 +1485,10 @@
     <script src="keyword-profile-match.js?v=1" defer></script>
     <script src="profile-materials.js?v=1" defer></script>
     <script src="expired-review-ui.js?v=1" defer></script>
-    <script src="posting-enrichment.js?v=2" defer></script>
+    <script src="posting-enrichment.js?v=3" defer></script>
     <script src="materials-state.js?v=1" defer></script>
     <script src="ats-scorecard.js?v=1" defer></script>
     <script src="resume-generation.js?v=1" defer></script>
-    <script src="onboarding-wizard.js?v=1" defer></script>
-    <script src="first-run-wizard.js?v=1" defer></script>
     <script src="whats-next-banner.js?v=1" defer></script>
     <script src="company-logo.js?v=1" defer></script>
     <script src="model-download.js?v=1" defer></script>

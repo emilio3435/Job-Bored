@@ -126,6 +126,18 @@
             >
               AI Providers
             </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-upgrades"
+              data-tab-id="upgrades"
+              aria-controls="settings-panel-upgrades"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              Upgrades
+            </button>
           </div>
 
           <div class="settings-tab-panels">
@@ -287,7 +299,7 @@
                     id="settingsJbV2ToggleHint"
                   >
                     Switches Daily Brief, Pipeline, Scorecard, and Onboarding to
-                    the new visual language. Off by default; toggle anytime.
+                    the new visual language. On by default; toggle anytime.
                   </p>
                 </div>
               </div>
@@ -756,6 +768,100 @@
                   class="modal-input"
                   placeholder="https://…"
                 />
+              </div>
+            </div>
+
+            <!-- ── Upgrades tab ───────────────────────────────────────
+                 ONE-FLOW-ONBOARDING-SPEC §7: the shelf that replaced the
+                 optional-enhancements wizard. Static by design — every
+                 power-up here is one click away in its own tab, and none
+                 of them belongs in the one-time onboarding flow. B6's
+                 footer line sends people here. -->
+            <div
+              role="tabpanel"
+              id="settings-panel-upgrades"
+              class="settings-tab-panel"
+              aria-labelledby="settings-tab-upgrades"
+              hidden
+            >
+              <h4 class="settings-tab-panel__title">Upgrades</h4>
+              <p class="settings-tab-panel__lede">
+                Power-ups, each one click, none required. Onboarding never
+                asks for these — turn any of them on whenever you want.
+              </p>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">🎯 ATS scoring</p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Scores your resume against each posting the way
+                  applicant-tracking systems do, so you know what to fix
+                  before applying.
+                </p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Turn on: Settings → ATS Scoring.
+                </p>
+              </div>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">🏷️ Company logos</p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Real brand logos across your pipeline and drafted
+                  materials — a Logo.dev token makes everything look the
+                  part.
+                </p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Turn on: set <code>logoDevToken</code> in your
+                  <code>config.js</code>.
+                </p>
+              </div>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">☁️ Browser Use Cloud</p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  A hosted fallback that keeps discovery running even when
+                  your laptop is off or asleep.
+                </p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Turn on: set <code>BROWSER_USE_API_KEY</code> in the
+                  discovery worker's <code>.env</code>.
+                </p>
+              </div>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">🔗 URL import</p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Paste any job link and JobBored reads the posting into
+                  your pipeline instead of you retyping it. A Gemini key
+                  from onboarding already unlocked this.
+                </p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Turn on: Settings → AI Providers → Gemini API key.
+                </p>
+              </div>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">
+                  🌐 Grounded web search
+                </p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Lets discovery search the open web with Google's
+                  grounding, on top of the boards it already reads.
+                </p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Turn on: Settings → AI Providers → Gemini API key.
+                </p>
+              </div>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">💻 Other devices</p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Keeps discovery reachable from your phone or a second
+                  computer, not just the machine you set it up on.
+                </p>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Turn on: “Use JobBored on other devices” on your
+                  dashboard banner.
+                </p>
               </div>
             </div>
           </div>

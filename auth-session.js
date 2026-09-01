@@ -32,12 +32,18 @@ let userEmail = null;
 
 /** Profile photo URL from Google userinfo (optional). */
 let userPictureUrl = null;
+/**
+ * Google's `given_name` from userinfo (optional). The one-flow payoff
+ * greets the user by it ("You're live, {firstName}." —
+ * ONE-FLOW-ONBOARDING-SPEC §5 B6); asking Google a second time for a
+ * string we already fetched would be a round trip for nothing.
+ */
+let userGivenName = null;
 let grantedOauthScopes = "";
 /** Epoch ms when accessToken is expected to expire (Google typically ~1h). */
 let tokenExpiresAt = null;
 let tokenClient = null;
 let gisLoaded = false;
-// eslint-disable-next-line no-unused-vars -- written here but only ever read as window.gisInitStartedAt (app.js, setup-doctor.js), which this IIFE-private binding never reaches; suspected latent bug, left as-is during CI hardening
 let gisInitStartedAt = 0;
 let gisInitWatchdogTimer = null;
 
@@ -153,6 +159,7 @@ function persistOAuthSession() {
           expiresAt: tokenExpiresAt,
           userEmail,
           userPictureUrl,
+          userGivenName,
           grantedOauthScopes,
           oauthClientId: cid,
           hasOauthSession: true,
@@ -191,6 +198,7 @@ function persistRuntimeOAuthSession() {
         expiresAt: tokenExpiresAt,
         userEmail,
         userPictureUrl,
+        userGivenName,
         grantedOauthScopes,
         oauthClientId: cid,
         hasOauthSession: true,
@@ -249,6 +257,7 @@ function clearSessionAuthState() {
   accessToken = null;
   userEmail = null;
   userPictureUrl = null;
+  userGivenName = null;
   grantedOauthScopes = "";
   tokenExpiresAt = null;
   oauthPendingOp = null;
@@ -485,6 +494,7 @@ function restoreOAuthSession() {
     tokenExpiresAt = runtimeSession.expiresAt;
     userEmail = runtimeSession.userEmail || null;
     userPictureUrl = runtimeSession.userPictureUrl || null;
+    userGivenName = runtimeSession.userGivenName || null;
     grantedOauthScopes = normalizeOauthScopes(
       runtimeSession.grantedOauthScopes || GOOGLE_SIGNIN_SCOPES,
     );
@@ -621,7 +631,6 @@ function applyOAuthClientChange(clientId) {
       },
     });
     setupAuthUI();
-    host().renderSetupStarterSheetUi();
     host().renderAppsScriptDeployUi();
     host().maybeSyncSettingsModalModeAfterAuth();
     host().showSheetAccessGate(host().getOAuthClientId() ? "signin" : "loading");
@@ -641,6 +650,7 @@ function initAuth() {
     return;
   }
   gisInitStartedAt = Date.now();
+  window.gisInitStartedAt = gisInitStartedAt;
   if (gisInitWatchdogTimer != null) {
     clearTimeout(gisInitWatchdogTimer);
     gisInitWatchdogTimer = null;
@@ -704,7 +714,6 @@ function initAuth() {
       });
       setupAuthUI();
       restoreOAuthSession();
-      host().renderSetupStarterSheetUi();
       host().renderAppsScriptDeployUi();
       host().maybeSyncSettingsModalModeAfterAuth();
     } else {
@@ -810,6 +819,12 @@ function handleTokenResponse(tokenResponse) {
   host().maybeSyncSettingsModalModeAfterAuth();
 }
 
+/** Google's given_name, or null — never a name we invented. */
+function readGivenName(data) {
+  const raw = data && typeof data.given_name === "string" ? data.given_name.trim() : "";
+  return raw || null;
+}
+
 async function fetchUserEmail() {
   if (!accessToken) return;
   const userInfoUrl = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -824,6 +839,7 @@ async function fetchUserEmail() {
         typeof data.picture === "string" && data.picture.trim()
           ? data.picture.trim()
           : null;
+      userGivenName = readGivenName(data);
       updateAuthUI();
       updatePersistedUserEmail();
       return;
@@ -841,6 +857,7 @@ async function fetchUserEmail() {
           typeof data.picture === "string" && data.picture.trim()
             ? data.picture.trim()
             : null;
+        userGivenName = readGivenName(data);
         updateAuthUI();
         updatePersistedUserEmail();
       }
@@ -917,14 +934,11 @@ function signOut() {
     // is the terminal state until the user signs back in.
     host().showSheetAccessGate(host().getOAuthClientId() ? "signin" : "loading");
   } else {
-    const setup = document.getElementById("setupScreen");
-    if (setup) setup.style.display = "none";
     if (host().getOAuthClientId()) {
       host().showSheetAccessGate("signin");
     } else {
       host().showSheetAccessGate("no-oauth");
     }
-    host().renderSetupStarterSheetUi();
   }
 }
 
@@ -995,14 +1009,17 @@ function initAuthUserMenu() {
     true,
   );
 
-  // "Resume onboarding": always-available re-entry into the wizard,
-  // regardless of whether onboarding was previously marked complete.
+  // "Resume onboarding": always-available re-entry into the ONE flow
+  // (ONE-FLOW-ONBOARDING-SPEC §3.4), regardless of whether onboarding was
+  // previously marked complete. The legacy wizard this used to reopen is
+  // deleted (§7); open() is the flow's own explicit-entry API.
   const resumeBtn = document.getElementById("resumeOnboardingBtn");
   if (resumeBtn) {
     resumeBtn.addEventListener("click", () => {
       closeAuthUserMenu();
       try {
-        host().showOnboardingWizard();
+        const flow = window.JobBoredOneFlow;
+        if (flow && typeof flow.open === "function") void flow.open();
       } catch (e) {
         console.warn("[JobBored] resume onboarding:", e);
       }
@@ -1413,7 +1430,6 @@ function updateAuthUI() {
     authUser.style.display = "none";
     setAuthAvatarDisplay();
   }
-  host().renderSetupStarterSheetUi();
 }
 
 function isSignedIn() {
@@ -1426,6 +1442,8 @@ function isSignedIn() {
     setUserEmail: (v) => { userEmail = v; },
     getUserPictureUrl: () => userPictureUrl,
     setUserPictureUrl: (v) => { userPictureUrl = v; },
+    getUserGivenName: () => userGivenName,
+    setUserGivenName: (v) => { userGivenName = v; },
     getGrantedOauthScopes: () => grantedOauthScopes,
     setGrantedOauthScopes: (v) => { grantedOauthScopes = v; },
     getTokenExpiresAt: () => tokenExpiresAt,

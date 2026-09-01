@@ -80,6 +80,17 @@ describe("runPreFilter", () => {
     assert.equal(result.pass, true);
   });
 
+  test("ONEFLOW-L2 §5 B4: workMode=any never hard-rejects a saved location mismatch", () => {
+    const result = runPreFilter(
+      makeListing({ location: "Boise, ID" }),
+      makeProfile({
+        workMode: "any",
+        acceptableLocations: ["Denver", "Philadelphia"],
+      }),
+    );
+    assert.equal(result.pass, true);
+  });
+
   test("acceptableLocations rejects out-of-list onsite listings", () => {
     const result = runPreFilter(
       makeListing({
@@ -126,6 +137,17 @@ describe("runPreFilter", () => {
     const result = runPreFilter(
       makeListing({ compensationText: "$90k-$110k" }),
       makeProfile({ salaryRequired: true, salaryFloor: 150000 }),
+    );
+    assert.equal(result.pass, false);
+    if (!result.pass) {
+      assert.equal(result.reason, "salary_below_floor");
+    }
+  });
+
+  test("ONEFLOW-L2 §10 Phase 0: salaryFloor rejects a published salary below the floor without salaryRequired", () => {
+    const result = runPreFilter(
+      makeListing({ compensationText: "$90k-$110k" }),
+      makeProfile({ salaryRequired: false, salaryFloor: 150000 }),
     );
     assert.equal(result.pass, false);
     if (!result.pass) {

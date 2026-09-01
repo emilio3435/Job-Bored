@@ -44,7 +44,8 @@ Two variants of the start command:
 - `npm run dev` — adds the **local discovery worker** (recommended before you
   set up discovery, so the wizard's "Set it up for me" path has a worker to
   talk to).
-- `npm run web-only` — dashboard only; no scraper, no worker.
+- `npm run web-only` — zero-install dashboard path on a fresh clone; no scraper,
+  worker, or dependency install required.
 
 **Want it reachable from your phone or another device?** Expose the discovery
 worker with Tailscale (recommended), ngrok, or Cloudflare — see
@@ -159,7 +160,11 @@ and materials folders.
 on localhost. The same server provides **`POST /api/ats-scorecard`** when ATS
 mode is set to `server`; for persistent ATS provider config, copy
 `server/ats-env.example` to `server/.env` and set the API key for the provider
-you choose.
+you choose. Direct listing scrapes retry one transient connection, empty-body,
+or 5xx failure, keep only an exact Google Jobs match as fallback, and return a
+cause plus next action when the posting is blocked, missing, timed out,
+oversized, or unavailable. The discovery drawer shows that explanation on the
+scrape status line.
 
 For **GitHub Pages** (HTTPS), the browser cannot call a scraper on your laptop at `http://127.0.0.1`. Use **Fetch posting** by either running the dashboard locally (`npm start` → `http://localhost:8080`) or deploying the `server/` app and pasting its **HTTPS** base URL in Settings — see **[DEPLOY-SCRAPER.md](DEPLOY-SCRAPER.md)**.
 
@@ -190,10 +195,13 @@ After copying:
 1. Go to [Google Cloud Console → Credentials](https://console.cloud.google.com/apis/credentials)
 2. Create a project (or use an existing one)
 3. **Enable the Google Sheets API** ([direct link](https://console.cloud.google.com/apis/library/sheets.googleapis.com))
-4. Go to **Credentials → Create Credentials → OAuth 2.0 Client ID**
-5. Application type: **Web application**
-6. Under **Authorized JavaScript origins**, add your deployment URL (e.g., `https://yourusername.github.io`)
-7. Copy the **Client ID**
+4. Configure the **OAuth consent screen**: choose **External** (unless you use a
+   Workspace organization), enter the app/support details, add the Sheets scope,
+   and add yourself as a test user while the app is in Testing
+5. Go to **Credentials → Create Credentials → OAuth 2.0 Client ID**
+6. Application type: **Web application**
+7. Under **Authorized JavaScript origins**, add `http://localhost:8080`
+8. Copy the **Client ID**
 
 ### 3. Deploy
 
@@ -245,7 +253,7 @@ first-run wizard never appears. Always start the dev server:
 
 ```bash
 # Clone and run
-git clone https://github.com/emilio3435/Job-Bored.git
+git clone https://github.com/emilio3435/Job-Bored.git ~/Job-Bored
 cd ~/Job-Bored
 npm install
 npm start              # → http://localhost:8080  (dashboard + scraper)

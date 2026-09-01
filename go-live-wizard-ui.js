@@ -17,6 +17,20 @@
   function host() {
     return root.host;
   }
+
+  /**
+   * True while a one-flow beat owns the screen. The onboarding-defer gate
+   * used to ask two legacy wizards whether they were visible; spec §7
+   * deleted both, and §3 makes the flow the onboarding surface.
+   */
+  function oneFlowIsOpen() {
+    try {
+      const flow = typeof window !== "undefined" && window.JobBoredOneFlow;
+      return !!(flow && typeof flow.isOpen === "function" && flow.isOpen());
+    } catch (_) {
+      return false;
+    }
+  }
   function dom() {
     return (typeof window !== "undefined" && window.JobBoredWizardDom) || null;
   }
@@ -70,7 +84,6 @@
       cloudVerify: null,
       message: "",
       messageTone: "info",
-      _onboardingHidden: false,
     };
   }
 
@@ -439,6 +452,27 @@
       ],
     });
     container.appendChild(grid);
+    // The third answer (ONE-FLOW-ONBOARDING-SPEC §6). Without it, a
+    // single-device user had no way to be DONE with this track — the
+    // what's-next banner nudged forever at a question they had already
+    // answered. It is a real choice, so it renders as one: same dispatch
+    // path as the two path cards, not fine print under them.
+    const exit = safeCreate(
+      "button",
+      "go-live-wizard__single-device",
+      "I only use JobBored on this computer",
+    );
+    exit.type = "button";
+    exit.setAttribute("data-wizard-action", "action");
+    exit.setAttribute("data-action-id", "go_live_only_this_computer");
+    exit.setAttribute("data-step-id", "path_select");
+    exit.setAttribute("data-action-kind", "secondary");
+    container.appendChild(exit);
+    safeParagraph(
+      container,
+      "We'll stop suggesting this. Change your mind anytime from Settings → Devices.",
+      "go-live-wizard__single-device-hint",
+    );
     safeCallout(
       container,
       "Worker discovery is a separate setup — finish either of these and we'll recommend it next.",
@@ -598,15 +632,18 @@
             ? "needs_serve"
             : "ready");
     if (recommendation === "ready") {
+      // Nothing is blocking any more, so the step's job is FINISHING.
+      // Verification is a courtesy check the user may want; making it the
+      // primary sent people looking for a blocker that wasn't there.
       return [
-        {
-          id: "wizard_tailscale_verify",
-          label: "Verify URL is reachable",
-          variant: "primary",
-        },
         {
           id: "go_live_complete_tailscale",
           label: "I added it to Google OAuth — finish",
+          variant: "primary",
+        },
+        {
+          id: "wizard_tailscale_verify",
+          label: "Verify URL is reachable",
           variant: "secondary",
         },
       ];
@@ -744,7 +781,7 @@
           ok: !!rt.cloudVerify.ok,
           message: rt.cloudVerify.ok
             ? `Reachable — ${rt.cloudUrl}`
-            : `Couldn't reach ${rt.cloudUrl}. ${rt.cloudVerify.reason || ""}`,
+            : `We couldn't confirm ${rt.cloudUrl} from here — the browser can't read a cross-origin response, so this check is inconclusive, not a failure. Open it in a new tab to see for yourself, then finish below.`,
         },
         "Reachability check",
       );
@@ -772,11 +809,14 @@
         label: "Re-detect CLIs",
         variant: "secondary",
       },
+      // Never gated on the probe. probeUrlReachable uses mode:"no-cors",
+      // whose response is opaque — it carries no status, so a rejection
+      // proves nothing about whether the deploy is up. Blocking Finish on
+      // it stranded users whose site was live (spec §6, §10 Phase 0).
       {
         id: "go_live_complete_cloud",
         label: "I added it to Google OAuth — finish",
         variant: "secondary",
-        disabled: !(rt.cloudVerify && rt.cloudVerify.ok),
       },
     ];
   }
@@ -801,10 +841,15 @@
     if (url) {
       safeCodeBlock(container, url, "Copy URL");
     }
-    safeCallout(
-      container,
-      "Recommended next: turn on job discovery so the dashboard has fresh listings to show.",
-    );
+    // Only recommend a track the user has not finished. The runtime gate is
+    // the same one buildDoneActions reads, precomputed by the action handler
+    // (the store read is async, the render path is not).
+    if (rt._discoveryCtaVisible !== false) {
+      safeCallout(
+        container,
+        "Recommended next: turn on job discovery so the dashboard has fresh listings to show.",
+      );
+    }
     return container;
   }
 
@@ -813,8 +858,6 @@
     // still false. The render path is async (UC store hits IndexedDB), so
     // the runtime carries the precomputed gate set by the action handler.
     const showDiscoveryCta = rt._discoveryCtaVisible !== false;
-    const showEnhancementsCta =
-      !showDiscoveryCta && rt._enhancementsCtaVisible === true;
     const actions = [];
     if (showDiscoveryCta) {
       actions.push({
@@ -823,17 +866,10 @@
         variant: "primary",
       });
     }
-    if (showEnhancementsCta) {
-      actions.push({
-        id: "go_live_open_enhancements",
-        label: "Maximize your results (optional)",
-        variant: "primary",
-      });
-    }
     actions.push({
       id: "go_live_finish",
       label: "Finish",
-      variant: showDiscoveryCta || showEnhancementsCta ? "secondary" : "primary",
+      variant: showDiscoveryCta ? "secondary" : "primary",
     });
     return actions;
   }
@@ -934,8 +970,6 @@
         });
       },
       onClose: () => {
-        const r = getRuntime();
-        const shouldRestoreOnboarding = !!(r && r._onboardingHidden);
         clearRuntime();
         // Re-check the setup card against fresh completion state on every
         // close — it must never keep showing a stale count.
@@ -949,12 +983,6 @@
           }
         } catch (_) {
           /* banner refresh is best-effort */
-        }
-        if (shouldRestoreOnboarding) {
-          const h = host();
-          if (h && typeof h.showOnboardingWizard === "function") {
-            h.showOnboardingWizard();
-          }
         }
       },
     });
@@ -977,6 +1005,36 @@
 
     if (id === "go_live_back_to_paths") {
       return moveToStep("path_select");
+    }
+
+    if (id === "go_live_only_this_computer") {
+      // Record the answer, refresh the nudge that asked the question, and
+      // get out. Every step is best-effort: a blocked IndexedDB write must
+      // never trap the user inside the wizard they just declined.
+      const UC = uc();
+      if (UC && typeof UC.setGoLiveSetupSkipped === "function") {
+        try {
+          await UC.setGoLiveSetupSkipped();
+        } catch (_) {
+          /* the exit matters more than the bookkeeping */
+        }
+      }
+      try {
+        const banner =
+          typeof window !== "undefined" &&
+          window.JobBoredApp &&
+          window.JobBoredApp.whatsNextBanner;
+        if (banner && typeof banner.refreshBanner === "function") {
+          await Promise.resolve(banner.refreshBanner()).catch(() => {});
+        }
+      } catch (_) {
+        /* banner refresh is best-effort */
+      }
+      const api = shellApi();
+      if (api && typeof api.closeWizardShell === "function") {
+        api.closeWizardShell("single_device");
+      }
+      return null;
     }
 
     if (id === "go_live_finish") {
@@ -1079,19 +1137,6 @@
           showCta = true;
         }
       }
-      // When discovery is already done, finishing go-live may complete the
-      // full mandatory track. In that case, cross-rec the optional
-      // enhancements wizard instead of the discovery CTA.
-      let showEnhancementsCta = false;
-      if (!showCta) {
-        if (UC && typeof UC.isAllMandatorySetupComplete === "function") {
-          try {
-            showEnhancementsCta = !!(await UC.isAllMandatorySetupComplete());
-          } catch (_) {
-            showEnhancementsCta = false;
-          }
-        }
-      }
       // Funnel telemetry: go-live finished (always), plus both_done when
       // discovery is already complete (this finish completes the pair).
       emitOnboardingEvent("go_live_finished");
@@ -1114,10 +1159,7 @@
           console.warn("[JobBored] auto-open discovery:", e);
         }
       }
-      return moveToStep("done", {
-        _discoveryCtaVisible: showCta,
-        _enhancementsCtaVisible: showEnhancementsCta,
-      });
+      return moveToStep("done", { _discoveryCtaVisible: showCta });
     }
 
     if (id === "go_live_open_discovery") {
@@ -1135,38 +1177,6 @@
       return null;
     }
 
-    if (id === "go_live_open_enhancements") {
-      const api = shellApi();
-      if (api && typeof api.closeWizardShell === "function") {
-        api.closeWizardShell("enhancements_cross_rec");
-      }
-      // Stage beat: the full-setup celebration gates the transition; its CTA
-      // carries the user into the enhancements wizard. Overlay missing →
-      // the player continues immediately (existing fallback).
-      const h = host();
-      const proceed = () => {
-        if (h && typeof h.requestEnhancementsSetup === "function") {
-          void h.requestEnhancementsSetup({
-            entryPoint: "go_live_cross_rec",
-            allowWhileOnboarding: false,
-          });
-        }
-      };
-      const onboarding =
-        typeof window !== "undefined" &&
-        window.JobBoredApp &&
-        window.JobBoredApp.onboarding;
-      if (
-        onboarding &&
-        typeof onboarding.playOnboardingCelebration === "function"
-      ) {
-        onboarding.playOnboardingCelebration(proceed, "bonus");
-      } else {
-        proceed();
-      }
-      return null;
-    }
-
     return null;
   }
 
@@ -1179,20 +1189,12 @@
     emitOnboardingEvent("go_live_opened", {
       entryPoint: opts.entryPoint || "manual",
     });
-    const h = host();
-
-    const onboardingWasVisible =
-      h && typeof h.isOnboardingWizardVisible === "function"
-        ? !!h.isOnboardingWizardVisible()
-        : false;
-    if (onboardingWasVisible && h && typeof h.hideOnboardingWizard === "function") {
-      h.hideOnboardingWizard();
-    }
-
+    // No legacy onboarding wizard to hide-and-restore around this one any
+    // more (spec §7). The one-flow owns onboarding, and requestGoLiveSetup
+    // below simply defers while a beat is on screen rather than covering it.
     setRuntime({
       ...defaultRuntime(),
       entryPoint: opts.entryPoint || "manual",
-      _onboardingHidden: onboardingWasVisible,
     });
     return renderGoLiveSetupWizard();
   }
@@ -1200,17 +1202,8 @@
   async function requestGoLiveSetup(options) {
     const opts = options || {};
     const { allowWhileOnboarding = false, ...wizardOptions } = opts;
-    const h = host();
-    if (h && !allowWhileOnboarding) {
-      const onboardingUp =
-        typeof h.isOnboardingWizardVisible === "function" &&
-        h.isOnboardingWizardVisible();
-      const firstRunUp =
-        typeof h.isFirstRunWizardVisible === "function" &&
-        h.isFirstRunWizardVisible();
-      if (onboardingUp || firstRunUp) {
-        return { deferred: true };
-      }
+    if (!allowWhileOnboarding && oneFlowIsOpen()) {
+      return { deferred: true };
     }
     await openGoLiveSetupWizard(wizardOptions);
     return { deferred: false };

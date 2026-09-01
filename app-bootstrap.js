@@ -33,6 +33,42 @@
     startupLog("bootstrap:auth-prepaint-released", { reason });
   }
 
+  /**
+   * A genuinely broken stored config keeps the login gate
+   * (ONE-FLOW-ONBOARDING-SPEC §4: "keep the gate's error mode for
+   * genuinely broken configs"). The demo board is the opening for a
+   * config that is merely EMPTY — painting it over a real error would
+   * hide the error behind sample data.
+   */
+  function sheetAccessGateIsInErrorMode() {
+    const screen = document.getElementById("sheetAccessGateScreen");
+    return !!(screen && screen.dataset && screen.dataset.gateMode === "error");
+  }
+
+  /**
+   * Screen S0 (spec §4): a zero-config visitor sees the PRODUCT, seeded
+   * with the bundled demo pipeline, before any credential ask. This is
+   * what replaces the credential-first `no-oauth` opening — but if the
+   * board module failed to load, a stranger must still be able to sign
+   * in, so the login gate remains the honest fallback.
+   */
+  function mountOneFlowDemoBoard() {
+    const board = window.JobBoredOneFlowDemoBoard;
+    if (!board || typeof board.mount !== "function") {
+      startupLog("bootstrap:init:demo-board-missing", {}, "warn");
+      h("showSheetAccessGate", h("getOAuthClientId") ? "loading" : "no-oauth");
+      return Promise.resolve(null);
+    }
+    return Promise.resolve(board.mount()).catch((e) => {
+      startupLog(
+        "bootstrap:init:demo-board-failed",
+        { message: String((e && e.message) || e) },
+        "warn",
+      );
+      return null;
+    });
+  }
+
   const missingHostWarnings = new Set();
 
   function h(name, ...args) {
@@ -111,7 +147,15 @@
         if (a === "run_discovery") {
           void h("triggerDiscoveryRun");
         }
-        if (a === "agent" || a === "paths") h("openDiscoveryPathsModal");
+        // "agent" / "paths" used to open the "ways to avoid webhooks" modal,
+        // deleted with the other four (§7). The discovery wizard answers the
+        // same question, so both land there too.
+        if (a === "agent" || a === "paths") {
+          void h("requestDiscoverySetup", {
+            entryPoint: "brief",
+            allowWhileOnboarding: true,
+          });
+        }
       });
   }
 
@@ -153,27 +197,22 @@
         configuredSheetIdState: configuredSheetId ? "present" : "missing",
         hasOAuthClientId: !!h("getOAuthClientId"),
       });
-      // Login gate first; onboarding (blank sheet steps) appears after Google sign-in.
+      // Give before you ask (spec §2.1 / §4): the cold-start surface is
+      // the demo board, not a credential ask. The one-flow's Beat 1 owns
+      // the Google sign-in and the sheet from there.
       document.getElementById("dashboard").style.display = "none";
-      document.getElementById("setupScreen").style.display = "none";
-      if (!h("getOAuthClientId")) {
-        h("showSheetAccessGate", "no-oauth");
-      } else {
-        h("showSheetAccessGate", "loading");
+      if (!sheetAccessGateIsInErrorMode()) {
+        void mountOneFlowDemoBoard();
       }
+      // Auth still wires up unconditionally: B1's `Continue with Google`
+      // drives the same initAuth the login gate used to.
       h("initAuth");
-      h("renderSetupStarterSheetUi");
-      // First-run infra wizard owns the cold-start surface (no sheet yet): it
-      // runs ahead of the profile onboarding wizard and drives the Sheet +
-      // sign-in steps over the login gate.
-      void h("checkInfraSetupGate");
       startupLog("bootstrap:init:early-return", {
         reason: "missing-sheet-id",
       });
       return;
     }
 
-    document.getElementById("setupScreen").style.display = "none";
     /* Refresh flicker fix:
        - If we have a valid runtime token cached in localStorage, the
          dashboard is going to render in milliseconds. Show it RIGHT NOW
@@ -268,25 +307,13 @@
       h("loadAllData");
     });
 
-    document
-      .getElementById("onboardingWizardBtn")
-      ?.addEventListener("click", () => {
-        h("closeAuthUserMenu");
-        h("closeMaterialsModal");
-        h("closeCommandCenterSettingsModal");
-        void h("requestDiscoverySetup", {
-          entryPoint: "toolbar",
-          allowWhileOnboarding: true,
-        });
-      });
-
     // Init auth
     startupLog("bootstrap:init:auth-and-data-load");
     h("initAuth");
 
     // initResumeMaterialsFeature was hoisted above the no-SHEET_ID early
-    // return so greenfield users can actually use the onboarding wizard's
-    // file upload. Calling it again here would double-bind every listener
+    // return so greenfield users can actually use the materials modal's file
+    // upload. Calling it again here would double-bind every listener
     // (addEventListener doesn't dedupe), so don't.
 
     const shouldDeferDataLoadToAuth =

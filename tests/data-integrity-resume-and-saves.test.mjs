@@ -41,12 +41,12 @@ const settingsProfileTabJs = readFileSync(
   join(repoRoot, "settings-profile-tab.js"),
   "utf8",
 );
-const onboardingWizardJs = readFileSync(
-  join(repoRoot, "onboarding-wizard.js"),
+const onboardingFlowJs = readFileSync(
+  join(repoRoot, "onboarding-flow.js"),
   "utf8",
 );
-const firstRunWizardJs = readFileSync(
-  join(repoRoot, "first-run-wizard.js"),
+const oneFlowBeatAiJs = readFileSync(
+  join(repoRoot, "oneflow-beat-ai.js"),
   "utf8",
 );
 const materialsFeatureJs = readFileSync(
@@ -405,85 +405,79 @@ describe("settings-profile-tab — honest resume upload status", () => {
 
 /* ---------- 5) Onboarding finish ordering + first-run -------- */
 
-describe("onboarding-wizard — finish ordering + re-entry prefill", () => {
-  it("completeOnboarding is the LAST awaited write in the finish flow", () => {
-    // Source-shape pin: completeOnboarding must come AFTER savePreferences.
-    // If it came before, a savePreferences throw would leave the user
-    // marked onboarded with no preferences.
-    const finishIdx = onboardingWizardJs.indexOf(
-      'document\n    .getElementById("onboardingFinish")',
-    );
-    assert.notEqual(finishIdx, -1, "onboardingFinish handler must exist");
-    const tail = onboardingWizardJs.slice(finishIdx, finishIdx + 5000);
-    const prefIdx = tail.indexOf("await UC.savePreferences(");
-    const completeIdx = tail.indexOf("await UC.completeOnboarding()");
-    assert.ok(prefIdx > 0, "savePreferences must be awaited in finish flow");
-    assert.ok(completeIdx > 0, "completeOnboarding must be awaited in finish flow");
+// The two legacy wizards that used to own these write paths are deleted
+// (ONE-FLOW-ONBOARDING-SPEC §7). The DATA-INTEGRITY claims outlive them:
+// the flow controller now owns completion ordering, and Beat 2 owns the
+// provider-key write. Same pins, new owners.
+
+describe("onboarding-flow — completion flags are written LAST", () => {
+  it("completeOnboarding runs only after the beats have saved their work", () => {
+    // A completion flag written before the work it certifies is how a user
+    // ends up "onboarded" with nothing saved. The controller writes every
+    // flag in ONE place, at the payoff exit — after B1–B6 have persisted.
+    const fnIdx = onboardingFlowJs.indexOf("async function finishFlow()");
+    assert.notEqual(fnIdx, -1, "finishFlow must exist");
+    const body = onboardingFlowJs.slice(fnIdx, fnIdx + 1500);
+    assert.match(body, /await s\.completeOnboarding\(\)/);
+    assert.match(body, /await s\.completeInfraSetup\(\)/);
+    const onboardIdx = body.indexOf("completeOnboarding()");
+    const discoveryIdx = body.indexOf("completeDiscoverySetup()");
     assert.ok(
-      prefIdx < completeIdx,
-      "completeOnboarding must run AFTER savePreferences — otherwise a preferences save throw leaves the user marked onboarded with no preferences",
+      onboardIdx < discoveryIdx,
+      "the flags are written together, in one block, at the end of the deal",
     );
   });
 
-  it("finish-flow catch surfaces a step-specific toast (lastStep tracking)", () => {
-    const finishIdx = onboardingWizardJs.indexOf(
-      'document\n    .getElementById("onboardingFinish")',
-    );
-    // The finish handler body is ~7 KB; widen the slice so the catch's
-    // stepLabels map (which lives at the tail of the addEventListener) is
-    // inside the window the regex scans.
-    const tail = onboardingWizardJs.slice(finishIdx, finishIdx + 8000);
-    assert.ok(
-      /let lastStep\s*=/.test(tail),
-      "finish flow must track lastStep",
-    );
-    assert.ok(
-      /stepLabels\s*=\s*\{[\s\S]*resume:[\s\S]*preferences:/.test(tail),
-      "catch must map step → label so the user sees a step-specific toast",
+  it("a skipped connection does NOT mark discovery complete", () => {
+    // spec §5 B5: the connect skip is honest — the banner keeps the offer
+    // open, which only works if the flag stays false.
+    const fnIdx = onboardingFlowJs.indexOf("async function finishFlow()");
+    const body = onboardingFlowJs.slice(fnIdx, fnIdx + 1500);
+    assert.match(
+      body,
+      /if \(!state\.skipped\.discoveryConnect\) \{\s*await s\.completeDiscoverySetup\(\)/,
+      "completeDiscoverySetup must be gated on the connect skip",
     );
   });
 
-  it("showOnboardingWizard pre-populates from a saved primary resume on re-entry", () => {
+  it("a flag write that throws never takes the flow down with it", () => {
+    const fnIdx = onboardingFlowJs.indexOf("async function finishFlow()");
+    const body = onboardingFlowJs.slice(fnIdx, fnIdx + 1500);
+    const tryIdx = body.indexOf("try {");
+    const catchIdx = body.indexOf("} catch (e)");
+    assert.ok(tryIdx > 0 && catchIdx > tryIdx);
     assert.ok(
-      /prepopulateOnboardingFromSavedResume/.test(onboardingWizardJs),
-      "must define a prepopulate helper",
-    );
-    assert.ok(
-      /UC\.getActiveResume\(\)/.test(onboardingWizardJs),
-      "prepopulate must read the saved primary resume via getActiveResume",
-    );
-    // The helper must be invoked from showOnboardingWizard (not just defined).
-    const showIdx = onboardingWizardJs.indexOf("function showOnboardingWizard");
-    const tail = onboardingWizardJs.slice(showIdx, showIdx + 1500);
-    assert.ok(
-      /prepopulateOnboardingFromSavedResume\(\)/.test(tail),
-      "showOnboardingWizard must call prepopulateOnboardingFromSavedResume()",
+      body.indexOf("emit(steps().FLOW_COMPLETED") > catchIdx,
+      "the flow still completes and still reports, even if IndexedDB refused",
     );
   });
 });
 
-describe("first-run-wizard — provider-key save honesty", () => {
-  it("in-memory COMMAND_CENTER_CONFIG write lives INSIDE the try block", () => {
-    const fnIdx = firstRunWizardJs.indexOf("function firstRunSaveProviderKey");
-    assert.notEqual(fnIdx, -1, "firstRunSaveProviderKey must exist");
-    const body = firstRunWizardJs.slice(fnIdx, fnIdx + 1500);
-    // Both the storage merge and the in-memory mirror must be inside the
-    // SAME try { ... } catch. Specifically, COMMAND_CENTER_CONFIG[field] = value
-    // must precede the catch(err), not follow it.
+describe("oneflow-beat-ai — provider-key save honesty", () => {
+  it("the in-memory COMMAND_CENTER_CONFIG mirror follows the storage write", () => {
+    // Mirror-before-merge would leave a user who passed verify holding a key
+    // that vanishes on reload. One write path, storage first.
+    const fnIdx = oneFlowBeatAiJs.indexOf("function persistProviderConfig(");
+    assert.notEqual(fnIdx, -1, "persistProviderConfig must exist");
+    const body = oneFlowBeatAiJs.slice(fnIdx, fnIdx + 800);
     const mergeIdx = body.indexOf("mergeStoredConfigOverridePatch");
-    const memIdx = body.indexOf("COMMAND_CENTER_CONFIG[field] = value");
-    const catchIdx = body.indexOf("} catch (err)");
+    const memIdx = body.indexOf("window.COMMAND_CENTER_CONFIG");
     assert.ok(mergeIdx > 0, "must call mergeStoredConfigOverridePatch");
     assert.ok(memIdx > 0, "must mirror into COMMAND_CENTER_CONFIG");
-    assert.ok(catchIdx > 0, "must have a catch (err) clause");
     assert.ok(
       mergeIdx < memIdx,
-      "merge into storage must come BEFORE the in-memory mirror",
+      "the override store is written BEFORE the in-memory mirror",
     );
-    assert.ok(
-      memIdx < catchIdx,
-      "in-memory mirror must live BEFORE the catch — otherwise a storage throw leaves the in-memory key set and the user passes verify but loses the key on reload",
-    );
+  });
+
+  it("the Gemini write-through can fail without failing the beat", () => {
+    // spec §5 B2: the discovery-env write is a bonus. A bonus that throws
+    // must not block a provider that verified.
+    const fnIdx = oneFlowBeatAiJs.indexOf("async function writeGeminiKeyThrough(");
+    assert.notEqual(fnIdx, -1);
+    const body = oneFlowBeatAiJs.slice(fnIdx, fnIdx + 1200);
+    assert.match(body, /catch \(err\)/);
+    assert.match(body, /return false/, "a failed bonus reports false, never throws");
   });
 });
 

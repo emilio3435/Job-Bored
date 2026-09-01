@@ -80,9 +80,9 @@ by `BROWSER_USE_DISCOVERY_WORKER_ENV`. The worker reads
 The run-state directory defaults beside the state database. `npm run doctor` reports
 which pieces are configured without printing secret values.
 
-Dependency policy: the root `package-lock.json` owns the Browser Use discovery
-worker install. A nested `integrations/browser-use-discovery/package-lock.json`
-is intentionally ignored and should not be committed.
+Dependency lockfiles committed by the repository are expected. `npm run doctor`
+accepts the tracked Browser Use discovery lockfile and warns only when an extra,
+untracked lockfile appears.
 
 **3. Optional materials drafts (local scraper)**
 
@@ -138,19 +138,13 @@ Google’s make-a-copy flow duplicates **every row that exists in the source tem
    - For local development, also add `http://localhost:8080` (or whichever port you use)
    - Copy the **Client ID** (ends in `.apps.googleusercontent.com`)
 
-### 3. Configure the Dashboard
+### 3. Finish setup in the dashboard
 
-Edit `config.js`:
+Open `http://localhost:8080` and follow the on-screen flow. Paste the OAuth
+Client ID and your Sheet URL when prompted; the app stores both in this browser,
+so the normal setup path needs no manual `config.js` edits.
 
-```js
-window.COMMAND_CENTER_CONFIG = {
-  sheetId: "YOUR_SHEET_ID_HERE",
-  oauthClientId: "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com",
-  title: "Command Center",
-};
-```
-
-Your Sheet ID is the long segment in the spreadsheet URL (between `/d/` and `/edit`). You can paste **either** the full URL **or** the ID alone into **Settings** or `config.js` — the app extracts the ID automatically.
+Your Sheet ID is the long segment in the spreadsheet URL (between `/d/` and `/edit`). You can paste **either** the full URL **or** the ID alone into the dashboard — the app extracts the ID automatically.
 
 ```
 https://docs.google.com/spreadsheets/d/THIS_IS_YOUR_SHEET_ID/edit
@@ -266,7 +260,7 @@ The bootstrap exposes your local worker through one of three transports. Pick wi
 - Open a job card’s **Details** to use **Draft cover letter** or **Tailor resume**. The app combines the Pipeline row with your resume and samples, then calls your chosen provider. Your chosen AI provider receives resume, profile, and job context for that request. OAuth access tokens live in tab-scoped `sessionStorage`, not process memory-only.
 - In **Profile → AI draft preferences**, choose **Cover letter layout** and **Résumé layout** to steer structure (paragraphs vs bullets, section order, and similar). Those choices are saved in IndexedDB and are merged into the model’s system prompt as “Template requirements,” and appear on webhook payloads as `template`.
 - **Preview appearance** (Profile, and **Appearance** in the draft modal) only changes how the generated text is styled on screen and in **Print / PDF** — fonts, spacing, and accent colors. It does **not** change the model output or webhook JSON (no `visualThemeId` on the generation payload). Layout templates above still control what the model writes.
-- **Generic AI providers**: use any configured provider. Gemini Flash is the recommended pin from first-run/Settings; Local, OpenRouter, OpenAI, Anthropic, and Webhook are alternatives. Drafts run on the local scraper server with the model you picked at setup.
+- **Generic AI providers**: use any configured provider. Gemini Flash is the recommended pin from setup/Settings; Local, OpenRouter, OpenAI, Anthropic, and Webhook are alternatives. Drafts run on the local scraper server with the model you picked at setup.
 - **OpenRouter (free tier)**: paste a free key from [https://openrouter.ai/keys](https://openrouter.ai/keys) into `resumeOpenRouterApiKey` (or Settings) — no paid plan needed. The free model `openai/gpt-oss-120b:free` is an option, not the default writer. OpenRouter is CORS-friendly from the browser.
 - **Local**: set `resumeProvider` to `"local"` for a fully offline path. Defaults: `resumeLocalBaseUrl: "http://127.0.0.1:11434/v1"` (Ollama), `resumeLocalModel: "gemma4:e2b"`. Settings also offers `gemma4:e2b-mlx` (Apple Silicon, text-only). `resumeLocalApiKey` is optional — Ollama ignores it; it is only sent as `Authorization` when set. Pull the model first (e.g. `ollama pull gemma4:e2b`) or use the in-app **Download model** control in Settings → Resume.
 - **Gemini**: set `resumeProvider` to `"gemini"` and add an API key from [Google AI Studio](https://aistudio.google.com/) as `resumeGeminiApiKey`. Do not commit real keys to a public repository.
@@ -301,13 +295,15 @@ Leave **`jobPostingScrapeUrl`** empty in `config.js` when you open the app on **
 1. On a job card, use **Fetch posting**. The server fetches the page, parses **JSON-LD `JobPosting`** when present, then falls back to common description selectors and bullet lists. It merges **skills** into the chip row and shows **description** + **requirements** excerpts.
 2. If your selected AI provider is configured, the app also asks it for **fit angle**, **talking points**, and **extra keywords** from the scraped text plus your resume from Profile. OpenRouter and Local cover this generic summary path; Gemini URL Context is only an optional Google-tool fallback when the local scraper cannot read the page.
 
-**Limits:** Some employers (e.g. LinkedIn) block server-side fetches or return login walls; those URLs may fail. **GitHub Pages** serves the UI over **HTTPS**; the browser will not allow it to call **`http://127.0.0.1`** on your machine. For Fetch posting from Pages, **deploy** the scraper (see **`DEPLOY-SCRAPER.md`**) and paste its **HTTPS** URL in Settings, or use the dashboard locally with `npm start`.
+**Limits:** Some employers (e.g. LinkedIn) block server-side fetches or return login walls; those URLs may fail. Transient connection, empty-body, and 5xx failures are retried once. **GitHub Pages** serves the UI over **HTTPS**; the browser will not allow it to call **`http://127.0.0.1`** on your machine. For Fetch posting from Pages, **deploy** the scraper (see **`DEPLOY-SCRAPER.md`**) and paste its **HTTPS** URL in Settings, or use the dashboard locally with `npm start`.
 
 ---
 
 ## Template Sheet Columns
 
-The **Pipeline** sheet has **17 required columns (A–Q)**. **Optional columns R–T** extend tracking; add them to the right of Q when needed.
+The **Pipeline** sheet has **25 columns (A–Y)**, matching the starter sheet the
+dashboard creates. A–Q hold the core job record; R–Y add tracking and agent
+safety fields.
 
 | Column | Header          | Description                                                                                                                                                      |
 | ------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -326,11 +322,16 @@ The **Pipeline** sheet has **17 required columns (A–Q)**. **Optional columns R
 | M      | Status          | Pipeline status (see below)                                                                                                                                      |
 | N      | Applied Date    | Date application was submitted                                                                                                                                   |
 | O      | Notes           | Your personal notes                                                                                                                                              |
-| P      | Follow-Up Date  | When to follow up                                                                                                                                                |
+| P      | Follow-up Date  | When to follow up                                                                                                                                                |
 | Q      | Talking Points  | Key points for interviews/outreach                                                                                                                               |
 | R      | Last contact    | Optional. When you last heard from them (date or short note). Shown as &ldquo;Last contact&rdquo; in the app.                                                    |
 | S      | Did they reply? | Optional. `Yes` / `No` / `Unknown` — use **Unknown** for &ldquo;not sure&rdquo; in the UI.                                                                       |
 | T      | Logo URL        | Optional. Company logo image URL. Discovery agents auto-populate this via Google Favicons. The dashboard derives a fallback from the job Link domain when empty. |
+| U      | Match Score     | Optional. 0–10 AI match score from the discovery worker.                                                                                              |
+| V      | Favorite        | Optional. Manual star used as a personal priority marker.                                                                                              |
+| W      | Dismissed At    | Optional. Timestamp recorded when a role is dismissed from the board.                                                                                  |
+| X      | Approval Status | Apply-gate approval marker; an agent may submit only after this is `Approved`.                                                                          |
+| Y      | Edit Lock       | Optional. Comma-separated identity fields edited in the app; discovery preserves those values.                                                         |
 
 ### Status Values
 

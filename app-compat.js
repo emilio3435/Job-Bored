@@ -495,61 +495,6 @@ function closeMaterialsModal(...args) {
   return window.JobBoredApp.profileMaterials.closeMaterialsModal(...args);
 }
 
-
-// --- Onboarding wizard (extracted to onboarding-wizard.js) ---
-function isOnboardingWizardVisible(...args) {
-  return window.JobBoredApp.onboarding.isOnboardingWizardVisible(...args);
-}
-function hideOnboardingWizard(...args) {
-  return window.JobBoredApp.onboarding.hideOnboardingWizard(...args);
-}
-function showOnboardingWizard(...args) {
-  return window.JobBoredApp.onboarding.showOnboardingWizard(...args);
-}
-function updateOnboardingProgressUI(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingProgressUI(...args);
-}
-function syncOnboardingToneCards(...args) {
-  return window.JobBoredApp.onboarding.syncOnboardingToneCards(...args);
-}
-function renderOnboardingSummary(...args) {
-  return window.JobBoredApp.onboarding.renderOnboardingSummary(...args);
-}
-function updateOnboardingMascotPose(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingMascotPose(...args);
-}
-function setOnboardingStep(...args) {
-  return window.JobBoredApp.onboarding.setOnboardingStep(...args);
-}
-function updateOnboardingContinue2Enabled(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingContinue2Enabled(...args);
-}
-function updateOnboardingNext3Enabled(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingNext3Enabled(...args);
-}
-async function checkOnboardingGate(...args) {
-  return window.JobBoredApp.onboarding.checkOnboardingGate(...args);
-}
-function ensureResumeDraftFromPasteStep(...args) {
-  return window.JobBoredApp.onboarding.ensureResumeDraftFromPasteStep(...args);
-}
-function initOnboardingWizard(...args) {
-  return window.JobBoredApp.onboarding.initOnboardingWizard(...args);
-}
-
-
-// --- First-run infra wizard (extracted to first-run-wizard.js) ---
-function isFirstRunWizardVisible(...args) {
-  return window.JobBoredApp.firstRunWizard.isFirstRunWizardVisible(...args);
-}
-function showFirstRunWizard(...args) {
-  return window.JobBoredApp.firstRunWizard.showFirstRunWizard(...args);
-}
-async function checkInfraSetupGate(...args) {
-  return window.JobBoredApp.firstRunWizard.checkInfraSetupGate(...args);
-}
-
-
 // --- Settings modal (extracted to settings-modal.js) ---
 function isSettingsModalOpen(...args) {
   return window.JobBoredApp.settings.isSettingsModalOpen(...args);
@@ -705,8 +650,6 @@ function buildDiscoverySuccessToast(...args) {
 function statusApi(name, ...args) {
   return window.JobBoredDiscovery.status[name](...args);
 }
-const PENDING_DISCOVERY_SETUP_KEY =
-  window.JobBoredDiscovery.status.PENDING_DISCOVERY_SETUP_KEY;
 function isManagedAppsScriptDeployState(...args) {
   return statusApi("isManagedAppsScriptDeployState", ...args);
 }
@@ -727,15 +670,6 @@ function setAppsScriptDeployStatus(...args) {
 }
 function clearAppsScriptDeployStatus(...args) {
   return statusApi("clearAppsScriptDeployStatus", ...args);
-}
-function hasPendingDiscoverySetup(...args) {
-  return statusApi("hasPendingDiscoverySetup", ...args);
-}
-function queuePendingDiscoverySetup(...args) {
-  return statusApi("queuePendingDiscoverySetup", ...args);
-}
-async function resumePendingDiscoverySetupIfNeeded(...args) {
-  return statusApi("resumePendingDiscoverySetupIfNeeded", ...args);
 }
 function stripSetupDiscoveryParam(...args) {
   return statusApi("stripSetupDiscoveryParam", ...args);
@@ -1414,9 +1348,6 @@ function hideSheetAccessGate(...args) {
   return window.JobBoredApp.setup.hideSheetAccessGate(...args);
 }
 
-function revealPipelineSetupStepsScreen(...args) {
-  return window.JobBoredApp.setup.revealPipelineSetupStepsScreen(...args);
-}
 
 function revealSetupScreenAfterAuth(...args) {
   return window.JobBoredApp.setup.revealSetupScreenAfterAuth(...args);
@@ -1426,9 +1357,6 @@ function revealDashboardShell(...args) {
   return window.JobBoredApp.setup.revealDashboardShell(...args);
 }
 
-function renderSetupStarterSheetUi(...args) {
-  return window.JobBoredApp.setup.renderSetupStarterSheetUi(...args);
-}
 
 async function createBlankStarterSheet(...args) {
   return window.JobBoredApp.setup.createBlankStarterSheet(...args);
@@ -1614,16 +1542,9 @@ async function requestGoLiveSetup(options = {}) {
   return window.JobBoredGoLive.requestGoLiveSetup(options);
 }
 
-// --- Optional enhancements wizard (extracted to enhancements-wizard-ui.js) ---
+// --- Settings deep-link forwarders -------------------------------------
 // Bare-name forwarders so app.js can register these on the bridge host
-// without importing the IIFE-published namespace directly.
-function requestEnhancementsSetup(options) {
-  const mod = typeof window !== "undefined" && window.JobBoredEnhancements;
-  if (mod && typeof mod.requestEnhancementsSetup === "function") {
-    return mod.requestEnhancementsSetup(options);
-  }
-  return Promise.resolve({ deferred: true });
-}
+// without importing the IIFE-published namespaces directly.
 function openDrawerToSubtab(subtab, focusFieldId) {
   const adapters =
     typeof window !== "undefined" && window.JobBoredSettingsDiscoveryAdapters;
@@ -1640,86 +1561,11 @@ function setActiveSettingsTab(tabId, opts) {
   }
 }
 
-// --- Discovery setup modals (extracted to discovery-setup-modals.js) ---
+// --- Discovery settings actions (in discovery-setup-modals.js) ---
+// The five modal forwarders that lived here left with their modals
+// (ONE-FLOW-ONBOARDING-SPEC §7). These three have live callers outside them.
 async function testDiscoveryWebhookFromSettings(...args) {
   return window.JobBoredDiscovery.setupModals.testDiscoveryWebhookFromSettings(
-    ...args,
-  );
-}
-function openDiscoveryPathsModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openDiscoveryPathsModal(...args);
-}
-function closeDiscoveryPathsModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeDiscoveryPathsModal(...args);
-}
-function openDiscoverySetupGuideModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openDiscoverySetupGuideModal(
-    ...args,
-  );
-}
-function closeDiscoverySetupGuideModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeDiscoverySetupGuideModal(
-    ...args,
-  );
-}
-function renderDiscoveryLocalTunnelSetupUi(...args) {
-  return window.JobBoredDiscovery.setupModals.renderDiscoveryLocalTunnelSetupUi(
-    ...args,
-  );
-}
-function populateDiscoveryLocalTunnelModal(...args) {
-  return window.JobBoredDiscovery.setupModals.populateDiscoveryLocalTunnelModal(
-    ...args,
-  );
-}
-async function openDiscoveryLocalTunnelModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openDiscoveryLocalTunnelModal(
-    ...args,
-  );
-}
-async function probeNgrokFromLocalApi(...args) {
-  return window.JobBoredDiscovery.setupModals.probeNgrokFromLocalApi(...args);
-}
-async function probeAndShowTunnelStaleBanner(...args) {
-  return window.JobBoredDiscovery.setupModals.probeAndShowTunnelStaleBanner(
-    ...args,
-  );
-}
-function closeDiscoveryLocalTunnelModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeDiscoveryLocalTunnelModal(
-    ...args,
-  );
-}
-async function probeTunnelStaleBadge(...args) {
-  return window.JobBoredDiscovery.setupModals.probeTunnelStaleBadge(...args);
-}
-function saveDiscoveryLocalTunnelSetup(...args) {
-  return window.JobBoredDiscovery.setupModals.saveDiscoveryLocalTunnelSetup(
-    ...args,
-  );
-}
-function populateCloudflareRelaySetupModal(...args) {
-  return window.JobBoredDiscovery.setupModals.populateCloudflareRelaySetupModal(
-    ...args,
-  );
-}
-async function openCloudflareRelaySetupModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openCloudflareRelaySetupModal(
-    ...args,
-  );
-}
-function closeCloudflareRelaySetupModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeCloudflareRelaySetupModal(
-    ...args,
-  );
-}
-async function openCloudflareRelaySetupFromAppsScriptFailure(...args) {
-  return window.JobBoredDiscovery.setupModals.openCloudflareRelaySetupFromAppsScriptFailure(
-    ...args,
-  );
-}
-async function applyCloudflareRelayWorkerUrl(...args) {
-  return window.JobBoredDiscovery.setupModals.applyCloudflareRelayWorkerUrl(
     ...args,
   );
 }

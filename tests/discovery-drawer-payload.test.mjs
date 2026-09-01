@@ -111,9 +111,9 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
     assert.match(block, /id="settingsAppsScriptDetails"/);
     assert.match(block, /id="settingsDiscoveryEngineStatus"/);
     assert.match(block, /id="settingsDiscoveryTestBtn"/);
-    assert.match(block, /id="settingsDiscoveryGuideBtn"/);
-    assert.match(block, /id="settingsDiscoveryLocalSetupBtn"/);
-    assert.match(block, /id="settingsDiscoveryRelayBtn"/);
+    // The four setup-path buttons collapsed into one
+    // (ONE-FLOW-ONBOARDING-SPEC §7).
+    assert.match(block, /id="settingsDiscoveryOpenSetupBtn"/);
   });
 
   it("Automation sub-tab carries the Tier 1/2/3 schedule controls (moved from Profile)", () => {
@@ -214,7 +214,12 @@ describe("Discovery drawer markup + open/close lifecycle", () => {
   it("Run discovery opens the tailoring drawer from the header click", () => {
     const initButtonStart = drawerJs.indexOf("function initDiscoveryButton()");
     assert.notEqual(initButtonStart, -1, "initDiscoveryButton must exist");
-    const initButtonEnd = drawerJs.indexOf("\n  if (closeBtn)", initButtonStart);
+    // The help-dialog closers this used to stop at are deleted (§7), so the
+    // slice runs to the end of the function instead.
+    const initButtonEnd = drawerJs.indexOf(
+      '\n  h("syncDiscoveryButtonState"',
+      initButtonStart,
+    );
     assert.notEqual(initButtonEnd, -1, "click handler section must be readable");
     const handlerSource = drawerJs.slice(initButtonStart, initButtonEnd);
     assert.match(handlerSource, /openBtn\.addEventListener\("click"/);

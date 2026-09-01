@@ -479,6 +479,76 @@
     };
   }
 
+  /* ---------- One-flow shell additions (ONE-FLOW spec §3.5) ----------
+     Three opt-in regions. A host that passes none of `spine`, `message`,
+     or `busy` renders exactly what it rendered before they existed —
+     tests/oneflow-l0-shell.test.mjs locks that byte for byte. */
+
+  const MESSAGE_TONES = ["info", "success", "error"];
+  const BUSY_STAGE_STATES = ["done", "active", "todo"];
+  const BUSY_STAGE_GLYPHS = Object.freeze({
+    done: "✓",
+    active: "◌",
+    todo: "·",
+  });
+
+  /**
+   * `spine: { beats: [{id,label,done?}…], current, timeLabel }` — the flow's
+   * ONE progress system (spec §2). Returns null when the host didn't opt in.
+   */
+  function normalizeSpine(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const beats = toArray(raw.beats)
+      .map((beat, index) => {
+        const o = beat && typeof beat === "object" ? beat : { id: beat };
+        const id = asString(o.id, `beat_${index + 1}`);
+        return {
+          id,
+          label: asString(o.label, id),
+          done: asBoolean(o.done),
+        };
+      })
+      .filter((beat) => !!beat.id);
+    if (!beats.length) return null;
+    const current = asString(raw.current, beats[0].id);
+    const currentIndex = beats.findIndex((beat) => beat.id === current);
+    return {
+      beats,
+      current,
+      currentIndex,
+      timeLabel: asString(raw.timeLabel),
+    };
+  }
+
+  /**
+   * `busy: { actionId, stages }` — a live stage list plus the id of the
+   * trigger that must stay disabled until it clears. Stages accept a bare
+   * string (not started) or `{ label, state }`.
+   */
+  function normalizeBusy(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const actionId = asString(raw.actionId);
+    if (!actionId) return null;
+    const stages = toArray(raw.stages)
+      .map((stage) => {
+        const o = stage && typeof stage === "object" ? stage : { label: stage };
+        return {
+          label: asString(o.label),
+          state: normalizeEnum(
+            o.state != null ? o.state : o.done ? "done" : "todo",
+            BUSY_STAGE_STATES,
+            "todo",
+          ),
+        };
+      })
+      .filter((stage) => !!stage.label);
+    return { actionId, stages };
+  }
+
+  function isBusyAction(context, actionId) {
+    return !!(context.busy && actionId && context.busy.actionId === actionId);
+  }
+
   function getWizardContext(input = {}) {
     const variant = normalizeEnum(
       input.variant,
@@ -528,6 +598,12 @@
         ? input.journeyStage
         : "",
       mascotSrc: asString(input.mascotSrc, ""),
+      // One-flow opt-ins (spec §3.5). All three are null/"" for every
+      // existing host, which is what keeps their markup unchanged.
+      spine: normalizeSpine(input.spine),
+      message: asString(input.message, ""),
+      messageTone: normalizeEnum(input.messageTone, MESSAGE_TONES, "info"),
+      busy: normalizeBusy(input.busy),
     };
   }
 
@@ -833,7 +909,9 @@
         "secondary",
       ),
       kind,
-      disabled: asBoolean(raw.disabled),
+      // A trigger running an async stage list stays disabled until the host
+      // calls clearBusy() — a double-submit mid-check is the bug §3.5.3 names.
+      disabled: asBoolean(raw.disabled) || isBusyAction(context, id),
       href: asString(raw.href),
       target: asString(raw.target),
       rel: asString(raw.rel),
@@ -1026,6 +1104,108 @@
     return frame;
   }
 
+  /**
+   * The flow's 6-beat spine (spec §3.5.1). Replaces the 3-stage journey
+   * strip when a host passes `spine`; returns null otherwise so no
+   * existing host gains a node.
+   */
+  function renderSpine(context) {
+    if (!context.spine) return null;
+    const wrap = createEl("div", "discovery-setup-wizard__spine-wrap");
+    const list = createEl("ol", "discovery-setup-wizard__spine", {
+      "aria-label": "Setup progress",
+    });
+    context.spine.beats.forEach((beat, index) => {
+      const done =
+        beat.done ||
+        (context.spine.currentIndex >= 0 && index < context.spine.currentIndex);
+      const current = beat.id === context.spine.current;
+      const item = createEl(
+        "li",
+        [
+          "discovery-setup-wizard__spine-step",
+          done ? "discovery-setup-wizard__spine-step--done" : "",
+          current ? "discovery-setup-wizard__spine-step--current" : "",
+        ]
+          .filter(Boolean)
+          .join(" "),
+        {
+          dataset: { beatId: beat.id },
+          ...(current ? { "aria-current": "step" } : {}),
+        },
+      );
+      item.append(
+        createEl(
+          "span",
+          "discovery-setup-wizard__spine-dot",
+          { "aria-hidden": "true" },
+          done ? "✓" : String(index + 1),
+        ),
+        createEl("span", "discovery-setup-wizard__spine-label", {}, beat.label),
+      );
+      list.appendChild(item);
+    });
+    wrap.appendChild(list);
+    if (context.spine.timeLabel) {
+      // "Name the deal, keep the deal" (spec §2.4): the time left is part
+      // of the promise, so it lives beside the spine, always.
+      wrap.appendChild(
+        createEl(
+          "p",
+          "discovery-setup-wizard__spine-time",
+          {},
+          context.spine.timeLabel,
+        ),
+      );
+    }
+    return wrap;
+  }
+
+  /**
+   * The message slot (spec §3.5.2). Every key check, every verification
+   * result lands here — a rendered outcome instead of the silent
+   * updateRuntime write that made B2/B5 feel broken.
+   */
+  function renderMessage(context) {
+    if (!context.message) return null;
+    const isError = context.messageTone === "error";
+    return createEl(
+      "p",
+      `discovery-setup-wizard__message discovery-setup-wizard__message--${context.messageTone}`,
+      {
+        role: isError ? "alert" : "status",
+        "aria-live": isError ? "assertive" : "polite",
+      },
+      context.message,
+    );
+  }
+
+  /** The live ✓/◌/· stage list of a running action (spec §3.5.3). */
+  function renderBusy(context) {
+    if (!context.busy || !context.busy.stages.length) return null;
+    const list = createEl("ol", "discovery-setup-wizard__busy", {
+      "aria-live": "polite",
+      dataset: { busyActionId: context.busy.actionId },
+    });
+    for (const stage of context.busy.stages) {
+      const row = createEl(
+        "li",
+        `discovery-setup-wizard__busy-stage discovery-setup-wizard__busy-stage--${stage.state}`,
+      );
+      row.append(
+        createEl(
+          "span",
+          "discovery-setup-wizard__busy-glyph",
+          { "aria-hidden": "true" },
+          BUSY_STAGE_GLYPHS[stage.state],
+        ),
+        createEl("span", "discovery-setup-wizard__busy-label", {}, ` ${stage.label}`),
+      );
+      list.appendChild(row);
+    }
+    return list;
+  }
+
   function renderFooter(context) {
     const footer = createEl("footer", "discovery-setup-wizard__footer");
     const note = createEl("div", "discovery-setup-wizard__footer-note");
@@ -1046,6 +1226,11 @@
       );
     }
     footer.append(note, actions);
+    // Under the actions: progress first, then the result that replaces it.
+    const busy = renderBusy(context);
+    if (busy) footer.appendChild(busy);
+    const message = renderMessage(context);
+    if (message) footer.appendChild(message);
     return footer;
   }
 
@@ -1158,9 +1343,13 @@
     const body = createEl("div", "discovery-setup-wizard__body");
     body.append(renderStepFrame(context));
 
-    const journeyStrip = renderJourneyStrip(context);
+    // Spec §3.5.1: the spine REPLACES the journey strip — never both, or
+    // the flow ships two progress systems, which is the defect §2 names.
+    const spine = renderSpine(context);
+    const journeyStrip = spine ? null : renderJourneyStrip(context);
     panel.append(
       header,
+      ...(spine ? [spine] : []),
       ...(journeyStrip ? [journeyStrip] : []),
       renderStepNavigation(context),
       body,
@@ -1494,6 +1683,42 @@
     });
   }
 
+  /**
+   * Render a message under the actions (spec §3.5.2). No-op before the
+   * first render — the host owns the shell's lifecycle.
+   */
+  function setMessage(text, tone) {
+    if (!shell.lastRender) return null;
+    return updateWizardShell({
+      message: asString(text),
+      messageTone: normalizeEnum(tone, MESSAGE_TONES, "info"),
+      focus: false,
+    });
+  }
+
+  function clearMessage() {
+    if (!shell.lastRender) return null;
+    return updateWizardShell({ message: "", messageTone: "info", focus: false });
+  }
+
+  /**
+   * Put one action into its busy state (spec §3.5.3): disable its trigger
+   * and render `stages` as a live ✓/◌/· list. Call again with
+   * advanced stages to move the list; clearBusy() when the work lands.
+   */
+  function setBusy(actionId, stages) {
+    if (!shell.lastRender) return null;
+    return updateWizardShell({
+      busy: { actionId, stages },
+      focus: false,
+    });
+  }
+
+  function clearBusy() {
+    if (!shell.lastRender) return null;
+    return updateWizardShell({ busy: null, focus: false });
+  }
+
   function getWizardContextSnapshot() {
     return shell.lastRender ? shell.lastRender.context : null;
   }
@@ -1528,5 +1753,9 @@
     restoreFocus,
     getWizardContext: getWizardContextSnapshot,
     describeStepState,
+    setMessage,
+    clearMessage,
+    setBusy,
+    clearBusy,
   });
 })();

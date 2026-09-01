@@ -73,7 +73,7 @@ Configuration starts from `config.js` generated from `config.example.js`; the ap
 `server/index.mjs` starts an Express service with:
 
 - `GET /health`
-- `POST /api/scrape-job`
+- `POST /api/scrape-job` (Cheerio scrape; failures return `{ error, code, detail, nextStep, retryable }` with a cause-specific status, not a generic 502)
 - `POST /api/ats-scorecard`
 
 The server defaults to `127.0.0.1:3847`; set `LISTEN_HOST=0.0.0.0` for hosted/container deployments. CORS origin checks are implemented in `server/security-boundaries.mjs`. ATS provider config is loaded from environment variables and `server/.env` via `dotenv`; `server/ats-env.example` is the setup template.

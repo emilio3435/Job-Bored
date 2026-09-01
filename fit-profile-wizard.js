@@ -31,18 +31,18 @@
     { id: "onsite_ok", label: "Onsite OK" },
   ];
   var SENIORITY_OPTIONS = [
-    "intern",
-    "entry",
-    "ic_mid",
-    "ic_senior",
-    "ic_staff",
-    "ic_principal",
-    "manager",
-    "director",
-    "head",
-    "vp",
-    "c_level",
-    "any",
+    { id: "intern", label: "Intern" },
+    { id: "entry", label: "Entry" },
+    { id: "ic_mid", label: "Mid" },
+    { id: "ic_senior", label: "Senior" },
+    { id: "ic_staff", label: "Staff" },
+    { id: "ic_principal", label: "Principal" },
+    { id: "manager", label: "Manager" },
+    { id: "director", label: "Director" },
+    { id: "head", label: "Head" },
+    { id: "vp", label: "VP" },
+    { id: "c_level", label: "C-level" },
+    { id: "any", label: "Any" },
   ];
   var WORK_AUTH_OPTIONS = [
     { id: "any", label: "Any" },
@@ -585,8 +585,8 @@
     // Seniority
     var senSelect = el("select", { class: "fp-select" });
     SENIORITY_OPTIONS.forEach(function (s) {
-      var opt = el("option", { value: s }, s);
-      if (state.identity.targetSeniority === s) opt.selected = true;
+      var opt = el("option", { value: s.id }, s.label);
+      if (state.identity.targetSeniority === s.id) opt.selected = true;
       senSelect.appendChild(opt);
     });
     senSelect.addEventListener("change", function () {
@@ -922,13 +922,16 @@
 
     // Work mode radios
     var radioGroup = el("div", { class: "fp-radio-group", role: "radiogroup" });
-    var locationField; // referenced below; revealed unless remote_only.
+    var locationField; // referenced below; only hybrid/onsite use locations.
+    function locationApplies() {
+      return hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok";
+    }
     function repaintRadios() {
       Array.from(radioGroup.querySelectorAll(".fp-radio")).forEach(function (label) {
         label.dataset.checked = String(label.dataset.value === hc.workMode);
       });
       if (locationField) {
-        locationField.style.display = hc.workMode === "remote_only" ? "none" : "";
+        locationField.style.display = locationApplies() ? "" : "none";
       }
     }
     WORK_MODES.forEach(function (m) {
@@ -979,10 +982,10 @@
       el(
         "p",
         { class: "fp-field__hint" },
-        "Used only for onsite/hybrid listings. Remote-only ignores this.",
+        "Used only when Hybrid OK or Onsite OK is selected. Any and Remote only ignore this.",
       ),
     ]);
-    if (hc.workMode === "remote_only") locationField.style.display = "none";
+    if (!locationApplies()) locationField.style.display = "none";
     box.appendChild(locationField);
 
     // Salary
@@ -1513,12 +1516,10 @@
         showWizardError(msg);
         return;
       }
-      try {
-        localStorage.setItem("fitProfileOnboardingComplete", "1");
-      } catch (_) {
-        // ignore
-      }
-      // Close wizard and bounce back to dashboard root.
+      // Close wizard and bounce back to dashboard root. (A write-only
+      // localStorage completion flag used to be set here; nothing in the repo
+      // ever read it — ONE-FLOW-ONBOARDING-SPEC §7 deletes it, and the flow's
+      // own state is what decides re-prompting.)
       closeWizard({ navigateHome: true });
       // Optional: tell the rest of the app a fresh profile exists.
       try {
@@ -1550,21 +1551,8 @@
     }
   }
 
-  function enterCreateMode() {
-    wizardState = emptyProfile();
-    applyWizardMode("create");
-    goToStep(1);
-  }
-
-  function enterEditMode(profile) {
-    wizardState = mergeStateFromProfile(profile);
-    applyWizardMode("edit");
-    goToStep(2);
-  }
-
   function openWizard(opts) {
     opts = opts || {};
-    var requested = opts.mode === "edit" ? "edit" : "create";
     // Capture the opener BEFORE the shell renders, for the same reason the
     // settings modal does (settings-modal.js:522-528): whatever menu or button
     // launched the wizard may lose focus on the way in.
@@ -1572,55 +1560,48 @@
       typeof document !== "undefined" && document.activeElement
         ? document.activeElement
         : null;
-    if (!wizardState) wizardState = emptyProfile();
-    buildWizardShell();
-    wizardEls.root.dataset.active = "true";
-    document.body.style.overflow = "hidden";
-    applyWizardMode(requested);
-    // Containment + Escape + focus restore now come from the shared primitive
-    // instead of being absent. Attached HERE, above the three mode branches,
-    // so every return path (create, supplied-profile edit, fetched edit) is
-    // covered — and AFTER data-active="true", because focus() is a no-op on a
-    // display:none element and .fp-wizard only displays at [data-active="true"]
-    // (fit-profile.css:7-19).
-    //
-    // Re-opening an already-open wizard still rebuilds the shell above (the
-    // pre-migration behavior); it must NOT push a second entry onto the dialog
-    // stack for the same element, which would leak an inert set.
-    var api = a11y();
-    if (!wizardDialogHandle && api && api.dialog && typeof api.dialog.open === "function") {
-      wizardDialogHandle = api.dialog.open(wizardEls.root, {
-        opener: opener,
-        label: "Fit profile setup",
-        onClose: function (reason) {
-          wizardDialogHandle = null;
-          // Escape is handled by the primitive; mirror it into our own
-          // teardown so the overlay actually hides.
-          if (reason === "escape") closeWizard();
-        },
-      });
+
+    function renderResolved(mode, resolvedState) {
+      wizardState = resolvedState || emptyProfile();
+      buildWizardShell();
+      wizardEls.root.dataset.active = "true";
+      document.body.style.overflow = "hidden";
+      applyWizardMode(mode);
+      // Re-opening the same element does not push another dialog handle.
+      var api = a11y();
+      if (!wizardDialogHandle && api && api.dialog && typeof api.dialog.open === "function") {
+        wizardDialogHandle = api.dialog.open(wizardEls.root, {
+          opener: opener,
+          label: "Fit profile setup",
+          onClose: function (reason) {
+            wizardDialogHandle = null;
+            if (reason === "escape") closeWizard();
+          },
+        });
+      }
+      goToStep(mode === "edit" ? 2 : 1);
     }
 
-    if (requested === "create") {
-      enterCreateMode();
+    if (opts.mode === "create") {
+      renderResolved("create", emptyProfile());
       return Promise.resolve();
     }
 
     if (opts.profile && typeof opts.profile === "object") {
-      enterEditMode(opts.profile);
+      renderResolved("edit", mergeStateFromProfile(opts.profile));
       return Promise.resolve();
     }
 
     return fetchProfile()
       .then(function (data) {
         if (data && data.ok && data.profile) {
-          enterEditMode(data.profile);
+          renderResolved("edit", mergeStateFromProfile(data.profile));
           return;
         }
-        enterCreateMode();
+        renderResolved("create", emptyProfile());
       })
       .catch(function () {
-        enterCreateMode();
+        renderResolved("create", emptyProfile());
       });
   }
 

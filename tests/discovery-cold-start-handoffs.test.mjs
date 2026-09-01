@@ -12,8 +12,11 @@ const statusHandoffJs = readFileSync(
 );
 const setupJs = readFileSync(join(repoRoot, "sheet-access-setup.js"), "utf8");
 
+// The section used to open with the pendingDiscoverySetup key; §7 deleted
+// that queue (writer, never-called resumer, exports), so the first thing in
+// the handoff block is now the setup-param stripper.
 const HANDOFF_SECTION_START = statusHandoffJs.indexOf(
-  'const PENDING_DISCOVERY_SETUP_KEY = "pendingDiscoverySetup";',
+  "function stripSetupDiscoveryParam()",
 );
 const HANDOFF_SECTION_END = statusHandoffJs.indexOf(
   "function resetPostAccessBootstrap()",
@@ -48,8 +51,11 @@ function createStorage() {
 
 function createHandoffHarness({
   search = "",
-  onboardingVisible = false,
-  onCheckOnboardingGate = null,
+  // A one-flow beat is on screen. The two legacy wizards this used to model
+  // are deleted (ONE-FLOW-ONBOARDING-SPEC §7); the flow is the only
+  // onboarding surface requestDiscoverySetup defers to now.
+  flowOpen = false,
+  onFlowOpen = null,
 } = {}) {
   const sessionStorage = createStorage();
   const historyCalls = [];
@@ -63,6 +69,25 @@ function createHandoffHarness({
         search,
         pathname: "/index.html",
         hash: "",
+      },
+      // The one-flow controller the L6 cutover put at the head of the
+      // post-access chain (ONE-FLOW-ONBOARDING-SPEC §3.3), stubbed to the
+      // shape discovery-status-handoff.js consumes.
+      JobBoredOneFlow: {
+        async maybeStart() {
+          context.__maybeStartCalls += 1;
+          return true;
+        },
+        getState() {
+          return { beat: "google" };
+        },
+        async open() {
+          context.__flowOpen = true;
+          if (typeof onFlowOpen === "function") await onFlowOpen(context);
+        },
+        isOpen() {
+          return context.__flowOpen;
+        },
       },
     },
     history: {
@@ -78,16 +103,10 @@ function createHandoffHarness({
         context.window.location.search = path.slice(queryStart, queryEnd);
       },
     },
-    __onboardingVisible: onboardingVisible,
-    __checkOnboardingGateCalls: 0,
+    __maybeStartCalls: 0,
+    __flowOpen: flowOpen,
     postAccessBootstrapDone: false,
     postAccessBootstrapPromise: Promise.resolve(),
-    isOnboardingWizardVisible() {
-      return context.__onboardingVisible;
-    },
-    isFirstRunWizardVisible() {
-      return false;
-    },
     async openDiscoverySetupWizard(options) {
       openCalls.push(options);
     },
@@ -97,24 +116,9 @@ function createHandoffHarness({
     getDiscoveryReadinessSnapshot() {
       return { recommendedFlow: "local_agent" };
     },
-    async checkInfraSetupGate() {
-      return false;
-    },
-    async checkOnboardingGate() {
-      context.__checkOnboardingGateCalls += 1;
-      if (typeof onCheckOnboardingGate === "function") {
-        await onCheckOnboardingGate(context);
-      }
-    },
   });
 
   context.__hostApi = {
-    isOnboardingWizardVisible() {
-      return context.__onboardingVisible;
-    },
-    isFirstRunWizardVisible() {
-      return context.isFirstRunWizardVisible();
-    },
     openDiscoverySetupWizard(options) {
       openCalls.push(options);
     },
@@ -123,12 +127,6 @@ function createHandoffHarness({
     },
     getDiscoveryReadinessSnapshot() {
       return { recommendedFlow: "local_agent" };
-    },
-    checkInfraSetupGate() {
-      return context.checkInfraSetupGate();
-    },
-    checkOnboardingGate() {
-      return context.checkOnboardingGate();
     },
   };
 
@@ -167,24 +165,23 @@ function configCore() {
 }
 
 describe("Discovery cold-start handoffs", () => {
-  it("requestDiscoverySetup defers discovery while onboarding is visible", async () => {
-    const harness = createHandoffHarness({ onboardingVisible: true });
+  it("requestDiscoverySetup defers discovery while a beat owns the surface", async () => {
+    const harness = createHandoffHarness({ flowOpen: true });
 
     const result = await harness.run(
       'requestDiscoverySetup({ entryPoint: "starter_sheet_created" })',
     );
 
     assert.equal(result.deferred, true);
-    assert.equal(
-      harness.sessionStorage.getItem("pendingDiscoverySetup"),
-      "1",
-      "should queue the deferred discovery handoff",
-    );
+    // No sessionStorage queue any more: §7 deleted it (its resumer had no
+    // caller). Deferring is the whole answer — Beat 5 IS discovery setup, so
+    // there is nothing to resume to once the flow holds the surface.
+    assert.equal(harness.sessionStorage.getItem("pendingDiscoverySetup"), null);
     assert.deepEqual(harness.openCalls, []);
   });
 
   it("requestDiscoverySetup can open immediately for explicit discovery entry points", async () => {
-    const harness = createHandoffHarness({ onboardingVisible: true });
+    const harness = createHandoffHarness({ flowOpen: true });
 
     const result = await harness.run(
       'requestDiscoverySetup({ entryPoint: "toolbar", allowWhileOnboarding: true })',
@@ -196,56 +193,40 @@ describe("Discovery cold-start handoffs", () => {
     assert.equal(harness.openCalls[0].entryPoint, "toolbar");
   });
 
-  it("handleDiscoverySetupDeepLink strips the query param while deferring onboarding-first flows", async () => {
+  it("handleDiscoverySetupDeepLink strips the query param while deferring behind a live beat", async () => {
     const harness = createHandoffHarness({
       search: "?setup=discovery&sheet=abc123",
-      onboardingVisible: true,
+      flowOpen: true,
     });
 
     const handled = await harness.run("handleDiscoverySetupDeepLink()");
 
     assert.equal(handled, true);
-    assert.equal(
-      harness.sessionStorage.getItem("pendingDiscoverySetup"),
-      "1",
-      "should preserve the deferred discovery intent",
-    );
+    assert.equal(harness.sessionStorage.getItem("pendingDiscoverySetup"), null);
     assert.deepEqual(harness.openCalls, []);
     assert.deepEqual(harness.historyCalls, ["/index.html?sheet=abc123"]);
   });
 
-  it("resumePendingDiscoverySetupIfNeeded consumes the handoff exactly once", async () => {
-    const harness = createHandoffHarness();
-    harness.sessionStorage.setItem("pendingDiscoverySetup", "1");
+  // resumePendingDiscoverySetupIfNeeded is deleted (§7): nothing ever called
+  // it, so the queue it drained could only grow. Its replacement is the
+  // flow's own persisted beat — re-entry lands where the user left off, which
+  // tests/integration/onboarding-chain-convergence.test.mjs covers.
 
-    const first = await harness.run("resumePendingDiscoverySetupIfNeeded()");
-    const second = await harness.run("resumePendingDiscoverySetupIfNeeded()");
-
-    assert.equal(first, true);
-    assert.equal(second, false);
-    assert.equal(harness.sessionStorage.getItem("pendingDiscoverySetup"), null);
-    assert.equal(harness.openCalls.length, 1);
-    assert.equal(harness.openCalls[0].entryPoint, "settings");
-  });
-
-  it("runPostAccessBootstrapOnce checks onboarding before processing the discovery deep link and stays one-shot", async () => {
-    const harness = createHandoffHarness({
-      search: "?setup=discovery",
-      onCheckOnboardingGate(context) {
-        context.__onboardingVisible = true;
-      },
-    });
+  it("runPostAccessBootstrapOnce opens the one-flow before processing the discovery deep link and stays one-shot", async () => {
+    // Same claim as before the L6 cutover, with the flow in the legacy
+    // wizards' place: onboarding is surfaced FIRST, so a ?setup=discovery
+    // deep link defers instead of opening a second wizard over it.
+    const harness = createHandoffHarness({ search: "?setup=discovery" });
 
     await harness.run("runPostAccessBootstrapOnce()");
     await harness.run("runPostAccessBootstrapOnce()");
 
-    assert.equal(harness.context.__checkOnboardingGateCalls, 1);
-    assert.equal(
-      harness.sessionStorage.getItem("pendingDiscoverySetup"),
-      "1",
-      "should defer only after onboarding has been surfaced",
+    assert.equal(harness.context.__maybeStartCalls, 1);
+    assert.deepEqual(
+      harness.openCalls,
+      [],
+      "the deep link defers because the flow claimed the surface first",
     );
-    assert.deepEqual(harness.openCalls, []);
     assert.deepEqual(harness.historyCalls, ["/index.html"]);
   });
 

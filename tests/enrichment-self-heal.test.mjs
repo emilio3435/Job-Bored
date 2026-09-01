@@ -288,13 +288,13 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
-  it("uses a 20s scrape timeout so SerpApi fallback can finish", () => {
+  it("uses a 45s scrape timeout so SerpApi and Gemini URL Context can finish", () => {
     const slice = enrichmentFlowSlice();
     /* The new helper _tryScrape lives just above; pull a window */
     const tryScrapeIdx = postingEnrichmentJs.indexOf("async function _tryScrape");
     assert.ok(tryScrapeIdx > 0, "_tryScrape helper must exist");
     const scrapeBody = postingEnrichmentJs.slice(tryScrapeIdx, tryScrapeIdx + 1800);
-    assert.match(scrapeBody, /20_?000/, "scrape timeout must be 20s (20000ms)");
+    assert.match(scrapeBody, /45_?000/, "scrape timeout must be 45s (45000ms)");
     assert.ok(
       !/30_?000/.test(scrapeBody),
       "legacy 30s timeout must be gone",

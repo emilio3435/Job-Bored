@@ -40,9 +40,9 @@ describe("JobBoredModelCatalog.isWeakMaterialsModel", () => {
   });
 });
 
-describe("first-run weak model copy", () => {
+describe("setup weak model copy", () => {
   it("uses the spec warning string", () => {
-    const src = readFileSync(new URL("../first-run-wizard.js", import.meta.url), "utf8");
+    const src = readFileSync(new URL("../oneflow-beat-ai.js", import.meta.url), "utf8");
     assert.match(
       src,
       /This model is too weak for tailored letters\. Use Gemini Flash unless you are only testing\./,

@@ -29,6 +29,20 @@
     GO_LIVE_FINISHED: "go_live_finished",
     LATER_PRESSED: "later_pressed",
     BOTH_DONE: "both_done",
+
+    // One-flow vocabulary (ONE-FLOW-ONBOARDING-SPEC §9). The controller
+    // (onboarding-flow.js) emits flow_opened / beat_opened / beat_completed /
+    // beat_skipped / beat_abandoned / flow_completed itself; beats supply the
+    // detail. key_check and first_results are emitted by the beats that own
+    // those moments (B2/B5 key verification, B6's first discovery run).
+    FLOW_OPENED: "flow_opened",
+    BEAT_OPENED: "beat_opened",
+    BEAT_COMPLETED: "beat_completed",
+    BEAT_SKIPPED: "beat_skipped",
+    BEAT_ABANDONED: "beat_abandoned",
+    FLOW_COMPLETED: "flow_completed",
+    KEY_CHECK: "key_check",
+    FIRST_RESULTS: "first_results",
   });
 
   /**

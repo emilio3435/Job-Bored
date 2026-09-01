@@ -74,3 +74,7 @@ prompts/reports/
 # Lane swarm scratch — never publish
 .lane-evidence/
 LANE-REPORT-*.md
+
+# orchestration lane scratch
+.lane-evidence/
+LANE-REPORT-*.md
