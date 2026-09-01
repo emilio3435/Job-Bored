@@ -415,3 +415,86 @@ describe('§7 · #setupScreen ("One more step.") is gone', () => {
     assert.match(body, /open\("google"\)/, "specifically to Beat 1 (spec §5 B1)");
   });
 });
+
+describe("§7 · welcome.js keeps its empty state, loses its onboarding", () => {
+  it("the 9-step machine, its storage, and its self-test are gone", () => {
+    const source = read("welcome.js");
+    for (const needle of [
+      "RENDERERS",
+      "validateStep",
+      "persistToLegacyStores",
+      "runSelfTest",
+      "jb-v2-onboarding",
+      "openConfirmDialog",
+      "shouldShowOnboarding",
+      "STEP_TITLES",
+      "MASCOT_SAYS",
+    ]) {
+      assert.equal(
+        source.includes(needle),
+        false,
+        `welcome.js must not carry ${needle} — §7 keeps only the empty state`,
+      );
+    }
+  });
+
+  it("mountEmpty and isFirstRunEmpty are what §7 keeps", () => {
+    const source = read("welcome.js");
+    assert.match(source, /function mountEmpty\(region\)/);
+    assert.match(source, /function isFirstRunEmpty\(\)/);
+    assert.match(
+      source,
+      /window\.JobBoredWelcome = \{\s*boot: boot,\s*mountEmpty: mountEmpty,\s*isFirstRunEmpty: isFirstRunEmpty,\s*\};/,
+      "the public surface is exactly boot + the two kept functions",
+    );
+  });
+
+  it("the empty card still delegates to every legacy control it names", () => {
+    // Deleting the onboarding half must not cost the card its three ways
+    // out — each one clicks a control the legacy app already owns.
+    const source = read("welcome.js");
+    assert.match(source, /ingestUrlInput/);
+    assert.match(source, /ingestManualModalOpenBtn/);
+    assert.match(source, /discoveryBtn/);
+  });
+
+  it("welcome.css keeps only what the card renders", () => {
+    const css = read("welcome.css");
+    for (const dead of [
+      "jbw-progress",
+      "jbw-step",
+      "jbw-dialog",
+      "jbw-opt",
+      "jbw-slider",
+      "jbw-say",
+      "jbw-sheet-actions",
+      'data-mode="onboarding"',
+    ]) {
+      assert.equal(
+        css.includes(dead),
+        false,
+        `welcome.css must not style the deleted flow (${dead})`,
+      );
+    }
+    for (const kept of [".jbw-empty", ".jbw-sample", ".jbw-btn", ".jbw-mascot"]) {
+      assert.ok(css.includes(kept), `${kept} still renders`);
+    }
+  });
+
+  it("WELCOME.md documents only what ships", () => {
+    const doc = read("WELCOME.md");
+    // The step spec §7 names: the nine-step table, the localStorage schema,
+    // and the self-test walkthrough. Naming them once as deleted is fine;
+    // documenting them as if a reader could use them is the defect.
+    assert.equal(/^## 1\. Step list$/m.test(doc), false);
+    assert.equal(/^## \d+\. Persistence schema/m.test(doc), false);
+    assert.equal(/^## \d+\. Self-test$/m.test(doc), false);
+    assert.equal(/Activate by appending/.test(doc), false);
+    assert.match(doc, /first-run empty state/i);
+    assert.match(
+      doc,
+      /ONE-FLOW-ONBOARDING-SPEC/,
+      "and points a reader at the flow that replaced the rest",
+    );
+  });
+});
