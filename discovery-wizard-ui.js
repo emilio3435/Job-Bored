@@ -2734,11 +2734,6 @@ async function openDiscoverySetupWizard(options = {}) {
   if (host().isSettingsModalOpen()) {
     host().closeCommandCenterSettingsModal();
   }
-  const helpModal = document.getElementById("discoveryHelpModal");
-  if (helpModal) {
-    helpModal.style.display = "none";
-  }
-  host().closeDiscoverySetupGuideModal();
   const snapshot = await host().refreshDiscoveryReadinessSnapshot({
     force: true,
     rerender: false,

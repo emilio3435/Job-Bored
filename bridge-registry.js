@@ -194,7 +194,6 @@
       getPipelineData: host.getPipelineData,
       renderAreaWidget: host.renderAreaWidget,
       openJobDetail: host.openJobDetail,
-      openDiscoveryPathsModal: host.openDiscoveryPathsModal,
       getSheetId: host.getSheetId,
       setSHEET_ID: host.setSHEET_ID,
       getSHEET_ID: host.getSHEET_ID,
@@ -384,8 +383,6 @@
       getDiscoveryRecoveryCopy: host.getDiscoveryRecoveryCopy,
       getDiscoverySettingsView: host.getDiscoverySettingsView,
       isLikelyCloudflareWorkerUrl: host.isLikelyCloudflareWorkerUrl,
-      probeNgrokFromLocalApi: host.probeNgrokFromLocalApi,
-      closeDiscoverySetupGuideModal: host.closeDiscoverySetupGuideModal,
       showDiscoveryVerificationToast: host.showDiscoveryVerificationToast,
       buildDiscoveryWebhookPayload: host.buildDiscoveryWebhookPayload,
       verifyDiscoveryWebhookWithSharedModel:
@@ -636,7 +633,6 @@
       recheckAppsScriptPublicAccessFromSettings:
         host.recheckAppsScriptPublicAccessFromSettings,
       copyTextToClipboard: host.copyTextToClipboard,
-      probeTunnelStaleBadge: host.probeTunnelStaleBadge,
       requestDiscoverySetup: host.requestDiscoverySetup,
       resetAppsScriptDeployModalState() {
         const configCore = getConfigCore(host);

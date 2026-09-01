@@ -1572,86 +1572,11 @@ function setActiveSettingsTab(tabId, opts) {
   }
 }
 
-// --- Discovery setup modals (extracted to discovery-setup-modals.js) ---
+// --- Discovery settings actions (in discovery-setup-modals.js) ---
+// The five modal forwarders that lived here left with their modals
+// (ONE-FLOW-ONBOARDING-SPEC §7). These three have live callers outside them.
 async function testDiscoveryWebhookFromSettings(...args) {
   return window.JobBoredDiscovery.setupModals.testDiscoveryWebhookFromSettings(
-    ...args,
-  );
-}
-function openDiscoveryPathsModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openDiscoveryPathsModal(...args);
-}
-function closeDiscoveryPathsModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeDiscoveryPathsModal(...args);
-}
-function openDiscoverySetupGuideModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openDiscoverySetupGuideModal(
-    ...args,
-  );
-}
-function closeDiscoverySetupGuideModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeDiscoverySetupGuideModal(
-    ...args,
-  );
-}
-function renderDiscoveryLocalTunnelSetupUi(...args) {
-  return window.JobBoredDiscovery.setupModals.renderDiscoveryLocalTunnelSetupUi(
-    ...args,
-  );
-}
-function populateDiscoveryLocalTunnelModal(...args) {
-  return window.JobBoredDiscovery.setupModals.populateDiscoveryLocalTunnelModal(
-    ...args,
-  );
-}
-async function openDiscoveryLocalTunnelModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openDiscoveryLocalTunnelModal(
-    ...args,
-  );
-}
-async function probeNgrokFromLocalApi(...args) {
-  return window.JobBoredDiscovery.setupModals.probeNgrokFromLocalApi(...args);
-}
-async function probeAndShowTunnelStaleBanner(...args) {
-  return window.JobBoredDiscovery.setupModals.probeAndShowTunnelStaleBanner(
-    ...args,
-  );
-}
-function closeDiscoveryLocalTunnelModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeDiscoveryLocalTunnelModal(
-    ...args,
-  );
-}
-async function probeTunnelStaleBadge(...args) {
-  return window.JobBoredDiscovery.setupModals.probeTunnelStaleBadge(...args);
-}
-function saveDiscoveryLocalTunnelSetup(...args) {
-  return window.JobBoredDiscovery.setupModals.saveDiscoveryLocalTunnelSetup(
-    ...args,
-  );
-}
-function populateCloudflareRelaySetupModal(...args) {
-  return window.JobBoredDiscovery.setupModals.populateCloudflareRelaySetupModal(
-    ...args,
-  );
-}
-async function openCloudflareRelaySetupModal(...args) {
-  return window.JobBoredDiscovery.setupModals.openCloudflareRelaySetupModal(
-    ...args,
-  );
-}
-function closeCloudflareRelaySetupModal(...args) {
-  return window.JobBoredDiscovery.setupModals.closeCloudflareRelaySetupModal(
-    ...args,
-  );
-}
-async function openCloudflareRelaySetupFromAppsScriptFailure(...args) {
-  return window.JobBoredDiscovery.setupModals.openCloudflareRelaySetupFromAppsScriptFailure(
-    ...args,
-  );
-}
-async function applyCloudflareRelayWorkerUrl(...args) {
-  return window.JobBoredDiscovery.setupModals.applyCloudflareRelayWorkerUrl(
     ...args,
   );
 }

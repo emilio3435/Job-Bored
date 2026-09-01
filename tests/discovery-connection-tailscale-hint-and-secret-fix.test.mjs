@@ -118,16 +118,15 @@ describe("Discovery Connection panel — Tailscale (recommended) callout (VAL-SI
     );
   });
 
-  it("wires a 'Stable URL / Tailscale' button into the .settings-discovery-toolbar that deep-links into the existing external_endpoint flow", () => {
+  it("offers ONE `Open discovery setup` button in the .settings-discovery-toolbar", () => {
+    // VAL-SIGN-003 shipped a fifth path here — "Stable URL / Tailscale" —
+    // beside setup guide, local+ngrok, Cloudflare relay, and "ways to avoid
+    // webhooks". ONE-FLOW-ONBOARDING-SPEC §7 collapses all five into the
+    // discovery wizard Beat 5 also drives, which presents Tailscale (§11.2)
+    // and keeps the manual URL+secret pair behind its own Advanced section.
+    // The Tailscale CALLOUT above still points at docs/SELF-HOSTING.md, so
+    // the recommendation this test was written for survives its button.
     const block = isolateConnectionPanel();
-    assert.match(
-      block,
-      /id="settingsDiscoveryTailscaleBtn"/,
-      "Connection toolbar must include a 'Stable URL / Tailscale' button (id=settingsDiscoveryTailscaleBtn)",
-    );
-    // The button must live INSIDE the .settings-discovery-toolbar (the
-    // mirror of the existing local/relay/test buttons), not be a
-    // floating ad-hoc control.
     const toolbarStart = block.lastIndexOf(
       'class="settings-discovery-toolbar settings-discovery-toolbar--wrap"',
     );
@@ -136,68 +135,31 @@ describe("Discovery Connection panel — Tailscale (recommended) callout (VAL-SI
       "the .settings-discovery-toolbar wrapper must exist",
     );
     const toolbarEnd = block.indexOf("</div>", toolbarStart);
-    assert.ok(toolbarEnd !== -1, "toolbar must be closable");
     const toolbar = block.slice(toolbarStart, toolbarEnd);
-    assert.match(
-      toolbar,
-      /id="settingsDiscoveryLocalSetupBtn"/,
-      "toolbar must still contain the existing local-setup button (no regression)",
-    );
-    assert.match(
-      toolbar,
-      /id="settingsDiscoveryRelayBtn"/,
-      "toolbar must still contain the existing relay button (no regression)",
-    );
-    assert.match(
-      toolbar,
-      /id="settingsDiscoveryTailscaleBtn"/,
-      "toolbar must contain the new Tailscale button",
-    );
+    assert.match(toolbar, /id="settingsDiscoveryOpenSetupBtn"/);
+    assert.match(toolbar, /id="settingsDiscoveryTestBtn"/, "the diagnostic stays");
+    for (const gone of [
+      "settingsDiscoveryTailscaleBtn",
+      "settingsDiscoveryLocalSetupBtn",
+      "settingsDiscoveryRelayBtn",
+      "settingsDiscoveryGuideBtn",
+      "settingsDiscoveryPathsBtn",
+    ]) {
+      assert.equal(
+        block.includes(gone),
+        false,
+        `${gone} was one of the five paths §7 collapses`,
+      );
+    }
   });
 });
 
-describe("discovery-setup-modals.js — Tailscale deep-link wiring (VAL-SIGN-003)", () => {
-  it("initDiscoverySetupGuide wires the new Tailscale button to requestDiscoverySetup with flow:external_endpoint/startStep:existing_endpoint", () => {
-    // Locate the function in the module source and assert the wiring is
-    // present and correct. This is a static source-shape gate: the test
-    // mirrors existing tests that validate wizard wiring via regex on
-    // the source, and a behavioral test (below) drives the dispatcher.
-    const fnStart = discoverySetupModalsJs.indexOf(
-      "function initDiscoverySetupGuide()",
-    );
-    assert.ok(fnStart !== -1, "initDiscoverySetupGuide must exist");
-    const fnEnd = discoverySetupModalsJs.indexOf(
-      "\nfunction ",
-      fnStart + 1,
-    );
-    const fn = discoverySetupModalsJs.slice(
-      fnStart,
-      fnEnd === -1 ? discoverySetupModalsJs.length : fnEnd,
-    );
-    assert.match(
-      fn,
-      /getElementById\("settingsDiscoveryTailscaleBtn"\)/,
-      "initDiscoverySetupGuide must look up the new Tailscale button",
-    );
-    // The wiring must use the EXISTING external_endpoint flow value, NOT
-    // invent a new one (the flow enum is validated against
-    // ['local_agent','external_endpoint','no_webhook','stub_only']).
-    // The setup-modals module dispatches via the h() helper, so the
-    // call shape is h("requestDiscoverySetup", { ... }).
-    const callMatch = fn.match(
-      /getElementById\("settingsDiscoveryTailscaleBtn"\)[\s\S]{0,400}?\(?["']requestDiscoverySetup["'][\s\S]{0,400}?flow:\s*"external_endpoint"[\s\S]{0,400}?startStep:\s*"existing_endpoint"[\s\S]{0,400}?allowWhileOnboarding:\s*true/,
-    );
-    assert.ok(
-      callMatch,
-      "the Tailscale button click handler must call requestDiscoverySetup({ flow:'external_endpoint', startStep:'existing_endpoint', allowWhileOnboarding:true })",
-    );
-  });
-
-  it("invokes requestDiscoverySetup with the exact deep-link payload when clicked (behavior)", () => {
-    // Behavioral mirror of existing settings-toolbar tests: load the
-    // module in a vm context, register a listener registry that
-    // captures the click handler, then call it and assert the
-    // dispatcher args.
+describe("discovery-setup-modals.js — the one setup button (§7)", () => {
+  it("invokes requestDiscoverySetup when the one button is clicked (behavior)", () => {
+    // Behavioral mirror of the old per-path tests: load the module in a vm
+    // context, capture the click handler, fire it, and assert the dispatch.
+    // No flow/startStep deep link any more — the wizard decides, because a
+    // caller pre-picking a path is what §7 deleted.
     const els = new Map();
     const addListenerCalls = [];
     const makeEl = (id) => ({
@@ -280,19 +242,33 @@ describe("discovery-setup-modals.js — Tailscale deep-link wiring (VAL-SIGN-003
     // Wire and fire.
     setupModals.initDiscoverySetupGuide();
     const click = addListenerCalls.find(
-      (c) => c.id === "settingsDiscoveryTailscaleBtn" && c.event === "click",
+      (c) => c.id === "settingsDiscoveryOpenSetupBtn" && c.event === "click",
     );
     assert.ok(
       click,
-      "initDiscoverySetupGuide must register a click handler on #settingsDiscoveryTailscaleBtn",
+      "initDiscoverySetupGuide must register a click handler on #settingsDiscoveryOpenSetupBtn",
     );
     click.fn({});
     assert.equal(calls.dispatch.length, 1);
     const opts = calls.dispatch[0];
     assert.equal(opts.entryPoint, "settings");
-    assert.equal(opts.flow, "external_endpoint");
-    assert.equal(opts.startStep, "existing_endpoint");
     assert.equal(opts.allowWhileOnboarding, true);
+    assert.equal(opts.flow, undefined, "the wizard picks the path, not the caller");
+    assert.equal(opts.startStep, undefined);
+    // And no handler is left over for a button that no longer exists.
+    for (const dead of [
+      "settingsDiscoveryTailscaleBtn",
+      "settingsDiscoveryLocalSetupBtn",
+      "settingsDiscoveryRelayBtn",
+      "settingsDiscoveryGuideBtn",
+      "settingsDiscoveryPathsBtn",
+    ]) {
+      assert.equal(
+        addListenerCalls.some((c) => c.id === dead),
+        false,
+        `${dead} must not be wired — it is deleted markup`,
+      );
+    }
   });
 });
 

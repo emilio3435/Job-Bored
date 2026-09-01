@@ -49,10 +49,9 @@ describe("index.html decomposition", () => {
     assert.match(expanded, /id="resumeGenerateModal"/);
     assert.match(expanded, /id="draftNotesModal"/);
     assert.match(expanded, /id="discoveryDrawer"/);
-    assert.match(expanded, /id="discoveryPathsModal"/);
     assert.match(expanded, /id="ingestManualModal"/);
     assert.ok(
-      expanded.split("\n").length > 4500,
+      expanded.split("\n").length > 3500,
       "expanded markup should retain full modal surface area",
     );
   });

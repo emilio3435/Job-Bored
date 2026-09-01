@@ -1791,37 +1791,15 @@ function applyStratumToDrawer(stratum) {
 }
 
 function initDiscoveryButton() {
-  const modal = document.getElementById("discoveryHelpModal");
   const openBtn = document.getElementById("discoveryBtn");
-  const closeBtn = document.getElementById("discoveryHelpClose");
-  const openSettingsBtn = document.getElementById("discoveryHelpOpenSettings");
   if (!openBtn) return;
 
-  function closeHelp(skipFocus) {
-    if (modal) modal.style.display = "none";
-    if (!skipFocus) openBtn.focus();
-  }
-
-
+  // The Run-discovery help dialog this used to close is deleted with the
+  // other four discovery modals (ONE-FLOW-ONBOARDING-SPEC §7) — it had no
+  // opener left, only closers. The button opens the drawer.
   openBtn.addEventListener("click", () => {
     openDiscoveryDrawer();
   });
-
-  if (closeBtn) closeBtn.addEventListener("click", () => closeHelp());
-  if (openSettingsBtn) {
-    openSettingsBtn.addEventListener("click", async () => {
-      closeHelp(true);
-      await h("openSettingsForDiscoveryWebhook", );
-    });
-  }
-  if (modal) {
-    modal.addEventListener("click", (e) => {
-      if (e.target === modal) closeHelp();
-    });
-    document.addEventListener("keydown", (e) => {
-      if (e.key === "Escape" && modal.style.display === "flex") closeHelp();
-    });
-  }
 
   h("syncDiscoveryButtonState", );
 }
