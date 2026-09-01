@@ -309,9 +309,12 @@ describe("job scraper LinkedIn fallback", () => {
   });
 
   it("F1D-INGEST04-HOST omits Careers/Linkedin host placeholders instead of saving them as the employer", async () => {
-    const html = `<!doctype html><html><head><title>Careers | LinkedIn</title></head>
-      <body><main class="job-description"><h1>Open roles</h1>
-      <p>${"Browse openings on this careers host. Apply through LinkedIn when you are ready. ".repeat(10)}</p>
+    const html = `<!doctype html><html><head>
+      <title>Sales Director US</title>
+      <meta property="og:site_name" content="LinkedIn">
+      </head>
+      <body><main class="job-description"><h1>Sales Director US</h1>
+      <p>${"Own enterprise pipeline, run consultative sales cycles, and close agency and advertiser deals across the US market. ".repeat(8)}</p>
       </main></body></html>`;
 
     const result = await scrapeJobPosting(
@@ -329,6 +332,7 @@ describe("job scraper LinkedIn fallback", () => {
     const company = String(result.company || "").trim();
     assert.notEqual(company.toLowerCase(), "careers");
     assert.notEqual(company.toLowerCase(), "linkedin");
+    assert.match(String(result.description || ""), /enterprise pipeline/);
   });
 });
 

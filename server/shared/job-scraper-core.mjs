@@ -6,6 +6,7 @@
 import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
 import { fetchAtsJobPosting } from "./ats-job-fetchers.mjs";
+import { scrapeViaGeminiUrlContext } from "./gemini-url-context-scrape.mjs";
 
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingOptions} ScrapeJobPostingOptions */
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingResult} ScrapeJobPostingResult */
@@ -1049,11 +1050,8 @@ export async function scrapeJobPosting(url, options = {}) {
     }
     html = new TextDecoder("utf-8").decode(buf);
   } catch (error) {
-    const serpFallback = await scrapeViaSerpApiGoogleJobs(target.url, {
-      ...options,
-      fetchImpl,
-    }).catch(() => null);
-    if (serpFallback) return serpFallback;
+    const recovered = await recoverWithLastLanes(target.url, { ...options, fetchImpl });
+    if (recovered) return recovered;
     throw error;
   } finally {
     clearTimeout(t);
@@ -1191,14 +1189,10 @@ export async function scrapeJobPosting(url, options = {}) {
 
   const listingPage = looksLikeCareersListing(title, description);
   if (description.length < 160 || listingPage) {
-    const serpFallback = await scrapeViaSerpApiGoogleJobs(target.url, {
-      ...options,
-      fetchImpl,
-    }).catch(() => null);
-    if (serpFallback) return serpFallback;
-    if (listingPage) {
-      throw new Error("Hosted page is a careers listing, not a job posting");
-    }
+    const recovered = await recoverWithLastLanes(target.url, { ...options, fetchImpl }, {
+      listingPage,
+    });
+    if (recovered) return recovered;
   }
 
   const company = sanitizeInferredEmployer(
@@ -1225,6 +1219,42 @@ export async function scrapeJobPosting(url, options = {}) {
     },
     warnings,
   };
+}
+
+/**
+ * @param {string} url
+ * @param {{ title: string, company?: string, location?: string, description: string, method: string, scraping: Record<string, unknown>, warnings: string[] }} fields
+ */
+/**
+ * SerpApi first, then Gemini URL Context. Used when HTML is blocked,
+ * too short, or a careers listing chrome page.
+ * @param {string} url
+ * @param {ScrapeJobPostingOptions} options
+ * @param {{ listingPage?: boolean }} [flags]
+ */
+async function recoverWithLastLanes(url, options, flags = {}) {
+  const serpFallback = await scrapeViaSerpApiGoogleJobs(url, options).catch(() => null);
+  if (serpFallback) return serpFallback;
+  const geminiHit = await scrapeViaGeminiUrlContext(url, options).catch(() => null);
+  if (geminiHit && String(geminiHit.description || "").trim().length >= 80) {
+    return finalizeTextScrape(url, {
+      title: geminiHit.title || String(options.title || "").trim(),
+      company: String(options.company || "").trim() || geminiHit.company,
+      location: geminiHit.location,
+      description: geminiHit.description,
+      method: "gemini-url-context",
+      scraping: {
+        provider: "gemini-url-context",
+        apiUrl: geminiHit.apiUrl,
+        originalUrl: url,
+      },
+      warnings: [],
+    });
+  }
+  if (flags.listingPage) {
+    throw new Error("Hosted page is a careers listing, not a job posting");
+  }
+  return null;
 }
 
 /**

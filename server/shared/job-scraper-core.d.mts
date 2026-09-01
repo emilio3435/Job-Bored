@@ -1,6 +1,8 @@
 export type ScrapeJobPostingOptions = {
   fetchImpl?: typeof globalThis.fetch;
   serpApiKey?: string;
+  geminiApiKey?: string;
+  geminiModel?: string;
   title?: string;
   company?: string;
 };
