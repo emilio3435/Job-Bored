@@ -190,29 +190,27 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
   });
 });
 
-describe("the substrate lands DARK (locked decision 1)", () => {
-  it("nothing in the boot chain calls maybeStart yet — that is L6's cutover", () => {
-    for (const file of ["app-bootstrap.js", "discovery-status-handoff.js"]) {
-      const source = readRepoFile(file);
-      assert.equal(
-        /maybeStart/.test(source),
-        false,
-        `${file} must not call the flow yet — every intermediate merge keeps the legacy chain running`,
-      );
-      assert.equal(
-        /JobBoredOneFlow/.test(source),
-        false,
-        `${file} must not reference the flow namespace yet`,
-      );
-    }
+describe("the substrate is LIT — and only at the two boot files (L6 cutover)", () => {
+  // Locked decision 1 held the substrate dark through L1-L5 so every
+  // intermediate merge kept the legacy chain running. L6 flipped it: the
+  // two boot files, and only those two, now reach for the flow.
+  it("the boot chain runs the flow's entry decision", () => {
+    assert.ok(
+      readRepoFile("discovery-status-handoff.js").includes("maybeStart"),
+      "the post-access chain must ask the controller (spec §3.3)",
+    );
+    assert.ok(
+      readRepoFile("app-bootstrap.js").includes("JobBoredOneFlowDemoBoard"),
+      "the cold start must open S0 (spec §4)",
+    );
   });
 
-  it("no shipped module outside the flow's own files reaches for JobBoredOneFlow", () => {
+  it("no OTHER shipped module reaches for JobBoredOneFlow", () => {
+    // The legacy surfaces stay on their own wiring until L7 deletes them;
+    // a stray reference here would mean the cutover leaked past boot.
     for (const file of [
       "app.js",
-      "app-bootstrap.js",
       "app-compat.js",
-      "discovery-status-handoff.js",
       "whats-next-banner.js",
       "first-run-wizard.js",
       "onboarding-wizard.js",
@@ -221,7 +219,7 @@ describe("the substrate lands DARK (locked decision 1)", () => {
       assert.equal(
         readRepoFile(file).includes("JobBoredOneFlow"),
         false,
-        `${file} must stay on the legacy chain until L6`,
+        `${file} must stay on the legacy chain until L7`,
       );
     }
   });
