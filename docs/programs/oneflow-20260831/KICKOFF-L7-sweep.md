@@ -18,3 +18,9 @@ Rules: delete only what §7 names; anything ambiguous goes in report §5 instead
 
 ## DoD
 Full floor green (pasted) + the grep table. Report complete; committed locally, never pushed.
+
+## Routed items from L6 (orchestrator, 2026-09-01 — granted edits beyond the deletion table)
+
+8. **Collapse the draft-key alias — canonical is `profileDraft`.** B3 (`oneflow-beat-resume.js` :429, :497) writes `runtime.resumeDraft`; B4 accepts both via an alias chain L6 added. Change B3's writes to `profileDraft`, delete the alias in `oneflow-beat-fit.js`, keep every seam test green.
+9. **Make the shell title show the resolved payoff headline.** `beat.headline` may be a function the controller calls with the beat context (additive change in `onboarding-flow.js` renderBeat); B6 (`oneflow-beat-payoff.js`) registers its resolver so the SHELL title reads "You're live, {actual name}." — today the literal `{firstName}` placeholder is user-visible there while only the celebration overlay resolves it. Red-first probe.
+10. **Extend `showSheetAccessGate`'s ownership guard to live beats** (`sheet-access-setup.js`): the existing `firstRunWizardOwnsSurface()` guard gains the flow-owns-surface check L6 used elsewhere, so a mid-flow token expiry cannot paint the gate over a beat; on flow close, the normal gate behavior resumes unchanged.
