@@ -35,6 +35,21 @@
     }
   }
 
+  /**
+   * The one-flow's beats are the onboarding surface since the L6 cutover
+   * (ONE-FLOW-ONBOARDING-SPEC §3). Same shape as the guard above: while a
+   * beat is on screen, no legacy reveal may paint over it. B1 is the case
+   * that matters — signing in with no sheet yet is the beat's own state.
+   */
+  function oneFlowOwnsSurface() {
+    try {
+      const flow = window.JobBoredOneFlow;
+      return !!(flow && typeof flow.isOpen === "function" && flow.isOpen());
+    } catch (_) {
+      return false;
+    }
+  }
+
   function startupLog(label, detail, level = "info") {
     const logger = window.JobBoredStartupLog;
     if (logger && typeof logger.mark === "function") {
@@ -509,6 +524,12 @@
     if (firstRunWizardOwnsSurface()) {
       startupLog("sheet-access:reveal-starter-setup-deferred", {
         reason: "first-run-wizard-active",
+      });
+      return;
+    }
+    if (oneFlowOwnsSurface()) {
+      startupLog("sheet-access:reveal-starter-setup-deferred", {
+        reason: "oneflow-beat-active",
       });
       return;
     }

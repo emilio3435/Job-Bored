@@ -1278,8 +1278,17 @@
    * behind a Sheet step they can't reach. The auth layer re-invokes this after a
    * successful sign-in (revealSetupScreenAfterAuth), at which point the wizard
    * takes over for Sheet → Provider.
+   *
+   * Since the L6 cutover the one-flow owns onboarding
+   * (ONE-FLOW-ONBOARDING-SPEC §3), so whenever that controller is on the
+   * page this gate declines outright. Boot no longer calls it at all; the
+   * live caller is the post-sign-in reveal, and "signed in with no sheet"
+   * is precisely Beat 1's own state — opening this wizard there would bury
+   * the beat that is mid-way through creating the sheet. The function and
+   * its wiring stay until L7 deletes the wizard.
    */
   async function checkInfraSetupGate() {
+    if (window.JobBoredOneFlow) return false;
     if (!firstRunSignedIn()) return false;
     const UC = typeof host().getUserContent === "function"
       ? host().getUserContent()
