@@ -837,52 +837,24 @@
             <div class="settings-discovery-callout" role="note">
               <strong>Optional:</strong> Pipeline works without a webhook —
               add rows manually or automate elsewhere.
-              <button
-                type="button"
-                class="btn-setup-scraper-link"
-                id="settingsDiscoveryPathsBtn"
-              >
-                Ways to avoid webhooks
-              </button>
             </div>
 
+            <!-- One way in (ONE-FLOW-ONBOARDING-SPEC §7): the five competing
+                 setup paths that used to sit here — setup guide, local worker
+                 + ngrok, Cloudflare relay, stable URL / Tailscale, and "ways
+                 to avoid webhooks" — collapse to the discovery wizard Beat 5
+                 also drives. It presents Tailscale (§11.2) and keeps the
+                 manual URL + secret pair behind its own Advanced section.
+                 Test webhook stays: it is a diagnostic, not a setup path. -->
             <div
               class="settings-discovery-toolbar settings-discovery-toolbar--wrap"
             >
               <button
                 type="button"
                 class="btn-discovery-setup"
-                id="settingsDiscoveryGuideBtn"
+                id="settingsDiscoveryOpenSetupBtn"
               >
-                Setup guide
-              </button>
-              <button
-                type="button"
-                class="btn-discovery-setup btn-discovery-setup--secondary"
-                id="settingsDiscoveryLocalSetupBtn"
-              >
-                Local worker + ngrok
-                <span
-                  class="tunnel-stale-badge"
-                  id="settingsTunnelStaleBadge"
-                  style="display: none"
-                  title="ngrok tunnel URL may have changed"
-                ></span>
-              </button>
-              <button
-                type="button"
-                class="btn-discovery-setup btn-discovery-setup--secondary"
-                id="settingsDiscoveryRelayBtn"
-              >
-                Cloudflare relay
-              </button>
-              <button
-                type="button"
-                class="btn-discovery-setup btn-discovery-setup--secondary"
-                id="settingsDiscoveryTailscaleBtn"
-                title="Guided Tailscale / stable HTTPS endpoint setup (writes URL + secret together)"
-              >
-                Stable URL / Tailscale
+                Open discovery setup
               </button>
               <button
                 type="button"

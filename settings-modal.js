@@ -575,7 +575,6 @@ async function openCommandCenterSettingsModal(opts) {
     const defaultTab = (opts && opts.tab) || TabSchema.DEFAULT_TAB;
     Tabs.initSettingsTabs(modal, { defaultTab: defaultTab });
   }
-  void host().probeTunnelStaleBadge();
   // Hydrate async-sourced fields AFTER the modal is visible: these read the
   // user-content IndexedDB, and a wedged DB (e.g. a "Clear settings" delete
   // blocked by another tab) must never keep the modal from opening.

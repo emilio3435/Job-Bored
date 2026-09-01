@@ -13,7 +13,6 @@ export const PROTECTED_SURFACE_IDS = [
   "resumeGenerateModal",
   "draftNotesModal",
   "discoveryDrawer",
-  "discoveryPathsModal",
   "ingestManualModal",
   "sheetAccessGateScreen",
   "dashboard",

@@ -147,7 +147,15 @@
         if (a === "run_discovery") {
           void h("triggerDiscoveryRun");
         }
-        if (a === "agent" || a === "paths") h("openDiscoveryPathsModal");
+        // "agent" / "paths" used to open the "ways to avoid webhooks" modal,
+        // deleted with the other four (§7). The discovery wizard answers the
+        // same question, so both land there too.
+        if (a === "agent" || a === "paths") {
+          void h("requestDiscoverySetup", {
+            entryPoint: "brief",
+            allowWhileOnboarding: true,
+          });
+        }
       });
   }
 

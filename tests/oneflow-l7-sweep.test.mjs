@@ -498,3 +498,104 @@ describe("§7 · welcome.js keeps its empty state, loses its onboarding", () => 
     );
   });
 });
+
+describe("§7 · the five legacy discovery modals are gone", () => {
+  it("partials/discovery-modals.html is deleted, include and all", () => {
+    gone("partials/discovery-modals.html");
+    assert.equal(/discovery-modals\.html/.test(read("index.html")), false);
+  });
+
+  it("no module opens, closes, or populates any of the five", () => {
+    const dead = [
+      "discoveryPathsModal",
+      "discoverySetupGuideModal",
+      "discoveryLocalTunnelModal",
+      "cloudflareRelaySetupModal",
+      "discoveryHelpModal",
+    ];
+    for (const [file, source] of shippedSources()) {
+      for (const id of dead) {
+        assert.equal(
+          source.includes(id),
+          false,
+          `${file} must not reach for the deleted ${id}`,
+        );
+      }
+    }
+  });
+
+  it("the ngrok + Cloudflare screens left the app for the docs (§11.2)", () => {
+    const source = read("discovery-setup-modals.js");
+    for (const fn of [
+      "renderDiscoveryLocalTunnelSetupUi",
+      "saveDiscoveryLocalTunnelSetup",
+      "populateCloudflareRelaySetupModal",
+      "applyCloudflareRelayWorkerUrl",
+      "probeNgrokFromLocalApi",
+      "probeTunnelStaleBadge",
+    ]) {
+      assert.equal(
+        source.includes(fn),
+        false,
+        `${fn} drove a deleted screen — Tailscale is the only presented path`,
+      );
+    }
+    // The decision it implements is written down where a stranger finds it.
+    assert.match(read("docs/SELF-HOSTING.md"), /ngrok/i);
+  });
+
+  it("what SURVIVES the module is what never was a modal", () => {
+    // spec §7 deletes the five modals and their copy — not the Apps Script
+    // CORS remediation two other modules call, and not Settings' own
+    // Test-webhook action. Deleting those would have broken live surfaces
+    // §7 never names.
+    const source = read("discovery-setup-modals.js");
+    assert.match(source, /async function testDiscoveryWebhookFromSettings\(\)/);
+    assert.match(source, /async function handleAppsScriptBrowserCorsFailure\(/);
+    assert.match(read("discovery-run-orchestration.js"), /handleAppsScriptBrowserCorsFailure/);
+    assert.match(read("discovery-wizard-ui.js"), /handleAppsScriptBrowserCorsFailure/);
+  });
+});
+
+describe("§7 · the drawer's Connection section is one button", () => {
+  const drawer = () => read("partials/discovery-drawer.html");
+
+  it("offers a single `Open discovery setup`, not five competing paths", () => {
+    const html = drawer();
+    assert.match(html, /id="settingsDiscoveryOpenSetupBtn"/);
+    assert.match(html, /Open discovery setup/);
+    for (const id of [
+      "settingsDiscoveryGuideBtn",
+      "settingsDiscoveryLocalSetupBtn",
+      "settingsDiscoveryRelayBtn",
+      "settingsDiscoveryTailscaleBtn",
+      "settingsDiscoveryPathsBtn",
+      "settingsTunnelStaleBadge",
+    ]) {
+      assert.equal(
+        html.includes(id),
+        false,
+        `${id} was one of the five paths §7 collapses`,
+      );
+    }
+  });
+
+  it("Test webhook stays — it is a diagnostic, not a sixth setup path", () => {
+    assert.match(drawer(), /id="settingsDiscoveryTestBtn"/);
+    assert.match(
+      read("discovery-setup-modals.js"),
+      /settingsDiscoveryTestBtn/,
+      "and it is still wired",
+    );
+  });
+
+  it("the one button opens the discovery wizard the beats also use", () => {
+    const source = read("discovery-setup-modals.js");
+    const fnIdx = source.indexOf("function initDiscoverySetupGuide()");
+    assert.notEqual(fnIdx, -1);
+    const body = source.slice(fnIdx, fnIdx + 2000);
+    assert.match(body, /settingsDiscoveryOpenSetupBtn/);
+    assert.match(body, /requestDiscoverySetup/);
+    assert.match(body, /entryPoint: "settings"/);
+  });
+});
