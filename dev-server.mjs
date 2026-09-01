@@ -1094,19 +1094,9 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
 }
 
 // ============================================================================
-// Greenfield-automation swarm — Phase 0 stubs (NOT_IMPLEMENTED)
+// Greenfield-automation endpoints
 // ----------------------------------------------------------------------------
-// These return 501 until the swarm workers fill them in. Frontend must treat
-// 501 as "feature not yet available" and degrade to existing manual flow.
-//
 // Locked contracts (do not widen without orchestrator approval):
-//
-//   POST /__proxy/oauth-bootstrap
-//     Body:    { projectId?: string, applicationName?: string }
-//     Success: { ok:true, clientId:string, clientSecret?:string, source:"gcloud" }
-//     Failure: { ok:false, reason:"gcloud_missing"|"not_logged_in"
-//                       |"api_disabled"|"user_declined"|"internal_error",
-//                actionable:string }
 //
 //   POST /__proxy/install-doctor
 //     Body:    {}
@@ -1131,51 +1121,6 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
 //     Success: { installed:boolean, lastRunAt?:string,
 //                lastNgrokUrl?:string, jobLabel?:string }
 // ============================================================================
-
-// Owner: Backend Worker A
-async function handleOAuthBootstrap(req, res) {
-  const corsHeaders = jsonCorsHeaders(req);
-  if (!isLocalOrigin(req)) {
-    res.writeHead(403, corsHeaders);
-    res.end(JSON.stringify({ ok: false, reason: "forbidden", actionable: "Localhost only." }));
-    return;
-  }
-  try {
-    const rawBody = await new Promise((resolve) => {
-      let body = "";
-      req.setEncoding("utf8");
-      req.on("data", (chunk) => {
-        body += chunk;
-      });
-      req.on("end", () => resolve(body));
-      req.on("error", () => resolve(""));
-    });
-    let payload = {};
-    try {
-      const parsed = rawBody ? JSON.parse(rawBody) : {};
-      payload = parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : {};
-    } catch {
-      payload = {};
-    }
-    const { runOAuthBootstrap } = await import("./scripts/oauth-bootstrap.mjs");
-    const result = runOAuthBootstrap({
-      projectId: typeof payload.projectId === "string" ? payload.projectId : "",
-      applicationName:
-        typeof payload.applicationName === "string" ? payload.applicationName : "",
-    });
-    res.writeHead(200, corsHeaders);
-    res.end(JSON.stringify(result));
-  } catch {
-    res.writeHead(500, corsHeaders);
-    res.end(
-      JSON.stringify({
-        ok: false,
-        reason: "internal_error",
-        actionable: "OAuth bootstrap failed. Check the terminal and try again.",
-      }),
-    );
-  }
-}
 
 // Owner: Backend Worker A
 async function handleInstallDoctor(req, res) {
@@ -2134,21 +2079,10 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       return;
     }
 
-    // === Greenfield-automation swarm seams (Phase 0 stubs) ===
-    // Worker A owns: handleOAuthBootstrap, handleInstallDoctor
+    // === Greenfield-automation endpoints ===
+    // Worker A owns: handleInstallDoctor
     // Worker B owns: handleInstallKeepAlive, handleUninstallKeepAlive,
     //               handleKeepAliveStatus
-    if (req.method === "POST" && pathname === "/__proxy/oauth-bootstrap") {
-      handleOAuthBootstrap(req, res).catch((err) => {
-        logError("  OAuth-bootstrap error:", err);
-        if (!res.headersSent) {
-          res.writeHead(500, jsonCorsHeaders(req));
-          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
-        }
-      });
-      return;
-    }
-
     if (req.method === "POST" && pathname === "/__proxy/install-doctor") {
       handleInstallDoctor(req, res).catch((err) => {
         logError("  Install-doctor error:", err);

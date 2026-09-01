@@ -289,8 +289,8 @@ describe("SetupDoctor.handleFailure", () => {
   });
 });
 
-describe("SetupDoctor gcloud_can_create_oauth", () => {
-  it("detects when gcloud is ready and no Client ID is configured", async () => {
+describe("SetupDoctor OAuth bootstrap removal", () => {
+  it("does not offer gcloud auto-create when no Web OAuth client can be minted", async () => {
     const { api } = loadDoctor({
       getOAuthClientId: () => "",
       installDoctorState: {
@@ -306,81 +306,7 @@ describe("SetupDoctor gcloud_can_create_oauth", () => {
     });
     const report = await api.diagnose({});
     const ids = report.issues.map((i) => i.id);
-    assert.ok(ids.includes("gcloud_can_create_oauth"));
-  });
-
-  it("does not fire when a Client ID is already set", async () => {
-    const { api } = loadDoctor({
-      getOAuthClientId: () => "abc.apps.googleusercontent.com",
-      installDoctorState: {
-        ok: true,
-        tools: {
-          gcloud: { installed: true, loggedIn: true },
-          wrangler: { installed: true, loggedIn: true },
-          ngrok: { installed: true, hasAuthToken: true },
-          node: { version: "v20", ok: true },
-        },
-        missing: [],
-      },
-    });
-    const report = await api.diagnose({});
-    const ids = report.issues.map((i) => i.id);
     assert.equal(ids.includes("gcloud_can_create_oauth"), false);
-  });
-
-  it("auto-fix calls oauth-bootstrap and applies the returned client id", async () => {
-    let appliedId = null;
-    const seen = [];
-    const { api } = loadDoctor({
-      getOAuthClientId: () => "",
-      installDoctorState: {
-        tools: { gcloud: { installed: true, loggedIn: true } },
-      },
-      applyOAuthClientChange: (id) => {
-        appliedId = id;
-        return true;
-      },
-      fetch: async (url, init) => {
-        seen.push({ url, init });
-        return {
-          ok: true,
-          status: 200,
-          async json() {
-            return {
-              ok: true,
-              clientId: "new123.apps.googleusercontent.com",
-              source: "gcloud",
-            };
-          },
-        };
-      },
-    });
-    const out = await api.autoHeal({});
-    assert.equal(out.fixed.length, 1);
-    assert.equal(out.fixed[0].id, "gcloud_can_create_oauth");
-    assert.equal(seen[0].url, "/__proxy/oauth-bootstrap");
-    assert.equal(seen[0].init.method, "POST");
-    assert.equal(appliedId, "new123.apps.googleusercontent.com");
-  });
-
-  it("returns ok:false when oauth-bootstrap is 501 (Phase 1 stub)", async () => {
-    const { api } = loadDoctor({
-      getOAuthClientId: () => "",
-      installDoctorState: {
-        tools: { gcloud: { installed: true, loggedIn: true } },
-      },
-      fetch: async () => ({
-        ok: false,
-        status: 501,
-        async json() {
-          return { ok: false, reason: "not_implemented" };
-        },
-      }),
-    });
-    const out = await api.autoHeal({});
-    assert.equal(out.fixed.length, 0);
-    assert.ok(out.stoppedForUser);
-    assert.equal(out.stoppedForUser.id, "gcloud_can_create_oauth");
   });
 });
 
