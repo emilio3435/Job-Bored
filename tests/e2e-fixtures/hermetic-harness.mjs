@@ -14,6 +14,10 @@
 import { readFileSync } from "node:fs";
 import { join, resolve } from "node:path";
 import { startDevServer } from "../../dev-server.mjs";
+import {
+  readScrapeTargetUrl,
+  resolveScrapeJobFixture,
+} from "./scrape-job-fixtures.mjs";
 
 export const REPO_ROOT = resolve(import.meta.dirname, "..", "..");
 
@@ -378,6 +382,31 @@ export async function installHermeticNetworkFence(page, options = {}) {
         return;
       }
       await fulfillJson(route, { ok: true, status: "ok", mode: "hermetic" });
+      return;
+    }
+
+    // SCRAPE-E2E-1: the drawer's scraper base and the materials API share one
+    // origin, so this explicit branch MUST precede the materials block — the
+    // catch-all at its end used to answer a scrape with `{ok:true}`, which the
+    // drawer rendered as a false "Scraped: Untitled" success. Bodies come from
+    // the production scraper module; an unstaged target is a fence violation,
+    // never a silently invented answer.
+    if (url.pathname === "/api/scrape-job") {
+      if (method !== "POST") {
+        unexpectedExternal.push(`${method} ${url.toString()}`);
+        await route.abort("blockedbyclient");
+        return;
+      }
+      const target = readScrapeTargetUrl(request.postData());
+      const fixture = await resolveScrapeJobFixture(target);
+      if (!fixture) {
+        unexpectedExternal.push(
+          `${method} ${url.toString()} (no scrape fixture for ${target || "a body without { url }"})`,
+        );
+        await route.abort("blockedbyclient");
+        return;
+      }
+      await fulfillJson(route, fixture.body, fixture.status);
       return;
     }
 

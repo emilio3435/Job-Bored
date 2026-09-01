@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>Platform Engineer at Acme</title>
+    <!--
+      SCRAPE-E2E-1 fixture: a deterministic JSON-LD job posting.
+
+      This file is never served to the browser. It is fed to the PRODUCTION
+      scraper (`scrapeJobPosting` in server/shared/job-scraper-core.mjs) through
+      a stub `fetchImpl`, so the hermetic success body is whatever production
+      really extracts from this markup — never a hand-typed response.
+    -->
+    <script type="application/ld+json">
+      {
+        "@context": "https://schema.org",
+        "@type": "JobPosting",
+        "title": "Platform Engineer",
+        "hiringOrganization": { "@type": "Organization", "name": "Acme" },
+        "jobLocation": {
+          "@type": "Place",
+          "address": { "@type": "PostalAddress", "addressLocality": "Remote" }
+        },
+        "description": "<p>Acme is hiring a Platform Engineer to own our deployment substrate. Responsibilities include running the build pipeline, owning service reliability, and mentoring engineers across the platform group. You will design and operate Node.js services, shape our developer tooling, and carry the on-call pager for the platform tier.</p><ul><li>Five years of backend experience</li><li>Deep Node.js and distributed systems background</li><li>Comfortable owning production reliability</li><li>Experience mentoring other engineers</li></ul>"
+      }
+    </script>
+  </head>
+  <body>
+    <main><h1>Platform Engineer</h1></main>
+  </body>
+</html>
