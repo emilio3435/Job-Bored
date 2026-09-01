@@ -349,7 +349,7 @@ function templateAndSaveFetch({ saveResponse, saveThrows } = {}) {
 }
 
 async function seedEngineerDraft(env) {
-  env.fireHashChange("#/onboarding/fit-profile");
+  await env.window.openFitProfileWizard({ mode: "create" });
   const card = findTemplateCard(env.root(), "Engineer");
   assert.ok(card, "Engineer template card must render on step 1");
   card._fire("click");
@@ -696,8 +696,9 @@ describe("fit-profile-wizard — hash deep-link opens/closes the wizard", () => 
     assert.equal(env.root(), null);
   });
 
-  it("#/onboarding/fit-profile present at page load opens the wizard immediately (shared links must land inside onboarding)", () => {
+  it("#/onboarding/fit-profile present at page load opens after checking for a saved profile", async () => {
     const env = loadWizard({ hash: "#/onboarding/fit-profile" });
+    await flush();
     const root = env.root();
     assert.ok(root, "wizard root must exist");
     assert.equal(root.dataset.active, "true");
@@ -705,9 +706,10 @@ describe("fit-profile-wizard — hash deep-link opens/closes the wizard", () => 
     assert.equal(activeStep(root), 1, "deep link always starts at step 1");
   });
 
-  it("a hashchange to the deep link opens the wizard without a reload; navigating away closes it and restores scroll", () => {
+  it("a hashchange to the deep link opens the wizard without a reload; navigating away closes it and restores scroll", async () => {
     const env = loadWizard();
     env.fireHashChange("#/onboarding/fit-profile");
+    await flush();
     assert.equal(env.root().dataset.active, "true");
     env.fireHashChange("#/jobs");
     assert.equal(env.root().dataset.active, "false");
@@ -720,13 +722,14 @@ describe("fit-profile-wizard — hash deep-link opens/closes the wizard", () => 
     assert.equal(env.root(), null);
   });
 
-  it("a deep link hit while the DOM is still loading waits for DOMContentLoaded instead of touching a half-built page", () => {
+  it("a deep link hit while the DOM is still loading waits for DOMContentLoaded and the saved-profile lookup", async () => {
     const env = loadWizard({
       hash: "#/onboarding/fit-profile",
       readyState: "loading",
     });
     assert.equal(env.root(), null, "must not render before the DOM is ready");
     env.document._fire("DOMContentLoaded");
+    await flush();
     assert.equal(env.root().dataset.active, "true");
   });
 });
@@ -737,7 +740,8 @@ describe("fit-profile-wizard — hash deep-link opens/closes the wizard", () => 
 
 describe("fit-profile-wizard — step navigation (Continue/Back/Save choreography)", () => {
   it("Continue walks 1→7 and the final step swaps Continue for Save — the POST is the only way forward from Review", () => {
-    const env = loadWizard({ hash: "#/onboarding/fit-profile" });
+    const env = loadWizard();
+    env.window.openFitProfileWizard({ mode: "create" });
     const root = env.root();
     const { nextBtn, saveBtn } = shellControls(root);
     assert.equal(activeStep(root), 1);
@@ -751,7 +755,8 @@ describe("fit-profile-wizard — step navigation (Continue/Back/Save choreograph
   });
 
   it("Back is disabled on step 1 so users can't walk before the start, and re-disables on returning", () => {
-    const env = loadWizard({ hash: "#/onboarding/fit-profile" });
+    const env = loadWizard();
+    env.window.openFitProfileWizard({ mode: "create" });
     const root = env.root();
     const { nextBtn, backBtn } = shellControls(root);
     assert.equal(backBtn.disabled, true);
@@ -763,7 +768,8 @@ describe("fit-profile-wizard — step navigation (Continue/Back/Save choreograph
   });
 
   it("steps are clamped: triggering Continue on Review programmatically must not step past the last panel", () => {
-    const env = loadWizard({ hash: "#/onboarding/fit-profile" });
+    const env = loadWizard();
+    env.window.openFitProfileWizard({ mode: "create" });
     const root = env.root();
     const { nextBtn } = shellControls(root);
     walkToReview(root);
@@ -773,7 +779,8 @@ describe("fit-profile-wizard — step navigation (Continue/Back/Save choreograph
   });
 
   it("progress reaches 100% exactly on Review so the bar never lies about completion", () => {
-    const env = loadWizard({ hash: "#/onboarding/fit-profile" });
+    const env = loadWizard();
+    env.window.openFitProfileWizard({ mode: "create" });
     const root = env.root();
     const fill = findAll(root, (n) => hasClass(n, "fp-wizard__progress-fill"))[0];
     const atStart = fill.style.width;
@@ -815,7 +822,7 @@ describe("fit-profile-wizard — template picker seeds the draft from the server
 
   it("'Start blank' resets the draft locally — no template fetch — and the payload records starterTemplate 'custom'", async () => {
     const env = loadWizard({ fetchImpl: templateAndSaveFetch() });
-    env.fireHashChange("#/onboarding/fit-profile");
+    env.window.openFitProfileWizard({ mode: "create" });
     findTemplateCard(env.root(), "Start blank")._fire("click");
     await flush();
     assert.ok(
@@ -834,7 +841,7 @@ describe("fit-profile-wizard — template picker seeds the draft from the server
         json: async () => ({ ok: false, reason: "template_store_broken" }),
       }),
     });
-    env.fireHashChange("#/onboarding/fit-profile");
+    env.window.openFitProfileWizard({ mode: "create" });
     findTemplateCard(env.root(), "Engineer")._fire("click");
     await flush();
     assert.match(visibleErrorText(env.root()), /template_store_broken/);
@@ -874,7 +881,7 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
         }),
       }),
     });
-    env.fireHashChange("#/onboarding/fit-profile");
+    env.window.openFitProfileWizard({ mode: "create" });
     clickResumeCard(env);
     await flush();
     assert.equal(
@@ -896,7 +903,7 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
         json: async () => ({ ok: false, reason: "no_resume_stored" }),
       }),
     });
-    env.fireHashChange("#/onboarding/fit-profile");
+    env.window.openFitProfileWizard({ mode: "create" });
     clickResumeCard(env);
     await flush();
     const card = findAll(env.root(), (n) =>
@@ -923,7 +930,7 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
         }),
       }),
     });
-    env.fireHashChange("#/onboarding/fit-profile");
+    env.window.openFitProfileWizard({ mode: "create" });
     clickResumeCard(env);
     await flush();
     const card = findAll(env.root(), (n) =>
@@ -960,7 +967,7 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
         }),
       }),
     });
-    env.fireHashChange("#/onboarding/fit-profile");
+    env.window.openFitProfileWizard({ mode: "create" });
     clickResumeCard(env);
     await flush();
     const call = env.fetchCalls.find((c) =>
@@ -1055,6 +1062,51 @@ describe("F2B-PROFILE01-EDIT — Open full wizard on a saved profile is edit-in-
       "create mode must still offer templates",
     );
   });
+
+  it("ONEFLOW-L2-FETCH-ON-OPEN: default open then save with no edits preserves the stored profile", async () => {
+    const stored = {
+      ...SAVED_PROFILE_WITH_TIE_BREAKERS,
+      avoids: ["quota sales"],
+      hardConstraints: {
+        workMode: "remote_only",
+        workAuth: "any",
+        salaryFloor: null,
+      },
+    };
+    const env = loadWizard({
+      fetchImpl: async (url, opts = {}) => {
+        const method = (opts && opts.method) || "GET";
+        if (String(url).endsWith("/profile") && method === "GET") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, profile: stored }),
+          };
+        }
+        if (String(url).endsWith("/profile") && method === "POST") {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, updatedAt: "2026-08-31T00:00:00Z" }),
+          };
+        }
+        return { ok: false, status: 404, json: async () => null };
+      },
+    });
+
+    await env.window.openFitProfileWizard();
+    const root = env.root();
+    assert.equal(root.dataset.mode, "edit");
+    walkToReview(root);
+    shellControls(root).saveBtn._fire("click");
+    await flush();
+
+    const post = env.fetchCalls.find(
+      (call) => call.method === "POST" && call.url === "/profile",
+    );
+    assert.ok(post, "saving the reopened profile must POST once");
+    assert.deepEqual(JSON.parse(post.body), stored);
+  });
 });
 
 // ============================================================
@@ -1064,7 +1116,7 @@ describe("F2B-PROFILE01-EDIT — Open full wizard on a saved profile is edit-in-
 describe("fit-profile-wizard — submit: client gate, persistence side effects, honest failure paths", () => {
   it("an invalid draft never reaches the server — Save shows the warnings and performs zero POSTs", async () => {
     const env = loadWizard({ fetchImpl: templateAndSaveFetch() });
-    env.fireHashChange("#/onboarding/fit-profile");
+    env.window.openFitProfileWizard({ mode: "create" });
     const root = env.root();
     walkToReview(root);
     shellControls(root).saveBtn._fire("click");
@@ -1246,6 +1298,50 @@ describe("fit-profile-wizard — form builders mutate shared state in place and 
     findAll(hybridLabel, (n) => n.tagName === "input")[0]._fire("change");
     assert.equal(state.hardConstraints.workMode, "hybrid_ok");
     assert.equal(locationField.style.display, "");
+  });
+
+  it("ONEFLOW-L2-FIT-DETAILS: Any and Remote only hide locations; the hint names only Hybrid OK and Onsite OK", () => {
+    const env = loadWizard();
+    const state = env.form.emptyProfile();
+    const box = env.form.renderHardConstraints(state, () => {});
+    const locationField = findAll(box, (n) =>
+      findAll(n, (c) => c.textContent === "Acceptable locations").length > 0,
+    )
+      .filter((n) => hasClass(n, "fp-field"))
+      .pop();
+    assert.equal(locationField.style.display, "none", "Any must hide locations");
+    const locationHint = findAll(
+      locationField,
+      (n) => hasClass(n, "fp-field__hint"),
+    )[0];
+    assert.match(
+      locationHint.textContent,
+      /Used only when Hybrid OK or Onsite OK is selected\. Any and Remote only ignore this\./,
+    );
+  });
+
+  it("ONEFLOW-L2-FIT-SENIORITY: the select renders human labels while preserving enum values", () => {
+    const env = loadWizard();
+    const state = env.form.emptyProfile();
+    const box = env.form.renderIdentityForm(state, () => {});
+    const options = findAll(box, (n) => n.tagName === "option");
+    assert.deepEqual(
+      options.map((option) => [option.value, option.textContent]),
+      [
+        ["intern", "Intern"],
+        ["entry", "Entry"],
+        ["ic_mid", "Mid"],
+        ["ic_senior", "Senior"],
+        ["ic_staff", "Staff"],
+        ["ic_principal", "Principal"],
+        ["manager", "Manager"],
+        ["director", "Director"],
+        ["head", "Head"],
+        ["vp", "VP"],
+        ["c_level", "C-level"],
+        ["any", "Any"],
+      ],
+    );
   });
 
   it("the strengths move handle reorders state so payload rank weights follow the new order", () => {
