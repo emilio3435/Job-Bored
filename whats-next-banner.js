@@ -191,7 +191,11 @@
     // observable flag, NOT a completion gate. The skip is set only via the
     // confirm-gated onboarding escape; the discovery row keeps nudging
     // (discoveryComplete alone controls the CTA), so skip != complete.
-    const outWithSkip = { ...out, discoverySetupSkipped: false };
+    const outWithSkip = {
+      ...out,
+      discoverySetupSkipped: false,
+      goLiveSetupSkipped: false,
+    };
     try {
       outWithSkip.discoverySetupSkipped = !!(
         typeof UC.isDiscoverySetupSkipped === "function"
@@ -200,6 +204,20 @@
       );
     } catch (_) {
       outWithSkip.discoverySetupSkipped = false;
+    }
+    // The other-devices skip is a DIFFERENT fact from the discovery skip
+    // above. Discovery is mandatory, so its skip stays observable and the
+    // row keeps nudging. "I only use JobBored on this computer" is a real
+    // answer to an optional question, so it settles the go-live row for
+    // good (ONE-FLOW-ONBOARDING-SPEC §6).
+    try {
+      outWithSkip.goLiveSetupSkipped = !!(
+        typeof UC.isGoLiveSetupSkipped === "function"
+          ? await UC.isGoLiveSetupSkipped()
+          : false
+      );
+    } catch (_) {
+      outWithSkip.goLiveSetupSkipped = false;
     }
     return outWithSkip;
   }
@@ -216,9 +234,13 @@
     ) {
       return false;
     }
-    // Hide entirely when both tracks are complete — finishing either order
-    // leaves the other still surfaced until it's done too.
-    if (state.discoveryComplete === true && state.goLiveComplete === true) {
+    // Hide entirely when both tracks are settled — finishing either order
+    // leaves the other still surfaced until it's done too. "Settled" for
+    // other devices includes the single-device answer (spec §6); for
+    // discovery it means complete, and only complete.
+    const goLiveSettled =
+      state.goLiveComplete === true || state.goLiveSetupSkipped === true;
+    if (state.discoveryComplete === true && goLiveSettled) {
       return false;
     }
     return true;
@@ -235,7 +257,12 @@
     const discoveryBtn = getEl("whatsNextOpenDiscovery");
     const selfHostingBtn = getEl("whatsNextOpenSelfHosting");
     const discoveryDone = !!(state && state.discoveryComplete);
-    const goLiveDone = !!(state && state.goLiveComplete);
+    // Settled, not necessarily done: a single-device user has answered the
+    // other-devices question, so the row stops asking (spec §6).
+    const goLiveDone = !!(
+      state &&
+      (state.goLiveComplete || state.goLiveSetupSkipped)
+    );
 
     if (discoveryBtn) {
       if (discoveryDone) {

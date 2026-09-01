@@ -1,0 +1,87 @@
+{
+  "$schema": "oneflow-demo-pipeline/1",
+  "version": 1,
+  "note": "Bundled demo data for screen S0 (ONE-FLOW-ONBOARDING-SPEC §4, locked decision 11.4). Deterministic and curated on purpose — no AI call at cold start, no real personal data. Companies are well-known employers used illustratively; every role, score, and reason is invented for the demo.",
+  "rows": [
+    {
+      "jobKey": "demo-1",
+      "company": "Figma",
+      "role": "Senior Product Designer, Design Systems",
+      "location": "Remote — US",
+      "stage": "new",
+      "postedAgo": "2 days ago",
+      "fitScore": 94,
+      "whyItFits": "Design-systems ownership is the exact work in your top strength, at the scale you asked for."
+    },
+    {
+      "jobKey": "demo-2",
+      "company": "Linear",
+      "role": "Product Engineer, Growth",
+      "location": "Remote — Americas",
+      "stage": "new",
+      "postedAgo": "Yesterday",
+      "fitScore": 88,
+      "whyItFits": "Small team, product-led, and the salary band clears the floor you set."
+    },
+    {
+      "jobKey": "demo-3",
+      "company": "Stripe",
+      "role": "Staff Software Engineer, Payments Platform",
+      "location": "Seattle, WA · Hybrid",
+      "stage": "researching",
+      "postedAgo": "4 days ago",
+      "fitScore": 81,
+      "whyItFits": "Platform depth matches your last two roles; hybrid is the one compromise."
+    },
+    {
+      "jobKey": "demo-4",
+      "company": "Notion",
+      "role": "Engineering Manager, Collaboration",
+      "location": "Remote — US",
+      "stage": "applied",
+      "postedAgo": "1 week ago",
+      "fitScore": 86,
+      "whyItFits": "You've run a team this size before, and they want a builder-manager, not a pure people lead."
+    },
+    {
+      "jobKey": "demo-5",
+      "company": "Anthropic",
+      "role": "Technical Program Manager, Model Deployment",
+      "location": "San Francisco, CA",
+      "stage": "applied",
+      "postedAgo": "1 week ago",
+      "fitScore": 73,
+      "whyItFits": "Strong on the program-management side; the on-site requirement is the gap."
+    },
+    {
+      "jobKey": "demo-6",
+      "company": "Vercel",
+      "role": "Developer Experience Engineer",
+      "location": "Remote — Global",
+      "stage": "phone-screen",
+      "postedAgo": "2 weeks ago",
+      "fitScore": 90,
+      "whyItFits": "Docs, DX tooling, and open source — three of your listed wants in one role."
+    },
+    {
+      "jobKey": "demo-7",
+      "company": "Duolingo",
+      "role": "Senior Data Scientist, Learning",
+      "location": "Pittsburgh, PA · Hybrid",
+      "stage": "interviewing",
+      "postedAgo": "3 weeks ago",
+      "fitScore": 79,
+      "whyItFits": "Experimentation-heavy and mission-aligned; relocation is the open question."
+    },
+    {
+      "jobKey": "demo-8",
+      "company": "Shopify",
+      "role": "Lead Product Manager, Merchant Tools",
+      "location": "Remote — North America",
+      "stage": "offer",
+      "postedAgo": "1 month ago",
+      "fitScore": 92,
+      "whyItFits": "Merchant tooling is your strongest narrative, and the level is the step up you asked for."
+    }
+  ]
+}
