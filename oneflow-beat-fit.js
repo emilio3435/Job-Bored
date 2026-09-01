@@ -745,6 +745,10 @@
         postFitProfile(payload),
       ]);
       ctx.clearBusy();
+      // B6's "Your search" card prefers the profile the flow just saved
+      // over a second GET /profile (spec §5 B6): leave it on the runtime
+      // so the payoff renders from what the user literally just confirmed.
+      if (ctx.runtime) ctx.runtime.fitProfile = payload;
       await ctx.completeBeat({
         edited: JSON.stringify(payload) !== record.originalPayload,
       });

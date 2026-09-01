@@ -166,6 +166,21 @@
     return cloneState(state);
   }
 
+  /**
+   * Seed the cross-beat scratch before the flow opens.
+   *
+   * The §3.3 migration is the only caller: a legacy profile routed
+   * straight to B4 never ran B3, so there is no drafted profile on the
+   * runtime for B4 to confirm — boot hands it the draft it derived from
+   * the legacy discovery profile instead. Runtime scratch is in-memory
+   * by contract, so this deliberately does NOT touch the persisted flow
+   * state (which normalizes unknown keys away anyway).
+   */
+  function seedRuntime(partial) {
+    if (partial && typeof partial === "object") Object.assign(runtime, partial);
+    return runtime;
+  }
+
   async function hydrate() {
     if (hydrated) return state;
     const s = store();
@@ -462,6 +477,7 @@
     getRegisteredBeats,
     getBeat,
     getState,
+    seedRuntime,
     maybeStart,
     open,
     goToBeat,
