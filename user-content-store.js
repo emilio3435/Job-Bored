@@ -947,6 +947,21 @@
     await setSetting("discoverySetupComplete", false);
   }
 
+  /**
+   * "I only use JobBored on this computer" — the honest answer the
+   * other-devices track never had (ONE-FLOW-ONBOARDING-SPEC §6). Unlike
+   * {@link isDiscoverySetupSkipped}, which stays a nudge because
+   * discovery is mandatory, this one is a real answer and permanently
+   * quiets the what's-next banner's go-live row.
+   */
+  async function isGoLiveSetupSkipped() {
+    return !!(await getSetting("goLiveSetupSkipped"));
+  }
+
+  async function setGoLiveSetupSkipped() {
+    await setSetting("goLiveSetupSkipped", true);
+  }
+
   async function isDiscoverySetupSkipped() {
     return !!(await getSetting("discoverySetupSkipped"));
   }
@@ -1321,6 +1336,8 @@
     isGoLiveSetupComplete,
     completeGoLiveSetup,
     resetGoLiveSetupCompletion,
+    isGoLiveSetupSkipped,
+    setGoLiveSetupSkipped,
     isDiscoverySetupComplete,
     completeDiscoverySetup,
     resetDiscoverySetupCompletion,

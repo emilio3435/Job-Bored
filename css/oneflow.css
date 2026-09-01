@@ -577,3 +577,36 @@
   line-height: 1.5;
   color: var(--jb-ink-3, var(--text-faint));
 }
+
+/* ---------- Go-live: the single-device answer (spec §6) ----------
+   A real third choice, not fine print. It sits under the two path cards
+   with the weight of an answer rather than a dismissal, because that is
+   what it is: the user is telling us the question doesn't apply. */
+
+.go-live-wizard__single-device {
+  display: block;
+  width: 100%;
+  margin-top: var(--space-3);
+  padding: 12px var(--space-4);
+  border: 1px dashed var(--jb-line, var(--border));
+  border-radius: 12px;
+  background: transparent;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-navy, var(--text));
+  text-align: left;
+  cursor: pointer;
+}
+
+.go-live-wizard__single-device:hover,
+.go-live-wizard__single-device:focus-visible {
+  border-style: solid;
+  border-color: var(--jb-mint, var(--accent));
+}
+
+.go-live-wizard__single-device-hint {
+  margin: 6px 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--jb-ink-3, var(--text-faint));
+}
