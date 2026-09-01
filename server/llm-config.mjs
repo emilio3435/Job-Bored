@@ -237,3 +237,36 @@ export async function resolveActivePin(config, options) {
     resolvedModel,
   };
 }
+
+/**
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export async function handleGetLlmConfig(req, res, env = process.env) {
+  const loaded = loadLlmConfig(env);
+  if (!loaded) {
+    res.status(404).json({ error: "No LLM pin configured.", code: "llm_unconfigured" });
+    return;
+  }
+  res.json(redactLlmConfig(loaded));
+}
+
+/**
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export async function handlePostLlmConfig(req, res, env = process.env) {
+  const body = req.body || {};
+  const provider = String(body.provider || "").trim();
+  const model = String(body.model || "").trim();
+  const apiKey = String(body.apiKey || "").trim();
+  const baseUrl = String(body.baseUrl || "").trim();
+  if (!provider || !model) {
+    res.status(400).json({ error: "provider and model are required.", code: "llm_invalid" });
+    return;
+  }
+  const saved = await writeLlmConfig({ provider, model, apiKey, baseUrl }, env);
+  res.json(redactLlmConfig(saved));
+}

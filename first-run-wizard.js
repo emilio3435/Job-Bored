@@ -395,6 +395,7 @@
       cap: "OpenRouter",
       keyField: "resumeOpenRouterApiKey",
       modelField: "resumeOpenRouterModel",
+      baseUrlField: "resumeOpenRouterBaseUrl",
     },
     gemini: {
       cap: "Gemini",
@@ -429,6 +430,91 @@
   }
   function __setCatalog(catalog) {
     firstRunCatalogOverride = catalog || null;
+  }
+
+  const WEAK_MATERIALS_MODEL_WARNING =
+    "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
+
+  function resolveJobBoredApiUrl() {
+    const cfg =
+      (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+    const raw = String(cfg.jobBoredApiUrl || "").trim();
+    if (raw) return raw.replace(/\/+$/, "");
+    return "http://localhost:3847";
+  }
+
+  function firstRunPinFields(provider) {
+    const p = normalizeFirstRunProvider(provider) || firstRunSelectedProvider();
+    const def = FIRST_RUN_PROVIDERS[p];
+    if (!def || p === "webhook") return null;
+    const cfg = getResumeConfig() || {};
+    const live =
+      (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+    const sel = getEl(`firstRun${def.cap}ModelSelect`);
+    const model = String(
+      (sel && sel.value) ||
+        live[def.modelField] ||
+        cfg[def.modelField] ||
+        "",
+    ).trim();
+    const apiKey = String(
+      live[def.keyField] || cfg[def.keyField] || "",
+    ).trim();
+    const baseUrl = def.baseUrlField
+      ? String(live[def.baseUrlField] || cfg[def.baseUrlField] || "").trim()
+      : "";
+    return { provider: p, model, apiKey, baseUrl };
+  }
+
+  async function postFirstRunLlmConfigPin(provider) {
+    const pin = firstRunPinFields(provider);
+    if (!pin || !pin.provider || !pin.model) return;
+    if (typeof fetch !== "function") return;
+    const jobBoredApiUrl = resolveJobBoredApiUrl();
+    try {
+      await fetch(jobBoredApiUrl + "/api/llm-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pin),
+      });
+    } catch (_) {
+      /* local API may be down during first-run */
+    }
+  }
+
+  function updateFirstRunWeakModelWarning(provider) {
+    const catalog = getModelCatalog();
+    const pin = firstRunPinFields(provider);
+    const model = pin && pin.model ? pin.model : "";
+    const isWeak =
+      catalog && typeof catalog.isWeakMaterialsModel === "function"
+        ? catalog.isWeakMaterialsModel(model)
+        : false;
+    let el = getEl("firstRunWeakModelWarning");
+    if (!el && typeof document !== "undefined" && document.createElement) {
+      el = document.createElement("p");
+      el.id = "firstRunWeakModelWarning";
+      el.className = "first-run-status first-run-status--error";
+      el.setAttribute("role", "status");
+      const nextBtn = getEl("firstRunProviderNext");
+      const parent = nextBtn && nextBtn.parentNode;
+      if (parent && typeof parent.insertBefore === "function") {
+        parent.insertBefore(el, nextBtn);
+      } else {
+        const panel = getEl("firstRunPanelProvider");
+        if (panel && typeof panel.appendChild === "function") {
+          panel.appendChild(el);
+        }
+      }
+    }
+    if (!el) return;
+    if (isWeak) {
+      el.hidden = false;
+      el.textContent = WEAK_MATERIALS_MODEL_WARNING;
+    } else {
+      el.hidden = true;
+      el.textContent = "";
+    }
   }
 
   function normalizeFirstRunProvider(value) {
@@ -483,6 +569,7 @@
     updateFirstRunProviderPanels(p);
     refreshFirstRunWizard();
     void firstRunRefreshModelsFor(p);
+    updateFirstRunWeakModelWarning(p);
   }
 
   /**
@@ -524,6 +611,8 @@
       console.warn(`[JobBored] save ${p} key failed:`, err);
       return { ok: false, reason: "storage" };
     }
+    void postFirstRunLlmConfigPin(p);
+    updateFirstRunWeakModelWarning(p);
     return { ok: true };
   }
 
@@ -651,6 +740,8 @@
     if (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) {
       window.COMMAND_CENTER_CONFIG.resumeOpenRouterApiKey = key;
     }
+    void postFirstRunLlmConfigPin("openrouter");
+    updateFirstRunWeakModelWarning("openrouter");
     return { ok: true };
   }
 
@@ -668,6 +759,8 @@
     if (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) {
       window.COMMAND_CENTER_CONFIG.resumeLocalModel = m;
     }
+    void postFirstRunLlmConfigPin("local");
+    updateFirstRunWeakModelWarning("local");
   }
 
   function populateFirstRunLocalModelSelect(cfg) {
@@ -727,6 +820,7 @@
     populateFirstRunLocalModelSelect(cfg);
     mountFirstRunDownloadControl();
     updateFirstRunProviderPanels(provider);
+    updateFirstRunWeakModelWarning(provider);
   }
 
   function handleFirstRunSaveOpenRouterKey() {
@@ -783,6 +877,9 @@
       }
       return;
     }
+    const selected = firstRunSelectedProvider();
+    updateFirstRunWeakModelWarning(selected);
+    await postFirstRunLlmConfigPin(selected);
     const h = host();
     const UC = typeof h.getUserContent === "function" ? h.getUserContent() : null;
     try {
@@ -1396,6 +1493,8 @@
               ) {
                 window.COMMAND_CENTER_CONFIG[providerDef.modelField] = model;
               }
+              void postFirstRunLlmConfigPin(providerName);
+              updateFirstRunWeakModelWarning(providerName);
             },
           );
         }

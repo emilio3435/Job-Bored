@@ -59,6 +59,7 @@ import {
   loadWorkerConfig,
   rescoreAllPipelineRows,
 } from "./profile-rescore-worker.mjs";
+import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -224,6 +225,9 @@ if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
     : join(import.meta.dirname || ".", "..");
   app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
 }
+
+app.get("/api/llm-config", (req, res) => handleGetLlmConfig(req, res));
+app.post("/api/llm-config", (req, res) => handlePostLlmConfig(req, res));
 
 app.post("/api/scrape-job", async (req, res) => {
   try {

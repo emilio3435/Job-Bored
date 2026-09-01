@@ -242,6 +242,7 @@ const SETTINGS_PROVIDER_DEFS = {
     cap: "OpenRouter",
     keyInputId: "settingsResumeOpenRouterApiKey",
     modelSelectId: "settingsResumeOpenRouterModel",
+    baseUrlInputId: "settingsResumeOpenRouterBaseUrl",
     configKeyField: "resumeOpenRouterApiKey",
     configModelField: "resumeOpenRouterModel",
   },
@@ -275,6 +276,36 @@ const SETTINGS_PROVIDER_DEFS = {
     configModelField: "resumeLocalModel",
   },
 };
+
+function resolveJobBoredApiUrl() {
+  const cfg =
+    (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  const raw = String(cfg.jobBoredApiUrl || "").trim();
+  if (raw) return raw.replace(/\/+$/, "");
+  return "http://localhost:3847";
+}
+
+async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
+  const p = String(provider || "").trim();
+  const m = String(model || "").trim();
+  if (!p || !m) return;
+  if (typeof fetch !== "function") return;
+  const jobBoredApiUrl = resolveJobBoredApiUrl();
+  try {
+    await fetch(jobBoredApiUrl + "/api/llm-config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: p,
+        model: m,
+        apiKey: String(apiKey || "").trim(),
+        baseUrl: String(baseUrl || "").trim(),
+      }),
+    });
+  } catch (_) {
+    /* local API may be down; Settings localStorage save still succeeded */
+  }
+}
 
 function readSettingsProviderInputs(def) {
   const keyEl = document.getElementById(def.keyInputId);
@@ -882,6 +913,17 @@ async function saveCommandCenterSettingsFromForm() {
       err.style.display = "block";
     }
     return;
+  }
+  const selectedDef = SETTINGS_PROVIDER_DEFS[provider];
+  if (selectedDef) {
+    await postLlmConfigPin({
+      provider,
+      model: payload[selectedDef.configModelField],
+      apiKey: payload[selectedDef.configKeyField],
+      baseUrl: selectedDef.baseUrlInputId
+        ? val(selectedDef.baseUrlInputId)
+        : "",
+    });
   }
   host().setSHEET_ID(sheetId);
   host().setDashboardSheetLinks();

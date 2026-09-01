@@ -9,6 +9,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const schemaJs = readFileSync(join(repoRoot, "settings-tab-schema.js"), "utf8");
 const resumeGenerateJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 const settingsModalJs = readFileSync(join(repoRoot, "settings-modal.js"), "utf8");
+const modelCatalogJs = readFileSync(join(repoRoot, "model-catalog.js"), "utf8");
 const fitProfileEditorJs = readFileSync(
   join(repoRoot, "fit-profile-editor.js"),
   "utf8",
@@ -26,6 +27,25 @@ function loadModelOptions() {
   vm.createContext(ctx);
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return ctx.window.CommandCenterResumeModelOptions;
+}
+
+function loadCatalog() {
+  const ctx = {
+    window: {},
+    console: { log() {}, warn() {}, error() {} },
+    fetch: async () => {
+      throw new Error("no fetch");
+    },
+    localStorage: {
+      getItem: () => null,
+      setItem() {},
+      removeItem() {},
+    },
+    Date,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(modelCatalogJs, ctx, { filename: "model-catalog.js" });
+  return ctx.window.JobBoredModelCatalog;
 }
 
 describe("Settings Fit Profile tab", () => {
@@ -69,6 +89,18 @@ describe("Settings Fit Profile tab", () => {
 describe("Settings Gemini model menu", () => {
   it("offers only the current approved Gemini models", () => {
     const options = loadModelOptions();
+    const catalog = loadCatalog();
+    const catalogValues = JSON.parse(
+      JSON.stringify(catalog.getStaticModels("gemini").map((option) => option.value)),
+    );
+    assert.equal(catalogValues[0], "gemini-flash");
+    assert.deepEqual(catalogValues, [
+      "gemini-flash",
+      "gemini-3.5-flash",
+      "gemini-3.1-pro-preview",
+      "gemini-3-flash-preview",
+      "gemini-3.1-flash-lite-preview",
+    ]);
     assert.deepEqual(
       JSON.parse(JSON.stringify(options.gemini.map((option) => option.value))),
       [
@@ -86,6 +118,11 @@ describe("Settings Gemini model menu", () => {
       !options.gemini.some((option) => /gemini-2\.|gemini-1\./.test(option.value)),
       "deprecated Gemini 1.x/2.x models must not appear in Settings",
     );
+  });
+
+  it("Settings save POSTs the selected provider pin to /api/llm-config", () => {
+    assert.match(settingsModalJs, /jobBoredApiUrl \+ "\/api\/llm-config"/);
+    assert.match(settingsModalJs, /method:\s*"POST"/);
   });
 
   it("uses option and select titles as hover/selected tooltips", () => {

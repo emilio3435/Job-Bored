@@ -143,7 +143,7 @@ function makeFakeDocument() {
   };
 }
 
-function loadWizard(hostStub) {
+function loadWizard(hostStub, extras = {}) {
   const window = {
     JobBoredApp: { core: { host: hostStub || {} } },
     COMMAND_CENTER_CONFIG: {},
@@ -158,6 +158,7 @@ function loadWizard(hostStub) {
     clearInterval: () => {},
     requestAnimationFrame: (fn) => fn(),
   };
+  if (typeof extras.fetch === "function") ctx.fetch = extras.fetch;
   vm.createContext(ctx);
   vm.runInContext(firstRunWizardJs, ctx, { filename: "first-run-wizard.js" });
   return { api: window.JobBoredApp.firstRunWizard, window, document };
@@ -567,6 +568,48 @@ describe("first-run wizard module — wiring + persistence parity with Settings"
         `${field} MUST be on the allowlist or the wizard's save will silently drop it`,
       );
     }
+  });
+
+  it("POSTs the active pin to /api/llm-config when the AI provider step is saved", async () => {
+    assert.match(firstRunWizardJs, /jobBoredApiUrl \+ "\/api\/llm-config"/);
+    assert.match(firstRunWizardJs, /method:\s*"POST"/);
+    const calls = [];
+    const { api, window } = loadWizard(
+      {
+        mergeStoredConfigOverridePatch() {},
+        getSheetId: () => "sheet",
+        isSignedIn: () => true,
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => false,
+          getResumeGenerationConfig: () => ({
+            provider: "gemini",
+            resumeGeminiApiKey: "",
+            resumeGeminiModel: "gemini-flash",
+          }),
+        }),
+      },
+      {
+        fetch: async (url, init) => {
+          calls.push({ url: String(url), init: init || {} });
+          return { ok: true, status: 200, json: async () => ({}) };
+        },
+      },
+    );
+    window.COMMAND_CENTER_CONFIG = {
+      jobBoredApiUrl: "http://localhost:3847",
+      resumeGeminiModel: "gemini-flash",
+    };
+    const res = api.firstRunSaveProviderKey("gemini", "AIza-test-1234");
+    assert.equal(res.ok, true);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0].url, "http://localhost:3847/api/llm-config");
+    assert.equal(calls[0].init.method, "POST");
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.provider, "gemini");
+    assert.equal(body.model, "gemini-flash");
+    assert.equal(body.apiKey, "AIza-test-1234");
+    assert.equal("apiKey" in body, true);
   });
 
   it("the wizard reads JobBoredModelCatalog (not a direct provider fetch in the wizard file itself)", () => {
