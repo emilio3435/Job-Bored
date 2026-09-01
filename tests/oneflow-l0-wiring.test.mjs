@@ -174,17 +174,13 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
     );
   });
 
-  it("an UNFILLED beat still renders its placeholder card, never an empty screen", async () => {
-    // L1 (arrival) filled google/ai/resume in per ONE-FLOW spec §5 B1-B3, so
-    // the placeholder claim moved to a beat whose lane has not landed yet.
-    // It stays here because it is the substrate's claim: a beat that fails to
-    // render must look unfinished rather than look shipped.
-    const { flow, document } = loadOneFlow({ beatFiles: true });
-    await flow.open("fit");
-    assert.ok(
-      document.getElementById("oneFlowMount").querySelector(".oneflow-placeholder"),
-    );
-  });
+  // RETIRED (integration, 2026-09-01): "an UNFILLED beat still renders its
+  // placeholder card" was transitional scaffolding for the dark-landing
+  // period — it needed at least one stub beat to exist. L1 filled
+  // google/ai/resume, L3 filled discovery, L4 filled payoff, and L2 filled
+  // fit; there is no unfilled beat left to point it at, and the controller
+  // intentionally has no runtime placeholder path (beats are static files,
+  // so an unfilled beat cannot exist in shipped code).
 
   it("the demo board and celebration modules load without registering a beat", () => {
     const { window: win, flow } = loadOneFlow({ beatFiles: true });
