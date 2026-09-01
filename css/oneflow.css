@@ -1,0 +1,219 @@
+/* ============================================
+   One-flow onboarding (ONE-FLOW-ONBOARDING-SPEC).
+
+   ONE stylesheet for the whole flow, split into fenced regions so the
+   beat lanes append inside their own fence and never collide. Rules
+   only ever go INSIDE a fence; the fence markers themselves are load-
+   bearing (tests/oneflow-l0-wiring.test.mjs asserts all five, in order).
+
+     ONEFLOW:CORE  — L0: the shell's spine / message / busy regions, the
+                     flow mount, and the stub placeholder card.
+     ONEFLOW:L1    — B1 Connect Google · B2 AI provider · B3 resume.
+     ONEFLOW:L2    — B4 Confirm your fit.
+     ONEFLOW:L3    — B5 Turn on discovery.
+     ONEFLOW:L4    — S0 demo board · B6 payoff · the one celebration.
+
+   Loaded after the legacy wizard sheets, so these rules extend the
+   shared chassis rather than fork it.
+   ============================================ */
+
+/* ONEFLOW:CORE */
+
+.oneflow-root[hidden] {
+  display: none !important;
+}
+
+/* ---------- The 6-beat spine (spec §3.5.1) ----------
+   Replaces the 3-stage journey strip. Same visual language as
+   .discovery-setup-wizard__journey so the flow reads as the same
+   product, with room for six segments plus the minutes label. */
+
+.discovery-setup-wizard__spine-wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-2) var(--space-5) 0;
+}
+
+.discovery-setup-wizard__spine {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
+  margin: 0;
+  padding: 0;
+}
+
+.discovery-setup-wizard__spine-step {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3, var(--text-faint));
+  white-space: nowrap;
+}
+
+.discovery-setup-wizard__spine-dot {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 10px;
+  font-weight: 700;
+  border: 1.5px solid var(--jb-line, var(--border));
+  color: var(--jb-ink-3, var(--text-faint));
+  background: var(--jb-paper, var(--surface));
+  flex: 0 0 auto;
+}
+
+.discovery-setup-wizard__spine-step--done {
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+.discovery-setup-wizard__spine-step--done .discovery-setup-wizard__spine-dot {
+  background: var(--jb-mint, var(--accent));
+  border-color: var(--jb-mint, var(--accent));
+  color: var(--jb-ink-inverse, #fff);
+}
+
+.discovery-setup-wizard__spine-step--current {
+  color: var(--jb-navy, var(--text));
+}
+
+.discovery-setup-wizard__spine-step--current .discovery-setup-wizard__spine-dot {
+  background: var(--jb-navy, var(--text));
+  border-color: var(--jb-navy, var(--text));
+  color: var(--jb-ink-inverse, #fff);
+  box-shadow: 0 0 0 3px var(--jb-mint-soft, rgba(95, 203, 142, 0.25));
+}
+
+/* "Fifteen minutes, once" is the deal (spec §2.4 / §8.2) — the time
+   left is never hidden behind a hover or a tooltip. */
+.discovery-setup-wizard__spine-time {
+  margin: 0;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--jb-ink-3, var(--text-faint));
+  white-space: nowrap;
+}
+
+/* ---------- The message slot (spec §3.5.2) ----------
+   Sits under the actions on its own row. A key check that renders
+   nothing is the defect this exists to fix, so it is never clipped. */
+
+.discovery-setup-wizard__footer:has(> .discovery-setup-wizard__message),
+.discovery-setup-wizard__footer:has(> .discovery-setup-wizard__busy) {
+  flex-wrap: wrap;
+}
+
+.discovery-setup-wizard__message {
+  flex: 1 0 100%;
+  margin: var(--space-2) 0 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 10px;
+  border: 1px solid transparent;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+}
+
+.discovery-setup-wizard__message--info {
+  color: var(--jb-navy, var(--text));
+  background: var(--jb-paper-2, rgba(148, 163, 184, 0.12));
+  border-color: rgba(148, 163, 184, 0.28);
+}
+
+.discovery-setup-wizard__message--success {
+  color: var(--jb-mint-deep, #2f8a5a);
+  background: rgba(95, 203, 142, 0.14);
+  border-color: rgba(95, 203, 142, 0.4);
+}
+
+.discovery-setup-wizard__message--error {
+  color: var(--danger, #b42318);
+  background: rgba(180, 35, 24, 0.08);
+  border-color: rgba(180, 35, 24, 0.32);
+}
+
+/* ---------- Busy stages (spec §3.5.3) ----------
+   The 20–120s silent wait is the teardown's flagship defect; every
+   async action shows its real stages instead. */
+
+.discovery-setup-wizard__busy {
+  flex: 1 0 100%;
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.discovery-setup-wizard__busy-stage {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  font-size: var(--text-sm);
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.discovery-setup-wizard__busy-glyph {
+  flex: 0 0 auto;
+  width: 1em;
+  text-align: center;
+  font-weight: 700;
+}
+
+.discovery-setup-wizard__busy-stage--done {
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+.discovery-setup-wizard__busy-stage--active {
+  color: var(--jb-navy, var(--text));
+  font-weight: 600;
+}
+
+/* ---------- L0 stub placeholder ----------
+   Every beat file ships its normative headline + sub as a static card
+   until its lane fills it in. Visible on purpose: an unfilled beat must
+   look unfinished, never look shipped. */
+
+.oneflow-placeholder {
+  padding: var(--space-4);
+  border: 1px dashed var(--jb-line, var(--border));
+  border-radius: 12px;
+  background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
+}
+
+.oneflow-placeholder__headline {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-lg);
+  font-weight: 700;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-placeholder__sub {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ONEFLOW:L1 */
+/* B1 Connect Google · B2 Give it a brain · B3 Hand us your resume. */
+
+/* ONEFLOW:L2 */
+/* B4 Confirm your fit. */
+
+/* ONEFLOW:L3 */
+/* B5 Turn on discovery — fuel panel, then connect panel. */
+
+/* ONEFLOW:L4 */
+/* S0 demo board · B6 You're live · the single celebration. */
