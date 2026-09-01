@@ -55,6 +55,16 @@ const CANARY_REASONS = Object.freeze({
   sheets_credential_not_available: "unavailable",
 });
 
+/**
+ * Reasons the report states as standalone findings but that never enter
+ * `reasons`. `sheets_credential_not_available` claims `unavailable`, so pushing
+ * it would pin the canary at `unavailable` forever and it could never report
+ * healthy. It lives on the `sheets:` line instead.
+ */
+const REPORT_ONLY_REASONS = Object.freeze(
+  new Set(["sheets_credential_not_available"]),
+);
+
 const CANARY_EXIT_CODES = Object.freeze({
   healthy: 0,
   stale: 1,
@@ -137,25 +147,33 @@ function parseArgs(argv) {
  * the status plus the fixed-enum reasons that produced it.
  */
 function classifyCanary(input = {}) {
-  const health = input.health || {};
-  const runHistory = input.runHistory || {};
+  // `null`/absent means NOT CHECKED — the canary never turns an unperformed
+  // check into a finding. Only a probe that actually ran may claim a fact.
+  const health = input.health;
+  const runHistory = input.runHistory;
   const reasons = [];
 
   for (const configError of input.configErrors || []) {
-    if (CANARY_REASONS[configError]) reasons.push(configError);
+    if (CANARY_REASONS[configError] && !REPORT_ONLY_REASONS.has(configError)) {
+      reasons.push(configError);
+    }
   }
 
-  if (!health.reachable) {
-    reasons.push("worker_unreachable");
-  } else if (!health.ok) {
-    reasons.push("worker_unhealthy");
-  } else if (!health.isDiscoveryWorker) {
-    reasons.push("worker_not_discovery_service");
-  } else {
-    reasons.push("worker_healthy");
+  if (health) {
+    if (!health.reachable) {
+      reasons.push("worker_unreachable");
+    } else if (!health.ok) {
+      reasons.push("worker_unhealthy");
+    } else if (!health.isDiscoveryWorker) {
+      reasons.push("worker_not_discovery_service");
+    } else {
+      reasons.push("worker_healthy");
+    }
   }
 
-  if (!runHistory.available) {
+  if (!runHistory) {
+    // not checked — no reason
+  } else if (!runHistory.available) {
     reasons.push(
       CANARY_REASONS[runHistory.reason] ? runHistory.reason : "run_state_unreadable",
     );
@@ -287,15 +305,17 @@ async function runCanary(options = {}) {
   const healthUrl = buildLocalHealthUrl(workerUrl);
   if (!healthUrl) configErrors.push("worker_url_invalid");
 
-  const probe = healthUrl
-    ? await probeWorkerHealth(fetchImpl, healthUrl)
-    : { ok: false, reachable: false, statusCode: 0 };
-  const health = {
-    reachable: !!probe.reachable,
-    ok: !!probe.ok,
-    statusCode: Number(probe.statusCode) || 0,
-    isDiscoveryWorker: isBrowserUseDiscoveryHealth(probe),
-  };
+  // No usable URL means no probe happened; `null` keeps the report honest
+  // instead of reporting a fabricated `reachable=false`.
+  const probe = healthUrl ? await probeWorkerHealth(fetchImpl, healthUrl) : null;
+  const health = probe
+    ? {
+        reachable: !!probe.reachable,
+        ok: !!probe.ok,
+        statusCode: Number(probe.statusCode) || 0,
+        isDiscoveryWorker: isBrowserUseDiscoveryHealth(probe),
+      }
+    : null;
 
   const history = readRunHistory({ stateDir }) || {};
   const newestSuccess = history.available
@@ -320,12 +340,16 @@ async function runCanary(options = {}) {
     exitCode: CANARY_EXIT_CODES[status],
     checkedAt: now.toISOString(),
     maxAgeHours,
-    worker: {
-      healthUrlOrigin: originOf(healthUrl),
-      reachable: health.reachable,
-      statusCode: health.statusCode,
-      isDiscoveryWorker: health.isDiscoveryWorker,
-    },
+    worker: health
+      ? {
+          checked: true,
+          healthUrlOrigin: originOf(healthUrl),
+          reachable: health.reachable,
+          statusCode: health.statusCode,
+          isDiscoveryWorker: health.isDiscoveryWorker,
+        }
+      : { checked: false, healthUrlOrigin: "" },
+    runHistory: { checked: true, available: runHistory.available },
     run: newestSuccess
       ? {
           runId: newestSuccess.runId,
@@ -346,29 +370,40 @@ function formatCanaryReport(report) {
   lines.push(`status: ${report.status}`);
   lines.push(`checked at: ${report.checkedAt}`);
   lines.push(
-    `worker: ${report.worker.healthUrlOrigin || "(no usable worker url)"} ` +
-      `reachable=${report.worker.reachable} http=${report.worker.statusCode} ` +
-      `discoveryWorker=${report.worker.isDiscoveryWorker}`,
+    report.worker.checked === false
+      ? "worker: not checked"
+      : `worker: ${report.worker.healthUrlOrigin || "(no usable worker url)"} ` +
+          `reachable=${report.worker.reachable} http=${report.worker.statusCode} ` +
+          `discoveryWorker=${report.worker.isDiscoveryWorker}`,
   );
-  lines.push(
-    report.run
-      ? `newest successful run: ${report.run.runId} (${report.run.status}) ` +
-          `finished ${report.run.completedAt}, ${report.run.ageHours}h ago ` +
-          `(threshold ${report.maxAgeHours}h)`
-      : `newest successful run: none within the readable run history (threshold ${report.maxAgeHours}h)`,
-  );
+  if (report.runHistory && report.runHistory.checked === false) {
+    lines.push("newest successful run: not checked");
+  } else {
+    lines.push(
+      report.run
+        ? `newest successful run: ${report.run.runId} (${report.run.status}) ` +
+            `finished ${report.run.completedAt}, ${report.run.ageHours}h ago ` +
+            `(threshold ${report.maxAgeHours}h)`
+        : `newest successful run: none within the readable run history (threshold ${report.maxAgeHours}h)`,
+    );
+  }
   lines.push(`sheets: ${report.sheets.status} (${report.sheets.reason})`);
   for (const reason of report.reasons) lines.push(`reason: ${reason}`);
   lines.push(`exit code: ${report.exitCode}`);
   return `${lines.join("\n")}\n`;
 }
 
+/**
+ * An argument error is decided before anything is probed or read, so the report
+ * carries the config error and nothing else — `health` and `runHistory` are
+ * `null` (not checked), never a fabricated `reachable=false`.
+ */
 function buildArgumentErrorReport(reason, now = new Date()) {
   const { status, reasons } = classifyCanary({
     maxAgeHours: DEFAULT_MAX_AGE_HOURS,
     configErrors: [reason],
-    health: { reachable: false, ok: false, statusCode: 0, isDiscoveryWorker: false },
-    runHistory: { available: false, reason: "run_state_unreadable", newestSuccess: null },
+    health: null,
+    runHistory: null,
   });
   return {
     status,
@@ -376,60 +411,88 @@ function buildArgumentErrorReport(reason, now = new Date()) {
     exitCode: CANARY_EXIT_CODES[status],
     checkedAt: now.toISOString(),
     maxAgeHours: DEFAULT_MAX_AGE_HOURS,
-    worker: {
-      healthUrlOrigin: "",
-      reachable: false,
-      statusCode: 0,
-      isDiscoveryWorker: false,
-    },
+    worker: { checked: false, healthUrlOrigin: "" },
+    runHistory: { checked: false, available: false },
     run: null,
     sheets: { status: "unavailable", reason: "sheets_credential_not_available" },
   };
+}
+
+/** Error names only — a raw message can carry a path, a host, or a token. */
+function redactedErrorName(error) {
+  const name = error && typeof error.name === "string" ? error.name : "";
+  return /^[A-Za-z][A-Za-z0-9]*$/.test(name) ? name : "Error";
+}
+
+/**
+ * The whole CLI, exported so every exit code — including the internal-error 4 —
+ * is reachable from a test. The `import.meta.url` guard is the only caller in
+ * production.
+ */
+async function runCli(argv = [], deps = {}) {
+  const write = deps.stdout || ((chunk) => process.stdout.write(chunk));
+  const writeError = deps.stderr || ((chunk) => process.stderr.write(chunk));
+  const runCanaryImpl = deps.runCanary || runCanary;
+
+  let args = null;
+  try {
+    args = parseArgs(argv);
+  } catch (error) {
+    const report = buildArgumentErrorReport(
+      error && error.canaryReason ? error.canaryReason : "unknown_argument",
+      deps.now ? new Date(deps.now) : new Date(),
+    );
+    write(
+      argv.includes("--json")
+        ? `${JSON.stringify(report, null, 2)}\n`
+        : formatCanaryReport(report),
+    );
+    return report.exitCode;
+  }
+
+  if (args.help) {
+    write(USAGE);
+    return 0;
+  }
+
+  try {
+    const report = await runCanaryImpl({
+      maxAgeHours: args.maxAgeHours,
+      stateDir: args.stateDir,
+      workerUrl: args.workerUrl,
+      now: deps.now,
+      fetchImpl: deps.fetchImpl,
+      readRunHistory: deps.readRunHistory,
+    });
+    write(
+      args.json
+        ? `${JSON.stringify(report, null, 2)}\n`
+        : formatCanaryReport(report),
+    );
+    return report.exitCode;
+  } catch (error) {
+    writeError(
+      `[discovery-canary] internal error: ${redactedErrorName(error)}. ` +
+        "This is a bug in the canary itself; nothing was changed.\n",
+    );
+    return INTERNAL_ERROR_EXIT_CODE;
+  }
 }
 
 if (
   process.argv[1] &&
   resolve(process.argv[1]) === fileURLToPath(import.meta.url)
 ) {
-  let args = null;
-  try {
-    args = parseArgs(process.argv.slice(2));
-  } catch (error) {
-    const report = buildArgumentErrorReport(
-      error && error.canaryReason ? error.canaryReason : "unknown_argument",
-    );
-    process.stdout.write(
-      process.argv.includes("--json")
-        ? `${JSON.stringify(report, null, 2)}\n`
-        : formatCanaryReport(report),
-    );
-    process.exitCode = report.exitCode;
-  }
-  if (args && args.help) {
-    process.stdout.write(USAGE);
-    process.exitCode = 0;
-  } else if (args) {
-    try {
-      const report = await runCanary(args);
-      process.stdout.write(
-        args.json
-          ? `${JSON.stringify(report, null, 2)}\n`
-          : formatCanaryReport(report),
-      );
-      process.exitCode = report.exitCode;
-    } catch (error) {
-      console.error(
-        `[discovery-canary] ${error && error.message ? error.message : error}`,
-      );
-      process.exitCode = INTERNAL_ERROR_EXIT_CODE;
-    }
-  }
+  process.exitCode = await runCli(process.argv.slice(2));
 }
 
 export {
   CANARY_EXIT_CODES,
+  CANARY_REASONS,
+  REPORT_ONLY_REASONS,
   classifyCanary,
   formatCanaryReport,
   parseArgs,
   runCanary,
+  runCli,
 };
