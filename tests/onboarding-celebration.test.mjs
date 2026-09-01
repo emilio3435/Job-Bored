@@ -120,118 +120,66 @@ describe("index.html — onboarding celebration overlay", () => {
   });
 });
 
-describe("onboarding-wizard partial — discoverySetupGate markup", () => {
-  const onboardingPartial = readFileSync(
-    join(repoRoot, "partials", "onboarding-wizard.html"),
-    "utf8",
-  );
-  it("defines #discoverySetupGate hidden by default", () => {
-    assert.match(onboardingPartial, /id="discoverySetupGate"/);
-    const i = onboardingPartial.indexOf('id="discoverySetupGate"');
-    const openTag = onboardingPartial.slice(
-      onboardingPartial.lastIndexOf("<div", i),
-      onboardingPartial.indexOf(">", i) + 1,
-    );
-    assert.match(openTag, /\bhidden\b/);
-  });
-  it("contains the primary [Set up discovery] button (id=discoveryGateOpenWizard)", () => {
-    assert.match(onboardingPartial, /id="discoveryGateOpenWizard"/);
-  });
-  it("contains the confirm-gated escape (id=discoveryGateSkipEscape)", () => {
-    assert.match(onboardingPartial, /id="discoveryGateSkipEscape"/);
-  });
-  it("the escape is visually secondary (not the primary button class)", () => {
-    const i = onboardingPartial.indexOf('id="discoveryGateSkipEscape"');
-    const ctx = onboardingPartial.slice(i - 300, i + 100);
-    assert.ok(!ctx.includes("btn-modal-primary"));
-  });
-});
-
-describe("advanceToDiscoveryAfterOnboarding — gated blocking handoff", () => {
-  function loadOnboardingWithGate({ discoveryComplete, skipFlag = false, confirmResult = true }) {
-    const calls = { requestDiscovery: [], setSkipped: 0, completeDiscovery: 0 };
-    let hidden = true;
-    const gateEl = {
-      get hidden() { return hidden; },
-      removeAttribute(n) { if (n === "hidden") hidden = false; },
-      setAttribute(n) { if (n === "hidden") hidden = true; },
-      hasAttribute(n) { return n === "hidden" ? hidden : false; },
-    };
+describe("advanceToDiscoveryAfterOnboarding — the handoff, minus the gate", () => {
+  // The blocking #discoverySetupGate is deleted (ONE-FLOW-ONBOARDING-SPEC
+  // §7). What has to survive is the handoff itself: this chain still opens
+  // the discovery wizard, and it still opens it on an explicit click even
+  // when a stale completion flag says discovery is already done.
+  function loadOnboarding({ discoveryComplete }) {
+    const calls = { requestDiscovery: [] };
     const window = {
       JobBoredApp: { core: { host: {
         requestDiscoverySetup: (o) => calls.requestDiscovery.push(o),
         getUserContent: () => ({
           isDiscoverySetupComplete: async () => discoveryComplete,
-          isDiscoverySetupSkipped: async () => skipFlag,
-          completeDiscoverySetup: async () => { calls.completeDiscovery++; },
-          setDiscoverySetupSkipped: async () => { calls.setSkipped++; },
           openDb: async () => {},
         }),
         resumePendingDiscoverySetupIfNeeded: async () => false,
       } } },
-      confirm: () => confirmResult,
       sessionStorage: { getItem: () => null, removeItem: () => {} },
     };
     const document = {
-      getElementById: (id) => (id === "discoverySetupGate" ? gateEl : null),
+      getElementById: () => null,
       createElement: () => ({ className: "", style: {}, setAttribute() {}, appendChild() {} }),
     };
     const ctx = { window, document, console, setTimeout, clearTimeout };
     vm.createContext(ctx);
     vm.runInContext(onboardingWizardJs, ctx, { filename: "onboarding-wizard.js" });
-    return { onboarding: window.JobBoredApp.onboarding, gateEl, calls, window };
+    return { onboarding: window.JobBoredApp.onboarding, calls };
   }
 
-  it("when discovery is incomplete, requestDiscoverySetup is called with an onClose callback (no obsolete onComplete)", async () => {
-    const env = loadOnboardingWithGate({ discoveryComplete: false });
+  it("opens the discovery wizard, and passes no gate callback any more", async () => {
+    const env = loadOnboarding({ discoveryComplete: false });
     await env.onboarding.advanceToDiscoveryAfterOnboarding();
     assert.equal(env.calls.requestDiscovery.length, 1);
-    assert.equal(typeof env.calls.requestDiscovery[0].onClose, "function");
     assert.equal(
-      typeof env.calls.requestDiscovery[0].onComplete,
-      "undefined",
-      "the autodetect alreadyConnected shortcut is gone — the wizard always renders, so onClose owns the gate",
+      env.calls.requestDiscovery[0].onClose,
+      undefined,
+      "onClose existed only to re-assert the deleted gate (§7)",
     );
+    assert.equal(env.calls.requestDiscovery[0].onComplete, undefined);
   });
 
-  it("onClose with reason !== finish shows the gate panel", async () => {
-    const env = loadOnboardingWithGate({ discoveryComplete: false });
-    await env.onboarding.advanceToDiscoveryAfterOnboarding();
-    await env.calls.requestDiscovery[0].onClose("dismiss", {});
-    assert.equal(env.gateEl.hidden, false);
-  });
-
-  it("onClose with a SUCCESSFUL finish (reason 'finish' + connected) does NOT re-show the gate", async () => {
-    // Regression: the gate must NOT re-assert on the happy path. A genuine
-    // discovery finish closes the wizard with reason "finish" and a connected
-    // result; the gate must clear, not block the now-set-up user.
-    const env = loadOnboardingWithGate({ discoveryComplete: false });
-    env.gateEl.removeAttribute("hidden"); // pretend the gate was showing
-    await env.onboarding.advanceToDiscoveryAfterOnboarding();
-    await env.calls.requestDiscovery[0].onClose("finish", {
-      state: { result: "connected" },
-    });
-    assert.equal(
-      env.gateEl.hidden,
-      true,
-      "a successful discovery finish must clear the gate, not re-block the user",
-    );
-  });
-
-  it("onClose does NOT show the gate when discoverySetupSkipped is true", async () => {
-    const env = loadOnboardingWithGate({ discoveryComplete: false, skipFlag: true });
-    await env.onboarding.advanceToDiscoveryAfterOnboarding();
-    await env.calls.requestDiscovery[0].onClose("dismiss", {});
-    assert.equal(env.gateEl.hidden, true);
+  it("no code path can re-show a gate that no longer exists", () => {
+    for (const needle of [
+      "discoverySetupGate",
+      "showDiscoveryGate",
+      "hideDiscoveryGate",
+    ]) {
+      assert.ok(
+        !onboardingWizardJs.includes(needle),
+        `${needle} must be gone with the gate itself`,
+      );
+    }
   });
 
   it("opens the wizard even when discoverySetupComplete is already true (explicit click)", async () => {
-    const env = loadOnboardingWithGate({ discoveryComplete: true });
+    const env = loadOnboarding({ discoveryComplete: true });
     await env.onboarding.advanceToDiscoveryAfterOnboarding();
     assert.equal(
       env.calls.requestDiscovery.length,
       1,
-      "a stale completion flag must not turn the gate/celebration buttons into no-ops",
+      "a stale completion flag must not turn the celebration button into a no-op",
     );
   });
 

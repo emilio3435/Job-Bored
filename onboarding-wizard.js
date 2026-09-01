@@ -80,55 +80,22 @@
     } catch (_) {
       /* banner refresh is best-effort */
     }
-    const onClose = async (reason, ctx) => {
-      // Happy path: a genuine finish (connected) satisfies the gate — clear it
-      // and let the discovery->go-live chain proceed. Only re-assert the
-      // blocking gate when the wizard closed WITHOUT connecting AND the user
-      // hasn't confirmed the skip escape.
-      const result = ctx && ctx.state ? ctx.state.result : null;
-      if (reason === "finish" && result === "connected") {
-        hideDiscoveryGate();
-        return;
-      }
-      let skipped = false;
-      try {
-        const UC2 = getUserContent();
-        if (UC2 && typeof UC2.isDiscoverySetupSkipped === "function") {
-          skipped = !!(await UC2.isDiscoverySetupSkipped());
-        }
-      } catch (_) {
-        skipped = false;
-      }
-      if (!skipped) showDiscoveryGate();
-    };
+    // There is no onClose handoff any more: the blocking gate this chain
+    // re-asserted on a non-connecting close is deleted
+    // (ONE-FLOW-ONBOARDING-SPEC §7). B5's required fuel panel, its
+    // connect-only skip, and the what's-next banner replaced it, so the
+    // wizard closing without a connection is simply the wizard closing.
     try {
       const h = host();
       if (h && typeof h.requestDiscoverySetup === "function") {
         void h.requestDiscoverySetup({
           entryPoint: "onboarding",
           allowWhileOnboarding: true,
-          onClose,
         });
       }
     } catch (e) {
       console.warn("[JobBored] auto-open discovery after onboarding:", e);
     }
-  }
-
-  function showDiscoveryGate() {
-    const gate = typeof document !== "undefined"
-      ? document.getElementById("discoverySetupGate") : null;
-    if (!gate) return;
-    gate.removeAttribute("hidden");
-    gate.setAttribute("aria-hidden", "false");
-  }
-
-  function hideDiscoveryGate() {
-    const gate = typeof document !== "undefined"
-      ? document.getElementById("discoverySetupGate") : null;
-    if (!gate) return;
-    gate.setAttribute("hidden", "hidden");
-    gate.setAttribute("aria-hidden", "true");
   }
 
   // The celebration player moved to onboarding-celebration.js (spec §7:
@@ -1419,39 +1386,6 @@ function initOnboardingWizard() {
       }
     });
 
-  // Discovery setup gate (mandatory). Primary CTA re-opens the discovery
-  // wizard; the confirm-gated escape writes discoverySetupSkipped and lets the
-  // user through (the "Finish setup" card keeps nudging — skip != complete).
-  document
-    .getElementById("discoveryGateOpenWizard")
-    ?.addEventListener("click", () => {
-      hideDiscoveryGate();
-      void advanceToDiscoveryAfterOnboarding();
-    });
-  document
-    .getElementById("discoveryGateSkipEscape")
-    ?.addEventListener("click", () => {
-      const confirmed = typeof window.confirm === "function"
-        ? window.confirm(
-            "Skip discovery setup for now? You can finish it anytime from Settings. The app will work, but no jobs will be found until you connect discovery.",
-          )
-        : true;
-      if (!confirmed) return;
-      void (async () => {
-        try {
-          const UC = getUserContent();
-          if (UC) {
-            if (typeof UC.openDb === "function") await UC.openDb();
-            if (typeof UC.setDiscoverySetupSkipped === "function") {
-              await UC.setDiscoverySetupSkipped();
-            }
-          }
-        } catch (e) {
-          console.warn("[JobBored] discovery gate skip persist:", e);
-        }
-        hideDiscoveryGate();
-      })();
-    });
 }
 
   Object.assign(onboarding, {
