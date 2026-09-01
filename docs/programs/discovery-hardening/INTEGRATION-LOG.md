@@ -30,6 +30,12 @@ Note: the cmux wrapper places `--session-id`/`--settings` before the user flags,
 
 | # | Lane | Lane SHA | Merge SHA | Targeted gate result | Notes |
 |---|---|---|---|---|---|
+| 1 | A · assets | `872445e` | `d6b9799` | pages-deploy-contract + hermetic-release-gate 23/23 after merge; lane worktree: 33/33 targeted, typecheck, lint, test:repo, diff --check | clean merge |
+| 2 | B · scrape-e2e | `129d0be` | `f92b3b8` | lane worktree: e2e-journey 9/9, e2e-smoke 6/6, floor green; journey+smoke re-run on the integrated HEAD in the final floor | clean merge |
+| 3 | C · lifecycle | `88e156b` | `66bebe2` | worker suite 744/744 + discovery-lifecycle 5/5 after merge; lane worktree: worker typecheck, contract:all, floor green | clean merge; `src/server.ts` untouched (no wiring needed) |
+| 4 | D · stable-transport | `dfbad73` | `70b966d` | 5-file targeted 65/65 after merge; lane worktree: 11-file gate 141/141, both scout probes green, floor green | clean merge; `tests/run-status-honesty.test.mjs` untouched |
+| 5 | E · canary | `f35074f` | `76e04c5` | discovery-canary 20/20 + run-status-store 16/16 after merge; lane worktree: CLI exit codes, floor green | clean merge |
+| 6 | integrator | — | (next commit) | — | Lane D handoff: `node --check discovery-run-tracker.js` added to `typecheck:repo` (package.json was Lane E's fence, lane closed). Lane A handoff: `index.assembled.html` added to `.gitignore`. |
 
 ## Floor runs
 
