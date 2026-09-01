@@ -16,6 +16,14 @@ Base SHA: `81e313ac8aa72345b2930aa4233f3d11ce09f221` (main, 2026-09-01)
 |---|---|---|---|---|---|
 | scout-browser | workspace:192 | 71039 | `--model opus --effort high --permission-mode auto` | `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.257` | integration worktree |
 | scout-worker | workspace:193 | 71067 | `--model opus --effort high --permission-mode auto` | `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.257` | integration worktree |
+| assets | workspace:194 | 57753 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-assets` |
+| scrape-e2e | workspace:195 | 57826 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-scrape-e2e` |
+| lifecycle | workspace:196 | 58182 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-lifecycle` |
+| stable-transport | workspace:197 | 58331 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-stable-transport` |
+| canary | workspace:198 | 58641 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-canary` |
+
+Lock SHA (spec + kickoffs, base of every lane branch): `d57fdac7afddb8dc2259c7ed4b5743e456013471`. Lanes spawned 2026-09-01 ~15:37 MT.
+Note: the cmux wrapper places `--session-id`/`--settings` before the user flags, so verification scans the full arg vector (`ps -o args= -p <pid> | tr ' ' '\n' | grep -A1 ...`), not a literal `claude --model opus` match.
 
 
 ## Merge ledger
