@@ -212,6 +212,205 @@
 /* ONEFLOW:L2 */
 /* B4 Confirm your fit. */
 
+.oneflow-fit-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-3);
+}
+
+.oneflow-fit-card,
+.oneflow-fit-details,
+.oneflow-fit-json {
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 12px;
+  background: var(--jb-paper, var(--surface));
+}
+
+.oneflow-fit-card {
+  min-width: 0;
+  padding: var(--space-4);
+}
+
+.oneflow-fit-card__title,
+.oneflow-fit-card__subhead {
+  margin: 0 0 var(--space-2);
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-fit-card__title {
+  font-size: var(--text-base);
+}
+
+.oneflow-fit-card__subhead {
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+}
+
+.oneflow-fit-chips__list,
+.oneflow-fit-chips__add,
+.oneflow-fit-strength,
+.oneflow-fit-radios,
+.oneflow-fit-radio,
+.oneflow-fit-check {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+
+.oneflow-fit-chips__list,
+.oneflow-fit-radios {
+  flex-wrap: wrap;
+}
+
+.oneflow-fit-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  max-width: 100%;
+  padding: 3px 6px;
+  border-radius: 999px;
+  background: var(--jb-mint-soft, rgba(95, 203, 142, 0.18));
+}
+
+.oneflow-fit-chip__input {
+  width: 11rem;
+  max-width: 100%;
+  border: 0;
+  outline: 0;
+  background: transparent;
+  color: var(--jb-navy, var(--text));
+  font: inherit;
+}
+
+.oneflow-fit-chip__move,
+.oneflow-fit-chip__remove,
+.oneflow-fit-link-button {
+  border: 0;
+  padding: 2px 4px;
+  background: transparent;
+  color: var(--jb-ink-2, var(--text-muted));
+  cursor: pointer;
+}
+
+.oneflow-fit-chip__move:disabled {
+  opacity: 0.35;
+  cursor: default;
+}
+
+.oneflow-fit-link-button {
+  color: var(--jb-mint-deep, #2f8a5a);
+  font-weight: 650;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.oneflow-fit-chips__add {
+  margin-top: var(--space-2);
+}
+
+.oneflow-fit-input,
+.oneflow-fit-select,
+.oneflow-fit-textarea {
+  width: 100%;
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 8px;
+  padding: 8px 10px;
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  font: inherit;
+}
+
+.oneflow-fit-field {
+  display: grid;
+  gap: 6px;
+  margin-top: var(--space-3);
+}
+
+.oneflow-fit-field__label {
+  font-size: var(--text-sm);
+  font-weight: 700;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-fit-location-line,
+.oneflow-fit-narrative__line {
+  margin: var(--space-3) 0 0;
+  color: var(--jb-ink-2, var(--text-muted));
+  font-size: var(--text-sm);
+}
+
+.oneflow-fit-narrative__line {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.oneflow-fit-narrative .oneflow-fit-link-button {
+  margin-top: 4px;
+}
+
+.oneflow-fit-strengths__list {
+  display: grid;
+  gap: 6px;
+  margin: 0;
+  padding-left: 1.5rem;
+}
+
+.oneflow-fit-strength {
+  min-width: 0;
+}
+
+.oneflow-fit-strength__rank {
+  color: var(--jb-ink-3, var(--text-faint));
+  font-size: var(--text-xs);
+}
+
+.oneflow-fit-error {
+  margin: 0 0 var(--space-2);
+  color: var(--danger, #b42318);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.oneflow-fit-details,
+.oneflow-fit-json {
+  margin-top: var(--space-3);
+}
+
+.oneflow-fit-details__summary {
+  padding: var(--space-3) var(--space-4);
+  cursor: pointer;
+  font-weight: 700;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-fit-details__body {
+  display: grid;
+  gap: var(--space-3);
+  padding: 0 var(--space-4) var(--space-4);
+}
+
+.oneflow-fit-radio,
+.oneflow-fit-check {
+  font-size: var(--text-sm);
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-fit-json__pre {
+  max-height: 18rem;
+  overflow: auto;
+  margin: 0;
+  padding: 0 var(--space-4) var(--space-4);
+  white-space: pre-wrap;
+  font-size: var(--text-xs);
+}
+
+@media (max-width: 900px) {
+  .oneflow-fit-grid {
+    grid-template-columns: 1fr;
+  }
+}
+
 /* ONEFLOW:L3 */
 /* B5 Turn on discovery — fuel panel, then connect panel. */
 

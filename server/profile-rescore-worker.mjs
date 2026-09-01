@@ -89,8 +89,9 @@ const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
  */
 /** @typedef {{ provider: string, apiKey: string, model: string, baseUrl: string, requiredEnvVars: string[] }} ProfileRescoreProviderConfig */
 /** @typedef {{ name?: unknown, rank?: number, keywords?: unknown[], evidence?: unknown }} ProfileStrength */
-/** @typedef {{ identity?: { primaryNarrative?: unknown }, strengths?: ProfileStrength[], wants?: unknown[], avoids?: unknown[], tieBreakers?: UnknownRecord }} UserProfile */
-/** @typedef {{ sourceId: string, sourceLabel: string, title: string, company: string, location: string, url: string, compensationText: string, descriptionText: string }} RawListing */
+/** @typedef {{ workMode?: unknown, acceptableLocations?: unknown[], workAuth?: unknown, skipTitles?: unknown[], salaryFloor?: unknown, salaryRequired?: unknown }} ProfileHardConstraints */
+/** @typedef {{ identity?: { primaryNarrative?: unknown }, strengths?: ProfileStrength[], wants?: unknown[], avoids?: unknown[], hardConstraints?: ProfileHardConstraints, tieBreakers?: UnknownRecord }} UserProfile */
+/** @typedef {{ sourceId: string, sourceLabel: string, title: string, company: string, location: string, url: string, remoteBucket?: string, compensationText: string, descriptionText: string }} RawListing */
 /** @typedef {{ name?: unknown, rationale?: unknown }} PerStrengthScore */
 /** @typedef {{ fitScore: number, band: string, perStrength: PerStrengthScore[], concerns: unknown[], matches: unknown[], rationale: string, leadAngle: string }} ScoreResponse */
 
@@ -257,6 +258,115 @@ const COL = {
   TALKING_POINTS: 16, // Q
   MATCH_SCORE: 20, // U
 };
+
+const SPONSORSHIP_DENY_PHRASES = [
+  "no sponsorship",
+  "us citizens only",
+  "must be authorized to work in the us without sponsorship",
+  "no visa sponsorship",
+];
+
+/**
+ * Parse the maximum published salary from common annual compensation strings.
+ * @param {string} text
+ * @returns {number | null}
+ */
+function parseSalaryMax(text) {
+  const cleaned = String(text || "").replace(/\$/g, "").toLowerCase();
+  if (!cleaned.trim()) return null;
+  const matches = cleaned.match(/[\d][\d,]*\.?\d*\s*k?/g);
+  if (!matches || matches.length === 0) return null;
+  const values = [];
+  for (const raw of matches) {
+    const hasK = /k$/.test(raw.trim());
+    const numeric = raw.replace(/k$/, "").replace(/,/g, "").trim();
+    if (!numeric) continue;
+    const parsed = Number.parseFloat(numeric);
+    if (!Number.isFinite(parsed) || parsed <= 0) continue;
+    const dollars = hasK ? parsed * 1000 : parsed;
+    if (!hasK && dollars < 1000) continue;
+    values.push(dollars);
+  }
+  return values.length ? Math.max(...values) : null;
+}
+
+/**
+ * Server-rescore mirror of the discovery worker's deterministic hard filter.
+ * Order and reason strings intentionally match profile-aware-scorer.ts.
+ * @param {RawListing} rawListing
+ * @param {UserProfile} profile
+ */
+function runPreFilter(rawListing, profile) {
+  const hc = profile.hardConstraints || {};
+  const titleLower = String(rawListing.title || "").toLowerCase();
+  for (const phrase of hc.skipTitles || []) {
+    const needle = String(phrase || "").trim().toLowerCase();
+    if (needle && titleLower.includes(needle)) {
+      return {
+        pass: false,
+        reason: "skip_title_match",
+        detail: `Title contains skip phrase "${phrase}".`,
+      };
+    }
+  }
+
+  if (hc.workMode === "remote_only" && rawListing.remoteBucket !== "remote") {
+    return {
+      pass: false,
+      reason: "work_mode_mismatch",
+      detail: `Profile requires remote_only; listing remoteBucket=${rawListing.remoteBucket || "unknown"}.`,
+    };
+  }
+
+  if (hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok") {
+    const acceptable = (hc.acceptableLocations || [])
+      .map((entry) => String(entry || "").trim().toLowerCase())
+      .filter(Boolean);
+    if (acceptable.length > 0) {
+      const locationLower = String(rawListing.location || "").toLowerCase();
+      const matches = acceptable.some((loc) => locationLower.includes(loc));
+      if (!matches) {
+        return {
+          pass: false,
+          reason: "location_outside_acceptable",
+          detail: `Location "${rawListing.location || ""}" outside acceptableLocations [${acceptable.join(", ")}].`,
+        };
+      }
+    }
+  }
+
+  if (hc.workAuth === "needs_sponsorship") {
+    const descLower = String(rawListing.descriptionText || "").toLowerCase();
+    for (const phrase of SPONSORSHIP_DENY_PHRASES) {
+      if (descLower.includes(phrase)) {
+        return {
+          pass: false,
+          reason: "work_auth_mismatch",
+          detail: `Listing description signals "${phrase}".`,
+        };
+      }
+    }
+  }
+
+  const parsedMax = parseSalaryMax(rawListing.compensationText || "");
+  if (parsedMax === null) {
+    if (hc.salaryRequired) {
+      return {
+        pass: false,
+        reason: "salary_missing_but_required",
+        detail: "Profile requires published salary; listing has none.",
+      };
+    }
+  } else if (typeof hc.salaryFloor === "number" && parsedMax < hc.salaryFloor) {
+    return {
+      pass: false,
+      reason: "salary_below_floor",
+      detail: `Parsed salary ${parsedMax} below floor ${hc.salaryFloor}.`,
+    };
+  }
+
+  return { pass: true };
+}
 
 const SHEET_COLUMN_LETTER = {
   FIT_SCORE: "H",
@@ -1065,13 +1175,20 @@ async function scoreOneWithProvider({ profile, rawListing, providerConfig, signa
  * @returns {RawListing}
  */
 function buildRawListingFromRow(row) {
+  const location = String(row[COL.LOCATION] || "").trim();
+  const locationLower = location.toLowerCase();
   return {
     sourceId: "rescore",
     sourceLabel: "Rescore",
     title: String(row[COL.TITLE] || "").trim(),
     company: String(row[COL.COMPANY] || "").trim(),
-    location: String(row[COL.LOCATION] || "").trim(),
+    location,
     url: String(row[COL.LINK] || "").trim(),
+    remoteBucket: locationLower.includes("remote")
+      ? "remote"
+      : locationLower.includes("hybrid")
+        ? "hybrid"
+        : "onsite",
     compensationText: String(row[COL.SALARY] || "").trim(),
     descriptionText: "",
   };
@@ -1291,6 +1408,37 @@ export async function rescoreAllPipelineRows({
           status: "no_description",
         });
       }
+      const preFilter = runPreFilter(rawListing, profile);
+      if (!preFilter.pass) {
+        const score = {
+          fitScore: 1,
+          band: "Low",
+          perStrength: [],
+          concerns: [preFilter.detail],
+          matches: [],
+          rationale: `Hard constraint: ${preFilter.detail}`,
+          leadAngle: "",
+        };
+        await writeRowScoreCells({
+          sheetId,
+          token,
+          rowNumber,
+          fitScore: score.fitScore,
+          fitAssessment: buildFitAssessment(score, ""),
+          talkingPoints: "",
+        });
+        rescored += 1;
+        emit({
+          kind: "progress",
+          row: rowNumber,
+          status: "rescored",
+          fitScore: score.fitScore,
+          band: score.band,
+          filteredBy: "pre_filter",
+          reason: preFilter.reason,
+        });
+        return;
+      }
       const score = await scoreOneWithProvider({
         profile,
         rawListing,
@@ -1337,6 +1485,8 @@ export async function rescoreAllPipelineRows({
 
 export const _internal = {
   classifyRowForRescore,
+  runPreFilter,
+  parseSalaryMax,
   buildSystemPrompt,
   buildUserPrompt,
   buildResponseSchema,
