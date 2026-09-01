@@ -246,6 +246,19 @@ async function trackedFiles(repoRoot, spawnSyncImpl, candidates) {
     .filter(Boolean);
 }
 
+async function trackedFileState(repoRoot, spawnSyncImpl, candidate) {
+  const result = runCommandInRepo(spawnSyncImpl, repoRoot, "git", [
+    "ls-files",
+    candidate,
+  ]);
+  if (result.error || result.status !== 0) return null;
+  return String(result.stdout || "")
+    .split(/\r?\n/)
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .includes(candidate);
+}
+
 async function collectTrackedConfigChecks(repoRoot, spawnSyncImpl) {
   const candidates = [
     "config.js",
@@ -323,7 +336,7 @@ function collectPathChecks(repoRoot, env) {
   };
 }
 
-async function collectDiscoveryPackagingChecks(repoRoot, paths) {
+async function collectDiscoveryPackagingChecks(repoRoot, paths, spawnSyncImpl) {
   const checks = [];
   checks.push(
     check(
@@ -345,13 +358,27 @@ async function collectDiscoveryPackagingChecks(repoRoot, paths) {
   );
 
   const integrationLock = join(repoRoot, INTEGRATION_LOCK_PATH);
+  const integrationLockExists = existsSync(integrationLock);
+  const integrationLockTracked = integrationLockExists
+    ? await trackedFileState(repoRoot, spawnSyncImpl, INTEGRATION_LOCK_PATH)
+    : false;
+  const integrationLockUnexpected =
+    integrationLockExists && integrationLockTracked === false;
   checks.push(
     check(
-      existsSync(integrationLock) ? "warn" : "ok",
+      integrationLockUnexpected
+        ? "warn"
+        : integrationLockTracked === null
+          ? "info"
+          : "ok",
       "discovery lockfile policy",
-      existsSync(integrationLock)
-        ? `${INTEGRATION_LOCK_PATH} exists; this repo policy is root package-lock ownership, so keep this file ignored or remove it.`
-        : "Root package-lock owns Browser Use worker dependency installation; integration package-lock is intentionally absent/ignored.",
+      integrationLockUnexpected
+        ? `${INTEGRATION_LOCK_PATH} exists but is not tracked by git; remove the unexpected lockfile or commit it intentionally.`
+        : integrationLockTracked === true
+          ? `${INTEGRATION_LOCK_PATH} is the repository-tracked dependency lockfile.`
+          : integrationLockTracked === null
+            ? `Could not determine whether ${INTEGRATION_LOCK_PATH} is tracked by git.`
+            : `${INTEGRATION_LOCK_PATH} is absent; no unexpected integration lockfile found.`,
     ),
   );
   return checks;
@@ -819,7 +846,9 @@ async function runDoctor(options = {}) {
     );
   }
 
-  checks.push(...(await collectDiscoveryPackagingChecks(repoRoot, paths)));
+  checks.push(
+    ...(await collectDiscoveryPackagingChecks(repoRoot, paths, spawnSyncImpl)),
+  );
 
   if (includeHermes) {
     checks.push(

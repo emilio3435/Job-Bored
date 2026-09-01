@@ -79,9 +79,9 @@ by `BROWSER_USE_DISCOVERY_WORKER_ENV`. The worker reads
 The run-state directory defaults beside the state database. `npm run doctor` reports
 which pieces are configured without printing secret values.
 
-Dependency policy: the root `package-lock.json` owns the Browser Use discovery
-worker install. A nested `integrations/browser-use-discovery/package-lock.json`
-is intentionally ignored and should not be committed.
+Dependency lockfiles committed by the repository are expected. `npm run doctor`
+accepts the tracked Browser Use discovery lockfile and warns only when an extra,
+untracked lockfile appears.
 
 **3. Optional Hermes materials workflow**
 
@@ -130,19 +130,13 @@ Google’s make-a-copy flow duplicates **every row that exists in the source tem
    - For local development, also add `http://localhost:8080` (or whichever port you use)
    - Copy the **Client ID** (ends in `.apps.googleusercontent.com`)
 
-### 3. Configure the Dashboard
+### 3. Finish setup in the dashboard
 
-Edit `config.js`:
+Open `http://localhost:8080` and follow the on-screen flow. Paste the OAuth
+Client ID and your Sheet URL when prompted; the app stores both in this browser,
+so the normal setup path needs no manual `config.js` edits.
 
-```js
-window.COMMAND_CENTER_CONFIG = {
-  sheetId: "YOUR_SHEET_ID_HERE",
-  oauthClientId: "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com",
-  title: "Command Center",
-};
-```
-
-Your Sheet ID is the long segment in the spreadsheet URL (between `/d/` and `/edit`). You can paste **either** the full URL **or** the ID alone into **Settings** or `config.js` — the app extracts the ID automatically.
+Your Sheet ID is the long segment in the spreadsheet URL (between `/d/` and `/edit`). You can paste **either** the full URL **or** the ID alone into the dashboard — the app extracts the ID automatically.
 
 ```
 https://docs.google.com/spreadsheets/d/THIS_IS_YOUR_SHEET_ID/edit
@@ -299,7 +293,9 @@ Leave **`jobPostingScrapeUrl`** empty in `config.js` when you open the app on **
 
 ## Template Sheet Columns
 
-The **Pipeline** sheet has **17 required columns (A–Q)**. **Optional columns R–T** extend tracking; add them to the right of Q when needed.
+The **Pipeline** sheet has **25 columns (A–Y)**, matching the starter sheet the
+dashboard creates. A–Q hold the core job record; R–Y add tracking and agent
+safety fields.
 
 | Column | Header          | Description                                                                                                                                                      |
 | ------ | --------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
@@ -318,11 +314,16 @@ The **Pipeline** sheet has **17 required columns (A–Q)**. **Optional columns R
 | M      | Status          | Pipeline status (see below)                                                                                                                                      |
 | N      | Applied Date    | Date application was submitted                                                                                                                                   |
 | O      | Notes           | Your personal notes                                                                                                                                              |
-| P      | Follow-Up Date  | When to follow up                                                                                                                                                |
+| P      | Follow-up Date  | When to follow up                                                                                                                                                |
 | Q      | Talking Points  | Key points for interviews/outreach                                                                                                                               |
 | R      | Last contact    | Optional. When you last heard from them (date or short note). Shown as &ldquo;Last contact&rdquo; in the app.                                                    |
 | S      | Did they reply? | Optional. `Yes` / `No` / `Unknown` — use **Unknown** for &ldquo;not sure&rdquo; in the UI.                                                                       |
 | T      | Logo URL        | Optional. Company logo image URL. Discovery agents auto-populate this via Google Favicons. The dashboard derives a fallback from the job Link domain when empty. |
+| U      | Match Score     | Optional. 0–10 AI match score from the discovery worker.                                                                                              |
+| V      | Favorite        | Optional. Manual star used as a personal priority marker.                                                                                              |
+| W      | Dismissed At    | Optional. Timestamp recorded when a role is dismissed from the board.                                                                                  |
+| X      | Approval Status | Apply-gate approval marker; an agent may submit only after this is `Approved`.                                                                          |
+| Y      | Edit Lock       | Optional. Comma-separated identity fields edited in the app; discovery preserves those values.                                                         |
 
 ### Status Values
 
