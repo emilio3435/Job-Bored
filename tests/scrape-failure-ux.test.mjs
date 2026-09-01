@@ -25,6 +25,10 @@ function response(body, { ok = true, status = 200 } = {}) {
 }
 
 function loadDrawer() {
+  return loadDrawerHarness().drawer;
+}
+
+function loadDrawerHarness() {
   const context = {
     window: {},
     URL,
@@ -32,7 +36,7 @@ function loadDrawer() {
   };
   vm.createContext(context);
   vm.runInContext(drawerJs, context, { filename: "discovery-drawer.js" });
-  return context.window.JobBoredDiscovery.drawer;
+  return { context, drawer: context.window.JobBoredDiscovery.drawer };
 }
 
 const ROLE_HTML = `<!doctype html><html><head><title>Product Designer at Figma</title></head>
@@ -471,6 +475,36 @@ describe("job scrape failure contract", () => {
 });
 
 describe("discovery drawer scrape failure copy", () => {
+  it("explains when the browser's scraper request times out", () => {
+    const drawer = loadDrawer();
+    const message = drawer.formatScrapeRequestError(
+      { name: "AbortError" },
+      "https://jobs.example.com/roles/designer",
+      "http://127.0.0.1:3847",
+    );
+
+    assert.match(message, /^The scraper took too long\./);
+    assert.match(message, /did not finish within 30 seconds/i);
+    assert.match(message, /continue without scraped context/i);
+  });
+
+  it("explains when the browser cannot reach the local scraper", () => {
+    const { context, drawer } = loadDrawerHarness();
+    const networkError = vm.runInContext(
+      "new TypeError('Failed to fetch')",
+      context,
+    );
+    const message = drawer.formatScrapeRequestError(
+      networkError,
+      "https://jobs.example.com/roles/designer",
+      "http://127.0.0.1:3847",
+    );
+
+    assert.match(message, /^JobBored could not reach the local scraper\./);
+    assert.match(message, /No response arrived from 127\.0\.0\.1/);
+    assert.match(message, /Make sure JobBored is running/);
+  });
+
   it("upgrades a legacy blocked response into an actionable message", () => {
     const drawer = loadDrawer();
     const message = drawer.formatScrapeFailure(

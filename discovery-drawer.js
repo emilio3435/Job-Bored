@@ -1942,6 +1942,7 @@ function initDiscoveryButton() {
     callDiscoveryAiLocal,
     callConfiguredAi,
     formatScrapeFailure,
+    formatScrapeRequestError,
     setDiscoveryDrawerSubtab,
     getActiveDiscoverySubtab() {
       return activeDiscoverySubtab;
