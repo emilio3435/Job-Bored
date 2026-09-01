@@ -300,48 +300,36 @@ No new `data-action` names are introduced; two existing ones (`draft-tab`, `retr
 **Smoke routine.** A `?jb-v2-test=scribe` URL gate runs an inline assertion suite (monkey-patches `HTMLElement.prototype.click` to record dispatched ids, then clicks each new button and confirms the matching legacy id fired). PASS / FAIL prints to console; results are also stashed on `window.__JB_SCRIBE_SMOKE_RESULTS__`. Full spec, scorecard tier rules, and a11y checklist: [`SCRIBE.md`](SCRIBE.md).
 
 
-<!-- Welcome: Onboarding + first-run empty state (Phase 3) -->
+<!-- Welcome: first-run empty state (Phase 3) -->
 
-## 7. Welcome additions — onboarding + first-run empty state (Phase 3)
+## 7. Welcome additions — the dashboard's first-run empty state (Phase 3)
 
-Welcome replaces the legacy single-step onboarding card (rendered while `body.jb-v2` is on) with a paced **9-step flow** inside `region:welcome`, plus the **first-run empty state** for the dashboard ("nothing here yet — paste a URL"). Off the v2 flag, neither surface activates and the legacy onboarding card / `#emptyState` render unchanged.
+Welcome adds the **first-run empty state** for the dashboard ("nothing here
+yet — paste a URL") inside `region:welcome`. Off the v2 flag it does not
+activate and the legacy `#emptyState` renders unchanged.
 
-**Region scope.** Only the `<div data-region="welcome">` host and two head imports (`welcome.css`, `welcome.js`) are added. The `data-region="welcome"` host is mounted inside the region markers; `welcome.js` lazily fills it. Outside the region: untouched.
+**Region scope.** Only the `<div data-region="welcome">` host and two head
+imports (`welcome.css`, `welcome.js`) are added. The host is mounted inside
+the region markers; `welcome.js` lazily fills it. Outside the region:
+untouched. `welcome.js` persists nothing — no localStorage, no IndexedDB.
 
-**localStorage persistence schema.** Key `jb-v2-onboarding`:
+**Empty-state contract.** Triggered when (and only when) the legacy condition
+fires — `pipelineData.length === 0 && !dataLoadFailed`. Welcome detects this
+by observing the legacy `#emptyState` element (display + `#emptyStateTitle`
+text matches `/your pipeline is empty/i`) via `MutationObserver` plus a
+10-second polling fallback. Three quick actions delegate to existing
+controls: paste-URL focuses `#ingestUrlInput`; manual-add clicks
+`#ingestManualModalOpenBtn`; discovery clicks `#discoveryBtn` /
+`[data-action="openDiscovery"]` / `#openDiscoveryBtn` / `#runDiscoveryBtn`.
 
-```jsonc
-{
-  "step": 1,                   // integer 1-9
-  "values": {
-    "name": "",                // step 1
-    "goal": "active",          // step 2: "active" | "casual" | "coasting"
-    "sources": [],             // step 3: ["greenhouse","lever","ashby","linkedin","indeed","manual"]*
-    "tone": "warm",            // step 4: "direct" | "warm" | "formal" (verbatim legacy strings)
-    "stack": "",               // step 5: comma-list of skills
-    "comp": 120000,            // step 6: USD integer (target, not range)
-    "locations": [],           // step 7: chip labels
-    "sheetId": ""              // step 8: populated when legacy connect succeeds
-  },
-  "updatedAt": "ISO-8601"
-}
-```
+**Mascot.** No `jobbored.svg` edits (per `docs/redesign/mascot-review.md`'s
+10-decision approval gate) — the card ships the same SVG, decorative and
+`aria-hidden`.
 
-State is written on every input/click and step navigation, then **flushed to legacy stores on Step 9 submit** and the local key is cleared.
-
-**Field-key mapping (Welcome → legacy stores).** Welcome never invents new schema; every value writes through to the same `CommandCenterUserContent` surface the legacy onboarding wizard uses (`app.js:16280-16347`).
-
-| Welcome field | Legacy store / call | Origin contract |
-|---|---|---|
-| `values.tone` | `UC.savePreferences({ tone })` | `DEFAULT_PREFERENCES.tone` (`user-content-store.js:166`) — legacy `wizardPrefTone` write path. |
-| `values.stack` | `UC.saveDiscoveryProfile({ targetRoles: stack })` | `DEFAULT_DISCOVERY_PROFILE.targetRoles` (`user-content-store.js:182`). Same key the legacy chips wrote to (`app.js:16329`). |
-| `values.locations[]` | `UC.saveDiscoveryProfile({ locations })` | Comma-joined to a string per `DEFAULT_DISCOVERY_PROFILE.locations`. |
-| `values.name`, `goal`, `sources[]`, `comp` | `UC.saveAdditionalContext({ text })` | Aggregated into the legacy "Additional context" blob (the surface used for "Superpower / Avoid / pasted summary" in legacy step 3). |
-| `values.sheetId` | _delegated_ — clicks `#setupCreateStarterSheetBtn` (create) or any of `#setupShowGate` / `#openSheetGateBtn` (connect existing); reads `window.JobBored.getSheetId()`. | We never re-implement OAuth; the legacy starter-sheet creator and gate own the canonical write. |
-| _(completion flag)_ | `UC.completeOnboarding()` → IndexedDB setting `onboardingComplete = true` | Same call `app.js:16347` makes; we additionally click any `[data-action="completeOnboarding"]` element if present. |
-
-**Empty-state contract.** Triggered when (and only when) the legacy condition fires — `pipelineData.length === 0 && !dataLoadFailed`. Welcome detects this by observing the legacy `#emptyState` element (display + `#emptyStateTitle` text matches `/your pipeline is empty/i`) via `MutationObserver` plus a 10-second polling fallback. Three quick actions delegate to existing controls: paste-URL focuses `#ingestUrlInput`; manual-add clicks `#ingestManualModalOpenBtn`; discovery clicks `[data-action="openDiscovery"]` / `#openDiscoveryBtn` / `#runDiscoveryBtn`.
-
-**Mascot variant strategy.** No `jobbored.svg` edits (per `docs/redesign/mascot-review.md`'s 10-decision approval gate). Welcome ships the same SVG and varies it per step using only safe transforms — `rotate` (±2°–5°), `translateY`, `scaleX(-1)` (mirror) on Step 8 — and a single celebratory `drop-shadow(... var(--jb-amber-soft))` on Step 9. When a future tired/excited/curious face set lands, swapping `<img src>` per step is a 3-line patch.
-
-**Self-test.** `?jb-v2-test=welcome` (combined with `?jb-v2=1`) runs three console assertions: refresh-mid-flow restoration on step 5, Esc-on-step-6 confirm dialog, and step-9 submit (asserts `[data-action="completeOnboarding"]` click if present, otherwise the documented no-op log path). Full step list, copy, transitions, and a11y checklist: [`WELCOME.md`](WELCOME.md).
+**Phase 3 originally shipped a nine-step paced onboarding flow here too,
+with its own `jb-v2-onboarding` localStorage schema, a write-through into
+`CommandCenterUserContent`, and a `?jb-v2-test=welcome` self-test. All of it
+was deleted by `docs/ONE-FLOW-ONBOARDING-SPEC.md` §7: onboarding is the one
+flow now (`onboarding-flow.js` plus the six beat modules), and a second
+nine-step wizard behind a feature flag was the duplication that spec exists
+to end.** Current contract: [`WELCOME.md`](WELCOME.md).
