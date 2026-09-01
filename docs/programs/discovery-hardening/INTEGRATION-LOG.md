@@ -16,6 +16,10 @@ Base SHA: `81e313ac8aa72345b2930aa4233f3d11ce09f221` (main, 2026-09-01)
 |---|---|---|---|---|---|
 | scout-browser | workspace:192 | 71039 | `--model opus --effort high --permission-mode auto` | `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.257` | integration worktree |
 | qa | workspace:199 | 63777 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-qa` (cut from `a116683`) |
+| repair-assets | workspace:200 | 1578 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | assets worktree (QA MINOR-4) |
+| repair-lifecycle | workspace:201 | 1640 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | lifecycle worktree (QA MAJOR-2, MINOR-3) |
+| repair-stable-transport | workspace:202 | 1905 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | stable-transport worktree (QA MAJOR-1) |
+| repair-canary | workspace:203 | 2162 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | canary worktree (QA MINOR-6/7/8) |
 | scout-worker | workspace:193 | 71067 | `--model opus --effort high --permission-mode auto` | `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.257` | integration worktree |
 | assets | workspace:194 | 57753 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-assets` |
 | scrape-e2e | workspace:195 | 57826 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-scrape-e2e` |
@@ -71,3 +75,22 @@ Note: the cmux wrapper places `--session-id`/`--settings` before the user flags,
 | Canary CLI, lane fixtures, fixture `/health` on 127.0.0.1:18646 | healthy → exit 0 (`worker_healthy`,`successful_run_fresh`); stale (101h-old run) → exit 1; stale (no run) → exit 1 (`no_successful_run`); unavailable (refused port) → exit 2; misconfigured (foreign service on port) → exit 3; JSON output grep for `ya29|authorization|x-discovery-secret|sheetId` → 0 hits |
 
 Skipped: nothing. Environmental limitation: none — every command ran on this machine. Test-count deltas vs baseline: root +27 (10 ASSET-1, 5 LIFECYCLE-1 statusPath, 8 STABLE-1, 15 LIFECYCLE-1 poller, 20 CANARY-1, minus the 31 in `tests/integration/` that only `npm test` counts → see the `npm test` row: +58 total), worker +20, journey +2.
+
+## QA adjudication (Fable, 2026-09-01 16:58 MT)
+
+QA (`reports/qa.md`): no BLOCKER, 2 MAJOR, 10 MINOR; every claim met; floor re-run green by QA; no skipped or weakened tests; secrets clean.
+
+| Finding | Disposition |
+|---|---|
+| MAJOR-1 loop-level coverage hole for `statusEndpointTerminal` (mutation-proven) | Repair lane D: loop-level test with injected timers, RED proven by mutation |
+| MAJOR-2 idempotency suite narrative claims the re-click case | Repair lane C: correct narrative, pin the limitation with a test |
+| MINOR-3 failed-run redelivery acks 200 `completed_sync` | Repair lane C: pin current behavior with a named test; contract change deferred to Emilio |
+| MINOR-4 stamper/guard blind to single quotes and script/style preloads | Repair lane A: accept both quote styles, stamp+verify script/style preloads, fail loud |
+| MINOR-5 pre-existing journey flake at `critical-journey.spec.mjs:265` | Record; pre-existing, not touched by the program; watch in CI |
+| MINOR-6 argument-error canary report fabricates reasons | Repair lane E |
+| MINOR-7 doc lists a reason never emitted | Repair lane E |
+| MINOR-8 exit 4 untested | Repair lane E: extract `runCli`, test the internal-error path |
+| MINOR-9 old webhook suite pins runId via `runDependencies.runId` | Record; sanctioned by LD-3(e), coverage rests on `lifecycle-idempotency.test.ts` |
+| MINOR-10 drawer 422 "Fallback:" sentence is noise; `role=alert` set after text | Record; product copy outside every fence → Emilio follow-up |
+| MINOR-11 retryable set is a superset (400/422/501 retry) | Record; deliberate fail-open, bounded |
+| MINOR-12 duplicate `.gitignore` line (pre-existing) | Record |
