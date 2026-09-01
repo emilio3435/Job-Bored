@@ -423,11 +423,13 @@ app.post("/profile/template/:id", (req, res) => {
 /**
  * POST /profile/from-resume
  *
- * Prefers request-body `resumeText` (browser-staged, not persisted). Falls
- * back to stored resume text (worker config, ~/.jobbored/resume.txt, or
- * legacy hermes). Runs the configured profile AI provider and returns a
- * draft v1 UserProfile for the wizard. Does NOT save the profile or the
- * staged resume.
+ * Prefers request-body `resumeText` (browser-staged) and caches it to
+ * ~/.jobbored/resume.txt — the server half of the ONE-FLOW resume dual
+ * write (spec §5 B3), so the next reader sees the same resume the browser
+ * has. Falls back to stored resume text (worker config,
+ * ~/.jobbored/resume.txt, or legacy hermes). Runs the configured profile
+ * AI provider and returns a draft v1 UserProfile for review. Does NOT save
+ * the profile — the user confirms that on the next screen.
  *
  * 200 { ok: true, profile, source }   — got a draft profile
  * 404 { ok: false, reason: "no_resume_stored" }
