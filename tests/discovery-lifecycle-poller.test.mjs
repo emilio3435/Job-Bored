@@ -26,6 +26,10 @@ const runTrackerJs = readFileSync(
   "utf8",
 );
 
+const WEBHOOK_URL = "http://127.0.0.1:8644/webhook";
+/** Mirrors MAX_POLL_ERRORS in discovery-status-handoff.js. */
+const MAX_POLL_ERRORS = 3;
+
 const TRACKER_STATE = {
   runId: "run_probe",
   statusPath: "/runs/run_probe",
@@ -344,5 +348,225 @@ describe("LIFECYCLE-1 — the tracker records a terminal status endpoint", () =>
     tracker.beginTracking({ runId: "run_2", statusPath: "/runs/run_2" });
 
     assert.equal(tracker.getState().statusEndpointTerminal, false);
+  });
+});
+
+/**
+ * Mount the REAL `startDiscoveryStatusPolling` loop over the REAL tracker with
+ * an injected `setTimeout` queue, so the loop can be stepped deterministically
+ * (ground-rules trap #8 — never a wall-clock sleep in a race assertion).
+ *
+ * The fake-tracker harness above can only see which entry point a single poll
+ * routes to. It cannot see what the LOOP does with the resulting state, which
+ * is where the `statusEndpointTerminal` early return lives.
+ */
+function loadRealLoop({ fetchImpl, runId = "run_abc12345" } = {}) {
+  const tracker = loadRealTracker();
+  tracker.beginTracking({
+    runId,
+    statusPath: `/runs/${runId}`,
+    webhookUrl: WEBHOOK_URL,
+    pollAfterMs: 1000,
+  });
+
+  const scheduled = [];
+  const toasts = [];
+  const fetches = [];
+  const btn = makeEl();
+  const window = { location: { search: "", pathname: "/", hash: "" } };
+  const ctx = {
+    window,
+    document: {
+      getElementById: (id) => (id === "discoveryBtn" ? btn : makeEl()),
+    },
+    console,
+    setTimeout: (fn, delay) => {
+      scheduled.push({ fn, delay });
+      return scheduled.length;
+    },
+    clearTimeout() {},
+    URL,
+    URLSearchParams,
+    fetch: async (url, init) => {
+      fetches.push(String(url));
+      return fetchImpl(url, init);
+    },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(statusHandoffJs, ctx, {
+    filename: "discovery-status-handoff.js",
+  });
+  window.JobBoredDiscovery.runTracker = { discoveryRunTracker: tracker };
+  window.JobBoredDiscovery.status.host = {
+    showToast: (message, tone, sticky, action) =>
+      toasts.push({ message, tone, sticky, action }),
+    isSignedIn: () => true,
+    getDiscoveryWebhookUrl: () => WEBHOOK_URL,
+    normalizeDiscoveryWebhookIdentity: (u) => String(u || ""),
+    isLocalWebhookCandidateUrl: () => true,
+    isLocalDashboardOrigin: () => false,
+    loadAllData: async () => {},
+  };
+
+  /** Run queued poll callbacks until the loop stops scheduling (or `max`). */
+  async function drain(max = 8) {
+    let steps = 0;
+    while (scheduled.length && steps < max) {
+      const next = scheduled.shift();
+      steps += 1;
+      await next.fn();
+    }
+    return steps;
+  }
+
+  return {
+    status: window.JobBoredDiscovery.status,
+    tracker,
+    scheduled,
+    toasts,
+    fetches,
+    drain,
+  };
+}
+
+function respondWith(status, body = {}) {
+  return async () => ({
+    ok: false,
+    status,
+    json: async () => body,
+  });
+}
+
+describe("LIFECYCLE-1 — the real poll loop stops at a settled status endpoint", () => {
+  it("LIFECYCLE-1: a 404 settles the loop — one attempt, no further poll, and never 'may still be running'", async () => {
+    const env = loadRealLoop({
+      fetchImpl: respondWith(404, { ok: false, message: "Run not found" }),
+    });
+
+    await env.status.startDiscoveryStatusPolling(WEBHOOK_URL);
+    assert.equal(
+      env.scheduled.length,
+      1,
+      "starting the loop must schedule exactly one first poll",
+    );
+    await env.drain();
+
+    assert.equal(
+      env.scheduled.length,
+      0,
+      "a settled status endpoint must not schedule another poll — the same 404 would only be re-earned",
+    );
+    assert.equal(
+      env.fetches.length,
+      1,
+      "a terminal answer must not burn the retry budget",
+    );
+
+    const state = env.tracker.getState();
+    assert.equal(state.status, "polling_error");
+    assert.equal(state.statusEndpointTerminal, true);
+    assert.match(
+      state.errorMessage,
+      /no record of this run \(HTTP 404\)/,
+      "the loop must leave the honest terminal copy in place, not overwrite it with the connection-lost copy",
+    );
+    assert.doesNotMatch(state.errorMessage, /may still be running/i);
+
+    assert.ok(env.toasts.length >= 1, "the settled run must be surfaced");
+    for (const toast of env.toasts) {
+      assert.doesNotMatch(
+        toast.message,
+        /may still be running/i,
+        "LD-4: a 404 proves the worker has no record of the run — telling the user it may still be running is a lie",
+      );
+    }
+    assert.match(env.toasts.at(-1).message, /no record of this run/i);
+    assert.equal(env.toasts.at(-1).sticky, true);
+  });
+
+  it("LIFECYCLE-1: a 401 settles the loop and keeps the status-token reason", async () => {
+    const env = loadRealLoop({
+      fetchImpl: respondWith(401, { ok: false, message: "Unauthorized" }),
+    });
+
+    await env.status.startDiscoveryStatusPolling(WEBHOOK_URL);
+    await env.drain();
+
+    assert.equal(env.scheduled.length, 0);
+    assert.equal(env.fetches.length, 1);
+
+    const state = env.tracker.getState();
+    assert.equal(state.statusEndpointTerminal, true);
+    assert.match(state.errorMessage, /status token \(HTTP 401\)/i);
+    assert.doesNotMatch(state.errorMessage, /may still be running/i);
+
+    assert.ok(env.toasts.length >= 1);
+    for (const toast of env.toasts) {
+      assert.doesNotMatch(toast.message, /may still be running/i);
+    }
+    assert.match(env.toasts.at(-1).message, /status token/i);
+  });
+
+  it("LIFECYCLE-1: a retryable 503 still exhausts its retries and keeps the connection-lost copy", async () => {
+    const env = loadRealLoop({ fetchImpl: respondWith(503) });
+
+    await env.status.startDiscoveryStatusPolling(WEBHOOK_URL);
+    await env.drain();
+
+    assert.equal(env.scheduled.length, 0, "the loop stops once retries run out");
+    assert.equal(
+      env.fetches.length,
+      MAX_POLL_ERRORS,
+      "a retryable status must use its full retry budget",
+    );
+
+    const state = env.tracker.getState();
+    assert.equal(
+      state.statusEndpointTerminal,
+      false,
+      "503 is not a settled answer",
+    );
+    assert.match(state.errorMessage, /may still be running/i);
+  });
+});
+
+describe("LIFECYCLE-1 — a settled status endpoint stays settled across a reload", () => {
+  it("LIFECYCLE-1: resumeDiscoveryStatusPollingIfNeeded does not restart polling after a 404", async () => {
+    const env = loadRealLoop({
+      fetchImpl: respondWith(404, { ok: false, message: "Run not found" }),
+    });
+
+    await env.status.startDiscoveryStatusPolling(WEBHOOK_URL);
+    await env.drain();
+    const fetchesAfterSettle = env.fetches.length;
+    env.toasts.length = 0;
+
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+
+    assert.equal(
+      env.scheduled.length,
+      0,
+      "a reload must not re-poll a status endpoint that already gave a settled answer",
+    );
+    assert.equal(env.fetches.length, fetchesAfterSettle);
+    for (const toast of env.toasts) {
+      assert.doesNotMatch(toast.message, /may still be running/i);
+    }
+  });
+
+  it("LIFECYCLE-1: resumeDiscoveryStatusPollingIfNeeded DOES restart polling after a retryable loss", async () => {
+    const env = loadRealLoop({ fetchImpl: respondWith(503) });
+
+    await env.status.startDiscoveryStatusPolling(WEBHOOK_URL);
+    await env.drain();
+    assert.equal(env.scheduled.length, 0);
+
+    env.status.resumeDiscoveryStatusPollingIfNeeded();
+
+    assert.equal(
+      env.scheduled.length,
+      1,
+      "a lost connection is not a settled answer — the reload must try again, so the 404 case above is proving the terminal marker and not just 'resume never polls'",
+    );
   });
 });
