@@ -330,6 +330,31 @@ describe("createMaterialsDrafter", () => {
     assert.equal(editorCalls, 0);
   });
 
+  it("keeps the pre-merge scorecard when PDF page-count audit throws", async () => {
+    const drafter = createMaterialsDrafter(
+      baseDeps(dir, {
+        pdfRenderer: async ({ resumePdfPath }) => {
+          await mkdir(String(resumePdfPath), { recursive: true });
+          return { skipped: false };
+        },
+      }),
+    );
+    await drafter.enqueue({
+      slug: "eab-role",
+      company: "EAB",
+      title: "Director",
+      feature: "both",
+      jobUrl: "https://example.com/job",
+      notes: "",
+    });
+    await drafter.runUntilIdle();
+    await readFile(join(dir, "eab-role", "resume.html"), "utf8");
+    await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
+    const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
+    assert.match(report, /READY|pass/i);
+    await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
+  });
+
   it("reserves the same slug before any await so a concurrent enqueue is a no-op", async () => {
     const drafter = createMaterialsDrafter(baseDeps(dir));
     const payload = {

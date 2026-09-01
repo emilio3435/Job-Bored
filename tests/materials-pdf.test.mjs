@@ -41,4 +41,29 @@ describe("renderPdfIfPossible", () => {
     assert.equal(result.path, outPath);
     await rm(dir, { recursive: true, force: true });
   });
+
+  it("returns pdf_skipped when launch/setContent/pdf exceeds the timeout", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "jb-pdf-"));
+    let closed = false;
+    const result = await renderPdfIfPossible("<html><body>Hi</body></html>", join(dir, "out.pdf"), {
+      timeoutMs: 30,
+      playwrightImport: async () => ({
+        chromium: {
+          launch: async () => ({
+            newPage: async () => ({
+              setContent: () => new Promise(() => {}),
+              pdf: async () => {},
+            }),
+            close: async () => {
+              closed = true;
+            },
+          }),
+        },
+      }),
+    });
+    assert.equal(result.skipped, true);
+    assert.equal(result.note, "pdf_skipped");
+    assert.equal(closed, true);
+    await rm(dir, { recursive: true, force: true });
+  });
 });

@@ -716,12 +716,16 @@ export function createMaterialsDrafter(deps = {}) {
     });
     const pdfSkipped = Boolean(pdfResult?.skipped);
     if (!pdfSkipped) {
-      rawScorecard = await mergePdfPageCounts(rawScorecard, {
-        resumeHtml: composed.resumeHtml,
-        letterHtml: composed.letterHtml,
-        resumePdfPath,
-        coverLetterPdfPath,
-      });
+      try {
+        rawScorecard = await mergePdfPageCounts(rawScorecard, {
+          resumeHtml: composed.resumeHtml,
+          letterHtml: composed.letterHtml,
+          resumePdfPath,
+          coverLetterPdfPath,
+        });
+      } catch {
+        // Keep the pre-merge scorecard. A QA reread must not sink the draft.
+      }
     }
     scorecard = adjustScorecardForSkippedPdf(rawScorecard, pdfSkipped);
     /** @type {string[]} */
