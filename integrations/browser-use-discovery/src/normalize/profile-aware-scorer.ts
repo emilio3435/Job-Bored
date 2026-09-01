@@ -79,9 +79,9 @@ export function runPreFilter(
     };
   }
 
-  // 3. workMode hybrid/onsite AND acceptableLocations set AND no match
-  //    Skip when workMode = remote_only (remote listings ignore location).
-  if (hc.workMode !== "remote_only") {
+  // 3. workMode hybrid/onsite AND acceptableLocations set AND no match.
+  //    `any` and `remote_only` never apply a location hard constraint.
+  if (hc.workMode === "hybrid_ok" || hc.workMode === "onsite_ok") {
     const acceptable = (hc.acceptableLocations || [])
       .map((entry) => String(entry || "").trim().toLowerCase())
       .filter(Boolean);
@@ -112,23 +112,23 @@ export function runPreFilter(
     }
   }
 
-  // 5. salaryRequired
-  if (hc.salaryRequired) {
-    const parsedMax = parseSalaryMax(rawListing.compensationText || "");
-    if (parsedMax === null) {
+  // 5. salaryRequired owns only the missing-salary rejection. A published
+  //    salary below salaryFloor rejects independently of that checkbox.
+  const parsedMax = parseSalaryMax(rawListing.compensationText || "");
+  if (parsedMax === null) {
+    if (hc.salaryRequired) {
       return {
         pass: false,
         reason: "salary_missing_but_required",
         detail: "Profile requires published salary; listing has none.",
       };
     }
-    if (typeof hc.salaryFloor === "number" && parsedMax < hc.salaryFloor) {
-      return {
-        pass: false,
-        reason: "salary_below_floor",
-        detail: `Parsed salary ${parsedMax} below floor ${hc.salaryFloor}.`,
-      };
-    }
+  } else if (typeof hc.salaryFloor === "number" && parsedMax < hc.salaryFloor) {
+    return {
+      pass: false,
+      reason: "salary_below_floor",
+      detail: `Parsed salary ${parsedMax} below floor ${hc.salaryFloor}.`,
+    };
   }
 
   return { pass: true };
