@@ -21,6 +21,15 @@ const read = (rel) => readFileSync(join(root, rel), "utf8");
 const gone = (rel) =>
   assert.equal(existsSync(join(root, rel)), false, `${rel} must be deleted`);
 
+/** True when `needle` appears outside of a pure comment line. */
+function source_has(source, needle) {
+  return String(source)
+    .split("\n")
+    .some(
+      (line) => line.includes(needle) && !/^\s*(\/\/|\*|\/\*)/.test(line),
+    );
+}
+
 describe("§7 · the enhancements wizard is gone (all 5 steps)", () => {
   it("the module and its suite are deleted", () => {
     gone("enhancements-wizard-ui.js");
@@ -133,11 +142,50 @@ describe("§7 · Settings → Upgrades carries what the wizard used to list", ()
   });
 });
 
-/** True when `needle` appears outside of a pure comment line. */
-function source_has(source, needle) {
-  return String(source)
-    .split("\n")
-    .some(
-      (line) => line.includes(needle) && !/^\s*(\/\/|\*|\/\*)/.test(line),
+describe("§7 · the blocking discovery gate is gone", () => {
+  it("#discoverySetupGate and its two controls leave the markup", () => {
+    const partial = read("partials/onboarding-wizard.html");
+    assert.equal(/discoverySetupGate/.test(partial), false);
+    assert.equal(/discoveryGateOpenWizard/.test(partial), false);
+    assert.equal(/discoveryGateSkipEscape/.test(partial), false);
+  });
+
+  it("no module drives a gate that no longer exists", () => {
+    for (const file of ["onboarding-wizard.js", "css/legacy-onboarding.css"]) {
+      assert.equal(
+        /discoverySetupGate|showDiscoveryGate|hideDiscoveryGate/.test(
+          read(file),
+        ),
+        false,
+        `${file} must not reach for the deleted gate`,
+      );
+    }
+  });
+
+  it("discoverySetupSkipped SURVIVES — the banner still reads it", () => {
+    // Deliberately kept (spec §7 deletes the gate, not the flag): the
+    // what's-next banner exposes it as an observable fact, and deleting a
+    // store key a live reader calls is how a sweep breaks a dashboard.
+    const store = read("user-content-store.js");
+    for (const fn of [
+      "isDiscoverySetupSkipped",
+      "setDiscoverySetupSkipped",
+      "resetDiscoverySetupSkipped",
+    ]) {
+      assert.ok(store.includes(fn), `${fn} must stay on the store`);
+    }
+    assert.match(read("whats-next-banner.js"), /isDiscoverySetupSkipped/);
+  });
+
+  it("B5 is what replaced it: required fuel, skippable connect", () => {
+    // spec §5 B5 — the gate blocked on the whole setup; the beat blocks on
+    // the fuel key only, and its skip is connect-only.
+    const beat = read("oneflow-beat-discovery.js");
+    assert.match(beat, /discoveryConnect/, "the skip is scoped to connect");
+    assert.match(
+      beat,
+      /Skip the connection for now/,
+      "the spec's skip copy, verbatim",
     );
-}
+  });
+});
