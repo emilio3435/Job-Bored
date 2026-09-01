@@ -13,7 +13,8 @@ ATS_OPENAI_COMPATIBLE_API_KEY=
 ATS_OPENAI_COMPATIBLE_MODEL=gemma4:e2b
 ATS_OPENAI_COMPATIBLE_BASE_URL=http://127.0.0.1:11434/v1
 
-# Gemini is only needed when ATS_PROVIDER=gemini.
+# Gemini is needed when ATS_PROVIDER=gemini, and also as the scraper's
+# last-lane URL Context fallback after ATS JSON, HTML, and SerpApi miss.
 ATS_GEMINI_API_KEY=
 ATS_GEMINI_MODEL=gemini-3.5-flash
 

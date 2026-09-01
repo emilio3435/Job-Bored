@@ -309,9 +309,12 @@ describe("job scraper LinkedIn fallback", () => {
   });
 
   it("F1D-INGEST04-HOST omits Careers/Linkedin host placeholders instead of saving them as the employer", async () => {
-    const html = `<!doctype html><html><head><title>Careers | LinkedIn</title></head>
-      <body><main class="job-description"><h1>Open roles</h1>
-      <p>${"Browse openings on this careers host. Apply through LinkedIn when you are ready. ".repeat(10)}</p>
+    const html = `<!doctype html><html><head>
+      <title>Sales Director US</title>
+      <meta property="og:site_name" content="LinkedIn">
+      </head>
+      <body><main class="job-description"><h1>Sales Director US</h1>
+      <p>${"Own enterprise pipeline, run consultative sales cycles, and close agency and advertiser deals across the US market. ".repeat(8)}</p>
       </main></body></html>`;
 
     const result = await scrapeJobPosting(
@@ -329,6 +332,7 @@ describe("job scraper LinkedIn fallback", () => {
     const company = String(result.company || "").trim();
     assert.notEqual(company.toLowerCase(), "careers");
     assert.notEqual(company.toLowerCase(), "linkedin");
+    assert.match(String(result.description || ""), /enterprise pipeline/);
   });
 });
 
@@ -370,8 +374,12 @@ describe("job scraper Google Jobs fallback for blocked ATS pages", () => {
       },
     });
 
-    assert.equal(fetchCalls.length, 2);
-    assert.equal(fetchCalls[0], url);
+    assert.ok(
+      fetchCalls.some((requestUrl) => /boards-api\.greenhouse\.io/.test(requestUrl)),
+      "Greenhouse URLs must probe the public job API before HTML",
+    );
+    assert.ok(fetchCalls.includes(url), "blocked HTML scrape is still attempted after API miss");
+    assert.ok(fetchCalls.some((requestUrl) => /serpapi\.com/.test(requestUrl)));
     assert.equal(result.source, "serpapi-google-jobs");
     assert.equal(result.title, "Product Designer");
     assert.equal(result.company, "Figma");
