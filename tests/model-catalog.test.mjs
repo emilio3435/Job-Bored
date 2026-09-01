@@ -522,23 +522,18 @@ describe("JobBoredModelCatalog — caching", () => {
 });
 
 describe("index.html loads model-catalog.js before its consumers", () => {
-  it("model-catalog.js is loaded after resume-generate.js but before first-run-wizard.js and settings-modal.js", () => {
+  it("model-catalog.js is loaded after resume-generate.js but before settings-modal.js", () => {
+    // first-run-wizard.js was the other consumer; §7 deleted it.
     const i = (s) => indexHtml.indexOf(s);
     const resume = i("resume-generate.js");
     const catalog = i("model-catalog.js");
-    const wizard = i("first-run-wizard.js");
     const settings = i("settings-modal.js");
     assert.ok(resume >= 0, "index.html must load resume-generate.js");
     assert.ok(catalog >= 0, "index.html must load model-catalog.js");
-    assert.ok(wizard >= 0, "index.html must load first-run-wizard.js");
     assert.ok(settings >= 0, "index.html must load settings-modal.js");
     assert.ok(
       catalog > resume,
       "model-catalog.js depends on the static options in resume-generate.js — must load AFTER it",
-    );
-    assert.ok(
-      catalog < wizard,
-      "first-run-wizard.js consumes the catalog — model-catalog.js must load BEFORE it",
     );
     assert.ok(
       catalog < settings,

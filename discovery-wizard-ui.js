@@ -2130,13 +2130,6 @@ async function renderDiscoverySetupWizard(options = {}) {
       void host().persistDiscoveryWizardState(state);
     },
     onClose: (reason, ctx) => {
-      // Restore onboarding if it was showing when discovery wizard opened
-      const runtime = host().getDiscoveryWizardRuntime();
-      const shouldRestoreOnboarding =
-        runtime &&
-        runtime.state &&
-        runtime.state._onboardingWasHiddenByDiscovery;
-
       // Cross-rec: a genuinely finished discovery setup — reason "finish"
       // AND the persisted result is "connected" — chains into the go-live
       // (devices) wizard via recommendGoLiveAfterDiscoveryFinish, which
@@ -2166,10 +2159,6 @@ async function renderDiscoverySetupWizard(options = {}) {
       // it must never keep showing a stale "0 of 2" (completion may have
       // persisted mid-wizard via a connected verification).
       refreshWhatsNextBannerBestEffort();
-
-      if (shouldRestoreOnboarding) {
-        host().showOnboardingWizard();
-      }
 
       if (typeof options.onClose === "function") {
         try {
@@ -2739,11 +2728,9 @@ async function openDiscoverySetupWizard(options = {}) {
   }
   // ====== [/discovery-autodetect lane] ======
 
-  // Remember if onboarding was showing so we can restore it after wizard closes
-  const onboardingWasVisible = host().isOnboardingWizardVisible();
-  if (onboardingWasVisible) {
-    host().hideOnboardingWizard();
-  }
+  // Nothing to hide-and-restore around this wizard any more: spec §7
+  // deleted the legacy onboarding wizard, and the one-flow defers this
+  // surface rather than being covered by it (requestDiscoverySetup).
   if (host().isSettingsModalOpen()) {
     host().closeCommandCenterSettingsModal();
   }
@@ -2799,7 +2786,6 @@ async function openDiscoverySetupWizard(options = {}) {
       currentStep: initialStep,
       completedSteps: mergedCompleted,
       // Track that we hid onboarding so we can reshow it on close
-      _onboardingWasHiddenByDiscovery: onboardingWasVisible,
     },
     activeStepId: initialStep,
     // The autodetect verdict rides in as the wizard's opening message, so
@@ -3152,29 +3138,18 @@ async function handleDiscoveryWizardAction(actionId) {
   }
 
   if (actionId === "wizard_continue_devices") {
-    // Continuous setup with a celebratory beat: suppress the onClose
-    // auto-chain, close with finish semantics, play the stage celebration,
-    // and let its CTA run recommendGoLiveAfterDiscoveryFinish — the SAME
+    // Continuous setup: suppress the onClose auto-chain, close with finish
+    // semantics, and run recommendGoLiveAfterDiscoveryFinish — the SAME
     // single opener (no-ops when devices is already complete), so go-live
-    // can never double-open. Overlay missing → the player continues
-    // immediately (existing fallback).
+    // can never double-open.
     host().updateDiscoveryWizardRuntime({ suppressGoLiveAutoOpen: true });
     if (shell && typeof shell.closeWizardShell === "function") {
       shell.closeWizardShell("finish");
     }
-    const onboarding =
-      typeof window !== "undefined" &&
-      window.JobBoredApp &&
-      window.JobBoredApp.onboarding;
-    const proceed = () => void recommendGoLiveAfterDiscoveryFinish();
-    if (
-      onboarding &&
-      typeof onboarding.playOnboardingCelebration === "function"
-    ) {
-      onboarding.playOnboardingCelebration(proceed, "devices");
-    } else {
-      proceed();
-    }
+    // No celebration here any more: spec §7 collapses four bursts to the
+    // single B6 payoff, so this finish hands straight to the go-live
+    // cross-rec instead of gating it behind a "Discovery is live!" beat.
+    void recommendGoLiveAfterDiscoveryFinish();
     return null;
   }
 

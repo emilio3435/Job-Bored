@@ -25,7 +25,6 @@ const indexHtml = read("index.html");
 const discoveryWizardUiJs = read("discovery-wizard-ui.js");
 const goLiveJs = read("go-live-wizard-ui.js");
 const whatsNextBannerJs = read("whats-next-banner.js");
-const firstRunWizardJs = read("first-run-wizard.js");
 
 // A CustomEvent shim that records constructed events (Node has no DOM).
 function makeCustomEvent(record) {
@@ -95,8 +94,8 @@ describe("onboarding-telemetry module", () => {
     for (const mod of [
       "discovery-wizard-ui.js",
       "go-live-wizard-ui.js",
-      "first-run-wizard.js",
       "whats-next-banner.js",
+      "onboarding-flow.js",
     ]) {
       assert.ok(
         t < indexHtml.indexOf(mod),
@@ -222,34 +221,11 @@ describe("onboarding-telemetry — chain step emissions", () => {
     );
   });
 
-  it("finishing the first-run wizard emits first_run_done", async () => {
-    const window = { JobBoredApp: { core: {} } };
-    const calls = spyTelemetry(window);
-    const document = makeBannerDocument();
-    const UC = { openDb: async () => {}, completeInfraSetup: async () => {} };
-    window.JobBoredApp.core.host = {
-      isSignedIn: () => true,
-      getSheetId: () => "sheet-123",
-      getResumeGenerate: () => ({ isResumeGenerationConfigured: () => true }),
-      getUserContent: () => UC,
-      revealDashboardShell: () => {},
-    };
-    const ctx = {
-      window,
-      document,
-      console,
-      setTimeout,
-      requestAnimationFrame: (fn) => fn(),
-    };
-    vm.createContext(ctx);
-    vm.runInContext(firstRunWizardJs, ctx, { filename: "first-run-wizard.js" });
-    await window.JobBoredApp.firstRunWizard.handleFirstRunFinish();
-    assert.equal(
-      calls.filter((c) => c.step === "first_run_done").length,
-      1,
-      "first_run_done must fire exactly once when first-run completes",
-    );
-  });
+  // first_run_done had exactly one emitter, first-run-wizard.js, and §7
+  // deleted it. FIRST_RUN_DONE stays in the frozen STEPS vocabulary — the
+  // funnel dashboards read historical events, and freezing means never
+  // reusing a name — but nothing emits it any more. The one-flow's own
+  // beat_/flow_ events are covered by tests/oneflow-l0-telemetry.test.mjs.
 
   it("opening the discovery setup wizard emits discovery_opened with the entry point", async () => {
     const window = {};

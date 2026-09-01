@@ -214,50 +214,55 @@ describe("the substrate is LIT — and only at the two boot files (L6 cutover)",
     );
   });
 
-  it("the legacy onboarding surfaces reference the flow only to STAND DOWN", () => {
-    // Three surfaces still paint over the dashboard on paths the flow now
-    // owns: the first-run infra wizard and the starter-setup screen fire
-    // on post-sign-in (Beat 1's own state), and welcome.js's onboarding
-    // card mounts on every cold start (screen S0's). Each asks whether the
-    // flow is there and declines; none drives it. L7 deletes all three.
+  it("the surfaces that stood down are now DELETED, not merely deferential", () => {
+    // L6 had three surfaces painting over paths the flow owns, each asking
+    // whether the flow was there and declining. L7 deleted two of them
+    // outright and cut welcome.js's onboarding half (§7); sheet-access-setup
+    // keeps the guard because Beat 1 still uses its gate and starter-sheet
+    // creator.
+    assert.throws(() => readRepoFile("first-run-wizard.js"), /ENOENT/);
+    assert.throws(() => readRepoFile("onboarding-wizard.js"), /ENOENT/);
     const sources = {
-      "first-run-wizard.js": readRepoFile("first-run-wizard.js"),
       "sheet-access-setup.js": readRepoFile("sheet-access-setup.js"),
       "welcome.js": readRepoFile("welcome.js"),
     };
     assert.match(
-      sources["first-run-wizard.js"],
-      /if \(window\.JobBoredOneFlow\) return false;/,
-      "checkInfraSetupGate must decline while the one-flow is on the page",
-    );
-    assert.match(sources["sheet-access-setup.js"], /function oneFlowOwnsSurface\(\)/);
-    assert.match(
-      sources["welcome.js"],
-      /if \(window\.JobBoredOneFlow\) return false;/,
-      "welcome's onboarding half must not mount over S0",
+      sources["sheet-access-setup.js"],
+      /function oneFlowOwnsSurface\(\)/,
     );
     for (const [file, source] of Object.entries(sources)) {
       assert.equal(
-        /JobBoredOneFlow\.(open|goToBeat|completeBeat|registerBeat)/.test(source),
+        /JobBoredOneFlow\.(goToBeat|completeBeat|registerBeat)/.test(source),
         false,
-        `${file} may ask about the flow, never drive it`,
+        `${file} may ask about the flow, never drive its beats`,
       );
     }
   });
 
-  it("no OTHER shipped module reaches for JobBoredOneFlow", () => {
-    // Everything else stays on its own wiring until L7 deletes it; a
-    // stray reference here would mean the cutover leaked past boot.
-    for (const file of [
-      "app.js",
-      "app-compat.js",
-      "whats-next-banner.js",
-      "onboarding-wizard.js",
-    ]) {
+  it("only the boot chain and the flow's re-entry points reach for it", () => {
+    // The re-entry points §7 rewired — the account menu's "Resume
+    // onboarding" and Settings' two reset buttons — are allowed to call
+    // open(); nothing else may touch the controller at all.
+    for (const file of ["app.js", "app-compat.js", "whats-next-banner.js"]) {
       assert.equal(
         readRepoFile(file).includes("JobBoredOneFlow"),
         false,
-        `${file} must stay on the legacy chain until L7`,
+        `${file} must not reach for the controller`,
+      );
+    }
+    for (const file of ["auth-session.js", "materials-feature.js"]) {
+      const source = readRepoFile(file);
+      assert.match(
+        source,
+        /JobBoredOneFlow/,
+        `${file} carries a re-entry point into the flow (§7)`,
+      );
+      assert.equal(
+        /JobBoredOneFlow[\s\S]{0,80}\.(goToBeat|completeBeat|registerBeat)/.test(
+          source,
+        ),
+        false,
+        `${file} may open the flow, never drive individual beats`,
       );
     }
   });

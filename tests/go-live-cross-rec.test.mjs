@@ -13,10 +13,6 @@ const discoveryWizardUiJs = readFileSync(
   join(repoRoot, "discovery-wizard-ui.js"),
   "utf8",
 );
-const firstRunWizardJs = readFileSync(
-  join(repoRoot, "first-run-wizard.js"),
-  "utf8",
-);
 const whatsNextBannerJs = readFileSync(
   join(repoRoot, "whats-next-banner.js"),
   "utf8",
@@ -137,15 +133,18 @@ describe("discovery-wizard-ui — onClose cross-rec (FE-3)", () => {
     assert.match(helperBody, /refreshBanner/);
   });
 
-  it("the onClose still preserves discovery's existing control flow (clearDiscoveryWizardRuntime + refreshDiscoveryReadinessSnapshot + onboarding restore)", () => {
+  it("the onClose still preserves discovery's existing control flow (clearDiscoveryWizardRuntime + refreshDiscoveryReadinessSnapshot)", () => {
     // Locate the onClose block — must keep its existing semantics intact.
+    // The hide-and-restore dance around the legacy onboarding wizard left
+    // with that wizard (ONE-FLOW-ONBOARDING-SPEC §7): the one-flow defers
+    // this surface instead of being covered by it.
     const onCloseIdx = discoveryWizardUiJs.indexOf("onClose: (reason, ctx)");
     assert.ok(onCloseIdx !== -1);
     const onCloseBody = discoveryWizardUiJs.slice(onCloseIdx, onCloseIdx + 2000);
     assert.match(onCloseBody, /clearDiscoveryWizardRuntime/);
     assert.match(onCloseBody, /refreshDiscoveryReadinessSnapshot/);
-    assert.match(onCloseBody, /showOnboardingWizard/);
-    assert.match(onCloseBody, /_onboardingWasHiddenByDiscovery/);
+    assert.equal(/showOnboardingWizard/.test(onCloseBody), false);
+    assert.equal(/_onboardingWasHiddenByDiscovery/.test(onCloseBody), false);
   });
 });
 
@@ -232,7 +231,6 @@ describe("bridge-registry — onboarding auto-chain host contracts", () => {
       "requestGoLiveSetup", // auto-open go-live on discovery finish
       "clearDiscoveryWizardRuntime", // onClose teardown
       "refreshDiscoveryReadinessSnapshot", // onClose snapshot refresh
-      "showOnboardingWizard", // restore onboarding after close
     ]) {
       assert.match(
         block,
@@ -246,8 +244,6 @@ describe("bridge-registry — onboarding auto-chain host contracts", () => {
     const block = sliceHostObject("goLive.host");
     for (const method of [
       "requestDiscoverySetup", // auto-open discovery on go-live finish
-      "isOnboardingWizardVisible", // onboarding-defer gate
-      "isFirstRunWizardVisible", // onboarding-defer gate
     ]) {
       assert.match(
         block,
@@ -259,28 +255,13 @@ describe("bridge-registry — onboarding auto-chain host contracts", () => {
 });
 
 // ----------------------------------------------------------------------
-// CTA swaps: the first-run done panel + the banner both launch the
-// go-live wizard now. The old window.open("docs/SELF-HOSTING.md") path
-// must be gone from both consumers.
+// CTA swap: the banner launches the go-live wizard now. The old
+// window.open("docs/SELF-HOSTING.md") path must be gone. (The first-run
+// done panel was the other consumer; §7 deleted it, and the banner is the
+// only surface offering this destination.)
 // ----------------------------------------------------------------------
 
-describe("self-hosting CTA swaps — launch the go-live wizard, NOT the markdown (FE-3)", () => {
-  it("first-run wizard: handleFirstRunDoneOpenSelfHosting calls requestGoLiveSetup with allowWhileOnboarding=true", () => {
-    const fnStart = firstRunWizardJs.indexOf(
-      "function handleFirstRunDoneOpenSelfHosting",
-    );
-    assert.ok(fnStart !== -1, "handleFirstRunDoneOpenSelfHosting must exist");
-    const fnBody = firstRunWizardJs.slice(fnStart, fnStart + 2000);
-    assert.match(fnBody, /handleFirstRunDoneToDashboard\(\)/);
-    assert.match(fnBody, /requestGoLiveSetup\(/);
-    assert.match(fnBody, /entryPoint:\s*"whats_next"/);
-    assert.match(fnBody, /allowWhileOnboarding:\s*true/);
-    assert.ok(
-      !/window\.open\(["']docs\/SELF-HOSTING\.md["']/.test(fnBody),
-      "the self-hosting CTA must NOT open the markdown deep-reference anymore",
-    );
-  });
-
+describe("self-hosting CTA swap — launch the go-live wizard, NOT the markdown (FE-3)", () => {
   it("banner: handleOpenSelfHosting calls requestGoLiveSetup, no window.open(SELF-HOSTING.md)", () => {
     const fnStart = whatsNextBannerJs.indexOf("function handleOpenSelfHosting");
     assert.ok(fnStart !== -1);

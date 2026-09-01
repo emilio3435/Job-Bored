@@ -3,13 +3,13 @@
    Extracted from app.js (materials-feature cut).
 
    Classic-global IIFE under window.JobBoredApp.materials — NOT an ES module.
-   Loaded AFTER onboarding-wizard.js, BEFORE app.js. Reads app.js helpers via
+   Loaded BEFORE app.js. Reads app.js helpers via
    lazy core.host; profileMaterials, resumeGeneration, and materialsState via
    module accessors.
 
    Owns initResumeMaterialsFeature: materials modal/file listeners, LinkedIn and
-   AI context save handlers, preferences save, Escape-key modal stack, and
-   onboarding wizard init kickoff.
+   AI context save handlers, preferences save, the Escape-key modal stack, and
+   the Settings reset buttons that reopen the one flow.
    ============================================ */
 (() => {
   const root = window.JobBoredApp || (window.JobBoredApp = {});
@@ -29,14 +29,6 @@
 
   function materialsStateMod() {
     return window.JobBoredApp.materialsState;
-  }
-
-  function onboardingMod() {
-    return window.JobBoredApp.onboarding;
-  }
-
-  function firstRunWizardMod() {
-    return window.JobBoredApp.firstRunWizard;
   }
 
   function getUserContent() {
@@ -145,16 +137,27 @@
     return resumeGenerationMod().closeResumeGenerateModal(...args);
   }
 
-  function isOnboardingWizardVisible(...args) {
-    return onboardingMod().isOnboardingWizardVisible(...args);
+  /**
+   * The ONE flow (ONE-FLOW-ONBOARDING-SPEC §3). The legacy onboarding and
+   * first-run wizards these Settings buttons used to drive are deleted
+   * (§7), so "run setup again" means "open the flow".
+   */
+  function oneFlow() {
+    return (typeof window !== "undefined" && window.JobBoredOneFlow) || null;
   }
 
-  function showOnboardingWizard(...args) {
-    return onboardingMod().showOnboardingWizard(...args);
+  function openOneFlow() {
+    const flow = oneFlow();
+    if (flow && typeof flow.open === "function") void flow.open();
   }
 
-  function initOnboardingWizard(...args) {
-    return onboardingMod().initOnboardingWizard(...args);
+  function isOneFlowOpen() {
+    const flow = oneFlow();
+    try {
+      return !!(flow && typeof flow.isOpen === "function" && flow.isOpen());
+    } catch (_) {
+      return false;
+    }
   }
 
   function initResumeMaterialsFeature() {
@@ -258,13 +261,7 @@
         closeMaterialsModal();
         closeCommandCenterSettingsModal();
         closeAuthUserMenu();
-        // The first-run wizard sits at a higher z-index (100001 vs 100000);
-        // left open it buries the onboarding wizard and the click looks dead.
-        const frw = firstRunWizardMod();
-        if (frw && typeof frw.hideFirstRunWizard === "function") {
-          frw.hideFirstRunWizard();
-        }
-        showOnboardingWizard();
+        openOneFlow();
         showToast("Continue the steps below to finish setup.", "info");
       } catch (err) {
         console.error(err);
@@ -287,16 +284,8 @@
         closeMaterialsModal();
         closeCommandCenterSettingsModal();
         closeAuthUserMenu();
-        // Mirror of the profile-reset path: never stack the two wizards.
-        const ob = onboardingMod();
-        if (ob && typeof ob.hideOnboardingWizard === "function") {
-          ob.hideOnboardingWizard();
-        }
-        const frw = firstRunWizardMod();
-        if (frw && typeof frw.reopenFirstRunWizard === "function") {
-          frw.reopenFirstRunWizard();
-        }
-        showToast("Setup wizard reopened. Your saved config is preserved.", "info");
+        openOneFlow();
+        showToast("Setup reopened. Your saved config is preserved.", "info");
       } catch (err) {
         console.error(err);
         showToast(err.message || "Could not reopen setup wizard", "error");
@@ -663,7 +652,7 @@
 
   document.addEventListener("keydown", (e) => {
     if (e.key !== "Escape") return;
-    if (isOnboardingWizardVisible()) return;
+    if (isOneFlowOpen()) return;
     if (isAuthUserMenuOpen()) {
       closeAuthUserMenu();
       document.getElementById("authMenuToggle")?.focus();
@@ -702,7 +691,6 @@
     }
   });
 
-  initOnboardingWizard();
   }
 
   Object.assign(materials, {

@@ -74,9 +74,14 @@
     return (app && app.core && app.core.host) || null;
   }
 
-  function firstRunWizard() {
+  /**
+   * The sheet-access module (window.JobBoredApp.setup). It owns
+   * verifyExistingSheetAccess since spec §7 retired the first-run wizard
+   * this beat used to borrow it from.
+   */
+  function sheetAccess() {
     const app = window.JobBoredApp;
-    return (app && app.firstRunWizard) || null;
+    return (app && app.setup) || null;
   }
 
   function call(name, ...args) {
@@ -534,10 +539,10 @@
       return;
     }
 
-    const wizard = firstRunWizard();
+    const access = sheetAccess();
     const verify =
-      wizard && typeof wizard.verifyExistingSheetAccess === "function"
-        ? wizard.verifyExistingSheetAccess
+      access && typeof access.verifyExistingSheetAccess === "function"
+        ? access.verifyExistingSheetAccess
         : null;
     if (!verify) {
       repaint(

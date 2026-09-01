@@ -17,6 +17,20 @@
   function host() {
     return root.host;
   }
+
+  /**
+   * True while a one-flow beat owns the screen. The onboarding-defer gate
+   * used to ask two legacy wizards whether they were visible; spec §7
+   * deleted both, and §3 makes the flow the onboarding surface.
+   */
+  function oneFlowIsOpen() {
+    try {
+      const flow = typeof window !== "undefined" && window.JobBoredOneFlow;
+      return !!(flow && typeof flow.isOpen === "function" && flow.isOpen());
+    } catch (_) {
+      return false;
+    }
+  }
   function dom() {
     return (typeof window !== "undefined" && window.JobBoredWizardDom) || null;
   }
@@ -70,7 +84,6 @@
       cloudVerify: null,
       message: "",
       messageTone: "info",
-      _onboardingHidden: false,
     };
   }
 
@@ -957,8 +970,6 @@
         });
       },
       onClose: () => {
-        const r = getRuntime();
-        const shouldRestoreOnboarding = !!(r && r._onboardingHidden);
         clearRuntime();
         // Re-check the setup card against fresh completion state on every
         // close — it must never keep showing a stale count.
@@ -972,12 +983,6 @@
           }
         } catch (_) {
           /* banner refresh is best-effort */
-        }
-        if (shouldRestoreOnboarding) {
-          const h = host();
-          if (h && typeof h.showOnboardingWizard === "function") {
-            h.showOnboardingWizard();
-          }
         }
       },
     });
@@ -1184,20 +1189,12 @@
     emitOnboardingEvent("go_live_opened", {
       entryPoint: opts.entryPoint || "manual",
     });
-    const h = host();
-
-    const onboardingWasVisible =
-      h && typeof h.isOnboardingWizardVisible === "function"
-        ? !!h.isOnboardingWizardVisible()
-        : false;
-    if (onboardingWasVisible && h && typeof h.hideOnboardingWizard === "function") {
-      h.hideOnboardingWizard();
-    }
-
+    // No legacy onboarding wizard to hide-and-restore around this one any
+    // more (spec §7). The one-flow owns onboarding, and requestGoLiveSetup
+    // below simply defers while a beat is on screen rather than covering it.
     setRuntime({
       ...defaultRuntime(),
       entryPoint: opts.entryPoint || "manual",
-      _onboardingHidden: onboardingWasVisible,
     });
     return renderGoLiveSetupWizard();
   }
@@ -1205,17 +1202,8 @@
   async function requestGoLiveSetup(options) {
     const opts = options || {};
     const { allowWhileOnboarding = false, ...wizardOptions } = opts;
-    const h = host();
-    if (h && !allowWhileOnboarding) {
-      const onboardingUp =
-        typeof h.isOnboardingWizardVisible === "function" &&
-        h.isOnboardingWizardVisible();
-      const firstRunUp =
-        typeof h.isFirstRunWizardVisible === "function" &&
-        h.isFirstRunWizardVisible();
-      if (onboardingUp || firstRunUp) {
-        return { deferred: true };
-      }
+    if (!allowWhileOnboarding && oneFlowIsOpen()) {
+      return { deferred: true };
     }
     await openGoLiveSetupWizard(wizardOptions);
     return { deferred: false };

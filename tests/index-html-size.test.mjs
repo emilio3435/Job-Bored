@@ -40,7 +40,6 @@ describe("index.html decomposition", () => {
       readFileSync(join(repoRoot, "index.html"), "utf8"),
       repoRoot,
     );
-    assert.match(expanded, /id="onboardingWizard"/);
     assert.match(expanded, /id="runsModal"/);
     assert.match(expanded, /id="expiredReviewModal"/);
     assert.match(expanded, /id="settingsModal"/);
@@ -53,7 +52,7 @@ describe("index.html decomposition", () => {
     assert.match(expanded, /id="discoveryPathsModal"/);
     assert.match(expanded, /id="ingestManualModal"/);
     assert.ok(
-      expanded.split("\n").length > 5500,
+      expanded.split("\n").length > 4500,
       "expanded markup should retain full modal surface area",
     );
   });

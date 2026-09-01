@@ -222,52 +222,47 @@ describe("L6 · grep table — the legacy gates are defined but unreachable from
     );
   });
 
-  it("both legacy gates still EXIST — deleting them is L7, not L6", () => {
-    assert.ok(
-      /async function checkInfraSetupGate\(/.test(
-        readRepoFile("first-run-wizard.js"),
-      ),
-      "first-run-wizard.js still defines checkInfraSetupGate",
-    );
-    assert.ok(
-      /async function checkOnboardingGate\(/.test(
-        readRepoFile("onboarding-wizard.js"),
-      ),
-      "onboarding-wizard.js still defines checkOnboardingGate",
-    );
+  it("both legacy gates are GONE — L7 deleted the modules that defined them", () => {
+    // L6 left them defined-but-unreachable on purpose so this suite could
+    // prove boot no longer CALLS them. L7's sweep finished the job
+    // (ONE-FLOW-ONBOARDING-SPEC §7), so the claim inverts.
+    for (const file of ["first-run-wizard.js", "onboarding-wizard.js"]) {
+      assert.throws(
+        () => readRepoFile(file),
+        /ENOENT/,
+        `${file} must be deleted`,
+      );
+    }
   });
 });
 
 describe("L6 · the legacy surfaces stand down while the flow owns onboarding", () => {
-  it("the first-run infra wizard does not open over a beat (spec §3)", async () => {
-    // The path that used to fire here is B1's own: signing in with no
-    // sheet is exactly the state revealSetupScreenAfterAuth reacts to.
+  it("there is no legacy infra wizard left to claim the surface", () => {
+    // The path that used to fire here was B1's own: signing in with no
+    // sheet is exactly the state revealSetupScreenAfterAuth reacted to. L6
+    // made the wizard stand down; L7 deleted it (§7), so the guarantee is
+    // now structural — nothing on the page can open it.
     const env = loadCutover({ sheetId: "", signedIn: true });
-    await env.flow.open("google");
-    await settle();
-    assert.equal(env.openBeat(), "google");
-
-    const shown = await env.firstRunWizard.checkInfraSetupGate();
-
     assert.equal(
-      shown,
-      false,
-      "the retired wizard must never claim the surface from a live beat",
+      env.window.JobBoredApp.firstRunWizard,
+      undefined,
+      "the namespace itself is gone",
     );
     assert.equal(
-      env.firstRunWizard.isFirstRunWizardVisible(),
-      false,
-      "and must not be rendered at all",
+      typeof env.host.checkInfraSetupGate,
+      "undefined",
+      "and the host bridge no longer carries its gate",
     );
   });
 
-  it("the infra wizard stays down even between beats — the flow owns onboarding now", async () => {
+  it("post-sign-in reveal routes to the starter setup, not a deleted wizard", async () => {
     const env = loadCutover({ sheetId: "", signedIn: true });
-
+    env.setup.revealSetupScreenAfterAuth();
+    await settle();
     assert.equal(
-      await env.firstRunWizard.checkInfraSetupGate(),
-      false,
-      "with the one-flow loaded, the legacy chain has no surface to claim",
+      env.document.getElementById("setupScreen").style.display,
+      "flex",
+      "a signed-in user with no sheet still has exactly one thing left to do",
     );
   });
 
