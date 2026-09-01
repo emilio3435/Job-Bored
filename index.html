@@ -74,6 +74,10 @@
             screens: {
               dashboard: screenState("dashboard"),
               sheetAccessGateScreen: screenState("sheetAccessGateScreen"),
+              // Screen S0 (ONE-FLOW-ONBOARDING-SPEC §4) is the cold-start
+              // surface since the one-flow cutover: a zero-config visitor
+              // gets the demo board, and #dashboard stays hidden behind it.
+              oneFlowDemoBoard: screenState("oneFlowDemoBoard"),
             },
           };
         }
@@ -113,7 +117,7 @@
 
         function blankShellDetected(snap) {
           var screens = snap && snap.screens ? snap.screens : {};
-          return ["dashboard", "sheetAccessGateScreen"].every(
+          return ["dashboard", "sheetAccessGateScreen", "oneFlowDemoBoard"].every(
             function (id) {
               var state = screens[id];
               if (!state || !state.exists) return true;
