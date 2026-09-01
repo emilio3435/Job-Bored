@@ -215,5 +215,119 @@
 /* ONEFLOW:L3 */
 /* B5 Turn on discovery — fuel panel, then connect panel. */
 
+.oneflow-discovery {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+/* Two panels, read in order: the fuel is required, the connection is not.
+   The order is the argument, so they stack rather than sit side by side. */
+.oneflow-panel {
+  padding: var(--space-4);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 12px;
+  background: var(--jb-paper, var(--surface));
+}
+
+.oneflow-panel__title {
+  margin: 0 0 var(--space-2);
+  font-size: var(--text-base);
+  font-weight: 700;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-panel__copy {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-sm);
+  line-height: 1.55;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-panel__status {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-panel__status--ok {
+  color: var(--jb-mint-deep, #2f8a5a);
+  font-weight: 600;
+}
+
+/* Spec §5 B5: panel 2 renders DIMMED until the fuel check passes — visible,
+   so the deal is legible, but plainly not yet available. */
+.oneflow-panel--dimmed {
+  opacity: 0.55;
+}
+
+.oneflow-panel--dimmed .oneflow-panel__title,
+.oneflow-panel--dimmed .oneflow-panel__copy {
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-fuel__steps {
+  margin: 0 0 var(--space-3);
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.oneflow-fuel__step {
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* "Go get your key" is one click, never a copy-the-domain scavenger hunt. */
+.oneflow-beat__keylink {
+  display: inline-block;
+  margin-top: 4px;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-navy, var(--text));
+  text-decoration: underline;
+}
+
+.oneflow-field {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin: var(--space-3) 0 0;
+}
+
+.oneflow-field__input {
+  width: 100%;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 8px;
+  font: inherit;
+  font-size: var(--text-sm);
+  background: var(--jb-paper-2, var(--surface-raised, #fff));
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-field__input:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+
+/* The escape hatch stays collapsed: the one-click path is the offer, and
+   "run it yourself" must not read as a second thing to decide. */
+.oneflow-connect__advanced {
+  margin-top: var(--space-4);
+  padding-top: var(--space-3);
+  border-top: 1px dashed var(--jb-line, var(--border));
+}
+
+.oneflow-connect__advanced-summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
 /* ONEFLOW:L4 */
 /* S0 demo board · B6 You're live · the single celebration. */
