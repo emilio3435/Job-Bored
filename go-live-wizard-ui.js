@@ -845,8 +845,6 @@
     // still false. The render path is async (UC store hits IndexedDB), so
     // the runtime carries the precomputed gate set by the action handler.
     const showDiscoveryCta = rt._discoveryCtaVisible !== false;
-    const showEnhancementsCta =
-      !showDiscoveryCta && rt._enhancementsCtaVisible === true;
     const actions = [];
     if (showDiscoveryCta) {
       actions.push({
@@ -855,17 +853,10 @@
         variant: "primary",
       });
     }
-    if (showEnhancementsCta) {
-      actions.push({
-        id: "go_live_open_enhancements",
-        label: "Maximize your results (optional)",
-        variant: "primary",
-      });
-    }
     actions.push({
       id: "go_live_finish",
       label: "Finish",
-      variant: showDiscoveryCta || showEnhancementsCta ? "secondary" : "primary",
+      variant: showDiscoveryCta ? "secondary" : "primary",
     });
     return actions;
   }
@@ -1141,19 +1132,6 @@
           showCta = true;
         }
       }
-      // When discovery is already done, finishing go-live may complete the
-      // full mandatory track. In that case, cross-rec the optional
-      // enhancements wizard instead of the discovery CTA.
-      let showEnhancementsCta = false;
-      if (!showCta) {
-        if (UC && typeof UC.isAllMandatorySetupComplete === "function") {
-          try {
-            showEnhancementsCta = !!(await UC.isAllMandatorySetupComplete());
-          } catch (_) {
-            showEnhancementsCta = false;
-          }
-        }
-      }
       // Funnel telemetry: go-live finished (always), plus both_done when
       // discovery is already complete (this finish completes the pair).
       emitOnboardingEvent("go_live_finished");
@@ -1176,10 +1154,7 @@
           console.warn("[JobBored] auto-open discovery:", e);
         }
       }
-      return moveToStep("done", {
-        _discoveryCtaVisible: showCta,
-        _enhancementsCtaVisible: showEnhancementsCta,
-      });
+      return moveToStep("done", { _discoveryCtaVisible: showCta });
     }
 
     if (id === "go_live_open_discovery") {
@@ -1193,38 +1168,6 @@
           entryPoint: "go_live_cross_rec",
           allowWhileOnboarding: true,
         });
-      }
-      return null;
-    }
-
-    if (id === "go_live_open_enhancements") {
-      const api = shellApi();
-      if (api && typeof api.closeWizardShell === "function") {
-        api.closeWizardShell("enhancements_cross_rec");
-      }
-      // Stage beat: the full-setup celebration gates the transition; its CTA
-      // carries the user into the enhancements wizard. Overlay missing →
-      // the player continues immediately (existing fallback).
-      const h = host();
-      const proceed = () => {
-        if (h && typeof h.requestEnhancementsSetup === "function") {
-          void h.requestEnhancementsSetup({
-            entryPoint: "go_live_cross_rec",
-            allowWhileOnboarding: false,
-          });
-        }
-      };
-      const onboarding =
-        typeof window !== "undefined" &&
-        window.JobBoredApp &&
-        window.JobBoredApp.onboarding;
-      if (
-        onboarding &&
-        typeof onboarding.playOnboardingCelebration === "function"
-      ) {
-        onboarding.playOnboardingCelebration(proceed, "bonus");
-      } else {
-        proceed();
       }
       return null;
     }

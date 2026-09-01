@@ -321,11 +321,9 @@ describe("onboarding-wizard.js — the delegating alias (until L7)", () => {
       wizard.indexOf("window.JobBoredOnboardingCelebration") > fnStart,
       "the player global is read inside the alias, never captured at load",
     );
-    for (const caller of [
-      "first-run-wizard.js",
-      "go-live-wizard-ui.js",
-      "discovery-wizard-ui.js",
-    ]) {
+    // go-live-wizard-ui.js stopped being a caller when §7 deleted the
+    // enhancements cross-rec that played the "bonus" stage.
+    for (const caller of ["first-run-wizard.js", "discovery-wizard-ui.js"]) {
       const src = readRepoFile(caller);
       const idx = src.indexOf("playOnboardingCelebration");
       assert.ok(idx > 0, `${caller} calls the player`);

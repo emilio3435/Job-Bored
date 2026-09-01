@@ -150,11 +150,3 @@ test("requestDiscoverySetup() renders the wizard shell with a usable primary act
   });
   await expectVisiblePrimaryAction(page, "#discoverySetupWizardMount");
 });
-
-test("openEnhancementsWizard() renders the wizard shell with a usable primary action", async ({ page }) => {
-  await bootGreenfield(page);
-  await page.evaluate(() =>
-    window.JobBoredEnhancements.openEnhancementsWizard({ entryPoint: "qa" }),
-  );
-  await expectVisiblePrimaryAction(page, "#enhancementsWizardMount");
-});

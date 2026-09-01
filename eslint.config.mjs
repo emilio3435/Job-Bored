@@ -59,7 +59,6 @@ const windowNamespaces = {
   JobBoredDiscoveryHelpers: "writable",
   JobBoredDiscoveryWizard: "writable",
   JobBoredDossierWorkshop: "writable",
-  JobBoredEnhancements: "writable",
   JobBoredFlowing: "writable",
   JobBoredGoLive: "writable",
   JobBoredJbV2Tab: "writable",

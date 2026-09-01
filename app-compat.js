@@ -1614,16 +1614,9 @@ async function requestGoLiveSetup(options = {}) {
   return window.JobBoredGoLive.requestGoLiveSetup(options);
 }
 
-// --- Optional enhancements wizard (extracted to enhancements-wizard-ui.js) ---
+// --- Settings deep-link forwarders -------------------------------------
 // Bare-name forwarders so app.js can register these on the bridge host
-// without importing the IIFE-published namespace directly.
-function requestEnhancementsSetup(options) {
-  const mod = typeof window !== "undefined" && window.JobBoredEnhancements;
-  if (mod && typeof mod.requestEnhancementsSetup === "function") {
-    return mod.requestEnhancementsSetup(options);
-  }
-  return Promise.resolve({ deferred: true });
-}
+// without importing the IIFE-published namespaces directly.
 function openDrawerToSubtab(subtab, focusFieldId) {
   const adapters =
     typeof window !== "undefined" && window.JobBoredSettingsDiscoveryAdapters;

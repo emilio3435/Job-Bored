@@ -248,7 +248,6 @@ describe("bridge-registry — onboarding auto-chain host contracts", () => {
       "requestDiscoverySetup", // auto-open discovery on go-live finish
       "isOnboardingWizardVisible", // onboarding-defer gate
       "isFirstRunWizardVisible", // onboarding-defer gate
-      "requestEnhancementsSetup", // "Maximize your results" CTA on the done step
     ]) {
       assert.match(
         block,
@@ -295,22 +294,7 @@ describe("self-hosting CTA swaps — launch the go-live wizard, NOT the markdown
   });
 });
 
-describe("bridge-registry — enhancements wizard host contract", () => {
-  it("enhancements.host wires every method the key-save passthrough depends on", () => {
-    const start = bridgeRegistryJs.indexOf("enhancements.host = {");
-    assert.ok(start !== -1, "enhancements.host bridge object must exist");
-    const block = bridgeRegistryJs.slice(start, bridgeRegistryJs.indexOf("};", start));
-    for (const method of [
-      "getConfig", // read whether AI Providers already has a Gemini key
-      "mergeStoredConfigOverridePatch", // pass the wizard key through to settings
-      "openDrawerToSubtab", // deep-link escape hatch
-      "setActiveSettingsTab", // AI-provider step deep-link
-    ]) {
-      assert.match(
-        block,
-        new RegExp(`${method}:\\s*host\\.${method}`),
-        `enhancements.host must wire ${method} — a dropped key silently no-ops (the hand-maintained-literal bug class)`,
-      );
-    }
-  });
-});
+// The enhancements.host bridge contract left with the wizard it served
+// (ONE-FLOW-ONBOARDING-SPEC §7): SerpApi is B5's required fuel panel and
+// Gemini is B2's write-through, so there is no second key-ask surface to
+// keep wired.

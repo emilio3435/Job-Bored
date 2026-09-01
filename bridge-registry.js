@@ -430,31 +430,6 @@
       hideOnboardingWizard: host.hideOnboardingWizard,
       showOnboardingWizard: host.showOnboardingWizard,
       requestDiscoverySetup: host.requestDiscoverySetup,
-      // "Maximize your results (optional)" CTA on the done step — without
-      // this wire the typeof guard silently no-ops and the enhancements
-      // wizard never opens (the hand-maintained-literal bug class).
-      requestEnhancementsSetup: host.requestEnhancementsSetup,
-    };
-
-    const enhancements = (window.JobBoredEnhancements =
-      window.JobBoredEnhancements || {});
-
-    enhancements.host = {
-      showToast: host.showToast,
-      getUserContent: host.getUserContent,
-      getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
-      getConfig: host.getConfig,
-      // Gemini key passthrough: the wizard persists the same key into the
-      // dashboard's AI Providers settings (resumeGeminiApiKey).
-      mergeStoredConfigOverridePatch: host.mergeStoredConfigOverridePatch,
-      openDrawerToSubtab: host.openDrawerToSubtab,
-      setActiveSettingsTab: host.setActiveSettingsTab,
-      openCommandCenterSettingsModal: host.openCommandCenterSettingsModal,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
-      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
-      hideOnboardingWizard: host.hideOnboardingWizard,
-      showOnboardingWizard: host.showOnboardingWizard,
-      requestEnhancementsSetup: host.requestEnhancementsSetup,
     };
 
     app.brief = app.brief || {};

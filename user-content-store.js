@@ -731,30 +731,6 @@
     await setSetting("whatsNextDismissed", !!v);
   }
 
-  async function getSerpApiEnhancementDismissed() {
-    return !!(await getSetting("serpApiEnhancementDismissed"));
-  }
-
-  async function setSerpApiEnhancementDismissed(v) {
-    await setSetting("serpApiEnhancementDismissed", !!v);
-  }
-
-  async function getGeminiEnhancementDismissed() {
-    return !!(await getSetting("geminiEnhancementDismissed"));
-  }
-
-  async function setGeminiEnhancementDismissed(v) {
-    await setSetting("geminiEnhancementDismissed", !!v);
-  }
-
-  async function getAiProviderEnhancementDismissed() {
-    return !!(await getSetting("aiProviderEnhancementDismissed"));
-  }
-
-  async function setAiProviderEnhancementDismissed(v) {
-    await setSetting("aiProviderEnhancementDismissed", !!v);
-  }
-
   async function isAllMandatorySetupComplete() {
     const [infra, onboarding, discovery, goLive] = await Promise.all([
       isInfraSetupComplete(),
@@ -1406,12 +1382,6 @@
     setAgentSetupDismissed,
     getWhatsNextDismissed,
     setWhatsNextDismissed,
-    getSerpApiEnhancementDismissed,
-    setSerpApiEnhancementDismissed,
-    getGeminiEnhancementDismissed,
-    setGeminiEnhancementDismissed,
-    getAiProviderEnhancementDismissed,
-    setAiProviderEnhancementDismissed,
     isAllMandatorySetupComplete,
   };
 })();

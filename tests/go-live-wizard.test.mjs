@@ -838,12 +838,15 @@ describe("go-live wizard — done step + discovery cross-rec gating", () => {
   });
 });
 
-describe("go-live wizard — enhancements CTA on done step", () => {
-  it("done step shows 'Maximize your results' CTA when all mandatory flags are complete after go-live finishes", async () => {
+// The "Maximize your results (optional)" cross-rec left with the
+// enhancements wizard (ONE-FLOW-ONBOARDING-SPEC §7). What survives is the
+// done step's single recommendation, asserted below: discovery when it is
+// still incomplete, Finish alone when it is not.
+describe("go-live wizard — done step recommends only what is unfinished", () => {
+  it("offers Finish alone once discovery is already complete", async () => {
     const uc = {
       completeGoLiveSetup: async () => {},
-      isDiscoverySetupComplete: async () => true,    // discovery already done
-      isAllMandatorySetupComplete: async () => true, // all three now done
+      isDiscoverySetupComplete: async () => true,
     };
     const fetchImpl = async (url) => {
       if (url === "/__proxy/tailscale-state") {
@@ -858,14 +861,19 @@ describe("go-live wizard — enhancements CTA on done step", () => {
     await api.handleAction("go_live_complete_tailscale");
     const doneStep = shell.lastRender.input.steps.find((s) => s.id === "done");
     const actionIds = (doneStep.actions || []).map((a) => a.id);
-    assert.ok(actionIds.includes("go_live_open_enhancements"), "must include 'go_live_open_enhancements' CTA when all mandatory complete");
+    assert.deepEqual(
+      [...actionIds],
+      ["go_live_finish"],
+      "nothing is left to recommend, so Finish is the only action — and it leads",
+    );
+    const finish = (doneStep.actions || [])[0];
+    assert.equal(finish.variant, "primary");
   });
 
-  it("done step does NOT show enhancements CTA when discovery is still incomplete (two-track not done)", async () => {
+  it("still recommends discovery while discovery is incomplete", async () => {
     const uc = {
       completeGoLiveSetup: async () => {},
       isDiscoverySetupComplete: async () => false,
-      isAllMandatorySetupComplete: async () => false,
     };
     const fetchImpl = async (url) => {
       if (url === "/__proxy/tailscale-state") return { ok: true, json: async () => ({ installed: true, loggedIn: true, dnsName: "mac.tailnet.ts.net", dashboardUrl: "https://mac.tailnet.ts.net", serving: { 8080: true }, recommendation: "ready" }) };
@@ -878,21 +886,7 @@ describe("go-live wizard — enhancements CTA on done step", () => {
     await api.handleAction("go_live_complete_tailscale");
     const doneStep = shell.lastRender.input.steps.find((s) => s.id === "done");
     const actionIds = (doneStep.actions || []).map((a) => a.id);
-    assert.ok(!actionIds.includes("go_live_open_enhancements"), "must NOT show enhancements CTA when mandatory setup is still incomplete");
-  });
-
-  it("go_live_open_enhancements calls host().requestEnhancementsSetup and closes the wizard", async () => {
-    const enhancementsCalls = [];
-    const host = {
-      isOnboardingWizardVisible: () => false,
-      isFirstRunWizardVisible: () => false,
-      requestEnhancementsSetup: (opts) => { enhancementsCalls.push(opts); return Promise.resolve({ deferred: false }); },
-    };
-    const { api, closeCalls } = loadGoLive({ host });
-    await api.openGoLiveSetupWizard();
-    await api.handleAction("go_live_open_enhancements");
-    assert.equal(enhancementsCalls.length, 1, "must call requestEnhancementsSetup");
-    assert.ok(closeCalls.length >= 1, "must close the go-live wizard before launching enhancements");
+    assert.deepEqual([...actionIds], ["go_live_open_discovery", "go_live_finish"]);
   });
 });
 
@@ -1060,28 +1054,5 @@ describe("go-live wizard — path cards are real cards (frontend-design pass)", 
     ]) {
       assert.ok(css.includes(cls), `${cls} must be styled — unstyled card classes are how this step got ugly`);
     }
-  });
-});
-
-describe("go-live wizard — Maximize your results is gated behind the bonus celebration", () => {
-  it("go_live_open_enhancements plays the 'bonus' stage beat whose CTA opens the enhancements wizard", async () => {
-    const enhancementsCalls = [];
-    const celebrationCalls = [];
-    const { api, window } = loadGoLive({
-      host: {
-        isOnboardingWizardVisible: () => false,
-        requestEnhancementsSetup: (o) => enhancementsCalls.push(o),
-      },
-    });
-    window.JobBoredApp.onboarding = {
-      playOnboardingCelebration: (cb, stage) => {
-        celebrationCalls.push(stage);
-        cb(); // user clicks the CTA
-      },
-    };
-    await api.openGoLiveSetupWizard();
-    await api.handleAction("go_live_open_enhancements");
-    assert.deepEqual(celebrationCalls, ["bonus"], "the celebration gates the transition");
-    assert.equal(enhancementsCalls.length, 1, "the CTA carries the user into the enhancements wizard");
   });
 });

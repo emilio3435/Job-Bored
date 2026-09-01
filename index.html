@@ -1587,13 +1587,6 @@
       aria-hidden="true"
     ></div>
 
-    <div
-      class="discovery-setup-wizard-root"
-      id="enhancementsWizardMount"
-      hidden
-      aria-hidden="true"
-    ></div>
-
     <!-- One-flow onboarding: the single mount every beat renders into
          (ONE-FLOW-ONBOARDING-SPEC §3.5). Ships hidden and stays hidden —
          nothing opens it until the L6 boot cutover. -->
@@ -1634,7 +1627,6 @@
     <script src="discovery-wizard-verify.js" defer></script>
     <script src="discovery-wizard-ui.js?v=2" defer></script>
     <script src="go-live-wizard-ui.js" defer></script>
-    <script src="enhancements-wizard-ui.js" defer></script>
     <!-- One-flow onboarding substrate. Order is load-bearing: the flow
          controller reads window.CommandCenterUserContent and renders
          through discovery-wizard-shell.js (both already loaded above),
