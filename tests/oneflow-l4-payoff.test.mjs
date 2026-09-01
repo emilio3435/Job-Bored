@@ -42,7 +42,16 @@ describe("B6 registration (spec §3.1)", () => {
 
   it("headline and sub are the spec's strings, verbatim", () => {
     const env = loadPayoff();
-    assert.equal(beat(env).headline, "You're live, {firstName}.");
+    // Since routed L7 #9, B6 registers a RESOLVER rather than the frozen
+    // template — the shell title has to read the real name too, not just
+    // the celebration overlay (spec §5 B6). The template itself is still
+    // the spec's string, and the resolver is what fills it.
+    assert.equal(env.payoff.HEADLINE, "You're live, {firstName}.");
+    assert.equal(typeof beat(env).headline, "function");
+    assert.equal(
+      beat(env).headline({ runtime: { firstName: "Priya" } }),
+      "You're live, Priya.",
+    );
     assert.equal(
       beat(env).sub,
       "That was the one-time part. From here, JobBored works for you.",

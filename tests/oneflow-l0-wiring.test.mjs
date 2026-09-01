@@ -148,7 +148,16 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
       payoff: "You're live, {firstName}.",
     };
     for (const beat of flow.getRegisteredBeats()) {
-      assert.equal(beat.headline, expected[beat.id]);
+      // B6 registers a headline RESOLVER since routed L7 #9 — the shell
+      // title has to read the real name, not the template (spec §5 B6).
+      // The normative string is still what the resolver fills.
+      // Feeding the token itself as the name makes the resolver reproduce
+      // the normative template verbatim, substitution point included.
+      const headline =
+        typeof beat.headline === "function"
+          ? beat.headline({ runtime: { firstName: "{firstName}" } })
+          : beat.headline;
+      assert.equal(headline, expected[beat.id]);
       assert.ok(beat.sub, `${beat.id} must carry its normative sub`);
       assert.ok(
         beat.timeLabel,

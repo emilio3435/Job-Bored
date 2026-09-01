@@ -426,7 +426,7 @@
 
     setStage(context, 2);
     state.draft = { profile: drafted.profile, source, starterTemplate: "custom" };
-    if (context && context.runtime) context.runtime.resumeDraft = state.draft;
+    if (context && context.runtime) context.runtime.profileDraft = state.draft;
     setStage(context, STAGE_LABELS.length);
 
     if (context && typeof context.completeBeat === "function") {
@@ -494,7 +494,7 @@
     state.failed = false;
     state.mode = "intake";
     state.draft = { profile, source: "template", starterTemplate: id };
-    if (context && context.runtime) context.runtime.resumeDraft = state.draft;
+    if (context && context.runtime) context.runtime.profileDraft = state.draft;
     syncActions();
     if (context && typeof context.completeBeat === "function") {
       await context.completeBeat({ source: "template" });

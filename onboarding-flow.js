@@ -132,7 +132,11 @@
       order,
       label: asString(raw.label, BEAT_LABELS[id] || id),
       timeLabel: asString(raw.timeLabel),
-      headline: asString(raw.headline),
+      // A beat may register a RESOLVER instead of a literal: spec §5 B6 is
+      // "You're live, {firstName}." — a template only the beat can fill, and
+      // a frozen string put the raw braces on screen (routed L6 → L7 #9).
+      headline:
+        typeof raw.headline === "function" ? raw.headline : asString(raw.headline),
       sub: asString(raw.sub),
       render: raw.render,
       onAction: typeof raw.onAction === "function" ? raw.onAction : null,
@@ -289,23 +293,35 @@
     };
   }
 
+  /** A literal headline, or what the beat's resolver makes of this context. */
+  function resolveHeadline(beat, ctx) {
+    if (typeof beat.headline !== "function") return beat.headline;
+    try {
+      return asString(beat.headline(ctx));
+    } catch (e) {
+      console.warn("[JobBored] one-flow: headline resolver failed", beat.id, e);
+      return "";
+    }
+  }
+
   function renderBeat(beat) {
     const sh = shell();
     if (!sh || typeof sh.renderWizardShell !== "function") return null;
     const ctx = buildContext(beat);
+    const headline = resolveHeadline(beat, ctx);
     try {
       return sh.renderWizardShell({
         mountId: MOUNT_ID,
         variant: "generic",
         headerTitle: "Set up JobBored",
-        title: beat.headline,
+        title: headline,
         lede: beat.sub,
         spine: buildSpine(beat.id),
         steps: [
           {
             id: beat.id,
             label: beat.label,
-            title: beat.headline,
+            title: headline,
             description: beat.sub,
             actions: beat.actions,
             render(shellContext) {

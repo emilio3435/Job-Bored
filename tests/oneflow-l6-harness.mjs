@@ -436,7 +436,14 @@ export function loadCutover(options = {}) {
   const calls = [];
   const host = makeHost(state, calls, options.host || {});
   win.JobBoredApp = {
-    core: { host },
+    // sheet-access-setup.js reads the sheet id off `core`, not `core.host`
+    // (sheet-access-setup.js:163, :411) — the gate's signin copy branches
+    // on it, so the L7 gate-guard probe needs it here.
+    core: {
+      host,
+      getSHEET_ID: () => state.runtimeSheetId,
+      setSHEET_ID: (v) => host.setSHEET_ID(v),
+    },
     auth: {
       getUserEmail: () => state.userEmail,
       getUserGivenName: () =>
