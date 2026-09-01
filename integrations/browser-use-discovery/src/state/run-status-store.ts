@@ -61,7 +61,7 @@ export interface DiscoveryRunStatusStore {
   close(): void;
 }
 
-interface RunStatusSnapshotV1 {
+export interface RunStatusSnapshotV1 {
   schemaVersion: typeof RUN_STATUS_SNAPSHOT_SCHEMA_VERSION;
   runId: string;
   writtenAt: string;
@@ -247,6 +247,44 @@ export function createDiscoveryRunStatusStore(
     },
     close() {},
   };
+}
+
+/**
+ * Read-only listing of persisted run-status snapshots (CANARY-1 / spec LD-6).
+ *
+ * Unlike `createDiscoveryRunStatusStore`, this performs NO mutation: it never
+ * creates the directory, never sweeps `.tmp-` leftovers, and never rewrites a
+ * corrupt snapshot. Entries that cannot be decoded, parsed, or validated are
+ * skipped so an operator-facing reader can never be broken by one bad file.
+ */
+export function listRunStatusSnapshots(
+  directory: string,
+): RunStatusSnapshotV1[] {
+  const resolvedDirectory = String(directory || "").trim();
+  if (!resolvedDirectory) return [];
+  let filenames: string[];
+  try {
+    filenames = readdirSync(resolvedDirectory);
+  } catch {
+    return [];
+  }
+  const snapshots: RunStatusSnapshotV1[] = [];
+  for (const filename of filenames) {
+    if (!filename.endsWith(RUN_STATUS_FILE_SUFFIX)) continue;
+    const runIdFromFilename = decodeRunIdFromSnapshotFilename(filename);
+    if (!runIdFromFilename) continue;
+    try {
+      const parsed: unknown = JSON.parse(
+        readFileSync(join(resolvedDirectory, filename), "utf8"),
+      );
+      if (!isRunStatusSnapshot(parsed)) continue;
+      if (parsed.runId !== runIdFromFilename) continue;
+      snapshots.push(parsed);
+    } catch {
+      continue;
+    }
+  }
+  return snapshots;
 }
 
 function loadRunStatusSnapshots(
