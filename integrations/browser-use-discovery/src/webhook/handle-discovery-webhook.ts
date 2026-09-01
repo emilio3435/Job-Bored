@@ -143,8 +143,18 @@ export async function handleDiscoveryWebhook(
     });
   }
 
+  // LIFECYCLE-1: a redelivery of the same logical run must resolve to the same
+  // runId instead of minting a fresh one. The request carries no idempotency
+  // key and the runId is server-minted, so the identity has to come from the
+  // request itself: sheetId + variationKey + requestedAt. Derived only when a
+  // run-status store exists to look the original up in (and `requestedAt` is a
+  // real timestamp), so a store-less caller keeps today's random runId.
+  const derivedRunId = dependencies.runStatusStore
+    ? deriveIdempotentRunId(parsed.request)
+    : null;
   const runId =
     dependencies.runDependencies.runId ||
+    derivedRunId ||
     createRunId(dependencies.runDependencies.randomId);
   const dispatchTrigger = dispatchTriggerFromRequest(parsed.request.trigger);
   const now = dependencies.now || (() => new Date());
@@ -258,6 +268,43 @@ export async function handleDiscoveryWebhook(
     sheetId: parsed.request.sheetId,
     variationKey: parsed.request.variationKey,
   });
+
+  // LIFECYCLE-1: duplicate delivery short circuit. Sits after preflight and
+  // immediately before the first run-status side effect, so the order
+  // invariant (method -> auth -> parse -> token strip -> preflight -> first
+  // status write -> run) is unchanged. The caller gets the ORIGINAL runId and
+  // statusPath back, so its poller latches onto the live run instead of a
+  // second one; no second run, no second history finalizer, no second Sheet
+  // write.
+  if (derivedRunId && runId === derivedRunId) {
+    const existing = dependencies.runStatusStore?.get(runId);
+    if (existing) {
+      dependencies.log?.("discovery.request.duplicate_delivery_ignored", {
+        runId,
+        mode: runMode,
+        sheetId: parsed.request.sheetId,
+        variationKey: parsed.request.variationKey,
+        existingStatus: existing.status,
+      });
+      return existing.terminal
+        ? jsonResponse(200, {
+            ok: true,
+            kind: "completed_sync",
+            runId,
+            message: existing.message,
+            statusPath,
+            outcome: existing,
+          } satisfies DiscoveryWebhookAck)
+        : jsonResponse(202, {
+            ok: true,
+            kind: "accepted_async",
+            runId,
+            message: existing.message,
+            statusPath,
+            pollAfterMs,
+          } satisfies DiscoveryWebhookAck);
+    }
+  }
 
   const acceptedStatus = buildAcceptedRunStatus({
     runId,
@@ -1305,6 +1352,36 @@ function normalizeSearchPlan(
   }
   if (Object.keys(normalizedQuery).length) normalized.query = normalizedQuery;
   return normalized;
+}
+
+/**
+ * LIFECYCLE-1: deterministic run identity for a discovery webhook request.
+ *
+ * The webhook request schema carries no runId and no idempotency key
+ * (`contracts.ts` `DiscoveryWebhookRequestV1`), so the only stable identity a
+ * redelivery shares with the original is the triple the dashboard stamps once
+ * per user click: `sheetId` + `variationKey` + `requestedAt`. Hashing that
+ * triple gives a runId two byte-identical POSTs agree on, and that two
+ * genuinely separate clicks never collide on (`requestedAt` is stamped fresh
+ * per click at `discovery-payload.js:293`).
+ *
+ * Returns `null` when `requestedAt` is absent or not a parseable timestamp —
+ * a missing `requestedAt` must never collapse every future run onto one id.
+ * Pure: no I/O, no clock, no randomness.
+ */
+export function deriveIdempotentRunId(request: {
+  sheetId?: string;
+  variationKey?: string;
+  requestedAt?: string;
+}): string | null {
+  const requestedAt = String(request.requestedAt || "").trim();
+  if (!requestedAt || Number.isNaN(Date.parse(requestedAt))) return null;
+  const identity = [
+    String(request.sheetId || "").trim(),
+    String(request.variationKey || "").trim(),
+    requestedAt,
+  ].join("\n");
+  return `run_${createHash("sha256").update(identity).digest("hex").slice(0, 32)}`;
 }
 
 function createRunId(randomId?: ((prefix: string) => string) | null): string {
