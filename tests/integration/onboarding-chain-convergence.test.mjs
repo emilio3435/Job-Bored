@@ -1,344 +1,411 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
-import vm from "node:vm";
+
+import {
+  loadCutover,
+  plain,
+  settle,
+  stepEvents,
+} from "../oneflow-l6-harness.mjs";
 
 /* ============================================================
-   Integration: the mandatory two-track onboarding chain CONVERGES.
+   Integration: the ONE flow, boot to payoff.
 
-   This is the test that would have caught the getUserContent bridge bug.
-   It loads the REAL user-content-store, discovery-wizard-ui, go-live-wizard-ui
-   and whats-next-banner modules into ONE shared window (exactly how the app
-   wires them as classic-global IIFEs), backs the store with a genuinely
-   persistent in-memory IndexedDB, and drives the finish handlers against the
-   REAL completion flags — in BOTH completion orders.
+   This file used to pin the mandatory TWO-TRACK chain — discovery and
+   go-live auto-opening each other until both completion flags landed.
+   ONE-FLOW-ONBOARDING-SPEC §3 replaced that chain with a single flow, so
+   the convergence claim moved with it: one shell, six beats, and one set
+   of completion flags that every legacy reader still sees.
 
-   The chain must converge: both flags persisted, the setup bar self-hides,
-   and the OTHER track is auto-opened EXACTLY ONCE (no ping-pong re-open).
-   If either completion-persist degrades to a no-op, the auto-open spy fires a
-   second time and these assertions fail (proven by mutation below the suite).
+   Everything below drives the REAL page in one vm context — the store,
+   the shell, the controller, all six beats, the demo board, the boot
+   files, and the what's-next banner — exactly the wiring index.html
+   ships. A beat is advanced by firing its own footer action, never by
+   calling the controller past it, so a broken handoff between two beats
+   fails here rather than in production. (It already has: B3 wrote its
+   draft under a key B4 did not read; see LANE-REPORT-L6 §5.)
    ============================================================ */
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
-const read = (f) => readFileSync(join(repoRoot, f), "utf8");
-const userContentStoreJs = read("user-content-store.js");
-const discoveryWizardUiJs = read("discovery-wizard-ui.js");
-const goLiveJs = read("go-live-wizard-ui.js");
-const whatsNextBannerJs = read("whats-next-banner.js");
+/** A drafted profile the server returns for B3's resume. */
+const DRAFTED_PROFILE = {
+  identity: {
+    targetRoles: ["Staff Engineer", "Platform Engineer"],
+    targetSeniority: "ic_staff",
+    primaryNarrative:
+      "I build the platform systems other teams ship their work on top of.",
+  },
+  strengths: [
+    { name: "Distributed systems", rank: 1 },
+    { name: "Technical leadership", rank: 2 },
+  ],
+  wants: ["hands-on building"],
+  avoids: ["on-call rotations without staffing"],
+  hardConstraints: {
+    workMode: "hybrid_ok",
+    acceptableLocations: ["Austin"],
+    salaryFloor: 185000,
+  },
+};
 
-// --- A genuinely persistent in-memory IndexedDB -------------------------
-// Enough of the IDB surface for user-content-store's openDb + getSetting/
-// setSetting: open() fires onupgradeneeded (once) then onsuccess on a
-// microtask (so the store's handlers register first), and every store keeps
-// a live Map so a put() in one transaction is read back by a later get().
-function makeInMemoryIndexedDB() {
-  const stores = new Map(); // name -> { keyPath, data: Map }
-  let upgraded = false;
-
-  function store(name, keyPath) {
-    if (!stores.has(name)) {
-      stores.set(name, { keyPath: keyPath || "key", data: new Map() });
-    }
-    const s = stores.get(name);
-    const req = (build) => {
-      const r = { onsuccess: null, onerror: null, result: undefined };
-      queueMicrotask(() => {
-        try {
-          r.result = build();
-          if (r.onsuccess) r.onsuccess({ target: r });
-        } catch (err) {
-          r.error = err;
-          if (r.onerror) r.onerror({ target: r });
-        }
-      });
-      return r;
-    };
-    return {
-      keyPath: s.keyPath,
-      indexNames: { contains: () => false },
-      createIndex() {},
-      get: (key) => req(() => s.data.get(key)),
-      getAll: () => req(() => [...s.data.values()]),
-      put: (value) =>
-        req(() => {
-          s.data.set(value[s.keyPath], value);
-          return value[s.keyPath];
-        }),
-      delete: (key) => req(() => void s.data.delete(key)),
-    };
-  }
-
-  function db() {
-    return {
-      objectStoreNames: { contains: (n) => stores.has(n) },
-      createObjectStore: (name, opts) =>
-        store(name, (opts && opts.keyPath) || "key"),
-      transaction: () => ({ objectStore: (n) => store(n) }),
-      close() {},
-      onversionchange: null,
-    };
-  }
-
-  return {
-    open() {
-      const r = {
-        onsuccess: null,
-        onerror: null,
-        onupgradeneeded: null,
-        result: null,
-        error: null,
-      };
-      queueMicrotask(() => {
-        const database = db();
-        r.result = database;
-        if (!upgraded) {
-          upgraded = true;
-          if (r.onupgradeneeded) {
-            r.onupgradeneeded({
-              target: { result: database, transaction: { objectStore: (n) => store(n) } },
-            });
-          }
-        }
-        if (r.onsuccess) r.onsuccess({ target: r });
-      });
-      return r;
+function newFlowEnv(overrides = {}) {
+  return loadCutover({
+    sheetId: "",
+    signedIn: false,
+    givenName: "Priya",
+    withBanner: true,
+    wizardUi: { runTailscaleAutoSetup: async () => ({ ok: true }) },
+    fetchImpl: async (call) => {
+      if (call.url.includes("/profile/from-resume")) {
+        return {
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, profile: DRAFTED_PROFILE }),
+        };
+      }
+      return null;
     },
-  };
-}
-
-// --- Minimal DOM with a toggleable whats-next region --------------------
-function makeDom() {
-  const els = new Map();
-  function makeEl(id) {
-    const attrs = new Map();
-    const classes = new Set();
-    return {
-      id,
-      dataset: {},
-      style: {},
-      textContent: "",
-      hasAttribute: (n) => attrs.has(n),
-      setAttribute: (n, v) => attrs.set(n, String(v)),
-      removeAttribute: (n) => attrs.delete(n),
-      getAttribute: (n) => (attrs.has(n) ? attrs.get(n) : null),
-      classList: {
-        add: (c) => classes.add(c),
-        remove: (c) => classes.delete(c),
-        contains: (c) => classes.has(c),
-        toggle: (c) => (classes.has(c) ? classes.delete(c) : classes.add(c)),
-      },
-      appendChild: (c) => c,
-      append() {},
-      addEventListener() {},
-      removeEventListener() {},
-      querySelector: () => null,
-      querySelectorAll: () => [],
-      closest: () => null,
-      focus() {},
-    };
-  }
-  const region = makeEl("whats-next-region");
-  const document = {
-    readyState: "complete",
-    body: makeEl("body"),
-    getElementById(id) {
-      if (!els.has(id)) els.set(id, makeEl(id));
-      return els.get(id);
-    },
-    querySelector(sel) {
-      return sel === '[data-region="whats-next"]' ? region : null;
-    },
-    querySelectorAll: () => [],
-    createElement: (tag) => makeEl(tag),
-    addEventListener() {},
-  };
-  return { document, region };
-}
-
-// Load all four modules into one shared VM context (shared window).
-function loadChain() {
-  const { document, region } = makeDom();
-  const sessionStore = new Map();
-  const window = { JobBoredApp: { core: {} } };
-  window.sessionStorage = {
-    getItem: (k) => (sessionStore.has(k) ? sessionStore.get(k) : null),
-    setItem: (k, v) => sessionStore.set(k, String(v)),
-    removeItem: (k) => sessionStore.delete(k),
-  };
-  const ctx = {
-    window,
-    document,
-    console,
-    setTimeout,
-    clearTimeout,
-    queueMicrotask,
-    crypto: { randomUUID: () => "chain-test-uuid" },
-    indexedDB: makeInMemoryIndexedDB(),
-    Date,
-    AbortController:
-      typeof AbortController !== "undefined" ? AbortController : undefined,
-    fetch: async () => ({ ok: false }),
-    requestAnimationFrame: (fn) => fn(),
-  };
-  vm.createContext(ctx);
-  vm.runInContext(userContentStoreJs, ctx, { filename: "user-content-store.js" });
-  vm.runInContext(discoveryWizardUiJs, ctx, {
-    filename: "discovery-wizard-ui.js",
+    ...overrides,
   });
-  vm.runInContext(goLiveJs, ctx, { filename: "go-live-wizard-ui.js" });
-  vm.runInContext(whatsNextBannerJs, ctx, { filename: "whats-next-banner.js" });
-
-  const UC = window.CommandCenterUserContent;
-  // The banner reads UC through window.JobBoredApp.core.host.getUserContent.
-  window.JobBoredApp.core.host = { getUserContent: () => UC };
-  // go-live's moveToStep("done") renders through the discovery wizard shell.
-  // A recording stub avoids needing the full JobBoredWizardDom helpers.
-  const renders = [];
-  window.JobBoredDiscoveryWizard.shell = {
-    renderWizardShell: (input) => {
-      renders.push(input);
-      return { input };
-    },
-    closeWizardShell() {},
-  };
-  return { window, UC, region, renders };
 }
 
-// Wire the two host bridges so each wizard's auto-open actually drives the
-// OTHER wizard's finish handler (modeling a user who completes the chained
-// track). Records every auto-open so the test can assert "exactly once".
-function makeChainDriver({ window, UC }) {
-  const goLiveOpens = [];
-  const discoveryOpens = [];
-  const pending = [];
-  let drives = 0;
-  const CAP = 20; // backstop: a converging chain needs ~2 drives, never 20
-
-  const ui = window.JobBoredDiscoveryWizard.ui;
-  const goLiveApi = window.JobBoredGoLive;
-
-  function driveDiscoveryFinish() {
-    if (drives++ > CAP) return Promise.resolve();
-    return ui._internal.recommendGoLiveAfterDiscoveryFinish();
-  }
-  function driveGoLiveFinish() {
-    if (drives++ > CAP) return Promise.resolve();
-    return goLiveApi.handleAction("go_live_complete_tailscale");
-  }
-
-  window.JobBoredDiscoveryWizard.ui.host = {
-    getUserContent: () => UC,
-    requestGoLiveSetup: (o) => {
-      goLiveOpens.push(o);
-      pending.push(driveGoLiveFinish());
-    },
-  };
-  window.JobBoredGoLive.host = {
-    isOnboardingWizardVisible: () => false,
-    isFirstRunWizardVisible: () => false,
-    requestDiscoverySetup: (o) => {
-      discoveryOpens.push(o);
-      pending.push(driveDiscoveryFinish());
-    },
-  };
-
-  async function drain() {
-    while (pending.length) await pending.shift();
-  }
-  return { goLiveOpens, discoveryOpens, driveDiscoveryFinish, driveGoLiveFinish, drain };
+/** Type into a rendered beat field the way a user does. */
+function type(env, id, value) {
+  const input = env.mount().querySelector(`[id="${id}"]`);
+  assert.ok(input, `expected a rendered field #${id}`);
+  input.value = value;
+  input.dispatch("input", { target: input });
+  return input;
 }
 
-// True when the REAL banner gate would hide the bar (both tracks complete is
-// the relevant rule here; infra+onboarding are forced true so it's the ONLY
-// reason the bar hides).
-async function barWouldHide({ window, UC, region }) {
-  await UC.completeInfraSetup();
-  await UC.completeOnboarding();
-  const state = await window.JobBoredApp.whatsNextBanner.refreshBanner();
-  return { hidden: region.hasAttribute("hidden"), state };
+/** B1 → B5 fuel. Leaves the flow on B5 with the connect panel unlocked. */
+async function walkToConnectPanel(env) {
+  await env.act("google_continue");
+  await settle(10);
+  type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
+  await env.act("ai_check");
+  await settle(10);
+  type(env, "oneFlowResumePaste", "Staff engineer. Ten years of platform work.");
+  await env.act("resume_use_text");
+  await settle(10);
+  await env.act("confirm-fit");
+  await settle(10);
+  type(env, "oneFlowSerpApiKeyInput", "serpapi-test-key");
+  await env.act("oneflow_discovery_save_verify");
+  await settle(10);
 }
 
-describe("integration: mandatory two-track onboarding chain converges", () => {
-  it("the setup bar is visible while only one track is complete (pre-condition)", async () => {
-    const env = loadChain();
-    await env.UC.completeInfraSetup();
-    await env.UC.completeOnboarding();
-    await env.UC.completeDiscoverySetup(); // 1 of 2
-    const state = await env.window.JobBoredApp.whatsNextBanner.refreshBanner();
-    assert.equal(state.discoveryComplete, true);
-    assert.equal(state.goLiveComplete, false);
+describe("integration: cold start opens on the product (spec §4)", () => {
+  it("mounts the demo board with the shipped fixture and no credential ask", async () => {
+    const env = newFlowEnv();
+    env.bootstrap.init();
+    await settle();
+
+    assert.equal(env.board.isActive(), true);
+    const board = env.document.body.querySelector(".oneflow-demo");
+    assert.ok(board, "S0 must be in the document");
+    assert.ok(
+      board.querySelectorAll(".oneflow-demo__card").length > 0,
+      "a zero-config visitor sees scored demo cards, not an empty shell",
+    );
+    assert.match(board.textContent, /This is your job hunt on autopilot\./);
     assert.equal(
-      env.region.hasAttribute("hidden"),
+      env.called().includes("showSheetAccessGate"),
       false,
-      "bar must stay visible while go-live is still pending",
+      "and never a Google client-id ask first",
     );
   });
 
-  it("finish discovery first -> auto-opens go-live exactly once -> both flags set -> bar hides", async () => {
-    const env = loadChain();
-    const driver = makeChainDriver(env);
+  it("the invitation card opens Beat 1 (spec §3.4 entry)", async () => {
+    const env = newFlowEnv();
+    env.bootstrap.init();
+    await settle();
 
-    await driver.driveDiscoveryFinish();
-    await driver.drain();
+    const primary = env.document.body
+      .querySelector(".oneflow-demo")
+      .querySelector(".oneflow-demo__invite-action--primary");
+    assert.ok(primary, '"Make it mine" must be on the board');
+    primary.dispatch("click", {});
+    await settle();
 
-    assert.equal(
-      await env.UC.isDiscoverySetupComplete(),
-      true,
-      "discovery flag must persist",
-    );
-    assert.equal(
-      await env.UC.isGoLiveSetupComplete(),
-      true,
-      "go-live flag must persist after the chained finish",
-    );
-    assert.equal(
-      driver.goLiveOpens.length,
-      1,
-      "go-live auto-opens exactly once",
-    );
-    assert.equal(driver.goLiveOpens[0].entryPoint, "onboarding_chain");
-    assert.equal(
-      driver.discoveryOpens.length,
-      0,
-      "discovery must NOT be re-opened (anti-ping-pong)",
-    );
+    assert.equal(env.openBeat(), "google");
+  });
+});
 
-    const { hidden } = await barWouldHide(env);
-    assert.equal(hidden, true, "bar self-hides once both tracks are complete");
+describe("integration: sign-in walks B1 → B6 (spec §5)", () => {
+  it("each beat's own action advances to the next, in spec order", async () => {
+    const env = newFlowEnv();
+    env.bootstrap.init();
+    await settle();
+    await env.status.runPostAccessBootstrapOnce();
+    await settle();
+
+    const seen = [env.openBeat()];
+    await env.act("google_continue");
+    await settle(10);
+    seen.push(env.openBeat());
+
+    type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
+    await env.act("ai_check");
+    await settle(10);
+    seen.push(env.openBeat());
+
+    type(env, "oneFlowResumePaste", "Staff engineer. Ten years of platform work.");
+    await env.act("resume_use_text");
+    await settle(10);
+    seen.push(env.openBeat());
+
+    await env.act("confirm-fit");
+    await settle(10);
+    seen.push(env.openBeat());
+
+    type(env, "oneFlowSerpApiKeyInput", "serpapi-test-key");
+    await env.act("oneflow_discovery_save_verify");
+    await settle(10);
+    await env.act("oneflow_discovery_connect");
+    await settle(10);
+    seen.push(env.openBeat());
+
+    assert.deepEqual(seen, [
+      "google",
+      "ai",
+      "resume",
+      "fit",
+      "discovery",
+      "payoff",
+    ]);
   });
 
-  it("finish go-live first -> auto-opens discovery exactly once -> both flags set -> bar hides", async () => {
-    const env = loadChain();
-    const driver = makeChainDriver(env);
+  it("B4 confirms what B3 drafted — no datum is asked twice (spec §2.3)", async () => {
+    const env = newFlowEnv();
+    await env.flow.open("google");
+    await settle();
+    await env.act("google_continue");
+    await settle(10);
+    type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
+    await env.act("ai_check");
+    await settle(10);
+    type(env, "oneFlowResumePaste", "Staff engineer. Ten years of platform work.");
+    await env.act("resume_use_text");
+    await settle(10);
 
-    await driver.driveGoLiveFinish();
-    await driver.drain();
+    assert.equal(env.openBeat(), "fit");
+    const rendered = env.text();
+    assert.match(rendered, /Staff Engineer/);
+    assert.match(rendered, /Distributed systems/);
+    assert.match(rendered, /Austin/);
+  });
 
+  it("finishing B6 writes every legacy completion flag (spec §3.2)", async () => {
+    const env = newFlowEnv();
+    await env.flow.open("google");
+    await settle();
+    await walkToConnectPanel(env);
+    await env.act("oneflow_discovery_connect");
+    await settle(10);
+    assert.equal(env.openBeat(), "payoff");
+
+    await env.act("payoff_dashboard");
+    await settle(10);
+
+    assert.equal(await env.store.isOnboardingComplete(), true);
+    assert.equal(await env.store.isInfraSetupComplete(), true);
     assert.equal(
-      await env.UC.isGoLiveSetupComplete(),
+      await env.store.isDiscoverySetupComplete(),
       true,
-      "go-live flag must persist",
+      "connect succeeded, so the discovery track is complete too",
     );
+    assert.equal(env.flow.getState().completed, true);
+    assert.equal(env.openBeat(), "", "the shell closes on the payoff exit");
     assert.equal(
-      await env.UC.isDiscoverySetupComplete(),
-      true,
-      "discovery flag must persist after the chained finish",
-    );
-    assert.equal(
-      driver.discoveryOpens.length,
+      stepEvents(env.events, "flow_completed").length,
       1,
-      "discovery auto-opens exactly once",
+      "exactly one flow_completed (spec §9)",
     );
-    assert.equal(driver.discoveryOpens[0].entryPoint, "onboarding_chain");
+  });
+
+  it("the completed flow is the ONE celebration (spec §5 B6, §7)", async () => {
+    const env = newFlowEnv();
+    const celebrations = [];
+    env.window.JobBoredOnboardingCelebration = {
+      STAGES: { flow_payoff: {} },
+      playOnboardingCelebration(done, stage, options) {
+        celebrations.push({ stage, title: (options && options.title) || "" });
+        if (typeof done === "function") done();
+      },
+    };
+    await env.flow.open("google");
+    await settle();
+    await walkToConnectPanel(env);
+    await env.act("oneflow_discovery_connect");
+    await settle(10);
+
+    assert.deepEqual(celebrations, [
+      { stage: "flow_payoff", title: "You're live, Priya." },
+    ]);
+  });
+});
+
+describe("integration: escape is pausing, not skipping (spec §3.4)", () => {
+  it("closing returns to the demo board and re-entry lands on the saved beat", async () => {
+    const env = newFlowEnv();
+    env.bootstrap.init();
+    await settle();
+    await env.flow.open("google");
+    await settle();
+    await env.act("google_continue");
+    await settle(10);
+    type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
+    await env.act("ai_check");
+    await settle(10);
+    assert.equal(env.openBeat(), "resume");
+
+    env.shell.closeWizardShell("escape");
+    await settle();
+
+    assert.equal(env.flow.isOpen(), false, "the shell is closed");
     assert.equal(
-      driver.goLiveOpens.length,
-      0,
-      "go-live must NOT be re-opened (anti-ping-pong)",
+      env.board.isActive(),
+      true,
+      "and the (demo) board is what is behind it",
+    );
+    const abandoned = stepEvents(env.events, "beat_abandoned");
+    assert.equal(abandoned.length, 1);
+    assert.equal(abandoned[0].beat, "resume");
+    assert.equal(abandoned[0].reason, "escape");
+
+    await env.flow.open();
+    await settle();
+    assert.equal(
+      env.openBeat(),
+      "resume",
+      "closing is pausing — re-entry resumes the saved beat",
+    );
+  });
+
+  it("a required beat stays required after a close", async () => {
+    const env = newFlowEnv();
+    await env.flow.open("google");
+    await settle();
+    env.shell.closeWizardShell("close-button");
+    await settle();
+
+    assert.deepEqual(
+      plain(env.flow.getState().completedBeats),
+      [],
+      "an abandoned beat is never recorded as done",
+    );
+  });
+});
+
+describe("integration: a refresh mid-flow resumes the beat (spec §3.4)", () => {
+  it("reloading the page lands on the persisted beat with the flow still open", async () => {
+    const first = newFlowEnv();
+    await first.flow.open("google");
+    await settle();
+    await first.act("google_continue");
+    await settle(10);
+    type(first, "oneFlowAiKeyInput", "sk-or-v1-test");
+    await first.act("ai_check");
+    await settle(10);
+    assert.equal(first.openBeat(), "resume");
+
+    // A reload: a brand-new page against the same stored state.
+    const reloaded = newFlowEnv({
+      indexedDB: first.indexedDB,
+      sheetId: "created-sheet-id",
+      signedIn: true,
+    });
+    await reloaded.status.runPostAccessBootstrapOnce();
+    await settle();
+
+    assert.equal(reloaded.openBeat(), "resume");
+    assert.deepEqual(plain(reloaded.flow.getState().completedBeats), [
+      "google",
+      "ai",
+    ]);
+  });
+});
+
+describe("integration: the skipped-connect end state (spec §5 B5/B6)", () => {
+  it("skipping connect finishes the flow and leaves the banner carrying the nudge", async () => {
+    const env = newFlowEnv();
+    await env.flow.open("google");
+    await settle();
+    await walkToConnectPanel(env);
+
+    await env.act("oneflow_discovery_skip_connect");
+    await settle(10);
+    assert.equal(env.openBeat(), "payoff");
+    assert.match(
+      env.text(),
+      /Connection is off/,
+      "B6 must render the skipped variant, not the armed one",
     );
 
-    const { hidden } = await barWouldHide(env);
-    assert.equal(hidden, true, "bar self-hides once both tracks are complete");
+    await env.act("payoff_dashboard");
+    await settle(10);
+
+    assert.equal(await env.store.isOnboardingComplete(), true);
+    assert.equal(await env.store.isInfraSetupComplete(), true);
+    assert.equal(
+      await env.store.isDiscoverySetupComplete(),
+      false,
+      "a skipped connection is not a completed discovery setup",
+    );
+
+    const state = await env.banner.refreshBanner();
+    assert.equal(state.discoveryComplete, false);
+    assert.equal(
+      env.whatsNextRegion.hasAttribute("hidden"),
+      false,
+      "the banner — not a gate — carries the remaining nudge (spec §3.3)",
+    );
+  });
+
+  it("the fuel key is NOT skippable — a keyless setup is the ledger §5 B5 forbids", async () => {
+    const env = newFlowEnv();
+    await env.flow.open("discovery");
+    await settle();
+
+    await env.act("oneflow_discovery_skip_connect");
+    await settle();
+
+    assert.equal(env.openBeat(), "discovery", "the beat must not advance");
+    assert.match(env.text(), /isn't skippable/);
+  });
+});
+
+describe("integration: a finished flow never re-onboards (spec §3.3)", () => {
+  it("the next boot goes straight to the dashboard", async () => {
+    const first = newFlowEnv();
+    await first.flow.open("google");
+    await settle();
+    await walkToConnectPanel(first);
+    await first.act("oneflow_discovery_connect");
+    await settle(10);
+    await first.act("payoff_dashboard");
+    await settle(10);
+
+    const next = newFlowEnv({
+      indexedDB: first.indexedDB,
+      sheetId: "created-sheet-id",
+      signedIn: true,
+      withBanner: true,
+    });
+    await next.status.runPostAccessBootstrapOnce();
+    await settle();
+
+    assert.equal(next.openBeat(), "", "no beat renders for a finished profile");
+    const state = await next.banner.refreshBanner();
+    assert.equal(
+      state.discoveryComplete,
+      true,
+      "the banner reads the flags the flow wrote, not its own bookkeeping",
+    );
+    assert.equal(
+      state.goLiveComplete,
+      false,
+      "other-devices stays a deferred §6 moment the banner nudges, never a gate",
+    );
   });
 });

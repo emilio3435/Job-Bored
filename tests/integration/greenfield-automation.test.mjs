@@ -324,3 +324,61 @@ describe("greenfield automation endpoint contracts", () => {
     }
   });
 });
+
+/* ------------------------------------------------------------------
+   The greenfield COLD START (ONE-FLOW-ONBOARDING-SPEC §4, §10 Phase 3).
+
+   After the L6 cutover, a zero-config clone's first screen is the demo
+   board — which means the page it boots and the fixture that board
+   fetches both have to be reachable from a plain `npm start`, with no
+   credentials, no Google client id, and no sheet. Everything above tests
+   the automation endpoints; this tests the surface those endpoints exist
+   to get the user past.
+   ------------------------------------------------------------------ */
+describe("greenfield cold start serves the demo board (spec §4)", () => {
+  it("serves the bundled demo fixture with scored rows and a JSON content type", async () => {
+    await withDevServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/fixtures/demo-pipeline.json`);
+      assert.equal(
+        response.status,
+        200,
+        "S0 fetches this path on first paint — a 404 leaves a keyless visitor an empty board",
+      );
+      assert.match(response.headers.get("content-type") || "", /application\/json/);
+
+      const data = await response.json();
+      assert.ok(Array.isArray(data.rows) && data.rows.length > 0);
+      for (const row of data.rows) {
+        assert.ok(String(row.company || "").trim());
+        assert.ok(String(row.role || "").trim());
+        assert.equal(
+          typeof row.fitScore,
+          "number",
+          "every demo card carries a fit score — the board's whole promise",
+        );
+        assert.ok(
+          String(row.whyItFits || "").trim(),
+          "and the one-line reason that makes the score mean something",
+        );
+      }
+    });
+  });
+
+  it("serves an index.html that mounts the flow after the user-content store", async () => {
+    await withDevServer(async (baseUrl) => {
+      const response = await fetch(`${baseUrl}/index.html`);
+      assert.equal(response.status, 200);
+      const html = await response.text();
+
+      assert.match(html, /id="oneFlowMount"/, "the flow needs its mount");
+      const storeAt = html.indexOf("user-content-store.js");
+      const boardAt = html.indexOf("oneflow-demo-board.js");
+      const flowAt = html.indexOf("onboarding-flow.js");
+      assert.ok(storeAt !== -1 && boardAt !== -1 && flowAt !== -1);
+      assert.ok(
+        storeAt < flowAt && storeAt < boardAt,
+        "load order: anything reading CommandCenterUserContent at parse time must come after it",
+      );
+    });
+  });
+});

@@ -109,7 +109,70 @@ function upgradeDocument(doc) {
   doc.fire = (type, event = {}) => {
     for (const fn of [...(listeners.get(type) || [])]) fn(event);
   };
+  // whats-next-banner.js finds its region by attribute selector off the
+  // document, not by id.
+  doc.querySelector = (sel) => doc.body.querySelector(sel);
+  doc.querySelectorAll = (sel) => doc.body.querySelectorAll(sel);
+  doc.readyState = "complete";
   return doc;
+}
+
+/**
+ * B3 writes a RESUME, and setPrimaryResume (user-content-store.js:856)
+ * uses two things L0's IndexedDB fake does not model: objectStore.clear(),
+ * and a transaction that reports oncomplete. Same wrapper L1's harness
+ * applies (tests/oneflow-l1-harness.mjs) — L0's fake is single-owner, so
+ * both lanes wrap rather than fork it.
+ */
+function withResumeTransactions(idb) {
+  const openDb = idb.open.bind(idb);
+
+  function wrapStore(store) {
+    if (typeof store.clear === "function") return store;
+    store.clear = () => {
+      store.rows.clear();
+      const request = { result: undefined, onsuccess: null, onerror: null };
+      queueMicrotask(() => {
+        if (request.onsuccess) request.onsuccess({ target: request });
+      });
+      return request;
+    };
+    return store;
+  }
+
+  function wrapDb(db) {
+    if (!db || db.__resumeWrapped) return db;
+    const transaction = db.transaction.bind(db);
+    db.transaction = (...args) => {
+      const tx = transaction(...args);
+      const objectStore = tx.objectStore.bind(tx);
+      tx.objectStore = (name) => wrapStore(objectStore(name));
+      tx.error = null;
+      tx.abort = () => {
+        if (tx.onabort) tx.onabort();
+      };
+      setTimeout(() => {
+        if (tx.oncomplete) tx.oncomplete();
+      }, 0);
+      return tx;
+    };
+    db.__resumeWrapped = true;
+    return db;
+  }
+
+  idb.open = (name) => {
+    const request = openDb(name);
+    let result = request.result;
+    Object.defineProperty(request, "result", {
+      configurable: true,
+      get: () => result,
+      set: (value) => {
+        result = wrapDb(value);
+      },
+    });
+    return request;
+  };
+  return idb;
 }
 
 function baseSandbox(doc, win) {
@@ -269,6 +332,9 @@ export function loadCutover(options = {}) {
   const doc = upgradeDocument(makeFakeDocument());
   for (const id of MOUNT_IDS) doc.register(id);
   doc.body.appendChild(doc.getElementById("dashboard"));
+  const whatsNextRegion = doc.register("whatsNextRegion");
+  whatsNextRegion.dataset.region = "whats-next";
+  doc.body.appendChild(whatsNextRegion);
   if (options.gateMode) {
     doc.getElementById("sheetAccessGateScreen").dataset.gateMode =
       options.gateMode;
@@ -276,7 +342,10 @@ export function loadCutover(options = {}) {
 
   const win = {};
   const ctx = baseSandbox(doc, win);
-  ctx.indexedDB = makeFakeIndexedDb();
+  // Passing a previous run's indexedDB back in models a RELOAD: the page
+  // is rebuilt from scratch, the user's stored state is not.
+  ctx.indexedDB =
+    options.indexedDB || withResumeTransactions(makeFakeIndexedDb());
   ctx.crypto = {
     randomUUID: () => `uuid-${Math.random().toString(16).slice(2)}`,
   };
@@ -403,6 +472,14 @@ export function loadCutover(options = {}) {
   for (const file of PAGE_SCRIPTS) {
     vm.runInContext(readRepoFile(file), ctx, { filename: file });
   }
+  if (options.withBanner) {
+    // The banner reads the store through the bridge, so it can only load
+    // once JobBoredApp.core.host exists — same order index.html uses.
+    host.getUserContent = () => win.CommandCenterUserContent;
+    vm.runInContext(readRepoFile("whats-next-banner.js"), ctx, {
+      filename: "whats-next-banner.js",
+    });
+  }
 
   // The discovery wizard bridge B5 reaches for, and the run tracker the
   // status handoff polls — both installed after the shell has claimed the
@@ -439,12 +516,15 @@ export function loadCutover(options = {}) {
     verifyCalls,
     acknowledged,
     sessionStorage: ctx.sessionStorage,
+    indexedDB: ctx.indexedDB,
     flow: win.JobBoredOneFlow,
     store: win.CommandCenterUserContent,
     shell,
     board: win.JobBoredOneFlowDemoBoard,
     status: win.JobBoredDiscovery.status,
     bootstrap: win.JobBoredApp.bootstrap,
+    banner: win.JobBoredApp.whatsNextBanner,
+    whatsNextRegion,
     events: doc._events,
     mount: () => doc.getElementById("oneFlowMount"),
     /**
