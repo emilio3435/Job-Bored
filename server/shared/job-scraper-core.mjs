@@ -17,9 +17,30 @@ const FETCH_TIMEOUT_MS = 18000;
 const MAX_HTML_BYTES = 4 * 1024 * 1024;
 const SERPAPI_ENDPOINT = "https://serpapi.com/search.json";
 const SERPAPI_TIMEOUT_MS = 12000;
+const TRANSIENT_HTTP_STATUSES = new Set([408, 425, 500, 502, 503, 504]);
 
 const UA =
   "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36";
+
+export class ScrapeJobError extends Error {
+  /**
+   * @param {string} message
+   * @param {{ code: string, statusCode: number, detail: string, nextStep: string, userMessage?: string, retryable?: boolean, sourceHost?: string, upstreamStatus?: number | null, fallback?: { attempted: boolean, reason: string } | null }} fields
+   */
+  constructor(message, fields) {
+    super(message);
+    this.name = "ScrapeJobError";
+    this.code = fields.code;
+    this.userMessage = fields.userMessage || message;
+    this.statusCode = fields.statusCode;
+    this.detail = fields.detail;
+    this.nextStep = fields.nextStep;
+    this.retryable = Boolean(fields.retryable);
+    this.sourceHost = fields.sourceHost || "";
+    this.upstreamStatus = fields.upstreamStatus || null;
+    this.fallback = fields.fallback || null;
+  }
+}
 
 /** [lowercase needle, display label] for skill chips */
 const KNOWN_SKILLS = [
@@ -271,6 +292,24 @@ function buildSerpApiQuery(options = {}) {
   return [title, company].filter(Boolean).join(" ").trim();
 }
 
+/** @param {ScrapeJobPostingOptions} [options] */
+function getSerpFallbackPlan(options = {}) {
+  if (!buildSerpApiQuery(options)) {
+    return {
+      eligible: false,
+      reason:
+        "A job title and company were not supplied, so JobBored could not safely match an alternate result.",
+    };
+  }
+  if (!getSerpApiKey(options)) {
+    return {
+      eligible: false,
+      reason: "Google Jobs fallback is not configured on this scraper.",
+    };
+  }
+  return { eligible: true, reason: "" };
+}
+
 /**
  * @param {UnknownRecord} raw
  * @returns {string[]}
@@ -322,6 +361,164 @@ function hostnameOf(url) {
   } catch {
     return "";
   }
+}
+
+/** @param {string} url */
+function isKnownCompanyJobsIndex(url) {
+  let parsed;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return false;
+  }
+  const host = parsed.hostname.replace(/^www\./i, "").toLowerCase();
+  const segments = parsed.pathname.split("/").filter(Boolean);
+  if (host === "wellfound.com") {
+    return segments.length === 3 && segments[0] === "company" && segments[2] === "jobs";
+  }
+  return false;
+}
+
+/**
+ * @param {unknown} error
+ * @param {string} url
+ * @param {{ attempted: boolean, reason: string } | null} [fallback]
+ */
+function classifyScrapeFailure(error, url, fallback = null) {
+  const errorLike = /** @type {{ message?: unknown, name?: unknown, upstreamStatus?: unknown }} */ (
+    error
+  );
+  const rawMessage = String((errorLike && errorLike.message) || "");
+  const sourceHost = hostnameOf(url);
+  const statusFromError = Number(errorLike && errorLike.upstreamStatus);
+  const statusMatch = rawMessage.match(/\bHTTP\s+(\d{3})\b/i);
+  const upstreamStatus = Number.isFinite(statusFromError) && statusFromError > 0
+    ? statusFromError
+    : statusMatch
+      ? Number(statusMatch[1])
+      : null;
+
+  if (upstreamStatus === 401 || upstreamStatus === 403) {
+    return new ScrapeJobError(`HTTP ${upstreamStatus}`, {
+      code: "source_blocked",
+      statusCode: 502,
+      userMessage: "The job site blocked automated access.",
+      detail: `${sourceHost || "The job site"} returned HTTP ${upstreamStatus} before JobBored could read the posting.`,
+      nextStep:
+        "Open one specific job and paste its direct posting URL. You can also continue without scraped context.",
+      retryable: false,
+      sourceHost,
+      upstreamStatus,
+      fallback,
+    });
+  }
+  if (upstreamStatus === 404 || upstreamStatus === 410) {
+    return new ScrapeJobError(`HTTP ${upstreamStatus}`, {
+      code: "posting_unavailable",
+      statusCode: 404,
+      userMessage: "This job posting is no longer available at that URL.",
+      detail: `${sourceHost || "The job site"} returned HTTP ${upstreamStatus}. The role may have closed or moved.`,
+      nextStep: "Open the posting in your browser and paste its current direct URL.",
+      retryable: false,
+      sourceHost,
+      upstreamStatus,
+      fallback,
+    });
+  }
+  if (upstreamStatus === 429) {
+    return new ScrapeJobError("HTTP 429", {
+      code: "source_rate_limited",
+      statusCode: 429,
+      userMessage: "The job site is temporarily rate-limiting requests.",
+      detail: `${sourceHost || "The job site"} returned HTTP 429.`,
+      nextStep: "Wait a few minutes, then try this direct posting URL again.",
+      retryable: true,
+      sourceHost,
+      upstreamStatus,
+      fallback,
+    });
+  }
+  if (upstreamStatus && upstreamStatus >= 500 && upstreamStatus <= 599) {
+    return new ScrapeJobError(`HTTP ${upstreamStatus}`, {
+      code: "source_unavailable",
+      statusCode: 502,
+      userMessage: "The job site is temporarily unavailable.",
+      detail: `${sourceHost || "The job site"} still returned HTTP ${upstreamStatus} after JobBored retried once.`,
+      nextStep: "Try this direct posting URL again in a few minutes.",
+      retryable: true,
+      sourceHost,
+      upstreamStatus,
+      fallback,
+    });
+  }
+  if (String(errorLike && errorLike.name) === "AbortError") {
+    return new ScrapeJobError("The job site took too long to respond.", {
+      code: "source_timeout",
+      statusCode: 504,
+      detail: `JobBored stopped waiting for ${sourceHost || "the job site"} after 18 seconds.`,
+      nextStep: "Try again, or continue without scraped context.",
+      retryable: true,
+      sourceHost,
+      fallback,
+    });
+  }
+  if (error instanceof TypeError) {
+    return new ScrapeJobError("JobBored could not reach the job site.", {
+      code: "source_unreachable",
+      statusCode: 502,
+      detail: `The connection to ${sourceHost || "the job site"} failed before a response arrived.`,
+      nextStep: "Check your connection and try the direct posting URL again.",
+      retryable: true,
+      sourceHost,
+      fallback,
+    });
+  }
+  if (/page too large/i.test(rawMessage)) {
+    return new ScrapeJobError("The page is too large to scrape safely.", {
+      code: "page_too_large",
+      statusCode: 413,
+      detail: "The downloaded page exceeded JobBored's 4 MB safety limit.",
+      nextStep: "Use the job site's direct, text-focused posting URL if one is available.",
+      retryable: false,
+      sourceHost,
+      fallback,
+    });
+  }
+  return new ScrapeJobError(rawMessage || "JobBored could not extract this job posting.", {
+    code: "scrape_failed",
+    statusCode: 502,
+    userMessage: "JobBored could not extract this job posting.",
+    detail: "The scraper stopped before it found a usable job description.",
+    nextStep: "Confirm this is a direct job-posting URL, then try again.",
+    retryable: false,
+    sourceHost,
+    upstreamStatus,
+    fallback,
+  });
+}
+
+/**
+ * Convert any scraper exception into the stable HTTP response used by browser clients.
+ * @param {unknown} error
+ * @param {string} url
+ */
+export function toScrapeFailureResponse(error, url) {
+  const failure = error instanceof ScrapeJobError
+    ? error
+    : classifyScrapeFailure(error, url);
+  return {
+    status: failure.statusCode,
+    body: {
+      error: failure.userMessage,
+      code: failure.code,
+      detail: failure.detail,
+      nextStep: failure.nextStep,
+      retryable: failure.retryable,
+      ...(failure.sourceHost ? { sourceHost: failure.sourceHost } : {}),
+      ...(failure.upstreamStatus ? { upstreamStatus: failure.upstreamStatus } : {}),
+      ...(failure.fallback ? { fallback: failure.fallback } : {}),
+    },
+  };
 }
 
 /**
@@ -476,6 +673,46 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
       "Direct scrape was replaced with a Google Jobs structured fallback.",
     ],
   };
+}
+
+/**
+ * @param {string} originalUrl
+ * @param {ScrapeJobPostingOptions} [options]
+ */
+async function trySerpFallback(originalUrl, options = {}) {
+  const plan = getSerpFallbackPlan(options);
+  if (!plan.eligible) {
+    return {
+      result: null,
+      fallback: { attempted: false, reason: plan.reason },
+    };
+  }
+  try {
+    const result = await scrapeViaSerpApiGoogleJobs(originalUrl, options);
+    return {
+      result,
+      fallback: {
+        attempted: true,
+        reason: result
+          ? "An exact Google Jobs match was used."
+          : "Google Jobs was checked, but no exact matching posting was found.",
+      },
+    };
+  } catch (error) {
+    const message = String(
+      /** @type {{ message?: unknown } | null | undefined} */ (error)?.message || "",
+    );
+    const status = message.match(/\bHTTP\s+(\d{3})\b/i);
+    return {
+      result: null,
+      fallback: {
+        attempted: true,
+        reason: status
+          ? `Google Jobs fallback returned HTTP ${status[1]}.`
+          : "Google Jobs fallback could not complete.",
+      },
+    };
+  }
 }
 
 /** @param {unknown} html */
@@ -872,6 +1109,41 @@ function extractSkillsFromText(text, requirements) {
 }
 
 /**
+ * Retry one response-level transient failure or connection failure. Permanent
+ * 4xx responses are returned immediately so blocked sites are not hammered.
+ * @param {string} url
+ * @param {AbortSignal} signal
+ * @param {typeof globalThis.fetch} fetchImpl
+ */
+async function fetchJobPage(url, signal, fetchImpl) {
+  for (let attempt = 1; attempt <= 2; attempt += 1) {
+    try {
+      const response = await safeFetch(
+        url,
+        {
+          signal,
+          headers: {
+            "User-Agent": UA,
+            Accept:
+              "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+            "Accept-Language": "en-US,en;q=0.9",
+          },
+        },
+        { fetchImpl },
+      );
+      if (attempt === 1 && TRANSIENT_HTTP_STATUSES.has(Number(response.status))) {
+        continue;
+      }
+      return response;
+    } catch (error) {
+      if (attempt === 1 && error instanceof TypeError) continue;
+      throw error;
+    }
+  }
+  throw new Error("Job page fetch failed");
+}
+
+/**
  * @param {string} url
  * @param {ScrapeJobPostingOptions} [options]
  * @returns {Promise<ScrapeJobPostingResult>}
@@ -883,6 +1155,24 @@ export async function scrapeJobPosting(url, options = {}) {
   }
 
   const fetchImpl = options.fetchImpl || globalThis.fetch;
+
+  if (isKnownCompanyJobsIndex(target.url)) {
+    const recovery = await trySerpFallback(target.url, {
+      ...options,
+      fetchImpl,
+    });
+    if (recovery.result) return recovery.result;
+    throw new ScrapeJobError("Hosted page is a careers listing, not a job posting", {
+      code: "job_detail_url_required",
+      statusCode: 422,
+      userMessage: "Choose a specific job posting first.",
+      detail: "This URL opens a company jobs page, not one job description.",
+      nextStep: "Open one role from that page and paste the role's direct URL.",
+      retryable: false,
+      sourceHost: hostnameOf(target.url),
+      fallback: recovery.fallback,
+    });
+  }
 
   const atsHit = await fetchAtsJobPosting(target.url, { fetchImpl }).catch(() => null);
   if (atsHit && String(atsHit.description || "").trim().length >= 80) {
@@ -905,32 +1195,26 @@ export async function scrapeJobPosting(url, options = {}) {
   const t = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
   let html;
   try {
-    const res = await safeFetch(
-      target.url,
-      {
-        signal: controller.signal,
-        headers: {
-          "User-Agent": UA,
-          Accept:
-            "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "en-US,en;q=0.9",
-        },
-      },
-      { fetchImpl },
-    );
-    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const res = await fetchJobPage(target.url, controller.signal, fetchImpl);
+    if (!res.ok) {
+      const error = /** @type {Error & { upstreamStatus?: number }} */ (
+        new Error(`HTTP ${res.status}`)
+      );
+      error.upstreamStatus = Number(res.status);
+      throw error;
+    }
     const buf = await res.arrayBuffer();
     if (buf.byteLength > MAX_HTML_BYTES) {
       throw new Error("Page too large");
     }
     html = new TextDecoder("utf-8").decode(buf);
   } catch (error) {
-    const serpFallback = await scrapeViaSerpApiGoogleJobs(target.url, {
+    const recovery = await trySerpFallback(target.url, {
       ...options,
       fetchImpl,
-    }).catch(() => null);
-    if (serpFallback) return serpFallback;
-    throw error;
+    });
+    if (recovery.result) return recovery.result;
+    throw classifyScrapeFailure(error, target.url, recovery.fallback);
   } finally {
     clearTimeout(t);
   }
@@ -1048,13 +1332,22 @@ export async function scrapeJobPosting(url, options = {}) {
 
   const listingPage = looksLikeCareersListing(title, description);
   if (description.length < 160 || listingPage) {
-    const serpFallback = await scrapeViaSerpApiGoogleJobs(target.url, {
+    const recovery = await trySerpFallback(target.url, {
       ...options,
       fetchImpl,
-    }).catch(() => null);
-    if (serpFallback) return serpFallback;
+    });
+    if (recovery.result) return recovery.result;
     if (listingPage) {
-      throw new Error("Hosted page is a careers listing, not a job posting");
+      throw new ScrapeJobError("Hosted page is a careers listing, not a job posting", {
+        code: "job_detail_url_required",
+        statusCode: 422,
+        userMessage: "Choose a specific job posting first.",
+        detail: "The page content is a careers listing, not one job description.",
+        nextStep: "Open one role from that page and paste the role's direct URL.",
+        retryable: false,
+        sourceHost: hostnameOf(target.url),
+        fallback: recovery.fallback,
+      });
     }
   }
 
