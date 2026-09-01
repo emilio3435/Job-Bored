@@ -19,14 +19,14 @@ The dashboard also has an in-browser BYOK path (`resume-generate.js`) that calls
 
 When a job moves to Researching, a tailored resume and cover letter appear in the existing dossier, written by JobBored's local scraper server, with no Hermes binary.
 
-The model chosen during first-run setup (and later in Settings) is the **one and only** model for every LLM call in the dashboard and the scraper server.
+The model chosen during first-run setup (and later in Settings) is the **one and only** model for every LLM call we own: dashboard, scraper server, and discovery worker Gemini/matcher lanes.
 
 ## In scope
 
 1. Replace the Hermes spawn with an in-process Writer → Composer → Critic → Editor loop on the Express server (`npm start` / `:3847`).
 2. Keep the HTTP and dossier UI contracts (`POST /api/applications/:slug/request`, poll, branded HTML/PDF).
 3. Store packages under `~/.jobbored/applications/<slug>/`. Copy leftover Hermes packages on first boot.
-4. One active LLM pin, chosen at setup, used everywhere listed under "One model."
+4. One active LLM pin, chosen at setup, used everywhere listed under "One model," including the discovery worker's Gemini and matcher calls.
 5. Family alias `gemini-flash` (and equivalents) so the pin follows the current stable Flash instead of rotting as `gemini-3.5-flash`.
 6. JD gate: if the cached description is a fit blurb or under ~80 words, scrape `jobUrl` before drafting. EAB is the fixture.
 
@@ -34,13 +34,13 @@ The model chosen during first-run setup (and later in Settings) is the **one and
 
 - Reinstalling Hermes, Telegram, or the Python watcher.
 - Mail-merge / slot-fill of old bullets with no rewrite.
-- Discovery worker search/matcher models (`integrations/browser-use-discovery`). That process has its own wizard and env. Merging it would force Ollama users to search with Gemma, or Gemini-search users to draft with whatever they picked for letters. Leave it.
 - Changing Pipeline columns or the discovery webhook contract.
 - Shipping the writer on `openai/gpt-oss-120b:free`.
+- Replacing Browser Use Cloud's hosted browser agent. That product has its own brain. We do not send our Flash pin into their session. ATS boards, SerpApi, and Cheerio are not LLMs.
 
 ## One model
 
-**Rule:** there is a single active `(provider, model)` pair. Setup writes it. Settings can change it. Every LLM call in the dashboard and scraper server uses that pair. No per-feature override, no `ATS_GEMINI_MODEL` fork, no Writer-on-Flash / Editor-on-Pro split.
+**Rule:** there is a single active `(provider, model)` pair. Setup writes it. Settings can change it. Every LLM call we own uses that pair. No per-feature override, no `ATS_GEMINI_MODEL` fork, no `BROWSER_USE_DISCOVERY_GEMINI_MODEL` fork, no Writer-on-Flash / Editor-on-Pro split.
 
 **Calls that must use it**
 
@@ -51,11 +51,22 @@ The model chosen during first-run setup (and later in Settings) is the **one and
 - Profile-from-resume extract (server)
 - Profile rescore worker (server)
 - Job posting insights / Gemini URL-context (browser)
+- Discovery matcher / scoring LLM (`chat-provider.ts`, `llmModel`)
+- Discovery grounded web search (`google_search` in `grounded-search.ts`, `geminiModel`)
+- Discovery Gemini URL context extraction (`url_context`)
+- Discovery company-from-profile Gemini upgrade
 
 **Not this pin**
 
-- Discovery worker grounded search / Browser Use (out of scope, above)
+- Browser Use Cloud's hosted browser agent (their session, not our `generateContent` call)
+- SerpApi Google Jobs, ATS board scrapes, Cheerio (not LLMs)
 - Demo/scribe fixtures (`demo-scorecard-v1`)
+
+**Gemini-only Google tools**
+
+`google_search` and `url_context` are Gemini API tools. They cannot run on OpenAI, Anthropic, OpenRouter, or Ollama. With the recommended setup (Gemini Flash family) that is the same pin, full stop.
+
+If the user later switches the pin off Gemini, those two discovery lanes skip (same as today when the Gemini key is unset). We do **not** keep a leftover `gemini-3.5-flash` for them. No second pin.
 
 **How it is stored**
 
@@ -74,7 +85,7 @@ The model chosen during first-run setup (and later in Settings) is the **one and
 
 - `POST /api/llm-config` from the dashboard on save. `GET /api/llm-config` returns the pin with the key redacted (`keyPresent: true`).
 - Server LLM calls read `llm.json`. If the file is missing, fail loud: no silent fallback to `ATS_GEMINI_MODEL=gemini-2.5-flash`.
-- Existing `ATS_*` / `PROFILE_*` env vars become migrate-from only: if `llm.json` is absent and env is present, copy env into `llm.json` once and log that it happened.
+- Existing `ATS_*` / `PROFILE_*` / `BROWSER_USE_DISCOVERY_GEMINI_MODEL` env vars become migrate-from only: if `llm.json` is absent and env is present, copy env into `llm.json` once and log that it happened. Once `llm.json` exists, discovery reads it the same way ATS does.
 
 **Family aliases**
 
@@ -228,7 +239,7 @@ The toast only fires after the server has accepted the job onto the FIFO with a 
 ## Testing
 
 - Family resolver: fixture list of 3.5 / 3.6 / 3.7 / 3.7-preview / 3.5-flash-lite / image → picks `gemini-3.7-flash`.
-- One-pin: Settings save writes `llm.json`; ATS and Writer read that file; a leftover `ATS_GEMINI_MODEL=gemini-2.5-flash` is ignored once `llm.json` exists.
+- One-pin: Settings save writes `llm.json`; ATS, Writer, and discovery `geminiModel`/`llmModel` read that file; leftover `ATS_GEMINI_MODEL=gemini-2.5-flash` and `BROWSER_USE_DISCOVERY_GEMINI_MODEL=gemini-3.5-flash` are ignored once `llm.json` exists.
 - JD gate: EAB one-liner rejected; scrape required.
 - Composer: JSON lands in slots; CSS untouched; frozen facts remain.
 - Critic: 200-word letter fails; 400-word letter with keywords passes; 3-page resume fails.
@@ -254,6 +265,7 @@ Change:
 - `server/materials-request.mjs` — stop spawning Hermes; enqueue drafter
 - `server/application-materials.mjs` — default root `~/.jobbored/applications`
 - `server/ats-scorecard.mjs`, `server/profile-from-resume.mjs`, `server/profile-rescore-worker.mjs` — read `llm.json`
+- `integrations/browser-use-discovery/src/config.ts` — `geminiModel` / `llmModel` default from `llm.json`, not a hardcoded 3.5-flash
 - `first-run-wizard.js`, `settings-modal.js` — POST pin; Gemini default `gemini-flash`; weak-model warning
 - `resume-generate.js` / `discovery-drawer.js` / `job-posting-insights.js` — resolve through the active pin, not a second default
 - `config.example.js` — recommended Gemini Flash family, not OpenRouter free
@@ -264,13 +276,13 @@ Do not edit `fix/enrichment-offline-hard-gate` or other in-flight branches.
 ## Success
 
 1. Drag EAB to Researching with `npm start` running and a Gemini key in Settings. A real posting is scraped. Letter 325–475 words. Resume ≤ 2 pages. Dossier shows READY or REVIEW, never a silent pending forever.
-2. ATS scorecard and the letter were produced by the same resolved model id, visible in logs and the scorecard `model` field.
+2. ATS scorecard, the letter, and a discovery grounded-search call were produced by the same resolved model id.
 3. `which hermes` can fail. The path still works.
-4. Changing the model in Settings changes the next ATS call and the next draft. No leftover 2.5-flash.
+4. Changing the model in Settings changes the next ATS call, the next draft, and the next discovery Gemini call. No leftover 2.5-flash or 3.5-flash.
 
 ## Open questions (resolved)
 
 - Writer vs mail-merge → Writer/Composer/Critic/Editor. Cheerio typesets only.
 - Writer model → the setup pin. Recommended default Gemini Flash family. Not gpt-oss-120b:free.
-- Cron for dropdowns → no. Live fetch already exists. Family alias keeps the call current.
-- One model vs many → one model across dashboard + scraper server. Discovery worker excluded.
+- Cron for dropdowns → no. Live fetch already exists. Family alias keeps the call current. Confirmed.
+- One model vs many → one model across dashboard, scraper server, and discovery Gemini/matcher lanes. Browser Use Cloud's hosted agent is not our pin. Google-only tools skip if the pin is not Gemini; they do not keep a second Flash id.
