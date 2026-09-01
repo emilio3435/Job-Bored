@@ -343,6 +343,12 @@
   color: var(--jb-ink-2, var(--text-muted));
 }
 
+/* One slot for the read-only detail, so a second card replaces the first
+   instead of stacking panels in the same corner. */
+.oneflow-demo__detail-slot:empty {
+  display: none;
+}
+
 .oneflow-demo__detail {
   position: fixed;
   right: var(--space-5);

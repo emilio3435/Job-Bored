@@ -85,7 +85,7 @@ export function makeFakeSessionStorage(seed = {}) {
  * than a hand-written double that can drift from it.
  */
 export function loadDemoBoard({ fetchImpl, sessionSeed = {} } = {}) {
-  const doc = makeFakeDocument();
+  const doc = upgradeDocument(makeFakeDocument());
   const win = {};
   const ctx = baseSandbox(doc, win);
   ctx.CustomEvent = FakeCustomEvent;
@@ -118,33 +118,37 @@ export function loadDemoBoard({ fetchImpl, sessionSeed = {} } = {}) {
 }
 
 /**
- * The fake DOM's `style` is a plain object; the confetti driver writes a
- * custom property through style.setProperty. Give every element the real
- * method so the probes exercise the shipped code path, not a stub of it.
+ * Two DOM methods the L0 FakeEl doesn't implement, added HERE rather than
+ * worked around in the modules under test:
+ *   style.setProperty — the confetti driver writes a custom property,
+ *   remove()          — the codebase's idiom for detaching a node.
+ * Production code should read like production code; the fake catches up.
  */
-function withStyleSetProperty(doc) {
+function upgradeElement(el) {
+  el.style.setProperty = (name, value) => {
+    el.style[name] = String(value);
+  };
+  el.remove = () => {
+    const parent = el.parentNode;
+    if (!parent) return;
+    parent.children = parent.children.filter((child) => child !== el);
+    el.parentNode = null;
+  };
+  return el;
+}
+
+function upgradeDocument(doc) {
   const create = doc.createElement.bind(doc);
-  doc.createElement = (tag) => {
-    const el = create(tag);
-    el.style.setProperty = (name, value) => {
-      el.style[name] = String(value);
-    };
-    return el;
-  };
+  doc.createElement = (tag) => upgradeElement(create(tag));
   const register = doc.register.bind(doc);
-  doc.register = (id) => {
-    const el = register(id);
-    el.style.setProperty = (name, value) => {
-      el.style[name] = String(value);
-    };
-    return el;
-  };
+  doc.register = (id) => upgradeElement(register(id));
+  upgradeElement(doc.body);
   return doc;
 }
 
 /** The celebration overlay element graph, by id, as index.html ships it. */
 export function makeCelebrationDom() {
-  const doc = withStyleSetProperty(makeFakeDocument());
+  const doc = upgradeDocument(makeFakeDocument());
   const overlay = doc.register("onboardingCelebration");
   doc.body.appendChild(overlay);
   const other = doc.register("someOtherSurface");
@@ -208,7 +212,7 @@ export function loadCelebrationModule({ withCta = true } = {}) {
  * the happy "connected" path so a probe only states what it changes.
  */
 export function loadPayoff(stubs = {}) {
-  const doc = makeFakeDocument();
+  const doc = upgradeDocument(makeFakeDocument());
   doc.register("oneFlowMount");
   doc.register("discoverySetupWizardMount");
   const win = {};

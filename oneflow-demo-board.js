@@ -215,19 +215,8 @@
    */
   function renderDetail(row) {
     if (!mountEl) return null;
-    const existing = mountEl.querySelector(".oneflow-demo__detail");
-    if (existing && existing.parentNode) {
-      existing.parentNode.children = existing.parentNode.children.filter
-        ? existing.parentNode.children.filter((c) => c !== existing)
-        : existing.parentNode.children;
-      if (typeof existing.parentNode.removeChild === "function") {
-        try {
-          existing.parentNode.removeChild(existing);
-        } catch (_) {
-          /* already detached by the filter above */
-        }
-      }
-    }
+    const slot = mountEl.querySelector(".oneflow-demo__detail-slot");
+    if (!slot) return null;
     const detail = createEl("aside", "oneflow-demo__detail");
     detail.setAttribute("aria-readonly", "true");
     detail.setAttribute("aria-label", `${row.role} at ${row.company} — demo detail`);
@@ -251,7 +240,9 @@
         "Sample data — your own roles land here once you're set up.",
       ),
     );
-    mountEl.appendChild(detail);
+    // One slot, replaced rather than stacked: clicking a second card shows
+    // that card, never two panels fighting for the same corner.
+    slot.replaceChildren(detail);
     return detail;
   }
 
@@ -276,13 +267,11 @@
       createEl("h2", "oneflow-demo__invite-headline", INVITATION.headline),
     );
     const body = createEl("p", "oneflow-demo__invite-body");
-    body.appendChild(document.createTextNode
-      ? document.createTextNode(INVITATION.bodyLead)
-      : createEl("span", "", INVITATION.bodyLead));
-    body.appendChild(createEl("em", "", INVITATION.bodyEmphasis));
-    body.appendChild(document.createTextNode
-      ? document.createTextNode(INVITATION.bodyTail)
-      : createEl("span", "", INVITATION.bodyTail));
+    body.append(
+      createEl("span", "", INVITATION.bodyLead),
+      createEl("em", "", INVITATION.bodyEmphasis),
+      createEl("span", "", INVITATION.bodyTail),
+    );
     card.appendChild(body);
     card.appendChild(
       createEl("p", "oneflow-demo__invite-privacy", INVITATION.privacy),
@@ -381,6 +370,7 @@
       el.appendChild(note);
       el.appendChild(buildBoard());
     }
+    el.appendChild(createEl("div", "oneflow-demo__detail-slot"));
     const ask = createEl("div", "oneflow-demo__ask");
     el.appendChild(ask);
     body.appendChild(el);
@@ -401,20 +391,7 @@
     pipelineListener = null;
     const el = mountEl;
     mountEl = null;
-    if (!el) return;
-    const parent = el.parentNode;
-    if (parent) {
-      if (typeof parent.removeChild === "function") {
-        try {
-          parent.removeChild(el);
-        } catch (_) {
-          /* fall through to the array splice below */
-        }
-      }
-      if (Array.isArray(parent.children)) {
-        parent.children = parent.children.filter((child) => child !== el);
-      }
-    }
+    if (el) el.remove();
   }
 
   /** True while the fixture board is the live board (spec §4 "Exit"). */
