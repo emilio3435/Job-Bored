@@ -15,6 +15,7 @@ Base SHA: `81e313ac8aa72345b2930aa4233f3d11ce09f221` (main, 2026-09-01)
 | Lane | cmux ws | pid | ps args (model/effort/mode) | binary | cwd |
 |---|---|---|---|---|---|
 | scout-browser | workspace:192 | 71039 | `--model opus --effort high --permission-mode auto` | `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.257` | integration worktree |
+| qa | workspace:199 | 63777 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-qa` (cut from `a116683`) |
 | scout-worker | workspace:193 | 71067 | `--model opus --effort high --permission-mode auto` | `~/.local/bin/claude` → `~/.local/share/claude/versions/2.1.257` | integration worktree |
 | assets | workspace:194 | 57753 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-assets` |
 | scrape-e2e | workspace:195 | 57826 | `--model opus --effort high --permission-mode auto` | `~/.local/share/claude/versions/2.1.257` | `/private/tmp/Job-Bored-discovery-hardening-scrape-e2e` |
@@ -35,7 +36,7 @@ Note: the cmux wrapper places `--session-id`/`--settings` before the user flags,
 | 3 | C · lifecycle | `88e156b` | `66bebe2` | worker suite 744/744 + discovery-lifecycle 5/5 after merge; lane worktree: worker typecheck, contract:all, floor green | clean merge; `src/server.ts` untouched (no wiring needed) |
 | 4 | D · stable-transport | `dfbad73` | `70b966d` | 5-file targeted 65/65 after merge; lane worktree: 11-file gate 141/141, both scout probes green, floor green | clean merge; `tests/run-status-honesty.test.mjs` untouched |
 | 5 | E · canary | `f35074f` | `76e04c5` | discovery-canary 20/20 + run-status-store 16/16 after merge; lane worktree: CLI exit codes, floor green | clean merge |
-| 6 | integrator | — | (next commit) | — | Lane D handoff: `node --check discovery-run-tracker.js` added to `typecheck:repo` (package.json was Lane E's fence, lane closed). Lane A handoff: `index.assembled.html` added to `.gitignore`. |
+| 6 | integrator | — | `a7dcc4c` | — | Lane D handoff: `node --check discovery-run-tracker.js` added to `typecheck:repo` (package.json was Lane E's fence, lane closed). Lane A handoff: `index.assembled.html` added to `.gitignore`. |
 
 ## Floor runs
 
@@ -52,3 +53,21 @@ Note: the cmux wrapper places `--session-id`/`--settings` before the user flags,
 | `npm run test:e2e-journey` | 7 passed |
 | `git diff --check` | clean |
 
+
+### Integrated floor on `a116683` (all five lanes + integrator commit + archived reports), run by Fable 2026-09-01 16:33–16:35 MT
+
+| Gate | Result |
+|---|---|
+| `npm test -- tests/pages-deploy-contract.test.mjs` | 12/12 |
+| `npm run test:e2e-journey` | 9 passed (7 existing + 2 `SCRAPE-E2E-1:`) in 16.8s |
+| `npm run test:e2e-smoke` | 6 passed |
+| `npm run test:browser-use-discovery` | 747 pass · 0 fail · 0 skipped (727 base + 17 lifecycle-idempotency + 3 run-status-store lister) |
+| `npm run test:contract:all` | all OK, no schema/contract file changed |
+| `npm run typecheck:repo` | green (now includes `node --check discovery-run-tracker.js` and `scripts/discovery-canary.mjs`) |
+| `npm run lint:repo` | green |
+| `npm run test:repo` | root 2542 tests · 2541 pass · 0 fail · 1 pre-existing todo; worker 747/747 · exit 0 |
+| `npm test` (run-tests.mjs, includes `tests/integration/`) | 2573 tests · 2572 pass · 0 fail · 0 skipped · 1 pre-existing todo · exit 0 |
+| `git diff --check` | clean |
+| Canary CLI, lane fixtures, fixture `/health` on 127.0.0.1:18646 | healthy → exit 0 (`worker_healthy`,`successful_run_fresh`); stale (101h-old run) → exit 1; stale (no run) → exit 1 (`no_successful_run`); unavailable (refused port) → exit 2; misconfigured (foreign service on port) → exit 3; JSON output grep for `ya29|authorization|x-discovery-secret|sheetId` → 0 hits |
+
+Skipped: nothing. Environmental limitation: none — every command ran on this machine. Test-count deltas vs baseline: root +27 (10 ASSET-1, 5 LIFECYCLE-1 statusPath, 8 STABLE-1, 15 LIFECYCLE-1 poller, 20 CANARY-1, minus the 31 in `tests/integration/` that only `npm test` counts → see the `npm test` row: +58 total), worker +20, journey +2.
