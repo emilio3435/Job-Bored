@@ -439,6 +439,27 @@
       ],
     });
     container.appendChild(grid);
+    // The third answer (ONE-FLOW-ONBOARDING-SPEC §6). Without it, a
+    // single-device user had no way to be DONE with this track — the
+    // what's-next banner nudged forever at a question they had already
+    // answered. It is a real choice, so it renders as one: same dispatch
+    // path as the two path cards, not fine print under them.
+    const exit = safeCreate(
+      "button",
+      "go-live-wizard__single-device",
+      "I only use JobBored on this computer",
+    );
+    exit.type = "button";
+    exit.setAttribute("data-wizard-action", "action");
+    exit.setAttribute("data-action-id", "go_live_only_this_computer");
+    exit.setAttribute("data-step-id", "path_select");
+    exit.setAttribute("data-action-kind", "secondary");
+    container.appendChild(exit);
+    safeParagraph(
+      container,
+      "We'll stop suggesting this. Change your mind anytime from Settings → Devices.",
+      "go-live-wizard__single-device-hint",
+    );
     safeCallout(
       container,
       "Worker discovery is a separate setup — finish either of these and we'll recommend it next.",
@@ -598,15 +619,18 @@
             ? "needs_serve"
             : "ready");
     if (recommendation === "ready") {
+      // Nothing is blocking any more, so the step's job is FINISHING.
+      // Verification is a courtesy check the user may want; making it the
+      // primary sent people looking for a blocker that wasn't there.
       return [
-        {
-          id: "wizard_tailscale_verify",
-          label: "Verify URL is reachable",
-          variant: "primary",
-        },
         {
           id: "go_live_complete_tailscale",
           label: "I added it to Google OAuth — finish",
+          variant: "primary",
+        },
+        {
+          id: "wizard_tailscale_verify",
+          label: "Verify URL is reachable",
           variant: "secondary",
         },
       ];
@@ -744,7 +768,7 @@
           ok: !!rt.cloudVerify.ok,
           message: rt.cloudVerify.ok
             ? `Reachable — ${rt.cloudUrl}`
-            : `Couldn't reach ${rt.cloudUrl}. ${rt.cloudVerify.reason || ""}`,
+            : `We couldn't confirm ${rt.cloudUrl} from here — the browser can't read a cross-origin response, so this check is inconclusive, not a failure. Open it in a new tab to see for yourself, then finish below.`,
         },
         "Reachability check",
       );
@@ -772,11 +796,14 @@
         label: "Re-detect CLIs",
         variant: "secondary",
       },
+      // Never gated on the probe. probeUrlReachable uses mode:"no-cors",
+      // whose response is opaque — it carries no status, so a rejection
+      // proves nothing about whether the deploy is up. Blocking Finish on
+      // it stranded users whose site was live (spec §6, §10 Phase 0).
       {
         id: "go_live_complete_cloud",
         label: "I added it to Google OAuth — finish",
         variant: "secondary",
-        disabled: !(rt.cloudVerify && rt.cloudVerify.ok),
       },
     ];
   }
@@ -801,10 +828,15 @@
     if (url) {
       safeCodeBlock(container, url, "Copy URL");
     }
-    safeCallout(
-      container,
-      "Recommended next: turn on job discovery so the dashboard has fresh listings to show.",
-    );
+    // Only recommend a track the user has not finished. The runtime gate is
+    // the same one buildDoneActions reads, precomputed by the action handler
+    // (the store read is async, the render path is not).
+    if (rt._discoveryCtaVisible !== false) {
+      safeCallout(
+        container,
+        "Recommended next: turn on job discovery so the dashboard has fresh listings to show.",
+      );
+    }
     return container;
   }
 
@@ -977,6 +1009,36 @@
 
     if (id === "go_live_back_to_paths") {
       return moveToStep("path_select");
+    }
+
+    if (id === "go_live_only_this_computer") {
+      // Record the answer, refresh the nudge that asked the question, and
+      // get out. Every step is best-effort: a blocked IndexedDB write must
+      // never trap the user inside the wizard they just declined.
+      const UC = uc();
+      if (UC && typeof UC.setGoLiveSetupSkipped === "function") {
+        try {
+          await UC.setGoLiveSetupSkipped();
+        } catch (_) {
+          /* the exit matters more than the bookkeeping */
+        }
+      }
+      try {
+        const banner =
+          typeof window !== "undefined" &&
+          window.JobBoredApp &&
+          window.JobBoredApp.whatsNextBanner;
+        if (banner && typeof banner.refreshBanner === "function") {
+          await Promise.resolve(banner.refreshBanner()).catch(() => {});
+        }
+      } catch (_) {
+        /* banner refresh is best-effort */
+      }
+      const api = shellApi();
+      if (api && typeof api.closeWizardShell === "function") {
+        api.closeWizardShell("single_device");
+      }
+      return null;
     }
 
     if (id === "go_live_finish") {
