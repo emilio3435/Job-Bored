@@ -63,11 +63,34 @@ The output only ever contains reasons from this fixed set:
 | `worker_unreachable` | unavailable |
 | `worker_unhealthy` | unavailable |
 | `run_state_unreadable` | unavailable |
-| `sheets_credential_not_available` | unavailable |
 | `worker_not_discovery_service` | misconfigured |
 | `worker_url_invalid` | misconfigured |
 | `unknown_argument` | misconfigured |
 | `invalid_max_age_hours` | misconfigured |
+| `sheets_credential_not_available` † | unavailable |
+
+† **Report-only.** It appears on the `sheets:` line and never in `reasons`. It
+must not: it claims `unavailable`, so emitting it would pin the canary at
+`unavailable` forever and it could never report healthy. `REPORT_ONLY_REASONS`
+in `scripts/discovery-canary.mjs` enforces this, and a test asserts this table
+matches `CANARY_REASONS` exactly.
+
+A check that did not run produces **no reason at all**. A bad flag is decided
+before anything is probed or read, so its report carries only the config-error
+reason, and the worker and run-history lines read `not checked` rather than
+claiming `reachable=false`:
+
+```
+$ npm run discovery:canary -- --bogus-flag
+discovery canary (read-only)
+status: misconfigured
+checked at: 2026-09-01T22:00:00.000Z
+worker: not checked
+newest successful run: not checked
+sheets: unavailable (sheets_credential_not_available)
+reason: unknown_argument
+exit code: 3
+```
 
 ## What counts as a successful discovery run
 
@@ -130,4 +153,11 @@ exit code: 0
   leftovers and rewrites corrupt snapshots, which is a mutation.
 - `classifyCanary(inputs) → { status, reasons }` is a pure function; `runCanary`
   injects `now`, `fetchImpl`, and `readRunHistory` so every path is testable
-  without a network or a real home directory.
+  without a network or a real home directory. A `null` `health` or `runHistory`
+  means **not checked** and yields no reason.
+- `runCli(argv, { stdout, stderr, runCanary, ... }) → exit code` is the whole
+  CLI, exported so every documented exit code — including the internal-error
+  `4` — is reachable from a test. The `import.meta.url` guard is its only
+  production caller. On an internal error it prints one redacted line carrying
+  the error *name* only: a raw message can carry a filesystem path, a host, or a
+  token.

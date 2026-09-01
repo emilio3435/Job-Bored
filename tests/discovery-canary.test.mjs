@@ -7,10 +7,13 @@ import { fileURLToPath } from "node:url";
 
 import {
   CANARY_EXIT_CODES,
+  CANARY_REASONS,
+  REPORT_ONLY_REASONS,
   classifyCanary,
   formatCanaryReport,
   parseArgs,
   runCanary,
+  runCli,
 } from "../scripts/discovery-canary.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -494,12 +497,132 @@ test("CANARY-1: an argument error maps to a misconfigured report with exit code 
     thrown = error;
   }
   assert.ok(thrown, "parseArgs must throw on an unknown flag");
+  // The argument error is decided before anything is probed or read, so the
+  // classifier is handed `null` for both — not checked, not a finding (MINOR-6).
   const report = classifyCanary({
     maxAgeHours: 24,
     configErrors: [thrown.canaryReason],
-    health: { reachable: false, ok: false, statusCode: 0, isDiscoveryWorker: false },
-    runHistory: { available: false, reason: "run_state_unreadable", newestSuccess: null },
+    health: null,
+    runHistory: null,
   });
   assert.equal(report.status, "misconfigured");
+  assert.deepEqual(report.reasons, ["unknown_argument"]);
   assert.equal(CANARY_EXIT_CODES[report.status], 3);
+});
+
+// ---------------------------------------------------------------------------
+// Repair lane: QA findings MINOR-6, MINOR-7, MINOR-8.
+// ---------------------------------------------------------------------------
+
+test("CANARY-1: an argument error reports only the config-error reason and never asserts a fact it did not check (MINOR-6)", async () => {
+  const fetchImpl = stubFetch(async () => jsonResponse(healthyWorkerBody()));
+  const reader = readerReturning([completedRun("run_recent", "2026-09-01T11:00:00.000Z")]);
+  const out = [];
+  const err = [];
+
+  const jsonCode = await runCli(["--bogus-flag", "--json"], {
+    now: NOW,
+    stdout: (chunk) => out.push(chunk),
+    stderr: (chunk) => err.push(chunk),
+    fetchImpl,
+    readRunHistory: reader,
+  });
+
+  assert.equal(jsonCode, 3);
+  assert.deepEqual(err, [], "an argument error is a report, not a crash");
+  assert.deepEqual(fetchImpl.calls, [], "a bad flag must probe nothing");
+  assert.deepEqual(reader.calls, [], "a bad flag must read nothing");
+
+  const report = JSON.parse(out.join(""));
+  assert.equal(report.status, "misconfigured");
+  assert.equal(report.exitCode, 3);
+  assert.deepEqual(
+    report.reasons,
+    ["unknown_argument"],
+    "only the config error is a real finding; worker/run-history reasons would be fabricated",
+  );
+  assert.equal(report.worker.checked, false);
+  assert.equal(report.runHistory.checked, false);
+
+  const textOut = [];
+  const textCode = await runCli(["--bogus-flag"], {
+    now: NOW,
+    stdout: (chunk) => textOut.push(chunk),
+    stderr: (chunk) => err.push(chunk),
+    fetchImpl,
+    readRunHistory: reader,
+  });
+  assert.equal(textCode, 3);
+  const text = textOut.join("");
+  assert.match(text, /^worker: not checked$/m);
+  assert.match(text, /^newest successful run: not checked$/m);
+  assert.ok(!text.includes("reachable=false"), "nothing was probed, so nothing may claim reachable=false");
+  assert.deepEqual(text.match(/^reason: .*$/gm), ["reason: unknown_argument"]);
+});
+
+test("CANARY-1: the documented reason table matches CANARY_REASONS exactly (MINOR-7)", () => {
+  const doc = readFileSync(join(repoRoot, "docs/DISCOVERY-CANARY.md"), "utf8");
+  const rows = [...doc.matchAll(/^\| `([a-z_]+)`( †)? \| (\w+) \|$/gm)].map((match) => ({
+    reason: match[1],
+    reportOnly: !!match[2],
+    status: match[3],
+  }));
+  assert.ok(rows.length > 0, "the doc must carry a parseable reason table");
+
+  const emittable = Object.keys(CANARY_REASONS)
+    .filter((reason) => !REPORT_ONLY_REASONS.has(reason))
+    .sort();
+  assert.deepEqual(
+    rows.filter((row) => !row.reportOnly).map((row) => row.reason).sort(),
+    emittable,
+    "every documented emittable reason must exist in CANARY_REASONS, and vice versa",
+  );
+  assert.deepEqual(
+    rows.filter((row) => row.reportOnly).map((row) => row.reason).sort(),
+    [...REPORT_ONLY_REASONS].sort(),
+    "report-only reasons must be footnoted, never listed as emittable",
+  );
+  for (const row of rows) {
+    assert.equal(row.status, CANARY_REASONS[row.reason], `doc status for ${row.reason}`);
+  }
+});
+
+test("CANARY-1: report-only reasons can never reach `reasons` (MINOR-7)", () => {
+  for (const reason of REPORT_ONLY_REASONS) {
+    const result = classifyCanary({ ...HEALTHY_INPUT, configErrors: [reason] });
+    assert.deepEqual(
+      result.reasons,
+      ["worker_healthy", "successful_run_fresh"],
+      `${reason} is report-only and must never be pushed into reasons`,
+    );
+    assert.equal(result.status, "healthy");
+  }
+});
+
+test("CANARY-1: an unexpected internal error exits 4 with a redacted one-line message (MINOR-8)", async () => {
+  const out = [];
+  const err = [];
+  const code = await runCli([], {
+    now: NOW,
+    stdout: (chunk) => out.push(chunk),
+    stderr: (chunk) => err.push(chunk),
+    runCanary: async () => {
+      throw new Error(
+        "ENOENT: no such file or directory, open '/Users/someone/.jobbored/browser-use-discovery/run-state/x.json'",
+      );
+    },
+  });
+
+  assert.equal(code, 4, "an internal error is exit 4");
+  assert.deepEqual(out, [], "a crashed canary prints no report");
+  const text = err.join("");
+  assert.equal(
+    text.split("\n").filter((line) => line.trim()).length,
+    1,
+    "one line only — no stack",
+  );
+  assert.match(text, /^\[discovery-canary\] internal error: Error\b/);
+  assert.ok(!text.includes("/Users/"), "no filesystem paths");
+  assert.ok(!text.includes("ENOENT"), "no raw error message");
+  assert.ok(!/\n\s+at /.test(text), "no stack frames");
 });
