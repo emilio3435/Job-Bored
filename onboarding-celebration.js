@@ -1,19 +1,271 @@
 /* ============================================
    The one celebration (ONE-FLOW-ONBOARDING-SPEC §5 B6, §7).
 
-   L0 STUB. Today the celebration player lives inside
-   onboarding-wizard.js and fires at four different "done" moments. The
-   spec collapses that to exactly ONE burst, at B6, and the acceptance
-   check is literal: `grep playOnboardingCelebration` must return a
-   single call site.
+   The teardown counted FOUR confetti bursts before the user's first job.
+   The spec collapses them to ONE, at B6, with the payoff attached — but
+   the player itself is the best-tested piece of the old onboarding: a
+   persistent CTA handoff (never a timed intermission), the
+   reveal-under-the-fade that keeps the dashboard from blinking between
+   chapters, and the `inert` click-through fix that made the CTA
+   clickable over an overflow:auto wizard in Chromium.
 
-   L4 (bookends) moves the existing, well-tested player into this file
-   and points B6 at it. L0 ships the empty module + its load-order slot
-   so that move touches one file and no script tags.
+   So the player MOVES rather than gets rewritten. It lived in
+   onboarding-wizard.js:137-344; L7 deletes that file, and the flow's
+   single celebration must not go with it. onboarding-wizard.js keeps a
+   thin delegating alias so every legacy caller (first-run, discovery,
+   go-live) keeps working until L7 removes them.
+
+   Behavior is unchanged. Two additions, both for B6:
+     · one new stage, `flow_payoff`, the flow finale,
+     · per-call title/sub/cta overrides, because "You're live, {firstName}."
+       is resolved by B6 from the Google session — the player renders what
+       it is handed and never owns the user's name.
 
    Classic-global IIFE under window.JobBoredOnboardingCelebration.
    ============================================ */
 (function () {
-  window.JobBoredOnboardingCelebration ||
+  const root =
+    window.JobBoredOnboardingCelebration ||
     (window.JobBoredOnboardingCelebration = {});
+
+  // Confetti burst — a handful of mint/amber/violet pieces with randomized
+  // start, drift, and spin. Pure decoration (aria-hidden); cleared when the
+  // overlay hides.
+  function spawnCelebrationConfetti(host) {
+    if (!host || typeof host.appendChild !== "function") return;
+    const colors = ["#5FCB8E", "#EF8F26", "#7C3AED", "#5BB5C9", "#FCEFA8"];
+    for (let i = 0; i < 28; i += 1) {
+      const piece = document.createElement("span");
+      piece.className = "onboarding-celebration__confetti-piece";
+      const left = Math.round((i / 28) * 100);
+      const delay = (i % 7) * 60;
+      const drift = ((i % 5) - 2) * 14;
+      piece.style.left = `${left}%`;
+      piece.style.background = colors[i % colors.length];
+      piece.style.animationDelay = `${delay}ms`;
+      piece.style.setProperty("--drift", `${drift}px`);
+      host.appendChild(piece);
+    }
+  }
+
+  // One celebratory beat between each MAJOR setup stage of the LEGACY
+  // chain (sheet → profile → discovery → devices), plus the one-flow
+  // finale. The same overlay plays every time; the stage key picks the
+  // copy + which journey-strip step is current.
+  //
+  // §7 deletes the four legacy stages along with their callers in L7.
+  // `flow_payoff` is the one that survives.
+  const STAGE_CELEBRATIONS = {
+    profile: {
+      title: "Workspace connected!",
+      sub: "Your sheet and AI provider are wired up. Now let's make JobBored yours.",
+      cta: "Build your profile →",
+      currentIndex: 0,
+    },
+    discovery: {
+      title: "Profile set!",
+      sub: "Your resume and preferences are in. One big step to go.",
+      cta: "Set up job discovery →",
+      currentIndex: 1,
+    },
+    devices: {
+      title: "Discovery is live!",
+      sub: "Real jobs will start flowing into your pipeline. One optional step left.",
+      cta: "Set up other devices →",
+      currentIndex: 2,
+    },
+    bonus: {
+      title: "You're fully set up!",
+      sub: "Profile, discovery, devices — all live. A few optional power-ups can multiply your results.",
+      cta: "Maximize your results →",
+      currentIndex: 3, // every journey stage shows done
+    },
+    // The one-flow finale (spec §5 B6). Defaults are the graceful
+    // fallback the spec names; B6 passes the personalized copy.
+    // currentIndex 4 sits past the last legacy step, so every journey
+    // step renders done and none renders current — which is the truth
+    // at B6: nothing is next, the deal is finished.
+    flow_payoff: {
+      title: "You're live.",
+      sub: "That was the one-time part. From here, JobBored works for you.",
+      cta: "See what happens now →",
+      currentIndex: 4,
+    },
+  };
+
+  function applyCelebrationStage(overlay, stageKey, overrides) {
+    const stage = STAGE_CELEBRATIONS[stageKey] || STAGE_CELEBRATIONS.discovery;
+    const o = overrides || {};
+    const pick = (key) => {
+      const supplied = o[key];
+      return typeof supplied === "string" && supplied.trim()
+        ? supplied
+        : stage[key];
+    };
+    const title = document.getElementById("onboardingCelebrationTitle");
+    if (title) title.textContent = pick("title");
+    const sub = document.getElementById("onboardingCelebrationSub");
+    if (sub) sub.textContent = pick("sub");
+    const cta = document.getElementById("onboardingCelebrationContinue");
+    if (cta) cta.textContent = pick("cta");
+    if (overlay && typeof overlay.querySelectorAll === "function") {
+      const steps = overlay.querySelectorAll(
+        ".onboarding-celebration__journey-step",
+      );
+      Array.from(steps || []).forEach((li, idx) => {
+        if (!li || !li.classList) return;
+        li.classList.toggle(
+          "onboarding-celebration__journey-step--done",
+          idx < stage.currentIndex,
+        );
+        li.classList.toggle(
+          "onboarding-celebration__journey-step--current",
+          idx === stage.currentIndex,
+        );
+        if (idx === stage.currentIndex) {
+          li.setAttribute("aria-current", "step");
+        } else if (typeof li.removeAttribute === "function") {
+          li.removeAttribute("aria-current");
+        }
+        const dot =
+          typeof li.querySelector === "function"
+            ? li.querySelector(".onboarding-celebration__journey-dot")
+            : null;
+        if (dot) {
+          dot.textContent = idx < stage.currentIndex ? "✓" : String(idx + 1);
+        }
+      });
+    }
+  }
+
+  // Play the celebration. PERSISTENT: the overlay stays up until the user
+  // clicks the continue CTA, which fades it out and then runs onDone (the
+  // next chapter) — one continuous setup flow, no timed intermission.
+  // Degrades gracefully: missing overlay → immediate onDone; overlay
+  // without the CTA (stale cached markup) → the old timed dismissal, so
+  // the handoff can never strand.
+  function playOnboardingCelebration(onDone, stageKey, opts) {
+    const options = opts || {};
+    const finishCb = typeof onDone === "function" ? onDone : () => {};
+    // Which callback the dismiss hands off to — the alt link swaps it.
+    let handoff = finishCb;
+    let dismissRef = () => {};
+    const overlay = document.getElementById("onboardingCelebration");
+    if (!overlay) {
+      finishCb();
+      return;
+    }
+    applyCelebrationStage(overlay, stageKey || "discovery", options);
+    // Optional alternate path (e.g. first-run's "start with your other
+    // devices") — rendered as a quiet link under the CTA.
+    const altBtn = document.getElementById("onboardingCelebrationAlt");
+    if (altBtn) {
+      if (typeof options.onAlt === "function") {
+        altBtn.hidden = false;
+        altBtn.addEventListener(
+          "click",
+          () => {
+            handoff = options.onAlt;
+            dismissRef();
+          },
+          { once: true },
+        );
+      } else {
+        altBtn.hidden = true;
+      }
+    }
+    const burst = document.getElementById("onboardingCelebrationConfetti");
+    if (burst) {
+      if (typeof burst.replaceChildren === "function") burst.replaceChildren();
+      spawnCelebrationConfetti(burst);
+    }
+    overlay.removeAttribute("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+    overlay.classList.remove("onboarding-celebration--out");
+    overlay.classList.add("onboarding-celebration--in");
+    // The first-run + onboarding wizards' focus-trap inerts EVERY body
+    // sibling on show — including this celebration overlay — so the
+    // overlay arrives inert and intercepts no clicks (CTA appears dead;
+    // synthetic .click() and keyboard Enter still work because they bypass
+    // hit-testing on the focused button). Un-inert the overlay AND inert
+    // every other body sibling so the background can't steal pointer
+    // events. Both decisions get restored at dismiss.
+    let wasInert = false;
+    const inertTargets = [];
+    try {
+      if (overlay.hasAttribute("inert")) {
+        overlay.removeAttribute("inert");
+        wasInert = true;
+      }
+      const body = document.body;
+      if (body && body.children) {
+        for (const sibling of Array.from(body.children)) {
+          if (
+            !sibling ||
+            sibling === overlay ||
+            sibling.hasAttribute("inert")
+          ) {
+            continue;
+          }
+          sibling.setAttribute("inert", "");
+          inertTargets.push(sibling);
+        }
+      }
+    } catch (_) {
+      /* DOM might be sparse in tests; best-effort */
+    }
+    let finished = false;
+    const dismiss = () => {
+      if (finished) return;
+      finished = true;
+      overlay.classList.add("onboarding-celebration--out");
+      // Reveal-under-the-fade: open the next chapter at fade START so it
+      // mounts beneath the overlay (celebration z-index sits above every
+      // wizard) and is revealed as the fade clears — the user never sees
+      // the dashboard blink between stages.
+      try {
+        handoff();
+      } catch (err) {
+        console.warn("[JobBored] celebration handoff:", err);
+      }
+      setTimeout(() => {
+        overlay.setAttribute("hidden", "");
+        overlay.setAttribute("aria-hidden", "true");
+        overlay.classList.remove("onboarding-celebration--in");
+        overlay.classList.remove("onboarding-celebration--out");
+        if (burst && typeof burst.replaceChildren === "function") {
+          burst.replaceChildren();
+        }
+        // Restore interactivity on whatever we inerted on show, and put
+        // the inert back on the overlay if it had it before we cleared it
+        // (so the upstream focus-trap's bookkeeping stays consistent).
+        for (const el of inertTargets) {
+          el.removeAttribute("inert");
+        }
+        if (wasInert) overlay.setAttribute("inert", "");
+      }, 320);
+    };
+    dismissRef = dismiss;
+    const cta = document.getElementById("onboardingCelebrationContinue");
+    if (!cta) {
+      // Stale markup without the CTA — keep the old timed handoff.
+      setTimeout(dismiss, 1500);
+      return;
+    }
+    cta.addEventListener("click", dismiss, { once: true });
+    if (typeof cta.focus === "function") {
+      try {
+        cta.focus();
+      } catch (_) {
+        /* focus is best-effort */
+      }
+    }
+  }
+
+  Object.assign(root, {
+    STAGES: STAGE_CELEBRATIONS,
+    playOnboardingCelebration,
+    spawnCelebrationConfetti,
+    applyCelebrationStage,
+  });
 })();

@@ -117,9 +117,34 @@ export function loadDemoBoard({ fetchImpl, sessionSeed = {} } = {}) {
   };
 }
 
+/**
+ * The fake DOM's `style` is a plain object; the confetti driver writes a
+ * custom property through style.setProperty. Give every element the real
+ * method so the probes exercise the shipped code path, not a stub of it.
+ */
+function withStyleSetProperty(doc) {
+  const create = doc.createElement.bind(doc);
+  doc.createElement = (tag) => {
+    const el = create(tag);
+    el.style.setProperty = (name, value) => {
+      el.style[name] = String(value);
+    };
+    return el;
+  };
+  const register = doc.register.bind(doc);
+  doc.register = (id) => {
+    const el = register(id);
+    el.style.setProperty = (name, value) => {
+      el.style[name] = String(value);
+    };
+    return el;
+  };
+  return doc;
+}
+
 /** The celebration overlay element graph, by id, as index.html ships it. */
 export function makeCelebrationDom() {
-  const doc = makeFakeDocument();
+  const doc = withStyleSetProperty(makeFakeDocument());
   const overlay = doc.register("onboardingCelebration");
   doc.body.appendChild(overlay);
   const other = doc.register("someOtherSurface");

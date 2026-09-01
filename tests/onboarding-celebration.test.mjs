@@ -22,6 +22,14 @@ const onboardingWizardJs = readFileSync(
   join(repoRoot, "onboarding-wizard.js"),
   "utf8",
 );
+// The celebration player moved to its own module (ONE-FLOW-ONBOARDING-SPEC
+// §7 — four bursts collapse to one, and L7 deletes onboarding-wizard.js).
+// onboarding-wizard.js keeps a thin delegating alias, so these tests still
+// drive the SAME public surface; only the load list gained a file.
+const onboardingCelebrationJs = readFileSync(
+  join(repoRoot, "onboarding-celebration.js"),
+  "utf8",
+);
 const indexHtml = readFileSync(join(repoRoot, "index.html"), "utf8");
 
 function loadOnboarding(host) {
@@ -315,6 +323,9 @@ describe("playOnboardingCelebration — persistent, CTA-driven handoff", () => {
       clearTimeout: () => {},
     };
     vm.createContext(ctx);
+    vm.runInContext(onboardingCelebrationJs, ctx, {
+      filename: "onboarding-celebration.js",
+    });
     vm.runInContext(onboardingWizardJs, ctx, { filename: "onboarding-wizard.js" });
     const drainTimers = () => {
       while (timers.length) timers.shift().fn();
