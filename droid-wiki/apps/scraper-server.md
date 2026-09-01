@@ -33,7 +33,9 @@ server/
 | Symbol | File | Role |
 | --- | --- | --- |
 | `app` | `server/index.mjs` | Express app instance, ~22k LOC of route registrations |
-| `scrapeJobPosting` | `server/shared/job-scraper-core.mjs` | Cheerio scrape + heuristics; shared with the browser via `lib/` |
+| `scrapeJobPosting` | `server/shared/job-scraper-core.mjs` | Cheerio scrape + one transient retry + exact Google Jobs fallback; shared with the browser via `lib/` |
+| `ScrapeJobError` | `server/shared/job-scraper-core.mjs` | Typed scrape failure (`code`, `statusCode`, `detail`, `nextStep`, `retryable`) |
+| `toScrapeFailureResponse` | `server/shared/job-scraper-core.mjs` | Maps scrape exceptions to the HTTP status + JSON body the dashboard reads |
 | `analyzeAtsScorecard` | `server/ats-scorecard.mjs` | Calls Gemini/OpenAI/Anthropic with a strict JSON schema |
 | `normalizeAtsRequestPayload` | `server/ats-request-payload.mjs` | Validates event = `command-center.ats-scorecard`, features ∈ `{cover_letter, resume_update}` |
 | `validateScrapeTarget` | `server/security-boundaries.mjs` | Blocks `localhost`, RFC1918, link-local, IPv6 ULA |
@@ -50,7 +52,7 @@ Full route list (registrations in `server/index.mjs`):
 | Method | Path | Purpose |
 | --- | --- | --- |
 | `GET` | `/health` | Liveness + ATS config status |
-| `POST` | `/api/scrape-job` | Cheerio scrape of a public job URL |
+| `POST` | `/api/scrape-job` | Cheerio scrape of a public job URL; structured failure JSON on error |
 | `POST` | `/api/ats-scorecard` | Generate ATS analysis JSON |
 | `GET` | `/profile` | Read canonical UserProfile |
 | `POST` | `/profile` | Write canonical UserProfile |
@@ -125,6 +127,7 @@ sequenceDiagram
 
 ## Tests
 
+- `tests/scrape-failure-ux.test.mjs`
 - `tests/server-security-boundaries.test.mjs`
 - `tests/ats-request-transport-alignment.test.mjs`
 - `tests/ats-scorecard-provider.test.mjs`
