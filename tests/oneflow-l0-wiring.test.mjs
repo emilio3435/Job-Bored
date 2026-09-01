@@ -205,14 +205,35 @@ describe("the substrate is LIT — and only at the two boot files (L6 cutover)",
     );
   });
 
+  it("the two legacy surfaces reference the flow only to STAND DOWN", () => {
+    // first-run-wizard.js and sheet-access-setup.js still paint over the
+    // dashboard on the post-sign-in path — which is Beat 1's own state.
+    // Each asks whether the flow owns the screen and declines; neither
+    // drives it. L7 deletes both surfaces outright.
+    const wizard = readRepoFile("first-run-wizard.js");
+    assert.match(
+      wizard,
+      /if \(window\.JobBoredOneFlow\) return false;/,
+      "checkInfraSetupGate must decline while the one-flow is on the page",
+    );
+    const setup = readRepoFile("sheet-access-setup.js");
+    assert.match(setup, /function oneFlowOwnsSurface\(\)/);
+    for (const source of [wizard, setup]) {
+      assert.equal(
+        /JobBoredOneFlow\.(open|goToBeat|completeBeat|registerBeat)/.test(source),
+        false,
+        "a legacy surface may ask about the flow, never drive it",
+      );
+    }
+  });
+
   it("no OTHER shipped module reaches for JobBoredOneFlow", () => {
-    // The legacy surfaces stay on their own wiring until L7 deletes them;
-    // a stray reference here would mean the cutover leaked past boot.
+    // Everything else stays on its own wiring until L7 deletes it; a
+    // stray reference here would mean the cutover leaked past boot.
     for (const file of [
       "app.js",
       "app-compat.js",
       "whats-next-banner.js",
-      "first-run-wizard.js",
       "onboarding-wizard.js",
       "welcome.js",
     ]) {

@@ -46,6 +46,8 @@ const PAGE_SCRIPTS = Object.freeze([
   "oneflow-beat-payoff.js",
   "oneflow-demo-board.js",
   "onboarding-celebration.js",
+  "first-run-wizard.js",
+  "sheet-access-setup.js",
   "discovery-status-handoff.js",
   "app-bootstrap.js",
 ]);
@@ -252,6 +254,9 @@ function makeHost(state, calls, overrides = {}) {
     isSignedIn: () => state.signedIn,
     getUserEmail: () => state.userEmail,
     getConfig: () => null,
+    // Lazily resolved: the store module has not run yet when this host is
+    // built, and every legacy gate reads the store through this bridge.
+    getUserContent: () => state.userContent(),
     signIn(...args) {
       calls.push({ name: "signIn", args });
       state.signedIn = true;
@@ -375,6 +380,7 @@ export function loadCutover(options = {}) {
     signedIn: !!options.signedIn,
     userEmail: options.userEmail || "",
     overrides: {},
+    userContent: () => win.CommandCenterUserContent,
   };
 
   // Network: the demo fixture is served off disk (real shipped data), the
@@ -473,9 +479,8 @@ export function loadCutover(options = {}) {
     vm.runInContext(readRepoFile(file), ctx, { filename: file });
   }
   if (options.withBanner) {
-    // The banner reads the store through the bridge, so it can only load
-    // once JobBoredApp.core.host exists — same order index.html uses.
-    host.getUserContent = () => win.CommandCenterUserContent;
+    // The banner loads after JobBoredApp.core.host exists — same order
+    // index.html uses.
     vm.runInContext(readRepoFile("whats-next-banner.js"), ctx, {
       filename: "whats-next-banner.js",
     });
@@ -523,6 +528,8 @@ export function loadCutover(options = {}) {
     board: win.JobBoredOneFlowDemoBoard,
     status: win.JobBoredDiscovery.status,
     bootstrap: win.JobBoredApp.bootstrap,
+    firstRunWizard: win.JobBoredApp.firstRunWizard,
+    setup: win.JobBoredApp.setup,
     banner: win.JobBoredApp.whatsNextBanner,
     whatsNextRegion,
     events: doc._events,

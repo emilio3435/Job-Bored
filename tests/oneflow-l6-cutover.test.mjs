@@ -237,3 +237,52 @@ describe("L6 · grep table — the legacy gates are defined but unreachable from
     );
   });
 });
+
+describe("L6 · the legacy surfaces stand down while the flow owns onboarding", () => {
+  it("the first-run infra wizard does not open over a beat (spec §3)", async () => {
+    // The path that used to fire here is B1's own: signing in with no
+    // sheet is exactly the state revealSetupScreenAfterAuth reacts to.
+    const env = loadCutover({ sheetId: "", signedIn: true });
+    await env.flow.open("google");
+    await settle();
+    assert.equal(env.openBeat(), "google");
+
+    const shown = await env.firstRunWizard.checkInfraSetupGate();
+
+    assert.equal(
+      shown,
+      false,
+      "the retired wizard must never claim the surface from a live beat",
+    );
+    assert.equal(
+      env.firstRunWizard.isFirstRunWizardVisible(),
+      false,
+      "and must not be rendered at all",
+    );
+  });
+
+  it("the infra wizard stays down even between beats — the flow owns onboarding now", async () => {
+    const env = loadCutover({ sheetId: "", signedIn: true });
+
+    assert.equal(
+      await env.firstRunWizard.checkInfraSetupGate(),
+      false,
+      "with the one-flow loaded, the legacy chain has no surface to claim",
+    );
+  });
+
+  it("post-sign-in reveal does not paint the setup screen over a beat", async () => {
+    const env = loadCutover({ sheetId: "", signedIn: true });
+    await env.flow.open("google");
+    await settle();
+
+    env.setup.revealSetupScreenAfterAuth();
+    await settle();
+
+    assert.notEqual(
+      env.document.getElementById("setupScreen").style.display,
+      "flex",
+      '"One more step." must not cover the beat that owns the sheet (spec §7)',
+    );
+  });
+});
