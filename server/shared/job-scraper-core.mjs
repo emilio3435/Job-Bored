@@ -118,39 +118,6 @@ const JUNK_BULLET_LINE = new RegExp(
 /** If many bullets match this, the whole extraction is probably nav-heavy */
 const JUNK_BULLET_FRACTION = 0.35;
 
-/**
- * Hosted job pages can redirect closed roles to a careers index whose text is
- * long enough to look like a posting. Reject that content instead of silently
- * treating a list of openings as one role.
- * @param {string | null} title
- * @param {string} description
- */
-function looksLikeCareersListing(title, description) {
-  const heading = String(title || "").trim();
-  if (
-    /^(careers|jobs|job openings|open positions|life at)\b/i.test(heading) &&
-    !/\b(engineer|designer|manager|director|counsel|scientist|analyst|intern|account executive)\b/i.test(
-      heading,
-    )
-  ) {
-    return true;
-  }
-  const text = String(description || "");
-  if (/\bsee open positions\b/i.test(text)) return true;
-  const lines = text
-    .split(/\n+/)
-    .map((line) => line.trim())
-    .filter(Boolean);
-  const shortTitles = lines.filter(
-    (line) =>
-      line.length > 8 &&
-      line.length < 70 &&
-      !/[.!?]$/.test(line) &&
-      /^(?:senior |staff |principal |manager,? |director,? )?[A-Z]/.test(line),
-  );
-  return shortTitles.length >= 10 && !/\bresponsibilit/i.test(text);
-}
-
 /** Penalize JSON-LD blobs that look like site chrome or wrong product pitch */
 /** @param {string} text */
 function ldTextLooksLikeNoise(text) {
@@ -337,9 +304,12 @@ function buildSerpApiQuery(options = {}, originalUrl = "") {
   return jobId ? `linkedin ${jobId}` : "";
 }
 
-/** @param {ScrapeJobPostingOptions} [options] */
-function getSerpFallbackPlan(options = {}) {
-  if (!buildSerpApiQuery(options)) {
+/**
+ * @param {string} originalUrl
+ * @param {ScrapeJobPostingOptions} [options]
+ */
+function getSerpFallbackPlan(originalUrl, options = {}) {
+  if (!buildSerpApiQuery(options, originalUrl)) {
     return {
       eligible: false,
       reason:
@@ -483,7 +453,11 @@ function classifyScrapeFailure(error, url, fallback = null) {
       fallback,
     });
   }
-  if (upstreamStatus && upstreamStatus >= 500 && upstreamStatus <= 599) {
+  if (
+    upstreamStatus === 408 ||
+    upstreamStatus === 425 ||
+    (upstreamStatus && upstreamStatus >= 500 && upstreamStatus <= 599)
+  ) {
     return new ScrapeJobError(`HTTP ${upstreamStatus}`, {
       code: "source_unavailable",
       statusCode: 502,
@@ -731,7 +705,7 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
  * @param {ScrapeJobPostingOptions} [options]
  */
 async function trySerpFallback(originalUrl, options = {}) {
-  const plan = getSerpFallbackPlan(options);
+  const plan = getSerpFallbackPlan(originalUrl, options);
   if (!plan.eligible) {
     return {
       result: null,
@@ -1454,25 +1428,12 @@ export async function scrapeJobPosting(url, options = {}) {
 
   description = description.slice(0, 25000);
 
-  const listingPage = looksLikeCareersListing(title, description);
-  if (description.length < 160 || listingPage) {
+  if (description.length < 160) {
     const recovery = await trySerpFallback(target.url, {
       ...options,
       fetchImpl,
     });
     if (recovery.result) return recovery.result;
-    if (listingPage) {
-      throw new ScrapeJobError("Hosted page is a careers listing, not a job posting", {
-        code: "job_detail_url_required",
-        statusCode: 422,
-        userMessage: "Choose a specific job posting first.",
-        detail: "The page content is a careers listing, not one job description.",
-        nextStep: "Open one role from that page and paste the role's direct URL.",
-        retryable: false,
-        sourceHost: hostnameOf(target.url),
-        fallback: recovery.fallback,
-      });
-    }
   }
 
   const company = sanitizeInferredEmployer(

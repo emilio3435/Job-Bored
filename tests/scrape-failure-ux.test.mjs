@@ -27,6 +27,7 @@ function response(body, { ok = true, status = 200 } = {}) {
 function loadDrawer() {
   const context = {
     window: {},
+    URL,
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(context);
@@ -115,6 +116,279 @@ describe("job scrape failure contract", () => {
     assert.match(result.description, /multiplayer design workflows/);
   });
 
+  for (const upstreamStatus of [408, 425]) {
+    it(`reports exhausted HTTP ${upstreamStatus} retries as retryable`, async () => {
+      const url = "https://jobs.example.com/roles/designer";
+      let fetchCalls = 0;
+      let thrown;
+
+      try {
+        await scrapeJobPosting(url, {
+          fetchImpl: async () => {
+            fetchCalls += 1;
+            return response("temporarily unavailable", {
+              ok: false,
+              status: upstreamStatus,
+            });
+          },
+        });
+      } catch (error) {
+        thrown = error;
+      }
+
+      assert.equal(fetchCalls, 2, `HTTP ${upstreamStatus} should be retried once`);
+      const failure = toScrapeFailureResponse(thrown, url);
+      assert.equal(failure.status, 502);
+      assert.equal(failure.body.code, "source_unavailable");
+      assert.equal(failure.body.upstreamStatus, upstreamStatus);
+      assert.equal(failure.body.retryable, true);
+      assert.match(failure.body.detail, new RegExp(`HTTP ${upstreamStatus}`));
+    });
+  }
+
+  it("reports rate limiting as retryable without retrying the permanent response", async () => {
+    const url = "https://jobs.example.com/roles/designer";
+    let fetchCalls = 0;
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        fetchImpl: async () => {
+          fetchCalls += 1;
+          return response("rate limited", { ok: false, status: 429 });
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.equal(fetchCalls, 1);
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.equal(failure.status, 429);
+    assert.equal(failure.body.code, "source_rate_limited");
+    assert.equal(failure.body.retryable, true);
+  });
+
+  it("reports an exhausted server-error retry as temporarily unavailable", async () => {
+    const url = "https://jobs.example.com/roles/designer";
+    let fetchCalls = 0;
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        fetchImpl: async () => {
+          fetchCalls += 1;
+          return response("unavailable", { ok: false, status: 503 });
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.equal(fetchCalls, 2);
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.equal(failure.body.code, "source_unavailable");
+    assert.equal(failure.body.upstreamStatus, 503);
+    assert.equal(failure.body.retryable, true);
+  });
+
+  it("retries one connection failure and succeeds on the second attempt", async () => {
+    let fetchCalls = 0;
+    const result = await scrapeJobPosting("https://jobs.example.com/roles/designer", {
+      fetchImpl: async () => {
+        fetchCalls += 1;
+        if (fetchCalls === 1) throw new TypeError("connection reset");
+        return response(ROLE_HTML);
+      },
+    });
+
+    assert.equal(fetchCalls, 2);
+    assert.equal(result.title, "Product Designer at Figma");
+  });
+
+  it("reports an exhausted connection retry as unreachable", async () => {
+    const url = "https://jobs.example.com/roles/designer";
+    let fetchCalls = 0;
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        fetchImpl: async () => {
+          fetchCalls += 1;
+          throw new TypeError("connection reset");
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.equal(fetchCalls, 2);
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.equal(failure.body.code, "source_unreachable");
+    assert.equal(failure.body.retryable, true);
+  });
+
+  it("reports an aborted request as a retryable timeout", async () => {
+    const url = "https://jobs.example.com/roles/designer";
+    const abortError = new Error("aborted");
+    abortError.name = "AbortError";
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        fetchImpl: async () => {
+          throw abortError;
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.equal(failure.status, 504);
+    assert.equal(failure.body.code, "source_timeout");
+    assert.equal(failure.body.retryable, true);
+  });
+
+  it("reports pages over the safety limit without retrying", async () => {
+    const url = "https://jobs.example.com/roles/designer";
+    let fetchCalls = 0;
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        fetchImpl: async () => {
+          fetchCalls += 1;
+          return {
+            ...response(""),
+            arrayBuffer: async () => new Uint8Array(4 * 1024 * 1024 + 1).buffer,
+          };
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.equal(fetchCalls, 1);
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.equal(failure.status, 413);
+    assert.equal(failure.body.code, "page_too_large");
+    assert.equal(failure.body.retryable, false);
+  });
+
+  it("sanitizes an unclassified upstream response", async () => {
+    const url = "https://jobs.example.com/roles/designer";
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        fetchImpl: async () => response("unexpected", { ok: false, status: 418 }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.equal(failure.status, 502);
+    assert.equal(failure.body.code, "scrape_failed");
+    assert.equal(failure.body.error, "JobBored could not extract this job posting.");
+    assert.equal(failure.body.upstreamStatus, 418);
+  });
+
+  it("explains when fallback context exists but Google Jobs is not configured", async () => {
+    const url = "https://wellfound.com/company/figma/jobs";
+    let fetchCalls = 0;
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        title: "Product Designer",
+        company: "Figma",
+        fetchImpl: async () => {
+          fetchCalls += 1;
+          throw new Error("fallback must not run without a key");
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    assert.equal(fetchCalls, 0);
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.deepEqual(failure.body.fallback, {
+      attempted: false,
+      reason: "Google Jobs fallback is not configured on this scraper.",
+    });
+  });
+
+  it("explains when Google Jobs has no exact match", async () => {
+    const url = "https://wellfound.com/company/figma/jobs";
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        title: "Product Designer",
+        company: "Figma",
+        serpApiKey: "test-serp-key",
+        fetchImpl: async () => response({ jobs_results: [] }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.deepEqual(failure.body.fallback, {
+      attempted: true,
+      reason: "Google Jobs was checked, but no exact matching posting was found.",
+    });
+  });
+
+  it("preserves Google Jobs HTTP failure diagnostics", async () => {
+    const url = "https://wellfound.com/company/figma/jobs";
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        title: "Product Designer",
+        company: "Figma",
+        serpApiKey: "test-serp-key",
+        fetchImpl: async () => response("unavailable", { ok: false, status: 503 }),
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.deepEqual(failure.body.fallback, {
+      attempted: true,
+      reason: "Google Jobs fallback returned HTTP 503.",
+    });
+  });
+
+  it("preserves Google Jobs connection failure diagnostics", async () => {
+    const url = "https://wellfound.com/company/figma/jobs";
+    let thrown;
+
+    try {
+      await scrapeJobPosting(url, {
+        title: "Product Designer",
+        company: "Figma",
+        serpApiKey: "test-serp-key",
+        fetchImpl: async () => {
+          throw new TypeError("connection reset");
+        },
+      });
+    } catch (error) {
+      thrown = error;
+    }
+
+    const failure = toScrapeFailureResponse(thrown, url);
+    assert.deepEqual(failure.body.fallback, {
+      attempted: true,
+      reason: "Google Jobs fallback could not complete.",
+    });
+  });
+
   it("recovers a company index through an exact Google Jobs match when context is available", async () => {
     const url = "https://wellfound.com/company/figma/jobs";
     const fetchCalls = [];
@@ -153,6 +427,32 @@ describe("job scrape failure contract", () => {
 });
 
 describe("discovery drawer scrape failure copy", () => {
+  it("upgrades a legacy blocked response into an actionable message", () => {
+    const drawer = loadDrawer();
+    const message = drawer.formatScrapeFailure(
+      { error: "HTTP 403", sourceHost: "wellfound.com" },
+      502,
+      "https://wellfound.com/jobs/123-product-designer",
+    );
+
+    assert.match(message, /^The job site blocked automated access\./);
+    assert.match(message, /Next: Open one specific job/);
+    assert.match(message, /Details: wellfound\.com · HTTP 403\./);
+  });
+
+  it("gives a safe default for an empty failure response", () => {
+    const drawer = loadDrawer();
+    const message = drawer.formatScrapeFailure(
+      null,
+      502,
+      "https://jobs.example.com/roles/designer",
+    );
+
+    assert.match(message, /^JobBored could not scrape this posting \(HTTP 502\)\./);
+    assert.match(message, /Next: Confirm this is a direct job-posting URL/);
+    assert.match(message, /Details: jobs\.example\.com\./);
+  });
+
   it("shows the cause, next step, and safe technical details from a structured failure", () => {
     const drawer = loadDrawer();
     const message = drawer.formatScrapeFailure(
