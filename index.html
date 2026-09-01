@@ -224,6 +224,10 @@
     <link rel="stylesheet" href="scribe.css" />
     <link rel="stylesheet" href="welcome.css" />
     <link rel="stylesheet" href="fit-profile.css" />
+    <!-- One-flow onboarding (docs/ONE-FLOW-ONBOARDING-SPEC.md). Loads after
+         the legacy wizard sheets so it extends the shared shell chassis
+         instead of forking it. Per-lane fenced regions live inside. -->
+    <link rel="stylesheet" href="css/oneflow.css" />
     <link rel="stylesheet" href="jb-v2-legacy-hide.css" />
     <script src="jb-ui.js" defer></script>
     <script src="jb-a11y.js" defer></script>
@@ -1590,6 +1594,16 @@
       aria-hidden="true"
     ></div>
 
+    <!-- One-flow onboarding: the single mount every beat renders into
+         (ONE-FLOW-ONBOARDING-SPEC §3.5). Ships hidden and stays hidden —
+         nothing opens it until the L6 boot cutover. -->
+    <div
+      class="discovery-setup-wizard-root oneflow-root"
+      id="oneFlowMount"
+      hidden
+      aria-hidden="true"
+    ></div>
+
 <!-- @include partials/ingest-manual-modal.html -->
     <!-- Toast Container -->
     <div class="toast-container" id="toastContainer"></div>
@@ -1621,6 +1635,20 @@
     <script src="discovery-wizard-ui.js?v=2" defer></script>
     <script src="go-live-wizard-ui.js" defer></script>
     <script src="enhancements-wizard-ui.js" defer></script>
+    <!-- One-flow onboarding substrate. Order is load-bearing: the flow
+         controller reads window.CommandCenterUserContent and renders
+         through discovery-wizard-shell.js (both already loaded above),
+         and every beat registers itself against window.JobBoredOneFlow,
+         so the controller tag must precede them. -->
+    <script src="onboarding-flow.js" defer></script>
+    <script src="oneflow-beat-google.js" defer></script>
+    <script src="oneflow-beat-ai.js" defer></script>
+    <script src="oneflow-beat-resume.js" defer></script>
+    <script src="oneflow-beat-fit.js" defer></script>
+    <script src="oneflow-beat-discovery.js" defer></script>
+    <script src="oneflow-beat-payoff.js" defer></script>
+    <script src="oneflow-demo-board.js" defer></script>
+    <script src="onboarding-celebration.js" defer></script>
     <script src="resume-ingest.js" defer></script>
     <script src="resume-bundle.js" defer></script>
     <script src="resume-generate.js" defer></script>
