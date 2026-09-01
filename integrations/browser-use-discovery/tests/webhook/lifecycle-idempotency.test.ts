@@ -1,13 +1,33 @@
-// LIFECYCLE-1 — duplicate webhook delivery must not start a second run.
+// LIFECYCLE-1 — a byte-identical redelivery of one webhook payload must not
+// start a second run.
 //
-// The dashboard aborts the dispatch POST after `timeoutMs` (default 15s,
-// discovery-wizard-verify.js:674-683). Preflight already does network I/O, so
-// on a slow link the browser can abort AFTER the worker minted a runId and
-// started a run; the user sees a network error and clicks "Run discovery"
-// again. At-least-once relays and manual+scheduled overlap produce the same
-// shape. Before this suite the worker could not tell a redelivery from a new
-// run at all: two byte-identical POSTs ran discovery twice and appended two
+// WHAT THE GUARD CATCHES. The run identity is derived from the payload triple
+// `sheetId` + `variationKey` + `requestedAt` (`deriveIdempotentRunId`), so two
+// deliveries of THE SAME BODY resolve to the same runId and the second is
+// answered from the run-status store instead of dispatching again:
+//   - an at-least-once relay/proxy/tunnel retry of a POST it could not confirm;
+//   - a manual and a scheduled dispatch colliding on an identical body;
+//   - any client that retries the request it already built, unchanged.
+// Before this suite the worker could not tell such a redelivery from a new run
+// at all: two byte-identical POSTs ran discovery twice and appended two
 // DiscoveryRuns rows.
+//
+// WHAT IT DOES NOT CATCH — a user re-click. The dashboard aborts the dispatch
+// POST after `timeoutMs` (default 15s, discovery-wizard-verify.js:674-683);
+// on a slow link the browser can abort AFTER the worker minted a runId and
+// started a run, the user sees a network error and clicks "Run discovery"
+// again. That second click is NOT deduped: every dispatch path stamps a fresh
+// `requestedAt` off the wall clock — discovery-readiness.js:685 (the dashboard
+// "Run discovery" path), discovery-payload.js:293, :372, :390,
+// discovery-wizard-verify.js:671 — and `generateVariationKey`
+// (discovery-payload.js:371-386) hashes that same timestamp, so the re-click
+// differs in two of the three identity fields and derives a different runId.
+// It starts a SECOND run, with a second DiscoveryRuns row and a second
+// browser/LLM/Sheets bill. `"a user re-click is NOT deduped"` below pins that
+// cost so nobody reads this suite as having solved it. Closing it needs a
+// stable client-side idempotency key on the request, which the webhook schema
+// (`contracts.ts` `DiscoveryWebhookRequestV1`) does not carry — a follow-up,
+// not this guard.
 import assert from "node:assert/strict";
 import test from "node:test";
 
@@ -88,6 +108,8 @@ type HarnessOptions = {
   runStatusStore?: ReturnType<typeof createMemoryRunStatusStore> | null;
   gate?: Promise<void> | null;
   onRunStart?(runId: string): void;
+  /** When set, `runDiscovery` throws with this message instead of succeeding. */
+  failWith?: string;
 };
 
 /**
@@ -114,6 +136,7 @@ function makeHarness(options: HarnessOptions = {}) {
       runIds.push(runId);
       options.onRunStart?.(runId);
       if (options.gate) await options.gate;
+      if (options.failWith) throw new Error(options.failWith);
       await deps.pipelineWriter?.write?.({ runId });
       await deps.discoveryRunsLogger?.append(SHEET_ID, {
         runAt: "2026-04-09T12:00:01.000Z",
@@ -323,6 +346,69 @@ test("LIFECYCLE-1: a duplicate of a finished run returns its terminal outcome, n
   assert.equal(harness.runIds.length, 1);
 });
 
+test("LIFECYCLE-1: a redelivery of a failed run replays its terminal outcome as completed_sync (contract has no failed-ack kind — see QA MINOR-3)", async () => {
+  // Characterization, not an endorsement. `existing.terminal` is true for a
+  // failure as much as for a success, and `DiscoveryWebhookAck`
+  // (`contracts.ts` `DiscoveryWebhookAck`) pins `ok: true` with only
+  // `accepted_async` / `completed_sync` — there is no failure ack to return.
+  // So the SAME run answers 500 `{ok:false}` on its first delivery and 200
+  // `{ok:true, kind:"completed_sync"}` on its redelivery. The honesty lives in
+  // the body: `outcome.status` is "failed" and `message` says so, which is what
+  // the dashboard poller reads (`isAsyncDiscoveryAcceptedResponse`,
+  // discovery-wizard-verify.js:208-222, treats a 200-with-runId as accepted and
+  // then polls `/runs/:id`, which reports the failure). Changing the ack
+  // shape would break the LD-3 contract, so this test pins the wart instead of
+  // hiding it; if the contract ever grows a failure kind, this test is the one
+  // that must change.
+  const harness = makeHarness({ failWith: "browser session crashed" });
+
+  const first = await deliver(harness.dependencies);
+  assert.equal(first.response.status, 500, "the original delivery reports the failure");
+  assert.equal(first.ack.ok, false);
+  assert.equal(first.ack.message, "browser session crashed");
+
+  const second = await deliver(harness.dependencies);
+
+  assert.equal(
+    second.response.status,
+    200,
+    "the redelivery is answered from the store, not re-run",
+  );
+  assert.equal(second.ack.ok, true, "the ack contract has no ok:false terminal shape");
+  assert.equal(second.ack.kind, "completed_sync");
+  assert.equal(
+    second.ack.runId,
+    harness.runIds[0],
+    "the redelivery resolves to the ORIGINAL failed run",
+  );
+  assert.equal(second.ack.statusPath, `/runs/${harness.runIds[0]}`);
+  assert.equal(
+    second.ack.outcome.status,
+    "failed",
+    "the outcome body stays honest even though the ack envelope says ok:true",
+  );
+  assert.equal(second.ack.outcome.terminal, true);
+  assert.equal(second.ack.outcome.error, "browser session crashed");
+  assert.match(second.ack.message, /failed/i);
+
+  assert.equal(
+    harness.runIds.length,
+    1,
+    "a failed run must not be silently retried by a redelivery",
+  );
+  assert.equal(
+    harness.appends.length,
+    1,
+    "the failed run wrote exactly one DiscoveryRuns row; the redelivery adds none",
+  );
+  assert.equal(
+    harness.appends[0].row.status,
+    "failure",
+    "that one row records the failure honestly, unlike the ok:true ack envelope",
+  );
+  assert.equal(harness.appends[0].row.error, "browser session crashed");
+});
+
 // ---------------------------------------------------------------------------
 // The guard must not swallow genuinely distinct runs
 // ---------------------------------------------------------------------------
@@ -343,6 +429,46 @@ test("LIFECYCLE-1: a different requestedAt starts a fresh run", async () => {
   );
   assert.equal(harness.runIds.length, 2);
   assert.equal(harness.appends.length, 2);
+});
+
+// ---------------------------------------------------------------------------
+// The limitation this guard does NOT close — a user re-click (QA MAJOR-2)
+// ---------------------------------------------------------------------------
+
+test("LIFECYCLE-1: a user re-click is NOT deduped — a fresh requestedAt starts a second run, second row, second bill", async () => {
+  // The header explains why: every dispatch path stamps `requestedAt` off the
+  // wall clock (discovery-readiness.js:685, discovery-payload.js:293/:372/:390,
+  // discovery-wizard-verify.js:671), so the two POSTs a double-click produces
+  // differ in that field — and in the `variationKey` hashed from it. This test
+  // exists so the cost is PINNED, not merely described: if someone later claims
+  // the double-click case is handled, this test contradicts them, and if they
+  // genuinely close it (a client-supplied idempotency key), this test is the
+  // one that must be rewritten.
+  const harness = makeHarness();
+
+  const first = await deliver(harness.dependencies);
+  // Identical user input, identical everything — only the clock moved.
+  const second = await deliver(
+    harness.dependencies,
+    bodyFor({ requestedAt: "2026-04-09T12:00:07.000Z" }),
+  );
+
+  assert.notEqual(
+    second.ack.runId,
+    first.ack.runId,
+    "a re-click derives a different runId — the guard cannot see it as a duplicate",
+  );
+  assert.deepEqual(
+    harness.runIds,
+    [first.ack.runId, second.ack.runId],
+    "TWO discovery runs are dispatched: this is the cost LIFECYCLE-1 does not prevent",
+  );
+  assert.equal(harness.appends.length, 2, "two DiscoveryRuns rows, one per click");
+  assert.equal(
+    harness.pipelineWrites.length,
+    2,
+    "two pipeline writes — the doubled browser/LLM/Sheets bill is real",
+  );
 });
 
 test("LIFECYCLE-1: a different variationKey starts a fresh run", async () => {

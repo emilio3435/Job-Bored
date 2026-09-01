@@ -1363,7 +1363,15 @@ function normalizeSearchPlan(
  * per user click: `sheetId` + `variationKey` + `requestedAt`. Hashing that
  * triple gives a runId two byte-identical POSTs agree on, and that two
  * genuinely separate clicks never collide on (`requestedAt` is stamped fresh
- * per click at `discovery-payload.js:293`).
+ * per click at `discovery-readiness.js:685`, `discovery-payload.js:293`,
+ * `:372`, `:390`, `discovery-wizard-verify.js:671`).
+ *
+ * So the class this covers is a REDELIVERY of one payload — an at-least-once
+ * relay/proxy retry, or a manual and a scheduled dispatch on an identical body.
+ * A user clicking "Run discovery" a second time is deliberately NOT covered:
+ * its fresh `requestedAt` (and the `variationKey` derived from it) is a new
+ * identity, so it starts a new run. Deduping that needs a client-supplied
+ * idempotency key, which `DiscoveryWebhookRequestV1` does not carry.
  *
  * Returns `null` when `requestedAt` is absent or not a parseable timestamp —
  * a missing `requestedAt` must never collapse every future run onto one id.
