@@ -237,7 +237,7 @@ These rules exist because we hit the bugs they prevent:
 - **Browser code = classic global IIFE on `window.*`.** No ESM, no
   `import` / `export` in `.js` files served to the browser. Top-level state
   lives on an explicit namespace
-  (`window.JobBoredApp.firstRunWizard = { … }`).
+  (`window.JobBoredApp.setup = { … }`).
 - **Cross-module calls go through a host bridge.** Don't reach into another
   module's globals directly — wire a method through
   [`bridge-registry.js`](bridge-registry.js) and call it via the lazy
