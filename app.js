@@ -482,7 +482,6 @@ function registerBridgeHosts() {
     renderStats,
     openGoLiveSetupWizard,
     requestDiscoverySetup,
-    requestEnhancementsSetup,
     requestGoLiveSetup,
     resolveCompanyLogoUrl,
     resolveDiscoveryRunWebhookUrl,

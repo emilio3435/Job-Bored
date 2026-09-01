@@ -12,6 +12,7 @@
     SCRAPING: "scraping",
     ATS_SCORING: "ats_scoring",
     AI_PROVIDERS: "ai_providers",
+    UPGRADES: "upgrades",
   });
 
   const TAB_ORDER = [
@@ -21,6 +22,7 @@
     SETTINGS_TAB_IDS.SCRAPING,
     SETTINGS_TAB_IDS.ATS_SCORING,
     SETTINGS_TAB_IDS.AI_PROVIDERS,
+    SETTINGS_TAB_IDS.UPGRADES,
   ];
 
   const TAB_META = Object.freeze({
@@ -59,6 +61,15 @@
       label: "AI Providers",
       panelId: "settings-panel-ai-providers",
       buttonId: "settings-tab-ai-providers",
+    },
+    // The one-flow's power-up shelf (ONE-FLOW-ONBOARDING-SPEC §7): what the
+    // retired enhancements wizard used to walk people through, as a page
+    // they visit when they want it rather than a track they must finish.
+    [SETTINGS_TAB_IDS.UPGRADES]: {
+      id: SETTINGS_TAB_IDS.UPGRADES,
+      label: "Upgrades",
+      panelId: "settings-panel-upgrades",
+      buttonId: "settings-tab-upgrades",
     },
   });
 
