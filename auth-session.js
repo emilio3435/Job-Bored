@@ -32,6 +32,13 @@ let userEmail = null;
 
 /** Profile photo URL from Google userinfo (optional). */
 let userPictureUrl = null;
+/**
+ * Google's `given_name` from userinfo (optional). The one-flow payoff
+ * greets the user by it ("You're live, {firstName}." —
+ * ONE-FLOW-ONBOARDING-SPEC §5 B6); asking Google a second time for a
+ * string we already fetched would be a round trip for nothing.
+ */
+let userGivenName = null;
 let grantedOauthScopes = "";
 /** Epoch ms when accessToken is expected to expire (Google typically ~1h). */
 let tokenExpiresAt = null;
@@ -152,6 +159,7 @@ function persistOAuthSession() {
           expiresAt: tokenExpiresAt,
           userEmail,
           userPictureUrl,
+          userGivenName,
           grantedOauthScopes,
           oauthClientId: cid,
           hasOauthSession: true,
@@ -190,6 +198,7 @@ function persistRuntimeOAuthSession() {
         expiresAt: tokenExpiresAt,
         userEmail,
         userPictureUrl,
+        userGivenName,
         grantedOauthScopes,
         oauthClientId: cid,
         hasOauthSession: true,
@@ -248,6 +257,7 @@ function clearSessionAuthState() {
   accessToken = null;
   userEmail = null;
   userPictureUrl = null;
+  userGivenName = null;
   grantedOauthScopes = "";
   tokenExpiresAt = null;
   oauthPendingOp = null;
@@ -484,6 +494,7 @@ function restoreOAuthSession() {
     tokenExpiresAt = runtimeSession.expiresAt;
     userEmail = runtimeSession.userEmail || null;
     userPictureUrl = runtimeSession.userPictureUrl || null;
+    userGivenName = runtimeSession.userGivenName || null;
     grantedOauthScopes = normalizeOauthScopes(
       runtimeSession.grantedOauthScopes || GOOGLE_SIGNIN_SCOPES,
     );
@@ -810,6 +821,12 @@ function handleTokenResponse(tokenResponse) {
   host().maybeSyncSettingsModalModeAfterAuth();
 }
 
+/** Google's given_name, or null — never a name we invented. */
+function readGivenName(data) {
+  const raw = data && typeof data.given_name === "string" ? data.given_name.trim() : "";
+  return raw || null;
+}
+
 async function fetchUserEmail() {
   if (!accessToken) return;
   const userInfoUrl = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -824,6 +841,7 @@ async function fetchUserEmail() {
         typeof data.picture === "string" && data.picture.trim()
           ? data.picture.trim()
           : null;
+      userGivenName = readGivenName(data);
       updateAuthUI();
       updatePersistedUserEmail();
       return;
@@ -841,6 +859,7 @@ async function fetchUserEmail() {
           typeof data.picture === "string" && data.picture.trim()
             ? data.picture.trim()
             : null;
+        userGivenName = readGivenName(data);
         updateAuthUI();
         updatePersistedUserEmail();
       }
@@ -1426,6 +1445,8 @@ function isSignedIn() {
     setUserEmail: (v) => { userEmail = v; },
     getUserPictureUrl: () => userPictureUrl,
     setUserPictureUrl: (v) => { userPictureUrl = v; },
+    getUserGivenName: () => userGivenName,
+    setUserGivenName: (v) => { userGivenName = v; },
     getGrantedOauthScopes: () => grantedOauthScopes,
     setGrantedOauthScopes: (v) => { grantedOauthScopes = v; },
     getTokenExpiresAt: () => tokenExpiresAt,

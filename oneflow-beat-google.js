@@ -109,6 +109,22 @@
     return String(raw || "").trim();
   }
 
+  /**
+   * Google's given name, read ONCE here. B6 greets the user with it
+   * ("You're live, {firstName}." — spec §5 B6) and prefers what the flow
+   * carries over asking the session again, so B1 is where it enters.
+   */
+  function userGivenName() {
+    const app = window.JobBoredApp;
+    const auth = app && app.auth;
+    if (!auth || typeof auth.getUserGivenName !== "function") return "";
+    try {
+      return String(auth.getUserGivenName() || "").trim();
+    } catch (_) {
+      return "";
+    }
+  }
+
   function origin() {
     try {
       return (window.location && window.location.origin) || "";
@@ -566,6 +582,10 @@
     state.sheetUrlDraft = "";
     fields.sheetUrl = null;
     syncActions();
+    if (ctx && ctx.runtime) {
+      const firstName = userGivenName();
+      if (firstName) ctx.runtime.firstName = firstName;
+    }
     if (ctx && typeof ctx.completeBeat === "function") {
       await ctx.completeBeat({ createdSheet: !!createdSheet });
     }
