@@ -209,6 +209,297 @@
 /* ONEFLOW:L1 */
 /* B1 Connect Google · B2 Give it a brain · B3 Hand us your resume. */
 
+/* ---------- Shared arrival-beat rhythm ----------
+   Each beat body is one vertical stack under the shell's step lede, so
+   the three arrival screens read as the same screen with different work
+   on it (spec §2.2, one spine). */
+
+.oneflow-google,
+.oneflow-ai,
+.oneflow-resume {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.oneflow-google__privacy,
+.oneflow-ai__privacy,
+.oneflow-resume__privacy {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+/* ---------- B1 Connect Google (spec §5 B1) ---------- */
+
+/* The Cloud Console detour. Collapsed by default and visually quieter
+   than the primary path: it is a ten-minute chore for a minority, and
+   putting it in the foreground is what made the old gate feel like a
+   credential wall instead of a product. */
+
+.oneflow-google__detour {
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 12px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
+}
+
+.oneflow-google__detour-summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-google__detour-lede,
+.oneflow-google__detour-foot {
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-google__detour-origin {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin: var(--space-3) 0 0;
+  font-size: var(--text-sm);
+}
+
+.oneflow-google__detour-origin code {
+  padding: 2px 6px;
+  border-radius: 6px;
+  background: var(--jb-paper, var(--surface));
+  border: 1px solid var(--jb-line, var(--border));
+  font-size: var(--text-xs);
+  word-break: break-all;
+}
+
+.oneflow-google__detour-copy,
+.oneflow-google__client-id-save {
+  padding: 4px 10px;
+  border-radius: 8px;
+  border: 1px solid var(--jb-line, var(--border));
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.oneflow-google__detour-link {
+  display: inline-block;
+  margin-top: var(--space-3);
+  font-size: var(--text-sm);
+  font-weight: 600;
+}
+
+.oneflow-google__detour-steps {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-google__client-id,
+.oneflow-google__sheet-url,
+.oneflow-ai__field,
+.oneflow-resume__paste-field {
+  width: 100%;
+  box-sizing: border-box;
+  margin-top: var(--space-3);
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 10px;
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  font: inherit;
+  font-size: var(--text-sm);
+}
+
+.oneflow-google__existing-lede,
+.oneflow-resume__templates-lede,
+.oneflow-ai__key-lede {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ---------- B2 Give it a brain (spec §5 B2) ---------- */
+
+.oneflow-ai__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+}
+
+.oneflow-ai__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: var(--space-3);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 12px;
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  font: inherit;
+  cursor: pointer;
+}
+
+.oneflow-ai__card[data-selected="true"] {
+  border-color: var(--jb-mint, var(--accent));
+  box-shadow: 0 0 0 2px var(--jb-mint-soft, rgba(95, 203, 142, 0.25));
+}
+
+.oneflow-ai__card-label {
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.oneflow-ai__card-note {
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-ai__steps {
+  margin: 0;
+  padding-left: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-ai__signup {
+  font-weight: 600;
+}
+
+/* The Gemini bonus is a promise kept before the ask, not a receipt. */
+.oneflow-ai__bonus {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: 10px;
+  background: rgba(95, 203, 142, 0.12);
+  border: 1px solid rgba(95, 203, 142, 0.32);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+/* Renders only AFTER a failure — help offered pre-emptively reads as a
+   warning about the product (spec §5 B2). */
+.oneflow-ai__trouble {
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 12px;
+  padding: var(--space-3) var(--space-4);
+  background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
+}
+
+.oneflow-ai__trouble-summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-ai__trouble-list {
+  margin: var(--space-3) 0 0;
+  padding-left: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ---------- B3 Hand us your resume (spec §5 B3) ---------- */
+
+.oneflow-resume__drop {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-5) var(--space-4);
+  border: 2px dashed var(--jb-line, var(--border));
+  border-radius: 14px;
+  background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
+  text-align: center;
+}
+
+.oneflow-resume__drop--over {
+  border-color: var(--jb-mint, var(--accent));
+  background: rgba(95, 203, 142, 0.1);
+}
+
+.oneflow-resume__drop-lede {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-resume__paste {
+  display: flex;
+  flex-direction: column;
+}
+
+.oneflow-resume__paste-label {
+  font-size: var(--text-xs);
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-resume__paste-field {
+  resize: vertical;
+  min-height: 8em;
+}
+
+.oneflow-resume__template-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: var(--space-2);
+}
+
+.oneflow-resume__template-card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  text-align: left;
+  padding: var(--space-3);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 12px;
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  font: inherit;
+  cursor: pointer;
+}
+
+.oneflow-resume__template-name {
+  font-size: var(--text-sm);
+  font-weight: 700;
+}
+
+.oneflow-resume__template-desc {
+  font-size: var(--text-xs);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
 /* ONEFLOW:L2 */
 /* B4 Confirm your fit. */
 

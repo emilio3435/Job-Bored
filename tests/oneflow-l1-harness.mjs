@@ -57,6 +57,71 @@ export function makeFetchDouble(handler) {
   return fetchImpl;
 }
 
+/**
+ * L0's IndexedDB fake covers the `settings` store, which is all the
+ * substrate probes needed. B3 writes a RESUME, and setPrimaryResume
+ * (user-content-store.js:856) uses two things that fake does not model:
+ * objectStore.clear(), and a transaction that reports oncomplete — it
+ * deliberately runs the clear and the put in ONE transaction so a failed
+ * put cannot leave the user with no resume at all.
+ *
+ * Rather than fork L0's fake (single-owner file), wrap it: every db that
+ * comes out of open() gets a transaction whose stores can clear and whose
+ * completion fires once the synchronous request block has run.
+ */
+function withResumeTransactions(idb) {
+  const openDb = idb.open.bind(idb);
+
+  function wrapStore(store) {
+    if (typeof store.clear === "function") return store;
+    store.clear = () => {
+      store.rows.clear();
+      const request = { result: undefined, onsuccess: null, onerror: null };
+      queueMicrotask(() => {
+        if (request.onsuccess) request.onsuccess({ target: request });
+      });
+      return request;
+    };
+    return store;
+  }
+
+  function wrapDb(db) {
+    if (!db || db.__resumeWrapped) return db;
+    const transaction = db.transaction.bind(db);
+    db.transaction = (...args) => {
+      const tx = transaction(...args);
+      const objectStore = tx.objectStore.bind(tx);
+      tx.objectStore = (name) => wrapStore(objectStore(name));
+      tx.error = null;
+      tx.abort = () => {
+        if (tx.onabort) tx.onabort();
+      };
+      // The real API completes after the caller's synchronous request block;
+      // a macrotask is the closest honest stand-in.
+      setTimeout(() => {
+        if (tx.oncomplete) tx.oncomplete();
+      }, 0);
+      return tx;
+    };
+    db.__resumeWrapped = true;
+    return db;
+  }
+
+  idb.open = (name) => {
+    const request = openDb(name);
+    let result = request.result;
+    Object.defineProperty(request, "result", {
+      configurable: true,
+      get: () => result,
+      set: (value) => {
+        result = wrapDb(value);
+      },
+    });
+    return request;
+  };
+  return idb;
+}
+
 function baseSandbox(doc, win) {
   return {
     window: win,
@@ -179,7 +244,7 @@ export function loadArrival(options = {}) {
   doc.register("discoverySetupWizardMount");
   const win = {};
   const ctx = baseSandbox(doc, win);
-  ctx.indexedDB = makeFakeIndexedDb();
+  ctx.indexedDB = withResumeTransactions(makeFakeIndexedDb());
   ctx.crypto = { randomUUID: () => `uuid-${Math.random().toString(16).slice(2)}` };
   ctx.CustomEvent = FakeCustomEvent;
   win.CustomEvent = FakeCustomEvent;
