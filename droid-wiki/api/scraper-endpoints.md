@@ -10,24 +10,42 @@ Returns `{ ok: true, atsConfigured: boolean, providers: [...] }`. Used by the da
 
 ### `POST /api/scrape-job`
 
-Body: `{ url: "https://..." }`.
+Body: `{ url: "https://...", title?: "...", company?: "..." }`. `title` and `company` are optional; they are required for a safe Google Jobs fallback match.
 
-Validates the URL is public (no loopback / RFC1918 — see `validateScrapeTarget`), Cheerio-scrapes the page, returns:
+Validates the URL is public (no loopback / RFC1918 — see `validateScrapeTarget`), Cheerio-scrapes the page (one retry on transient connection, empty-body, or 5xx), and on success returns the scrape result directly (not wrapped in `{ ok, result }`):
 
 ```json
 {
-  "ok": true,
-  "result": {
-    "title": "Staff Frontend Engineer",
-    "company": "...",
-    "location": "...",
-    "description": "...",
-    "compensation": "...",
-    "appliedFrom": "url",
-    "warnings": []
-  }
+  "url": "https://...",
+  "title": "Staff Frontend Engineer",
+  "company": "...",
+  "location": "...",
+  "description": "...",
+  "requirements": [],
+  "skills": [],
+  "source": "json-ld",
+  "method": "json-ld",
+  "scraping": {},
+  "warnings": []
 }
 ```
+
+On scrape failure, `toScrapeFailureResponse` maps the error to a cause-specific status and this body (invalid URL validation still returns `400 { error }`):
+
+```json
+{
+  "error": "The job site blocked automated access.",
+  "code": "source_blocked",
+  "detail": "example.com returned HTTP 403 before JobBored could read the posting.",
+  "nextStep": "Open one specific job and paste its direct posting URL. You can also continue without scraped context.",
+  "retryable": false,
+  "sourceHost": "example.com",
+  "upstreamStatus": 403,
+  "fallback": { "attempted": false, "reason": "Google Jobs fallback is not configured on this scraper." }
+}
+```
+
+`fallback` is omitted when Google Jobs was not consulted. Status codes include `404` (posting gone), `413` (page too large), `422` (company jobs index, not a single posting), `429` (rate limited), `502` (blocked, unreachable, or extract failed), and `504` (timeout). Google Jobs fallback is used only for an exact match.
 
 ### `POST /api/ats-scorecard`
 
@@ -89,7 +107,7 @@ Walks every Pipeline row and rescores it against the current profile. Long-runni
 | `POST` | `/api/applications/:slug/dismiss` | — | `{ ok }` |
 | `GET` | `/api/applications/:slug/job-description` | — | JD text |
 | `PUT` | `/api/applications/:slug/job-description` | `{ text }` | `{ ok }` |
-| `POST` | `/api/applications/:slug/scrape-job-description` | `{ url }` | `{ ok, text }` |
+| `POST` | `/api/applications/:slug/scrape-job-description` | `{ url }` | `{ ok, text }` on success; `{ ok: false, error, code, detail, nextStep, retryable }` on scrape failure |
 | `GET` | `/api/applications/:slug/files/:filename` | path params | streamed file |
 
 `isValidSlug` enforces strict ASCII. `getApplicationsRoot()` resolves the base directory, defaulting to `~/.hermes/job-hunt/applications/`.
