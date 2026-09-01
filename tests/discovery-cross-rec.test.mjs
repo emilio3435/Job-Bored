@@ -124,19 +124,24 @@ describe("discovery-wizard-ui — openDiscoverySetupWizard onClose seam + onboar
     assert.match(discoveryWizardUiJs, /options\.onClose\b/);
   });
 
-  it("the autodetect lane is BYPASSED for entryPoint:onboarding — the wizard always renders as part of setup", () => {
-    // Discovery setup is a real step of onboarding: even a healthy local
-    // stack must render the wizard (showing its connected state) instead of
-    // short-circuiting to a toast — otherwise the celebration CTA appears to
-    // dump the user on the dashboard.
+  it("the autodetect lane runs for EVERY entry point, onboarding included (ONE-FLOW spec §5 B5)", () => {
+    // Superseded 2026-08-31 by ONE-FLOW-ONBOARDING-SPEC §5 B5: the probe used
+    // to be skipped during onboarding so the wizard would always render. It
+    // still always renders — the wizard is unconditional below this block —
+    // but the machine check now runs and reports itself, instead of being the
+    // one step of setup the user never saw happen.
     const start = discoveryWizardUiJs.indexOf(
       "// ====== [discovery-autodetect lane: silent recover] ======",
     );
-    const block = discoveryWizardUiJs.slice(start, start + 1200);
+    const block = discoveryWizardUiJs.slice(start, start + 1600);
+    assert.ok(
+      !/options\.entryPoint\s*!==\s*"onboarding"/.test(block),
+      "the onboarding bypass is exactly what §5 B5 removes",
+    );
     assert.match(
       block,
-      /options\.entryPoint !== "onboarding"/,
-      "the autodetect lane condition must exclude the onboarding entry point",
+      /!options\.skipAutodetect/,
+      "the explicit skipAutodetect seam stays — callers still opt out by name",
     );
     assert.ok(
       !discoveryWizardUiJs.includes("alreadyConnected"),
