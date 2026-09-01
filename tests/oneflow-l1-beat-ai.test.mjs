@@ -258,6 +258,19 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
     assert.match(help.textContent, /npm start/);
   });
 
+  it("clears the pasted key when the provider changes", async () => {
+    const env = await openBeat();
+    const field = env.mount().querySelector("#oneFlowAiKeyInput");
+    field.value = "sk-or-abcdefgh12345678";
+    field.dispatch("input", { target: field });
+    card(env, "gemini").dispatch("click");
+    assert.equal(
+      env.mount().querySelector("#oneFlowAiKeyInput").value,
+      "",
+      "an OpenRouter key checked against Gemini fails for a reason no copy can explain",
+    );
+  });
+
   it("does not render the trouble block before anything has failed", async () => {
     const env = await openBeat();
     assert.equal(env.mount().querySelector(".oneflow-ai__trouble"), null);
@@ -300,6 +313,20 @@ describe("B2 Give it a brain — the Gemini write-through (spec §5 B2 bonus)", 
     );
   });
 
+  it("records that the write-through landed", async () => {
+    const env = await openBeat({
+      fetchImpl: makeFetchDouble(() => ({ ok: true, json: { ok: true } })),
+      verifyProvider: async () => ({
+        ok: true,
+        provider: "gemini",
+        model: "gemini-3.5-flash",
+        ms: 200,
+      }),
+    });
+    await pickAndCheck(env, "gemini", "AIzaSyTestKeyValue1234567");
+    assert.equal(env.beats.ai.didWriteGeminiKeyThrough(), true);
+  });
+
   it("still completes when the worker write fails — the bonus is a bonus", async () => {
     const fetchImpl = makeFetchDouble(() => ({ ok: false, status: 500, json: {} }));
     const env = await openBeat({
@@ -313,6 +340,7 @@ describe("B2 Give it a brain — the Gemini write-through (spec §5 B2 bonus)", 
     });
     await pickAndCheck(env, "gemini", "AIzaSyTestKeyValue1234567");
     assert.ok(env.flow.getState().completedBeats.includes(BEAT_ID));
+    assert.equal(env.beats.ai.didWriteGeminiKeyThrough(), false);
   });
 });
 

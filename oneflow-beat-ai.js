@@ -73,7 +73,7 @@
     {
       id: "openai",
       label: "OpenAI",
-      note: `Paid. ${CORS_NOTE}.`,
+      note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeOpenAIApiKey",
       keyPlaceholder: "sk-…",
       signupUrl: "https://platform.openai.com/api-keys",
@@ -83,7 +83,7 @@
     {
       id: "anthropic",
       label: "Anthropic",
-      note: `Paid. ${CORS_NOTE}.`,
+      note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeAnthropicApiKey",
       keyPlaceholder: "sk-ant-…",
       signupUrl: "https://console.anthropic.com/settings/keys",
@@ -221,6 +221,11 @@
         state.provider = def.id;
         state.lastFailure = null;
         state.geminiWroteThrough = false;
+        // Drafts are per-provider: an OpenRouter key left sitting in the
+        // field after switching to Gemini would be checked against the
+        // wrong provider and fail for a reason the copy can't explain.
+        state.keyDraft = "";
+        state.baseUrlDraft = "";
         fields.value = null;
         repaint(ctx, "");
       });
@@ -521,6 +526,9 @@
     },
     getSelectedProvider() {
       return state.provider;
+    },
+    didWriteGeminiKeyThrough() {
+      return state.geminiWroteThrough;
     },
   };
 })();
