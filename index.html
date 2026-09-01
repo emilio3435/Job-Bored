@@ -73,7 +73,6 @@
             hasSetupApi: !!app.setup,
             screens: {
               dashboard: screenState("dashboard"),
-              setupScreen: screenState("setupScreen"),
               sheetAccessGateScreen: screenState("sheetAccessGateScreen"),
             },
           };
@@ -114,7 +113,7 @@
 
         function blankShellDetected(snap) {
           var screens = snap && snap.screens ? snap.screens : {};
-          return ["dashboard", "setupScreen", "sheetAccessGateScreen"].every(
+          return ["dashboard", "sheetAccessGateScreen"].every(
             function (id) {
               var state = screens[id];
               if (!state || !state.exists) return true;
@@ -514,34 +513,6 @@
          body.jb-v2, the host is empty and dormant. -->
     <div data-region="welcome"></div>
     <!-- region:welcome:end -->
-
-    <!-- Setup Screen (shown when config is missing/invalid) -->
-    <div class="setup-screen" id="setupScreen" style="display: none">
-      <div class="setup-card setup-card--minimal">
-        <div class="setup-logo">
-          <img
-            class="setup-logo__img"
-            src="jobbored.svg"
-            width="160"
-            height="160"
-            alt="JobBored"
-            decoding="async"
-          />
-          <h1 class="setup-headline">One more step.</h1>
-          <p class="setup-subtitle">
-            We’ll create your Pipeline sheet in your Google Drive.
-          </p>
-        </div>
-        <button
-          type="button"
-          class="setup-form-btn setup-form-btn--primary"
-          id="setupCreateStarterSheetBtn"
-        >
-          Create my Pipeline sheet
-        </button>
-        <p class="setup-status" id="setupCreateStarterSheetStatus"></p>
-      </div>
-    </div>
 
     <div
       class="login-gate"

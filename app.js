@@ -473,7 +473,6 @@ function registerBridgeHosts() {
     renderPipeline,
     renderPipelineDailyBrief,
     renderResumeGenerateInsights,
-    renderSetupStarterSheetUi,
     renderStats,
     openGoLiveSetupWizard,
     requestDiscoverySetup,

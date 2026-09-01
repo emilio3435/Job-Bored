@@ -193,21 +193,18 @@
       // the demo board, not a credential ask. The one-flow's Beat 1 owns
       // the Google sign-in and the sheet from there.
       document.getElementById("dashboard").style.display = "none";
-      document.getElementById("setupScreen").style.display = "none";
       if (!sheetAccessGateIsInErrorMode()) {
         void mountOneFlowDemoBoard();
       }
       // Auth still wires up unconditionally: B1's `Continue with Google`
       // drives the same initAuth the login gate used to.
       h("initAuth");
-      h("renderSetupStarterSheetUi");
       startupLog("bootstrap:init:early-return", {
         reason: "missing-sheet-id",
       });
       return;
     }
 
-    document.getElementById("setupScreen").style.display = "none";
     /* Refresh flicker fix:
        - If we have a valid runtime token cached in localStorage, the
          dashboard is going to render in milliseconds. Show it RIGHT NOW

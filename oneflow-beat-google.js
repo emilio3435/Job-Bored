@@ -2,7 +2,8 @@
    Beat B1 of the one-flow onboarding — Connect Google.
 
    ONE-FLOW-ONBOARDING-SPEC §5 B1. This beat replaces the login gate AND
-   #setupScreen: signing in and owning a Sheet stop being two chapters.
+   the "One more step." starter-setup screen (both deleted by L7's sweep):
+   signing in and owning a Sheet stop being two chapters.
    Everything it does is a CALL into a surface that already exists —
 
      · auth-session.js  signIn()      — the OAuth dance, unforked;

@@ -61,7 +61,6 @@ function host() {
     showSheetAccessGate,
     showToast,
     maybeSyncSettingsModalModeAfterAuth,
-    renderSetupStarterSheetUi() {},
     renderAppsScriptDeployUi() {},
     recordSheetAccessError() {},
     renderPipeline() {},
@@ -153,7 +152,6 @@ function createAuthHarness({
       calls.showToast.push({ message, type, persistent });
     },
     maybeSyncSettingsModalModeAfterAuth() {},
-    renderSetupStarterSheetUi() {},
     renderAppsScriptDeployUi() {},
   });
 

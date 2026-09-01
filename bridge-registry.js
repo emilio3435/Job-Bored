@@ -211,7 +211,6 @@
       getAccessToken: host.getAccessToken,
       showSheetAccessGate: host.showSheetAccessGate,
       initAuth: host.initAuth,
-      renderSetupStarterSheetUi: host.renderSetupStarterSheetUi,
       loadPersistedRuntimeOAuthSession: host.loadPersistedRuntimeOAuthSession,
       loadPersistedOAuthSession: host.loadPersistedOAuthSession,
       getConfig: host.getConfig,
@@ -521,7 +520,6 @@
         return app.setup.showSheetAccessGate(...args);
       },
       revealSetupScreenAfterAuth: host.revealSetupScreenAfterAuth,
-      renderSetupStarterSheetUi: host.renderSetupStarterSheetUi,
       handleSetupCreateStarterSheet: host.handleSetupCreateStarterSheet,
       getPendingSetupStarterSheetCreate:
         host.getPendingSetupStarterSheetCreate,

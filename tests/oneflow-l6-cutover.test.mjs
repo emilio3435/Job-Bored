@@ -255,14 +255,18 @@ describe("L6 · the legacy surfaces stand down while the flow owns onboarding", 
     );
   });
 
-  it("post-sign-in reveal routes to the starter setup, not a deleted wizard", async () => {
+  it("post-sign-in reveal hands off to Beat 1, not to a deleted screen", async () => {
+    // Signed in with no sheet is Beat 1's own state (spec §5 B1). The
+    // starter-setup screen L6 fell back to is deleted (§7), so the reveal
+    // opens the beat that creates or connects the sheet.
     const env = loadCutover({ sheetId: "", signedIn: true });
     env.setup.revealSetupScreenAfterAuth();
     await settle();
-    assert.equal(
-      env.document.getElementById("setupScreen").style.display,
+    assert.equal(env.openBeat(), "google");
+    assert.notEqual(
+      env.document.getElementById("sheetAccessGateScreen").style.display,
       "flex",
-      "a signed-in user with no sheet still has exactly one thing left to do",
+      "and no gate is left stranded in front of it",
     );
   });
 
@@ -286,18 +290,22 @@ describe("L6 · the legacy surfaces stand down while the flow owns onboarding", 
     assert.equal(env.board.isActive(), true, "S0 is still the surface");
   });
 
-  it("post-sign-in reveal does not paint the setup screen over a beat", async () => {
+  it("post-sign-in reveal does not re-open over a beat already on screen", async () => {
+    // The "One more step." screen this used to paint is deleted (§7). What
+    // has to hold now is idempotence: the reveal must not re-enter the flow
+    // and restart the beat the user is already working in (spec §3.4).
     const env = loadCutover({ sheetId: "", signedIn: true });
-    await env.flow.open("google");
+    await env.flow.goToBeat("ai");
     await settle();
+    assert.equal(env.openBeat(), "ai");
 
     env.setup.revealSetupScreenAfterAuth();
     await settle();
 
-    assert.notEqual(
-      env.document.getElementById("setupScreen").style.display,
-      "flex",
-      '"One more step." must not cover the beat that owns the sheet (spec §7)',
+    assert.equal(
+      env.openBeat(),
+      "ai",
+      "a live beat keeps the surface; the reveal stands down",
     );
   });
 });

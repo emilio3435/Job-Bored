@@ -41,7 +41,6 @@ function host() {
     showSheetAccessGate,
     showToast,
     maybeSyncSettingsModalModeAfterAuth() {},
-    renderSetupStarterSheetUi() {},
     renderAppsScriptDeployUi() {},
     recordSheetAccessError() {},
     escapeHtml(value) { return String(value); },
