@@ -15,7 +15,6 @@ import {
   classifyCareerSurfacePageType,
   classifyCareerSurfaceSourcePolicy,
   detectCareerSurfaceCandidatesFromHtml,
-  isPrivateOrLoopbackHost,
   isEmployerCareerSurface,
   isKnownAtsCareerSurface,
   isLikelyThirdPartyJobHost as isThirdPartyCareerSurface,
@@ -26,8 +25,10 @@ import {
   type CareerSurfaceCandidate,
   type CareerSurfaceSourcePolicy,
 } from "../discovery/career-surface-resolver.ts";
+import { safeFetch } from "../net/safe-fetch.ts";
 import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import type { BudgetTracker } from "../run/budget-tracker.ts";
+import { applyRetryBroadeningGate } from "../run/retry-broadening.ts";
 
 const SEARCH_SYSTEM_PROMPT = [
   "You are a job-discovery agent. Your output feeds an automated pipeline that fetches and parses each URL you return, so stale, gated, or invalid URLs waste the entire run's budget.",
@@ -404,9 +405,13 @@ async function executeQueryWithRetry(
   // Rung 1: drop location
   // Rung 2: broaden role/keywords
 
-  const ladder = buildRetryLadder(focusedQuery, run);
+  const ladder = applyRetryBroadeningGate(
+    buildRetryLadder(focusedQuery, run),
+    retryBroadeningEnabled,
+  );
 
-  // Execute each rung in order
+  // Execute each rung in order. When retryBroadeningEnabled is false the gate
+  // keeps only the focused query so disabled broadening cannot fire outbound.
   for (let i = 0; i < ladder.length; i++) {
     throwIfAborted(signal);
     const { query, rung, terminal } = ladder[i];
@@ -2185,32 +2190,21 @@ async function fetchTextWithTimeout(
   abortSignal?.addEventListener("abort", abortHandler, { once: true });
   const timer = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    // Re-validate every redirect hop so a public seed cannot 302 us into a
-    // private/loopback/metadata target before the body is ever read (SSRF).
-    let currentUrl = url;
-    for (let hop = 0; hop <= MAX_PREFLIGHT_REDIRECTS; hop += 1) {
-      const hopHost = safeHostname(currentUrl);
-      if (!hopHost || isPrivateOrLoopbackHost(hopHost)) {
-        throw new Error(`Blocked redirect to private or invalid host: ${currentUrl}`);
-      }
-      const response = await fetchImpl(currentUrl, {
+    const response = await safeFetch(
+      url,
+      {
         headers: {
           accept: "text/html,application/xhtml+xml,text/plain;q=0.9,*/*;q=0.5",
         },
-        redirect: "manual",
         signal: controller.signal,
-      });
-      if (response.status >= 300 && response.status < 400) {
-        const location = response.headers.get("location") || "";
-        const next = cleanAbsoluteUrl(new URL(location, currentUrl).href);
-        if (!next) return { response, text: "" };
-        currentUrl = next;
-        continue;
-      }
-      const text = await response.text();
-      return { response, text };
-    }
-    throw new Error(`Too many redirects while preflighting ${url}`);
+      },
+      {
+        fetchImpl,
+        maxRedirects: MAX_PREFLIGHT_REDIRECTS,
+      },
+    );
+    const text = await response.text();
+    return { response, text };
   } finally {
     clearTimeout(timer);
     abortSignal?.removeEventListener("abort", abortHandler);

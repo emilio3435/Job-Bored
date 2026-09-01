@@ -57,13 +57,16 @@ const firstRunWizardCss = readFileSync(
 const indexHtml = readIndexHtml(repoRoot);
 
 // --- Minimal DOM stubs so the IIFE can wire listeners under vm ---
-function makeFakeEl() {
+function makeFakeEl(id) {
+  const listeners = {};
   return {
+    id,
     style: {},
     dataset: {},
     hidden: false,
     disabled: false,
     value: "",
+    checked: false,
     textContent: "",
     className: "",
     classList: {
@@ -74,7 +77,9 @@ function makeFakeEl() {
         return false;
       },
     },
-    addEventListener() {},
+    addEventListener(type, fn) {
+      (listeners[type] = listeners[type] || []).push(fn);
+    },
     removeEventListener() {},
     setAttribute() {},
     removeAttribute() {},
@@ -92,6 +97,9 @@ function makeFakeEl() {
       return null;
     },
     focus() {},
+    __fire(type, ev) {
+      (listeners[type] || []).forEach((fn) => fn(ev || {}));
+    },
   };
 }
 
@@ -100,10 +108,25 @@ function makeFakeDocument() {
   return {
     readyState: "complete",
     getElementById(id) {
-      if (!els.has(id)) els.set(id, makeFakeEl());
+      if (!els.has(id)) els.set(id, makeFakeEl(id));
       return els.get(id);
     },
-    querySelector() {
+    querySelector(sel) {
+      if (
+        typeof sel === "string" &&
+        sel.includes('input[name="firstRunProvider"]:checked')
+      ) {
+        for (const el of els.values()) {
+          if (
+            el &&
+            el.id &&
+            String(el.id).startsWith("firstRunProvider") &&
+            el.checked
+          ) {
+            return el;
+          }
+        }
+      }
       return null;
     },
     querySelectorAll() {
@@ -111,7 +134,7 @@ function makeFakeDocument() {
     },
     addEventListener() {},
     createElement() {
-      return makeFakeEl();
+      return makeFakeEl("created");
     },
   };
 }
@@ -546,15 +569,14 @@ describe("first-run wizard — provider step (terminal, no in-wizard draft)", ()
     assert.equal(window.COMMAND_CENTER_CONFIG.resumeProvider, "local");
   });
 
-  it("firstRunCanFinish requires signed-in + sheet + provider; no draft is needed", () => {
+  it("F2C-SETUP07-SHEETONLY: firstRunCanFinish allows a Sheet-only tracker without AI/discovery", () => {
     const { api } = loadWizard(providerHost());
     // Defaults: signed in, sheet connected, provider NOT configured.
     assert.equal(
       api.firstRunCanFinish(),
-      false,
-      "finish is blocked when the provider is unconfigured",
+      true,
+      "AI/discovery are optional — a signed-in user with a Sheet can finish first-run",
     );
-    // Configure the provider; signing-in and sheet are already satisfied.
     const { api: api2 } = loadWizard(
       providerHost({
         getResumeGenerate: () => ({
@@ -569,7 +591,7 @@ describe("first-run wizard — provider step (terminal, no in-wizard draft)", ()
     assert.equal(
       api2.firstRunCanFinish(),
       true,
-      "finish is unblocked once signed-in + sheet + provider are all met (no draft required)",
+      "finish remains available when a provider is also configured",
     );
   });
 
@@ -605,6 +627,77 @@ describe("first-run wizard — provider step (terminal, no in-wizard draft)", ()
       false,
       "finish is blocked while no Sheet is connected",
     );
+  });
+
+  it("F2C-SETUP06-SHEET: existing-Sheet path verifies access/headers, not just ID syntax", async () => {
+    const sheetReads = [];
+    const { document } = loadWizard(
+      providerHost({
+        getSheetId: () => "",
+        parseGoogleSheetId: (raw) => {
+          const text = String(raw || "");
+          const match = text.match(/\/d\/([^/]+)/);
+          return match ? match[1] : text.trim() || null;
+        },
+        mergeStoredConfigOverridePatch() {},
+        setSHEET_ID() {},
+        setInitialSheetAccessResolved() {},
+        setDashboardSheetLinks() {},
+        getAccessToken: () => "tok-sheet",
+        verifyExistingSheetAccess: async ({ sheetId }) => {
+          sheetReads.push(sheetId);
+          return { ok: true, reason: "headers_ok" };
+        },
+      }),
+    );
+    const input = document.getElementById("firstRunSheetIdInput");
+    const saveBtn = document.getElementById("firstRunSheetIdSaveBtn");
+    input.value =
+      "https://docs.google.com/spreadsheets/d/abc123def456ghi789/edit";
+    saveBtn.__fire("click", {});
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    assert.deepEqual(
+      sheetReads,
+      ["abc123def456ghi789"],
+      "existing-Sheet connect must actually read the spreadsheet, not stop at ID syntax",
+    );
+    const status = document.getElementById("firstRunSheetStatus");
+    assert.match(
+      String(status.textContent || ""),
+      /connected|verified|headers/i,
+    );
+  });
+
+  it("F2C-SETUP08-BACK: provider selection survives Back then forward", () => {
+    let cfg = { provider: "openrouter" };
+    const { api, document, window } = loadWizard(
+      providerHost({
+        mergeStoredConfigOverridePatch: (patch) => {
+          if (patch && patch.resumeProvider) cfg.provider = patch.resumeProvider;
+        },
+        getResumeGenerate: () => ({
+          isResumeGenerationConfigured: () => false,
+          getResumeGenerationConfig: () => cfg,
+        }),
+      }),
+    );
+    window.COMMAND_CENTER_CONFIG = { resumeProvider: "openrouter" };
+    for (const [id, value] of [
+      ["firstRunProviderOpenRouter", "openrouter"],
+      ["firstRunProviderLocal", "local"],
+      ["firstRunProviderGemini", "gemini"],
+    ]) {
+      const el = document.getElementById(id);
+      el.value = value;
+      el.checked = false;
+    }
+    api.firstRunSelectProvider("gemini");
+    document.getElementById("firstRunProviderGemini").checked = true;
+    api.setFirstRunStep(1);
+    api.setFirstRunStep(2);
+    assert.equal(api.firstRunSelectedProvider(), "gemini");
+    assert.equal(cfg.provider, "gemini");
+    assert.equal(window.COMMAND_CENTER_CONFIG.resumeProvider, "gemini");
   });
 
   it("mirrors the onboarding key-save pattern (mergeStoredConfigOverridePatch + live config) and reuses the host helpers", () => {

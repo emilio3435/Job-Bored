@@ -168,8 +168,22 @@
     return t.length > 0 ? t : "";
   }
 
+  /**
+   * Shared token for hosted/container scraper API calls (JOBBORED_API_TOKEN).
+   * Empty on loopback local-dev; packaged callers must send it as
+   * Authorization: Bearer / X-Api-Token when set.
+   */
+  function getJobBoredApiToken() {
+    const cfg = window.COMMAND_CENTER_CONFIG || {};
+    const raw =
+      cfg.jobBoredApiToken || cfg.hostedApiToken || cfg.apiAccessToken || "";
+    return String(raw).trim();
+  }
+
   const APPS_SCRIPT_API_BASE = "https://script.googleapis.com/v1";
   const GOOGLE_SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+  const GOOGLE_SHEETS_READONLY_SCOPE =
+    "https://www.googleapis.com/auth/spreadsheets.readonly";
   const GOOGLE_USERINFO_EMAIL_SCOPE =
     "https://www.googleapis.com/auth/userinfo.email";
   const GOOGLE_USERINFO_PROFILE_SCOPE =
@@ -235,6 +249,7 @@
     MIN_PLAUSIBLE_GOOGLE_SHEET_ID_LENGTH,
     APPS_SCRIPT_API_BASE,
     GOOGLE_SHEETS_SCOPE,
+    GOOGLE_SHEETS_READONLY_SCOPE,
     GOOGLE_USERINFO_EMAIL_SCOPE,
     GOOGLE_USERINFO_PROFILE_SCOPE,
     GOOGLE_SIGNIN_SCOPES,
@@ -261,5 +276,6 @@
     getOAuthClientId,
     getDiscoveryWebhookUrl,
     getDiscoveryWebhookSecret,
+    getJobBoredApiToken,
   });
 })();

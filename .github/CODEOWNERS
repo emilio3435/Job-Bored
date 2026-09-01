@@ -16,6 +16,8 @@
 /tests/                                   @emilio3435
 /tests/integration/                       @emilio3435
 /tests/e2e-smoke/                         @emilio3435
+/tests/e2e-journey/                       @emilio3435
+/tests/e2e-fixtures/                      @emilio3435
 
 # --- Contract surfaces (need careful review) ---
 /schemas/                                 @emilio3435

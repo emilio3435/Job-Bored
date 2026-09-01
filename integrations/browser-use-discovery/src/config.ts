@@ -19,12 +19,14 @@ import {
   type SupportedSourceId,
   type UltraPlanTuning,
 } from "./contracts.ts";
+import { effectiveAtsCompanySeeds } from "./discovery/company-keys.ts";
 import {
-  buildCompanyKeySet,
-  companyFilterKey,
-  effectiveAtsCompanySeeds,
-  filterSkippedCompanies,
-} from "./discovery/company-keys.ts";
+  applySheetConfigMutation,
+  buildEffectiveIntent,
+  pickSheetConfigPayload,
+  resolveEffectiveCompanyPools,
+  resolveEffectiveSources,
+} from "./discovery/effective-intent.ts";
 
 export type WorkerLlmProvider =
   | ""
@@ -803,7 +805,7 @@ export async function loadStoredWorkerConfig(
   if (!raw) {
     return fallback;
   }
-  const candidate = pickConfigPayload(raw, sheetId);
+  const candidate = pickSheetConfigPayload(raw, sheetId);
   if (!candidate || typeof candidate !== "object") {
     return fallback;
   }
@@ -841,16 +843,29 @@ export async function upsertStoredWorkerConfig(
       "upsertStoredWorkerConfig: runtimeConfig.workerConfigPath is empty.",
     );
   }
-  const existing = await loadStoredWorkerConfig(runtimeConfig, input.sheetId);
+  const raw = await readJsonIfExists(pathname);
+  const existingPayload = raw ? pickSheetConfigPayload(raw, input.sheetId) : null;
+  const existing = existingPayload && typeof existingPayload === "object"
+    ? normalizeStoredWorkerConfig(
+        existingPayload as AnyRecord,
+        input.sheetId,
+        runtimeConfig.runMode,
+      )
+    : buildDefaultStoredWorkerConfig(input.sheetId, runtimeConfig.runMode);
   const merged = normalizeStoredWorkerConfig(
     { ...existing, ...input.mutations, sheetId: input.sheetId } as AnyRecord,
     input.sheetId,
     runtimeConfig.runMode,
   );
+  const nextDocument = applySheetConfigMutation(
+    raw,
+    input.sheetId,
+    merged as unknown as Record<string, unknown>,
+  );
   const tmpPath = `${pathname}.tmp-${Date.now()}-${Math.random()
     .toString(36)
     .slice(2, 10)}`;
-  await writeFile(tmpPath, `${JSON.stringify(merged, null, 2)}\n`, {
+  await writeFile(tmpPath, `${JSON.stringify(nextDocument, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
@@ -868,45 +883,24 @@ export function mergeDiscoveryConfig(
     );
   }
   const profile = request.discoveryProfile || {};
-  const searchPlan: AnyRecord = isPlainRecord(profile.searchPlan)
-    ? profile.searchPlan
-    : {};
-  const searchPlanQuery: AnyRecord = isPlainRecord(searchPlan.query)
-    ? searchPlan.query
-    : {};
+  const effectiveIntent = buildEffectiveIntent({
+    discoveryProfile: profile,
+    mergedUserProfile: request.mergedUserProfile,
+  });
   const stored = normalizeStoredWorkerConfig(
     storedConfig as AnyRecord,
     storedConfig.sheetId,
     storedConfig.mode,
   );
-  const requestTargetRoles = normalizeStringList(
-    searchPlanQuery.targetRoles || profile.targetRoles,
-  );
-  const requestLocations = normalizeStringList(
-    searchPlanQuery.locations || profile.locations,
-  );
-  const requestIncludeKeywords = normalizeStringList(
-    searchPlanQuery.keywordsInclude || profile.keywordsInclude,
-  );
-  const requestExcludeKeywords = normalizeStringList(
-    searchPlanQuery.keywordsExclude || profile.keywordsExclude,
-  );
-  const requestRemotePolicy =
-    cleanString(searchPlanQuery.remotePolicy) || cleanString(profile.remotePolicy);
-  const requestSeniority =
-    cleanString(searchPlanQuery.seniority) || cleanString(profile.seniority);
   const requestMaxLeads = parsePositiveInt(
     profile.maxLeadsPerRun,
     stored.maxLeadsPerRun,
   );
-  const planSourcePreset = cleanString(searchPlanQuery.sourcePreset);
+  const effectiveSourcePreset = cleanString(effectiveIntent.sourcePreset);
   const requestSourcePreset =
-    planSourcePreset &&
-    (SOURCE_PRESET_VALUES as readonly string[]).includes(planSourcePreset)
-      ? (planSourcePreset as SourcePreset)
-      : profile.sourcePreset &&
-          (SOURCE_PRESET_VALUES as readonly string[]).includes(profile.sourcePreset)
-        ? (profile.sourcePreset as SourcePreset)
+    effectiveSourcePreset &&
+    (SOURCE_PRESET_VALUES as readonly string[]).includes(effectiveSourcePreset)
+      ? (effectiveSourcePreset as SourcePreset)
       : undefined;
   const resolvedSourcePreset = resolveSourcePreset(
     requestSourcePreset,
@@ -922,46 +916,46 @@ export function mergeDiscoveryConfig(
     resolvedSourcePreset,
     profile.groundedSearchTuning,
   );
-  let companies = filterSkippedCompanies(
-    stored.companies,
-    stored.negativeCompanyKeys,
+  const baseCompanies = stored.companies;
+  const baseAtsCompanies = effectiveAtsCompanySeeds(
+    stored.atsCompanies || [],
+    baseCompanies,
   );
-  let atsCompanies = effectiveAtsCompanySeeds(
-    filterSkippedCompanies(stored.atsCompanies || [], stored.negativeCompanyKeys),
-    companies,
-  );
-  if (request.companyAllowlist?.length) {
-    const allow = buildCompanyKeySet(request.companyAllowlist);
-    const historyMinusSkipped = filterSkippedCompanies(
-      stored.companyHistory,
-      stored.negativeCompanyKeys,
-    );
-    const pool = dedupeByCompanyKey([...companies, ...historyMinusSkipped]);
-    companies = pool.filter((company) => allow.has(companyFilterKey(company)));
-    atsCompanies = atsCompanies.filter((company) =>
-      allow.has(companyFilterKey(company))
-    );
-  }
+  const companyPools = resolveEffectiveCompanyPools({
+    companies: baseCompanies,
+    atsCompanies: baseAtsCompanies,
+    companyHistory: stored.companyHistory,
+    negativeCompanyKeys: stored.negativeCompanyKeys,
+    companyAllowlist: request.companyAllowlist,
+    companyBlocklist: request.companyBlocklist,
+    allowUnrestrictedFallback: request.allowUnrestrictedFallback,
+  });
+  const blockedUnresolved =
+    companyPools.allowlistResolution.mode === "blocked_unresolved";
 
   return {
     ...stored,
-    companies: cloneCompanies(companies),
+    companies: cloneCompanies(companyPools.companies),
     sheetId: cleanString(request.sheetId) || stored.sheetId,
     variationKey: cleanString(request.variationKey) || "",
     requestedAt: cleanString(request.requestedAt) || "",
-    atsCompanies: cloneCompanies(atsCompanies),
-    targetRoles: requestTargetRoles.length
-      ? requestTargetRoles
+    atsCompanies: cloneCompanies(companyPools.atsCompanies),
+    allowlistResolution: companyPools.allowlistResolution,
+    allowUnrestrictedFallback: companyPools.allowUnrestrictedFallback,
+    targetRoles: effectiveIntent.targetRoles.length
+      ? effectiveIntent.targetRoles
       : stored.targetRoles,
-    locations: requestLocations.length ? requestLocations : stored.locations,
-    remotePolicy: requestRemotePolicy || stored.remotePolicy,
-    seniority: requestSeniority || stored.seniority,
-    includeKeywords: requestIncludeKeywords.length
-      ? requestIncludeKeywords
+    locations: effectiveIntent.locations.length
+      ? effectiveIntent.locations
+      : stored.locations,
+    remotePolicy: effectiveIntent.remotePolicy || stored.remotePolicy,
+    seniority: effectiveIntent.seniority || stored.seniority,
+    includeKeywords: effectiveIntent.includeKeywords.length
+      ? effectiveIntent.includeKeywords
       : stored.includeKeywords,
     excludeKeywords: dedupeStrings([
       ...stored.excludeKeywords,
-      ...requestExcludeKeywords,
+      ...effectiveIntent.excludeKeywords,
     ]),
     maxLeadsPerRun: Math.min(
       stored.maxLeadsPerRun,
@@ -983,28 +977,18 @@ export function mergeDiscoveryConfig(
         : {}),
     },
     sourcePreset: resolvedSourcePreset,
-    effectiveSources: computeEffectiveSources(resolvedSourcePreset, stored.enabledSources),
+    effectiveSources: blockedUnresolved
+      ? []
+      : computeEffectiveSources(
+          resolvedSourcePreset,
+          stored.enabledSources,
+          { groundedWebEnabled: effectiveIntent.groundedWebEnabled },
+        ),
     ultraPlanTuning: resolvedUltraPlanTuning,
     groundedSearchTuning: resolvedGroundedSearchTuning,
     ...(profile.profileSnapshot ? { profileSnapshot: profile.profileSnapshot } : {}),
     ...(profile.searchPlan ? { searchPlan: profile.searchPlan } : {}),
   };
-}
-
-function dedupeByCompanyKey(companies: readonly CompanyTarget[]): CompanyTarget[] {
-  const seen = new Set<string>();
-  const out: CompanyTarget[] = [];
-  for (const company of companies) {
-    const key = companyFilterKey(company);
-    if (!key) {
-      out.push(company);
-      continue;
-    }
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(company);
-  }
-  return out;
 }
 
 export function normalizeSourceIdList(
@@ -1092,27 +1076,13 @@ export function resolveSourcePreset(
 export function computeEffectiveSources(
   sourcePreset: SourcePreset,
   enabledSources: readonly SupportedSourceId[],
+  options: { groundedWebEnabled?: boolean | null } = {},
 ): SupportedSourceId[] {
-  const allAts = [...ATS_SOURCE_IDS] as const;
-  switch (sourcePreset) {
-    case "browser_only": {
-      // browser_only keeps the profile-/role-driven web lanes: grounded_web
-      // (Gemini) and serpapi_google_jobs (Google Jobs index). ATS provider
-      // probes are excluded because this preset is for users who haven't
-      // curated a company list yet.
-      const out: SupportedSourceId[] = [];
-      if (enabledSources.includes("grounded_web")) out.push("grounded_web");
-      if (enabledSources.includes("serpapi_google_jobs")) {
-        out.push("serpapi_google_jobs");
-      }
-      return out;
-    }
-    case "ats_only":
-      return allAts.filter((id) => enabledSources.includes(id));
-    case "browser_plus_ats":
-    default:
-      return [...enabledSources];
-  }
+  return resolveEffectiveSources({
+    sourcePreset,
+    enabledSources,
+    groundedWebEnabled: options.groundedWebEnabled,
+  });
 }
 
 function buildDefaultStoredWorkerConfig(
@@ -1360,24 +1330,6 @@ async function readJsonIfExists(pathname: string): Promise<unknown | null> {
       `Failed to parse worker config JSON at ${pathname}: ${String(error)}`,
     );
   }
-}
-
-function pickConfigPayload(raw: unknown, sheetId: string): unknown {
-  if (!isPlainRecord(raw)) return raw;
-  const direct = raw.config ?? raw.default ?? raw.workerConfig;
-  if (isPlainRecord(direct)) return direct;
-  for (const key of ["sheets", "workers", "workspaces", "bySheetId", "configs"]) {
-    const group = raw[key];
-    if (!isPlainRecord(group)) continue;
-    if (sheetId) {
-      if (isPlainRecord(group[sheetId])) return group[sheetId];
-      // Requested sheet is missing — do not load another sheet's config.
-      return null;
-    }
-    const first = Object.values(group).find((value) => isPlainRecord(value));
-    if (first) return first;
-  }
-  return raw;
 }
 
 function normalizeCompanies(input: unknown): CompanyTarget[] {

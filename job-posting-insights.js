@@ -153,11 +153,22 @@
     const fence = /^```(?:json)?\s*([\s\S]*?)```$/m.exec(t);
     if (fence) t = fence[1].trim();
     try {
-      return JSON.parse(t);
+      const parsed = JSON.parse(t);
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        parsed._parseMode = "schema";
+      }
+      return parsed;
     } catch (_) {}
     const loose = parseLooseKeyValueObject(t);
-    if (loose) return loose;
-    return repairTruncatedJson(t);
+    if (loose) {
+      loose._parseMode = "loose";
+      return loose;
+    }
+    const repaired = repairTruncatedJson(t);
+    if (repaired && typeof repaired === "object" && !Array.isArray(repaired)) {
+      repaired._parseMode = "repaired";
+    }
+    return repaired;
   }
 
   function parseLooseKeyValueObject(raw) {
@@ -361,8 +372,19 @@
     return Math.max(0, Math.min(100, Math.round(n)));
   }
 
+  function structuredOutputApi() {
+    return (
+      (typeof window !== "undefined" && window.JobBoredStructuredOutput) ||
+      (typeof globalThis !== "undefined" && globalThis.JobBoredStructuredOutput) ||
+      null
+    );
+  }
+
   function normalizeEnrichmentJson(parsed) {
-    return {
+    const normalized = {
+      // Stamped before validateEnrichment so the recovered-parse signal survives
+      // delimiter cleaning and reaches the provenance classifier.
+      _parseMode: String(parsed._parseMode || "").trim(),
       inferredTitle: String(parsed.inferredTitle || "").trim(),
       inferredCompany: String(parsed.inferredCompany || "").trim(),
       inferredLocation: String(parsed.inferredLocation || "").trim(),
@@ -378,6 +400,11 @@
       talkingPoints: strArr(parsed.talkingPoints).slice(0, 6),
       extraKeywords: strArr(parsed.extraKeywords).slice(0, 12),
     };
+    const validator = structuredOutputApi();
+    if (validator && typeof validator.validateEnrichment === "function") {
+      return validator.validateEnrichment(normalized);
+    }
+    return normalized;
   }
 
   // ── Provider calls ────────────────────────────────────────────────────────────

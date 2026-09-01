@@ -21,7 +21,8 @@
  * these companyKey values, drawn from stored StoredWorkerConfig.companies
  * ∪ StoredWorkerConfig.companyHistory.
  *
- * Unknown keys (not present in either pool) are silently dropped.
+ * Unknown keys are reported. If none match, the request fails closed unless
+ * allowUnrestrictedFallback is explicitly true.
  * When omitted or empty, the run behaves exactly as today — stored
  * companies (filtered by negativeCompanyKeys) are used as-is.
  *
@@ -87,8 +88,9 @@ The worker enforces these and rejects with HTTP 400 + a helpful `{ ok: false, me
 | `companyAllowlist: []` | No-op. Treated identically to absent. |
 | Not an array (e.g. `companyAllowlist: 42`, `"notion"`, `{}`) | **400** with message: `"companyAllowlist must be an array of company key strings when present."` |
 | Entry is not a string | **400** with message: `"companyAllowlist entries must be strings."` |
-| Entry is whitespace-only after trim | Silently dropped. |
-| Entry doesn't match any stored company (after normalization) | Silently dropped. |
+| Entry is whitespace-only after trim | **400** with the indexed field name. |
+| Some entries don't match any stored company | Known entries are used; unknown entries are reported in the resolved allowlist state. |
+| No entries match any stored company | **400** unless `allowUnrestrictedFallback: true` explicitly authorizes broad search. |
 | Too many entries (> 500) | **400** with message: `"companyAllowlist may not contain more than 500 entries."` |
 
 ### 2.2 Normalization
@@ -99,12 +101,12 @@ Server normalizes each entry by `String(x).trim().toLowerCase()` before lookup. 
 
 ## 3. Server behavior — how the allowlist is applied
 
-**File to modify:** `integrations/browser-use-discovery/src/config.ts`, inside `mergeDiscoveryConfig`.
+**Files to modify:** `integrations/browser-use-discovery/src/config.ts`, inside `mergeDiscoveryConfig`, and `integrations/browser-use-discovery/src/run/run-discovery.ts` at the runtime-seed and final-write boundaries.
 
 **Applied at merge time.** Order of operations (must be preserved):
 
 1. Existing `filterSkippedCompanies(storedConfig.companies, storedConfig.negativeCompanyKeys)` → this is the baseline active list. (No change to this line.)
-2. **New step** — if `request.companyAllowlist?.length > 0`:
+2. **New step** — resolve skip, allowlist, blocklist, and fallback together through `resolveEffectiveCompanyPools`:
    ```ts
    const allow = buildCompanyKeySet(request.companyAllowlist);
    const pool = [
@@ -119,9 +121,10 @@ Server normalizes each entry by `String(x).trim().toLowerCase()` before lookup. 
    );
    ```
    Where `dedupeByCompanyKey` keeps the first occurrence (active wins over history when the same key appears in both).
-3. Everything downstream (`run-discovery.ts`, frontier scorer, etc.) consumes `EffectiveDiscoveryConfig.companies` as today. No changes needed past `mergeDiscoveryConfig`.
+3. Runtime ATS memory/host-search seeds are filtered again because they are discovered after `mergeDiscoveryConfig`.
+4. Deduplicated leads from every lane, including profile-wide SerpApi results, are filtered again immediately before write selection. This final boundary uses the resolved company targets so name, key, alias, and employer-domain allowlist matches stay equivalent. Shared ATS hosts are not company identity; a lead on Greenhouse, Lever, SmartRecruiters, or another multi-tenant provider must still match the allowed company's name, key, or alias.
 
-**Empty-result fallback:** if the allowlist matches zero companies, the resulting `companies` array is empty. This behaves identically to a never-configured profile: the worker falls through to its existing broadcast-search fallback. Do NOT throw or short-circuit the run on empty-result; existing downstream code handles it.
+**Empty-result fallback:** if the allowlist matches zero catalog companies, the request is `blocked_unresolved` and fails preflight. The worker does not run unrestricted grounded-web, ATS-memory, or ATS-host fallback lanes. Broad fallback is allowed only when the request explicitly sets `allowUnrestrictedFallback: true`.
 
 **Persistence:** `mergeDiscoveryConfig` must NOT call any upsert helper when `companyAllowlist` is present. The allowlist is ephemeral. Stored `companies` / `negativeCompanyKeys` / `companyHistory` remain untouched.
 

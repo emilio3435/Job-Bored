@@ -42,16 +42,25 @@
   // Constants
   // ---------------------------------------------------------------------------
 
-  /** Stage slug -> Sheet status label (column M enum). */
-  var STAGE_LABELS = Object.freeze({
-    "new": "New",
-    "researching": "Researching",
-    "applied": "Applied",
-    "phone-screen": "Phone Screen",
-    "interviewing": "Interviewing",
-    "offer": "Offer",
+  /** Stage slug -> Sheet status label (column M enum). Runtime source is
+   *  window.JobBoredStages (stage-registry.js); the mirror below is the
+   *  load-order fallback. Seven entries used to mean Rejected/Passed moves
+   *  threw "Unknown toStage" and wrote nothing. */
+  var STAGE_LABEL_FALLBACK = {
+    "new": "New", "researching": "Researching", "applied": "Applied",
+    "phone-screen": "Phone Screen", "interviewing": "Interviewing",
+    "offer": "Offer", "rejected": "Rejected", "passed": "Passed",
     "expired": "Expired",
-  });
+  };
+  var STAGE_LABELS = Object.freeze((function () {
+    var reg = typeof window !== "undefined" && window.JobBoredStages;
+    if (reg && Array.isArray(reg.KEYS) && reg.LABELS) {
+      var out = {};
+      reg.KEYS.forEach(function (k) { out[k] = reg.LABELS[k]; });
+      return out;
+    }
+    return STAGE_LABEL_FALLBACK;
+  })());
 
   var STATUS_COLUMN = "M"; // schemas/pipeline-row.v1.json -> status
   var NOTES_COLUMN = "O";  // schemas/pipeline-row.v1.json -> notes
@@ -362,6 +371,14 @@
     try {
       if (!label) {
         throw new Error("Unknown toStage: " + String(detail.toStage));
+      }
+      if (String(detail.toStage).trim().toLowerCase() === "applied" &&
+          window.JobBoredSubmission &&
+          typeof window.JobBoredSubmission.confirmApplied === "function") {
+        await window.JobBoredSubmission.confirmApplied(jobKey, {
+          fromStage: detail.fromStage,
+        });
+        return;
       }
       var row = await resolveSheetRow(jobKey);
       var range = "Pipeline!" + STATUS_COLUMN + row;

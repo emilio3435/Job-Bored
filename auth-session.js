@@ -86,6 +86,61 @@ function hasGrantedOauthScope(scope) {
     .includes(wanted);
 }
 
+function usedPublicSheetFallback() {
+  try {
+    const sheetsRead =
+      (typeof window !== "undefined" &&
+        window.JobBoredApp &&
+        window.JobBoredApp.sheetsRead) ||
+      null;
+    return !!(
+      sheetsRead &&
+      typeof sheetsRead.getUsedPublicSheetFallback === "function" &&
+      sheetsRead.getUsedPublicSheetFallback()
+    );
+  } catch (e) {
+    return false;
+  }
+}
+
+function getSheetCapability() {
+  const sheetsScope = "https://www.googleapis.com/auth/spreadsheets";
+  const input = {
+    accessToken,
+    grantedOauthScopes,
+    usedPublicReadFallback: usedPublicSheetFallback(),
+    sheetsScope,
+  };
+  const lib =
+    (typeof window !== "undefined" && window.JobBoredGoogleSheetCapability) ||
+    (typeof globalThis !== "undefined" &&
+      globalThis.JobBoredGoogleSheetCapability) ||
+    null;
+  if (lib && typeof lib.resolveGoogleSheetCapability === "function") {
+    return lib.resolveGoogleSheetCapability(input);
+  }
+  const hasWriteScope = hasGrantedOauthScope(sheetsScope);
+  const canWrite = !!accessToken && hasWriteScope && !input.usedPublicReadFallback;
+  return {
+    hasToken: !!accessToken,
+    hasWriteScope,
+    usedPublicReadFallback: input.usedPublicReadFallback,
+    canRead: !!accessToken || input.usedPublicReadFallback,
+    canWrite,
+    needsConsent: !!accessToken && !hasWriteScope,
+    writeUiUnlocked: canWrite,
+    mode: canWrite
+      ? "readwrite"
+      : accessToken || input.usedPublicReadFallback
+        ? "readonly"
+        : "none",
+  };
+}
+
+function canWriteSheet() {
+  return getSheetCapability().canWrite;
+}
+
 function persistOAuthSession() {
   if (!tokenExpiresAt) return;
   const cid = host().getOAuthClientId();
@@ -474,6 +529,13 @@ function restoreOAuthSession() {
 
 function showToast(message, type = "success", persistent = false, action) {
   const container = document.getElementById("toastContainer");
+  // A11Y-01a: mirror into the shared live region. Feature-detected — jb-a11y.js
+  // is a separate script and this must never become a hard dependency.
+  try {
+    window.JobBoredA11y?.live?.announce(message, { assertive: type === "error" });
+  } catch (_) {
+    /* announcement is best-effort; never break the toast */
+  }
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
 
@@ -1378,6 +1440,8 @@ function isSignedIn() {
     canUseSessionStorage,
     normalizeOauthScopes,
     hasGrantedOauthScope,
+    getSheetCapability,
+    canWriteSheet,
     persistOAuthSession,
     persistRuntimeOAuthSession,
     updatePersistedUserEmail,

@@ -376,6 +376,9 @@
   }
 
   async function readLocalBootstrapState() {
+    if (!isLocalDashboardOrigin()) {
+      return { available: false, data: null };
+    }
     try {
       const res = await fetch(LOCAL_BOOTSTRAP_STATE_PATH, {
         cache: "no-store",
@@ -491,6 +494,7 @@
     if (sim) {
       return sim.tunnelUrl != null ? sim.tunnelUrl : "";
     }
+    if (!isLocalDashboardOrigin()) return "";
     try {
       const res = await fetch("/__proxy/ngrok-tunnels", {
         cache: "no-store",
@@ -648,7 +652,7 @@
           : "A public webhook is already saved. Test it if you changed the downstream service.",
         chipLabel: verified ? "Connected" : "Ready to test",
         chipTone: verified ? "success" : "warning",
-        runDiscoveryEnabled: true,
+        runDiscoveryEnabled: verified,
         primaryActionLabel: "Open discovery setup",
         primaryActionHint: "Review the current webhook or switch paths.",
       };

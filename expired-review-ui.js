@@ -157,37 +157,49 @@ function updateExpiredReviewBulkUi(items) {
     });
 }
 
-async function applyExpiredReviewAction(action, index) {
+/* The modal's button ids predate the closure vocabulary and live in
+   partials/expired-review-modal.html, which this lane does not own. Map them
+   once here: "Set Researching" has always been the inverse of Mark Expired,
+   it just was not named as one — and nothing else in the app could un-expire
+   a row. */
+const CLOSURE_ACTION_BY_UI = {
+  expire: "expire",
+  dismiss: "dismiss",
+  researching: "unexpire",
+};
+
+/* One closure vocabulary (stage-registry.js). This surface used to write
+   Pipeline!M itself with updateMultipleCells, which bypassed every closure
+   path (and the write-atomicity repair gate) and duplicated markStatusExpired
+   line for line. It now dispatches the intent and, only when no handler claims
+   it, calls the same writers the rest of the app uses. */
+function legacyClosureWrite(action, index) {
+  if (action === "dismiss") return host().dismissJob(index);
+  if (action === "expire" && typeof window.markStatusExpired === "function") {
+    return window.markStatusExpired(index);
+  }
+  if (action === "unexpire" && typeof window.updateJobStatus === "function") {
+    return window.updateJobStatus(index, "Researching");
+  }
+  return undefined;
+}
+
+async function applyExpiredReviewAction(uiAction, index) {
   const job = getPipelineData()[index];
   if (!job) return;
   if (!core().getAccessToken()) {
     host().showSheetAccessGate("signin");
     return;
   }
-  if (action === "dismiss") {
-    await host().dismissJob(index);
-    return;
-  }
-  const sheetRow = host().getSheetRow(index);
-  if (!sheetRow) return;
-  let nextStatus = null;
-  if (action === "expire") nextStatus = "Expired";
-  if (action === "researching") nextStatus = "Researching";
-  if (!nextStatus) return;
-  const prevStatus = job.status;
-  job.status = nextStatus;
-  host().renderPipeline();
-  try {
-    const ok = await host().updateMultipleCells([
-      { range: `Pipeline!M${sheetRow}`, value: nextStatus },
-    ]);
-    if (!ok) throw new Error(`Pipeline M${sheetRow} write failed`);
-  } catch (err) {
-    console.error("[JobBored] review action failed", err);
-    job.status = prevStatus;
-    host().renderPipeline();
-    host().showToast(`Couldn't update status — reverted`, "error");
-  }
+  const action = CLOSURE_ACTION_BY_UI[uiAction];
+  if (!action) return;
+  const stages = window.JobBoredStages;
+  const claimed = !!(
+    stages &&
+    typeof stages.requestClosure === "function" &&
+    stages.requestClosure(index, action, "expired-review")
+  );
+  if (!claimed) await legacyClosureWrite(action, index);
 }
 
 async function applyExpiredReviewBulk(action) {

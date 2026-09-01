@@ -121,3 +121,172 @@ test("manual search rotation can vary by variationKey while using the same build
     second.discoveryProfile.searchPlan.seed,
   );
 });
+
+const MERGED_USER_PROFILE = {
+  version: 1,
+  identity: {
+    targetRoles: ["Staff backend engineer"],
+    targetSeniority: "ic_staff",
+    primaryNarrative:
+      "I build distributed backends and want to keep doing that at a product company.",
+  },
+  strengths: [{ name: "Distributed systems", rank: 1 }],
+  hardConstraints: { workMode: "remote_only" },
+};
+
+test("F1C-DISC02-PROFILE: mergedUserProfile survives the dashboard payload builder", () => {
+  const result = payload.buildDiscoveryWebhookPayload(
+    makeInput({ mergedUserProfile: MERGED_USER_PROFILE }),
+  );
+  assert.equal(result.schemaVersion, 1);
+  assert.deepEqual(result.mergedUserProfile, MERGED_USER_PROFILE);
+  assert.doesNotMatch(
+    JSON.stringify(result.mergedUserProfile),
+    /resumeText|extractedText/,
+  );
+});
+
+test("F1C-DISC05-GW: grounded-web opt-out is serialized on discoveryProfile", () => {
+  const result = payload.buildDiscoveryWebhookPayload(
+    makeInput({
+      discoveryProfile: {
+        ...makeInput().discoveryProfile,
+        groundedWebEnabled: false,
+      },
+    }),
+  );
+  assert.equal(result.discoveryProfile.groundedWebEnabled, false);
+});
+
+test("F1C-DISC03-INTENT: shared effective intent is not blank_intent when searchPlan carries roles", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const effective = intent.buildEffectiveIntent({
+    discoveryProfile: {
+      targetRoles: "",
+      keywordsInclude: "",
+      searchPlan: {
+        query: {
+          targetRoles: "Platform Engineer",
+          keywordsInclude: "typescript",
+        },
+      },
+    },
+    mergedUserProfile: null,
+  });
+  assert.equal(effective.blank, false);
+  assert.equal(effective.reason, undefined);
+  assert.ok(effective.targetRoles.includes("Platform Engineer"));
+  assert.equal(effective.intentContractVersion, 1);
+});
+
+test("F1C-DISC03-INTENT: browser effective intent gives the active searchPlan priority", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const effective = intent.buildEffectiveIntent({
+    discoveryProfile: {
+      targetRoles: "Broad profile role",
+      keywordsInclude: "broad keyword",
+      searchPlan: {
+        query: {
+          targetRoles: "Rotated plan role",
+          keywordsInclude: "rotated keyword",
+        },
+      },
+    },
+  });
+  assert.deepEqual(effective.targetRoles, ["Rotated plan role"]);
+  assert.deepEqual(effective.includeKeywords, ["rotated keyword"]);
+});
+
+test("F1C-DISC03-INTENT: master Fit Profile targetRoles are not blank_intent", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const effective = intent.buildEffectiveIntent({
+    discoveryProfile: { targetRoles: "", keywordsInclude: "" },
+    mergedUserProfile: MERGED_USER_PROFILE,
+  });
+  assert.equal(effective.blank, false);
+  assert.ok(effective.targetRoles.includes("Staff backend engineer"));
+});
+
+test("F1C-DISC04-BLOCK: per-run blocklist is subtracted from ATS and normal pools", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const companies = [
+    { name: "Stripe", companyKey: "stripe" },
+    { name: "Acme Holdings", companyKey: "acme-holdings" },
+  ];
+  const atsCompanies = [
+    { name: "Linear", companyKey: "linear" },
+    { name: "Acme Holdings", companyKey: "acme-holdings" },
+  ];
+  const resolved = intent.resolveEffectiveCompanyPools({
+    companies,
+    atsCompanies,
+    companyHistory: [],
+    negativeCompanyKeys: [],
+    companyAllowlist: [],
+    companyBlocklist: ["Acme Holdings"],
+  });
+  assert.deepEqual(
+    resolved.companies.map((c) => c.companyKey),
+    ["stripe"],
+  );
+  assert.deepEqual(
+    resolved.atsCompanies.map((c) => c.companyKey),
+    ["linear"],
+  );
+});
+
+test("F1C-DISC05-GW: grounded-web opt-out is authoritative in effective-source resolution", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const sources = intent.resolveEffectiveSources({
+    sourcePreset: "browser_plus_ats",
+    enabledSources: ["greenhouse", "grounded_web", "serpapi_google_jobs"],
+    groundedWebEnabled: false,
+  });
+  assert.equal(sources.includes("grounded_web"), false);
+  assert.ok(sources.includes("greenhouse"));
+});
+
+test("F1C-DISC06-ALLOW: unknown-only allowlist does not silently broaden to unrestricted search", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const catalog = [
+    { name: "Notion", companyKey: "notion" },
+    { name: "Ramp", companyKey: "ramp" },
+  ];
+  const resolved = intent.resolveEffectiveCompanyPools({
+    companies: catalog,
+    atsCompanies: catalog,
+    companyHistory: [],
+    negativeCompanyKeys: [],
+    companyAllowlist: ["unknown-company"],
+    companyBlocklist: [],
+  });
+  assert.equal(resolved.allowlistResolution.mode, "blocked_unresolved");
+  assert.deepEqual(resolved.companies, []);
+  assert.equal(resolved.allowUnrestrictedFallback, false);
+  assert.deepEqual(resolved.allowlistResolution.unknown, ["unknown-company"]);
+});
+
+test("F1C-P2-SHEETS: grouped multi-Sheet envelopes round-trip unknown fields", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const envelope = {
+    bySheetId: {
+      sheet_a: {
+        companies: [{ name: "Alpha", companyKey: "alpha" }],
+        experimentalFlag: "keep-me",
+      },
+      sheet_b: {
+        companies: [{ name: "Beta", companyKey: "beta" }],
+        notes: "other-sheet",
+      },
+    },
+    extraEnvelopeField: 42,
+  };
+  const next = intent.applySheetConfigMutation(envelope, "sheet_a", {
+    companies: [{ name: "Alpha Updated", companyKey: "alpha" }],
+  });
+  assert.equal(next.extraEnvelopeField, 42);
+  assert.equal(next.bySheetId.sheet_a.experimentalFlag, "keep-me");
+  assert.equal(next.bySheetId.sheet_a.companies[0].name, "Alpha Updated");
+  assert.equal(next.bySheetId.sheet_b.companies[0].name, "Beta");
+  assert.equal(next.bySheetId.sheet_b.notes, "other-sheet");
+});

@@ -15,6 +15,7 @@ const repoRoot = join(root, "..");
 const DISCOVERY_EXAMPLES = [
   "examples/discovery-webhook-request.v1.json",
   "examples/discovery-webhook-request.v1-with-profile.json",
+  "examples/discovery-webhook-request.v1-preview-parity.json",
 ];
 
 const SCHEMA = "schemas/discovery-webhook-request.v1.schema.json";

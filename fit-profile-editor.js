@@ -621,7 +621,9 @@
           class: "fp-btn fp-btn--ghost",
           id: "fitProfileOpenWizardBtn",
           onclick: function () {
-            window.location.hash = "#/onboarding/fit-profile";
+            if (typeof window.openFitProfileWizard === "function") {
+              window.openFitProfileWizard({ mode: "edit" });
+            }
           },
         },
         "Open full wizard",

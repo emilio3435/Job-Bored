@@ -233,16 +233,25 @@
   background: var(--surface);
   color: var(--text-muted);
 }
+/* The readiness-truth classifier is the only writer of this attribute, and its
+   success level is "verified" — it never emits "ready". The legacy "ready"
+   selector is kept so any pre-classifier caller still paints, but "verified"
+   is the one that renders today; dropping it leaves a fully configured
+   endpoint showing an unstyled chip. */
+.discovery-drawer__chip[data-state="verified"],
 .discovery-drawer__chip[data-state="ready"] {
   border-color: var(--status-ok-border, rgba(5, 150, 105, 0.3));
   background: var(--status-ok-bg, rgba(5, 150, 105, 0.08));
   color: var(--status-ok, #047857);
 }
+.discovery-drawer__chip[data-state="ready_to_test"],
+.discovery-drawer__chip[data-state="stale"],
 .discovery-drawer__chip[data-state="partial"] {
   border-color: rgba(217, 119, 6, 0.3);
   background: rgba(217, 119, 6, 0.08);
   color: #92400e;
 }
+.discovery-drawer__chip[data-state="blocked"],
 .discovery-drawer__chip[data-state="unconfigured"] {
   border-color: rgba(220, 38, 38, 0.3);
   background: rgba(220, 38, 38, 0.06);

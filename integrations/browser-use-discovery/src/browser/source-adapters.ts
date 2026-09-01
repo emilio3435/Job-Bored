@@ -25,6 +25,19 @@ import {
   sanitizeTags,
 } from "./providers/shared.ts";
 
+export type BoardCollectionFailure = {
+  sourceId: string;
+  sourceLabel?: string;
+  boardUrl: string;
+  reason: "adapter_error" | "missing_adapter" | "missing_company";
+  message: string;
+};
+
+export type BoardCollectionResult = {
+  listings: RawListing[];
+  failures: BoardCollectionFailure[];
+};
+
 export type SourceAdapterRegistry = {
   adapters: SourceAdapter[];
   detectBoards(
@@ -36,7 +49,52 @@ export type SourceAdapterRegistry = {
     run: DiscoveryRun,
     detections: DetectionResult[],
   ): Promise<RawListing[]>;
+  collectListingsSettled(
+    run: DiscoveryRun,
+    detections: DetectionResult[],
+  ): Promise<BoardCollectionResult>;
 };
+
+export async function collectBoardListingsSettled(
+  tasks: Array<{
+    sourceId: string;
+    sourceLabel?: string;
+    boardUrl: string;
+    listJobs: () => Promise<RawListing[]>;
+  }>,
+): Promise<BoardCollectionResult> {
+  const settled = await Promise.allSettled(
+    tasks.map(async (task) => ({
+      task,
+      listings: await task.listJobs(),
+    })),
+  );
+  const listings: RawListing[] = [];
+  const failures: BoardCollectionFailure[] = [];
+  const seen = new Set<string>();
+  for (const [index, result] of settled.entries()) {
+    const task = tasks[index];
+    if (!task) continue;
+    if (result.status === "fulfilled") {
+      for (const item of result.value.listings) {
+        const key = normalizeLeadUrl(item.url);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        listings.push(item);
+      }
+      continue;
+    }
+    const error = result.reason;
+    failures.push({
+      sourceId: task.sourceId,
+      sourceLabel: task.sourceLabel,
+      boardUrl: task.boardUrl,
+      reason: "adapter_error",
+      message: error instanceof Error ? error.message : String(error),
+    });
+  }
+  return { listings, failures };
+}
 
 export function createSourceAdapterRegistry(
   sessionManager: BrowserUseSessionManager,
@@ -46,6 +104,58 @@ export function createSourceAdapterRegistry(
     createCompatSourceAdapter(provider, sessionManager),
   );
   const adapterMap = new Map(adapters.map((adapter) => [adapter.sourceId, adapter]));
+
+  async function collectFromDetections(
+    run: DiscoveryRun,
+    detections: DetectionResult[],
+  ): Promise<BoardCollectionResult> {
+    const enabled = new Set(run.config.enabledSources);
+    const tasks: Array<{
+      sourceId: string;
+      sourceLabel?: string;
+      boardUrl: string;
+      listJobs: () => Promise<RawListing[]>;
+    }> = [];
+    const failures: BoardCollectionFailure[] = [];
+    for (const detection of detections) {
+      if (!enabled.has(detection.sourceId)) continue;
+      const adapter = adapterMap.get(detection.sourceId);
+      if (!adapter) {
+        failures.push({
+          sourceId: detection.sourceId,
+          sourceLabel: detection.sourceLabel,
+          boardUrl: detection.boardUrl,
+          reason: "missing_adapter",
+          message: `No source adapter registered for "${detection.sourceId}".`,
+        });
+        continue;
+      }
+      const company = resolveCompanyForDetection(run, detection);
+      if (!company) {
+        failures.push({
+          sourceId: detection.sourceId,
+          sourceLabel: detection.sourceLabel,
+          boardUrl: detection.boardUrl,
+          reason: "missing_company",
+          message: `No company could be resolved for board "${detection.boardUrl}".`,
+        });
+        continue;
+      }
+      const boardContext = buildBoardContext({ company, run }, detection);
+      tasks.push({
+        sourceId: detection.sourceId,
+        sourceLabel: detection.sourceLabel,
+        boardUrl: boardContext.boardUrl,
+        listJobs: () => adapter.listJobs(boardContext),
+      });
+    }
+    const settled = await collectBoardListingsSettled(tasks);
+    return {
+      listings: settled.listings,
+      failures: [...failures, ...settled.failures],
+    };
+  }
+
   return {
     adapters,
     async detectBoards(companyContext, effectiveSources, memory) {
@@ -59,25 +169,11 @@ export function createSourceAdapterRegistry(
       );
     },
     async collectListings(run, detections) {
-      const enabled = new Set(run.config.enabledSources);
-      const seen = new Set<string>();
-      const listings: RawListing[] = [];
-      for (const detection of detections) {
-        if (!enabled.has(detection.sourceId)) continue;
-        const adapter = adapterMap.get(detection.sourceId);
-        if (!adapter) continue;
-        const company = resolveCompanyForDetection(run, detection);
-        if (!company) continue;
-        const boardContext = buildBoardContext({ company, run }, detection);
-        const raw = await adapter.listJobs(boardContext);
-        for (const item of raw) {
-          const key = normalizeLeadUrl(item.url);
-          if (!key || seen.has(key)) continue;
-          seen.add(key);
-          listings.push(item);
-        }
-      }
-      return listings;
+      const result = await collectFromDetections(run, detections);
+      return result.listings;
+    },
+    async collectListingsSettled(run, detections) {
+      return collectFromDetections(run, detections);
     },
   };
 }

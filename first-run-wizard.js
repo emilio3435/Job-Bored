@@ -118,11 +118,7 @@
   }
 
   function firstRunCanFinish() {
-    return (
-      firstRunSignedIn() &&
-      firstRunSheetStepComplete() &&
-      firstRunProviderStepComplete()
-    );
+    return firstRunSignedIn() && firstRunSheetStepComplete();
   }
 
   /** The first step whose prerequisite is not yet satisfied. */
@@ -378,19 +374,14 @@
       if (providerDone) {
         providerStatus.hidden = true;
         providerStatus.textContent = "";
+      } else if (!firstRunCanFinish()) {
+        providerStatus.hidden = false;
+        providerStatus.textContent =
+          "Finish needs a signed-in account and a connected sheet.";
       } else {
         providerStatus.hidden = false;
         providerStatus.textContent =
-          selectedProvider === "local"
-            ? "Pick a local model (download it below if needed) to continue."
-            : selectedProvider === "webhook"
-              ? "Save your webhook URL to continue."
-              : selectedProvider === "openrouter"
-                ? "Paste your free OpenRouter key to continue."
-                : `Paste your ${
-                    (FIRST_RUN_PROVIDERS[selectedProvider] || {}).cap ||
-                    selectedProvider
-                  } API key to continue.`;
+          "AI is optional. Finish now to use JobBored as a Sheet tracker, or save a provider key first.";
       }
     }
   }
@@ -721,17 +712,16 @@
   /** Populate the provider step from the current config (preselect free-tier). */
   function renderProviderStep() {
     const cfg = getResumeConfig();
-    const provider = cfg && cfg.provider === "local" ? "local" : "openrouter";
-    // Preselect the OpenRouter free tier whenever the effective provider isn't
-    // one of the wizard's two cold-start options, so the radio and the
-    // generation gate always agree.
-    if (!cfg || (cfg.provider !== "openrouter" && cfg.provider !== "local")) {
-      persistResumeProvider("openrouter");
+    const fromRadio = firstRunSelectedProvider();
+    const fromConfig = cfg ? normalizeFirstRunProvider(cfg.provider) : "";
+    const provider = fromRadio || fromConfig || "openrouter";
+    for (const [name, def] of Object.entries(FIRST_RUN_PROVIDERS)) {
+      const radio = getEl(`firstRunProvider${def.cap}`);
+      if (radio) {
+        radio.value = name;
+        radio.checked = provider === name;
+      }
     }
-    const orRadio = getEl("firstRunProviderOpenRouter");
-    const localRadio = getEl("firstRunProviderLocal");
-    if (orRadio) orRadio.checked = provider === "openrouter";
-    if (localRadio) localRadio.checked = provider === "local";
     const keyInput = getEl("firstRunOpenRouterKeyInput");
     if (keyInput && cfg) keyInput.value = cfg.resumeOpenRouterApiKey || "";
     populateFirstRunLocalModelSelect(cfg);
@@ -789,7 +779,7 @@
         statusEl.hidden = false;
         statusEl.classList.add("first-run-status--error");
         statusEl.textContent =
-          "Finish needs a signed-in account, a connected sheet, and a configured provider.";
+          "Finish needs a signed-in account and a connected sheet.";
       }
       return;
     }
@@ -1133,7 +1123,61 @@
       });
   }
 
-  function handleFirstRunPasteSheet() {
+  async function verifyExistingSheetAccess({
+    sheetId,
+    fetchImpl,
+    accessToken,
+  } = {}) {
+    const id = String(sheetId || "").trim();
+    if (!id) return { ok: false, reason: "invalid_id" };
+    const doFetch =
+      typeof fetchImpl === "function"
+        ? fetchImpl
+        : typeof fetch === "function"
+          ? fetch
+          : null;
+    const token = String(accessToken || "").trim();
+    if (typeof doFetch !== "function") {
+      return { ok: false, reason: "fetch_unavailable" };
+    }
+    if (!token) return { ok: false, reason: "no_token" };
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const metaUrl =
+        "https://sheets.googleapis.com/v4/spreadsheets/" +
+        encodeURIComponent(id) +
+        "?fields=spreadsheetId,sheets.properties.title";
+      const metaRes = await doFetch(metaUrl, { headers });
+      if (!metaRes || !metaRes.ok) {
+        return {
+          ok: false,
+          reason: "access_denied",
+          status: metaRes && metaRes.status,
+        };
+      }
+      const valuesUrl =
+        "https://sheets.googleapis.com/v4/spreadsheets/" +
+        encodeURIComponent(id) +
+        "/values/Pipeline!A1:Z1";
+      const valuesRes = await doFetch(valuesUrl, { headers });
+      if (!valuesRes || !valuesRes.ok) {
+        return {
+          ok: false,
+          reason: "headers_unreadable",
+          status: valuesRes && valuesRes.status,
+        };
+      }
+      return { ok: true, reason: "headers_ok" };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: "fetch_failed",
+        message: err && err.message ? err.message : String(err || ""),
+      };
+    }
+  }
+
+  async function handleFirstRunPasteSheet() {
     const h = host();
     const input = getEl("firstRunSheetIdInput");
     const status = getEl("firstRunSheetStatus");
@@ -1149,6 +1193,41 @@
         status.textContent =
           "That doesn't look like a Google Sheet link or ID. Paste the full " +
           "URL or the spreadsheet ID.";
+      }
+      return;
+    }
+    if (status) {
+      status.hidden = false;
+      status.classList.remove("first-run-status--error");
+      status.textContent = "Checking Sheet access…";
+    }
+    const verify =
+      typeof h.verifyExistingSheetAccess === "function"
+        ? h.verifyExistingSheetAccess
+        : verifyExistingSheetAccess;
+    let fallbackFetch;
+    try {
+      fallbackFetch =
+        typeof h.fetch === "function"
+          ? h.fetch
+          : typeof fetch === "function"
+            ? fetch
+            : undefined;
+    } catch (_) {
+      fallbackFetch = undefined;
+    }
+    const result = await verify({
+      sheetId: parsed,
+      fetchImpl: fallbackFetch,
+      accessToken:
+        typeof h.getAccessToken === "function" ? h.getAccessToken() : "",
+    });
+    if (!result || !result.ok) {
+      if (status) {
+        status.hidden = false;
+        status.classList.add("first-run-status--error");
+        status.textContent =
+          "Could not read that Sheet. Check access and that a Pipeline tab exists.";
       }
       return;
     }
@@ -1229,12 +1308,12 @@
       handleFirstRunCreateSheet();
     });
     getEl("firstRunSheetIdSaveBtn")?.addEventListener("click", () => {
-      handleFirstRunPasteSheet();
+      void handleFirstRunPasteSheet();
     });
     getEl("firstRunSheetIdInput")?.addEventListener("keydown", (e) => {
       if (e.key === "Enter") {
         e.preventDefault();
-        handleFirstRunPasteSheet();
+        void handleFirstRunPasteSheet();
       }
     });
     // Step order: 1 sheet → 2 provider (sign-in happens on the login gate
@@ -1415,6 +1494,8 @@
     firstRunSignedIn,
     firstRunProviderStepComplete,
     firstRunCanFinish,
+    handleFirstRunPasteSheet,
+    verifyExistingSheetAccess,
     firstRunSaveOpenRouterKey,
     firstRunSelectProvider,
     firstRunSelectedProvider,

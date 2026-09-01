@@ -44,6 +44,12 @@ export async function rawListingToSingleLead(
       schedule: { enabled: false, cron: "" },
       variationKey: "ingest_url",
       requestedAt,
+      allowlistResolution: {
+        mode: "unrestricted_default",
+        matched: [],
+        unknown: [],
+      },
+      allowUnrestrictedFallback: false,
       sourcePreset: "browser_only",
       ultraPlanTuning: {
         multiQueryEnabled: false,

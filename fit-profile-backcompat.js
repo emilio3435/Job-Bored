@@ -15,6 +15,29 @@
 (function () {
   "use strict";
 
+  function profileApiPath(path) {
+    var api =
+      (typeof window !== "undefined" &&
+        (window.JobBoredProfileApi || window.FitProfileForm)) ||
+      {};
+    if (typeof api.profileUrl === "function") return api.profileUrl(path);
+    if (typeof api.getProfileApiBase === "function") {
+      return (api.getProfileApiBase() || "") + path;
+    }
+    var cfg =
+      (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+    var raw = String(cfg.jobBoredApiUrl || cfg.jobPostingScrapeUrl || "").trim();
+    if (raw) return raw.replace(/\/+$/, "") + path;
+    if (
+      typeof window !== "undefined" &&
+      window.location &&
+      window.location.protocol === "file:"
+    ) {
+      return "http://127.0.0.1:3847" + path;
+    }
+    return path;
+  }
+
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     if (attrs) {
@@ -53,7 +76,7 @@
       button.disabled = true;
       status.textContent = "Working…";
       try {
-        var resp = await fetch("/profile/rescore", { method: "POST" });
+        var resp = await fetch(profileApiPath("/profile/rescore"), { method: "POST" });
         var data = await resp.json();
         if (data && data.ok) {
           status.textContent = data.message || "Done.";
@@ -84,7 +107,7 @@
     var host = document.querySelector(".fp-wizard-empty, .fp-onboarding-empty, #onboarding-empty-state");
     if (!host || host.dataset.bcReady === "1") return;
 
-    fetch("/profile", { method: "GET" })
+    fetch(profileApiPath("/profile"), { method: "GET" })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data && data.ok && data.profile) return; // already has profile
@@ -103,7 +126,7 @@
           btn.disabled = true;
           btn.textContent = "Importing…";
           try {
-            var resp = await fetch("/profile/migrate", { method: "POST" });
+            var resp = await fetch(profileApiPath("/profile/migrate"), { method: "POST" });
             var result = await resp.json();
             if (result && result.ok && result.migrated) {
               // Reload so the wizard re-fetches and shows the imported profile

@@ -67,13 +67,38 @@ let discoveryRunProfileState = {
   fetchedAt: null,
 };
 
+function profileApiPath(path) {
+  const api =
+    (typeof window !== "undefined" &&
+      (window.JobBoredProfileApi || window.FitProfileForm)) ||
+    {};
+  if (typeof api.profileUrl === "function") return api.profileUrl(path);
+  if (typeof api.getProfileApiBase === "function") {
+    return (api.getProfileApiBase() || "") + path;
+  }
+  const cfg =
+    (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  const raw = String(cfg.jobBoredApiUrl || cfg.jobPostingScrapeUrl || "").trim();
+  if (raw) return raw.replace(/\/+$/, "") + path;
+  if (
+    typeof window !== "undefined" &&
+    window.location &&
+    window.location.protocol === "file:"
+  ) {
+    return "http://127.0.0.1:3847" + path;
+  }
+  return path;
+}
+
 /**
  * Load the master Fit Profile from GET /profile. Returns the profile or null.
  * Resilient to the endpoint being unavailable (treats as "no profile" state).
+ * Origin is resolved through the canonical API-base helper so a :8080
+ * dashboard does not fetch /profile against itself.
  */
 async function loadMasterFitProfile() {
   try {
-    const resp = await fetch("/profile", { method: "GET" });
+    const resp = await fetch(profileApiPath("/profile"), { method: "GET" });
     if (resp && resp.ok) {
       const data = await resp.json().catch(() => null);
       if (data && data.ok && data.profile) {
@@ -537,16 +562,27 @@ function setDiscoveryReadinessChip(state, label) {
 
 function refreshDiscoveryDrawerStatusChip() {
   try {
-    const snap = h("getDiscoveryReadinessSnapshot", );
-    const view = h("getDiscoverySettingsView", snap);
-    const hasWebhook = !!h("getDiscoveryWebhookUrl", );
-    if (view && view.runDiscoveryEnabled && hasWebhook) {
-      setDiscoveryReadinessChip("ready", "Discovery ready");
-    } else if (hasWebhook) {
-      setDiscoveryReadinessChip("partial", "Setup partially configured");
-    } else {
-      setDiscoveryReadinessChip("unconfigured", "Discovery not configured");
-    }
+    const snap = h("getDiscoveryReadinessSnapshot", ) || {};
+    const currentWebhook = String(h("getDiscoveryWebhookUrl", ) || "").trim();
+    const engineApi = window.JobBoredDiscovery.engineState;
+    const truthApi = window.JobBoredDiscoveryReadinessTruth;
+    const savedEngineState = engineApi.getSavedDiscoveryEngineStateForUrl(
+      currentWebhook || snap.savedWebhookUrl,
+    );
+    const effectiveEngineState = engineApi.getEffectiveDiscoveryEngineStatus(
+      currentWebhook,
+    );
+    const classified = truthApi.classifyDiscoveryReadiness(
+      {
+        ...snap,
+        savedWebhookUrl: currentWebhook,
+        previousSavedWebhookUrl:
+          !currentWebhook && snap.savedWebhookUrl ? snap.savedWebhookUrl : "",
+      },
+      { ...savedEngineState, state: effectiveEngineState.state },
+      savedEngineState && savedEngineState.lastCheckedAt,
+    );
+    setDiscoveryReadinessChip(classified.level, classified.label);
   } catch (_) {
     setDiscoveryReadinessChip("unknown", "Checking setup…");
   }
@@ -690,6 +726,7 @@ async function warnDiscoverySourceReadinessBeforeRun() {
 function openDiscoveryDrawer() {
   const drawer = discoveryDrawerEl();
   if (!drawer) return;
+  const opener = document.activeElement;
   const UC = window.CommandCenterUserContent;
   const fieldMap = {
     targetRoles: "dpTargetRoles",
@@ -751,7 +788,16 @@ function openDiscoveryDrawer() {
     // Surface AI provider availability when opening the drawer.
     checkDiscoveryAiAvailability();
     const first = document.getElementById("dpTargetRoles");
-    if (first) first.focus();
+    const a11y = window.JobBoredA11y;
+    if (a11y && a11y.drawer && typeof a11y.drawer.open === "function") {
+      drawer._jobBoredA11yHandle = a11y.drawer.open(drawer, {
+        opener,
+        initialFocus: first,
+        label: "Discovery search",
+      });
+    } else if (first) {
+      first.focus();
+    }
     // First-run coach: auto-fires once per browser, gated by localStorage.
     try {
       const coach = window.JobBoredDiscoveryCoach;
@@ -767,9 +813,15 @@ function openDiscoveryDrawer() {
 function closeDiscoveryDrawer() {
   const drawer = discoveryDrawerEl();
   if (!drawer) return;
+  const a11yHandle = drawer._jobBoredA11yHandle;
+  delete drawer._jobBoredA11yHandle;
   drawer.style.display = "none";
   drawer.hidden = true;
-  document.body.classList.remove("detail-open");
+  if (a11yHandle && typeof a11yHandle.close === "function") {
+    a11yHandle.close("programmatic");
+  } else {
+    document.body.classList.remove("detail-open");
+  }
   // Per-run profile state dies with the drawer. This is the no-write-back
   // rule — anything the user edited this run does NOT persist.
   discoveryRunProfileState = {
@@ -1620,13 +1672,63 @@ function initDiscoveryDrawer() {
             };
         await UC.saveDiscoveryProfile(savePayload);
       }
-      closeDiscoveryDrawer();
+      /* Build the request ONCE here and hand that same object to
+         triggerDiscoveryRun below. This is the load-bearing half of the
+         preview contract — the run that ships is the run that was built, so
+         variationKey and token cannot drift between what we show and what we
+         send — and it holds whether or not the preview surface is rendered. */
+      let payload;
+      try {
+        const readinessApi = window.JobBoredDiscovery.readiness;
+        payload = await readinessApi.buildDiscoveryWebhookPayload(undefined, {
+          trigger: "manual",
+        });
+      } catch (err) {
+        h("showToast", err && err.message ? err.message : String(err), "error", true);
+        return;
+      }
+
+      /* Rendering the preview is feature-detected on its own surface, the way
+         every other cross-lane surface in this build is. The preview module
+         and its template arrive with index.html tags this file does not own,
+         so a hard requirement here would make a discovery run impossible
+         until those tags land. When the surface IS present the guard is
+         strict: a parity refusal (the payload is not the canonical shared
+         shape) or a broken template aborts the run rather than shipping a
+         request the user was never shown. */
+      const previewApi = window.JobBoredDiscoveryRunPreview;
+      const previewMount = document.getElementById("discoveryRunPreviewMount");
+      const previewTemplate = document.getElementById(
+        "discoveryRunPreviewTemplate",
+      );
+      if (previewApi && typeof previewApi.buildDiscoveryRunPreview === "function") {
+        try {
+          const preview = previewApi.buildDiscoveryRunPreview(payload);
+          if (!previewMount || !previewTemplate || !previewTemplate.content) {
+            throw new Error("Discovery run preview markup is unavailable.");
+          }
+          const content = previewTemplate.content.cloneNode(true);
+          const summary = content.querySelector(
+            "[data-discovery-run-preview-summary]",
+          );
+          if (!summary) {
+            throw new Error("Discovery run preview output is unavailable.");
+          }
+          summary.textContent = preview.summaryLines.join("\n");
+          previewMount.replaceChildren(content);
+          previewMount.hidden = false;
+        } catch (err) {
+          h("showToast", err && err.message ? err.message : String(err), "error", true);
+          return;
+        }
+      }
       const openBtn = document.getElementById("discoveryBtn");
       if (openBtn) {
         openBtn.disabled = true;
         openBtn.classList.add("loading");
       }
-      await h("triggerDiscoveryRun", );
+      await h("triggerDiscoveryRun", { trigger: "manual", payload });
+      closeDiscoveryDrawer();
       if (openBtn) {
         openBtn.classList.remove("loading");
       }
@@ -1731,6 +1833,7 @@ function initDiscoveryButton() {
     initDiscoveryDrawer,
     initDiscoverySubtabs,
     initDiscoveryButton,
+    loadMasterFitProfile,
     getEffectiveFitProfileFields,
     getDiscoveryRunProfileState() {
       return discoveryRunProfileState;

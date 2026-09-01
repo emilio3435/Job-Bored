@@ -290,4 +290,88 @@ describe("flowing-writes stage row resolution", () => {
       "legacy letter save should report that no Sheet persistence happened",
     );
   });
+
+  it("F3C-APPLY01-MARK: drag-to-Applied is Status-only and is not a Mark submitted confirmation", async () => {
+    const { writes, fetchCalls } = loadWrites({
+      getPipelineSheetRow: (jobKey) => (String(jobKey) === "1" ? 7 : null),
+    });
+
+    await writes.moveStage({ jobKey: "1", fromStage: "researching", toStage: "applied" });
+
+    const putCall = fetchCalls.find((call) => call.options.method === "PUT");
+    assert.ok(putCall, "drag Applied still issues a Sheets update today");
+    assert.deepEqual(JSON.parse(putCall.options.body), { values: [["Applied"]] });
+    assert.match(putCall.url, /\/values\/Pipeline!M7\?/);
+    assert.equal(
+      putCall.url.includes("Pipeline!N"),
+      false,
+      "drag-only Applied must not be treated as an Applied Date write",
+    );
+
+    const markPath = join(repoRoot, "mark-submitted.js");
+    const markSrc = readFileSync(markPath, "utf8");
+    const win = {};
+    vm.runInNewContext(
+      markSrc,
+      { window: win, globalThis: win, Date, Number, Math, String, Array, Object, JSON, console },
+      { filename: "mark-submitted.js" },
+    );
+    const marked = win.JobBoredMarkSubmitted.confirm(
+      { jobKey: "1", status: "Researching" },
+      { fromStage: "researching", toStage: "applied" },
+      {
+        transitionApplied() {
+          throw new Error("drag-only Applied is not confirmation");
+        },
+      },
+    );
+    assert.equal(marked.ok, false, "Mark submitted must reject the drag-only Applied claim");
+  });
+});
+function loadTransitions() {
+  const src = readFileSync(join(repoRoot, "pipeline-transitions.js"), "utf8");
+  const context = { window: {}, globalThis: {}, console };
+  context.globalThis = context;
+  vm.runInNewContext(src, context, { filename: "pipeline-transitions.js" });
+  const api = context.JobBoredPipelineTransitions || context.window.JobBoredPipelineTransitions;
+  assert.ok(api, "pipeline-transitions.js must attach JobBoredPipelineTransitions");
+  return api;
+}
+
+describe("F1-A flowing-writes vs canonical stage registry", () => {
+  it("F1A-PIPE02-REG: flowing-writes expired label stays Expired; registry owns Rejected/Passed/Dismissed", () => {
+    const { writes } = loadWrites();
+    const api = loadTransitions();
+
+    assert.equal(writes._internal.stageLabel("expired"), "Expired");
+    assert.notEqual(writes._internal.stageLabel("expired"), "Dismissed");
+    assert.equal(api.statusFor("expired"), "Expired");
+    assert.equal(api.statusFor("rejected"), "Rejected");
+    assert.equal(api.statusFor("passed"), "Passed");
+    assert.equal(api.resolveStage("dismissed").kind, "closed");
+    assert.notEqual(api.statusFor("dismissed"), "Expired");
+  });
+
+  it("F1A-PIPE04-APPLIED: canonical writer, not flowing-writes.moveStage, owns Applied Date + Follow-up", async () => {
+    const api = loadTransitions();
+    const planned = api.planTransition({
+      fromStage: "researching",
+      toStage: "applied",
+      row: {
+        sheetRow: 7,
+        status: "Researching",
+        appliedDate: "",
+        followUpDate: "",
+        notes: "",
+        dismissedAt: "",
+      },
+      now: new Date("2026-08-31T15:00:00Z"),
+      confirmation: { submitted: true, date: "2026-08-31", source: "company-portal" },
+    });
+    assert.equal(planned.ok, true);
+    const values = Object.fromEntries(planned.patches.map((patch) => [patch.range, patch.value]));
+    assert.equal(values["Pipeline!M7"], "Applied");
+    assert.equal(values["Pipeline!N7"], "2026-08-31");
+    assert.equal(values["Pipeline!P7"], "2026-09-07");
+  });
 });

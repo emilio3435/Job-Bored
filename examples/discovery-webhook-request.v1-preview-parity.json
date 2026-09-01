@@ -1,0 +1,91 @@
+{
+  "event": "command-center.discovery",
+  "schemaVersion": 1,
+  "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+  "variationKey": "preview-parity-20260831",
+  "requestedAt": "2026-08-31T12:00:00.000Z",
+  "trigger": "manual",
+  "discoveryProfile": {
+    "targetRoles": "Staff backend engineer",
+    "locations": "Chicago, Remote US",
+    "remotePolicy": "Remote-first",
+    "seniority": "Staff",
+    "keywordsInclude": "Postgres, distributed systems",
+    "keywordsExclude": "PHP, WordPress",
+    "maxLeadsPerRun": "12",
+    "sourcePreset": "browser_plus_ats",
+    "groundedWebEnabled": false,
+    "profileSnapshot": {
+      "snapshotVersion": 1,
+      "targetRoles": ["Staff backend engineer"],
+      "locations": ["Chicago", "Remote US"],
+      "remotePolicy": "Remote-first",
+      "seniority": "Staff",
+      "keywordsInclude": ["Postgres", "distributed systems"],
+      "keywordsExclude": ["PHP", "WordPress"],
+      "resumeTextLength": 39,
+      "resumeUpdatedAt": "2026-08-30T10:00:00.000Z",
+      "preferences": {
+        "tone": "",
+        "industriesToEmphasize": [],
+        "wordsToAvoid": [],
+        "voiceNotesLength": 0
+      },
+      "schedule": {
+        "local": { "enabled": false },
+        "github": { "enabled": false }
+      },
+      "profileHash": "f5768552"
+    },
+    "searchPlan": {
+      "planVersion": 1,
+      "generatedAt": "2026-08-31T12:00:00.000Z",
+      "trigger": "manual",
+      "seed": "51f51754",
+      "rotationKey": "preview-parity-20260831",
+      "rotationIndex": 1375016788,
+      "selected": {
+        "role": "Staff backend engineer",
+        "adjacentTitle": "Platform Engineer",
+        "skill": "Postgres",
+        "industry": "",
+        "location": "Chicago",
+        "seniority": "Staff",
+        "companyType": "remote-first",
+        "sourceLane": "ats_provider"
+      },
+      "facets": {
+        "roles": ["Staff backend engineer"],
+        "adjacentTitles": [
+          "Backend Engineer",
+          "Full Stack Engineer",
+          "Platform Engineer"
+        ],
+        "skills": ["Postgres", "distributed systems"],
+        "industries": [],
+        "locations": ["Chicago", "Remote US"],
+        "seniority": ["Staff"],
+        "companyTypes": ["startup", "remote-first", "mid-market"],
+        "sourceLanes": ["serpapi_google_jobs", "ats_provider"]
+      },
+      "query": {
+        "targetRoles": "Staff backend engineer, Platform Engineer",
+        "locations": "Chicago",
+        "seniority": "Staff",
+        "remotePolicy": "Remote-first",
+        "keywordsInclude": "Postgres, remote-first, distributed systems",
+        "keywordsExclude": "PHP, WordPress",
+        "sourcePreset": "browser_plus_ats"
+      },
+      "profileHash": "f5768552"
+    }
+  },
+  "companyAllowlist": ["Known Co", "Mystery Co"],
+  "companyBlocklist": ["Blocked Co"],
+  "mergedUserProfile": {
+    "updatedAt": "2026-08-30T10:00:00.000Z",
+    "identity": { "targetRoles": ["Staff engineer"] },
+    "hardConstraints": { "acceptableLocations": ["Remote US"] },
+    "avoids": ["Adtech"]
+  }
+}

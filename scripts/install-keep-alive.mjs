@@ -20,6 +20,7 @@ import {
 import { homedir, platform as osPlatform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { classifyInstallStatus } from "./lib/setup-readiness.mjs";
 
 export const KEEP_ALIVE_LABEL = "ai.jobbored.discovery.keepalive";
 export const DEFAULT_INTERVAL_SECONDS = 30;
@@ -281,15 +282,45 @@ function readState(statePath) {
 export function getKeepAliveStatus(options = {}) {
   const platform = options.platform || osPlatform();
   const paths = getKeepAlivePaths(options);
-  const installed =
+  const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
+  const artifactPresent =
     platform === "darwin"
       ? existsSync(paths.launchAgentPath)
       : platform === "linux"
         ? existsSync(paths.systemdServicePath) && existsSync(paths.systemdTimerPath)
         : false;
+  let backendIdentityMatches = false;
+  let activationOk = false;
+  if (artifactPresent && platform === "darwin") {
+    const listed = spawnSyncImpl("launchctl", ["list", KEEP_ALIVE_LABEL], {
+      encoding: "utf8",
+    });
+    activationOk = !!(listed && listed.status === 0);
+    backendIdentityMatches =
+      activationOk &&
+      String(listed.stdout || "").includes(KEEP_ALIVE_LABEL);
+  } else if (artifactPresent && platform === "linux") {
+    const listed = spawnSyncImpl(
+      "systemctl",
+      ["--user", "is-active", `${KEEP_ALIVE_LABEL}.timer`],
+      { encoding: "utf8" },
+    );
+    const text = String((listed && listed.stdout) || "").trim();
+    activationOk = !!(listed && listed.status === 0 && text === "active");
+    backendIdentityMatches = activationOk;
+  }
   const state = readState(paths.statePath) || {};
-  const status = { installed };
-  if (installed) status.jobLabel = KEEP_ALIVE_LABEL;
+  const classified = classifyInstallStatus({
+    artifactExists: artifactPresent,
+    backendIdentityMatches,
+    lastSuccessAt: state.lastRunAt || null,
+    activationOk,
+  });
+  const status = {
+    installed: classified.installed,
+    artifactPresent: classified.artifactPresent,
+  };
+  if (classified.installed) status.jobLabel = KEEP_ALIVE_LABEL;
   if (state.lastRunAt) status.lastRunAt = state.lastRunAt;
   if (state.lastNgrokUrl) status.lastNgrokUrl = state.lastNgrokUrl;
   return status;

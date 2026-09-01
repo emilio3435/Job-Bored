@@ -142,7 +142,12 @@ export default [
   {
     // Dual-environment scripts: browser classic-global plus a typeof-guarded
     // CommonJS export for Node consumers in scripts/.
-    files: ["discovery-payload.js", "discovery-shared-helpers.js", "setup-doctor.js"],
+    files: [
+      "discovery-payload.js",
+      "discovery-effective-intent.js",
+      "discovery-shared-helpers.js",
+      "setup-doctor.js",
+    ],
     languageOptions: {
       globals: { module: "readonly" },
     },

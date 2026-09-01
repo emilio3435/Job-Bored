@@ -1,0 +1,23 @@
+{
+  "id": "F3A-DOSSIER01-PROV-unknown-retained",
+  "why": "Unknown is a first-class state. Empty inferred fields must stay empty instead of being filled with title/company guesses labeled as posting evidence.",
+  "enrichment": {
+    "_scrapeSource": "title-and-company",
+    "description": "",
+    "scrapedAt": 1710000000000,
+    "inferredTitle": "",
+    "inferredCompany": "",
+    "inferredLocation": "",
+    "postingSummary": "",
+    "roleInOneLine": "",
+    "mustHaves": [],
+    "responsibilities": [],
+    "niceToHaves": [],
+    "toolsAndStack": [],
+    "atsFitScore": null,
+    "atsFitRationale": "",
+    "fitAngle": "",
+    "talkingPoints": [],
+    "extraKeywords": []
+  }
+}

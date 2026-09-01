@@ -14,6 +14,7 @@ import {
   toPlainText,
 } from "../selectors/index.ts";
 import type { BrowserUseSessionManager } from "../session.ts";
+import { safeFetch } from "../../net/safe-fetch.ts";
 import type {
   AtsProvider,
   ProviderDetectionHints,
@@ -564,7 +565,7 @@ async function fetchWithTimeout(
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROVIDER_HTTP_TIMEOUT_MS);
   try {
-    return await fetch(url, {
+    return await safeFetch(url, {
       ...options,
       signal: controller.signal,
     });
@@ -590,6 +591,16 @@ export function looksLikeProviderMarkup(
   });
 }
 
+function isSafeHttpUrl(raw: string): boolean {
+  try {
+    const parsed = new URL(String(raw || "").trim());
+    if (parsed.protocol !== "http:" && parsed.protocol !== "https:") return false;
+    return Boolean(parsed.hostname);
+  } catch {
+    return false;
+  }
+}
+
 export function extractLinksFromHtml(
   html: string,
   surface: ProviderSurface,
@@ -599,10 +610,16 @@ export function extractLinksFromHtml(
   const linkPattern = /<a\b[^>]*href=["']([^"']+)["'][^>]*>([\s\S]*?)<\/a>/gi;
   let match: RegExpExecArray | null;
   while ((match = linkPattern.exec(String(html || "")))) {
-    const href = match[1] || "";
-    if (!pattern.test(href)) continue;
+    const href = String(match[1] || "").trim();
+    if (!href || /^(javascript|data|mailto|tel|vbscript):/i.test(href)) continue;
+    try {
+      if (!pattern.test(href)) continue;
+    } catch {
+      continue;
+    }
     const resolved = resolveRelativeUrl(surface.canonicalUrl || surface.boardUrl, href);
-    if (!/^https?:\/\//i.test(resolved)) continue;
+    if (!isSafeHttpUrl(resolved)) continue;
+    if (/\/(?:search|find|browse|filter|results)(?:\/|$|\?)/i.test(resolved)) continue;
     const title = stripHtml(match[2]);
     if (!title) continue;
     listings.push({

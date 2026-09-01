@@ -1,0 +1,10 @@
+{
+  "event": "command-center.pipeline-update",
+  "schemaVersion": 1,
+  "sheetId": "sheet_1234567890",
+  "job": { "url": "https://acme.com/jobs/1" },
+  "fields": {
+    "stage": "Interviewing",
+    "mysteryColumn": "should-not-write"
+  }
+}

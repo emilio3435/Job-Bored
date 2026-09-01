@@ -1,6 +1,16 @@
 # GitHub Pages deployment
 
-JobBored is static: GitHub Pages can serve `index.html`, browser scripts, schemas, and docs directly. The optional scraper and discovery worker are not hosted by Pages; they must run locally behind a public relay or on a host you control.
+JobBored is static, but its checked-in `index.html` is a template with `<!-- @include -->` partials. The repository's Pages workflow assembles those partials and deploys the resulting artifact. Do not use Pages' branch/root source: that serves the template unchanged and omits the first-run, Settings, discovery, and other modal surfaces. The optional scraper and discovery worker are not hosted by Pages; they must run locally behind a public relay or on a host you control.
+
+## Publishing source
+
+In **Settings → Pages → Build and deployment**, choose **GitHub Actions**. Every push to `main` then runs `.github/workflows/pages.yml`, which:
+
+1. expands the partials with `node scripts/assemble-index.mjs --write`;
+2. copies static assets into `_site/` and installs the assembled document as `_site/index.html`;
+3. uploads and deploys that artifact through GitHub Pages.
+
+A deployment is healthy only when the live HTML contains protected surfaces such as `#firstRunWizard` and contains no `<!-- @include -->` markers. An HTTP 200 alone is not sufficient.
 
 ## Supported modes
 
@@ -17,7 +27,7 @@ GitHub Pages cannot call `http://127.0.0.1` on your laptop from an HTTPS page. U
 
 `config.js` is loaded at runtime. Use one of these patterns:
 
-1. **Settings/localStorage:** deploy without a real `config.js`, then enter Sheet ID, OAuth Client ID, and provider keys in Settings; enter discovery webhook URLs in **Discovery drawer -> Connection**. Values stay in that browser's localStorage/IndexedDB.
+1. **Settings/localStorage:** deploy the placeholder-only `config.js` (the included Pages workflow copies it from `config.example.js`), then enter Sheet ID, OAuth Client ID, and provider keys in Settings; enter discovery webhook URLs in **Discovery drawer -> Connection**. Values stay in that browser's localStorage/IndexedDB.
 2. **Private fork:** commit a real `config.js` only if the repository is private.
 3. **GitHub Actions-generated config:** keep `config.js` out of git, store values in GitHub secrets, and generate it during Pages deploy.
 

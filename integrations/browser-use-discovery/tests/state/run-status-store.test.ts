@@ -405,6 +405,47 @@ test("put rejects invalid run status payloads", async () => {
   }
 });
 
+test("F1B-RUN01-IMMUT: a late running write must not replace a terminal status", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const store = createDiscoveryRunStatusStore(runDirectory);
+    const accepted = buildAccepted("run_immutable");
+    const running = buildRunningRunStatus(accepted, "2026-08-30T12:00:02.000Z");
+    const failed = {
+      ...running,
+      status: "failed" as const,
+      terminal: true,
+      message: "Discovery failed — worker could not finish the run.",
+      completedAt: "2026-08-30T12:01:00.000Z",
+      updatedAt: "2026-08-30T12:01:00.000Z",
+      error: "boom",
+    };
+    store.put(accepted);
+    store.put(running);
+    store.put(failed);
+    store.put(
+      buildRunningRunStatus(accepted, "2026-08-30T12:02:00.000Z"),
+    );
+    const afterLateRunning = store.get("run_immutable");
+    assert.equal(afterLateRunning?.status, "failed");
+    assert.equal(afterLateRunning?.terminal, true);
+    assert.equal(afterLateRunning?.error, "boom");
+    store.put({
+      ...failed,
+      status: "partial",
+      message: "watchdog replaced the terminal row",
+      error: "watchdog",
+    });
+    const afterWatchdog = store.get("run_immutable");
+    assert.equal(afterWatchdog?.status, "failed");
+    assert.equal(afterWatchdog?.error, "boom");
+    store.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 test("terminal snapshots remain queryable without recovery mutation", async () => {
   const { tempDirectory, runDirectory } = await makeRunDirectory();
 

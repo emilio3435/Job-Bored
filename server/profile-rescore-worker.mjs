@@ -45,6 +45,8 @@ const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
 const MAX_CONCURRENT_LLM = 3;
 const LLM_MIN_GAP_MS = 250;
+const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
+const MAX_PROVIDER_TIMEOUT_MS = 120_000;
 // Hard cap so a runaway sheet doesn't blow through the quota silently.
 const MAX_ROWS = 500;
 
@@ -225,6 +227,23 @@ const PROVIDER_DEFINITIONS = Object.freeze({
 });
 
 const SUPPORTED_CHAT_PROVIDERS = new Set(Object.keys(PROVIDER_DEFINITIONS));
+
+function providerFetchTimeoutMs() {
+  const raw = Number(
+    process.env.PROFILE_RESCORE_TIMEOUT_MS || process.env.ATS_PROVIDER_TIMEOUT_MS,
+  );
+  if (Number.isFinite(raw) && raw > 0) {
+    return Math.min(Math.trunc(raw), MAX_PROVIDER_TIMEOUT_MS);
+  }
+  return DEFAULT_PROVIDER_TIMEOUT_MS;
+}
+
+/** @param {AbortSignal} [externalSignal] */
+function providerFetchSignal(externalSignal) {
+  const timeoutSignal = AbortSignal.timeout(providerFetchTimeoutMs());
+  if (!externalSignal) return timeoutSignal;
+  return AbortSignal.any([timeoutSignal, externalSignal]);
+}
 
 // Column indices (0-based within the row array, matching PIPELINE_HEADER_ROW).
 const COL = {
@@ -918,9 +937,9 @@ function buildChatJsonSystemPrompt(profile) {
 }
 
 /**
- * @param {{ profile: UserProfile, rawListing: RawListing, geminiApiKey: string, geminiModel: string }} input
+ * @param {{ profile: UserProfile, rawListing: RawListing, geminiApiKey: string, geminiModel: string, signal?: AbortSignal }} input
  */
-async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel }) {
+async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel, signal }) {
   const model = geminiModel || DEFAULT_GEMINI_MODEL;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
   const body = {
@@ -937,10 +956,10 @@ async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiMod
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
+    signal: providerFetchSignal(signal),
   });
   if (!resp.ok) {
-    const errBody = await resp.text().catch(() => "");
-    throw new Error(`Gemini HTTP ${resp.status}: ${errBody.slice(0, 240)}`);
+    throw new Error(`Gemini HTTP ${resp.status}`);
   }
   const json = await resp.json().catch(() => null);
   const text = extractGeminiText(json);
@@ -949,9 +968,9 @@ async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiMod
 }
 
 /**
- * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput }} input
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput, signal?: AbortSignal }} input
  */
-async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig }) {
+async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig, signal }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   const label = providerDisplayName(cfg.provider);
   const body = {
@@ -970,10 +989,10 @@ async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig
     method: "POST",
     headers,
     body: JSON.stringify(body),
+    signal: providerFetchSignal(signal),
   });
   if (!resp.ok) {
-    const errBody = await resp.text().catch(() => "");
-    throw new Error(`${label} HTTP ${resp.status}: ${errBody.slice(0, 240)}`);
+    throw new Error(`${label} HTTP ${resp.status}`);
   }
   const json = /** @type {{ choices?: Array<{ message?: { content?: string } }> } | null} */ (
     await resp.json().catch(() => null)
@@ -983,9 +1002,9 @@ async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig
 }
 
 /**
- * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput }} input
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput, signal?: AbortSignal }} input
  */
-async function scoreOneWithAnthropic({ profile, rawListing, providerConfig }) {
+async function scoreOneWithAnthropic({ profile, rawListing, providerConfig, signal }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   const body = {
     model: cfg.model,
@@ -1002,10 +1021,10 @@ async function scoreOneWithAnthropic({ profile, rawListing, providerConfig }) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
+    signal: providerFetchSignal(signal),
   });
   if (!resp.ok) {
-    const errBody = await resp.text().catch(() => "");
-    throw new Error(`Anthropic HTTP ${resp.status}: ${errBody.slice(0, 240)}`);
+    throw new Error(`Anthropic HTTP ${resp.status}`);
   }
   const json = /** @type {{ content?: Array<{ type?: string, text?: string }> } | null} */ (
     await resp.json().catch(() => null)
@@ -1020,9 +1039,9 @@ async function scoreOneWithAnthropic({ profile, rawListing, providerConfig }) {
 }
 
 /**
- * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput }} input
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput, signal?: AbortSignal }} input
  */
-async function scoreOneWithProvider({ profile, rawListing, providerConfig }) {
+async function scoreOneWithProvider({ profile, rawListing, providerConfig, signal }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   if (cfg.provider === "gemini") {
     return scoreOneWithGemini({
@@ -1030,12 +1049,13 @@ async function scoreOneWithProvider({ profile, rawListing, providerConfig }) {
       rawListing,
       geminiApiKey: cfg.apiKey,
       geminiModel: cfg.model,
+      signal,
     });
   }
   if (cfg.provider === "anthropic") {
-    return scoreOneWithAnthropic({ profile, rawListing, providerConfig: cfg });
+    return scoreOneWithAnthropic({ profile, rawListing, providerConfig: cfg, signal });
   }
-  return scoreOneWithChatCompletions({ profile, rawListing, providerConfig: cfg });
+  return scoreOneWithChatCompletions({ profile, rawListing, providerConfig: cfg, signal });
 }
 
 /* ─── Per-row pipeline: build RawListing → score → format cells ──────────── */
@@ -1275,6 +1295,7 @@ export async function rescoreAllPipelineRows({
         profile,
         rawListing,
         providerConfig: chatProviderConfig,
+        signal,
       });
       await writeRowScoreCells({
         sheetId,

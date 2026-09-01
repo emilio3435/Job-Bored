@@ -20,24 +20,31 @@ function loadJson(rel) {
   return JSON.parse(readFileSync(join(repoRoot, rel), "utf8"));
 }
 
-function extractStatusesFromAppJs(appJs) {
-  const fn = appJs.indexOf("function renderCardActions(");
+/**
+ * The drawer's status dropdown no longer inlines its own copy of the stage
+ * list: pipeline-render.js resolves STAGE_ORDER from window.JobBoredStages
+ * (stage-registry.js) and keeps one pinned STAGE_FALLBACK mirror for the case
+ * where that script is absent. Both halves are still gated here — the mirror
+ * must equal the schema enum, AND the dropdown must be sourced from it —
+ * because a mirror that nothing reads would pass this check while the dropdown
+ * quietly offered something else.
+ */
+function extractStatusesFromPipelineRender(pipelineRenderJs) {
+  const fn = pipelineRenderJs.indexOf("function renderCardActions(");
   if (fn === -1) throw new Error("renderCardActions not found");
-  const sub = appJs.slice(fn);
-  const start = sub.indexOf("const statuses = [");
-  if (start === -1) throw new Error("const statuses = [ not found in renderCardActions");
-  const rest = sub.slice(start);
-  const open = rest.indexOf("[");
-  const close = rest.indexOf("];");
-  if (open === -1 || close === -1) throw new Error("statuses array bounds not found");
-  const inner = rest.slice(open + 1, close);
-  const out = [];
-  for (const part of inner.split(",")) {
-    const t = part.trim();
-    if (!t) continue;
-    out.push(JSON.parse(t));
+  if (!pipelineRenderJs.slice(fn).includes("const statuses = STAGE_ORDER;")) {
+    throw new Error(
+      "renderCardActions must build its dropdown from STAGE_ORDER (the canonical stage registry)",
+    );
   }
-  if (out.length === 0) throw new Error("no status strings parsed from app.js");
+
+  const m = /const STAGE_FALLBACK = \[([\s\S]*?)\n\s*\];/.exec(pipelineRenderJs);
+  if (!m) throw new Error("const STAGE_FALLBACK = [ not found in pipeline-render.js");
+  const out = [];
+  const pairRe = /\["[a-z-]+",\s*("[^"]+")\]/g;
+  let pair;
+  while ((pair = pairRe.exec(m[1]))) out.push(JSON.parse(pair[1]));
+  if (out.length === 0) throw new Error("no status strings parsed from pipeline-render.js");
   return out;
 }
 
@@ -207,7 +214,7 @@ for (let i = 0; i < schema.columns.length; i++) {
   }
 }
 
-const appStatuses = extractStatusesFromAppJs(pipelineRenderJs);
+const appStatuses = extractStatusesFromPipelineRender(pipelineRenderJs);
 const schemaStatusEnum = col(schema, "status").enum;
 if (!sameOrdered(appStatuses, schemaStatusEnum)) {
   console.error("pipeline-render.js statuses array must match pipeline-row status enum (same order).");

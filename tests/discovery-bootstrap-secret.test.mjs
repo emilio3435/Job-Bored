@@ -8,6 +8,7 @@ import {
   generateWebhookSecret,
   parseEnvFile,
   pickNgrokPublicUrl,
+  upsertBrowserUseDiscoveryEnvValue,
   WEBHOOK_SECRET_ENV_KEY,
 } from "../scripts/bootstrap-local-discovery.mjs";
 
@@ -208,6 +209,30 @@ describe("bootstrap detached worker logging", () => {
       /workerLogPath:[\s\S]*health\.workerLogPath/,
       "bootstrap diagnostics should expose the worker log path",
     );
+  });
+});
+
+describe("bootstrap env-key writer control characters", () => {
+  it("upsertBrowserUseDiscoveryEnvValue rejects newline injection", () => {
+    const envFilePath = join(tmpdir(), `boot-secret-env-${Date.now()}.env`);
+    try {
+      assert.throws(
+        () =>
+          upsertBrowserUseDiscoveryEnvValue(
+            WEBHOOK_SECRET_ENV_KEY,
+            "ok\nOTHER_KEY=pwned",
+            envFilePath,
+          ),
+        (err) => err && err.code === "ENV_VALUE_CONTROL_CHARS",
+      );
+      assert.equal(existsSync(envFilePath), false);
+    } finally {
+      try {
+        rmSync(envFilePath, { force: true });
+      } catch (_) {
+        // best-effort
+      }
+    }
   });
 });
 

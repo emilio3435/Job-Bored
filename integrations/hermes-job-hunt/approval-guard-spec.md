@@ -2,6 +2,8 @@
 
 > **Purpose:** Block any application submission until Emilio has explicitly approved it through two non-negotiable gates. This is the hard wall before any browser automation touches a submit button.
 
+**Machine contract:** [`approval-contract.v1.json`](./approval-contract.v1.json) is the single versioned source for Gate 1 / send / poll. Docs, `gate2_telegram.py`, `jhos_submit.py`, and `gate2-status-watcher.py` must read that file. Do not hardcode a competing Telegram thread.
+
 **Status:** `computer_use` is enabled for controlled browser assistance, but any submit action remains **blocked** until this guard is implemented and verified.
 
 ---
@@ -30,42 +32,33 @@ Pipeline approval marker      →    Telegram/Chat final confirmation
 
 ---
 
-## Gate 1 — Interest Signal (Telegram reply OR Pipeline status ≥ Researching)
+## Gate 1 — Pipeline Approval Status = `Approved`
 
-Gate 1 is a lightweight "yes, I'm interested" signal — not a full submission approval. It controls whether the system may draft materials and prepare an application. It is deliberately low-friction.
-
-### Two equivalent ways to pass Gate 1
-
-| Method | How it works |
-|---|---|
-| **Telegram reply** | When a job is discovered, the system sends a summary to the job-hunt Telegram thread. Emilio replies with `YES <company>`, `APPROVE <company>`, `👍`, or taps an inline button. The system marks the Pipeline row as `Researching` automatically. |
-| **Pipeline status** | Emilio manually sets the row's Status (Column M) to `Researching` or any later lifecycle stage (`Applied`, `Phone Screen`, `Interviewing`, `Offer`). Any status beyond `New` signals interest. |
+Gate 1 is the submit-permission marker on the Pipeline row. It is **not** the interest/research signal (`Status = Researching` after `YES <company>`). Materials drafting may follow interest; submission may not.
 
 ### Gate 1 passes when
 
 ```
-Pipeline Status (Column M) is NOT in {"New", "", "Rejected", "Passed"}
+Pipeline Approval Status (Column X, field approvalStatus) == "Approved"
 ```
 
-That's it. If the status is `Researching`, `Applied`, `Phone Screen`, `Interviewing`, or `Offer`, Gate 1 is satisfied.
-
-### Column X (Approval Status) — deprecated for Gate 1
-
-Column X (`Approval Status`) was added in Phase 2 but added unnecessary friction. Gate 1 now reads Column M (`Status`) instead. Column X remains in the schema but is no longer required for the submit pipeline. It can be repurposed for tracking (e.g., "Materials Ready", "Submitted via Hermes") or removed in a future cleanup.
+Fail closed on blank, any other value, or a missing column. Workers must not treat Column M `Status` as Gate 1.
 
 ### Who sets it
 
-- **Emilio** — either by replying in Telegram or changing the Pipeline status directly.
-- **The system** — may set Status to `Researching` after receiving a Telegram approval reply, but may NOT advance past `Researching` without Gate 2.
+- **Emilio** — types `Approved` in the Pipeline `Approval Status` column when a row is allowed to submit.
+- **The system** — may set Status to `Researching` after a Telegram interest reply, but may NOT set Approval Status and may NOT submit without Gate 1 + Gate 2.
 
-### Discovery → Telegram notification flow
+### Discovery → interest vs submit
 
 ```
 Discovery finds job → writes Pipeline row (Status = "New")
                     → sends Telegram summary to job-hunt thread
                     → Emilio replies YES / 👍 / taps button
-                    → system sets Status = "Researching"
-                    → Gate 1 satisfied → draft materials
+                    → system sets Status = "Researching"  (interest only)
+                    → Emilio sets Approval Status = Approved  (Gate 1)
+                    → Gate 2 YES SUBMIT <company> in telegram:-1003800236296:48
+                    → submit permitted
 ```
 
 ---

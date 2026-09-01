@@ -8,7 +8,7 @@ function cors(env) {
     "Access-Control-Allow-Origin": o,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret, Ngrok-Skip-Browser-Warning",
+      "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret, X-Discovery-Auth-Probe, Ngrok-Skip-Browser-Warning",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -116,6 +116,10 @@ export default {
       if (forwarded) {
         upstreamHeaders["x-discovery-secret"] = forwarded;
       }
+    }
+    const authProbe = request.headers.get("x-discovery-auth-probe");
+    if (authProbe) {
+      upstreamHeaders["x-discovery-auth-probe"] = authProbe;
     }
 
     const upstream = await fetch(upstream_url, {

@@ -20,7 +20,7 @@
 */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -139,6 +139,24 @@ describe("resume-ingest.js lazy reader contract", () => {
       entryBody,
       /await loadResumeReaders\(\)/,
       "extractTextFromFile must `await loadResumeReaders()` before parsing",
+    );
+  });
+});
+
+describe("F2-A boot-contract helper is on disk (index.html wiring is orchestrator-owned)", () => {
+  it("ships jb-v2-boot-contract.js so the inline JB_V2 snippet can remount after body.jb-v2", () => {
+    // This lane cannot land index.html. The helper must exist so the
+    // orchestrator can insert `<script src="jb-v2-boot-contract.js" defer>`
+    // after the inline JB_V2 snippet (see LANE-REPORT-F2-A integration notes).
+    assert.equal(
+      existsSync(join(repoRoot, "jb-v2-boot-contract.js")),
+      true,
+      "F2A-PIPE01-RACE: jb-v2-boot-contract.js missing — remount contract has no module to load",
+    );
+    assert.equal(
+      existsSync(join(repoRoot, "pipeline-transition-adapter.js")),
+      true,
+      "F2A-MOVE: pipeline-transition-adapter.js missing — board moves have no F1-A adapter",
     );
   });
 });

@@ -1,12 +1,18 @@
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
-import { readFile, stat } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { existsSync, mkdirSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
+import {
+  decodeRequestPathname,
+  parseRequestUrl,
+  resolveListenHost,
+  resolvePublicFile,
+} from "./scripts/lib/static-path-guard.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
 import {
   detectTailscale,
@@ -17,6 +23,12 @@ import {
   resolveWebhookSecret,
   upsertBrowserUseDiscoveryEnvValue,
 } from "./scripts/bootstrap-local-discovery.mjs";
+import {
+  authorizeLocalControlRequest,
+  buildLocalControlCorsHeaders,
+  localControlPreflightHeaders,
+} from "./scripts/lib/local-control-auth.mjs";
+import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -94,7 +106,14 @@ function parseLocalProxyRoute(pathname, searchParams) {
   return null;
 }
 
-function proxyRequest(target, _req, res) {
+function jsonCorsHeaders(req, extra = {}) {
+  return buildLocalControlCorsHeaders(req, {
+    "content-type": "application/json",
+    ...extra,
+  });
+}
+
+function proxyRequest(target, req, res) {
   const opts = {
     hostname: target.host,
     port: target.port,
@@ -104,7 +123,13 @@ function proxyRequest(target, _req, res) {
   };
   const upstream = httpRequest(opts, (upRes) => {
     const headers = { ...upRes.headers };
-    headers["access-control-allow-origin"] = "*";
+    const cors = jsonCorsHeaders(req);
+    if (cors["access-control-allow-origin"]) {
+      headers["access-control-allow-origin"] = cors["access-control-allow-origin"];
+    } else {
+      delete headers["access-control-allow-origin"];
+    }
+    headers.vary = "Origin";
     delete headers["transfer-encoding"];
     res.writeHead(upRes.statusCode || 502, headers);
     upRes.pipe(res);
@@ -118,11 +143,11 @@ function proxyRequest(target, _req, res) {
       return;
     }
     if (target.unreachableBody) {
-      res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+      res.writeHead(200, jsonCorsHeaders(req));
       res.end(JSON.stringify(target.unreachableBody));
       return;
     }
-    res.writeHead(502, { "content-type": "application/json", "access-control-allow-origin": "*" });
+    res.writeHead(502, jsonCorsHeaders(req));
     res.end(JSON.stringify({ error: "upstream_unreachable" }));
   });
   upstream.on("timeout", () => {
@@ -132,11 +157,11 @@ function proxyRequest(target, _req, res) {
       return;
     }
     if (target.unreachableBody) {
-      res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+      res.writeHead(200, jsonCorsHeaders(req));
       res.end(JSON.stringify(target.unreachableBody));
       return;
     }
-    res.writeHead(504, { "content-type": "application/json", "access-control-allow-origin": "*" });
+    res.writeHead(504, jsonCorsHeaders(req));
     res.end(JSON.stringify({ error: "upstream_timeout" }));
   });
   upstream.end();
@@ -447,30 +472,29 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
 // (and any data: font payload) loads cleanly; frame-src lets GSI render
 // its sign-in iframe.
 const STATIC_SECURITY_HEADERS = {
-  "content-security-policy":
-    "default-src 'self'; " +
-    "script-src 'self' 'unsafe-inline' https://accounts.google.com; " +
-    "style-src 'self' 'unsafe-inline'; " +
-    "img-src 'self' data: https:; " +
-    "font-src 'self' data: https://fonts.gstatic.com; " +
-    "connect-src 'self' https://accounts.google.com https://sheets.googleapis.com https://script.google.com https://script.googleusercontent.com https://generativelanguage.googleapis.com https://api.openai.com https://api.anthropic.com https://openrouter.ai https://fonts.gstatic.com http://127.0.0.1:* http://localhost:* https://*.ts.net https://*.workers.dev https://*.trycloudflare.com https://*.ngrok-free.app https://*.ngrok.app https://*.ngrok.io; " +
-    "frame-src https://accounts.google.com; " +
-    "frame-ancestors 'none'",
+  "content-security-policy": buildContentSecurityPolicy(),
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
   "referrer-policy": "no-referrer",
 };
 
+function writeStaticGuardResponse(res, status) {
+  const message =
+    status === 400 ? "Bad request" : status === 403 ? "Forbidden" : "Not found";
+  res.writeHead(status, {
+    "content-type": "text/plain",
+    ...STATIC_SECURITY_HEADERS,
+  });
+  res.end(message);
+}
+
 async function serveStatic(urlPath, res) {
-  let filePath = join(ROOT, urlPath === "/" ? "index.html" : urlPath);
-  try {
-    const info = await stat(filePath);
-    if (info.isDirectory()) filePath = join(filePath, "index.html");
-  } catch {
-    res.writeHead(404, { "content-type": "text/plain", ...STATIC_SECURITY_HEADERS });
-    res.end("Not found");
+  const resolved = await resolvePublicFile(urlPath, { root: ROOT });
+  if (!resolved.ok) {
+    writeStaticGuardResponse(res, resolved.status || 404);
     return;
   }
+  const filePath = resolved.filePath;
   try {
     const ext = extname(filePath).toLowerCase();
     const ct = MIME[ext] || "application/octet-stream";
@@ -479,6 +503,7 @@ async function serveStatic(urlPath, res) {
     // be served as raw bytes. Reading binary files with "utf8" replaces every
     // non-UTF-8 byte with U+FFFD and corrupts the payload on re-encode, which
     // breaks .webp/.png/.ico/.woff* assets even though they exist on disk.
+    // Expand includes only AFTER realpath/deny (F4-D owns expander semantics).
     if (ext === ".html") {
       let data = await readFile(filePath, "utf8");
       if (/<!--\s*@include\s+/.test(data)) {
@@ -500,19 +525,20 @@ async function serveStatic(urlPath, res) {
     });
     res.end(data);
   } catch {
-    res.writeHead(404, { "content-type": "text/plain", ...STATIC_SECURITY_HEADERS });
-    res.end("Not found");
+    writeStaticGuardResponse(res, 404);
   }
 }
 
 function isLocalOrigin(req) {
-  const addr = req.socket.remoteAddress || "";
-  return (
-    addr === "127.0.0.1" ||
-    addr === "::1" ||
-    addr === "::ffff:127.0.0.1" ||
-    addr === "localhost"
-  );
+  return authorizeLocalControlRequest(req).ok;
+}
+
+function denyNonLocalControl(res) {
+  res.writeHead(403, {
+    "content-type": "application/json",
+    vary: "Origin",
+  });
+  res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
 }
 
 function resolveDashboardOrigin(req, currentPort) {
@@ -607,10 +633,7 @@ async function handleFixSetup(req, res, options = {}) {
     return;
   }
 
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
 
   // Allow callers (e.g. handleFullBoot) to inject earlier phases so the
   // dashboard sees one continuous timeline.
@@ -786,10 +809,7 @@ async function handleFixSetup(req, res, options = {}) {
  * crash holding 8644. Without this they get cryptic "EADDRINUSE" errors.
  */
 async function handleKillStale(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
@@ -964,10 +984,7 @@ export async function killFullBootStalePorts({
  * walking the user through 8 wizard steps.
  */
 async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
@@ -1117,10 +1134,7 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
 
 // Owner: Backend Worker A
 async function handleOAuthBootstrap(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden", actionable: "Localhost only." }));
@@ -1166,17 +1180,11 @@ async function handleOAuthBootstrap(req, res) {
 // Owner: Backend Worker A
 async function handleInstallDoctor(req, res) {
   if (!isLocalOrigin(req)) {
-    res.writeHead(403, {
-      "access-control-allow-origin": "*",
-      "content-type": "application/json",
-    });
+    res.writeHead(403, jsonCorsHeaders(req));
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   try {
     const { runInstallDoctor } = await import("./scripts/install-doctor.mjs");
     const result = runInstallDoctor();
@@ -1277,10 +1285,7 @@ function tailscaleRecommendation(detection, serving) {
  * must (re)boot to load it.
  */
 function handleDiscoveryWebhookSecret(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1320,10 +1325,9 @@ const DISCOVERY_ENV_KEY_ALLOWLIST = new Set([
 ]);
 
 async function handleDiscoveryEnvKey(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
+  const corsHeaders = buildLocalControlCorsHeaders(req, {
     "content-type": "application/json",
-  };
+  });
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1360,6 +1364,11 @@ async function handleDiscoveryEnvKey(req, res) {
     res.writeHead(200, corsHeaders);
     res.end(JSON.stringify({ ok: true, key, mode: result && result.mode }));
   } catch (e) {
+    if (e && e.code === "ENV_VALUE_CONTROL_CHARS") {
+      res.writeHead(400, corsHeaders);
+      res.end(JSON.stringify({ ok: false, reason: "invalid_value" }));
+      return;
+    }
     res.writeHead(500, corsHeaders);
     res.end(
       JSON.stringify({
@@ -1377,10 +1386,7 @@ async function handleDiscoveryEnvKey(req, res) {
  * configured" for a worker that was demonstrably configured.
  */
 async function handleDiscoveryHealth(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1416,17 +1422,11 @@ async function handleDiscoveryHealth(req, res) {
 
 async function handleTailscaleState(req, res) {
   if (!isLocalOrigin(req)) {
-    res.writeHead(403, {
-      "access-control-allow-origin": "*",
-      "content-type": "application/json",
-    });
+    res.writeHead(403, jsonCorsHeaders(req));
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
 
   const detection = detectTailscale({ spawnSync: childProcess.spawnSync });
   const serving =
@@ -1448,17 +1448,11 @@ async function handleTailscaleState(req, res) {
 
 async function handleTailscaleServe(req, res) {
   if (!isLocalOrigin(req)) {
-    res.writeHead(403, {
-      "access-control-allow-origin": "*",
-      "content-type": "application/json",
-    });
+    res.writeHead(403, jsonCorsHeaders(req));
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
 
   let body = {};
   try {
@@ -1480,10 +1474,7 @@ async function handleTailscaleServe(req, res) {
 
 // Owner: Backend Worker B
 async function handleInstallKeepAlive(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1523,10 +1514,7 @@ async function handleInstallKeepAlive(req, res) {
 
 // Owner: Backend Worker B
 async function handleUninstallKeepAlive(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1545,10 +1533,7 @@ async function handleUninstallKeepAlive(req, res) {
 
 // Owner: Backend Worker B
 async function handleKeepAliveStatus(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
@@ -1573,10 +1558,7 @@ async function handleKeepAliveStatus(req, res) {
 // reboot (start at login/boot, restart on crash). Mirrors the keep-alive
 // handlers above.
 async function handleInstallWorkerAutostart(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1625,10 +1607,7 @@ async function handleInstallWorkerAutostart(req, res) {
 }
 
 async function handleUninstallWorkerAutostart(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1648,10 +1627,7 @@ async function handleUninstallWorkerAutostart(req, res) {
 }
 
 async function handleWorkerAutostartStatus(req, res) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
@@ -1700,10 +1676,7 @@ async function handleWorkerAutostartStatus(req, res) {
 //   needs_human        — anything else (e.g. unknown state, missing CLI auth)
 // ============================================================================
 async function handleDiscoveryState(req, res, options = {}) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
@@ -1970,10 +1943,7 @@ async function safeKeepAliveStatus() {
 }
 
 async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {
-  const corsHeaders = {
-    "access-control-allow-origin": "*",
-    "content-type": "application/json",
-  };
+  const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
@@ -2082,17 +2052,37 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       : () => {};
 
   return (req, res) => {
-    const url = new URL(req.url || "/", `http://localhost:${currentPort}`);
-    const pathname = decodeURIComponent(url.pathname);
-
-    if (req.method === "OPTIONS" && pathname.startsWith("/__proxy/")) {
-      res.writeHead(204, {
-        "access-control-allow-origin": "*",
-        "access-control-allow-methods": "GET, POST, OPTIONS",
-        "access-control-max-age": "86400",
-      });
-      res.end();
+    const parsed = parseRequestUrl(
+      req.url,
+      `http://127.0.0.1:${currentPort}`,
+    );
+    if (!parsed.ok) {
+      writeStaticGuardResponse(res, parsed.status || 400);
       return;
+    }
+    const url = parsed.url;
+    const decoded = decodeRequestPathname(url.pathname);
+    if (!decoded.ok) {
+      writeStaticGuardResponse(res, decoded.status || 400);
+      return;
+    }
+    const pathname = decoded.pathname;
+
+    if (pathname.startsWith("/__proxy/")) {
+      if (req.method === "OPTIONS") {
+        const auth = authorizeLocalControlRequest(req);
+        if (!auth.ok) {
+          denyNonLocalControl(res);
+          return;
+        }
+        res.writeHead(204, localControlPreflightHeaders(req));
+        res.end();
+        return;
+      }
+      if (!isLocalOrigin(req)) {
+        denyNonLocalControl(res);
+        return;
+      }
     }
 
     if (req.method === "POST" && pathname === "/__proxy/fix-setup") {
@@ -2102,7 +2092,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       }).catch((err) => {
         logError("  Fix-setup error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, message: "Internal error." }));
         }
       });
@@ -2113,7 +2103,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleStartDiscoveryWorker(req, res, discoveryWorkerStarter).catch((err) => {
         logError("  Discovery-worker start error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, message: "Internal error." }));
         }
       });
@@ -2124,7 +2114,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleKillStale(req, res).catch((err) => {
         logError("  Kill-stale error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, message: "Internal error." }));
         }
       });
@@ -2137,7 +2127,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       }).catch((err) => {
         logError("  Full-boot error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, message: "Internal error." }));
         }
       });
@@ -2152,7 +2142,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleOAuthBootstrap(req, res).catch((err) => {
         logError("  OAuth-bootstrap error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2163,7 +2153,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleInstallDoctor(req, res).catch((err) => {
         logError("  Install-doctor error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2174,7 +2164,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleTailscaleState(req, res).catch((err) => {
         logError("  Tailscale-state error:", err);
         if (!res.headersSent) {
-          res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(200, jsonCorsHeaders(req));
           res.end(
             JSON.stringify({
               installed: false,
@@ -2203,10 +2193,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleDiscoveryHealth(req, res).catch((err) => {
         logError("  discovery-health error:", err);
         if (!res.headersSent) {
-          res.writeHead(502, {
-            "content-type": "application/json",
-            "access-control-allow-origin": "*",
-          });
+          res.writeHead(502, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false }));
         }
       });
@@ -2217,10 +2204,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleDiscoveryEnvKey(req, res).catch((err) => {
         logError("  discovery-env-key error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, {
-            "content-type": "application/json",
-            "access-control-allow-origin": "*",
-          });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false }));
         }
       });
@@ -2231,7 +2215,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleTailscaleServe(req, res).catch((err) => {
         logError("  Tailscale-serve error:", err);
         if (!res.headersSent) {
-          res.writeHead(200, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(200, jsonCorsHeaders(req));
           res.end(
             JSON.stringify({
               ok: false,
@@ -2249,7 +2233,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleInstallKeepAlive(req, res).catch((err) => {
         logError("  Install-keep-alive error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2260,7 +2244,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleUninstallKeepAlive(req, res).catch((err) => {
         logError("  Uninstall-keep-alive error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2271,7 +2255,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleKeepAliveStatus(req, res).catch((err) => {
         logError("  Keep-alive-status error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2282,7 +2266,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleInstallWorkerAutostart(req, res).catch((err) => {
         logError("  Install-worker-autostart error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2293,7 +2277,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleUninstallWorkerAutostart(req, res).catch((err) => {
         logError("  Uninstall-worker-autostart error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2304,7 +2288,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       handleWorkerAutostartStatus(req, res).catch((err) => {
         logError("  Worker-autostart-status error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2319,7 +2303,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       }).catch((err) => {
         logError("  Discovery-state error:", err);
         if (!res.headersSent) {
-          res.writeHead(500, { "content-type": "application/json", "access-control-allow-origin": "*" });
+          res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
@@ -2334,10 +2318,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       // health + tunnel data to any tailnet peer. Mirror the gating every
       // other /__proxy/* handler already does: localhost-only.
       if (!isLocalOrigin(req)) {
-        res.writeHead(403, {
-          "content-type": "application/json",
-          "access-control-allow-origin": "*",
-        });
+        res.writeHead(403, jsonCorsHeaders(req));
         res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
         return;
       }
@@ -2384,11 +2365,13 @@ export function createDevServer({
 
 export function startDevServer({
   port = DEFAULT_PORT,
+  host,
   logger = console,
   tls = false,
   discoveryWorkerStarter,
 } = {}) {
   const requestedPort = normalizePort(port);
+  const listenHost = resolveListenHost({ host });
   const useTls = normalizeBooleanFlag(tls);
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
@@ -2401,11 +2384,12 @@ export function startDevServer({
       discoveryWorkerStarter,
     });
     server.once("error", reject);
-    server.listen(requestedPort, () => {
+    server.listen(requestedPort, listenHost, () => {
       const address = server.address();
       const actualPort =
         address && typeof address === "object" ? address.port : requestedPort;
-      log(`  Dev server listening on ${useTls ? "https" : "http"}://localhost:${actualPort}`);
+      const displayHost = listenHost.includes(":") ? `[${listenHost}]` : listenHost;
+      log(`  Dev server listening on ${useTls ? "https" : "http"}://${displayHost}:${actualPort}`);
       if (useTls) {
         log(`  Local TLS certificate: ${TLS_CERT_PATH}`);
       }

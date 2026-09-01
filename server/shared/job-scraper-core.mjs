@@ -261,14 +261,60 @@ function getSerpApiKey(options = {}) {
   ).trim();
 }
 
-/** @param {Pick<ScrapeJobPostingOptions, "title" | "company">} [options] */
-function buildSerpApiQuery(options = {}) {
+const PLACEHOLDER_EMPLOYER_LABELS = new Set([
+  "careers",
+  "career",
+  "linkedin",
+  "jobs",
+  "job",
+  "apply",
+  "job board",
+  "job boards",
+  "job site",
+  "unknown company",
+  "unknown",
+]);
+
+/**
+ * @param {string} name
+ * @param {string} [url]
+ */
+export function sanitizeInferredEmployer(name, url = "") {
+  const cleaned = normalizeSpace(name);
+  if (!cleaned) return "";
+  const label = normalizeMatchText(cleaned);
+  if (PLACEHOLDER_EMPLOYER_LABELS.has(label)) return "";
+  let hostLabel = "";
+  try {
+    hostLabel = new URL(url).hostname
+      .toLowerCase()
+      .replace(/^www\./, "")
+      .split(".")[0]
+      .replace(/[-_]+/g, " ")
+      .trim();
+  } catch {
+    hostLabel = "";
+  }
+  if (hostLabel && label === hostLabel && PLACEHOLDER_EMPLOYER_LABELS.has(hostLabel)) {
+    return "";
+  }
+  return cleaned;
+}
+
+/**
+ * @param {Pick<ScrapeJobPostingOptions, "title" | "company">} [options]
+ * @param {string} [originalUrl]
+ */
+function buildSerpApiQuery(options = {}, originalUrl = "") {
   const title = normalizeSpace(options.title || "");
   const company = normalizeSpace(options.company || "")
     .replace(/[()]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-  return [title, company].filter(Boolean).join(" ").trim();
+  const fromContext = [title, company].filter(Boolean).join(" ").trim();
+  if (fromContext) return fromContext;
+  const jobId = linkedInJobId(originalUrl);
+  return jobId ? `linkedin ${jobId}` : "";
 }
 
 /**
@@ -443,7 +489,7 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
     title: normalizeSpace(options.title || ""),
     company: normalizeSpace(options.company || ""),
   };
-  const query = buildSerpApiQuery(context);
+  const query = buildSerpApiQuery(context, originalUrl);
   const apiKey = getSerpApiKey(options);
   if (!query || !apiKey) return null;
 
@@ -471,6 +517,12 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
       query,
       originalUrl,
       matchedUrl: pickSerpApiUrl(matched, originalUrl),
+      lineage: {
+        primary: "linkedin-direct",
+        used: "serpapi-google-jobs",
+        fallbackFrom: "linkedin-direct",
+        reason: "linkedin_serpapi_fallback",
+      },
     },
     warnings: [
       "Direct scrape was replaced with a Google Jobs structured fallback.",
@@ -533,6 +585,78 @@ function findJobPostingObjects(blocks) {
   }
   for (const b of blocks) walk(b);
   return jobs;
+}
+
+/** @param {unknown} value */
+function organizationName(value) {
+  if (typeof value === "string") return normalizeSpace(value);
+  if (!value || typeof value !== "object") return "";
+  const record = /** @type {UnknownRecord} */ (value);
+  return normalizeSpace(record.name || record.legalName || "");
+}
+
+/**
+ * @param {unknown} value
+ * @param {string[]} acc
+ */
+function collectLocationParts(value, acc) {
+  if (!value) return acc;
+  if (Array.isArray(value)) {
+    for (const entry of value) collectLocationParts(entry, acc);
+    return acc;
+  }
+  if (typeof value === "string") {
+    const text = normalizeSpace(value);
+    if (text) acc.push(text);
+    return acc;
+  }
+  if (typeof value !== "object") return acc;
+  const record = /** @type {UnknownRecord} */ (value);
+  const address = record.address;
+  if (address && typeof address === "object") {
+    const addr = /** @type {UnknownRecord} */ (address);
+    const parts = [addr.addressLocality, addr.addressRegion, addr.addressCountry]
+      .map((part) => organizationName(part) || normalizeSpace(part))
+      .filter(Boolean);
+    if (parts.length) acc.push(parts.join(", "));
+  }
+  const named = organizationName(record);
+  if (named) acc.push(named);
+  return acc;
+}
+
+/** @param {UnknownRecord} j */
+function employerFromJobPostingLd(j) {
+  return organizationName(j.hiringOrganization);
+}
+
+/** @param {UnknownRecord} j */
+function locationFromJobPostingLd(j) {
+  /** @type {string[]} */
+  const parts = [];
+  collectLocationParts(j.jobLocation, parts);
+  collectLocationParts(j.applicantLocationRequirements, parts);
+  if (typeof j.jobLocationType === "string" && /TELECOMMUTE/i.test(j.jobLocationType)) {
+    parts.push("Remote");
+  }
+  return [...new Set(parts.filter(Boolean))].join(" · ");
+}
+
+/** @param {CheerioApi} $ */
+function employerFromDom($) {
+  const itemprop = normalizeSpace(
+    $('[itemprop="hiringOrganization"] [itemprop="name"]').first().text(),
+  );
+  if (itemprop) return itemprop;
+  return normalizeSpace($('meta[property="og:site_name"]').attr("content") || "");
+}
+
+/** @param {CheerioApi} $ */
+function locationFromDom($) {
+  const itemprop = normalizeSpace(
+    $('[itemprop="jobLocation"] [itemprop="name"], [itemprop="jobLocation"]').first().text(),
+  );
+  return itemprop;
 }
 
 /** @param {UnknownRecord} j */
@@ -942,6 +1066,8 @@ export async function scrapeJobPosting(url, options = {}) {
   let description = "";
   let method = "dom";
   let containerUsed = null;
+  /** @type {{ primary: string, used: string, fallbackFrom?: string, reason?: string }} */
+  const lineage = { primary: "dom", used: "dom" };
 
   const blocks = collectJsonLdBlocks($);
   const jobPostings = findJobPostingObjects(blocks);
@@ -966,6 +1092,8 @@ export async function scrapeJobPosting(url, options = {}) {
     description = ldText;
     if (ldTitle) title = ldTitle;
     method = "json-ld";
+    lineage.primary = "json-ld";
+    lineage.used = "json-ld";
     if (domText.length > description.length * 1.4 && domText.length > 500) {
       warnings.push(
         "JSON-LD used but a larger DOM block was found; if the description looks wrong, the page may embed multiple postings or ads.",
@@ -976,12 +1104,21 @@ export async function scrapeJobPosting(url, options = {}) {
       warnings.push(
         "JSON-LD description looked like site chrome or unrelated content; fell back to DOM extraction.",
       );
+      lineage.primary = "json-ld";
+      lineage.fallbackFrom = "json-ld";
+      lineage.reason = "json_ld_noise";
+    } else if (bestJp) {
+      lineage.primary = "json-ld";
+      lineage.fallbackFrom = "json-ld";
+      lineage.reason = "json_ld_thin";
     }
     description = domText;
     method = domText.length >= 80 ? "dom" : "dom-fallback";
+    lineage.used = method;
     if (!description || description.length < 80) {
       description = largestTextBlock($, $.root());
       method = "dom-fallback";
+      lineage.used = "dom-fallback";
       containerUsed = "(largest block)";
     }
   }
@@ -994,6 +1131,12 @@ export async function scrapeJobPosting(url, options = {}) {
   ) {
     description = domText;
     method = "dom";
+    lineage.used = "dom";
+    if (!lineage.fallbackFrom && bestJp) {
+      lineage.primary = "json-ld";
+      lineage.fallbackFrom = "json-ld";
+      lineage.reason = lineage.reason || "json_ld_noise";
+    }
     if (ldTitle && (!title || title.length < 5)) title = ldTitle;
   }
 
@@ -1058,9 +1201,18 @@ export async function scrapeJobPosting(url, options = {}) {
     }
   }
 
+  const company = sanitizeInferredEmployer(
+    (bestJp && employerFromJobPostingLd(bestJp)) || employerFromDom($),
+    target.url,
+  );
+  const location =
+    (bestJp && locationFromJobPostingLd(bestJp)) || locationFromDom($) || "";
+
   return {
     url: target.url,
     title: title || null,
+    company: company || undefined,
+    location: location || undefined,
     description,
     requirements,
     skills,
@@ -1069,6 +1221,7 @@ export async function scrapeJobPosting(url, options = {}) {
     scraping: {
       jsonLdCandidates: jobPostings.length,
       containerHint: containerUsed,
+      lineage,
     },
     warnings,
   };

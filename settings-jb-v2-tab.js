@@ -166,7 +166,7 @@
     hint.className = "settings-field-hint settings-field-hint--compact";
     hint.id = FLOW_TOGGLE_ID + "Hint";
     hint.textContent =
-      "Single-page flowing layout (Brief / Pipeline / Letter). Requires v2 redesign.";
+      "Single-page flowing layout (Brief / Pipeline / Dossier). Requires v2 redesign.";
 
     row.appendChild(label);
     row.appendChild(hint);
@@ -247,6 +247,9 @@
       } else {
         // v2 ON: re-apply flowing class per stored/default preference.
         applyFlowingClass();
+      }
+      if (window.JobBoredV2Boot && typeof window.JobBoredV2Boot.sync === "function") {
+        window.JobBoredV2Boot.sync();
       }
       return true;
     } catch (_) {

@@ -19,7 +19,10 @@ concurrency:
 #   - scan   (gitleaks secret scan, .github/workflows/gitleaks.yml)
 # Defined here and INTENDED to become required once stable (add each to the
 # ruleset to enforce): lint, coverage, audit-prod, pr-lint (pr-lint.yml).
-# Advisory only (never blocks a merge): e2e-smoke, e2e-journey, audit-dev
+# Advisory only (never blocks a merge): e2e-smoke, e2e-journey, audit-dev.
+# F4-D hermetic harness is in place (tests/e2e-fixtures/hermetic-harness.mjs).
+# Do NOT drop continue-on-error on the browser jobs until repair Gates A–D
+# exist. Switch steps: docs/HERMETIC-BROWSER-GATE.md.
 # Auto-release: .github/workflows/release.yml (release-please, runs on main
 # pushes, opens a release PR — does not block PR merges).
 
@@ -63,9 +66,9 @@ jobs:
       - run: npm ci
       - run: npm run lint:repo
 
-  # Browser boot-and-visibility smoke (tests/e2e-smoke). Non-blocking: it
-  # reports signal on CSS-cascade/wiring/boot-error regressions but is not a
-  # required check, so flakes never hold up a merge.
+  # Browser boot-and-visibility smoke (tests/e2e-smoke). Non-blocking until
+  # Gates A–D: hermetic fixtures are ready, but the required-CI switch waits
+  # on the repair gate ledger. See docs/HERMETIC-BROWSER-GATE.md.
   e2e-smoke:
     runs-on: ubuntu-latest
     timeout-minutes: 15
@@ -86,9 +89,9 @@ jobs:
           path: tests/e2e-smoke/test-results/
           retention-days: 7
 
-  # Critical signed-in product journey (tests/e2e-journey). Non-blocking:
-  # exercises discovery, Pipeline hydration, and dossier materials with every
-  # external edge mocked, while retaining traces for diagnosis.
+  # Critical signed-in product journey (tests/e2e-journey). Non-blocking until
+  # Gates A–D. Hermetic disposable auth + network fence live in
+  # tests/e2e-fixtures/hermetic-harness.mjs. See docs/HERMETIC-BROWSER-GATE.md.
   e2e-journey:
     runs-on: ubuntu-latest
     timeout-minutes: 15

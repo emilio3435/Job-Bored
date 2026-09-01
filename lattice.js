@@ -1,9 +1,11 @@
 /* ============================================================
    lattice.js — Phase 3 · Pipeline kanban (Lattice)
    ------------------------------------------------------------
-   Owner:     Lattice
-   Activates: only when document.body has class "jb-v2".
-   Renders:   horizontal kanban inside <section data-region="lattice">.
+   Owner:     Lattice (losing v2 renderer — F2-A)
+   Activates: does not mount. Pipeline is the canonical v2 board.
+   Renders:   dormant host only. [data-region="lattice"] stays in the
+              DOM for smoke composition checks, but init() refuses to
+              paint a competing board.
    State:     reads window.pipelineData (legacy app.js array of jobs)
               and re-renders on a custom 'jb:pipeline:rendered' event,
               plus a polling fallback for store revisions while the
@@ -20,34 +22,68 @@
 
   var SCROLL_KEY = "jb-v2-lattice-scroll";
   var CLOSED_KEY = "jb-v2-lattice-show-closed";
-  var STAGES = [
-    "New",
-    "Researching",
-    "Applied",
-    "Phone Screen",
-    "Interviewing",
-    "Offer",
-    "Rejected",
-    "Passed",
-    "Expired",
+  var LOSING_RENDERER = true;
+  var CANONICAL_BOARD = "pipeline";
+  /* ── Canonical stage vocabulary ────────────────────────────────────
+     Runtime source is window.JobBoredStages (stage-registry.js), which mirrors
+     the status enum of schemas/pipeline-row.v1.json. STAGE_FALLBACK below is
+     used only when that script is absent; tests/stage-registry-canonical.test.mjs
+     pins it — and every other board's copy — to the schema.
+
+     This board keys columns by the Sheet label (window.updateJobStatus writes
+     the label straight into Pipeline!M), so STAGES is the label list. It stays
+     converged even though F2-A keeps the board dormant: JB_LATTICE.STAGES and
+     setStage remain reachable, and a stage list that drifts here is a stage
+     list that writes the wrong label the day this board is reactivated. */
+  var STAGE_FALLBACK = [
+    ["new", "New"], ["researching", "Researching"], ["applied", "Applied"],
+    ["phone-screen", "Phone Screen"], ["interviewing", "Interviewing"],
+    ["offer", "Offer"], ["rejected", "Rejected"], ["passed", "Passed"],
+    ["expired", "Expired"],
   ];
-  var CLOSED = { Rejected: true, Passed: true };
-  var STAGE_DOT_KEY = {
-    New: "new",
-    Researching: "researching",
-    Applied: "applied",
-    "Phone Screen": "phone",
-    Interviewing: "interviewing",
-    Offer: "offer",
-    Rejected: "rejected",
-    Passed: "passed",
-    Expired: "expired",
-  };
+
+  function stageRegistry() {
+    return (typeof window !== "undefined" && window.JobBoredStages) || null;
+  }
+
+  var STAGES = (function () {
+    var reg = stageRegistry();
+    return reg ? reg.STATUSES.slice() : STAGE_FALLBACK.map(function (p) { return p[1]; });
+  })();
+
+  /* Terminal outcomes, hidden behind the "show closed" pill. Expired is NOT
+     closed — an expired posting is a fact about the posting, not an outcome. */
+  var CLOSED = (function () {
+    var reg = stageRegistry();
+    var keys = reg ? reg.CLOSED_KEYS : ["rejected", "passed"];
+    var out = {};
+    keys.forEach(function (k) {
+      out[reg ? reg.LABELS[k] : k.charAt(0).toUpperCase() + k.slice(1)] = true;
+    });
+    return out;
+  })();
+
+  /* Sheet label -> <jb-stage-dot stage="..."> token ("Phone Screen" is spelled
+     "phone" in tokens-v2.css). */
+  var STAGE_DOT_KEY = (function () {
+    var reg = stageRegistry();
+    var out = {};
+    STAGE_FALLBACK.forEach(function (p) {
+      out[p[1]] = reg ? reg.DOT_KEYS[p[0]] : (p[0] === "phone-screen" ? "phone" : p[0]);
+    });
+    return out;
+  })();
 
   // ---- helpers ----------------------------------------------------------
 
   function isOn() {
     return !!(document.body && document.body.classList.contains("jb-v2"));
+  }
+
+  function isLosingRenderer() {
+    var boot = window.JobBoredV2Boot;
+    if (boot && boot.CANONICAL_BOARD && boot.CANONICAL_BOARD !== "pipeline") return false;
+    return LOSING_RENDERER && CANONICAL_BOARD === "pipeline";
   }
 
   function el(tag, attrs, kids) {
@@ -106,15 +142,20 @@
     return parts.slice(0, 2);
   }
 
-  function fitPercent(job) {
+  function fitUnitsOf(job) {
+    var api = window.JobBoredDawn && window.JobBoredDawn.data;
+    if (api && typeof api.normalizeFitUnits === "function") {
+      return api.normalizeFitUnits(job && job.fitScore);
+    }
     var raw = job && job.fitScore;
-    if (raw == null) return null;
+    if (raw == null || raw === "") return { value: null, unknown: true };
     var n = Number(raw);
-    if (!isFinite(n)) return null;
-    if (n <= 1.0001 && n >= 0) n = n * 100;
-    if (n > 100) n = 100;
-    if (n < 0) n = 0;
-    return Math.round(n);
+    if (!isFinite(n)) return { value: null, unknown: true };
+    if (n === 0) return { value: 0, unknown: false };
+    if (n > 0 && n < 1) return { value: Math.round(n * 10), unknown: false };
+    if (n >= 1 && n <= 10) return { value: Math.round(n), unknown: false };
+    if (n > 10 && n <= 100) return { value: Math.round(n / 10), unknown: false };
+    return { value: null, unknown: true };
   }
 
   function lastTouched(job) {
@@ -360,12 +401,14 @@
 
   function buildCard(job, dataIndex) {
     var stableKey = dataIndex;
-    var pct = fitPercent(job);
+    var units = fitUnitsOf(job);
+    var fitKnown = !!(units && !units.unknown && units.value != null);
+    var ringPct = fitKnown ? Math.max(0, Math.min(100, Number(units.value) * 10)) : null;
     var selected = state.selectedKey === dataIndex;
     var favorite = !!job.favorite;
     var rich = isLatticeRichCardEnabled();
     var enr = (job && job._postingEnrichment) || null;
-    var stageRaw = normalizeStage(job.status);   // "Phone Screen"
+    var stageRaw = normalizeStage(job.status);   // canonical Sheet label
     var stageKey = stageCssKey(stageRaw);        // "phone-screen"
 
     // ── Adaptive fields (each shown only when data is present) ──────────
@@ -438,8 +481,8 @@
               e.stopPropagation();
             },
           }, favorite ? "★" : "☆"),
-          pct != null
-            ? el("jb-fit-ring", { percent: String(pct), size: "sm", label: "Fit " + pct + "%" })
+          ringPct != null
+            ? el("jb-fit-ring", { percent: String(ringPct), size: "sm", label: "Fit " + String(units.value) + "/10" })
             : null,
         ]),
         // Identity strip — always present. Stage chip + seniority give
@@ -902,7 +945,7 @@
 
   // ---- write-back via setStage (delegates to existing updateJobStatus) --
 
-  function setStage(dataIndex, newStage, prevStage) {
+  function legacyStatusWrite(dataIndex, newStage, prevStage) {
     if (typeof window.updateJobStatus === "function") {
       // Pass prevStage explicitly: handleStageChange has already mutated
       // job.status optimistically, so updateJobStatus can no longer read the
@@ -912,6 +955,33 @@
       return window.updateJobStatus(dataIndex, newStage, prevStage);
     }
     return Promise.resolve(false);
+  }
+
+  function setStage(dataIndex, newStage, prevStage) {
+    var adapter = window.JobBoredPipelineTransitionAdapter;
+    if (adapter && typeof adapter.move === "function") {
+      /* The adapter owns the outcome once it reports handled: it either
+         applied the planner's patch batch, handed the move to flowing-writes
+         on jb:pipeline:move, or dispatched jb:write:failed. Calling
+         updateJobStatus on top of any of those writes the row twice — the
+         reason this board is dormant does not make that safe, because
+         JB_LATTICE.setStage stays reachable. */
+      return Promise.resolve(
+        adapter.move({
+          jobKey: String(dataIndex),
+          fromStage: prevStage,
+          toStage: newStage,
+          dataIndex: dataIndex,
+          source: "lattice-board",
+        }),
+      ).then(function (result) {
+        if (result && result.handled) return result.ok !== false;
+        return legacyStatusWrite(dataIndex, newStage, prevStage);
+      }, function () {
+        return legacyStatusWrite(dataIndex, newStage, prevStage);
+      });
+    }
+    return legacyStatusWrite(dataIndex, newStage, prevStage);
   }
 
   function moveStage(dataIndex, fromStage, dir) {
@@ -963,50 +1033,25 @@
     }
   }
 
-  // ---- search "/" hotkey -----------------------------------------------
-
-  function wireGlobalHotkeys() {
-    document.addEventListener("keydown", function (e) {
-      if (!isOn()) return;
-      if (e.key !== "/") return;
-      var tag = (document.activeElement && document.activeElement.tagName) || "";
-      if (tag === "INPUT" || tag === "TEXTAREA" || tag === "SELECT") return;
-      var input = document.querySelector('[data-region="lattice"] .jb-lat__search');
-      if (input) {
-        e.preventDefault();
-        input.focus();
-        input.select && input.select();
-      }
-    });
-  }
-
   // ---- bootstrap --------------------------------------------------------
 
+  function unmountLattice() {
+    var rootEl = getRoot();
+    if (rootEl) rootEl.innerHTML = "";
+  }
+
   function init() {
-    if (!isOn()) {
-      // legacy mode: nothing to do; region stays empty
-      return;
+    // F2-A: Pipeline is the canonical v2 board. Lattice stays loaded so
+    // smoke composition and leftover setStage tests still resolve, but
+    // init must not paint a competing board.
+    unmountLattice();
+    if (window.JobBoredV2Boot && typeof window.JobBoredV2Boot.register === "function") {
+      window.JobBoredV2Boot.register({
+        lattice: { mount: function () {}, unmount: unmountLattice },
+      });
     }
-    render();
-    wireGlobalHotkeys();
-
-    // Re-render whenever upstream pipeline state changes. The legacy
-    // renderPipeline() runs after every store mutation; we hook a
-    // MutationObserver on #jobCards (a stable upstream container) as a
-    // cheap revision signal that does not require any app.js change.
-    var jobCards = document.getElementById("jobCards");
-    if (jobCards) {
-      var obs = new MutationObserver(debounce(function () { render(); }, 80));
-      obs.observe(jobCards, { childList: true, subtree: false });
-    }
-
-    // Custom event escape hatch for explicit re-renders if app.js
-    // ever dispatches one in future.
-    document.addEventListener("jb:pipeline:rendered", function () { render(); });
-    document.addEventListener("jb:pipeline:filters-changed", function () { render(); });
-
-    // Run self-test if URL contains ?jb-v2-test=lattice
-    if (location.search.indexOf("jb-v2-test=lattice") >= 0) selfTest();
+    if (isLosingRenderer()) return;
+    return;
   }
 
   // ---- self-test --------------------------------------------------------
@@ -1055,6 +1100,9 @@
   window.JB_LATTICE = {
     render: render,
     setStage: setStage,
+    unmount: unmountLattice,
+    LOSING_RENDERER: LOSING_RENDERER,
+    CANONICAL_BOARD: CANONICAL_BOARD,
     STAGES: STAGES.slice(),
     selfTest: selfTest,
   };

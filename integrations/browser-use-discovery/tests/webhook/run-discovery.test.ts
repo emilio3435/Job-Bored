@@ -5553,7 +5553,7 @@ test("runDiscovery treats missing optional SerpApi key as unavailable without pa
   );
 });
 
-test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-to-end", async () => {
+test("runDiscovery serpapi_google_jobs lane writes only allowlisted companies", async () => {
   const writtenLeads: Array<Record<string, unknown>> = [];
   // Intercept both the run-discovery preflight HTML path AND serpapi calls.
   globalThis.fetch = (async (input: string | URL | Request) => {
@@ -5570,8 +5570,8 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
               via: "via Greenhouse",
               apply_options: [
                 {
-                  title: "Apply on Greenhouse",
-                  link: "https://boards.greenhouse.io/notion/jobs/111",
+                  title: "Apply on SmartRecruiters",
+                  link: "https://jobs.smartrecruiters.com/Notion/111",
                 },
               ],
               detected_extensions: { posted_at: "2 days ago" },
@@ -5585,7 +5585,7 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
               apply_options: [
                 {
                   title: "Apply",
-                  link: "https://jobs.ashbyhq.com/figma/abcd",
+                  link: "https://jobs.smartrecruiters.com/Figma/abcd",
                 },
               ],
             },
@@ -5642,7 +5642,7 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
       sheetId,
       mode: "hosted",
       timezone: "UTC",
-      companies: [],
+      companies: [{ name: "Notion", domains: ["jobs.smartrecruiters.com"] }],
       includeKeywords: [],
       excludeKeywords: [],
       targetRoles: ["Backend Engineer"],
@@ -5659,6 +5659,12 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
       requestedAt: request.requestedAt,
       sourcePreset: "browser_only",
       effectiveSources: ["serpapi_google_jobs"],
+      allowlistResolution: {
+        mode: "restricted",
+        matched: ["jobs.smartrecruiters.com"],
+        unknown: [],
+      },
+      allowUnrestrictedFallback: false,
     }),
     now: (() => {
       let index = 0;
@@ -5677,6 +5683,7 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
     sheetId: "sheet_serp",
     variationKey: "var_serp",
     requestedAt: "2026-04-21T12:00:00.000Z",
+    companyAllowlist: ["jobs.smartrecruiters.com"],
     discoveryProfile: {
       targetRoles: "Backend Engineer",
       locations: "Remote",
@@ -5694,7 +5701,7 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
     ["completed", "partial"].includes(result.lifecycle.state),
     `unexpected lifecycle state: ${result.lifecycle.state}`,
   );
-  assert.ok(writtenLeads.length >= 1, "at least one serpapi lead should land");
+  assert.equal(writtenLeads.length, 1, "only the allowlisted SerpApi lead should land");
   const serpLeads = writtenLeads.filter(
     (lead) => lead.sourceId === "serpapi_google_jobs",
   );
@@ -5703,8 +5710,5 @@ test("runDiscovery serpapi_google_jobs lane writes structured SerpApi leads end-
     "serp leads attributed to the new source id",
   );
   const leadCompanies = new Set(serpLeads.map((l) => l.company));
-  assert.ok(
-    leadCompanies.has("Notion") || leadCompanies.has("Figma"),
-    "serp leads should carry the SerpApi-provided company name",
-  );
+  assert.deepEqual([...leadCompanies], ["Notion"]);
 });

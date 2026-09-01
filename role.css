@@ -216,8 +216,8 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
    the dossier without affecting the rest of style.css.
    ───────────────────────────────────────────────────────── */
 .dossier {
-  --surface: #FFFEF9;
-  --border: #E5DFCC;
+  --surface: var(--jb-paper);
+  --border: var(--jb-line-soft);
   --radius-md: 10px;
   --radius-lg: 16px;
 
@@ -316,6 +316,29 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 }
 .brief__facts .dot {
   color: var(--border-strong);
+}
+
+/* Masthead evidence chips — one per identity field, so Title/Company/
+   Location/Salary each carry their own provenance label. */
+.brief__identity-provenance {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 12px;
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.45;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.brief__identity-provenance-label {
+  color: var(--navy);
+  font-weight: 600;
+}
+.brief__identity-provenance-chip {
+  display: inline-flex;
+  align-items: center;
 }
 
 /* Editable location/salary facts — inherit the mono fact styling, size to
@@ -547,6 +570,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 .brief__lede-tag {
   display: inline-flex;
   align-items: center;
+  flex-wrap: wrap;
   gap: 6px;
   margin-top: 14px;
   font-family: var(--mono);
@@ -562,6 +586,61 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   border-radius: 50%;
   background: var(--mint-deep);
   box-shadow: 0 0 0 3px rgba(110, 159, 135, 0.18);
+}
+.brief__lede-tag[data-grounding="inferred"]::before,
+.brief__lede-tag[data-grounding="unknown"]::before {
+  background: var(--amber);
+  box-shadow: 0 0 0 3px rgba(196, 149, 74, 0.18);
+}
+.brief__freshness {
+  letter-spacing: 0.12em;
+  color: var(--mute);
+}
+
+/* Per-field evidence line. Colour carries the label: mint = posting-
+   grounded, navy = user-provided, amber = inferred or cache-stale,
+   mute = unknown / recovered parse. */
+.brief__provenance {
+  margin: 0 0 10px;
+  font-family: var(--mono);
+  font-size: 9px;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.brief__hook-block .brief__provenance {
+  margin: 4px 0 0 28px;
+}
+.brief__provenance--posting-grounded {
+  color: var(--mint-deep);
+}
+.brief__provenance--user-provided {
+  color: var(--navy);
+}
+.brief__provenance--inferred,
+.brief__provenance--stale {
+  color: var(--amber);
+}
+.brief__provenance--unknown,
+.brief__provenance--recovered {
+  color: var(--mute);
+}
+.brief__review {
+  margin: 16px 0 0;
+  padding: 12px 14px;
+  border: 1px solid rgba(196, 149, 74, 0.35);
+  background: rgba(196, 149, 74, 0.08);
+}
+.brief__review .section-label {
+  color: var(--amber);
+}
+.brief__review-body {
+  margin: 6px 0 0;
+  font-family: var(--serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: var(--ink);
 }
 
 /* At-a-glance facts panel */
@@ -597,6 +676,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   padding: 10px 0;
   border-bottom: 1px dotted var(--border-strong);
   gap: 16px;
+  flex-wrap: wrap;
 }
 .skim li:last-child {
   border-bottom: none;
@@ -622,6 +702,11 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   font-weight: 600;
   color: var(--crimson);
   letter-spacing: -0.01em;
+}
+.skim__provenance {
+  flex-basis: 100%;
+  margin: -6px 0 0;
+  text-align: right;
 }
 
 /* Section label — typewriter, JobBored zone */
@@ -920,7 +1005,7 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 }
 .stepper__step--current {
   background: var(--navy);
-  color: #F6F1DF;
+  color: var(--jb-ink-inverse);
   border-color: var(--navy);
   font-weight: 600;
 }
@@ -1381,6 +1466,16 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 .brief__struct--resp  li::before { background: var(--navy); }
 .brief__struct--nice  li::before { background: var(--mint-deep); }
 .brief__struct--tools li::before { background: var(--amber); }
+/* Loose/repaired parse recovery — dashed and de-emphasised so a recovered
+   list never reads as clean schema output. */
+.brief__struct--recovered {
+  background: var(--parchment-deep);
+  border-style: dashed;
+  box-shadow: none;
+}
+.brief__struct--recovered li {
+  color: var(--ink-soft);
+}
 
 /* Tags & skills — a quiet chip cloud in the side column, sitting
    between the at-a-glance skim and the talking points. */
@@ -1491,7 +1586,7 @@ body.jb-v2 .brief-materials {
   display: flex;
   flex-direction: column;
   gap: 10px;
-  background: var(--parchment, #FBF7EE);
+  background: var(--jb-paper-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md, 8px);
   padding: 14px 16px 16px;
@@ -1504,8 +1599,8 @@ body.jb-v2 .brief-materials {
   box-shadow: var(--shadow-soft);
 }
 .brief-materials__card--primary {
-  background: var(--mint-soft, #E5F4EA);
-  border-color: var(--mint-deep, #3FA46A);
+  background: var(--jb-mint-soft);
+  border-color: var(--jb-mint-deep);
 }
 .brief-materials__card--primary:hover {
   border-color: var(--navy);
@@ -1560,7 +1655,7 @@ body.jb-v2 .brief-materials {
   animation: brief-materials-pulse 1400ms ease-in-out infinite;
 }
 .brief-materials__card--pending {
-  background: var(--parchment, #FBF7EE);
+  background: var(--jb-paper-2);
   border-color: rgba(231, 181, 73, 0.45);
   border-left: 3px solid var(--amber);
 }
@@ -1631,11 +1726,11 @@ body.jb-v2 .brief-materials {
   z-index: 1;
 }
 .brief-materials__progress[data-phase="complete"] .brief-materials__progress-icon {
-  color: #2f8a5e;
+  color: var(--jb-mint-deep);
   background: rgba(255, 255, 255, 0.85);
 }
 .brief-materials__progress[data-phase="failed"] .brief-materials__progress-icon {
-  color: #b03e3e;
+  color: var(--jb-rose);
   background: rgba(255, 255, 255, 0.85);
 }
 /* "Draft is being written" pen: the nib sweeps across while the baseline
@@ -1696,10 +1791,10 @@ body.jb-v2 .brief-materials {
   color: var(--mute);
 }
 .brief-materials__progress[data-phase="complete"] .brief-materials__progress-eyebrow {
-  color: #2f8a5e;
+  color: var(--jb-mint-deep);
 }
 .brief-materials__progress[data-phase="failed"] .brief-materials__progress-eyebrow {
-  color: #b03e3e;
+  color: var(--jb-rose);
 }
 .brief-materials__progress-elapsed {
   font-family: var(--mono);
@@ -1864,12 +1959,12 @@ body.jb-v2 .brief-materials {
   background: linear-gradient(180deg, rgba(76, 175, 116, 0.10) 0%, rgba(76, 175, 116, 0.04) 100%);
 }
 .brief-materials__notes-form--sent .brief-materials__notes-eyebrow {
-  color: #2f8a5e;
+  color: var(--jb-mint-deep);
 }
 .brief-materials__notes-form--sent .brief-materials__btn--primary {
-  background: #2f8a5e;
-  border-color: #2f8a5e;
-  color: #fff;
+  background: var(--jb-mint-deep);
+  border-color: var(--jb-mint-deep);
+  color: var(--jb-paper);
   cursor: default;
   animation: brief-materials-pop-in 260ms ease-out;
 }
@@ -1937,7 +2032,7 @@ body.jb-v2 .brief-materials {
 }
 .brief-materials__btn--primary {
   background: var(--navy);
-  color: #F6F1DF;
+  color: var(--jb-ink-inverse);
   border: 1px solid var(--navy);
 }
 .brief-materials__btn--primary:hover {
@@ -1969,7 +2064,7 @@ body.jb-v2 .brief-materials {
   gap: 12px;
   margin: 0 56px 16px;
   padding: 18px 20px 16px;
-  background: var(--parchment, #FBF7EE);
+  background: var(--jb-paper-2);
   border: 1px solid var(--border);
   border-left: 3px solid var(--navy);
   border-radius: var(--radius-md, 8px);
@@ -2003,7 +2098,7 @@ body.jb-v2 .brief-materials {
   font-size: 12.5px;
   line-height: 1.55;
   color: var(--navy);
-  background: #FFFDF6;
+  background: var(--jb-paper);
   border: 1px solid var(--border-strong);
   border-radius: var(--radius-md, 8px);
   box-sizing: border-box;
@@ -2041,7 +2136,7 @@ body.jb-v2 .brief-materials {
 .brief-materials__jd-form {
   margin: 0 0 18px;
   padding: 18px 20px;
-  background: var(--parchment, #FBF7EE);
+  background: var(--jb-paper-2);
   border: 1px solid var(--border);
   border-left: 3px solid var(--amber);
   border-radius: var(--radius-md, 8px);
@@ -2090,7 +2185,7 @@ body.jb-v2 .brief-materials {
   font-size: 12px;
   line-height: 1.5;
   color: var(--navy);
-  background: #fff;
+  background: var(--jb-paper);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm, 6px);
   box-sizing: border-box;

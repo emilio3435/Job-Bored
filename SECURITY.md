@@ -43,8 +43,10 @@ live by default:
 - **Settings (browser `localStorage`):** Sheet id, OAuth client id, AI API
   keys, webhook URLs. Stays in your browser. Not transmitted to the
   project authors.
-- **OAuth access token:** In-memory only, lifetime = your browser session.
-  Used to write back to Google Sheets.
+- **OAuth access token:** Tab-scoped `sessionStorage` (cleared when the tab
+  closes; never durable `localStorage`). A same-browser identity marker in
+  `localStorage` does not include the token. Used to read and write your
+  Google Sheet.
 - **Resume + profile text (browser `IndexedDB`):** Local to your browser.
 - **Discovery preferences** (target roles, locations, keywords) and **draft
   history**: Local to your browser via `IndexedDB`.
@@ -60,8 +62,10 @@ configure:
 - **Your discovery webhook URL**, when you click Run discovery. The
   request includes your `discoveryProfile`.
 - **Your chosen AI provider** (OpenRouter / Gemini / OpenAI / Anthropic /
-  local / your webhook), when you draft materials or click Check
-  connection. The request includes only the prompt + your key.
+  local / your webhook), when you draft materials, score a posting, or
+  click Check connection. That request receives resume, profile, and job
+  context plus your key. Career data is not sent to JobBored's authors,
+  but it does leave this browser whenever you use a hosted or local model.
 
 ## Hardening that's already in place
 

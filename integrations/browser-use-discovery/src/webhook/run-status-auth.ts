@@ -49,6 +49,73 @@ export function appendRunStatusToken(
   }
 }
 
+export type ParsedRunStatusPath =
+  | { ok: true; runId: string }
+  | {
+      ok: false;
+      status: 400;
+      body: { ok: false; message: string };
+    };
+
+/**
+ * Parse `/runs/:runId` and reject nested or traversal run IDs.
+ * Documented malformed shape: `{ ok: false, message }` with HTTP 400.
+ */
+export function parseRunStatusPath(requestPath: string): ParsedRunStatusPath {
+  const raw = String(requestPath || "").trim();
+  if (!raw.startsWith("/runs/")) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        message: "Run status path is malformed.",
+      },
+    };
+  }
+  const rest = raw.slice("/runs/".length);
+  if (!rest) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        message: "Run id is required.",
+      },
+    };
+  }
+  let decoded = rest;
+  try {
+    decoded = decodeURIComponent(rest);
+  } catch {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        message: "Run id is malformed.",
+      },
+    };
+  }
+  const runId = decoded.trim();
+  if (
+    !runId ||
+    runId.includes("/") ||
+    runId.includes("\\") ||
+    runId.includes("..")
+  ) {
+    return {
+      ok: false,
+      status: 400,
+      body: {
+        ok: false,
+        message: "Nested run IDs are not allowed.",
+      },
+    };
+  }
+  return { ok: true, runId };
+}
+
 export function hasValidRunStatusToken(input: {
   webhookSecret: string;
   runId: string;

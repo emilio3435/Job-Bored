@@ -19,4 +19,18 @@ describe("materials CORS", () => {
       "job-description.md writes use PUT and must pass browser CORS preflight",
     );
   });
+
+  it("F0D-F11-FWD does not use X-Forwarded-Host/Proto to decide CORS origin", () => {
+    const source = readFileSync(join(repoRoot, "server", "index.mjs"), "utf8");
+    assert.doesNotMatch(
+      source,
+      /x-forwarded-host/i,
+      "CORS must not trust X-Forwarded-Host",
+    );
+    assert.doesNotMatch(
+      source,
+      /x-forwarded-proto/i,
+      "CORS must not trust X-Forwarded-Proto",
+    );
+  });
 });

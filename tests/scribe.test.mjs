@@ -1,481 +1,32 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
-import { fileURLToPath } from "node:url";
-import vm from "node:vm";
 
-const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const scribeJs = readFileSync(join(repoRoot, "scribe.js"), "utf8");
+import {
+  ALL_LEGACY_BUTTONS,
+  FakeEvent,
+  loadScribe,
+} from "./fixtures/scribe/scribe-dom.mjs";
 
 // ============================================================
 // Behavioral coverage for scribe.js — the v2 ATS + cover-letter
 // workspace. scribe.js is a classic-global IIFE that renders into
-// [data-region="scribe"], bridges every action to the LEGACY modal
-// controls by id (#resumeGenerate*), keeps #resumeGenerateOutput the
-// source of truth for body text, and debounces editor keystrokes via
-// window.setTimeout before syncing back.
+// [data-region="scribe"], bridges its export actions to the LEGACY
+// modal controls by id (#resumeGenerate*), keeps #resumeGenerateOutput
+// the source of truth for body text, and debounces editor keystrokes
+// via window.setTimeout before syncing back.
 //
-// Harness: the module is loaded into a fresh VM context per test
-// (mirrors tests/discovery-cross-rec.test.mjs). Because scribe.js
-// renders via region.innerHTML and walks the result with
-// querySelector/cloneNode/textContent, the fake DOM here is richer
-// than enhancements-wizard's makeFakeDom: it parses the HTML the
-// module emits (hand-rolled — no jsdom in this repo, see
-// tests/kanban-card-attrs.test.mjs). All timers route through
-// window.setTimeout, so a fake clock makes the 600ms debounce, the
-// 350ms refine snapshot, and the 50ms smoke defer deterministic.
-// location.search stays empty by default so smoke mode never
-// auto-runs unless a test opts in.
+// Harness: tests/fixtures/scribe/scribe-dom.mjs — the hand-rolled fake
+// DOM + fake clock this file used to carry inline, now shared with the
+// four SCRIBE-0x probe files (there is no jsdom in this repo, see
+// tests/kanban-card-attrs.test.mjs).
+//
+// Scoring lives in scribe-score-adapter.js (tests/scribe-real-score),
+// persistence in scribe-state.js (tests/scribe-state-autosave), and
+// refine/export truth in tests/scribe-refine-async-truth +
+// tests/scribe-stale-export. This file covers the workspace shell:
+// boot gating, the legacy text bridge, the debounce, and the smoke
+// harness.
 // ============================================================
-
-class FakeEvent {
-  constructor(type, opts = {}) {
-    this.type = String(type);
-    this.bubbles = !!opts.bubbles;
-    this.defaultPrevented = false;
-    this.target = null;
-  }
-  preventDefault() {
-    this.defaultPrevented = true;
-  }
-}
-
-const VOID_TAGS = new Set(["br", "hr", "img", "input", "meta", "link"]);
-
-function decodeEntities(s) {
-  return String(s)
-    .replace(/&lt;/g, "<")
-    .replace(/&gt;/g, ">")
-    .replace(/&quot;/g, '"')
-    .replace(/&#39;/g, "'")
-    .replace(/&nbsp;/g, " ")
-    .replace(/&amp;/g, "&");
-}
-
-function makeDom() {
-  function makeText(text) {
-    return { nodeType: 3, data: String(text), parentNode: null };
-  }
-
-  // Plain constructor so scribe's smoke hook can monkey-patch
-  // HTMLElement.prototype.click exactly like it does in a browser.
-  // Defined per-load so a patch in one test never leaks into another.
-  function FakeHTMLElement() {}
-  FakeHTMLElement.prototype.click = function () {
-    this.dispatchEvent(new FakeEvent("click", { bubbles: true }));
-  };
-
-  class FakeElement extends FakeHTMLElement {
-    constructor(tagName) {
-      super();
-      this.nodeType = 1;
-      this.tagName = String(tagName || "div").toUpperCase();
-      this.parentNode = null;
-      this.childNodes = [];
-      this.dataset = {};
-      this.style = {};
-      this.value = "";
-      this._attrs = new Map();
-      this._classes = new Set();
-      this._listeners = new Map();
-      this._scrollCalls = [];
-      this._focusCalls = 0;
-      const classes = this._classes;
-      this.classList = {
-        add: (...cs) => cs.forEach((c) => classes.add(c)),
-        remove: (...cs) => cs.forEach((c) => classes.delete(c)),
-        contains: (c) => classes.has(c),
-        toggle: (c) => (classes.has(c) ? classes.delete(c) : classes.add(c)),
-      };
-    }
-    get id() {
-      return this._attrs.get("id") || "";
-    }
-    set id(v) {
-      this._attrs.set("id", String(v));
-    }
-    get className() {
-      return [...this._classes].join(" ");
-    }
-    set className(v) {
-      this._classes.clear();
-      String(v || "").split(/\s+/).filter(Boolean).forEach((c) => this._classes.add(c));
-    }
-    get textContent() {
-      let out = "";
-      for (const c of this.childNodes) out += c.nodeType === 3 ? c.data : c.textContent;
-      return out;
-    }
-    set textContent(v) {
-      this.childNodes.length = 0;
-      const text = String(v == null ? "" : v);
-      if (text) {
-        const node = makeText(text);
-        node.parentNode = this;
-        this.childNodes.push(node);
-      }
-    }
-    set innerHTML(html) {
-      this.childNodes.length = 0;
-      parseInto(this, String(html == null ? "" : html));
-    }
-    setAttribute(name, value) {
-      const v = String(value);
-      this._attrs.set(name, v);
-      if (name === "class") this.className = v;
-      if (name.startsWith("data-")) {
-        const key = name.slice(5).replace(/-([a-z])/g, (_, c) => c.toUpperCase());
-        this.dataset[key] = v;
-      }
-    }
-    getAttribute(name) {
-      return this._attrs.has(name) ? this._attrs.get(name) : null;
-    }
-    removeAttribute(name) {
-      this._attrs.delete(name);
-    }
-    appendChild(child) {
-      child.parentNode = this;
-      this.childNodes.push(child);
-      return child;
-    }
-    addEventListener(type, fn) {
-      if (!this._listeners.has(type)) this._listeners.set(type, []);
-      this._listeners.get(type).push(fn);
-    }
-    removeEventListener() {}
-    dispatchEvent(evt) {
-      if (!evt.target) evt.target = this;
-      let node = this;
-      while (node) {
-        const fns = node._listeners && node._listeners.get(evt.type);
-        if (fns) for (const fn of [...fns]) fn.call(node, evt);
-        if (!evt.bubbles) break;
-        node = node.parentNode;
-      }
-      return !evt.defaultPrevented;
-    }
-    cloneNode(deep) {
-      const copy = new FakeElement(this.tagName);
-      for (const [k, v] of this._attrs) copy.setAttribute(k, v);
-      copy.value = this.value;
-      if (deep) {
-        for (const c of this.childNodes) {
-          copy.appendChild(c.nodeType === 3 ? makeText(c.data) : c.cloneNode(true));
-        }
-      }
-      return copy;
-    }
-    replaceWith(replacement) {
-      const parent = this.parentNode;
-      if (!parent) return;
-      const idx = parent.childNodes.indexOf(this);
-      const node = typeof replacement === "string" ? makeText(replacement) : replacement;
-      node.parentNode = parent;
-      parent.childNodes[idx] = node;
-    }
-    querySelectorAll(sel) {
-      return collectElements(this).filter((el) => matchesSelector(el, sel));
-    }
-    querySelector(sel) {
-      return this.querySelectorAll(sel)[0] || null;
-    }
-    closest(sel) {
-      let node = this;
-      while (node && node.nodeType === 1) {
-        if (matchesSelector(node, sel)) return node;
-        node = node.parentNode;
-      }
-      return null;
-    }
-    focus() {
-      this._focusCalls += 1;
-    }
-    scrollIntoView(opts) {
-      this._scrollCalls.push(opts || null);
-    }
-  }
-
-  function collectElements(root, out = []) {
-    for (const c of root.childNodes) {
-      if (c && c.nodeType === 1) {
-        out.push(c);
-        collectElements(c, out);
-      }
-    }
-    return out;
-  }
-
-  // Selector support: #id, tag, .class, [attr], [attr="value"],
-  // compounds thereof, and comma-separated OR lists — everything
-  // scribe.js actually uses (no descendant combinators needed).
-  function matchesCompound(el, sel) {
-    let rest = sel.trim();
-    const tagMatch = /^([a-zA-Z][a-zA-Z0-9-]*)/.exec(rest);
-    if (tagMatch) {
-      if (el.tagName.toLowerCase() !== tagMatch[1].toLowerCase()) return false;
-      rest = rest.slice(tagMatch[1].length);
-    }
-    const partRe = /([#.][\w-]+|\[[^\]]+\])/g;
-    let m;
-    while ((m = partRe.exec(rest))) {
-      const part = m[1];
-      if (part[0] === "#") {
-        if (el.id !== part.slice(1)) return false;
-      } else if (part[0] === ".") {
-        if (!el._classes.has(part.slice(1))) return false;
-      } else {
-        const body = part.slice(1, -1);
-        const eq = body.indexOf("=");
-        if (eq === -1) {
-          if (!el._attrs.has(body.trim())) return false;
-        } else {
-          const name = body.slice(0, eq).trim();
-          let val = body.slice(eq + 1).trim();
-          if (val.startsWith('"') && val.endsWith('"')) val = val.slice(1, -1);
-          if (el._attrs.get(name) !== val) return false;
-        }
-      }
-    }
-    return true;
-  }
-
-  function matchesSelector(el, selector) {
-    return String(selector)
-      .split(",")
-      .some((s) => matchesCompound(el, s.trim()));
-  }
-
-  // Minimal well-formed-HTML parser for the markup scribe.js emits
-  // (double-quoted attrs, boolean attrs, custom elements, <br />).
-  function parseInto(parent, html) {
-    const stack = [parent];
-    let i = 0;
-    while (i < html.length) {
-      const lt = html.indexOf("<", i);
-      if (lt === -1) {
-        appendTextTo(stack[stack.length - 1], html.slice(i));
-        break;
-      }
-      if (lt > i) appendTextTo(stack[stack.length - 1], html.slice(i, lt));
-      const gt = html.indexOf(">", lt);
-      if (gt === -1) break;
-      const raw = html.slice(lt + 1, gt).trim();
-      if (raw.startsWith("/")) {
-        if (stack.length > 1) stack.pop();
-      } else if (!raw.startsWith("!")) {
-        const selfClosing = raw.endsWith("/");
-        const tagBody = selfClosing ? raw.slice(0, -1) : raw;
-        const nameMatch = /^([a-zA-Z][a-zA-Z0-9-]*)/.exec(tagBody);
-        const el = new FakeElement(nameMatch[1]);
-        const attrSrc = tagBody.slice(nameMatch[1].length);
-        const attrRe = /([a-zA-Z_][a-zA-Z0-9_:.-]*)(?:\s*=\s*"([^"]*)")?/g;
-        let am;
-        while ((am = attrRe.exec(attrSrc))) {
-          el.setAttribute(am[1], am[2] === undefined ? "" : decodeEntities(am[2]));
-        }
-        stack[stack.length - 1].appendChild(el);
-        if (!selfClosing && !VOID_TAGS.has(nameMatch[1].toLowerCase())) stack.push(el);
-      }
-      i = gt + 1;
-    }
-  }
-
-  function appendTextTo(parent, text) {
-    if (!text) return;
-    const node = makeText(decodeEntities(text));
-    node.parentNode = parent;
-    parent.childNodes.push(node);
-  }
-
-  const docListeners = [];
-  const body = new FakeElement("body");
-  const document = {
-    readyState: "complete",
-    body,
-    createElement: (tag) => new FakeElement(tag),
-    createTextNode: (text) => makeText(text),
-    getElementById: (id) => collectElements(body).find((el) => el.id === id) || null,
-    querySelector: (sel) => body.querySelector(sel),
-    querySelectorAll: (sel) => body.querySelectorAll(sel),
-    addEventListener: (type, fn) => {
-      docListeners.push({ type, fn });
-    },
-  };
-
-  return { FakeHTMLElement, FakeElement, makeText, body, document, docListeners };
-}
-
-function makeTimers() {
-  let nextId = 1;
-  const tasks = new Map();
-  return {
-    set(fn, ms) {
-      const id = nextId++;
-      tasks.set(id, { fn, ms });
-      return id;
-    },
-    clear(id) {
-      tasks.delete(id);
-    },
-    count() {
-      return tasks.size;
-    },
-    flush() {
-      const snapshot = [...tasks.entries()];
-      for (const [id, task] of snapshot) {
-        tasks.delete(id);
-        task.fn();
-      }
-    },
-  };
-}
-
-const ALL_LEGACY_BUTTONS = [
-  "resumeGeneratePrint",
-  "resumeGenerateCopy",
-  "resumeGenerateDone",
-  "resumeGenerateClose",
-  "resumeGenerateRefine",
-];
-
-function loadScribe({
-  v2 = true,
-  withRegion = true,
-  readyState = "complete",
-  search = "",
-  legacyText = "",
-  withOutput = true,
-  withFeedback = true,
-  buttons = ALL_LEGACY_BUTTONS,
-  withThemeSelect = false,
-  withDraftTabs = false,
-} = {}) {
-  const dom = makeDom();
-  const { FakeElement, body } = dom;
-  dom.document.readyState = readyState;
-  if (v2) body.classList.add("jb-v2");
-
-  let region = null;
-  if (withRegion) {
-    region = new FakeElement("section");
-    region.setAttribute("data-region", "scribe");
-    body.appendChild(region);
-  }
-
-  const legacyClicks = [];
-  const els = {};
-  if (withOutput) {
-    const ta = new FakeElement("textarea");
-    ta.id = "resumeGenerateOutput";
-    ta.value = legacyText;
-    body.appendChild(ta);
-    els.output = ta;
-  }
-  if (withFeedback) {
-    const fb = new FakeElement("textarea");
-    fb.id = "resumeGenerateFeedback";
-    body.appendChild(fb);
-    els.feedback = fb;
-  }
-  for (const id of buttons) {
-    const btn = new FakeElement("button");
-    btn.id = id;
-    btn.addEventListener("click", () => legacyClicks.push(id));
-    body.appendChild(btn);
-    els[id] = btn;
-  }
-  if (withThemeSelect) {
-    const legacySel = new FakeElement("select");
-    legacySel.id = "resumeGenerateVisualTheme";
-    legacySel.options = [
-      ["classic", "Classic"],
-      ["mono", "Mono"],
-    ].map(([value, label]) => {
-      const o = new FakeElement("option");
-      o.value = value;
-      o.textContent = label;
-      return o;
-    });
-    legacySel.value = "mono";
-    body.appendChild(legacySel);
-    els.theme = legacySel;
-  }
-  if (withDraftTabs) {
-    for (const feature of ["cover_letter", "resume_update"]) {
-      const tab = new FakeElement("button");
-      tab.setAttribute("data-action", "draft-tab");
-      tab.setAttribute("data-feature", feature);
-      tab.addEventListener("click", () => legacyClicks.push(`draft-tab:${feature}`));
-      body.appendChild(tab);
-    }
-  }
-
-  const timers = makeTimers();
-  const printCalls = [];
-  const clipboardWrites = [];
-  const consoleLines = [];
-  const window = {
-    location: { search },
-    setTimeout: (fn, ms) => timers.set(fn, ms),
-    clearTimeout: (id) => timers.clear(id),
-    print: () => printCalls.push(1),
-  };
-  const ctx = {
-    window,
-    document: dom.document,
-    console: {
-      log: (...args) => consoleLines.push(args.join(" ")),
-      table: () => {},
-      warn: () => {},
-      error: () => {},
-    },
-    setTimeout,
-    clearTimeout,
-    Event: FakeEvent,
-    HTMLElement: dom.FakeHTMLElement,
-    URLSearchParams,
-    performance,
-    navigator: { clipboard: { writeText: (text) => clipboardWrites.push(text) } },
-  };
-  vm.createContext(ctx);
-  vm.runInContext(scribeJs, ctx, { filename: "scribe.js" });
-
-  return {
-    window,
-    document: dom.document,
-    body,
-    region,
-    els,
-    timers,
-    legacyClicks,
-    printCalls,
-    clipboardWrites,
-    consoleLines,
-    docListeners: dom.docListeners,
-    JB: window.JB_SCRIBE,
-    byId: (id) => dom.document.getElementById(id),
-    q: (sel) => (region ? region.querySelector(sel) : null),
-    qa: (sel) => (region ? region.querySelectorAll(sel) : []),
-    input: (el) => el.dispatchEvent(new FakeEvent("input", { bubbles: true })),
-  };
-}
-
-function readAxes(env) {
-  return env.qa(".scribe-axis").map((el) => ({
-    label: el.querySelector(".scribe-axis__label").textContent,
-    pct: parseInt(el.querySelector(".scribe-axis__value").textContent, 10),
-    tier: el.getAttribute("data-tier"),
-  }));
-}
-
-const LONG_DRAFT =
-  "You shipped 14 releases across 3 teams and cut deploy latency by 38 percent. " +
-  "The result drove 2 million dollars in retained revenue for the platform org. " +
-  "You then rebuilt the hiring loop and onboarded 6 senior engineers in one quarter. " +
-  "Every claim above maps to a metric the panel can verify. " +
-  "You close with availability and a single clear ask.";
 
 // ============================================================
 // Boot gating + public API
@@ -492,7 +43,16 @@ describe("scribe — boot gating + frozen public API", () => {
     const env = loadScribe();
     assert.ok(env.byId("scribeEditor"), "editor pane must exist");
     assert.ok(env.q("#scribeFitRing"), "fit ring must exist");
-    assert.equal(env.qa(".scribe-axis").length, 6, "all six ATS axes render at boot");
+    assert.equal(
+      env.qa(".scribe-axis").length,
+      0,
+      "no axis renders before a real score arrives — scribe owns no scoring heuristic",
+    );
+    assert.equal(
+      env.byId("scribeScorecard").getAttribute("data-score-state"),
+      "absent",
+      "with no score adapter mounted the card says so rather than inventing numbers",
+    );
     assert.ok(env.byId("scribeRefineInput"), "refine strip must exist");
     assert.equal(env.qa("[data-scribe-tab]").length, 2, "cover letter + resume tabs");
     assert.equal(env.q("[data-scribe-status]").textContent, "idle", "status pip starts idle");
@@ -509,7 +69,7 @@ describe("scribe — boot gating + frozen public API", () => {
   it("boot is a safe no-op when the scribe region is absent — the API still loads and its calls never throw", () => {
     const env = loadScribe({ withRegion: false });
     assert.ok(env.JB, "JB_SCRIBE must still be exposed");
-    env.JB.rescore();
+    env.JB.flushEditor();
     env.JB.syncEditorIntoLegacy();
     env.JB.setEditorFromLegacy();
   });
@@ -517,11 +77,16 @@ describe("scribe — boot gating + frozen public API", () => {
   it("the public JB_SCRIBE handle is frozen so host code cannot monkey-patch the bridge out from under the legacy pipeline", () => {
     const env = loadScribe();
     assert.ok(Object.isFrozen(env.JB));
-    for (const key of ["smoke", "rescore", "syncEditorIntoLegacy", "setEditorFromLegacy"]) {
+    for (const key of ["smoke", "flushEditor", "syncEditorIntoLegacy", "setEditorFromLegacy"]) {
       assert.equal(typeof env.JB[key], "function", `JB_SCRIBE.${key} must be a function`);
     }
+    assert.equal(
+      env.JB.rescore,
+      undefined,
+      "the demo scorer's entry point is gone — scoring goes through the jb:ats:state adapter",
+    );
     assert.throws(() => {
-      env.JB.rescore = () => {};
+      env.JB.flushEditor = () => {};
     }, TypeError);
   });
 
@@ -540,7 +105,7 @@ describe("scribe — boot gating + frozen public API", () => {
 // ============================================================
 
 describe("scribe — legacy textarea bridge (lossless round-trip + escaping)", () => {
-  it("legacy plain text becomes paragraph blocks with stable p-N anchors (gap callouts deep-link to those anchors)", () => {
+  it("legacy plain text becomes paragraph blocks with stable p-N anchors (the editor keeps addressable paragraphs across a round-trip)", () => {
     const env = loadScribe();
     env.els.output.value = "One.\n\nTwo.\nthree";
     env.JB.setEditorFromLegacy();
@@ -607,7 +172,7 @@ describe("scribe — legacy textarea bridge (lossless round-trip + escaping)", (
 // Debounced editor → legacy sync
 // ============================================================
 
-describe("scribe — debounced keystroke sync (one rescore per idle pause, not per keystroke)", () => {
+describe("scribe — debounced keystroke sync (one legacy write per idle pause, not per keystroke)", () => {
   it("a keystroke does NOT hit the legacy textarea until the idle debounce elapses — then exactly one sync + rescore fires", () => {
     const env = loadScribe();
     const editor = env.byId("scribeEditor");
@@ -625,7 +190,11 @@ describe("scribe — debounced keystroke sync (one rescore per idle pause, not p
     env.timers.flush();
     assert.equal(env.els.output.value, "Hello world", "sync lands after the idle window");
     assert.equal(taEvents.length, 1, "exactly one input event reaches the ATS pipeline");
-    assert.equal(env.q("[data-scribe-status]").textContent, "scored");
+    assert.equal(
+      env.q("[data-scribe-status]").textContent,
+      "synced",
+      "the idle pause syncs the text — it does not claim the draft was scored",
+    );
     assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "ok");
   });
 
@@ -710,40 +279,11 @@ describe("scribe — toolbar actions bridge to the legacy modal controls", () =>
     assert.ok(env.legacyClicks.includes("resumeGenerateClose"));
   });
 
-  it("Refine pipes the strip's instructions into the legacy feedback textarea, clicks legacy Refine, then snapshots the refined text back into the editor", () => {
-    const env = loadScribe({ legacyText: "First draft." });
-    const fbEvents = [];
-    env.els.feedback.addEventListener("input", () => fbEvents.push(1));
-    env.els.resumeGenerateRefine.addEventListener("click", () => {
-      // The legacy refine flow writes its result back into the textarea.
-      env.els.output.value = "Refined draft with a stronger opener.";
-    });
-    env.byId("scribeRefineInput").value = "make it shorter";
-    env.byId("scribeRefineBtn").click();
-
-    assert.equal(env.els.feedback.value, "make it shorter", "instructions must reach refineLastResumeGeneration");
-    assert.equal(fbEvents.length, 1, "feedback change must fire input so legacy state updates");
-    assert.ok(env.legacyClicks.includes("resumeGenerateRefine"));
-    assert.equal(env.q("[data-scribe-status]").textContent, "refining…");
-    assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "busy");
-
-    env.timers.flush();
-    assert.equal(
-      env.byId("scribeEditor").textContent,
-      "Refined draft with a stronger opener.",
-      "the refined legacy text must be mirrored back into the editor",
-    );
-    assert.equal(env.q("[data-scribe-status]").textContent, "refined");
-    assert.equal(env.q("[data-scribe-status]").getAttribute("data-state"), "ok");
-  });
-
-  it("a missing legacy Refine handler is surfaced honestly in the status pip instead of faking success", () => {
-    const env = loadScribe({ buttons: ALL_LEGACY_BUTTONS.filter((b) => b !== "resumeGenerateRefine") });
-    env.byId("scribeRefineInput").value = "tighten";
-    env.byId("scribeRefineBtn").click();
-    assert.equal(env.q("[data-scribe-status]").textContent, "refine handler missing");
-    assert.equal(env.timers.count(), 0, "no phantom snapshot is scheduled");
-  });
+  // Refine no longer proxies a legacy click and no longer guesses completion
+  // with a 350ms timer: it awaits JobBoredApp.resumeGeneration
+  // .refineLastResumeGeneration(). Its full behavior (pending / resolved /
+  // rejected / no-change / API-absent) is covered by
+  // tests/scribe-refine-async-truth.test.mjs.
 
   it("the Appearance select mirrors the legacy theme options and pushes changes back with a change event (the legacy renderer listens for it)", () => {
     const env = loadScribe({ withThemeSelect: true });
@@ -799,7 +339,7 @@ describe("scribe — tabs and refine chips", () => {
 // ============================================================
 
 describe("scribe — legacy regeneration mirror (echo-loop suppression)", () => {
-  it("a fresh legacy generation (textarea input NOT caused by the editor) is mirrored into the editor and rescored", () => {
+  it("a fresh legacy generation (textarea input NOT caused by the editor) is mirrored into the editor", () => {
     const env = loadScribe();
     env.els.output.value = "Para one.\n\nPara two.";
     env.input(env.els.output);
@@ -825,78 +365,22 @@ describe("scribe — legacy regeneration mirror (echo-loop suppression)", () => 
 });
 
 // ============================================================
-// Scorecard consistency
-// ============================================================
-
-describe("scribe — scorecard: ring, axes, tiers, and gap callouts tell one story", () => {
-  it("the overall fit ring equals the rounded average of the six axis scores — the ring and the axis bars must never disagree", () => {
-    const env = loadScribe({ legacyText: LONG_DRAFT });
-    const axes = readAxes(env);
-    assert.deepEqual(
-      axes.map((a) => a.label),
-      ["Req", "Experience", "Impact", "Parseability", "Tone", "Confidence"],
-      "all six spec axes render, in spec order",
-    );
-    const expectedOverall = Math.round(axes.reduce((sum, a) => sum + a.pct, 0) / axes.length);
-    const ring = parseInt(env.q("#scribeFitRing").getAttribute("percent"), 10);
-    assert.equal(ring, expectedOverall);
-    assert.match(
-      env.q("#scribeFitRing").getAttribute("label"),
-      new RegExp(`${expectedOverall}%`),
-      "the accessible label carries the same number as the ring",
-    );
-  });
-
-  it("axis tiers follow the published thresholds (>=75 high, >=50 mid, else low) so the colors mean the same thing on every draft", () => {
-    for (const text of ["", LONG_DRAFT]) {
-      const env = loadScribe({ legacyText: text });
-      for (const axis of readAxes(env)) {
-        const expected = axis.pct >= 75 ? "high" : axis.pct >= 50 ? "mid" : "low";
-        assert.equal(axis.tier, expected, `${axis.label} at ${axis.pct}% must be tier ${expected}`);
-      }
-    }
-  });
-
-  it("gap callouts target the three WEAKEST axes — the user's attention goes where the score is lowest", () => {
-    const env = loadScribe({ legacyText: "" });
-    const axes = readAxes(env);
-    const weakest = axes
-      .slice()
-      .sort((a, b) => a.pct - b.pct)
-      .slice(0, 3)
-      .map((a) => a.label.toUpperCase());
-    const gapAxes = env.q("#scribeGaps").querySelectorAll(".scribe-gap__axis").map((el) => el.textContent);
-    assert.deepEqual(gapAxes, weakest);
-  });
-});
-
-// ============================================================
-// Gap callout → editor anchor navigation
-// ============================================================
-
-describe("scribe — gap callouts deep-link into the editor", () => {
-  it("clicking a gap callout scrolls to and flashes the anchored paragraph, and the flash decays instead of sticking forever", () => {
-    const env = loadScribe({ legacyText: "Para one.\n\nPara two.\n\nPara three." });
-    const gapBtn = env.q('[data-scribe-anchor-target="p-0"]');
-    assert.ok(gapBtn, "first gap callout must target paragraph p-0");
-    const p0 = env.q('[data-scribe-anchor="p-0"]');
-
-    gapBtn.click();
-    assert.equal(p0._scrollCalls.length, 1, "must scroll the paragraph into view");
-    assert.ok(p0.classList.contains("jb-mark"), "paragraph is highlighted");
-    assert.ok(p0.classList.contains("scribe-anchor-flash"), "paragraph flashes");
-
-    env.timers.flush(); // 900ms flash window
-    assert.ok(!p0.classList.contains("scribe-anchor-flash"), "flash class is removed after the window");
-    assert.ok(p0.classList.contains("jb-mark"), "the mark lingers briefly for orientation");
-    env.timers.flush(); // 320ms mark fade
-    assert.ok(!p0.classList.contains("jb-mark"), "no permanent highlight is left behind");
-  });
-});
-
-// ============================================================
 // Smoke harness gating
 // ============================================================
+
+
+/** Refine is an awaited API call now, so the smoke probe needs it present. */
+function smokeApp() {
+  return {
+    resumeGeneration: {
+      getLastResumeGenerationSession: () => ({
+        feature: "cover_letter",
+        job: { title: "Staff Platform Engineer", company: "Northwind" },
+      }),
+      refineLastResumeGeneration: () => Promise.resolve(),
+    },
+  };
+}
 
 describe("scribe — smoke harness is URL-gated, honest, and inert in production", () => {
   it("a normal page load runs NO smoke: no prototype monkey-patch, no console output, no results global", () => {
@@ -908,11 +392,16 @@ describe("scribe — smoke harness is URL-gated, honest, and inert in production
   });
 
   it("?jb-v2-test=scribe drives all four toolbar buttons through the legacy bridge and reports a PASS block", () => {
-    const env = loadScribe({ search: "?jb-v2-test=scribe" });
+    const env = loadScribe({ search: "?jb-v2-test=scribe", jobBoredApp: smokeApp() });
     env.timers.flush(); // the deferred runSmoke tick
     const results = env.window.__JB_SCRIBE_SMOKE_RESULTS__;
     assert.ok(Array.isArray(results), "smoke must publish its results");
     assert.equal(results.length, 4, "print, copy, done, refine are all exercised");
+    assert.equal(
+      results[3].legacy,
+      "resumeGeneration.refineLastResumeGeneration",
+      "the refine probe watches the awaited API call, not a legacy button dispatch",
+    );
     for (const r of results) {
       assert.equal(r.ok, true, `${r.btn} must reach legacy ${r.legacy}`);
     }
@@ -922,6 +411,7 @@ describe("scribe — smoke harness is URL-gated, honest, and inert in production
   it("smoke reports FAIL honestly when a legacy target is missing (a silently broken bridge is the failure smoke exists to catch)", () => {
     const env = loadScribe({
       search: "?jb-v2-test=scribe",
+      jobBoredApp: smokeApp(),
       buttons: ALL_LEGACY_BUTTONS.filter((b) => b !== "resumeGeneratePrint"),
     });
     env.timers.flush();
@@ -934,7 +424,7 @@ describe("scribe — smoke harness is URL-gated, honest, and inert in production
   });
 
   it("JB_SCRIBE.smoke() works as a manual handle without the URL param (on-demand QA from the console)", () => {
-    const env = loadScribe();
+    const env = loadScribe({ jobBoredApp: smokeApp() });
     env.JB.smoke();
     const results = env.window.__JB_SCRIBE_SMOKE_RESULTS__;
     assert.equal(results.length, 4);

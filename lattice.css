@@ -15,7 +15,7 @@
 
 /* Root region — full-width canvas, breathes inside the page. */
 body.jb-v2 [data-region="lattice"] {
-  display: block;
+  display: none;
   width: var(--jb-flow-content-width, min(1220px, calc(100% - 32px)));
   max-width: none;
   box-sizing: border-box;

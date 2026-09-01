@@ -183,30 +183,45 @@ export type ExploitSelectionTelemetry = {
 
 // === Scoring Constants ===
 
+/**
+ * Declared frontier score weights. Shared with F4-A attribution notes.
+ * Positive dimensions sum toward the composite; penalty weights are subtracted.
+ */
+export const FRONTIER_SCORE_WEIGHTS = {
+  roleFit: 0.21,
+  geoFit: 0.08,
+  remoteFit: 0.05,
+  recentHiringEvidence: 0.18,
+  priorAcceptedYield: 0.14,
+  diversity: 0.10,
+  freshness: 0.10,
+  verifiedSurface: 0.08,
+  surfaceHealth: 0.04,
+  presetAlignment: 0.04,
+  recentCoveragePenalty: 0.08,
+  cooldownPenalty: 0.12,
+} as const;
+
 /** Role/title fit weight in composite score. */
-const ROLE_FIT_WEIGHT = 0.21;
+const ROLE_FIT_WEIGHT = FRONTIER_SCORE_WEIGHTS.roleFit;
 /** Geographic fit weight in composite score. */
-const GEO_FIT_WEIGHT = 0.08;
+const GEO_FIT_WEIGHT = FRONTIER_SCORE_WEIGHTS.geoFit;
 /** Remote policy fit weight in composite score. */
-const REMOTE_FIT_WEIGHT = 0.05;
+const REMOTE_FIT_WEIGHT = FRONTIER_SCORE_WEIGHTS.remoteFit;
 /** Recent hiring evidence weight in composite score. */
-const RECENT_HIRING_WEIGHT = 0.18;
+const RECENT_HIRING_WEIGHT = FRONTIER_SCORE_WEIGHTS.recentHiringEvidence;
 /** Prior accepted yield weight in composite score. */
-const PRIOR_YIELD_WEIGHT = 0.14;
+const PRIOR_YIELD_WEIGHT = FRONTIER_SCORE_WEIGHTS.priorAcceptedYield;
 /** Diversity weight in composite score. */
-const DIVERSITY_WEIGHT = 0.10;
+const DIVERSITY_WEIGHT = FRONTIER_SCORE_WEIGHTS.diversity;
 /** Freshness weight in composite score. */
-const FRESHNESS_WEIGHT = 0.10;
-/** Verified surface bonus weight in composite score. */
-const VERIFIED_SURFACE_WEIGHT = 0.08;
+const FRESHNESS_WEIGHT = FRONTIER_SCORE_WEIGHTS.freshness;
 /** Surface health weight in composite score. */
-const SURFACE_HEALTH_WEIGHT = 0.04;
-/** Preset alignment weight in composite score. */
-const PRESET_ALIGNMENT_WEIGHT = 0.04;
+const SURFACE_HEALTH_WEIGHT = FRONTIER_SCORE_WEIGHTS.surfaceHealth;
 /** Recent coverage penalty weight (subtracted). */
-const COVERAGE_PENALTY_WEIGHT = 0.08;
+const COVERAGE_PENALTY_WEIGHT = FRONTIER_SCORE_WEIGHTS.recentCoveragePenalty;
 /** Cooldown penalty weight (subtracted). */
-const COOLDOWN_PENALTY_WEIGHT = 0.12;
+const COOLDOWN_PENALTY_WEIGHT = FRONTIER_SCORE_WEIGHTS.cooldownPenalty;
 
 /** Minimum viable composite score for exploit consideration. */
 const MIN_VIABLE_SCORE = 15;

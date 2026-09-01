@@ -4,6 +4,7 @@ WORKDIR /app
 COPY package.json package-lock.json* ./
 RUN npm ci --omit=dev 2>/dev/null || npm install --omit=dev
 
+# Context is filtered by .dockerignore so local .env / .env.* files are never copied.
 COPY . .
 
 ENV LISTEN_HOST=0.0.0.0
