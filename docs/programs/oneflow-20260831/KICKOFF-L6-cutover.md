@@ -12,3 +12,9 @@ Read GROUND-RULES.md, SUBSTRATE.md, spec §3 (architecture, migration) and §4. 
 
 ## DoD
 Full floor green (pasted). A grep table in the report: every legacy gate call site and its status (still-defined / no-longer-called-from-boot). Report complete; committed locally, never pushed.
+
+## Routed items from other lanes (orchestrator, 2026-09-01 — these three edits are granted additions to your fence)
+
+6. **`{firstName}` source (from L4's report):** `auth-session.js` reads `/oauth2/v3/userinfo` but only keeps `email`/`picture`; capture `given_name`, expose an accessor, persist it beside the session fields. Then have Beat 1 (`oneflow-beat-google.js`) write `ctx.runtime.firstName` on sign-in. B6 already resolves `ctx.runtime.firstName` → accessor → "You're live." fallback; make the happy path real and pin it with a test.
+7. **`ctx.runtime.fitProfile` (from L4's report):** B6 prefers the in-flow profile over a second `/profile` fetch; if L2's Beat 4 does not already leave the saved profile on the runtime after "Looks like me →", add that one write in `oneflow-beat-fit.js` and pin it.
+8. These are the ONLY edits granted outside your original fence.
