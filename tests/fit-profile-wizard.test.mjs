@@ -1145,10 +1145,13 @@ describe("fit-profile-wizard — submit: client gate, persistence side effects, 
     const body = JSON.parse(post.body);
     assert.equal(body.starterTemplate, "engineer");
     assert.deepEqual(body.identity.targetRoles, ["Staff Engineer"]);
+    // A `fitProfileOnboardingComplete` localStorage flag used to be written
+    // here. It had no reader anywhere in the repo, and §7 deletes it — the
+    // one-flow's own persisted state decides re-prompting now.
     assert.equal(
-      env.storage.fitProfileOnboardingComplete,
-      "1",
-      "the gate that decides whether onboarding re-prompts must persist",
+      "fitProfileOnboardingComplete" in env.storage,
+      false,
+      "the wizard must not write a flag nothing reads",
     );
     const saved = env.dispatchedEvents.find(
       (e) => e.type === "jobbored:fit-profile-saved",
@@ -1198,7 +1201,7 @@ describe("fit-profile-wizard — submit: client gate, persistence side effects, 
     assert.equal(root.dataset.active, "true");
     assert.ok(
       !("fitProfileOnboardingComplete" in env.storage),
-      "a rejected save must not mark onboarding complete",
+      "no completion flag is written on any path (§7)",
     );
     assert.equal(saveBtn.disabled, false, "Save re-enables for the retry");
   });

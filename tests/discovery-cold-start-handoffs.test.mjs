@@ -12,8 +12,11 @@ const statusHandoffJs = readFileSync(
 );
 const setupJs = readFileSync(join(repoRoot, "sheet-access-setup.js"), "utf8");
 
+// The section used to open with the pendingDiscoverySetup key; §7 deleted
+// that queue (writer, never-called resumer, exports), so the first thing in
+// the handoff block is now the setup-param stripper.
 const HANDOFF_SECTION_START = statusHandoffJs.indexOf(
-  'const PENDING_DISCOVERY_SETUP_KEY = "pendingDiscoverySetup";',
+  "function stripSetupDiscoveryParam()",
 );
 const HANDOFF_SECTION_END = statusHandoffJs.indexOf(
   "function resetPostAccessBootstrap()",
@@ -170,11 +173,10 @@ describe("Discovery cold-start handoffs", () => {
     );
 
     assert.equal(result.deferred, true);
-    assert.equal(
-      harness.sessionStorage.getItem("pendingDiscoverySetup"),
-      "1",
-      "should queue the deferred discovery handoff",
-    );
+    // No sessionStorage queue any more: §7 deleted it (its resumer had no
+    // caller). Deferring is the whole answer — Beat 5 IS discovery setup, so
+    // there is nothing to resume to once the flow holds the surface.
+    assert.equal(harness.sessionStorage.getItem("pendingDiscoverySetup"), null);
     assert.deepEqual(harness.openCalls, []);
   });
 
@@ -200,28 +202,15 @@ describe("Discovery cold-start handoffs", () => {
     const handled = await harness.run("handleDiscoverySetupDeepLink()");
 
     assert.equal(handled, true);
-    assert.equal(
-      harness.sessionStorage.getItem("pendingDiscoverySetup"),
-      "1",
-      "should preserve the deferred discovery intent",
-    );
+    assert.equal(harness.sessionStorage.getItem("pendingDiscoverySetup"), null);
     assert.deepEqual(harness.openCalls, []);
     assert.deepEqual(harness.historyCalls, ["/index.html?sheet=abc123"]);
   });
 
-  it("resumePendingDiscoverySetupIfNeeded consumes the handoff exactly once", async () => {
-    const harness = createHandoffHarness();
-    harness.sessionStorage.setItem("pendingDiscoverySetup", "1");
-
-    const first = await harness.run("resumePendingDiscoverySetupIfNeeded()");
-    const second = await harness.run("resumePendingDiscoverySetupIfNeeded()");
-
-    assert.equal(first, true);
-    assert.equal(second, false);
-    assert.equal(harness.sessionStorage.getItem("pendingDiscoverySetup"), null);
-    assert.equal(harness.openCalls.length, 1);
-    assert.equal(harness.openCalls[0].entryPoint, "settings");
-  });
+  // resumePendingDiscoverySetupIfNeeded is deleted (§7): nothing ever called
+  // it, so the queue it drained could only grow. Its replacement is the
+  // flow's own persisted beat — re-entry lands where the user left off, which
+  // tests/integration/onboarding-chain-convergence.test.mjs covers.
 
   it("runPostAccessBootstrapOnce opens the one-flow before processing the discovery deep link and stays one-shot", async () => {
     // Same claim as before the L6 cutover, with the flow in the legacy
@@ -233,12 +222,11 @@ describe("Discovery cold-start handoffs", () => {
     await harness.run("runPostAccessBootstrapOnce()");
 
     assert.equal(harness.context.__maybeStartCalls, 1);
-    assert.equal(
-      harness.sessionStorage.getItem("pendingDiscoverySetup"),
-      "1",
-      "should defer only after the flow has claimed the surface",
+    assert.deepEqual(
+      harness.openCalls,
+      [],
+      "the deep link defers because the flow claimed the surface first",
     );
-    assert.deepEqual(harness.openCalls, []);
     assert.deepEqual(harness.historyCalls, ["/index.html"]);
   });
 

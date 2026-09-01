@@ -307,25 +307,13 @@
       h("loadAllData");
     });
 
-    document
-      .getElementById("onboardingWizardBtn")
-      ?.addEventListener("click", () => {
-        h("closeAuthUserMenu");
-        h("closeMaterialsModal");
-        h("closeCommandCenterSettingsModal");
-        void h("requestDiscoverySetup", {
-          entryPoint: "toolbar",
-          allowWhileOnboarding: true,
-        });
-      });
-
     // Init auth
     startupLog("bootstrap:init:auth-and-data-load");
     h("initAuth");
 
     // initResumeMaterialsFeature was hoisted above the no-SHEET_ID early
-    // return so greenfield users can actually use the onboarding wizard's
-    // file upload. Calling it again here would double-bind every listener
+    // return so greenfield users can actually use the materials modal's file
+    // upload. Calling it again here would double-bind every listener
     // (addEventListener doesn't dedupe), so don't.
 
     const shouldDeferDataLoadToAuth =

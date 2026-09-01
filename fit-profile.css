@@ -723,7 +723,8 @@
   }
 }
 
-/* ── Hidden helper for the rescore slot (Task #6 fills it in) ── */
+/* ── Hidden helper for the rescore slot, filled by
+      fit-profile-backcompat.js ── */
 #fit-profile-rescore-slot:empty {
   display: none;
 }

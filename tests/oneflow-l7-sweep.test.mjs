@@ -599,3 +599,131 @@ describe("§7 · the drawer's Connection section is one button", () => {
     assert.match(body, /entryPoint: "settings"/);
   });
 });
+
+describe("§7 · dead elements, flags, and fossils", () => {
+  it("#enhancementsReEntryBtn and the whats-next badges leave index.html", () => {
+    const html = read("index.html");
+    // The re-entry button had no handler in ANY module — orphan markup for a
+    // wizard that is now deleted twice over.
+    assert.equal(/enhancementsReEntryBtn/.test(html), false);
+    // The two CTA badges had no writer and no stylesheet rule: hidden spans
+    // that could never show anything.
+    assert.equal(/whatsNextDiscoveryBadge/.test(html), false);
+    assert.equal(/whatsNextGoLiveBadge/.test(html), false);
+    assert.equal(/whats-next-banner__cta-badge/.test(html), false);
+  });
+
+  it("#onboardingWizardBtn's handler is gone from boot", () => {
+    assert.equal(
+      /onboardingWizardBtn/.test(read("app-bootstrap.js")),
+      false,
+      "it wired a button for a wizard that no longer exists",
+    );
+  });
+
+  it("fitProfileOnboardingComplete is no longer written", () => {
+    // A localStorage flag with no reader anywhere in the repo.
+    for (const [file, source] of shippedSources()) {
+      assert.equal(
+        source.includes("fitProfileOnboardingComplete"),
+        false,
+        `${file} must not write a flag nothing reads`,
+      );
+    }
+  });
+
+  it("the pendingDiscoverySetup plumbing is gone — writer, resumer, exports", () => {
+    for (const [file, source] of shippedSources()) {
+      for (const needle of [
+        "pendingDiscoverySetup",
+        "PendingDiscoverySetup",
+        "PENDING_DISCOVERY_SETUP_KEY",
+      ]) {
+        assert.equal(
+          source.includes(needle),
+          false,
+          `${file} must not carry the pending-setup queue (${needle})`,
+        );
+      }
+    }
+  });
+
+  it("the Settings jb-v2 claim is corrected — it is ON by default", () => {
+    // index.html: `var on = stored !== "0"` — default on, only "0" opts out.
+    assert.match(read("index.html"), /default on; only '0' opts out/);
+    const partial = read("partials/settings-modal.html");
+    assert.equal(/Off by default/.test(partial), false);
+    assert.match(partial, /On by default; toggle anytime\./);
+  });
+
+  it('the "Task #6" fossil is gone from the fit-profile files', () => {
+    for (const file of ["fit-profile.css", "fit-profile-backcompat.js"]) {
+      assert.equal(
+        /Task #6/.test(read(file)),
+        false,
+        `${file} names an internal task id a stranger cannot resolve`,
+      );
+    }
+  });
+
+  it('there is exactly one "One more step." headline left: none', () => {
+    // §7's duplicate-headline fossil: #setupScreen and #discoverySetupGate
+    // shipped the same words. Both surfaces are deleted.
+    for (const [file, source] of shippedSources()) {
+      assert.equal(
+        source.includes("One more step"),
+        false,
+        `${file} still carries the duplicated headline`,
+      );
+    }
+  });
+
+  it("the login gate's no-oauth sub-wizard is gone — Beat 1 owns that path", () => {
+    const html = read("index.html");
+    for (const id of [
+      "sheetAccessGateOAuthShell",
+      "sheetAccessGateOAuthChoice",
+      "sheetAccessGateOAuthWizard",
+      "sheetAccessGateOAuthClientIdInput",
+      "sheetAccessGateBtnCreateOAuth",
+      "sheetAccessGateOAuthGcloudBtn",
+    ]) {
+      assert.equal(
+        html.includes(id),
+        false,
+        `${id} duplicated Beat 1's own client-ID step`,
+      );
+    }
+    assert.equal(
+      /initLoginGateOAuthUi/.test(read("sheet-access-setup.js")),
+      false,
+      "and its driver goes with it",
+    );
+    // B1 is where that step lives, guide and all (spec §5 B1).
+    const beat = read("oneflow-beat-google.js");
+    assert.match(beat, /oneFlowOauthClientIdInput/);
+    assert.match(beat, /mergeStoredConfigOverridePatch/);
+    assert.match(beat, /applyOAuthClientChange/);
+  });
+
+  it("a no-oauth gate request still reaches a real surface", () => {
+    // showSheetAccessGate("no-oauth") has live callers in auth-session.js and
+    // sheets-read-load.js. With the sub-wizard deleted it has to hand off to
+    // Beat 1 rather than paint an empty panel.
+    const setup = read("sheet-access-setup.js");
+    const fnIdx = setup.indexOf("function showSheetAccessGate(mode)");
+    assert.notEqual(fnIdx, -1);
+    const body = setup.slice(fnIdx, setup.indexOf("\n  }", fnIdx));
+    assert.match(body, /mode === "no-oauth"/);
+    assert.match(body, /handOffNoOauthToBeatOne\(\)/);
+    // …and the hand-off actually opens Beat 1.
+    const helperIdx = setup.indexOf("function handOffNoOauthToBeatOne()");
+    assert.notEqual(helperIdx, -1);
+    const helper = setup.slice(helperIdx, helperIdx + 900);
+    assert.match(helper, /JobBoredOneFlow/);
+    assert.match(helper, /open\("google"\)/);
+    // Falling through when the flow is missing must leave honest copy, not
+    // a blank panel where the sub-wizard used to be.
+    assert.match(body, /needs a Google OAuth Client ID/);
+  });
+});

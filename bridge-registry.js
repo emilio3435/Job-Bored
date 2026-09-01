@@ -581,8 +581,6 @@
       parseJsonSafeForSuggestions(...args) {
         return discovery.drawer.parseJsonSafeForSuggestions(...args);
       },
-      resumePendingDiscoverySetupIfNeeded:
-        host.resumePendingDiscoverySetupIfNeeded,
       normalizeDashboardTitle: host.normalizeDashboardTitle,
       parseGoogleSheetId(...args) {
         return app.configCore.parseGoogleSheetId(...args);
@@ -666,7 +664,6 @@
         return host.STARTER_PIPELINE_HEADER_RANGE;
       },
       installDoctor: host.installDoctor,
-      hasPendingDiscoverySetup: host.hasPendingDiscoverySetup,
       getDataLoadFailed: host.getDataLoadFailed,
       setDataLoadFailed: host.setDataLoadFailed,
       getDashboardDataHydrated: host.getDashboardDataHydrated,
