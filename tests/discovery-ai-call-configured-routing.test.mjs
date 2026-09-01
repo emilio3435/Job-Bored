@@ -319,6 +319,13 @@ describe("discovery-drawer callConfiguredAi — provider-agnostic routing (VAL-P
       calls[0].url,
       /^https:\/\/generativelanguage\.googleapis\.com\//,
     );
+    assert.match(calls[0].url, /models\/gemini-flash:generateContent/);
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(
+      body.generationConfig.maxOutputTokens,
+      8192,
+      "gemini-flash must use the thinking-model output budget, not 2048",
+    );
   });
 
   it("webhook provider throws 'doesn't support inline suggestions' and does not fetch", async () => {

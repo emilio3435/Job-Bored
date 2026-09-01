@@ -516,9 +516,9 @@
   async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
     const resolvedModel = model || "gemini-flash";
     const wantJson = wantsJsonResponse(opts);
-    const isThinkingModel = /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(
-      resolvedModel,
-    );
+    const isThinkingModel =
+      resolvedModel === "gemini-flash" ||
+      /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
     const generationConfig = {
       maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
       temperature: 0.5,
