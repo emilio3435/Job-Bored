@@ -160,7 +160,11 @@ and materials folders.
 on localhost. The same server provides **`POST /api/ats-scorecard`** when ATS
 mode is set to `server`; for persistent ATS provider config, copy
 `server/ats-env.example` to `server/.env` and set the API key for the provider
-you choose.
+you choose. Direct listing scrapes retry one transient connection, empty-body,
+or 5xx failure, keep only an exact Google Jobs match as fallback, and return a
+cause plus next action when the posting is blocked, missing, timed out,
+oversized, or unavailable. The discovery drawer shows that explanation on the
+scrape status line.
 
 For **GitHub Pages** (HTTPS), the browser cannot call a scraper on your laptop at `http://127.0.0.1`. Use **Fetch posting** by either running the dashboard locally (`npm start` → `http://localhost:8080`) or deploying the `server/` app and pasting its **HTTPS** base URL in Settings — see **[DEPLOY-SCRAPER.md](DEPLOY-SCRAPER.md)**.
 

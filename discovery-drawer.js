@@ -20,6 +20,80 @@
     return typeof fn === "function" ? fn(...args) : undefined;
   }
 
+  function scrapeSourceHost(url) {
+    try {
+      return new URL(String(url || "")).hostname.replace(/^www\./i, "");
+    } catch (_error) {
+      return "";
+    }
+  }
+
+  function sentence(value) {
+    const text = String(value || "").trim();
+    if (!text) return "";
+    return /[.!?]$/.test(text) ? text : `${text}.`;
+  }
+
+  /** Turn the scraper's structured failure into one plain-English status line. */
+  function formatScrapeFailure(payload, httpStatus, sourceUrl) {
+    const data = payload && typeof payload === "object" ? payload : {};
+    const legacyMessage = String(data.error || data.message || "").trim();
+    const legacyStatus = legacyMessage.match(/\bHTTP\s+(\d{3})\b/i);
+    const upstreamStatus = Number(data.upstreamStatus || (legacyStatus && legacyStatus[1])) || 0;
+    const sourceHost = String(data.sourceHost || scrapeSourceHost(sourceUrl)).trim();
+
+    let summary = legacyMessage;
+    let detail = String(data.detail || "").trim();
+    let nextStep = String(data.nextStep || "").trim();
+    if (
+      (!data.code || data.code === "UPSTREAM_ERROR") &&
+      (upstreamStatus === 401 || upstreamStatus === 403)
+    ) {
+      summary = "The job site blocked automated access.";
+      detail = `${sourceHost || "The job site"} returned HTTP ${upstreamStatus} before JobBored could read the posting.`;
+      nextStep =
+        "Open one specific job and paste its direct posting URL. You can also continue without scraped context.";
+    }
+    if (!summary) {
+      summary = httpStatus
+        ? `JobBored could not scrape this posting (HTTP ${httpStatus}).`
+        : "JobBored could not scrape this posting.";
+    }
+    if (!detail && legacyMessage && legacyMessage !== summary) detail = legacyMessage;
+    if (!nextStep) {
+      nextStep = "Confirm this is a direct job-posting URL, then try again.";
+    }
+
+    const parts = [sentence(summary)];
+    if (detail) parts.push(`Why: ${sentence(detail)}`);
+    parts.push(`Next: ${sentence(nextStep)}`);
+
+    const technical = [];
+    if (sourceHost) technical.push(sourceHost);
+    if (upstreamStatus) technical.push(`HTTP ${upstreamStatus}`);
+    if (technical.length) parts.push(`Details: ${technical.join(" · ")}.`);
+    if (data.fallback && data.fallback.reason) {
+      parts.push(`Fallback: ${sentence(data.fallback.reason)}`);
+    }
+    return parts.join(" ");
+  }
+
+  function formatScrapeRequestError(error, sourceUrl, scraperBaseUrl) {
+    if (error && error.scrapeFailureMessage) return error.scrapeFailureMessage;
+    if (error && error.name === "AbortError") {
+      return "The scraper took too long. Why: It did not finish within 45 seconds. Next: Try again, or continue without scraped context.";
+    }
+    if (error instanceof TypeError) {
+      const endpoint = scrapeSourceHost(scraperBaseUrl) || "the local scraper";
+      return `JobBored could not reach the local scraper. Why: No response arrived from ${endpoint}. Next: Make sure JobBored is running, then try again.`;
+    }
+    return formatScrapeFailure(
+      { error: String((error && error.message) || error || "") },
+      0,
+      sourceUrl,
+    );
+  }
+
 function normalizeSourcePreset(raw) {
   const SOURCE_PRESET_VALUES = Object.freeze([
     "browser_only",
@@ -1517,11 +1591,13 @@ function initDiscoveryDrawer() {
       scrapeBtn.textContent = "Scraping...";
       if (statusEl) {
         statusEl.textContent = "Fetching job listing...";
+        statusEl.setAttribute("role", "status");
         statusEl.hidden = false;
       }
+      let timer = null;
       try {
         const ctrl = new AbortController();
-        const timer = setTimeout(() => ctrl.abort(), 30_000);
+        timer = setTimeout(() => ctrl.abort(), 45_000);
         const res = await fetch(`${base}/api/scrape-job`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1529,22 +1605,30 @@ function initDiscoveryDrawer() {
           signal: ctrl.signal,
         });
         clearTimeout(timer);
+        timer = null;
         const data = await res.json().catch(() => ({}));
-        if (!res.ok) throw new Error(data.error || `HTTP ${res.status}`);
+        if (!res.ok) {
+          const error = new Error(data.error || `HTTP ${res.status}`);
+          error.scrapeFailureMessage = formatScrapeFailure(data, res.status, url);
+          throw error;
+        }
         scrapedJobData = data;
         const title = data.title || "Untitled";
         const company = data.company || "";
         if (statusEl) {
           statusEl.textContent = `Scraped: ${title}${company ? " at " + company : ""}`;
+          statusEl.setAttribute("role", "status");
           statusEl.hidden = false;
         }
       } catch (err) {
         scrapedJobData = null;
         if (statusEl) {
-          statusEl.textContent = `Scrape failed: ${err.message || err}`;
+          statusEl.textContent = formatScrapeRequestError(err, url, base);
+          statusEl.setAttribute("role", "alert");
           statusEl.hidden = false;
         }
       } finally {
+        if (timer) clearTimeout(timer);
         scrapeBtn.disabled = false;
         scrapeBtn.textContent = "Scrape";
       }
@@ -1835,6 +1919,8 @@ function initDiscoveryButton() {
     callDiscoveryAiOpenRouter,
     callDiscoveryAiLocal,
     callConfiguredAi,
+    formatScrapeFailure,
+    formatScrapeRequestError,
     setDiscoveryDrawerSubtab,
     getActiveDiscoverySubtab() {
       return activeDiscoverySubtab;

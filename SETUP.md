@@ -287,7 +287,7 @@ Leave **`jobPostingScrapeUrl`** empty in `config.js` when you open the app on **
 1. On a job card, use **Fetch posting**. The server fetches the page, parses **JSON-LD `JobPosting`** when present, then falls back to common description selectors and bullet lists. It merges **skills** into the chip row and shows **description** + **requirements** excerpts.
 2. If your selected AI provider is configured, the app also asks it for **fit angle**, **talking points**, and **extra keywords** from the scraped text plus your resume from Profile. OpenRouter and Local cover this generic summary path; Gemini URL Context is only an optional Google-tool fallback when the local scraper cannot read the page.
 
-**Limits:** Some employers (e.g. LinkedIn) block server-side fetches or return login walls; those URLs may fail. **GitHub Pages** serves the UI over **HTTPS**; the browser will not allow it to call **`http://127.0.0.1`** on your machine. For Fetch posting from Pages, **deploy** the scraper (see **`DEPLOY-SCRAPER.md`**) and paste its **HTTPS** URL in Settings, or use the dashboard locally with `npm start`.
+**Limits:** Some employers (e.g. LinkedIn) block server-side fetches or return login walls; those URLs may fail. Transient connection, empty-body, and 5xx failures are retried once. **GitHub Pages** serves the UI over **HTTPS**; the browser will not allow it to call **`http://127.0.0.1`** on your machine. For Fetch posting from Pages, **deploy** the scraper (see **`DEPLOY-SCRAPER.md`**) and paste its **HTTPS** URL in Settings, or use the dashboard locally with `npm start`.
 
 ---
 
