@@ -90,6 +90,7 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
       : "";
   const values = new Set(opts.map((o) => o.value));
   const isGeminiSelect = selectId === "settingsResumeGeminiModel";
+  const isGeminiFlashFamily = isGeminiSelect && v === "gemini-flash";
   sel.innerHTML = "";
   opts.forEach((o) => {
     const opt = document.createElement("option");
@@ -98,7 +99,7 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
     if (o.description) opt.title = o.description;
     sel.appendChild(opt);
   });
-  if (v && !values.has(v) && !isGeminiSelect) {
+  if (v && !values.has(v) && (!isGeminiSelect || isGeminiFlashFamily)) {
     const opt = document.createElement("option");
     opt.value = v;
     opt.textContent = `${v} (saved)`;
@@ -206,9 +207,14 @@ function fillVisualThemeSelect(selectId, currentId) {
 function fillResumeModelSelectsFromConfig(cfg) {
   const m = window.CommandCenterResumeModelOptions;
   if (!m) return;
+  const catalog = window.JobBoredModelCatalog;
+  const geminiList =
+    catalog && typeof catalog.getStaticModels === "function"
+      ? catalog.getStaticModels("gemini")
+      : m.gemini;
   fillOneResumeModelSelect(
     "settingsResumeGeminiModel",
-    m.gemini,
+    geminiList,
     cfg.resumeGeminiModel,
   );
   fillOneResumeModelSelect(
