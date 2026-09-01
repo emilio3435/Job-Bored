@@ -26,6 +26,7 @@ import {
   writeJobDescription,
   getApplicationsRoot,
   isValidSlug,
+  migrateHermesApplicationsIfNeeded,
 } from "./application-materials.mjs";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -619,8 +620,9 @@ app.post("/profile/rescore", async (req, res) => {
  *                                                is absent)
  * GET /api/applications/:slug/files/:filename → stream allowlisted file
  *
- * These endpoints only ever read from ~/.hermes/job-hunt/applications/
- * (override via HERMES_APPLICATIONS_ROOT). The allowlist + slug pattern +
+ * These endpoints only ever read from ~/.jobbored/applications/
+ * (override via JOBBORED_APPLICATIONS_ROOT; HERMES_APPLICATIONS_ROOT is
+ * a test alias). The allowlist + slug pattern +
  * realpath check in application-materials.mjs are what keep this safe.
  */
 /**
@@ -860,4 +862,5 @@ app.listen(PORT, HOST, () => {
   if (!ats.configured) {
     console.warn(`[ats-scorecard] not configured: ${ats.reason}`);
   }
+  void migrateHermesApplicationsIfNeeded();
 });
