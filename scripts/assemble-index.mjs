@@ -32,8 +32,9 @@ export function assembleIndex(repoRoot, options = {}) {
 // --- ASSET-1: content-addressed asset revisioning -------------------------
 //
 // A Pages revision must never pair new HTML with a cached older script. The
-// `--write` output therefore rewrites each local `<script src>` and
-// `<link rel="stylesheet" href>` to `path?v=<sha256(bytes)[0..10]>`, so a
+// `--write` output therefore rewrites each local `<script src>`,
+// `<link rel="stylesheet" href>` and script/style preload hint to
+// `path?v=<sha256(bytes)[0..10]>`, so a
 // changed file changes its URL. The digest is a pure function of repo content
 // (no clock, no git sha), so two builds of the same tree stay byte-identical.
 //
@@ -46,8 +47,13 @@ export function assembleIndex(repoRoot, options = {}) {
 // without a file behind it is a dangling asset the deploy guard must catch.
 const UNSTAMPED_SITE_EXEMPT_PATHS = new Set(["config.js"]);
 
+// A tag ends at the first `>` that is not inside a quoted attribute value: the
+// real favicon is an inline SVG data: URI full of `>`, and a matcher that stops
+// at the first one hands the rest of the pipeline half a tag — which then reads
+// as an unquoted href and fails loud on a reference that was never local.
+// Each alternative starts with a distinct character, so there is no backtracking.
 function assetTagPattern() {
-  return /<(?:script|link)\b[^>]*>/gi;
+  return /<(?:script|link)\b(?:"[^"]*"|'[^']*'|[^>"'])*>/gi;
 }
 
 function tagName(tag) {
@@ -55,9 +61,23 @@ function tagName(tag) {
   return match ? match[1].toLowerCase() : "";
 }
 
+// Attribute values in this repo are double-quoted, but `src='a.js'` is equally
+// valid HTML. A parser that reads one quote style leaves the other silently
+// unstamped — and `verifySiteAssets` reuses this reader, so what the stamper
+// cannot see the guard cannot flag either. Both styles are read, and the quote
+// character travels with the value so the rewrite can put it back.
+function matchAttribute(tag, name) {
+  const match = new RegExp(`\\s${name}\\s*=\\s*("([^"]*)"|'([^']*)')`, "i").exec(
+    tag,
+  );
+  if (!match) return null;
+  const quote = match[1][0];
+  return { value: quote === '"' ? match[2] : match[3], quote };
+}
+
 function tagAttribute(tag, name) {
-  const match = new RegExp(`\\s${name}="([^"]*)"`, "i").exec(tag);
-  return match ? match[1] : null;
+  const attribute = matchAttribute(tag, name);
+  return attribute ? attribute.value : null;
 }
 
 function isLocalAssetUrl(url) {
@@ -68,29 +88,73 @@ function isLocalAssetUrl(url) {
   return true;
 }
 
-// Only a `rel="stylesheet"` link loads a file this HTML owns. A
-// `preload`/`prefetch` href is a hint that must byte-match the request some
-// other consumer makes — the two font preloads pair with url() refs inside
-// vendor/fonts/fonts.css, which this transform does not rewrite — so stamping
-// one would turn a single font fetch into two and waste the hint.
-function linkIsStylesheet(tag) {
+function relTokens(tag) {
   const rel = tagAttribute(tag, "rel");
-  if (!rel) return false;
-  return rel.split(/\s+/).some((token) => token.toLowerCase() === "stylesheet");
+  if (!rel) return [];
+  return rel.split(/\s+/).filter(Boolean).map((token) => token.toLowerCase());
 }
 
-/** The local URL a tag loads directly, or null when nothing should be stamped. */
-function stampableAssetUrl(tag) {
+// A `rel="stylesheet"` link loads a file this HTML owns.
+function linkIsStylesheet(tag) {
+  return relTokens(tag).includes("stylesheet");
+}
+
+// A `preload`/`modulepreload` hint for a script or a style names the very file
+// this HTML also loads: leave the hint unstamped and the browser fetches a
+// second, unaddressed copy of it, which is the stale-asset hole ASSET-1 closes.
+// `as="font"` is the deliberate exception — the font hint must byte-match the
+// url() inside vendor/fonts/fonts.css, which this transform does not rewrite,
+// so stamping it would turn one font fetch into two and waste the hint.
+function linkIsScriptOrStylePreload(tag) {
+  const tokens = relTokens(tag);
+  if (!tokens.some((token) => token === "preload" || token === "modulepreload")) {
+    return false;
+  }
+  const as = (tagAttribute(tag, "as") || "").toLowerCase();
+  if (as === "script" || as === "style") return true;
+  // `modulepreload` is a script hint by definition; `as` is optional on it.
+  return as === "" && tokens.includes("modulepreload");
+}
+
+/**
+ * The local reference a tag loads directly — value plus the quote style it was
+ * written with — or null when nothing should be stamped.
+ */
+function stampableAssetRef(tag) {
   const name = tagName(tag);
   if (name === "script") {
-    const src = tagAttribute(tag, "src");
-    return isLocalAssetUrl(src) ? src : null;
+    const src = matchAttribute(tag, "src");
+    return src && isLocalAssetUrl(src.value) ? src : null;
   }
-  if (name === "link" && linkIsStylesheet(tag)) {
-    const href = tagAttribute(tag, "href");
-    return isLocalAssetUrl(href) ? href : null;
+  if (
+    name === "link" &&
+    (linkIsStylesheet(tag) || linkIsScriptOrStylePreload(tag))
+  ) {
+    const href = matchAttribute(tag, "href");
+    return href && isLocalAssetUrl(href.value) ? href : null;
   }
   return null;
+}
+
+// Silence is the failure mode ASSET-1 forbids, and the classifier above knows
+// only the shapes it was taught. A reference it cannot place — an unquoted
+// `src=app.js`, a hint spelling nobody added — but that still points at a local
+// script or stylesheet is reported by the deploy guard rather than waved past.
+const SCRIPT_OR_STYLE_PATH = /\.(?:m?js|css)$/i;
+
+function unclassifiedAssetProblem(tag) {
+  const name = tagName(tag);
+  if (name !== "script" && name !== "link") return null;
+  const attribute = name === "script" ? "src" : "href";
+  if (!new RegExp(`\\s${attribute}\\s*=`, "i").test(tag)) return null;
+  const ref = matchAttribute(tag, attribute);
+  if (!ref) {
+    return `${tag}: ${attribute} value is not quoted, so the deploy guard cannot read it`;
+  }
+  if (!isLocalAssetUrl(ref.value)) return null;
+  const [assetPath] = ref.value.split("?");
+  if (!SCRIPT_OR_STYLE_PATH.test(assetPath)) return null;
+  return `${assetPath}: local script/style reference the deploy guard cannot classify (${tag})`;
 }
 
 function resolveWithinRoot(root, assetPath) {
@@ -120,14 +184,18 @@ function digestOfFile(absolutePath) {
  */
 export function stampLocalAssetDigests(html, repoRoot) {
   return html.replace(assetTagPattern(), (tag) => {
-    const url = stampableAssetUrl(tag);
-    if (!url) return tag;
+    const ref = stampableAssetRef(tag);
+    if (!ref) return tag;
+    const { value: url, quote } = ref;
     const [assetPath] = url.split("?");
     const target = resolveWithinRoot(repoRoot, assetPath);
     if (!target) return tag;
     const digest = digestOfFile(target);
     if (!digest) return tag;
-    return tag.replace(`"${url}"`, () => `"${assetPath}?v=${digest}"`);
+    return tag.replace(
+      `${quote}${url}${quote}`,
+      () => `${quote}${assetPath}?v=${digest}${quote}`,
+    );
   });
 }
 
@@ -140,9 +208,13 @@ export function verifySiteAssets(siteDir) {
   const html = readFileSync(join(siteDir, "index.html"), "utf8");
   const problems = [];
   for (const match of html.matchAll(assetTagPattern())) {
-    const url = stampableAssetUrl(match[0]);
-    if (!url) continue;
-    const [assetPath, query = ""] = url.split("?");
+    const ref = stampableAssetRef(match[0]);
+    if (!ref) {
+      const unclassified = unclassifiedAssetProblem(match[0]);
+      if (unclassified) problems.push(unclassified);
+      continue;
+    }
+    const [assetPath, query = ""] = ref.value.split("?");
     if (UNSTAMPED_SITE_EXEMPT_PATHS.has(assetPath)) continue;
     const target = resolveWithinRoot(siteDir, assetPath);
     if (!target) {

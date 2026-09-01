@@ -60,11 +60,11 @@ function digestOfBytes(bytes) {
 // test that reuses it.
 function localAssetTags(html) {
   const tags = [];
-  for (const match of html.matchAll(/<script\b[^>]*\ssrc="([^"]+)"/g)) {
-    tags.push({ tag: match[0], url: match[1] });
+  for (const match of html.matchAll(/<script\b[^>]*\ssrc=("[^"]+"|'[^']+')/g)) {
+    tags.push({ tag: match[0], url: match[1].slice(1, -1) });
   }
-  for (const match of html.matchAll(/<link\b[^>]*\shref="([^"]+)"/g)) {
-    tags.push({ tag: match[0], url: match[1] });
+  for (const match of html.matchAll(/<link\b[^>]*\shref=("[^"]+"|'[^']+')/g)) {
+    tags.push({ tag: match[0], url: match[1].slice(1, -1) });
   }
   return tags.filter(
     ({ url }) =>
@@ -74,16 +74,28 @@ function localAssetTags(html) {
   );
 }
 
-function isPreloadHint(tag) {
-  const rel = /\srel="([^"]*)"/.exec(tag);
+function quotedAttribute(tag, name) {
+  const match = new RegExp(`\\s${name}=("[^"]*"|'[^']*')`, "i").exec(tag);
+  return match ? match[1].slice(1, -1) : null;
+}
+
+// A hint is exempt from stamping only when it is NOT the script or style this
+// page also loads. `as="font"` must byte-match the url() inside
+// vendor/fonts/fonts.css, which the transform does not rewrite, so stamping it
+// would turn one font fetch into two. An `as="script"`/`as="style"` hint names
+// a file the HTML loads itself, so it must carry the very same digest.
+function isUnstampedHint(tag) {
+  const rel = quotedAttribute(tag, "rel");
   if (!rel) return false;
-  return rel[1]
-    .split(/\s+/)
-    .some((token) =>
-      ["preload", "modulepreload", "prefetch", "prerender"].includes(
-        token.toLowerCase(),
-      ),
-    );
+  const tokens = rel.split(/\s+/).map((token) => token.toLowerCase());
+  const hint = tokens.some((token) =>
+    ["preload", "modulepreload", "prefetch", "prerender"].includes(token),
+  );
+  if (!hint) return false;
+  const as = (quotedAttribute(tag, "as") || "").toLowerCase();
+  if (as === "script" || as === "style") return false;
+  if (as === "" && tokens.includes("modulepreload")) return false;
+  return true;
 }
 
 function withTempRoot(run) {
@@ -102,7 +114,7 @@ describe("ASSET-1: deployed HTML cannot reference stale browser JavaScript", () 
     const exempt = [];
     let checked = 0;
     for (const { tag, url } of localAssetTags(stamped)) {
-      if (isPreloadHint(tag)) continue;
+      if (isUnstampedHint(tag)) continue;
       const [path, query = ""] = url.split("?");
       const stamp = new URLSearchParams(query).get("v");
       let expected;
@@ -210,7 +222,7 @@ describe("ASSET-1: deployed HTML cannot reference stale browser JavaScript", () 
     );
     const stamped = stampLocalAssetDigests(assembled, repoRoot);
     for (const { tag, url } of localAssetTags(stamped)) {
-      if (isPreloadHint(tag)) continue;
+      if (isUnstampedHint(tag)) continue;
       assert.ok(
         url.split("?").length <= 2,
         `${url} carries more than one query string`,
@@ -315,6 +327,190 @@ describe("ASSET-1: deployed HTML cannot reference stale browser JavaScript", () 
       const problems = verifySiteAssets(root);
       assert.equal(problems.length, 1, problems.join("\n"));
       assert.match(problems[0], /a\.js/);
+    });
+  });
+  // --- MINOR-4 repair: the shapes the first parser could not see ----------
+
+  it("ASSET-1: single-quoted references are stamped, and the quote style survives", () => {
+    withTempRoot((root) => {
+      mkdirSync(join(root, "css"), { recursive: true });
+      writeFileSync(join(root, "a.js"), "window.a = 1;\n");
+      writeFileSync(join(root, "css", "a.css"), ":root{}\n");
+      const html = [
+        "<script src='a.js' defer></script>",
+        "<link rel='stylesheet' href='css/a.css' />",
+      ].join("\n");
+
+      const stamped = stampLocalAssetDigests(html, root);
+
+      assert.match(
+        stamped,
+        /src='a\.js\?v=[0-9a-f]{10}'/,
+        "single quotes are valid HTML: a parser that reads only double quotes ships this script unstamped",
+      );
+      assert.match(stamped, /href='css\/a\.css\?v=[0-9a-f]{10}'/);
+      assert.doesNotMatch(
+        stamped,
+        /src="a\.js/,
+        "the rewrite must preserve the quote style it found",
+      );
+
+      const seen = localAssetTags(stamped);
+      assert.equal(seen.length, 2, JSON.stringify(seen));
+      for (const { url } of seen) {
+        const [path, query = ""] = url.split("?");
+        assert.equal(
+          new URLSearchParams(query).get("v"),
+          digestOfBytes(readFileSync(join(root, path))),
+          `${url} must carry the digest of its own bytes`,
+        );
+      }
+    });
+  });
+
+  it("ASSET-1: verifySiteAssets catches drift behind a single-quoted reference", () => {
+    withTempRoot((root) => {
+      writeFileSync(join(root, "b.js"), "window.b = 1;\n");
+      writeFileSync(
+        join(root, "index.html"),
+        stampLocalAssetDigests("<script src='b.js' defer></script>", root),
+      );
+      assert.deepEqual(verifySiteAssets(root), []);
+
+      writeFileSync(join(root, "b.js"), "window.b = 999;\n");
+      const problems = verifySiteAssets(root);
+      assert.equal(
+        problems.length,
+        1,
+        `a drifted single-quoted script must be reported, not shipped in silence: ${problems.join("\n")}`,
+      );
+      assert.match(problems[0], /b\.js/);
+    });
+  });
+
+  it("ASSET-1: a local script or style preload is stamped and its drift is caught", () => {
+    withTempRoot((root) => {
+      mkdirSync(join(root, "css"), { recursive: true });
+      writeFileSync(join(root, "shim.js"), "window.f = 1;\n");
+      writeFileSync(join(root, "mod.mjs"), "export const m = 1;\n");
+      writeFileSync(join(root, "css", "late.css"), ".late{}\n");
+      const html = [
+        '<link rel="preload" as="script" href="shim.js">',
+        '<link rel="modulepreload" href="mod.mjs">',
+        '<link rel="preload" as="style" href="css/late.css">',
+      ].join("\n");
+
+      const stamped = stampLocalAssetDigests(html, root);
+
+      assert.match(
+        stamped,
+        /href="shim\.js\?v=[0-9a-f]{10}"/,
+        "a script preload names the very file the page loads, so an unstamped hint fetches a second, stale copy",
+      );
+      assert.match(
+        stamped,
+        /href="mod\.mjs\?v=[0-9a-f]{10}"/,
+        "modulepreload is a script hint by definition; `as` is optional on it",
+      );
+      assert.match(stamped, /href="css\/late\.css\?v=[0-9a-f]{10}"/);
+
+      writeFileSync(join(root, "index.html"), stamped);
+      assert.deepEqual(verifySiteAssets(root), []);
+
+      writeFileSync(join(root, "shim.js"), "window.f = 999;\n");
+      const problems = verifySiteAssets(root);
+      assert.equal(problems.length, 1, problems.join("\n"));
+      assert.match(problems[0], /shim\.js/);
+    });
+  });
+
+  it('ASSET-1: an as="font" preload stays unstamped and unflagged', () => {
+    withTempRoot((root) => {
+      writeFileSync(join(root, "f.woff2"), "font-bytes");
+      const html =
+        '<link rel="preload" as="font" type="font/woff2" crossorigin="anonymous" href="f.woff2" />';
+
+      const stamped = stampLocalAssetDigests(html, root);
+      assert.equal(
+        stamped,
+        html,
+        "the font hint URL must byte-match the url() inside vendor/fonts/fonts.css, which this transform does not rewrite — stamping it would turn one font fetch into two",
+      );
+
+      writeFileSync(join(root, "index.html"), stamped);
+      assert.deepEqual(
+        verifySiteAssets(root),
+        [],
+        "a font hint is neither a script nor a style reference, so the guard has nothing to check",
+      );
+
+      writeFileSync(join(root, "f.woff2"), "other-font-bytes");
+      assert.deepEqual(
+        verifySiteAssets(root),
+        [],
+        "and it stays out of scope when the font itself changes",
+      );
+    });
+  });
+
+  it("ASSET-1: verifySiteAssets reports a local script/style reference it cannot classify", () => {
+    withTempRoot((root) => {
+      writeFileSync(join(root, "a.js"), "window.a = 1;\n");
+      writeFileSync(join(root, "b.css"), ".b{}\n");
+      writeFileSync(join(root, "favicon.svg"), "<svg/>");
+      writeFileSync(
+        join(root, "index.html"),
+        [
+          "<script src=a.js defer></script>",
+          '<link rel="prefetch" href="b.css">',
+          '<link rel="icon" href="favicon.svg">',
+          '<script src="https://accounts.google.com/gsi/client" async></script>',
+        ].join("\n"),
+      );
+
+      const problems = verifySiteAssets(root);
+      assert.equal(
+        problems.length,
+        2,
+        `only the two unclassifiable local script/style references may be reported: ${problems.join("\n")}`,
+      );
+      assert.ok(
+        problems.some((problem) => /a\.js/.test(problem)),
+        `an unquoted src is invisible to the parser and must fail loud: ${problems.join("\n")}`,
+      );
+      assert.ok(
+        problems.some((problem) => /b\.css/.test(problem)),
+        `a hint shape the parser does not stamp must fail loud: ${problems.join("\n")}`,
+      );
+    });
+  });
+  it("ASSET-1: an attribute value containing > neither truncates the tag nor invents a problem", () => {
+    withTempRoot((root) => {
+      writeFileSync(join(root, "a.js"), "window.a = 1;\n");
+      // The real index.html favicon is an inline SVG data: URI full of `>`.
+      const favicon =
+        '<link rel="icon" href="data:image/svg+xml,<svg xmlns=\'http://www.w3.org/2000/svg\' viewBox=\'0 0 32 32\'><rect width=\'32\'/></svg>" />';
+      const html = stampLocalAssetDigests(
+        `${favicon}\n<script src="a.js" defer></script>`,
+        root,
+      );
+
+      assert.ok(
+        html.includes(favicon),
+        "an inline SVG favicon is not an asset reference and must survive byte-identical",
+      );
+      assert.match(
+        html,
+        /src="a\.js\?v=[0-9a-f]{10}"/,
+        "a tag after the favicon must still be seen and stamped",
+      );
+
+      writeFileSync(join(root, "index.html"), html);
+      assert.deepEqual(
+        verifySiteAssets(root),
+        [],
+        "a data: URI is not a local reference: failing loud must not mean crying wolf over a tag the matcher cut in half",
+      );
     });
   });
 });
