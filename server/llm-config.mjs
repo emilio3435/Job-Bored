@@ -218,6 +218,39 @@ export function redactLlmConfig(config) {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * @param {LlmConfig} config
+ * @param {unknown} fetchImpl
+ * @returns {Promise<string[]>}
+ */
+async function defaultListGeminiModels(config, fetchImpl) {
+  const doFetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
+  if (typeof doFetch !== "function") return [];
+  const apiKey = asString(config && config.apiKey);
+  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
+  const resp = await doFetch(url);
+  const data =
+    resp && typeof resp.json === "function"
+      ? await resp.json().catch(() => ({}))
+      : {};
+  const list = isPlainObject(data) && Array.isArray(data.models) ? data.models : [];
+  /** @type {string[]} */
+  const ids = [];
+  for (const entry of list) {
+    const name = isPlainObject(entry) ? asString(entry.name).replace(/^models\//, "") : "";
+    if (name) ids.push(name);
+  }
+  return ids;
+}
+
+/**
  * @param {LlmConfig} config
  * @param {{ fetchImpl?: unknown, listGeminiModels?: () => Promise<unknown> }} [options]
  * @returns {Promise<ActivePin>}
@@ -225,8 +258,20 @@ export function redactLlmConfig(config) {
 export async function resolveActivePin(config, options) {
   let resolvedModel = asString(config && config.model);
   if (isGeminiFlashFamily(resolvedModel)) {
-    const listGeminiModels = options && options.listGeminiModels;
-    const ids = listGeminiModels ? await listGeminiModels() : [];
+    const provider = asString(config && config.provider).toLowerCase();
+    const listGeminiModels =
+      options && typeof options.listGeminiModels === "function"
+        ? options.listGeminiModels
+        : provider === "gemini"
+          ? () => defaultListGeminiModels(config, options && options.fetchImpl)
+          : null;
+    /** @type {unknown} */
+    let ids = [];
+    try {
+      ids = listGeminiModels ? await listGeminiModels() : [];
+    } catch {
+      ids = [];
+    }
     resolvedModel = pickStableGeminiFlash(ids) || GEMINI_FLASH_FALLBACK;
   }
   return {

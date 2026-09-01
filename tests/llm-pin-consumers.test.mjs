@@ -96,6 +96,44 @@ describe("ATS is unconfigured when no pin and no migratable env", () => {
   });
 });
 
+describe("ATS missing key after llm.json exists points at Settings", () => {
+  let dir;
+  const prevPath = process.env.JOBBORED_LLM_CONFIG_PATH;
+  const prevModel = process.env.ATS_GEMINI_MODEL;
+  const prevKey = process.env.ATS_GEMINI_API_KEY;
+  const prevProvider = process.env.ATS_PROVIDER;
+  const prevGeminiKey = process.env.GEMINI_API_KEY;
+
+  beforeEach(async () => {
+    dir = await mkdtemp(join(tmpdir(), "jb-ats-nokey-"));
+    process.env.JOBBORED_LLM_CONFIG_PATH = join(dir, "llm.json");
+    process.env.ATS_PROVIDER = "gemini";
+    delete process.env.ATS_GEMINI_API_KEY;
+    delete process.env.GEMINI_API_KEY;
+    await writeLlmConfig(
+      { provider: "gemini", model: "gemini-flash", apiKey: "", baseUrl: "" },
+      process.env,
+    );
+  });
+
+  afterEach(async () => {
+    restoreEnv("JOBBORED_LLM_CONFIG_PATH", prevPath);
+    restoreEnv("ATS_GEMINI_MODEL", prevModel);
+    restoreEnv("ATS_GEMINI_API_KEY", prevKey);
+    restoreEnv("ATS_PROVIDER", prevProvider);
+    restoreEnv("GEMINI_API_KEY", prevGeminiKey);
+    await rm(dir, { recursive: true, force: true });
+  });
+
+  it("does not name ATS_GEMINI_API_KEY", () => {
+    const status = getAtsConfigStatus();
+    assert.equal(status.configured, false);
+    assert.match(status.reason, /Settings/);
+    assert.doesNotMatch(status.reason, /ATS_GEMINI_API_KEY/);
+    assert.doesNotMatch(status.reason, /GEMINI_API_KEY/);
+  });
+});
+
 describe("browser fallbacks no longer hardcode 3.5-flash as the product default", () => {
   it("resume-generate.js default Gemini id is gemini-flash", () => {
     const src = readFileSync(new URL("../resume-generate.js", import.meta.url), "utf8");

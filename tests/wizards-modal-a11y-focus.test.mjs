@@ -98,8 +98,8 @@ describe("first-run wizard — focus + inert + restore", () => {
     );
     assert.match(
       firstRunJs,
-      /getEl\("firstRunProviderOpenRouter"\)/,
-      "step 2 must focus the first provider radio (OpenRouter is the cold-start preselect)",
+      /getEl\("firstRunProviderGemini"\)/,
+      "step 2 must focus the first provider radio (Gemini is the cold-start preselect)",
     );
   });
 });

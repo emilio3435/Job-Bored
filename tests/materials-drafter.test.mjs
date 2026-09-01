@@ -263,8 +263,8 @@ describe("createMaterialsDrafter", () => {
 
   it("fills nested letter chrome slots and keeps .dot children", async () => {
     const nestedLetter = `<html><head><style>.x{}</style></head><body>
-      <p data-slot="hook">old <span data-slot="company-mention">[Company]</span></p>
-      <p data-slot="why-them"><span data-slot="company-mention-2">[Company]</span> and <strong data-slot="role-keyword">[role]</strong></p>
+      <p data-slot="hook">old <span class="it">I'd like to bring both to <span class="target" data-slot="company-mention">[Company]</span>.</span></p>
+      <p data-slot="why-them"><span class="target" data-slot="company-mention-2">[Company]</span> and <strong data-slot="role-keyword">[role]</strong></p>
       <p data-slot="why-me"></p>
       <p data-slot="why-now"><span data-slot="company-mention-3">[Company]</span></p>
       <p data-slot="closing">see <em data-slot="closing-hook">[hook]</em></p>
@@ -294,6 +294,39 @@ describe("createMaterialsDrafter", () => {
     assert.match(html, /data-slot="company-mention-3"[^>]*>EAB/);
     assert.match(html, /data-slot="role-keyword"[^>]*>Senior Director/);
     assert.match(html, /class="dot"/);
+    assert.match(
+      html,
+      /class="it"[^>]*>[\s\S]*class="target"[^>]*data-slot="company-mention"|class="it"[^>]*>[\s\S]*data-slot="company-mention"[^>]*class="target"/,
+    );
+    assert.match(
+      html,
+      /<span class="it">[\s\S]*data-slot="company-mention"[\s\S]*EAB/,
+    );
+    assert.doesNotMatch(html, /data-slot="hook"[^>]*>[\s\S]*?<\/p>\s*<span class="it"/);
+  });
+
+  it("passes payload.notes into the writer as voice samples", async () => {
+    /** @type {unknown} */
+    let seen;
+    const drafter = createMaterialsDrafter(
+      baseDeps(dir, {
+        writer: async (input) => {
+          seen = input.voiceSamples;
+          return goodJson;
+        },
+      }),
+    );
+    await drafter.enqueue({
+      slug: "eab-role",
+      company: "EAB",
+      title: "Director",
+      feature: "both",
+      jobUrl: "https://example.com/job",
+      notes: "write like a human operator",
+    });
+    await drafter.runUntilIdle();
+    assert.ok(Array.isArray(seen));
+    assert.ok(seen.includes("write like a human operator"));
   });
 
   it("treats resume_page_count_high as review when PDF is skipped so HTML still lands", async () => {

@@ -777,14 +777,21 @@ describe("runResumeGeneration is reachable from the wizard host", () => {
 });
 
 describe("first-run wizard markup — provider step controls", () => {
-  it("provider step presents OpenRouter (checked) and local options", () => {
+  it("provider step presents Gemini (checked) plus OpenRouter and local options", () => {
     assert.ok(firstRunPartial.includes('value="openrouter"'));
     assert.ok(firstRunPartial.includes('value="local"'));
+    assert.ok(firstRunPartial.includes('value="gemini"'));
     assert.ok(
-      /value="openrouter"[^>]*checked|checked[^>]*value="openrouter"/.test(
+      /value="gemini"[^>]*checked|checked[^>]*value="gemini"/.test(
         firstRunPartial,
       ),
-      "the OpenRouter option should be preselected",
+      "the Gemini option should be preselected",
+    );
+    assert.ok(
+      !/value="openrouter"[^>]*checked|checked[^>]*value="openrouter"/.test(
+        firstRunPartial,
+      ),
+      "OpenRouter must not be the first-run default",
     );
   });
 

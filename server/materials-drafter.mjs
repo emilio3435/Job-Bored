@@ -17,6 +17,7 @@ import { renderPdfIfPossible } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import { callEditor, callWriter } from "./materials-writer.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
+import { readProfile } from "./user-profile.mjs";
 
 const PAGE_COUNT_CODES = new Set([
   "resume_page_count_high",
@@ -117,7 +118,57 @@ function isPlainObject(value) {
 /** @param {unknown} pin */
 function pinIsConfigured(pin) {
   if (!isPlainObject(pin)) return false;
+  const provider = String(pin.provider || "").trim().toLowerCase();
+  if (provider === "webhook" || provider === "local" || provider === "openai_compatible") {
+    return typeof pin.baseUrl === "string" && pin.baseUrl.trim().length > 0;
+  }
   return typeof pin.apiKey === "string" && pin.apiKey.trim().length > 0;
+}
+
+/**
+ * IndexedDB writing samples stay in the browser; a server bridge is follow-up.
+ * On-disk `~/.jobbored` profile extras (if present) plus payload.notes are
+ * the cheap voice signal available to the writer in this wave.
+ *
+ * @param {MaterialsRequestPayload} payload
+ * @returns {Promise<unknown[]>}
+ */
+async function collectVoiceSamples(payload) {
+  /** @type {unknown[]} */
+  const samples = [];
+  try {
+    const result = await readProfile();
+    if (result.ok && isPlainObject(result.profile)) {
+      const extra = result.profile.writingSamples || result.profile.writingSampleExcerpts;
+      if (Array.isArray(extra)) samples.push(...extra);
+    }
+  } catch {
+    // no on-disk profile
+  }
+  const notes = typeof payload.notes === "string" ? payload.notes.trim() : "";
+  if (notes) samples.push(notes);
+  return samples;
+}
+
+/**
+ * Replace only direct text nodes so nested chrome (`.it`, `.target`,
+ * `[data-slot]`, `.dot`) stays in place.
+ *
+ * @param {import("cheerio").Cheerio<import("cheerio").Element>} $el
+ * @param {string} value
+ */
+function replaceDirectTextNodes($el, value) {
+  let replaced = false;
+  $el.contents().each((_, node) => {
+    if (node.type !== "text") return;
+    if (!replaced) {
+      node.data = value;
+      replaced = true;
+    } else {
+      node.data = "";
+    }
+  });
+  if (!replaced) $el.prepend(value);
 }
 
 function unconfiguredError() {
@@ -195,9 +246,7 @@ export function composeLetterWithNestedSlots(html, letter) {
     if (typeof value !== "string") continue;
     const $slot = $(`[data-slot="${slot}"]`);
     if (!$slot.length) continue;
-    const $keep = $slot.find("[data-slot], .dot").clone();
-    $slot.text(value);
-    $slot.append($keep);
+    replaceDirectTextNodes($slot, value);
   }
 
   for (const [field, slots] of Object.entries(NESTED_LETTER_SLOTS)) {
@@ -648,12 +697,13 @@ export function createMaterialsDrafter(deps = {}) {
       readMasterResume(),
       readMasterLetter(),
     ]);
+    const voiceSamples = await collectVoiceSamples(payload);
 
     let writerJson = await writer({
       pin: resolved,
       jdText,
       masterResumeHtml,
-      voiceSamples: [],
+      voiceSamples,
     });
 
     /**
@@ -689,7 +739,7 @@ export function createMaterialsDrafter(deps = {}) {
         pin: resolved,
         jdText,
         masterResumeHtml,
-        voiceSamples: [],
+        voiceSamples,
         current: writerJson,
         scorecard,
       });

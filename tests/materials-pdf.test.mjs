@@ -66,4 +66,44 @@ describe("renderPdfIfPossible", () => {
     assert.equal(closed, true);
     await rm(dir, { recursive: true, force: true });
   });
+
+  it("returns pdf_skipped when setContent rejects after the timeout without unhandledRejection", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "jb-pdf-"));
+    let closed = false;
+    /** @type {unknown[]} */
+    const unhandled = [];
+    const onUnhandled = (reason) => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const result = await renderPdfIfPossible("<html><body>Hi</body></html>", join(dir, "out.pdf"), {
+        timeoutMs: 30,
+        playwrightImport: async () => ({
+          chromium: {
+            launch: async () => ({
+              newPage: async () => ({
+                setContent: () =>
+                  new Promise((_, reject) => {
+                    setTimeout(() => reject(new Error("late setContent")), 80);
+                  }),
+                pdf: async () => {},
+              }),
+              close: async () => {
+                closed = true;
+              },
+            }),
+          },
+        }),
+      });
+      assert.equal(result.skipped, true);
+      assert.equal(result.note, "pdf_skipped");
+      assert.equal(closed, true);
+      await new Promise((resolve) => setTimeout(resolve, 120));
+      assert.equal(unhandled.length, 0);
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+      await rm(dir, { recursive: true, force: true });
+    }
+  });
 });

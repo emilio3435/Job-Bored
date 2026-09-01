@@ -288,7 +288,7 @@ function resolveJobBoredApiUrl() {
     (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
   const raw = String(cfg.jobBoredApiUrl || "").trim();
   if (raw) return raw.replace(/\/+$/, "");
-  return "http://localhost:3847";
+  return "http://127.0.0.1:3847";
 }
 
 async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
@@ -298,7 +298,7 @@ async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
   if (typeof fetch !== "function") return;
   const jobBoredApiUrl = resolveJobBoredApiUrl();
   try {
-    await fetch(jobBoredApiUrl + "/api/llm-config", {
+    const resp = await fetch(jobBoredApiUrl + "/api/llm-config", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({
@@ -308,8 +308,16 @@ async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
         baseUrl: String(baseUrl || "").trim(),
       }),
     });
-  } catch (_) {
-    /* local API may be down; Settings localStorage save still succeeded */
+    if (!resp || resp.ok === false) {
+      const status = resp && typeof resp.status === "number" ? resp.status : 0;
+      console.warn("[JobBored] llm-config pin POST failed:", status || "network");
+    }
+  } catch (err) {
+    const message =
+      err && typeof err === "object" && "message" in err
+        ? String(err.message)
+        : String(err);
+    console.warn("[JobBored] llm-config pin POST failed:", message);
   }
 }
 

@@ -40,8 +40,8 @@ Packaged defaults:
   `~/.jobbored/browser-use-discovery/.env`.
 - Application materials default to `~/.jobbored/applications`. Cover letters
   and tailored resumes are drafted on the local scraper server using the model
-  you picked at setup. Playwright is optional for PDF; without it HTML is
-  still READY and the QA report notes `pdf_skipped`.
+  you picked at setup. Playwright is optional for PDF; without it the 3-page
+  HTML master is REVIEW and the QA report notes `pdf_skipped`.
 
 ### Pick one setup path
 
@@ -89,7 +89,7 @@ is intentionally ignored and should not be committed.
 Cover letters and tailored resumes are drafted on the local scraper server
 using the model you picked at setup (Gemini Flash is the recommended pin).
 Packages land in `~/.jobbored/applications`. Playwright is optional for PDF;
-missing it skips PDF and still allows READY.
+missing it skips PDF and the 3-page HTML master is REVIEW, not READY.
 
 The older Hermes job-hunt tree is still installable if you want those scripts:
 

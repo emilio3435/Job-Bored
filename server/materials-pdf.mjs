@@ -14,6 +14,9 @@ function withTimeout(work, ms) {
       reject(new Error("pdf_timeout"));
     }, ms);
   });
+  // Timeout winners must not leave `work` as an unhandledRejection when
+  // setContent/pdf reject later (Node 24 treats that as fatal).
+  work.catch(() => {});
   return Promise.race([work, timeout]).finally(() => {
     if (timer) clearTimeout(timer);
   });

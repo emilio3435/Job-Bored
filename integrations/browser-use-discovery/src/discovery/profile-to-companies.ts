@@ -27,6 +27,7 @@ import {
   type WorkerChatProviderConfig,
 } from "../ai/chat-provider.ts";
 import { collectSerpApiGoogleJobsListings } from "../sources/serpapi-google-jobs.ts";
+import { GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
 
 type FetchImpl = typeof globalThis.fetch;
 
@@ -1454,7 +1455,7 @@ export async function discoverCompaniesForProfile(
     }
     throw new Error(COMPANY_DISCOVERY_NO_SOURCE_MESSAGE);
   }
-  const model = dependencies.runtimeConfig.geminiModel || "gemini-3.5-flash";
+  const model = dependencies.runtimeConfig.geminiModel || GEMINI_FLASH_FALLBACK;
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   let companies: CompanyTarget[] = [];

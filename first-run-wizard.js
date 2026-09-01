@@ -248,10 +248,10 @@
       if (step === 1) {
         target = getEl("firstRunCreateSheetBtn");
       } else if (step === 2) {
-        // First provider radio (preselected OpenRouter is the cold-start
+        // First provider radio (preselected Gemini is the cold-start
         // default — see renderProviderStep).
         target =
-          getEl("firstRunProviderOpenRouter") ||
+          getEl("firstRunProviderGemini") ||
           (typeof document !== "undefined" &&
           typeof document.querySelector === "function"
             ? document.querySelector('input[name="firstRunProvider"]')
@@ -440,13 +440,21 @@
       (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
     const raw = String(cfg.jobBoredApiUrl || "").trim();
     if (raw) return raw.replace(/\/+$/, "");
-    return "http://localhost:3847";
+    return "http://127.0.0.1:3847";
   }
 
   function firstRunPinFields(provider) {
     const p = normalizeFirstRunProvider(provider) || firstRunSelectedProvider();
     const def = FIRST_RUN_PROVIDERS[p];
-    if (!def || p === "webhook") return null;
+    if (!def) return null;
+    if (p === "webhook") {
+      const cfg = getResumeConfig() || {};
+      const live =
+        (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+      const baseUrl = String(live[def.urlField] || cfg[def.urlField] || "").trim();
+      if (!baseUrl) return null;
+      return { provider: p, model: "webhook", apiKey: "", baseUrl };
+    }
     const cfg = getResumeConfig() || {};
     const live =
       (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
@@ -472,13 +480,21 @@
     if (typeof fetch !== "function") return;
     const jobBoredApiUrl = resolveJobBoredApiUrl();
     try {
-      await fetch(jobBoredApiUrl + "/api/llm-config", {
+      const resp = await fetch(jobBoredApiUrl + "/api/llm-config", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(pin),
       });
-    } catch (_) {
-      /* local API may be down during first-run */
+      if (!resp || resp.ok === false) {
+        const status = resp && typeof resp.status === "number" ? resp.status : 0;
+        console.warn("[JobBored] llm-config pin POST failed:", status || "network");
+      }
+    } catch (err) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String(err.message)
+          : String(err);
+      console.warn("[JobBored] llm-config pin POST failed:", message);
     }
   }
 
@@ -537,7 +553,7 @@
     }
     const cfg = getResumeConfig();
     const fromConfig = cfg ? normalizeFirstRunProvider(cfg.provider) : "";
-    return fromConfig || "openrouter";
+    return fromConfig || "gemini";
   }
 
   function updateFirstRunProviderPanels(provider) {
@@ -564,7 +580,7 @@
 
   /** Persist the chosen provider so generation immediately honors it. */
   function firstRunSelectProvider(provider) {
-    const p = normalizeFirstRunProvider(provider) || "openrouter";
+    const p = normalizeFirstRunProvider(provider) || "gemini";
     persistResumeProvider(p);
     updateFirstRunProviderPanels(p);
     refreshFirstRunWizard();
@@ -802,12 +818,12 @@
     });
   }
 
-  /** Populate the provider step from the current config (preselect free-tier). */
+  /** Populate the provider step from the current config (preselect Gemini). */
   function renderProviderStep() {
     const cfg = getResumeConfig();
     const fromRadio = firstRunSelectedProvider();
     const fromConfig = cfg ? normalizeFirstRunProvider(cfg.provider) : "";
-    const provider = fromRadio || fromConfig || "openrouter";
+    const provider = fromRadio || fromConfig || "gemini";
     for (const [name, def] of Object.entries(FIRST_RUN_PROVIDERS)) {
       const radio = getEl(`firstRunProvider${def.cap}`);
       if (radio) {

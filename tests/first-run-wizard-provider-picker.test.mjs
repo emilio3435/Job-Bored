@@ -330,6 +330,13 @@ describe("first-run wizard module — provider picker API surface", () => {
         `firstRunSelectedProvider should return ${p} when the config says so`,
       );
     }
+    assert.equal(
+      make("").firstRunSelectedProvider(),
+      "gemini",
+      "cold-start fallback with no radio and no config must be gemini",
+    );
+    assert.match(firstRunWizardJs, /fromConfig \|\| "gemini"/);
+    assert.doesNotMatch(firstRunWizardJs, /fromConfig \|\| "openrouter"/);
   });
 
   it("firstRunSaveProviderKey persists the right override key for each provider", () => {
@@ -573,6 +580,9 @@ describe("first-run wizard module — wiring + persistence parity with Settings"
   it("POSTs the active pin to /api/llm-config when the AI provider step is saved", async () => {
     assert.match(firstRunWizardJs, /jobBoredApiUrl \+ "\/api\/llm-config"/);
     assert.match(firstRunWizardJs, /method:\s*"POST"/);
+    assert.match(firstRunWizardJs, /http:\/\/127\.0\.0\.1:3847/);
+    assert.doesNotMatch(firstRunWizardJs, /http:\/\/localhost:3847/);
+    assert.match(firstRunWizardJs, /console\.warn\("\[JobBored\] llm-config pin POST failed:"/);
     const calls = [];
     const { api, window } = loadWizard(
       {
@@ -596,14 +606,14 @@ describe("first-run wizard module — wiring + persistence parity with Settings"
       },
     );
     window.COMMAND_CENTER_CONFIG = {
-      jobBoredApiUrl: "http://localhost:3847",
+      jobBoredApiUrl: "http://127.0.0.1:3847",
       resumeGeminiModel: "gemini-flash",
     };
     const res = api.firstRunSaveProviderKey("gemini", "AIza-test-1234");
     assert.equal(res.ok, true);
     await new Promise((resolve) => setTimeout(resolve, 0));
     assert.equal(calls.length, 1);
-    assert.equal(calls[0].url, "http://localhost:3847/api/llm-config");
+    assert.equal(calls[0].url, "http://127.0.0.1:3847/api/llm-config");
     assert.equal(calls[0].init.method, "POST");
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.provider, "gemini");

@@ -206,6 +206,9 @@ describe("Settings Gemini model menu", () => {
   it("Settings save POSTs the selected provider pin to /api/llm-config", () => {
     assert.match(settingsModalJs, /jobBoredApiUrl \+ "\/api\/llm-config"/);
     assert.match(settingsModalJs, /method:\s*"POST"/);
+    assert.match(settingsModalJs, /http:\/\/127\.0\.0\.1:3847/);
+    assert.doesNotMatch(settingsModalJs, /http:\/\/localhost:3847/);
+    assert.match(settingsModalJs, /console\.warn\("\[JobBored\] llm-config pin POST failed:"/);
   });
 
   it("uses option and select titles as hover/selected tooltips", () => {

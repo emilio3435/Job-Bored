@@ -102,4 +102,42 @@ describe("resolveActivePin", () => {
     );
     assert.equal(pin.resolvedModel, "gemini-3.7-flash");
   });
+
+  it("lists Gemini models via fetchImpl when listGeminiModels is omitted", async () => {
+    const calls = [];
+    const pin = await resolveActivePin(
+      { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
+      {
+        fetchImpl: async (url) => {
+          calls.push(String(url));
+          return {
+            ok: true,
+            json: async () => ({
+              models: [
+                { name: "models/gemini-3.5-flash" },
+                { name: "models/gemini-3.8-flash" },
+                { name: "models/gemini-3.8-flash-preview" },
+              ],
+            }),
+          };
+        },
+      },
+    );
+    assert.equal(pin.resolvedModel, "gemini-3.8-flash");
+    assert.equal(calls.length, 1);
+    assert.match(calls[0], /generativelanguage\.googleapis\.com\/v1beta\/models\?key=/);
+    assert.match(calls[0], /[?&]key=k(?:&|$)/);
+  });
+
+  it("falls back when the default Gemini list throws", async () => {
+    const pin = await resolveActivePin(
+      { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
+      {
+        fetchImpl: async () => {
+          throw new Error("network");
+        },
+      },
+    );
+    assert.equal(pin.resolvedModel, "gemini-3.7-flash");
+  });
 });

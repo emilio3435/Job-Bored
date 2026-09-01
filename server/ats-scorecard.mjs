@@ -94,6 +94,7 @@ const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 const MAX_PROVIDER_TIMEOUT_MS = 120_000;
 const DEFAULT_GEMINI_MODEL = "gemini-flash";
 const NO_PIN_REASON = "No LLM pin configured. Save an AI provider in Settings.";
+const PIN_MISSING_KEY_REASON = "Missing API key. Save a key in Settings.";
 
 /** @typedef {"gemini" | "openai" | "anthropic" | "openrouter" | "openai_compatible"} AtsProvider */
 /** @typedef {Record<string, unknown>} UnknownRecord */
@@ -983,8 +984,7 @@ export function getAtsConfigStatus() {
         configured: false,
         provider: cfg.provider,
         model,
-        reason:
-          "Missing API key: set ATS_OPENAI_API_KEY or OPENAI_API_KEY when ATS_PROVIDER=openai.",
+        reason: PIN_MISSING_KEY_REASON,
       };
     }
     return { configured: true, provider: cfg.provider, model, reason: "" };
@@ -995,8 +995,7 @@ export function getAtsConfigStatus() {
         configured: false,
         provider: cfg.provider,
         model,
-        reason:
-          "Missing API key: set ATS_ANTHROPIC_API_KEY or ANTHROPIC_API_KEY when ATS_PROVIDER=anthropic.",
+        reason: PIN_MISSING_KEY_REASON,
       };
     }
     return { configured: true, provider: cfg.provider, model, reason: "" };
@@ -1007,8 +1006,7 @@ export function getAtsConfigStatus() {
         configured: false,
         provider: cfg.provider,
         model,
-        reason:
-          "Missing API key: set ATS_OPENROUTER_API_KEY or OPENROUTER_API_KEY when ATS_PROVIDER=openrouter.",
+        reason: PIN_MISSING_KEY_REASON,
       };
     }
     return { configured: true, provider: cfg.provider, model, reason: "" };
@@ -1033,8 +1031,7 @@ export function getAtsConfigStatus() {
       configured: false,
       provider: cfg.provider,
       model,
-      reason:
-        "Missing API key: set ATS_GEMINI_API_KEY or GEMINI_API_KEY when ATS_PROVIDER=gemini.",
+      reason: PIN_MISSING_KEY_REASON,
     };
   }
   return { configured: true, provider: cfg.provider, model, reason: "" };
