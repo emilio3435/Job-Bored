@@ -607,7 +607,10 @@
       order: 6,
       label: "Done",
       timeLabel: "almost done",
-      headline: HEADLINE,
+      // A resolver, not a literal: the SHELL title has to read
+      // "You're live, {actual name}." too, not just the celebration
+      // overlay (spec §5 B6; routed L6 → L7 #9).
+      headline: (ctx) => buildHeadline(resolveFirstName((ctx && ctx.runtime) || {})),
       sub: SUB,
       actions: ACTIONS,
       render,

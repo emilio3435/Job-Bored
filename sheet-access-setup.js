@@ -343,9 +343,14 @@
     // wizard's Sheet-step buttons (VAL-WIZ-013). The requested mode is still
     // recorded on dataset.gateMode so the gate resumes with the right state
     // once the wizard releases the surface.
-    if (firstRunWizardOwnsSurface()) {
+    // Same for a live beat: a token that expires mid-flow used to repaint
+    // the login gate over the beat the user was working in (spec §3.4 —
+    // the flow owns the surface until it closes; routed L6 → L7 #10).
+    if (firstRunWizardOwnsSurface() || oneFlowOwnsSurface()) {
       startupLog("sheet-access:show-gate-deferred", {
-        reason: "first-run-wizard-active",
+        reason: firstRunWizardOwnsSurface()
+          ? "first-run-wizard-active"
+          : "oneflow-beat-active",
         mode,
       });
       screen.dataset.gateMode = mode;
