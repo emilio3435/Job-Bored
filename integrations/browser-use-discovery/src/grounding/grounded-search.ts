@@ -29,6 +29,7 @@ import { safeFetch } from "../net/safe-fetch.ts";
 import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import type { BudgetTracker } from "../run/budget-tracker.ts";
 import { applyRetryBroadeningGate } from "../run/retry-broadening.ts";
+// @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
 import { GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
 
 const SEARCH_SYSTEM_PROMPT = [

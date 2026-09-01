@@ -27,6 +27,7 @@ import {
   type WorkerChatProviderConfig,
 } from "../ai/chat-provider.ts";
 import { collectSerpApiGoogleJobsListings } from "../sources/serpapi-google-jobs.ts";
+// @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
 import { GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
 
 type FetchImpl = typeof globalThis.fetch;
