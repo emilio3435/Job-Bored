@@ -650,8 +650,6 @@ function buildDiscoverySuccessToast(...args) {
 function statusApi(name, ...args) {
   return window.JobBoredDiscovery.status[name](...args);
 }
-const PENDING_DISCOVERY_SETUP_KEY =
-  window.JobBoredDiscovery.status.PENDING_DISCOVERY_SETUP_KEY;
 function isManagedAppsScriptDeployState(...args) {
   return statusApi("isManagedAppsScriptDeployState", ...args);
 }
@@ -672,15 +670,6 @@ function setAppsScriptDeployStatus(...args) {
 }
 function clearAppsScriptDeployStatus(...args) {
   return statusApi("clearAppsScriptDeployStatus", ...args);
-}
-function hasPendingDiscoverySetup(...args) {
-  return statusApi("hasPendingDiscoverySetup", ...args);
-}
-function queuePendingDiscoverySetup(...args) {
-  return statusApi("queuePendingDiscoverySetup", ...args);
-}
-async function resumePendingDiscoverySetupIfNeeded(...args) {
-  return statusApi("resumePendingDiscoverySetupIfNeeded", ...args);
 }
 function stripSetupDiscoveryParam(...args) {
   return statusApi("stripSetupDiscoveryParam", ...args);

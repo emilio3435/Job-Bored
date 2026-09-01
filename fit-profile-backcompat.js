@@ -1,5 +1,5 @@
 /**
- * fit-profile-backcompat.js — Task #6 UI wiring.
+ * fit-profile-backcompat.js — rescore-slot UI wiring.
  *
  * Two surfaces:
  *   1. Fills the `#fit-profile-rescore-slot` left by fit-profile-editor.js

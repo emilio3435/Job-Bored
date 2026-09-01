@@ -177,9 +177,14 @@ describe("ONEFLOW L5 Phase 0 repairs", () => {
         `${relativePath} still calls or serves the deleted OAuth bootstrap`,
       );
     }
+    // The toast this pinned lived on the login gate's own "create a Client
+    // ID" sub-wizard, which §7 deleted — Beat 1 owns that step now, guide
+    // included. The claim that survives is that nothing resurrects the
+    // route, asserted above.
     assert.match(
-      readRepoFile("sheet-access-setup.js"),
-      /Create your OAuth Client ID with the manual steps above\./,
+      readRepoFile("oneflow-beat-google.js"),
+      /oneFlowOauthClientIdInput/,
+      "Beat 1 carries the Client ID step the gate used to duplicate",
     );
   });
 

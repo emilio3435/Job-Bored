@@ -1516,12 +1516,10 @@
         showWizardError(msg);
         return;
       }
-      try {
-        localStorage.setItem("fitProfileOnboardingComplete", "1");
-      } catch (_) {
-        // ignore
-      }
-      // Close wizard and bounce back to dashboard root.
+      // Close wizard and bounce back to dashboard root. (A write-only
+      // localStorage completion flag used to be set here; nothing in the repo
+      // ever read it — ONE-FLOW-ONBOARDING-SPEC §7 deletes it, and the flow's
+      // own state is what decides re-prompting.)
       closeWizard({ navigateHome: true });
       // Optional: tell the rest of the app a fresh profile exists.
       try {

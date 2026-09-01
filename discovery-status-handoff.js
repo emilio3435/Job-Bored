@@ -440,36 +440,6 @@ function clearAppsScriptDeployStatus() {
   host().renderAppsScriptDeployUi();
 }
 
-const PENDING_DISCOVERY_SETUP_KEY = "pendingDiscoverySetup";
-
-function hasPendingDiscoverySetup() {
-  try {
-    return sessionStorage.getItem(PENDING_DISCOVERY_SETUP_KEY) === "1";
-  } catch (_) {
-    return false;
-  }
-}
-
-function queuePendingDiscoverySetup() {
-  try {
-    sessionStorage.setItem(PENDING_DISCOVERY_SETUP_KEY, "1");
-    return true;
-  } catch (_) {
-    return false;
-  }
-}
-
-async function resumePendingDiscoverySetupIfNeeded() {
-  if (!hasPendingDiscoverySetup()) return false;
-  try {
-    sessionStorage.removeItem(PENDING_DISCOVERY_SETUP_KEY);
-  } catch (_) {
-    /* ignore */
-  }
-  await openSettingsForDiscoveryWebhook();
-  return true;
-}
-
 function stripSetupDiscoveryParam() {
   const params = new URLSearchParams(window.location.search);
   if (params.get("setup") !== "discovery") return;
@@ -510,8 +480,11 @@ async function requestDiscoverySetup(options = {}) {
   // discovery setup — opening the standalone wizard over the flow shell
   // would strand the beat behind it. The two legacy wizards this also used
   // to ask about are deleted (§7).
+  // Deferring is the whole answer: the sessionStorage queue this used to
+  // write had a writer and no caller for its resumer
+  // (ONE-FLOW-ONBOARDING-SPEC §7). Beat 5 IS discovery setup, so there is
+  // nothing to resume TO once the flow has the surface.
   if (isOneFlowOpen() && !allowWhileOnboarding) {
-    queuePendingDiscoverySetup();
     if (stripSetupParam) {
       stripSetupDiscoveryParam();
     }
@@ -1342,7 +1315,6 @@ function resetPostAccessBootstrap() {
 }
 
   Object.assign(status, {
-    PENDING_DISCOVERY_SETUP_KEY: PENDING_DISCOVERY_SETUP_KEY,
     isManagedAppsScriptDeployState: isManagedAppsScriptDeployState,
     isAppsScriptPublicAccessReady: isAppsScriptPublicAccessReady,
     getAppsScriptEditorUrl: getAppsScriptEditorUrl,
@@ -1354,9 +1326,6 @@ function resetPostAccessBootstrap() {
     diagnoseDownstreamChain: diagnoseDownstreamChain,
     setAppsScriptDeployStatus: setAppsScriptDeployStatus,
     clearAppsScriptDeployStatus: clearAppsScriptDeployStatus,
-    hasPendingDiscoverySetup: hasPendingDiscoverySetup,
-    queuePendingDiscoverySetup: queuePendingDiscoverySetup,
-    resumePendingDiscoverySetupIfNeeded: resumePendingDiscoverySetupIfNeeded,
     stripSetupDiscoveryParam: stripSetupDiscoveryParam,
     focusDiscoveryWebhookFieldInSettings: focusDiscoveryWebhookFieldInSettings,
     openSettingsForDiscoveryWebhook: openSettingsForDiscoveryWebhook,

@@ -391,12 +391,6 @@
             id="whatsNextOpenDiscovery"
             data-whats-next-action="discovery"
           >
-            <span
-              id="whatsNextDiscoveryBadge"
-              class="whats-next-banner__cta-badge"
-              hidden
-              aria-hidden="true"
-            ></span>
             Turn on job discovery
           </button>
           <button
@@ -405,12 +399,6 @@
             id="whatsNextOpenSelfHosting"
             data-whats-next-action="self_hosting"
           >
-            <span
-              id="whatsNextGoLiveBadge"
-              class="whats-next-banner__cta-badge"
-              hidden
-              aria-hidden="true"
-            ></span>
             Use JobBored on other devices
           </button>
           <button
@@ -431,14 +419,6 @@
             hidden
           >
             Later
-          </button>
-          <button
-            id="enhancementsReEntryBtn"
-            class="login-gate__text-btn whats-next-banner__later"
-            type="button"
-            hidden
-          >
-            Maximize results
           </button>
           <button
             type="button"
@@ -622,139 +602,6 @@
                     />
                   </svg>
                   <span>Log in with Google</span>
-                </button>
-              </div>
-            </div>
-            <div
-              id="sheetAccessGateOAuthShell"
-              class="login-gate__oauth-shell"
-              hidden
-            >
-              <div
-                id="sheetAccessGateOAuthChoice"
-                class="login-gate__oauth-choice"
-              >
-                <h1 class="login-gate__oauth-title">Connect Google</h1>
-                <input
-                  type="text"
-                  class="login-gate__oauth-paste-input"
-                  id="sheetAccessGateOAuthClientIdInput"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="Paste Google Client ID — auto-saves on paste"
-                  aria-label="Google OAuth Client ID"
-                />
-                <button
-                  type="button"
-                  class="login-gate__btn-google login-gate__btn-google--save-oauth"
-                  id="sheetAccessGateOAuthSaveBtn"
-                >
-                  Continue with Google
-                </button>
-                <button
-                  type="button"
-                  class="login-gate__text-btn login-gate__oauth-helper-btn"
-                  id="sheetAccessGateBtnCreateOAuth"
-                >
-                  I don’t have a Client ID yet
-                </button>
-              </div>
-              <div
-                id="sheetAccessGateOAuthWizard"
-                class="login-gate__oauth-wizard"
-                hidden
-              >
-                <h2 class="login-gate__oauth-wizard-heading">Get a Client ID</h2>
-                <p class="login-gate__oauth-wizard-intro">
-                  Free, ~3 minutes. JobBored is BYO keys — your Client ID
-                  stays in your browser. We’ve copied this site’s origin to
-                  your clipboard so you can paste it when Google asks.
-                </p>
-                <code
-                  class="login-gate__oauth-origin"
-                  id="sheetAccessGateOAuthOriginDisplay"
-                ></code>
-                <button
-                  type="button"
-                  class="login-gate__btn-google"
-                  id="sheetAccessGateOAuthOpenConsoleBtn"
-                >
-                  Open Google Cloud Console
-                </button>
-                <button
-                  type="button"
-                  class="login-gate__btn-google doctor-gcloud-btn"
-                  id="sheetAccessGateOAuthGcloudBtn"
-                  hidden
-                >
-                  Create one for me with gcloud
-                </button>
-
-                <details class="login-gate__oauth-guide">
-                  <summary class="login-gate__oauth-guide-summary">
-                    Step-by-step guide (open if it’s your first time)
-                  </summary>
-                  <ol class="login-gate__oauth-guide-list">
-                    <li>
-                      In Google Cloud Console, create or pick a project (top
-                      bar → project picker → <strong>New project</strong>).
-                    </li>
-                    <li>
-                      Configure the <strong>OAuth consent screen</strong>
-                      (left nav → APIs &amp; Services → OAuth consent
-                      screen). Pick <strong>External</strong>, fill in the
-                      app name + your email, save. You can add yourself as a
-                      test user under Audience to skip “unverified app”
-                      warnings.
-                    </li>
-                    <li>
-                      Enable the <strong>Google Sheets API</strong> and
-                      <strong>Google Drive API</strong> for the project (APIs
-                      &amp; Services → Library → search → Enable).
-                    </li>
-                    <li>
-                      Open <strong>Credentials</strong> → <strong>Create
-                      credentials</strong> → <strong>OAuth client ID</strong>
-                      → application type
-                      <strong>Web application</strong>.
-                    </li>
-                    <li>
-                      Under <strong>Authorized JavaScript origins</strong>,
-                      click <em>Add URI</em> and paste the origin shown
-                      above (already on your clipboard). Leave redirect URIs
-                      empty — JobBored doesn’t use them.
-                    </li>
-                    <li>
-                      Click <strong>Create</strong>. Google shows a popup
-                      with your Client ID — copy it and paste below.
-                    </li>
-                  </ol>
-                  <p class="login-gate__oauth-guide-foot">
-                    Stuck? The Client ID always ends in
-                    <code>.apps.googleusercontent.com</code>. If you see a
-                    “redirect_uri_mismatch” later, you picked the wrong app
-                    type — recreate as <strong>Web application</strong>.
-                  </p>
-                </details>
-
-                <p class="login-gate__oauth-wizard-intro">
-                  When Google gives you a Client ID, paste it below.
-                </p>
-                <input
-                  type="text"
-                  class="login-gate__oauth-paste-input"
-                  id="sheetAccessGateOAuthClientIdInputAlt"
-                  autocomplete="off"
-                  spellcheck="false"
-                  placeholder="xxxx.apps.googleusercontent.com"
-                  aria-label="Google OAuth Client ID"
-                />
-                <button
-                  type="button"
-                  class="login-gate__text-btn"
-                  id="sheetAccessGateOAuthWizardBack"
-                >
-                  ← Back
                 </button>
               </div>
             </div>

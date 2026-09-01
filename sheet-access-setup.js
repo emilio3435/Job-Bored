@@ -35,6 +35,24 @@
     }
   }
 
+  /**
+   * "No OAuth client id yet" is Beat 1's own state (ONE-FLOW-ONBOARDING-SPEC
+   * §5 B1): the beat carries the paste field, the console deep link, and the
+   * step-by-step guide. Returns true when the flow took the surface, so the
+   * caller stops painting the gate.
+   */
+  function handOffNoOauthToBeatOne() {
+    if (oneFlowOwnsSurface()) return true;
+    const flow = window.JobBoredOneFlow;
+    if (!flow || typeof flow.open !== "function") return false;
+    startupLog("sheet-access:no-oauth-hand-off-to-beat-1", {});
+    hideSheetAccessGate();
+    void Promise.resolve(flow.open("google")).catch((e) => {
+      startupLog("sheet-access:beat-1-open-failed", { error: String(e) }, "error");
+    });
+    return true;
+  }
+
   function startupLog(label, detail, level = "info") {
     const logger = window.JobBoredStartupLog;
     if (logger && typeof logger.mark === "function") {
@@ -155,144 +173,6 @@
     if (footerSheetLink) footerSheetLink.href = sheetUrl;
   }
 
-  function syncLoginGateOAuthOriginDisplay() {
-    const originEl = document.getElementById("sheetAccessGateOAuthOriginDisplay");
-    if (originEl && typeof window !== "undefined" && window.location) {
-      originEl.textContent = window.location.origin;
-    }
-  }
-
-  function resetLoginGateOAuthWizardToChoice() {
-    const choice = document.getElementById("sheetAccessGateOAuthChoice");
-    const wizard = document.getElementById("sheetAccessGateOAuthWizard");
-    const input = document.getElementById("sheetAccessGateOAuthClientIdInput");
-    if (choice) choice.hidden = false;
-    if (wizard) wizard.hidden = true;
-    syncLoginGateOAuthOriginDisplay();
-    if (input) {
-      const stored = host().readStoredConfigOverrides().oauthClientId;
-      const s = stored != null ? String(stored).trim() : "";
-      input.value =
-        s &&
-        s !== "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com" &&
-        /\.apps\.googleusercontent\.com$/i.test(s)
-          ? s
-          : "";
-    }
-  }
-
-  function initLoginGateOAuthUi() {
-    const createOAuth = document.getElementById("sheetAccessGateBtnCreateOAuth");
-    const back = document.getElementById("sheetAccessGateOAuthWizardBack");
-    const save = document.getElementById("sheetAccessGateOAuthSaveBtn");
-    const openConsole = document.getElementById(
-      "sheetAccessGateOAuthOpenConsoleBtn",
-    );
-    const inputs = [
-      document.getElementById("sheetAccessGateOAuthClientIdInput"),
-      document.getElementById("sheetAccessGateOAuthClientIdInputAlt"),
-    ].filter(Boolean);
-
-    /** Accept any pasted Client ID (raw, full URL, or surrounding whitespace). */
-    function extractClientIdFromInput(raw) {
-      const t = String(raw || "").trim();
-      if (!t) return "";
-      const m = t.match(/[\w-]+\.apps\.googleusercontent\.com/i);
-      return m ? m[0] : "";
-    }
-
-    function trySaveAndContinue(raw) {
-      const id = extractClientIdFromInput(raw);
-      if (!id || id === "YOUR_CLIENT_ID_HERE.apps.googleusercontent.com") {
-        return false;
-      }
-      host().mergeStoredConfigOverridePatch({ oauthClientId: id });
-      if (host().applyOAuthClientChange(id)) {
-        host().showToast("Signed-in setup saved.", "success");
-      } else {
-        host().showToast("Saved — reloading…", "success");
-        setTimeout(() => window.location.reload(), 400);
-      }
-      return true;
-    }
-
-    inputs.forEach((input) => {
-      input.addEventListener("input", () => {
-        trySaveAndContinue(input.value);
-      });
-    });
-
-    if (createOAuth) {
-      createOAuth.addEventListener("click", async () => {
-        const choice = document.getElementById("sheetAccessGateOAuthChoice");
-        const wizard = document.getElementById("sheetAccessGateOAuthWizard");
-        syncLoginGateOAuthOriginDisplay();
-        try {
-          await navigator.clipboard.writeText(window.location.origin);
-        } catch (_) {
-          /* clipboard may be blocked — non-fatal, the origin is still visible */
-        }
-        if (choice) choice.hidden = true;
-        if (wizard) wizard.hidden = false;
-        document
-          .getElementById("sheetAccessGateOAuthClientIdInputAlt")
-          ?.focus();
-        maybeRevealOAuthGcloudButton();
-      });
-    }
-
-    const gcloudBtn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
-    if (gcloudBtn) {
-      gcloudBtn.addEventListener("click", () => {
-        host().showToast(
-          "Create your OAuth Client ID with the manual steps above.",
-          "warning",
-          true,
-        );
-      });
-    }
-    if (openConsole) {
-      openConsole.addEventListener("click", () => {
-        window.open(
-          "https://console.cloud.google.com/apis/credentials/oauthclient",
-          "_blank",
-          "noopener",
-        );
-      });
-    }
-    if (back) {
-      back.addEventListener("click", () => {
-        resetLoginGateOAuthWizardToChoice();
-      });
-    }
-    if (save) {
-      save.addEventListener("click", () => {
-        const input = document.getElementById(
-          "sheetAccessGateOAuthClientIdInput",
-        );
-        if (!trySaveAndContinue(input ? input.value : "")) {
-          host().showToast("Paste a valid Google Client ID.", "error", true);
-        }
-      });
-    }
-  }
-
-  async function maybeRevealOAuthGcloudButton() {
-    const btn = document.getElementById("sheetAccessGateOAuthGcloudBtn");
-    if (!btn) return;
-    btn.hidden = true;
-    try {
-      const result = await host().installDoctor();
-      if (!result || result.notImplemented) return;
-      const gcloud = result.tools && result.tools.gcloud;
-      if (gcloud && gcloud.installed && gcloud.loggedIn) {
-        btn.hidden = false;
-      }
-    } catch (_) {
-      /* leave hidden */
-    }
-  }
-
   function showSheetAccessGate(mode) {
     releaseAuthPrepaintGuard("show-gate");
     const screen = document.getElementById("sheetAccessGateScreen");
@@ -336,9 +216,6 @@
 
     screen.dataset.gateMode = mode;
 
-    const mainFlow = document.getElementById("sheetAccessGateMainFlow");
-    const oauthShell = document.getElementById("sheetAccessGateOAuthShell");
-    const panelInner = document.getElementById("sheetAccessGatePanelInner");
 
     const title = document.getElementById("sheetAccessGateTitle");
     const detail = document.getElementById("sheetAccessGateDetail");
@@ -358,8 +235,6 @@
     let showSignIn = false;
     let footText = "Google sign-in";
     let showSpinner = mode === "loading";
-
-    const showOAuthShell = mode === "no-oauth";
 
     stopLoginGateTipRotation();
 
@@ -391,13 +266,21 @@
       showSignIn = true;
       startLoginGateTipRotation();
     } else if (mode === "no-oauth") {
-      nextTitle = "";
-      nextDetail = "";
+      // The gate used to carry its own "paste or create a Client ID"
+      // sub-wizard, guide and all. Beat 1 owns that step now
+      // (ONE-FLOW-ONBOARDING-SPEC §5 B1, §7), so hand it over rather than
+      // ship the same three screens twice. If the flow module never loaded,
+      // fall through to honest copy plus Settings and Reload — never a
+      // blank panel.
+      if (handOffNoOauthToBeatOne()) return;
+      nextTitle = "Connect Google";
+      nextDetail =
+        "JobBored needs a Google OAuth Client ID before it can open your " +
+        "sheet. Add one in Settings, then reload.";
       nextStepTitle = "";
       nextStepBody = "";
       showSignIn = false;
-      footText = "Choose an option or follow the guide to create a client ID.";
-      resetLoginGateOAuthWizardToChoice();
+      footText = "Add a Client ID in Settings, then reload.";
       startLoginGateTipRotation();
     } else if (mode === "error") {
       nextTitle = "Couldn’t load this sheet";
@@ -411,21 +294,12 @@
       startLoginGateTipRotation();
     }
 
-    if (mainFlow) mainFlow.hidden = !!showOAuthShell;
-    if (oauthShell) oauthShell.hidden = !showOAuthShell;
-    if (panelInner) {
-      panelInner.classList.toggle(
-        "login-gate__panel-inner--oauth",
-        !!showOAuthShell,
-      );
-    }
-
     if (title) title.textContent = nextTitle;
     if (detail) detail.textContent = nextDetail;
     if (stepTitle) stepTitle.textContent = nextStepTitle;
     if (stepBody) stepBody.textContent = nextStepBody;
     if (signInBtn) signInBtn.hidden = !showSignIn;
-    if (settingsBtn) settingsBtn.hidden = !!showOAuthShell;
+    if (settingsBtn) settingsBtn.hidden = false;
     if (reloadBtn) reloadBtn.hidden = false;
     if (spinner) spinner.hidden = !showSpinner;
     if (foot) foot.textContent = footText;
@@ -486,8 +360,8 @@
    * (ONE-FLOW-ONBOARDING-SPEC §5 B1): it is the beat that creates or
    * connects the sheet, so signing in without one hands straight to it.
    *
-   * The old "One more step." screen and its reveal path are deleted (§7) —
-   * they were a third onboarding surface for a job one beat already does.
+   * The standalone starter-setup screen and its reveal path are deleted
+   * (§7) — a third onboarding surface for a job one beat already does.
    * The gate's error mode is the fallback when the flow
    * module itself never loaded, so this can never strand a signed-in user.
    */
@@ -783,12 +657,7 @@
     if (!hadDiscoveryDeepLink) {
       await host().requestDiscoverySetup({ entryPoint: "starter_sheet_created" });
     }
-    host().showToast(
-      host().hasPendingDiscoverySetup()
-        ? "Starter sheet created. Finish onboarding to continue guided setup."
-        : "Starter sheet created. Opening guided setup…",
-      "success",
-    );
+    host().showToast("Starter sheet created. Opening guided setup…", "success");
   }
 
   function initSetupAndSheetAccessActions() {
@@ -818,7 +687,6 @@
       ?.addEventListener("click", () => {
         window.location.reload();
       });
-    initLoginGateOAuthUi();
   }
 
   /**
@@ -893,7 +761,6 @@
     handleSetupCreateStarterSheet,
     setDashboardSheetLinks,
     initSetupAndSheetAccessActions,
-    initLoginGateOAuthUi,
     getLastSheetAccessError() {
       return lastSheetAccessError;
     },
