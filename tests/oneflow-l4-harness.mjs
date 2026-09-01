@@ -220,7 +220,13 @@ export function loadPayoff(stubs = {}) {
   ctx.CustomEvent = FakeCustomEvent;
   win.CustomEvent = FakeCustomEvent;
 
-  const calls = { celebration: [], discoveryRuns: [], toasts: [] };
+  const calls = {
+    celebration: [],
+    discoveryRuns: [],
+    toasts: [],
+    payloads: [],
+    intentInputs: [],
+  };
 
   // --- Google session profile (B1's residue) --------------------------
   const auth = {
@@ -240,6 +246,19 @@ export function loadPayoff(stubs = {}) {
       host: {
         getConfig: () => config,
         getSHEET_ID: () => config.sheetId,
+        buildDiscoveryWebhookPayload: (id, opts) => {
+          calls.payloads.push({ id, opts });
+          return Promise.resolve(
+            "payload" in stubs
+              ? stubs.payload
+              : {
+                  discoveryProfile: { targetRoles: "Staff Product Designer" },
+                  mergedUserProfile: {
+                    identity: { targetRoles: ["Staff Product Designer"] },
+                  },
+                },
+          );
+        },
         triggerDiscoveryRun: (opts) => {
           calls.discoveryRuns.push(opts || {});
           return Promise.resolve(
@@ -288,8 +307,15 @@ export function loadPayoff(stubs = {}) {
     }),
   };
   win.JobBoredEffectiveIntent = {
-    buildEffectiveIntent: () =>
-      stubs.intent || { targetRoles: ["Staff Product Designer"], includeKeywords: [] },
+    buildEffectiveIntent: (input) => {
+      calls.intentInputs.push(input);
+      return (
+        stubs.intent || {
+          targetRoles: ["Staff Product Designer"],
+          includeKeywords: [],
+        }
+      );
+    },
     isBlankIntent: (intent) =>
       typeof stubs.isBlankIntent === "function"
         ? stubs.isBlankIntent(intent)
