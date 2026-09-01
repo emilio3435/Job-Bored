@@ -32,6 +32,11 @@ import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
+import {
+  loadLlmConfig,
+  migrateLlmConfigFromEnv,
+  resolveActivePin,
+} from "./llm-config.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -50,7 +55,7 @@ const MAX_PROVIDER_TIMEOUT_MS = 120_000;
 // Hard cap so a runaway sheet doesn't blow through the quota silently.
 const MAX_ROWS = 500;
 
-const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+const DEFAULT_GEMINI_MODEL = "gemini-flash";
 const DEFAULT_OPENROUTER_MODEL = "openai/gpt-oss-120b:free";
 const DEFAULT_OPENROUTER_BASE_URL = "https://openrouter.ai/api/v1";
 const DEFAULT_LOCAL_MODEL = "gemma4:e2b";
@@ -622,6 +627,22 @@ function normalizeProfileRescoreProviderConfig(input = {}) {
 
 /** @param {NodeJS.ProcessEnv} [env] */
 export function getProfileRescoreProviderConfigFromEnv(env = process.env) {
+  const pathOverride = String(
+    env.JOBBORED_LLM_CONFIG_PATH || process.env.JOBBORED_LLM_CONFIG_PATH || "",
+  ).trim();
+  const resolved = pathOverride
+    ? { ...env, JOBBORED_LLM_CONFIG_PATH: pathOverride }
+    : env;
+  migrateLlmConfigFromEnv(resolved);
+  const loaded = loadLlmConfig(resolved);
+  if (loaded) {
+    return normalizeProfileRescoreProviderConfig({
+      provider: loaded.provider,
+      apiKey: loaded.apiKey,
+      model: loaded.model,
+      baseUrl: loaded.baseUrl,
+    });
+  }
   const provider = normalizeProviderName(
     firstEnv(env, [
       "PROFILE_RESCORE_PROVIDER",
@@ -1258,7 +1279,21 @@ export async function rescoreAllPipelineRows({
       model: geminiModel,
     },
   );
-  const providerStatus = getProfileRescoreProviderStatus(chatProviderConfig);
+  const pin = await resolveActivePin({
+    provider: chatProviderConfig.provider,
+    model: chatProviderConfig.model,
+    apiKey: chatProviderConfig.apiKey,
+    baseUrl: chatProviderConfig.baseUrl,
+    updatedAt: "",
+  });
+  const resolvedProviderConfig = {
+    ...chatProviderConfig,
+    provider: pin.provider || chatProviderConfig.provider,
+    apiKey: pin.apiKey,
+    model: pin.resolvedModel || chatProviderConfig.model,
+    baseUrl: pin.baseUrl || chatProviderConfig.baseUrl,
+  };
+  const providerStatus = getProfileRescoreProviderStatus(resolvedProviderConfig);
   if (!providerStatus.configured) {
     throw new Error(`rescoreAllPipelineRows: ${providerStatus.detail}`);
   }
@@ -1294,7 +1329,7 @@ export async function rescoreAllPipelineRows({
       const score = await scoreOneWithProvider({
         profile,
         rawListing,
-        providerConfig: chatProviderConfig,
+        providerConfig: resolvedProviderConfig,
         signal,
       });
       await writeRowScoreCells({

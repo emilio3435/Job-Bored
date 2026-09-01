@@ -26,6 +26,12 @@ import { homedir } from "node:os";
 import { dirname, isAbsolute, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import {
+  loadLlmConfig,
+  migrateLlmConfigFromEnv,
+  resolveActivePin,
+} from "./llm-config.mjs";
+
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
 // Repo-relative fallback that matches the discovery worker's own default.
@@ -251,13 +257,23 @@ function getGeminiConfig() {
   ]);
   const model = readFirstEnv(
     ["PROFILE_GEMINI_MODEL", "ATS_GEMINI_MODEL", "GEMINI_MODEL"],
-    "gemini-3.5-flash",
+    "gemini-flash",
   );
   return { apiKey, model };
 }
 
 /** @returns {ProfileProviderConfig} */
 export function getProfileProviderConfig() {
+  migrateLlmConfigFromEnv(process.env);
+  const loaded = loadLlmConfig(process.env);
+  if (loaded) {
+    return {
+      provider: normalizeProvider(loaded.provider),
+      apiKey: String(loaded.apiKey || "").trim(),
+      model: String(loaded.model || "").trim(),
+      baseUrl: String(loaded.baseUrl || "").trim(),
+    };
+  }
   const provider = normalizeProvider(
     readFirstEnv(["PROFILE_PROVIDER", "PROFILE_LLM_PROVIDER", "ATS_PROVIDER"], "gemini"),
   );
@@ -912,7 +928,20 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
     err.code = "EMPTY_RESUME";
     throw err;
   }
-  const config = opts.config || getProfileProviderConfig();
+  const rawConfig = opts.config || getProfileProviderConfig();
+  const pin = await resolveActivePin({
+    provider: rawConfig.provider,
+    model: rawConfig.model,
+    apiKey: rawConfig.apiKey,
+    baseUrl: rawConfig.baseUrl,
+    updatedAt: "",
+  });
+  const config = {
+    provider: normalizeProvider(pin.provider || rawConfig.provider),
+    apiKey: pin.apiKey,
+    model: pin.resolvedModel || rawConfig.model,
+    baseUrl: pin.baseUrl,
+  };
   const raw =
     config.provider === "gemini"
       ? await callGeminiForProfile(text, { ...opts, config })

@@ -54,6 +54,12 @@
   window.CommandCenterResumeModelOptions = {
     gemini: [
       {
+        value: "gemini-flash",
+        label: "Gemini Flash (latest)",
+        description:
+          "Newest stable Flash. Resolves at call time. Pro: stays current. Con: exact snapshot is chosen at call time.",
+      },
+      {
         value: "gemini-3.1-pro-preview",
         label: "Gemini 3.1 Pro · Preview",
         description:
@@ -170,7 +176,7 @@
       resumeAnthropicApiKey:
         c.resumeAnthropicApiKey || c.anthropicApiKey || "",
       resumeOpenRouterApiKey: c.resumeOpenRouterApiKey || "",
-      resumeGeminiModel: c.resumeGeminiModel || "gemini-3.5-flash",
+      resumeGeminiModel: c.resumeGeminiModel || "gemini-flash",
       resumeOpenAIModel: c.resumeOpenAIModel || "gpt-4o-mini",
       resumeAnthropicModel: c.resumeAnthropicModel || "claude-sonnet-4-6",
       resumeOpenRouterModel:
@@ -508,7 +514,7 @@
   }
 
   async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
-    const resolvedModel = model || "gemini-3.5-flash";
+    const resolvedModel = model || "gemini-flash";
     const wantJson = wantsJsonResponse(opts);
     const isThinkingModel = /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(
       resolvedModel,

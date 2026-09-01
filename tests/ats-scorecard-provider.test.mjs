@@ -1,7 +1,24 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, beforeEach, afterEach } from "node:test";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 
 import { analyzeAtsScorecard, getAtsConfigStatus, getProviderConfigFromEnv } from "../server/ats-scorecard.mjs";
+
+let pinDir;
+const prevPinPath = process.env.JOBBORED_LLM_CONFIG_PATH;
+
+beforeEach(async () => {
+  pinDir = await mkdtemp(join(tmpdir(), "jb-ats-provider-"));
+  process.env.JOBBORED_LLM_CONFIG_PATH = join(pinDir, "llm.json");
+});
+
+afterEach(async () => {
+  if (prevPinPath === undefined) delete process.env.JOBBORED_LLM_CONFIG_PATH;
+  else process.env.JOBBORED_LLM_CONFIG_PATH = prevPinPath;
+  await rm(pinDir, { recursive: true, force: true });
+});
 
 function buildPayload() {
   return {
@@ -289,41 +306,44 @@ describe("analyzeAtsScorecard provider routing", () => {
     }
   });
 
-  it("names OpenRouter required env vars when that provider is selected but unconfigured", () => {
+  it("is unconfigured with the Settings pin reason when OpenRouter is selected but no pin exists", () => {
     const restoreEnv = setTestProviderEnv({
       ATS_PROVIDER: "openrouter",
       ATS_OPENROUTER_API_KEY: "",
       OPENROUTER_API_KEY: "",
+      ATS_GEMINI_API_KEY: "",
+      ATS_GEMINI_MODEL: "",
     });
 
     try {
       const status = getAtsConfigStatus();
       assert.equal(status.configured, false);
-      assert.equal(status.provider, "openrouter");
-      assert.match(status.reason, /ATS_OPENROUTER_API_KEY/);
-      assert.match(status.reason, /ATS_PROVIDER=openrouter/);
+      assert.equal(
+        status.reason,
+        "No LLM pin configured. Save an AI provider in Settings.",
+      );
     } finally {
       restoreEnv();
     }
   });
 
-  it("names OpenAI-compatible required env vars when base URL or model is missing", () => {
+  it("is unconfigured with the Settings pin reason when OpenAI-compatible model/base URL are missing", () => {
     const restoreEnv = setTestProviderEnv({
       ATS_PROVIDER: "openai_compatible",
       ATS_OPENAI_COMPATIBLE_API_KEY: "",
       ATS_OPENAI_COMPATIBLE_BASE_URL: "",
       ATS_OPENAI_COMPATIBLE_MODEL: "",
+      ATS_GEMINI_API_KEY: "",
+      ATS_GEMINI_MODEL: "",
     });
 
     try {
       const status = getAtsConfigStatus();
       assert.equal(status.configured, false);
-      assert.equal(status.provider, "openai_compatible");
-      assert.doesNotMatch(status.reason, /set ATS_OPENAI_COMPATIBLE_API_KEY/);
-      assert.match(status.reason, /ATS_OPENAI_COMPATIBLE_API_KEY is optional/);
-      assert.match(status.reason, /ATS_OPENAI_COMPATIBLE_BASE_URL/);
-      assert.match(status.reason, /ATS_OPENAI_COMPATIBLE_MODEL/);
-      assert.match(status.reason, /ATS_PROVIDER=openai_compatible/);
+      assert.equal(
+        status.reason,
+        "No LLM pin configured. Save an AI provider in Settings.",
+      );
     } finally {
       restoreEnv();
     }

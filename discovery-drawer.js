@@ -1032,7 +1032,7 @@ function resolveGeminiModel(explicit) {
   if (typeof cfg.resumeGeminiModel === "string" && cfg.resumeGeminiModel.trim()) {
     return cfg.resumeGeminiModel.trim();
   }
-  return "gemini-3.5-flash";
+  return "gemini-flash";
 }
 
 async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {

@@ -734,9 +734,9 @@
     /* url_context requires gemini-2.x / 3.x. Auto-upgrade pre-2.0
        models so users with `gemini-1.5-flash` configured still get
        this lane. */
-    let model = g.resumeGeminiModel || "gemini-3.5-flash";
+    let model = g.resumeGeminiModel || "gemini-flash";
     if (/^gemini-1\.|^models\/gemini-1\./i.test(model)) {
-      model = "gemini-3.5-flash";
+      model = "gemini-flash";
     }
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       model,
