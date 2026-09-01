@@ -197,6 +197,7 @@
             ? parsed.leadsUpdated
             : 0,
           statusUnavailable: !!parsed.statusUnavailable,
+          statusEndpointTerminal: !!parsed.statusEndpointTerminal,
           terminalAcknowledged: !!parsed.terminalAcknowledged,
           pollGeneration: Number.isFinite(parsed.pollGeneration)
             ? parsed.pollGeneration
@@ -239,6 +240,7 @@
         leadsWritten: 0,
         leadsUpdated: 0,
         statusUnavailable: false,
+        statusEndpointTerminal: false,
         terminalAcknowledged: false,
         pollGeneration: 0,
       };
@@ -293,6 +295,7 @@
         leadsWritten: 0,
         leadsUpdated: 0,
         statusUnavailable: !!statusUnavailable,
+        statusEndpointTerminal: false,
         terminalAcknowledged: false,
         pollGeneration,
       };
@@ -330,6 +333,7 @@
       }
       this._state.lastPollAt = new Date().toISOString();
       this._state.statusUnavailable = false;
+      this._state.statusEndpointTerminal = false;
       const isTerminal = !!statusData.terminal;
       const runStatus = String(statusData.status || "").toLowerCase();
       const request = statusData.request && typeof statusData.request === "object"
@@ -416,12 +420,36 @@
       return this;
     }
 
+    /**
+     * Stop polling because the status endpoint gave an answer that will not
+     * change on retry (404 no such run, 401/403 rejected status token).
+     * Distinct from markStatusConnectionLost: that one means "we lost the
+     * connection, the run may still be going", which would be a lie here —
+     * so the terminal marker travels with the state and the UI reads it.
+     */
+    markStatusEndpointTerminal(errorMessage = "") {
+      this._state.pollErrorCount = Math.max(
+        this._state.pollErrorCount || 0,
+        MAX_POLL_ERRORS,
+      );
+      this._state.lastPollAt = new Date().toISOString();
+      this._state.errorMessage = String(
+        errorMessage || "The status endpoint is no longer reporting this run.",
+      );
+      if (this._state.runId) this._state.status = "polling_error";
+      this._state.statusUnavailable = true;
+      this._state.statusEndpointTerminal = true;
+      this._persist(this._state);
+      return this;
+    }
+
     /** Retry after polling error — back to running if we have a runId */
     resumeFromPollError() {
       if (this._state.status !== "polling_error") return this;
       this._state.status = this._state.runId ? "running" : "idle";
       this._state.pollErrorCount = 0;
       this._state.statusUnavailable = false;
+      this._state.statusEndpointTerminal = false;
       this._persist(this._state);
       return this;
     }
@@ -438,6 +466,7 @@
       this._state.errorMessage = "";
       this._state.pollErrorCount = 0;
       this._state.statusUnavailable = false;
+      this._state.statusEndpointTerminal = false;
       this._persist(this._state);
       return this;
     }

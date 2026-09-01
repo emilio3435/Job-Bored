@@ -213,17 +213,19 @@ async function diagnoseDownstreamChain(snapshot) {
   const localUrl = snapshot.localWebhookUrl || transport.localWebhookUrl || "";
   diagnosis.localServer.url = localUrl;
 
-  // Honest remediation routing: only setups that actually use a tunnel
-  // (a tunnel URL in transport state, or a local webhook behind one) should
-  // ever be told to fix ngrok. A remote https webhook (Tailscale *.ts.net,
-  // *.workers.dev, generic https) can't be helped by the tunnel step.
+  // Honest remediation routing: only setups that actually use a tunnel should
+  // ever be told to fix ngrok. "Uses a tunnel" is decided from a real tunnel
+  // URL, or from the saved webhook's own kind (getRemoteDiscoveryWebhookHost
+  // returns "" for an ngrok webhook, which IS the tunnel) — never from the
+  // mere presence of a local webhook URL. scripts/bootstrap-local-discovery.mjs
+  // writes localWebhookUrl for EVERY local worker, Tailscale included, so
+  // reading it as "there is a tunnel" pointed Tailscale users at an ngrok
+  // tunnel they do not have.
   const savedWebhookUrl = String(
     snapshot.savedWebhookUrl || host().getDiscoveryWebhookUrl() || "",
   ).trim();
   const usesTunnelTransport = !!(
-    localUrl ||
-    snapshot.tunnelPublicUrl ||
-    transport.tunnelPublicUrl
+    snapshot.tunnelPublicUrl || transport.tunnelPublicUrl
   );
   const remoteWebhookHost = usesTunnelTransport
     ? ""
@@ -284,10 +286,16 @@ async function diagnoseDownstreamChain(snapshot) {
         "Attempts to start the recommended local browser-use worker automatically.",
     };
   } else if (remoteWebhookHost) {
-    diagnosis.summary =
-      `Your discovery worker at ${remoteWebhookHost} is unreachable. ` +
-      "Check that the machine running it is awake and that the saved URL " +
-      "in your connection settings is current, then re-test.";
+    // A healthy local worker is a different story from a missing one: the
+    // hop that is actually broken is the stable transport in front of it
+    // (e.g. `tailscale serve`), so say that instead of blaming the worker.
+    diagnosis.summary = diagnosis.localServer.healthy
+      ? `Your local worker is running, but ${remoteWebhookHost} is not reachable. ` +
+        "Check that the stable transport in front of it is up and that the " +
+        "saved URL in your connection settings is current, then re-test."
+      : `Your discovery worker at ${remoteWebhookHost} is unreachable. ` +
+        "Check that the machine running it is awake and that the saved URL " +
+        "in your connection settings is current, then re-test.";
     diagnosis.primaryFix = {
       id: "diag_fix_reverify",
       label: "Re-test",
@@ -504,6 +512,41 @@ async function requestDiscoverySetup(options = {}) {
 const MAX_POLL_ERRORS = 3;
 const STATUS_POLL_DEBOUNCE_MS = 500;
 
+// A /runs/:id answer is either transient (worth another poll) or settled
+// (the endpoint will never report this run). Burning three retries on a 404
+// and then telling the user "the run may still be running" is a false
+// statement, so the two cases are separated before any retry is spent.
+const TERMINAL_RUN_STATUS_POLL_CODES = [401, 403, 404, 405, 410];
+
+/**
+ * Classify a run-status poll response by HTTP status. Only codes we can prove
+ * are settled stop the poller; network failures (0 / non-numeric), the
+ * transient codes (408/425/429/5xx) and anything unclassified stay retryable.
+ * @param {number} status  HTTP status; 0 or non-numeric means a network failure
+ * @returns {"ok"|"retryable"|"terminal"}
+ */
+function classifyRunStatusPollResponse(status) {
+  const code = Number(status);
+  if (!Number.isFinite(code)) return "retryable";
+  if (code >= 200 && code < 300) return "ok";
+  if (TERMINAL_RUN_STATUS_POLL_CODES.includes(code)) return "terminal";
+  return "retryable";
+}
+
+/** Honest, hop-naming copy for a status endpoint that has settled. */
+function describeTerminalRunStatusPoll(status) {
+  const code = Number(status);
+  const tail =
+    "Status updates have stopped \u2014 check Runs or your sheet for the outcome.";
+  if (code === 401 || code === 403) {
+    return `The status endpoint rejected this run's status token (HTTP ${code}). ${tail}`;
+  }
+  if (code === 404 || code === 410) {
+    return `The worker has no record of this run (HTTP ${code}). ${tail}`;
+  }
+  return `The status endpoint cannot report this run (HTTP ${code}). ${tail}`;
+}
+
 /**
  * Build the full status URL from a relative statusPath.
  * Handles explicit statusPath or constructs from runId + base webhook URL.
@@ -626,6 +669,17 @@ async function pollRunStatus(webhookUrl) {
   }
 
   if (!response.ok) {
+    if (classifyRunStatusPollResponse(response.status) === "terminal") {
+      const message = describeTerminalRunStatusPoll(response.status);
+      // Older mounts only expose markStatusConnectionLost; the honest copy
+      // matters more than which entry point carries it.
+      if (typeof tracker.markStatusEndpointTerminal === "function") {
+        tracker.markStatusEndpointTerminal(message);
+      } else {
+        tracker.markStatusConnectionLost(message);
+      }
+      return null;
+    }
     tracker.markPollError(
       `Status endpoint returned HTTP ${response.status}`,
     );
@@ -787,6 +841,12 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     const updated = tracker.getState();
 
     if (updated.status === "polling_error") {
+      if (updated.statusEndpointTerminal) {
+        // Settled: the message is already honest, and another poll would
+        // only re-earn the same answer.
+        renderDiscoveryRunStatus();
+        return;
+      }
       if (updated.pollErrorCount >= MAX_POLL_ERRORS) {
         tracker.markStatusConnectionLost(
           "Lost the status connection after multiple attempts. The discovery run may still be running.",
@@ -924,6 +984,9 @@ function resumeDiscoveryStatusPollingIfNeeded() {
   const next = runTracker().getState();
   if (!runTracker().isActive()) return;
   renderDiscoveryRunStatus();
+  // A settled status endpoint stays settled across a reload — re-polling it
+  // would only re-earn the same 404/401.
+  if (next.statusEndpointTerminal) return;
   void startDiscoveryStatusPolling(next.webhookUrl || host().getDiscoveryWebhookUrl());
 }
 
@@ -1011,8 +1074,9 @@ function renderDiscoveryRunStatus() {
       statusTone = "info";
       break;
     case "polling_error":
-      statusMessage =
-        state.pollErrorCount >= MAX_POLL_ERRORS
+      statusMessage = state.statusEndpointTerminal
+        ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} — ${state.errorMessage || "the status endpoint stopped reporting this run."}`
+        : state.pollErrorCount >= MAX_POLL_ERRORS
           ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted, but JobBored lost the status connection. The worker may still be running.`
           : `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} — retrying status connection…`;
       statusTone = "warning";
@@ -1336,6 +1400,8 @@ function resetPostAccessBootstrap() {
     isLikelyNgrokUrl: isLikelyNgrokUrl,
     getDiscoveryStatusPollingWebhookUrl: getDiscoveryStatusPollingWebhookUrl,
     buildDiscoveryStatusPollHeaders: buildDiscoveryStatusPollHeaders,
+    classifyRunStatusPollResponse: classifyRunStatusPollResponse,
+    describeTerminalRunStatusPoll: describeTerminalRunStatusPoll,
     pollRunStatus: pollRunStatus,
     retryDiscoveryStatusConnection: retryDiscoveryStatusConnection,
     shouldRefreshPipelineAfterDiscoveryRun: shouldRefreshPipelineAfterDiscoveryRun,
