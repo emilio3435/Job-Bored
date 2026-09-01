@@ -271,6 +271,26 @@ describe("L6 · the legacy surfaces stand down while the flow owns onboarding", 
     );
   });
 
+  it("welcome.js's onboarding card does not mount over the demo board", async () => {
+    // welcome.js boots on the jb-v2 flag (on by default) and mounts an
+    // aria-modal onboarding card whenever onboardingComplete is false —
+    // which is every cold start. Spec §7 deletes that half in L7; until
+    // then it must not cover S0.
+    const env = loadCutover({ sheetId: "" });
+    env.document.body.classList.add("jb-v2");
+    env.bootstrap.init();
+    await settle();
+    env.welcome.boot();
+    await settle();
+
+    assert.equal(
+      env.welcomeRegion.querySelectorAll(".jbw-card").length,
+      0,
+      "the one-flow owns onboarding; welcome's card must stay dormant",
+    );
+    assert.equal(env.board.isActive(), true, "S0 is still the surface");
+  });
+
   it("post-sign-in reveal does not paint the setup screen over a beat", async () => {
     const env = loadCutover({ sheetId: "", signedIn: true });
     await env.flow.open("google");
