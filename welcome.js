@@ -848,6 +848,12 @@
   }
 
   function shouldShowOnboarding() {
+    // The one-flow owns onboarding since the L6 cutover
+    // (ONE-FLOW-ONBOARDING-SPEC §3): its screen S0 IS the cold start, and
+    // an aria-modal card over the demo board is the duplication this
+    // program exists to end. The empty-state half below stays live — it is
+    // the piece §7 keeps. L7 deletes the onboarding half outright.
+    if (window.JobBoredOneFlow) return false;
     var st = safeRead();
     if (st && typeof st.step === "number" && st.step > 1) return true; // mid-flow recovery
     var UC = getUC();

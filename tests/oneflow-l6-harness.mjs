@@ -48,6 +48,7 @@ const PAGE_SCRIPTS = Object.freeze([
   "onboarding-celebration.js",
   "first-run-wizard.js",
   "sheet-access-setup.js",
+  "welcome.js",
   "discovery-status-handoff.js",
   "app-bootstrap.js",
 ]);
@@ -340,6 +341,11 @@ export function loadCutover(options = {}) {
   const whatsNextRegion = doc.register("whatsNextRegion");
   whatsNextRegion.dataset.region = "whats-next";
   doc.body.appendChild(whatsNextRegion);
+  // Pre-created so welcome.js's ensureRegionEl finds it instead of walking
+  // for the comment anchor index.html carries.
+  const welcomeRegion = doc.register("welcomeRegion");
+  welcomeRegion.dataset.region = "welcome";
+  doc.body.appendChild(welcomeRegion);
   if (options.gateMode) {
     doc.getElementById("sheetAccessGateScreen").dataset.gateMode =
       options.gateMode;
@@ -358,6 +364,12 @@ export function loadCutover(options = {}) {
   win.CustomEvent = FakeCustomEvent;
   ctx.sessionStorage = makeFakeSessionStorage();
   win.sessionStorage = ctx.sessionStorage;
+  ctx.localStorage = makeFakeSessionStorage();
+  win.localStorage = ctx.localStorage;
+  // welcome.js's empty-state watcher polls through window, not the global.
+  win.setInterval = ctx.setInterval;
+  win.clearInterval = ctx.clearInterval;
+  win.setTimeout = ctx.setTimeout;
   win.location = {
     protocol: "http:",
     origin: "http://localhost:8080",
@@ -531,7 +543,9 @@ export function loadCutover(options = {}) {
     firstRunWizard: win.JobBoredApp.firstRunWizard,
     setup: win.JobBoredApp.setup,
     banner: win.JobBoredApp.whatsNextBanner,
+    welcome: win.JobBoredWelcome,
     whatsNextRegion,
+    welcomeRegion,
     events: doc._events,
     mount: () => doc.getElementById("oneFlowMount"),
     /**

@@ -205,24 +205,33 @@ describe("the substrate is LIT — and only at the two boot files (L6 cutover)",
     );
   });
 
-  it("the two legacy surfaces reference the flow only to STAND DOWN", () => {
-    // first-run-wizard.js and sheet-access-setup.js still paint over the
-    // dashboard on the post-sign-in path — which is Beat 1's own state.
-    // Each asks whether the flow owns the screen and declines; neither
-    // drives it. L7 deletes both surfaces outright.
-    const wizard = readRepoFile("first-run-wizard.js");
+  it("the legacy onboarding surfaces reference the flow only to STAND DOWN", () => {
+    // Three surfaces still paint over the dashboard on paths the flow now
+    // owns: the first-run infra wizard and the starter-setup screen fire
+    // on post-sign-in (Beat 1's own state), and welcome.js's onboarding
+    // card mounts on every cold start (screen S0's). Each asks whether the
+    // flow is there and declines; none drives it. L7 deletes all three.
+    const sources = {
+      "first-run-wizard.js": readRepoFile("first-run-wizard.js"),
+      "sheet-access-setup.js": readRepoFile("sheet-access-setup.js"),
+      "welcome.js": readRepoFile("welcome.js"),
+    };
     assert.match(
-      wizard,
+      sources["first-run-wizard.js"],
       /if \(window\.JobBoredOneFlow\) return false;/,
       "checkInfraSetupGate must decline while the one-flow is on the page",
     );
-    const setup = readRepoFile("sheet-access-setup.js");
-    assert.match(setup, /function oneFlowOwnsSurface\(\)/);
-    for (const source of [wizard, setup]) {
+    assert.match(sources["sheet-access-setup.js"], /function oneFlowOwnsSurface\(\)/);
+    assert.match(
+      sources["welcome.js"],
+      /if \(window\.JobBoredOneFlow\) return false;/,
+      "welcome's onboarding half must not mount over S0",
+    );
+    for (const [file, source] of Object.entries(sources)) {
       assert.equal(
         /JobBoredOneFlow\.(open|goToBeat|completeBeat|registerBeat)/.test(source),
         false,
-        "a legacy surface may ask about the flow, never drive it",
+        `${file} may ask about the flow, never drive it`,
       );
     }
   });
@@ -235,7 +244,6 @@ describe("the substrate is LIT — and only at the two boot files (L6 cutover)",
       "app-compat.js",
       "whats-next-banner.js",
       "onboarding-wizard.js",
-      "welcome.js",
     ]) {
       assert.equal(
         readRepoFile(file).includes("JobBoredOneFlow"),
