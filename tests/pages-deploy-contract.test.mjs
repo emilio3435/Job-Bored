@@ -30,7 +30,6 @@ describe("GitHub Pages deployment contract", () => {
   it("puts protected modal surfaces into the deployed index", () => {
     const assembled = assembleIndex(repoRoot);
     assert.doesNotMatch(assembled, /<!--\s*@include\s+/);
-    assert.match(assembled, /id="firstRunWizard"/);
     assert.match(assembled, /id="discoveryRunPreviewTemplate"/);
     assert.match(assembled, /id="discoveryRunPreviewMount"/);
   });

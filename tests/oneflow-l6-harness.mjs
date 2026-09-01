@@ -11,7 +11,7 @@
 
      user-content-store · onboarding-telemetry · discovery-wizard-shell ·
      onboarding-flow · the six beats · the demo board · the celebration ·
-     discovery-status-handoff · app-bootstrap
+     sheet-access-setup · welcome · discovery-status-handoff · app-bootstrap
 
    so a probe can call `bootstrap.init()` on a cold start and watch the
    demo board mount, or call `runPostAccessBootstrapOnce()` and watch the
@@ -46,7 +46,6 @@ const PAGE_SCRIPTS = Object.freeze([
   "oneflow-beat-payoff.js",
   "oneflow-demo-board.js",
   "onboarding-celebration.js",
-  "first-run-wizard.js",
   "sheet-access-setup.js",
   "welcome.js",
   "discovery-status-handoff.js",
@@ -292,11 +291,6 @@ function makeHost(state, calls, overrides = {}) {
     setInitialSheetAccessResolved: record("setInitialSheetAccessResolved"),
     setDashboardSheetLinks: record("setDashboardSheetLinks"),
     resetPostAccessBootstrap: record("resetPostAccessBootstrap"),
-    // The two legacy gates the cutover retires from the boot path. They
-    // stay reachable (L7 deletes them) — a probe asserts they are never
-    // CALLED, which only means anything if they exist to be called.
-    checkInfraSetupGate: record("checkInfraSetupGate", async () => false),
-    checkOnboardingGate: record("checkOnboardingGate", async () => undefined),
     showToast: record("showToast"),
     loadAllData: record("loadAllData", async () => true),
     getConfigCore: () => ({
@@ -449,11 +443,6 @@ export function loadCutover(options = {}) {
       getUserGivenName: () =>
         "givenName" in options ? options.givenName : "Priya",
     },
-    firstRunWizard: {
-      async verifyExistingSheetAccess() {
-        return { ok: true, reason: "headers_ok" };
-      },
-    },
   };
 
   const verifyCalls = [];
@@ -547,7 +536,6 @@ export function loadCutover(options = {}) {
     board: win.JobBoredOneFlowDemoBoard,
     status: win.JobBoredDiscovery.status,
     bootstrap: win.JobBoredApp.bootstrap,
-    firstRunWizard: win.JobBoredApp.firstRunWizard,
     setup: win.JobBoredApp.setup,
     banner: win.JobBoredApp.whatsNextBanner,
     welcome: win.JobBoredWelcome,

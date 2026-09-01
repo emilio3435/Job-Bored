@@ -187,12 +187,11 @@
     <link rel="stylesheet" href="vendor/fonts/fonts.css" />
     <script src="https://accounts.google.com/gsi/client" async></script>
     <link rel="stylesheet" href="style.css" />
+    <link rel="stylesheet" href="css/onboarding-celebration.css" />
     <link rel="stylesheet" href="css/legacy-login-gate.css" />
     <link rel="stylesheet" href="css/legacy-brief.css" />
     <link rel="stylesheet" href="css/legacy-cards-drawer.css" />
     <link rel="stylesheet" href="css/legacy-materials.css" />
-    <link rel="stylesheet" href="css/legacy-onboarding.css" />
-    <link rel="stylesheet" href="css/legacy-first-run-wizard.css" />
     <link rel="stylesheet" href="css/legacy-discovery-setup-wizard.css" />
     <link rel="stylesheet" href="css/legacy-profile-modal.css" />
     <link rel="stylesheet" href="css/legacy-settings-profile.css" />
@@ -371,9 +370,8 @@
          (so it never competes with the separate profile wizard). Dismiss
          writes the flag and hides the section permanently; the flag
          survives reloads via user-content-store.js's settings store. The
-         two CTA buttons share their handlers with the in-wizard terminal
-         #firstRunPanelDone so the destinations stay consistent between
-         surfaces. -->
+         two CTA buttons are the only surface that offers these two
+         destinations now that the legacy wizards are gone (spec §7). -->
     <section
       data-region="whats-next"
       class="whats-next-banner"
@@ -1484,8 +1482,6 @@
       </footer>
     </div>
 
-<!-- @include partials/first-run-wizard.html -->
-<!-- @include partials/onboarding-wizard.html -->
     <!-- Onboarding celebration: persists after the profile step until the
          user clicks through to discovery setup — one continuous flow, no
          dashboard intermission. The handoff degrades gracefully if this
@@ -1646,7 +1642,7 @@
     <script src="resume-generate.js" defer></script>
     <!-- Self-updating model catalog: live provider model lists + key pings.
          Loads after resume-generate (sources its curated options) and
-         before the first-run wizard + settings modal that consume it. -->
+         before the settings modal that consumes it. -->
     <script src="model-catalog.js" defer></script>
     <script src="job-posting-insights.js" defer></script>
     <script src="expired-review.js" defer></script>
@@ -1672,8 +1668,6 @@
     <script src="materials-state.js?v=1" defer></script>
     <script src="ats-scorecard.js?v=1" defer></script>
     <script src="resume-generation.js?v=1" defer></script>
-    <script src="onboarding-wizard.js?v=1" defer></script>
-    <script src="first-run-wizard.js?v=1" defer></script>
     <script src="whats-next-banner.js?v=1" defer></script>
     <script src="company-logo.js?v=1" defer></script>
     <script src="model-download.js?v=1" defer></script>

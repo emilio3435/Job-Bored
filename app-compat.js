@@ -495,61 +495,6 @@ function closeMaterialsModal(...args) {
   return window.JobBoredApp.profileMaterials.closeMaterialsModal(...args);
 }
 
-
-// --- Onboarding wizard (extracted to onboarding-wizard.js) ---
-function isOnboardingWizardVisible(...args) {
-  return window.JobBoredApp.onboarding.isOnboardingWizardVisible(...args);
-}
-function hideOnboardingWizard(...args) {
-  return window.JobBoredApp.onboarding.hideOnboardingWizard(...args);
-}
-function showOnboardingWizard(...args) {
-  return window.JobBoredApp.onboarding.showOnboardingWizard(...args);
-}
-function updateOnboardingProgressUI(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingProgressUI(...args);
-}
-function syncOnboardingToneCards(...args) {
-  return window.JobBoredApp.onboarding.syncOnboardingToneCards(...args);
-}
-function renderOnboardingSummary(...args) {
-  return window.JobBoredApp.onboarding.renderOnboardingSummary(...args);
-}
-function updateOnboardingMascotPose(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingMascotPose(...args);
-}
-function setOnboardingStep(...args) {
-  return window.JobBoredApp.onboarding.setOnboardingStep(...args);
-}
-function updateOnboardingContinue2Enabled(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingContinue2Enabled(...args);
-}
-function updateOnboardingNext3Enabled(...args) {
-  return window.JobBoredApp.onboarding.updateOnboardingNext3Enabled(...args);
-}
-async function checkOnboardingGate(...args) {
-  return window.JobBoredApp.onboarding.checkOnboardingGate(...args);
-}
-function ensureResumeDraftFromPasteStep(...args) {
-  return window.JobBoredApp.onboarding.ensureResumeDraftFromPasteStep(...args);
-}
-function initOnboardingWizard(...args) {
-  return window.JobBoredApp.onboarding.initOnboardingWizard(...args);
-}
-
-
-// --- First-run infra wizard (extracted to first-run-wizard.js) ---
-function isFirstRunWizardVisible(...args) {
-  return window.JobBoredApp.firstRunWizard.isFirstRunWizardVisible(...args);
-}
-function showFirstRunWizard(...args) {
-  return window.JobBoredApp.firstRunWizard.showFirstRunWizard(...args);
-}
-async function checkInfraSetupGate(...args) {
-  return window.JobBoredApp.firstRunWizard.checkInfraSetupGate(...args);
-}
-
-
 // --- Settings modal (extracted to settings-modal.js) ---
 function isSettingsModalOpen(...args) {
   return window.JobBoredApp.settings.isSettingsModalOpen(...args);

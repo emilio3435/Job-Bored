@@ -202,13 +202,11 @@ describe("discovery-drawer.js — DOCUMENTED GAP (owned by lane P0-B)", () => {
 
 describe("out-of-fence surfaces stay untouched this phase", () => {
   // tests/wizards-modal-a11y-focus.test.mjs regex-pins the internal focus wiring
-  // of these three modules. Migrating them requires updating those pins in the
-  // same change (F3-D follow-up), so P0-F deliberately leaves them alone.
-  for (const file of [
-    "settings-modal.js",
-    "first-run-wizard.js",
-    "onboarding-wizard.js",
-  ]) {
+  // of this module. Migrating it requires updating those pins in the same
+  // change (F3-D follow-up), so P0-F deliberately leaves it alone.
+  // (first-run-wizard.js and onboarding-wizard.js left this list with the
+  // wizards themselves — ONE-FLOW-ONBOARDING-SPEC §7.)
+  for (const file of ["settings-modal.js"]) {
     it(`${file} still owns its own focus wiring (pins in wizards-modal-a11y-focus stay green)`, () => {
       const src = readFileSync(join(repoRoot, file), "utf8");
       assert.equal(

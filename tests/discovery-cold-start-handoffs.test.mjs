@@ -48,7 +48,10 @@ function createStorage() {
 
 function createHandoffHarness({
   search = "",
-  onboardingVisible = false,
+  // A one-flow beat is on screen. The two legacy wizards this used to model
+  // are deleted (ONE-FLOW-ONBOARDING-SPEC §7); the flow is the only
+  // onboarding surface requestDiscoverySetup defers to now.
+  flowOpen = false,
   onFlowOpen = null,
 } = {}) {
   const sessionStorage = createStorage();
@@ -97,17 +100,10 @@ function createHandoffHarness({
         context.window.location.search = path.slice(queryStart, queryEnd);
       },
     },
-    __onboardingVisible: onboardingVisible,
     __maybeStartCalls: 0,
-    __flowOpen: false,
+    __flowOpen: flowOpen,
     postAccessBootstrapDone: false,
     postAccessBootstrapPromise: Promise.resolve(),
-    isOnboardingWizardVisible() {
-      return context.__onboardingVisible;
-    },
-    isFirstRunWizardVisible() {
-      return false;
-    },
     async openDiscoverySetupWizard(options) {
       openCalls.push(options);
     },
@@ -120,12 +116,6 @@ function createHandoffHarness({
   });
 
   context.__hostApi = {
-    isOnboardingWizardVisible() {
-      return context.__onboardingVisible;
-    },
-    isFirstRunWizardVisible() {
-      return context.isFirstRunWizardVisible();
-    },
     openDiscoverySetupWizard(options) {
       openCalls.push(options);
     },
@@ -172,8 +162,8 @@ function configCore() {
 }
 
 describe("Discovery cold-start handoffs", () => {
-  it("requestDiscoverySetup defers discovery while onboarding is visible", async () => {
-    const harness = createHandoffHarness({ onboardingVisible: true });
+  it("requestDiscoverySetup defers discovery while a beat owns the surface", async () => {
+    const harness = createHandoffHarness({ flowOpen: true });
 
     const result = await harness.run(
       'requestDiscoverySetup({ entryPoint: "starter_sheet_created" })',
@@ -189,7 +179,7 @@ describe("Discovery cold-start handoffs", () => {
   });
 
   it("requestDiscoverySetup can open immediately for explicit discovery entry points", async () => {
-    const harness = createHandoffHarness({ onboardingVisible: true });
+    const harness = createHandoffHarness({ flowOpen: true });
 
     const result = await harness.run(
       'requestDiscoverySetup({ entryPoint: "toolbar", allowWhileOnboarding: true })',
@@ -201,10 +191,10 @@ describe("Discovery cold-start handoffs", () => {
     assert.equal(harness.openCalls[0].entryPoint, "toolbar");
   });
 
-  it("handleDiscoverySetupDeepLink strips the query param while deferring onboarding-first flows", async () => {
+  it("handleDiscoverySetupDeepLink strips the query param while deferring behind a live beat", async () => {
     const harness = createHandoffHarness({
       search: "?setup=discovery&sheet=abc123",
-      onboardingVisible: true,
+      flowOpen: true,
     });
 
     const handled = await harness.run("handleDiscoverySetupDeepLink()");

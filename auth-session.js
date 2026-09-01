@@ -1014,14 +1014,17 @@ function initAuthUserMenu() {
     true,
   );
 
-  // "Resume onboarding": always-available re-entry into the wizard,
-  // regardless of whether onboarding was previously marked complete.
+  // "Resume onboarding": always-available re-entry into the ONE flow
+  // (ONE-FLOW-ONBOARDING-SPEC §3.4), regardless of whether onboarding was
+  // previously marked complete. The legacy wizard this used to reopen is
+  // deleted (§7); open() is the flow's own explicit-entry API.
   const resumeBtn = document.getElementById("resumeOnboardingBtn");
   if (resumeBtn) {
     resumeBtn.addEventListener("click", () => {
       closeAuthUserMenu();
       try {
-        host().showOnboardingWizard();
+        const flow = window.JobBoredOneFlow;
+        if (flow && typeof flow.open === "function") void flow.open();
       } catch (e) {
         console.warn("[JobBored] resume onboarding:", e);
       }

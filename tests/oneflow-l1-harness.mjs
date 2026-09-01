@@ -262,11 +262,11 @@ export function loadArrival(options = {}) {
   win.COMMAND_CENTER_CONFIG = { ...(options.config || {}) };
 
   const host = makeHostDouble(options.host || {});
-  // The existing-sheet validator B1 reuses still lives on the first-run
-  // wizard's namespace (see LANE-REPORT-L1 §5 — L7 must relocate it when it
-  // deletes that module).
+  // The existing-sheet validator B1 reuses. It moved from the first-run
+  // wizard's namespace to window.JobBoredApp.setup when L7 deleted that
+  // module (spec §7; the relocation LANE-REPORT-L1 §5 asked for).
   const sheetAccessCalls = [];
-  const firstRunWizard = {
+  const setup = {
     async verifyExistingSheetAccess(input) {
       sheetAccessCalls.push(input);
       if (typeof options.verifyExistingSheetAccess === "function") {
@@ -275,7 +275,7 @@ export function loadArrival(options = {}) {
       return { ok: true, reason: "headers_ok" };
     },
   };
-  win.JobBoredApp = { core: { host }, firstRunWizard };
+  win.JobBoredApp = { core: { host }, setup };
 
   // The two collaborators a beat consumes but does not own.
   const verifyCalls = [];

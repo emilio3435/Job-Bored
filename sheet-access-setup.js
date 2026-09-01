@@ -18,28 +18,13 @@
     return window.JobBoredApp.core;
   }
 
-  // Synchronous chokepoint signal: true while the first-run infra wizard owns
-  // the surface (infra setup incomplete). Read directly off the sibling module
-  // so every dashboard-reveal entry point can defer without a host round-trip.
-  function firstRunWizardOwnsSurface() {
-    try {
-      const wizard =
-        window.JobBoredApp && window.JobBoredApp.firstRunWizard;
-      return !!(
-        wizard &&
-        typeof wizard.isFirstRunWizardActive === "function" &&
-        wizard.isFirstRunWizardActive()
-      );
-    } catch (_) {
-      return false;
-    }
-  }
-
   /**
-   * The one-flow's beats are the onboarding surface since the L6 cutover
-   * (ONE-FLOW-ONBOARDING-SPEC §3). Same shape as the guard above: while a
-   * beat is on screen, no legacy reveal may paint over it. B1 is the case
-   * that matters — signing in with no sheet yet is the beat's own state.
+   * Synchronous chokepoint signal: the one-flow's beats ARE the onboarding
+   * surface (ONE-FLOW-ONBOARDING-SPEC §3, and §7 deleted the first-run
+   * wizard this guard used to name). While a beat is on screen, no reveal
+   * entry point — this module, sign-in-success, restoreOAuthSession,
+   * sheets-read-load — may paint over it or tear it down. B1 is the case
+   * that matters: signing in with no sheet yet is the beat's own state.
    */
   function oneFlowOwnsSurface() {
     try {
@@ -333,24 +318,18 @@
       access: accessStateForLog(),
     });
 
-    // While the first-run wizard owns the surface, do NOT strand a gate
-    // overlay in front of the wizard. The wizard's own sign-in step handles
-    // the sign-in case, and revealDashboardShell / handleSetupCreateStarterSheet
-    // will re-show the gate (or skip it) once the wizard is dismissed or
-    // finished. This prevents transient showSheetAccessGate calls — from
-    // auth-session.js's sign-in-success path, the loadAllData interval, or a
-    // restoreOAuthSession race — from silently swallowing clicks on the
-    // wizard's Sheet-step buttons (VAL-WIZ-013). The requested mode is still
-    // recorded on dataset.gateMode so the gate resumes with the right state
-    // once the wizard releases the surface.
-    // Same for a live beat: a token that expires mid-flow used to repaint
-    // the login gate over the beat the user was working in (spec §3.4 —
-    // the flow owns the surface until it closes; routed L6 → L7 #10).
-    if (firstRunWizardOwnsSurface() || oneFlowOwnsSurface()) {
+    // While a beat owns the surface, do NOT strand a gate overlay in front
+    // of it. B1's own sign-in step handles the sign-in case. This prevents
+    // transient showSheetAccessGate calls — from auth-session.js's
+    // sign-in-success path, the loadAllData interval, or a restoreOAuthSession
+    // race — from silently swallowing clicks on the beat's buttons
+    // (VAL-WIZ-013, and spec §3.4: a token expiring mid-flow must not repaint
+    // the gate over the beat). The requested mode is still recorded on
+    // dataset.gateMode so the gate resumes with the right state once the flow
+    // releases the surface.
+    if (oneFlowOwnsSurface()) {
       startupLog("sheet-access:show-gate-deferred", {
-        reason: firstRunWizardOwnsSurface()
-          ? "first-run-wizard-active"
-          : "oneflow-beat-active",
+        reason: "oneflow-beat-active",
         mode,
       });
       screen.dataset.gateMode = mode;
@@ -521,17 +500,11 @@
 
   /** Show the starter Pipeline setup screen before the guided wizard takes over. */
   function revealPipelineSetupStepsScreen() {
-    // Same wizard-owns-surface guard as showSheetAccessGate / revealDashboardShell:
-    // a stray starter-setup reveal (e.g. from a sign-in-success resume or a
-    // loadAllData branch that decided to route to the setup screen) must NOT
-    // strand a setup overlay in front of the wizard, where it would swallow
-    // clicks on the Sheet-step buttons (VAL-WIZ-013).
-    if (firstRunWizardOwnsSurface()) {
-      startupLog("sheet-access:reveal-starter-setup-deferred", {
-        reason: "first-run-wizard-active",
-      });
-      return;
-    }
+    // Same flow-owns-surface guard as showSheetAccessGate /
+    // revealDashboardShell: a stray starter-setup reveal (e.g. from a
+    // sign-in-success resume or a loadAllData branch that decided to route to
+    // the setup screen) must NOT strand a setup overlay in front of a live
+    // beat, where it would swallow clicks (VAL-WIZ-013).
     if (oneFlowOwnsSurface()) {
       startupLog("sheet-access:reveal-starter-setup-deferred", {
         reason: "oneflow-beat-active",
@@ -556,34 +529,27 @@
     renderSetupStarterSheetUi();
   }
 
-  /** No Sheet ID yet: after Google sign-in, hand off to the first-run wizard. */
+  /**
+   * No Sheet ID yet after Google sign-in. Beat 1 owns this state now
+   * (ONE-FLOW-ONBOARDING-SPEC §5 B1): the wizard hand-off this used to
+   * perform is gone with the wizard (§7), and revealPipelineSetupStepsScreen
+   * stands down on its own while a beat is on screen. When the flow is NOT
+   * running, the starter-setup screen is still the honest destination — a
+   * signed-in user with no sheet has exactly one thing left to do.
+   */
   function revealSetupScreenAfterAuth() {
     if (host().getSheetId()) return;
-    // Signed in with no sheet yet: the first-run wizard (Sheet → Provider) now
-    // owns this surface. Its checkInfraSetupGate requires a signed-in session
-    // (true here) and an incomplete infra flag; if it declines (infra already
-    // complete or the wizard is unavailable), fall back to the legacy
-    // standalone setup screen so the user is never stranded.
-    const wizard = window.JobBoredApp && window.JobBoredApp.firstRunWizard;
-    if (wizard && typeof wizard.checkInfraSetupGate === "function") {
-      Promise.resolve(wizard.checkInfraSetupGate())
-        .then((shown) => {
-          if (!shown) revealPipelineSetupStepsScreen();
-        })
-        .catch(() => revealPipelineSetupStepsScreen());
-      return;
-    }
     revealPipelineSetupStepsScreen();
   }
 
   function revealDashboardShell() {
-    // Authoritative gate: while the first-run wizard owns the surface (infra
-    // setup incomplete), NO reveal entry point (this fn, sign-in-success,
-    // restoreOAuthSession, sheets-read-load) may surface the dashboard or tear
-    // the wizard down. The wizard's finish path reveals it once it relinquishes.
-    if (firstRunWizardOwnsSurface()) {
+    // Authoritative gate: while a beat owns the surface, NO reveal entry
+    // point (this fn, sign-in-success, restoreOAuthSession, sheets-read-load)
+    // may surface the dashboard or tear the flow down. The flow's own payoff
+    // exit reveals it once it relinquishes.
+    if (oneFlowOwnsSurface()) {
       startupLog("sheet-access:reveal-dashboard-deferred", {
-        reason: "first-run-wizard-active",
+        reason: "oneflow-beat-active",
         access: accessStateForLog(),
       });
       return;
@@ -952,8 +918,70 @@
     renderSetupStarterSheetUi();
   }
 
+  /**
+   * Can this session actually READ the pasted sheet? Two round trips: the
+   * spreadsheet metadata (does the token reach it at all) and the Pipeline
+   * header row (is it the sheet we can work with). Moved here from the
+   * retired first-run wizard (spec §7) because Beat 1's paste path is the
+   * one caller that survived it.
+   */
+  async function verifyExistingSheetAccess({
+    sheetId,
+    fetchImpl,
+    accessToken,
+  } = {}) {
+    const id = String(sheetId || "").trim();
+    if (!id) return { ok: false, reason: "invalid_id" };
+    const doFetch =
+      typeof fetchImpl === "function"
+        ? fetchImpl
+        : typeof fetch === "function"
+          ? fetch
+          : null;
+    const token = String(accessToken || "").trim();
+    if (typeof doFetch !== "function") {
+      return { ok: false, reason: "fetch_unavailable" };
+    }
+    if (!token) return { ok: false, reason: "no_token" };
+    const headers = { Authorization: `Bearer ${token}` };
+    try {
+      const metaUrl =
+        "https://sheets.googleapis.com/v4/spreadsheets/" +
+        encodeURIComponent(id) +
+        "?fields=spreadsheetId,sheets.properties.title";
+      const metaRes = await doFetch(metaUrl, { headers });
+      if (!metaRes || !metaRes.ok) {
+        return {
+          ok: false,
+          reason: "access_denied",
+          status: metaRes && metaRes.status,
+        };
+      }
+      const valuesUrl =
+        "https://sheets.googleapis.com/v4/spreadsheets/" +
+        encodeURIComponent(id) +
+        "/values/Pipeline!A1:Z1";
+      const valuesRes = await doFetch(valuesUrl, { headers });
+      if (!valuesRes || !valuesRes.ok) {
+        return {
+          ok: false,
+          reason: "headers_unreadable",
+          status: valuesRes && valuesRes.status,
+        };
+      }
+      return { ok: true, reason: "headers_ok" };
+    } catch (err) {
+      return {
+        ok: false,
+        reason: "fetch_failed",
+        message: err && err.message ? err.message : String(err || ""),
+      };
+    }
+  }
+
   Object.assign(setup, {
     showSheetAccessGate,
+    verifyExistingSheetAccess,
     recordSheetAccessError,
     hideSheetAccessGate,
     revealPipelineSetupStepsScreen,

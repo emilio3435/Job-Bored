@@ -78,7 +78,6 @@
       buildDiscoveryRelayDeployCommandForTarget:
         host.buildDiscoveryRelayDeployCommandForTarget,
       getDiscoveryRelaySuggestedOrigin: host.getDiscoveryRelaySuggestedOrigin,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
       isSignedIn: host.isSignedIn,
       openDiscoverySetupWizard: host.openDiscoverySetupWizard,
       openGoLiveSetupWizard: host.openGoLiveSetupWizard,
@@ -86,9 +85,6 @@
       getDiscoveryWizardRecommendedFlow:
         host.getDiscoveryWizardRecommendedFlow,
       getDiscoveryReadinessSnapshot: host.getDiscoveryReadinessSnapshot,
-      checkOnboardingGate: host.checkOnboardingGate,
-      checkInfraSetupGate: host.checkInfraSetupGate,
-      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
       normalizeDiscoveryWebhookIdentity: host.normalizeDiscoveryWebhookIdentity,
       isLocalWebhookCandidateUrl: host.isLocalWebhookCandidateUrl,
       isLocalDashboardOrigin: host.isLocalDashboardOrigin,
@@ -215,7 +211,6 @@
       getAccessToken: host.getAccessToken,
       showSheetAccessGate: host.showSheetAccessGate,
       initAuth: host.initAuth,
-      checkInfraSetupGate: host.checkInfraSetupGate,
       renderSetupStarterSheetUi: host.renderSetupStarterSheetUi,
       loadPersistedRuntimeOAuthSession: host.loadPersistedRuntimeOAuthSession,
       loadPersistedOAuthSession: host.loadPersistedOAuthSession,
@@ -361,9 +356,6 @@
       clearDiscoveryWizardRuntime: host.clearDiscoveryWizardRuntime,
       persistDiscoveryWizardState: host.persistDiscoveryWizardState,
       triggerDiscoveryRun: host.triggerDiscoveryRun,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
-      hideOnboardingWizard: host.hideOnboardingWizard,
-      showOnboardingWizard: host.showOnboardingWizard,
       isSettingsModalOpen: host.isSettingsModalOpen,
       closeCommandCenterSettingsModal: host.closeCommandCenterSettingsModal,
       openCommandCenterSettingsModal: host.openCommandCenterSettingsModal,
@@ -425,10 +417,6 @@
     goLive.host = {
       showToast: host.showToast,
       copyTextToClipboard: host.copyTextToClipboard,
-      isOnboardingWizardVisible: host.isOnboardingWizardVisible,
-      isFirstRunWizardVisible: host.isFirstRunWizardVisible,
-      hideOnboardingWizard: host.hideOnboardingWizard,
-      showOnboardingWizard: host.showOnboardingWizard,
       requestDiscoverySetup: host.requestDiscoverySetup,
     };
 
@@ -546,8 +534,6 @@
         return app.settings.maybeSyncSettingsModalModeAfterAuth(...args);
       },
       refreshPersonalPreferencesPanel: host.refreshPersonalPreferencesPanel,
-      showOnboardingWizard: host.showOnboardingWizard,
-      checkOnboardingGate: host.checkOnboardingGate,
       openCommandCenterSettingsModal(...args) {
         return app.settings.openCommandCenterSettingsModal(...args);
       },

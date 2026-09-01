@@ -145,6 +145,9 @@ function loadGoLive({
   host,
   shellApi,
   wizardDomOverride,
+  // A one-flow beat owns the screen. The two legacy wizards the defer gate
+  // used to ask about are deleted (ONE-FLOW-ONBOARDING-SPEC §7).
+  flowOpen = false,
 } = {}) {
   const { document, makeEl } = makeFakeDom();
 
@@ -252,6 +255,7 @@ function loadGoLive({
 
   const window = {
     JobBoredApp: { core: { host: {} } },
+    JobBoredOneFlow: { isOpen: () => flowOpen },
     JobBoredDiscoveryWizard: { shell },
     JobBoredWizardDom: dom,
     JobBoredGoLive: {},
@@ -291,9 +295,7 @@ function loadGoLive({
 
 describe("go-live wizard — path select", () => {
   it("openGoLiveSetupWizard renders via the shared shell with the generic variant and the goLive mount", async () => {
-    const { api, renderCalls } = loadGoLive({
-      host: { isOnboardingWizardVisible: () => false },
-    });
+    const { api, renderCalls } = loadGoLive();
     await api.openGoLiveSetupWizard();
     assert.equal(renderCalls.length, 1, "renderWizardShell should be called once");
     const input = renderCalls[0];
@@ -719,8 +721,6 @@ describe("go-live wizard — done step + discovery cross-rec gating", () => {
   it("go_live_open_discovery closes the wizard and routes to host.requestDiscoverySetup with the cross-rec entry point", async () => {
     const discoveryCalls = [];
     const host = {
-      isOnboardingWizardVisible: () => false,
-      isFirstRunWizardVisible: () => false,
       requestDiscoverySetup: (opts) => {
         discoveryCalls.push(opts);
         return Promise.resolve({ deferred: false });
@@ -753,8 +753,6 @@ describe("go-live wizard — done step + discovery cross-rec gating", () => {
       isDiscoverySetupComplete: async () => false,
     };
     const host = {
-      isOnboardingWizardVisible: () => false,
-      isFirstRunWizardVisible: () => false,
       requestDiscoverySetup: (opts) => {
         discoveryCalls.push(opts);
         return Promise.resolve({ deferred: false });
@@ -803,8 +801,6 @@ describe("go-live wizard — done step + discovery cross-rec gating", () => {
       isDiscoverySetupComplete: async () => true,
     };
     const host = {
-      isOnboardingWizardVisible: () => false,
-      isFirstRunWizardVisible: () => false,
       requestDiscoverySetup: (opts) => discoveryCalls.push(opts),
     };
     const fetchImpl = async (url) => {
@@ -890,40 +886,27 @@ describe("go-live wizard — done step recommends only what is unfinished", () =
   });
 });
 
-describe("go-live wizard — onboarding-defer gate (mirrors requestDiscoverySetup)", () => {
-  it("requestGoLiveSetup defers when the onboarding or first-run wizard is up", async () => {
-    const host = {
-      isOnboardingWizardVisible: () => true,
-      isFirstRunWizardVisible: () => false,
-    };
-    const { api, renderCalls } = loadGoLive({ host });
+describe("go-live wizard — flow-defer gate (mirrors requestDiscoverySetup)", () => {
+  it("requestGoLiveSetup defers while a one-flow beat owns the screen", async () => {
+    const { api, renderCalls } = loadGoLive({ flowOpen: true });
     const result = await api.requestGoLiveSetup();
     assert.equal(result.deferred, true, "must return deferred:true");
     assert.equal(
       renderCalls.length,
       0,
-      "must NOT render the wizard while onboarding is up",
+      "must NOT render over a live beat (spec §3.4)",
     );
   });
 
-  it("requestGoLiveSetup runs through allowWhileOnboarding:true even when onboarding is visible", async () => {
-    const host = {
-      isOnboardingWizardVisible: () => true,
-      isFirstRunWizardVisible: () => false,
-      hideOnboardingWizard: () => {},
-    };
-    const { api, renderCalls } = loadGoLive({ host });
+  it("requestGoLiveSetup runs through allowWhileOnboarding:true even mid-flow", async () => {
+    const { api, renderCalls } = loadGoLive({ flowOpen: true });
     const result = await api.requestGoLiveSetup({ allowWhileOnboarding: true });
     assert.equal(result.deferred, false);
     assert.equal(renderCalls.length, 1, "wizard must render");
   });
 
-  it("requestGoLiveSetup runs immediately when no wizard is up", async () => {
-    const host = {
-      isOnboardingWizardVisible: () => false,
-      isFirstRunWizardVisible: () => false,
-    };
-    const { api, renderCalls } = loadGoLive({ host });
+  it("requestGoLiveSetup runs immediately when the flow is closed", async () => {
+    const { api, renderCalls } = loadGoLive();
     const result = await api.requestGoLiveSetup();
     assert.equal(result.deferred, false);
     assert.equal(renderCalls.length, 1);
@@ -995,9 +978,7 @@ describe("go-live wizard — module + bridge surface", () => {
 
 describe("go-live wizard — continuity chrome (journey strip + mascot)", () => {
   it("renders with journeyStage devices and a mascot", async () => {
-    const { api, renderCalls } = loadGoLive({
-      host: { isOnboardingWizardVisible: () => false },
-    });
+    const { api, renderCalls } = loadGoLive();
     await api.openGoLiveSetupWizard();
     assert.equal(renderCalls[0].journeyStage, "devices");
     assert.match(String(renderCalls[0].mascotSrc || ""), /pose-/);
@@ -1007,9 +988,7 @@ describe("go-live wizard — continuity chrome (journey strip + mascot)", () => 
 describe("go-live wizard — setup card refresh on close", () => {
   it("closing the wizard refreshes the whats-next card (state re-checked before it renders)", async () => {
     const refreshes = [];
-    const { api, window, renderCalls } = loadGoLive({
-      host: { isOnboardingWizardVisible: () => false },
-    });
+    const { api, window, renderCalls } = loadGoLive();
     window.JobBoredApp.whatsNextBanner = {
       refreshBanner: () => {
         refreshes.push(1);

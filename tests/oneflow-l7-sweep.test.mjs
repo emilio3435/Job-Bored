@@ -1,5 +1,5 @@
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, readdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -20,6 +20,27 @@ const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const read = (rel) => readFileSync(join(root, rel), "utf8");
 const gone = (rel) =>
   assert.equal(existsSync(join(root, rel)), false, `${rel} must be deleted`);
+
+/**
+ * Every shipped browser source + markup file in the repo root, plus the
+ * partials and css dirs. Used for repo-wide "this is gone" claims: a
+ * file-scoped grep cannot prove a deletion when the file it named is
+ * itself deleted.
+ */
+function shippedSources() {
+  const out = [];
+  const dirs = ["", "partials", "css", "scripts/lib"];
+  for (const dir of dirs) {
+    for (const name of readdirSync(join(root, dir), { withFileTypes: true })) {
+      if (!name.isFile()) continue;
+      if (!/\.(js|mjs|html|css|json)$/.test(name.name)) continue;
+      if (name.name === "config.js" || name.name === "package-lock.json") continue;
+      const rel = dir ? `${dir}/${name.name}` : name.name;
+      out.push([rel, read(rel)]);
+    }
+  }
+  return out;
+}
 
 /** True when `needle` appears outside of a pure comment line. */
 function source_has(source, needle) {
@@ -143,22 +164,24 @@ describe("§7 · Settings → Upgrades carries what the wizard used to list", ()
 });
 
 describe("§7 · the blocking discovery gate is gone", () => {
-  it("#discoverySetupGate and its two controls leave the markup", () => {
-    const partial = read("partials/onboarding-wizard.html");
-    assert.equal(/discoverySetupGate/.test(partial), false);
-    assert.equal(/discoveryGateOpenWizard/.test(partial), false);
-    assert.equal(/discoveryGateSkipEscape/.test(partial), false);
-  });
-
-  it("no module drives a gate that no longer exists", () => {
-    for (const file of ["onboarding-wizard.js", "css/legacy-onboarding.css"]) {
-      assert.equal(
-        /discoverySetupGate|showDiscoveryGate|hideDiscoveryGate/.test(
-          read(file),
-        ),
-        false,
-        `${file} must not reach for the deleted gate`,
-      );
+  it("nothing anywhere in the tree markup or drives it", () => {
+    // Its markup lived in partials/onboarding-wizard.html and its driver in
+    // onboarding-wizard.js — both deleted outright further down §7 — so the
+    // claim is repo-wide rather than file-scoped.
+    for (const [file, source] of shippedSources()) {
+      for (const needle of [
+        "discoverySetupGate",
+        "discoveryGateOpenWizard",
+        "discoveryGateSkipEscape",
+        "showDiscoveryGate",
+        "hideDiscoveryGate",
+      ]) {
+        assert.equal(
+          source.includes(needle),
+          false,
+          `${file} must not reach for the deleted gate (${needle})`,
+        );
+      }
     }
   });
 
@@ -187,5 +210,153 @@ describe("§7 · the blocking discovery gate is gone", () => {
       /Skip the connection for now/,
       "the spec's skip copy, verbatim",
     );
+  });
+});
+
+describe("§7 · the first-run infra wizard is gone", () => {
+  it("module, partial, CSS and every suite that pinned it are deleted", () => {
+    gone("first-run-wizard.js");
+    gone("partials/first-run-wizard.html");
+    gone("css/legacy-first-run-wizard.css");
+    for (const suite of [
+      "tests/first-run-wizard.test.mjs",
+      "tests/first-run-wizard-provider-picker.test.mjs",
+      "tests/first-run-wizard-sheet-step-interactive.test.mjs",
+      "tests/first-run-wizard-create-stays-in-flow.test.mjs",
+      "tests/first-run-wizard-create-resume-stays-in-flow.test.mjs",
+      "tests/whats-next-signpost.test.mjs",
+    ]) {
+      gone(suite);
+    }
+  });
+
+  it("index.html drops the include, the script tag and the stylesheet", () => {
+    const html = read("index.html");
+    assert.equal(/first-run-wizard\.(js|html|css)/.test(html), false);
+    assert.equal(/legacy-first-run-wizard/.test(html), false);
+  });
+
+  it("no surviving module reaches for it", () => {
+    for (const file of [
+      "app.js",
+      "app-compat.js",
+      "bridge-registry.js",
+      "sheet-access-setup.js",
+      "materials-feature.js",
+      "discovery-status-handoff.js",
+      "go-live-wizard-ui.js",
+      "oneflow-beat-google.js",
+      "package.json",
+      "scripts/lib/index-protected-surface.mjs",
+    ]) {
+      assert.equal(
+        /firstRunWizard|FirstRunWizard|checkInfraSetupGate/.test(read(file)),
+        false,
+        `${file} must not reach for the retired first-run wizard`,
+      );
+    }
+  });
+
+  it("B1 keeps its sheet checker — moved, not deleted", () => {
+    // oneflow-beat-google.js called firstRunWizard.verifyExistingSheetAccess
+    // to verify a pasted sheet. It is the one piece of the wizard the flow
+    // still needs, so it moved to the module that survives and already owns
+    // the gate + starter-sheet creator (spec §7: "Beat 1 owns sheet
+    // creation"). Deleting it would have made B1's paste path dead.
+    const setup = read("sheet-access-setup.js");
+    assert.match(setup, /async function verifyExistingSheetAccess\(/);
+    assert.match(setup, /verifyExistingSheetAccess,/, "and it is exported");
+    assert.match(
+      read("oneflow-beat-google.js"),
+      /verifyExistingSheetAccess/,
+      "B1 reads it from its new home",
+    );
+  });
+
+  it("the Settings reset buttons reopen the ONE flow, not a deleted wizard", () => {
+    const materials = read("materials-feature.js");
+    assert.match(materials, /JobBoredOneFlow/);
+    assert.equal(/reopenFirstRunWizard|hideFirstRunWizard/.test(materials), false);
+  });
+});
+
+describe("§7 · the legacy onboarding wizard is gone; the player survives", () => {
+  it("module, partial, CSS and its suites are deleted", () => {
+    gone("onboarding-wizard.js");
+    gone("partials/onboarding-wizard.html");
+    gone("css/legacy-onboarding.css");
+    gone("tests/onboarding-profile-persistence.test.mjs");
+    gone("tests/onboarding-celebration.test.mjs");
+  });
+
+  it("onboarding-celebration.js STAYS — it is the one celebration", () => {
+    // spec §7 collapses four bursts to one; the player itself is what B6
+    // reuses, so it is the file the sweep protects, not the file it deletes.
+    assert.ok(existsSync(join(root, "onboarding-celebration.js")));
+    assert.ok(existsSync(join(root, "tests/oneflow-l4-celebration.test.mjs")));
+  });
+
+  it("the four legacy stage configs are gone; only the flow finale remains", () => {
+    const player = read("onboarding-celebration.js");
+    for (const stage of ["profile:", "discovery:", "devices:", "bonus:"]) {
+      assert.equal(
+        player.includes(stage),
+        false,
+        `stage ${stage} was a "done" moment before a single job existed (§7)`,
+      );
+    }
+    assert.match(player, /flow_payoff:/, "B6's finale is the only stage left");
+  });
+
+  it("exactly ONE call site plays the celebration (§10 Phase 1 acceptance)", () => {
+    const callers = [];
+    for (const file of [
+      "oneflow-beat-payoff.js",
+      "discovery-wizard-ui.js",
+      "go-live-wizard-ui.js",
+      "materials-feature.js",
+      "app.js",
+      "app-compat.js",
+      "auth-session.js",
+      "bridge-registry.js",
+    ]) {
+      const hits = read(file).match(/\.playOnboardingCelebration\(/g);
+      if (hits) callers.push(`${file}×${hits.length}`);
+    }
+    assert.deepEqual(
+      callers,
+      ["oneflow-beat-payoff.js×1"],
+      "B6 is the only celebration; the delegating alias is gone with its wizard",
+    );
+  });
+
+  it("no surviving module reaches for the deleted wizard", () => {
+    for (const file of [
+      "app.js",
+      "app-compat.js",
+      "bridge-registry.js",
+      "auth-session.js",
+      "materials-feature.js",
+      "discovery-wizard-ui.js",
+      "discovery-status-handoff.js",
+      "go-live-wizard-ui.js",
+      "index.html",
+      "package.json",
+      "scripts/lib/index-protected-surface.mjs",
+    ]) {
+      assert.equal(
+        /onboardingWizard|OnboardingWizard|checkOnboardingGate/.test(read(file)),
+        false,
+        `${file} must not reach for the retired onboarding wizard`,
+      );
+    }
+  });
+
+  it("the re-entry points that used to open it now open the ONE flow", () => {
+    // "Resume onboarding" in the account menu and both Settings reset
+    // buttons: the capability survives the surface (spec §3.4 — the flow's
+    // own open() is the explicit re-entry API).
+    assert.match(read("auth-session.js"), /JobBoredOneFlow/);
+    assert.match(read("materials-feature.js"), /JobBoredOneFlow/);
   });
 });

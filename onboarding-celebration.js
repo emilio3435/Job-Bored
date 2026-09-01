@@ -9,14 +9,14 @@
    chapters, and the `inert` click-through fix that made the CTA
    clickable over an overflow:auto wizard in Chromium.
 
-   So the player MOVES rather than gets rewritten. It lived in
-   onboarding-wizard.js:137-344; L7 deletes that file, and the flow's
-   single celebration must not go with it. onboarding-wizard.js keeps a
-   thin delegating alias so every legacy caller (first-run, discovery,
-   go-live) keeps working until L7 removes them.
+   So the player MOVED rather than got rewritten. It lived in
+   onboarding-wizard.js:137-344; L7 deleted that file, and the flow's
+   single celebration did not go with it. Its four legacy stages, its
+   delegating alias, and every caller but B6 went with the wizard — one
+   stage remains, because there is one payoff.
 
    Behavior is unchanged. Two additions, both for B6:
-     · one new stage, `flow_payoff`, the flow finale,
+     · the stage table is `flow_payoff` alone, the flow finale,
      · per-call title/sub/cta overrides, because "You're live, {firstName}."
        is resolved by B6 from the Google session — the player renders what
        it is handed and never owns the user's name.
@@ -48,43 +48,14 @@
     }
   }
 
-  // One celebratory beat between each MAJOR setup stage of the LEGACY
-  // chain (sheet → profile → discovery → devices), plus the one-flow
-  // finale. The same overlay plays every time; the stage key picks the
-  // copy + which journey-strip step is current.
+  // The flow finale, and nothing else (spec §7): the four legacy stage
+  // configs — profile / discovery / devices / bonus — were four "done"
+  // moments before a single job existed, and they left with their callers.
   //
-  // §7 deletes the four legacy stages along with their callers in L7.
-  // `flow_payoff` is the one that survives.
+  // currentIndex 4 sits past the last journey step, so every step renders
+  // done and none renders current — which is the truth at B6: nothing is
+  // next, the deal is finished.
   const STAGE_CELEBRATIONS = {
-    profile: {
-      title: "Workspace connected!",
-      sub: "Your sheet and AI provider are wired up. Now let's make JobBored yours.",
-      cta: "Build your profile →",
-      currentIndex: 0,
-    },
-    discovery: {
-      title: "Profile set!",
-      sub: "Your resume and preferences are in. One big step to go.",
-      cta: "Set up job discovery →",
-      currentIndex: 1,
-    },
-    devices: {
-      title: "Discovery is live!",
-      sub: "Real jobs will start flowing into your pipeline. One optional step left.",
-      cta: "Set up other devices →",
-      currentIndex: 2,
-    },
-    bonus: {
-      title: "You're fully set up!",
-      sub: "Profile, discovery, devices — all live. A few optional power-ups can multiply your results.",
-      cta: "Maximize your results →",
-      currentIndex: 3, // every journey stage shows done
-    },
-    // The one-flow finale (spec §5 B6). Defaults are the graceful
-    // fallback the spec names; B6 passes the personalized copy.
-    // currentIndex 4 sits past the last legacy step, so every journey
-    // step renders done and none renders current — which is the truth
-    // at B6: nothing is next, the deal is finished.
     flow_payoff: {
       title: "You're live.",
       sub: "That was the one-time part. From here, JobBored works for you.",
@@ -94,7 +65,8 @@
   };
 
   function applyCelebrationStage(overlay, stageKey, overrides) {
-    const stage = STAGE_CELEBRATIONS[stageKey] || STAGE_CELEBRATIONS.discovery;
+    const stage =
+      STAGE_CELEBRATIONS[stageKey] || STAGE_CELEBRATIONS.flow_payoff;
     const o = overrides || {};
     const pick = (key) => {
       const supplied = o[key];

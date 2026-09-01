@@ -506,15 +506,11 @@ async function requestDiscoverySetup(options = {}) {
     allowWhileOnboarding = false,
     ...wizardOptions
   } = options;
-  if (
-    (host().isOnboardingWizardVisible() ||
-      host().isFirstRunWizardVisible() ||
-      // The one-flow is the onboarding surface now (spec §3), and its
-      // Beat 5 IS discovery setup — opening the standalone wizard over
-      // the flow shell would strand the beat behind it.
-      isOneFlowOpen()) &&
-    !allowWhileOnboarding
-  ) {
+  // The one-flow is the onboarding surface (spec §3), and its Beat 5 IS
+  // discovery setup — opening the standalone wizard over the flow shell
+  // would strand the beat behind it. The two legacy wizards this also used
+  // to ask about are deleted (§7).
+  if (isOneFlowOpen() && !allowWhileOnboarding) {
     queuePendingDiscoverySetup();
     if (stripSetupParam) {
       stripSetupDiscoveryParam();

@@ -656,16 +656,10 @@ describe("wizard motion — one entrance signature across every surface (delight
     assert.match(css, /@keyframes jbWizardIn/);
     assert.match(css, /prefers-reduced-motion[^}]*\{[^}]*\.discovery-setup-wizard__panel[^}]*\{[^}]*animation:\s*none/s, "reduced-motion users get no entrance animation");
   });
-  it("onboarding + first-run panels share the same curve and duration (no per-wizard timing)", async () => {
-    const { readFileSync } = await import("node:fs");
-    const onboarding = readFileSync(new URL("../css/legacy-onboarding.css", import.meta.url), "utf8");
-    const firstRun = readFileSync(new URL("../css/legacy-first-run-wizard.css", import.meta.url), "utf8");
-    for (const [name, css, sel] of [["onboarding", onboarding, ".onboarding-panel"], ["first-run", firstRun, ".first-run-panel"]]) {
-      const rule = css.slice(css.indexOf(`${sel} {`), css.indexOf("}", css.indexOf(`${sel} {`)));
-      assert.ok(rule.includes("0.32s"), `${name} panel uses the canonical 0.32s duration`);
-      assert.ok(rule.includes(SIGNATURE), `${name} panel uses the canonical curve`);
-    }
-  });
+  // The onboarding + first-run card wizards had their own panels on this
+  // same curve. Both are deleted (ONE-FLOW-ONBOARDING-SPEC §7) — every
+  // onboarding surface renders through THIS shell now, so the shell rule
+  // above is the whole claim.
 });
 
 describe("wizard button vocabulary — one language (delight pass)", () => {
@@ -693,26 +687,17 @@ describe("wizard shell repaint — warm-paper skin (delight pass)", () => {
   });
 });
 
-describe("wizard progress — one mint language across card wizards too (delight pass)", () => {
-  it("first-run + profile progress fills use the shell's mint gradient; first-run done pills get checkmarks", async () => {
-    const { readFileSync } = await import("node:fs");
-    const fr = readFileSync(new URL("../css/legacy-first-run-wizard.css", import.meta.url), "utf8");
-    const ob = readFileSync(new URL("../css/legacy-onboarding.css", import.meta.url), "utf8");
-    for (const [name, css] of [["first-run", fr], ["onboarding", ob]]) {
-      assert.ok(css.includes("var(--jb-mint, #5fcb8e)"), `${name} progress uses the brand mint`);
-      assert.match(css, /progress-bar__fill[^}]*\{[^}]*linear-gradient\(\s*90deg/s, `${name} fill is the gradient, not flat accent`);
-    }
-    assert.match(fr, /__item--done::before\s*\{\s*content: "✓ "/s, "done pills carry the same checkmark as the shell rail");
-  });
-});
+// The two card wizards that carried their own mint progress bars are
+// deleted (§7). The shell's own rail keeps the mint language, asserted by
+// "done rail segments are solid mint with real checkmarks" above.
 
 describe("wizard typography — one title scale (delight pass)", () => {
-  it("step titles share the shell's scale across all three wizard families", async () => {
+  it("the shell's step title carries the canonical scale", async () => {
     const { readFileSync } = await import("node:fs");
+    // Two of the three wizard families are gone (§7); the shell is what is
+    // left, and its scale is what every beat now inherits.
     const files = [
       ["css/legacy-discovery-setup-wizard.css", ".discovery-setup-wizard__step-title"],
-      ["css/legacy-first-run-wizard.css", ".first-run-step-title"],
-      ["css/legacy-onboarding.css", ".onboarding-step-title"],
     ];
     for (const [file, sel] of files) {
       const css = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");

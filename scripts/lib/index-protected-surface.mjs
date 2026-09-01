@@ -4,7 +4,6 @@
  * containment around the expander.
  */
 export const PROTECTED_SURFACE_IDS = [
-  "onboardingWizard",
   "runsModal",
   "expiredReviewModal",
   "settingsModal",
@@ -18,7 +17,6 @@ export const PROTECTED_SURFACE_IDS = [
   "ingestManualModal",
   "sheetAccessGateScreen",
   "dashboard",
-  "firstRunWizard",
 ];
 
 export function missingProtectedIds(html) {
