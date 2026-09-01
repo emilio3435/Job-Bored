@@ -10,7 +10,7 @@ In **Settings → Pages → Build and deployment**, choose **GitHub Actions**. E
 2. copies static assets into `_site/` and installs the assembled document as `_site/index.html`;
 3. uploads and deploys that artifact through GitHub Pages.
 
-A deployment is healthy only when the live HTML contains protected surfaces such as `#firstRunWizard` and contains no `<!-- @include -->` markers. An HTTP 200 alone is not sufficient.
+A deployment is healthy only when the live HTML contains protected surfaces such as `#settingsModal` and `#discoveryDrawer` (the full inventory lives in [`scripts/lib/index-protected-surface.mjs`](../scripts/lib/index-protected-surface.mjs)) and contains no `<!-- @include -->` markers. An HTTP 200 alone is not sufficient.
 
 ## Supported modes
 

@@ -74,7 +74,9 @@ The wizard must respect the current implementation constraints:
 - Current discovery transport storage: [app.js](../app.js)
 - Current readiness persistence: [user-content-store.js](../user-content-store.js)
 - Current modal copy and entry points: [index.html](../index.html)
-- Existing onboarding shell patterns: `#onboardingWizard` in [index.html](../index.html)
+- Existing onboarding shell patterns: `discovery-wizard-shell.js` (the legacy
+  `#onboardingWizard` this originally pointed at was deleted by
+  [ONE-FLOW-ONBOARDING-SPEC](ONE-FLOW-ONBOARDING-SPEC.md) §7)
 
 ## Proposed User Experience
 
@@ -307,7 +309,8 @@ Add:
 
 Recommended shell reuse:
 
-- mirror the structure of `#onboardingWizard`
+- render through `discovery-wizard-shell.js`, the one wizard shell every
+  onboarding surface now shares
 - do not invent a separate visual language for discovery setup
 
 ## Automation Rules
