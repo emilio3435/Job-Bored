@@ -275,14 +275,17 @@ export function loadPayoff(stubs = {}) {
           },
   };
   // --- Discovery snapshot: how many source lanes are armed --------------
-  win.JobBoredDiscoveryRunPreview = {
-    buildDiscoveryRunPreview: () =>
-      stubs.preview || {
-        hasIntent: true,
-        sources: {
-          lanes: ["serpapi_google_jobs", "grounded_web", "ats_provider"],
-        },
+  win.JobBoredDiscoveryPayload = {
+    buildSearchPlan: () => ({
+      facets: {
+        sourceLanes:
+          stubs.sourceLanes || [
+            "serpapi_google_jobs",
+            "grounded_web",
+            "ats_provider",
+          ],
       },
+    }),
   };
   win.JobBoredEffectiveIntent = {
     buildEffectiveIntent: () =>
@@ -323,6 +326,15 @@ export function loadPayoff(stubs = {}) {
     payoff: win.JobBoredOneFlowPayoff,
     events: doc._events,
   };
+}
+
+/**
+ * A vm context has its OWN Array/Object intrinsics, so a value built
+ * inside the sandbox is never deepStrictEqual to a literal out here even
+ * when it is structurally identical. Round-trip it into this realm first.
+ */
+export function plain(value) {
+  return JSON.parse(JSON.stringify(value));
 }
 
 /** Rendered-text helper: the flat textContent of a rendered tree. */
