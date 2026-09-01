@@ -1,6 +1,6 @@
 # Discovery hardening — program spec
 
-Status: DRAFT (Phase 0). Becomes LOCKED when the "Locked decisions" section at the bottom is filled. Locked decisions override anything above them.
+Status: **LOCKED** 2026-09-01 (Phase 0 complete). The "Locked decisions" section at the bottom overrides anything above it.
 
 Source prompt: `docs/swarm/PROMPT-discovery-hardening-fable51-opus5.md` (in Emilio's main checkout, untracked).
 
@@ -65,10 +65,43 @@ Merge order: A → B → C → D → E (from the prompt; no dependency reason to
 ### CANARY-1
 - No `discovery:canary` script exists. Reusable: `scripts/discovery-keep-alive.mjs::isExpectedWorkerHealthPayload`, `scripts/doctor.mjs` (`check/summarize/parseArgs/runDoctor` + injected `fetchImpl`/`spawnSyncImpl`), `/health` payload shape in `tests/mocks/health-response.ok.v1.json`, `discovery-runs-writer.ts::parseDiscoveryRunsCells`.
 
-## Baseline claim probes
+## Baseline claim probes (RED captured by the scouts on `8f79235`; probes pre-copied into every lane worktree under `.lane-evidence/`)
 
-PENDING — filled from scout output (exact command + RED output per claim).
+| Claim | Probe command | Observed RED (verbatim core) |
+|---|---|---|
+| ASSET-1 | `node --test .lane-evidence/asset-1-red.probe.test.mjs` | `assembled index carries 153 asset references not tied to file content: jb-ui.js (expected v=ae4c643ea3) …` — hand `?v=N` stamps fail too (`app-config-core.js?v=2` vs `v=8f5cdd288d`). Placement probe: stamping inside `assembleIndex()` breaks `tests/hermetic-release-gate.test.mjs:130`. |
+| SCRAPE-E2E-1 | `npx playwright test --config .lane-evidence/e2e/playwright.config.mjs` | success path `Expected "Scraped: Platform Engineer at Acme" / Received "Scraped: Untitled"`; 422 path `Expected role "alert" / Received "status"`. Cause: harness materials catch-all answers `POST /api/scrape-job` with `{ok:true,…}` (false success). Reference test proves the drawer already renders the production 422 correctly. |
+| LIFECYCLE-1 (worker) | `node --experimental-strip-types --test .lane-evidence/scout-worker/lifecycle-duplicate-delivery.probe.test.ts` | `firstRunId=run_1 secondRunId=run_2 runDiscoveryCalls=2 discoveryRunsAppends=2` — two byte-identical POSTs start two runs and append two DiscoveryRuns rows. |
+| LIFECYCLE-1 (poller) | `node --test .lane-evidence/scout-worker/lifecycle-poll-classification.probe.test.mjs` | 404 and 401 from `/runs/:id` are treated as retryable (`Status endpoint returned HTTP 404`), burn 3 retries, then claim "the run may still be running". `statusPath`/`status_path` both accepted (green, but untested in repo). |
+| STABLE-1 | `node --test .lane-evidence/stable-1-tailscale-hop.probe.test.mjs` (also `.lane-evidence/scout-worker/stable-transport-hop.probe.test.mjs`) | Tailscale setup, healthy local worker, ts.net down → `summary "ngrok tunnel is not running." primaryFix diag_fix_tunnel`; control case without `localWebhookUrl` names the ts.net host. Six named tests: 48/48 green. Row-5 toast coverage probe passes (behavior correct, untested). |
+| CANARY-1 | `npm run discovery:canary -- --max-age-hours 24 --json` / `node --experimental-strip-types --test .lane-evidence/scout-worker/canary-run-history-reader.probe.test.ts` | `npm error Missing script: "discovery:canary"` (exit 1). Store probe: opening `createDiscoveryRunStatusStore` deleted a `.tmp-` file — not usable read-only; no read-only listing export exists. |
 
-## Locked decisions
+Full scout reports: `SCOUT-browser.md`, `SCOUT-worker.md`.
 
-PENDING — appended after scouts return and Emilio adjudicates open decisions.
+## Locked decisions (Fable, 2026-09-01 15:35 MT — override anything above; flagged for Emilio's review in the final handoff)
+
+**LD-1 · ASSET-1 placement.** The digest transform lives ONLY in the `--write` CLI path of `scripts/assemble-index.mjs` as an exported pure helper `stampLocalAssetDigests(html, repoRoot)`. `assembleIndex()` stays byte-identical to `expandIndexIncludes()` (`tests/hermetic-release-gate.test.mjs:130` is outside the fence and must stay green). `config.js` is exempt (no file on disk; Pages substitutes `config.example.js`). `pages.yml` gains one post-build guard step that verifies every stamped ref in `_site/index.html` resolves under `_site/` with a matching digest (prefer `node scripts/assemble-index.mjs --verify-site _site` so the logic is unit-testable). `index.html` is not edited.
+
+**LD-2 · SCRAPE-E2E-1 is a fixture-and-spec lane.** No product edits. The harness gets an explicit path-keyed `POST /api/scrape-job` branch before the materials block; both fixture bodies are generated from `server/shared/job-scraper-core.mjs` (never `server/index.mjs`, which listens at import). The "Wellfound-like" failure is the company-jobs INDEX URL → 422 `job_detail_url_required`.
+
+**LD-3 · Duplicate delivery (LIFECYCLE-1, worker side).** RunIds are server-minted per POST and the request carries no idempotency key, so the working assumption in the draft is void. Lane C implements request-identity idempotency in `integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts`: identity = `sheetId + variationKey + requestedAt`; a redelivery with the same identity returns the ORIGINAL runId/statusPath (202 or the current status) and starts no second run, appends no second DiscoveryRuns row, and performs no second Pipeline write. Constraints: (a) the short-circuit sits AFTER preflight and replaces/precedes the first run-status side effect, preserving the order invariant; (b) derive only when `requestedAt` is a valid timestamp AND a run-status store is present — otherwise fall back to today's random runId (a missing `requestedAt` must never collapse every future run onto one id); (c) the mechanism is a deterministic pure function, no new store method beyond `get()`; (d) `src/server.ts` lines ~292–308 (`sharedRunDependencies`) are in Lane C's fence ONLY to wire the behavior on; (e) existing tests that pin `run_queued`/random ids are in Lane C's fence and may be adjusted minimally with the claim named in the commit. RunId shape may change from `run_<uuid>` to `run_<hash>`; nothing parses it (scout-verified), and the webhook request/ack schema does not change — `npm run test:contract:all` must stay green without contract edits.
+
+**LD-4 · `discovery-status-handoff.js` has ONE owner: Lane D.** Lane D takes BOTH units in that file: (i) the STABLE-1 hop fix in `diagnoseDownstreamChain` and (ii) the LIFECYCLE-1 poll retry classification (`classifyRunStatusPollResponse(status) → "ok" | "retryable" | "terminal"`; retryable = 0/408/425/429/500/502/503/504 + network errors; terminal = 401/403/404/405/410 → stop polling immediately with an honest message, never "may still be running"). `discovery-run-tracker.js` joins Lane D's fence for the one terminal-marking entry point. Lane D's tests for unit (ii) carry the `LIFECYCLE-1:` prefix. Lane C's browser-side work is characterization tests only (`statusPath`/`status_path`, in `tests/discovery-lifecycle.test.mjs`) with no browser production edit.
+
+**LD-5 · STABLE-1 verdict: one gap, not test-only.** Repair per LD-4(i): "uses a tunnel" is decided from an actual tunnel URL or the saved webhook's kind, never from the mere presence of `localWebhookUrl`; when the local worker is healthy and the saved webhook is a remote host with no tunnel transport, the summary names that host as the unreachable hop (recommended copy shape: "Your local worker is running, but <host> is not reachable", `primaryFix.id = "diag_fix_reverify"`). Every existing case in `tests/run-status-honesty.test.mjs:167–286` stays green; that file is routed to Lane D for a minimal edit ONLY if a case there legitimately conflicts (explain in the report), otherwise untouched — new cases go in `tests/discovery-stable-transport.test.mjs`. Add the three `showDiscoveryVerificationToast` coverage tests (no behavior change). `config-overrides.js` and `dev-server.mjs` are not edited.
+
+**LD-6 · `run-status-store.ts` read-only lister belongs to Lane E only.** Lane E adds one additive pure export `listRunStatusSnapshots(directory)` (readdir + decode + parse + `isRunStatusSnapshot`, skips malformed, never mkdir/delete/rewrite) to `integrations/browser-use-discovery/src/state/run-status-store.ts` plus a test in `tests/state/`. Lane C does not touch that file. Merge order C → D → E means E rebases onto C's webhook change; no overlap expected.
+
+**LD-7 · Canary semantics.** Sources: worker `/health` via injected `fetchImpl` classified with the existing exported `isBrowserUseDiscoveryHealth` (`scripts/bootstrap-local-discovery.mjs`), URL from `buildLocalHealthUrl` (`scripts/discovery-shared-helpers.mjs`); newest successful DISCOVERY run from the local run-state snapshot directory (default `~/.jobbored/browser-use-discovery/run-state`, overridable by `--state-dir`), filtering out `ingest_` runs. Sheets is never read; if asked, status `unavailable` reason `sheets_credential_not_available`. Success = status in `{completed, partial, empty}` (`empty` counts: the pipeline ran). Exit codes: `healthy`=0, `stale`=1, `unavailable`=2, `misconfigured`=3, internal error=4. Precedence: misconfigured > unavailable > stale > healthy. Output carries only: status, reasons from a fixed enum, runId, ISO timestamps, ages, health URL origin — never headers, `sheetId`, the run `error` string, or job/source content. `parseArgs` copies `discovery-keep-alive.mjs:487` (valued flags, `--help`, throw on unknown); everything else copies `doctor.mjs` (`check/summarize/run*/format*Report`, DI defaults, `import.meta.url` main guard).
+
+**LD-8 · Fence table supersedes the roster above where they differ:**
+
+| Lane | Production files allowed | Test files |
+|---|---|---|
+| A | `scripts/assemble-index.mjs`, `.github/workflows/pages.yml` | `tests/pages-deploy-contract.test.mjs` |
+| B | none | `tests/e2e-fixtures/**`, `tests/e2e-journey/critical-journey.spec.mjs` |
+| C | `integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts`; `src/server.ts` (`sharedRunDependencies` block only) | `integrations/browser-use-discovery/tests/webhook/**`, `tests/sheets/**`, `tests/state/**` (existing files only), root `tests/discovery-lifecycle.test.mjs` |
+| D | `discovery-status-handoff.js`, `discovery-run-tracker.js`, `discovery-readiness.js` (only if the toast tests need a seam — prefer none) | the six named tests, `tests/discovery-stable-transport.test.mjs` (new), `tests/run-status-honesty.test.mjs` (minimal, only on proven conflict), `tests/discovery-lifecycle-poller.test.mjs` (new, for LD-4 ii) |
+| E | `scripts/discovery-canary.mjs` (new), `package.json` (two lines), `integrations/browser-use-discovery/src/state/run-status-store.ts` (one additive export), `docs/DISCOVERY-CANARY.md` (new) | `tests/discovery-canary.test.mjs` (new), `integrations/browser-use-discovery/tests/state/run-status-store.test.ts` (additive cases) |
+
+Merge order unchanged: A → B → C → D → E → QA.
