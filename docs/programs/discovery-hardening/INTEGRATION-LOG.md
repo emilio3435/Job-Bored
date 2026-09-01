@@ -98,3 +98,21 @@ QA (`reports/qa.md`): no BLOCKER, 2 MAJOR, 10 MINOR; every claim met; floor re-r
 | MINOR-10 drawer 422 "Fallback:" sentence is noise; `role=alert` set after text | Record; product copy outside every fence → Emilio follow-up |
 | MINOR-11 retryable set is a superset (400/422/501 retry) | Record; deliberate fail-open, bounded |
 | MINOR-12 duplicate `.gitignore` line (pre-existing) | Record |
+
+### Final floor on `0b1916b` (all lanes + four repairs; `d13a82a` on top is docs-only), run by Fable 2026-09-01 17:09–17:10 MT
+
+| Gate | Result |
+|---|---|
+| `npm test -- tests/pages-deploy-contract.test.mjs` | 18/18 |
+| `npm run test:e2e-journey` | 9 passed (17.1s) |
+| `npm run test:e2e-smoke` | 6 passed |
+| `npm run test:browser-use-discovery` | 749 pass · 0 fail · 0 skipped |
+| `npm run test:contract:all` | 12 OK lines, green, no contract file changed |
+| `npm run typecheck:repo` | green |
+| `npm run lint:repo` | green |
+| `npm run test:repo` | root 2557 · 2556 pass · 0 fail · 1 pre-existing todo; worker 749/749; exit 0 |
+| `npm test` (includes `tests/integration/`) | 2588 · 2587 pass · 0 fail · 0 skipped · 1 pre-existing todo; exit 0 |
+| `git diff --check` | clean |
+| Canary CLI (lane fixtures) | healthy 0 · stale-old 1 · stale-none 1 · unavailable 2 · misconfigured-foreign 3 · misconfigured-flag 3 (`unknown_argument` only) · redaction grep 0 hits |
+
+Nothing skipped. No environmental blocker. Final integration HEAD: `d13a82a`.
