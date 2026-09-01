@@ -1,0 +1,446 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Materials drafter, in plain terms</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:ital,opsz,wght@0,9..40,400;0,9..40,500;0,9..40,600;0,9..40,700;1,9..40,400&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet" />
+  <style>
+    :root {
+      --bg: #f8fafc;
+      --surface: #ffffff;
+      --surface-2: #f1f5f9;
+      --border: #e2e8f0;
+      --accent: #59cb89;
+      --accent-dim: rgba(89, 203, 137, 0.12);
+      --accent-text: #006482;
+      --text: #003851;
+      --text-muted: #3d6272;
+      --text-soft: #4a6577;
+      --hot: #ef8f26;
+      --hot-bg: #fef6eb;
+      --err: #b91c1c;
+      --err-bg: #fef2f2;
+      --ok: #15803d;
+      --ok-bg: #f0fdf4;
+      --violet: #6d28d9;
+      --violet-bg: #ede9fe;
+      --font: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+      --mono: "JetBrains Mono", ui-monospace, monospace;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      font-family: var(--font);
+      color: var(--text);
+      background:
+        radial-gradient(1200px 400px at 10% -10%, var(--accent-dim), transparent 50%),
+        var(--bg);
+      line-height: 1.5;
+    }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 2rem 1.25rem 4rem; }
+    header.hero {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      padding: 1.75rem 1.75rem 1.5rem;
+      box-shadow: 0 1px 0 rgba(0,56,81,0.04);
+    }
+    .kicker {
+      font-size: 0.75rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent-text);
+      margin: 0 0 0.5rem;
+    }
+    h1 { font-size: clamp(1.6rem, 1.2rem + 1.6vw, 2.15rem); line-height: 1.15; margin: 0 0 0.75rem; }
+    .lede { font-size: 1.05rem; color: var(--text-muted); margin: 0; max-width: 46rem; }
+    .tldr {
+      display: grid;
+      gap: 0.75rem;
+      margin: 1.25rem 0 0;
+    }
+    .tldr p {
+      margin: 0;
+      padding: 0.85rem 1rem;
+      background: var(--surface-2);
+      border-left: 4px solid var(--accent);
+      border-radius: 0 10px 10px 0;
+    }
+    .tldr p strong { color: var(--text); }
+    nav.jump {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      margin: 1.25rem 0 0;
+    }
+    nav.jump a {
+      color: var(--accent-text);
+      text-decoration: none;
+      font-size: 0.8125rem;
+      font-weight: 600;
+      background: var(--accent-dim);
+      padding: 0.35rem 0.7rem;
+      border-radius: 999px;
+    }
+    nav.jump a:hover { background: #d7f5e5; }
+    section { margin-top: 2.25rem; }
+    h2 { font-size: 1.25rem; margin: 0 0 0.75rem; }
+    h3 { font-size: 0.95rem; margin: 0 0 0.35rem; }
+    p.hint { color: var(--text-soft); margin: 0 0 1rem; }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 1rem;
+    }
+    @media (max-width: 720px) { .row { grid-template-columns: 1fr; } }
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1.1rem 1.15rem;
+    }
+    .card.bad { border-color: #fecaca; background: var(--err-bg); }
+    .card.good { border-color: #bbf7d0; background: var(--ok-bg); }
+    .card .tag {
+      display: inline-block;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.45rem;
+      border-radius: 999px;
+      margin-bottom: 0.45rem;
+    }
+    .tag.bad { background: #fecaca; color: var(--err); }
+    .tag.good { background: #bbf7d0; color: var(--ok); }
+    .tag.now { background: var(--violet-bg); color: var(--violet); }
+    .card p { margin: 0; color: var(--text-muted); font-size: 0.95rem; }
+
+    /* Kitchen flow */
+    .kitchen {
+      display: grid;
+      grid-template-columns: repeat(4, 1fr);
+      gap: 0.65rem;
+      position: relative;
+    }
+    @media (max-width: 860px) { .kitchen { grid-template-columns: 1fr 1fr; } }
+    @media (max-width: 520px) { .kitchen { grid-template-columns: 1fr; } }
+    .station {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 1rem 0.95rem 1.05rem;
+      min-height: 100%;
+    }
+    .station .n {
+      width: 1.75rem; height: 1.75rem;
+      border-radius: 999px;
+      background: var(--text);
+      color: #fff;
+      font-weight: 700;
+      font-size: 0.8rem;
+      display: grid; place-items: center;
+      margin-bottom: 0.55rem;
+    }
+    .station.llm .n { background: var(--violet); }
+    .station.code .n { background: var(--accent-text); }
+    .station h3 { font-size: 1rem; }
+    .station .who {
+      font-size: 0.75rem;
+      font-weight: 600;
+      color: var(--text-soft);
+      margin-bottom: 0.4rem;
+    }
+    .station p { margin: 0; font-size: 0.875rem; color: var(--text-muted); }
+    .loop-note {
+      margin-top: 0.85rem;
+      padding: 0.75rem 1rem;
+      background: var(--hot-bg);
+      border: 1px solid #f5d4a0;
+      border-radius: 12px;
+      font-size: 0.9rem;
+    }
+
+    .flow {
+      margin-top: 1rem;
+      overflow-x: auto;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 0.75rem;
+    }
+    .flow svg { display: block; width: 100%; height: auto; }
+
+    /* Model bars */
+    .bars { display: grid; gap: 0.65rem; }
+    .bar-row { display: grid; grid-template-columns: 9.5rem 1fr auto; gap: 0.6rem; align-items: center; }
+    @media (max-width: 640px) {
+      .bar-row { grid-template-columns: 1fr; }
+    }
+    .bar-label { font-size: 0.8rem; font-weight: 600; }
+    .track {
+      height: 12px;
+      background: var(--surface-2);
+      border-radius: 999px;
+      position: relative;
+      overflow: hidden;
+    }
+    .track .old {
+      position: absolute; inset: 0 auto 0 0;
+      width: var(--w);
+      background: #fecaca;
+      border-radius: 999px;
+    }
+    .track .now-mark {
+      position: absolute; top: -5px; bottom: -5px;
+      width: 3px; background: var(--ok);
+      left: var(--x);
+      border-radius: 2px;
+    }
+    .bar-meta { font-family: var(--mono); font-size: 0.7rem; color: var(--text-soft); white-space: nowrap; }
+    .legend { display: flex; gap: 1rem; font-size: 0.8rem; color: var(--text-soft); margin: 0 0 0.75rem; }
+    .legend i { display: inline-block; width: 10px; height: 10px; border-radius: 2px; margin-right: 0.3rem; vertical-align: -1px; }
+    .legend .old { background: #fecaca; }
+    .legend .now { background: var(--ok); }
+
+    .decision {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr;
+      gap: 0.75rem;
+      align-items: stretch;
+    }
+    @media (max-width: 720px) {
+      .decision { grid-template-columns: 1fr; }
+      .decision .vs { display: none; }
+    }
+    .vs {
+      align-self: center;
+      font-weight: 700;
+      color: var(--text-faint, #7a9aab);
+      font-size: 0.8rem;
+    }
+    .x { text-decoration: line-through; color: var(--err); }
+    footer.next {
+      margin-top: 2.5rem;
+      background: var(--text);
+      color: #fefffe;
+      border-radius: 16px;
+      padding: 1.4rem 1.5rem;
+    }
+    footer.next h2 { color: #fefffe; }
+    footer.next p { margin: 0; color: #c5d6de; }
+    footer.next .ask { margin-top: 0.85rem; font-weight: 600; color: var(--accent); }
+    code { font-family: var(--mono); font-size: 0.85em; background: var(--surface-2); padding: 0.05em 0.35em; border-radius: 4px; }
+    footer.next code { background: rgba(255,255,255,0.08); color: #d7f5e5; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <header class="hero">
+      <p class="kicker">JobBored · materials drafter</p>
+      <h1>You drag a job to Researching. A resume and letter should appear. They don’t.</h1>
+      <p class="lede">That’s the whole problem. Everything else is how we make that toast tell the truth, without bringing Hermes back.</p>
+      <div class="tldr">
+        <p><strong>Today:</strong> the dashboard queues a request, then pretends generation started. The worker that used to write those files (Hermes) is uninstalled. EAB is sitting in a folder with a fake job description and no drafts.</p>
+        <p><strong>Build:</strong> the local JobBored server writes them itself. An LLM rewrites your story for <em>this</em> job. Code drops that prose into your branded HTML. Code measures length. If it’s too long or empty, the LLM rewrites once more. Then you get a PDF (or HTML if PDF isn’t installed).</p>
+        <p><strong>Models:</strong> the Settings dropdown already refreshes from the provider when a key is present. What’s stale is the default we actually call. Fix: say “latest Gemini Flash,” not a frozen ID. No cron.</p>
+      </div>
+      <nav class="jump" aria-label="Jump">
+        <a href="#lie">The lie</a>
+        <a href="#kitchen">The kitchen</a>
+        <a href="#not-merge">Not a form letter</a>
+        <a href="#models">Stale models</a>
+        <a href="#cron">Why not cron</a>
+        <a href="#next">What I need from you</a>
+      </nav>
+    </header>
+
+    <section id="lie">
+      <h2>What happened with EAB</h2>
+      <p class="hint">You moved Senior Director, Digital Marketing Strategy (Advancement) from New to Researching.</p>
+      <div class="row">
+        <article class="card bad">
+          <span class="tag bad">What you saw</span>
+          <h3>Toast: generating resume + cover letter</h3>
+          <p>The kanban auto-draft path posted to the local server. The server wrote <code>pending.json</code>. The UI treated that as success.</p>
+        </article>
+        <article class="card good">
+          <span class="tag now">What was true</span>
+          <h3>Nothing wrote the documents</h3>
+          <p>No <code>hermes</code> binary. Cached “JD” is a one-line fit blurb, not the posting. Folder is stuck. Hermes stays uninstalled on purpose.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="kitchen">
+      <h2>The new path is a kitchen, not four products</h2>
+      <p class="hint">Same branded templates you already have. Only the cook changed: JobBored’s local server instead of Hermes.</p>
+      <div class="kitchen">
+        <article class="station llm">
+          <div class="n">1</div>
+          <div class="who">LLM · Gemini Flash</div>
+          <h3>Writer = the author</h3>
+          <p>Reads this job’s posting, your master resume, and your voice. Rewrites the letter and bullets for <em>this</em> role. Employers, titles, dates, and numbers stay frozen. Inventing a job is a fail.</p>
+        </article>
+        <article class="station code">
+          <div class="n">2</div>
+          <div class="who">Code · Cheerio</div>
+          <h3>Composer = the typesetter</h3>
+          <p>Drops that prose into the branded HTML slots. Never writes a sentence. Never touches CSS. Your layout stays yours.</p>
+        </article>
+        <article class="station code">
+          <div class="n">3</div>
+          <div class="who">Code · a ruler</div>
+          <h3>Critic = the measuring tape</h3>
+          <p>Counts words and pages. Checks keywords against the JD. Flags filler. Does not “have opinions.” Numbers only.</p>
+        </article>
+        <article class="station llm">
+          <div class="n">4</div>
+          <div class="who">LLM · same Flash</div>
+          <h3>Editor = the author, again</h3>
+          <p>Only if the ruler fails. Sees the scorecard (“450 words, 1 page, missing X”). Rewrites. Two tries, then you get a REVIEW packet instead of a fake READY.</p>
+        </article>
+      </div>
+      <p class="loop-note"><strong>Budgets you already set:</strong> letter 325–475 words, one page. Resume at most two pages, and page two can’t be a stub. Purple boxes in the flow below are the LLM. Navy boxes are code.</p>
+      <div class="flow" aria-hidden="true">
+        <svg viewBox="0 0 920 220" role="img" aria-label="Writer to composer to critic, then ready, edit, or review">
+          <defs>
+            <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+              <path d="M 0 0 L 10 5 L 0 10 z" fill="#3d6272" />
+            </marker>
+          </defs>
+          <rect x="20" y="70" width="150" height="64" rx="12" fill="#ede9fe" stroke="#6d28d9" />
+          <text x="95" y="98" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="14" font-weight="700" fill="#6d28d9">Writer</text>
+          <text x="95" y="116" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" fill="#3d6272">rewrites</text>
+
+          <line x1="170" y1="102" x2="214" y2="102" stroke="#3d6272" stroke-width="2" marker-end="url(#arrow)" />
+
+          <rect x="220" y="70" width="150" height="64" rx="12" fill="#e8f4f8" stroke="#006482" />
+          <text x="295" y="98" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="14" font-weight="700" fill="#006482">Composer</text>
+          <text x="295" y="116" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" fill="#3d6272">typesets HTML</text>
+
+          <line x1="370" y1="102" x2="414" y2="102" stroke="#3d6272" stroke-width="2" marker-end="url(#arrow)" />
+
+          <rect x="420" y="70" width="150" height="64" rx="12" fill="#e8f4f8" stroke="#006482" />
+          <text x="495" y="98" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="14" font-weight="700" fill="#006482">Critic</text>
+          <text x="495" y="116" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="11" fill="#3d6272">counts</text>
+
+          <line x1="570" y1="86" x2="624" y2="50" stroke="#15803d" stroke-width="2" marker-end="url(#arrow)" />
+          <line x1="570" y1="102" x2="624" y2="102" stroke="#6d28d9" stroke-width="2" marker-end="url(#arrow)" />
+          <line x1="570" y1="118" x2="624" y2="168" stroke="#b91c1c" stroke-width="2" marker-end="url(#arrow)" />
+
+          <rect x="630" y="18" width="260" height="48" rx="12" fill="#f0fdf4" stroke="#15803d" />
+          <text x="760" y="47" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="14" font-weight="700" fill="#15803d">fits → PDF READY</text>
+
+          <rect x="630" y="78" width="260" height="48" rx="12" fill="#ede9fe" stroke="#6d28d9" />
+          <text x="760" y="107" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="14" font-weight="700" fill="#6d28d9">too long → Editor, then back</text>
+
+          <rect x="630" y="144" width="260" height="48" rx="12" fill="#fef2f2" stroke="#b91c1c" />
+          <text x="760" y="173" text-anchor="middle" font-family="DM Sans, sans-serif" font-size="14" font-weight="700" fill="#b91c1c">2 fails → REVIEW, not a fake pass</text>
+
+          <path d="M 630 102 C 400 210, 280 210, 295 134" fill="none" stroke="#6d28d9" stroke-width="1.5" stroke-dasharray="5 4" />
+          <text x="360" y="208" font-family="DM Sans, sans-serif" font-size="11" fill="#6d28d9">Editor loops back into Composer</text>
+        </svg>
+      </div>
+    </section>
+
+    <section id="not-merge">
+      <h2>This is not a mail merge</h2>
+      <p class="hint">Cheerio is the plate, not the chef. If we only pasted old bullets into blanks, every letter would sound the same.</p>
+      <div class="decision">
+        <article class="card bad">
+          <span class="tag bad">Not this</span>
+          <h3>Form letter</h3>
+          <p>Take last month’s Audacy bullets. Drop them into empty slots. Change the company name. Done in 2 seconds, reads like a template, ATS might still match keywords, you would not send it.</p>
+        </article>
+        <div class="vs">vs</div>
+        <article class="card good">
+          <span class="tag good">This</span>
+          <h3>Custom tailor</h3>
+          <p>Same career, new emphasis. Advancement + digital marketing strategy gets founder-work and paid-media systems up front. Voice stays yours. Facts stay true. Layout stays the branded HTML you already like.</p>
+        </article>
+      </div>
+    </section>
+
+    <section id="models">
+      <h2>Your fear was right: the pins are old</h2>
+      <p class="hint">Red bar = what we call today. Green tick = what “current” is on 31 Aug 2026. The kanban auto-draft isn’t even on this chart. That path is dead (no Hermes).</p>
+      <div class="legend"><span><i class="old"></i>pinned today</span><span><i class="now"></i>live current</span></div>
+      <div class="bars">
+        <div class="bar-row">
+          <div class="bar-label">Dashboard buttons</div>
+          <div class="track" style="--w: 28%; --x: 92%;">
+            <div class="old"></div>
+            <div class="now-mark"></div>
+          </div>
+          <div class="bar-meta">gpt-oss-120b:free → too weak</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Gemini default</div>
+          <div class="track" style="--w: 62%; --x: 92%;">
+            <div class="old"></div>
+            <div class="now-mark"></div>
+          </div>
+          <div class="bar-meta">3.5-flash → 3.7-flash</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">ATS scorecards</div>
+          <div class="track" style="--w: 38%; --x: 92%;">
+            <div class="old"></div>
+            <div class="now-mark"></div>
+          </div>
+          <div class="bar-meta">2.5-flash → 3.7-flash</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">OpenAI default</div>
+          <div class="track" style="--w: 22%; --x: 92%;">
+            <div class="old"></div>
+            <div class="now-mark"></div>
+          </div>
+          <div class="bar-meta">gpt-4o-mini → 5.6 luna/terra/sol</div>
+        </div>
+        <div class="bar-row">
+          <div class="bar-label">Anthropic default</div>
+          <div class="track" style="--w: 70%; --x: 92%;">
+            <div class="old"></div>
+            <div class="now-mark"></div>
+          </div>
+          <div class="bar-meta">sonnet-4.6 → sonnet-5</div>
+        </div>
+      </div>
+      <article class="card" style="margin-top:1rem;">
+        <h3>What we pin for the new writer</h3>
+        <p><strong>Gemini 3.7 Flash</strong> as a family: store “latest stable Flash,” resolve the exact ID when we call. ATS uses the same family so scorecards and drafts don’t drift. Dashboard buttons can stay BYOK. We do not ship this writer on the free OpenRouter model.</p>
+      </article>
+    </section>
+
+    <section id="cron">
+      <h2>Keep the list fresh? You already do. Cron doesn’t fix the real leak.</h2>
+      <p class="hint">Settings already asks Gemini/OpenAI/Anthropic/OpenRouter “what models exist?” when a key is present, and caches that for 6 hours. The dropdown can be current. The <em>default we fire</em> is a snapshot someone typed in June.</p>
+      <div class="row">
+        <article class="card bad">
+          <span class="tag bad">Skip</span>
+          <h3>A cron that rewrites model IDs overnight</h3>
+          <p>Needs API keys in CI. Can silently change quality and price. Still wouldn’t move a saved pin in your browser. Fights the live fetch you already have.</p>
+        </article>
+        <article class="card good">
+          <span class="tag good">Do this</span>
+          <h3>Save a family, not a fossil</h3>
+          <p>Settings first option: “Gemini Flash (latest) — currently 3.7.” At call time we list models and pick the newest stable Flash (not lite, not preview, not image). If the list call fails, fall back to 3.7. You can still lock an exact ID.</p>
+        </article>
+      </div>
+    </section>
+
+    <footer class="next" id="next">
+      <h2>After this ships, EAB looks like this</h2>
+      <p>Drag to Researching → server scrapes the real posting → Gemini Flash rewrites letter + bullets → branded HTML → ruler checks length → PDF in the dossier. If it can’t, you see REVIEW with a scorecard. The toast only fires when work actually started.</p>
+      <p class="ask">If this page matches what’s in your head, say yes and I write the spec on a new branch. No code until that spec is yours.</p>
+    </footer>
+  </div>
+</body>
+</html>
