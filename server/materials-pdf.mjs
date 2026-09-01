@@ -41,14 +41,15 @@ export async function renderPdfIfPossible(html, outPath, options = {}) {
     typeof options.timeoutMs === "number" && Number.isFinite(options.timeoutMs) && options.timeoutMs > 0
       ? options.timeoutMs
       : PDF_TIMEOUT_MS;
-  /** @type {{ close?: () => Promise<unknown> } | null} */
-  let browser = null;
+  /** @type {() => Promise<unknown>} */
+  let closeBrowser = async () => {};
   try {
     await withTimeout(
       (async () => {
         const { chromium } = await load();
-        browser = await chromium.launch({ headless: true });
-        const page = await browser.newPage();
+        const launched = await chromium.launch({ headless: true });
+        closeBrowser = () => launched.close();
+        const page = await launched.newPage();
         await page.setContent(html, { waitUntil: "load" });
         await page.pdf({ path: outPath, format: "Letter", printBackground: true });
       })(),
@@ -58,12 +59,10 @@ export async function renderPdfIfPossible(html, outPath, options = {}) {
   } catch {
     return { skipped: true, note: "pdf_skipped" };
   } finally {
-    if (browser) {
-      try {
-        await browser.close();
-      } catch {
-        // ignore
-      }
+    try {
+      await closeBrowser();
+    } catch {
+      // ignore
     }
   }
 }

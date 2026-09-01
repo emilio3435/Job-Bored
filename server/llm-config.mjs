@@ -303,7 +303,7 @@ export async function handleGetLlmConfig(req, res, env = process.env) {
  * @param {NodeJS.ProcessEnv} [env]
  */
 export async function handlePostLlmConfig(req, res, env = process.env) {
-  const body = req.body || {};
+  const body = /** @type {Record<string, unknown>} */ (req.body || {});
   const provider = String(body.provider || "").trim();
   const model = String(body.model || "").trim();
   const apiKey = String(body.apiKey || "").trim();

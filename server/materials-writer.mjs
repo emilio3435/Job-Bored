@@ -81,9 +81,18 @@ const WRITER_SYSTEM_PROMPT = [
 /**
  * @typedef {object} WriterPin
  * @property {string} [provider]
+ * @property {string} [model]
  * @property {string} resolvedModel
  * @property {string} apiKey
  * @property {string} [baseUrl]
+ */
+
+/**
+ * @typedef {object} HttpResponseLike
+ * @property {boolean} [ok]
+ * @property {number} [status]
+ * @property {() => Promise<unknown>} [json]
+ * @property {() => Promise<string>} [text]
  */
 
 /**
@@ -92,7 +101,7 @@ const WRITER_SYSTEM_PROMPT = [
  * @property {string} jdText
  * @property {string} masterResumeHtml
  * @property {unknown} [voiceSamples]
- * @property {(input: string | URL, init?: RequestInit) => Promise<{ ok?: boolean, status?: number, json?: () => Promise<unknown> }>} fetchImpl
+ * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
  * @property {number} [timeoutMs]
  */
 
@@ -302,7 +311,7 @@ function textFromWebhook(data) {
 }
 
 /**
- * @param {unknown} resp
+ * @param {HttpResponseLike | null | undefined} resp
  * @returns {Promise<unknown>}
  */
 async function readJsonBody(resp) {
@@ -322,7 +331,7 @@ async function readJsonBody(resp) {
 }
 
 /**
- * @param {unknown} resp
+ * @param {HttpResponseLike | null | undefined} resp
  * @param {string} label
  */
 function throwIfHttpError(resp, label) {
@@ -338,7 +347,7 @@ function throwIfHttpError(resp, label) {
  * @returns {Promise<string>}
  */
 async function generateGemini(input, extraUserText) {
-  const pin = isPlainObject(input.pin) ? input.pin : {};
+  const pin = input.pin;
   const resolvedModel = String(pin.resolvedModel || "").trim();
   const apiKey = String(pin.apiKey || "");
   if (!resolvedModel) {
@@ -371,7 +380,7 @@ async function generateGemini(input, extraUserText) {
  * @returns {Promise<string>}
  */
 async function generateOpenAICompatible(input, extraUserText, provider) {
-  const pin = isPlainObject(input.pin) ? input.pin : {};
+  const pin = input.pin;
   const resolvedModel = String(pin.resolvedModel || "").trim();
   const apiKey = String(pin.apiKey || "");
   if (!resolvedModel) {
@@ -411,7 +420,7 @@ async function generateOpenAICompatible(input, extraUserText, provider) {
  * @returns {Promise<string>}
  */
 async function generateAnthropic(input, extraUserText) {
-  const pin = isPlainObject(input.pin) ? input.pin : {};
+  const pin = input.pin;
   const resolvedModel = String(pin.resolvedModel || "").trim();
   const apiKey = String(pin.apiKey || "");
   if (!resolvedModel) {
@@ -445,7 +454,7 @@ async function generateAnthropic(input, extraUserText) {
  * @returns {Promise<string>}
  */
 async function generateWebhook(input, extraUserText) {
-  const pin = isPlainObject(input.pin) ? input.pin : {};
+  const pin = input.pin;
   const url = String(pin.baseUrl || "").trim();
   if (!url) {
     throw new Error("webhook pin.baseUrl is required");
@@ -476,7 +485,7 @@ async function generateContent(input, extraUserText) {
   if (typeof fetchImpl !== "function") {
     throw new Error("fetchImpl is required");
   }
-  const pin = isPlainObject(input.pin) ? input.pin : {};
+  const pin = input.pin;
   const provider = normalizeWriterProvider(pin.provider);
   if (provider === "gemini") return generateGemini(input, extraUserText);
   if (provider === "anthropic") return generateAnthropic(input, extraUserText);

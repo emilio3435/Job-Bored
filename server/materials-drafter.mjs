@@ -154,7 +154,7 @@ async function collectVoiceSamples(payload) {
  * Replace only direct text nodes so nested chrome (`.it`, `.target`,
  * `[data-slot]`, `.dot`) stays in place.
  *
- * @param {import("cheerio").Cheerio<import("cheerio").Element>} $el
+ * @param {import("cheerio").Cheerio<import("domhandler").AnyNode>} $el
  * @param {string} value
  */
 function replaceDirectTextNodes($el, value) {

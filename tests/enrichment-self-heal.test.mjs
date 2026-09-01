@@ -626,7 +626,7 @@ describe("enrichment pipeline — Gemini URL Context lane", () => {
   it("auto-upgrades legacy gemini-1.x models to a URL-Context-capable model", () => {
     const slice = urlContextSlice();
     assert.match(slice, /gemini-1\\\./);
-    assert.match(slice, /gemini-3\.5-flash/);
+    assert.match(slice, /gemini-flash/);
   });
 
   it("classifies 401 / 429 from the URL Context call so the outer pipeline can toast", () => {

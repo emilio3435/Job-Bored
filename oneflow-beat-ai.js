@@ -417,7 +417,7 @@
     else if (def.keyField) patch[def.keyField] = value;
     if (def.modelField) patch[def.modelField] = resolveModel(def);
     call("mergeStoredConfigOverridePatch", patch);
-    const cfg = liveConfig();
+    const cfg = window.COMMAND_CENTER_CONFIG;
     if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
   }
 
