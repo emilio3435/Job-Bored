@@ -40,6 +40,10 @@ Note: the cmux wrapper places `--session-id`/`--settings` before the user flags,
 | 3 | C · lifecycle | `88e156b` | `66bebe2` | worker suite 744/744 + discovery-lifecycle 5/5 after merge; lane worktree: worker typecheck, contract:all, floor green | clean merge; `src/server.ts` untouched (no wiring needed) |
 | 4 | D · stable-transport | `dfbad73` | `70b966d` | 5-file targeted 65/65 after merge; lane worktree: 11-file gate 141/141, both scout probes green, floor green | clean merge; `tests/run-status-honesty.test.mjs` untouched |
 | 5 | E · canary | `f35074f` | `76e04c5` | discovery-canary 20/20 + run-status-store 16/16 after merge; lane worktree: CLI exit codes, floor green | clean merge |
+| 7 | repair D | `0d595b2` | `d141564` | 4-file gate 65/65; mutation of the early-return → 3 red; npm test green | QA MAJOR-1 closed |
+| 8 | repair E | `852eea6` | `2726e6c` | discovery-canary 24/24; `--bogus-flag` → only `unknown_argument`; healthy fixture exit 0; npm test green | QA MINOR-6/7/8 closed; JSON report gained `worker.checked` + `runHistory` |
+| 9 | repair A | `9a5fed2` | `bd19594` | 4-suite gate 39/39; real `_site` build passes guard, drifted app.js named; npm test green | QA MINOR-4 closed |
+| 10 | repair C | `64490f2` | `a523663` | worker 746/746; comment-only production change; contract:all; npm test green; mutations bite | QA MAJOR-2 narrative corrected + re-click limitation pinned; MINOR-3 pinned as-is |
 | 6 | integrator | — | `a7dcc4c` | — | Lane D handoff: `node --check discovery-run-tracker.js` added to `typecheck:repo` (package.json was Lane E's fence, lane closed). Lane A handoff: `index.assembled.html` added to `.gitignore`. |
 
 ## Floor runs
