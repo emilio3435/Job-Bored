@@ -477,3 +477,103 @@
   cursor: pointer;
   white-space: nowrap;
 }
+
+/* ---------- B6 — You're live (spec §5 B6) ----------
+   The receipt: two cards that report what the user actually bought.
+   Nothing here invents a value — an unset floor renders no row, so the
+   layout has to read correctly at three, four, or zero rows. */
+
+.oneflow-payoff__sub {
+  margin: 0 0 var(--space-4);
+  font-size: var(--text-base);
+  line-height: 1.55;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-payoff__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: var(--space-4);
+}
+
+.oneflow-payoff__card {
+  padding: var(--space-4);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 12px;
+  background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
+}
+
+.oneflow-payoff__card-title {
+  margin: 0 0 var(--space-3);
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-payoff__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.oneflow-payoff__row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-1) var(--space-2);
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-payoff__row-label {
+  flex: 0 0 5.5rem;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-payoff__row-value {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.oneflow-payoff__row--ok {
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+/* The skipped-connect line is honest, not alarming: this is a choice the
+   user made, and the banner below is the way back. */
+.oneflow-payoff__row--off {
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-payoff__row--eta {
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-payoff__sheet-link {
+  color: inherit;
+  text-decoration: underline;
+}
+
+.oneflow-payoff__empty {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-payoff__footer {
+  margin: var(--space-4) 0 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--jb-ink-3, var(--text-faint));
+}
