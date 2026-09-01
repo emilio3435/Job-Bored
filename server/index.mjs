@@ -9,7 +9,10 @@ import { createReadStream } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
-import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
+import {
+  scrapeJobPosting,
+  toScrapeFailureResponse,
+} from "./shared/job-scraper-core.mjs";
 import {
   normalizeAllowedBrowserOrigins,
   redactSecrets,
@@ -226,6 +229,7 @@ if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
 }
 
 app.post("/api/scrape-job", async (req, res) => {
+  let targetUrl = "";
   try {
     const body = isRecord(req.body) ? req.body : {};
     const raw = body.url;
@@ -236,14 +240,15 @@ app.post("/api/scrape-job", async (req, res) => {
     if (!target.ok) {
       return res.status(400).json({ error: target.error });
     }
+    targetUrl = target.url;
     const result = await scrapeJobPosting(target.url, {
       title: typeof body.title === "string" ? body.title : "",
       company: typeof body.company === "string" ? body.company : "",
     });
     res.json(result);
   } catch (e) {
-    const msg = redactSecrets(errorMessage(e, "Scrape failed"));
-    res.status(502).json({ error: msg, code: "UPSTREAM_ERROR" });
+    const failure = toScrapeFailureResponse(e, targetUrl);
+    res.status(failure.status).json(failure.body);
   }
 });
 
@@ -751,6 +756,7 @@ app.put("/api/applications/:slug/job-description", async (req, res) => {
  * don't duplicate scraping logic. Returns the scraped description
  * text, which the browser then PUTs back via /job-description. */
 app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
+  let targetUrl = "";
   try {
     const slug = req.params.slug;
     const body = isRecord(req.body) ? req.body : {};
@@ -770,6 +776,7 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       res.status(400).json({ ok: false, error: target.error });
       return;
     }
+    targetUrl = target.url;
     const scraped = await scrapeJobPosting(target.url, {
       title: typeof body.title === "string" ? body.title : "",
       company: typeof body.company === "string" ? body.company : "",
@@ -791,7 +798,8 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
       scrapedAt: new Date().toISOString(),
     });
   } catch (e) {
-    sendAppError(res, e);
+    const failure = toScrapeFailureResponse(e, targetUrl);
+    res.status(failure.status).json({ ok: false, ...failure.body });
   }
 });
 
