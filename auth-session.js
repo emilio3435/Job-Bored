@@ -546,6 +546,15 @@ function showToast(message, type = "success", persistent = false, action) {
   } catch (_) {
     /* announcement is best-effort; never break the toast */
   }
+  // SIXBEATS C1: #toastContainer (index.html:1419) is the only parent any
+  // boot-path append here dereferences without checking. showToast is a
+  // published global (window.showToast) called from ~220 sites, so a host
+  // page without the container turned every one of them into an uncaught
+  // "Cannot read properties of null (reading 'appendChild')". The
+  // announcement above is the accessible channel and has already fired;
+  // only the painting is impossible, so hand back a no-op dismiss rather
+  // than throwing into the caller's flow.
+  if (!container) return () => {};
   const toast = document.createElement("div");
   toast.className = `toast toast-${type}`;
 
