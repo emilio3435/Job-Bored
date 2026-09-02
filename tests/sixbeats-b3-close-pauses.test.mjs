@@ -17,7 +17,7 @@ import { loadArrival, makeFetchDouble, stepEvents } from "./oneflow-l1-harness.m
    ============================================================ */
 
 const BEAT_ID = "ai";
-const PAUSE_TOAST = "Setup paused — pick up anytime from the corner pill.";
+const PAUSE_TOAST = "Setup paused — pick up right here anytime.";
 
 async function openBeat() {
   const env = loadArrival({

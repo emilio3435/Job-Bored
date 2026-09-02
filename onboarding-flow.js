@@ -51,7 +51,7 @@
    * uses. "flow-complete" never reaches this function, and "destroy" is a
    * teardown nobody asked for, so neither earns the line.
    */
-  const PAUSE_TOAST = "Setup paused — pick up anytime from the corner pill.";
+  const PAUSE_TOAST = "Setup paused — pick up right here anytime.";
   const PAUSE_REASONS = new Set(["escape", "close-button", "close"]);
 
   const DEFAULT_STATE = Object.freeze({
