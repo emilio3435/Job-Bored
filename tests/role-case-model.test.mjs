@@ -30,7 +30,8 @@ const stages = {
   pairs: () => STAGES.map((k) => ({ key: k, label: k.replace("-", " ") })),
   toKey: (v) => STAGES.includes(v) ? v : "",
   toLabel: (v) => String(v).replace("-", " "),
-  isClosed: (v) => ["rejected", "passed", "expired"].includes(v),
+  isClosed: (v) => ["rejected", "passed"].includes(v),
+  isArchived: (v) => v === "expired",
 };
 const NOW = Date.parse("2026-09-01T12:00:00Z");
 function baseDeps(over = {}) {
