@@ -1061,7 +1061,11 @@
 
 .oneflow-resume-pill {
   position: fixed;
-  right: var(--space-4);
+  /* Bottom-LEFT, not the demo board's corner: the toast stack owns
+     bottom-right (style.css .toast-container), and the pause toast fires
+     at the same moment this pill appears — a permanent control must not
+     spend its first seconds underneath a transient one. */
+  left: var(--space-4);
   bottom: var(--space-4);
   z-index: 50;
   display: inline-flex;
