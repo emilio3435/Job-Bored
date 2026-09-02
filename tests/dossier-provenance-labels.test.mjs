@@ -89,7 +89,7 @@ describe("DOSSIER-01 provenance labels", () => {
     assert.match(html, /class="case__rail"/, "the dossier actually rendered");
     assert.match(
       html,
-      /class="case__meta">[\s\S]*?<span class="case__src case__src--inferred">inferred<\/span>/,
+      /class="case__meta">[\s\S]*?<span class="case__src case__src--inferred" aria-hidden="true">inferred<\/span>/,
       "the rail must say the identity was inferred, not scraped",
     );
     assert.doesNotMatch(html, /grounded in the posting/i);
@@ -185,9 +185,9 @@ describe("DOSSIER-01 provenance labels", () => {
       enrichedAt: "2026-08-30T12:00:00.000Z",
     });
 
-    assert.match(html, /class="case__src case__src--review">recovered parse · review<\/span>/,
+    assert.match(html, /class="case__src case__src--review" aria-hidden="true">unverified<\/span>/,
       "an unrecognized parse mode is a recovered parse, and the reader is told");
-    assert.match(html, /class="case__src case__src--inferred">inferred<\/span>/);
+    assert.match(html, /class="case__src case__src--inferred" aria-hidden="true">inferred<\/span>/);
     assert.equal(model.provenance.reviewState.status, "needs_review");
     assert.doesNotMatch(html, /<img src=x/);
     assert.doesNotMatch(html, /onerror=/);
