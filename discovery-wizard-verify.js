@@ -477,7 +477,7 @@
             : "The discovery worker needs a webhook secret.",
           detail: workerDownstream
             ? "Your Cloudflare relay forwarded the request, but the upstream worker fail-closed because DISCOVERY_SECRET is missing or wrong."
-            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. With `npm run dev` running, JobBored re-syncs the secret from your local worker and retries on its own — if it still fails, open Discovery drawer → Connection → Set it up for me, which writes and verifies it for you.",
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
@@ -487,11 +487,15 @@
                 "3. Click Test webhook again.",
               ].join("\n")
             : [
-                "1. Run `npm run discovery:bootstrap-local` on this machine.",
-                "2. Reload the dashboard — the secret will autofill.",
+                "1. Make sure `npm run dev` is running on this machine.",
+                "2. Open Discovery drawer → Connection → Set it up for me.",
                 "3. Click Test webhook (or Run discovery) again.",
               ].join("\n"),
-          suggestedCommand: "npm run discovery:bootstrap-local",
+          // The relay needs a redeploy with the secret; a local worker does
+          // not need a command at all — the dashboard re-syncs it itself.
+          ...(workerDownstream
+            ? { suggestedCommand: "npm run discovery:bootstrap-local" }
+            : {}),
         });
       }
       if (isRouteNotFoundResponse(status, data, responseText)) {

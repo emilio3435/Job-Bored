@@ -392,6 +392,57 @@
   // ---------------------------------------------------------------
 
   /**
+   * B1's exit condition, asked of the host: true when a sheet is configured
+   * (config or runtime), false when a getter exists and answers empty, and
+   * null when no getter is reachable — a bare controller (tests, a partial
+   * boot) cannot call a completion stale on evidence it does not have.
+   */
+  function sheetConfigured() {
+    const app = window.JobBoredApp;
+    const h = app && app.core && app.core.host;
+    const core = app && app.core;
+    let known = false;
+    try {
+      if (h && typeof h.getSheetId === "function") {
+        known = true;
+        if (asString(h.getSheetId())) return true;
+      }
+    } catch (e) {
+      /* a getter that throws is a sheet that is not configured */
+    }
+    try {
+      if (core && typeof core.getSHEET_ID === "function") {
+        known = true;
+        if (asString(core.getSHEET_ID())) return true;
+      }
+    } catch (e) {
+      /* same */
+    }
+    return known ? false : null;
+  }
+
+  /** Forget a completion the sheet can no longer vouch for; the deal restarts. */
+  async function resetStaleCompletion() {
+    const s = store();
+    if (s && typeof s.clearOnboardingFlowState === "function") {
+      try {
+        await s.clearOnboardingFlowState();
+      } catch (e) {
+        console.warn("[JobBored] one-flow: could not clear stale flow state:", e);
+      }
+    }
+    state = cloneState(DEFAULT_STATE);
+    hydrated = false;
+    await hydrate();
+    await patchState({
+      completed: false,
+      completedBeats: [],
+      beat: "",
+      startedAt: new Date().toISOString(),
+    });
+  }
+
+  /**
    * Should the one-flow run for this profile? Resolves false for anyone
    * who already finished setup under the legacy chain (or under this
    * flow), recording the completion so the question is only asked once.
@@ -399,9 +450,21 @@
    */
   async function maybeStart() {
     await hydrate();
-    if (state.completed) return false;
+    // Only a host that CAN answer "no sheet" makes a completion stale.
+    const stale = sheetConfigured() === false;
+    if (state.completed) {
+      if (!stale) return false;
+      // A "completed" flow with no sheet is a stale answer, not a finished
+      // user: B1's exit condition is a configured sheet (spec §5 B1). The
+      // greenfield reset masks localStorage, but its IndexedDB drop is
+      // best-effort — blocked while another tab holds the store — and boot
+      // then trusted `completed`, never re-ran B1, and every config getter
+      // read empty (2026-09-02). Restart the deal instead of stranding them.
+      await resetStaleCompletion();
+      return true;
+    }
     const s = store();
-    if (s && typeof s.isInfraSetupComplete === "function") {
+    if (!stale && s && typeof s.isInfraSetupComplete === "function") {
       const [infra, onboarding] = await Promise.all([
         s.isInfraSetupComplete(),
         s.isOnboardingComplete(),
