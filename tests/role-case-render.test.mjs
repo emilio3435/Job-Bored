@@ -147,6 +147,29 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /data-field="location"[^>]*value="Austin &amp; &quot;TX&quot; &lt;b&gt;"/);
     assert.doesNotMatch(html, /&amp;amp;/);
   });
+  /* L7 gap 3: the Brief's skeleton announced itself; the Case's first cut
+     carried aria-busy alone, so a screen-reader user got silence while the
+     enrichment ran. Announcement + one visible status line, both pinned. */
+  it("the loading skeleton announces itself and says what it is doing", () => {
+    const html = renderHtml(model({
+      keywords: null,
+      vmPatch: { requirements: [], skills: [], tags: [], enrichment: { status: "loading" } },
+    }));
+    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?class="case__skeleton"/, "the skeleton stands in for the THEY WANT lane");
+    assert.match(html, /<div class="case__skeleton"[^>]*role="status"/);
+    assert.match(html, /<div class="case__skeleton"[^>]*aria-live="polite"/);
+    assert.match(html, /<div class="case__skeleton"[^>]*aria-busy="true"/);
+    assert.match(html, /<span class="case__skeleton-status">Reading the posting…<\/span>/);
+    assert.match(html, /class="case__shimmer/, "the shimmer rows still render beneath the status line");
+  });
+
+  it("the status line is gone once the requirements land", () => {
+    const html = renderHtml(model());
+    assert.match(html, /class="case__req"/, "precondition: real requirements rendered");
+    assert.doesNotMatch(html, /case__skeleton-status/);
+    assert.doesNotMatch(html, /aria-busy="true"/);
+  });
+
   it("terminal stage collapses the stepper", () => {
     const html = renderHtml(model({ vmPatch: { stage: "rejected" } }));
     assert.match(html, /class="case__terminal"[^>]*>[\s\S]*?rejected/i);

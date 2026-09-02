@@ -167,6 +167,9 @@ body.jb-v2 [data-region="role"] .case .case__ev-t { font-family: var(--serif); f
 body.jb-v2 [data-region="role"] .case .case__ev-t small { display: block; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.1em; color: var(--mute); margin-top: 3px; text-transform: uppercase; }
 body.jb-v2 [data-region="role"] .case .case__ev--future .case__ev-t { color: var(--mute); font-style: italic; }
 body.jb-v2 [data-region="role"] .case .case__skeleton { display: grid; gap: 8px; }
+/* The one line the loading skeleton reads out (role="status" above) and shows.
+   It sits above the shimmer rows, in the lane's own sub-head voice. */
+body.jb-v2 [data-region="role"] .case .case__skeleton-status { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--mute); }
 body.jb-v2 [data-region="role"] .case .case__shimmer { display: block; height: 12px; border-radius: 3px; background: linear-gradient(90deg, rgba(165, 207, 184, 0.10) 0%, rgba(165, 207, 184, 0.32) 38%, rgba(255, 247, 230, 0.55) 50%, rgba(165, 207, 184, 0.32) 62%, rgba(165, 207, 184, 0.10) 100%), var(--parchment-deep); background-size: 220% 100%, 100% 100%; animation: case-shimmer 1.8s ease-in-out infinite; }
 body.jb-v2 [data-region="role"] .case .case__shimmer--short { width: 65%; }
 @keyframes case-shimmer { 0% { background-position: 120% 0, 0 0; } 100% { background-position: -120% 0, 0 0; } }

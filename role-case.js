@@ -97,7 +97,7 @@
   }
   function renderTheyWant(m) {
     var w = m.theyWant;
-    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span></div>' + skeletonRows(4) + "</section>";
+    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span></div>' + skeletonRows(4, "Reading the posting…") + "</section>";
     if (!w.requirements.length && !w.niceToHaves.length && !w.stack.length) return "";
     var h = w.hasMatchData;
     var html = '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span>' + src("scrape") + (h ? src("derived", "matched") : "") + "</div>";
@@ -107,7 +107,17 @@
     if (w.niceToHaves.length) html += '<div class="case__sub">Nice to have</div><ul class="case__req">' + marked(w.niceToHaves, "", h) + "</ul>";
     return html + "</section>";
   }
-  function skeletonRows(n) { var s = ""; for (var i = 0; i < n; i++) s += '<span class="case__shimmer' + (i === n - 1 ? " case__shimmer--short" : "") + '"></span>'; return '<div class="case__skeleton" aria-busy="true">' + s + "</div>"; }
+  /* aria-busy alone is silent: a screen reader announces nothing while the
+     enrichment runs. role="status" + aria-live="polite" make the region a
+     live one, and `status` gives it a line to actually read out — the Brief's
+     announcement, restored (LANE-REPORT-L5.md §5, item 3). The aria-busy
+     attribute stays adjacent to the class: tests/enrichment-self-heal.test.mjs
+     greps this file for that exact pair. */
+  function skeletonRows(n, status) {
+    var s = status ? '<span class="case__skeleton-status">' + esc(status) + "</span>" : "";
+    for (var i = 0; i < n; i++) s += '<span class="case__shimmer' + (i === n - 1 ? " case__shimmer--short" : "") + '"></span>';
+    return '<div class="case__skeleton" aria-busy="true" role="status" aria-live="polite">' + s + "</div>";
+  }
 
   function renderYouHave(m) {
     var y = m.youHave;
