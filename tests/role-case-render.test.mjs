@@ -33,6 +33,11 @@ function load() {
   const sandbox = { window: { JobBoredStages: stages } };
   vm.runInNewContext(readFileSync(join(repoRoot, "jb-text.js"), "utf8"), sandbox, { filename: "jb-text.js" });
   assert.equal(typeof sandbox.window.JobBoredText.escapeHtml, "function", "jb-text must load first");
+  /* Trap 2's sibling: the model reads the provenance classifier off the same
+     global surface, so it loads before role-case-model.js or every provenance
+     assertion below would silently pass on an empty block. */
+  vm.runInNewContext(readFileSync(join(repoRoot, "dossier-field-provenance.js"), "utf8"), sandbox, { filename: "dossier-field-provenance.js" });
+  assert.equal(typeof sandbox.window.JobBoredDossierProvenance.classify, "function", "the provenance classifier must load");
   vm.runInNewContext(readFileSync(join(repoRoot, "role-case-model.js"), "utf8"), sandbox, { filename: "role-case-model.js" });
   vm.runInNewContext(readFileSync(join(repoRoot, "role-case.js"), "utf8"), sandbox, { filename: "role-case.js" });
   return sandbox.window.JobBoredCase;
@@ -168,6 +173,75 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /class="case__req"/, "precondition: real requirements rendered");
     assert.doesNotMatch(html, /case__skeleton-status/);
     assert.doesNotMatch(html, /aria-busy="true"/);
+  });
+
+  /* L7 gap 4: the classifier and the validator have been live since the
+     resilience work, but the cutover left nothing rendering them — a payload
+     the pipeline had to recover, or a summary inferred from a title alone,
+     read exactly like a clean posting scrape. */
+  it("a recovered parse flags the they-want lane for review", () => {
+    const html = renderHtml(model({ vmPatch: { enrichment: {
+      roleInOneLine: "Design infrastructure that ships.",
+      mustHaves: ["5+ years design systems"], status: "ready", parseMode: "repaired",
+    } } }));
+    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?class="case__src case__src--review">recovered parse · review<\/span>/);
+    assert.match(html, /<div class="case__sub">Requirements · recovered parse — review before relying on these<\/div>/);
+    assert.match(html, /class="case__req"[\s\S]*?5\+ years design systems/, "the recovered requirements still render, flagged");
+  });
+
+  it("a validator review verdict flags the lane even on a clean schema parse", () => {
+    const html = renderHtml(model({ vmPatch: { enrichment: {
+      mustHaves: ["5+ years design systems"], status: "ready", parseMode: "schema",
+      reviewState: { status: "needs_review", reason: "Malformed model delimiters polluted structured fields.", pollutedFields: ["mustHaves"] },
+    } } }));
+    assert.match(html, /class="case__src case__src--review">recovered parse · review<\/span>/);
+    assert.match(html, /Requirements · recovered parse — review before relying on these/);
+  });
+
+  it("a clean schema parse the validator cleared says nothing about review", () => {
+    const html = renderHtml(model({ vmPatch: { enrichment: {
+      mustHaves: ["5+ years design systems"], status: "ready", parseMode: "schema",
+      reviewState: { status: "ok", reason: "", pollutedFields: [] },
+    } } }));
+    assert.match(html, /<div class="case__sub">Requirements · vs\. your resume<\/div>/, "the normal sub-head stands");
+    assert.doesNotMatch(html, /case__src--review/);
+  });
+
+  it("an identity inferred from title and company is tagged on the rail", () => {
+    const html = renderHtml(model({ vmPatch: { enrichment: {
+      roleInOneLine: "Lead paid media.", mustHaves: ["Paid media strategy"], status: "ready",
+      parseMode: "schema", source: "title-and-company", scrapeBlocked: true, enrichedAt: "2026-08-30T12:00:00.000Z",
+    } } }));
+    assert.match(html, /class="case__meta">[\s\S]*?<span class="case__src case__src--inferred">inferred<\/span>/);
+    assert.doesNotMatch(html, /grounded in the posting/i);
+  });
+
+  it("a real posting scrape is never tagged inferred", () => {
+    const html = renderHtml(model({ vmPatch: { enrichment: {
+      roleInOneLine: "Design infrastructure that ships.", mustHaves: ["5+ years design systems"], status: "ready",
+      parseMode: "schema", source: "cheerio", enrichedAt: "2026-08-30T12:00:00.000Z",
+      description: "A long, real job description scraped straight from the posting page, well past the minimum length the grounding rules require before anything may be called posting-grounded.",
+    } } }));
+    assert.match(html, /class="case__meta">/, "precondition: the rail meta rendered");
+    assert.doesNotMatch(html, /case__src--inferred/);
+  });
+
+  it("the cache freshness label stamps under the one-line quote", () => {
+    const html = renderHtml(model({ vmPatch: { enrichment: {
+      roleInOneLine: "Design infrastructure that ships.", mustHaves: ["5+ years design systems"], status: "ready",
+      parseMode: "schema", source: "cheerio", scrapedAt: NOW - 2 * 3600e3,
+    } } }));
+    assert.match(html, /class="case__quote"[\s\S]*?<\/div><div class="case__stamp case__stamp--fresh">fetched 2h ago<\/div>/);
+    assert.doesNotMatch(html, /stale/i, "a two-hour-old scrape is inside the TTL");
+  });
+
+  it("stamps nothing when the enrichment carries no fetch time", () => {
+    const html = renderHtml(model({ vmPatch: { enrichment: {
+      roleInOneLine: "Design infrastructure that ships.", mustHaves: ["5+ years design systems"], status: "ready",
+    } } }));
+    assert.match(html, /class="case__quote"/, "precondition: the quote rendered");
+    assert.doesNotMatch(html, /case__stamp--fresh/);
+    assert.doesNotMatch(html, /fetched time unknown/);
   });
 
   it("terminal stage collapses the stepper", () => {
