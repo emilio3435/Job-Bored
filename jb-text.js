@@ -3,7 +3,7 @@
    ------------------------------------------------------------
    Pure functions, no DOM. Single owner of entity decoding,
    Markdown demotion, block parsing, and safe clipping for
-   role-brief.js, role.js, dawn-data.js, pipeline-render.js,
+   role-case.js, role.js, dawn-data.js, pipeline-render.js,
    and job-posting-insights.js. Server mirror:
    server/shared/text-normalize.mjs (spec §4).
    Load order: BEFORE jb-ui.js in index.html (defer chain).

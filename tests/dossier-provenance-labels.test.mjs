@@ -6,16 +6,8 @@ import { describe, it } from "node:test";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
 
-function makeMount() {
-  return {
-    innerHTML: "",
-    querySelector() { return null; },
-  };
-}
-
-function loadBrowserModules({ loadBrief = false } = {}) {
+function loadBrowserModules() {
   const window = { JobBoredFlowing: {} };
   const context = vm.createContext({
     window,
@@ -35,40 +27,14 @@ function loadBrowserModules({ loadBrief = false } = {}) {
     "utf8",
   );
   vm.runInContext(provenanceSource, context, { filename: "dossier-field-provenance.js" });
-  if (loadBrief) {
-    vm.runInContext(briefSource, context, { filename: "role-brief.js" });
-  }
   return context.window;
 }
 
-function renderBrief(enrichment, extraJob = {}) {
-  const window = loadBrowserModules({ loadBrief: true });
-  const mount = makeMount();
-  window.JobBoredDossierBrief.renderBrief(mount, {
-    job: {
-      role: "Senior Systems Engineer",
-      company: "Acme",
-      jdSections: [],
-      enrichment,
-      ...extraJob,
-    },
-  });
-  return mount.innerHTML;
-}
-
+/* The three cases that asserted these labels in the RENDERED dossier retired
+   with role-brief.js: The Case has no provenance chip, no postingSummary and
+   no "Fetched …" line (spec §3 cuts the AI prose block). classify() itself is
+   still live — posting-enrichment.js consumes it — and is what is pinned here. */
 describe("DOSSIER-01 provenance labels", () => {
-  it("DOSSIER-01a does not call title-and-company inference grounded in the posting", () => {
-    const html = renderBrief({
-      postingSummary: "Lead systems work across the platform.",
-      source: "title-and-company",
-      scrapeBlocked: true,
-      enrichedAt: "2026-08-30T12:00:00.000Z",
-      parseMode: "schema",
-    });
-
-    assert.doesNotMatch(html, /grounded in the posting/i);
-    assert.match(html, /inferred/i);
-  });
 
   it("DOSSIER-01a labels posting-derived schema output as posting-grounded", () => {
     const provenance = loadBrowserModules().JobBoredDossierProvenance;
@@ -119,37 +85,5 @@ describe("DOSSIER-01 provenance labels", () => {
      repair 3-day cache TTL that rejects them outright; the stronger rule is
      kept and pinned by tests/dossier-field-provenance.test.mjs. There is no
      second 30-day display flag — the fetched-time line carries the age. */
-  it("shows the sheet-persisted fetch time and its age beside the AI claims", () => {
-    const html = renderBrief({
-      postingSummary: "Lead growth design for Linear.",
-      mustHaves: ["5 years growth design"],
-      source: "cheerio",
-      enrichedAt: "2026-08-30T12:00:00.000Z",
-      parseMode: "schema",
-    });
 
-    assert.match(
-      html,
-      /Fetched Aug 30, 2026 · /,
-      "cache age must be visible in the Brief, not only in memory",
-    );
-    assert.doesNotMatch(
-      html,
-      /stale/i,
-      "there is no separate 30-day display-stale flag; only the 3-day TTL says stale",
-    );
-  });
-
-  it("escapes model-controlled fallback provenance before rendering", () => {
-    const html = renderBrief({
-      postingSummary: "Conservative role summary.",
-      source: "title-and-company",
-      fallbackReason: '<img src=x onerror="alert(1)">',
-      enrichedAt: "2026-08-30T12:00:00.000Z",
-      parseMode: "schema",
-    });
-
-    assert.doesNotMatch(html, /<img src=x/);
-    assert.match(html, /&lt;img src=x onerror=&quot;alert\(1\)&quot;&gt;/);
-  });
 });

@@ -15,7 +15,7 @@
    single definer of window.JobBoredDossierProvenance.
 
    Lane: F3-A (DOSSIER-01) + R5 reconciliation. Loaded before
-   role-brief.js and posting-enrichment.js once index.html is wired.
+   posting-enrichment.js once index.html is wired.
    ============================================ */
 (function (root) {
   "use strict";

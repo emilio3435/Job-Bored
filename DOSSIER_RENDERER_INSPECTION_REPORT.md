@@ -3,6 +3,12 @@
 **Repository:** `Job-Bored`  
 **Target Surface:** Dossier & Brief Rendering Subsystem (v2 flowing-page UI)  
 **Inspection Date:** 2026-08-31  
+> **Superseded 2026-09-02.** This report inspects the retired editorial Brief
+> (`role-brief.js`, deleted at the dossier-case cutover). It is kept as the record
+> of the defects that motivated the redesign; the renderer it describes no longer
+> exists. The current dossier is The Case — see
+> `docs/superpowers/specs/2026-09-01-dossier-case-redesign-design.md`.
+
 **Scope:** `role.js`, `role-brief.js`, `role.css`, `dawn-data.js`, `pipeline-render.js`, `flowing-writes.js`, `job-posting-insights.js`, `posting-enrichment.js`, `server/shared/job-scraper-core.mjs`, `server/shared/ats-job-fetchers.mjs`, `role-materials.js`, `materials-queue.js`, `scribe.js`, `letter.js`, `resume-bundle.js`, `resume-generation.js`.
 
 ---

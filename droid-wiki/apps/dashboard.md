@@ -19,7 +19,7 @@ The static dashboard is the always-present surface of JobBored. It renders Pipel
 ├── dawn.js / dawn-data.js      # Daily Brief surface
 ├── pipeline.js                 # v2 horizontal sticker board
 ├── lattice.js                  # v2 kanban
-├── role.js / role-brief.js / role-materials.js  # v2 Dossier
+├── role.js / role-case*.js / role-materials.js   # v2 Dossier (The Case)
 ├── letter.js / scribe.js       # ATS + cover-letter (Phase 3)
 ├── flowing-chrome.js / flowing-store.js / flowing-writes.js
 ├── welcome.js                  # Onboarding

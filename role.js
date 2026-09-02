@@ -12,9 +12,9 @@
               jb:role:action      { action, jobKey }
               jb:role:note        { jobKey, body }
               jb:role:writeback   { jobKey, field, value }
-              (masthead title/company/location/salary edits, on
-              blur/Enter; routed to app.js editJobField by the
-              flowing-writes.js bridge)
+              (rail title/company edits and the People row's contact /
+              heardBack / reply / followupAt, on blur/Enter/change;
+              routed by the flowing-writes.js bridge)
               (and re-triggers a smooth scroll to letter region)
 
    Activation: body.jb-v2 only. Off-flag: no-op.
@@ -117,7 +117,28 @@
 
 
 
-  function renderDossier(region, vm) {
+  /* Fail closed on delimiter pollution. The retired Brief ran every enrichment
+     through structured-output-validator.js before rendering, so a model reply
+     that leaked a code fence, an XML tag or a chat-template token never
+     reached a bullet even when the insights pipeline forgot to validate. The
+     Case model is pure assembly, so the region owner keeps that defense here —
+     on a copy, never by mutating the view-model dawn-data handed us. */
+  function reviewedVm(vm) {
+    var job = (vm && vm.job) || null;
+    var api = root.JobBoredStructuredOutput;
+    if (!job || !job.enrichment || !api || typeof api.validateEnrichment !== "function") return vm;
+    try {
+      var reviewed = api.validateEnrichment(job.enrichment);
+      if (!reviewed || reviewed === job.enrichment) return vm;
+      var copy = {};
+      for (var k in job) { if (Object.prototype.hasOwnProperty.call(job, k)) copy[k] = job[k]; }
+      copy.enrichment = reviewed;
+      return { job: copy };
+    } catch (e) { return vm; }
+  }
+
+  function renderDossier(region, rawVm) {
+    var vm = reviewedVm(rawVm);
     var job = (vm && vm.job) || {};
 
     region.innerHTML = '' +
@@ -135,8 +156,6 @@
       var deps = Case.model.collectDeps(key);
       deps.vm = vm;
       Case.render(mount, Case.model.buildCaseModel(key, deps));
-    } else if (mount && root.JobBoredDossierBrief && typeof root.JobBoredDossierBrief.renderBrief === "function") {
-      root.JobBoredDossierBrief.renderBrief(mount, vm);
     }
 
     wireDossier(region, job);
@@ -240,8 +259,9 @@
       });
     }
 
-    // Masthead identity fields (title/company/location/salary) — borderless
-    // inputs rendered by role-brief.js. Commit on blur/Enter only (never per
+    // Rail identity fields (title/company) and the People row (contact,
+    // heardBack) — borderless inputs rendered by role-case.js. Commit on
+    // blur/Enter only (never per
     // keystroke, matching the notes pattern above); Escape restores the seeded
     // value. A commit no-ops when the value is unchanged vs data-original so we
     // never issue a needless Sheet write or re-lock the column.

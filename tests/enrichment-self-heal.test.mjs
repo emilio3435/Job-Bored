@@ -859,86 +859,82 @@ describe("enrichment pipeline — loading-state propagation", () => {
 
 /* ────────────────────────────────────────────────────────
    Loading skeleton — visual contract
+   ────────────────────────────────────────────────────────
+   Retargeted at the cutover: the Brief's full-page skeleton
+   (badge, rotating status line, whole-layout shimmer) retired
+   with role-brief.js. Spec §6 / resilience D3 replace it with
+   an IN-LANE placeholder — only "They want" shows rows while
+   enrichment runs, and every block the sheet can already fill
+   stays mounted. The promises that survive the redesign are
+   pinned here against the Case.
    ──────────────────────────────────────────────────────── */
-describe("brief loading skeleton — visual contract", () => {
-  /* Static check of role-brief.js + role.css. We don't pixel-test
-     here; that's the browser-validation handoff. We do verify the
-     structural promises a designer expects to see. */
-  const briefJs = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
-  const roleCss = readFileSync(join(repoRoot, "role.css"), "utf8");
+describe("the Case's in-lane enrichment skeleton — visual contract", () => {
+  const caseJs = readFileSync(join(repoRoot, "role-case.js"), "utf8");
+  const caseCss = readFileSync(join(repoRoot, "role-case.css"), "utf8");
 
-  it("renders an AI/Gemini badge so the user knows it's AI work, not 'loading data'", () => {
-    assert.match(briefJs, /brief__skeleton-badge/);
-    assert.match(briefJs, /AI\s*&middot;\s*Gemini/);
+  /* Trap 2: jb-text.js before the model and the renderer. */
+  function loadCase() {
+    const CASE_STAGES = ["new", "researching", "applied", "offer", "rejected"];
+    const sandbox = { window: {} };
+    for (const file of ["jb-text.js", "role-case-model.js", "role-case.js"]) {
+      vm.runInNewContext(readFileSync(join(repoRoot, file), "utf8"), sandbox, { filename: file });
+    }
+    return {
+      Case: sandbox.window.JobBoredCase,
+      stages: {
+        pairs: () => CASE_STAGES.map((k) => ({ key: k, label: k })),
+        toKey: (v) => (CASE_STAGES.includes(v) ? v : ""),
+        toLabel: (v) => String(v),
+        isClosed: (v) => ["rejected"].includes(v),
+      },
+    };
+  }
+
+  it("shows placeholder rows in the They-want lane while the rest of the page stays mounted", () => {
+    const { Case, stages } = loadCase();
+    const model = Case.model.buildCaseModel("job-1", {
+      vm: { job: {
+        jobKey: "job-1", role: "Senior PM", company: "Meridian Labs", salary: "$185k",
+        stage: "researching", fitScore: 8, replied: "No", notes: { body: "Recruiter: Dana" },
+        enrichment: { status: "loading" },
+      } },
+      stages, nowMs: Date.now(),
+      parseDate: (v) => { const t = Date.parse(v); return Number.isFinite(t) ? t : null; },
+    });
+    const mount = { innerHTML: "" };
+    Case.render(mount, model);
+
+    assert.match(mount.innerHTML, /case__lane--they[\s\S]*?case__skeleton/, "the They-want lane shows the skeleton");
+    /* Everything the sheet can already fill keeps rendering (resilience D3). */
+    assert.match(mount.innerHTML, /class="case__rail"[\s\S]*?Meridian Labs/, "the rail keeps its sheet facts");
+    assert.match(mount.innerHTML, /data-action="stage-step"/, "the stepper stays mounted");
+    assert.match(mount.innerHTML, /data-num="fit"/, "the numbers band stays mounted");
+    assert.match(mount.innerHTML, /Recruiter: Dana/, "notes stay mounted");
+    assert.match(caseJs, /m\.loading\.enrichment && !w\.requirements\.length/);
   });
 
-  it("includes a rotating status line with four progressive messages", () => {
-    assert.match(briefJs, /Reading the posting/i);
-    assert.match(briefJs, /must-haves and tools/i);
-    assert.match(briefJs, /Weighing this role against your profile/i);
-    assert.match(briefJs, /talking points/i);
+  it("marks the placeholder busy for assistive tech", () => {
+    assert.match(caseJs, /class="case__skeleton" aria-busy="true"/);
   });
 
-  it("renders shimmer placeholders that mirror the eventual layout", () => {
-    /* Hook, lede (4 lines), fit-angle (2 lines), two lists */
-    assert.match(briefJs, /brief__shimmer--hook/);
-    assert.match(briefJs, /brief__shimmer--lede-1/);
-    assert.match(briefJs, /brief__shimmer--lede-4/);
-    assert.match(briefJs, /brief__shimmer--fit-1/);
-    assert.match(briefJs, /brief__shimmer--row/);
-    assert.match(briefJs, /WHY THIS ROLE FITS/);
-    assert.match(briefJs, /MUST-HAVES/);
-    assert.match(briefJs, /RESPONSIBILITIES/);
+  it("names no vendor in the loading state (the provider label comes from config)", () => {
+    assert.doesNotMatch(caseJs, /Gemini|OpenAI|Anthropic/);
   });
 
-  it("has aria-busy and aria-live for screen-reader announcements", () => {
-    assert.match(briefJs, /aria-busy="true"/);
-    assert.match(briefJs, /aria-live="polite"/);
-    assert.match(briefJs, /role="status"/);
-  });
-
-  it("uses the full skeleton even when cached content exists", () => {
-    assert.match(briefJs, /isEnrichmentLoading/);
-    assert.doesNotMatch(briefJs, /brief__enriching--inline/);
-    assert.doesNotMatch(briefJs, /Refreshing AI insights/);
-  });
-
-  it("CSS defines the skeleton, shimmer, breathe, sparkle, and status-cycle animations", () => {
-    assert.match(roleCss, /\.brief__skeleton\s*\{/);
-    assert.match(roleCss, /@keyframes brief-skeleton-shimmer/);
-    assert.match(roleCss, /@keyframes brief-skeleton-breathe/);
-    assert.match(roleCss, /@keyframes brief-skeleton-sparkle/);
-    assert.match(roleCss, /@keyframes brief-skeleton-status-cycle/);
-  });
-
-  it("CSS honors prefers-reduced-motion (stops all skeleton animations)", () => {
-    /* role.css has several @media (prefers-reduced-motion) blocks for
-       different surfaces (JD accordions, etc.). Find the one that
-       references the skeleton selectors and verify the animations are
-       killed inside it. */
-    const blocks = roleCss.match(
-      /@media\s*\(\s*prefers-reduced-motion:\s*reduce\s*\)\s*\{[\s\S]*?\n\}/g,
+  it("CSS defines the shimmer and honors prefers-reduced-motion", () => {
+    assert.match(caseCss, /\.case__shimmer \{/);
+    assert.match(caseCss, /@keyframes case-shimmer/);
+    const blocks = caseCss.match(
+      /@media \(prefers-reduced-motion: reduce\) \{[\s\S]*?\n\}/g,
     ) || [];
-    assert.ok(blocks.length > 0, "must declare a prefers-reduced-motion: reduce block");
-    const skeletonBlock = blocks.find((b) => /brief__skeleton|brief__shimmer/.test(b));
-    assert.ok(skeletonBlock, "one prefers-reduced-motion block must target the skeleton");
-    assert.match(skeletonBlock, /\.brief__skeleton/);
-    assert.match(skeletonBlock, /\.brief__shimmer/);
-    assert.match(skeletonBlock, /animation:\s*none/);
+    const reduced = blocks.find((b) => /case__shimmer/.test(b));
+    assert.ok(reduced, "one prefers-reduced-motion block must target the shimmer");
+    assert.match(reduced, /animation: none/);
   });
 
-  it("CSS uses the v2 paper-and-mint palette (no ad-hoc hex)", () => {
-    /* Sanity: the skeleton uses tokenized colors, not raw hex. */
-    const skeletonBlock = roleCss.match(/\.brief__skeleton\s*\{[\s\S]*?\n\}/);
-    assert.ok(skeletonBlock, "must define .brief__skeleton");
-    const body = skeletonBlock[0];
-    /* The mint-deep left border is the v2 design signature */
-    assert.match(body, /var\(--mint-deep\)/);
-    assert.match(body, /var\(--parchment/);
-  });
-
-  it("skeleton has responsive margins at 1080 and 720 breakpoints", () => {
-    assert.match(roleCss, /@media\s*\(max-width:\s*1080px\)\s*\{[\s\S]*?\.brief__skeleton/);
-    assert.match(roleCss, /@media\s*\(max-width:\s*720px\)\s*\{[\s\S]*?\.brief__skeleton/);
+  it("shimmer uses the tokenized paper-and-mint palette, not ad-hoc colour", () => {
+    const shimmer = caseCss.match(/\.case__shimmer \{[\s\S]*?\n/);
+    assert.ok(shimmer, "must define .case__shimmer");
+    assert.match(shimmer[0], /var\(--parchment-deep\)/);
   });
 });
