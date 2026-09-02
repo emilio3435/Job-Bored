@@ -87,7 +87,10 @@ describe("buildCaseModel", () => {
     const m = build(baseDeps());
     assert.equal(m.oneLine, "Design infrastructure that ships.");
     assert.deepEqual(m.theyWant.requirements, [{ text: "5+ years design systems", status: "found" }, { text: "WCAG 2.2", status: "found" }]);
-    assert.deepEqual(m.theyWant.stack.map((s) => s.status), ["found", "partial", "unknown"]); // React, Storybook, Design Systems(tag)
+    /* P0-0 changed this line: the "Design Systems" tag is covered by the
+       analyzer's "5+ years design systems" term, which the resume matched.
+       `unknown` here was the exact-lookup bug, not the intended answer. */
+    assert.deepEqual(m.theyWant.stack.map((s) => s.status), ["found", "partial", "found"]); // React, Storybook, Design Systems(tag)
     assert.equal(m.theyWant.hasMatchData, true);
   });
   it("uses the scorecard for YOU HAVE and falls back to keywords without one", () => {
@@ -190,5 +193,143 @@ describe("identity posting facts", () => {
 
   it("leaves closesInDays null when the date will not parse", () => {
     assert.equal(identity({ closesAt: "rolling" }).closesInDays, null);
+  });
+});
+
+/* ---- Polish pass: the model's truth claims (P0-0, P0-0c/d, P0-7/8/10, P0-E) ---- */
+
+/* P0-0: the analyzer stores FRAGMENTS — it splits long requirements on
+   `;,|`/and/or, skips items over 8 words, truncates labels past 72 chars — so
+   a full requirement sentence never equals a stored label and the THEY WANT
+   lane renders `unknown` for everything that is not a single token. These are
+   the shapes analyzeJob actually produces. */
+describe("requirement marking (P0-0)", () => {
+  function depsWith(requirements, terms) {
+    const byLabel = new Map(terms.map((t) => [t.label.toLowerCase(), t.status]));
+    const d = baseDeps({ keywords: { percentage: 50, foundCount: 1, partialCount: 0, missingTerms: [], byLabel, uniqueTerms: terms } });
+    d.vm.job.requirements = requirements;
+    d.vm.job.skills = [];
+    d.vm.job.tags = [];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+    return d;
+  }
+
+  it("marks a sentence-shaped requirement from the fragment the analyzer stored", () => {
+    const m = build(depsWith(
+      ["5+ years building design systems at scale"],
+      [{ label: "building design systems", status: "found" }],
+    ));
+    assert.equal(m.theyWant.requirements[0].status, "found", "a contained analyzer term must mark the requirement");
+  });
+
+  it("takes the strongest status when several terms overlap one requirement", () => {
+    const m = build(depsWith(
+      ["React and Storybook with WCAG 2.2 accessibility"],
+      [{ label: "storybook", status: "missing" }, { label: "react", status: "partial" }, { label: "wcag 2.2", status: "found" }],
+    ));
+    assert.equal(m.theyWant.requirements[0].status, "found");
+  });
+
+  it("marks a requirement the analyzer truncated at 72 chars", () => {
+    const long = "Deep experience partnering with product and engineering leadership across a distributed org";
+    const m = build(depsWith([long], [{ label: `${long.slice(0, 69).trim()}…`, status: "partial" }]));
+    assert.equal(m.theyWant.requirements[0].status, "partial");
+  });
+
+  it("keeps unknown when nothing overlaps", () => {
+    const m = build(depsWith(["Willingness to travel quarterly"], [{ label: "kubernetes", status: "found" }]));
+    assert.equal(m.theyWant.requirements[0].status, "unknown");
+  });
+});
+
+describe("scores that were never scored (P0-0c)", () => {
+  it("hides the ATS tile rather than reporting 0/100", () => {
+    const d = baseDeps();
+    d.scorecard = { result: { overallScore: null, topStrengths: [], dimensionScores: { requirementsCoverage: null, experienceRelevance: undefined, impactClarity: "", atsParseability: 90, toneFit: 78 } } };
+    const m = build(d);
+    assert.equal(m.numbers.ats, null, "an unscored card must not render ATS 0/100");
+    assert.deepEqual(m.youHave.dimensions.map((x) => x.key), ["atsParseability", "toneFit"], "unscored dimensions must not render as 0% bars");
+  });
+});
+
+/* P0-0d: both suites pin a UTC noon "now", which cancels the off-by-one out.
+   These use a local evening west of UTC — the exact case that reads a day
+   early in production. */
+describe("day counts are local calendar days (P0-0d)", () => {
+  const LOCAL_EVENING = Date.parse("2026-09-03T18:30:00-06:00");
+  it("a follow-up due tomorrow is 1 day out, not 0, at 18:30 local", () => {
+    const d = baseDeps({ nowMs: LOCAL_EVENING });
+    d.vm.job.followUpDate = "2026-09-04";
+    assert.equal(build(d).nextAction.daysUntil, 1);
+  });
+  it("a follow-up due today is 0, not overdue", () => {
+    const d = baseDeps({ nowMs: LOCAL_EVENING });
+    d.vm.job.followUpDate = "2026-09-03";
+    assert.equal(build(d).nextAction.daysUntil, 0);
+  });
+  it("a posting closing tomorrow is 1 day out", () => {
+    const d = baseDeps({ nowMs: LOCAL_EVENING });
+    d.vm.job.closesAt = "2026-09-04";
+    assert.equal(build(d).identity.closesInDays, 1);
+  });
+});
+
+describe("the keyword fallback claims nothing it was not told (P0-7, P0-10)", () => {
+  function fallbackDeps() {
+    const d = baseDeps({ scorecard: null, keywords: {
+      percentage: 50, foundCount: 2, partialCount: 0,
+      missingTerms: [{ label: "Kubernetes", fullLabel: "Kubernetes" }],
+      byLabel: new Map([["wcag 2.2", "found"], ["figma design systems", "found"]]),
+      uniqueTerms: [{ label: "WCAG 2.2", status: "found" }, { label: "Figma design systems", status: "found" }, { label: "Kubernetes", status: "missing" }],
+    } });
+    return d;
+  }
+  it("emits no severity for a gap no engine graded (P0-7)", () => {
+    const g = build(fallbackDeps()).youHave.gaps[0];
+    assert.equal(g.gap, "Kubernetes");
+    assert.ok(!g.severity, `the fallback must not invent a severity, got ${JSON.stringify(g.severity)}`);
+  });
+  it("renders the term's own casing, not the lowercased map key (P0-10)", () => {
+    assert.deepEqual(build(fallbackDeps()).youHave.strengths, ["WCAG 2.2", "Figma design systems"]);
+  });
+  it("keeps the scorecard's own severity untouched", () => {
+    assert.equal(build(baseDeps()).youHave.gaps[0].severity, "high");
+  });
+});
+
+describe("an overdue follow-up is not done (P0-8)", () => {
+  it("stays due when nobody was contacted after the date passed", () => {
+    const d = baseDeps({ nowMs: Date.parse("2026-09-10T12:00:00Z") });
+    d.vm.job.followUpDate = "2026-09-04";
+    d.vm.job.lastHeardFrom = "2026-08-31";
+    const row = build(d).record.filter((e) => e.label === "Follow-up due")[0];
+    assert.equal(row.state, "due", "a missed follow-up must not render as completed");
+  });
+  it("is done once a contact lands on or after the follow-up date", () => {
+    const d = baseDeps({ nowMs: Date.parse("2026-09-10T12:00:00Z") });
+    d.vm.job.followUpDate = "2026-09-04";
+    d.vm.job.lastHeardFrom = "2026-09-05";
+    const row = build(d).record.filter((e) => e.label === "Follow-up due")[0];
+    assert.equal(row.state, "done");
+  });
+});
+
+/* P0-E: a provenance throw used to clear inferredFields, so a title the model
+   GUESSED rendered identically to one read from the posting — failing toward
+   over-confidence, the opposite of the stated design intent. */
+describe("failures are loud, and never upgrade a guess (P0-E)", () => {
+  it("keeps the inferred marks it already collected when the classifier throws", () => {
+    const d = baseDeps();
+    let n = 0;
+    d.provenance = {
+      CLAIM_FIELDS: ["inferredTitle", "inferredCompany", "inferredSalary"],
+      freshness: () => ({ scrapedAt: "2026-08-30", label: "3 days ago" }),
+      resolveSource: () => "scrape",
+      resolveGrounding: () => "posting",
+      classify: () => { n += 1; if (n > 1) throw new Error("classifier blew up"); return { label: "inferred" }; },
+    };
+    const m = build(d);
+    assert.deepEqual(m.provenance.inferredFields, ["inferredTitle"], "a throw must not erase the guesses already found");
+    assert.equal(m.provenance.inferredIdentity, true, "an inferred title must still be flagged");
   });
 });
