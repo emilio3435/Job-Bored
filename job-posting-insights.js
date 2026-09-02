@@ -212,8 +212,14 @@
     } catch (_) {}
     if (key === "atsFitScore") return score100(value);
     if (prop.type !== "array") return value.replace(/^["']|["']$/g, "").trim();
-    return value
-      .split(/\n|;|,(?=\s*[A-Z0-9])/)
+    const hasHardBreaks = /[\n;]/.test(value);
+    const commaCount = (value.match(/,/g) || []).length;
+    const parts = hasHardBreaks
+      ? value.split(/\n|;/)
+      : commaCount >= 3
+        ? value.split(",")
+        : [value];
+    return parts
       .map((item) => item.replace(/^\s*[-*•\d.)]+\s*/, "").trim())
       .filter(Boolean);
   }
@@ -361,11 +367,6 @@
     );
   }
 
-  function strArr(v) {
-    if (!Array.isArray(v)) return [];
-    return v.map((x) => String(x).trim()).filter(Boolean);
-  }
-
   function score100(v) {
     const n = Number(v);
     if (!Number.isFinite(n)) return null;
@@ -381,24 +382,34 @@
   }
 
   function normalizeEnrichmentJson(parsed) {
+    const T = window.JobBoredText;
+    const line = (v) =>
+      T.normalizeInline(typeof v === "string" ? v : T.itemText(v));
+    const multi = (v) =>
+      T.normalizeMultiline(typeof v === "string" ? v : T.itemText(v));
+    const list = (v, n) =>
+      (Array.isArray(v) ? v : [])
+        .map((x) => T.stripListGlyph(T.normalizeInline(T.itemText(x))))
+        .filter(Boolean)
+        .slice(0, n);
     const normalized = {
       // Stamped before validateEnrichment so the recovered-parse signal survives
       // delimiter cleaning and reaches the provenance classifier.
       _parseMode: String(parsed._parseMode || "").trim(),
-      inferredTitle: String(parsed.inferredTitle || "").trim(),
-      inferredCompany: String(parsed.inferredCompany || "").trim(),
-      inferredLocation: String(parsed.inferredLocation || "").trim(),
-      postingSummary: String(parsed.postingSummary || "").trim(),
-      roleInOneLine: String(parsed.roleInOneLine || "").trim(),
-      mustHaves: strArr(parsed.mustHaves).slice(0, 12),
-      niceToHaves: strArr(parsed.niceToHaves).slice(0, 8),
-      responsibilities: strArr(parsed.responsibilities).slice(0, 10),
-      toolsAndStack: strArr(parsed.toolsAndStack).slice(0, 14),
+      inferredTitle: line(parsed.inferredTitle),
+      inferredCompany: line(parsed.inferredCompany),
+      inferredLocation: line(parsed.inferredLocation),
+      postingSummary: multi(parsed.postingSummary),
+      roleInOneLine: line(parsed.roleInOneLine),
+      mustHaves: list(parsed.mustHaves, 12),
+      niceToHaves: list(parsed.niceToHaves, 8),
+      responsibilities: list(parsed.responsibilities, 10),
+      toolsAndStack: list(parsed.toolsAndStack, 14),
       atsFitScore: score100(parsed.atsFitScore),
-      atsFitRationale: String(parsed.atsFitRationale || "").trim(),
-      fitAngle: String(parsed.fitAngle || "").trim(),
-      talkingPoints: strArr(parsed.talkingPoints).slice(0, 6),
-      extraKeywords: strArr(parsed.extraKeywords).slice(0, 12),
+      atsFitRationale: line(parsed.atsFitRationale),
+      fitAngle: multi(parsed.fitAngle),
+      talkingPoints: list(parsed.talkingPoints, 6),
+      extraKeywords: list(parsed.extraKeywords, 12),
     };
     const validator = structuredOutputApi();
     if (validator && typeof validator.validateEnrichment === "function") {
@@ -834,6 +845,8 @@
   window.CommandCenterJobPostingInsights = {
     enrichFromScrape,
     canEnrichWithLLM,
+    _normalizeEnrichmentJson: normalizeEnrichmentJson,
+    _parseLooseFieldValue: parseLooseFieldValue,
     fetchViaGeminiUrlContext,
   };
 })();

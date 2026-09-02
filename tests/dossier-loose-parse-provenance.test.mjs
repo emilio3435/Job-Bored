@@ -6,6 +6,7 @@ import { describe, it } from "node:test";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const jbTextSource = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const insightsSource = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
 
@@ -29,6 +30,7 @@ function loadInsights(rawText) {
     URL,
     console: { log() {}, warn() {}, error() {} },
   });
+  vm.runInContext(jbTextSource, context, { filename: "jb-text.js" });
   vm.runInContext(insightsSource, context, { filename: "job-posting-insights.js" });
   return window.CommandCenterJobPostingInsights;
 }

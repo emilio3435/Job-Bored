@@ -4,6 +4,7 @@
  * url_context cannot be combined with responseSchema.
  */
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
+import { normalizeInlineField, normalizeJobText } from "./text-normalize.mjs";
 
 const GEMINI_TIMEOUT_MS = 25000;
 const MIN_DESCRIPTION_CHARS = 80;
@@ -11,7 +12,7 @@ const MIN_DESCRIPTION_CHARS = 80;
 /**
  * @param {string} rawUrl
  * @param {{ fetchImpl?: typeof globalThis.fetch, geminiApiKey?: string, geminiModel?: string, title?: string, company?: string }} [options]
- * @returns {Promise<{ title: string, company: string, location: string, description: string, provider: string, apiUrl: string } | null>}
+ * @returns {Promise<{ title: string | null, company: string, location: string, description: string, provider: string, apiUrl: string } | null>}
  */
 export async function scrapeViaGeminiUrlContext(rawUrl, options = {}) {
   const apiKey = getGeminiApiKey(options);
@@ -57,10 +58,10 @@ export async function scrapeViaGeminiUrlContext(rawUrl, options = {}) {
     const text = extractCandidateText(payload);
     if (text.length < MIN_DESCRIPTION_CHARS) return null;
     return {
-      title: String(options.title || "").trim(),
-      company: String(options.company || "").trim(),
-      location: "",
-      description: text,
+      title: normalizeInlineField(options.title) || null,
+      company: normalizeInlineField(options.company),
+      location: normalizeInlineField(""),
+      description: normalizeJobText(text),
       provider: "gemini-url-context",
       apiUrl,
     };

@@ -7,6 +7,7 @@ import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
 import { fetchAtsJobPosting } from "./ats-job-fetchers.mjs";
 import { scrapeViaGeminiUrlContext } from "./gemini-url-context-scrape.mjs";
+import { decodeHtmlEntities, normalizeJobText } from "./text-normalize.mjs";
 
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingOptions} ScrapeJobPostingOptions */
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingResult} ScrapeJobPostingResult */
@@ -775,11 +776,61 @@ async function trySerpFallback(originalUrl, options = {}) {
   }
 }
 
+const BLOCK_BREAK_TAGS = new Set([
+  "p",
+  "div",
+  "section",
+  "article",
+  "header",
+  "footer",
+  "ul",
+  "ol",
+  "table",
+  "blockquote",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+]);
+
+/**
+ * Block-aware text for a Cheerio element — the structural twin of htmlToText
+ * for an already-parsed DOM.
+ * @param {CheerioApi} $
+ * @param {unknown} node
+ */
+function blockText($, node) {
+  let out = "";
+  /** @param {any} n */
+  const walk = (n) => {
+    if (!n) return;
+    if (n.type === "text") {
+      out += n.data || "";
+      return;
+    }
+    const name = String(n.name || "").toLowerCase();
+    if (name === "script" || name === "style" || name === "noscript") return;
+    if (name === "br") {
+      out += "\n";
+      return;
+    }
+    if (name === "li") out += "\n- ";
+    for (const child of n.children || []) walk(child);
+    if (name === "li" || name === "tr") out += "\n";
+    else if (name === "td" || name === "th") out += " · ";
+    else if (BLOCK_BREAK_TAGS.has(name)) out += "\n\n";
+  };
+  walk(node);
+  return normalizeJobText(out);
+}
+
 /** @param {unknown} html */
 function stripTags(html) {
   if (!html || typeof html !== "string") return "";
   const $ = cheerio.load(html);
-  return normalizeSpace($.text());
+  return blockText($, $.root().get(0));
 }
 
 /**
@@ -910,7 +961,9 @@ function textFromJobPostingLd(j) {
   let desc = "";
   const d = j.description;
   if (typeof d === "string") {
-    desc = d.includes("<") ? stripTags(d) : normalizeSpace(d);
+    desc = d.includes("<")
+      ? stripTags(d)
+      : normalizeJobText(decodeHtmlEntities(d));
   } else if (d && typeof d === "object" && "@type" in d && d["@type"] === "HTMLString") {
     desc = stripTags(String("value" in d ? d.value || d : d));
   }
@@ -1030,7 +1083,7 @@ function findBestDescriptionFromDom($) {
   const trySel = (sel, minLen, broad) => {
     $(sel).each((_, node) => {
       const $el = $(node);
-      const t = normalizeSpace($el.text());
+      const t = blockText($, node);
       if (t.length > best.length && t.length >= minLen) {
         if (broad && t.length > 80000) return;
         best = t;
@@ -1068,7 +1121,7 @@ function largestTextBlock($, root) {
   let best = "";
   const scope = root && root.length ? root : $.root();
   scope.find("p, li, div").each((_, el) => {
-    const t = normalizeSpace($(el).text());
+    const t = blockText($, el);
     if (t.length > best.length && t.length < 120000) best = t;
   });
   return best;
