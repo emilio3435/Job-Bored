@@ -15,6 +15,13 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(repoRoot, "role-materials.js"), "utf8");
+/* Trap 2: jb-text.js before role-case-model.js. The Case's mount renders
+   compact rows built from the model's CASE_DOC_TYPES, so the real model has
+   to be present or the rows silently degrade to the legacy panel. */
+const caseSources = ["jb-text.js", "role-case-model.js"].map((f) => ({
+  filename: f,
+  code: readFileSync(join(repoRoot, f), "utf8"),
+}));
 
 class TestCustomEvent {
   constructor(type, options = {}) {
@@ -62,8 +69,9 @@ function renderedHtml(node) {
   return (node.childNodes || []).map((c) => c.innerHTML || "").join("");
 }
 
-function makeNode(tagName) {
+function makeNode(tagName, attributes) {
   let html = "";
+  const attrs = { ...(attributes || {}) };
   const childNodes = [];
   const node = {
     tagName,
@@ -76,8 +84,10 @@ function makeNode(tagName) {
       contains(c) { return this._set.has(c); },
       toggle() {},
     },
-    setAttribute() {},
-    getAttribute() { return null; },
+    setAttribute(name, value) { attrs[name] = String(value); },
+    getAttribute(name) {
+      return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
+    },
     addEventListener() {},
     removeEventListener() {},
     appendChild(child) {
@@ -153,7 +163,7 @@ function bootMaterials({ mounts = ["brief"], manifest = MANIFEST } = {}) {
   const events = [];
   const documentBus = makeEventTarget(events);
   const windowBus = makeEventTarget(events);
-  const mountEls = new Map(mounts.map((name) => [name, makeNode("div")]));
+  const mountEls = new Map(mounts.map((name) => [name, makeNode("div", { "data-mount": name })]));
   const region = makeNode("section");
   region.querySelector = (sel) => {
     const m = /^\[data-mount="([^"]+)"\]$/.exec(sel);
@@ -218,6 +228,7 @@ function bootMaterials({ mounts = ["brief"], manifest = MANIFEST } = {}) {
     String,
     JSON,
   });
+  for (const { filename, code } of caseSources) vm.runInContext(code, ctx, { filename });
   vm.runInContext(source, ctx, { filename: "role-materials.js" });
 
   async function openRole(jobKey) {
@@ -261,10 +272,11 @@ describe("materials manifest ownership", () => {
   it("prefers [data-mount=materials] when the case renders one", async () => {
     const { mountEls, openRole } = bootMaterials({ mounts: ["materials", "brief"] });
     await openRole("job-1");
+    /* The Case mount gets compact rows (plan Task 9), not the panel's cards. */
     assert.match(
       renderedHtml(mountEls.get("materials")),
-      /data-doc-type="resume"/,
-      "the rendered document cards must land in the materials mount",
+      /class="case__doc" data-doc="resume"/,
+      "the rendered document rows must land in the materials mount",
     );
     assert.equal(
       renderedHtml(mountEls.get("brief")),
