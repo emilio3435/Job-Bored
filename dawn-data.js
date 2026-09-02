@@ -1105,13 +1105,29 @@
     return null;
   }
 
+  /* Tags arrive either as a JSON array (structured, may contain commas and
+     semicolons inside a single tag — "Austin, TX") or as the legacy
+     comma/semicolon-delimited Sheet string. Probe for JSON first so a
+     structured tag is never shredded into fragments. */
   function _parseTagsFromCard(card) {
     if (!card) return [];
+    var T = root.JobBoredText;
     var tagsAttr = _attr(card, "data-tags");
     if (tagsAttr) {
+      var trimmed = tagsAttr.trim();
+      if (trimmed.charAt(0) === "[") {
+        try {
+          var arr = JSON.parse(trimmed);
+          if (Array.isArray(arr)) {
+            return arr
+              .map(function (t) { return T ? T.normalizeInline(T.itemText(t)) : String(t || "").trim(); })
+              .filter(Boolean);
+          }
+        } catch (e) { /* legacy string form below */ }
+      }
       return tagsAttr.split(/[,;|]+/).map(function (t) { return t.trim(); }).filter(Boolean);
     }
-    var chips = card.querySelectorAll(".skill-chip");
+    var chips = card.querySelectorAll(".skill-chip, .kanban-card__tag");
     var out = [];
     chips.forEach(function (c) {
       var t = (c.textContent || "").trim();
@@ -1189,14 +1205,19 @@
     return { body: body, editedAt: editedAt };
   }
 
+  /* A talking point may legitimately contain a semicolon ("Shipped X; grew
+     Y 40%"). When the value is multi-line, newlines are the author's real
+     separator and the inline punctuation is content — only fall back to
+     splitting on ";"/"·" for a single-line legacy blob. */
   function _parseTalkingPointsFromCard(card) {
     if (!card) return [];
     var raw = _attr(card, "data-talking-points");
     if (!raw) return [];
-    return String(raw)
-      .split(/\n|·|;/)
-      .map(function (s) { return s.trim().replace(/^[-*•]\s+/, ""); })
-      .filter(Boolean);
+    var T = root.JobBoredText;
+    var parts = /\n/.test(raw) ? String(raw).split(/\n+/) : String(raw).split(/[;·]/);
+    return parts.map(function (s) {
+      return T ? T.stripListGlyph(T.normalizeInline(s)) : s.trim().replace(/^[-*•]\s+/, "");
+    }).filter(Boolean);
   }
 
   function _parseEmploymentFromCard(card) {
@@ -1240,8 +1261,15 @@
     try {
       var parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
+        var T = root.JobBoredText;
+        /* Items may be objects ({ text: … }) from a newer scraper, and legacy
+           cache entries still carry markdown and HTML entities. */
         return parsed
-          .map(function (s) { return String(s == null ? "" : s).trim(); })
+          .map(function (s) {
+            return T
+              ? T.stripListGlyph(T.normalizeInline(T.itemText(s)))
+              : String(s == null ? "" : s).trim();
+          })
           .filter(Boolean);
       }
     } catch (e) { /* fall through */ }
@@ -1268,11 +1296,23 @@
         ? Math.max(0, Math.min(100, Math.round(atsFitScore)))
         : null;
     }
+    /* Legacy cache self-heal (spec D2): attributes written before the text
+       pipeline landed still hold markdown and HTML entities. Normalize on
+       read so old cards render as cleanly as freshly enriched ones. */
+    var T = root.JobBoredText;
+    var _inline = function (v) {
+      var raw = String(v == null ? "" : v).trim();
+      return T ? T.normalizeInline(raw) : raw;
+    };
+    var _multi = function (v) {
+      var raw = String(v == null ? "" : v).trim();
+      return T ? T.normalizeMultiline(raw) : raw;
+    };
     return {
-      roleInOneLine: String(_attr(card, "data-role-in-one-line") || "").trim(),
-      postingSummary: String(_attr(card, "data-posting-summary") || "").trim(),
-      fitAngle: String(_attr(card, "data-fit-angle") || "").trim(),
-      fitAssessment: String(_attr(card, "data-fit-assessment") || "").trim(),
+      roleInOneLine: _inline(_attr(card, "data-role-in-one-line")),
+      postingSummary: _multi(_attr(card, "data-posting-summary")),
+      fitAngle: _multi(_attr(card, "data-fit-angle")),
+      fitAssessment: _multi(_attr(card, "data-fit-assessment")),
       mustHaves: _parseJsonArrayAttr(card, "data-must-haves"),
       niceToHaves: _parseJsonArrayAttr(card, "data-nice-to-haves"),
       responsibilities: _parseJsonArrayAttr(card, "data-responsibilities"),
@@ -1280,7 +1320,7 @@
       extraKeywords: _parseJsonArrayAttr(card, "data-extra-keywords"),
       talkingPoints: _parseJsonArrayAttr(card, "data-ai-talking-points"),
       atsFitScore: atsFitScore,
-      atsFitRationale: String(_attr(card, "data-ats-fit-rationale") || "").trim(),
+      atsFitRationale: _inline(_attr(card, "data-ats-fit-rationale")),
       status: String(_attr(card, "data-enrichment-status") || "").trim(),
       /* Provenance (P0-C). Absent attributes stay "" and the dossier
          classifier reads that as 'unknown' — never as posting-grounded. */
