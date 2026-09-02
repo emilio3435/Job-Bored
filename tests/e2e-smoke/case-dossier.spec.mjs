@@ -11,7 +11,7 @@
  *   npm run test:e2e-smoke
  */
 
-import { copyFileSync, mkdirSync } from "node:fs";
+import { mkdirSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { test, expect } from "@playwright/test";
@@ -24,7 +24,6 @@ const DEMO_BOARD = "#oneFlowDemoBoard";
 const ROLE_REGION = '[data-region="role"]';
 const REPO_ROOT = join(dirname(fileURLToPath(import.meta.url)), "..", "..");
 const EVIDENCE_DIR = join(REPO_ROOT, ".lane-evidence");
-const REPORTS_DIR = join(REPO_ROOT, "docs/programs/dossier-case/reports");
 const TYPED_NOTE = "V1 typed note that must survive a render";
 
 let app = null;
@@ -210,19 +209,19 @@ async function seedPipelineThroughApp(page, jobs) {
   ).toBe(true);
 }
 
-async function screenshotCase(page, width, height, evidenceName, reportName) {
+async function screenshotCase(page, width, height, evidenceName) {
   await page.setViewportSize({ width, height });
   await page.evaluate(() => {
     document.querySelectorAll(".toast").forEach((el) => el.remove());
   });
   const caseRoot = page.locator(`${ROLE_REGION} .case`);
   await expect(caseRoot).toBeVisible();
+  /* Screenshots land in gitignored .lane-evidence/ only. The archived
+     V1-case-*.png under docs/programs/dossier-case/reports/ are the
+     one-time verification record and must not churn on every run. */
   mkdirSync(EVIDENCE_DIR, { recursive: true });
-  mkdirSync(REPORTS_DIR, { recursive: true });
   const evidencePath = join(EVIDENCE_DIR, evidenceName);
-  const reportPath = join(REPORTS_DIR, reportName);
   await caseRoot.screenshot({ path: evidencePath, animations: "disabled" });
-  copyFileSync(evidencePath, reportPath);
 }
 
 test("The Case renders in a real browser from seeded pipeline data", async ({ page }) => {
@@ -291,13 +290,11 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
     1440,
     900,
     "V1-case-desktop.png",
-    "V1-case-desktop.png",
   );
   await screenshotCase(
     page,
     720,
     1200,
-    "V1-case-mobile.png",
     "V1-case-mobile.png",
   );
   await page.setViewportSize({ width: 1440, height: 900 });
