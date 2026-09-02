@@ -45,6 +45,15 @@
     payoff: "Done",
   });
 
+  /**
+   * Spec §3.4: closing is pausing. The reasons here are the ones a PERSON
+   * causes — Escape, the × button, and the programmatic close the S0 card
+   * uses. "flow-complete" never reaches this function, and "destroy" is a
+   * teardown nobody asked for, so neither earns the line.
+   */
+  const PAUSE_TOAST = "Setup paused — pick up anytime from the corner pill.";
+  const PAUSE_REASONS = new Set(["escape", "close-button", "close"]);
+
   const DEFAULT_STATE = Object.freeze({
     version: FLOW_STATE_VERSION,
     beat: "",
@@ -92,6 +101,14 @@
   function shell() {
     const ns = window.JobBoredDiscoveryWizard;
     return (ns && ns.shell) || null;
+  }
+
+  function toast(message, tone) {
+    const app = window.JobBoredApp;
+    const bridge = (app && app.core && app.core.host) || null;
+    if (bridge && typeof bridge.showToast === "function") {
+      bridge.showToast(message, tone);
+    }
   }
 
   function emit(step, detail) {
@@ -461,13 +478,21 @@
   /**
    * The shell's own × / Esc path lands here (spec §3.4): closing is
    * pausing. The saved beat is untouched; only the drop-off is recorded.
+   *
+   * The state machine always honoured that, but the SCREEN said nothing —
+   * Escape dropped you onto the board with no acknowledgement, which reads
+   * as "did I just lose my setup?". So the pause is now spoken. A toast and
+   * not a confirm dialog: a confirm would frame pausing as quitting, and
+   * §3.4 says it is neither.
    */
   function handleShellClose(reason) {
     if (!openBeatId) return;
     const beat = openBeatId;
+    const why = asString(reason, "close");
     openBeatId = "";
     flowOpenEmitted = false;
-    emit(steps().BEAT_ABANDONED, { beat, reason: asString(reason, "close") });
+    if (PAUSE_REASONS.has(why)) toast(PAUSE_TOAST, "info");
+    emit(steps().BEAT_ABANDONED, { beat, reason: why });
   }
 
   function close(reason) {
