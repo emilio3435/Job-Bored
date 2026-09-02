@@ -31,6 +31,7 @@
 
   var REGION_SELECTOR = '[data-region="role"]';
   var BRIEF_SELECTOR = '[data-mount="brief"]';
+  var MATERIALS_MOUNT_SELECTOR = '[data-mount="materials"]';
   var SECTION_CLASS = "brief-materials";
 
   /* Allowlist mirrored from server/application-materials.mjs. Keep in
@@ -727,6 +728,43 @@
     } catch (e) { /* swallow */ }
   }
 
+  /* The Case renders its own [data-mount="materials"]; the legacy dossier
+     only has [data-mount="brief"]. Resolve the panel host once, here, so
+     every render path lands in the same place during the cutover. */
+  function findMount() {
+    if (typeof document === "undefined" || !document.querySelector) return null;
+    var region = document.querySelector(REGION_SELECTOR);
+    if (!region || typeof region.querySelector !== "function") return null;
+    return (
+      region.querySelector(MATERIALS_MOUNT_SELECTOR)
+      || region.querySelector(BRIEF_SELECTOR)
+    );
+  }
+
+  /* Manifest ownership: role-materials is the only module that fetches the
+     manifest, so it announces every manifest it renders and keeps the last
+     one readable. The Case model reads it instead of re-fetching. */
+  var currentManifest = null;
+
+  function commitManifest(hostEl, manifest, base, jobKey) {
+    renderManifest(hostEl, manifest, base);
+    currentManifest = {
+      jobKey: jobKey != null && jobKey !== ""
+        ? jobKey
+        : (currentContext && currentContext.jobKey) || "",
+      manifest: manifest,
+      base: base,
+    };
+    dispatch("jb:materials:manifest", {
+      jobKey: currentManifest.jobKey,
+      manifest: manifest,
+    });
+  }
+
+  function getCurrentManifest() {
+    return currentManifest;
+  }
+
   function wireSection(briefEl) {
     if (!briefEl) return;
     var section = briefEl.querySelector("." + SECTION_CLASS);
@@ -787,13 +825,12 @@
         return fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
       })
       .then(function (manifest) {
-        var region = document.querySelector(REGION_SELECTOR);
-        var brief = region && region.querySelector(BRIEF_SELECTOR);
-        if (brief) renderManifest(brief, manifest, base);
+        var brief = findMount();
+        if (brief) commitManifest(brief, manifest, base);
         dispatch("jb:materials:changed", { slug: slug, reason: "dismiss" });
       })
       .catch(function (err) {
-        var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+        var brief = findMount();
         if (brief) renderError(brief, "Couldn't dismiss: " + ((err && err.message) || "unknown error"));
       });
   }
@@ -804,8 +841,7 @@
     /* Retry is dismiss + immediate re-request, reusing the original
        notes and metadata so the user doesn't have to retype. */
     var prevNotes = "";
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     var noteEl = brief && brief.querySelector(".brief-materials__progress-note");
     if (noteEl) {
       prevNotes = String(noteEl.textContent || "").replace(/^"|"$/g, "").trim();
@@ -838,10 +874,10 @@
         dispatch("jb:materials:changed", { slug: slug, reason: "repair-sent" });
         return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
       }).then(function (manifest) {
-        var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+        var brief = findMount();
         if (!brief) return;
         getApplications(ctx.base, { refresh: true });
-        renderManifest(brief, manifest, ctx.base);
+        commitManifest(brief, manifest, ctx.base, ctx.jobKey);
         if (manifest.pending) startPolling(manifest.slug, ctx.base);
         dispatch("jb:materials:changed", { slug: slug });
       });
@@ -854,7 +890,7 @@
       renderOptimisticPending(ctx, feature, repairNote, "jobbored-dossier-repair");
       return ensureJobDescription(ctx);
     }).then(completeRepairRequest).catch(function (err) {
-      var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+      var brief = findMount();
       if (!brief) return;
       if (err && err.code === "JD_PASTE_REQUIRED") {
         renderJdPasteForm(brief, ctx, feature, repairNote, completeRepairRequest);
@@ -1091,8 +1127,7 @@
         /* Honesty over silence: a draft that has produced nothing in 30
            minutes almost certainly has a dead worker behind it. Say so
            instead of freezing the progress card mid-climb. */
-        var capRegion = document.querySelector(REGION_SELECTOR);
-        var capBrief = capRegion && capRegion.querySelector(BRIEF_SELECTOR);
+        var capBrief = findMount();
         if (capBrief) {
           renderError(
             capBrief,
@@ -1103,10 +1138,9 @@
       }
       fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest")
         .then(function (manifest) {
-          var region = document.querySelector(REGION_SELECTOR);
-          var brief = region && region.querySelector(BRIEF_SELECTOR);
+          var brief = findMount();
           if (!brief) return;
-          renderManifest(brief, manifest, base);
+          commitManifest(brief, manifest, base);
           if (manifest.pending) {
             var delay = Math.min(maxDelay, minDelay + attempts * 500);
             poller = { timeoutId: setTimeout(tick, delay) };
@@ -1250,7 +1284,7 @@
     if (!shouldRun()) return;
     var region = document.querySelector(REGION_SELECTOR);
     if (!region) return;
-    var brief = region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     var job = getMaterialsJob(jobKey);
@@ -1295,7 +1329,7 @@
       }
       return fetchJson(base + "/api/applications/" + encodeURIComponent(picked.slug) + "/manifest")
         .then(function (manifest) {
-          renderManifest(brief, manifest, base);
+          commitManifest(brief, manifest, base, jobKey);
           if (manifest.pending) startPolling(manifest.slug, base);
           else stopPolling();
         });
@@ -1469,10 +1503,9 @@
 
   function renderAutoDraftManifestInOpenDossier(jobKey, manifest, base) {
     if (!isOpenRole(jobKey)) return;
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
-    renderManifest(brief, manifest, base);
+    commitManifest(brief, manifest, base, jobKey);
     if (manifest && manifest.pending) startPolling(manifest.slug, base);
     else stopPolling();
   }
@@ -1703,7 +1736,7 @@
   function showNotesForm(feature, onSubmit) {
     if (!shouldRun()) return;
     var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     /* Remove any prior open form so a second click replaces it cleanly. */
@@ -1822,8 +1855,7 @@
   function handleDraftRequest(feature, jobKeyHint) {
     if (!shouldRun()) return;
     var ctx = resolveMaterialsContext(jobKeyHint);
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!ctx) {
       if (brief) {
         var base = getBaseUrl();
@@ -1847,8 +1879,7 @@
   }
 
   function renderOptimisticPending(ctx, feature, notes, source) {
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     var optimisticManifest = {
@@ -1876,13 +1907,12 @@
         if (manifest) {
           base.pending = optimisticManifest.pending;
         }
-        renderManifest(brief, base, ctx.base);
+        commitManifest(brief, base, ctx.base, ctx.jobKey);
       });
   }
 
   function submitDraftRequest(ctx, feature, notes) {
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     /* Optimistic UI: stamp a fresh "pending" banner immediately so the
@@ -1919,18 +1949,18 @@
       /* Re-fetch so we render the real pending.json the server wrote. */
       return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/manifest");
     }).then(function (manifest) {
-      var brief2 = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+      var brief2 = findMount();
       if (!brief2) return;
       /* Force the applications cache to refresh so the next role open
          sees the new folder (Hermes creates it when none existed). */
       getApplications(ctx.base, { refresh: true });
-      renderManifest(brief2, manifest, ctx.base);
+      commitManifest(brief2, manifest, ctx.base, ctx.jobKey);
       if (manifest.pending) startPolling(manifest.slug, ctx.base);
       /* Nudge the global queue strip so it shows the new request
          without waiting for its next poll. */
       dispatch("jb:materials:changed", { slug: ctx.slug });
     }).catch(function (err) {
-      var brief3 = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+      var brief3 = findMount();
       if (!brief3) return;
       /* The "needs paste" path is a structured error — show a paste
          form instead of a generic error string. */
@@ -2123,6 +2153,7 @@
     }
   }
   function onClosed() {
+    currentManifest = null;
     clearCache();
   }
 
@@ -2199,6 +2230,7 @@
     buildCandidateSlug: buildCandidateSlug,
     pickApplication: pickApplication,
     renderManifest: renderManifest,
+    getCurrentManifest: getCurrentManifest,
     renderEmpty: renderEmpty,
     renderError: renderError,
     /** Test-only hook to inject a fresh applications list. */
