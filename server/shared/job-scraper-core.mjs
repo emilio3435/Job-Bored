@@ -999,7 +999,9 @@ function salaryFromJobPostingLd(jobPosting) {
   const exact = salaryNumber(nestedValue ? values.value : salary.value);
   if (min === null && max === null && exact === null) return "";
 
-  const currency = normalizeInlineField(salary.currency).toUpperCase();
+  const currency = normalizeInlineField(
+    values.currency || salary.currency || jobPosting.salaryCurrency,
+  ).toUpperCase();
   const symbols = /** @type {Record<string, string>} */ ({
     USD: "$",
     EUR: "€",
@@ -1008,16 +1010,21 @@ function salaryFromJobPostingLd(jobPosting) {
   const prefix = symbols[currency] || (currency ? currency + " " : "");
   const formatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 20 });
   const amount = (/** @type {number} */ value) => prefix + formatter.format(value);
-  const singleValue = min ?? max ?? exact;
+  // A bound is not an offer: only a min+max range, or an explicit exact value,
+  // may render as a bare number.
+  const singleValue = exact ?? min ?? max;
+  const boundLabel = exact !== null ? "" : min !== null ? "From " : "Up to ";
   const displayAmount =
     min !== null && max !== null
       ? amount(min) + "–" + amount(max)
       : singleValue === null
         ? ""
-        : amount(singleValue);
+        : boundLabel + amount(singleValue);
 
   const unit = normalizeInlineField(values.unitText || salary.unitText).toUpperCase();
-  const unitSuffix = { YEAR: "/yr", MONTH: "/mo", HOUR: "/hr" }[unit] || "";
+  const unitSuffix =
+    { YEAR: "/yr", MONTH: "/mo", WEEK: "/wk", DAY: "/day", HOUR: "/hr" }[unit] ||
+    (unit ? " per " + unit.toLowerCase() : "");
   const currencySuffix = symbols[currency] ? " " + currency : "";
   return displayAmount + currencySuffix + unitSuffix;
 }
