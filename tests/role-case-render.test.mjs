@@ -1,0 +1,136 @@
+/* ============================================================
+   role-case-render.test.mjs
+   ------------------------------------------------------------
+   The Case renderer paints every block of the approved design
+   (spec §1, §5, §7) from the CaseModel alone: status rail,
+   stage stepper, numbers band, the three evidence lanes, notes,
+   and the dated record — with the DOM contract (data-action
+   values, the materials mount, case__* classes) L5 wires to.
+
+   Harness: trap 2 — jb-text.js evaluates BEFORE role-case-model.js
+   and role-case.js, or both consumers throw and the renderer
+   silently returns empty HTML. Every assertion here is positive
+   content except the four that pin a block's absence.
+   ============================================================ */
+import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import vm from "node:vm";
+import { describe, it } from "node:test";
+
+const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const STAGES = ["new", "researching", "applied", "phone-screen", "interviewing", "offer", "rejected", "passed", "expired"];
+const stages = {
+  pairs: () => STAGES.map((k) => ({ key: k, label: k.replace("-", " ") })),
+  toKey: (v) => STAGES.includes(v) ? v : "",
+  toLabel: (v) => String(v).replace("-", " "),
+  isClosed: (v) => ["rejected", "passed", "expired"].includes(v),
+};
+const NOW = Date.parse("2026-09-01T12:00:00Z");
+
+function load() {
+  const sandbox = { window: { JobBoredStages: stages } };
+  vm.runInNewContext(readFileSync(join(repoRoot, "jb-text.js"), "utf8"), sandbox, { filename: "jb-text.js" });
+  assert.equal(typeof sandbox.window.JobBoredText.escapeHtml, "function", "jb-text must load first");
+  vm.runInNewContext(readFileSync(join(repoRoot, "role-case-model.js"), "utf8"), sandbox, { filename: "role-case-model.js" });
+  vm.runInNewContext(readFileSync(join(repoRoot, "role-case.js"), "utf8"), sandbox, { filename: "role-case.js" });
+  return sandbox.window.JobBoredCase;
+}
+const Case = load();
+
+/* Same fixture as tests/role-case-model.test.mjs (Meridian Labs, fictional). */
+function baseDeps(over = {}) {
+  return {
+    vm: { job: {
+      jobKey: "job-1", role: "Senior PM", company: "Meridian Labs", location: "Austin, TX", employment: "Full-time",
+      salary: "$185–230k", source: "Ashby", stage: "researching", daysInStage: 2, appliedAt: "",
+      fitScore: 8, tags: ["Design Systems"], links: [{ label: "Posting", href: "https://jobs.test/1" }], foundAt: "2026-08-29", talkingPoints: [],
+      notes: { body: "Recruiter: Dana", editedAt: "" }, priority: "high", favorite: true, logoUrl: "",
+      matchScore: null, lastHeardFrom: "2026-08-31", followUpDate: "2026-09-04", replied: "No",
+      requirements: ["5+ years design systems", "WCAG 2.2"], skills: ["React"],
+      enrichment: { roleInOneLine: "Design **infrastructure** that ships.", mustHaves: ["5+ years design systems"], niceToHaves: ["Mentoring"],
+        toolsAndStack: ["React", "Storybook"], talkingPoints: ["Shipped tokens; cut drift 80%"], status: "ready", enrichedAt: NOW - 3 * 864e5, scrapeMethod: "ats-api" },
+    } },
+    keywords: { percentage: 74, foundCount: 12, partialCount: 4, missingTerms: [{ label: "Kubernetes" }],
+      byLabel: new Map([["5+ years design systems", "found"], ["wcag 2.2", "found"], ["react", "found"], ["storybook", "partial"], ["mentoring", "missing"]]) },
+    scorecard: { result: { overallScore: 82, topStrengths: ["Led a11y guild"], evidence: [{ claim: "Token pipeline", sourceSnippet: "Built a token pipeline", sourceType: "resume" }],
+      criticalGaps: [{ gap: "Experimentation", whyItMatters: "Named twice", severity: "high" }],
+      dimensionScores: { requirementsCoverage: 84, experienceRelevance: 88, impactClarity: 72, atsParseability: 90, toneFit: 78 } }, storedAt: "2026-08-30T00:00:00Z" },
+    manifest: { documents: [
+      { type: "resume", label: "Tailored resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] },
+      { type: "cover_letter", label: "Cover letter", status: "pending", files: [] },
+      { type: "qa_report", label: "QA report", status: "ready", lastModifiedAt: "2026-08-30T09:05:00Z", files: [] },
+    ], pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 42, attempt: 1 } } },
+    materialsError: "",
+    health: { state: "open", label: "Posting open", detail: "", checkedAt: "2026-08-31" },
+    stages, providerLabel: "OpenAI", nowMs: NOW, parseDate: (s) => { const t = Date.parse(s); return Number.isFinite(t) ? t : null; },
+    ...over,
+  };
+}
+
+/** A CaseModel; `vmPatch` overrides fields on the fixture job. */
+function model(over = {}) {
+  const { vmPatch, ...depsOver } = over;
+  const deps = baseDeps(depsOver);
+  if (vmPatch) deps.vm = { job: { ...deps.vm.job, ...vmPatch } };
+  return Case.model.buildCaseModel("job-1", deps);
+}
+
+function renderHtml(m) {
+  const mount = { innerHTML: "" };
+  Case.render(mount, m);
+  return mount.innerHTML;
+}
+
+describe("The Case renders every block from the model", () => {
+  it("rail, stepper, numbers, one-line", () => {
+    const html = renderHtml(model());
+    assert.match(html, /<header class="case__rail">/);
+    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="title"[^>]*value="Senior PM"/);
+    assert.match(html, /data-action="brief-view-posting"[^>]*href="https:\/\/jobs\.test\/1"/);
+    assert.match(html, /class="case__pill case__pill--due"[^>]*>[\s\S]*?2026-09-04[\s\S]*?in 3 days/);
+    assert.match(html, /class="case__pill case__pill--open"/);
+    assert.match(html, /<button[^>]*data-action="stage-step"[^>]*data-stage="applied"/);
+    assert.match(html, /class="case__step case__step--now"[^>]*>[\s\S]*?researching[\s\S]*?day 2/i);
+    assert.match(html, /<div class="case__num"[^>]*data-num="fit">[\s\S]*?8<small>\/10<\/small>/);
+    assert.match(html, /data-num="keywords"[\s\S]*?74<small>%<\/small>[\s\S]*?12 found · 4 partial · 1 missing/);
+    assert.match(html, /<button[^>]*data-action="open-profile-match"/);
+    assert.match(html, /class="case__quote"[^>]*>[\s\S]*?Design infrastructure that ships\./);
+  });
+  it("they want / you have / your moves lanes", () => {
+    const html = renderHtml(model());
+    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?<li[^>]*data-status="found"[^>]*>[\s\S]*?5\+ years design systems/);
+    assert.match(html, /class="case__chip"[^>]*data-status="partial"[^>]*>[\s\S]*?Storybook/);
+    assert.match(html, /class="case__lane case__lane--you"[\s\S]*?case__sev--high[\s\S]*?Experimentation/);
+    assert.match(html, /class="case__dim"[\s\S]*?style="width: 84%;"/);
+    assert.match(html, /class="case__lane case__lane--moves"[\s\S]*?<span class="case__idx">01<\/span>/);
+    assert.match(html, /<div class="case__materials" data-mount="materials"><\/div>/);
+    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="followupAt"[^>]*type="date"[^>]*value="2026-09-04"/);
+    assert.match(html, /<button[^>]*data-action="edit-field"[^>]*data-field="reply"[^>]*data-value="Yes"/);
+    assert.match(html, /<textarea[^>]*data-action="notes"[^>]*>Recruiter: Dana<\/textarea>/);
+  });
+  it("record with hollow future step and configured provider", () => {
+    const html = renderHtml(model());
+    assert.match(html, /class="case__ev case__ev--future"[\s\S]*?Applied[\s\S]*?Not yet/);
+    assert.match(html, /Enriched[\s\S]*?OpenAI/);
+    assert.doesNotMatch(html, /Gemini/);
+  });
+  it("hides blocks with no inputs and shows the no-resume line", () => {
+    const html = renderHtml(model({ keywords: null, scorecard: null, manifest: null, vmPatch: { followUpDate: "" } }));
+    assert.doesNotMatch(html, /case__pill--due/);
+    assert.doesNotMatch(html, /data-num="keywords"/);
+    assert.doesNotMatch(html, /case__lane--you/);
+    assert.match(html, /Add a resume to see what matches/);
+  });
+  it("escapes exactly once", () => {
+    const html = renderHtml(model({ vmPatch: { role: 'Eng <b>"x"</b> & co' } }));
+    assert.match(html, /value="Eng &lt;b&gt;&quot;x&quot;&lt;\/b&gt; &amp; co"/);
+    assert.doesNotMatch(html, /&amp;amp;/);
+  });
+  it("terminal stage collapses the stepper", () => {
+    const html = renderHtml(model({ vmPatch: { stage: "rejected" } }));
+    assert.match(html, /class="case__terminal"[^>]*>[\s\S]*?rejected/i);
+    assert.doesNotMatch(html, /data-action="stage-step"/);
+  });
+});
