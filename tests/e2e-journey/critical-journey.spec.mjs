@@ -61,7 +61,7 @@ const BEAT_ONE = {
 const SPINE_LABELS = ["Google", "AI", "Resume", "Your fit", "Discovery", "Done"];
 
 /** SIXBEATS C5 — spec §3.4 "closing is pausing", said out loud. Verbatim. */
-const PAUSE_TOAST = "Setup paused — pick up anytime from the corner pill.";
+const PAUSE_TOAST = "Setup paused — pick up right here anytime.";
 
 /** SIXBEATS C2 — B3's two doors, verbatim. */
 const BEAT_THREE = {

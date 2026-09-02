@@ -106,6 +106,7 @@ export default [
       // Scratch dir: gitignored going forward, but one stale file is still
       // tracked from before the ignore rule — don't lint throwaways.
       "tmp/**",
+      ".lane-evidence/**",
     ],
   },
   {
