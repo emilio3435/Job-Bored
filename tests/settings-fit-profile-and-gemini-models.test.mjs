@@ -9,6 +9,7 @@ const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const schemaJs = readFileSync(join(repoRoot, "settings-tab-schema.js"), "utf8");
 const resumeGenerateJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 const settingsModalJs = readFileSync(join(repoRoot, "settings-modal.js"), "utf8");
+const modelCatalogJs = readFileSync(join(repoRoot, "model-catalog.js"), "utf8");
 const fitProfileEditorJs = readFileSync(
   join(repoRoot, "fit-profile-editor.js"),
   "utf8",
@@ -26,6 +27,25 @@ function loadModelOptions() {
   vm.createContext(ctx);
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   return ctx.window.CommandCenterResumeModelOptions;
+}
+
+function loadCatalog() {
+  const ctx = {
+    window: {},
+    console: { log() {}, warn() {}, error() {} },
+    fetch: async () => {
+      throw new Error("no fetch");
+    },
+    localStorage: {
+      getItem: () => null,
+      setItem() {},
+      removeItem() {},
+    },
+    Date,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(modelCatalogJs, ctx, { filename: "model-catalog.js" });
+  return ctx.window.JobBoredModelCatalog;
 }
 
 describe("Settings Fit Profile tab", () => {
@@ -66,17 +86,101 @@ describe("Settings Fit Profile tab", () => {
   });
 });
 
+function makeSelectEl() {
+  const el = {
+    tagName: "SELECT",
+    innerHTML: "",
+    value: "",
+    title: "",
+    dataset: {},
+    options: [],
+    addEventListener() {},
+    removeAttribute() {},
+    appendChild(opt) {
+      this.options.push(opt);
+    },
+  };
+  return el;
+}
+
+function loadSettingsFill({ catalogModels, resumeOptions } = {}) {
+  const geminiSelect = makeSelectEl();
+  const selects = new Map([["settingsResumeGeminiModel", geminiSelect]]);
+  const windowObj = {
+    JobBoredApp: { core: { host: {} } },
+    CommandCenterResumeModelOptions: resumeOptions || {
+      gemini: [
+        {
+          value: "gemini-3.1-pro-preview",
+          label: "Gemini 3.1 Pro · Preview",
+          description: "Pro: strongest. Con: cost.",
+        },
+      ],
+      openai: [{ value: "gpt-4o-mini", label: "GPT-4o mini" }],
+      anthropic: [{ value: "claude-sonnet-4-6", label: "Claude Sonnet 4.6" }],
+      openrouter: [{ value: "openai/gpt-oss-120b:free", label: "GPT-OSS 120B" }],
+      local: [{ value: "gemma4:e2b", label: "Gemma 4 E2B" }],
+    },
+    JobBoredModelCatalog: {
+      getStaticModels(provider) {
+        if (provider === "gemini") {
+          return (
+            catalogModels || [
+              {
+                value: "gemini-flash",
+                label: "Gemini Flash (latest)",
+                description: "Newest stable Flash. Resolves at call time.",
+              },
+              { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" },
+            ]
+          );
+        }
+        return [];
+      },
+      getProviderModels: async () => ({ models: [], source: "static" }),
+    },
+  };
+  const document = {
+    getElementById(id) {
+      if (!selects.has(id)) selects.set(id, makeSelectEl());
+      return selects.get(id);
+    },
+    createElement() {
+      return { value: "", textContent: "", title: "" };
+    },
+  };
+  const ctx = {
+    window: windowObj,
+    document,
+    console: { log() {}, warn() {}, error() {} },
+  };
+  vm.createContext(ctx);
+  vm.runInContext(settingsModalJs, ctx, { filename: "settings-modal.js" });
+  return {
+    api: ctx.window.JobBoredApp.settings,
+    geminiSelect,
+  };
+}
+
 describe("Settings Gemini model menu", () => {
   it("offers only the current approved Gemini models", () => {
     const options = loadModelOptions();
-    assert.deepEqual(
-      JSON.parse(JSON.stringify(options.gemini.map((option) => option.value))),
-      [
-        "gemini-3.1-pro-preview",
-        "gemini-3.5-flash",
-        "gemini-3-flash-preview",
-        "gemini-3.1-flash-lite-preview",
-      ],
+    const catalog = loadCatalog();
+    const catalogValues = JSON.parse(
+      JSON.stringify(catalog.getStaticModels("gemini").map((option) => option.value)),
+    );
+    assert.equal(catalogValues[0], "gemini-flash");
+    assert.deepEqual(catalogValues, [
+      "gemini-flash",
+      "gemini-3.5-flash",
+      "gemini-3.1-pro-preview",
+      "gemini-3-flash-preview",
+      "gemini-3.1-flash-lite-preview",
+    ]);
+    assert.match(
+      settingsModalJs,
+      /catalog\.getStaticModels\("gemini"\)/,
+      "Settings Gemini fill must use the catalog so gemini-flash is first",
     );
     assert.ok(
       options.gemini.every((option) => option.description && /Pro:|Con:/.test(option.description)),
@@ -86,6 +190,25 @@ describe("Settings Gemini model menu", () => {
       !options.gemini.some((option) => /gemini-2\.|gemini-1\./.test(option.value)),
       "deprecated Gemini 1.x/2.x models must not appear in Settings",
     );
+    assert.ok(
+      !catalogValues.some((value) => /gemini-2\.|gemini-1\./.test(value)),
+      "deprecated Gemini 1.x/2.x models must not appear in the catalog Gemini list",
+    );
+  });
+
+  it("fills the Gemini Settings menu from the catalog with gemini-flash first", () => {
+    const { api, geminiSelect } = loadSettingsFill();
+    api.fillResumeModelSelectsFromConfig({ resumeGeminiModel: "gemini-flash" });
+    assert.equal(geminiSelect.options[0].value, "gemini-flash");
+    assert.equal(geminiSelect.value, "gemini-flash");
+  });
+
+  it("Settings save POSTs the selected provider pin to /api/llm-config", () => {
+    assert.match(settingsModalJs, /jobBoredApiUrl \+ "\/api\/llm-config"/);
+    assert.match(settingsModalJs, /method:\s*"POST"/);
+    assert.match(settingsModalJs, /http:\/\/127\.0\.0\.1:3847/);
+    assert.doesNotMatch(settingsModalJs, /http:\/\/localhost:3847/);
+    assert.match(settingsModalJs, /console\.warn\("\[JobBored\] llm-config pin POST failed:"/);
   });
 
   it("uses option and select titles as hover/selected tooltips", () => {
@@ -108,6 +231,36 @@ describe("Settings Gemini model menu", () => {
 
   it("does not preserve unsupported saved Gemini models in the dropdown", () => {
     assert.match(settingsModalJs, /const isGeminiSelect = selectId === "settingsResumeGeminiModel";/);
-    assert.match(settingsModalJs, /v && !values\.has\(v\) && !isGeminiSelect/);
+    assert.match(
+      settingsModalJs,
+      /v && !values\.has\(v\) && \(!isGeminiSelect \|\| isGeminiFlashFamily\)/,
+    );
+    const { api, geminiSelect } = loadSettingsFill({
+      catalogModels: [
+        { value: "gemini-flash", label: "Gemini Flash (latest)" },
+        { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" },
+      ],
+    });
+    api.fillOneResumeModelSelect(
+      "settingsResumeGeminiModel",
+      [{ value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" }],
+      "gemini-1.5-pro",
+    );
+    assert.equal(
+      geminiSelect.options.some((o) => o.value === "gemini-1.5-pro"),
+      false,
+      "unknown Gemini snapshot ids must not be kept as (saved) options",
+    );
+    api.fillOneResumeModelSelect(
+      "settingsResumeGeminiModel",
+      [{ value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" }],
+      "gemini-flash",
+    );
+    assert.equal(
+      geminiSelect.options.some((o) => o.value === "gemini-flash"),
+      true,
+      "the gemini-flash family alias must stay selectable when the live list omits it",
+    );
+    assert.equal(geminiSelect.value, "gemini-flash");
   });
 });

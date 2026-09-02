@@ -26,7 +26,11 @@
     "One AI key powers everything personal here: it drafts your fit " +
     "profile from your resume on the next screen, scores every job " +
     "discovery finds, and writes your tailored resumes and cover " +
-    "letters. OpenRouter is free and takes about two minutes.";
+    "letters. Gemini Flash is the recommended pin; OpenRouter is a " +
+    "free alternative.";
+
+  const WEAK_MATERIALS_MODEL_WARNING =
+    "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
 
   const ACTION_CHECK = "ai_check";
   const KEY_INPUT_ID = "oneFlowAiKeyInput";
@@ -51,23 +55,27 @@
    */
   const PROVIDERS = [
     {
-      id: "openrouter",
-      label: "OpenRouter — free",
-      note: "Recommended. Free tier, no card, works straight from the browser.",
-      keyField: "resumeOpenRouterApiKey",
-      keyPlaceholder: "sk-or-…",
-      signupUrl: "https://openrouter.ai/keys",
-      signupLabel: "Create a free OpenRouter account ↗",
-      cors: false,
-    },
-    {
       id: "gemini",
       label: "Gemini",
-      note: "Google's free tier. Also lights up URL import and grounded search.",
+      note: "Recommended. Free tier, and it lights up URL import and grounded search.",
       keyField: "resumeGeminiApiKey",
+      modelField: "resumeGeminiModel",
+      defaultModel: "gemini-flash",
       keyPlaceholder: "AIza…",
       signupUrl: "https://aistudio.google.com/app/apikey",
       signupLabel: "Create a free Gemini key ↗",
+      cors: false,
+    },
+    {
+      id: "openrouter",
+      label: "OpenRouter — free",
+      note: "Free tier, no card, works straight from the browser.",
+      keyField: "resumeOpenRouterApiKey",
+      modelField: "resumeOpenRouterModel",
+      defaultModel: "openai/gpt-oss-120b:free",
+      keyPlaceholder: "sk-or-…",
+      signupUrl: "https://openrouter.ai/keys",
+      signupLabel: "Create a free OpenRouter account ↗",
       cors: false,
     },
     {
@@ -75,6 +83,8 @@
       label: "OpenAI",
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeOpenAIApiKey",
+      modelField: "resumeOpenAIModel",
+      defaultModel: "gpt-5.6-terra",
       keyPlaceholder: "sk-…",
       signupUrl: "https://platform.openai.com/api-keys",
       signupLabel: "Create an OpenAI key ↗",
@@ -85,6 +95,8 @@
       label: "Anthropic",
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeAnthropicApiKey",
+      modelField: "resumeAnthropicModel",
+      defaultModel: "claude-sonnet-5",
       keyPlaceholder: "sk-ant-…",
       signupUrl: "https://console.anthropic.com/settings/keys",
       signupLabel: "Create an Anthropic key ↗",
@@ -95,6 +107,8 @@
       label: "Local — on your machine",
       note: "No key, no cost. Needs a model server (Ollama) already running.",
       keyField: "",
+      modelField: "resumeLocalModel",
+      defaultModel: "gemma4:e2b",
       baseUrlField: "resumeLocalBaseUrl",
       baseUrlPlaceholder: "http://127.0.0.1:11434/v1",
       cors: false,
@@ -110,7 +124,7 @@
   // ---------------------------------------------------------------
 
   const state = {
-    provider: "openrouter",
+    provider: "gemini",
     keyDraft: "",
     baseUrlDraft: "",
     stages: [],
@@ -377,14 +391,63 @@
   // Persist + verify (spec §5 B2 exit condition)
   // ---------------------------------------------------------------
 
+  function liveConfig() {
+    return (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  }
+
+  function resolveModel(def) {
+    const cfg = liveConfig();
+    const fromCfg =
+      def.modelField && typeof cfg[def.modelField] === "string"
+        ? cfg[def.modelField].trim()
+        : "";
+    return fromCfg || def.defaultModel || "";
+  }
+
+  function resolveJobBoredApiUrl() {
+    const raw = String(liveConfig().jobBoredApiUrl || "").trim();
+    if (raw) return raw.replace(/\/+$/, "");
+    return "http://127.0.0.1:3847";
+  }
+
   /** The one write path: the override store, mirrored into the live config. */
   function persistProviderConfig(def, value) {
     const patch = { resumeProvider: def.id };
     if (def.baseUrlField) patch[def.baseUrlField] = value;
-    else patch[def.keyField] = value;
+    else if (def.keyField) patch[def.keyField] = value;
+    if (def.modelField) patch[def.modelField] = resolveModel(def);
     call("mergeStoredConfigOverridePatch", patch);
     const cfg = window.COMMAND_CENTER_CONFIG;
     if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
+  }
+
+  async function postLlmConfigPin(def, value) {
+    const model = resolveModel(def);
+    if (!def.id || !model) return;
+    if (typeof fetch !== "function") return;
+    const pin = {
+      provider: def.id,
+      model,
+      apiKey: def.baseUrlField ? "" : String(value || "").trim(),
+      baseUrl: def.baseUrlField ? String(value || "").trim() : "",
+    };
+    try {
+      const resp = await fetch(resolveJobBoredApiUrl() + "/api/llm-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pin),
+      });
+      if (!resp || resp.ok === false) {
+        const status = resp && typeof resp.status === "number" ? resp.status : 0;
+        console.warn("[JobBored] llm-config pin POST failed:", status || "network");
+      }
+    } catch (err) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String(err.message)
+          : String(err);
+      console.warn("[JobBored] llm-config pin POST failed:", message);
+    }
   }
 
   async function writeGeminiKeyThrough(key) {
@@ -487,6 +550,18 @@
       state.geminiWroteThrough = await writeGeminiKeyThrough(value);
     }
 
+    await postLlmConfigPin(def, value);
+
+    const pinModel = resolveModel(def);
+    const catalog = window.JobBoredModelCatalog;
+    const isWeak =
+      catalog && typeof catalog.isWeakMaterialsModel === "function"
+        ? catalog.isWeakMaterialsModel(pinModel)
+        : false;
+    if (isWeak) {
+      repaint(ctx, WEAK_MATERIALS_MODEL_WARNING, "warn");
+    }
+
     state.keyDraft = "";
     fields.value = null;
     if (ctx && typeof ctx.completeBeat === "function") {
@@ -520,6 +595,7 @@
     SUB,
     PROVIDERS,
     GEMINI_BONUS_LINE,
+    WEAK_MATERIALS_MODEL_WARNING,
     handleAction,
     getRenderedStages() {
       return state.stages.slice();

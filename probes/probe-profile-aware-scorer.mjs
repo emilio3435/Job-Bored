@@ -1,4 +1,4 @@
-// Probe: confirm scoreListingWithLlm hits gemini-3.5-flash endpoint.
+// Probe: confirm scoreListingWithLlm hits gemini-3.7-flash endpoint.
 // Run from repo root with:
 //   node --experimental-strip-types probes/probe-profile-aware-scorer.mjs
 
@@ -68,7 +68,7 @@ if (!hit) {
   process.exit(2);
 }
 console.log("PROBE_REQUEST:", hit.url);
-const expectedSlug = "gemini-3.5-flash";
+const expectedSlug = "gemini-3.7-flash";
 if (hit.url.includes(expectedSlug)) {
   console.log(`PROBE_PASS: URL contains ${expectedSlug}`);
   process.exit(0);
