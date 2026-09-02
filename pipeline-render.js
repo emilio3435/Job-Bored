@@ -309,6 +309,9 @@ function renderKanbanCard(job, index) {
       "data-scrape-method",
       _enr && (_enr.method || (_enr.scraping && _enr.scraping.provider) || ""),
     ),
+    _enrPair("data-posted-at", _enr && _enr.postedAt),
+    _enrPair("data-closes-at", _enr && _enr.closesAt),
+    _enrPair("data-posting-salary", _enr && _clip(_enr.postingSalary, 80)),
     _pair(
       "data-ats-fit-score",
       _enr && Number.isFinite(Number(_enr.atsFitScore))

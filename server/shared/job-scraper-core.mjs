@@ -7,7 +7,11 @@ import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
 import { fetchAtsJobPosting } from "./ats-job-fetchers.mjs";
 import { scrapeViaGeminiUrlContext } from "./gemini-url-context-scrape.mjs";
-import { decodeHtmlEntities, normalizeJobText } from "./text-normalize.mjs";
+import {
+  decodeHtmlEntities,
+  normalizeInlineField,
+  normalizeJobText,
+} from "./text-normalize.mjs";
 
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingOptions} ScrapeJobPostingOptions */
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingResult} ScrapeJobPostingResult */
@@ -713,6 +717,9 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
     title: normalizeSpace(matched.title || context.title) || null,
     company: normalizeSpace(matched.company_name || context.company),
     location: normalizeSpace(matched.location || ""),
+    postedAt: "",
+    closesAt: "",
+    postingSalary: "",
     description,
     requirements,
     skills,
@@ -936,6 +943,83 @@ function locationFromJobPostingLd(j) {
     parts.push("Remote");
   }
   return [...new Set(parts.filter(Boolean))].join(" · ");
+}
+
+/** @param {unknown} value */
+function postingDate(value) {
+  if (typeof value !== "string") return "";
+  const text = normalizeInlineField(value);
+  if (!text) return "";
+
+  const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})(?=$|T)/);
+  if (isoDate) {
+    const year = Number(isoDate[1]);
+    const month = Number(isoDate[2]);
+    const day = Number(isoDate[3]);
+    const check = new Date(Date.UTC(year, month - 1, day));
+    const validCalendarDate =
+      check.getUTCFullYear() === year &&
+      check.getUTCMonth() === month - 1 &&
+      check.getUTCDate() === day;
+    if (validCalendarDate && (text.length === 10 || Number.isFinite(Date.parse(text)))) {
+      return isoDate[0];
+    }
+    return "";
+  }
+
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : "";
+}
+
+/** @param {unknown} value */
+function salaryNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const text = normalizeInlineField(value).replace(/,/g, "");
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** @param {UnknownRecord} jobPosting */
+function salaryFromJobPostingLd(jobPosting) {
+  const rawSalary = jobPosting.baseSalary;
+  if (!rawSalary || typeof rawSalary !== "object" || Array.isArray(rawSalary)) {
+    return "";
+  }
+
+  const salary = /** @type {UnknownRecord} */ (rawSalary);
+  const nestedValue =
+    salary.value && typeof salary.value === "object" && !Array.isArray(salary.value)
+      ? /** @type {UnknownRecord} */ (salary.value)
+      : null;
+  const values = nestedValue || salary;
+  const min = salaryNumber(values.minValue);
+  const max = salaryNumber(values.maxValue);
+  const exact = salaryNumber(nestedValue ? values.value : salary.value);
+  if (min === null && max === null && exact === null) return "";
+
+  const currency = normalizeInlineField(salary.currency).toUpperCase();
+  const symbols = /** @type {Record<string, string>} */ ({
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+  });
+  const prefix = symbols[currency] || (currency ? currency + " " : "");
+  const formatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 20 });
+  const amount = (/** @type {number} */ value) => prefix + formatter.format(value);
+  const singleValue = min ?? max ?? exact;
+  const displayAmount =
+    min !== null && max !== null
+      ? amount(min) + "–" + amount(max)
+      : singleValue === null
+        ? ""
+        : amount(singleValue);
+
+  const unit = normalizeInlineField(values.unitText || salary.unitText).toUpperCase();
+  const unitSuffix = { YEAR: "/yr", MONTH: "/mo", HOUR: "/hr" }[unit] || "";
+  const currencySuffix = symbols[currency] ? " " + currency : "";
+  return displayAmount + currencySuffix + unitSuffix;
 }
 
 /** @param {CheerioApi} $ */
@@ -1421,6 +1505,9 @@ export async function scrapeJobPosting(url, options = {}) {
   const blocks = collectJsonLdBlocks($);
   const jobPostings = findJobPostingObjects(blocks);
   const bestJp = pickBestJobPostingLd(jobPostings);
+  const postedAt = bestJp ? postingDate(bestJp.datePosted) : "";
+  const closesAt = bestJp ? postingDate(bestJp.validThrough) : "";
+  const postingSalary = bestJp ? salaryFromJobPostingLd(bestJp) : "";
 
   let ldTitle = null;
   let ldText = "";
@@ -1574,6 +1661,9 @@ export async function scrapeJobPosting(url, options = {}) {
     title: title || null,
     company: company || undefined,
     location: location || undefined,
+    postedAt,
+    closesAt,
+    postingSalary,
     description,
     requirements,
     skills,
@@ -1636,6 +1726,9 @@ function finalizeTextScrape(url, fields) {
     title: fields.title || null,
     company: fields.company || "",
     location: fields.location || "",
+    postedAt: "",
+    closesAt: "",
+    postingSalary: "",
     description,
     requirements,
     skills,
