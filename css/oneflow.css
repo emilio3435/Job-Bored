@@ -23,6 +23,13 @@
   display: none !important;
 }
 
+/* The one-flow's own backdrop. The shared chassis paints a blue-white haze
+   behind every wizard; behind warm paper it reads as a different product
+   than the board the visitor just came from. */
+.oneflow-root {
+  background: rgba(239, 234, 220, 0.92);
+}
+
 /* ---------- The 6-beat spine (spec §3.5.1) ----------
    Replaces the 3-stage journey strip. Same visual language as
    .discovery-setup-wizard__journey so the flow reads as the same
@@ -204,6 +211,339 @@
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ---------- The one-flow shell's framing (SIXBEATS claims U2 + C7) ----------
+   Everything below hangs off .discovery-setup-wizard--spine, the class the
+   shell only adds when a host passes `spine`. The discovery and go-live
+   wizards pass none, so they keep the chassis they shipped with; the
+   one-flow gets the approved prototype's frame
+   (docs/programs/sixbeats-20260902/reference/six-beats-prototype.html):
+   warm paper, one hard line, a segmented spine over its labels, a beat
+   card with real air, and — on a phone — a body that scrolls behind
+   actions docked to the thumb. */
+
+.discovery-setup-wizard--spine {
+  /* The prototype stages the flow at 860px. The 1120px chassis stretched
+     a one-question beat across a whole desk. */
+  width: min(56rem, 100%);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-lg, 14px);
+  background: var(--jb-paper, #fffef9);
+  box-shadow:
+    0 1px 0 rgba(14, 58, 78, 0.06),
+    0 8px 24px -14px rgba(14, 58, 78, 0.3);
+}
+
+/* The chassis' two decorative blobs bleed a blue haze through warm paper. */
+.discovery-setup-wizard--spine::before,
+.discovery-setup-wizard--spine::after {
+  display: none;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__panel {
+  padding: var(--space-6) calc(var(--space-6) + var(--space-2)) var(--space-5);
+  gap: 0;
+}
+
+/* ---- Header: the title strip, and the exit that is always on screen ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__header {
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__title {
+  font-family: var(--jb-font-display, inherit);
+  font-size: 1.9rem;
+  line-height: 1;
+  color: var(--jb-navy, var(--text));
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__close {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--jb-line-soft, var(--border));
+  background: var(--jb-paper-2, transparent);
+  font-family: var(--jb-font-mono, inherit);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ---- The spine: six segments over their labels, minutes on the right ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-wrap {
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-4);
+  padding: 0 0 var(--space-4);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine {
+  flex: 1 1 22rem;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-step {
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The dot becomes the prototype's segment bar. It is aria-hidden, so the
+   number it carries can go; the label under it is what is read out. */
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-dot {
+  width: auto;
+  height: 6px;
+  border: none;
+  border-radius: 3px;
+  font-size: 0;
+  background: var(--jb-line-soft, var(--border));
+  box-shadow: none;
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__spine-step--done
+  .discovery-setup-wizard__spine-dot {
+  background: var(--jb-mint, var(--accent));
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__spine-step--current
+  .discovery-setup-wizard__spine-dot {
+  background: var(--jb-navy, var(--text));
+  box-shadow: none;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-label {
+  font-family: var(--jb-font-mono, inherit);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "Fifteen minutes, once" in the product's own handwriting (spec §2.4). */
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-time {
+  font-family: var(--jb-font-display, inherit);
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+/* ---- The beat card ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__frame {
+  padding: var(--space-6) calc(var(--space-6) + var(--space-2));
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: var(--jb-radius-md, 12px);
+  background: var(--jb-paper-2, var(--surface));
+  box-shadow: none;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-kicker {
+  margin-bottom: var(--space-2);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-title {
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-lede {
+  margin-top: var(--space-2);
+  max-width: 58ch;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-content {
+  margin-top: var(--space-5);
+}
+
+/* ---- Footer: the dock ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__footer--dock {
+  justify-content: flex-start;
+  margin-top: var(--space-4);
+  padding-top: 0;
+  border-top: none;
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__footer--dock
+  .discovery-setup-wizard__actions {
+  justify-content: flex-start;
+}
+
+/* ---- Busy stages + message, in the prototype's rhythm ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__busy {
+  gap: 0;
+  margin-top: var(--space-4);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__busy-stage {
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 0.88rem;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__busy-glyph {
+  width: 18px;
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__busy-stage--active
+  .discovery-setup-wizard__busy-glyph {
+  color: var(--jb-navy, var(--text));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__busy-stage--active
+    .discovery-setup-wizard__busy-glyph {
+    animation: oneflowBusyPulse 1s ease-in-out infinite;
+  }
+
+  @keyframes oneflowBusyPulse {
+    50% {
+      opacity: 0.3;
+    }
+  }
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__message {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--jb-radius-sm, 8px);
+  font-size: 0.88rem;
+}
+
+/* ---- Claim C7: the phone. A long beat must never park its actions
+        below the fold — the body scrolls, the actions stay under the
+        thumb. 480px is the shell's own phone breakpoint; the chassis'
+        760px rules still handle the tablet middle. ---- */
+
+@media (max-width: 480px) {
+  /* Full-bleed on a phone: 16px of gutter on each side plus a rounded
+     card is 32px of width and ~40px of height spent on decoration, on the
+     exact viewport where beats 4–5 have none to spare. */
+  .oneflow-root {
+    padding: 0;
+  }
+
+  .discovery-setup-wizard--spine {
+    width: 100%;
+    /* Full height, not content height: the dock is only a dock if it is at
+       the bottom of the VIEWPORT on every beat, short ones included. */
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: none;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__panel {
+    padding: var(--space-4) var(--space-4) 0;
+    overflow: hidden;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: var(--space-3);
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__title {
+    font-size: 1.5rem;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__close {
+    width: auto;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__spine-wrap {
+    padding-bottom: var(--space-3);
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__spine-label {
+    font-size: 0.5rem;
+    letter-spacing: 0.04em;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* The frame stops being the scroller so the body is the ONE scroll
+     region behind the dock — two nested scrollers is how the actions got
+     stranded in the first place. */
+  .discovery-setup-wizard--spine .discovery-setup-wizard__frame {
+    flex: 0 0 auto;
+    overflow: visible;
+    padding: var(--space-4);
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__footer--dock {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    flex-direction: column;
+    align-items: stretch;
+    margin: 0 calc(-1 * var(--space-4));
+    padding: var(--space-3) var(--space-4)
+      calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--jb-line-soft, var(--border));
+    background: var(--jb-paper, #fffef9);
+    box-shadow: 0 -8px 20px -14px rgba(14, 58, 78, 0.55);
+  }
+
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__footer--dock
+    .discovery-setup-wizard__actions {
+    width: 100%;
+  }
+
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__footer--dock
+    .discovery-setup-wizard__btn {
+    flex: 1 1 auto;
+  }
+}
+
+/* ---- Claim U3: a control's label is not prose.
+
+   The chassis sets `overflow-wrap: anywhere` on __step-content
+   (css/legacy-discovery-setup-wizard.css) so an unbreakable webhook
+   secret or shell command cannot turn a step into a horizontal
+   scroller. It inherits into every control the beats render. Beat 4's
+   chip rows are flex rows whose input carries `width: 100%`, so the
+   button beside it is squeezed to min-content — and under
+   `overflow-wrap: anywhere`, min-content is one CHARACTER. The "Add"
+   next to every role and strength field broke into "Ad / d"
+   (SIXBEATS U3, routed from the V1/V2 screenshot review; measured at
+   390px AND at 1440px, so this is not a phone-only rule).
+
+   A button is a target, not a paragraph: it keeps its natural width
+   and breaks only where its own label allows. Multi-word labels still
+   wrap between words, and the template cards in B3 — buttons whose
+   content is a heading plus a description — are unaffected, because
+   neither `flex-shrink` on a grid item nor a normal wrap opportunity
+   changes for them. ---- */
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-content button {
+  flex-shrink: 0;
+  overflow-wrap: normal;
 }
 
 /* ONEFLOW:L1 */
@@ -449,6 +789,17 @@
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--jb-navy, var(--text));
+}
+
+/* The native file input sizes itself to the platform font (wider on Linux
+   than on macOS) and does not shrink on its own — on a 390px phone it was
+   the one element pushing the shell sideways (e2e-visual, CI 2026-09-02). */
+.oneflow-resume__file {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
 }
 
 .oneflow-resume__paste {
@@ -822,129 +1173,363 @@
 /* ONEFLOW:L4 */
 /* S0 demo board · B6 You're live · the single celebration. */
 
-/* ---------- S0 — the demo board (spec §4) ----------
+/* ---------- S0 — the demo board (spec §4; SIXBEATS claim U1) ----------
    A SELF-CONTAINED overlay board (SUBSTRATE locked decision): it borrows
    the product's visual language without touching pipeline-render.js.
-   The watermark is on the root so "this is not your data" is one honest
-   statement, not a per-card decoration. */
+
+   Every rule below is scoped under `.oneflow-demo` on purpose. jb-type.css
+   ships `body.jb-v2 h3 {font-size:var(--jb-text-xl)}` and `body.jb-v2 p
+   {font-size:var(--jb-text-base)}` — specificity 0,1,1. A lone
+   `.oneflow-demo__role` is 0,1,0 and LOSES, which is why the shipped S0
+   rendered its column titles at 22 px and its kicker at 15 px: the board's
+   type scale never applied at all (claim U1). The ancestor takes each rule
+   to 0,2,0 and hands the board back its own type.
+
+   Three surfaces, one ladder: the page ground is paper-2, the framed board
+   is paper, and the cards are paper on top of it, separated by the same
+   stage rail the real kanban card uses. */
 
 .oneflow-demo {
   position: fixed;
   inset: 0;
   z-index: 60;
   overflow: auto;
-  padding: var(--space-6) var(--space-5) calc(var(--space-8) * 2);
-  background: var(--jb-paper, var(--surface));
+  padding: 0 0 var(--space-8);
+  background: var(--jb-paper-2, var(--surface-2));
+  font-family: var(--jb-font-body, var(--font-body));
 }
 
-.oneflow-demo__note {
-  margin: 0 auto var(--space-4);
+/* ---------- The header strip ----------
+   One line of product chrome. The shipped screen opened on a bare kanban
+   with none, so a stranger's first pixel never named the product or
+   admitted the rows were a sample. */
+
+.oneflow-demo .oneflow-demo__header {
+  position: sticky;
+  top: 0;
+  z-index: 4;
+  background: var(--jb-paper, var(--surface));
+  border-bottom: 1px solid var(--jb-line-soft, var(--border));
+}
+
+.oneflow-demo .oneflow-demo__header-inner {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-4);
   max-width: 1180px;
-  font-size: var(--text-xs);
-  font-weight: 600;
+  margin: 0 auto;
+  padding: 13px var(--space-5);
+}
+
+.oneflow-demo .oneflow-demo__wordmark {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: 0 0 auto;
+}
+
+.oneflow-demo .oneflow-demo__wordmark-text {
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 15px;
+  line-height: 1;
+  letter-spacing: -0.03em;
+}
+
+.oneflow-demo .oneflow-demo__wordmark-job {
+  font-weight: 800;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-demo .oneflow-demo__wordmark-bored {
+  font-weight: 400;
+  font-style: italic;
+  color: var(--jb-mint-deep, var(--accent-hover));
+}
+
+/* The mark, drawn in CSS rather than pulled from the top bar's inline SVG:
+   two eyes on a mint tile, the same lockup at every size it appears. */
+.oneflow-demo .oneflow-demo__mark {
+  position: relative;
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border-radius: 6px;
+  background: var(--jb-mint, var(--accent));
+  box-shadow: inset 0 0 0 1px rgba(14, 58, 78, 0.16);
+}
+
+.oneflow-demo .oneflow-demo__mark::before,
+.oneflow-demo .oneflow-demo__mark::after {
+  content: "";
+  position: absolute;
+  top: 7px;
+  width: 4px;
+  height: 4px;
+  border-radius: 50%;
+  background: var(--jb-navy, var(--text));
+}
+
+.oneflow-demo .oneflow-demo__mark::before {
+  left: 5px;
+}
+
+.oneflow-demo .oneflow-demo__mark::after {
+  right: 5px;
+}
+
+/* The honesty line, as an eyebrow rather than a heading. */
+.oneflow-demo .oneflow-demo__note {
+  margin: 0;
+  font-family: var(--jb-font-mono, var(--font-mono));
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.4;
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--jb-ink-3, var(--text-faint));
 }
 
-.oneflow-demo__board {
-  display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(220px, 1fr));
-  gap: var(--space-4);
+/* ---------- The framed board ----------
+   The frame is what turns "some cards on a page" into "this is the screen
+   you are buying", and it is what the invitation sits ON. */
+
+.oneflow-demo .oneflow-demo__frame {
+  position: relative;
   max-width: 1180px;
-  margin: 0 auto;
+  /* The frame is the screen, so it fills the window rather than leaving a
+     half-page of dead ground under a short fixture. */
+  min-height: min(760px, calc(100vh - 150px));
+  margin: var(--space-5) auto 0;
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 16px;
+  background: var(--jb-paper, var(--surface));
+  box-shadow:
+    0 1px 0 var(--jb-line-soft, var(--border)),
+    0 24px 48px -34px rgba(14, 58, 78, 0.55);
+}
+
+/* Nothing to frame (file:// open, 404): the ask keeps the frame's centre. */
+.oneflow-demo .oneflow-demo__frame--bare {
+  min-height: 340px;
+}
+
+.oneflow-demo .oneflow-demo__frame-head {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin: 0 0 var(--space-4);
+  padding-bottom: 10px;
+  border-bottom: 1px solid var(--jb-line-soft, var(--border));
+}
+
+.oneflow-demo .oneflow-demo__frame-title {
+  margin: 0;
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 1.0625rem;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.015em;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-demo .oneflow-demo__frame-count {
+  font-family: var(--jb-font-mono, var(--font-mono));
+  font-size: 11px;
+  font-weight: 500;
+  line-height: 1.2;
+  letter-spacing: 0.04em;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-demo .oneflow-demo__board {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(178px, 1fr));
+  gap: var(--space-3);
+  align-items: start;
 }
 
 /* Reduced opacity, applied once at the root — the demo reads as a
    rehearsal of the product, never as the product. */
 .oneflow-demo--watermarked .oneflow-demo__board {
-  opacity: 0.72;
+  opacity: 0.82;
 }
 
-.oneflow-demo__column {
+.oneflow-demo .oneflow-demo__column {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: 10px;
   min-width: 0;
 }
 
-.oneflow-demo__column-title {
+.oneflow-demo .oneflow-demo__column-title {
   display: flex;
   align-items: center;
-  gap: var(--space-2);
-  margin: 0 0 var(--space-1);
-  font-size: var(--text-xs);
+  gap: 7px;
+  margin: 0;
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 11px;
   font-weight: 700;
-  letter-spacing: 0.06em;
+  line-height: 1.2;
+  letter-spacing: 0.1em;
   text-transform: uppercase;
   color: var(--jb-ink-3, var(--text-faint));
 }
 
-.oneflow-demo__column-count {
+/* The column dot repeats its cards' rail colour, the way the real board
+   tells stages apart at a glance. */
+.oneflow-demo .oneflow-demo__column-dot {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--oneflow-demo-stage, var(--jb-ink-3, var(--text-faint)));
+}
+
+.oneflow-demo .oneflow-demo__column-label {
+  min-width: 0;
+}
+
+.oneflow-demo .oneflow-demo__column-count {
+  margin-left: auto;
+  font-family: var(--jb-font-mono, var(--font-mono));
+  font-size: 10px;
   font-weight: 600;
+  line-height: 1.2;
+  letter-spacing: 0;
   color: var(--jb-ink-3, var(--text-faint));
 }
 
-.oneflow-demo__card {
+/* ---------- The card, in the product's card language ----------
+   Same inset rail, same paper surface, same stage colour as .kanban-card
+   in css/legacy-cards-drawer.css — a demo card and a real card must not
+   disagree about what a job looks like. */
+
+.oneflow-demo .oneflow-demo__card {
+  --oneflow-demo-stage: var(--jb-ink-3, var(--text-faint));
   display: flex;
   flex-direction: column;
-  gap: 6px;
-  padding: var(--space-3);
-  border: 1px solid var(--jb-line, var(--border));
-  border-radius: 12px;
-  background: var(--jb-paper-2, var(--surface));
+  gap: 5px;
+  padding: 11px 12px 12px 15px;
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: 10px;
+  background: var(--jb-paper, var(--surface));
+  box-shadow: inset 3px 0 0 var(--oneflow-demo-stage);
   text-align: left;
   cursor: pointer;
+  transition:
+    box-shadow var(--jb-transition-base, 180ms ease),
+    transform var(--jb-transition-base, 180ms ease),
+    border-color var(--jb-transition-base, 180ms ease);
 }
 
-.oneflow-demo__card:hover,
-.oneflow-demo__card:focus-visible {
-  border-color: var(--jb-mint, var(--accent));
+.oneflow-demo .oneflow-demo__card:hover,
+.oneflow-demo .oneflow-demo__card:focus-visible {
+  border-color: var(--jb-line, var(--border));
+  box-shadow:
+    inset 3px 0 0 var(--oneflow-demo-stage),
+    0 10px 22px -14px rgba(14, 58, 78, 0.55);
+  transform: translateY(-1px);
 }
 
-.oneflow-demo__card-head {
+/* The one place a stage colour is named — both surfaces that carry it. */
+.oneflow-demo .oneflow-demo__column--new,
+.oneflow-demo .oneflow-demo__card--stage-new {
+  --oneflow-demo-stage: var(--jb-stage-new, var(--stage-rail-new));
+}
+.oneflow-demo .oneflow-demo__column--researching,
+.oneflow-demo .oneflow-demo__card--stage-researching {
+  --oneflow-demo-stage: var(--jb-stage-researching, var(--stage-rail-researching));
+}
+.oneflow-demo .oneflow-demo__column--applied,
+.oneflow-demo .oneflow-demo__card--stage-applied {
+  --oneflow-demo-stage: var(--jb-stage-applied, var(--stage-rail-applied));
+}
+.oneflow-demo .oneflow-demo__column--phone-screen,
+.oneflow-demo .oneflow-demo__card--stage-phone-screen {
+  --oneflow-demo-stage: var(--jb-stage-phone, var(--stage-rail-phone-screen));
+}
+.oneflow-demo .oneflow-demo__column--interviewing,
+.oneflow-demo .oneflow-demo__card--stage-interviewing {
+  --oneflow-demo-stage: var(--jb-stage-interviewing, var(--stage-rail-interviewing));
+}
+.oneflow-demo .oneflow-demo__column--offer,
+.oneflow-demo .oneflow-demo__card--stage-offer {
+  --oneflow-demo-stage: var(--jb-stage-offer, var(--stage-rail-offer));
+}
+
+.oneflow-demo .oneflow-demo__card-head {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: var(--space-2);
 }
 
-.oneflow-demo__chip {
-  padding: 1px 6px;
-  border-radius: 999px;
-  border: 1px solid var(--jb-line, var(--border));
-  font-size: 10px;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+.oneflow-demo .oneflow-demo__chip {
+  padding: 1px 5px;
+  border-radius: 4px;
+  border: 1px dashed var(--jb-line, var(--border));
+  font-family: var(--jb-font-mono, var(--font-mono));
+  font-size: 9px;
+  font-weight: 600;
+  line-height: 1.5;
+  letter-spacing: 0.12em;
   color: var(--jb-ink-3, var(--text-faint));
   background: transparent;
 }
 
-.oneflow-demo__score {
-  font-size: var(--text-xs);
-  font-weight: 700;
-  color: var(--jb-mint-deep, #2f8a5a);
+/* The fit pill — the number is the whole reason a stranger reads a card,
+   so it gets the product's fit colours and a pill of its own. */
+.oneflow-demo .oneflow-demo__score {
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-family: var(--jb-font-mono, var(--font-mono));
+  font-size: 11px;
+  font-weight: 600;
+  line-height: 1.45;
+  white-space: nowrap;
+  color: var(--jb-fit-high, var(--fit-high));
+  background: var(--jb-mint-soft, var(--accent-dim));
 }
 
-.oneflow-demo__role {
+.oneflow-demo .oneflow-demo__score--mid {
+  color: var(--jb-fit-mid, var(--fit-mid));
+  background: var(--jb-amber-soft, var(--hot-bg));
+}
+
+.oneflow-demo .oneflow-demo__score--low {
+  color: var(--jb-fit-low, var(--fit-low));
+  background: var(--jb-paper-2, var(--surface-2));
+}
+
+.oneflow-demo .oneflow-demo__role {
   margin: 0;
-  font-size: var(--text-sm);
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 13px;
   font-weight: 700;
   line-height: 1.3;
+  letter-spacing: -0.005em;
   color: var(--jb-navy, var(--text));
 }
 
-.oneflow-demo__meta {
+.oneflow-demo .oneflow-demo__meta {
   margin: 0;
-  font-size: var(--text-xs);
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 11.5px;
+  font-weight: 500;
+  line-height: 1.4;
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-demo__why {
+.oneflow-demo .oneflow-demo__why {
   margin: 0;
-  font-size: var(--text-xs);
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 11.5px;
+  font-style: italic;
   line-height: 1.45;
-  color: var(--jb-ink-2, var(--text-muted));
+  color: var(--jb-ink-3, var(--text-faint));
 }
 
 /* One slot for the read-only detail, so a second card replaces the first
@@ -953,11 +1538,11 @@
   display: none;
 }
 
-.oneflow-demo__detail {
+.oneflow-demo .oneflow-demo__detail {
   position: fixed;
   right: var(--space-5);
   bottom: var(--space-5);
-  z-index: 2;
+  z-index: 5;
   width: min(360px, calc(100vw - var(--space-8)));
   display: flex;
   flex-direction: column;
@@ -966,126 +1551,245 @@
   border: 1px solid var(--jb-line, var(--border));
   border-radius: 14px;
   background: var(--jb-paper, var(--surface));
-  box-shadow: 0 18px 44px rgba(15, 23, 42, 0.18);
+  box-shadow: 0 24px 54px -22px rgba(14, 58, 78, 0.6);
 }
 
-.oneflow-demo__detail-role {
+.oneflow-demo .oneflow-demo__detail-role {
   margin: 0;
-  font-size: var(--text-base);
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 15px;
   font-weight: 700;
+  line-height: 1.3;
   color: var(--jb-navy, var(--text));
 }
 
-.oneflow-demo__detail-meta,
-.oneflow-demo__detail-score,
-.oneflow-demo__detail-why {
+.oneflow-demo .oneflow-demo__detail-meta,
+.oneflow-demo .oneflow-demo__detail-score,
+.oneflow-demo .oneflow-demo__detail-why {
   margin: 0;
-  font-size: var(--text-sm);
-  line-height: 1.45;
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 12.5px;
+  line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-demo__detail-note {
+.oneflow-demo .oneflow-demo__detail-note {
   margin: var(--space-1) 0 0;
-  font-size: var(--text-xs);
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 11.5px;
+  line-height: 1.5;
   color: var(--jb-ink-3, var(--text-faint));
 }
 
-/* ---------- The invitation, and its corner-pill escape (spec §4) ----------
-   "Poke around first" must not be a dead end: the card collapses into a
-   pill that stays reachable for the whole session. */
+/* ---------- The invitation, and its designed pill (spec §4) ----------
+   The ask sits ON the board — value first, ask on top — and it is the
+   centre of gravity, not a footnote pinned to the bottom of the window.
+   "Poke around first" must not be a dead end: the card collapses to a
+   pill that stays reachable for the rest of the visit. */
 
-.oneflow-demo__ask {
-  position: fixed;
+.oneflow-demo .oneflow-demo__ask {
+  position: absolute;
   left: 50%;
-  bottom: var(--space-6);
-  transform: translateX(-50%);
+  /* Over the rows, not over the empty half of the board: the ask lands on
+     the value it is asking for. */
+  top: 46%;
+  transform: translate(-50%, -50%);
   z-index: 3;
-  width: min(560px, calc(100vw - var(--space-6)));
+  width: min(468px, calc(100% - var(--space-8)));
 }
 
-.oneflow-demo__ask--collapsed {
+/* A paper glow under the open card, so the rows behind it stay legible
+   as texture instead of fighting the headline for attention. */
+.oneflow-demo .oneflow-demo__ask--open::before {
+  content: "";
+  position: absolute;
+  inset: -110px -140px;
+  z-index: -1;
+  pointer-events: none;
+  background: radial-gradient(
+    ellipse at center,
+    var(--jb-paper, #fffef9) 56%,
+    rgba(255, 254, 249, 0) 82%
+  );
+}
+
+.oneflow-demo .oneflow-demo__ask--collapsed {
   left: auto;
-  right: var(--space-5);
+  right: var(--space-4);
+  top: auto;
+  bottom: var(--space-4);
   transform: none;
   width: auto;
 }
 
-.oneflow-demo__invite {
+.oneflow-demo .oneflow-demo__invite {
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
-  padding: var(--space-5);
-  border: 1px solid var(--jb-line, var(--border));
-  border-radius: 16px;
+  gap: 10px;
+  padding: 22px 24px 20px;
+  border: 2px solid var(--jb-mint, var(--accent));
+  border-radius: 14px;
   background: var(--jb-paper, var(--surface));
-  box-shadow: 0 24px 60px rgba(15, 23, 42, 0.22);
+  box-shadow:
+    0 1px 0 rgba(14, 58, 78, 0.06),
+    0 28px 64px -26px rgba(14, 58, 78, 0.62);
 }
 
-.oneflow-demo__invite-headline {
+.oneflow-demo .oneflow-demo__invite-headline {
   margin: 0;
-  font-size: var(--text-xl);
-  font-weight: 800;
-  line-height: 1.2;
+  font-family: var(--jb-font-display, var(--font-body));
+  font-size: clamp(1.55rem, 1.2rem + 1vw, 1.95rem);
+  font-weight: 700;
+  line-height: 1.05;
   color: var(--jb-navy, var(--text));
 }
 
-.oneflow-demo__invite-body {
+.oneflow-demo .oneflow-demo__invite-body {
   margin: 0;
-  font-size: var(--text-sm);
-  line-height: 1.55;
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 14px;
+  line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
 }
 
 /* The one privacy sentence (spec §8.3) — quieter than the promise, never
    hidden behind a disclosure. */
-.oneflow-demo__invite-privacy {
+.oneflow-demo .oneflow-demo__invite-privacy {
   margin: 0;
-  font-size: var(--text-xs);
+  padding-top: 10px;
+  border-top: 1px dashed var(--jb-line-soft, var(--border));
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 11.5px;
   line-height: 1.5;
   color: var(--jb-ink-3, var(--text-faint));
 }
 
-.oneflow-demo__invite-actions {
+.oneflow-demo .oneflow-demo__invite-actions {
   display: flex;
   flex-wrap: wrap;
   gap: var(--space-2);
-  margin-top: var(--space-2);
+  margin-top: 4px;
 }
 
-.oneflow-demo__invite-action {
+.oneflow-demo .oneflow-demo__invite-action {
   padding: 10px 18px;
   border-radius: 10px;
   border: 1px solid var(--jb-line, var(--border));
-  font-size: var(--text-sm);
-  font-weight: 600;
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 13.5px;
+  font-weight: 700;
+  line-height: 1.2;
   cursor: pointer;
   background: transparent;
   color: var(--jb-navy, var(--text));
+  transition: box-shadow var(--jb-transition-base, 180ms ease);
 }
 
-.oneflow-demo__invite-action--primary {
-  background: var(--jb-mint, var(--accent));
-  border-color: var(--jb-mint, var(--accent));
-  color: var(--jb-ink-inverse, #fff);
+/* Navy, not mint: paper on mint is a 1.9:1 contrast failure, and the
+   prototype's primary is the navy one. */
+.oneflow-demo .oneflow-demo__invite-action--primary {
+  background: var(--jb-navy, var(--text));
+  border-color: var(--jb-navy, var(--text));
+  color: var(--jb-ink-inverse, var(--text-inverse));
 }
 
-.oneflow-demo__invite-action--ghost {
+.oneflow-demo .oneflow-demo__invite-action--primary:hover {
+  box-shadow: 0 10px 22px -12px rgba(14, 58, 78, 0.8);
+}
+
+.oneflow-demo .oneflow-demo__invite-action--ghost {
   background: transparent;
+  font-weight: 500;
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-demo__pill {
-  padding: 10px 16px;
+.oneflow-demo .oneflow-demo__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 16px 8px 10px;
   border-radius: 999px;
-  border: 1px solid var(--jb-line, var(--border));
-  background: var(--jb-paper, var(--surface));
-  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.18);
-  font-size: var(--text-sm);
+  border: 1px solid var(--jb-navy, var(--text));
+  background: var(--jb-navy, var(--text));
+  box-shadow: 0 16px 30px -18px rgba(14, 58, 78, 0.9);
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 13px;
   font-weight: 600;
-  color: var(--jb-navy, var(--text));
+  line-height: 1;
+  color: var(--jb-ink-inverse, var(--text-inverse));
   cursor: pointer;
   white-space: nowrap;
+}
+
+.oneflow-demo .oneflow-demo__pill-mark {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  box-shadow: inset 0 0 0 1px rgba(255, 254, 249, 0.45);
+}
+
+.oneflow-demo .oneflow-demo__pill-label {
+  line-height: 1;
+}
+
+/* ---------- 390 px ----------
+   One column, and the ask ABOVE the board rather than floating over the
+   middle of it: on a phone the shipped overlay sliced the cards it was
+   meant to be selling in half. */
+
+@media (max-width: 640px) {
+  .oneflow-demo .oneflow-demo__header-inner {
+    padding: 11px var(--space-4);
+  }
+
+  .oneflow-demo .oneflow-demo__frame {
+    display: flex;
+    flex-direction: column;
+    min-height: 0;
+    margin: var(--space-4) var(--space-3) 0;
+    padding: var(--space-4);
+    border-radius: 14px;
+  }
+
+  .oneflow-demo .oneflow-demo__ask {
+    position: static;
+    order: -1;
+    width: auto;
+    max-width: none;
+    transform: none;
+    margin-bottom: var(--space-4);
+  }
+
+  .oneflow-demo .oneflow-demo__ask--open::before {
+    display: none;
+  }
+
+  .oneflow-demo .oneflow-demo__ask--collapsed {
+    align-self: flex-start;
+  }
+
+  .oneflow-demo .oneflow-demo__board {
+    grid-template-columns: 1fr;
+    gap: var(--space-4);
+  }
+
+  .oneflow-demo .oneflow-demo__detail {
+    right: var(--space-3);
+    left: var(--space-3);
+    bottom: var(--space-3);
+    width: auto;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oneflow-demo .oneflow-demo__card,
+  .oneflow-demo .oneflow-demo__invite-action {
+    transition: none;
+  }
+  .oneflow-demo .oneflow-demo__card:hover,
+  .oneflow-demo .oneflow-demo__card:focus-visible {
+    transform: none;
+  }
 }
 
 /* ---------- B6 — You're live (spec §5 B6) ----------

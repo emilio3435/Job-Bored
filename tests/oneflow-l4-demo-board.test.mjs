@@ -20,8 +20,10 @@ import {
         sample, so cold start costs zero AI calls and never varies),
      2. the board renders as a self-contained, honestly-watermarked
         overlay that unmounts the moment real rows arrive (§4 "Exit"),
-     3. the invitation ↔ corner-pill round-trip survives a re-mount, so
-        "Poke around first" is a real escape and not a dead end.
+     3. the invitation ↔ corner-pill round-trip: "Poke around first" is a
+        real escape and not a dead end, and the collapse it produces lasts
+        the visit only — a fresh mount always opens on the card
+        (SIXBEATS claim U1).
    ============================================================ */
 
 const FIXTURE = JSON.parse(readRepoFile("fixtures/demo-pipeline.json"));
@@ -266,18 +268,23 @@ describe("S0 invitation ↔ corner pill round-trip (spec §4 Interactions)", () 
     assert.equal(textOf(pill), "Set up JobBored — 15 min ▸");
   });
 
-  it("the collapse persists across the session — a remount shows the pill", async () => {
+  it("the collapse lasts the visit, not the browser session", async () => {
+    // SIXBEATS claim U1: the collapse used to be written to sessionStorage,
+    // so a visitor who poked around and then reloaded got the corner pill
+    // over an empty viewport — the entire deal reduced to a 200 px button
+    // by a click they had made on a previous page load. A mount is a fresh
+    // page: it always opens on the invitation (spec §4 "over the board").
     const env = loadDemoBoard();
     const root = await env.board.mount();
     clickByLabel(root, "Poke around first");
+    assert.ok(root.querySelector(".oneflow-demo__pill"), "collapsed for this visit");
     env.board.unmount();
     const again = await env.board.mount();
-    assert.equal(
+    assert.ok(
       again.querySelector(".oneflow-demo__invite"),
-      null,
-      "the card must not reappear inside the same session",
+      "a fresh mount opens on the card, never on the pill",
     );
-    assert.ok(again.querySelector(".oneflow-demo__pill"));
+    assert.equal(again.querySelector(".oneflow-demo__pill"), null);
   });
 
   it("a fresh session gets the full card back", async () => {

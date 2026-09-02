@@ -1,0 +1,776 @@
+<title>Six Beats</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Geist:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;600&display=swap">
+<style>
+  /* Deliberately single-theme: this is a prototype of JobBored's paper-light product UI.
+     Every surface and color is painted explicitly so it holds on any host ground. */
+  :root {
+    --paper: #FFFEF9; --paper-2: #FBF7EE; --paper-3: #F4EEDF;
+    --ink: #1B2B33; --ink-2: #3A5566; --ink-3: #6B8493;
+    --navy: #0E3A4E; --mint: #5FCB8E; --mint-deep: #2F8A5A; --mint-soft: #DCF1E2;
+    --amber: #B8690F; --amber-soft: #FAE2C2;
+    --tape: #FCEFA8; --tape-ink: #6B5A10;
+    --line: #C9C2B0; --line-soft: #E5DFCC;
+    --shadow: 0 1px 0 rgba(14,58,78,.06), 0 8px 24px -14px rgba(14,58,78,.3);
+    --display: "Caveat", "Bradley Hand", cursive;
+    --body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  }
+  * { box-sizing: border-box; }
+  body { background: #EFEADC; color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.55; margin: 0; padding-bottom: 90px; }
+  button { font-family: var(--body); cursor: pointer; }
+
+  /* ---------- prototype chrome ---------- */
+  .proto-head { text-align: center; padding: 26px 16px 6px; }
+  .proto-head h1 { font-family: var(--display); font-size: 2.2rem; font-weight: 700; margin: 0; color: var(--navy); }
+  .proto-head p { margin: 2px 0 0; font-family: var(--mono); font-size: .68rem; color: var(--ink-3); letter-spacing: .08em; }
+
+  .navbar {
+    position: fixed; bottom: 0; left: 0; right: 0; z-index: 50;
+    display: flex; justify-content: center; gap: 6px; flex-wrap: wrap;
+    background: rgba(255,254,249,.94); border-top: 1px solid var(--line);
+    padding: 10px 12px; backdrop-filter: blur(6px);
+  }
+  .navbar button {
+    font-family: var(--mono); font-size: .68rem; letter-spacing: .04em;
+    border: 1px solid var(--line-soft); background: var(--paper); color: var(--ink-2);
+    border-radius: 999px; padding: 5px 12px;
+  }
+  .navbar button.on { background: var(--navy); color: var(--paper); border-color: var(--navy); }
+  .navbar button.reset { color: var(--amber); }
+  .navbar button:focus-visible, .stage button:focus-visible, .chip:focus-visible { outline: 2px solid var(--mint-deep); outline-offset: 2px; }
+
+  /* ---------- stage / viewport ---------- */
+  .stage { max-width: 860px; margin: 14px auto 0; padding: 0 16px; }
+  .frame {
+    background: var(--paper); border: 1px solid var(--line); border-radius: 14px;
+    box-shadow: var(--shadow); overflow: hidden; position: relative;
+  }
+  .frame-chrome { display: flex; align-items: center; gap: 6px; background: var(--paper-3); padding: 10px 16px; border-bottom: 1px solid var(--line-soft); }
+  .frame-chrome i { width: 10px; height: 10px; border-radius: 50%; background: var(--line); }
+  .frame-chrome span { font-family: var(--mono); font-size: .66rem; color: var(--ink-3); margin-left: 10px; }
+
+  .screen-note { max-width: 860px; margin: 12px auto 40px; padding: 0 16px; font-size: .84rem; color: var(--ink-2); }
+  .screen-note b { color: var(--ink); }
+
+  /* ---------- board (S0 + done) ---------- */
+  .board { padding: 22px 24px 26px; min-height: 430px; position: relative; }
+  .board-head { display: flex; align-items: baseline; gap: 12px; margin-bottom: 14px; }
+  .board-head h2 { font-size: 1.2rem; font-weight: 800; margin: 0; letter-spacing: -.01em; }
+  .board-head .cnt { font-family: var(--mono); font-size: .68rem; color: var(--ink-3); }
+  .job {
+    display: flex; align-items: center; gap: 14px; background: var(--paper-2);
+    border: 1px solid var(--line-soft); border-left: 4px solid var(--navy); border-radius: 8px;
+    padding: 11px 14px; margin: 8px 0;
+  }
+  .job .co { font-weight: 700; font-size: .92rem; }
+  .job .role { font-size: .84rem; color: var(--ink-2); }
+  .job .why { font-size: .76rem; color: var(--ink-3); font-style: italic; }
+  .job .fit { margin-left: auto; font-family: var(--mono); font-weight: 600; font-size: .82rem; color: var(--mint-deep); background: var(--mint-soft); border-radius: 999px; padding: 3px 10px; white-space: nowrap; }
+  .job .fit.mid { color: var(--amber); background: var(--amber-soft); }
+  .job.demo { opacity: .62; }
+  .job .demo-tag { font-family: var(--mono); font-size: .58rem; letter-spacing: .12em; color: var(--ink-3); border: 1px dashed var(--line); border-radius: 4px; padding: 1px 6px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .job.stream { animation: slidein .5s ease both; }
+    @keyframes slidein { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: none; } }
+  }
+
+  .invite {
+    position: absolute; left: 50%; top: 54%; transform: translate(-50%,-50%);
+    width: min(430px, calc(100% - 48px));
+    background: var(--paper); border: 2px solid var(--mint); border-radius: 12px;
+    box-shadow: var(--shadow); padding: 22px 24px;
+  }
+  .invite h3 { margin: 0 0 6px; font-size: 1.25rem; font-weight: 800; letter-spacing: -.01em; }
+  .invite p { margin: 0 0 14px; font-size: .88rem; color: var(--ink-2); }
+  .pill {
+    position: absolute; right: 16px; bottom: 14px;
+    background: var(--navy); color: var(--paper); border: none; border-radius: 999px;
+    font-size: .78rem; font-weight: 600; padding: 8px 16px; box-shadow: var(--shadow);
+  }
+
+  .toast {
+    position: absolute; right: 18px; top: 16px; background: var(--navy); color: var(--paper);
+    font-size: .78rem; border-radius: 8px; padding: 8px 14px; box-shadow: var(--shadow);
+  }
+  .toast b { color: var(--mint); }
+  .banner-quiet { background: var(--paper-2); border: 1px dashed var(--line); border-radius: 8px; padding: 10px 14px; font-size: .8rem; color: var(--ink-2); margin-bottom: 10px; }
+
+  /* ---------- wizard beats ---------- */
+  .beat { padding: 26px 30px 30px; min-height: 430px; }
+  .spine { display: flex; gap: 6px; margin: 0 0 6px; }
+  .spine i { flex: 1; height: 6px; border-radius: 3px; background: var(--line-soft); }
+  .spine i.done { background: var(--mint); }
+  .spine i.here { background: var(--navy); }
+  .spine-row { display: flex; justify-content: space-between; align-items: baseline; margin-bottom: 20px; gap: 12px; flex-wrap: wrap; }
+  .spine-labels { font-family: var(--mono); font-size: .6rem; letter-spacing: .08em; text-transform: uppercase; color: var(--ink-3); }
+  .spine-time { font-family: var(--display); font-size: 1.05rem; color: var(--mint-deep); white-space: nowrap; }
+
+  .beat h2 { font-size: 1.55rem; font-weight: 800; letter-spacing: -.015em; margin: 0 0 8px; line-height: 1.2; text-wrap: balance; }
+  .beat .sub { font-size: .95rem; color: var(--ink-2); max-width: 58ch; margin: 0 0 20px; }
+
+  .btn { display: inline-block; border: 1px solid transparent; border-radius: 9px; font-weight: 700; font-size: .92rem; padding: 11px 20px; margin: 4px 10px 4px 0; }
+  .btn.primary { background: var(--navy); color: var(--paper); }
+  .btn.mint { background: var(--mint); color: #0E3A4E; }
+  .btn.ghost { background: transparent; color: var(--ink-2); border-color: var(--line); font-weight: 500; }
+  .btn:disabled { opacity: .55; cursor: default; }
+  .linky { background: none; border: none; color: var(--mint-deep); font-size: .84rem; text-decoration: underline; padding: 0; }
+
+  details.adv { margin: 14px 0 0; font-size: .84rem; color: var(--ink-2); }
+  details.adv summary { cursor: pointer; color: var(--ink-2); font-weight: 600; }
+  details.adv .inner { background: var(--paper-2); border: 1px solid var(--line-soft); border-radius: 8px; padding: 12px 14px; margin-top: 8px; }
+  details.adv code { font-family: var(--mono); font-size: .76rem; background: var(--paper-3); border-radius: 4px; padding: 1px 6px; }
+
+  .stages { margin: 16px 0 4px; font-size: .88rem; }
+  .stages div { display: flex; gap: 10px; align-items: baseline; padding: 4px 0; color: var(--ink-3); }
+  .stages div.on { color: var(--ink); }
+  .stages .m { width: 18px; flex: none; text-align: center; font-weight: 700; }
+  .stages div.done-line .m { color: var(--mint-deep); }
+  .stages div.busy .m { color: var(--navy); }
+  @media (prefers-reduced-motion: no-preference) {
+    .stages div.busy .m { animation: pulse 1s ease-in-out infinite; }
+    @keyframes pulse { 50% { opacity: .3; } }
+  }
+
+  .drop {
+    border: 2px dashed var(--line); border-radius: 10px; background: var(--paper-2);
+    padding: 30px 20px; text-align: center; font-size: .9rem; color: var(--ink-2);
+    width: 100%; font-family: var(--body);
+  }
+  .drop:hover { border-color: var(--mint); }
+
+  .card { background: var(--paper-2); border: 1px solid var(--line-soft); border-radius: 10px; padding: 14px 16px; margin: 12px 0; }
+  .card .lbl { font-family: var(--mono); font-size: .62rem; letter-spacing: .12em; text-transform: uppercase; color: var(--ink-3); display: block; margin-bottom: 8px; }
+  .card ul { margin: 0; padding-left: 20px; font-size: .88rem; color: var(--ink-2); }
+  .card li { margin: 3px 0; }
+  .card .meta { font-size: .82rem; color: var(--ink-2); margin-top: 8px; }
+  .card .naretive { font-style: italic; font-size: .88rem; color: var(--ink-2); }
+  .card.dim { opacity: .45; pointer-events: none; }
+  .card ol { margin: 0 0 10px; padding-left: 20px; font-size: .86rem; color: var(--ink-2); }
+  .card ol li { margin: 3px 0; }
+
+  .chipset { display: flex; flex-wrap: wrap; gap: 7px; }
+  .chip {
+    border: none; font-size: .8rem; font-weight: 600; padding: 4px 12px; border-radius: 999px;
+    background: var(--mint-soft); color: var(--mint-deep);
+  }
+  .chip.away { background: var(--paper-3); color: var(--ink-3); font-weight: 500; }
+  .chip.off { text-decoration: line-through; opacity: .45; }
+  .chip.add { background: transparent; border: 1px dashed var(--line); color: var(--ink-3); }
+  .chip-input { font-family: var(--body); font-size: .8rem; border: 1px solid var(--mint); border-radius: 999px; padding: 3px 10px; width: 150px; }
+
+  .kv { display: grid; grid-template-columns: auto 1fr; gap: 4px 16px; font-size: .88rem; }
+  .kv dt { font-family: var(--mono); font-size: .64rem; text-transform: uppercase; letter-spacing: .1em; color: var(--ink-3); padding-top: 4px; }
+  .kv dd { margin: 0; font-weight: 600; }
+
+  .tape { display: inline-block; background: var(--tape); color: var(--tape-ink); font-family: var(--display); font-size: 1.05rem; font-weight: 700; padding: 2px 12px 4px; transform: rotate(-1.5deg); border-radius: 2px; }
+
+  .fields { display: grid; gap: 12px; font-size: .84rem; color: var(--ink-2); }
+  .fields label { display: block; font-weight: 600; color: var(--ink); margin-bottom: 3px; }
+  .fields input[type=text], .fields input[type=number] { font-family: var(--body); font-size: .84rem; border: 1px solid var(--line); border-radius: 7px; padding: 7px 10px; width: 220px; background: var(--paper); color: var(--ink); }
+  .radio-row { display: flex; gap: 14px; flex-wrap: wrap; }
+  .hint { font-size: .76rem; color: var(--ink-3); }
+
+  /* ---------- provider cards ---------- */
+  .provs { display: flex; flex-wrap: wrap; gap: 8px; margin: 0 0 14px; }
+  .prov {
+    border: 1px solid var(--line-soft); background: var(--paper-2); border-radius: 9px;
+    padding: 9px 13px; font-size: .82rem; font-weight: 600; color: var(--ink-2); text-align: left;
+  }
+  .prov small { display: block; font-weight: 400; font-size: .68rem; color: var(--ink-3); }
+  .prov.sel { border-color: var(--mint); background: var(--mint-soft); color: var(--mint-deep); }
+  .keyrow { display: flex; gap: 10px; flex-wrap: wrap; align-items: center; margin: 10px 0 2px; }
+  .keyrow input {
+    font-family: var(--mono); font-size: .8rem; border: 1px solid var(--line); border-radius: 8px;
+    padding: 9px 12px; flex: 1 1 240px; background: var(--paper); color: var(--ink);
+  }
+
+  /* ---------- confetti ---------- */
+  .confetti-zone { position: absolute; inset: 0; pointer-events: none; overflow: hidden; }
+  .cf { position: absolute; top: -14px; width: 9px; height: 13px; border-radius: 2px; }
+  @media (prefers-reduced-motion: no-preference) {
+    .cf { animation: fall 2.8s ease-in forwards; }
+    @keyframes fall { to { transform: translateY(560px) rotate(540deg); opacity: 0; } }
+  }
+  @media (prefers-reduced-motion: reduce) { .cf { display: none; } }
+
+  /* ---------- moments ---------- */
+  .moments { display: grid; gap: 20px; padding: 26px 30px 34px; }
+  .moment { background: var(--paper-2); border: 1px solid var(--line-soft); border-radius: 10px; padding: 16px 18px; }
+  .moment .when { font-family: var(--display); font-size: 1.15rem; color: var(--mint-deep); display: block; margin-bottom: 4px; }
+  .moment h3 { margin: 0 0 6px; font-size: 1.02rem; }
+  .moment p { margin: 0 0 10px; font-size: .86rem; color: var(--ink-2); }
+
+  [hidden] { display: none !important; }
+  @media (max-width: 600px) { .beat, .board { padding: 20px 18px; } }
+</style>
+
+<div class="proto-head">
+  <h1>Six Beats</h1>
+  <p>CLICKABLE PROTOTYPE · ONE-FLOW ONBOARDING v2 · SPEC: docs/ONE-FLOW-ONBOARDING-SPEC.md</p>
+</div>
+
+<div class="stage">
+
+  <!-- ============ S0 — demo board ============ -->
+  <section id="s0" class="frame">
+    <div class="frame-chrome"><i></i><i></i><i></i><span>localhost:8080 — first visit, zero config</span></div>
+    <div class="board">
+      <div class="board-head"><h2>Pipeline</h2><span class="cnt">8 roles · demo data</span></div>
+      <div class="job demo"><div><div class="co">Vercel <span class="demo-tag">DEMO</span></div><div class="role">Staff Engineer, Platform</div><div class="why">matches your distributed-systems edge</div></div><span class="fit">92% fit</span></div>
+      <div class="job demo"><div><div class="co">Linear <span class="demo-tag">DEMO</span></div><div class="role">Senior Product Manager</div><div class="why">0→1 surface, small team — two of your wants</div></div><span class="fit">88% fit</span></div>
+      <div class="job demo"><div><div class="co">Stripe <span class="demo-tag">DEMO</span></div><div class="role">Eng Manager, Infra</div><div class="why">strong comp, but heavier people-management than you want</div></div><span class="fit mid">74% fit</span></div>
+      <div class="job demo"><div><div class="co">Notion <span class="demo-tag">DEMO</span></div><div class="role">Growth PM</div><div class="why">remote-first, experimentation-led</div></div><span class="fit">85% fit</span></div>
+
+      <div class="invite" id="inviteCard">
+        <h3>This is your job hunt on autopilot.</h3>
+        <p>Set it up once — about fifteen focused minutes — and roles scored against <em>your</em> fit land here every morning. Your resume and pipeline stay in your Google Sheet and on this machine.</p>
+        <button class="btn primary" onclick="go('b1')">Make it mine — 15 min, once</button>
+        <button class="btn ghost" onclick="pokeAround()">Poke around first</button>
+      </div>
+      <button class="pill" id="setupPill" hidden onclick="reopenInvite()">Set up JobBored — 15 min ▸</button>
+    </div>
+  </section>
+  <p class="screen-note" data-for="s0"><b>Screen 0 — the board, alive.</b> The first pixel is the product: real renderer, bundled fixture, watermarked cards. The invitation sits on top of value instead of in front of it, names an honest fifteen minutes, and "Poke around first" collapses it to a pill instead of nagging.</p>
+
+  <!-- ============ B1 — Google ============ -->
+  <section id="b1" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>Setup · beat 1 of 6</span></div>
+    <div class="beat">
+      <div class="spine"><i class="here"></i><i></i><i></i><i></i><i></i><i></i></div>
+      <div class="spine-row"><span class="spine-labels">Google → AI → Resume → Your fit → Discovery → Done</span><span class="spine-time">about 15 min left</span></div>
+      <h2>Your pipeline lives in a Google Sheet you own.</h2>
+      <p class="sub">Sign in and we'll create it for you. Nothing is stored on our side — there is no "our side."</p>
+      <div id="b1cta">
+        <button class="btn primary" onclick="runB1()">Continue with Google</button>
+        <div style="margin-top:6px"><button class="linky" onclick="toast('Prototype: same handshake, then we validate your sheet URL instead of creating one.')">Connect an existing sheet instead</button></div>
+      </div>
+      <div class="stages" id="b1stages" hidden>
+        <div><span class="m">◌</span><span>Signing in with Google…</span></div>
+        <div><span class="m">·</span><span>Creating your Pipeline sheet…</span></div>
+        <div><span class="m">·</span><span>Sheet ready</span></div>
+      </div>
+      <details class="adv">
+        <summary>First time? You'll need a free Client ID</summary>
+        <div class="inner">
+          One guided detour to Google Cloud Console — honestly about <b>10 minutes</b>, and the only genuinely annoying part of setup. We copy the right value to your clipboard at each step: create a project, set up the consent screen (add yourself as a test user), enable the Sheets API, create a <em>Web application</em> OAuth client with origin <code>http://localhost:8080</code>, paste the ID here. <em>You only ever do this once.</em>
+        </div>
+      </details>
+    </div>
+  </section>
+  <p class="screen-note" data-for="b1" hidden><b>Beat 1 — absorbs the login gate, the OAuth sub-wizard, first-run step 1, and #setupScreen.</b> Sheet creation is automatic on sign-in. The Client-ID detour gets an honest estimate, loses the phantom Drive-API step, and carries the privacy sentence that does more reassurance than any chrome.</p>
+
+  <!-- ============ B2 — AI provider ============ -->
+  <section id="b2" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>Setup · beat 2 of 6</span></div>
+    <div class="beat">
+      <div class="spine"><i class="done"></i><i class="here"></i><i></i><i></i><i></i><i></i></div>
+      <div class="spine-row"><span class="spine-labels">Google ✓ → AI → Resume → Your fit → Discovery → Done</span><span class="spine-time">about 9 min left</span></div>
+      <h2>Now give it a brain.</h2>
+      <p class="sub">One AI key powers everything personal here: it drafts your fit profile from your resume on the next screen, scores every job discovery finds, and writes your tailored resumes and cover letters. OpenRouter is free and takes about two minutes.</p>
+      <div class="provs" id="provRow">
+        <button class="prov sel" onclick="pickProv(this,'OpenRouter')">OpenRouter<small>free · recommended</small></button>
+        <button class="prov" onclick="pickProv(this,'Gemini')">Gemini<small>also unlocks URL import</small></button>
+        <button class="prov" onclick="pickProv(this,'OpenAI')">OpenAI<small>via local server</small></button>
+        <button class="prov" onclick="pickProv(this,'Anthropic')">Anthropic<small>via local server</small></button>
+        <button class="prov" onclick="pickProv(this,'Local')">Local<small>Ollama, on your machine</small></button>
+      </div>
+      <div class="card" id="b2keycard">
+        <span class="lbl">Get your key — about 2 minutes</span>
+        <ol>
+          <li><button class="linky" onclick="toast('Opens the provider key page in a new tab.')">Create a free account ↗</button></li>
+          <li>Copy your key</li>
+          <li>Paste it here</li>
+        </ol>
+        <div class="keyrow">
+          <input type="text" id="b2key" placeholder="sk-or-v1-…" aria-label="AI provider key">
+          <button class="btn primary" id="b2go" onclick="runB2()">Check &amp; continue</button>
+        </div>
+        <p class="hint" id="b2hint">We run one real request so you know it works before we build on it.</p>
+      </div>
+      <div class="stages" id="b2stages" hidden>
+        <div><span class="m">◌</span><span>Checking your key…</span></div>
+        <div><span class="m">·</span><span id="b2okline">Connected — model responded</span></div>
+      </div>
+      <details class="adv">
+        <summary>Having trouble?</summary>
+        <div class="inner">Wrong-key errors show the provider's exact message here. Rate-limited? Wait a minute and re-check. Picked OpenAI or Anthropic? Those run through the local server (browsers block them directly) — keep <code>npm start</code> running. Picked Local? We check that Ollama is actually answering before continuing.</div>
+      </details>
+    </div>
+  </section>
+  <p class="screen-note" data-for="b2" hidden><b>Beat 2 — required, and placed here on purpose.</b> The provider key moved from "deferred upsell" into the mandatory flow (Emilio's call: without it the tool is a ledger for manual pulls) — and it sits <em>before</em> the resume beat because the very next screen's drafting runs on it. The ask is honest instead of avoidable: value named first, free tier default, one real verified request, errors rendered — never a silent save. Local only passes with a live Ollama check, closing the invisible-hatch bug.</p>
+
+  <!-- ============ B3 — Resume ============ -->
+  <section id="b3" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>Setup · beat 3 of 6</span></div>
+    <div class="beat">
+      <div class="spine"><i class="done"></i><i class="done"></i><i class="here"></i><i></i><i></i><i></i></div>
+      <div class="spine-row"><span class="spine-labels">Google ✓ → AI ✓ → Resume → Your fit → Discovery → Done</span><span class="spine-time">about 7 min left</span></div>
+      <h2>Drop in your resume. We'll do the typing.</h2>
+      <p class="sub">From this one file we'll draft your whole fit profile — target roles, strengths, what you want, what to avoid. You'll review everything on the next screen; nothing is saved until you approve it.</p>
+      <button class="drop" id="b3drop" onclick="runB3()">Drag a PDF here, paste text, or <u>browse</u></button>
+      <div class="stages" id="b3stages" hidden>
+        <div><span class="m">◌</span><span>Reading resume.pdf…</span></div>
+        <div><span class="m">·</span><span>Drafting your target roles &amp; strengths…</span></div>
+        <div><span class="m">·</span><span>Writing your first-person narrative…</span></div>
+        <div><span class="m">·</span><span>Draft ready</span></div>
+      </div>
+      <div style="margin-top:14px"><button class="linky" onclick="go('b4')">I'd rather start from a template</button></div>
+    </div>
+  </section>
+  <p class="screen-note" data-for="b3" hidden><b>Beat 3 — the front door.</b> One upload, written to <em>both</em> stores (IndexedDB + the server path the pre-fill endpoint reads), closing the keystone bug. Drafting runs on the provider verified in Beat 2 — the template path is a choice now, never a failure mode caused by a missing key.</p>
+
+  <!-- ============ B4 — Confirm fit ============ -->
+  <section id="b4" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>Setup · beat 4 of 6</span></div>
+    <div class="beat">
+      <div class="spine"><i class="done"></i><i class="done"></i><i class="done"></i><i class="here"></i><i></i><i></i></div>
+      <div class="spine-row"><span class="spine-labels">Google ✓ → AI ✓ → Resume ✓ → Your fit → Discovery → Done</span><span class="spine-time">about 6 min left</span></div>
+      <h2>Here's how we'll judge every job for you.</h2>
+      <p class="sub">We drafted this from your resume. Fix anything that's off — <span class="tape">this is the one-time part</span> that makes every match yours. Click a chip to drop it.</p>
+      <div class="card">
+        <span class="lbl">Looking for</span>
+        <div class="chipset" id="rolesChips">
+          <button class="chip" onclick="tog(this)">Senior Product Manager</button>
+          <button class="chip" onclick="tog(this)">Group PM</button>
+          <button class="chip" onclick="tog(this)">Product Lead</button>
+          <button class="chip add" onclick="addChip(this)">+ add</button>
+        </div>
+        <p class="meta">Senior level · Remote or Austin · $180k floor</p>
+      </div>
+      <div class="card">
+        <span class="lbl">Your edge — top strengths, in order</span>
+        <ul>
+          <li><b>0→1 product strategy</b> — took two products from prototype to $1M ARR</li>
+          <li><b>Growth experimentation</b> — 40+ shipped A/B programs</li>
+          <li><b>Technical fluency</b> — SQL, APIs, comfortable in the codebase</li>
+        </ul>
+        <p class="naretive" style="margin:10px 0 0">"Product manager who ships 0→1 and scales what works — looking for a senior role where discovery is hands-on and the team is small."&nbsp;<button class="linky" onclick="toast('Prototype: inline narrative editor opens here.')">edit</button></p>
+      </div>
+      <div class="card">
+        <span class="lbl">Lean toward / away</span>
+        <div class="chipset">
+          <button class="chip" onclick="tog(this)">hands-on discovery</button>
+          <button class="chip" onclick="tog(this)">small teams</button>
+          <button class="chip" onclick="tog(this)">experimentation culture</button>
+          <button class="chip away" onclick="tog(this)">avoid: agency work</button>
+          <button class="chip away" onclick="tog(this)">avoid: pure people mgmt</button>
+        </div>
+      </div>
+      <details class="adv">
+        <summary>Edit details — work mode, locations, salary, hard filters</summary>
+        <div class="inner fields">
+          <div><label>Work mode</label>
+            <div class="radio-row">
+              <label><input type="radio" name="wm" checked> Any</label>
+              <label><input type="radio" name="wm"> Remote only</label>
+              <label><input type="radio" name="wm" onclick="toast('Locations chips appear only for hybrid/onsite — the remote-kill trap is structural now.')"> Hybrid OK</label>
+            </div>
+            <p class="hint">Location chips appear only when a non-remote mode needs them.</p>
+          </div>
+          <div><label>Salary floor (USD/year)</label><input type="number" value="180000"> <span class="hint">Works on its own — a listing below the floor is out.</span></div>
+          <div><label>Skip any title containing</label><input type="text" placeholder="e.g., Director of Sales"></div>
+        </div>
+      </details>
+      <div style="margin-top:18px">
+        <button class="btn primary" onclick="go('b5')">Looks like me →</button>
+      </div>
+    </div>
+  </section>
+  <p class="screen-note" data-for="b4" hidden><b>Beat 4 — confirm, don't compose.</b> Eleven screens across two wizards become one review of pre-drafted, plain-English content. Machine-speak, raw enum ids, and the JSON-dump review are gone; the two silent match-killers (location trap, inert salary floor) are fixed structurally. Saving writes the discovery profile and the server fit profile in one pass — nothing is ever asked twice.</p>
+
+  <!-- ============ B5 — Discovery: fuel + connect ============ -->
+  <section id="b5" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>Setup · beat 5 of 6</span></div>
+    <div class="beat">
+      <div class="spine"><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="here"></i><i></i></div>
+      <div class="spine-row"><span class="spine-labels">Google ✓ → AI ✓ → Resume ✓ → Fit ✓ → Discovery → Done</span><span class="spine-time">about 4 min left</span></div>
+      <h2>Now the engine: jobs come to you.</h2>
+      <p class="sub">Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline. Only your search terms leave this machine. Set up once; it runs itself.</p>
+
+      <div class="card" id="fuelCard">
+        <span class="lbl">First, the fuel — Google's job index</span>
+        <p style="margin:0 0 10px; font-size:.86rem; color:var(--ink-2)">Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100+ boards at once. Free key, 100 searches a month — plenty for daily runs. Three steps, about 60 seconds:</p>
+        <ol>
+          <li><button class="linky" onclick="toast('Opens serpapi.com signup in a new tab.')">Create a free SerpApi account ↗</button></li>
+          <li>Copy your API key</li>
+          <li>Paste it here</li>
+        </ol>
+        <div class="keyrow">
+          <input type="text" id="serpKey" placeholder="serpapi key…" aria-label="SerpApi key">
+          <button class="btn primary" id="fuelGo" onclick="runFuel()">Save &amp; verify</button>
+        </div>
+        <div class="stages" id="fuelStages" hidden>
+          <div><span class="m">◌</span><span>Saving your key…</span></div>
+          <div><span class="m">·</span><span>Google Jobs index connected — 100 searches/mo</span></div>
+        </div>
+      </div>
+
+      <div class="card dim" id="connectCard">
+        <span class="lbl">Then, the connection</span>
+        <div id="b5cta"><button class="btn mint" id="b5go" onclick="runB5()">Set it up for me</button></div>
+        <div class="stages" id="b5stages" hidden>
+          <div><span class="m">◌</span><span>Checking your machine…</span></div>
+          <div><span class="m">·</span><span>Starting the discovery worker…</span></div>
+          <div><span class="m">·</span><span>Publishing a private URL on your tailnet…</span></div>
+          <div><span class="m">·</span><span>Verifying the connection…</span></div>
+        </div>
+        <details class="adv">
+          <summary>Advanced: run without Tailscale, or paste your own endpoint</summary>
+          <div class="inner">Paste any HTTPS webhook URL + shared secret, or follow <code>docs/SELF-HOSTING.md</code> for the fully-local ngrok + relay route. The default path above needs neither.</div>
+        </details>
+        <div style="margin-top:12px"><button class="linky" onclick="skipConnect()">Skip the connection for now</button> <span class="hint">— your keys are saved; jobs won't arrive on their own until you connect.</span></div>
+      </div>
+    </div>
+  </section>
+  <p class="screen-note" data-for="b5" hidden><b>Beat 5 — fuel, then connect.</b> SerpApi moved from the bonus wizard into the mandatory path (Emilio's call — it's the recall difference between a real feed and a trickle) and it's the gate for the connect panel: no fuel, no engine. "Save &amp; verify" renders its result through the message slot — the current silent Save-key is a listed Phase-0 defect. The connect step keeps its honest skip because transport can genuinely fail on hostile networks; the keys never skip.</p>
+
+  <!-- ============ B6 — payoff ============ -->
+  <section id="b6" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>Setup · done</span></div>
+    <div class="beat" style="position:relative">
+      <div class="confetti-zone" id="confettiZone"></div>
+      <div class="spine"><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i><i class="done"></i></div>
+      <div class="spine-row"><span class="spine-labels">Google ✓ → AI ✓ → Resume ✓ → Fit ✓ → Discovery ✓ → Done</span><span class="spine-time">that's it — ever</span></div>
+      <h2 style="font-size:1.9rem">You're live, Emilio.</h2>
+      <p class="sub">That was the one-time part. From here, JobBored works for you.</p>
+      <div class="card">
+        <span class="lbl">Your search</span>
+        <dl class="kv">
+          <dt>Roles</dt><dd>Senior PM · Group PM · Product Lead</dd>
+          <dt>Where</dt><dd>Remote (US) · Austin</dd>
+          <dt>Floor</dt><dd>$180,000</dd>
+          <dt>Edge</dt><dd>0→1 strategy · growth · technical fluency</dd>
+        </dl>
+      </div>
+      <div class="card">
+        <span class="lbl">What happens now</span>
+        <ul style="list-style:none; padding:0" id="b6now"></ul>
+      </div>
+      <div id="b6actions"></div>
+      <p class="hint" style="margin-top:14px">More power-ups — URL import, grounded search, other devices — live in <b>Settings → Upgrades</b>, each one click, none required.</p>
+    </div>
+  </section>
+  <p class="screen-note" data-for="b6" hidden><b>Beat 6 — the only confetti, spent on the payoff.</b> The receipt now proves the whole deal: AI connected, five sources watching including Google's index, sheet linked, and "first matches land tomorrow morning" — the highest-value sentence in the product, currently appearing nowhere. <em>Run discovery now</em> is primary and guaranteed full-power: intent from Beat 4, verified keys from Beats 2 and 5.</p>
+
+  <!-- ============ DONE — live board ============ -->
+  <section id="done" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>localhost:8080 — your dashboard</span></div>
+    <div class="board">
+      <div class="toast" id="runToast" hidden>Discovery running — <b id="runCount">0</b> matches so far</div>
+      <div class="board-head"><h2>Pipeline</h2><span class="cnt" id="doneCnt">live</span></div>
+      <div class="banner-quiet" id="overnightNote" hidden>🌙 Discovery is armed — your first matches land tomorrow morning.</div>
+      <div class="banner-quiet" id="skippedNote" hidden>Your AI and Google-index keys are saved — <button class="linky" onclick="go('b5')">connect discovery</button> anytime and jobs will start arriving on their own.</div>
+      <div id="liveJobs"></div>
+    </div>
+  </section>
+  <p class="screen-note" data-for="done" hidden><b>The transition out of onboarding is jobs appearing.</b> "Run discovery now" streams the first scored cards onto the board as the wizard fades — several arriving via the Google Jobs index the user just unlocked. The promise from Screen 0, kept, in the same session.</p>
+
+  <!-- ============ MOMENTS ============ -->
+  <section id="moments" class="frame" hidden>
+    <div class="frame-chrome"><i></i><i></i><i></i><span>Later moments — the few asks that still wait for their context</span></div>
+    <div class="moments">
+      <div class="moment">
+        <span class="when">what changed in v2</span>
+        <h3>The AI key and SerpApi are no longer "later"</h3>
+        <p>Both moved into the mandatory flow (Beats 2 and 5) — without them the tool is a ledger for manual pulls, not a product. Only the genuinely optional asks remain deferred, below.</p>
+      </div>
+      <div class="moment">
+        <span class="when">when you paste a job URL (non-Gemini providers only)</span>
+        <h3>Import this posting automatically?</h3>
+        <p>Reading pages and grounded search use a Gemini key. If you chose Gemini in setup, this already works — no extra step. Otherwise, add one here in about a minute.</p>
+        <button class="btn primary" style="font-size:.8rem; padding:8px 14px">Add a Gemini key</button>
+        <button class="btn ghost" style="font-size:.8rem; padding:8px 14px">I'll paste details by hand</button>
+      </div>
+      <div class="moment">
+        <span class="when">the multi-device nudge — with a real exit</span>
+        <h3>Want JobBored on your phone or another laptop?</h3>
+        <p>Set it up from Settings → Devices whenever you like.</p>
+        <button class="btn ghost" style="font-size:.8rem; padding:8px 14px">Set up other devices</button>
+        <button class="btn ghost" style="font-size:.8rem; padding:8px 14px" onclick="toast('Writes goLiveSetupSkipped — the banner goes quiet forever.')">I only use JobBored on this computer</button>
+      </div>
+    </div>
+  </section>
+  <p class="screen-note" data-for="moments" hidden><b>What still waits for context.</b> Only the truly optional asks defer now: Gemini's URL-import (auto-unlocked when Gemini is the chosen provider) and multi-device — which finally has a single-device answer that quiets the banner.</p>
+
+</div>
+
+<nav class="navbar" aria-label="Prototype screens">
+  <button data-nav="s0" onclick="go('s0')">S0 · Demo</button>
+  <button data-nav="b1" onclick="go('b1')">1 · Google</button>
+  <button data-nav="b2" onclick="go('b2')">2 · AI</button>
+  <button data-nav="b3" onclick="go('b3')">3 · Resume</button>
+  <button data-nav="b4" onclick="go('b4')">4 · Fit</button>
+  <button data-nav="b5" onclick="go('b5')">5 · Discovery</button>
+  <button data-nav="b6" onclick="go('b6')">6 · Live</button>
+  <button data-nav="done" onclick="go('done')">✓ Board</button>
+  <button data-nav="moments" onclick="go('moments')">Later</button>
+  <button class="reset" onclick="resetProto()">↺ Reset</button>
+</nav>
+
+<script>
+  var timers = [];
+  var skippedConnect = false;
+  var provider = 'OpenRouter';
+  var SCREENS = ["s0","b1","b2","b3","b4","b5","b6","done","moments"];
+
+  function t(fn, ms) { timers.push(setTimeout(fn, ms)); }
+  function clearTimers() { timers.forEach(clearTimeout); timers = []; }
+  function el(id) { return document.getElementById(id); }
+
+  function go(id) {
+    clearTimers();
+    SCREENS.forEach(function (s) {
+      el(s).hidden = (s !== id);
+      var note = document.querySelector('.screen-note[data-for="' + s + '"]');
+      if (note) note.hidden = (s !== id);
+    });
+    document.querySelectorAll('.navbar [data-nav]').forEach(function (b) {
+      b.classList.toggle('on', b.getAttribute('data-nav') === id);
+    });
+    if (id === 'b6') enterB6();
+    window.scrollTo({ top: 0 });
+  }
+
+  /* ---- S0 ---- */
+  function pokeAround() { el('inviteCard').hidden = true; el('setupPill').hidden = false; }
+  function reopenInvite() { el('inviteCard').hidden = false; el('setupPill').hidden = true; }
+
+  /* ---- staged async theater ---- */
+  function playStages(containerId, stepMs, thenFn) {
+    var rows = el(containerId).querySelectorAll('div');
+    el(containerId).hidden = false;
+    var i = 0;
+    function step() {
+      if (i > 0) {
+        rows[i - 1].className = 'on done-line';
+        rows[i - 1].querySelector('.m').textContent = '✓';
+      }
+      if (i < rows.length) {
+        rows[i].className = 'on busy';
+        rows[i].querySelector('.m').textContent = '◌';
+        i++;
+        t(step, stepMs);
+      } else if (thenFn) {
+        t(thenFn, 700);
+      }
+    }
+    step();
+  }
+
+  /* ---- B1 ---- */
+  function runB1() {
+    el('b1cta').hidden = true;
+    playStages('b1stages', 1000, function () { go('b2'); });
+  }
+
+  /* ---- B2 (AI provider) ---- */
+  function pickProv(btn, name) {
+    provider = name;
+    document.querySelectorAll('.prov').forEach(function (p) { p.classList.remove('sel'); });
+    btn.classList.add('sel');
+    var key = el('b2key');
+    var hint = el('b2hint');
+    if (name === 'Local') {
+      key.placeholder = 'no key needed — Ollama at 127.0.0.1:11434';
+      hint.textContent = 'We check that Ollama is running and answering before continuing.';
+      el('b2go').textContent = 'Check Ollama & continue';
+    } else {
+      key.placeholder = name === 'OpenRouter' ? 'sk-or-v1-…' : 'paste your ' + name + ' key…';
+      hint.textContent = 'We run one real request so you know it works before we build on it.';
+      el('b2go').textContent = 'Check & continue';
+    }
+  }
+  function runB2() {
+    el('b2go').disabled = true;
+    el('b2okline').textContent = provider === 'Local'
+      ? 'Connected — Ollama answered (gemma4:e2b)'
+      : 'Connected — ' + provider + ' responded (0.8s)';
+    playStages('b2stages', 1000, function () {
+      if (provider === 'Gemini') toast('Your Gemini key also unlocks URL import and grounded search — done, no extra step.');
+      go('b3');
+    });
+  }
+
+  /* ---- B3 (resume) ---- */
+  function runB3() {
+    el('b3drop').textContent = 'resume.pdf ✓';
+    el('b3drop').disabled = true;
+    playStages('b3stages', 900, function () { go('b4'); });
+  }
+
+  /* ---- B4 chips ---- */
+  function tog(chip) { chip.classList.toggle('off'); }
+  function addChip(btn) {
+    var input = document.createElement('input');
+    input.className = 'chip-input';
+    input.placeholder = 'role title + Enter';
+    btn.replaceWith(input);
+    input.focus();
+    input.addEventListener('keydown', function (e) {
+      if (e.key === 'Enter' && input.value.trim()) {
+        var c = document.createElement('button');
+        c.className = 'chip';
+        c.textContent = input.value.trim();
+        c.onclick = function () { tog(c); };
+        input.replaceWith(c);
+        el('rolesChips').appendChild(makeAdd());
+      }
+    });
+  }
+  function makeAdd() {
+    var b = document.createElement('button');
+    b.className = 'chip add';
+    b.textContent = '+ add';
+    b.onclick = function () { addChip(b); };
+    return b;
+  }
+
+  /* ---- B5 fuel + connect ---- */
+  function runFuel() {
+    el('fuelGo').disabled = true;
+    playStages('fuelStages', 900, function () {
+      el('fuelGo').textContent = 'Fuel ✓';
+      el('connectCard').classList.remove('dim');
+    });
+  }
+  function runB5() {
+    skippedConnect = false;
+    el('b5go').disabled = true;
+    el('b5go').textContent = 'Setting it up…';
+    playStages('b5stages', 950, function () {
+      el('b5go').textContent = 'Connected ✓';
+      t(function () { go('b6'); }, 800);
+    });
+  }
+  function skipConnect() { skippedConnect = true; go('b6'); }
+
+  /* ---- B6 ---- */
+  function enterB6() {
+    var now = el('b6now');
+    var actions = el('b6actions');
+    var aiLine = '<li>✓ AI connected — <b>' + provider + (provider === 'OpenRouter' ? ' (free)' : '') + '</b></li>';
+    if (skippedConnect) {
+      now.innerHTML = aiLine +
+        '<li>✓ Google Jobs index key saved — ready when you connect</li>' +
+        '<li>○ Connection is off — connect anytime from the banner on your dashboard</li>' +
+        '<li>✓ Pipeline sheet connected — <button class="linky" onclick="toast(\'Opens your Google Sheet.\')">open it ↗</button></li>';
+      actions.innerHTML =
+        '<button class="btn primary" onclick="toDashboard()">Go to my dashboard</button>' +
+        '<button class="btn ghost" onclick="go(\'b5\')">Actually — connect discovery</button>';
+    } else {
+      now.innerHTML = aiLine +
+        '<li>✓ Discovery armed — <b>5 sources watching, including Google’s job index</b></li>' +
+        '<li>✓ Pipeline sheet connected — <button class="linky" onclick="toast(\'Opens your Google Sheet.\')">open it ↗</button></li>' +
+        '<li>⏱ <b>First matches land tomorrow morning</b> — or run it right now and watch.</li>';
+      actions.innerHTML =
+        '<button class="btn mint" onclick="runNow()">Run discovery now</button>' +
+        '<button class="btn ghost" onclick="toDashboard()">Take me to my dashboard</button>';
+    }
+    burstConfetti();
+  }
+
+  var CF_COLORS = ['#5FCB8E', '#0E3A4E', '#EF8F26', '#FCEFA8', '#7C3AED'];
+  function burstConfetti() {
+    var zone = el('confettiZone');
+    zone.innerHTML = '';
+    for (var i = 0; i < 36; i++) {
+      var p = document.createElement('span');
+      p.className = 'cf';
+      p.style.left = (Math.random() * 100) + '%';
+      p.style.background = CF_COLORS[i % CF_COLORS.length];
+      p.style.animationDelay = (Math.random() * 0.7) + 's';
+      p.style.animationDuration = (2.2 + Math.random() * 1.4) + 's';
+      zone.appendChild(p);
+    }
+    t(function () { zone.innerHTML = ''; }, 4200);
+  }
+
+  /* ---- done board ---- */
+  var LIVE_JOBS = [
+    { co: 'Retool', role: 'Senior Product Manager, Platform', why: 'via Google Jobs index · remote · matches 0→1 strategy', fit: '91% fit', mid: false },
+    { co: 'Render', role: 'Group PM, Developer Experience', why: 'remote (US) · experimentation-led org', fit: '89% fit', mid: false },
+    { co: 'Supabase', role: 'Product Lead, Growth', why: 'via Google Jobs index · your growth edge, verbatim', fit: '87% fit', mid: false },
+    { co: 'Atlassian', role: 'Senior PM, Jira Platform', why: 'above floor · hybrid Austin OK', fit: '78% fit', mid: true },
+    { co: 'Vanta', role: 'Senior Product Manager', why: 'via Google Jobs index · comp published at $185k+', fit: '84% fit', mid: false }
+  ];
+  function jobRow(j) {
+    var d = document.createElement('div');
+    d.className = 'job stream';
+    d.innerHTML = '<div><div class="co"></div><div class="role"></div><div class="why"></div></div>' +
+                  '<span class="fit' + (j.mid ? ' mid' : '') + '"></span>';
+    d.querySelector('.co').textContent = j.co;
+    d.querySelector('.role').textContent = j.role;
+    d.querySelector('.why').textContent = j.why;
+    d.querySelector('.fit').textContent = j.fit;
+    return d;
+  }
+  function runNow() {
+    go('done');
+    el('runToast').hidden = false;
+    el('overnightNote').hidden = true;
+    el('skippedNote').hidden = true;
+    el('liveJobs').innerHTML = '';
+    el('doneCnt').textContent = 'discovery running…';
+    LIVE_JOBS.forEach(function (j, i) {
+      t(function () {
+        el('liveJobs').appendChild(jobRow(j));
+        el('runCount').textContent = String(i + 1);
+        el('doneCnt').textContent = (i + 1) + ' roles · live';
+        if (i === LIVE_JOBS.length - 1) {
+          t(function () { el('runToast').hidden = true; }, 1600);
+        }
+      }, 1100 * (i + 1));
+    });
+  }
+  function toDashboard() {
+    go('done');
+    el('runToast').hidden = true;
+    el('liveJobs').innerHTML = '';
+    el('doneCnt').textContent = skippedConnect ? '0 roles' : 'armed';
+    el('overnightNote').hidden = skippedConnect;
+    el('skippedNote').hidden = !skippedConnect;
+  }
+
+  /* ---- toast + reset ---- */
+  function toast(msg) {
+    var n = document.createElement('div');
+    n.className = 'toast';
+    n.style.position = 'fixed';
+    n.style.bottom = '64px';
+    n.style.right = '18px';
+    n.style.zIndex = '99';
+    n.style.maxWidth = '320px';
+    n.textContent = msg;
+    document.body.appendChild(n);
+    setTimeout(function () { n.remove(); }, 3200);
+  }
+  function resetProto() {
+    skippedConnect = false;
+    provider = 'OpenRouter';
+    el('b1cta').hidden = false;
+    resetStages('b1stages'); resetStages('b2stages'); resetStages('b3stages');
+    resetStages('fuelStages'); resetStages('b5stages');
+    el('b2go').disabled = false; el('b2go').textContent = 'Check & continue';
+    el('b2key').value = ''; el('b2key').placeholder = 'sk-or-v1-…';
+    el('b2hint').textContent = 'We run one real request so you know it works before we build on it.';
+    document.querySelectorAll('.prov').forEach(function (p, i) { p.classList.toggle('sel', i === 0); });
+    el('b3drop').textContent = 'Drag a PDF here, paste text, or browse';
+    el('b3drop').disabled = false;
+    el('fuelGo').disabled = false; el('fuelGo').textContent = 'Save & verify';
+    el('serpKey').value = '';
+    el('connectCard').classList.add('dim');
+    el('b5go').disabled = false; el('b5go').textContent = 'Set it up for me';
+    el('inviteCard').hidden = false; el('setupPill').hidden = true;
+    document.querySelectorAll('.chip.off').forEach(function (c) { c.classList.remove('off'); });
+    go('s0');
+  }
+  function resetStages(id) {
+    el(id).hidden = true;
+    el(id).querySelectorAll(':scope > div').forEach(function (r, i) {
+      r.className = '';
+      r.querySelector('.m').textContent = i === 0 ? '◌' : '·';
+    });
+  }
+
+  go('s0');
+</script>

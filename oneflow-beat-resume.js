@@ -35,6 +35,7 @@
   const ACTION_TEMPLATE = "resume_template";
   const ACTION_RETRY = "resume_retry";
   const ACTION_USE_TEXT = "resume_use_text";
+  const ACTION_BACK = "resume_back";
 
   const FILE_INPUT_ID = "oneFlowResumeFile";
   const PASTE_INPUT_ID = "oneFlowResumePaste";
@@ -148,6 +149,18 @@
 
   function syncActions() {
     ACTIONS.length = 0;
+    // The template grid used to be a one-way door: it replaced the dropzone
+    // and the paste box, so the only route back was a reload — which also
+    // threw away whatever had been pasted. A template is a seed, not a lock
+    // (spec §5 B3), and looking at one must cost nothing.
+    if (state.mode === "templates") {
+      ACTIONS.push({
+        id: ACTION_BACK,
+        label: "Back to upload or paste",
+        variant: "ghost",
+      });
+      return;
+    }
     if (state.mode === "intake") {
       ACTIONS.push({
         id: ACTION_USE_TEXT,
@@ -520,6 +533,14 @@
         state.mode = "templates";
         state.failed = false;
         clearStages(context);
+        repaint(context, "");
+        return undefined;
+      case ACTION_BACK:
+        // state.pasteDraft is what makes this free: it is written on every
+        // keystroke and survives the mode switch, so the intake screen comes
+        // back with the text still in it.
+        state.mode = "intake";
+        state.failed = false;
         repaint(context, "");
         return undefined;
       default:

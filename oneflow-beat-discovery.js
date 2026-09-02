@@ -73,9 +73,28 @@
   });
 
   const FUEL_ACTION = "oneflow_discovery_save_verify";
+  const FUEL_RETRY_ACTION = "oneflow_discovery_fuel_retry";
   const CONNECT_ACTION = "oneflow_discovery_connect";
   const SKIP_ACTION = "oneflow_discovery_skip_connect";
   const MANUAL_VERIFY_ACTION = "oneflow_discovery_manual_verify";
+
+  /**
+   * The clock on the fuel write. Saving the key and force-restarting the
+   * worker is two round trips, and a worker that is slow to come back leaves
+   * "Saving your key…" motionless above a disabled button — the same FROZEN
+   * shape B2's key check had. Past `slowAfterMs` the busy list counts the
+   * seconds; past `stalledAfterMs` it says so and offers a fresh attempt.
+   *
+   * An affordance, not a timeout: the write in flight is never cancelled.
+   * Mutable so tests exercise the real timer wiring in milliseconds.
+   */
+  const CHECK_TIMINGS = { slowAfterMs: 2000, stalledAfterMs: 15000, tickMs: 1000 };
+
+  const STALLED_STAGE_LABEL = "Taking longer than usual";
+
+  const STALLED_MESSAGE =
+    "Still waiting on the local server. Nothing is lost — leave it running, " +
+    "or press Try again to start a fresh save.";
 
   const SERPAPI_ENV_KEY = "SERPAPI_API_KEY";
   const WORKER_PORT = 8644;
@@ -93,6 +112,11 @@
     connectState: "",
     manualUrl: "",
     manualSecret: "",
+    // The fuel write that owns the screen. A retry pressed while an earlier
+    // write is still in flight bumps this, and the older one's answer is
+    // dropped instead of landing behind the newer attempt.
+    fuelRun: 0,
+    fuelStalled: false,
   };
 
   /**
@@ -186,6 +210,58 @@
     ACTIONS[1].label = blocked ? "Re-check" : "Set it up for me";
     ACTIONS[1].disabled = !state.fuelPassed;
     ACTIONS[2].disabled = !state.fuelPassed;
+    // The stall escape hatch is appended, never woven in: the three
+    // descriptors above are addressed by index and must keep their places.
+    const hasRetry = ACTIONS.length > 3;
+    if (state.fuelStalled && !hasRetry) {
+      ACTIONS.push({ id: FUEL_RETRY_ACTION, label: "Try again", variant: "ghost" });
+    } else if (!state.fuelStalled && hasRetry) {
+      ACTIONS.length = 3;
+    }
+  }
+
+  let fuelWatch = null;
+
+  function stopFuelWatch() {
+    if (fuelWatch != null) {
+      clearTimeout(fuelWatch);
+      fuelWatch = null;
+    }
+  }
+
+  /**
+   * Render the passing seconds for a fuel write that has not answered yet.
+   * `run` is the write this clock belongs to — a superseded one goes quiet
+   * rather than writing over the screen the newer attempt owns.
+   */
+  function startFuelWatch(ctx, baseStages, run) {
+    stopFuelWatch();
+    const startedAt = Date.now();
+    const tick = () => {
+      fuelWatch = null;
+      if (run !== state.fuelRun) return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= CHECK_TIMINGS.stalledAfterMs) {
+        state.fuelStalled = true;
+        syncActions();
+        ctx.setBusy(
+          FUEL_ACTION,
+          baseStages.concat({ label: STALLED_STAGE_LABEL, state: "active" }),
+        );
+        ctx.setMessage(STALLED_MESSAGE, "info");
+        // The clock stops here; the write does not.
+        return;
+      }
+      ctx.setBusy(
+        FUEL_ACTION,
+        baseStages.concat({
+          label: `still checking… ${Math.floor(elapsed / 1000)} s`,
+          state: "active",
+        }),
+      );
+      fuelWatch = setTimeout(tick, CHECK_TIMINGS.tickMs);
+    };
+    fuelWatch = setTimeout(tick, CHECK_TIMINGS.slowAfterMs);
   }
 
   // ---------------------------------------------------------------
@@ -332,7 +408,11 @@
       { label: "Saving your key…", state: "active" },
       { label: "Google Jobs index connected — 100 searches/mo", state: "todo" },
     ];
+    const run = (state.fuelRun += 1);
+    state.fuelStalled = false;
+    syncActions();
     ctx.setBusy(FUEL_ACTION, stages);
+    startFuelWatch(ctx, stages, run);
 
     let wrote = false;
     try {
@@ -348,7 +428,14 @@
       wrote = false;
     }
 
+    // A newer attempt owns the screen — this one's answer is history, and
+    // its clock now belongs to that attempt, so leave the timer alone.
+    if (run !== state.fuelRun) return;
+
     if (!wrote) {
+      stopFuelWatch();
+      state.fuelStalled = false;
+      syncActions();
       ctx.clearBusy();
       ctx.setMessage(
         "Couldn't save your SerpApi key — is the local server running? Try again.",
@@ -378,7 +465,10 @@
       console.warn("[JobBored] B5 worker restart:", e);
     }
 
+    if (run !== state.fuelRun) return;
+    stopFuelWatch();
     state.fuelPassed = true;
+    state.fuelStalled = false;
     state.keyDraft = "";
     syncActions();
     stages[0].state = "done";
@@ -505,7 +595,7 @@
   // ---------------------------------------------------------------
 
   async function handleAction(actionId, ctx) {
-    if (actionId === FUEL_ACTION) {
+    if (actionId === FUEL_ACTION || actionId === FUEL_RETRY_ACTION) {
       return saveAndVerifyFuel(ctx);
     }
     // The gate is enforced here as well as on the buttons: a disabled
@@ -569,6 +659,8 @@
       },
       whenIdle: () => pending,
       CONNECT_STAGE_LABELS,
+      // The C6 thresholds, so a probe need not wait fifteen real seconds.
+      timings: CHECK_TIMINGS,
     },
   };
 })();

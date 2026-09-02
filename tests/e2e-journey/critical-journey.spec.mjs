@@ -14,6 +14,12 @@
  * Copy asserted verbatim below is NORMATIVE (spec §4/§5, ground rules §8):
  * these strings ship exactly as written, so drifting one is a failure, not
  * a test that needs loosening.
+ *
+ * The SIXBEATS block at the end re-pins the four claims that CHANGED
+ * behaviour in that program (C2, C3, C4, C5). Each lane already ships a unit
+ * probe; what is added here is the browser proof — the thing a stranger would
+ * actually experience — so a future refactor that keeps the unit seam happy
+ * while breaking the surface still fails.
  */
 
 import { test, expect } from "@playwright/test";
@@ -53,6 +59,15 @@ const BEAT_ONE = {
 
 /** Spec §3.5.1 — the six spine segments, in order. */
 const SPINE_LABELS = ["Google", "AI", "Resume", "Your fit", "Discovery", "Done"];
+
+/** SIXBEATS C5 — spec §3.4 "closing is pausing", said out loud. Verbatim. */
+const PAUSE_TOAST = "Setup paused — pick up right here anytime.";
+
+/** SIXBEATS C2 — B3's two doors, verbatim. */
+const BEAT_THREE = {
+  toTemplates: "I'd rather start from a template",
+  back: "Back to upload or paste",
+};
 
 let app = null;
 
@@ -427,4 +442,229 @@ test("should carry completed discovery into the pipeline and ready dossier mater
   await expect(materialsSection.locator(".brief-materials__progress")).toHaveCount(0);
 
   expect(fence.unexpectedExternal).toEqual([]);
+});
+
+/* ------------------------------------------------------------------------
+   SIXBEATS re-pins — the four claims that changed behaviour, in a browser.
+   ------------------------------------------------------------------------ */
+
+test("should give beat 3's template grid a way back, with the pasted draft intact", async ({
+  page,
+}) => {
+  // SIXBEATS C2. Choosing to look at the four starter templates replaced the
+  // dropzone and the paste box, and the only route back was a page reload —
+  // which also threw away whatever the visitor had already pasted. A grid you
+  // cannot leave is not a choice, it is a trap.
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  await bootColdStart(page, fence);
+
+  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toBeVisible();
+  await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("resume"));
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
+    "data-beat-id",
+    "resume",
+  );
+
+  const draft = "Emilio — platform engineer. Ten years of Node and Postgres.";
+  const paste = page.locator(`${FLOW_MOUNT} .oneflow-resume__paste-field`);
+  await expect(paste).toBeVisible();
+  await paste.fill(draft);
+
+  await page
+    .getByRole("button", { name: BEAT_THREE.toTemplates, exact: true })
+    .click();
+  await expect(
+    page.locator(`${FLOW_MOUNT} .oneflow-resume__template-card`).first(),
+  ).toBeVisible();
+  await expect(paste).toHaveCount(0);
+
+  // The way back, and exactly one of it: the grid must not offer two
+  // competing exits.
+  const back = page.getByRole("button", { name: BEAT_THREE.back, exact: true });
+  await expect(back).toHaveCount(1);
+  await back.click();
+
+  await expect(paste).toBeVisible();
+  await expect(
+    paste,
+    "the round trip through the grid must not eat the draft",
+  ).toHaveValue(draft);
+  await expect(
+    page.locator(`${FLOW_MOUNT} .oneflow-resume__template-card`),
+  ).toHaveCount(0);
+
+  expect(fence.unexpectedExternal).toEqual([]);
+});
+
+test("should spend the greenfield param once, so a mid-setup refresh resumes instead of resetting", async ({
+  page,
+}) => {
+  // SIXBEATS C4. `?greenfield=1` stayed in the address bar after the reset
+  // ran, so the ordinary thing a confused person does — hit refresh — re-ran
+  // the reset, dropped IndexedDB again, and landed them back on cold start.
+  // Spec §3.4 says refreshing lands on onboardingFlowState.beat.
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  await bootColdStart(page, fence);
+
+  expect(
+    new URL(page.url()).searchParams.get("greenfield"),
+    "the reset param must be spent, not left in the address bar",
+  ).toBeNull();
+
+  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toBeVisible();
+  await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("fit"));
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
+    "data-beat-id",
+    "fit",
+  );
+
+  // The refresh a real visitor performs: whatever is in the bar, reloaded.
+  await page.reload({ waitUntil: "load" });
+  expect(new URL(page.url()).searchParams.get("greenfield")).toBeNull();
+
+  await expect(page.locator(DEMO_BOARD)).toBeVisible();
+  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await expect(
+    page.locator(`${FLOW_MOUNT} .oneflow-beat`),
+    "a refresh must resume the saved beat, not restart the flow",
+  ).toHaveAttribute("data-beat-id", "fit");
+
+  expect(fence.unexpectedExternal).toEqual([]);
+});
+
+test("should say on screen that closing the flow paused it", async ({ page }) => {
+  // SIXBEATS C5. The saved beat survived Escape all along — but nothing said
+  // so, so pausing read as losing fifteen minutes of setup. Spec §3.4:
+  // closing is pausing, never skipping.
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  await bootColdStart(page, fence);
+
+  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toBeVisible();
+  await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("fit"));
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
+    "data-beat-id",
+    "fit",
+  );
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(FLOW_MOUNT)).toBeHidden();
+  await expect(
+    page.locator("#toastContainer .toast-message"),
+    "the pause has to be announced where the visitor is looking",
+  ).toHaveText(PAUSE_TOAST);
+
+  // The promise the toast makes has to be TRUE: S0 offers a live way back in,
+  // and it lands on the paused beat rather than restarting. A visitor who
+  // accepted the invitation outright still has the invitation card (it never
+  // collapsed); a visitor who poked around first has the pill. Both are
+  // asserted, because "pick up anytime" has to hold on both routes.
+  await expect(page.locator(DEMO_BOARD)).toBeVisible();
+  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
+    "data-beat-id",
+    "fit",
+  );
+
+  expect(fence.unexpectedExternal).toEqual([]);
+});
+
+test("should pause to a live corner pill for a visitor who poked around first", async ({
+  page,
+}) => {
+  // SIXBEATS C5, the other route in. This is the one the toast's own words
+  // describe, and the one the founder's U1 screenshot opened on: the ask is
+  // already collapsed, so the pill is the only door — and pausing must not
+  // close it.
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  await bootColdStart(page, fence);
+
+  await page.getByRole("button", { name: INVITE.secondary, exact: true }).click();
+  const pill = page.locator(".oneflow-demo__pill");
+  await expect(pill).toBeVisible();
+  await pill.click();
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toBeVisible();
+  await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("discovery"));
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
+    "data-beat-id",
+    "discovery",
+  );
+
+  await page.keyboard.press("Escape");
+  await expect(page.locator(FLOW_MOUNT)).toBeHidden();
+  await expect(page.locator("#toastContainer .toast-message")).toHaveText(
+    PAUSE_TOAST,
+  );
+
+  await expect(pill, "the pill the toast names must still be there").toBeVisible();
+  await pill.click();
+  await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
+    "data-beat-id",
+    "discovery",
+  );
+
+  expect(fence.unexpectedExternal).toEqual([]);
+});
+
+test("should serve the dashboard's own /profile from the local API, never a static 404", async ({
+  page,
+}) => {
+  // SIXBEATS C3. `jobBoredApiUrl` is empty on a fresh install, so beat 4's
+  // POST /profile and beat 6's GET /profile resolve same-origin — straight
+  // into the static host, which answered `404 Not found`, and the server fit
+  // profile silently never persisted (`profile_response_invalid`).
+  //
+  // The API is pointed at a closed port on purpose: what is being pinned is
+  // that the dev server OWNS the path and proxies it. A machine-dependent
+  // "is the real API up?" would make this test a weather report.
+  const previousApiPort = process.env.JOBBORED_API_PORT;
+  process.env.JOBBORED_API_PORT = "59997";
+  try {
+    const fence = await installHermeticNetworkFence(page, {
+      baseUrl: app.baseUrl,
+    });
+    // Registered after the fence, so it wins: the harness stubs /profile as a
+    // 404 for every other test, and this is the one test that must reach the
+    // real server.
+    const appOrigin = new URL(app.baseUrl).origin;
+    await page.route(
+      (url) => url.origin === appOrigin && url.pathname === "/profile",
+      (route) => route.continue(),
+    );
+    await bootColdStart(page, fence);
+
+    const profile = await page.evaluate(async () => {
+      const response = await fetch("/profile", {
+        headers: { accept: "application/json" },
+      });
+      return { status: response.status, body: await response.text() };
+    });
+
+    expect(
+      profile.status,
+      `same-origin /profile must not fall through to the static host: ${JSON.stringify(profile)}`,
+    ).not.toBe(404);
+    expect(profile.status).toBe(502);
+    expect(JSON.parse(profile.body)).toEqual({
+      ok: false,
+      error: "profile_api_unreachable",
+    });
+
+    // The contrast that keeps the assertion above honest: a path the server
+    // does NOT own still 404s from the static handler, so a 502 on /profile
+    // is the proxy answering, not a server that has stopped 404ing anything.
+    const missing = await page.evaluate(async () => {
+      const response = await fetch("/definitely-not-a-route");
+      return { status: response.status, body: await response.text() };
+    });
+    expect(missing.status).toBe(404);
+    expect(missing.body).toContain("Not found");
+
+    expect(fence.unexpectedExternal).toEqual([]);
+  } finally {
+    if (previousApiPort === undefined) delete process.env.JOBBORED_API_PORT;
+    else process.env.JOBBORED_API_PORT = previousApiPort;
+  }
 });

@@ -59,6 +59,7 @@
     "test:coverage:lcov": "c8 --reporter=text --reporter=text-summary --reporter=lcov node scripts/run-tests.mjs",
     "test:e2e-smoke": "playwright test --config tests/e2e-smoke/playwright.config.mjs",
     "test:e2e-journey": "playwright test --config tests/e2e-journey/playwright.config.mjs",
+    "test:e2e-visual": "playwright test --config tests/e2e-visual/playwright.config.mjs",
     "test:discovery-webhook": "node scripts/verify-discovery-webhook.mjs",
     "test:browser-use-discovery": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/*.test.ts integrations/browser-use-discovery/tests/browser/*.test.ts integrations/browser-use-discovery/tests/discovery/*.test.ts integrations/browser-use-discovery/tests/sources/*.test.ts integrations/browser-use-discovery/tests/state/*.test.ts integrations/browser-use-discovery/tests/sheets/*.test.ts integrations/browser-use-discovery/tests/webhook/*.test.ts integrations/browser-use-discovery/tests/run/*.test.ts integrations/browser-use-discovery/tests/e2e/*.test.ts",
     "test:contract": "node scripts/test-contract.mjs",
