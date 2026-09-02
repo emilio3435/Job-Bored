@@ -299,6 +299,29 @@ describe("materials manifest ownership", () => {
     assert.equal(announced(), before, "rehydrate must not re-dispatch jb:materials:manifest");
   });
 
+  /* P0-0b: switching straight from role A to role B never fires
+     jb:role:closed, so the module-global lastPaint stayed role A's. The Case
+     rebuilt its region for B, role.js asked for a repaint, and B's Materials
+     lane filled with A's files and download links. */
+  it("never repaints the previous role's rows after a direct role switch", async () => {
+    const { api, win, mountEls, openRole } = bootMaterials({ mounts: ["materials", "brief"] });
+    await openRole("job-1");
+    const mount = mountEls.get("materials");
+    assert.match(renderedHtml(mount), /class="case__doc" data-doc="resume"/, "role A painted its rows");
+
+    /* Role B opens directly: no jb:role:closed, and its own load has not
+       landed yet when the Case rebuilds the mount. */
+    win.JobBoredFlowing.openRole.get = () => "job-2";
+    mount.childNodes.length = 0;
+    api.rehydrateOpenRole();
+    assert.equal(renderedHtml(mount), "", "role A's rows must not paint under role B");
+
+    /* And the guard is not a blanket refusal: A's own repaint still works. */
+    win.JobBoredFlowing.openRole.get = () => "job-1";
+    api.rehydrateOpenRole();
+    assert.match(renderedHtml(mount), /class="case__doc" data-doc="resume"/);
+  });
+
   it("still renders into the legacy brief mount when no materials mount exists", async () => {
     const { mountEls, openRole } = bootMaterials({ mounts: ["brief"] });
     await openRole("job-1");

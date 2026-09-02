@@ -453,6 +453,7 @@
        brief is open, the role is known, and there's no matched package. */
     if (!briefEl) return;
     lastPaint = { kind: "empty", options: options };
+    lastPaintKey = paintedRoleKey();
     removeExisting(briefEl);
     var note = options && options.note ? options.note : "";
     if (isCaseMount(briefEl)) {
@@ -845,6 +846,7 @@
   function renderError(briefEl, message) {
     if (!briefEl) return;
     lastPaint = { kind: "error", message: message };
+    lastPaintKey = paintedRoleKey();
     removeExisting(briefEl);
     if (isCaseMount(briefEl)) {
       /* A failure must not read like an empty shelf: role-case.css hangs the
@@ -913,10 +915,27 @@
      rehydrateOpenRole() to repaint this state into the fresh mount
      WITHOUT re-dispatching the event (that would loop). */
   var lastPaint = null;
+  /* …and for WHICH role. Switching straight from A to B never fires
+     jb:role:closed, so without this the repaint painted A's files into B's
+     Materials lane (P0-0b). */
+  var lastPaintKey = null;
+
+  function paintedRoleKey() {
+    if (currentContext && currentContext.jobKey != null && currentContext.jobKey !== "") return String(currentContext.jobKey);
+    if (currentManifest && currentManifest.jobKey) return String(currentManifest.jobKey);
+    return "";
+  }
+
+  function openRoleKey() {
+    var flow = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+    var key = flow && typeof flow.get === "function" ? flow.get() : null;
+    return key == null ? "" : String(key);
+  }
 
   function commitManifest(hostEl, manifest, base, jobKey) {
     renderManifest(hostEl, manifest, base);
     lastPaint = { kind: "manifest" };
+    lastPaintKey = paintedRoleKey();
     currentManifest = {
       jobKey: jobKey != null && jobKey !== ""
         ? jobKey
@@ -937,6 +956,10 @@
   function rehydrateOpenRole() {
     var host = findMount();
     if (!host || !lastPaint) return;
+    /* Only ever repaint the role we painted: a stale repaint under a
+       different role lists the previous role's files (P0-0b). */
+    var open = openRoleKey();
+    if (open && lastPaintKey && open !== lastPaintKey) return;
     if (lastPaint.kind === "manifest") {
       if (currentManifest && currentManifest.manifest) renderManifest(host, currentManifest.manifest, currentManifest.base);
     } else if (lastPaint.kind === "empty") {
@@ -2336,6 +2359,7 @@
   function onClosed() {
     currentManifest = null;
     lastPaint = null;
+    lastPaintKey = null;
     clearCache();
   }
 
