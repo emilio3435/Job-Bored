@@ -63,8 +63,6 @@
     var ms = deps.parseDate(followUpAt);
     return { followUpAt: followUpAt, daysUntil: ms == null ? null : Math.ceil((ms - deps.nowMs) / DAY), replied: job.replied || "Unknown", lastContactAt: inline(job.lastHeardFrom) };
   }
-
-  var SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
   /* The next-move sentence reads as prose, so an ISO follow-up date is spoken
      as `Sep 4`. Anything that is not a plain YYYY-MM-DD passes through as the
      user typed it — this formats, it never invents a date. */

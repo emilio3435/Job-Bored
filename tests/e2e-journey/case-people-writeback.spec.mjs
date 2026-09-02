@@ -1,3 +1,4 @@
+/* global window, document */
 /**
  * case-people-writeback.spec.mjs — wire-level proof that The Case's People
  * controls issue Sheets writes for contact / last contact / reply / follow-up.
