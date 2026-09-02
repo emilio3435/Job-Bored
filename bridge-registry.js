@@ -480,6 +480,7 @@
     app.core = app.core || {};
     app.core.host = {
       showToast: host.showToast,
+      openDiscoveryDrawer: host.openDiscoveryDrawer,
       escapeHtml(...args) {
         return app.utils.escapeHtml(...args);
       },
