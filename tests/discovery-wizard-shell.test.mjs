@@ -203,8 +203,15 @@ class FakeEl {
 
 function makeFakeDocument() {
   const elements = new Map();
+  const docListeners = new Map();
   const doc = {
     activeElement: null,
+    _listeners: docListeners,
+    addEventListener(type, fn) {
+      if (!docListeners.has(type)) docListeners.set(type, []);
+      docListeners.get(type).push(fn);
+    },
+    removeEventListener() {},
     body: new FakeEl("body"),
     createElement(tag) {
       const el = new FakeEl(tag);
@@ -437,6 +444,43 @@ describe("renderWizardShell variant:'generic' — second wizard on a second moun
 // =====================================================================
 
 describe("bindDelegatesOnce — per-mount registry, not a global boolean", () => {
+  it("Escape closes the wizard even when focus is outside the mount (document fallback)", () => {
+    // Root cause of the flaky one-flow journey tests: the only keydown
+    // listener lived on the mount, so an Escape pressed while focus sat on
+    // <body> (a re-render moves focus in a later rAF) was silently dropped.
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({ steps: [{ id: "detect", label: "S" }] });
+    const mount = document.getElementById("discoverySetupWizardMount");
+    assert.equal(shell.open, true, "shell must be open after render");
+    const docKeydown = document._listeners.get("keydown") || [];
+    assert.equal(docKeydown.length, 1, "exactly one document-level keydown fallback");
+    let prevented = false;
+    docKeydown[0]({
+      key: "Escape",
+      target: document.body,
+      defaultPrevented: false,
+      preventDefault() { prevented = true; },
+    });
+    assert.equal(shell.open, false, "Escape from outside the mount must close the shell");
+    assert.equal(mount.getAttribute("hidden"), "", "the mount must be hidden");
+    assert.ok(prevented, "the fallback owns the key when it acts");
+    // Bound once: a second render must not add a second document listener.
+    shell.renderWizardShell({ steps: [{ id: "detect", label: "S" }] });
+    assert.equal((document._listeners.get("keydown") || []).length, 1);
+  });
+
+  it("the document fallback stays quiet when the shell is closed or the key is not Escape", () => {
+    const { document, shell } = loadShell();
+    shell.renderWizardShell({ steps: [{ id: "detect", label: "S" }] });
+    const fallback = (document._listeners.get("keydown") || [])[0];
+    let prevented = 0;
+    fallback({ key: "ArrowRight", target: document.body, preventDefault() { prevented += 1; } });
+    assert.equal(shell.open, true);
+    shell.closeWizardShell("close");
+    fallback({ key: "Escape", target: document.body, preventDefault() { prevented += 1; } });
+    assert.equal(prevented, 0, "a closed shell must not swallow Escape for other overlays");
+  });
+
   it("each mount gets its own click + keydown listeners after render", () => {
     const { document, shell } = loadShell();
     shell.renderWizardShell({

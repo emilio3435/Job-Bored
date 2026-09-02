@@ -1496,11 +1496,32 @@
     });
   }
 
+  /* Escape must close the wizard even when keyboard focus is NOT inside the
+     mount: a re-render moves focus in a later animation frame, and a viewer
+     can click the backdrop before pressing the key. The mount delegate below
+     owns the in-mount case; this document-level fallback covers the rest
+     while the shell is open. Bound once per document, never per mount. */
+  function onDocumentKeydown(event) {
+    if (!shell.open || !event || event.key !== "Escape" || event.defaultPrevented) return;
+    const mount = shell._mount;
+    if (mount && event.target && typeof mount.contains === "function" && mount.contains(event.target)) return;
+    if (typeof event.preventDefault === "function") event.preventDefault();
+    closeWizardShell("escape");
+  }
+
+  function bindDocumentEscapeOnce() {
+    if (shell._docEscapeBound) return;
+    if (typeof document === "undefined" || !document || typeof document.addEventListener !== "function") return;
+    document.addEventListener("keydown", onDocumentKeydown);
+    shell._docEscapeBound = true;
+  }
+
   function bindDelegatesOnce(mount) {
     // Per-mount registry: a second wizard rendered into a different mount
     // (e.g. #goLiveSetupWizardMount) must also receive click + key delegates.
     // A boolean flag here would skip-bind everything after the first mount.
     if (!shell._boundMounts) shell._boundMounts = new Set();
+    bindDocumentEscapeOnce();
     if (shell._boundMounts.has(mount)) return;
     shell._boundMounts.add(mount);
     shell._delegatesBound = true;
