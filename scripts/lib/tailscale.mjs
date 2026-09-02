@@ -1,11 +1,20 @@
 import childProcess from "node:child_process";
 
 const TAILSCALE_COMMAND = "tailscale";
+/** Where the CLI lives when PATH does not carry it (a dev server launched
+ *  from launchd, an IDE terminal, or a lean shell): try these in order.
+ *  Seen live 2026-09-02 — "Tailscale isn't installed yet" with it running. */
+const TAILSCALE_CANDIDATES = [
+  TAILSCALE_COMMAND,
+  "/usr/local/bin/tailscale",
+  "/opt/homebrew/bin/tailscale",
+  "/Applications/Tailscale.app/Contents/MacOS/Tailscale",
+];
 const ALLOWED_SERVE_PORTS = new Set([8080, 8644]);
 
-function runTailscaleCommand(spawnSync, args) {
+function spawnTailscale(spawnSync, command, args) {
   try {
-    return spawnSync(TAILSCALE_COMMAND, args, {
+    return spawnSync(command, args, {
       encoding: "utf8",
       env: { ...process.env, FORCE_COLOR: "0" },
       windowsHide: true,
@@ -13,6 +22,36 @@ function runTailscaleCommand(spawnSync, args) {
   } catch (error) {
     return { status: 1, stdout: "", stderr: "", error };
   }
+}
+
+function isMissingBinary(result) {
+  const code = result && result.error && result.error.code;
+  return code === "ENOENT" || code === "EACCES";
+}
+
+/** The candidate that answered last time, per spawnSync (tests inject their
+ *  own; the real one is remembered for the process). */
+const resolvedCommandBySpawn = new WeakMap();
+
+/** Run the CLI: the bare command first; only when the binary is missing from
+ *  PATH try the well-known install locations with the same arguments, and
+ *  remember the one that answered. The happy path costs no extra spawn. */
+function runTailscaleCommand(spawnSync, args) {
+  const remembered = resolvedCommandBySpawn.get(spawnSync);
+  const order = remembered
+    ? [remembered, ...TAILSCALE_CANDIDATES.filter((c) => c !== remembered)]
+    : TAILSCALE_CANDIDATES;
+  let first = null;
+  for (const candidate of order) {
+    const result = spawnTailscale(spawnSync, candidate, args);
+    if (!isMissingBinary(result)) {
+      resolvedCommandBySpawn.set(spawnSync, candidate);
+      return result;
+    }
+    if (!first) first = result;
+  }
+  // Nothing answered: surface the bare command's ENOENT, the clearest signal.
+  return first || spawnTailscale(spawnSync, TAILSCALE_COMMAND, args);
 }
 
 function firstLine(value) {

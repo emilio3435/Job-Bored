@@ -25,11 +25,16 @@ function createSpawnSync(responses) {
   const calls = [];
   const spawnSync = (command, args = [], options = {}) => {
     calls.push({ command, args, options });
-    assert.equal(command, "tailscale");
+    assert.ok(
+      ["tailscale", "/usr/local/bin/tailscale", "/opt/homebrew/bin/tailscale", "/Applications/Tailscale.app/Contents/MacOS/Tailscale"].includes(command),
+      `unexpected command ${command}`,
+    );
     assert.equal(options.encoding, "utf8");
     assert.equal(options.windowsHide, true);
     const key = [command, ...args].join(" ");
-    return responses[key] || failed(`unexpected command: ${key}`);
+    // An install-location candidate that has no scripted response is a
+    // binary that is not there: ENOENT, exactly as the OS would report it.
+    return responses[key] || (command === "tailscale" ? failed(`unexpected command: ${key}`) : missingCommand(command));
   };
   spawnSync.calls = calls;
   return spawnSync;
@@ -140,5 +145,43 @@ describe("scripts/lib/tailscale.mjs", () => {
     assert.equal(result.alreadyServing, false);
     assert.equal(result.url, null);
     assert.match(result.error, /ENOENT/);
+  });
+});
+
+describe("detectTailscale — binary resolution when PATH is minimal", () => {
+  // Seen live 2026-09-02: a dev server launched from a shell without
+  // /usr/local/bin on PATH reported "Tailscale isn't installed yet" while the
+  // app was running. The CLI lives in well-known places; try them.
+  function createResolvingSpawnSync(workingCommand) {
+    const calls = [];
+    const spawnSync = (command, args = [], options = {}) => {
+      calls.push({ command, args });
+      assert.equal(options.encoding, "utf8");
+      if (command !== workingCommand) return missingCommand(command);
+      const key = args.join(" ");
+      if (key === "version") return ok("1.103.163\n");
+      if (key === "status --json") return ok(JSON.stringify({ BackendState: "Running", Self: { DNSName: "mac.tail1.ts.net." }, CurrentTailnet: { Name: "tail1.ts.net" } }));
+      return failed("unexpected " + key);
+    };
+    spawnSync.calls = calls;
+    return spawnSync;
+  }
+
+  it("falls back to /usr/local/bin/tailscale when bare `tailscale` is ENOENT", () => {
+    const spawnSync = createResolvingSpawnSync("/usr/local/bin/tailscale");
+    const detection = detectTailscale({ spawnSync });
+    assert.equal(detection.installed, true, "installed via the fallback path");
+    assert.equal(detection.loggedIn, true);
+    assert.ok(spawnSync.calls.some((c) => c.command === "/usr/local/bin/tailscale" && c.args[0] === "status"), "status ran on the resolved binary");
+  });
+
+  it("falls back to the macOS app bundle CLI", () => {
+    const spawnSync = createResolvingSpawnSync("/Applications/Tailscale.app/Contents/MacOS/Tailscale");
+    assert.equal(detectTailscale({ spawnSync }).installed, true);
+  });
+
+  it("still reports not installed when no candidate runs", () => {
+    const spawnSync = createResolvingSpawnSync("/nowhere/tailscale");
+    assert.equal(detectTailscale({ spawnSync }).installed, false);
   });
 });
