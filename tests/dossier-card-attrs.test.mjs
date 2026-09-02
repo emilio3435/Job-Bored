@@ -437,3 +437,145 @@ describe("parsePipelineCSV — Edit Lock (column Y) read", () => {
     );
   });
 });
+
+/* ============================================================
+   Kanban card transport (pipeline-render.js renderKanbanCard)
+   ------------------------------------------------------------
+   The card's data-* attributes are the ONLY channel between the
+   board and the dossier, so their clipping and escaping is a
+   contract, not an implementation detail. Both now run through
+   window.JobBoredText (trap 2: it MUST be evaluated first —
+   pipeline-render.js calls it unconditionally).
+   ============================================================ */
+
+const jbTextSource = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
+const pipelineRenderSource = readFileSync(join(repoRoot, "pipeline-render.js"), "utf8");
+
+function loadPipelineRender() {
+  const windowEl = makeBus();
+  windowEl.JobBoredApp = {
+    core: {
+      getPipelineData: () => windowEl.__jobs,
+      getViewedJobKeys: () => new Set(),
+      getExpandedStages: () => new Set(),
+      host: {
+        escapeHtml: (s) =>
+          String(s == null ? "" : s)
+            .replace(/&/g, "&amp;")
+            .replace(/</g, "&lt;")
+            .replace(/>/g, "&gt;")
+            .replace(/"/g, "&quot;")
+            .replace(/'/g, "&#39;"),
+      },
+    },
+    companyLogo: { renderLogoHtml: () => "" },
+  };
+  const context = vm.createContext({
+    window: windowEl,
+    document: {
+      querySelectorAll: () => [],
+      querySelector: () => null,
+      addEventListener() {},
+    },
+    console: { log() {}, warn() {}, error() {} },
+    Set,
+    Map,
+    Date,
+    Number,
+    Math,
+    JSON,
+    parseInt,
+    parseFloat,
+  });
+  vm.runInContext(jbTextSource, context, { filename: "jb-text.js" });
+  assert.equal(
+    typeof windowEl.JobBoredText.clip,
+    "function",
+    "jb-text.js must be evaluated before pipeline-render.js",
+  );
+  vm.runInContext(pipelineRenderSource, context, { filename: "pipeline-render.js" });
+  return windowEl;
+}
+
+/** Render one job to its kanban-card HTML. */
+function renderCardHtml(job) {
+  const windowEl = loadPipelineRender();
+  windowEl.__jobs = [job];
+  return windowEl.JobBoredApp.pipelineRender.renderKanbanCard(job, 0);
+}
+
+/* Attribute values arrive HTML-escaped; decode ONE level (trap 4) so the
+   assertions see the value the dossier's parser will see. */
+function decodeAttrValue(raw) {
+  return String(raw)
+    .replace(/&#10;/g, "\n")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&amp;/g, "&");
+}
+
+/** Parse the <article> tag's data-* attributes into a decoded map. */
+function renderCardAttrs(job) {
+  const html = renderCardHtml(job);
+  const tag = /<article\b([^>]*)>/.exec(html);
+  assert.ok(tag, "renderKanbanCard must emit an <article> element");
+  const out = {};
+  const attrRe = /([a-zA-Z_][\w:-]*)="([^"]*)"/g;
+  let m;
+  while ((m = attrRe.exec(tag[1])) !== null) out[m[1]] = decodeAttrValue(m[2]);
+  // Absent attributes read as "" — _pair omits them entirely.
+  return new Proxy(out, {
+    get: (target, prop) =>
+      (typeof prop === "string" && !(prop in target) && prop.startsWith("data-") ? "" : target[prop]),
+  });
+}
+
+describe("v2 attr clipping is word- and surrogate-safe", () => {
+  it("clips data-role-in-one-line at a word boundary within 240 chars", () => {
+    const long = "Owns the platform roadmap " + "and the reliability program ".repeat(20);
+    const attrs = renderCardAttrs({ _postingEnrichment: { roleInOneLine: long } });
+    const v = attrs["data-role-in-one-line"];
+    assert.ok(v.startsWith("Owns the platform roadmap"), "the head of the value must survive");
+    assert.ok(v.length <= 240, `expected <= 240 chars, got ${v.length}`);
+    assert.ok(v.endsWith("…"), "a clipped value must be marked with an ellipsis");
+    assert.ok(!/\S{240}/.test(v), "must not be an unbroken 240-char cut");
+  });
+
+  it("leaves a short value untouched — no gratuitous ellipsis", () => {
+    const attrs = renderCardAttrs({ _postingEnrichment: { roleInOneLine: "Own the platform." } });
+    assert.equal(attrs["data-role-in-one-line"], "Own the platform.");
+  });
+
+  it("never emits a lone surrogate", () => {
+    const s = "x".repeat(238) + "💡💡💡";
+    const attrs = renderCardAttrs({ _postingEnrichment: { roleInOneLine: s } });
+    const v = attrs["data-role-in-one-line"];
+    assert.ok(v.length > 0, "the value must not be dropped entirely");
+    assert.doesNotMatch(v, /[\uD800-\uDBFF](?![\uDC00-\uDFFF])/);
+    assert.doesNotMatch(v, /(?<![\uD800-\uDBFF])[\uDC00-\uDFFF]/);
+  });
+
+  it("clips the jd snippet to its 4000-char budget, word-safely", () => {
+    const jd = "Para one. " + "reliability engineering work ".repeat(300);
+    const attrs = renderCardAttrs({ _postingEnrichment: { description: jd } });
+    const v = attrs["data-jd-snippet"];
+    assert.ok(v.startsWith("Para one."), "the head of the JD must survive");
+    assert.ok(v.length <= 4000, `expected <= 4000 chars, got ${v.length}`);
+    assert.ok(v.endsWith("…"));
+  });
+
+  it("attribute newlines are encoded as &#10;", () => {
+    const raw = renderCardHtml({ _postingEnrichment: { description: "Para one.\n\nPara two." } });
+    assert.match(raw, /data-jd-snippet="[^"]*Para one\.&#10;&#10;Para two\./);
+    assert.doesNotMatch(raw, /data-jd-snippet="[^"]*\n/, "a raw newline must never survive into an attribute");
+  });
+
+  it("escapes quotes so a JSON array attribute round-trips", () => {
+    const attrs = renderCardAttrs({
+      _postingEnrichment: { mustHaves: ['5+ yrs "systems" work', "Owns SLAs"] },
+    });
+    assert.deepEqual(JSON.parse(attrs["data-must-haves"]), ['5+ yrs "systems" work', "Owns SLAs"]);
+  });
+});
