@@ -23,6 +23,13 @@
   display: none !important;
 }
 
+/* The one-flow's own backdrop. The shared chassis paints a blue-white haze
+   behind every wizard; behind warm paper it reads as a different product
+   than the board the visitor just came from. */
+.oneflow-root {
+  background: rgba(239, 234, 220, 0.92);
+}
+
 /* ---------- The 6-beat spine (spec §3.5.1) ----------
    Replaces the 3-stage journey strip. Same visual language as
    .discovery-setup-wizard__journey so the flow reads as the same
@@ -204,6 +211,315 @@
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ---------- The one-flow shell's framing (SIXBEATS claims U2 + C7) ----------
+   Everything below hangs off .discovery-setup-wizard--spine, the class the
+   shell only adds when a host passes `spine`. The discovery and go-live
+   wizards pass none, so they keep the chassis they shipped with; the
+   one-flow gets the approved prototype's frame
+   (docs/programs/sixbeats-20260902/reference/six-beats-prototype.html):
+   warm paper, one hard line, a segmented spine over its labels, a beat
+   card with real air, and — on a phone — a body that scrolls behind
+   actions docked to the thumb. */
+
+.discovery-setup-wizard--spine {
+  /* The prototype stages the flow at 860px. The 1120px chassis stretched
+     a one-question beat across a whole desk. */
+  width: min(56rem, 100%);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-lg, 14px);
+  background: var(--jb-paper, #fffef9);
+  box-shadow:
+    0 1px 0 rgba(14, 58, 78, 0.06),
+    0 8px 24px -14px rgba(14, 58, 78, 0.3);
+}
+
+/* The chassis' two decorative blobs bleed a blue haze through warm paper. */
+.discovery-setup-wizard--spine::before,
+.discovery-setup-wizard--spine::after {
+  display: none;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__panel {
+  padding: var(--space-6) calc(var(--space-6) + var(--space-2)) var(--space-5);
+  gap: 0;
+}
+
+/* ---- Header: the title strip, and the exit that is always on screen ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__header {
+  align-items: center;
+  margin-bottom: var(--space-4);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__title {
+  font-family: var(--jb-font-display, inherit);
+  font-size: 1.9rem;
+  line-height: 1;
+  color: var(--jb-navy, var(--text));
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__close {
+  padding: 0.35rem 0.7rem;
+  border: 1px solid var(--jb-line-soft, var(--border));
+  background: var(--jb-paper-2, transparent);
+  font-family: var(--jb-font-mono, inherit);
+  font-size: 0.68rem;
+  font-weight: 500;
+  letter-spacing: 0.06em;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ---- The spine: six segments over their labels, minutes on the right ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-wrap {
+  align-items: flex-end;
+  gap: var(--space-2) var(--space-4);
+  padding: 0 0 var(--space-4);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine {
+  flex: 1 1 22rem;
+  flex-wrap: nowrap;
+  gap: 6px;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-step {
+  flex: 1 1 0;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 6px;
+  min-width: 0;
+}
+
+/* The dot becomes the prototype's segment bar. It is aria-hidden, so the
+   number it carries can go; the label under it is what is read out. */
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-dot {
+  width: auto;
+  height: 6px;
+  border: none;
+  border-radius: 3px;
+  font-size: 0;
+  background: var(--jb-line-soft, var(--border));
+  box-shadow: none;
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__spine-step--done
+  .discovery-setup-wizard__spine-dot {
+  background: var(--jb-mint, var(--accent));
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__spine-step--current
+  .discovery-setup-wizard__spine-dot {
+  background: var(--jb-navy, var(--text));
+  box-shadow: none;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-label {
+  font-family: var(--jb-font-mono, inherit);
+  font-size: 0.6rem;
+  letter-spacing: 0.08em;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* "Fifteen minutes, once" in the product's own handwriting (spec §2.4). */
+.discovery-setup-wizard--spine .discovery-setup-wizard__spine-time {
+  font-family: var(--jb-font-display, inherit);
+  font-size: 1.05rem;
+  font-weight: 500;
+  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+/* ---- The beat card ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__frame {
+  padding: var(--space-6) calc(var(--space-6) + var(--space-2));
+  border: 1px solid var(--jb-line-soft, var(--border));
+  border-radius: var(--jb-radius-md, 12px);
+  background: var(--jb-paper-2, var(--surface));
+  box-shadow: none;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-kicker {
+  margin-bottom: var(--space-2);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-title {
+  font-size: 1.55rem;
+  font-weight: 800;
+  letter-spacing: -0.015em;
+  line-height: 1.2;
+  text-wrap: balance;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-lede {
+  margin-top: var(--space-2);
+  max-width: 58ch;
+  font-size: 0.95rem;
+  line-height: 1.55;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-content {
+  margin-top: var(--space-5);
+}
+
+/* ---- Footer: the dock ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__footer--dock {
+  justify-content: flex-start;
+  margin-top: var(--space-4);
+  padding-top: 0;
+  border-top: none;
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__footer--dock
+  .discovery-setup-wizard__actions {
+  justify-content: flex-start;
+}
+
+/* ---- Busy stages + message, in the prototype's rhythm ---- */
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__busy {
+  gap: 0;
+  margin-top: var(--space-4);
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__busy-stage {
+  gap: 10px;
+  padding: 4px 0;
+  font-size: 0.88rem;
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__busy-glyph {
+  width: 18px;
+}
+
+.discovery-setup-wizard--spine
+  .discovery-setup-wizard__busy-stage--active
+  .discovery-setup-wizard__busy-glyph {
+  color: var(--jb-navy, var(--text));
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__busy-stage--active
+    .discovery-setup-wizard__busy-glyph {
+    animation: oneflowBusyPulse 1s ease-in-out infinite;
+  }
+
+  @keyframes oneflowBusyPulse {
+    50% {
+      opacity: 0.3;
+    }
+  }
+}
+
+.discovery-setup-wizard--spine .discovery-setup-wizard__message {
+  margin-top: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--jb-radius-sm, 8px);
+  font-size: 0.88rem;
+}
+
+/* ---- Claim C7: the phone. A long beat must never park its actions
+        below the fold — the body scrolls, the actions stay under the
+        thumb. 480px is the shell's own phone breakpoint; the chassis'
+        760px rules still handle the tablet middle. ---- */
+
+@media (max-width: 480px) {
+  /* Full-bleed on a phone: 16px of gutter on each side plus a rounded
+     card is 32px of width and ~40px of height spent on decoration, on the
+     exact viewport where beats 4–5 have none to spare. */
+  .oneflow-root {
+    padding: 0;
+  }
+
+  .discovery-setup-wizard--spine {
+    width: 100%;
+    /* Full height, not content height: the dock is only a dock if it is at
+       the bottom of the VIEWPORT on every beat, short ones included. */
+    height: 100dvh;
+    max-height: 100dvh;
+    border-radius: 0;
+    border: none;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__panel {
+    padding: var(--space-4) var(--space-4) 0;
+    overflow: hidden;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__header {
+    flex-direction: row;
+    align-items: center;
+    margin-bottom: var(--space-3);
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__title {
+    font-size: 1.5rem;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__close {
+    width: auto;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__spine-wrap {
+    padding-bottom: var(--space-3);
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__spine-label {
+    font-size: 0.5rem;
+    letter-spacing: 0.04em;
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__body {
+    flex: 1 1 auto;
+    min-height: 0;
+    overflow-y: auto;
+    overscroll-behavior: contain;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  /* The frame stops being the scroller so the body is the ONE scroll
+     region behind the dock — two nested scrollers is how the actions got
+     stranded in the first place. */
+  .discovery-setup-wizard--spine .discovery-setup-wizard__frame {
+    flex: 0 0 auto;
+    overflow: visible;
+    padding: var(--space-4);
+  }
+
+  .discovery-setup-wizard--spine .discovery-setup-wizard__footer--dock {
+    position: sticky;
+    bottom: 0;
+    z-index: 2;
+    flex-direction: column;
+    align-items: stretch;
+    margin: 0 calc(-1 * var(--space-4));
+    padding: var(--space-3) var(--space-4)
+      calc(var(--space-3) + env(safe-area-inset-bottom, 0px));
+    border-top: 1px solid var(--jb-line-soft, var(--border));
+    background: var(--jb-paper, #fffef9);
+    box-shadow: 0 -8px 20px -14px rgba(14, 58, 78, 0.55);
+  }
+
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__footer--dock
+    .discovery-setup-wizard__actions {
+    width: 100%;
+  }
+
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__footer--dock
+    .discovery-setup-wizard__btn {
+    flex: 1 1 auto;
+  }
 }
 
 /* ONEFLOW:L1 */
