@@ -330,12 +330,53 @@
     return String(base || "").replace(/\/+$/, "") === getLocalMaterialsBaseUrl();
   }
 
-  function renderCard(slug, doc, base, pending, identity, quality) {
-    var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
-    var primaryFile = ALLOWED_FILES[doc.primary] || null;
+  /* Repair / Preview / Download PDF for one document. Shared by the legacy
+     panel card and the Case's compact rows so the allowlist, the inline-vs-
+     download split and the cache-busting version all live in one place;
+     `cls(kind)` supplies each host's own button classes. */
+  function docActionButtons(slug, doc, base, primaryQualityIssue, cls) {
     var preview = pickPreviewFile(doc);
     var download = pickDownloadFile(doc);
     var hasPreview = !!(preview && (ALLOWED_FILES[preview.filename] || {}).inline);
+    var typeAttr = escapeHtml(doc.type);
+    var actions = [];
+    if (primaryQualityIssue) {
+      actions.push(
+        '<button type="button" class="' + cls("primary") + '"'
+        + ' data-action="materials-repair"'
+        + ' data-feature="' + typeAttr + '"'
+        + '>Repair</button>'
+      );
+    }
+    if (hasPreview && preview) {
+      actions.push(
+        '<a class="' + cls("primary") + '"'
+        + ' href="' + escapeHtml(fileUrl(base, slug, preview.filename)) + '"'
+        + ' target="_blank" rel="noopener"'
+        + ' data-action="materials-preview"'
+        + ' data-filename="' + escapeHtml(preview.filename) + '"'
+        + '>Preview</a>'
+      );
+    }
+    if (download) {
+      actions.push(
+        '<a class="' + cls("ghost") + '"'
+        + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, {
+          download: true,
+          version: fileVersion(download),
+        })) + '"'
+        + ' download'
+        + ' data-action="materials-download"'
+        + ' data-filename="' + escapeHtml(download.filename) + '"'
+        + '>Download PDF</a>'
+      );
+    }
+    return actions;
+  }
+
+  function renderCard(slug, doc, base, pending, identity, quality) {
+    var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
+    var primaryFile = ALLOWED_FILES[doc.primary] || null;
     var formats = doc.files.map(function (f) {
       return (ALLOWED_FILES[f.filename] && ALLOWED_FILES[f.filename].format) || (f.format || "").toUpperCase();
     });
@@ -355,38 +396,9 @@
     var statusLabel = primaryQualityIssue ? "Review" : "Ready";
     var statusAttr = primaryQualityIssue ? "needs_review" : "ready";
 
-    var actions = [];
-    if (primaryQualityIssue) {
-      actions.push(
-        '<button type="button" class="brief-materials__btn brief-materials__btn--primary"'
-        + ' data-action="materials-repair"'
-        + ' data-feature="' + typeAttr + '"'
-        + '>Repair</button>'
-      );
-    }
-    if (hasPreview && preview) {
-      actions.push(
-        '<a class="brief-materials__btn brief-materials__btn--primary"'
-        + ' href="' + escapeHtml(fileUrl(base, slug, preview.filename)) + '"'
-        + ' target="_blank" rel="noopener"'
-        + ' data-action="materials-preview"'
-        + ' data-filename="' + escapeHtml(preview.filename) + '"'
-        + '>Preview</a>'
-      );
-    }
-    if (download) {
-      actions.push(
-        '<a class="brief-materials__btn brief-materials__btn--ghost"'
-        + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, {
-          download: true,
-          version: fileVersion(download),
-        })) + '"'
-        + ' download'
-        + ' data-action="materials-download"'
-        + ' data-filename="' + escapeHtml(download.filename) + '"'
-        + '>Download PDF</a>'
-      );
-    }
+    var actions = docActionButtons(slug, doc, base, primaryQualityIssue, function (kind) {
+      return "brief-materials__btn brief-materials__btn--" + kind;
+    });
 
     var metaParts = [];
     var primaryFormat = formats.filter(function (f) { return f; })[0];
@@ -427,12 +439,25 @@
       + '</article>';
   }
 
+  /* Inside the Case a status line replaces the whole panel — the lane
+     heading already says "Materials". */
+  function renderCaseHint(hostEl, message, extraClass) {
+    appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows'
+      + (extraClass ? " " + extraClass : "") + '" aria-label="Application materials">'
+      + '<p class="case__hint">' + escapeHtml(message) + '</p>'
+      + '</section>');
+  }
+
   function renderEmpty(briefEl, options) {
     /* Empty state: a single line tag and a hint. Renders only when the
        brief is open, the role is known, and there's no matched package. */
     if (!briefEl) return;
     removeExisting(briefEl);
     var note = options && options.note ? options.note : "";
+    if (isCaseMount(briefEl)) {
+      renderCaseHint(briefEl, note || "No tailored resume or cover letter on disk for this role yet.");
+      return;
+    }
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--empty" aria-label="Application materials">'
       + '<header class="brief-materials__head">'
         + '<h3 class="section-label">Application Materials</h3>'
@@ -631,9 +656,88 @@
       + '</div>';
   }
 
+  /* The Case's [data-mount="materials"] gets compact rows; the legacy
+     [data-mount="brief"] fallback keeps the full panel. */
+  function isCaseMount(hostEl) {
+    return !!(hostEl && typeof hostEl.getAttribute === "function"
+      && hostEl.getAttribute("data-mount") === "materials");
+  }
+
+  /* The document taxonomy is the Case model's contract (spec §3), never a
+     copy: without it we degrade to the panel rather than render nothing. */
+  function caseDocTypes() {
+    var model = root.JobBoredCase && root.JobBoredCase.model;
+    return model && Array.isArray(model.CASE_DOC_TYPES) && model.CASE_DOC_TYPES.length
+      ? model.CASE_DOC_TYPES
+      : null;
+  }
+
+  function caseRowsFor(hostEl) {
+    return isCaseMount(hostEl) ? caseDocTypes() : null;
+  }
+
+  /* One row per CASE_DOC_TYPES entry — every deliverable is always listed,
+     so "not drafted yet" is as visible as "ready". */
+  function renderCaseRows(hostEl, manifest, base, defs) {
+    var docs = Array.isArray(manifest.documents) ? manifest.documents : [];
+    var pending = manifest.pending && manifest.pending.progress ? manifest.pending : null;
+    var pendingFeature = pending ? String(manifest.pending.feature || "") : "";
+    var qualityDocs = manifest.quality && manifest.quality.documents ? manifest.quality.documents : {};
+
+    var rows = defs.map(function (def) {
+      var doc = docs.filter(function (d) { return d && d.type === def.type; })[0] || null;
+      var phase = pending && pendingFeature === def.type ? String(pending.progress.phase || "") : "";
+      var isPending = !!phase && !/^(complete|done|failed)$/i.test(phase);
+      var status = isPending
+        ? "drafting"
+        : (/^failed$/i.test(phase)
+          ? "failed"
+          : (doc
+            ? (String(doc.status || "").toLowerCase() === "ready" ? "ready" : "failed")
+            : "missing"));
+      var sub = isPending
+        ? (phase || "drafting") + " · " + formatElapsed(liveElapsedSeconds(pending.progress))
+          + " · attempt " + (Number(pending.progress.attempt) || 1)
+        : (doc && doc.lastModifiedAt
+          ? String(doc.lastModifiedAt).slice(0, 10)
+          : (status === "missing" ? "not drafted" : ""));
+      var quality = qualityDocs[def.type];
+      var issue = quality && Array.isArray(quality.issues) ? quality.issues[0] : null;
+      var actions = status === "ready"
+        ? docActionButtons(manifest.slug, doc, base, issue, function (kind) {
+          return "case__doc-btn case__doc-btn--" + kind;
+        })
+        : (status === "missing" && def.draftAction
+          ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="'
+            + escapeHtml(def.draftAction) + '">Draft</button>']
+          : []);
+      return '<div class="case__doc" data-doc="' + escapeHtml(def.type) + '">'
+        + '<div class="case__doc-n">' + escapeHtml(def.label)
+          + (sub ? "<small>" + escapeHtml(sub) + "</small>" : "")
+        + '</div>'
+        + '<span class="case__docst case__docst--' + status + '">' + status + '</span>'
+        + '<div class="case__doc-actions">' + actions.join("") + '</div>'
+      + '</div>';
+    }).join("");
+
+    appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows"'
+      + ' aria-label="Application materials" data-slug="' + escapeHtml(manifest.slug) + '">'
+      + rows
+      + '</section>');
+    wireSection(hostEl);
+    /* No per-second ticker here: the row's elapsed value is recomputed from
+       started_at on every manifest poll (3-12s), which is the right cadence
+       for a one-line status. The big panel keeps the live clock. */
+  }
+
   function renderManifest(briefEl, manifest, base) {
     if (!briefEl || !manifest) return;
     removeExisting(briefEl);
+    var caseDefs = caseRowsFor(briefEl);
+    if (caseDefs) {
+      renderCaseRows(briefEl, manifest, base, caseDefs);
+      return;
+    }
     var docsAll = Array.isArray(manifest.documents) ? manifest.documents : [];
     var pending = manifest.pending || null;
     /* Filter to only the user-facing deliverables: tailored resume +
@@ -691,6 +795,10 @@
   function renderError(briefEl, message) {
     if (!briefEl) return;
     removeExisting(briefEl);
+    if (isCaseMount(briefEl)) {
+      renderCaseHint(briefEl, message || "Local materials server is unreachable.", "brief-materials--error");
+      return;
+    }
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--error" aria-label="Application materials">'
       + '<header class="brief-materials__head">'
         + '<h3 class="section-label">Application Materials</h3>'

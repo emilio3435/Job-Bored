@@ -17,6 +17,12 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(repoRoot, "role-materials.js"), "utf8");
+/* Trap 2: jb-text.js before role-case-model.js, or the model throws and
+   CASE_DOC_TYPES is missing — the rows would silently degrade to the panel. */
+const caseSources = ["jb-text.js", "role-case-model.js"].map((f) => ({
+  filename: f,
+  code: readFileSync(join(repoRoot, f), "utf8"),
+}));
 
 class TestCustomEvent {
   constructor(type, options = {}) {
@@ -173,6 +179,10 @@ before(() => {
     console: { log() {}, warn() {}, error() {} },
     setTimeout,
     clearTimeout,
+    /* The live elapsed ticker is the panel's concern, not this suite's:
+       hand it a token it can clear so nothing keeps the loop alive. */
+    setInterval: () => 1,
+    clearInterval: () => {},
     fetch: () => Promise.reject(new Error("fetch not stubbed in unit test")),
     Date,
     Number,
@@ -182,6 +192,10 @@ before(() => {
     String,
     JSON,
   });
+  for (const { filename, code } of caseSources) vm.runInContext(code, ctx, { filename });
+  if (!windowEl.JobBoredCase?.model?.CASE_DOC_TYPES?.length) {
+    throw new Error("role-case-model.js did not expose CASE_DOC_TYPES");
+  }
   vm.runInContext(source, ctx, { filename: "role-materials.js" });
   api = windowEl.JobBoredRoleMaterials;
   if (!api) throw new Error("role-materials.js did not expose JobBoredRoleMaterials");
@@ -628,5 +642,113 @@ describe("renderManifest", () => {
     assert.equal(brief.children.length, 1);
     const html = brief.children[0].innerHTML || "";
     assert.match(html, /Second pass/);
+  });
+});
+
+/* ------------------------------------------------------------
+   Compact document rows inside the Case (plan Task 9, spec §3).
+   The legacy panel survives only for a brief-only mount.
+   ------------------------------------------------------------ */
+describe("materials rows in the case mount", () => {
+  const CASE_MANIFEST = {
+    slug: "meridian-labs-product-manager",
+    company: "Meridian Labs",
+    title: "Product Manager",
+    documents: [
+      {
+        type: "resume",
+        label: "Tailored Resume",
+        status: "ready",
+        primary: "resume.pdf",
+        lastModifiedAt: "2026-08-30T09:00:00.000Z",
+        files: [
+          { filename: "resume.pdf", format: "pdf", size: 354257, modifiedAt: "2026-08-30T09:00:00.000Z" },
+          { filename: "resume.html", format: "html", size: 28890, modifiedAt: "2026-08-30T09:00:00.000Z" },
+        ],
+      },
+    ],
+    pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 42, attempt: 1 } },
+  };
+
+  function makeCaseMount() {
+    return makeElement("div", { "data-mount": "materials" });
+  }
+
+  function rowsHtml(host) {
+    return (host.children[0] && host.children[0].innerHTML) || "";
+  }
+
+  function rowFor(host, type) {
+    const html = rowsHtml(host);
+    const re = new RegExp('<div class="case__doc" data-doc="' + type + '">([\\s\\S]*?)<\\/div><\\/div>');
+    const m = re.exec(html);
+    return m ? m[0] : "";
+  }
+
+  it("renders every CASE_DOC_TYPES row, in the model's order", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
+    const order = [...rowsHtml(host).matchAll(/data-doc="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(order, ["resume", "cover_letter", "manual_apply_checklist", "qa_report"]);
+  });
+
+  it("a ready document keeps its preview + download actions", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.match(row, /case__docst--ready">ready</);
+    assert.match(row, /2026-08-30/);
+    assert.match(row, /data-action="materials-preview"/);
+    assert.match(row, /data-action="materials-download"/);
+    assert.match(row, /\/files\/resume\.pdf\?download=1&amp;v=/);
+  });
+
+  it("a drafting document shows phase, elapsed and attempt instead of actions", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /drafting · 42s · attempt 1/);
+    assert.match(row, /case__docst--drafting">drafting</);
+    assert.doesNotMatch(row, /data-action="materials-preview"/);
+  });
+
+  it("missing resume / cover letter offer a Draft button; support docs do not", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, { ...CASE_MANIFEST, documents: [], pending: null }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "resume"), /data-action="resume-tailor"[^>]*>Draft</);
+    assert.match(rowFor(host, "cover_letter"), /data-action="resume-cover"[^>]*>Draft</);
+    assert.match(rowFor(host, "resume"), /not drafted/);
+    assert.doesNotMatch(rowFor(host, "manual_apply_checklist"), /<button/);
+    assert.doesNotMatch(rowFor(host, "qa_report"), /<button/);
+  });
+
+  it("a document with a quality issue offers Repair in its row", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      pending: null,
+      quality: { documents: { resume: { status: "review", issues: [{ code: "x", message: "Second page is sparse." }] } } },
+    }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "resume"), /data-action="materials-repair"[^>]*data-feature="resume"/);
+  });
+
+  it("collapses the empty and error states to a single hint line", () => {
+    const host = makeCaseMount();
+    api.renderEmpty(host, { note: "Nothing on disk yet." });
+    assert.match(rowsHtml(host), /class="case__hint">Nothing on disk yet\.</);
+    assert.doesNotMatch(rowsHtml(host), /brief-materials__head/);
+
+    api.renderError(host, "Server is down.");
+    assert.equal(host.children.length, 1, "the hint replaces the prior section");
+    assert.match(rowsHtml(host), /class="case__hint">Server is down\.</);
+  });
+
+  it("falls back to the legacy panel in a brief-only mount", () => {
+    const brief = makeElement("div", { "data-mount": "brief" });
+    api.renderManifest(brief, CASE_MANIFEST, "http://127.0.0.1:3847");
+    assert.equal(brief.children[0].attributes.class, "brief-materials");
+    assert.match(brief.children[0].innerHTML, /brief-materials__head/);
+    assert.match(brief.children[0].innerHTML, /data-doc-type="resume"/);
+    assert.doesNotMatch(brief.children[0].innerHTML, /case__doc/);
   });
 });
