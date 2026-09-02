@@ -20,8 +20,18 @@ body.jb-v2 [data-region="role"] .case {
   --border: var(--jb-line-soft, #E5DFCC);
   --case-crimson-soft: var(--jb-rose-soft, #F2B8C0);
   --case-amber-deep: var(--jb-warn);
+  /* P1-0c: mint-deep on parchment is 2.81:1 — the "saved" mark, the ready
+     pill, the evidence label, the derived tag and the scorecard bars all sat
+     under the floor. #6E9F87 stays only where it sits on navy; everything on
+     a light Case ground uses this darker mint instead (4.6:1 on parchment). */
+  --case-mint-on-light: var(--jb-mint-ink, #3F6B55);
+  /* P1-0d: --mute is 4.34:1 on parchment and 4.04:1 on parchment-deep, and it
+     carries nearly every label in the dossier at 8.5-10.5px — none of it
+     large-scale. Redefining it inside the Case darkens all fifteen rules at
+     once without touching the token elsewhere in v2. */
+  --mute: var(--jb-ink-soft, #5A5347);
 }
-body.jb-v2 [data-region="role"] .case { max-width: 1240px; margin: 0 auto; background: var(--parchment); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-soft); overflow: hidden; font-family: var(--sans); color: var(--ink); }
+body.jb-v2 [data-region="role"] .case { width: min(var(--jb-flow-content-width, 1240px), 100%); max-width: 1240px; margin: 0 auto; background: var(--parchment); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-soft); overflow: hidden; font-family: var(--sans); color: var(--ink); }
 body.jb-v2 [data-region="role"] .case .case__rail { background: var(--navy); color: var(--parchment); padding: 22px 36px 20px; display: grid; grid-template-columns: 56px minmax(0, 1fr) auto; gap: 20px; align-items: center; }
 body.jb-v2 [data-region="role"] .case .case__logo { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; background: var(--parchment); }
 body.jb-v2 [data-region="role"] .case .case__logo--mono { display: flex; align-items: center; justify-content: center; color: var(--navy); font-family: var(--serif); font-size: 26px; font-weight: 600; }
@@ -68,7 +78,10 @@ body.jb-v2 [data-region="role"] .case .case__step--now .case__step-dot { backgro
 body.jb-v2 [data-region="role"] .case .case__step-line { flex: 1; height: 1px; background: var(--border-strong); margin: 0 12px; min-width: 18px; }
 body.jb-v2 [data-region="role"] .case .case__step-days { color: var(--crimson); font-weight: 600; letter-spacing: 0.08em; }
 body.jb-v2 [data-region="role"] .case .case__terminal { font-family: var(--mono); font-size: 10px; letter-spacing: 0.18em; text-transform: uppercase; color: var(--crimson); border: 1px solid var(--crimson); border-radius: 999px; padding: 5px 12px; }
-body.jb-v2 [data-region="role"] .case .case__numbers { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
+body.jb-v2 [data-region="role"] .case .case__numbers { display: grid; grid-template-columns: repeat(var(--case-num-cols, 5), minmax(0, 1fr)); border-bottom: 1px solid var(--border); }
+body.jb-v2 [data-region="role"] .case .case__numbers[data-count="2"] { --case-num-cols: 2; }
+body.jb-v2 [data-region="role"] .case .case__numbers[data-count="3"] { --case-num-cols: 3; }
+body.jb-v2 [data-region="role"] .case .case__numbers[data-count="4"] { --case-num-cols: 4; }
 body.jb-v2 [data-region="role"] .case .case__num { padding: 18px 22px 16px; border-right: 1px dotted var(--border-strong); text-align: left; background: transparent; border-top: none; border-bottom: none; border-left: none; font: inherit; color: inherit; }
 body.jb-v2 [data-region="role"] .case .case__num:last-child { border-right: none; }
 body.jb-v2 [data-region="role"] .case .case__num--btn { cursor: pointer; }
@@ -88,7 +101,6 @@ body.jb-v2 [data-region="role"] .case .case__src--review { border-color: var(--c
 body.jb-v2 [data-region="role"] .case .case__src--inferred { border-color: var(--amber); color: var(--amber); background: transparent; }
 /* The cache-freshness stamp sits under the one-line quote, flush with the
    quote's own gutter rather than the in-lane .case__stamp's top margin. */
-body.jb-v2 [data-region="role"] .case .case__stamp--fresh { margin: 0; padding: 0 36px 14px; border-bottom: 1px dashed var(--border); }
 body.jb-v2 [data-region="role"] .case .case__quote { padding: 16px 36px; border-bottom: 1px dashed var(--border); font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--navy); display: flex; gap: 12px; align-items: baseline; overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__quote .case__k { font-family: var(--mono); font-style: normal; font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
 body.jb-v2 [data-region="role"] .case .case__board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
@@ -131,6 +143,7 @@ body.jb-v2 [data-region="role"] .case .case__bar { height: 6px; background: var(
 body.jb-v2 [data-region="role"] .case .case__bar i { display: block; height: 100%; background: var(--mint-deep); border-radius: 3px; }
 body.jb-v2 [data-region="role"] .case .case__dim b { text-align: right; color: var(--navy); }
 body.jb-v2 [data-region="role"] .case .case__stamp { margin-top: 12px; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__stamp--fresh { margin: 0; padding: 0 36px 14px; border-bottom: 1px dashed var(--border); }
 body.jb-v2 [data-region="role"] .case .case__tp { list-style: none; margin: 0; padding: 0; }
 body.jb-v2 [data-region="role"] .case .case__tp li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px dotted var(--border-strong); font-family: var(--serif); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__tp li:last-child { border-bottom: none; }
@@ -184,7 +197,7 @@ body.jb-v2 [data-region="role"] .case .case__seg-b::after { content: ""; positio
 body.jb-v2 [data-region="role"] .case .case__seg-b--on { background: var(--navy); border-color: var(--navy); color: var(--parchment); }
 body.jb-v2 [data-region="role"] .case .case__seg-b:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
 /* The write landed. Mono mint, right edge of the row, gone in 1.6s. */
-body.jb-v2 [data-region="role"] .case .case__saved { font-family: var(--mono); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mint-deep); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__saved { font-family: var(--mono); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--case-mint-on-light); white-space: nowrap; }
 body.jb-v2 [data-region="role"] .case .case__saved--on { animation: case-saved 1.6s ease-out forwards; }
 @keyframes case-saved { 0%, 55% { opacity: 1; } 100% { opacity: 0; } }
 @media (prefers-reduced-motion: reduce) {
@@ -230,3 +243,58 @@ body.jb-v2 [data-region="role"] .case .case__shimmer--short { width: 65%; }
   body.jb-v2 [data-region="role"] .case .case__rail-right { grid-column: 1 / -1; justify-items: start; }
   body.jb-v2 [data-region="role"] .case .case__numbers { grid-template-columns: repeat(2, minmax(0, 1fr)); }
 }
+
+/* ============================================================
+   Polish pass P3 (spec docs/superpowers/specs/2026-09-02-case-polish-design.md)
+   Every rule below is scoped under body.jb-v2 [data-region="role"] .case:
+   a single-class rule (0,1,0) loses to jb-v2's `body.jb-v2 h3 / p` (0,1,1)
+   and silently never applies.
+   ============================================================ */
+
+/* P1-1: the dossier had zero headings, so H-key navigation and the rotor
+   returned an empty list. The role identity is an h2 the eye never sees —
+   clip, not display:none, or assistive tech drops it too. The lane titles
+   became h3s and need their v2 heading margin cleared. */
+body.jb-v2 [data-region="role"] .case .case__vh,
+body.jb-v2 [data-region="role"] .case .case__st--vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+body.jb-v2 [data-region="role"] .case h3.case__lane-title,
+body.jb-v2 [data-region="role"] .case h3.case__chron-title { margin: 0; }
+
+/* P1-0c applied: every mint that lands on a light Case ground. */
+body.jb-v2 [data-region="role"] .case .case__from { color: var(--case-mint-on-light); }
+body.jb-v2 [data-region="role"] .case .case__src--derived { border-color: var(--case-mint-on-light); color: var(--case-mint-on-light); }
+body.jb-v2 [data-region="role"] .case .case__docst--ready { color: var(--case-mint-on-light); }
+body.jb-v2 [data-region="role"] .case .case__bar i { background: var(--case-mint-on-light); }
+
+/* P1-0f (second half): `.case__gap:last-of-type` never matches when a
+   scorecard is present, so a stray dotted rule hung above "Scorecard
+   dimensions". Sibling handling drops the border off the last gap in the run
+   regardless of what follows it. */
+body.jb-v2 [data-region="role"] .case .case__gap:not(:has(+ .case__gap)) { border-bottom: none; padding-bottom: 0; }
+
+/* P1-0g: "View posting" was the only pill with no hover, and the clickable
+   Keywords tile was visually identical to the four static tiles beside it. */
+body.jb-v2 [data-region="role"] .case .case__cta:hover { border-color: var(--amber); color: var(--amber); }
+body.jb-v2 [data-region="role"] .case .case__cta:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+body.jb-v2 [data-region="role"] .case .case__num--btn:hover { background: var(--parchment-deep); }
+body.jb-v2 [data-region="role"] .case .case__num--btn:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+
+/* P1-5: `outline: none` at (0,4,1) beats the app's :focus-visible rule, so a
+   1px dashed underline was the only focus signal on these surfaces — under
+   the SC 2.4.11 threshold, and nearly invisible on the navy rail. */
+body.jb-v2 [data-region="role"] .case .case__title:focus-visible,
+body.jb-v2 [data-region="role"] .case .case__company:focus-visible,
+body.jb-v2 [data-region="role"] .case .case__fact-input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 2px; }
+body.jb-v2 [data-region="role"] .case .case__v--edit:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; border-radius: 2px; }
+body.jb-v2 [data-region="role"] .case .case__notes textarea:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+
+/* P1-6: hit targets below the floor — stepper steps ~21px tall, rail fact
+   inputs ~14px, doc actions ~70x21 and 6px apart (failing even the AA 24px
+   spacing exception). The ::after inset pattern is the one the Replied chips
+   already use: the target grows, the ink does not move. */
+body.jb-v2 [data-region="role"] .case .case__step { position: relative; }
+body.jb-v2 [data-region="role"] .case .case__step::after { content: ""; position: absolute; inset: -6px -4px; }
+body.jb-v2 [data-region="role"] .case .case__fact-input { min-height: 24px; }
+body.jb-v2 [data-region="role"] .case .case__doc-a { position: relative; }
+body.jb-v2 [data-region="role"] .case .case__doc-a::after { content: ""; position: absolute; inset: -4px -2px; }
+body.jb-v2 [data-region="role"] .case .case__doc-acts { gap: 12px; }

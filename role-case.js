@@ -8,7 +8,14 @@
 
   function esc(s) { return root.JobBoredText.escapeHtml(s); }
   function attr(s) { return root.JobBoredText.escapeAttr(s); }
-  function src(kind, extra) { return '<span class="case__src case__src--' + esc(kind) + '">' + esc(extra || kind) + "</span>"; }
+  /* P2-7: the source tags were the engineering reliability legend shipped as
+     UI with no key. Each one now says, in words, where the fact came from.
+     P1-4: they are decoration for the eye — a screen reader that reads every
+     chip hears ~10 stray tokens per dossier, so the chip is aria-hidden and
+     the source is folded into the owning tile's own label instead. */
+  var SRC_WORDS = { sheet: "from your sheet", scrape: "from the posting", ai: "written by AI", derived: "matched here", files: "your files" };
+  function srcWords(kind) { return SRC_WORDS[kind] || kind; }
+  function src(kind, extra) { return '<span class="case__src case__src--' + esc(kind) + '" aria-hidden="true">' + esc(extra || srcWords(kind)) + "</span>"; }
   function safeHref(h) { var s = String(h || "").trim(); return /^https?:|^mailto:/i.test(s) ? s : ""; }
   var GUARDS = ' autocomplete="off" autocorrect="off" autocapitalize="off" spellcheck="false"';
 
@@ -24,7 +31,14 @@
       : '<div class="case__logo case__logo--mono">' + esc((id.company || "?").charAt(0).toUpperCase()) + "</div>";
     var meta = [];
     var closesIn = id.closesInDays;
-    var closesSoon = closesIn != null && closesIn <= 14;
+    /* P0-B: Greenhouse and LinkedIn mirrors routinely carry a validThrough ~30
+       days after posting on roles that stay live for months, so a deeply
+       negative value is a stale feed, not a closed posting — the pill is
+       suppressed below -30 days. And getPostingHealth returns "open" for any
+       active row with an http link, having verified nothing, so it never gets
+       to print "Posting open" beside a close date already in the past. */
+    var closesSoon = closesIn != null && closesIn <= 14 && closesIn >= -30;
+    var closedAlready = closesIn != null && closesIn < 0;
     /* Spec §5: all four rail identity fields edit in place. Location and
        salary are borderless inline inputs on the navy rail — the same
        edit-field contract role.js wires for title and company, not the
@@ -62,7 +76,7 @@
         : (closesIn === 0 ? "Closes today" : "Closed " + Math.abs(closesIn) + " day" + (Math.abs(closesIn) === 1 ? "" : "s") + " ago");
       pills += '<span class="case__pill case__pill--due" data-pill="closes"><span class="case__dot case__dot--amber"></span>' + esc(closes) + "</span>";
     }
-    if (m.health && m.health.state !== "unknown") {
+    if (m.health && m.health.state !== "unknown" && !(m.health.state === "open" && closedAlready)) {
       var cls = m.health.state === "open" ? "open" : (m.health.state === "expired" ? "expired" : "review");
       pills += '<span class="case__pill case__pill--' + cls + '"><span class="case__dot case__dot--' + (cls === "open" ? "mint" : "crimson") + '"></span>' +
         esc(m.health.label) + (m.health.checkedAt ? " · checked " + esc(m.health.checkedAt.slice(0, 10)) : "") + "</span>";
@@ -76,7 +90,12 @@
       '<button type="button" class="case__cta case__cta--btn" data-action="resume-cover" aria-label="Draft a cover letter for this role">Draft cover letter</button>' +
       '<button type="button" class="case__cta case__cta--btn" data-action="resume-tailor" aria-label="Tailor your resume for this role">Tailor resume</button>' +
     "</div>";
-    return '<header class="case__rail">' + logo +
+    /* P1-1: the dossier had no headings at all — lane titles were spans and
+       the role's own name existed only as "Role title, edit text", so H-key
+       navigation and the rotor returned an empty list. The identity heading is
+       visually hidden so the navy rail's typography is untouched. */
+    var heading = '<h2 class="case__vh">' + esc((id.title || "Role") + (id.company ? " at " + id.company : "")) + "</h2>";
+    return '<header class="case__rail">' + heading + logo +
       '<div class="case__rail-id">' +
         editInput("title", id.title, "case__title", "Role title") +
         editInput("company", id.company, "case__company", "Company") +
@@ -88,32 +107,65 @@
 
   function renderStepper(m, stages) {
     if (m.stage.terminal) {
-      return '<div class="case__stepper"><span class="case__terminal">' + esc(m.stage.current) + (m.stage.appliedAt ? " · applied " + esc(m.stage.appliedAt) : "") + "</span></div>";
+      /* P0-11: every non-terminal step goes through the registry's label, so
+         the terminal chip does too — it was printing the raw key. */
+      var termLabel = stages && stages.toLabel ? stages.toLabel(m.stage.current) : m.stage.current;
+      return '<div class="case__stepper"><span class="case__terminal">' + esc(termLabel) + (m.stage.appliedAt ? " · applied " + esc(m.stage.appliedAt) : "") + "</span></div>";
     }
     var cur = m.stage.order.indexOf(m.stage.current);
-    return '<div class="case__stepper">' + m.stage.order.map(function (key, i) {
+    /* P1-2: N identical buttons with the current stage encoded only in a CSS
+       class told assistive tech nothing. The row is a group, the current step
+       carries aria-current, and each button says what pressing it does. */
+    return '<div class="case__stepper" role="group" aria-label="Stage">' + m.stage.order.map(function (key, i) {
       var state = i < cur ? "done" : (i === cur ? "now" : "");
       var days = i === cur && m.stage.daysInStage != null ? ' <span class="case__step-days">· day ' + esc(String(m.stage.daysInStage)) + "</span>" : "";
       var label = stages && stages.toLabel ? stages.toLabel(key) : key;
       return (i ? '<span class="case__step-line"></span>' : "") +
-        '<button type="button" class="case__step' + (state ? " case__step--" + state : "") + '" data-action="stage-step" data-stage="' + attr(key) + '">' +
+        '<button type="button" class="case__step' + (state ? " case__step--" + state : "") + '" data-action="stage-step" data-stage="' + attr(key) + '"' +
+          (state === "now" ? ' aria-current="step"' : "") + ' aria-label="' + attr("Move to " + label) + '">' +
           '<span class="case__step-dot"></span>' + esc(label) + days + "</button>";
     }).join("") + "</div>";
   }
 
   function renderNumbers(m) {
     var n = m.numbers, tiles = [];
-    if (n.fit) tiles.push(tile("fit", "Fit", src("sheet"), esc(String(n.fit.value)) + "<small>/" + n.fit.max + "</small>", "Your agent's score"));
-    if (n.ats) tiles.push(tile("ats", "ATS", src("ai"), '<span class="case__num-v--crimson">' + esc(String(n.ats.value)) + "</span><small>/100</small>", "Resume vs. posting"));
+    if (n.fit) tiles.push(tile("fit", "Fit", src("sheet"), esc(String(n.fit.value)) + "<small>/" + n.fit.max + "</small>", "Your agent's score", "sheet"));
+    /* P2-3: "ATS" is never expanded anywhere in the product, and crimson is
+       this design's missing/high-severity color — a 94/100 painted crimson
+       reads as bad news. The number is named for what it is, and only a low
+       score gets the alarm color. */
+    if (n.ats) {
+      var atsLow = Number(n.ats.value) < 70;
+      tiles.push(tile("ats", "Resume score", src("ai"),
+        (atsLow ? '<span class="case__num-v--crimson">' : "<span>") + esc(String(n.ats.value)) + "</span><small>/100</small>",
+        "How well your draft answers this posting", "ai"));
+    }
     if (n.keywords) tiles.push('<button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
       '<div class="case__num-k">Keywords ' + src("derived") + '</div><div class="case__num-v">' + esc(String(n.keywords.percentage)) + "<small>%</small></div>" +
       '<div class="case__num-sub">' + esc(n.keywords.found + " found · " + n.keywords.partial + " partial · " + n.keywords.missing + " missing") + "</div></button>");
-    tiles.push(tile("reply", "Reply", src("sheet"), esc(n.reply.value), m.nextAction && m.nextAction.lastContactAt ? "Last contact " + esc(m.nextAction.lastContactAt) : ""));
-    if (n.materials) tiles.push(tile("materials", "Materials", src("files"), esc(String(n.materials.ready)) + "<small>/" + n.materials.total + "</small>", n.materials.drafting ? esc(n.materials.drafting + " drafting") : "All ready"));
+    /* P0-6 (spec §3, "each tile hides when its input is absent"): a role with
+       nothing recorded was showing a tile whose entire value was the word
+       "Unknown". Nothing recorded is not a number. */
+    if (n.reply && (n.reply.value === "Yes" || n.reply.value === "No")) {
+      tiles.push(tile("reply", "Reply", src("sheet"), esc(n.reply.value), m.nextAction && m.nextAction.lastContactAt ? "Last contact " + esc(m.nextAction.lastContactAt) : "", "sheet"));
+    }
+    /* P0-5: the caption branched only on `drafting`, so 0/4 was captioned
+       "All ready" — the tile contradicting its own number. It reads off ready
+       vs. total instead. */
+    if (n.materials) {
+      var mReady = Number(n.materials.ready) || 0, mTotal = Number(n.materials.total) || 0;
+      var mCaption = n.materials.drafting
+        ? esc(n.materials.drafting + " drafting")
+        : (mTotal > 0 && mReady >= mTotal ? "All ready" : esc(mReady + " of " + mTotal + " ready"));
+      tiles.push(tile("materials", "Materials", src("files"), esc(String(n.materials.ready)) + "<small>/" + n.materials.total + "</small>", mCaption, "files"));
+    }
     return tiles.length >= 2 ? '<div class="case__numbers" data-count="' + tiles.length + '">' + tiles.join("") + "</div>" : "";
   }
-  function tile(key, k, s, v, sub) {
-    return '<div class="case__num" data-num="' + key + '"><div class="case__num-k">' + esc(k) + " " + s + '</div><div class="case__num-v">' + v + "</div>" + (sub ? '<div class="case__num-sub">' + sub + "</div>" : "") + "</div>";
+  function tile(key, k, s, v, sub, srcKind) {
+    /* P1-4: the aria-hidden source chip's meaning is folded back in here, so
+       the tile is still announced with where its number came from. */
+    var label = srcKind ? ' aria-label="' + attr(k + ", " + srcWords(srcKind)) + '"' : "";
+    return '<div class="case__num" data-num="' + key + '"' + label + '><div class="case__num-k">' + esc(k) + " " + s + '</div><div class="case__num-v">' + v + "</div>" + (sub ? '<div class="case__num-sub">' + sub + "</div>" : "") + "</div>";
   }
 
   function marked(list, cls, hasMatch) {
@@ -125,19 +177,19 @@
   }
   function renderTheyWant(m) {
     var w = m.theyWant;
-    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span></div>' + skeletonRows(4, "Reading the posting…") + "</section>";
+    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__lane case__lane--they"><div class="case__lane-head"><h3 class="case__lane-title">They want</h3></div>' + skeletonRows(4, "Reading the posting…") + "</section>";
     if (!w.requirements.length && !w.niceToHaves.length && !w.stack.length) return "";
     var h = w.hasMatchData;
     /* DOSSIER-02: a payload the pipeline had to recover, or one the validator
        sent to review, is not evidence yet. The lane says so at its head and
        again over the requirements, because that list is what a hunter acts on. */
     var review = !!(m.provenance && m.provenance.needsReview);
-    var html = '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span>' +
-      src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "recovered parse · review") : "") + "</div>";
+    var html = '<section class="case__lane case__lane--they"><div class="case__lane-head"><h3 class="case__lane-title">They want</h3>' +
+      src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "unverified") : "") + "</div>";
     if (!h) html += '<p class="case__hint">Add a resume to see what matches.</p>';
-    var reqSub = review ? "Requirements · recovered parse — review before relying on these" : ("Requirements" + (h ? " · vs. your resume" : ""));
+    var reqSub = review ? "Requirements · unverified — read these against the posting before you rely on them" : ("Requirements" + (h ? " · vs. your resume" : ""));
     if (w.requirements.length) html += '<div class="case__sub">' + reqSub + '</div><ul class="case__req">' + marked(w.requirements, "", h) + "</ul>";
-    if (w.stack.length) html += '<div class="case__sub">Stack they name</div><div class="case__chips">' + w.stack.map(function (s) { var st = h ? s.status : "unknown"; return '<span class="case__chip" data-status="' + st + '"><span class="case__m case__m--' + st + '"></span>' + esc(s.text) + "</span>"; }).join("") + "</div>";
+    if (w.stack.length) html += '<div class="case__sub">Stack they name</div><div class="case__chips">' + w.stack.map(function (s) { var st = h ? s.status : "unknown"; return '<span class="case__chip" data-status="' + st + '"><span class="case__m case__m--' + st + '"></span>' + esc(s.text) + (h && st !== "unknown" ? '<span class="case__st case__st--vh">' + esc(st) + "</span>" : "") + "</span>"; }).join("") + "</div>";
     if (w.niceToHaves.length) html += '<div class="case__sub">Nice to have</div><ul class="case__req">' + marked(w.niceToHaves, "", h) + "</ul>";
     return html + "</section>";
   }
@@ -155,8 +207,12 @@
 
   function renderYouHave(m) {
     var y = m.youHave;
+    /* P0-9 (spec §3): the early return only fired on source "none", but a
+       keyword analysis whose terms are all `partial` yields no strengths and
+       no gaps — the lane emitted a header and closed. */
     if (y.source === "none") return "";
-    var html = '<section class="case__lane case__lane--you"><div class="case__lane-head"><span class="case__lane-title">You have</span>' + (y.source === "scorecard" ? src("ai", "ai · scorecard") : src("derived", "keyword match")) + "</div>";
+    if (!y.strengths.length && !y.evidence.length && !y.gaps.length && !y.dimensions.length) return "";
+    var html = '<section class="case__lane case__lane--you"><div class="case__lane-head"><h3 class="case__lane-title">You have</h3>' + (y.source === "scorecard" ? src("ai", "ai · scorecard") : src("derived", "keyword match")) + "</div>";
     if (y.strengths.length) html += '<div class="case__sub">Strengths</div>' + y.strengths.map(function (s) { return '<div class="case__strength">' + esc(s) + "</div>"; }).join("");
     if (y.evidence.length) html += y.evidence.map(function (e) { return '<div class="case__evidence"><span class="case__from">Evidence' + (e.sourceType ? " · from your " + esc(e.sourceType) : "") + "</span>&ldquo;" + esc(e.sourceSnippet || e.claim) + "&rdquo;</div>"; }).join("");
     if (y.gaps.length) html += '<div class="case__sub">Gaps</div>' + y.gaps.map(function (g) { return '<div class="case__gap"><span class="case__sev case__sev--' + esc(g.severity) + '">' + esc(g.severity === "medium" ? "med" : g.severity) + "</span><span>" + esc(g.gap) + (g.whyItMatters ? '<span class="case__why">' + esc(g.whyItMatters) + "</span>" : "") + "</span></div>"; }).join("");
@@ -189,7 +245,7 @@
 
   function renderMoves(m) {
     var v = m.moves, p = v.people;
-    var html = '<section class="case__lane case__lane--moves"><div class="case__lane-head"><span class="case__lane-title">Your moves</span>' + src("ai") + src("sheet") + src("files") + "</div>";
+    var html = '<section class="case__lane case__lane--moves"><div class="case__lane-head"><h3 class="case__lane-title">Your moves</h3>' + src("ai") + src("sheet") + src("files") + "</div>";
     if (v.talkingPoints.length) html += '<div class="case__sub">Say this</div><ul class="case__tp">' + v.talkingPoints.map(function (t, i) { return '<li><span class="case__idx">' + (i < 9 ? "0" : "") + (i + 1) + "</span><span>" + esc(t) + "</span></li>"; }).join("") + "</ul>";
     html += '<div class="case__sub">Materials</div><div class="case__materials" data-mount="materials"></div>';
     /* People (spec §5) is the human side of the application, and it opens with
@@ -215,7 +271,7 @@
 
   function renderRecord(m) {
     if (!m.record.length) return "";
-    return '<div class="case__chron"><div class="case__chron-head"><span class="case__chron-title">The record</span><span class="case__chron-rule"></span>' + src("sheet") + src("files") + "</div>" +
+    return '<div class="case__chron"><div class="case__chron-head"><h3 class="case__chron-title">The record</h3><span class="case__chron-rule"></span>' + src("sheet") + src("files") + "</div>" +
       '<div class="case__events" data-count="' + m.record.length + '">' + m.record.map(function (e) {
         return '<div class="case__ev case__ev--' + esc(e.state) + '"><div class="case__ev-dot"></div><div class="case__ev-d">' + esc(e.at || "—") + '</div><div class="case__ev-t">' + esc(e.label) + (e.detail ? "<small>" + esc(e.detail) + "</small>" : "") + "</div></div>";
       }).join("") + "</div></div>";
