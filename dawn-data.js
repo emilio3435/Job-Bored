@@ -641,6 +641,17 @@
     return m ? Number(m[0]) : null;
   }
 
+  /* Timestamps reach the card in two shapes: epoch ms from the in-browser
+     scrape path and an ISO string from the server path. Read either as ms —
+     _firstNumber would take "2026-08-30T…" for the number 2026 and date the
+     posting to 1970. */
+  function _toEpochMs(raw) {
+    var text = String(raw == null ? "" : raw).trim();
+    if (!text) return null;
+    var ms = /^-?\d+$/.test(text) ? Number(text) : Date.parse(text);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
   /**
    * Canonical fit VM: 1–10 units. Unknown is not 0.
    *   missing / non-numeric → { value: null, unknown: true }
@@ -1067,33 +1078,28 @@
     return out.slice(0, 4);
   }
 
-  /** Best-effort one-paragraph block from a longer JD blob. */
+  /** Canonical Job Text -> dossier sections, via the shared block model.
+      Groups each heading with the paragraphs/bullets that follow it, so a
+      heading no longer steals the first line of an ordinary paragraph and
+      numbered lists survive as bullets. `body` may carry "\n\n" between
+      paragraphs; presentation re-blocks it. */
   function _splitJdSections(jd) {
-    var raw = String(jd || "").trim();
-    if (!raw) return [];
-    // Split on blank lines or "Heading:" patterns. Keep simple.
-    var blocks = raw.split(/\n{2,}/).map(function (b) { return b.trim(); }).filter(Boolean);
-    return blocks.map(function (b) {
-      var lines = b.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
-      var heading = "";
-      var first = lines[0] || "";
-      // If first line looks like a heading (ends with ":" or is short upper-ish), use it.
-      if (/^[A-Z][^.?!]{0,60}:$/.test(first) || (first.length < 60 && lines.length > 1 && !/[.?!]$/.test(first))) {
-        heading = first.replace(/:$/, "");
-        lines = lines.slice(1);
-      }
-      var bullets = [];
-      var bodyLines = [];
-      lines.forEach(function (l) {
-        if (/^[-*•·]\s+/.test(l)) bullets.push(l.replace(/^[-*•·]\s+/, ""));
-        else bodyLines.push(l);
-      });
-      return {
-        heading: heading,
-        body: bodyLines.join(" "),
-        bullets: bullets,
-      };
+    var T = root.JobBoredText;
+    if (!T || typeof T.toBlocks !== "function") return [];
+    var blocks = T.toBlocks(jd);
+    var sections = [];
+    var cur = null;
+    function open(heading) {
+      cur = { heading: heading || "", body: "", bullets: [] };
+      sections.push(cur);
+    }
+    blocks.forEach(function (b) {
+      if (b.kind === "heading") { open(b.text); return; }
+      if (!cur) open("");
+      if (b.kind === "p") cur.body = cur.body ? cur.body + "\n\n" + b.text : b.text;
+      else if (b.kind === "bullets") cur.bullets = cur.bullets.concat(b.items);
     });
+    return sections;
   }
 
   function _daysBetween(aMs, bMs) {
@@ -1110,13 +1116,29 @@
     return null;
   }
 
+  /* Tags arrive either as a JSON array (structured, may contain commas and
+     semicolons inside a single tag — "Austin, TX") or as the legacy
+     comma/semicolon-delimited Sheet string. Probe for JSON first so a
+     structured tag is never shredded into fragments. */
   function _parseTagsFromCard(card) {
     if (!card) return [];
+    var T = root.JobBoredText;
     var tagsAttr = _attr(card, "data-tags");
     if (tagsAttr) {
+      var trimmed = tagsAttr.trim();
+      if (trimmed.charAt(0) === "[") {
+        try {
+          var arr = JSON.parse(trimmed);
+          if (Array.isArray(arr)) {
+            return arr
+              .map(function (t) { return T ? T.normalizeInline(T.itemText(t)) : String(t || "").trim(); })
+              .filter(Boolean);
+          }
+        } catch (e) { /* legacy string form below */ }
+      }
       return tagsAttr.split(/[,;|]+/).map(function (t) { return t.trim(); }).filter(Boolean);
     }
-    var chips = card.querySelectorAll(".skill-chip");
+    var chips = card.querySelectorAll(".skill-chip, .kanban-card__tag");
     var out = [];
     chips.forEach(function (c) {
       var t = (c.textContent || "").trim();
@@ -1194,14 +1216,19 @@
     return { body: body, editedAt: editedAt };
   }
 
+  /* A talking point may legitimately contain a semicolon ("Shipped X; grew
+     Y 40%"). When the value is multi-line, newlines are the author's real
+     separator and the inline punctuation is content — only fall back to
+     splitting on ";"/"·" for a single-line legacy blob. */
   function _parseTalkingPointsFromCard(card) {
     if (!card) return [];
     var raw = _attr(card, "data-talking-points");
     if (!raw) return [];
-    return String(raw)
-      .split(/\n|·|;/)
-      .map(function (s) { return s.trim().replace(/^[-*•]\s+/, ""); })
-      .filter(Boolean);
+    var T = root.JobBoredText;
+    var parts = /\n/.test(raw) ? String(raw).split(/\n+/) : String(raw).split(/[;·]/);
+    return parts.map(function (s) {
+      return T ? T.stripListGlyph(T.normalizeInline(s)) : s.trim().replace(/^[-*•]\s+/, "");
+    }).filter(Boolean);
   }
 
   function _parseEmploymentFromCard(card) {
@@ -1245,8 +1272,15 @@
     try {
       var parsed = JSON.parse(raw);
       if (Array.isArray(parsed)) {
+        var T = root.JobBoredText;
+        /* Items may be objects ({ text: … }) from a newer scraper, and legacy
+           cache entries still carry markdown and HTML entities. */
         return parsed
-          .map(function (s) { return String(s == null ? "" : s).trim(); })
+          .map(function (s) {
+            return T
+              ? T.stripListGlyph(T.normalizeInline(T.itemText(s)))
+              : String(s == null ? "" : s).trim();
+          })
           .filter(Boolean);
       }
     } catch (e) { /* fall through */ }
@@ -1264,7 +1298,9 @@
         mustHaves: [], niceToHaves: [], responsibilities: [],
         toolsAndStack: [], extraKeywords: [], talkingPoints: [],
         atsFitScore: null, atsFitRationale: "",
-        status: "", source: "", enrichedAt: "", fallbackReason: "", parseMode: "",
+        requirements: [], skills: [],
+        status: "", source: "", enrichedAt: null, scrapeMethod: "",
+        fallbackReason: "", parseMode: "",
       };
     }
     var atsFitScore = _firstNumber(_attr(card, "data-ats-fit-score"));
@@ -1273,24 +1309,41 @@
         ? Math.max(0, Math.min(100, Math.round(atsFitScore)))
         : null;
     }
+    /* Legacy cache self-heal (spec D2): attributes written before the text
+       pipeline landed still hold markdown and HTML entities. Normalize on
+       read so old cards render as cleanly as freshly enriched ones. */
+    var T = root.JobBoredText;
+    var _inline = function (v) {
+      var raw = String(v == null ? "" : v).trim();
+      return T ? T.normalizeInline(raw) : raw;
+    };
+    var _multi = function (v) {
+      var raw = String(v == null ? "" : v).trim();
+      return T ? T.normalizeMultiline(raw) : raw;
+    };
     return {
-      roleInOneLine: String(_attr(card, "data-role-in-one-line") || "").trim(),
-      postingSummary: String(_attr(card, "data-posting-summary") || "").trim(),
-      fitAngle: String(_attr(card, "data-fit-angle") || "").trim(),
-      fitAssessment: String(_attr(card, "data-fit-assessment") || "").trim(),
+      roleInOneLine: _inline(_attr(card, "data-role-in-one-line")),
+      postingSummary: _multi(_attr(card, "data-posting-summary")),
+      fitAngle: _multi(_attr(card, "data-fit-angle")),
+      fitAssessment: _multi(_attr(card, "data-fit-assessment")),
       mustHaves: _parseJsonArrayAttr(card, "data-must-haves"),
       niceToHaves: _parseJsonArrayAttr(card, "data-nice-to-haves"),
       responsibilities: _parseJsonArrayAttr(card, "data-responsibilities"),
       toolsAndStack: _parseJsonArrayAttr(card, "data-tools-and-stack"),
+      requirements: _parseJsonArrayAttr(card, "data-requirements"),
+      skills: _parseJsonArrayAttr(card, "data-skills"),
       extraKeywords: _parseJsonArrayAttr(card, "data-extra-keywords"),
       talkingPoints: _parseJsonArrayAttr(card, "data-ai-talking-points"),
       atsFitScore: atsFitScore,
-      atsFitRationale: String(_attr(card, "data-ats-fit-rationale") || "").trim(),
+      atsFitRationale: _inline(_attr(card, "data-ats-fit-rationale")),
       status: String(_attr(card, "data-enrichment-status") || "").trim(),
       /* Provenance (P0-C). Absent attributes stay "" and the dossier
          classifier reads that as 'unknown' — never as posting-grounded. */
       source: String(_attr(card, "data-enrichment-source") || "").trim(),
-      enrichedAt: String(_attr(card, "data-enriched-at") || "").trim(),
+      enrichedAt: _toEpochMs(_attr(card, "data-enriched-at")),
+      /* How the posting text was obtained (ats-api, gemini-url-context, …).
+         The Case shows it so a thin scrape is legible as a thin scrape. */
+      scrapeMethod: String(_attr(card, "data-scrape-method") || "").trim(),
       fallbackReason: String(_attr(card, "data-enrichment-fallback") || "").trim(),
       parseMode: String(_attr(card, "data-enrichment-parse-mode") || "").trim(),
     };
@@ -1311,6 +1364,10 @@
       deadline: null, notes: null,
       contact: "Unknown", lastHeardFrom: "", replied: "Unknown", followUpDate: "",
       contacts: [], links: [],
+      /* Case fields (spec §4) — present and empty, never absent, so the
+         renderer never has to distinguish "no card" from "no value". */
+      priority: "", favorite: false, logoUrl: "", matchScore: null,
+      requirements: [], skills: [], foundAt: "", talkingPoints: [],
       enrichment: _parseEnrichmentFromCard(null),
     };
 
@@ -1350,6 +1407,15 @@
       : replyAttr === "no"
         ? "No"
         : "Unknown";
+    /* The Case reads data-reply-flag (the raw Sheet value). Fall back to the
+       legacy data-replied attribute so a card rendered before this seam —
+       or by an older cached board — still reports a definite "No". */
+    var caseReply = (function () {
+      var raw = String(_attr(card, "data-reply-flag") || "").trim();
+      if (/^(yes|replied|y)$/i.test(raw)) return "Yes";
+      if (/^no$/i.test(raw)) return "No";
+      return recruiterReply;
+    })();
 
     /* Merge sheet tags with the AI-derived extraKeywords, dedup'd
        case-insensitively. The drawer composes the same union, so the
@@ -1395,10 +1461,19 @@
           ? String(recruiterContacts[0].name || recruiterContacts[0].email || "").trim() || "Unknown"
           : "Unknown",
         lastHeardFrom: _attr(card, "data-last-contact"),
-        replied: recruiterReply,
+        replied: caseReply,
         followUpDate: _attr(card, "data-follow-up"),
         contacts: recruiterContacts,
         links: _parseLinksFromCard(card),
+        /* Case fields (spec §4). */
+        priority: String(_attr(card, "data-priority") || "").trim(),
+        favorite: String(_attr(card, "data-favorite") || "").toLowerCase() === "yes",
+        logoUrl: String(_attr(card, "data-logo-url") || "").trim(),
+        matchScore: _firstNumber(_attr(card, "data-match-score")),
+        requirements: _parseJsonArrayAttr(card, "data-requirements"),
+        skills: _parseJsonArrayAttr(card, "data-skills"),
+        foundAt: rec.foundAt || "",
+        talkingPoints: _parseTalkingPointsFromCard(card),
         /* AI enrichment from the Cheerio scrape + Gemini call.
            Optional; empty strings / arrays when the role hasn't been
            enriched yet (status="" or "loading"). */

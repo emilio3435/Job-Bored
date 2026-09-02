@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+const jbTextSrc = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const dawnDataSrc = readFileSync(join(repoRoot, "dawn-data.js"), "utf8");
 const dawnRendererSrc = readFileSync(join(repoRoot, "dawn.js"), "utf8");
 
@@ -70,7 +71,7 @@ function makeDoc(cards) {
 
 function loadDawnData(doc) {
   const win = {};
-  vm.runInNewContext(dawnDataSrc, {
+  const context = vm.createContext({
     window: win,
     document: doc,
     Date,
@@ -80,6 +81,10 @@ function loadDawnData(doc) {
     parseInt,
     console,
   });
+  /* trap 2: dawn-data.js derives JD sections through window.JobBoredText.
+     Evaluated without it, the derivation silently returns nothing. */
+  vm.runInContext(jbTextSrc, context, { filename: "jb-text.js" });
+  vm.runInContext(dawnDataSrc, context, { filename: "dawn-data.js" });
   return win.JobBoredDawn.data;
 }
 

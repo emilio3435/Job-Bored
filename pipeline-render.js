@@ -214,7 +214,11 @@ function renderKanbanCard(job, index) {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>`;
 
-  const _attrEsc = (v) => `"${host().escapeHtml(String(v))}"`;
+  /* Attribute escaping goes through the shared text module (jb-text.js,
+     loaded earlier in the defer chain): it escapes exactly once AND encodes
+     newlines as &#10;, so a multi-paragraph value survives the round-trip
+     to the dossier instead of collapsing to a single line. */
+  const _attrEsc = (v) => `"${window.JobBoredText.escapeAttr(String(v))}"`;
   const _pair = (k, v) => (v == null || v === "" ? "" : `${k}=${_attrEsc(v)}`);
   const jdRaw = (job._postingEnrichment && job._postingEnrichment.description) || job.fitAssessment || "";
   /* P0-D hand-off: preserve all three response values instead of collapsing
@@ -236,7 +240,9 @@ function renderKanbanCard(job, index) {
   // the v2 Dossier can render the same intelligence. Strings get clipped to
   // safe lengths so the data attribute payload stays reasonable.
   const _enr = (job && job._postingEnrichment) || null;
-  const _clip = (s, n) => (s ? String(s).slice(0, n) : "");
+  /* Budgets are unchanged; only the cut is smarter — clip() breaks on a word
+     boundary, never splits a surrogate pair, and marks the cut with "…". */
+  const _clip = (s, n) => (s ? window.JobBoredText.clip(String(s), n) : "");
   const _arrJson = (a) => {
     if (!Array.isArray(a) || !a.length) return "";
     const out = a
@@ -246,8 +252,20 @@ function renderKanbanCard(job, index) {
     return out.length ? JSON.stringify(out) : "";
   };
   const _enrPair = (attr, value) => _pair(attr, value || "");
+  /* The sheet's Priority column is a glyph the user picks from a menu; the
+     Case reasons over words. Anything set but unrecognized is "normal" —
+     an unknown glyph still means "the user marked this row". */
+  const priorityWord = (p) => {
+    const str = String(p || "").trim();
+    if (!str) return "";
+    if (str === "🔥" || str === "⚡" || /^high$/i.test(str)) return "high";
+    if (str === "↓" || /^low$/i.test(str)) return "low";
+    return "normal";
+  };
+  const _matchScore = Number(job && job.matchScore);
+  
   const v2Attrs = [
-    _pair("data-jd-snippet", jdRaw ? String(jdRaw).slice(0, 4000) : ""),
+    _pair("data-jd-snippet", jdRaw ? window.JobBoredText.clip(String(jdRaw), 4000) : ""),
     _pair("data-notes", job.notes || ""),
     _pair("data-location", job.location || ""),
     _pair("data-salary", job.salary || ""),
@@ -257,6 +275,17 @@ function renderKanbanCard(job, index) {
     _pair("data-found-at", job.dateFoundRaw || ""),
     _pair("data-follow-up", job.followUpDate || ""),
     _pair("data-last-contact", job.lastHeardFrom || ""),
+    /* Case seams (spec §4). Additive: nothing above changes name or budget. */
+    _pair("data-priority", priorityWord(job.priority)),
+    _pair("data-favorite", job.favorite ? "yes" : ""),
+    _pair("data-logo-url", job.logoUrl || ""),
+    _pair(
+      "data-match-score",
+      job.matchScore != null && job.matchScore !== "" && Number.isFinite(_matchScore)
+        ? String(_matchScore)
+        : "",
+    ),
+    _pair("data-reply-flag", String(job.responseFlag || "").trim()),
     _pair("data-tags", job.tags || ""),
     _pair("data-fit", Number.isFinite(job.fitScore) ? String(job.fitScore) : ""),
     _pair("data-replied", repliedFlag),
@@ -274,6 +303,12 @@ function renderKanbanCard(job, index) {
     _enrPair("data-nice-to-haves",    _enr && _arrJson(_enr.niceToHaves)),
     _enrPair("data-responsibilities", _enr && _arrJson(_enr.responsibilities)),
     _enrPair("data-tools-and-stack",  _enr && _arrJson(_enr.toolsAndStack)),
+    _enrPair("data-requirements",     _enr && _arrJson(_enr.requirements)),
+    _enrPair("data-skills",           _enr && _arrJson(_enr.skills)),
+    _enrPair(
+      "data-scrape-method",
+      _enr && (_enr.method || (_enr.scraping && _enr.scraping.provider) || ""),
+    ),
     _pair(
       "data-ats-fit-score",
       _enr && Number.isFinite(Number(_enr.atsFitScore))

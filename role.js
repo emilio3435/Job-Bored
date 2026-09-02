@@ -147,6 +147,22 @@
       if (root.JobBoredFlowing && root.JobBoredFlowing.openRole) root.JobBoredFlowing.openRole.clear();
     }
 
+    /* Deferred-render flush: when a guarded edit surface gives up focus, run
+       the render that renderForKey queued. Deferred to a macrotask so a focus
+       move BETWEEN two edit surfaces (focusout fires before the next focusin)
+       does not rebuild the DOM out from under the incoming field. */
+    region.addEventListener("focusout", function (e) {
+      var t = e.target;
+      if (!t || !t.matches || !t.matches(EDIT_SURFACE_SELECTOR)) return;
+      root.setTimeout(function () {
+        if (!hasPendingRender || editSurfaceFocusedIn(region)) return;
+        var key = pendingRenderKey;
+        hasPendingRender = false;
+        pendingRenderKey = null;
+        renderForKey(key);
+      }, 0);
+    });
+
     region.addEventListener("click", function (e) {
       var t = e.target;
       while (t && t !== region) {
@@ -203,6 +219,22 @@
       dispatch("jb:role:writeback", { jobKey: jobKey, field: field, value: value });
     }
 
+    /* `field-sizing: content` sizes the borderless location/salary inputs on
+       engines that support it (role.css). Where it is unsupported the inputs
+       would collapse to the UA default width, so size them from their value
+       instead — capped so a pasted paragraph cannot blow out the masthead. */
+    if (!(root.CSS && root.CSS.supports && root.CSS.supports("field-sizing", "content"))
+        && typeof region.querySelectorAll === "function") {
+      var factInputs = region.querySelectorAll(".brief__fact-input");
+      for (var fi = 0; fi < factInputs.length; fi++) {
+        (function (inp) {
+          function size() { inp.style.width = Math.min((inp.value || "").length + 2, 40) + "ch"; }
+          size();
+          inp.addEventListener("input", size);
+        })(factInputs[fi]);
+      }
+    }
+
     var editFields = typeof region.querySelectorAll === "function"
       ? region.querySelectorAll('[data-action="edit-field"]')
       : [];
@@ -227,23 +259,34 @@
   /* -------------------- top-level render -------------------- */
 
   // Focus re-render guard: skip the wholesale innerHTML rebuild while the user
-  // is mid-edit in a masthead [data-action="edit-field"] input. The dossier is
-  // a single open instance, so guarding one region is enough — this is the
-  // analog of pipeline.js scheduleRender's __pipePending bail and is what keeps
+  // is mid-edit in one of the region's edit surfaces. The dossier is a single
+  // open instance, so guarding one region is enough — this is the analog of
+  // pipeline.js scheduleRender's __pipePending bail and is what keeps
   // jb:pipeline:rendered (5-min poll / jb:write:succeeded cascade) from wiping
-  // keystrokes before blur commits. Scoped to ONLY an edit-field activeElement
-  // so genuine updates (e.g. enrichment) are never swallowed.
-  function editFieldFocusedIn(region) {
+  // keystrokes before blur commits. The guard covers BOTH the masthead
+  // [data-action="edit-field"] inputs and the Notes textarea (spec D6), and
+  // the swallowed render is QUEUED, not dropped: it flushes on focusout so the
+  // dossier never sits stale after the user stops typing. Scoped to ONLY an
+  // edit-surface activeElement so genuine updates (e.g. enrichment) still land.
+  var EDIT_SURFACE_SELECTOR = '[data-action="edit-field"], [data-action="notes"]';
+  var hasPendingRender = false;
+  var pendingRenderKey = null;
+
+  function editSurfaceFocusedIn(region) {
     if (!region) return false;
     var ae = document.activeElement;
-    return !!(ae && ae.matches && ae.matches('[data-action="edit-field"]') && region.contains(ae));
+    return !!(ae && ae.matches && ae.matches(EDIT_SURFACE_SELECTOR) && region.contains(ae));
   }
 
   function renderForKey(jobKey) {
     if (!shouldRun()) return;
     var region = getRegion();
     if (!region) return;
-    if (editFieldFocusedIn(region)) return;
+    if (editSurfaceFocusedIn(region)) {
+      hasPendingRender = true;
+      pendingRenderKey = jobKey;
+      return;
+    }
     if (!jobKey) {
       renderEmpty(region);
       return;
@@ -266,7 +309,6 @@
   }
 
   function rerenderOpenRole() {
-    if (editFieldFocusedIn(getRegion())) return;
     var key = root.JobBoredFlowing
       && root.JobBoredFlowing.openRole
       && root.JobBoredFlowing.openRole.get();
