@@ -136,10 +136,14 @@ describe("B6 card 1 — Your search (spec §5 B6)", () => {
     };
     const { container, state } = await renderPayoff(env);
     assert.deepEqual(plain(state.search.roles), []);
+    // The sub-line moved OFF the body when SIXBEATS2 NEW-10 found it
+    // rendered twice (shell lede + first body line), so the receipt's own
+    // survival is asserted on the receipt: card 2 and the ETA promise.
     assert.ok(
-      textOf(container).includes("That was the one-time part."),
+      container.querySelector(".oneflow-payoff__now"),
       "the receipt still renders — a dead /profile is not a dead payoff",
     );
+    assert.ok(textOf(container).includes(env.payoff.ETA_LINE));
   });
 });
 

@@ -385,11 +385,17 @@
     return card;
   }
 
-  /** Build B6's body into `container` from an already-resolved state. */
+  /**
+   * Build B6's body into `container` from an already-resolved state.
+   *
+   * The sub-line is NOT rendered here. `registerBeat({ sub })` hands the
+   * same string to the shell, which paints it as the step lede above this
+   * body — so a paragraph here made the rerun read the promise twice in a
+   * row (SIXBEATS2 NEW-10). One lede, one voice.
+   */
   function renderPayoff(container, state) {
     if (!container) return container;
     const wrap = el("div", "oneflow-payoff");
-    wrap.appendChild(el("p", "oneflow-payoff__sub", state.sub));
     const cards = el("div", "oneflow-payoff__cards");
     cards.appendChild(buildSearchCard(state));
     cards.appendChild(buildNowCard(state));

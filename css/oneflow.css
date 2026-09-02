@@ -1797,13 +1797,6 @@
    Nothing here invents a value — an unset floor renders no row, so the
    layout has to read correctly at three, four, or zero rows. */
 
-.oneflow-payoff__sub {
-  margin: 0 0 var(--space-4);
-  font-size: var(--text-base);
-  line-height: 1.55;
-  color: var(--jb-ink-2, var(--text-muted));
-}
-
 .oneflow-payoff__cards {
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));

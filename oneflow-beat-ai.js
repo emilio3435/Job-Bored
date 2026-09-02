@@ -60,7 +60,27 @@
    * running, so a provider that finally answers still passes the beat.
    * Mutable so tests can exercise the real timer wiring in milliseconds.
    */
-  const CHECK_TIMINGS = { slowAfterMs: 2000, stalledAfterMs: 15000, tickMs: 1000 };
+  /**
+   * `successHoldMs` is the one the SIXBEATS2 rerun added (NEW-4): the
+   * promised "✓ Connected — <model> responded" line was on screen for
+   * ~106 ms before the beat was replaced, which is a reward nobody can
+   * read. The beat now holds that line for a beat and a half before it
+   * advances — measured from the moment the line is painted, so the
+   * write-through and the config pin spend the hold rather than adding
+   * to it.
+   */
+  const CHECK_TIMINGS = {
+    slowAfterMs: 2000,
+    stalledAfterMs: 15000,
+    tickMs: 1000,
+    successHoldMs: 1400,
+  };
+
+  /** A pause, or nothing at all when the work already outlasted it. */
+  function wait(ms) {
+    if (!(ms > 0)) return Promise.resolve();
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
 
   const STALLED_STAGE_LABEL = "Taking longer than usual";
 
@@ -637,6 +657,7 @@
         state: "done",
       },
     ]);
+    const successAt = Date.now();
 
     if (def.id === "gemini") {
       state.geminiWroteThrough = await writeGeminiKeyThrough(value);
@@ -656,6 +677,11 @@
 
     state.keyDraft = "";
     fields.value = null;
+    // Let the success line be read (NEW-4). Anything the beat did after
+    // painting it counts against the hold, and a newer check started
+    // during it owns the screen from here.
+    await wait(CHECK_TIMINGS.successHoldMs - (Date.now() - successAt));
+    if (run !== state.checkRun) return;
     if (ctx && typeof ctx.completeBeat === "function") {
       await ctx.completeBeat({ provider: def.id, checkMs: ms });
     }
