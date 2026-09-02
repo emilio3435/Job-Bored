@@ -167,19 +167,30 @@ export function makeCelebrationDom() {
     els[id] = el;
   }
   els.onboardingCelebrationAlt.hidden = true;
-  return { doc, overlay, other, els };
+  els.onboardingCelebrationContinue.className = "onboarding-celebration__cta";
+  els.onboardingCelebrationAlt.className = "onboarding-celebration__alt";
+  // index.html still ships the pre-SIXBEATS journey strip inside the card.
+  // The finale burst has to REMOVE it (SIXBEATS2 decision 2), so the fixture
+  // has to contain it — a probe against a DOM that never had one proves
+  // nothing (tests/sixbeats2-finale.test.mjs).
+  const journey = doc.createElement("ol");
+  journey.className = "onboarding-celebration__journey";
+  for (const label of ["Profile", "Job discovery", "Other devices"]) {
+    const step = doc.createElement("li");
+    step.className = "onboarding-celebration__journey-step";
+    const dot = doc.createElement("span");
+    dot.className = "onboarding-celebration__journey-dot";
+    step.textContent = label;
+    step.appendChild(dot);
+    journey.appendChild(step);
+  }
+  overlay.appendChild(journey);
+  return { doc, overlay, other, els, journey };
 }
 
 /** onboarding-celebration.js alone, with a controllable timer queue. */
-export function loadCelebrationModule({ withCta = true } = {}) {
-  const { doc, overlay, other, els } = makeCelebrationDom();
-  if (!withCta) {
-    // Stale cached markup: the overlay exists, the CTA does not.
-    doc.getElementById = ((original) => (id) =>
-      id === "onboardingCelebrationContinue" ? null : original(id))(
-      doc.getElementById.bind(doc),
-    );
-  }
+export function loadCelebrationModule() {
+  const { doc, overlay, other, els, journey } = makeCelebrationDom();
   const win = {};
   const ctx = baseSandbox(doc, win);
   const timers = [];
@@ -198,6 +209,7 @@ export function loadCelebrationModule({ withCta = true } = {}) {
     overlay,
     other,
     els,
+    journey,
     timers,
     drainTimers() {
       while (timers.length) timers.shift().fn();

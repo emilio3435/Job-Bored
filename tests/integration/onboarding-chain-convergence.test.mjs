@@ -48,7 +48,7 @@ const DRAFTED_PROFILE = {
 };
 
 function newFlowEnv(overrides = {}) {
-  return loadCutover({
+  const env = loadCutover({
     sheetId: "",
     signedIn: false,
     givenName: "Priya",
@@ -66,6 +66,14 @@ function newFlowEnv(overrides = {}) {
     },
     ...overrides,
   });
+  // B2 holds its "✓ Connected" line for 1.4 s before advancing so the
+  // promised reward can be read (SIXBEATS2 NEW-4). The shell's onAction is
+  // fire-and-forget, so these walks settle on macrotasks rather than on the
+  // beat's promise — waiting out the real hold six times over would buy
+  // nothing these probes are about. tests/sixbeats2-finale.test.mjs owns
+  // the hold itself.
+  env.window.JobBoredOneFlowBeatAi._internal.timings.successHoldMs = 0;
+  return env;
 }
 
 /** Type into a rendered beat field the way a user does. */
