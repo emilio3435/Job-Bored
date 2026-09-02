@@ -336,8 +336,17 @@
     if (!resp.ok) {
       const msg =
         data.error?.message || JSON.stringify(data) || `HTTP ${resp.status}`;
+      if (isGeminiModelNotFound(msg) && model !== DEFAULT_GEMINI_MODEL) {
+        console.warn(
+          `[JobBored] Gemini model "${model}" was rejected; retrying with ${DEFAULT_GEMINI_MODEL}.`,
+        );
+        const insights = await callGemini(bundle, apiKey, DEFAULT_GEMINI_MODEL);
+        repairStoredGeminiModel(DEFAULT_GEMINI_MODEL);
+        return insights;
+      }
       throw new Error(msg);
     }
+    lastGeminiModelUsed = model;
     const parts = data.candidates?.[0]?.content?.parts;
     const text = parts?.map((p) => p.text || "").join("") || "";
     if (!text.trim()) throw new Error("Empty response from Gemini");
@@ -507,6 +516,31 @@
     return text.trim();
   }
 
+  const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+  /** The Gemini model that last answered — the live check reports this,
+   *  not the configured id, so a repaired fallback shows the truth. */
+  let lastGeminiModelUsed = "";
+
+  /** Google's 404 for a stale/mistyped model id (seen 2026-09-01 with
+   *  `gemini-flash`): "models/<id> is not found for API version v1beta, or
+   *  is not supported for generateContent." */
+  function isGeminiModelNotFound(message) {
+    const m = String(message || "");
+    return /is not found for API version|not supported for generateContent/i.test(m);
+  }
+
+  /** Repair a stored model id that Google rejected, so the fallback sticks. */
+  function repairStoredGeminiModel(model) {
+    try {
+      const app = window.JobBoredApp;
+      if (app && typeof app.mergeStoredConfigOverridePatch === "function") {
+        app.mergeStoredConfigOverridePatch({ resumeGeminiModel: model });
+      }
+    } catch (_) {
+      /* best-effort */
+    }
+  }
+
   async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
     const resolvedModel = model || "gemini-3.5-flash";
     const wantJson = wantsJsonResponse(opts);
@@ -534,8 +568,19 @@
       throw wrapFetchFailure(e, "Gemini", false);
     }
     const data = await resp.json().catch(() => ({}));
-    if (!resp.ok)
-      throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+    if (!resp.ok) {
+      const message = data.error?.message || `Gemini HTTP ${resp.status}`;
+      if (isGeminiModelNotFound(message) && resolvedModel !== DEFAULT_GEMINI_MODEL) {
+        console.warn(
+          `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${DEFAULT_GEMINI_MODEL}.`,
+        );
+        const text = await callConfiguredAiGemini(system, user, apiKey, DEFAULT_GEMINI_MODEL, opts);
+        repairStoredGeminiModel(DEFAULT_GEMINI_MODEL);
+        return text;
+      }
+      throw new Error(message);
+    }
+    lastGeminiModelUsed = resolvedModel;
     const candidate = data.candidates?.[0];
     const text =
       candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
@@ -647,7 +692,7 @@
       return {
         ok: true,
         provider,
-        model: model || "",
+        model: (provider === "gemini" && lastGeminiModelUsed) || model || "",
         ms: Date.now() - startedAt,
         reply: String(reply || "").trim().slice(0, 120),
       };
