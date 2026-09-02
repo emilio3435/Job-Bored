@@ -110,6 +110,57 @@
     ].join("");
   }
 
+  const SCORECARD_STORE_KEY = "jb_ats_scorecard_v1";
+  const SCORECARD_STORE_MAX = 100;
+
+  function readScorecardStore() {
+    try {
+      const raw = window.localStorage.getItem(SCORECARD_STORE_KEY);
+      const parsed = raw ? JSON.parse(raw) : null;
+      return parsed && typeof parsed === "object" ? parsed : {};
+    } catch (_) {
+      return {};
+    }
+  }
+
+  function writeScorecardStore(store) {
+    try {
+      window.localStorage.setItem(SCORECARD_STORE_KEY, JSON.stringify(store));
+    } catch (_) {
+      /* quota / private mode */
+    }
+  }
+
+  function getScorecardForJob(job) {
+    const key = getJobOpportunityKey(job);
+    if (!key) return null;
+    const hit = readScorecardStore()[key];
+    return hit && hit.result ? hit : null;
+  }
+
+  function setScorecardForJob(job, result, feature) {
+    const key = getJobOpportunityKey(job);
+    if (!key || !result) return;
+    const store = readScorecardStore();
+    store[key] = {
+      result,
+      feature: String(feature || ""),
+      storedAt: new Date().toISOString(),
+    };
+    const keys = Object.keys(store);
+    if (keys.length > SCORECARD_STORE_MAX) {
+      keys
+        .sort((a, b) =>
+          String(store[a].storedAt).localeCompare(String(store[b].storedAt)),
+        )
+        .slice(0, keys.length - SCORECARD_STORE_MAX)
+        .forEach((k) => {
+          delete store[k];
+        });
+    }
+    writeScorecardStore(store);
+  }
+
   function getDraftFeatureLabel(feature) {
     return feature === "resume_update" ? "Resume" : "Cover letter";
   }
@@ -256,6 +307,8 @@
     getResumeIngest,
     getResumeIngestReady,
     getJobOpportunityKey,
+    getScorecardForJob,
+    setScorecardForJob,
     getDraftFeatureLabel,
     getDraftModeLabel,
     formatDraftSavedAt,
