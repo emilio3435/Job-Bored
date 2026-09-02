@@ -1067,33 +1067,28 @@
     return out.slice(0, 4);
   }
 
-  /** Best-effort one-paragraph block from a longer JD blob. */
+  /** Canonical Job Text -> dossier sections, via the shared block model.
+      Groups each heading with the paragraphs/bullets that follow it, so a
+      heading no longer steals the first line of an ordinary paragraph and
+      numbered lists survive as bullets. `body` may carry "\n\n" between
+      paragraphs; presentation re-blocks it. */
   function _splitJdSections(jd) {
-    var raw = String(jd || "").trim();
-    if (!raw) return [];
-    // Split on blank lines or "Heading:" patterns. Keep simple.
-    var blocks = raw.split(/\n{2,}/).map(function (b) { return b.trim(); }).filter(Boolean);
-    return blocks.map(function (b) {
-      var lines = b.split(/\n/).map(function (l) { return l.trim(); }).filter(Boolean);
-      var heading = "";
-      var first = lines[0] || "";
-      // If first line looks like a heading (ends with ":" or is short upper-ish), use it.
-      if (/^[A-Z][^.?!]{0,60}:$/.test(first) || (first.length < 60 && lines.length > 1 && !/[.?!]$/.test(first))) {
-        heading = first.replace(/:$/, "");
-        lines = lines.slice(1);
-      }
-      var bullets = [];
-      var bodyLines = [];
-      lines.forEach(function (l) {
-        if (/^[-*•·]\s+/.test(l)) bullets.push(l.replace(/^[-*•·]\s+/, ""));
-        else bodyLines.push(l);
-      });
-      return {
-        heading: heading,
-        body: bodyLines.join(" "),
-        bullets: bullets,
-      };
+    var T = root.JobBoredText;
+    if (!T || typeof T.toBlocks !== "function") return [];
+    var blocks = T.toBlocks(jd);
+    var sections = [];
+    var cur = null;
+    function open(heading) {
+      cur = { heading: heading || "", body: "", bullets: [] };
+      sections.push(cur);
+    }
+    blocks.forEach(function (b) {
+      if (b.kind === "heading") { open(b.text); return; }
+      if (!cur) open("");
+      if (b.kind === "p") cur.body = cur.body ? cur.body + "\n\n" + b.text : b.text;
+      else if (b.kind === "bullets") cur.bullets = cur.bullets.concat(b.items);
     });
+    return sections;
   }
 
   function _daysBetween(aMs, bMs) {
