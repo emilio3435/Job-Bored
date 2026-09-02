@@ -87,7 +87,7 @@ Salvage from `welcome.js`: the paced single-card rhythm, Enter-to-advance, and p
   > **This is your job hunt on autopilot.**
   > Set it up once — about fifteen focused minutes — and roles scored against *your* fit land here every morning. Your resume and pipeline stay in your Google Sheet and on this machine.
   > `[ Make it mine — 15 min, once ]` `[ Poke around first ]`
-- **Interactions:** *Make it mine* → B1. *Poke around first* → the card collapses to a corner pill (`Set up JobBored — 15 min ▸`) that persists across the session and reopens the flow. Demo cards open read-only detail views.
+- **Interactions:** *Make it mine* → B1. *Poke around first* → the card collapses to a corner pill (`Set up JobBored — 15 min ▸`) that persists for the visit — a fresh page load shows the invitation card again, never the bare board — and reopens the flow. Demo cards open read-only detail views.
 - **Exit:** first real Sheet row replaces the fixture; the pill and watermark disappear.
 - **Implementation notes:** seed via a `getPipelineData()` demo source when `!getSheetId()`; bypass `showSheetAccessGate` for the render path; keep the gate's error mode for genuinely broken configs. Delete the credential-first `no-oauth` opening.
 
