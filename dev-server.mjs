@@ -26,6 +26,7 @@ import {
 import {
   authorizeLocalControlRequest,
   buildLocalControlCorsHeaders,
+  isLoopbackPeer,
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
 import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
@@ -38,6 +39,20 @@ const TLS_KEY_PATH = join(TLS_CACHE_DIR, "localhost-key.pem");
 const TLS_CERT_SUBJECT = "/CN=localhost";
 const TLS_CERT_SAN = "subjectAltName=DNS:localhost,IP:127.0.0.1";
 const DEFAULT_DISCOVERY_WORKER_PORT = 8644;
+// The local API (server/index.mjs) that owns /profile. On a fresh install
+// `jobBoredApiUrl` is empty, so the browser resolves /profile same-origin
+// against THIS static host — the dashboard proxies those calls onward so a
+// stranger never has to configure a URL (SIXBEATS claim C3).
+const DEFAULT_PROFILE_API_PORT = 3847;
+const PROFILE_PROXY_METHODS = new Set(["GET", "POST", "PUT"]);
+// /profile/from-resume is LLM-backed and can think for tens of seconds; the
+// 3s cap the /__proxy status probes use would abort a live save.
+const PROFILE_PROXY_TIMEOUT_MS = 120000;
+// Everything else about the browser's request is either hop-by-hop or a
+// credential we refuse to relay. Origin in particular must NOT go upstream:
+// the API allowlists http://localhost:8080, so a dashboard on any other port
+// would be 403'd by its own origin check.
+const PROFILE_FORWARDED_REQUEST_HEADERS = ["content-type", "content-length", "accept"];
 const TAILSCALE_SERVE_PORTS = new Set([DEFAULT_PORT, DEFAULT_DISCOVERY_WORKER_PORT]);
 const EXPECTED_DISCOVERY_WORKER_SERVICE = "browser-use-discovery-worker";
 const DISCOVERY_WORKER_SCRIPT = join(
@@ -165,6 +180,114 @@ function proxyRequest(target, req, res) {
     res.end(JSON.stringify({ error: "upstream_timeout" }));
   });
   upstream.end();
+}
+
+/**
+ * Port of the local API that serves /profile. `JOBBORED_API_PORT` mirrors the
+ * `PORT` server/index.mjs itself reads (this process already owns `PORT` for
+ * its own listen port), and anything unparseable falls back to the default
+ * rather than failing the dashboard's boot.
+ */
+export function resolveProfileApiPort() {
+  const raw = String(process.env.JOBBORED_API_PORT || "").trim();
+  const port = Number.parseInt(raw, 10);
+  return Number.isInteger(port) && port > 0 && port < 65536
+    ? port
+    : DEFAULT_PROFILE_API_PORT;
+}
+
+function isProfileApiPath(pathname) {
+  return pathname === "/profile" || pathname.startsWith("/profile/");
+}
+
+/**
+ * Authorization for the profile proxy: the /__proxy/* posture, plus the one
+ * case that posture cannot see.
+ *
+ * Every static response from this server carries `Referrer-Policy:
+ * no-referrer`, so Beat 6's same-origin `fetch("/profile")` arrives with
+ * neither Origin (browsers omit it on same-origin GETs) nor the Referer the
+ * shared guard falls back to — it would be 403'd by our own hardening.
+ * `Sec-Fetch-Site: same-origin` is what is left, and it is enough: it is a
+ * forbidden header name, so no page script can forge it, and a tab at
+ * https://evil.example gets `cross-site` from its own browser. A bare client
+ * that sends none of the three (curl) stays unauthorized.
+ */
+function isSameOriginProfileRequest(req) {
+  if (isLocalOrigin(req)) return true;
+  if (!isLoopbackPeer(req && req.socket ? req.socket.remoteAddress : "")) {
+    return false;
+  }
+  const headers = (req && req.headers) || {};
+  return (
+    String(headers["sec-fetch-site"] || "")
+      .trim()
+      .toLowerCase() === "same-origin"
+  );
+}
+
+function profilePreflightHeaders(req) {
+  return buildLocalControlCorsHeaders(req, {
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+  });
+}
+
+function profileUpstreamHeaders(req) {
+  const source = (req && req.headers) || {};
+  const headers = {};
+  for (const name of PROFILE_FORWARDED_REQUEST_HEADERS) {
+    const value = source[name];
+    if (typeof value === "string" && value) headers[name] = value;
+  }
+  return headers;
+}
+
+/**
+ * Stream /profile and /profile/* to the local API, body and status unchanged.
+ * Only the CORS headers are rewritten — the browser must see this dashboard's
+ * own origin echoed back, never `*` and never the API's idea of an origin.
+ */
+function proxyProfileRequest(req, res, path) {
+  const upstream = httpRequest(
+    {
+      hostname: "127.0.0.1",
+      port: resolveProfileApiPort(),
+      path,
+      method: req.method,
+      headers: profileUpstreamHeaders(req),
+      timeout: PROFILE_PROXY_TIMEOUT_MS,
+    },
+    (upRes) => {
+      const headers = { ...upRes.headers };
+      delete headers["transfer-encoding"];
+      delete headers["access-control-allow-origin"];
+      delete headers["access-control-allow-credentials"];
+      Object.assign(headers, buildLocalControlCorsHeaders(req));
+      res.writeHead(upRes.statusCode || 502, headers);
+      upRes.pipe(res);
+    },
+  );
+  const failClosed = (status, error) => {
+    // Once piping began the headers are already sent; writing them again
+    // throws ERR_HTTP_HEADERS_SENT and takes the whole dev stack down.
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    res.writeHead(status, jsonCorsHeaders(req));
+    res.end(JSON.stringify({ ok: false, error }));
+  };
+  upstream.on("error", () => failClosed(502, "profile_api_unreachable"));
+  upstream.on("timeout", () => {
+    upstream.destroy();
+    failClosed(504, "profile_api_timeout");
+  });
+  // A client that walks away mid-upload must not leave the upstream socket
+  // open, and an unhandled 'error' on `req` would crash the server.
+  req.on("error", () => upstream.destroy());
+  req.pipe(upstream);
 }
 
 function requestLocalJson(target, { method = "GET", body = null, timeout = 3000 } = {}) {
@@ -2030,6 +2153,38 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       }
     }
 
+    // SIXBEATS C3: Beat 4 (POST /profile) and Beat 6 (GET /profile) resolve
+    // same-origin whenever `jobBoredApiUrl` is empty — which is every fresh
+    // install — and used to hit this static host and 404, so the server fit
+    // profile silently never persisted. Forward them to the local API with
+    // the same authorization posture as /__proxy/*: loopback peer AND an
+    // exact local-origin allowlist.
+    if (isProfileApiPath(pathname)) {
+      if (req.method === "OPTIONS") {
+        if (!isSameOriginProfileRequest(req)) {
+          denyNonLocalControl(res);
+          return;
+        }
+        res.writeHead(204, profilePreflightHeaders(req));
+        res.end();
+        return;
+      }
+      if (!isSameOriginProfileRequest(req)) {
+        denyNonLocalControl(res);
+        return;
+      }
+      if (!PROFILE_PROXY_METHODS.has(String(req.method || ""))) {
+        res.writeHead(
+          405,
+          jsonCorsHeaders(req, { allow: "GET, POST, PUT, OPTIONS" }),
+        );
+        res.end(JSON.stringify({ ok: false, error: "method_not_allowed" }));
+        return;
+      }
+      proxyProfileRequest(req, res, url.pathname + url.search);
+      return;
+    }
+
     if (req.method === "POST" && pathname === "/__proxy/fix-setup") {
       handleFixSetup(req, res, {
         workerPort: resolveDiscoveryWorkerPort(url.searchParams.get("port")),
@@ -2330,6 +2485,7 @@ export function startDevServer({
       const workerPort = resolveDiscoveryWorkerPort();
       log(`  Proxying /__proxy/local-health → 127.0.0.1:${workerPort}/health`);
       log(`  Proxying /__proxy/ngrok-tunnels → 127.0.0.1:4040/api/tunnels`);
+      log(`  Proxying /profile, /profile/* → 127.0.0.1:${resolveProfileApiPort()}`);
       log(`  POST /__proxy/fix-setup → one-click recovery helper`);
       log(`  POST /__proxy/start-discovery-worker → starts local discovery worker`);
       resolve(server);
