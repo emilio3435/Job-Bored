@@ -95,6 +95,8 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /<header class="case__rail">/);
     assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="title"[^>]*value="Senior PM"/);
     assert.match(html, /data-action="brief-view-posting"[^>]*href="https:\/\/jobs\.test\/1"/);
+    assert.match(html, /<button[^>]*class="case__cta case__cta--btn"[^>]*data-action="resume-cover"[^>]*aria-label="Draft a cover letter for this role"[^>]*>Draft cover letter<\/button>/);
+    assert.match(html, /<button[^>]*data-action="resume-tailor"[^>]*aria-label="Tailor your resume for this role"[^>]*>Tailor resume<\/button>/);
     assert.match(html, /class="case__pill case__pill--due"[^>]*>[\s\S]*?2026-09-04[\s\S]*?in 3 days/);
     assert.match(html, /class="case__pill case__pill--open"/);
     assert.match(html, /<button[^>]*data-action="stage-step"[^>]*data-stage="applied"/);

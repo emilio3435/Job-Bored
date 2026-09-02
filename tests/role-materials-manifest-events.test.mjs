@@ -285,6 +285,20 @@ describe("materials manifest ownership", () => {
     );
   });
 
+  it("rehydrateOpenRole repaints the last manifest into a fresh mount without dispatching", async () => {
+    const { api, events, mountEls, openRole } = bootMaterials({ mounts: ["materials", "brief"] });
+    await openRole("job-1");
+    const announced = () => events.filter((e) => e.type === "jb:materials:manifest").length;
+    const before = announced();
+    /* Simulate the Case rebuilding its region: the mount comes back empty. */
+    const mount = mountEls.get("materials");
+    mount.childNodes.length = 0;
+    assert.equal(renderedHtml(mount), "");
+    api.rehydrateOpenRole();
+    assert.match(renderedHtml(mount), /class="case__doc" data-doc="resume"/, "rows must be repainted");
+    assert.equal(announced(), before, "rehydrate must not re-dispatch jb:materials:manifest");
+  });
+
   it("still renders into the legacy brief mount when no materials mount exists", async () => {
     const { mountEls, openRole } = bootMaterials({ mounts: ["brief"] });
     await openRole("job-1");

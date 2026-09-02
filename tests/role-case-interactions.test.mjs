@@ -283,6 +283,7 @@ function boot({ openKey = "job-1", job = fixtureJob() } = {}) {
   const timers = [];
   const profileMatchOpens = [];
   const stripRenders = [];
+  const rehydrates = [];
 
   const region = makeElement("section", { "data-region": "role" });
   const body = makeElement("body", { class: "jb-v2" });
@@ -333,6 +334,9 @@ function boot({ openKey = "job-1", job = fixtureJob() } = {}) {
     JobBoredRecruiterStrip: {
       render: (mountEl, roleVm) => stripRenders.push({ mountEl, roleVm }),
     },
+    JobBoredRoleMaterials: {
+      rehydrateOpenRole: () => { rehydrates.push(Date.now()); },
+    },
   };
   listenersFor(windowEl, "window");
 
@@ -351,6 +355,7 @@ function boot({ openKey = "job-1", job = fixtureJob() } = {}) {
     writebacks: () => detailsOf(events, "jb:role:writeback"),
     moves: () => detailsOf(events, "jb:pipeline:move"),
     renderCount: () => region._renderCount,
+    rehydrateCount: () => rehydrates.length,
     flushTimers: () => { while (timers.length) timers.shift()(); },
     setOpenKey: (k) => { openKey = k; },
   };
@@ -466,6 +471,14 @@ describe("The Case interactions", () => {
     }
     win.dispatchEvent(new TestCustomEvent("jb:materials:manifest", { detail: { jobKey: "job-1" } }));
     assert.equal(renderCount(), expected + 1, "a manifest for the open role must re-render");
+  });
+
+  it("asks role-materials to repaint its rows after every Case render (no empty materials block)", () => {
+    const { win, renderCount, rehydrateCount } = boot();
+    const renders = renderCount();
+    assert.equal(rehydrateCount(), renders, "one rehydrate per render so far");
+    win.dispatchEvent(new TestCustomEvent("jb:materials:manifest", { detail: { jobKey: "job-1" } }));
+    assert.equal(rehydrateCount(), renders + 1, "the rebuild that a manifest triggers must repaint the rows");
   });
 
   it("ignores a jb:materials:manifest for a different role", () => {

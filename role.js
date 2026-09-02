@@ -163,6 +163,12 @@
       if (root.JobBoredRecruiterStrip && typeof root.JobBoredRecruiterStrip.render === "function") {
         root.JobBoredRecruiterStrip.render(mount.querySelector('[data-mount="recruiter-strip"]'), vm);
       }
+      /* Every render replaces the materials mount; ask role-materials to
+         repaint its last state into it (rows / empty hint / error) — it
+         does so without re-dispatching jb:materials:manifest, so no loop. */
+      if (root.JobBoredRoleMaterials && typeof root.JobBoredRoleMaterials.rehydrateOpenRole === "function") {
+        root.JobBoredRoleMaterials.rehydrateOpenRole();
+      }
     }
 
     wireDossier(region, job);

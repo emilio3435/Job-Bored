@@ -434,10 +434,13 @@ test("should carry completed discovery into the pipeline and ready dossier mater
 
   fence.releaseMaterialsReady();
   const materialsSection = dossier.locator(".brief-materials");
+  /* The Case renders materials as compact rows: sentence-case label and a
+     lowercase status pill (see role-materials.js renderCaseRows). Same
+     intent as the Brief-era panel: the cover letter is listed and ready. */
   await expect(
-    materialsSection.getByText("Cover Letter", { exact: true }),
+    materialsSection.getByText("Cover letter", { exact: true }),
   ).toBeVisible();
-  await expect(materialsSection.getByText("Ready", { exact: true })).toBeVisible();
+  await expect(materialsSection.getByText("ready", { exact: true })).toBeVisible();
   await expect(materialsSection.getByRole("link", { name: "Preview" })).toBeVisible();
   await expect(materialsSection.locator(".brief-materials__progress")).toHaveCount(0);
 

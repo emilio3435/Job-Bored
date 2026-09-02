@@ -452,6 +452,7 @@
     /* Empty state: a single line tag and a hint. Renders only when the
        brief is open, the role is known, and there's no matched package. */
     if (!briefEl) return;
+    lastPaint = { kind: "empty", options: options };
     removeExisting(briefEl);
     var note = options && options.note ? options.note : "";
     if (isCaseMount(briefEl)) {
@@ -680,13 +681,19 @@
      so "not drafted yet" is as visible as "ready". */
   function renderCaseRows(hostEl, manifest, base, defs) {
     var docs = Array.isArray(manifest.documents) ? manifest.documents : [];
-    var pending = manifest.pending && manifest.pending.progress ? manifest.pending : null;
-    var pendingFeature = pending ? String(manifest.pending.feature || "") : "";
+    /* A pending block with a feature but no progress yet is the optimistic
+       "just requested" state — the legacy panel reads that as queued
+       (isQueued = phase === "queued" || !progress); the rows must too. */
+    var pending = manifest.pending && manifest.pending.feature ? manifest.pending : null;
+    var pendingFeature = pending ? String(pending.feature || "") : "";
+    var pendingProgress = pending && pending.progress ? pending.progress : null;
     var qualityDocs = manifest.quality && manifest.quality.documents ? manifest.quality.documents : {};
 
     var rows = defs.map(function (def) {
       var doc = docs.filter(function (d) { return d && d.type === def.type; })[0] || null;
-      var phase = pending && pendingFeature === def.type ? String(pending.progress.phase || "") : "";
+      var phase = pending && pendingFeature === def.type
+        ? (pendingProgress ? (String(pendingProgress.phase || "") || "queued") : "queued")
+        : "";
       var isPending = !!phase && !/^(complete|done|failed)$/i.test(phase);
       var status = isPending
         ? "drafting"
@@ -696,11 +703,24 @@
             ? (String(doc.status || "").toLowerCase() === "ready" ? "ready" : "failed")
             : "missing"));
       var sub = isPending
-        ? (phase || "drafting") + " · " + formatElapsed(liveElapsedSeconds(pending.progress))
-          + " · attempt " + (Number(pending.progress.attempt) || 1)
+        ? phase + " · " + (pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—")
+          + " · attempt " + (Number(pendingProgress && pendingProgress.attempt) || 1)
         : (doc && doc.lastModifiedAt
           ? String(doc.lastModifiedAt).slice(0, 10)
           : (status === "missing" ? "not drafted" : ""));
+      /* The legacy panel's queue state, carried into the row: the eyebrow
+         (WAITING IN QUEUE / DRAFTING IN PROGRESS) and the worker's message.
+         Spans, not divs, so the row stays a three-cell grid. */
+      var progressHtml = "";
+      if (isPending) {
+        var prog = pendingProgress;
+        var eyebrow = /^queued$/i.test(phase) ? "WAITING IN QUEUE" : "DRAFTING IN PROGRESS";
+        var msg = prog && prog.message ? String(prog.message) : defaultPhaseMessage(phase, pending.feature);
+        progressHtml = '<span class="case__doc-progress" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
+          + '<span class="case__doc-eyebrow">' + eyebrow + '</span>'
+          + '<span class="case__doc-msg">' + escapeHtml(msg) + '</span>'
+        + '</span>';
+      }
       var quality = qualityDocs[def.type];
       var issue = quality && Array.isArray(quality.issues) ? quality.issues[0] : null;
       var actions = status === "ready"
@@ -712,8 +732,9 @@
             + escapeHtml(def.draftAction) + '">Draft</button>']
           : []);
       return '<div class="case__doc" data-doc="' + escapeHtml(def.type) + '">'
-        + '<div class="case__doc-n">' + escapeHtml(def.label)
+        + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span>'
           + (sub ? "<small>" + escapeHtml(sub) + "</small>" : "")
+          + progressHtml
         + '</div>'
         + '<span class="case__docst case__docst--' + status + '">' + status + '</span>'
         + '<div class="case__doc-actions">' + actions.join("") + '</div>'
@@ -794,6 +815,7 @@
 
   function renderError(briefEl, message) {
     if (!briefEl) return;
+    lastPaint = { kind: "error", message: message };
     removeExisting(briefEl);
     if (isCaseMount(briefEl)) {
       renderCaseHint(briefEl, message || "Local materials server is unreachable.", "brief-materials--error");
@@ -853,9 +875,16 @@
      manifest, so it announces every manifest it renders and keeps the last
      one readable. The Case model reads it instead of re-fetching. */
   var currentManifest = null;
+  /* What role-materials last painted into the mount: the Case rebuilds
+     its whole region on jb:materials:manifest (and other events), which
+     replaces the [data-mount="materials"] element — role.js then calls
+     rehydrateOpenRole() to repaint this state into the fresh mount
+     WITHOUT re-dispatching the event (that would loop). */
+  var lastPaint = null;
 
   function commitManifest(hostEl, manifest, base, jobKey) {
     renderManifest(hostEl, manifest, base);
+    lastPaint = { kind: "manifest" };
     currentManifest = {
       jobKey: jobKey != null && jobKey !== ""
         ? jobKey
@@ -871,6 +900,18 @@
 
   function getCurrentManifest() {
     return currentManifest;
+  }
+
+  function rehydrateOpenRole() {
+    var host = findMount();
+    if (!host || !lastPaint) return;
+    if (lastPaint.kind === "manifest") {
+      if (currentManifest && currentManifest.manifest) renderManifest(host, currentManifest.manifest, currentManifest.base);
+    } else if (lastPaint.kind === "empty") {
+      renderEmpty(host, lastPaint.options);
+    } else if (lastPaint.kind === "error") {
+      renderError(host, lastPaint.message);
+    }
   }
 
   function wireSection(briefEl) {
@@ -2262,6 +2303,7 @@
   }
   function onClosed() {
     currentManifest = null;
+    lastPaint = null;
     clearCache();
   }
 
@@ -2339,6 +2381,7 @@
     pickApplication: pickApplication,
     renderManifest: renderManifest,
     getCurrentManifest: getCurrentManifest,
+    rehydrateOpenRole: rehydrateOpenRole,
     renderEmpty: renderEmpty,
     renderError: renderError,
     /** Test-only hook to inject a fresh applications list. */
