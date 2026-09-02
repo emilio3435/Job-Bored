@@ -10,6 +10,12 @@
          amputated of its first line, and numbered lists stay
          bullets.
 
+     (2) CARD ATTRIBUTE PARSING stops fragmenting values that
+         legitimately contain the old delimiters — a talking
+         point with a semicolon, a tag like "Austin, TX" — and
+         tolerates object items plus legacy double-encoded
+         entities left in the cache.
+
    Harness note (trap 2): jb-text.js MUST be evaluated before
    dawn-data.js. A consumer loaded without window.JobBoredText
    fails silently inside a try and the suite would "pass" on
@@ -154,5 +160,58 @@ describe("_splitJdSections via toBlocks", () => {
   it("decodes entities on the way in (single level only)", () => {
     const sections = splitJd("Requirements:\n- 5+ yrs &amp; Go\n- Owns SLAs &amp;lt;99.9%");
     assert.deepEqual(sections[0].bullets, ["5+ yrs & Go", "Owns SLAs &lt;99.9%"]);
+  });
+});
+
+/** The job half of the view-model, for attribute-parsing assertions. */
+function parseCard(attrs) {
+  return viewModelFor(attrs).job;
+}
+
+describe("card attribute parsing", () => {
+  it("talking points with newlines split ONLY on newlines", () => {
+    const pts = parseCard({
+      "data-talking-points": "Shipped X; grew Y 40%\nAsk about on-call; and pager duty",
+    }).jdSections[0].bullets;
+    assert.deepEqual(pts, ["Shipped X; grew Y 40%", "Ask about on-call; and pager duty"]);
+  });
+
+  it("single-line talking points still split on ; and ·", () => {
+    const pts = parseCard({
+      "data-talking-points": "Point A; Point B · Point C",
+    }).jdSections[0].bullets;
+    assert.deepEqual(pts, ["Point A", "Point B", "Point C"]);
+  });
+
+  it("JSON data-tags arrays pass through un-fragmented", () => {
+    const tags = parseCard({ "data-tags": JSON.stringify(["Austin, TX", "C#; .NET"]) }).tags;
+    assert.deepEqual(tags, ["Austin, TX", "C#; .NET"]);
+  });
+
+  it("legacy comma-string tags keep splitting", () => {
+    assert.deepEqual(parseCard({ "data-tags": "Go, K8s" }).tags, ["Go", "K8s"]);
+  });
+
+  it("JSON array attrs tolerate objects and legacy entities", () => {
+    const items = parseCard({
+      "data-must-haves": JSON.stringify([{ text: "Own SLAs" }, "5+ yrs &amp; Go"]),
+    }).enrichment.mustHaves;
+    assert.deepEqual(items, ["Own SLAs", "5+ yrs & Go"]);
+  });
+
+  it("JSON array attrs strip leading list glyphs", () => {
+    const items = parseCard({
+      "data-responsibilities": JSON.stringify(["• Run the on-call rotation", "- Mentor"]),
+    }).enrichment.responsibilities;
+    assert.deepEqual(items, ["Run the on-call rotation", "Mentor"]);
+  });
+
+  it("legacy cached enrichment strings self-heal markdown and entities", () => {
+    const enr = parseCard({
+      "data-role-in-one-line": "**Own** the platform &amp; its roadmap",
+      "data-posting-summary": "Para one.\n\nPara two &amp; three.",
+    }).enrichment;
+    assert.equal(enr.roleInOneLine, "Own the platform & its roadmap");
+    assert.equal(enr.postingSummary, "Para one.\n\nPara two & three.");
   });
 });
