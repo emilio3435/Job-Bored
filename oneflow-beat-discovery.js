@@ -41,20 +41,28 @@
     "100 searches a month — plenty for daily runs. Three steps, about " +
     "60 seconds.";
 
-  /** The three steps, deep-linked (from the retired enhancements card). */
+  /**
+   * The three steps, deep-linked (from the retired enhancements card).
+   *
+   * SIXBEATS2 NEW-9: the numbers used to be typed into the text, and the
+   * <ol> around them carried `list-style: none` — so the only numbering on
+   * screen was a literal "1." that landed immediately behind the previous
+   * sentence's full stop, next to a link label that also started "1 ·". The
+   * list draws its own markers now; the sentences are unchanged.
+   */
   const FUEL_STEPS = [
     {
-      text: "1. Create a free SerpApi account (Google login works, no card needed).",
+      text: "Create a free SerpApi account (Google login works, no card needed).",
       href: "https://serpapi.com/users/sign_up",
-      linkLabel: "1 · Create your free account ↗",
+      linkLabel: "Create your free account ↗",
     },
     {
-      text: "2. Copy your API key from the dashboard — it's the first thing on the page.",
+      text: "Copy your API key from the dashboard — it's the first thing on the page.",
       href: "https://serpapi.com/manage-api-key",
-      linkLabel: "2 · Copy your API key ↗",
+      linkLabel: "Copy your API key ↗",
     },
     {
-      text: "3. Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
+      text: "Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
     },
   ];
 

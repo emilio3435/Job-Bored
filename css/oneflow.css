@@ -1107,19 +1107,32 @@
   color: var(--jb-ink-3, var(--text-faint));
 }
 
+/* SIXBEATS2 NEW-9: a real ordered list. `list-style: none` on a flex column
+   left the beat with no marker at all, so the steps carried hand-typed
+   numbers that ran straight into the sentence before them — and into a deep
+   link whose label started with a number of its own. The browser draws the
+   marker at the line start now, and the link is a block, so it can never
+   glue itself to the end of the step's last sentence. */
 .oneflow-fuel__steps {
   margin: 0 0 var(--space-3);
-  padding: 0;
-  list-style: none;
-  display: flex;
-  flex-direction: column;
-  gap: var(--space-2);
+  padding: 0 0 0 1.4em;
+  list-style: decimal outside;
 }
 
 .oneflow-fuel__step {
+  display: list-item;
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-fuel__step + .oneflow-fuel__step {
+  margin-top: var(--space-2);
+}
+
+.oneflow-fuel__step .oneflow-beat__keylink {
+  display: block;
+  margin-top: 2px;
 }
 
 /* "Go get your key" is one click, never a copy-the-domain scavenger hunt. */
@@ -1538,9 +1551,14 @@
   display: none;
 }
 
+/* SIXBEATS2 NEW-5: anchored LEFT, not right. This is a fixed overlay at
+   z-index 5 and the collapsed ask ("Set up JobBored — 15 min ▸") sits
+   bottom-RIGHT at z-index 3, so a detail in that corner is a lid over the
+   one control that reopens the flow — the rerun's blocker. Opposite
+   corners means the two boxes cannot intersect at any desktop width. */
 .oneflow-demo .oneflow-demo__detail {
   position: fixed;
-  right: var(--space-5);
+  left: var(--space-5);
   bottom: var(--space-5);
   z-index: 5;
   width: min(360px, calc(100vw - var(--space-8)));
@@ -1552,6 +1570,35 @@
   border-radius: 14px;
   background: var(--jb-paper, var(--surface));
   box-shadow: 0 24px 54px -22px rgba(14, 58, 78, 0.6);
+}
+
+/* The chip row, and the way out of the panel. */
+.oneflow-demo .oneflow-demo__detail-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+
+.oneflow-demo .oneflow-demo__detail-close {
+  flex-shrink: 0;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: 999px;
+  background: transparent;
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 14px;
+  line-height: 1;
+  color: var(--jb-ink-2, var(--text-muted));
+  cursor: pointer;
+}
+
+.oneflow-demo .oneflow-demo__detail-close:hover,
+.oneflow-demo .oneflow-demo__detail-close:focus-visible {
+  color: var(--jb-navy, var(--text));
+  border-color: var(--jb-navy, var(--text));
 }
 
 .oneflow-demo .oneflow-demo__detail-role {

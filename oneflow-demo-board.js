@@ -87,6 +87,8 @@
   let rows = [];
   let collapsed = false;
   let pipelineListener = null;
+  /** The document-level Escape handler, live only while a detail is open. */
+  let detailKeyListener = null;
 
   // ---------------------------------------------------------------
   // Tiny DOM helpers — same createEl shape as the wizard shell so the
@@ -298,9 +300,26 @@
   }
 
   /**
+   * Dismiss the open detail, if any. SIXBEATS2 NEW-5: the panel used to have
+   * no way out at all, and it is a fixed overlay — an undismissable one is a
+   * permanent lid over whatever it happens to land on.
+   */
+  function closeDetail() {
+    if (detailKeyListener && typeof document.removeEventListener === "function") {
+      document.removeEventListener("keydown", detailKeyListener);
+    }
+    detailKeyListener = null;
+    if (!mountEl) return;
+    const slot = mountEl.querySelector(".oneflow-demo__detail-slot");
+    if (slot) slot.replaceChildren();
+  }
+
+  /**
    * Read-only detail (spec §4: "Demo cards open read-only detail views").
-   * Deliberately renders no control: a demo card that offers Save or Move
-   * would promise a write the fixture cannot keep.
+   * The ONLY control it renders is its own close: a demo card that offered
+   * Save or Move would promise a write the fixture cannot keep, but a panel
+   * with no way out (SIXBEATS2 NEW-5) is worse — it sat on the corner pill
+   * and swallowed the clicks that reopen the flow.
    */
   function renderDetail(row) {
     if (!mountEl) return null;
@@ -309,7 +328,15 @@
     const detail = createEl("aside", "oneflow-demo__detail");
     detail.setAttribute("aria-readonly", "true");
     detail.setAttribute("aria-label", `${row.role} at ${row.company} — demo detail`);
-    detail.appendChild(createEl("span", "oneflow-demo__chip", "DEMO"));
+    detail.tabIndex = -1;
+    // Escape closes it from the panel itself; the document listener below
+    // covers the reader who never moved focus into it.
+    detail.addEventListener("keydown", (event) => {
+      if (!event || event.key !== "Escape") return;
+      if (typeof event.preventDefault === "function") event.preventDefault();
+      closeDetail();
+    });
+    detail.appendChild(buildDetailHead(row));
     detail.appendChild(createEl("h4", "oneflow-demo__detail-role", row.role));
     detail.appendChild(
       createEl(
@@ -332,7 +359,35 @@
     // One slot, replaced rather than stacked: clicking a second card shows
     // that card, never two panels fighting for the same corner.
     slot.replaceChildren(detail);
+    if (typeof document.addEventListener === "function") {
+      if (detailKeyListener) document.removeEventListener("keydown", detailKeyListener);
+      detailKeyListener = (event) => {
+        if (!event || event.key !== "Escape") return;
+        closeDetail();
+      };
+      document.addEventListener("keydown", detailKeyListener);
+    }
     return detail;
+  }
+
+  /**
+   * The detail's head: the DEMO chip it always carried, and the close
+   * control it never did.
+   */
+  function buildDetailHead(row) {
+    const head = createEl("div", "oneflow-demo__detail-head");
+    head.appendChild(createEl("span", "oneflow-demo__chip", "DEMO"));
+    const close = createEl("button", "oneflow-demo__detail-close", "\u00d7");
+    close.type = "button";
+    close.setAttribute("aria-label", `Close the demo detail for ${row.role}`);
+    close.addEventListener("click", (event) => {
+      if (event && typeof event.preventDefault === "function") {
+        event.preventDefault();
+      }
+      closeDetail();
+    });
+    head.appendChild(close);
+    return head;
   }
 
   function buildAction(className, label, onClick) {
@@ -488,6 +543,7 @@
   }
 
   function unmount() {
+    closeDetail();
     if (pipelineListener && typeof document.removeEventListener === "function") {
       document.removeEventListener("jb:pipeline:rendered", pipelineListener);
     }
