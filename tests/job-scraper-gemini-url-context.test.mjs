@@ -36,7 +36,8 @@ const LISTING_HTML = `<!doctype html><html><head><title>Careers at Acme</title><
 </main></body></html>`;
 
 const GEMINI_EXTRACT =
-  "About the role\nAcme is hiring a Staff Backend Engineer to own payments services, Kafka pipelines, and PostgreSQL reliability. You will mentor engineers, lead incident response, and ship production APIs used by millions of customers.";
+  "## About\n**Bold** claim\r\n\r\n\r\n* item one\n\n" +
+  "Acme is hiring a Staff Backend Engineer to own payments services, Kafka pipelines, and PostgreSQL reliability. You will mentor engineers, lead incident response, and ship production APIs used by millions of customers.";
 
 describe("job scraper Gemini URL Context last lane", () => {
   it("uses Gemini URL Context after a careers listing when SerpApi is unavailable", async () => {
@@ -77,6 +78,10 @@ describe("job scraper Gemini URL Context last lane", () => {
 
     assert.equal(result.method, "gemini-url-context");
     assert.equal(result.scraping.provider, "gemini-url-context");
+    assert.doesNotMatch(result.description, /\*\*/);
+    assert.match(result.description, /Bold claim/);
+    assert.doesNotMatch(result.description, /\n{3,}/);
+    assert.match(result.description, /## About/);
     assert.match(result.description, /Kafka pipelines/);
     assert.ok(calls.some((call) => /generativelanguage\.googleapis\.com/.test(call.url)));
     assert.ok(!calls.some((call) => /serpapi\.com/.test(call.url)));
