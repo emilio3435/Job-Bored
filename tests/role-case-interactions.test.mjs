@@ -552,6 +552,35 @@ describe("The Case interactions", () => {
     assert.ok(!previous.classList.contains("case__seg-b--on"), "and leaves the old chip");
   });
 
+  /* P0-2: activating a stage step cascades to jb:pipeline:rendered →
+     renderForKey → mount.innerHTML = …, which destroys the focused node. The
+     focus guard only defers for edit surfaces, and a focused <button> does not
+     match — so a keyboard user was ejected to <body> mid-task. */
+  it("restores focus to the same control after a re-render", () => {
+    const { region, win, doc, renderCount } = boot();
+    const step = region.querySelector('[data-action="stage-step"][data-stage="applied"]');
+    step.focus();
+    assert.equal(doc.activeElement, step);
+
+    const before = renderCount();
+    win.dispatchEvent(new TestCustomEvent("jb:ats:state", { detail: { jobKey: "job-1", status: "success" } }));
+    assert.equal(renderCount(), before + 1, "a button must not defer the render");
+
+    const after = doc.activeElement;
+    assert.notEqual(after, doc.body, "focus must not fall to the document body");
+    assert.equal(after.getAttribute("data-action"), "stage-step");
+    assert.equal(after.getAttribute("data-stage"), "applied");
+    assert.notEqual(after, step, "and it is the freshly rendered node, not the discarded one");
+  });
+
+  it("leaves focus alone when nothing in the region had it", () => {
+    const { win, doc, region } = boot();
+    doc.activeElement = doc.body;
+    win.dispatchEvent(new TestCustomEvent("jb:ats:state", { detail: { jobKey: "job-1", status: "success" } }));
+    assert.equal(doc.activeElement, doc.body, "a background render must not steal focus");
+    assert.ok(region.querySelector(".case__rail"), "and the render still happened");
+  });
+
   it("the replied chips never commit through the input path", () => {
     const { region, writebacks } = boot();
     // A <button> carries no user-typed value; blurring it must not write a label.

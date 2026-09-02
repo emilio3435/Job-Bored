@@ -420,6 +420,35 @@
     return !!(ae && ae.matches && ae.matches(EDIT_SURFACE_SELECTOR) && region.contains(ae));
   }
 
+  /* Focus survival across the wholesale innerHTML rebuild (P0-2). The guard
+     above only DEFERS for edit surfaces; every other focusable control — a
+     stage step, a reply chip, a materials button — is destroyed by the swap
+     and focus falls to <body>, ejecting a keyboard user to the top of the
+     document mid-task. So record what had focus by identity (the attributes
+     the renderer re-emits, never the node) and re-focus its replacement. */
+  var FOCUS_IDENTITY_ATTRS = ["data-action", "data-stage", "data-field", "data-value", "data-doc", "data-feature"];
+
+  function focusIdentity(region) {
+    var ae = document.activeElement;
+    if (!ae || !ae.getAttribute || !region || typeof region.contains !== "function") return null;
+    if (!region.contains(ae) || ae === region) return null;
+    var action = ae.getAttribute("data-action");
+    if (!action) return null;
+    var selector = "";
+    for (var i = 0; i < FOCUS_IDENTITY_ATTRS.length; i++) {
+      var name = FOCUS_IDENTITY_ATTRS[i];
+      var value = ae.getAttribute(name);
+      if (value != null) selector += "[" + name + '="' + value + '"]';
+    }
+    return selector || null;
+  }
+
+  function restoreFocus(region, selector) {
+    if (!region || !selector || typeof region.querySelector !== "function") return;
+    var next = region.querySelector(selector);
+    if (next && typeof next.focus === "function") next.focus();
+  }
+
   function renderForKey(jobKey) {
     if (!shouldRun()) return;
     var region = getRegion();
@@ -429,6 +458,7 @@
       pendingRenderKey = jobKey;
       return;
     }
+    var focused = focusIdentity(region);
     if (!jobKey) {
       renderEmpty(region);
       return;
@@ -440,6 +470,7 @@
       return;
     }
     renderDossier(region, vm);
+    restoreFocus(region, focused);
   }
 
   function onOpened(e) {
