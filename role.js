@@ -156,6 +156,13 @@
       var deps = Case.model.collectDeps(key);
       deps.vm = vm;
       Case.render(mount, Case.model.buildCaseModel(key, deps));
+      /* The recruiter CRM row is a seam, not part of the Case model: it writes
+         straight through the sheetsWrite bridge and overwrites the element it
+         is handed, so it gets the dedicated mount the Case emitted and is
+         filled here rather than inside the renderer. */
+      if (root.JobBoredRecruiterStrip && typeof root.JobBoredRecruiterStrip.render === "function") {
+        root.JobBoredRecruiterStrip.render(mount.querySelector('[data-mount="recruiter-strip"]'), vm);
+      }
     }
 
     wireDossier(region, job);

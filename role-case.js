@@ -132,6 +132,11 @@
       '<li><span class="case__k">Replied</span><button type="button" class="case__v case__v--toggle' + (p.replied === "Yes" ? "" : " case__v--warn") + '" data-action="edit-field" data-field="reply" data-value="' + (p.replied === "Yes" ? "No" : "Yes") + '" aria-label="Toggle replied">' + esc(p.replied) + "</button></li>" +
       '<li><span class="case__k">Follow-up</span><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date"></li>' +
     "</ul>";
+    /* The recruiter CRM row (recruiter-strip.js) innerHTML-overwrites whatever
+       element it is handed, so it gets its own mount under People and nothing
+       else. role.js fills it after Case.render — the region owner drives the
+       seam, exactly as the retired Brief did. */
+    html += '<div data-mount="recruiter-strip"></div>';
     return html + "</section>";
   }
 
