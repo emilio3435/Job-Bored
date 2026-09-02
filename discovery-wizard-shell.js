@@ -1061,6 +1061,10 @@
     });
     const step = context.activeStep;
 
+    // Spec §2 "ONE spine": with the spine on screen, a per-beat "Step 1 of
+    // 1" is a second progress system inside the card. Going back is
+    // navigation, not progress, so the arrow stays either way — and the
+    // kicker row only survives when it still has something in it.
     const kicker = createEl("div", "discovery-setup-wizard__step-kicker");
     if (context.canGoBack) {
       const backBtn = createEl(
@@ -1074,12 +1078,14 @@
       );
       kicker.appendChild(backBtn);
     }
-    appendText(
-      kicker,
-      `Step ${context.activeIndex + 1} of ${context.steps.length}`,
-      "discovery-setup-wizard__step-kicker-text",
-    );
-    frame.appendChild(kicker);
+    if (!context.spine) {
+      appendText(
+        kicker,
+        `Step ${context.activeIndex + 1} of ${context.steps.length}`,
+        "discovery-setup-wizard__step-kicker-text",
+      );
+    }
+    if (kicker.children.length) frame.appendChild(kicker);
     const title = createEl(
       "h3",
       "discovery-setup-wizard__step-title",
@@ -1207,10 +1213,18 @@
   }
 
   function renderFooter(context) {
-    const footer = createEl("footer", "discovery-setup-wizard__footer");
+    const footer = createEl(
+      "footer",
+      context.spine
+        ? // Claim C7: on a phone these actions have to reach the thumb, so
+          // the one-flow footer becomes a dock the CORE sheet can stick to
+          // the bottom of the viewport.
+          "discovery-setup-wizard__footer discovery-setup-wizard__footer--dock"
+        : "discovery-setup-wizard__footer",
+    );
     const note = createEl("div", "discovery-setup-wizard__footer-note");
     const defaultNote =
-      context.state.currentStep === context.activeStep.id
+      !context.spine && context.state.currentStep === context.activeStep.id
         ? "Use the step rail above to jump between steps."
         : "";
     appendText(
@@ -1284,12 +1298,21 @@
   }
 
   function renderRoot(context) {
-    const shellEl = createEl("div", "discovery-setup-wizard", {
-      role: "dialog",
-      "aria-modal": "true",
-      "aria-labelledby": "discoverySetupWizardTitle",
-      "aria-describedby": "discoverySetupWizardIntro",
-    });
+    const shellEl = createEl(
+      "div",
+      // The one-flow hook. Every rule this lane adds to css/oneflow.css
+      // hangs off it, so a host that passes no spine keeps the markup AND
+      // the paint it had (SUBSTRATE locked decision 1).
+      context.spine
+        ? "discovery-setup-wizard discovery-setup-wizard--spine"
+        : "discovery-setup-wizard",
+      {
+        role: "dialog",
+        "aria-modal": "true",
+        "aria-labelledby": "discoverySetupWizardTitle",
+        "aria-describedby": "discoverySetupWizardIntro",
+      },
+    );
 
     const scrim = createEl("div", "discovery-setup-wizard__scrim", {
       "aria-hidden": "true",
@@ -1347,11 +1370,16 @@
     // the flow ships two progress systems, which is the defect §2 names.
     const spine = renderSpine(context);
     const journeyStrip = spine ? null : renderJourneyStrip(context);
+    // Claim U2: the step rail rendered UNDER the spine, so beat 1 shipped a
+    // lone "GOOGLE" pill below a six-segment spine — two rails for one
+    // position. The spine owns the position; the rail belongs to the
+    // multi-step legacy hosts that have nowhere else to navigate from.
+    const stepNav = spine ? null : renderStepNavigation(context);
     panel.append(
       header,
       ...(spine ? [spine] : []),
       ...(journeyStrip ? [journeyStrip] : []),
-      renderStepNavigation(context),
+      ...(stepNav ? [stepNav] : []),
       body,
       renderFooter(context),
     );
