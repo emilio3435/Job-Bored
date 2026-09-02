@@ -55,6 +55,7 @@ import {
 import { migrateLegacyProfileIfPresent } from "./legacy-profile-migrator.mjs";
 import {
   analyzeResumeToProfile,
+  parseProfileProviderConfigFromBody,
   resolveResumeTextForAnalysis,
 } from "./profile-from-resume.mjs";
 import {
@@ -432,9 +433,11 @@ app.post("/profile/template/:id", (req, res) => {
  * ~/.jobbored/resume.txt — the server half of the ONE-FLOW resume dual
  * write (spec §5 B3), so the next reader sees the same resume the browser
  * has. Falls back to stored resume text (worker config,
- * ~/.jobbored/resume.txt, or legacy hermes). Runs the configured profile
- * AI provider and returns a draft v1 UserProfile for review. Does NOT save
- * the profile — the user confirms that on the next screen.
+ * ~/.jobbored/resume.txt, or legacy hermes). Runs the provider the request
+ * body names — the one the browser verified on Beat 2 — falling back to the
+ * server's env config when the body names none, and returns a draft v1
+ * UserProfile for review. Does NOT save the profile — the user confirms
+ * that on the next screen.
  *
  * 200 { ok: true, profile, source }   — got a draft profile
  * 404 { ok: false, reason: "no_resume_stored" }
@@ -454,8 +457,15 @@ app.post("/profile/from-resume", async (req, res) => {
   if (!stored) {
     return res.status(404).json({ ok: false, reason: "no_resume_stored" });
   }
+  // The provider the browser verified on Beat 2 wins over the server's env
+  // (SIXBEATS2-SPEC locked decision 3). Without this a fresh install that
+  // connected OpenRouter was answered "Missing Gemini API key" — NEW-2.
+  const requestedConfig = parseProfileProviderConfigFromBody(req.body);
   try {
-    const profile = await analyzeResumeToProfile(stored.text);
+    const profile = await analyzeResumeToProfile(
+      stored.text,
+      requestedConfig ? { config: requestedConfig } : {},
+    );
     return res.json({ ok: true, profile, source: stored.source });
   } catch (err) {
     const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
