@@ -12,9 +12,9 @@
               jb:role:action      { action, jobKey }
               jb:role:note        { jobKey, body }
               jb:role:writeback   { jobKey, field, value }
-              (rail title/company edits and the People row's contact /
-              heardBack / reply / followupAt, on blur/Enter/change;
-              routed by the flowing-writes.js bridge)
+              (rail title/company/location/salary edits and the People
+              row's contact / heardBack / reply / followupAt, on
+              blur/Enter/change; routed by the flowing-writes.js bridge)
               (and re-triggers a smooth scroll to letter region)
 
    Activation: body.jb-v2 only. Off-flag: no-op.
@@ -280,12 +280,12 @@
     }
 
     /* `field-sizing: content` sizes the borderless location/salary inputs on
-       engines that support it (role.css). Where it is unsupported the inputs
-       would collapse to the UA default width, so size them from their value
-       instead — capped so a pasted paragraph cannot blow out the masthead. */
+       engines that support it (role-case.css). Where it is unsupported the
+       inputs would collapse to the UA default width, so size them from their
+       value instead — capped so a pasted paragraph cannot blow out the rail. */
     if (!(root.CSS && root.CSS.supports && root.CSS.supports("field-sizing", "content"))
         && typeof region.querySelectorAll === "function") {
-      var factInputs = region.querySelectorAll(".brief__fact-input");
+      var factInputs = region.querySelectorAll(".case__fact-input");
       for (var fi = 0; fi < factInputs.length; fi++) {
         (function (inp) {
           function size() { inp.style.width = Math.min((inp.value || "").length + 2, 40) + "ch"; }

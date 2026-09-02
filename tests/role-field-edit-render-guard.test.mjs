@@ -40,10 +40,11 @@
    row's `contact`, not the retired `.brief__*` masthead. Every
    behavioral assertion above is unchanged.
 
-   The old (4) FACT-INPUT WIDTH FALLBACK block retired with the
-   Brief: The Case's rail inputs are full-width block fields, so
-   there is no borderless auto-sizing surface left to fall back
-   for (see LANE-REPORT-L5.md §5).
+     (4) FACT-INPUT WIDTH FALLBACK — the borderless location /
+         salary inputs stay legible where `field-sizing: content`
+         is unsupported. Restored with the rail's location and
+         salary edit fields (L7 gap 1); the selector is now
+         `.case__fact-input`, the behaviour is the Brief's.
    ============================================================ */
 
 import assert from "node:assert/strict";
@@ -259,6 +260,9 @@ function makeRegion(doc) {
     },
     querySelectorAll(selector) {
       if (selector === '[data-action="edit-field"]') return doc._editFields;
+      if (selector === ".case__fact-input") {
+        return doc._editFields.filter((n) => /case__fact-input/.test(n.getAttribute("class") || ""));
+      }
       return [];
     },
     contains(node) {
@@ -308,7 +312,7 @@ function makeDocument() {
   return doc;
 }
 
-function loadHarness(roleVm) {
+function loadHarness(roleVm, opts = {}) {
   const documentEl = makeDocument();
   const region = makeRegion(documentEl);
   documentEl.setRegion(region);
@@ -317,6 +321,7 @@ function loadHarness(roleVm) {
   windowEl.document = documentEl;
   windowEl.matchMedia = () => ({ matches: false });
   windowEl.JobBoredStages = stages;
+  if (opts.supportsFieldSizing) windowEl.CSS = { supports: () => true };
   /* role.js schedules the deferred-render flush via root.setTimeout; capture
      the queue so tests drive it deterministically. */
   const timers = [];
@@ -613,5 +618,97 @@ describe("notes textarea is a guarded edit surface", () => {
     flushTimers();
 
     assert.equal(renderCount(), before, "a blur with no pending render must not re-render");
+  });
+});
+
+/* ------------------------------------------------------------
+   (4) THE RAIL'S LOCATION / SALARY FACT INPUTS (L7 gap 1)
+   Spec §5 makes all four rail identity fields editable. They are
+   edit-field inputs like title and company, so they must commit
+   on blur, hold the render guard while focused, and stay legible
+   where `field-sizing: content` is unsupported.
+   ------------------------------------------------------------ */
+describe("rail location and salary are editable", () => {
+  it("location commits on blur through the writeback contract", () => {
+    const { context, documentEl, writebacks } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const location = fieldInput(documentEl, "location");
+    assert.ok(location, "the rail must render a location edit-field");
+    assert.equal(location.getAttribute("data-original"), "Remote");
+    assert.equal(location.getAttribute("aria-label"), "Location");
+
+    location.focus();
+    location.value = "Austin, TX";
+    location.blur();
+
+    assert.deepEqual(writebacks, [{ jobKey: "linear-1", field: "location", value: "Austin, TX" }]);
+  });
+
+  it("salary commits on blur through the writeback contract", () => {
+    const { context, documentEl, writebacks } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const salary = fieldInput(documentEl, "salary");
+    assert.ok(salary, "the rail must render a salary edit-field");
+    assert.equal(salary.getAttribute("data-original"), "$165k");
+    assert.equal(salary.getAttribute("aria-label"), "Salary");
+
+    salary.focus();
+    salary.value = "$185k";
+    salary.blur();
+
+    assert.deepEqual(writebacks, [{ jobKey: "linear-1", field: "salary", value: "$185k" }]);
+  });
+
+  it("defers the background re-render while a fact input is focused, then flushes", () => {
+    const { context, documentEl, renderCount, flushTimers } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const salary = fieldInput(documentEl, "salary");
+    salary.focus();
+    salary.value = "$19";
+    const before = renderCount();
+
+    documentEl.dispatchEvent(new TestCustomEvent("jb:pipeline:rendered", { detail: {} }));
+    assert.equal(renderCount(), before, "a focused fact input must hold the render");
+    assert.equal(
+      fieldInput(documentEl, "salary").value,
+      "$19",
+      "the half-typed salary must survive the cascade",
+    );
+
+    salary.blur();
+    flushTimers();
+    assert.equal(renderCount(), before + 1, "the held render must flush once the fact input blurs");
+  });
+});
+
+describe("fact-input width fallback", () => {
+  it("sizes fact inputs in ch when field-sizing is unsupported", () => {
+    const { context, documentEl } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const locationInput = fieldInput(documentEl, "location");
+    assert.equal(locationInput.getAttribute("class"), "case__fact-input");
+    // "Remote".length + 2
+    assert.equal(locationInput.style.width, "8ch");
+
+    // Growing the value re-sizes on input, capped at 40ch.
+    locationInput.value = "x".repeat(80);
+    locationInput.dispatch("input", {});
+    assert.equal(locationInput.style.width, "40ch");
+  });
+
+  it("leaves the inputs alone when the engine supports field-sizing", () => {
+    const harness = loadHarness(fixtureVm(), { supportsFieldSizing: true });
+    harness.context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const locationInput = fieldInput(harness.documentEl, "location");
+    assert.equal(
+      locationInput.style.width,
+      undefined,
+      "native field-sizing must not be overridden by the JS fallback",
+    );
   });
 });

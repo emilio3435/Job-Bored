@@ -23,8 +23,14 @@
       ? '<img class="case__logo" src="' + attr(id.logoUrl) + '" alt="">'
       : '<div class="case__logo case__logo--mono">' + esc((id.company || "?").charAt(0).toUpperCase()) + "</div>";
     var meta = [];
-    if (id.location || id.employment) meta.push(esc([id.location, id.employment].filter(Boolean).join(" · ")));
-    if (id.salary) meta.push("<b>" + esc(id.salary) + "</b>");
+    /* Spec §5: all four rail identity fields edit in place. Location and
+       salary are borderless inline inputs on the navy rail — the same
+       edit-field contract role.js wires for title and company, not the
+       read-only text the first cut shipped. Both render even when empty so
+       a missing fact can be filled in without leaving the dossier. */
+    meta.push(editInput("location", id.location, "case__fact-input", "Location", ' placeholder="Location"'));
+    if (id.employment) meta.push(esc(id.employment));
+    meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="Salary"'));
     if (id.source) meta.push("via " + esc(id.source));
     if (id.foundAt) meta.push("Found " + esc(id.foundAt));
     if (id.priority) meta.push("Priority <b>" + esc(id.priority.charAt(0).toUpperCase() + id.priority.slice(1)) + "</b>");

@@ -31,6 +31,12 @@ body.jb-v2 [data-region="role"] .case .case__title { font-size: 26px; line-heigh
 body.jb-v2 [data-region="role"] .case .case__company { font-style: italic; font-size: 16px; color: var(--mint); margin-top: 2px; }
 body.jb-v2 [data-region="role"] .case .case__rail [data-action="edit-field"]:hover { border-bottom-color: rgba(251, 247, 236, 0.35); }
 body.jb-v2 [data-region="role"] .case .case__rail [data-action="edit-field"]:focus { border-bottom-color: var(--amber); }
+/* Rail fact inputs (spec §5): location and salary edit in place on the navy
+   rail. `field-sizing: content` sizes them to their value where it is
+   supported; role.js sizes them in `ch` where it is not. The hover/focus
+   underline is the shared .case__rail [data-action="edit-field"] pair above,
+   so a fact input highlights exactly like the title does. */
+body.jb-v2 [data-region="role"] .case .case__fact-input { font: inherit; color: inherit; background: transparent; border: none; border-bottom: 1px dashed transparent; outline: none; field-sizing: content; width: 12ch; max-width: 100%; }
 body.jb-v2 [data-region="role"] .case .case__meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(251, 247, 236, 0.72); }
 body.jb-v2 [data-region="role"] .case .case__meta b { color: var(--parchment); font-weight: 600; }
 body.jb-v2 [data-region="role"] .case .case__rail-right { display: grid; gap: 10px; justify-items: end; }

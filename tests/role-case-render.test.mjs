@@ -99,6 +99,23 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /<button[^>]*data-action="open-profile-match"/);
     assert.match(html, /class="case__quote"[^>]*>[\s\S]*?Design infrastructure that ships\./);
   });
+  /* L7 gap 1 (spec §5): the rail edits four fields, not two. Location and
+     salary are inline fact inputs on the navy rail, carrying the same
+     edit-field contract role.js wires — not read-only text. */
+  it("location and salary are editable inline fact inputs on the rail", () => {
+    const html = renderHtml(model());
+    assert.match(html, /<input[^>]*class="case__fact-input"[^>]*data-action="edit-field"[^>]*data-field="location"[^>]*data-original="Austin, TX"[^>]*value="Austin, TX"[^>]*aria-label="Location"/);
+    assert.match(html, /<input[^>]*class="case__fact-input"[^>]*data-action="edit-field"[^>]*data-field="salary"[^>]*data-original="\$185–230k"[^>]*value="\$185–230k"[^>]*aria-label="Salary"/);
+    assert.match(html, /data-field="location"[^>]*autocomplete="off"/, "the rail inputs keep the edit-field guards");
+    assert.match(html, /class="case__meta">[\s\S]*?<span>Full-time<\/span>/, "employment stays plain text beside the inputs");
+  });
+
+  it("renders empty location and salary inputs so a missing fact can be filled in", () => {
+    const html = renderHtml(model({ vmPatch: { location: "", salary: "" } }));
+    assert.match(html, /data-field="location"[^>]*value=""[^>]*aria-label="Location"/);
+    assert.match(html, /data-field="salary"[^>]*value=""[^>]*aria-label="Salary"/);
+  });
+
   it("they want / you have / your moves lanes", () => {
     const html = renderHtml(model());
     assert.match(html, /class="case__lane case__lane--they"[\s\S]*?<li[^>]*data-status="found"[^>]*>[\s\S]*?5\+ years design systems/);
@@ -125,8 +142,9 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /Add a resume to see what matches/);
   });
   it("escapes exactly once", () => {
-    const html = renderHtml(model({ vmPatch: { role: 'Eng <b>"x"</b> & co' } }));
+    const html = renderHtml(model({ vmPatch: { role: 'Eng <b>"x"</b> & co', location: 'Austin & "TX" <b>' } }));
     assert.match(html, /value="Eng &lt;b&gt;&quot;x&quot;&lt;\/b&gt; &amp; co"/);
+    assert.match(html, /data-field="location"[^>]*value="Austin &amp; &quot;TX&quot; &lt;b&gt;"/);
     assert.doesNotMatch(html, /&amp;amp;/);
   });
   it("terminal stage collapses the stepper", () => {
