@@ -43,3 +43,69 @@ describe("DOM description extraction keeps block structure", () => {
     assert.match(out.description, /Health – dental/);
   });
 });
+
+describe("JSON-LD posting facts", () => {
+  it("surfaces posting dates and a nested annual salary range", async () => {
+    const html = `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "JobPosting",
+      title: "Platform Engineer",
+      description: "Build reliable systems for Meridian Labs. ".repeat(20),
+      datePosted: "2026-08-27T09:30:00-05:00",
+      validThrough: "2026-09-30",
+      baseSalary: {
+        currency: "USD",
+        value: { minValue: 185000, maxValue: 230000, unitText: "YEAR" },
+      },
+    })}</script></head><body><p>shell</p></body></html>`;
+
+    const out = await scrapeJobPosting("https://example.com/jobs/posting-facts", {
+      fetchImpl: async () => htmlResponse(html),
+    });
+
+    assert.equal(out.postedAt, "2026-08-27");
+    assert.equal(out.closesAt, "2026-09-30");
+    assert.equal(out.postingSalary, "$185,000–$230,000 USD/yr");
+  });
+
+  it("defaults missing closing date and salary to empty strings", async () => {
+    const html = `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "JobPosting",
+      title: "Product Designer",
+      description: "Design thoughtful workflows for Meridian Labs. ".repeat(20),
+      datePosted: "2026-08-29",
+    })}</script></head><body><p>shell</p></body></html>`;
+
+    const out = await scrapeJobPosting("https://example.com/jobs/date-only", {
+      fetchImpl: async () => htmlResponse(html),
+    });
+
+    assert.equal(out.postedAt, "2026-08-29");
+    assert.equal(out.closesAt, "");
+    assert.equal(out.postingSalary, "");
+  });
+
+  it("formats a flat monthly EUR salary range", async () => {
+    const html = `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "JobPosting",
+      title: "Research Lead",
+      description: "Lead practical research programs for Meridian Labs. ".repeat(20),
+      baseSalary: {
+        minValue: "8,500",
+        maxValue: "10,250",
+        currency: " EUR ",
+        unitText: "\nMONTH\t",
+      },
+    })}</script></head><body><p>shell</p></body></html>`;
+
+    const out = await scrapeJobPosting("https://example.com/jobs/monthly-salary", {
+      fetchImpl: async () => htmlResponse(html),
+    });
+
+    assert.equal(out.postedAt, "");
+    assert.equal(out.closesAt, "");
+    assert.equal(out.postingSalary, "€8,500–€10,250 EUR/mo");
+  });
+});
