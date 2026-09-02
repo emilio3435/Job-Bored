@@ -170,7 +170,7 @@ describe("F3A-DOSSIER01-PROV — title/company inference is not posting-grounded
     assert.doesNotMatch(html, /grounded in the posting/, titleCompanyOnly.why);
     assert.match(
       html,
-      /<span class="case__src case__src--inferred">inferred<\/span>/,
+      /<span class="case__src case__src--inferred" aria-hidden="true">inferred<\/span>/,
       "the rail must say the claim was inferred from title and company",
     );
   });

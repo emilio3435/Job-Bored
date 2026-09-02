@@ -114,7 +114,7 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /class="case__pill case__pill--open"/);
     assert.match(html, /<button[^>]*data-action="stage-step"[^>]*data-stage="applied"/);
     assert.match(html, /class="case__step case__step--now"[^>]*>[\s\S]*?researching[\s\S]*?day 2/i);
-    assert.match(html, /<div class="case__num"[^>]*data-num="fit">[\s\S]*?8<small>\/10<\/small>/);
+    assert.match(html, /<div class="case__num" data-num="fit"[^>]*>[\s\S]*?8<small>\/10<\/small>/);
     assert.match(html, /data-num="keywords"[\s\S]*?74<small>%<\/small>[\s\S]*?12 found · 4 partial · 1 missing/);
     assert.match(html, /<button[^>]*data-action="open-profile-match"/);
     assert.match(html, /class="case__quote"[^>]*>[\s\S]*?Design infrastructure that ships\./);
@@ -199,8 +199,8 @@ describe("The Case renders every block from the model", () => {
       roleInOneLine: "Design infrastructure that ships.",
       mustHaves: ["5+ years design systems"], status: "ready", parseMode: "repaired",
     } } }));
-    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?class="case__src case__src--review">recovered parse · review<\/span>/);
-    assert.match(html, /<div class="case__sub">Requirements · recovered parse — review before relying on these<\/div>/);
+    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?class="case__src case__src--review" aria-hidden="true">unverified<\/span>/);
+    assert.match(html, /<div class="case__sub">Requirements · unverified — read these against the posting before you rely on them<\/div>/);
     assert.match(html, /class="case__req"[\s\S]*?5\+ years design systems/, "the recovered requirements still render, flagged");
   });
 
@@ -209,8 +209,8 @@ describe("The Case renders every block from the model", () => {
       mustHaves: ["5+ years design systems"], status: "ready", parseMode: "schema",
       reviewState: { status: "needs_review", reason: "Malformed model delimiters polluted structured fields.", pollutedFields: ["mustHaves"] },
     } } }));
-    assert.match(html, /class="case__src case__src--review">recovered parse · review<\/span>/);
-    assert.match(html, /Requirements · recovered parse — review before relying on these/);
+    assert.match(html, /class="case__src case__src--review" aria-hidden="true">unverified<\/span>/);
+    assert.match(html, /Requirements · unverified — read these against the posting before you rely on them/);
   });
 
   it("a clean schema parse the validator cleared says nothing about review", () => {
@@ -227,7 +227,7 @@ describe("The Case renders every block from the model", () => {
       roleInOneLine: "Lead paid media.", mustHaves: ["Paid media strategy"], status: "ready",
       parseMode: "schema", source: "title-and-company", scrapeBlocked: true, enrichedAt: "2026-08-30T12:00:00.000Z",
     } } }));
-    assert.match(html, /class="case__meta">[\s\S]*?<span class="case__src case__src--inferred">inferred<\/span>/);
+    assert.match(html, /class="case__meta">[\s\S]*?<span class="case__src case__src--inferred" aria-hidden="true">inferred<\/span>/);
     assert.doesNotMatch(html, /grounded in the posting/i);
   });
 
@@ -393,7 +393,7 @@ describe("posting dates and salary on the rail", () => {
     /* A placeholder, never a value: it is the posting's number, not the user's,
        so a blur must not write it back into the sheet. */
     assert.match(meta, /data-field="salary"[^>]*value=""[^>]*placeholder="\$185,000–\$230,000 USD\/yr"/);
-    assert.match(meta, /placeholder="\$185,000[^"]*"[^>]*><\/span><span><span class="case__src case__src--scrape">scrape<\/span><\/span>/);
+    assert.match(meta, /placeholder="\$185,000[^"]*"[^>]*><\/span><span><span class="case__src case__src--scrape" aria-hidden="true">from the posting<\/span><\/span>/);
   });
 
   it("never overwrites the sheet's own salary with the posting's", () => {
