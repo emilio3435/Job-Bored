@@ -28,6 +28,7 @@ const fixture = JSON.parse(
   ),
 );
 const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
+const jbTextJs = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const insightsJs = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 const validatorPath = join(repoRoot, "structured-output-validator.js");
 
@@ -136,6 +137,7 @@ function loadInsightsWithValidator() {
   vm.createContext(ctx);
   ctx.globalThis = ctx;
   vm.runInContext(validatorSrc, ctx, { filename: "structured-output-validator.js" });
+  vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
   return ctx.window.CommandCenterJobPostingInsights;
 }
