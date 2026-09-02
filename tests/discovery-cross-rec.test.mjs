@@ -221,7 +221,7 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
   // verification the manual path uses (persists + advances to Done). Human
   // input only where physically unavoidable (install / sign-in), surfaced as
   // drafts.tailscaleAutoState so the endpoint card renders guidance.
-  function autoSetupEnv({ tailscale, workerUp = true, serve, secret, verifyResult } = {}) {
+  function autoSetupEnv({ tailscale, workerUp = true, serve, secret, verifyResult, tailscaleProbe } = {}) {
     const { window, ui } = loadDiscoveryUi();
     const fetched = [];
     const runtime = { drafts: {}, snapshot: {}, state: {} };
@@ -241,6 +241,7 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
     const fetchImpl = async (url, opts = {}) => {
       fetched.push({ url: String(url), method: opts.method || "GET", body: opts.body || null });
       if (String(url).includes("tailscale-state")) {
+        if (typeof tailscaleProbe === "function") return tailscaleProbe();
         return { ok: true, json: async () => tailscale };
       }
       if (String(url).includes("discovery-webhook-secret")) {
@@ -306,6 +307,29 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
     assert.ok(boot, "must boot the worker when it is down");
     assert.match(boot.url, /skip_tunnel=1/, "Tailscale path must skip the ngrok/relay phases");
     assert.equal(env.verified.length, 1, "still verifies after the boot");
+  });
+
+  it("a probe that cannot reach the local server is NOT 'not installed' (needs_server)", async () => {
+    // 2026-09-02: the dev stack had died; the beat told the founder Tailscale
+    // was not installed while it was running. A failed fetch is a server
+    // problem, and the copy must say so.
+    const env = autoSetupEnv({
+      tailscale: { installed: true, loggedIn: true },
+      tailscaleProbe: () => { throw new TypeError("Failed to fetch"); },
+    });
+    await env.run();
+    assert.equal(env.getDrafts().tailscaleAutoState, "needs_server");
+    assert.match(env.getDrafts().tailscaleAutoDetail, /local server|npm run dev/i);
+    assert.doesNotMatch(env.getDrafts().tailscaleAutoDetail, /isn't installed/);
+  });
+
+  it("a non-OK probe response is also needs_server, not needs_install", async () => {
+    const env = autoSetupEnv({
+      tailscale: { installed: true, loggedIn: true },
+      tailscaleProbe: () => ({ ok: false, status: 503, json: async () => ({}) }),
+    });
+    await env.run();
+    assert.equal(env.getDrafts().tailscaleAutoState, "needs_server");
   });
 
   it("stops with install guidance when Tailscale is missing (no serve, no verify)", async () => {

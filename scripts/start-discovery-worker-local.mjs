@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { decideExistingWorkerAction, parseStarterOptions } from "./lib/discovery-worker-policy.mjs";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
@@ -361,15 +362,13 @@ async function main() {
 
   if (Number.isFinite(port) && port > 0) {
     const existingHealthy = await probeExistingWorker(host, port);
-    if (existingHealthy) {
-      const reuseExisting =
-        String(runtimeEnv.BROWSER_USE_DISCOVERY_REUSE_EXISTING || "")
-          .trim()
-          .toLowerCase() === "true";
-      if (reuseExisting) {
-        holdProcessOpenForExistingWorker(host, port);
-        return;
-      }
+    const { restartExisting } = parseStarterOptions(process.argv.slice(2), runtimeEnv);
+    const action = decideExistingWorkerAction({ existingHealthy, restartExisting });
+    if (action === "reuse") {
+      holdProcessOpenForExistingWorker(host, port);
+      return;
+    }
+    if (action === "restart") {
       console.info(
         `[start:discovery-worker] browser-use discovery worker already running at http://${host}:${port}; restarting to load latest code.`,
       );
@@ -411,6 +410,9 @@ async function main() {
   process.on("SIGTERM", () => forwardSignal("SIGTERM"));
 
   child.on("exit", (code, signal) => {
+    console.warn(
+      `[start:discovery-worker] worker exited (code=${code === null ? "null" : code}, signal=${signal || "none"}) — if you did not stop it, something else terminated the listener on port ${port}.`,
+    );
     if (signal) {
       process.kill(process.pid, signal);
       return;

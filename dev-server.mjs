@@ -2248,6 +2248,12 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       return;
     }
     const pathname = decoded.pathname;
+    if (pathname.startsWith("/__proxy/") || pathname === "/profile" || pathname.startsWith("/profile/")) {
+      // Control-plane and API-proxy requests used to be invisible in this log
+      // (only static files were logged), which hid a self-repair full-boot
+      // that restarted the dev worker (2026-09-02). Name them.
+      log(`  HTTP  ${new Date().toLocaleTimeString()} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
+    }
 
     if (pathname.startsWith("/__proxy/")) {
       if (req.method === "OPTIONS") {
