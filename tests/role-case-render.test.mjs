@@ -305,7 +305,7 @@ describe("the Brief is retired", () => {
 describe("the People block", () => {
   it("opens with the next move as a sentence, not a form field", () => {
     const html = renderHtml(model({ vmPatch: { contacts: [{ name: "Dana Reyes" }], followUpDate: "2026-09-04" } }));
-    assert.match(html, /<div class="case__sub">People<\/div><p class="case__move"><span class="case__move-k">Next move<\/span><span class="case__move-v">Follow up on Sep 4<\/span><\/p>/);
+    assert.match(html, /<div class="case__sub">People<\/div><p class="case__move"><span class="case__move-k">Next move<\/span><span class="case__move-v">Follow up on 2026-09-04<\/span><\/p>/);
     assert.doesNotMatch(html, /Next action/, "the strip's label is retired; the Case says Next move");
   });
 

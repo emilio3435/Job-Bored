@@ -136,7 +136,7 @@ describe("moves.people.nextMove", () => {
   });
 
   it("names the follow-up date once a contact is known", () => {
-    assert.equal(people({ contacts: [{ name: "Dana Reyes" }], followUpDate: "2026-09-04" }).nextMove, "Follow up on Sep 4");
+    assert.equal(people({ contacts: [{ name: "Dana Reyes" }], followUpDate: "2026-09-04" }).nextMove, "Follow up on 2026-09-04");
   });
 
   it("moves to scheduling when they replied and no follow-up is set", () => {

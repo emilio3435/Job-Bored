@@ -389,7 +389,7 @@ describe("The Case interactions", () => {
     const move = region.querySelector(".case__move-v");
     assert.ok(move, "the next-move sentence must render");
     // Fixture: contact Dana Reyes, follow-up 2026-09-04 -> the follow-up branch.
-    assert.equal(move.text, "Follow up on Sep 4");
+    assert.equal(move.text, "Follow up on 2026-09-04");
     assert.equal(region.querySelector(".case__move-k").text, "Next move");
   });
 
