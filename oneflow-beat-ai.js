@@ -22,12 +22,13 @@
 
   const HEADLINE = "Now give it a brain.";
 
+  /** Normative, spec §5 B2 — it names the pre-selected card, so it moved
+   *  with the recommendation (SIXBEATS-2 NEW-11). */
   const SUB =
     "One AI key powers everything personal here: it drafts your fit " +
     "profile from your resume on the next screen, scores every job " +
     "discovery finds, and writes your tailored resumes and cover " +
-    "letters. Gemini Flash is the recommended pin; OpenRouter is a " +
-    "free alternative.";
+    "letters. OpenRouter is free and takes about two minutes.";
 
   const WEAK_MATERIALS_MODEL_WARNING =
     "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
@@ -76,27 +77,30 @@
    */
   const PROVIDERS = [
     {
-      id: "gemini",
-      label: "Gemini",
-      note: "Recommended. Free tier, and it lights up URL import and grounded search.",
-      keyField: "resumeGeminiApiKey",
-      modelField: "resumeGeminiModel",
-      defaultModel: "gemini-flash",
-      keyPlaceholder: "AIza…",
-      signupUrl: "https://aistudio.google.com/app/apikey",
-      signupLabel: "Create a free Gemini key ↗",
-      cors: false,
-    },
-    {
       id: "openrouter",
       label: "OpenRouter — free",
-      note: "Free tier, no card, works straight from the browser.",
+      note: "Recommended. Free tier, no card, works straight from the browser.",
       keyField: "resumeOpenRouterApiKey",
       modelField: "resumeOpenRouterModel",
       defaultModel: "openai/gpt-oss-120b:free",
       keyPlaceholder: "sk-or-…",
       signupUrl: "https://openrouter.ai/keys",
       signupLabel: "Create a free OpenRouter account ↗",
+      cors: false,
+    },
+    {
+      id: "gemini",
+      label: "Gemini",
+      note: "Free tier, and it lights up URL import and grounded search.",
+      keyField: "resumeGeminiApiKey",
+      modelField: "resumeGeminiModel",
+      // A concrete id, not the `gemini-flash` alias: Google answers that
+      // one with 404 "models/gemini-flash is not found for API version
+      // v1beta" and the draft only survived on a fallback (NEW-8).
+      defaultModel: "gemini-3.5-flash",
+      keyPlaceholder: "AIza…",
+      signupUrl: "https://aistudio.google.com/app/apikey",
+      signupLabel: "Create a free Gemini key ↗",
       cors: false,
     },
     {
@@ -145,7 +149,8 @@
   // ---------------------------------------------------------------
 
   const state = {
-    provider: "gemini",
+    // Spec §5 B2: `OpenRouter — free` is the pre-selected card (NEW-11).
+    provider: "openrouter",
     keyDraft: "",
     baseUrlDraft: "",
     stages: [],

@@ -23,8 +23,11 @@
  *   2. ~/.jobbored/resume.txt
  *   3. ~/.hermes/job-hunt/profile/resume*.md (legacy)
  *
- * Provider config comes from PROFILE_* env vars first, then ATS_* aliases
- * where those exist. Gemini remains the default provider for compatibility.
+ * Provider config comes from the REQUEST BODY first (the provider the
+ * browser verified on Beat 2 — SIXBEATS2-SPEC locked decision 3), then from
+ * PROFILE_* env vars, then ATS_* aliases where those exist. Gemini remains
+ * the default provider for compatibility, but it is no longer what a fresh
+ * install falls into after connecting something else.
  */
 
 import { mkdir, readFile, readdir, writeFile } from "node:fs/promises";
@@ -58,9 +61,18 @@ const DEFAULT_OPENAI_BASE_URL = "https://api.openai.com/v1";
 const DEFAULT_OPENAI_MODEL = "gpt-5.4-mini";
 const DEFAULT_LOCAL_BASE_URL = "http://127.0.0.1:11434/v1";
 const DEFAULT_LOCAL_MODEL = "gemma4:e2b";
+const DEFAULT_ANTHROPIC_BASE_URL = "https://api.anthropic.com/v1";
+const DEFAULT_ANTHROPIC_MODEL = "claude-sonnet-4-6";
+const ANTHROPIC_VERSION = "2023-06-01";
 
-/** @typedef {"gemini" | "openrouter" | "openai" | "openai_compatible" | "local"} ProfileProvider */
-/** @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string }} ProfileProviderConfig */
+/** @typedef {"gemini" | "anthropic" | "openrouter" | "openai" | "openai_compatible" | "local"} ProfileProvider */
+/**
+ * `origin` says who supplied the config, and only the error copy cares:
+ * a "server" config was set by the operator, who benefits from being told
+ * which env var to set; a "request" config came from the browser, whose
+ * user has never seen an env var in their life (SIXBEATS-2 NEW-2).
+ * @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string, origin?: "server" | "request" }} ProfileProviderConfig
+ */
 /** @typedef {{ model?: string, config?: ProfileProviderConfig }} ProfileCallOptions */
 /** @typedef {Error & { code: string, provider?: ProfileProvider, upstreamStatus?: number, rawSample?: string, cause?: unknown }} ProfileProviderError */
 /** @typedef {{ name: string, rank: number, evidence?: string, keywords?: string[] }} ProfileStrength */
@@ -260,11 +272,18 @@ function readFirstEnv(keys, fallback = "") {
 }
 
 /**
+ * The provider ids this module can actually call. `anthropic` used to fall
+ * through to "gemini" here, which meant an Anthropic-configured install
+ * drafted against a Gemini endpoint with an Anthropic key (SIXBEATS-2
+ * NEW-2's quieter half).
+ *
  * @param {unknown} value
- * @returns {ProfileProvider}
+ * @returns {ProfileProvider | null}
  */
-function normalizeProvider(value) {
+function matchProvider(value) {
   const raw = String(value || "").trim().toLowerCase().replace(/-/g, "_");
+  if (raw === "gemini") return "gemini";
+  if (raw === "anthropic") return "anthropic";
   if (raw === "openrouter") return "openrouter";
   if (raw === "openai") return "openai";
   if (raw === "openai_compatible" || raw === "compatible") {
@@ -273,16 +292,81 @@ function normalizeProvider(value) {
   if (raw === "local" || raw === "local_openai" || raw === "local_llm") {
     return "local";
   }
-  return "gemini";
+  return null;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {ProfileProvider}
+ */
+function normalizeProvider(value) {
+  return matchProvider(value) || "gemini";
 }
 
 /** @param {ProfileProvider} provider */
 function providerDisplayName(provider) {
   if (provider === "openrouter") return "OpenRouter";
   if (provider === "openai") return "OpenAI";
+  if (provider === "anthropic") return "Anthropic";
   if (provider === "openai_compatible") return "OpenAI-compatible";
   if (provider === "local") return "local OpenAI-compatible";
   return "Gemini";
+}
+
+/** Providers whose call path is an API key; the rest need a base URL. */
+const KEYED_PROVIDERS = new Set(["gemini", "anthropic", "openrouter", "openai"]);
+
+/** @param {ProfileProvider} provider */
+function defaultBaseUrlFor(provider) {
+  if (provider === "openrouter") return DEFAULT_OPENROUTER_BASE_URL;
+  if (provider === "openai") return DEFAULT_OPENAI_BASE_URL;
+  if (provider === "anthropic") return DEFAULT_ANTHROPIC_BASE_URL;
+  if (provider === "openai_compatible" || provider === "local") {
+    return DEFAULT_LOCAL_BASE_URL;
+  }
+  return "";
+}
+
+/** @param {ProfileProvider} provider */
+function defaultModelFor(provider) {
+  if (provider === "openrouter") return DEFAULT_OPENROUTER_MODEL;
+  if (provider === "openai") return DEFAULT_OPENAI_MODEL;
+  if (provider === "anthropic") return DEFAULT_ANTHROPIC_MODEL;
+  if (provider === "openai_compatible" || provider === "local") {
+    return DEFAULT_LOCAL_MODEL;
+  }
+  return "";
+}
+
+/**
+ * The provider the BROWSER verified, carried in the request body as
+ * `{provider, apiKey, model, baseUrl}` (SIXBEATS2-SPEC locked decision 3).
+ *
+ * This is the fix for NEW-2: a fresh install that connected OpenRouter on
+ * Beat 2 was told "Missing Gemini API key" on Beat 3, because the drafter
+ * only ever looked at the server's own env. Returns null when the body
+ * names no provider, or names one this module cannot call — either way the
+ * env config still decides, so older clients keep working.
+ *
+ * The key is used for this one upstream call and is never persisted; the
+ * resume cache (`resolveResumeTextForAnalysis`) still reads nothing but
+ * `resumeText`.
+ *
+ * @param {unknown} body
+ * @returns {ProfileProviderConfig | null}
+ */
+export function parseProfileProviderConfigFromBody(body) {
+  if (!isRecord(body)) return null;
+  const provider = matchProvider(body.provider);
+  if (!provider) return null;
+  const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
+  const model = typeof body.model === "string" && body.model.trim()
+    ? body.model.trim()
+    : defaultModelFor(provider);
+  const baseUrl = typeof body.baseUrl === "string" && body.baseUrl.trim()
+    ? body.baseUrl.trim()
+    : defaultBaseUrlFor(provider);
+  return { provider, apiKey, model, baseUrl, origin: "request" };
 }
 
 function getGeminiConfig() {
@@ -345,6 +429,24 @@ export function getProfileProviderConfig() {
       ),
     };
   }
+  if (provider === "anthropic") {
+    return {
+      provider,
+      apiKey: readFirstEnv([
+        "PROFILE_ANTHROPIC_API_KEY",
+        "ATS_ANTHROPIC_API_KEY",
+        "ANTHROPIC_API_KEY",
+      ]),
+      baseUrl: readFirstEnv(
+        ["PROFILE_ANTHROPIC_BASE_URL", "ATS_ANTHROPIC_BASE_URL", "ANTHROPIC_BASE_URL"],
+        DEFAULT_ANTHROPIC_BASE_URL,
+      ),
+      model: readFirstEnv(
+        ["PROFILE_ANTHROPIC_MODEL", "ATS_ANTHROPIC_MODEL", "ANTHROPIC_MODEL"],
+        DEFAULT_ANTHROPIC_MODEL,
+      ),
+    };
+  }
   if (provider === "openai_compatible" || provider === "local") {
     // Ambient OPENAI_API_KEY is openai-provider only and must not be forwarded
     // to arbitrary compatible endpoints.
@@ -385,37 +487,63 @@ export function getProfileProviderConfig() {
   };
 }
 
-/** @param {ProfileProviderConfig} [config] */
+/**
+ * Why the config cannot be used, phrased for whoever supplied it.
+ *
+ * A "request" config was chosen in the browser, so its reason names the
+ * provider and the next action; env-var names in that message are the
+ * NEW-2 defect, not a hint (nobody walking Beat 3 has a shell open).
+ *
+ * @param {ProfileProviderConfig} [config]
+ */
 export function getProfileProviderConfigStatus(config = getProfileProviderConfig()) {
-  if (config.provider === "gemini") {
-    if (!config.apiKey) {
+  const provider = config.provider;
+  const display = providerDisplayName(provider);
+  const fromRequest = config.origin === "request";
+  if (KEYED_PROVIDERS.has(provider) && !config.apiKey) {
+    if (fromRequest) {
       return {
         configured: false,
-        provider: config.provider,
+        provider,
+        reason: `Missing ${display} API key. Go back and reconnect ${display}, then try drafting again.`,
+      };
+    }
+    if (provider === "gemini") {
+      return {
+        configured: false,
+        provider,
         reason: "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY.",
       };
     }
-    return { configured: true, provider: config.provider, reason: "" };
-  }
-  if ((config.provider === "openrouter" || config.provider === "openai") && !config.apiKey) {
-    const prefix = config.provider === "openrouter" ? "OPENROUTER" : "OPENAI";
+    const prefix = provider.toUpperCase();
     return {
       configured: false,
-      provider: config.provider,
+      provider,
       reason:
-        `Missing ${providerDisplayName(config.provider)} API key: set PROFILE_${prefix}_API_KEY` +
-        ` or ATS_${prefix}_API_KEY when PROFILE_PROVIDER=${config.provider}.`,
+        `Missing ${display} API key: set PROFILE_${prefix}_API_KEY` +
+        ` or ATS_${prefix}_API_KEY when PROFILE_PROVIDER=${provider}.`,
     };
   }
-  if (!config.baseUrl || !config.model) {
+  // Gemini addresses its model by URL path, so it alone needs no base URL.
+  if (provider !== "gemini" && (!config.baseUrl || !config.model)) {
     return {
       configured: false,
-      provider: config.provider,
-      reason:
-        `Missing ${providerDisplayName(config.provider)} model/base URL: set PROFILE_OPENAI_COMPATIBLE_MODEL and PROFILE_OPENAI_COMPATIBLE_BASE_URL.`,
+      provider,
+      reason: fromRequest
+        ? `Missing ${display} model or server address. Go back and reconnect ${display}, then try drafting again.`
+        : `Missing ${display} model/base URL: set PROFILE_OPENAI_COMPATIBLE_MODEL and PROFILE_OPENAI_COMPATIBLE_BASE_URL.`,
     };
   }
-  return { configured: true, provider: config.provider, reason: "" };
+  if (provider === "gemini" && !config.model) {
+    return {
+      configured: false,
+      provider,
+      reason: fromRequest
+        ? "Missing Gemini model. Go back and reconnect Gemini, then try drafting again."
+        : "Missing Gemini model: set PROFILE_GEMINI_MODEL, ATS_GEMINI_MODEL, or GEMINI_MODEL.",
+    };
+  }
+  return { configured: true, provider, reason: "" };
 }
 
 /** @param {ProfileProviderConfig} config */
@@ -693,19 +821,91 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
 }
 
 /**
+ * Anthropic's Messages API. It is neither OpenAI-compatible nor Gemini, so
+ * it needs its own path — without one, an Anthropic key normalized to
+ * "gemini" and was posted to Google (SIXBEATS-2 NEW-2).
+ *
+ * @param {string} resumeText
+ * @param {ProfileProviderConfig} config
+ * @param {ProfileCallOptions} [opts]
+ */
+async function callAnthropicForProfile(resumeText, config, opts = {}) {
+  assertProfileProviderConfigured(config);
+  const model = opts.model || config.model;
+  let resp;
+  try {
+    resp = await fetch(`${trimTrailingSlashes(config.baseUrl)}/messages`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "x-api-key": config.apiKey,
+        "anthropic-version": ANTHROPIC_VERSION,
+      },
+      body: JSON.stringify({
+        model,
+        max_tokens: 3500,
+        temperature: 0.2,
+        system: SYSTEM_PROMPT,
+        messages: [{ role: "user", content: buildUserPrompt(resumeText) }],
+      }),
+    });
+  } catch (cause) {
+    const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
+    const detail = error && error.message ? error.message : cause;
+    const err = /** @type {ProfileProviderError} */ (new Error(
+      `Anthropic request failed: ${/** @type {string} */ (detail)}`,
+    ));
+    err.code = "PROFILE_PROVIDER_REQUEST_FAILED";
+    err.provider = "anthropic";
+    err.cause = cause;
+    throw err;
+  }
+  const data = /** @type {{ error?: { message?: string }, content?: Array<{ type?: string, text?: string }> }} */ (
+    await resp.json().catch(() => ({}))
+  );
+  if (!resp.ok) {
+    const msg = (data && data.error && data.error.message) || `Anthropic HTTP ${resp.status}`;
+    const err = /** @type {ProfileProviderError} */ (new Error(msg));
+    err.code = "PROFILE_PROVIDER_HTTP_ERROR";
+    err.provider = "anthropic";
+    err.upstreamStatus = resp.status;
+    throw err;
+  }
+  const raw = Array.isArray(data.content)
+    ? data.content
+        .filter((block) => block && block.type === "text")
+        .map((block) => block.text || "")
+        .join("")
+    : "";
+  if (!String(raw || "").trim()) {
+    const err = /** @type {ProfileProviderError} */ (
+      new Error("Anthropic returned empty content")
+    );
+    err.code = "PROFILE_PROVIDER_EMPTY_RESPONSE";
+    err.provider = "anthropic";
+    throw err;
+  }
+  try {
+    return parseJsonSafe(raw);
+  } catch (cause) {
+    const error = /** @type {{ message: unknown }} */ (cause);
+    const err = /** @type {ProfileProviderError} */ (new Error(
+      `Anthropic returned non-JSON content: ${error.message}`,
+    ));
+    err.code = "PROFILE_PROVIDER_PARSE_ERROR";
+    err.provider = "anthropic";
+    err.rawSample = String(raw || "").slice(0, 400);
+    throw err;
+  }
+}
+
+/**
  * @param {string} resumeText
  * @param {ProfileCallOptions} [opts]
  */
 async function callGeminiForProfile(resumeText, opts = {}) {
   const cfg = opts.config || getProfileProviderConfig();
-  if (!cfg.apiKey) {
-    const err = /** @type {ProfileProviderError} */ (new Error(
-      "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY.",
-    ));
-    err.code = "GEMINI_NOT_CONFIGURED";
-    err.provider = "gemini";
-    throw err;
-  }
+  assertProfileProviderConfigured(cfg);
   const model = opts.model || cfg.model;
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
   const body = {
@@ -977,16 +1177,22 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
     baseUrl: rawConfig.baseUrl,
     updatedAt: "",
   });
+  /** @type {ProfileProviderConfig} */
   const config = {
     provider: normalizeProvider(pin.provider || rawConfig.provider),
     apiKey: pin.apiKey,
     model: pin.resolvedModel || rawConfig.model,
     baseUrl: pin.baseUrl,
+    origin: rawConfig.origin || "server",
   };
-  const raw =
-    config.provider === "gemini"
-      ? await callGeminiForProfile(text, { ...opts, config })
-      : await callChatJsonForProfile(text, config, opts);
+  let raw;
+  if (config.provider === "gemini") {
+    raw = await callGeminiForProfile(text, { ...opts, config });
+  } else if (config.provider === "anthropic") {
+    raw = await callAnthropicForProfile(text, config, opts);
+  } else {
+    raw = await callChatJsonForProfile(text, config, opts);
+  }
   return clampToUserProfile(raw);
 }
 
@@ -997,6 +1203,7 @@ export const __test = {
   clampToUserProfile,
   getProfileProviderConfig,
   getProfileProviderConfigStatus,
+  parseProfileProviderConfigFromBody,
   parseJsonSafe,
   resolveWorkerConfigPath,
 };
