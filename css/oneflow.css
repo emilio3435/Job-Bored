@@ -1053,6 +1053,34 @@
   }
 }
 
+/* The re-entry a paused flow leaves behind (SIXBEATS2 locked decision 6).
+   S0 has its invitation card; on a configured install Escape left nothing
+   on screen that led back to the beat the user paused on (NEW-6). Same
+   silhouette as the demo board's pill, one corner, above the dashboard
+   and below the shell it reopens. */
+
+.oneflow-resume-pill {
+  position: fixed;
+  right: var(--space-4);
+  bottom: var(--space-4);
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 16px;
+  border-radius: 999px;
+  border: 1px solid var(--jb-navy, var(--text));
+  background: var(--jb-navy, var(--text));
+  box-shadow: 0 16px 30px -18px rgba(14, 58, 78, 0.9);
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--jb-ink-inverse, var(--text-inverse));
+  cursor: pointer;
+  white-space: nowrap;
+}
+
 /* ONEFLOW:L3 */
 /* B5 Turn on discovery — fuel panel, then connect panel. */
 
