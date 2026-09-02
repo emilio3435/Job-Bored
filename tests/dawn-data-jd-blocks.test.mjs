@@ -283,6 +283,25 @@ describe("getRoleViewModel case fields", () => {
     assert.equal(enr.enrichedAt, Date.parse("2026-08-30T12:00:00.000Z"));
   });
 
+  it("carries posting facts on populated and empty role view-models", () => {
+    const populated = parseCard({
+      "data-posted-at": "2026-08-27",
+      "data-closes-at": "2026-09-30",
+      "data-posting-salary": "$185,000–$230,000 USD/yr",
+    });
+    assert.equal(populated.postedAt, "2026-08-27");
+    assert.equal(populated.closesAt, "2026-09-30");
+    assert.equal(populated.postingSalary, "$185,000–$230,000 USD/yr");
+
+    const api = loadDawnData();
+    const empty = plain(
+      api.getRoleViewModel("missing", { doc: makeDoc(makeCard({}, { key: "other" })) }),
+    ).job;
+    assert.equal(empty.postedAt, "");
+    assert.equal(empty.closesAt, "");
+    assert.equal(empty.postingSalary, "");
+  });
+
   it("carries the case fields on the empty view-model too", () => {
     const api = loadDawnData();
     const j = plain(api.getRoleViewModel("missing", { doc: makeDoc(makeCard({}, { key: "other" })) })).job;
