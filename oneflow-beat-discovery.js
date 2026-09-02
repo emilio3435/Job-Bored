@@ -258,7 +258,8 @@
   function syncActions() {
     const blocked =
       state.connectState === "needs_install" ||
-      state.connectState === "needs_login";
+      state.connectState === "needs_login" ||
+      state.connectState === "needs_server";
     ACTIONS[1].label = blocked ? "Re-check" : "Set it up for me";
     ACTIONS[1].disabled = !state.fuelPassed;
     ACTIONS[2].disabled = !state.fuelPassed;

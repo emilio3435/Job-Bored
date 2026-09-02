@@ -2429,14 +2429,27 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   setAuto("running", "Checking Tailscale…");
   setDiscoveryWizardMessage("Checking Tailscale…", "info");
   let ts = null;
+  let probeFailed = false;
   try {
     const r = await fetchImpl("/__proxy/tailscale-state", { cache: "no-store" });
-    ts = r && r.ok ? await r.json() : null;
+    if (r && r.ok) ts = await r.json();
+    else probeFailed = true;
   } catch (e) {
     console.warn("[JobBored] tailscale-state probe:", e);
-    ts = null;
+    probeFailed = true;
   }
-  if (!ts || !ts.installed) {
+  if (probeFailed || !ts) {
+    // A probe that never reached the dev server is a SERVER problem, not a
+    // Tailscale one (2026-09-02: the stack had died and the founder was told
+    // Tailscale was not installed while it was running).
+    return stop(
+      "needs_server",
+      "Couldn't reach JobBored's local server — is `npm run dev` still running? Start it, then Re-check.",
+      "warning",
+      "machine",
+    );
+  }
+  if (!ts.installed) {
     return stop(
       "needs_install",
       "Tailscale isn't installed yet — grab it below, then Re-check.",
