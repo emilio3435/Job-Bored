@@ -439,6 +439,9 @@
     }
   }
 
+  /** The cold-start switch and its two aliases, in one place. */
+  const GREENFIELD_URL_PARAMS = ["greenfield", "fresh", "reset"];
+
   /**
    * Dev/dogfooding greenfield: `?greenfield=1` (aliases ?fresh=1, ?reset=1)
    * forces a cold-start install in ANY browser — incognito, a fresh profile,
@@ -450,15 +453,19 @@
    * (so reloads within the session stay cold-start without re-adding the param),
    * and best-effort drops the IndexedDB user-content store. Runs BEFORE
    * applyStoredConfigOverrides so the mask is what lands on COMMAND_CENTER_CONFIG.
+   *
+   * The param is spent once it has been applied: it is stripped from the URL so
+   * a refresh mid-setup resumes at the saved beat instead of dropping the
+   * IndexedDB store again and landing back on cold start (ONE-FLOW spec §3.4
+   * "reopening or refreshing lands on onboardingFlowState.beat"). The persisted
+   * mask is what carries the cold start across reloads — the param does not
+   * need to, and re-running it costs the user their progress.
    */
   function maybeApplyGreenfieldUrlReset() {
     let on = false;
     try {
       const params = new URLSearchParams(window.location.search);
-      on =
-        params.get("greenfield") === "1" ||
-        params.get("fresh") === "1" ||
-        params.get("reset") === "1";
+      on = GREENFIELD_URL_PARAMS.some((param) => params.get(param) === "1");
     } catch (_) {
       return false;
     }
@@ -492,7 +499,29 @@
     } catch (_) {
       /* sessionStorage unavailable → best-effort */
     }
+    stripGreenfieldUrlParams();
     return true;
+  }
+
+  /**
+   * Take greenfield/fresh/reset back out of the address bar, leaving every
+   * other param, the path, and the hash alone. replaceState rather than a
+   * navigation: the reset has already run in this document, and a reload here
+   * would be the very re-reset this is removing.
+   */
+  function stripGreenfieldUrlParams() {
+    try {
+      const url = new URL(window.location.href);
+      for (const param of GREENFIELD_URL_PARAMS) url.searchParams.delete(param);
+      const next = `${url.pathname}${url.search}${url.hash}`;
+      if (window.history && typeof window.history.replaceState === "function") {
+        window.history.replaceState(null, "", next);
+      }
+    } catch (e) {
+      // No History API (file://, some embedded webviews): the reset still
+      // applied — the user just keeps a spent param in the bar.
+      console.warn("[JobBored] greenfield URL cleanup:", e);
+    }
   }
 
   maybeApplyGreenfieldUrlReset();
