@@ -579,3 +579,78 @@ describe("v2 attr clipping is word- and surrogate-safe", () => {
     assert.deepEqual(JSON.parse(attrs["data-must-haves"]), ['5+ yrs "systems" work', "Owns SLAs"]);
   });
 });
+
+/* ============================================================
+   Case attrs (spec §4) — sheet state the Case reads
+   ------------------------------------------------------------
+   Additive only: every existing attribute name and budget is
+   unchanged. These carry priority, favorite, logo, match score,
+   reply state and the structured requirement/skill lists from
+   the board to the dossier.
+   ============================================================ */
+describe("case attrs", () => {
+  it("serializes sheet state the Case needs", () => {
+    const attrs = renderCardAttrs({
+      priority: "⚡",
+      favorite: true,
+      logoUrl: "https://logo.test/m.png",
+      matchScore: 74,
+      responseFlag: "No",
+      lastHeardFrom: "Aug 30",
+      followUpDate: "2026-09-04",
+      _postingEnrichment: { requirements: ["5+ years"], skills: ["React"], method: "ats-api" },
+    });
+    assert.equal(attrs["data-priority"], "high");
+    assert.equal(attrs["data-favorite"], "yes");
+    assert.equal(attrs["data-logo-url"], "https://logo.test/m.png");
+    assert.equal(attrs["data-match-score"], "74");
+    assert.equal(attrs["data-reply-flag"], "No");
+    assert.deepEqual(JSON.parse(attrs["data-requirements"]), ["5+ years"]);
+    assert.deepEqual(JSON.parse(attrs["data-skills"]), ["React"]);
+    assert.equal(attrs["data-scrape-method"], "ats-api");
+  });
+
+  it("maps priority glyphs to words and omits empties", () => {
+    assert.equal(renderCardAttrs({ priority: "🔥" })["data-priority"], "high");
+    assert.equal(renderCardAttrs({ priority: "↓" })["data-priority"], "low");
+    assert.equal(renderCardAttrs({ priority: "—" })["data-priority"], "normal");
+    assert.equal(renderCardAttrs({})["data-priority"], "");
+  });
+
+  it("omits favorite, logo and match score when the sheet has none", () => {
+    const attrs = renderCardAttrs({});
+    assert.equal(attrs["data-favorite"], "");
+    assert.equal(attrs["data-logo-url"], "");
+    assert.equal(attrs["data-match-score"], "");
+    assert.equal(attrs["data-reply-flag"], "");
+    assert.equal(attrs["data-requirements"], "");
+    assert.equal(attrs["data-skills"], "");
+    assert.equal(attrs["data-scrape-method"], "");
+  });
+
+  it("emits a zero match score rather than swallowing it as empty", () => {
+    assert.equal(renderCardAttrs({ matchScore: 0 })["data-match-score"], "0");
+  });
+
+  it("falls back to the scrape provider when no method is recorded", () => {
+    const attrs = renderCardAttrs({
+      _postingEnrichment: { scraping: { provider: "gemini-url-context" } },
+    });
+    assert.equal(attrs["data-scrape-method"], "gemini-url-context");
+  });
+
+  it("leaves every pre-existing attribute name and budget untouched", () => {
+    const attrs = renderCardAttrs({
+      location: "Remote",
+      salary: "$180k",
+      tags: "Go, K8s",
+      responseFlag: "No",
+      lastHeardFrom: "Aug 30",
+    });
+    assert.equal(attrs["data-location"], "Remote");
+    assert.equal(attrs["data-salary"], "$180k");
+    assert.equal(attrs["data-tags"], "Go, K8s");
+    assert.equal(attrs["data-replied"], "No");
+    assert.equal(attrs["data-last-contact"], "Aug 30");
+  });
+});

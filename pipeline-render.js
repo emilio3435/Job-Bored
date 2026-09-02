@@ -252,6 +252,18 @@ function renderKanbanCard(job, index) {
     return out.length ? JSON.stringify(out) : "";
   };
   const _enrPair = (attr, value) => _pair(attr, value || "");
+  /* The sheet's Priority column is a glyph the user picks from a menu; the
+     Case reasons over words. Anything set but unrecognized is "normal" —
+     an unknown glyph still means "the user marked this row". */
+  const priorityWord = (p) => {
+    const str = String(p || "").trim();
+    if (!str) return "";
+    if (str === "🔥" || str === "⚡" || /^high$/i.test(str)) return "high";
+    if (str === "↓" || /^low$/i.test(str)) return "low";
+    return "normal";
+  };
+  const _matchScore = Number(job && job.matchScore);
+  
   const v2Attrs = [
     _pair("data-jd-snippet", jdRaw ? window.JobBoredText.clip(String(jdRaw), 4000) : ""),
     _pair("data-notes", job.notes || ""),
@@ -263,6 +275,17 @@ function renderKanbanCard(job, index) {
     _pair("data-found-at", job.dateFoundRaw || ""),
     _pair("data-follow-up", job.followUpDate || ""),
     _pair("data-last-contact", job.lastHeardFrom || ""),
+    /* Case seams (spec §4). Additive: nothing above changes name or budget. */
+    _pair("data-priority", priorityWord(job.priority)),
+    _pair("data-favorite", job.favorite ? "yes" : ""),
+    _pair("data-logo-url", job.logoUrl || ""),
+    _pair(
+      "data-match-score",
+      job.matchScore != null && job.matchScore !== "" && Number.isFinite(_matchScore)
+        ? String(_matchScore)
+        : "",
+    ),
+    _pair("data-reply-flag", String(job.responseFlag || "").trim()),
     _pair("data-tags", job.tags || ""),
     _pair("data-fit", Number.isFinite(job.fitScore) ? String(job.fitScore) : ""),
     _pair("data-replied", repliedFlag),
@@ -280,6 +303,12 @@ function renderKanbanCard(job, index) {
     _enrPair("data-nice-to-haves",    _enr && _arrJson(_enr.niceToHaves)),
     _enrPair("data-responsibilities", _enr && _arrJson(_enr.responsibilities)),
     _enrPair("data-tools-and-stack",  _enr && _arrJson(_enr.toolsAndStack)),
+    _enrPair("data-requirements",     _enr && _arrJson(_enr.requirements)),
+    _enrPair("data-skills",           _enr && _arrJson(_enr.skills)),
+    _enrPair(
+      "data-scrape-method",
+      _enr && (_enr.method || (_enr.scraping && _enr.scraping.provider) || ""),
+    ),
     _pair(
       "data-ats-fit-score",
       _enr && Number.isFinite(Number(_enr.atsFitScore))
