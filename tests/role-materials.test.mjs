@@ -707,7 +707,8 @@ describe("materials rows in the case mount", () => {
     const host = makeCaseMount();
     api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
     const row = rowFor(host, "cover_letter");
-    assert.match(row, /drafting · 42s · attempt 1/);
+    /* P0-4: the row says the phase in words, and no retry count on attempt 1. */
+    assert.match(row, /writing · 42s</);
     assert.match(row, /case__docst--drafting">drafting</);
     assert.match(row, /case__doc-eyebrow">DRAFTING IN PROGRESS</);
     assert.doesNotMatch(row, /data-action="materials-preview"/);
@@ -739,7 +740,7 @@ describe("materials rows in the case mount", () => {
     const row = rowFor(host, "cover_letter");
     assert.match(row, /case__docst--drafting">drafting</);
     assert.match(row, /case__doc-eyebrow">WAITING IN QUEUE</);
-    assert.match(row, /queued · — · attempt 1/);
+    assert.match(row, /in line · —<\/small>/);
   });
 
   it("missing resume / cover letter offer a Draft button; support docs do not", () => {
@@ -770,7 +771,68 @@ describe("materials rows in the case mount", () => {
 
     api.renderError(host, "Server is down.");
     assert.equal(host.children.length, 1, "the hint replaces the prior section");
-    assert.match(rowsHtml(host), /class="case__hint">Server is down\.</);
+    assert.match(rowsHtml(host), /class="case__hint case__hint--error">Server is down\.</);
+  });
+
+  /* P0-4: the row printed the raw state-machine enum — `rendering_pdf` —
+     and always printed `attempt 1`, which reads as "something already went
+     wrong". The legacy panel showed the count only above 1. */
+  it("says the phase in words and hides the retry count at attempt 1", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      pending: { feature: "cover_letter", progress: { phase: "rendering_pdf", elapsedSeconds: 64, attempt: 1 } },
+    }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /polishing the PDFs · 1m 04s</);
+    assert.doesNotMatch(row, /rendering_pdf ·/);
+    assert.doesNotMatch(row, /attempt/);
+  });
+
+  it("shows the retry count once a run is past its first attempt", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 5, attempt: 3 } },
+    }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "cover_letter"), /writing · 5s · retry 3</);
+  });
+
+  /* P2-5: a failed row stated the failure and offered no exit, unlike the
+     legacy panel's dismiss + retry pair. */
+  it("a failed row says it couldn't finish and offers retry and dismiss", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      documents: [],
+      pending: { feature: "cover_letter", progress: { phase: "failed", elapsedSeconds: 12, attempt: 1 } },
+    }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /case__docst--failed">couldn&#39;t finish</);
+    assert.match(row, /data-action="materials-retry"[^>]*data-feature="cover_letter"[^>]*>Try again</);
+    assert.match(row, /data-action="materials-dismiss"[^>]*data-feature="cover_letter"[^>]*>Dismiss</);
+  });
+
+  /* P2-6: "on disk" is machine vocabulary, and the Case branch returned
+     before the invitation the legacy panel pairs with it. */
+  it("the empty state invites the user to start a draft, in human words", () => {
+    const host = makeCaseMount();
+    api.renderEmpty(host);
+    const html = rowsHtml(host);
+    assert.match(html, /Nothing written for this role yet — use Draft cover letter or Tailor resume above to start one\./);
+    assert.doesNotMatch(html, /on disk/);
+  });
+
+  /* P1-0e: a failure rendered in the same muted italic as "nothing here yet",
+     so the Case needs its own error hook to style (role-case.css owns the
+     rule; this asserts the class the rule hangs on). */
+  it("an error hint carries the case-scoped error class", () => {
+    const host = makeCaseMount();
+    api.renderError(host, "Local materials server is unreachable.");
+    assert.match(rowsHtml(host), /class="case__hint case__hint--error"/);
+
+    api.renderEmpty(host);
+    assert.doesNotMatch(rowsHtml(host), /case__hint--error/, "an empty shelf is not an error");
   });
 
   it("falls back to the legacy panel in a brief-only mount", () => {
