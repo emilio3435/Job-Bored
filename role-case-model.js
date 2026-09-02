@@ -22,6 +22,12 @@
      ever hardcoded as the label of record (spec D7, ground rule 9). */
   var PROVIDER_CASING = { openai: "OpenAI", openrouter: "OpenRouter", local: "Local model", webhook: "Webhook" };
   var DAY = 864e5;
+  /* job-posting-insights.js stamps "schema" when the model's JSON parsed
+     outright, "loose" when a key-value scrape had to recover it, "repaired"
+     when truncated JSON had to be patched. Only a clean schema parse (or a
+     payload from before the stamp existed) is trustworthy without a warning,
+     so an unrecognized future mode falls to the review side, not to silence. */
+  var CLEAN_PARSE_MODES = { "": true, schema: true };
 
   function T() { return root.JobBoredText; }
   function inline(s) { return T() ? T().normalizeInline(s) : String(s == null ? "" : s).trim(); }
@@ -121,6 +127,54 @@
     return ev.map(function (e) { return { at: e.at, label: e.label, detail: e.detail, state: e.state }; });
   }
 
+  /* Provenance (spec DOSSIER-01/02). dossier-field-provenance.js is the one
+     classifier and structured-output-validator.js the one review verdict —
+     both are consumed here, never re-derived. `inferredFields` names the
+     claim fields the classifier will not call posting-grounded; `freshness`
+     is the helper's own label, blank when the payload carries no fetch time
+     at all so a role that was never enriched is not stamped "unknown". */
+  function buildProvenance(enr, deps) {
+    var api = deps.provenance || root.JobBoredDossierProvenance;
+    var parseMode = String(enr.parseMode || enr._parseMode || "").trim().toLowerCase();
+    var rs = enr.reviewState && enr.reviewState.status ? enr.reviewState : null;
+    var reviewState = rs ? {
+      status: String(rs.status),
+      reason: inline(rs.reason),
+      pollutedFields: (Array.isArray(rs.pollutedFields) ? rs.pollutedFields : []).map(inline).filter(Boolean),
+    } : null;
+    var freshness = "";
+    var inferredFields = [];
+    if (api) {
+      try {
+        var f = typeof api.freshness === "function" ? api.freshness(enr, deps.nowMs) : null;
+        freshness = f && f.scrapedAt && f.label ? String(f.label) : "";
+      } catch (e) { freshness = ""; }
+      try {
+        /* classify() only speaks once a payload carries schema-parse metadata.
+           A pre-metadata scrape still has lineage, and resolveGrounding is the
+           SAME rule set, so it fills that gap — in one direction only: this can
+           add an `inferred` mark, never upgrade one to posting-grounded. */
+        var grounding = typeof api.resolveGrounding === "function" && typeof api.resolveSource === "function"
+          ? api.resolveGrounding(enr, api.resolveSource(enr)) : "";
+        var names = Array.isArray(api.CLAIM_FIELDS) ? api.CLAIM_FIELDS : [];
+        for (var i = 0; i < names.length; i++) {
+          var label = typeof api.classify === "function" ? String((api.classify(enr, deps.editLock || "", names[i]) || {}).label || "") : "";
+          if (label === "inferred" || (label === "unknown" && grounding === "inferred")) inferredFields.push(names[i]);
+        }
+      } catch (e2) { inferredFields = []; }
+    }
+    return {
+      parseMode: parseMode,
+      reviewState: reviewState,
+      freshness: freshness,
+      inferredFields: inferredFields,
+      /* Two render flags, derived here so the renderer never has to know the
+         parse-mode vocabulary or which claim fields carry the identity. */
+      needsReview: !CLEAN_PARSE_MODES[parseMode] || !!(reviewState && reviewState.status === "needs_review"),
+      inferredIdentity: inferredFields.indexOf("inferredTitle") !== -1 || inferredFields.indexOf("inferredCompany") !== -1,
+    };
+  }
+
   function buildCaseModel(jobKey, deps) {
     var job = (deps.vm && deps.vm.job) || {};
     var enr = job.enrichment || {};
@@ -163,6 +217,7 @@
       },
       notes: job.notes ? { body: String(job.notes.body || ""), editedAt: String(job.notes.editedAt || "") } : null,
       record: buildRecord(jobForRecord, enr, materials, deps),
+      provenance: buildProvenance(enr, deps),
       loading: { enrichment: enr.status === "loading", keywords: !keywords && !!(deps.keywordsPending), materials: !!deps.materialsPending },
       meta: { providerLabel: deps.providerLabel || "" },
     };

@@ -71,6 +71,15 @@ body.jb-v2 [data-region="role"] .case .case__num-sub { font-family: var(--mono);
 body.jb-v2 [data-region="role"] .case .case__src { font-family: var(--mono); font-size: 7.5px; letter-spacing: 0.18em; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border-strong); color: var(--mute); background: var(--surface); }
 body.jb-v2 [data-region="role"] .case .case__src--ai { border-color: rgba(178, 58, 72, 0.4); color: var(--crimson); }
 body.jb-v2 [data-region="role"] .case .case__src--derived { border-color: rgba(110, 159, 135, 0.6); color: var(--mint-deep); }
+/* Provenance tags. --review is the loudest source tag in the lane head: it
+   says the list under it came out of a recovered or polluted parse. --inferred
+   sits on the navy rail, so it borrows the rail's own light-on-dark treatment
+   instead of the parchment chip the other source tags wear. */
+body.jb-v2 [data-region="role"] .case .case__src--review { border-color: var(--crimson); color: var(--crimson); background: rgba(178, 58, 72, 0.08); }
+body.jb-v2 [data-region="role"] .case .case__src--inferred { border-color: var(--amber); color: var(--amber); background: transparent; }
+/* The cache-freshness stamp sits under the one-line quote, flush with the
+   quote's own gutter rather than the in-lane .case__stamp's top margin. */
+body.jb-v2 [data-region="role"] .case .case__stamp--fresh { margin: 0; padding: 0 36px 14px; border-bottom: 1px dashed var(--border); }
 body.jb-v2 [data-region="role"] .case .case__quote { padding: 16px 36px; border-bottom: 1px dashed var(--border); font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--navy); display: flex; gap: 12px; align-items: baseline; overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__quote .case__k { font-family: var(--mono); font-style: normal; font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
 body.jb-v2 [data-region="role"] .case .case__board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }

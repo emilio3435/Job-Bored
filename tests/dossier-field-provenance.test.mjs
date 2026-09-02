@@ -41,6 +41,49 @@ const postingEnrichmentJs = readFileSync(
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
 
+/* The rendering half of DOSSIER-01 is restored against The Case (L7 gap 4).
+   Trap 2: jb-text.js and dossier-field-provenance.js must both evaluate
+   BEFORE role-case-model.js / role-case.js, or the model throws inside a try
+   and the renderer paints empty HTML that an absence-only assertion would
+   happily accept. Every case below asserts positive content first. */
+const CASE_STAGES = ["new", "researching", "applied", "rejected"];
+const caseStages = {
+  pairs: () => CASE_STAGES.map((k) => ({ key: k, label: k })),
+  toKey: (v) => (CASE_STAGES.includes(v) ? v : ""),
+  toLabel: (v) => String(v),
+  isClosed: (v) => v === "rejected",
+};
+
+function loadCase() {
+  const sandbox = { window: { JobBoredStages: caseStages } };
+  for (const file of ["jb-text.js", "dossier-field-provenance.js", "role-case-model.js", "role-case.js"]) {
+    vm.runInNewContext(readFileSync(join(repoRoot, file), "utf8"), sandbox, { filename: file });
+  }
+  assert.equal(typeof sandbox.window.JobBoredText.escapeHtml, "function", "jb-text must load first");
+  return sandbox.window.JobBoredCase;
+}
+
+/** Render The Case for one enrichment payload; returns [html, model]. */
+function renderCase(enrichment, jobFixture = {}, nowMs = 1_800_000_000_000) {
+  const Case = loadCase();
+  const model = Case.model.buildCaseModel("prov-1", {
+    vm: { job: {
+      jobKey: "prov-1",
+      role: jobFixture.title || "Role",
+      company: jobFixture.company || "Company",
+      location: jobFixture.location || "",
+      stage: "applied",
+      enrichment,
+    } },
+    keywords: null, scorecard: null, manifest: null, health: null,
+    stages: caseStages, providerLabel: "", nowMs,
+    parseDate: (v) => { const t = Date.parse(String(v || "")); return Number.isFinite(t) ? t : null; },
+  });
+  const mount = { innerHTML: "" };
+  Case.render(mount, model);
+  return [mount.innerHTML, model];
+}
+
 
 
 
@@ -116,12 +159,48 @@ function loadPostingEnrichment() {
 
 
 
-/* The rendering half of DOSSIER-01 retired with role-brief.js: The Case has
-   no lede, no provenance chip and no "Fetched …" line (spec §3 cuts the AI
-   prose block), so there is no rendered surface left to assert against. What
-   still ships is the provenance data itself — posting-enrichment.js stamps it
-   and dossier-field-provenance.js classifies it — and that is what is pinned
-   below, unweakened. */
+describe("F3A-DOSSIER01-PROV — title/company inference is not posting-grounded", () => {
+  it("does not label title/company-only inference as grounded in the posting", () => {
+    const [html] = renderCase(titleCompanyOnly.enrichment, titleCompanyOnly.job);
+    assert.match(
+      html,
+      /class="case__req"[\s\S]*?Paid media strategy/,
+      "the inferred requirements still render so the hunter can read them",
+    );
+    assert.doesNotMatch(html, /grounded in the posting/, titleCompanyOnly.why);
+    assert.match(
+      html,
+      /<span class="case__src case__src--inferred">inferred<\/span>/,
+      "the rail must say the claim was inferred from title and company",
+    );
+  });
+
+  it("may treat a Cheerio-scraped posting summary as grounded in the posting", () => {
+    const [html, model] = renderCase(postingGrounded.enrichment, postingGrounded.job);
+    assert.match(html, /class="case__req"[\s\S]*?5\+ years growth design/);
+    assert.equal(model.provenance.inferredFields.length, 0, "a real posting scrape infers nothing");
+    assert.doesNotMatch(html, /case__src--inferred/);
+  });
+
+  it("does not claim posting-grounded when enrichment has no source lineage", () => {
+    const enrichment = {
+      postingSummary: "A model wrote this without saying where from.",
+      roleInOneLine: "A model wrote this without saying where from.",
+      mustHaves: ["Something the model asserted"],
+      status: "ready",
+    };
+    const [html, model] = renderCase(enrichment);
+    assert.match(html, /class="case__quote"/, "the unsourced summary still renders");
+    assert.equal(
+      tryLoadProvenanceHelper().classify(enrichment, "", "postingSummary").label,
+      "unknown",
+      "missing source is unverified, not posting-grounded",
+    );
+    assert.equal(model.provenance.inferredFields.length, 0);
+    assert.doesNotMatch(html, /case__src--inferred/);
+  });
+});
+
 describe("F3A-DOSSIER01-PROV — cache TTL and visible freshness", () => {
   it("rejects cache hits older than the enrichment TTL", () => {
     const api = loadPostingEnrichment();
@@ -184,6 +263,23 @@ describe("F3A-DOSSIER01-PROV — cache TTL and visible freshness", () => {
     );
   });
 
+  it("renders cache freshness next to the AI summary so age is not hidden", () => {
+    const api = tryLoadProvenanceHelper();
+    /* 1_800_360_000_000 - 1_800_000_000_000 = 100 h. The T0 case called this
+       "one hour" and asserted only /fetched /i, so the slip never showed; the
+       stamp now pins the helper's real label, TTL verdict included. */
+    const now = 1_800_360_000_000;
+    const stamped = api.stampProvenance(
+      { ...postingGrounded.enrichment, scrapedAt: 1_800_000_000_000 },
+      { nowMs: now, profileExcerpt: "I shipped activation at Stripe." },
+    );
+    const [html] = renderCase(stamped, postingGrounded.job, now);
+    assert.match(
+      html,
+      /<div class="case__stamp case__stamp--fresh">fetched 4d ago · stale<\/div>/,
+      "DOSSIER-01: cache age must be visible in the Case, not only in memory",
+    );
+  });
 });
 
 describe("F3A-DOSSIER01-PROV — unknown retained; profile revision stamped", () => {

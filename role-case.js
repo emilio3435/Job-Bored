@@ -32,6 +32,9 @@
     if (id.employment) meta.push(esc(id.employment));
     meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="Salary"'));
     if (id.source) meta.push("via " + esc(id.source));
+    /* DOSSIER-01: an identity the classifier will not ground in the posting is
+       said so on the rail, never left to read like a scraped fact. */
+    if (m.provenance && m.provenance.inferredIdentity) meta.push(src("inferred"));
     if (id.foundAt) meta.push("Found " + esc(id.foundAt));
     if (id.priority) meta.push("Priority <b>" + esc(id.priority.charAt(0).toUpperCase() + id.priority.slice(1)) + "</b>");
     if (id.favorite) meta.push("<b>&#9733;</b> Favorite");
@@ -100,9 +103,15 @@
     if (m.loading.enrichment && !w.requirements.length) return '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span></div>' + skeletonRows(4, "Reading the posting…") + "</section>";
     if (!w.requirements.length && !w.niceToHaves.length && !w.stack.length) return "";
     var h = w.hasMatchData;
-    var html = '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span>' + src("scrape") + (h ? src("derived", "matched") : "") + "</div>";
+    /* DOSSIER-02: a payload the pipeline had to recover, or one the validator
+       sent to review, is not evidence yet. The lane says so at its head and
+       again over the requirements, because that list is what a hunter acts on. */
+    var review = !!(m.provenance && m.provenance.needsReview);
+    var html = '<section class="case__lane case__lane--they"><div class="case__lane-head"><span class="case__lane-title">They want</span>' +
+      src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "recovered parse · review") : "") + "</div>";
     if (!h) html += '<p class="case__hint">Add a resume to see what matches.</p>';
-    if (w.requirements.length) html += '<div class="case__sub">Requirements' + (h ? " · vs. your resume" : "") + '</div><ul class="case__req">' + marked(w.requirements, "", h) + "</ul>";
+    var reqSub = review ? "Requirements · recovered parse — review before relying on these" : ("Requirements" + (h ? " · vs. your resume" : ""));
+    if (w.requirements.length) html += '<div class="case__sub">' + reqSub + '</div><ul class="case__req">' + marked(w.requirements, "", h) + "</ul>";
     if (w.stack.length) html += '<div class="case__sub">Stack they name</div><div class="case__chips">' + w.stack.map(function (s) { var st = h ? s.status : "unknown"; return '<span class="case__chip" data-status="' + st + '"><span class="case__m case__m--' + st + '"></span>' + esc(s.text) + "</span>"; }).join("") + "</div>";
     if (w.niceToHaves.length) html += '<div class="case__sub">Nice to have</div><ul class="case__req">' + marked(w.niceToHaves, "", h) + "</ul>";
     return html + "</section>";
@@ -170,6 +179,7 @@
     mount.innerHTML = '<div class="case">' +
       renderRail(model) + renderStepper(model, stages) + renderNumbers(model) +
       (model.oneLine ? '<div class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</div>" : "") +
+      (model.provenance && model.provenance.freshness ? '<div class="case__stamp case__stamp--fresh">' + esc(model.provenance.freshness) + "</div>" : "") +
       '<div class="case__board">' + lanes + "</div>" +
       renderNotes(model) + renderRecord(model) +
     "</div>";
