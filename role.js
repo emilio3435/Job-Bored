@@ -125,9 +125,18 @@
         '<article class="brief" data-mount="brief"></article>' +
       '</div>';
 
-    var briefMount = region.querySelector('[data-mount="brief"]');
-    if (briefMount && root.JobBoredDossierBrief && typeof root.JobBoredDossierBrief.renderBrief === "function") {
-      root.JobBoredDossierBrief.renderBrief(briefMount, vm);
+    /* The Case owns the dossier body (spec §2.1): role.js gathers the deps,
+       the model assembles them, the renderer paints. role-materials.js then
+       mounts its rows into the [data-mount="materials"] the Case emitted. */
+    var mount = region.querySelector('[data-mount="brief"]');
+    var Case = root.JobBoredCase;
+    if (mount && Case && Case.model && typeof Case.render === "function") {
+      var key = job.jobKey || getCurrentJobKey();
+      var deps = Case.model.collectDeps(key);
+      deps.vm = vm;
+      Case.render(mount, Case.model.buildCaseModel(key, deps));
+    } else if (mount && root.JobBoredDossierBrief && typeof root.JobBoredDossierBrief.renderBrief === "function") {
+      root.JobBoredDossierBrief.renderBrief(mount, vm);
     }
 
     wireDossier(region, job);
@@ -168,6 +177,31 @@
       while (t && t !== region) {
         var action = t.getAttribute && t.getAttribute("data-action");
         if (action === "close-role") { closeRole(); return; }
+        /* Stage stepper (spec §5): the rendered "now" step is the only
+           source of the from-stage, so a step that is already current
+           is a no-op rather than a self-move. */
+        if (action === "stage-step") {
+          var toStage = t.getAttribute("data-stage");
+          var now = region.querySelector(".case__step--now");
+          var fromStage = now ? now.getAttribute("data-stage") : null;
+          if (toStage && toStage !== fromStage) {
+            dispatch("jb:pipeline:move", { jobKey: getCurrentJobKey(), fromStage: fromStage, toStage: toStage });
+          }
+          return;
+        }
+        /* The replied toggle is a <button>, not an input: it carries the
+           value it would flip TO in data-value and commits on click. */
+        if (action === "edit-field" && t.getAttribute("data-field") === "reply") {
+          dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: t.getAttribute("data-value") || "Yes" });
+          return;
+        }
+        if (action === "open-profile-match") {
+          var km = root.JobBoredApp && root.JobBoredApp.keywordMatch;
+          var core = root.JobBoredApp && root.JobBoredApp.core;
+          var raw = core && typeof core.getJobByStableKey === "function" ? core.getJobByStableKey(getCurrentJobKey()) : null;
+          if (km && raw && typeof km.openProfileMatchModal === "function") km.openProfileMatchModal(raw);
+          return;
+        }
         if (action === "resume-cover" || action === "resume-tailor") {
           /* Materials-first pivot (2026-05-27): the dossier CTAs now
              trigger a Hermes drafting request via the materials API
@@ -212,11 +246,17 @@
     // value. A commit no-ops when the value is unchanged vs data-original so we
     // never issue a needless Sheet write or re-lock the column.
     function commitEditField(input) {
+      /* Buttons (the replied toggle) are edit surfaces too, but they have no
+         string value and commit through the click walker instead. */
+      if (!input || typeof input.value !== "string") return;
       var field = input.getAttribute("data-field");
       var original = input.getAttribute("data-original") || "";
       var value = input.value.trim();
       if (value === original) return;
       dispatch("jb:role:writeback", { jobKey: jobKey, field: field, value: value });
+      /* Re-seed the baseline so a date input's change + blur pair — or any
+         second commit before the next render — cannot write twice. */
+      input.setAttribute("data-original", value);
     }
 
     /* `field-sizing: content` sizes the borderless location/salary inputs on
@@ -243,6 +283,10 @@
         input.addEventListener("blur", function () {
           commitEditField(input);
         });
+        /* A date picker is committed by choosing a date, not by tabbing out. */
+        if (input.type === "date") {
+          input.addEventListener("change", function () { commitEditField(input); });
+        }
         input.addEventListener("keydown", function (e) {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -338,6 +382,16 @@
     /* When app.js finishes scrape + Gemini enrichment for a role, the
        kanban-card's data-* attributes are refreshed; re-render the
        Dossier so it picks up the new AI fields. */
+    /* Seam events (spec §2.3): a persisted scorecard, a resolved profile
+       match, or a fresh materials manifest all change what the Case shows.
+       All three funnel through renderForKey, so the focus guard still wins. */
+    root.addEventListener("jb:ats:state", rerenderOpenRole);
+    root.addEventListener("jb:profile-match:ready", rerenderOpenRole);
+    root.addEventListener("jb:materials:manifest", function (e) {
+      var k = e && e.detail && e.detail.jobKey;
+      var openKey = getCurrentJobKey();
+      if (k == null || String(k) === String(openKey)) rerenderOpenRole();
+    });
     root.addEventListener("jb:role:enriched", function (e) {
       var k = e && e.detail && e.detail.jobKey;
       var openKey = root.JobBoredFlowing

@@ -29,15 +29,21 @@
          write happens exactly once on blur (or Enter). Escape
          restores the seeded value and dispatches NOTHING.
 
-     (4) FACT-INPUT WIDTH FALLBACK — the borderless location /
-         salary inputs stay legible where `field-sizing: content`
-         is unsupported.
-
-   These are runtime tests over the REAL role-brief.js +
-   role.js wiring, driven through a small DOM emulation that
-   supports exactly what the wiring touches (innerHTML mounts,
+   These are runtime tests over the REAL Case renderer + role.js
+   wiring, driven through a small DOM emulation that supports
+   exactly what the wiring touches (innerHTML mounts,
    querySelectorAll for edit-field inputs, document.activeElement,
    region.contains).
+
+   Retargeted at the cutover (Case plan Task 8): the guarded rail
+   inputs are now `.case__title` / `.case__company` and the People
+   row's `contact`, not the retired `.brief__*` masthead. Every
+   behavioral assertion above is unchanged.
+
+   The old (4) FACT-INPUT WIDTH FALLBACK block retired with the
+   Brief: The Case's rail inputs are full-width block fields, so
+   there is no borderless auto-sizing surface left to fall back
+   for (see LANE-REPORT-L5.md §5).
    ============================================================ */
 
 import assert from "node:assert/strict";
@@ -48,8 +54,22 @@ import vm from "node:vm";
 import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
+/* Trap 2: jb-text.js MUST evaluate before the Case model/renderer, or both
+   throw inside a try and the region paints empty — a test asserting only
+   absence would then "pass" on nothing. */
+const caseSources = ["jb-text.js", "role-case-model.js", "role-case.js"].map((f) => ({
+  filename: f,
+  code: readFileSync(join(repoRoot, f), "utf8"),
+}));
 const roleSource = readFileSync(join(repoRoot, "role.js"), "utf8");
+
+const STAGES = ["new", "researching", "applied", "phone-screen", "interviewing", "offer", "rejected", "passed", "expired"];
+const stages = {
+  pairs: () => STAGES.map((k) => ({ key: k, label: k.replace("-", " ") })),
+  toKey: (v) => (STAGES.includes(v) ? v : ""),
+  toLabel: (v) => String(v).replace("-", " "),
+  isClosed: (v) => ["rejected", "passed", "expired"].includes(v),
+};
 
 class TestCustomEvent {
   constructor(type, options = {}) {
@@ -239,9 +259,6 @@ function makeRegion(doc) {
     },
     querySelectorAll(selector) {
       if (selector === '[data-action="edit-field"]') return doc._editFields;
-      if (selector === ".brief__fact-input") {
-        return doc._editFields.filter((n) => /brief__fact-input/.test(n.getAttribute("class") || ""));
-      }
       return [];
     },
     contains(node) {
@@ -291,8 +308,7 @@ function makeDocument() {
   return doc;
 }
 
-function loadHarness(roleVm, options) {
-  const opts = options || {};
+function loadHarness(roleVm) {
   const documentEl = makeDocument();
   const region = makeRegion(documentEl);
   documentEl.setRegion(region);
@@ -300,7 +316,7 @@ function loadHarness(roleVm, options) {
   const windowEl = makeBus();
   windowEl.document = documentEl;
   windowEl.matchMedia = () => ({ matches: false });
-  if (opts.supportsFieldSizing) windowEl.CSS = { supports: () => true };
+  windowEl.JobBoredStages = stages;
   /* role.js schedules the deferred-render flush via root.setTimeout; capture
      the queue so tests drive it deterministically. */
   const timers = [];
@@ -313,6 +329,7 @@ function loadHarness(roleVm, options) {
   };
   windowEl.CustomEvent = TestCustomEvent;
   windowEl.JobBoredDawn = { data: { getRoleViewModel: () => roleVm } };
+  windowEl.JobBoredApp = { core: { getJobByStableKey: () => roleVm.job } };
   windowEl.JobBoredFlowing = {
     openRole: {
       get: () => roleVm.job.jobKey,
@@ -341,11 +358,14 @@ function loadHarness(roleVm, options) {
     Object,
     String,
     JSON,
+    Map,
+    Set,
+    RegExp,
     setTimeout,
     clearTimeout,
   });
 
-  vm.runInContext(briefSource, context, { filename: "role-brief.js" });
+  for (const { filename, code } of caseSources) vm.runInContext(code, context, { filename });
   vm.runInContext(roleSource, context, { filename: "role.js" });
 
   return {
@@ -371,6 +391,10 @@ function fixtureVm() {
       employment: "Full-time",
       stage: "applied",
       notes: { body: "", editedAt: "" },
+      contacts: [{ name: "Dana Reyes" }],
+      lastHeardFrom: "2026-08-31",
+      followUpDate: "",
+      replied: "No",
       links: [{ label: "Posting", href: "https://example.com/jobs/42" }],
     },
   };
@@ -387,7 +411,10 @@ describe("dossier masthead edit — focus re-render guard", () => {
 
     context.window.JobBoredFlowing.role.renderForKey("linear-1");
     const before = region.innerHTML;
-    assert.ok(/data-action="edit-field"/.test(region._assembledHtml()), "masthead inputs must render");
+    const assembled = region._assembledHtml();
+    assert.ok(/class="case__rail"/.test(assembled), "the Case rail must render (trap 2: empty HTML must not pass)");
+    assert.ok(/class="case__title"/.test(assembled), "the guarded rail input is now .case__title");
+    assert.ok(/data-action="edit-field"/.test(assembled), "rail inputs must render");
 
     // User is mid-edit: type into the title field and keep focus.
     const titleInput = fieldInput(documentEl, "title");
@@ -489,11 +516,11 @@ describe("dossier masthead edit — Escape cancels, blur commits once", () => {
     const { context, documentEl, writebacks } = loadHarness(roleVm);
     context.window.JobBoredFlowing.role.renderForKey("linear-1");
 
-    const salaryInput = fieldInput(documentEl, "salary");
-    salaryInput.focus();
+    const contactInput = fieldInput(documentEl, "contact");
+    contactInput.focus();
     // Leave the value identical (modulo whitespace) to data-original.
-    salaryInput.value = "  $165k  ";
-    salaryInput.blur();
+    contactInput.value = "  Dana Reyes  ";
+    contactInput.blur();
 
     assert.equal(
       writebacks.length,
@@ -586,42 +613,5 @@ describe("notes textarea is a guarded edit surface", () => {
     flushTimers();
 
     assert.equal(renderCount(), before, "a blur with no pending render must not re-render");
-  });
-});
-
-/* ------------------------------------------------------------
-   (4) FACT-INPUT WIDTH FALLBACK
-   Resilience spec §6.4: `field-sizing: content` sizes the
-   borderless location/salary inputs on modern engines. Where the
-   property is unsupported the inputs would collapse to the UA
-   default width, so role.js sizes them in `ch` from their value.
-   ------------------------------------------------------------ */
-describe("fact-input width fallback", () => {
-  it("sizes fact inputs in ch when field-sizing is unsupported", () => {
-    const { context, documentEl } = loadHarness(fixtureVm());
-    context.window.JobBoredFlowing.role.renderForKey("linear-1");
-
-    const locationInput = fieldInput(documentEl, "location");
-    assert.equal(locationInput.getAttribute("class"), "brief__fact-input");
-    // "Remote".length + 2
-    assert.equal(locationInput.style.width, "8ch");
-
-    // Growing the value re-sizes on input, capped at 40ch.
-    locationInput.value = "x".repeat(80);
-    locationInput.dispatch("input", {});
-    assert.equal(locationInput.style.width, "40ch");
-  });
-
-  it("leaves the inputs alone when the engine supports field-sizing", () => {
-    const roleVm = fixtureVm();
-    const harness = loadHarness(roleVm, { supportsFieldSizing: true });
-    harness.context.window.JobBoredFlowing.role.renderForKey("linear-1");
-
-    const locationInput = fieldInput(harness.documentEl, "location");
-    assert.equal(
-      locationInput.style.width,
-      undefined,
-      "native field-sizing must not be overridden by the JS fallback",
-    );
   });
 });
