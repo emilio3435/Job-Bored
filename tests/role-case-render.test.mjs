@@ -49,6 +49,7 @@ function load() {
 }
 const Case = load();
 const roleCssSource = readFileSync(join(repoRoot, "role.css"), "utf8");
+const caseCssSource = readFileSync(join(repoRoot, "role-case.css"), "utf8");
 
 /* Same fixture as tests/role-case-model.test.mjs (Meridian Labs, fictional). */
 function baseDeps(over = {}) {
@@ -399,5 +400,38 @@ describe("posting dates and salary on the rail", () => {
     const meta = railMeta(renderHtml(model({ vmPatch: { postingSalary: "$185,000–$230,000 USD/yr" } })));
     assert.match(meta, /data-field="salary"[^>]*value="\$185–230k"[^>]*placeholder="Salary"/);
     assert.doesNotMatch(meta, /case__src--scrape/, "a sheet salary needs no scrape tag");
+  });
+});
+
+/* ------------------------------------------------------------
+   The rail fact inputs' width (the sizing tension L7 flagged).
+   12ch is a compromise on every engine: too wide for "Remote",
+   too narrow for a salary band. The fix keeps 12ch as the
+   fallback role.js re-sizes in `ch`, and lets engines that ship
+   field-sizing hug the value instead.
+   ------------------------------------------------------------ */
+describe("rail fact inputs hug their value where field-sizing is supported", () => {
+  const base = /\.case__fact-input \{([^}]*)\}/.exec(caseCssSource);
+
+  it("keeps 12ch as the fallback width, unconditionally", () => {
+    assert.ok(base, "the base .case__fact-input rule must exist");
+    assert.match(base[1], /width: 12ch/);
+    assert.doesNotMatch(
+      base[1],
+      /field-sizing/,
+      "field-sizing in the base rule is ignored where unsupported and leaves 12ch as the only width",
+    );
+  });
+
+  it("hugs the value behind an @supports guard", () => {
+    const guarded = /@supports \(field-sizing: content\) \{\s*body\.jb-v2 \[data-region="role"\] \.case \.case__fact-input \{([^}]*)\}/.exec(caseCssSource);
+    assert.ok(guarded, "the hug must be behind @supports (field-sizing: content)");
+    assert.match(guarded[1], /field-sizing: content/);
+    assert.match(guarded[1], /width: auto/, "auto is what lets the input shrink to its value");
+    assert.match(guarded[1], /min-width: 6ch/, "an empty fact still has to show its placeholder");
+  });
+
+  it("stays scoped under the Case, like every other rule in this sheet", () => {
+    assert.match(caseCssSource, /body\.jb-v2 \[data-region="role"\] \.case \.case__fact-input \{ font: inherit/);
   });
 });
