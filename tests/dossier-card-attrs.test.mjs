@@ -620,6 +620,23 @@ describe("case attrs", () => {
     assert.equal(attrs["data-scrape-method"], "gemini-url-context");
   });
 
+  it("serializes posting facts and clips the posted salary to 80 characters", () => {
+    const attrs = renderCardAttrs({
+      _postingEnrichment: {
+        postedAt: "2026-08-27",
+        closesAt: "2026-09-30",
+        postingSalary:
+          "$185,000–$230,000 USD/yr plus a discretionary performance bonus and annual equity refresh grant",
+      },
+    });
+
+    assert.equal(attrs["data-posted-at"], "2026-08-27");
+    assert.equal(attrs["data-closes-at"], "2026-09-30");
+    assert.match(attrs["data-posting-salary"], /^\$185,000–\$230,000 USD\/yr/);
+    assert.ok(attrs["data-posting-salary"].length <= 80);
+    assert.ok(attrs["data-posting-salary"].endsWith("…"));
+  });
+
   it("leaves every pre-existing attribute name and budget untouched", () => {
     const attrs = renderCardAttrs({
       location: "Remote",
