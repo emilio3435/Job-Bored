@@ -32,6 +32,7 @@ const pipelineRenderJs = readFileSync(
   join(repoRoot, "pipeline-render.js"),
   "utf8",
 );
+const jbTextJs = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const insightsJs = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 const resumeGenJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 
@@ -47,6 +48,7 @@ function loadPostingInsights({ config = {}, fetchImpl } = {}) {
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(ctx);
+  vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
   return ctx.window.CommandCenterJobPostingInsights;
 }
