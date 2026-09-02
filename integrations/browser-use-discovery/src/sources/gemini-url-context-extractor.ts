@@ -18,6 +18,8 @@
 
 import type { WorkerRuntimeConfig } from "../config.ts";
 import type { RawListing } from "../contracts.ts";
+// @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
+import { GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
 
 type FetchImpl = typeof globalThis.fetch;
 
@@ -83,7 +85,7 @@ export async function extractJobWithGeminiUrlContext(
   }
 
   const fetchImpl = input.fetchImpl || globalThis.fetch;
-  const model = String(input.runtimeConfig.geminiModel || "").trim() || "gemini-3.5-flash";
+  const model = String(input.runtimeConfig.geminiModel || "").trim() || GEMINI_FLASH_FALLBACK;
   const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
 
   try {

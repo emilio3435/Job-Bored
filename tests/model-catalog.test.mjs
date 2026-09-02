@@ -94,6 +94,7 @@ describe("JobBoredModelCatalog — module surface + static fallbacks", () => {
       "fetchProviderModels",
       "pingProvider",
       "getStaticModels",
+      "isWeakMaterialsModel",
       "clearCache",
     ]) {
       assert.equal(
@@ -133,6 +134,14 @@ describe("JobBoredModelCatalog — module surface + static fallbacks", () => {
         );
       }
     }
+  });
+
+  it("puts gemini-flash first in the Gemini static list", () => {
+    const { api } = loadCatalog();
+    const values = api.getStaticModels("gemini").map((o) => o.value);
+    assert.equal(values[0], "gemini-flash");
+    assert.equal(api.STATIC.gemini[0].value, "gemini-flash");
+    assert.equal(api.STATIC.gemini[0].label, "Gemini Flash (latest)");
   });
 
   it("static Anthropic list carries the current claude-opus-4-8 and claude-fable-5 ids (current as of 2026-06)", () => {

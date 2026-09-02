@@ -64,25 +64,26 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
-          "letters. OpenRouter is free and takes about two minutes.",
+          "letters. Gemini Flash is the recommended pin; OpenRouter is a " +
+          "free alternative.",
       ),
     );
   });
 
-  it("offers exactly the five spec'd providers with OpenRouter pre-selected", async () => {
+  it("offers exactly the five spec'd providers with Gemini pre-selected", async () => {
     const env = await openBeat();
     const providers = env
       .mount()
       .querySelectorAll("[data-provider]")
       .map((el) => el.dataset.provider);
     assert.deepEqual(providers, [
-      "openrouter",
       "gemini",
+      "openrouter",
       "openai",
       "anthropic",
       "local",
     ]);
-    assert.equal(card(env, "openrouter").dataset.selected, "true");
+    assert.equal(card(env, "gemini").dataset.selected, "true");
     assert.match(renderedText(env.mount()), /OpenRouter — free/);
   });
 
@@ -261,13 +262,13 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
   it("clears the pasted key when the provider changes", async () => {
     const env = await openBeat();
     const field = env.mount().querySelector("#oneFlowAiKeyInput");
-    field.value = "sk-or-abcdefgh12345678";
+    field.value = "AIzaSyTestKeyValue1234567";
     field.dispatch("input", { target: field });
-    card(env, "gemini").dispatch("click");
+    card(env, "openrouter").dispatch("click");
     assert.equal(
       env.mount().querySelector("#oneFlowAiKeyInput").value,
       "",
-      "an OpenRouter key checked against Gemini fails for a reason no copy can explain",
+      "a Gemini key checked against OpenRouter fails for a reason no copy can explain",
     );
   });
 

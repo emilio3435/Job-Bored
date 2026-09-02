@@ -1,8 +1,24 @@
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
+import { mkdtemp, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
-import { describe, it } from "node:test";
+import { beforeEach, afterEach, describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
+
+let pinDir;
+const prevPinPath = process.env.JOBBORED_LLM_CONFIG_PATH;
+
+beforeEach(async () => {
+  pinDir = await mkdtemp(join(tmpdir(), "jb-ats-iso-"));
+  process.env.JOBBORED_LLM_CONFIG_PATH = join(pinDir, "llm.json");
+});
+
+afterEach(async () => {
+  if (prevPinPath === undefined) delete process.env.JOBBORED_LLM_CONFIG_PATH;
+  else process.env.JOBBORED_LLM_CONFIG_PATH = prevPinPath;
+  await rm(pinDir, { recursive: true, force: true });
+});
 
 import {
   analyzeAtsScorecard,
