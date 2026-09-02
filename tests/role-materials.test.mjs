@@ -709,7 +709,37 @@ describe("materials rows in the case mount", () => {
     const row = rowFor(host, "cover_letter");
     assert.match(row, /drafting · 42s · attempt 1/);
     assert.match(row, /case__docst--drafting">drafting</);
+    assert.match(row, /case__doc-eyebrow">DRAFTING IN PROGRESS</);
     assert.doesNotMatch(row, /data-action="materials-preview"/);
+  });
+
+  it("a queued document shows the queue eyebrow and the worker's message (journey contract)", () => {
+    const host = makeCaseMount();
+    const queued = {
+      ...CASE_MANIFEST,
+      pending: {
+        ...CASE_MANIFEST.pending,
+        progress: { ...CASE_MANIFEST.pending.progress, phase: "queued", message: "Queued for the drafting worker." },
+      },
+    };
+    api.renderManifest(host, queued, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /case__doc-eyebrow">WAITING IN QUEUE</);
+    assert.match(row, /case__doc-msg">Queued for the drafting worker\.</);
+    assert.match(row, /data-phase="queued"/);
+  });
+
+  it("an optimistic pending block with no progress yet renders as queued (legacy parity)", () => {
+    const host = makeCaseMount();
+    const optimistic = {
+      ...CASE_MANIFEST,
+      pending: { feature: "cover_letter", requestedAt: "2026-09-02T00:00:00Z", source: "jobbored-dossier" },
+    };
+    api.renderManifest(host, optimistic, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /case__docst--drafting">drafting</);
+    assert.match(row, /case__doc-eyebrow">WAITING IN QUEUE</);
+    assert.match(row, /queued · — · attempt 1/);
   });
 
   it("missing resume / cover letter offer a Draft button; support docs do not", () => {

@@ -51,13 +51,20 @@
     }
     var link = safeHref(id.link);
     var view = link ? '<a class="case__cta" data-action="brief-view-posting" href="' + attr(link) + '" target="_blank" rel="noopener">View posting</a>' : "";
+    /* The two Workshop entry points the Brief carried (frozen data-action
+       contract): request a fresh cover letter / tailored resume pass.
+       role.js routes both to jb:role:action → role-materials.js. */
+    var draft = '<div class="case__cta-row">' +
+      '<button type="button" class="case__cta case__cta--btn" data-action="resume-cover" aria-label="Draft a cover letter for this role">Draft cover letter</button>' +
+      '<button type="button" class="case__cta case__cta--btn" data-action="resume-tailor" aria-label="Tailor your resume for this role">Tailor resume</button>' +
+    "</div>";
     return '<header class="case__rail">' + logo +
       '<div class="case__rail-id">' +
         editInput("title", id.title, "case__title", "Role title") +
         editInput("company", id.company, "case__company", "Company") +
         '<div class="case__meta">' + meta.map(function (x) { return "<span>" + x + "</span>"; }).join("") + "</div>" +
       "</div>" +
-      '<div class="case__rail-right">' + pills + view + "</div>" +
+      '<div class="case__rail-right">' + pills + view + draft + "</div>" +
     "</header>";
   }
 
