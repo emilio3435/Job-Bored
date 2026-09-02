@@ -199,4 +199,7 @@
   root.JobBoredRecruiterStrip = root.JobBoredRecruiterStrip || {};
   root.JobBoredRecruiterStrip.render = render;
   root.JobBoredRecruiterStrip.renderCompact = renderCompact;
+  /* The Case's People block says the same next move the kanban card does, so
+     the four branches live here once and both callers read them. */
+  root.JobBoredRecruiterStrip.nextAction = nextAction;
 })(typeof window !== "undefined" ? window : this);

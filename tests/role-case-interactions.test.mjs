@@ -24,7 +24,9 @@ import vm from "node:vm";
 import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const sources = ["jb-text.js", "role-case-model.js", "role-case.js", "role.js"].map((f) => ({
+/* recruiter-strip.js precedes the model: its `nextAction` is the one source of
+   the People block's next-move sentence (trap 2's sibling). */
+const sources = ["jb-text.js", "recruiter-strip.js", "role-case-model.js", "role-case.js", "role.js"].map((f) => ({
   filename: f,
   code: readFileSync(join(repoRoot, f), "utf8"),
 }));
@@ -370,29 +372,25 @@ describe("The Case interactions", () => {
     assert.ok(region.querySelector('[data-action="notes"]'), "the notes surface must render");
   });
 
-  /* L7 gap 2: the recruiter CRM row lived only in the retired Brief. The Case
-     renders the mount at the foot of YOUR MOVES and role.js — the region
-     owner, not the renderer — fills it, exactly as the Brief did. */
-  it("mounts the recruiter strip under People in the your-moves lane", () => {
-    const { region } = boot();
-    const mount = region.querySelector('[data-mount="recruiter-strip"]');
-    assert.ok(mount, "the recruiter-strip mount must render");
+  /* The People block is now native and singular: the CRM facts the recruiter
+     strip's dossier card used to repeat under them are THESE rows, over the
+     one jb:role:writeback path. role.js must not call the strip at all. */
+  it("renders one People block and never mounts the recruiter strip's card", () => {
+    const { region, stripRenders } = boot();
     const moves = region.querySelector(".case__lane--moves");
-    assert.ok(moves && moves.contains(mount), "the mount belongs to the YOUR MOVES lane");
-    const people = region.querySelector(".case__kv");
-    assert.ok(people && moves.contains(people), "precondition: People renders in the same lane");
+    const people = region.querySelector(".case__kv--people");
+    assert.ok(people && moves.contains(people), "the People ledger belongs to the YOUR MOVES lane");
+    assert.equal(region.querySelector('[data-mount="recruiter-strip"]'), null, "the duplicate mount is gone");
+    assert.equal(stripRenders.length, 0, "JobBoredRecruiterStrip.render must never be called");
   });
 
-  it("hands the recruiter strip its own mount and the open role", () => {
-    const { region, stripRenders } = boot();
-    assert.equal(stripRenders.length, 1, "role.js must render the strip exactly once per dossier render");
-    assert.equal(
-      stripRenders[0].mountEl,
-      region.querySelector('[data-mount="recruiter-strip"]'),
-      "the strip gets the dedicated mount, never a shared container it would overwrite",
-    );
-    assert.equal(stripRenders[0].roleVm.job.jobKey, "job-1");
-    assert.equal(stripRenders[0].roleVm.job.company, "Meridian Labs");
+  it("opens People with the next-move sentence the compact strip would say", () => {
+    const { region } = boot();
+    const move = region.querySelector(".case__move-v");
+    assert.ok(move, "the next-move sentence must render");
+    // Fixture: contact Dana Reyes, follow-up 2026-09-04 -> the follow-up branch.
+    assert.equal(move.text, "Follow up on Sep 4");
+    assert.equal(region.querySelector(".case__move-k").text, "Next move");
   });
 
   it("stage step click dispatches jb:pipeline:move with the rendered from-stage", () => {
@@ -417,20 +415,24 @@ describe("The Case interactions", () => {
     assert.deepEqual(writebacks(), [{ jobKey: "job-1", field: "followupAt", value: "2026-09-10" }]);
   });
 
-  it("the replied toggle dispatches the opposite value, not the current one", () => {
-    const { region, writebacks } = boot();
-    const toggle = region.querySelector('[data-field="reply"]');
-    assert.equal(toggle.getAttribute("data-value"), "Yes", "fixture replied=No, so the toggle offers Yes");
-    toggle.click();
-    assert.deepEqual(writebacks(), [{ jobKey: "job-1", field: "reply", value: "Yes" }]);
+  /* Three states, three chips: each writes ITS OWN value, so `Unknown` is
+     reachable instead of collapsing into a two-way flip. */
+  it("every reply chip dispatches its own value verbatim", () => {
+    for (const value of ["Yes", "No", "Unknown"]) {
+      const { region, writebacks } = boot();
+      const chip = region.querySelector(`[data-field="reply"][data-value="${value}"]`);
+      assert.ok(chip, value + " must render its own chip");
+      chip.click();
+      assert.deepEqual(writebacks(), [{ jobKey: "job-1", field: "reply", value: value }]);
+    }
   });
 
-  it("a replied role's toggle offers No", () => {
+  it("marks the chip the sheet holds as pressed", () => {
     const job = fixtureJob();
     job.replied = "Yes";
-    const { region, writebacks } = boot({ job });
-    region.querySelector('[data-field="reply"]').click();
-    assert.deepEqual(writebacks(), [{ jobKey: "job-1", field: "reply", value: "No" }]);
+    const { region } = boot({ job });
+    assert.equal(region.querySelector('[data-field="reply"][data-value="Yes"]').getAttribute("aria-pressed"), "true");
+    assert.equal(region.querySelector('[data-field="reply"][data-value="No"]').getAttribute("aria-pressed"), "false");
   });
 
   it("contact and last-contact commit on blur through the writeback contract", () => {
@@ -502,11 +504,60 @@ describe("The Case interactions", () => {
     assert.equal(renderCount(), before + 1, "the deferred render flushes once notes give up focus");
   });
 
-  it("the replied toggle never commits through the input path", () => {
+  it("the replied chips never commit through the input path", () => {
     const { region, writebacks } = boot();
-    const toggle = region.querySelector('[data-field="reply"]');
-    // A <button> has no string `value`; blurring it must not write the label.
-    toggle.blur();
+    // A <button> carries no user-typed value; blurring it must not write a label.
+    region.querySelector('[data-field="reply"][data-value="Unknown"]').blur();
     assert.deepEqual(writebacks(), [], "a non-input edit surface must not commit on blur");
+  });
+});
+
+/* ------------------------------------------------------------
+   Saved marks. The People rows commit silently — the write's
+   result is the other half of the vocabulary, so a transient
+   `saved` lands at the row's right edge and clears itself. It is
+   painted outside the renderer, so it must also survive the
+   re-render the Case does on every seam event (ground rules,
+   trap 2 of this program).
+   ------------------------------------------------------------ */
+describe("the saved mark", () => {
+  const savedFor = (region, field) => region.querySelector(`[data-saved="${field}"]`);
+
+  it("appears on the matching row after jb:write:succeeded", () => {
+    const { region, doc } = boot();
+    assert.notEqual(savedFor(region, "contact").textContent, "saved", "no mark before a write lands");
+
+    doc.dispatchEvent(new TestCustomEvent("jb:write:succeeded", { detail: { jobKey: "job-1", kind: "contact" } }));
+
+    assert.equal(savedFor(region, "contact").textContent, "saved");
+    assert.equal(savedFor(region, "reply").textContent, "", "only the row that was written says so");
+  });
+
+  it("covers all four People writes and nothing else", () => {
+    for (const kind of ["contact", "heardBack", "reply", "followupAt"]) {
+      const { region, doc } = boot();
+      doc.dispatchEvent(new TestCustomEvent("jb:write:succeeded", { detail: { jobKey: "job-1", kind } }));
+      assert.equal(savedFor(region, kind).textContent, "saved", kind + " must mark its own row");
+    }
+    const { region, doc } = boot();
+    doc.dispatchEvent(new TestCustomEvent("jb:write:succeeded", { detail: { jobKey: "job-1", kind: "role:note" } }));
+    for (const kind of ["contact", "heardBack", "reply", "followupAt"]) {
+      assert.equal(savedFor(region, kind).textContent, "", "a note save is not a People write");
+    }
+  });
+
+  it("clears itself once the fade window is over", () => {
+    const { region, doc, flushTimers } = boot();
+    doc.dispatchEvent(new TestCustomEvent("jb:write:succeeded", { detail: { jobKey: "job-1", kind: "followupAt" } }));
+    assert.equal(savedFor(region, "followupAt").textContent, "saved");
+    flushTimers();
+    assert.equal(savedFor(region, "followupAt").textContent, "", "the mark is transient, not a permanent badge");
+  });
+
+  it("survives the re-render a seam event triggers mid-fade", () => {
+    const { region, win, doc } = boot();
+    doc.dispatchEvent(new TestCustomEvent("jb:write:succeeded", { detail: { jobKey: "job-1", kind: "reply" } }));
+    win.dispatchEvent(new TestCustomEvent("jb:ats:state", { detail: { jobKey: "job-1" } }));
+    assert.equal(savedFor(region, "reply").textContent, "saved", "a rebuild must not swallow the confirmation");
   });
 });

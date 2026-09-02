@@ -440,15 +440,17 @@
   }
 
   /**
-   * Mark the response flag (column S) using the same enum as the drawer select.
-   * The Case's People row is a two-state toggle, so an explicit "No" clears
-   * the flag; every other value (including the legacy date-shaped payload the
-   * drawer sends) still means "they replied".
+   * Mark the response flag (column S) using the same enum as the drawer select
+   * (schemas/pipeline-row.v1.json: Yes | No | Unknown). The Case's People row
+   * is a three-state segmented control, so "No" and "Unknown" write as
+   * themselves; every other value (including the legacy date-shaped payload
+   * the drawer sends) still means "they replied".
    * @param {any} jobKey
    * @param {string} [value]
    */
   function writeReply(jobKey, value) {
-    var flag = /^no$/i.test(String(value == null ? "" : value).trim()) ? "No" : "Yes";
+    var raw = String(value == null ? "" : value).trim();
+    var flag = /^no$/i.test(raw) ? "No" : (/^unknown$/i.test(raw) ? "Unknown" : "Yes");
     return writeColumn(jobKey, RESPONSE_COLUMN, flag, "reply", "reply status");
   }
 

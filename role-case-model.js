@@ -64,6 +64,32 @@
     return { followUpAt: followUpAt, daysUntil: ms == null ? null : Math.ceil((ms - deps.nowMs) / DAY), replied: job.replied || "Unknown", lastContactAt: inline(job.lastHeardFrom) };
   }
 
+  var SHORT_MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  /* The next-move sentence reads as prose, so an ISO follow-up date is spoken
+     as `Sep 4`. Anything that is not a plain YYYY-MM-DD passes through as the
+     user typed it — this formats, it never invents a date. */
+  function shortDate(value) {
+    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
+    if (!m) return String(value || "");
+    var month = SHORT_MONTHS[Number(m[2]) - 1];
+    return month ? month + " " + Number(m[3]) : String(value);
+  }
+
+  /* One source of truth for the four branches: recruiter-strip.js `nextAction`
+     is what the kanban compact strip already says, so the Case says the same
+     sentence rather than re-deriving it. The strip's "Unknown" vocabulary is
+     the contract, and the date presentation stays the caller's — that is why
+     nextAction takes a data bag and not a job. */
+  function nextMove(people) {
+    var api = root.JobBoredRecruiterStrip;
+    if (!api || typeof api.nextAction !== "function") return "";
+    return api.nextAction({
+      contact: people.contact || "Unknown",
+      reply: people.replied || "Unknown",
+      followUp: people.followUpAt ? shortDate(people.followUpAt) : "Unknown",
+    });
+  }
+
   function buildMaterials(manifest) {
     if (!manifest || !Array.isArray(manifest.documents)) return null;
     var pending = manifest.pending && manifest.pending.progress ? manifest.pending : null;
@@ -190,6 +216,8 @@
     var foundAt = inline(job.foundAt || job.dateFound || "");
     var jobForRecord = { foundAt: foundAt, source: inline(job.source), lastHeardFrom: inline(job.lastHeardFrom), replied: job.replied, followUpDate: inline(job.followUpDate), appliedAt: inline(job.appliedAt) };
     var aiPoints = items(enr.talkingPoints);
+    var people = { contact: inline(job.contacts && job.contacts[0] && job.contacts[0].name), lastContactAt: inline(job.lastHeardFrom), replied: job.replied || "Unknown", followUpAt: inline(job.followUpDate) };
+    people.nextMove = nextMove(people);
 
     return {
       jobKey: String(jobKey || job.jobKey || ""),
@@ -215,7 +243,7 @@
         talkingPoints: aiPoints.length ? aiPoints.slice(0, 6) : items(job.talkingPoints).slice(0, 6),
         materials: materials,
         materialsError: deps.materialsError || "",
-        people: { contact: inline(job.contacts && job.contacts[0] && job.contacts[0].name), lastContactAt: inline(job.lastHeardFrom), replied: job.replied || "Unknown", followUpAt: inline(job.followUpDate) },
+        people: people,
       },
       notes: job.notes ? { body: String(job.notes.body || ""), editedAt: String(job.notes.editedAt || "") } : null,
       record: buildRecord(jobForRecord, enr, materials, deps),

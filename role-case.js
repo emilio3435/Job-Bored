@@ -147,22 +147,46 @@
     return html + "</section>";
   }
 
+  /* Replied is three-state, so it is a segmented control, not a toggle that
+     hides one of its values behind a click. Every value is visible and the
+     active one is filled; role.js reads data-value verbatim, so `Unknown`
+     writes as itself. */
+  var REPLY_VALUES = ["Yes", "No", "Unknown"];
+  function replySegment(current) {
+    var cur = current || "Unknown";
+    return '<span class="case__seg" role="group" aria-label="Replied">' + REPLY_VALUES.map(function (value) {
+      var on = value === cur;
+      return '<button type="button" class="case__seg-b' + (on ? " case__seg-b--on" : "") + '"' +
+        ' data-action="edit-field" data-field="reply" data-value="' + attr(value) + '"' +
+        ' aria-pressed="' + (on ? "true" : "false") + '">' + esc(value) + "</button>";
+    }).join("") + "</span>";
+  }
+
+  /* The result half of the vocabulary: the control says what it does, this
+     says it happened. Painted by role.js on jb:write:succeeded and re-painted
+     after every render, so a re-render mid-fade cannot swallow it. */
+  function savedMark(field) {
+    return '<span class="case__saved" data-saved="' + attr(field) + '" role="status" aria-live="polite"></span>';
+  }
+
   function renderMoves(m) {
     var v = m.moves, p = v.people;
     var html = '<section class="case__lane case__lane--moves"><div class="case__lane-head"><span class="case__lane-title">Your moves</span>' + src("ai") + src("sheet") + src("files") + "</div>";
     if (v.talkingPoints.length) html += '<div class="case__sub">Say this</div><ul class="case__tp">' + v.talkingPoints.map(function (t, i) { return '<li><span class="case__idx">' + (i < 9 ? "0" : "") + (i + 1) + "</span><span>" + esc(t) + "</span></li>"; }).join("") + "</ul>";
     html += '<div class="case__sub">Materials</div><div class="case__materials" data-mount="materials"></div>';
-    html += '<div class="case__sub">People</div><ul class="case__kv">' +
-      '<li><span class="case__k">Contact</span>' + editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"') + "</li>" +
-      '<li><span class="case__k">Last contact</span>' + editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="e.g. Aug 30"') + "</li>" +
-      '<li><span class="case__k">Replied</span><button type="button" class="case__v case__v--toggle' + (p.replied === "Yes" ? "" : " case__v--warn") + '" data-action="edit-field" data-field="reply" data-value="' + (p.replied === "Yes" ? "No" : "Yes") + '" aria-label="Toggle replied">' + esc(p.replied) + "</button></li>" +
-      '<li><span class="case__k">Follow-up</span><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date"></li>' +
+    /* People (spec §5) is the human side of the application, and it opens with
+       a sentence rather than a form: the one move that follows from the four
+       facts below it. The sentence is the block's only signature — everything
+       under it is a quiet ledger row in the shared .case__kv idiom. */
+    html += '<div class="case__sub">People</div>' +
+      '<p class="case__move"><span class="case__move-k">Next move</span>' +
+      '<span class="case__move-v">' + esc(p.nextMove) + "</span></p>" +
+      '<ul class="case__kv case__kv--people">' +
+      '<li><span class="case__k">Contact</span>' + editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"') + savedMark("contact") + "</li>" +
+      '<li><span class="case__k">Last contact</span>' + editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Aug 30"') + savedMark("heardBack") + "</li>" +
+      '<li><span class="case__k">Replied</span>' + replySegment(p.replied) + savedMark("reply") + "</li>" +
+      '<li><span class="case__k">Follow-up</span><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date">' + savedMark("followupAt") + "</li>" +
     "</ul>";
-    /* The recruiter CRM row (recruiter-strip.js) innerHTML-overwrites whatever
-       element it is handed, so it gets its own mount under People and nothing
-       else. role.js fills it after Case.render — the region owner drives the
-       seam, exactly as the retired Brief did. */
-    html += '<div data-mount="recruiter-strip"></div>';
     return html + "</section>";
   }
 

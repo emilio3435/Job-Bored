@@ -156,13 +156,10 @@
       var deps = Case.model.collectDeps(key);
       deps.vm = vm;
       Case.render(mount, Case.model.buildCaseModel(key, deps));
-      /* The recruiter CRM row is a seam, not part of the Case model: it writes
-         straight through the sheetsWrite bridge and overwrites the element it
-         is handed, so it gets the dedicated mount the Case emitted and is
-         filled here rather than inside the renderer. */
-      if (root.JobBoredRecruiterStrip && typeof root.JobBoredRecruiterStrip.render === "function") {
-        root.JobBoredRecruiterStrip.render(mount.querySelector('[data-mount="recruiter-strip"]'), vm);
-      }
+      /* A render replaces the People rows, so a saved mark that is still
+         inside its 1.6s window is re-painted rather than lost (ground rule:
+         anything painted outside the renderer must survive a re-render). */
+      paintSavedMarks(region);
       /* Every render replaces the materials mount; ask role-materials to
          repaint its last state into it (rows / empty hint / error) — it
          does so without re-dispatching jb:materials:manifest, so no loop. */
@@ -221,10 +218,13 @@
           }
           return;
         }
-        /* The replied toggle is a <button>, not an input: it carries the
-           value it would flip TO in data-value and commits on click. */
+        /* The replied chips are <button>s, not inputs: each carries the value
+           it writes in data-value and commits on click. The value is read
+           verbatim — the control is three-state, so `Unknown` writes as
+           itself rather than collapsing into a two-way flip. */
         if (action === "edit-field" && t.getAttribute("data-field") === "reply") {
-          dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: t.getAttribute("data-value") || "Yes" });
+          var replyValue = t.getAttribute("data-value");
+          if (replyValue) dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: replyValue });
           return;
         }
         if (action === "open-profile-match") {
@@ -333,6 +333,44 @@
     }
   }
 
+  /* -------------------- saved marks -------------------- */
+
+  /* The People rows commit silently, so the write's result gets its own mark:
+     a transient `saved` at the row's right edge, cleared after 1.6s. The
+     renderer emits the empty slots; this fills them, keyed by the write kind
+     flowing-writes.js reports on jb:write:succeeded. */
+  var SAVED_KINDS = { contact: true, heardBack: true, reply: true, followupAt: true };
+  var SAVED_MS = 1600;
+  var savedMarks = Object.create(null);
+  var savedSeq = 0;
+
+  function paintSavedMarks(region) {
+    if (!region || typeof region.querySelectorAll !== "function") return;
+    var marks = region.querySelectorAll(".case__saved");
+    for (var i = 0; i < marks.length; i++) {
+      var mark = marks[i];
+      var on = savedMarks[mark.getAttribute("data-saved")] != null;
+      mark.textContent = on ? "saved" : "";
+      if (mark.classList) {
+        if (on) mark.classList.add("case__saved--on");
+        else mark.classList.remove("case__saved--on");
+      }
+    }
+  }
+
+  function onWriteSucceeded(e) {
+    var kind = e && e.detail && e.detail.kind;
+    if (!kind || !SAVED_KINDS[kind]) return;
+    var token = ++savedSeq;
+    savedMarks[kind] = token;
+    paintSavedMarks(getRegion());
+    root.setTimeout(function () {
+      if (savedMarks[kind] !== token) return;
+      delete savedMarks[kind];
+      paintSavedMarks(getRegion());
+    }, SAVED_MS);
+  }
+
   /* -------------------- top-level render -------------------- */
 
   // Focus re-render guard: skip the wholesale innerHTML rebuild while the user
@@ -411,6 +449,7 @@
        Dossier does not stay on its pre-hydration basic view. */
     if (document && document.addEventListener) {
       document.addEventListener("jb:pipeline:rendered", rerenderOpenRole);
+      document.addEventListener("jb:write:succeeded", onWriteSucceeded);
     }
     /* When app.js finishes scrape + Gemini enrichment for a role, the
        kanban-card's data-* attributes are refreshed; re-render the
