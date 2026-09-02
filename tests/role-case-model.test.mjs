@@ -157,3 +157,38 @@ describe("moves.people.nextMove", () => {
     );
   });
 });
+
+/* ------------------------------------------------------------
+   Posting facts (A<->B contract): the scrape's own dates and
+   advertised salary ride the identity block, and the closing
+   date is counted in whole days so the rail can act on it.
+   ------------------------------------------------------------ */
+describe("identity posting facts", () => {
+  function identity(patch) {
+    return build(baseDeps({ vm: { job: { ...baseDeps().vm.job, ...patch } } })).identity;
+  }
+
+  it("passes postedAt, closesAt and postingSalary through", () => {
+    const id = identity({ postedAt: "2026-08-27", closesAt: "2026-09-30", postingSalary: "$185,000–$230,000 USD/yr" });
+    assert.equal(id.postedAt, "2026-08-27");
+    assert.equal(id.closesAt, "2026-09-30");
+    assert.equal(id.postingSalary, "$185,000–$230,000 USD/yr");
+  });
+
+  it("is blank, never undefined, when the scrape carried no posting facts", () => {
+    const id = identity({});
+    assert.deepEqual([id.postedAt, id.closesAt, id.postingSalary], ["", "", ""]);
+    assert.equal(id.closesInDays, null);
+  });
+
+  it("counts whole days to the close for ahead, today and past", () => {
+    // NOW is 2026-09-01T12:00:00Z.
+    assert.equal(identity({ closesAt: "2026-09-04" }).closesInDays, 3);
+    assert.equal(identity({ closesAt: "2026-09-01" }).closesInDays, 0);
+    assert.equal(identity({ closesAt: "2026-08-25" }).closesInDays, -7);
+  });
+
+  it("leaves closesInDays null when the date will not parse", () => {
+    assert.equal(identity({ closesAt: "rolling" }).closesInDays, null);
+  });
+});
