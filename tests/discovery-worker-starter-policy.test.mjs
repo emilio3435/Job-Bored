@@ -28,3 +28,22 @@ describe("worker starter policy", () => {
     assert.equal(parseStarterOptions(["--restart-existing"], { BROWSER_USE_DISCOVERY_REUSE_EXISTING: "true" }).restartExisting, false);
   });
 });
+
+import { decideAfterChildExit } from "../scripts/lib/discovery-worker-policy.mjs";
+
+describe("worker starter supervision — a worker terminated by someone else must not take the dev stack down", () => {
+  // 2026-09-02 09:19: Beat 5 saved the SerpApi key → /__proxy/full-boot restarted
+  // the worker to load the new env → SIGTERM → the starter exited 0 → concurrently -k.
+  it("holds the process open when a healthy replacement worker took the port", () => {
+    assert.equal(decideAfterChildExit({ signal: "SIGTERM", initiatedByUs: false, replacementHealthy: true }), "hold");
+  });
+  it("respawns when the worker was killed and nothing replaced it", () => {
+    assert.equal(decideAfterChildExit({ signal: "SIGTERM", initiatedByUs: false, replacementHealthy: false }), "respawn");
+  });
+  it("exits normally when the shutdown was ours (Ctrl-C / concurrently teardown)", () => {
+    assert.equal(decideAfterChildExit({ signal: "SIGTERM", initiatedByUs: true, replacementHealthy: false }), "exit");
+  });
+  it("exits when the worker died on its own with a code (crash) rather than a signal", () => {
+    assert.equal(decideAfterChildExit({ signal: null, code: 1, initiatedByUs: false, replacementHealthy: false }), "exit");
+  });
+});

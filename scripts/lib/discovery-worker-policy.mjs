@@ -33,3 +33,23 @@ export function parseStarterOptions(argv, env) {
   const flag = Array.isArray(argv) && argv.includes("--restart-existing");
   return { restartExisting: flag || truthy(env.BROWSER_USE_DISCOVERY_RESTART_EXISTING) };
 }
+
+/**
+ * What the starter does after its worker child exits.
+ *
+ * A signal we did not send means another process restarted the worker
+ * (the dashboard's full-boot after an env-key write, a keep-alive, an
+ * autostart). Under `npm run dev` the starter is a `concurrently -k` child,
+ * so exiting would tear the whole stack down — instead: if a healthy
+ * replacement already owns the port, hold the process open on its behalf;
+ * if nothing replaced it, respawn. A crash (exit code, no signal) or our own
+ * shutdown exits as before.
+ *
+ * @param {{ signal?: string | null, code?: number | null, initiatedByUs: boolean, replacementHealthy: boolean }} input
+ * @returns {"hold" | "respawn" | "exit"}
+ */
+export function decideAfterChildExit({ signal, initiatedByUs, replacementHealthy }) {
+  if (initiatedByUs) return "exit";
+  if (!signal) return "exit";
+  return replacementHealthy ? "hold" : "respawn";
+}
