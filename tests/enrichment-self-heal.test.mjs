@@ -405,6 +405,31 @@ describe("enrichment pipeline — single self-healing path", () => {
     );
   });
 
+  it("round-trips posting facts as required cache strings", () => {
+    const { api, jobs } = loadPostingEnrichment();
+    const base = {
+      description: "Build durable products for Meridian Labs.",
+      scrapedAt: Date.now(),
+    };
+
+    api.cacheEnrichment(jobs[0], {
+      ...base,
+      postedAt: "2026-08-27",
+      closesAt: "2026-09-30",
+      postingSalary: "$185,000–$230,000 USD/yr",
+    });
+    let cached = api.getCachedEnrichmentForJob(jobs[0]);
+    assert.equal(cached.postedAt, "2026-08-27");
+    assert.equal(cached.closesAt, "2026-09-30");
+    assert.equal(cached.postingSalary, "$185,000–$230,000 USD/yr");
+
+    api.cacheEnrichment(jobs[0], base);
+    cached = api.getCachedEnrichmentForJob(jobs[0]);
+    assert.equal(cached.postedAt, "");
+    assert.equal(cached.closesAt, "");
+    assert.equal(cached.postingSalary, "");
+  });
+
   it("dispatches jb:role:enriched on both window and document buses", () => {
     const slice = enrichmentFlowSlice();
     assert.match(slice, /window\.dispatchEvent\([^)]*"jb:role:enriched"/);
