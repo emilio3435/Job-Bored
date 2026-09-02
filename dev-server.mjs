@@ -15,6 +15,10 @@ import {
 } from "./scripts/lib/static-path-guard.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
 import {
+  mergeEnvFileValues,
+  parseEnvFileText,
+} from "./scripts/lib/env-file-merge.mjs";
+import {
   detectTailscale,
   deriveTailnetDashboardUrl,
   runTailscaleServe,
@@ -467,7 +471,42 @@ async function probeDiscoveryWorkerHealth(port) {
   return classifyDiscoveryWorkerHealthResponse(response, port);
 }
 
-export function buildDiscoveryWorkerEnv(port, baseEnv = process.env) {
+/**
+ * The env files the worker starter layers, in the same order. The dashboard
+ * starts the worker through this module (/__proxy/full-boot), and building
+ * the child env from process.env alone gave that worker a DIFFERENT env than
+ * `npm run dev` gives it — a credential declared only in the repo's env file
+ * was simply absent, and the worker refused every run (2026-09-02).
+ */
+export function readDiscoveryWorkerEnvFileLayers() {
+  const paths = [
+    join(ROOT, "integrations", "browser-use-discovery", ".env"),
+    join(ROOT, "server", ".env"),
+    PACKAGED_PATHS.workerEnv,
+  ].filter((path, index, all) => path && all.indexOf(path) === index);
+  const layers = [];
+  for (const path of paths) {
+    if (!existsSync(path)) continue;
+    try {
+      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
+    } catch (err) {
+      console.warn(
+        `[dev-server] could not read ${path}: ${(err && err.message) || err}`,
+      );
+    }
+  }
+  return layers;
+}
+
+export function buildDiscoveryWorkerEnv(port, baseEnv = process.env, options = {}) {
+  // Files layer first (later file wins, empties never erase), then the real
+  // process env on top: an explicit export still outranks any file. Layers
+  // are injected, never read here — this builder stays deterministic, and
+  // buildDiscoveryWorkerSpawnEnv is what supplies the real files.
+  const fileLayers = Array.isArray(options.envFileLayers)
+    ? options.envFileLayers
+    : [];
+  baseEnv = { ...mergeEnvFileValues(fileLayers), ...baseEnv };
   const fallbackGemini = [
     baseEnv.BROWSER_USE_DISCOVERY_GEMINI_API_KEY,
     baseEnv.DISCOVERY_GEMINI_API_KEY,
@@ -509,6 +548,17 @@ export function buildDiscoveryWorkerEnv(port, baseEnv = process.env) {
   return applyDiscoveryWorkerLlmAliases(env);
 }
 
+/**
+ * The env an actually-spawned worker gets: the same files the starter layers,
+ * with process.env on top. Kept separate from buildDiscoveryWorkerEnv so that
+ * builder stays pure and testable.
+ */
+export function buildDiscoveryWorkerSpawnEnv(port, baseEnv = process.env) {
+  return buildDiscoveryWorkerEnv(port, baseEnv, {
+    envFileLayers: readDiscoveryWorkerEnvFileLayers(),
+  });
+}
+
 async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
   const resolvedPort = normalizeDiscoveryWorkerPort(port);
   const before = await probeDiscoveryWorkerHealth(resolvedPort);
@@ -542,7 +592,7 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
       cwd: ROOT,
       detached: true,
       stdio: "ignore",
-      env: buildDiscoveryWorkerEnv(resolvedPort),
+      env: buildDiscoveryWorkerSpawnEnv(resolvedPort),
     },
   );
   child.unref();

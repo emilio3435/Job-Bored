@@ -5,6 +5,7 @@ import { decideAfterChildExit, decideExistingWorkerAction, parseStarterOptions }
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
+import { mergeEnvFileValues, parseEnvFileText } from "./lib/env-file-merge.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./lib/llm-env.mjs";
 
 const repoRoot = process.cwd();
@@ -28,33 +29,15 @@ const bundledBrowserUseCommandPath = join(
   "browser-use-agent-browser.mjs",
 );
 
-function parseEnvFile(text) {
-  const out = {};
-  if (typeof text !== "string" || !text) return out;
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
-      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (key) out[key] = value;
-  }
-  return out;
-}
 
 function readEnvFiles() {
-  const merged = {};
+  // Later files override earlier ones, but a present-but-EMPTY value never
+  // erases a configured one — see scripts/lib/env-file-merge.mjs.
+  const layers = [];
   for (const path of envFilePaths) {
     if (!existsSync(path)) continue;
     try {
-      Object.assign(merged, parseEnvFile(readFileSync(path, "utf8")));
+      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
     } catch (err) {
       console.warn(
         `[start:discovery-worker] could not read ${path}: ${
@@ -63,7 +46,7 @@ function readEnvFiles() {
       );
     }
   }
-  return merged;
+  return mergeEnvFileValues(layers);
 }
 
 function readFirstEnvValue(source, keys) {
