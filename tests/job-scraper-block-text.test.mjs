@@ -109,3 +109,80 @@ describe("JSON-LD posting facts", () => {
     assert.equal(out.postingSalary, "€8,500–€10,250 EUR/mo");
   });
 });
+
+describe("JSON-LD salary is never more precise than the posting", () => {
+  const posting = (baseSalary, extra = {}) =>
+    `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "JobPosting",
+      title: "Staff Engineer",
+      description: "Build reliable systems for Meridian Labs. ".repeat(20),
+      baseSalary,
+      ...extra,
+    })}</script></head><body><p>shell</p></body></html>`;
+
+  const salaryOf = async (baseSalary, extra) => {
+    const out = await scrapeJobPosting("https://example.com/jobs/salary", {
+      fetchImpl: async () => htmlResponse(posting(baseSalary, extra)),
+    });
+    return out.postingSalary;
+  };
+
+  it("prefixes a max-only figure with Up to", async () => {
+    assert.equal(
+      await salaryOf({ currency: "USD", value: { maxValue: 220000, unitText: "YEAR" } }),
+      "Up to $220,000 USD/yr",
+    );
+  });
+
+  it("prefixes a min-only figure with From", async () => {
+    assert.equal(
+      await salaryOf({ currency: "USD", value: { minValue: 180000, unitText: "YEAR" } }),
+      "From $180,000 USD/yr",
+    );
+  });
+
+  it("leaves an exact single value unprefixed", async () => {
+    assert.equal(
+      await salaryOf({ currency: "USD", value: { value: 195000, unitText: "YEAR" } }),
+      "$195,000 USD/yr",
+    );
+  });
+
+  it("reads the currency nested beside the amounts", async () => {
+    assert.equal(
+      await salaryOf({
+        value: { minValue: 180000, maxValue: 220000, currency: "USD", unitText: "YEAR" },
+      }),
+      "$180,000–$220,000 USD/yr",
+    );
+  });
+
+  it("falls back to the JobPosting-level salaryCurrency", async () => {
+    assert.equal(
+      await salaryOf(
+        { value: { minValue: 180000, maxValue: 220000, unitText: "YEAR" } },
+        { salaryCurrency: "GBP" },
+      ),
+      "£180,000–£220,000 GBP/yr",
+    );
+  });
+
+  it("keeps the period for weekly and daily contract rates", async () => {
+    assert.equal(
+      await salaryOf({ currency: "USD", value: { value: 800, unitText: "DAY" } }),
+      "$800 USD/day",
+    );
+    assert.equal(
+      await salaryOf({ currency: "USD", value: { value: 4000, unitText: "WEEK" } }),
+      "$4,000 USD/wk",
+    );
+  });
+
+  it("spells out an unmapped unit rather than dropping it", async () => {
+    assert.equal(
+      await salaryOf({ currency: "USD", value: { value: 950, unitText: "SHIFT" } }),
+      "$950 USD per shift",
+    );
+  });
+});
