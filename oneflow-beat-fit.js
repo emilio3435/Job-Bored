@@ -235,6 +235,7 @@
       record.jsonPre.textContent = JSON.stringify(buildPayload(record.model), null, 2);
     }
     if (record.updateSummary) record.updateSummary();
+    persistDraft(record);
   }
 
   function renderChipEditor(values, options, record) {
@@ -410,13 +411,31 @@
   function getDraft(ctx) {
     const runtime = ctx.runtime || {};
     const state = ctx.state || {};
+    // `runtime.drafts` is the persisted bag the controller hydrates on
+    // open (spec §3.2). After a refresh it is the ONLY draft there is —
+    // the rerun's NEW-14 was this beat reading in-memory scratch alone
+    // and rendering an empty, un-advanceable review.
+    const drafts =
+      runtime.drafts && typeof runtime.drafts === "object" ? runtime.drafts : {};
     return (
       runtime.profileDraft ||
       runtime.fitProfileDraft ||
+      drafts.profileDraft ||
       state.profileDraft ||
       state.fitProfileDraft ||
       {}
     );
+  }
+
+  /**
+   * Persist the correction the user just made (spec §3.2: "B4 edits …
+   * persist under the same key on input, debounced"). The controller owns
+   * the debounce; this only names the draft.
+   */
+  function persistDraft(record) {
+    const ctx = record.ctx;
+    if (!ctx || typeof ctx.saveDraft !== "function") return;
+    ctx.saveDraft("profileDraft", buildPayload(record.model));
   }
 
   function getRecord(ctx) {

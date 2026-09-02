@@ -54,11 +54,29 @@
   const PAUSE_TOAST = "Setup paused — pick up right here anytime.";
   const PAUSE_REASONS = new Set(["escape", "close-button", "close"]);
 
+  /**
+   * Beat-local drafts that survive a refresh (spec §3.2, SIXBEATS2 locked
+   * decision 4). Two keys, both written by the beat that owns them:
+   * `resumeText` by B3 on input, `profileDraft` by B3 when the draft lands
+   * and by B4 on every correction. Anything else is refused — a beat is
+   * never allowed to talk this store into holding a key or a token.
+   */
+  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft"]);
+
+  /** One write per typing burst, not one per keystroke (spec §3.2). */
+  const DRAFT_SAVE_DELAY_MS = 400;
+
+  /** The re-entry a paused flow leaves behind (SIXBEATS2 locked decision 6). */
+  const RESUME_PILL_ID = "oneFlowResumePill";
+  const RESUME_PILL_LABEL = "Resume setup ▸";
+  const DEMO_BOARD_ID = "oneFlowDemoBoard";
+
   const DEFAULT_STATE = Object.freeze({
     version: FLOW_STATE_VERSION,
     beat: "",
     completedBeats: [],
     skipped: {},
+    drafts: {},
     startedAt: "",
     completed: false,
   });
@@ -69,14 +87,20 @@
   /**
    * Cross-beat scratch: B3's resume draft is what B4 confirms, B2's
    * verified provider is what B3 drafts with. In-memory only — anything
-   * that must survive a refresh belongs in the flow state or its own store.
+   * that must survive a refresh belongs in `runtime.drafts` (which the
+   * controller mirrors into the flow state) or in its own store.
    */
-  const runtime = {};
+  const runtime = { drafts: {} };
 
   let state = cloneState(DEFAULT_STATE);
   let hydrated = false;
   let flowOpenEmitted = false;
   let openBeatId = "";
+  /** Draft writes waiting out the debounce, and who is waiting on them. */
+  let pendingDrafts = null;
+  let draftTimer = null;
+  let draftWaiters = [];
+  let resumePillEl = null;
 
   function cloneState(raw) {
     return {
@@ -84,6 +108,7 @@
       beat: raw.beat,
       completedBeats: [...raw.completedBeats],
       skipped: { ...raw.skipped },
+      drafts: { ...(raw.drafts || {}) },
       startedAt: raw.startedAt,
       completed: !!raw.completed,
     };
@@ -213,6 +238,7 @@
       }
     }
     hydrated = true;
+    mirrorDrafts();
     return state;
   }
 
@@ -229,8 +255,136 @@
     }
     // No store (or a failed write): keep the in-memory machine moving so a
     // storage fault degrades to "this session only", never to a dead flow.
-    state = cloneState({ ...state, ...partial, skipped: { ...state.skipped, ...(partial.skipped || {}) } });
+    state = cloneState({
+      ...state,
+      ...partial,
+      skipped: { ...state.skipped, ...(partial.skipped || {}) },
+      drafts: { ...state.drafts, ...(partial.drafts || {}) },
+    });
     return state;
+  }
+
+  // ---------------------------------------------------------------
+  // Beat-local drafts (spec §3.2, SIXBEATS2 locked decision 4)
+  // ---------------------------------------------------------------
+
+  /**
+   * Republish the persisted drafts onto the runtime every beat reads.
+   * Anything still inside the debounce window wins over what is on disk:
+   * the user typed it, it just has not landed yet.
+   */
+  function mirrorDrafts() {
+    runtime.drafts = { ...state.drafts, ...(pendingDrafts || {}) };
+    return runtime.drafts;
+  }
+
+  /**
+   * Write the pending drafts now and answer everyone who was waiting on
+   * the debounce. Called by the timer, and directly whenever the flow is
+   * about to move or close — a beat transition must never outrun the
+   * keystrokes that preceded it.
+   */
+  async function flushDrafts() {
+    if (draftTimer) {
+      clearTimeout(draftTimer);
+      draftTimer = null;
+    }
+    const drafts = pendingDrafts;
+    const waiters = draftWaiters;
+    pendingDrafts = null;
+    draftWaiters = [];
+    if (drafts) {
+      await hydrate();
+      await patchState({ drafts });
+      mirrorDrafts();
+    }
+    for (const resolve of waiters) resolve(true);
+    return true;
+  }
+
+  /**
+   * Persist one beat-local draft. Resolves true once the (debounced)
+   * write lands, false for a key this store does not own.
+   *
+   * The rerun's NEW-7 and NEW-14 are both this function's absence: the
+   * drafted profile and the typed resume lived on `runtime` alone, so a
+   * refresh mid-flow returned a stranger to an empty Beat 4.
+   */
+  function saveDraft(key, value) {
+    const name = asString(key);
+    if (!DRAFT_KEYS.includes(name)) {
+      console.warn(
+        `[JobBored] one-flow: "${name}" is not a draft key (${DRAFT_KEYS.join(", ")}).`,
+      );
+      return Promise.resolve(false);
+    }
+    if (!runtime.drafts || typeof runtime.drafts !== "object") runtime.drafts = {};
+    runtime.drafts[name] = value;
+    pendingDrafts = { ...(pendingDrafts || {}), [name]: value };
+    const waiter = new Promise((resolve) => draftWaiters.push(resolve));
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      flushDrafts();
+    }, DRAFT_SAVE_DELAY_MS);
+    return waiter;
+  }
+
+  // ---------------------------------------------------------------
+  // Re-entry after a pause (SIXBEATS2 locked decision 6, spec §3.4)
+  // ---------------------------------------------------------------
+
+  /** True while S0 is the live surface — its invitation card re-enters there. */
+  function demoBoardActive() {
+    const board = window.JobBoredOneFlowDemoBoard;
+    if (board && typeof board.isActive === "function") {
+      try {
+        if (board.isActive()) return true;
+      } catch (e) {
+        // A board that cannot answer is a board that is not on screen.
+      }
+    }
+    return !!(
+      typeof document.getElementById === "function" &&
+      document.getElementById(DEMO_BOARD_ID)
+    );
+  }
+
+  function hideResumePill() {
+    const pill = resumePillEl;
+    resumePillEl = null;
+    if (pill && typeof pill.remove === "function") pill.remove();
+  }
+
+  /**
+   * The pill NEW-6 found missing: on a configured install, Escape dropped
+   * the user on the dashboard with the flow paused and nothing on screen
+   * that led back to it. S0 has its invitation card; everywhere else gets
+   * this — same shape, one job, gone the moment the flow is open or done.
+   */
+  function showResumePill(beatId) {
+    if (state.completed) return null;
+    if (demoBoardActive()) return null;
+    const body = document.body;
+    if (!body || typeof document.createElement !== "function") return null;
+    hideResumePill();
+    const beat = getBeat(beatId);
+    const label = beat ? beat.label : "";
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.id = RESUME_PILL_ID;
+    pill.className = "oneflow-resume-pill";
+    pill.textContent = RESUME_PILL_LABEL;
+    pill.setAttribute(
+      "aria-label",
+      label ? `Resume setup — ${label}` : "Resume setup",
+    );
+    pill.addEventListener("click", () => {
+      hideResumePill();
+      open();
+    });
+    body.appendChild(pill);
+    resumePillEl = pill;
+    return pill;
   }
 
   // ---------------------------------------------------------------
@@ -297,6 +451,9 @@
       clearBusy() {
         const sh = shell();
         if (sh && sh.clearBusy) sh.clearBusy();
+      },
+      saveDraft(key, value) {
+        return saveDraft(key, value);
       },
       completeBeat(detail) {
         return completeBeat(beat.id, detail);
@@ -401,7 +558,12 @@
     await hydrate();
     const beat = getBeat(id);
     if (!beat) return null;
+    // Land the keystrokes of the beat we are leaving before the next beat
+    // reads the drafts bag (spec §3.4: resume lands "with drafts restored").
+    await flushDrafts();
     await patchState({ beat: beat.id });
+    mirrorDrafts();
+    hideResumePill();
     openBeatId = beat.id;
     const rendered = renderBeat(beat);
     emit(steps().BEAT_OPENED, { beat: beat.id });
@@ -442,6 +604,8 @@
    * onboardingFlowState to keep working.
    */
   async function finishFlow() {
+    await flushDrafts();
+    hideResumePill();
     const startedAt = Date.parse(state.startedAt);
     const durationMs = Number.isFinite(startedAt) ? Date.now() - startedAt : 0;
     const skips = Object.keys(state.skipped);
@@ -491,7 +655,12 @@
     const why = asString(reason, "close");
     openBeatId = "";
     flowOpenEmitted = false;
-    if (PAUSE_REASONS.has(why)) toast(PAUSE_TOAST, "info");
+    // Pausing is the one moment a draft is most likely to be half-typed.
+    flushDrafts();
+    if (PAUSE_REASONS.has(why)) {
+      toast(PAUSE_TOAST, "info");
+      showResumePill(beat);
+    }
     emit(steps().BEAT_ABANDONED, { beat, reason: why });
   }
 
@@ -519,6 +688,7 @@
     getBeat,
     getState,
     seedRuntime,
+    saveDraft,
     maybeStart,
     open,
     goToBeat,
