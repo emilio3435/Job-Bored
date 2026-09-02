@@ -16,6 +16,11 @@
          tolerates object items plus legacy double-encoded
          entities left in the cache.
 
+     (3) CASE FIELDS — the view-model carries every field The
+         Case reads (spec §4): priority, favorite, logo, match
+         score, reply state, dates, requirements, skills and
+         enrichment provenance.
+
    Harness note (trap 2): jb-text.js MUST be evaluated before
    dawn-data.js. A consumer loaded without window.JobBoredText
    fails silently inside a try and the suite would "pass" on
@@ -213,5 +218,81 @@ describe("card attribute parsing", () => {
     }).enrichment;
     assert.equal(enr.roleInOneLine, "Own the platform & its roadmap");
     assert.equal(enr.postingSummary, "Para one.\n\nPara two & three.");
+  });
+});
+
+describe("getRoleViewModel case fields", () => {
+  it("exposes priority, favorite, reply, dates, requirements, skills, enrichment meta", () => {
+    const vmObj = viewModelFor({
+      "data-priority": "high",
+      "data-favorite": "yes",
+      "data-logo-url": "https://logo.test/m.png",
+      "data-match-score": "74",
+      "data-reply-flag": "No",
+      "data-last-contact": "Aug 30",
+      "data-follow-up": "2026-09-04",
+      "data-found-at": "2026-08-29",
+      "data-requirements": JSON.stringify(["5+ years"]),
+      "data-skills": JSON.stringify(["React"]),
+      "data-enriched-at": "1756512000000",
+      "data-scrape-method": "ats-api",
+      "data-talking-points": "Shipped the migration",
+    });
+    const j = vmObj.job;
+    assert.equal(j.priority, "high");
+    assert.equal(j.favorite, true);
+    assert.equal(j.logoUrl, "https://logo.test/m.png");
+    assert.equal(j.matchScore, 74);
+    assert.equal(j.replied, "No");
+    assert.equal(j.lastHeardFrom, "Aug 30");
+    assert.equal(j.followUpDate, "2026-09-04");
+    assert.deepEqual(j.requirements, ["5+ years"]);
+    assert.deepEqual(j.skills, ["React"]);
+    assert.equal(j.foundAt, "2026-08-29");
+    assert.deepEqual(j.talkingPoints, ["Shipped the migration"]);
+    assert.equal(j.enrichment.enrichedAt, 1756512000000);
+    assert.equal(j.enrichment.scrapeMethod, "ats-api");
+  });
+
+  it("defaults the case fields when the card carries none of them", () => {
+    const j = parseCard({});
+    assert.equal(j.priority, "");
+    assert.equal(j.favorite, false);
+    assert.equal(j.logoUrl, "");
+    assert.equal(j.matchScore, null);
+    assert.equal(j.replied, "Unknown");
+    assert.deepEqual(j.requirements, []);
+    assert.deepEqual(j.skills, []);
+    assert.equal(j.foundAt, "");
+    assert.deepEqual(j.talkingPoints, []);
+    assert.equal(j.enrichment.enrichedAt, null);
+    assert.equal(j.enrichment.scrapeMethod, "");
+  });
+
+  it("keeps honouring the legacy data-replied attribute when no reply flag is set", () => {
+    assert.equal(parseCard({ "data-replied": "No" }).replied, "No");
+    assert.equal(parseCard({ "data-replied": "Yes" }).replied, "Yes");
+    assert.equal(parseCard({ "data-replied": "Unknown" }).replied, "Unknown");
+  });
+
+  it("reads an ISO enrichedAt as epoch ms, not as its leading year", () => {
+    // data-enriched-at carries _postingEnrichment.scrapedAt, which the browser
+    // path writes as epoch ms and the server path as an ISO string. Reading
+    // "2026-08-30T…" as the number 2026 would date the posting to 1970.
+    const enr = parseCard({ "data-enriched-at": "2026-08-30T12:00:00.000Z" }).enrichment;
+    assert.equal(enr.enrichedAt, Date.parse("2026-08-30T12:00:00.000Z"));
+  });
+
+  it("carries the case fields on the empty view-model too", () => {
+    const api = loadDawnData();
+    const j = plain(api.getRoleViewModel("missing", { doc: makeDoc(makeCard({}, { key: "other" })) })).job;
+    assert.equal(j.priority, "");
+    assert.equal(j.favorite, false);
+    assert.equal(j.matchScore, null);
+    assert.deepEqual(j.requirements, []);
+    assert.deepEqual(j.skills, []);
+    assert.deepEqual(j.talkingPoints, []);
+    assert.equal(j.enrichment.enrichedAt, null);
+    assert.equal(j.enrichment.scrapeMethod, "");
   });
 });

@@ -641,6 +641,17 @@
     return m ? Number(m[0]) : null;
   }
 
+  /* Timestamps reach the card in two shapes: epoch ms from the in-browser
+     scrape path and an ISO string from the server path. Read either as ms —
+     _firstNumber would take "2026-08-30T…" for the number 2026 and date the
+     posting to 1970. */
+  function _toEpochMs(raw) {
+    var text = String(raw == null ? "" : raw).trim();
+    if (!text) return null;
+    var ms = /^-?\d+$/.test(text) ? Number(text) : Date.parse(text);
+    return Number.isFinite(ms) ? ms : null;
+  }
+
   /**
    * Canonical fit VM: 1–10 units. Unknown is not 0.
    *   missing / non-numeric → { value: null, unknown: true }
@@ -1287,7 +1298,9 @@
         mustHaves: [], niceToHaves: [], responsibilities: [],
         toolsAndStack: [], extraKeywords: [], talkingPoints: [],
         atsFitScore: null, atsFitRationale: "",
-        status: "", source: "", enrichedAt: "", fallbackReason: "", parseMode: "",
+        requirements: [], skills: [],
+        status: "", source: "", enrichedAt: null, scrapeMethod: "",
+        fallbackReason: "", parseMode: "",
       };
     }
     var atsFitScore = _firstNumber(_attr(card, "data-ats-fit-score"));
@@ -1317,6 +1330,8 @@
       niceToHaves: _parseJsonArrayAttr(card, "data-nice-to-haves"),
       responsibilities: _parseJsonArrayAttr(card, "data-responsibilities"),
       toolsAndStack: _parseJsonArrayAttr(card, "data-tools-and-stack"),
+      requirements: _parseJsonArrayAttr(card, "data-requirements"),
+      skills: _parseJsonArrayAttr(card, "data-skills"),
       extraKeywords: _parseJsonArrayAttr(card, "data-extra-keywords"),
       talkingPoints: _parseJsonArrayAttr(card, "data-ai-talking-points"),
       atsFitScore: atsFitScore,
@@ -1325,7 +1340,10 @@
       /* Provenance (P0-C). Absent attributes stay "" and the dossier
          classifier reads that as 'unknown' — never as posting-grounded. */
       source: String(_attr(card, "data-enrichment-source") || "").trim(),
-      enrichedAt: String(_attr(card, "data-enriched-at") || "").trim(),
+      enrichedAt: _toEpochMs(_attr(card, "data-enriched-at")),
+      /* How the posting text was obtained (ats-api, gemini-url-context, …).
+         The Case shows it so a thin scrape is legible as a thin scrape. */
+      scrapeMethod: String(_attr(card, "data-scrape-method") || "").trim(),
       fallbackReason: String(_attr(card, "data-enrichment-fallback") || "").trim(),
       parseMode: String(_attr(card, "data-enrichment-parse-mode") || "").trim(),
     };
@@ -1346,6 +1364,10 @@
       deadline: null, notes: null,
       contact: "Unknown", lastHeardFrom: "", replied: "Unknown", followUpDate: "",
       contacts: [], links: [],
+      /* Case fields (spec §4) — present and empty, never absent, so the
+         renderer never has to distinguish "no card" from "no value". */
+      priority: "", favorite: false, logoUrl: "", matchScore: null,
+      requirements: [], skills: [], foundAt: "", talkingPoints: [],
       enrichment: _parseEnrichmentFromCard(null),
     };
 
@@ -1385,6 +1407,15 @@
       : replyAttr === "no"
         ? "No"
         : "Unknown";
+    /* The Case reads data-reply-flag (the raw Sheet value). Fall back to the
+       legacy data-replied attribute so a card rendered before this seam —
+       or by an older cached board — still reports a definite "No". */
+    var caseReply = (function () {
+      var raw = String(_attr(card, "data-reply-flag") || "").trim();
+      if (/^(yes|replied|y)$/i.test(raw)) return "Yes";
+      if (/^no$/i.test(raw)) return "No";
+      return recruiterReply;
+    })();
 
     /* Merge sheet tags with the AI-derived extraKeywords, dedup'd
        case-insensitively. The drawer composes the same union, so the
@@ -1430,10 +1461,19 @@
           ? String(recruiterContacts[0].name || recruiterContacts[0].email || "").trim() || "Unknown"
           : "Unknown",
         lastHeardFrom: _attr(card, "data-last-contact"),
-        replied: recruiterReply,
+        replied: caseReply,
         followUpDate: _attr(card, "data-follow-up"),
         contacts: recruiterContacts,
         links: _parseLinksFromCard(card),
+        /* Case fields (spec §4). */
+        priority: String(_attr(card, "data-priority") || "").trim(),
+        favorite: String(_attr(card, "data-favorite") || "").toLowerCase() === "yes",
+        logoUrl: String(_attr(card, "data-logo-url") || "").trim(),
+        matchScore: _firstNumber(_attr(card, "data-match-score")),
+        requirements: _parseJsonArrayAttr(card, "data-requirements"),
+        skills: _parseJsonArrayAttr(card, "data-skills"),
+        foundAt: rec.foundAt || "",
+        talkingPoints: _parseTalkingPointsFromCard(card),
         /* AI enrichment from the Cheerio scrape + Gemini call.
            Optional; empty strings / arrays when the role hasn't been
            enriched yet (status="" or "loading"). */
