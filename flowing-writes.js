@@ -68,6 +68,7 @@
   var LAST_CONTACT_COLUMN = "R"; // schemas/pipeline-row.v1.json -> lastHeardFrom
   var RESPONSE_COLUMN = "S"; // schemas/pipeline-row.v1.json -> responseFlag
   var LINK_COLUMN = "E";   // schemas/pipeline-row.v1.json -> link
+  var CONTACT_COLUMN = "L"; // schemas/pipeline-row.v1.json -> contact
 
   var SHEETS_BASE = "https://sheets.googleapis.com/v4/spreadsheets";
 
@@ -440,10 +441,24 @@
 
   /**
    * Mark the response flag (column S) using the same enum as the drawer select.
+   * The Case's People row is a two-state toggle, so an explicit "No" clears
+   * the flag; every other value (including the legacy date-shaped payload the
+   * drawer sends) still means "they replied".
    * @param {any} jobKey
+   * @param {string} [value]
    */
-  function writeReply(jobKey) {
-    return writeColumn(jobKey, RESPONSE_COLUMN, "Yes", "reply", "reply status");
+  function writeReply(jobKey, value) {
+    var flag = /^no$/i.test(String(value == null ? "" : value).trim()) ? "No" : "Yes";
+    return writeColumn(jobKey, RESPONSE_COLUMN, flag, "reply", "reply status");
+  }
+
+  /**
+   * Write the contact name (column L) from the Case's People row.
+   * @param {any} jobKey
+   * @param {string} value
+   */
+  function writeContact(jobKey, value) {
+    return writeColumn(jobKey, CONTACT_COLUMN, value || "", "contact", "contact");
   }
 
   /**
@@ -529,6 +544,7 @@
     switch (field) {
       case "stage": return writeStage(jobKey, value);
       case "heardBack": return writeHeardBack(jobKey, value);
+      case "contact": return writeContact(jobKey, value);
       case "reply": return writeReply(jobKey, value);
       case "followupAt": return writeFollowup(jobKey, value);
       case "passed": return writePassed(jobKey, value);
@@ -572,6 +588,7 @@
     saveRoleNote: saveRoleNote,
     writeStage: writeStage,
     writeHeardBack: writeHeardBack,
+    writeContact: writeContact,
     writeReply: writeReply,
     writeFollowup: writeFollowup,
     writePassed: writePassed,
@@ -594,6 +611,7 @@
         LAST_CONTACT_COLUMN: LAST_CONTACT_COLUMN,
         RESPONSE_COLUMN: RESPONSE_COLUMN,
         LINK_COLUMN: LINK_COLUMN,
+        CONTACT_COLUMN: CONTACT_COLUMN,
       },
       _stageLabels: STAGE_LABELS,
     },
@@ -621,6 +639,7 @@
     eq(FOLLOWUP_COLUMN, "P", "FOLLOWUP_COLUMN");
     eq(LAST_CONTACT_COLUMN, "R", "LAST_CONTACT_COLUMN");
     eq(RESPONSE_COLUMN, "S", "RESPONSE_COLUMN");
+    eq(CONTACT_COLUMN, "L", "CONTACT_COLUMN");
     if (failures.length) {
       try { console.error("[JobBoredFlowing.writes] self-test failures", failures); } catch (_) {}
       return { ok: false, failures: failures };

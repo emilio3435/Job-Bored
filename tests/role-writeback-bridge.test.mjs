@@ -122,6 +122,24 @@ describe("role writeback bridge", () => {
       expectedKind: "reply",
     },
     {
+      /* The Case's People row is a two-state toggle: an explicit "No"
+         clears column S. Every other payload (including the legacy
+         date-shaped one above) still means "they replied". */
+      field: "reply",
+      value: "No",
+      expectedRange: "Pipeline!S7",
+      expectedValue: "No",
+      expectedKind: "reply",
+    },
+    {
+      /* Contact name (column L) — new with The Case's People row. */
+      field: "contact",
+      value: "Dana Reyes",
+      expectedRange: "Pipeline!L7",
+      expectedValue: "Dana Reyes",
+      expectedKind: "contact",
+    },
+    {
       field: "followupAt",
       value: "2026-05-22",
       expectedRange: "Pipeline!P7",
