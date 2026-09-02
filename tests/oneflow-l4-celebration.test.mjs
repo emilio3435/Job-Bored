@@ -12,14 +12,22 @@ import {
 
    WHY: the teardown counted FOUR confetti bursts before the first job.
    The spec collapses them to one, at B6 — but the player itself is the
-   best-tested piece of the old onboarding (persistent CTA handoff,
-   reveal-under-the-fade, the inert click-through fix). Deleting its host
-   in L7 must not delete the player with it, so the player moved to its
-   own module first; L7 then deleted the host, the four legacy stage
-   configs, and the delegating alias.
+   best-tested piece of the old onboarding, so it MOVED to its own module
+   before L7 deleted its host. These probes pin the survivor.
 
-   These probes pin the survivor: the new home behaves exactly as the old
-   one did, and the finale is the only stage left.
+   What the survivor is changed with SIXBEATS2 (locked decision 2). The
+   acceptance rerun found the moved player mounting a full-screen
+   `aria-modal` card over Beat 6, with its own CTA and journey strip, and
+   never dismissing itself — the payoff's actions were unclickable for
+   the whole sample (NEW-1, BLOCKER). The persistent-CTA handoff and the
+   inert click-through fix were mechanics that existed to make THAT card
+   usable; a burst that eats no clicks needs neither, so they went with
+   it. What survives here is the contract every caller still depends on:
+   the player renders what it is handed, cleans up after itself, and
+   never strands its handoff.
+
+   The finale's own claims (non-modal, no strip/CTA/alt, auto-fade,
+   pointer-events, reduced motion) live in tests/sixbeats2-finale.test.mjs.
    ============================================================ */
 
 describe("onboarding-celebration.js — the extracted player (spec §7)", () => {
@@ -32,34 +40,28 @@ describe("onboarding-celebration.js — the extracted player (spec §7)", () => 
     );
   });
 
-  it("persists: no auto-dismiss timer, and the CTA takes focus (a11y)", () => {
+  it("dismisses itself on a timer rather than waiting on a CTA", () => {
+    // SIXBEATS2 decision 2: the burst is decoration over a live beat, so
+    // there is nothing for the user to click and nothing to wait for.
     const env = loadCelebrationModule();
     let done = 0;
     env.celebration.playOnboardingCelebration(() => {
       done += 1;
     });
     assert.equal(env.overlay.hidden, false, "the overlay shows");
-    assert.equal(
-      env.timers.length,
-      0,
-      "no timed dismissal — the celebration waits for the user",
-    );
-    assert.equal(done, 0, "onDone must not fire until the CTA is clicked");
-    assert.equal(
-      env.els.onboardingCelebrationContinue.__focused,
-      true,
-      "the continue CTA receives focus",
-    );
+    assert.equal(done, 0, "onDone waits for the burst to finish");
+    assert.equal(env.timers.length, 1, "one self-dismissal is scheduled");
+    assert.equal(env.timers[0].ms, env.celebration.TIMINGS.burstMs);
   });
 
-  it("the handoff fires at fade START so the next chapter mounts underneath", () => {
+  it("the handoff fires at fade START so anything chained mounts underneath", () => {
     const env = loadCelebrationModule();
     let done = 0;
     env.celebration.playOnboardingCelebration(() => {
       done += 1;
     });
-    env.els.onboardingCelebrationContinue.dispatch("click", {});
-    assert.equal(done, 1, "onDone runs immediately on click");
+    env.timers.shift().fn(); // the burst elapses
+    assert.equal(done, 1, "onDone runs as the fade begins");
     assert.equal(
       env.overlay.classList.contains("onboarding-celebration--out"),
       true,
@@ -69,29 +71,16 @@ describe("onboarding-celebration.js — the extracted player (spec §7)", () => 
     assert.equal(env.overlay.hidden, true, "hidden after the fade");
   });
 
-  it("inerts every body sibling while up, and restores them on dismiss", () => {
-    // Live repro: overflow:auto containers win hit-testing over a higher-z
-    // sibling in Chromium, so the CTA read as dead. Keeping the mechanic is
-    // the whole reason the player is moved rather than rewritten.
+  it("leaves every body sibling interactive while it is up", () => {
+    // The old player inerted the whole page so ITS cta could win hit
+    // testing over an overflow:auto wizard. The burst is the opposite
+    // contract: Beat 6 stays usable underneath it (SIXBEATS2 decision 2).
     const env = loadCelebrationModule();
     env.celebration.playOnboardingCelebration(() => {});
-    assert.equal(
-      env.other.hasAttribute("inert"),
-      true,
-      "background siblings are inerted while the overlay is up",
-    );
-    assert.equal(
-      env.overlay.hasAttribute("inert"),
-      false,
-      "the overlay itself is un-inerted so its CTA is clickable",
-    );
-    env.els.onboardingCelebrationContinue.dispatch("click", {});
+    assert.equal(env.other.hasAttribute("inert"), false);
+    assert.equal(env.overlay.hasAttribute("inert"), false);
     env.drainTimers();
-    assert.equal(
-      env.other.hasAttribute("inert"),
-      false,
-      "interactivity is restored so the next chapter is usable",
-    );
+    assert.equal(env.other.hasAttribute("inert"), false);
   });
 
   it("spawns confetti into the burst host and clears it on dismiss", () => {
@@ -99,35 +88,8 @@ describe("onboarding-celebration.js — the extracted player (spec §7)", () => 
     const burst = env.els.onboardingCelebrationConfetti;
     env.celebration.playOnboardingCelebration(() => {});
     assert.ok(burst.children.length > 0, "confetti pieces are spawned");
-    env.els.onboardingCelebrationContinue.dispatch("click", {});
     env.drainTimers();
     assert.equal(burst.children.length, 0, "and cleared after the fade");
-  });
-
-  it("falls back to a timed dismissal when the CTA is missing (stale markup)", () => {
-    const env = loadCelebrationModule({ withCta: false });
-    let done = 0;
-    env.celebration.playOnboardingCelebration(() => {
-      done += 1;
-    });
-    assert.ok(env.timers.length >= 1, "a fallback timer is scheduled");
-    env.drainTimers();
-    assert.equal(done, 1, "the handoff never strands");
-  });
-
-  it("hands off to onAlt instead of onDone when the alt link is used", () => {
-    const env = loadCelebrationModule();
-    let done = 0;
-    let alt = 0;
-    env.celebration.playOnboardingCelebration(
-      () => { done += 1; },
-      "profile",
-      { onAlt: () => { alt += 1; } },
-    );
-    assert.equal(env.els.onboardingCelebrationAlt.hidden, false);
-    env.els.onboardingCelebrationAlt.dispatch("click", {});
-    assert.equal(alt, 1);
-    assert.equal(done, 0, "the primary handoff must not also fire");
   });
 
   it("calls onDone immediately when the overlay is absent", () => {
@@ -174,18 +136,6 @@ describe("celebration stages — one flow finale, nothing else (spec §5 B6, §7
     }
   });
 
-  it("the flow finale marks every legacy journey step done — nothing is 'next'", () => {
-    // B6 IS the end of the deal. A journey strip still pointing at a
-    // remaining step would contradict the receipt the beat just handed over.
-    const env = loadCelebrationModule();
-    env.celebration.playOnboardingCelebration(() => {}, "flow_payoff");
-    assert.equal(
-      env.celebration.STAGES.flow_payoff.currentIndex,
-      4,
-      "past the last legacy step, so all four render done and none current",
-    );
-  });
-
   it("the flow finale takes its headline and sub from the caller (per-user copy)", () => {
     // "You're live, {firstName}." is resolved by B6 from the Google session;
     // the player renders what it is handed rather than owning the name.
@@ -193,7 +143,6 @@ describe("celebration stages — one flow finale, nothing else (spec §5 B6, §7
     env.celebration.playOnboardingCelebration(() => {}, "flow_payoff", {
       title: "You're live, Priya.",
       sub: "That was the one-time part. From here, JobBored works for you.",
-      cta: "See what happens now →",
     });
     assert.equal(
       env.els.onboardingCelebrationTitle.textContent,
@@ -202,10 +151,6 @@ describe("celebration stages — one flow finale, nothing else (spec §5 B6, §7
     assert.equal(
       env.els.onboardingCelebrationSub.textContent,
       "That was the one-time part. From here, JobBored works for you.",
-    );
-    assert.equal(
-      env.els.onboardingCelebrationContinue.textContent,
-      "See what happens now →",
     );
   });
 
