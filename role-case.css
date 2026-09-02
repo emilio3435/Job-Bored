@@ -36,7 +36,13 @@ body.jb-v2 [data-region="role"] .case .case__rail [data-action="edit-field"]:foc
    supported; role.js sizes them in `ch` where it is not. The hover/focus
    underline is the shared .case__rail [data-action="edit-field"] pair above,
    so a fact input highlights exactly like the title does. */
-body.jb-v2 [data-region="role"] .case .case__fact-input { font: inherit; color: inherit; background: transparent; border: none; border-bottom: 1px dashed transparent; outline: none; field-sizing: content; width: 12ch; max-width: 100%; }
+body.jb-v2 [data-region="role"] .case .case__fact-input { font: inherit; color: inherit; background: transparent; border: none; border-bottom: 1px dashed transparent; outline: none; width: 12ch; max-width: 100%; }
+/* 12ch is the fallback every engine gets (role.js re-sizes it in ch there);
+   where field-sizing lands the input hugs its own value instead, with a floor
+   so an empty fact still shows its placeholder. */
+@supports (field-sizing: content) {
+  body.jb-v2 [data-region="role"] .case .case__fact-input { field-sizing: content; width: auto; min-width: 6ch; }
+}
 body.jb-v2 [data-region="role"] .case .case__meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(251, 247, 236, 0.72); }
 body.jb-v2 [data-region="role"] .case .case__meta b { color: var(--parchment); font-weight: 600; }
 body.jb-v2 [data-region="role"] .case .case__rail-right { display: grid; gap: 10px; justify-items: end; }
@@ -161,8 +167,29 @@ body.jb-v2 [data-region="role"] .case .case__v { font-family: var(--serif); font
 body.jb-v2 [data-region="role"] .case .case__v--edit { appearance: none; border: none; border-bottom: 1px dashed transparent; background: transparent; outline: none; padding: 0 2px; min-width: 0; width: 60%; font: inherit; color: inherit; text-align: right; }
 body.jb-v2 [data-region="role"] .case .case__v--edit:hover { border-bottom-color: var(--border-strong); }
 body.jb-v2 [data-region="role"] .case .case__v--edit:focus { border-bottom-color: var(--crimson); }
-body.jb-v2 [data-region="role"] .case .case__v--toggle { border: none; background: transparent; cursor: pointer; font: inherit; color: inherit; padding: 0; }
-body.jb-v2 [data-region="role"] .case .case__v--warn { color: var(--crimson); }
+/* People (spec §5): one native block. The next move is a sentence, not a
+   form field — a mono crimson eyebrow at the .case__sub scale, then the move
+   itself in the serif italic the Case uses for everything it is quoting back
+   at you. Everything below is a quiet ledger row; no card, no shadow. */
+body.jb-v2 [data-region="role"] .case .case__move { display: flex; align-items: baseline; gap: 12px; margin: 0 0 10px; }
+body.jb-v2 [data-region="role"] .case .case__move-k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--crimson); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__move-v { font-family: var(--serif); font-style: italic; font-size: 15px; line-height: 1.5; color: var(--navy); }
+body.jb-v2 [data-region="role"] .case .case__kv--people li { align-items: center; }
+/* Replied: three chips in a row, the active one filled. 28px tall so the row
+   stays a ledger line; the ::after stretches the hit area to the 44px the
+   a11y floor asks for without growing the chip. */
+body.jb-v2 [data-region="role"] .case .case__seg { display: inline-flex; gap: 4px; }
+body.jb-v2 [data-region="role"] .case .case__seg-b { position: relative; min-height: 28px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 3px; background: transparent; cursor: pointer; font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__seg-b::after { content: ""; position: absolute; inset: -8px 0; min-height: 44px; }
+body.jb-v2 [data-region="role"] .case .case__seg-b--on { background: var(--navy); border-color: var(--navy); color: var(--parchment); }
+body.jb-v2 [data-region="role"] .case .case__seg-b:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
+/* The write landed. Mono mint, right edge of the row, gone in 1.6s. */
+body.jb-v2 [data-region="role"] .case .case__saved { font-family: var(--mono); font-size: 8px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mint-deep); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__saved--on { animation: case-saved 1.6s ease-out forwards; }
+@keyframes case-saved { 0%, 55% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="role"] .case .case__saved--on { animation: none; }
+}
 body.jb-v2 [data-region="role"] .case .case__notes { margin: 0 36px; padding: 18px 20px; background: var(--parchment-deep); border: 1px solid var(--border); border-radius: 10px; position: relative; }
 body.jb-v2 [data-region="role"] .case .case__notes::before { content: "NOTES · YOURS"; position: absolute; top: -9px; left: 16px; background: var(--parchment); padding: 0 8px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.24em; color: var(--crimson); }
 body.jb-v2 [data-region="role"] .case .case__notes textarea { width: 100%; min-height: 96px; border: none; border-bottom: 1px dashed var(--border-strong); background: transparent; padding: 8px 4px; font-family: "Special Elite", var(--mono); font-size: 14px; line-height: 1.65; color: var(--ink); resize: vertical; outline: none; }

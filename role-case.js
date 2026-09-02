@@ -23,6 +23,8 @@
       ? '<img class="case__logo" src="' + attr(id.logoUrl) + '" alt="">'
       : '<div class="case__logo case__logo--mono">' + esc((id.company || "?").charAt(0).toUpperCase()) + "</div>";
     var meta = [];
+    var closesIn = id.closesInDays;
+    var closesSoon = closesIn != null && closesIn <= 14;
     /* Spec §5: all four rail identity fields edit in place. Location and
        salary are borderless inline inputs on the navy rail — the same
        edit-field contract role.js wires for title and company, not the
@@ -30,12 +32,22 @@
        a missing fact can be filled in without leaving the dossier. */
     meta.push(editInput("location", id.location, "case__fact-input", "Location", ' placeholder="Location"'));
     if (id.employment) meta.push(esc(id.employment));
-    meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="Salary"'));
+    /* The posting's own salary is a scrape, not the user's data: it stands in
+       as the placeholder so the empty input reads as a fact the sheet has yet
+       to confirm, and the `scrape` tag says where the number came from. */
+    var salaryHint = !id.salary && id.postingSalary ? id.postingSalary : "Salary";
+    meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="' + attr(salaryHint) + '"'));
+    if (!id.salary && id.postingSalary) meta.push(src("scrape"));
     if (id.source) meta.push("via " + esc(id.source));
     /* DOSSIER-01: an identity the classifier will not ground in the posting is
        said so on the rail, never left to read like a scraped fact. */
     if (m.provenance && m.provenance.inferredIdentity) meta.push(src("inferred"));
     if (id.foundAt) meta.push("Found " + esc(id.foundAt));
+    if (id.postedAt) meta.push("Posted " + esc(id.postedAt));
+    /* A closing date the hunter still has time on is a meta line; one that is
+       near or past is a pill instead — never both, or the same date reads as
+       two facts. */
+    if (id.closesAt && !closesSoon) meta.push("Closes " + esc(id.closesAt));
     if (id.priority) meta.push("Priority <b>" + esc(id.priority.charAt(0).toUpperCase() + id.priority.slice(1)) + "</b>");
     if (id.favorite) meta.push("<b>&#9733;</b> Favorite");
     var pills = "";
@@ -43,6 +55,12 @@
       var d = m.nextAction.daysUntil;
       var when = d == null ? "" : (d < 0 ? " · " + Math.abs(d) + "d overdue" : d === 0 ? " · today" : " · in " + d + " day" + (d === 1 ? "" : "s"));
       pills += '<span class="case__pill case__pill--due"><span class="case__dot case__dot--amber"></span>Follow-up ' + esc(m.nextAction.followUpAt) + esc(when) + "</span>";
+    }
+    if (closesSoon) {
+      var closes = closesIn > 0
+        ? "Closes in " + closesIn + " day" + (closesIn === 1 ? "" : "s")
+        : (closesIn === 0 ? "Closes today" : "Closed " + Math.abs(closesIn) + " day" + (Math.abs(closesIn) === 1 ? "" : "s") + " ago");
+      pills += '<span class="case__pill case__pill--due" data-pill="closes"><span class="case__dot case__dot--amber"></span>' + esc(closes) + "</span>";
     }
     if (m.health && m.health.state !== "unknown") {
       var cls = m.health.state === "open" ? "open" : (m.health.state === "expired" ? "expired" : "review");
@@ -147,22 +165,46 @@
     return html + "</section>";
   }
 
+  /* Replied is three-state, so it is a segmented control, not a toggle that
+     hides one of its values behind a click. Every value is visible and the
+     active one is filled; role.js reads data-value verbatim, so `Unknown`
+     writes as itself. */
+  var REPLY_VALUES = ["Yes", "No", "Unknown"];
+  function replySegment(current) {
+    var cur = current || "Unknown";
+    return '<span class="case__seg" role="group" aria-label="Replied">' + REPLY_VALUES.map(function (value) {
+      var on = value === cur;
+      return '<button type="button" class="case__seg-b' + (on ? " case__seg-b--on" : "") + '"' +
+        ' data-action="edit-field" data-field="reply" data-value="' + attr(value) + '"' +
+        ' aria-pressed="' + (on ? "true" : "false") + '">' + esc(value) + "</button>";
+    }).join("") + "</span>";
+  }
+
+  /* The result half of the vocabulary: the control says what it does, this
+     says it happened. Painted by role.js on jb:write:succeeded and re-painted
+     after every render, so a re-render mid-fade cannot swallow it. */
+  function savedMark(field) {
+    return '<span class="case__saved" data-saved="' + attr(field) + '" role="status" aria-live="polite"></span>';
+  }
+
   function renderMoves(m) {
     var v = m.moves, p = v.people;
     var html = '<section class="case__lane case__lane--moves"><div class="case__lane-head"><span class="case__lane-title">Your moves</span>' + src("ai") + src("sheet") + src("files") + "</div>";
     if (v.talkingPoints.length) html += '<div class="case__sub">Say this</div><ul class="case__tp">' + v.talkingPoints.map(function (t, i) { return '<li><span class="case__idx">' + (i < 9 ? "0" : "") + (i + 1) + "</span><span>" + esc(t) + "</span></li>"; }).join("") + "</ul>";
     html += '<div class="case__sub">Materials</div><div class="case__materials" data-mount="materials"></div>';
-    html += '<div class="case__sub">People</div><ul class="case__kv">' +
-      '<li><span class="case__k">Contact</span>' + editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"') + "</li>" +
-      '<li><span class="case__k">Last contact</span>' + editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="e.g. Aug 30"') + "</li>" +
-      '<li><span class="case__k">Replied</span><button type="button" class="case__v case__v--toggle' + (p.replied === "Yes" ? "" : " case__v--warn") + '" data-action="edit-field" data-field="reply" data-value="' + (p.replied === "Yes" ? "No" : "Yes") + '" aria-label="Toggle replied">' + esc(p.replied) + "</button></li>" +
-      '<li><span class="case__k">Follow-up</span><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date"></li>' +
+    /* People (spec §5) is the human side of the application, and it opens with
+       a sentence rather than a form: the one move that follows from the four
+       facts below it. The sentence is the block's only signature — everything
+       under it is a quiet ledger row in the shared .case__kv idiom. */
+    html += '<div class="case__sub">People</div>' +
+      '<p class="case__move"><span class="case__move-k">Next move</span>' +
+      '<span class="case__move-v">' + esc(p.nextMove) + "</span></p>" +
+      '<ul class="case__kv case__kv--people">' +
+      '<li><span class="case__k">Contact</span>' + editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"') + savedMark("contact") + "</li>" +
+      '<li><span class="case__k">Last contact</span>' + editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Aug 30"') + savedMark("heardBack") + "</li>" +
+      '<li><span class="case__k">Replied</span>' + replySegment(p.replied) + savedMark("reply") + "</li>" +
+      '<li><span class="case__k">Follow-up</span><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date">' + savedMark("followupAt") + "</li>" +
     "</ul>";
-    /* The recruiter CRM row (recruiter-strip.js) innerHTML-overwrites whatever
-       element it is handed, so it gets its own mount under People and nothing
-       else. role.js fills it after Case.render — the region owner drives the
-       seam, exactly as the retired Brief did. */
-    html += '<div data-mount="recruiter-strip"></div>';
     return html + "</section>";
   }
 

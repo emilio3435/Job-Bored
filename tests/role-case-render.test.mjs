@@ -38,12 +38,18 @@ function load() {
      assertion below would silently pass on an empty block. */
   vm.runInNewContext(readFileSync(join(repoRoot, "dossier-field-provenance.js"), "utf8"), sandbox, { filename: "dossier-field-provenance.js" });
   assert.equal(typeof sandbox.window.JobBoredDossierProvenance.classify, "function", "the provenance classifier must load");
+  /* Trap 2's sibling: the People block's next-move sentence comes from
+     recruiter-strip.js `nextAction`, so the strip loads before the model or
+     the sentence assertions would pass on an empty string. */
+  vm.runInNewContext(readFileSync(join(repoRoot, "recruiter-strip.js"), "utf8"), sandbox, { filename: "recruiter-strip.js" });
+  assert.equal(typeof sandbox.window.JobBoredRecruiterStrip.nextAction, "function", "recruiter-strip must export nextAction");
   vm.runInNewContext(readFileSync(join(repoRoot, "role-case-model.js"), "utf8"), sandbox, { filename: "role-case-model.js" });
   vm.runInNewContext(readFileSync(join(repoRoot, "role-case.js"), "utf8"), sandbox, { filename: "role-case.js" });
   return sandbox.window.JobBoredCase;
 }
 const Case = load();
 const roleCssSource = readFileSync(join(repoRoot, "role.css"), "utf8");
+const caseCssSource = readFileSync(join(repoRoot, "role-case.css"), "utf8");
 
 /* Same fixture as tests/role-case-model.test.mjs (Meridian Labs, fictional). */
 function baseDeps(over = {}) {
@@ -89,6 +95,13 @@ function renderHtml(m) {
   return mount.innerHTML;
 }
 
+/** Just the rail's meta row — `case__src--*` tags live in the lanes too. */
+function railMeta(html) {
+  const match = /<div class="case__meta">([\s\S]*?)<\/div><\/div>/.exec(html);
+  assert.ok(match, "the rail meta must render");
+  return match[1];
+}
+
 describe("The Case renders every block from the model", () => {
   it("rail, stepper, numbers, one-line", () => {
     const html = renderHtml(model());
@@ -132,7 +145,7 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /class="case__lane case__lane--moves"[\s\S]*?<span class="case__idx">01<\/span>/);
     assert.match(html, /<div class="case__materials" data-mount="materials"><\/div>/);
     assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="followupAt"[^>]*type="date"[^>]*value="2026-09-04"/);
-    assert.match(html, /<button[^>]*data-action="edit-field"[^>]*data-field="reply"[^>]*data-value="Yes"/);
+    assert.match(html, /<span class="case__seg"[^>]*role="group"[^>]*aria-label="Replied"/);
     assert.match(html, /<textarea[^>]*data-action="notes"[^>]*>Recruiter: Dana<\/textarea>/);
   });
   it("record with hollow future step and configured provider", () => {
@@ -278,5 +291,147 @@ describe("the Brief is retired", () => {
       assert.doesNotMatch(source, /role-brief\.js/, file + " must not load role-brief.js");
       assert.doesNotMatch(source, /JobBoredDossierBrief/, file + " must not reference the Brief renderer");
     }
+  });
+});
+
+/* ------------------------------------------------------------
+   People is ONE block (program `dossier-case-followups`, lane A).
+   Before this, the Case painted its own People rows AND mounted
+   the recruiter strip's boxed card directly beneath them — the
+   same four CRM facts twice, over two write paths. The block now
+   opens with the next move as a sentence and nothing follows it
+   but the ledger.
+   ------------------------------------------------------------ */
+describe("the People block", () => {
+  it("opens with the next move as a sentence, not a form field", () => {
+    const html = renderHtml(model({ vmPatch: { contacts: [{ name: "Dana Reyes" }], followUpDate: "2026-09-04" } }));
+    assert.match(html, /<div class="case__sub">People<\/div><p class="case__move"><span class="case__move-k">Next move<\/span><span class="case__move-v">Follow up on Sep 4<\/span><\/p>/);
+    assert.doesNotMatch(html, /Next action/, "the strip's label is retired; the Case says Next move");
+  });
+
+  it("renders replied as a three-state segmented control with the active chip filled", () => {
+    const html = renderHtml(model({ vmPatch: { replied: "Unknown" } }));
+    assert.match(html, /<span class="case__seg" role="group" aria-label="Replied">/);
+    for (const value of ["Yes", "No", "Unknown"]) {
+      assert.match(html, new RegExp(`data-action="edit-field" data-field="reply" data-value="${value}"`), value + " must be its own chip");
+    }
+    assert.match(html, /class="case__seg-b case__seg-b--on"[^>]*data-value="Unknown"[^>]*aria-pressed="true">Unknown</);
+    assert.match(html, /class="case__seg-b"[^>]*data-value="Yes"[^>]*aria-pressed="false">Yes</);
+    assert.doesNotMatch(html, /case__v--toggle/, "the two-state toggle is gone");
+  });
+
+  it("marks the chip the sheet actually holds", () => {
+    const html = renderHtml(model({ vmPatch: { replied: "No" } }));
+    assert.match(html, /class="case__seg-b case__seg-b--on"[^>]*data-value="No"/);
+  });
+
+  it("carries an empty saved slot on every writable People row", () => {
+    const html = renderHtml(model());
+    for (const field of ["contact", "heardBack", "reply", "followupAt"]) {
+      assert.match(
+        html,
+        new RegExp(`<span class="case__saved" data-saved="${field}" role="status" aria-live="polite"></span>`),
+        field + " needs a saved slot the write result can land in",
+      );
+    }
+  });
+
+  it("uses placeholders, not hint paragraphs, for the empty contact row", () => {
+    const html = renderHtml(model({ vmPatch: { contacts: [] } }));
+    assert.match(html, /data-field="contact"[^>]*value=""[^>]*aria-label="Contact" placeholder="Add a contact"/);
+    assert.match(html, /data-field="heardBack"[^>]*placeholder="Aug 30"/);
+  });
+
+  it("no longer mounts the recruiter strip's dossier card under People", () => {
+    const html = renderHtml(model());
+    assert.match(html, /class="case__kv case__kv--people"/, "precondition: the People ledger rendered");
+    assert.doesNotMatch(html, /data-mount="recruiter-strip"/);
+    assert.doesNotMatch(html, /jb-recruiter-strip/);
+    assert.doesNotMatch(html, /Save follow-up/);
+  });
+});
+
+/* ------------------------------------------------------------
+   The rail's posting facts (the A↔B contract). The dates come
+   from the posting itself; the closing one earns a pill only
+   when it is close enough to act on, and never a pill AND a
+   meta line for the same date.
+   ------------------------------------------------------------ */
+describe("posting dates and salary on the rail", () => {
+  it("adds Posted and Closes to the meta, in that order after Found", () => {
+    const html = renderHtml(model({ vmPatch: { postedAt: "2026-08-27", closesAt: "2026-10-30" } }));
+    assert.match(html, /<span>Found 2026-08-29<\/span><span>Posted 2026-08-27<\/span><span>Closes 2026-10-30<\/span>/);
+  });
+
+  it("says nothing about dates the posting did not carry", () => {
+    const html = renderHtml(model());
+    assert.match(html, /<span>Found 2026-08-29<\/span>/, "precondition: the meta rendered");
+    assert.doesNotMatch(html, /Posted /);
+    assert.doesNotMatch(html, /Closes /);
+  });
+
+  it("promotes a close inside 14 days to an amber pill and drops the meta line", () => {
+    const html = renderHtml(model({ vmPatch: { closesAt: "2026-09-04" } }));
+    assert.match(html, /<span class="case__pill case__pill--due" data-pill="closes"><span class="case__dot case__dot--amber"><\/span>Closes in 3 days<\/span>/);
+    assert.doesNotMatch(html, /<span>Closes 2026-09-04<\/span>/, "never a pill and a meta line for the same date");
+  });
+
+  it("says Closes today and Closed N days ago at the boundaries", () => {
+    assert.match(renderHtml(model({ vmPatch: { closesAt: "2026-09-01" } })), /data-pill="closes"[\s\S]*?Closes today</);
+    assert.match(renderHtml(model({ vmPatch: { closesAt: "2026-09-02" } })), /data-pill="closes"[\s\S]*?Closes in 1 day</);
+    assert.match(renderHtml(model({ vmPatch: { closesAt: "2026-08-25" } })), /data-pill="closes"[\s\S]*?Closed 7 days ago</);
+  });
+
+  it("leaves a close 40 days out as a meta line with no pill", () => {
+    const html = renderHtml(model({ vmPatch: { closesAt: "2026-10-11" } }));
+    assert.match(html, /<span>Closes 2026-10-11<\/span>/);
+    assert.doesNotMatch(html, /data-pill="closes"/);
+  });
+
+  it("offers the posting's salary as a placeholder, tagged scrape, when the sheet has none", () => {
+    const meta = railMeta(renderHtml(model({ vmPatch: { salary: "", postingSalary: "$185,000–$230,000 USD/yr" } })));
+    /* A placeholder, never a value: it is the posting's number, not the user's,
+       so a blur must not write it back into the sheet. */
+    assert.match(meta, /data-field="salary"[^>]*value=""[^>]*placeholder="\$185,000–\$230,000 USD\/yr"/);
+    assert.match(meta, /placeholder="\$185,000[^"]*"[^>]*><\/span><span><span class="case__src case__src--scrape">scrape<\/span><\/span>/);
+  });
+
+  it("never overwrites the sheet's own salary with the posting's", () => {
+    const meta = railMeta(renderHtml(model({ vmPatch: { postingSalary: "$185,000–$230,000 USD/yr" } })));
+    assert.match(meta, /data-field="salary"[^>]*value="\$185–230k"[^>]*placeholder="Salary"/);
+    assert.doesNotMatch(meta, /case__src--scrape/, "a sheet salary needs no scrape tag");
+  });
+});
+
+/* ------------------------------------------------------------
+   The rail fact inputs' width (the sizing tension L7 flagged).
+   12ch is a compromise on every engine: too wide for "Remote",
+   too narrow for a salary band. The fix keeps 12ch as the
+   fallback role.js re-sizes in `ch`, and lets engines that ship
+   field-sizing hug the value instead.
+   ------------------------------------------------------------ */
+describe("rail fact inputs hug their value where field-sizing is supported", () => {
+  const base = /\.case__fact-input \{([^}]*)\}/.exec(caseCssSource);
+
+  it("keeps 12ch as the fallback width, unconditionally", () => {
+    assert.ok(base, "the base .case__fact-input rule must exist");
+    assert.match(base[1], /width: 12ch/);
+    assert.doesNotMatch(
+      base[1],
+      /field-sizing/,
+      "field-sizing in the base rule is ignored where unsupported and leaves 12ch as the only width",
+    );
+  });
+
+  it("hugs the value behind an @supports guard", () => {
+    const guarded = /@supports \(field-sizing: content\) \{\s*body\.jb-v2 \[data-region="role"\] \.case \.case__fact-input \{([^}]*)\}/.exec(caseCssSource);
+    assert.ok(guarded, "the hug must be behind @supports (field-sizing: content)");
+    assert.match(guarded[1], /field-sizing: content/);
+    assert.match(guarded[1], /width: auto/, "auto is what lets the input shrink to its value");
+    assert.match(guarded[1], /min-width: 6ch/, "an empty fact still has to show its placeholder");
+  });
+
+  it("stays scoped under the Case, like every other rule in this sheet", () => {
+    assert.match(caseCssSource, /body\.jb-v2 \[data-region="role"\] \.case \.case__fact-input \{ font: inherit/);
   });
 });
