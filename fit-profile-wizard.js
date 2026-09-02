@@ -115,6 +115,11 @@
   }
 
   function profileUrl(path) {
+    // Empty base = same-origin, and same-origin is now correct even on the
+    // static dashboard: dev-server.mjs proxies /profile and /profile/* to the
+    // local API on 127.0.0.1:3847 (JOBBORED_API_PORT overrides). Before that
+    // proxy existed these calls 404'd against the static host on every fresh
+    // install and the server fit profile never persisted (SIXBEATS C3).
     var base = getProfileApiBase();
     return (base || "") + path;
   }
