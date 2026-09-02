@@ -2,6 +2,7 @@
    Server twin of jb-text.js (spec §4.2) — Canonical Job Text producer.
    Keep the entity map and Markdown/glyph rules in sync with jb-text.js. */
 
+/** @type {Record<string, string>} */
 const NAMED_ENTITIES = {
   amp: "&", lt: "<", gt: ">", quot: '"', apos: "'",
   nbsp: " ", ndash: "–", mdash: "—",
