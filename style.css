@@ -1379,13 +1379,20 @@ textarea {
   pointer-events: none;
 }
 
+/* SIXBEATS2 NEW-13: the row wraps, and the message keeps a real width.
+   `.toast-action-btn` is nowrap + no-shrink, so a long action label ("Copy
+   bootstrap command") used to eat the row and squeeze a flex-basis-0
+   message down to its min-content width — one word per line, 500px tall,
+   over the sign-in gate. Wrapping lets the button drop to its own line
+   instead of starving the sentence it belongs to. */
 .toast {
   display: flex;
-  align-items: center;
+  flex-wrap: wrap;
+  align-items: flex-start;
   gap: var(--space-2);
   padding: var(--space-3) var(--space-4);
   min-width: 240px;
-  max-width: 360px;
+  max-width: 420px;
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-lg);
   font-size: var(--text-sm);
@@ -1412,8 +1419,9 @@ textarea {
 }
 
 .toast-message {
-  flex: 1;
+  flex: 1 1 220px;
   min-width: 0;
+  overflow-wrap: break-word;
 }
 
 .toast-close {
@@ -1436,6 +1444,7 @@ textarea {
 
 .toast-action-btn {
   flex-shrink: 0;
+  margin-left: auto;
   padding: var(--space-1) var(--space-3);
   border: 1px solid currentColor;
   border-radius: var(--radius-md);

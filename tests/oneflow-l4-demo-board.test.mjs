@@ -148,11 +148,21 @@ describe("S0 demo board — mount / unmount (spec §4)", () => {
       textOf(detail).includes(FIXTURE.rows[0].whyItFits),
       "the detail shows the clicked row",
     );
+    // SIXBEATS2 NEW-5 added the ONE control this panel is allowed: its own
+    // close. A detail with no way out sat on the corner pill and swallowed
+    // the clicks that reopen the flow. Everything else is still forbidden —
+    // a demo card must promise no write the fixture cannot keep.
     assert.deepEqual(
-      tagsIn(detail).filter((t) => ["INPUT", "TEXTAREA", "SELECT", "BUTTON"].includes(t)),
+      tagsIn(detail).filter((t) => ["INPUT", "TEXTAREA", "SELECT"].includes(t)),
       [],
-      "read-only: the demo detail offers no editable or actionable control",
+      "read-only: the demo detail offers no editable control",
     );
+    assert.deepEqual(
+      tagsIn(detail).filter((t) => t === "BUTTON").length,
+      1,
+      "exactly one button, and it is the close (tests/sixbeats2-demo-detail-dismiss)",
+    );
+    assert.ok(detail.querySelector(".oneflow-demo__detail-close"));
     assert.equal(detail.getAttribute("aria-readonly"), "true");
   });
 
