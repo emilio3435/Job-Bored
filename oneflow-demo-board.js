@@ -16,6 +16,12 @@
        costs zero AI calls and looks identical for every reader of the
        README.
 
+   SIXBEATS V1 (claim U1) rebuilt the surface this renders: a page header
+   strip carrying the wordmark and the sample-pipeline kicker, a FRAMED
+   board whose cards speak the product's card language (paper, stage
+   rail, DEMO chip, fit pill, "why it fits"), and the invitation as the
+   visual centre of gravity — on the board, never opened collapsed.
+
    Nothing mounts this yet. L6 calls mount() at boot when !getSheetId();
    until then the module is inert (SUBSTRATE locked decision 1).
 
@@ -31,11 +37,14 @@
   const ROOT_ID = "oneFlowDemoBoard";
 
   /**
-   * "Poke around first" is a session escape, not a permanent one: the
-   * pill comes back on the next load so the deal is never silently
-   * dropped, but it never nags twice in one sitting (spec §4).
+   * "Poke around first" is an escape for THIS visit only. It used to be
+   * remembered in sessionStorage, which is how the founder's cold start
+   * (SIXBEATS claim U1) opened on a corner pill over an empty viewport:
+   * the whole deal had been silently reduced to a 200 px button by a
+   * click from a previous page load. A fresh load now always opens on
+   * the invitation; the pill is only ever a state the visitor chose in
+   * the session they are looking at.
    */
-  const PILL_SESSION_KEY = "jobbored_oneflow_demo_pill_collapsed";
 
   /** Normative copy — spec §4. Ship these strings verbatim (§8). */
   const INVITATION = Object.freeze({
@@ -50,6 +59,18 @@
     primary: "Make it mine — 15 min, once",
     secondary: "Poke around first",
     pill: "Set up JobBored — 15 min ▸",
+  });
+
+  /**
+   * The framed board's own head, from the approved prototype's screen S0
+   * ("Pipeline" · "8 roles · demo data"). It names what the frame holds so
+   * the demo reads as the product's board rather than as loose cards.
+   */
+  const BOARD = Object.freeze({
+    title: "Pipeline",
+    /** @param {number} count */
+    count: (count) => `${count} roles · demo data`,
+    kicker: "Sample pipeline — this is what a set-up JobBored looks like.",
   });
 
   /** Board column order — the fixture's stages, in pipeline order. */
@@ -77,36 +98,6 @@
     if (className) el.className = className;
     if (text != null) el.textContent = String(text);
     return el;
-  }
-
-  function session() {
-    try {
-      return window.sessionStorage || null;
-    } catch (_) {
-      // Private mode / blocked storage: the invitation is not gated on it.
-      return null;
-    }
-  }
-
-  function readCollapsed() {
-    const s = session();
-    if (!s) return false;
-    try {
-      return s.getItem(PILL_SESSION_KEY) === "1";
-    } catch (_) {
-      return false;
-    }
-  }
-
-  function writeCollapsed(value) {
-    const s = session();
-    if (!s) return;
-    try {
-      if (value) s.setItem(PILL_SESSION_KEY, "1");
-      else s.removeItem(PILL_SESSION_KEY);
-    } catch (_) {
-      /* storage is a convenience, never a gate */
-    }
   }
 
   function flow() {
@@ -145,18 +136,47 @@
   // Render
   // ---------------------------------------------------------------
 
+  /**
+   * Which fit band a score reads in — the same three-band split the
+   * product's own --jb-fit-high / -mid / -low tokens encode, so a demo
+   * card and a real card never disagree about what "strong" looks like.
+   */
+  function fitBand(score) {
+    const value = Number(score);
+    if (!Number.isFinite(value)) return "low";
+    if (value >= 85) return "high";
+    if (value >= 70) return "mid";
+    return "low";
+  }
+
+  /**
+   * The stage a row belongs to, as a class suffix. Unknown stages fall
+   * back to "new" so a hand-edited fixture never renders a railless card.
+   */
+  function stageKey(row) {
+    const key = String((row && row.stage) || "");
+    return STAGE_ORDER.some(([id]) => id === key) ? key : "new";
+  }
+
   function buildCard(row) {
-    const card = createEl("article", "oneflow-demo__card");
+    const stage = stageKey(row);
+    const card = createEl(
+      "article",
+      `oneflow-demo__card oneflow-demo__card--stage-${stage}`,
+    );
     card.setAttribute("data-oneflow-demo-key", String(row.jobKey || ""));
+    card.setAttribute("data-oneflow-demo-stage", stage);
     card.setAttribute("role", "button");
     card.setAttribute("tabindex", "0");
 
     const head = createEl("div", "oneflow-demo__card-head");
     head.appendChild(createEl("span", "oneflow-demo__chip", "DEMO"));
+    // The fit pill, in the prototype's shape ("92% fit") — the number is
+    // the whole reason a stranger reads the card, so it gets the pill.
     const score = createEl(
       "span",
-      "oneflow-demo__score",
-      `${row.fitScore} fit`,
+      `oneflow-demo__score oneflow-demo__score--${fitBand(row.fitScore)}`,
+      `${row.fitScore}% fit`,
     );
     score.setAttribute("aria-label", `Fit score ${row.fitScore} out of 100`);
     head.appendChild(score);
@@ -191,21 +211,90 @@
   function buildBoard() {
     const board = createEl("div", "oneflow-demo__board");
     for (const [key, label] of STAGE_ORDER) {
-      const inStage = rows.filter((row) => row.stage === key);
+      const inStage = rows.filter((row) => stageKey(row) === key);
       if (!inStage.length) continue;
-      const column = createEl("section", "oneflow-demo__column");
-      const heading = createEl("h3", "oneflow-demo__column-title", label);
-      const count = createEl(
-        "span",
-        "oneflow-demo__column-count",
-        String(inStage.length),
+      const column = createEl(
+        "section",
+        `oneflow-demo__column oneflow-demo__column--${key}`,
       );
-      heading.appendChild(count);
+      column.setAttribute("data-oneflow-demo-stage", key);
+      const heading = createEl("h3", "oneflow-demo__column-title");
+      // The stage dot repeats the card's rail colour at the column head,
+      // which is how the real board tells stages apart at a glance.
+      heading.appendChild(createEl("span", "oneflow-demo__column-dot"));
+      heading.appendChild(createEl("span", "oneflow-demo__column-label", label));
+      heading.appendChild(
+        createEl(
+          "span",
+          "oneflow-demo__column-count",
+          String(inStage.length),
+        ),
+      );
       column.appendChild(heading);
       for (const row of inStage) column.appendChild(buildCard(row));
       board.appendChild(column);
     }
     return board;
+  }
+
+  /**
+   * The wordmark, as markup rather than as the top bar's 200-line inline
+   * SVG: a mint mark plus the two-weight "Job|Bored" lockup. Same lockup,
+   * one element, and it scales down to the collapsed pill unchanged.
+   */
+  function buildWordmark() {
+    const lockup = createEl("span", "oneflow-demo__wordmark");
+    const text = createEl("span", "oneflow-demo__wordmark-text");
+    lockup.appendChild(buildMark("oneflow-demo__wordmark-mark"));
+    text.append(
+      createEl("span", "oneflow-demo__wordmark-job", "Job"),
+      createEl("span", "oneflow-demo__wordmark-bored", "Bored"),
+    );
+    lockup.appendChild(text);
+    return lockup;
+  }
+
+  /** The mark alone — CSS-drawn, and deliberately textless so a control
+      that carries it keeps its own label as its accessible name. */
+  function buildMark(className) {
+    const glyph = createEl("span", `oneflow-demo__mark ${className || ""}`.trim());
+    glyph.setAttribute("aria-hidden", "true");
+    return glyph;
+  }
+
+  /**
+   * The page header strip. The shipped S0 opened on a bare kanban with
+   * no chrome at all (SIXBEATS claim U1); this is the one line of chrome
+   * that tells a stranger whose product they are looking at, and that
+   * what is under it is a sample.
+   */
+  function buildHeader() {
+    const header = createEl("header", "oneflow-demo__header");
+    const inner = createEl("div", "oneflow-demo__header-inner");
+    inner.appendChild(buildWordmark());
+    if (rows.length) {
+      inner.appendChild(createEl("p", "oneflow-demo__note", BOARD.kicker));
+    }
+    header.appendChild(inner);
+    return header;
+  }
+
+  /**
+   * The framed board: the product's own board, in a frame, with the ask
+   * on top of it. The frame is what turns "some cards on a page" into
+   * "this is the screen you are buying".
+   */
+  function buildFrame() {
+    const frame = createEl("div", "oneflow-demo__frame");
+    const head = createEl("div", "oneflow-demo__frame-head");
+    head.appendChild(createEl("h2", "oneflow-demo__frame-title", BOARD.title));
+    head.appendChild(
+      createEl("span", "oneflow-demo__frame-count", BOARD.count(rows.length)),
+    );
+    frame.appendChild(head);
+    frame.appendChild(buildBoard());
+    frame.appendChild(createEl("div", "oneflow-demo__ask"));
+    return frame;
   }
 
   /**
@@ -295,8 +384,27 @@
     return card;
   }
 
+  /**
+   * The collapsed ask. It is a designed re-entry, not a leftover button:
+   * the mark keeps the product present on a board the visitor is only
+   * browsing, and the label still names the deal and its price. Clicking
+   * it opens the flow (spec §4 "reopens the flow").
+   */
   function buildPill() {
-    return buildAction("oneflow-demo__pill", INVITATION.pill, openFlow);
+    const pill = buildAction("oneflow-demo__pill", null, openFlow);
+    pill.appendChild(buildMark("oneflow-demo__pill-mark"));
+    pill.appendChild(createEl("span", "oneflow-demo__pill-label", INVITATION.pill));
+    return pill;
+  }
+
+  /** The frame with nothing to frame: the ask, still centred and framed. */
+  function buildAskOnly() {
+    const frame = createEl(
+      "div",
+      "oneflow-demo__frame oneflow-demo__frame--bare",
+    );
+    frame.appendChild(createEl("div", "oneflow-demo__ask"));
+    return frame;
   }
 
   /** Re-render the ask half only — the board underneath never reflows. */
@@ -306,11 +414,11 @@
     if (!ask) return;
     ask.replaceChildren(collapsed ? buildPill() : buildInvitation());
     ask.classList.toggle("oneflow-demo__ask--collapsed", collapsed);
+    ask.classList.toggle("oneflow-demo__ask--open", !collapsed);
   }
 
   function collapseToPill() {
     collapsed = true;
-    writeCollapsed(true);
     renderAsk();
   }
 
@@ -354,25 +462,20 @@
   async function mount() {
     if (mountEl) return mountEl;
     rows = await loadFixture();
-    collapsed = readCollapsed();
+    // Always open on the invitation: a remembered collapse is what made
+    // the founder's cold start a corner pill over an empty page (U1).
+    collapsed = false;
     const body = document.body;
     if (!body) return null;
 
     const el = createEl("div", "oneflow-demo oneflow-demo--watermarked");
     el.id = ROOT_ID;
     el.setAttribute("data-oneflow-demo", "1");
-    if (rows.length) {
-      const note = createEl(
-        "p",
-        "oneflow-demo__note",
-        "Sample pipeline — this is what a set-up JobBored looks like.",
-      );
-      el.appendChild(note);
-      el.appendChild(buildBoard());
-    }
+    el.appendChild(buildHeader());
+    // No fixture (file:// open, 404) means no board — but the frame still
+    // holds the ask, so the screen degrades to an invitation, not a void.
+    el.appendChild(rows.length ? buildFrame() : buildAskOnly());
     el.appendChild(createEl("div", "oneflow-demo__detail-slot"));
-    const ask = createEl("div", "oneflow-demo__ask");
-    el.appendChild(ask);
     body.appendChild(el);
     mountEl = el;
     renderAsk();
@@ -402,8 +505,8 @@
   Object.assign(root, {
     FIXTURE_PATH,
     ROOT_ID,
-    PILL_SESSION_KEY,
     INVITATION,
+    BOARD,
     STAGE_ORDER,
     loadFixture,
     mount,
