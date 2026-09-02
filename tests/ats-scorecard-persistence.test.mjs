@@ -183,3 +183,80 @@ describe("ats-scorecard stores its result for the dossier", () => {
     assert.equal(ms.getScorecardForJob(job), null);
   });
 });
+
+/* P0-A: query-string boards. Indeed's `viewjob?jk=…` and LinkedIn's
+   `jobs/search?currentJobId=…` differ ONLY in the query string, so a key that
+   throws it away serves one role's analysis under every other role on the same
+   board. These use the real pasted shapes, not synthetic ones. */
+describe("scorecard identity (P0-A)", () => {
+  const indeedA = { link: "https://www.indeed.com/viewjob?jk=aaa111", company: "Meridian", title: "PM" };
+  const indeedB = { link: "https://www.indeed.com/viewjob?jk=bbb222", company: "Northwind", title: "Designer" };
+
+  it("does not serve one Indeed role's scorecard under another", () => {
+    const ms = boot();
+    ms.setScorecardForJob(indeedA, { overallScore: 82 }, "resume_update");
+    assert.equal(ms.getScorecardForJob(indeedB), null, "jk=bbb222 must not read jk=aaa111's card");
+    assert.equal(ms.getScorecardForJob(indeedA).result.overallScore, 82);
+  });
+
+  it("does not serve one LinkedIn role's scorecard under another", () => {
+    const ms = boot();
+    const a = { link: "https://www.linkedin.com/jobs/search?currentJobId=4001&keywords=pm", company: "Meridian", title: "PM" };
+    const b = { link: "https://www.linkedin.com/jobs/search?currentJobId=4002&keywords=pm", company: "Northwind", title: "Designer" };
+    ms.setScorecardForJob(a, { overallScore: 70 }, "resume_update");
+    assert.equal(ms.getScorecardForJob(b), null);
+  });
+
+  it("ignores tracking params so the same posting still hits its own card", () => {
+    const ms = boot();
+    ms.setScorecardForJob({ link: "https://www.indeed.com/viewjob?jk=aaa111", company: "Meridian", title: "PM" }, { overallScore: 61 }, "resume_update");
+    const hit = ms.getScorecardForJob({ link: "https://www.indeed.com/viewjob?jk=aaa111&utm_source=email&from=serp", company: "Meridian", title: "PM" });
+    assert.ok(hit, "utm_* must not fork the key");
+    assert.equal(hit.result.overallScore, 61);
+  });
+
+  it("rejects a stored card whose title and company are a different role", () => {
+    const ms = boot();
+    ms.setScorecardForJob({ link: "https://jobs.test/shared", company: "Meridian", title: "PM" }, { overallScore: 90 }, "resume_update");
+    assert.equal(
+      ms.getScorecardForJob({ link: "https://jobs.test/shared", company: "Northwind", title: "Staff Designer" }),
+      null,
+      "a key collision must be caught by the stored title+company",
+    );
+  });
+});
+
+/* P0-D: one corrupt byte must not destroy 99 other scorecards, and a null
+   entry must not throw out of the success path of a finished analysis. */
+describe("scorecard store durability (P0-D)", () => {
+  it("drops a corrupt store instead of silently overwriting it", () => {
+    const ms = boot();
+    ms._storage.setItem("jb_ats_scorecard_v1", "{not json");
+    assert.equal(ms.getScorecardForJob(job), null);
+    assert.equal(ms._storage.getItem("jb_ats_scorecard_v1"), null, "the unreadable key must be dropped, not carried into the next write");
+  });
+
+  it("survives a null entry in the store when evicting", () => {
+    const ms = boot();
+    const store = {};
+    for (let i = 0; i < 101; i++) store[`url:https://jobs.test/${i}`] = { result: { overallScore: i }, storedAt: `2026-08-${String((i % 28) + 1).padStart(2, "0")}T00:00:00.000Z` };
+    store["url:https://jobs.test/broken"] = null;
+    ms._storage.setItem("jb_ats_scorecard_v1", JSON.stringify(store));
+    assert.doesNotThrow(() => ms.setScorecardForJob(job, { overallScore: 42 }, "resume_update"));
+    assert.equal(ms.getScorecardForJob(job).result.overallScore, 42);
+  });
+
+  it("warns rather than silently swallowing a quota failure", () => {
+    const ms = boot();
+    ms._storage.setItem = () => { throw new Error("QuotaExceededError"); };
+    const warnings = [];
+    const realWarn = console.warn;
+    console.warn = (...a) => warnings.push(a.join(" "));
+    try {
+      assert.doesNotThrow(() => ms.setScorecardForJob(job, { overallScore: 9 }, "resume_update"));
+    } finally {
+      console.warn = realWarn;
+    }
+    assert.equal(warnings.length, 1, "a dropped scorecard must leave a trace");
+  });
+});
