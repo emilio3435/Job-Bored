@@ -155,6 +155,22 @@ async function refreshOAuthAccessToken(
   }
 }
 
+/** The id a fresh worker-config.json ships with, before any Sheet is connected. */
+export const PLACEHOLDER_SHEET_ID = "YOUR_SHEET_ID_HERE";
+
+/**
+ * The sheet id worth probing, or "" when there is no Sheet yet. A fresh
+ * install carries the placeholder above, and a dashboard mid-onboarding sends
+ * an empty id that local mode resolves to it — probing that asks Google for a
+ * spreadsheet by that literal name, 404s, and reports a perfectly good
+ * service-account key as broken (2026-09-02). No Sheet is a setup step, not a
+ * credential fault.
+ */
+function resolveProbeSheetId(raw: string | undefined): string {
+  const sheetId = asText(raw);
+  return !sheetId || sheetId === PLACEHOLDER_SHEET_ID ? "" : sheetId;
+}
+
 async function verifyActiveSheetsCredential(
   runtimeConfig: WorkerRuntimeConfig,
   options: {
@@ -169,7 +185,7 @@ async function verifyActiveSheetsCredential(
     options.now,
     DEFAULT_TOKEN_SCOPE,
   );
-  const sheetId = asText(options.sheetId);
+  const sheetId = resolveProbeSheetId(options.sheetId);
   if (!sheetId) return { active: true };
 
   const url = new URL(

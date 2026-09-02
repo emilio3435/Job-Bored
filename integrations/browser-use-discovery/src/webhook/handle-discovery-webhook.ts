@@ -26,7 +26,10 @@ import {
   type DiscoveryRunStatusStore,
 } from "../state/run-status-store.ts";
 import { buildEffectiveIntent } from "../discovery/effective-intent.ts";
-import { validateSheetsCredentialReadiness } from "../sheets/credential-readiness.ts";
+import {
+  PLACEHOLDER_SHEET_ID,
+  validateSheetsCredentialReadiness,
+} from "../sheets/credential-readiness.ts";
 import {
   buildDiscoveryRunLogRowFromStatus,
   createTerminalHistoryFinalizer,
@@ -581,15 +584,47 @@ async function validateDiscoveryPreflight(
     // Non-blank intent with empty companies → allowed (unrestricted discovery)
   }
 
+  const resolvedSheetId =
+    String(request.sheetId || "").trim() ||
+    (runDependencies.runtimeConfig.runMode === "local"
+      ? String(storedConfig.sheetId || "").trim()
+      : "");
+  if (!String(request.sheetId || "").trim()) {
+    // The id a fresh worker-config.json ships with is not a configured Sheet.
+    // Accepting it sent the run on to a credential probe that asked Google for
+    // a spreadsheet literally named YOUR_SHEET_ID_HERE, 404'd, and blamed a
+    // perfectly good service-account key (2026-09-02).
+    const storedSheetId = String(storedConfig.sheetId || "").trim();
+    const configuredStoredSheetId =
+      storedSheetId === PLACEHOLDER_SHEET_ID ? "" : storedSheetId;
+    if (
+      runDependencies.runtimeConfig.runMode === "local" &&
+      configuredStoredSheetId
+    ) {
+      return null;
+    }
+    return {
+      status: 400,
+      message: "sheetId is required.",
+      detail: configuredStoredSheetId
+        ? "Hosted worker requests must include sheetId explicitly; local worker config defaults are only accepted in local mode."
+        : storedSheetId === PLACEHOLDER_SHEET_ID
+          ? "No Google Sheet is connected yet: the request carried no sheetId and the worker config still holds its placeholder. Discovery writes results to your pipeline Sheet, so it needs one."
+          : "Provide `sheetId` in the webhook payload, or set `sheetId` in the local worker config before retrying.",
+      ...(storedSheetId === PLACEHOLDER_SHEET_ID
+        ? {
+            remediation:
+              "Finish setup in the dashboard — its first step connects or creates your pipeline Sheet — then run discovery again.",
+          }
+        : {}),
+    };
+  }
+
   const sheetsCredentialReadiness = await validateSheetsCredentialReadiness(
     runDependencies.runtimeConfig,
     {
       now: runDependencies.now,
-      sheetId:
-        String(request.sheetId || "").trim() ||
-        (runDependencies.runtimeConfig.runMode === "local"
-          ? String(storedConfig.sheetId || "").trim()
-          : ""),
+      sheetId: resolvedSheetId,
     },
   );
   if (!sheetsCredentialReadiness.configured) {
@@ -607,21 +642,6 @@ async function validateDiscoveryPreflight(
     };
   }
 
-  if (!String(request.sheetId || "").trim()) {
-    if (
-      runDependencies.runtimeConfig.runMode === "local" &&
-      String(storedConfig.sheetId || "").trim()
-    ) {
-      return null;
-    }
-    return {
-      status: 400,
-      message: "sheetId is required.",
-      detail: String(storedConfig.sheetId || "").trim()
-        ? "Hosted worker requests must include sheetId explicitly; local worker config defaults are only accepted in local mode."
-        : "Provide `sheetId` in the webhook payload, or set `sheetId` in the local worker config before retrying.",
-    };
-  }
 
   return null;
 }
