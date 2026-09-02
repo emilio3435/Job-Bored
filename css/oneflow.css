@@ -522,6 +522,30 @@
   }
 }
 
+/* ---- Claim U3: a control's label is not prose.
+
+   The chassis sets `overflow-wrap: anywhere` on __step-content
+   (css/legacy-discovery-setup-wizard.css) so an unbreakable webhook
+   secret or shell command cannot turn a step into a horizontal
+   scroller. It inherits into every control the beats render. Beat 4's
+   chip rows are flex rows whose input carries `width: 100%`, so the
+   button beside it is squeezed to min-content — and under
+   `overflow-wrap: anywhere`, min-content is one CHARACTER. The "Add"
+   next to every role and strength field broke into "Ad / d"
+   (SIXBEATS U3, routed from the V1/V2 screenshot review; measured at
+   390px AND at 1440px, so this is not a phone-only rule).
+
+   A button is a target, not a paragraph: it keeps its natural width
+   and breaks only where its own label allows. Multi-word labels still
+   wrap between words, and the template cards in B3 — buttons whose
+   content is a heading plus a description — are unaffected, because
+   neither `flex-shrink` on a grid item nor a normal wrap opportunity
+   changes for them. ---- */
+.discovery-setup-wizard--spine .discovery-setup-wizard__step-content button {
+  flex-shrink: 0;
+  overflow-wrap: normal;
+}
+
 /* ONEFLOW:L1 */
 /* B1 Connect Google · B2 Give it a brain · B3 Hand us your resume. */
 
