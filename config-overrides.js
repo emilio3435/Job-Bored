@@ -18,6 +18,7 @@
   const DISCOVERY_TRANSPORT_SETUP_KEY =
     "command_center_discovery_transport_setup";
   const DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
+  const DISCOVERY_WEBHOOK_SECRET_ROUTE = "/__proxy/discovery-webhook-secret";
 
   const COMMAND_CENTER_OVERRIDE_KEYS = [
     "sheetId",
@@ -359,20 +360,43 @@
     return writeDiscoveryWebhookSecretOverride(secret);
   }
 
+  /** A Cloudflare relay injects its own DISCOVERY_SECRET upstream; the browser's copy is not what that worker checks. */
+  function isLikelyCloudflareRelayUrl(raw) {
+    try {
+      return /\.workers\.dev$/i.test(new URL(String(raw || "").trim()).hostname);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * The 401 self-heal. `discovery-local-bootstrap.json` carries the secret,
+   * so the static-path guard denies it (#75) — every browser got a 403 and
+   * this refresh never refreshed anything (2026-09-02). The dev server
+   * resolves the same secret behind the origin-guarded route Beat 5 already
+   * uses, so a run that 401s against this machine's worker re-syncs from
+   * there and retries. A relay is left alone; a fetch that fails is "".
+   */
   async function refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(
     endpointUrl,
   ) {
     if (!isLocalDashboardOrigin()) return "";
+    const endpoint = endpointUrl || host().getDiscoveryWebhookUrl();
+    if (isLikelyCloudflareRelayUrl(endpoint)) return "";
     try {
-      const res = await fetch(DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH, {
+      const res = await fetch(DISCOVERY_WEBHOOK_SECRET_ROUTE, {
         cache: "no-store",
       });
-      if (!res.ok) return "";
+      if (!res || !res.ok) return "";
       const data = await res.json().catch(() => null);
-      const secret = getBootstrapDiscoveryWebhookSecret(data);
+      const secret =
+        data && data.ok && typeof data.secret === "string"
+          ? data.secret.trim()
+          : "";
       if (!secret) return "";
-      if (!isBootstrapManagedDiscoveryEndpoint(data, endpointUrl)) return "";
-      autofillDiscoveryWebhookSecretFromBootstrap(data, { endpointUrl });
+      if (host().getDiscoveryWebhookSecret() !== secret) {
+        if (!writeDiscoveryWebhookSecretOverride(secret)) return "";
+      }
       return host().getDiscoveryWebhookSecret() === secret ? secret : "";
     } catch (_) {
       return "";

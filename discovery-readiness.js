@@ -824,16 +824,27 @@ function showDiscoveryVerificationToast(result, options = {}) {
     : "Webhook verification finished.";
 
   let action;
-  if (!result.ok && result.kind === "auth_required") {
-    // The browser-use worker fail-closed because the secret is missing or
-    // wrong. The fix is "run bootstrap and reload" — give the user a copy
-    // button for the command so they don't have to retype it.
+  if (!result.ok && result.kind === "auth_required" && result.suggestedCommand) {
+    // A relay fail-closed on its downstream secret: the fix is a redeploy
+    // command — give the user a copy button so they don't have to retype it.
     action = {
       label: "Copy bootstrap command",
       onClick: () => {
-        h("copyTextToClipboard")(
-          result.suggestedCommand || "npm run discovery:bootstrap-local",
-        );
+        h("copyTextToClipboard")(result.suggestedCommand);
+      },
+    };
+  } else if (!result.ok && result.kind === "auth_required") {
+    // This machine's worker rejected the secret and the automatic re-sync
+    // did not rescue it: the in-app path writes and verifies it (Beat 5's
+    // own sequence), no terminal required.
+    action = {
+      label: "Open discovery setup",
+      onClick: () => {
+        const open =
+          typeof window !== "undefined" && typeof window.openDiscoveryDrawer === "function"
+            ? window.openDiscoveryDrawer
+            : null;
+        if (open) open();
       },
     };
   } else if (!result.ok && h("isLocalDashboardOrigin")()) {
