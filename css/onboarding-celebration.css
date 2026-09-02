@@ -280,6 +280,8 @@
   .onboarding-celebration--in .onboarding-celebration__sub,
   .onboarding-celebration--in .onboarding-celebration__journey,
   .onboarding-celebration--in .onboarding-celebration__cta,
+  .onboarding-celebration--burst,
+  .onboarding-celebration--burst .onboarding-celebration__card,
   .onboarding-celebration__mascot,
   .onboarding-celebration__confetti-piece {
     animation: none;
@@ -320,4 +322,45 @@
 
 .onboarding-celebration__alt:hover {
   color: var(--jb-navy, var(--text));
+}
+
+/* ============================================================
+   The finale burst (SIXBEATS2 locked decision 2).
+
+   The acceptance rerun found this overlay covering Beat 6 as a modal:
+   full-viewport scrim, `pointer-events: auto`, z-index 100002, and
+   `Run discovery now` unclickable underneath it for the whole sample
+   (NEW-1, BLOCKER). The burst variant is the same DOM with the modal
+   taken out of it — no scrim, no blur, no hit testing, and a card that
+   sits at the top of the viewport instead of over the beat's actions.
+   ============================================================ */
+.onboarding-celebration--burst {
+  pointer-events: none;
+  background: none;
+  backdrop-filter: none;
+  align-items: flex-start;
+  justify-content: center;
+  padding-top: var(--space-6);
+}
+
+.onboarding-celebration--burst .onboarding-celebration__card {
+  width: min(360px, calc(100vw - 2 * var(--space-4)));
+  padding: var(--space-4) var(--space-5) var(--space-5);
+  gap: var(--space-1);
+  background: color-mix(
+    in srgb,
+    var(--jb-paper, var(--surface)) 94%,
+    transparent
+  );
+  box-shadow:
+    0 16px 40px rgba(14, 58, 78, 0.22),
+    0 4px 12px rgba(14, 58, 78, 0.1);
+}
+
+.onboarding-celebration--burst .onboarding-celebration__mascot {
+  width: 88px;
+}
+
+.onboarding-celebration--burst .onboarding-celebration__title {
+  font-size: 1.6rem;
 }
