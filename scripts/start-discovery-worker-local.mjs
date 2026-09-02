@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { decideExistingWorkerAction, parseStarterOptions } from "./lib/discovery-worker-policy.mjs";
+import { decideAfterChildExit, decideExistingWorkerAction, parseStarterOptions } from "./lib/discovery-worker-policy.mjs";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
@@ -384,23 +384,37 @@ async function main() {
     }
   }
 
-  const child = spawn(
-    "node",
-    [
-      "--experimental-strip-types",
-      "integrations/browser-use-discovery/src/server.ts",
-    ],
-    {
-      cwd: repoRoot,
-      env: runtimeEnv,
-      stdio: "inherit",
-    },
-  );
+  superviseWorker(runtimeEnv, host, port);
+}
+
+/** Poll /health until a worker answers or the deadline passes. */
+async function waitForHealthyWorker(host, port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await probeExistingWorker(host, port)) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
+/**
+ * Run the worker as a supervised child. When something ELSE terminates it
+ * (the dashboard's full-boot after an env-key write, a keep-alive, an
+ * autostart), this process must not exit — under `npm run dev` it is a
+ * `concurrently -k` child and its exit tears web + scraper down (2026-09-02).
+ * Policy: scripts/lib/discovery-worker-policy.mjs decideAfterChildExit.
+ */
+function superviseWorker(runtimeEnv, host, port) {
+  const MAX_RESPAWNS = 3;
+  let current = null;
+  let shuttingDown = false;
+  let respawns = 0;
 
   const forwardSignal = (signal) => {
-    if (!child.killed) {
+    shuttingDown = true;
+    if (current && !current.killed) {
       try {
-        child.kill(signal);
+        current.kill(signal);
       } catch {
         // best effort
       }
@@ -409,16 +423,68 @@ async function main() {
   process.on("SIGINT", () => forwardSignal("SIGINT"));
   process.on("SIGTERM", () => forwardSignal("SIGTERM"));
 
-  child.on("exit", (code, signal) => {
-    console.warn(
-      `[start:discovery-worker] worker exited (code=${code === null ? "null" : code}, signal=${signal || "none"}) — if you did not stop it, something else terminated the listener on port ${port}.`,
+  const spawnOnce = () => {
+    const child = spawn(
+      "node",
+      [
+        "--experimental-strip-types",
+        "integrations/browser-use-discovery/src/server.ts",
+      ],
+      {
+        cwd: repoRoot,
+        env: runtimeEnv,
+        stdio: "inherit",
+      },
     );
-    if (signal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code || 0);
-  });
+    current = child;
+    child.on("exit", async (code, signal) => {
+      console.warn(
+        `[start:discovery-worker] worker exited (code=${code === null ? "null" : code}, signal=${signal || "none"})${shuttingDown ? "" : " — something else terminated the listener on port " + port + "."}`,
+      );
+      const replacementHealthy = shuttingDown || !signal
+        ? false
+        : await waitForHealthyWorker(host, port, 8000);
+      const action = decideAfterChildExit({
+        signal,
+        code,
+        initiatedByUs: shuttingDown,
+        replacementHealthy,
+      });
+      if (action === "hold") {
+        console.info(
+          `[start:discovery-worker] a replacement worker is healthy on port ${port}; keeping the dev stack up on its behalf.`,
+        );
+        holdProcessOpenForExistingWorker(host, port);
+        return;
+      }
+      if (action === "respawn") {
+        if (respawns >= MAX_RESPAWNS) {
+          console.error(
+            `[start:discovery-worker] worker was terminated ${respawns} times with no replacement; giving up.`,
+          );
+          process.exit(1);
+          return;
+        }
+        respawns += 1;
+        console.info(
+          `[start:discovery-worker] no replacement worker appeared; respawning (${respawns}/${MAX_RESPAWNS}).`,
+        );
+        await sleep(1000);
+        if (await probeExistingWorker(host, port)) {
+          holdProcessOpenForExistingWorker(host, port);
+          return;
+        }
+        spawnOnce();
+        return;
+      }
+      if (signal) {
+        process.kill(process.pid, signal);
+        return;
+      }
+      process.exit(code || 0);
+    });
+  };
+  spawnOnce();
 }
 
 main().catch((err) => {
