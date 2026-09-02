@@ -23,6 +23,8 @@
       ? '<img class="case__logo" src="' + attr(id.logoUrl) + '" alt="">'
       : '<div class="case__logo case__logo--mono">' + esc((id.company || "?").charAt(0).toUpperCase()) + "</div>";
     var meta = [];
+    var closesIn = id.closesInDays;
+    var closesSoon = closesIn != null && closesIn <= 14;
     /* Spec §5: all four rail identity fields edit in place. Location and
        salary are borderless inline inputs on the navy rail — the same
        edit-field contract role.js wires for title and company, not the
@@ -30,12 +32,22 @@
        a missing fact can be filled in without leaving the dossier. */
     meta.push(editInput("location", id.location, "case__fact-input", "Location", ' placeholder="Location"'));
     if (id.employment) meta.push(esc(id.employment));
-    meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="Salary"'));
+    /* The posting's own salary is a scrape, not the user's data: it stands in
+       as the placeholder so the empty input reads as a fact the sheet has yet
+       to confirm, and the `scrape` tag says where the number came from. */
+    var salaryHint = !id.salary && id.postingSalary ? id.postingSalary : "Salary";
+    meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="' + attr(salaryHint) + '"'));
+    if (!id.salary && id.postingSalary) meta.push(src("scrape"));
     if (id.source) meta.push("via " + esc(id.source));
     /* DOSSIER-01: an identity the classifier will not ground in the posting is
        said so on the rail, never left to read like a scraped fact. */
     if (m.provenance && m.provenance.inferredIdentity) meta.push(src("inferred"));
     if (id.foundAt) meta.push("Found " + esc(id.foundAt));
+    if (id.postedAt) meta.push("Posted " + esc(id.postedAt));
+    /* A closing date the hunter still has time on is a meta line; one that is
+       near or past is a pill instead — never both, or the same date reads as
+       two facts. */
+    if (id.closesAt && !closesSoon) meta.push("Closes " + esc(id.closesAt));
     if (id.priority) meta.push("Priority <b>" + esc(id.priority.charAt(0).toUpperCase() + id.priority.slice(1)) + "</b>");
     if (id.favorite) meta.push("<b>&#9733;</b> Favorite");
     var pills = "";
@@ -43,6 +55,12 @@
       var d = m.nextAction.daysUntil;
       var when = d == null ? "" : (d < 0 ? " · " + Math.abs(d) + "d overdue" : d === 0 ? " · today" : " · in " + d + " day" + (d === 1 ? "" : "s"));
       pills += '<span class="case__pill case__pill--due"><span class="case__dot case__dot--amber"></span>Follow-up ' + esc(m.nextAction.followUpAt) + esc(when) + "</span>";
+    }
+    if (closesSoon) {
+      var closes = closesIn > 0
+        ? "Closes in " + closesIn + " day" + (closesIn === 1 ? "" : "s")
+        : (closesIn === 0 ? "Closes today" : "Closed " + Math.abs(closesIn) + " day" + (Math.abs(closesIn) === 1 ? "" : "s") + " ago");
+      pills += '<span class="case__pill case__pill--due" data-pill="closes"><span class="case__dot case__dot--amber"></span>' + esc(closes) + "</span>";
     }
     if (m.health && m.health.state !== "unknown") {
       var cls = m.health.state === "open" ? "open" : (m.health.state === "expired" ? "expired" : "review");

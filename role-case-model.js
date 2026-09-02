@@ -90,6 +90,15 @@
     });
   }
 
+  /* Whole days from now until the posting closes: positive ahead, 0 today,
+     negative once it has closed. Same ceil-from-now rule as nextAction's
+     daysUntil so the two rail dates never disagree by a day. */
+  function closesInDays(closesAt, deps) {
+    if (!closesAt) return null;
+    var ms = deps.parseDate(closesAt);
+    return ms == null ? null : Math.ceil((ms - deps.nowMs) / DAY);
+  }
+
   function buildMaterials(manifest) {
     if (!manifest || !Array.isArray(manifest.documents)) return null;
     var pending = manifest.pending && manifest.pending.progress ? manifest.pending : null;
@@ -225,6 +234,11 @@
         title: inline(job.role), company: inline(job.company), location: inline(job.location), employment: inline(job.employment),
         salary: inline(job.salary), source: inline(job.source), link: (job.links && job.links[0] && job.links[0].href) || "",
         logoUrl: inline(job.logoUrl), foundAt: foundAt, priority: job.priority || "", favorite: !!job.favorite,
+        /* Posting facts from the scrape (A<->B contract): the dates the
+           posting itself carries and the salary it advertises, which is not
+           the user's sheet value and never overwrites it. */
+        postedAt: inline(job.postedAt), closesAt: inline(job.closesAt), postingSalary: inline(job.postingSalary),
+        closesInDays: closesInDays(inline(job.closesAt), deps),
       },
       stage: buildStage(job, deps.stages),
       nextAction: buildNextAction(job, deps),

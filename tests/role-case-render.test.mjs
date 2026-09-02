@@ -94,6 +94,13 @@ function renderHtml(m) {
   return mount.innerHTML;
 }
 
+/** Just the rail's meta row — `case__src--*` tags live in the lanes too. */
+function railMeta(html) {
+  const match = /<div class="case__meta">([\s\S]*?)<\/div><\/div>/.exec(html);
+  assert.ok(match, "the rail meta must render");
+  return match[1];
+}
+
 describe("The Case renders every block from the model", () => {
   it("rail, stepper, numbers, one-line", () => {
     const html = renderHtml(model());
@@ -340,5 +347,57 @@ describe("the People block", () => {
     assert.doesNotMatch(html, /data-mount="recruiter-strip"/);
     assert.doesNotMatch(html, /jb-recruiter-strip/);
     assert.doesNotMatch(html, /Save follow-up/);
+  });
+});
+
+/* ------------------------------------------------------------
+   The rail's posting facts (the A↔B contract). The dates come
+   from the posting itself; the closing one earns a pill only
+   when it is close enough to act on, and never a pill AND a
+   meta line for the same date.
+   ------------------------------------------------------------ */
+describe("posting dates and salary on the rail", () => {
+  it("adds Posted and Closes to the meta, in that order after Found", () => {
+    const html = renderHtml(model({ vmPatch: { postedAt: "2026-08-27", closesAt: "2026-10-30" } }));
+    assert.match(html, /<span>Found 2026-08-29<\/span><span>Posted 2026-08-27<\/span><span>Closes 2026-10-30<\/span>/);
+  });
+
+  it("says nothing about dates the posting did not carry", () => {
+    const html = renderHtml(model());
+    assert.match(html, /<span>Found 2026-08-29<\/span>/, "precondition: the meta rendered");
+    assert.doesNotMatch(html, /Posted /);
+    assert.doesNotMatch(html, /Closes /);
+  });
+
+  it("promotes a close inside 14 days to an amber pill and drops the meta line", () => {
+    const html = renderHtml(model({ vmPatch: { closesAt: "2026-09-04" } }));
+    assert.match(html, /<span class="case__pill case__pill--due" data-pill="closes"><span class="case__dot case__dot--amber"><\/span>Closes in 3 days<\/span>/);
+    assert.doesNotMatch(html, /<span>Closes 2026-09-04<\/span>/, "never a pill and a meta line for the same date");
+  });
+
+  it("says Closes today and Closed N days ago at the boundaries", () => {
+    assert.match(renderHtml(model({ vmPatch: { closesAt: "2026-09-01" } })), /data-pill="closes"[\s\S]*?Closes today</);
+    assert.match(renderHtml(model({ vmPatch: { closesAt: "2026-09-02" } })), /data-pill="closes"[\s\S]*?Closes in 1 day</);
+    assert.match(renderHtml(model({ vmPatch: { closesAt: "2026-08-25" } })), /data-pill="closes"[\s\S]*?Closed 7 days ago</);
+  });
+
+  it("leaves a close 40 days out as a meta line with no pill", () => {
+    const html = renderHtml(model({ vmPatch: { closesAt: "2026-10-11" } }));
+    assert.match(html, /<span>Closes 2026-10-11<\/span>/);
+    assert.doesNotMatch(html, /data-pill="closes"/);
+  });
+
+  it("offers the posting's salary as a placeholder, tagged scrape, when the sheet has none", () => {
+    const meta = railMeta(renderHtml(model({ vmPatch: { salary: "", postingSalary: "$185,000–$230,000 USD/yr" } })));
+    /* A placeholder, never a value: it is the posting's number, not the user's,
+       so a blur must not write it back into the sheet. */
+    assert.match(meta, /data-field="salary"[^>]*value=""[^>]*placeholder="\$185,000–\$230,000 USD\/yr"/);
+    assert.match(meta, /placeholder="\$185,000[^"]*"[^>]*><\/span><span><span class="case__src case__src--scrape">scrape<\/span><\/span>/);
+  });
+
+  it("never overwrites the sheet's own salary with the posting's", () => {
+    const meta = railMeta(renderHtml(model({ vmPatch: { postingSalary: "$185,000–$230,000 USD/yr" } })));
+    assert.match(meta, /data-field="salary"[^>]*value="\$185–230k"[^>]*placeholder="Salary"/);
+    assert.doesNotMatch(meta, /case__src--scrape/, "a sheet salary needs no scrape tag");
   });
 });
