@@ -386,7 +386,16 @@ function getGeminiConfig() {
 export function getProfileProviderConfig() {
   migrateLlmConfigFromEnv(process.env);
   const loaded = loadLlmConfig(process.env);
-  if (loaded) {
+  // The pinned LLM config is derived from the ATS scorecard's env (server/.env
+  // ATS_*). It must not hijack the drafter when the drafter has its OWN
+  // provider set (PROFILE_PROVIDER / PROFILE_LLM_PROVIDER), and a pin with no
+  // key can never stand in for a configured provider — seen 2026-09-02 as
+  // "Missing Gemini API key" while PROFILE_PROVIDER said openrouter.
+  const explicitProfileProvider = readFirstEnv(["PROFILE_PROVIDER", "PROFILE_LLM_PROVIDER"], "");
+  const pinUsable =
+    loaded &&
+    (String(loaded.apiKey || "").trim() || normalizeProvider(loaded.provider) === "local");
+  if (loaded && pinUsable && !explicitProfileProvider) {
     return {
       provider: normalizeProvider(loaded.provider),
       apiKey: String(loaded.apiKey || "").trim(),
@@ -743,6 +752,25 @@ function parseJsonSafe(text) {
   }
 }
 
+/** A full v1 profile draft (roles, narrative, up to 8 strengths with
+ *  evidence, wants, avoids, constraints) as JSON runs well past 3,500 tokens
+ *  for a long resume; the provider stopped mid-string and the user saw
+ *  "non-JSON content: Unterminated string" (2026-09-02). Browser-side
+ *  drafting already asks for 8192. */
+const PROFILE_DRAFT_MAX_OUTPUT_TOKENS = 8192;
+
+/** @param {string} providerLabel @param {string} code @param {ProfileProvider} provider */
+function truncatedDraftError(providerLabel, code, provider) {
+  const err = /** @type {ProfileProviderError} */ (
+    new Error(
+      `${providerLabel} cut the draft off at its output limit. Try a shorter resume, or pick a larger model in Settings.`,
+    )
+  );
+  err.code = code;
+  err.provider = provider;
+  return err;
+}
+
 /**
  * @param {string} resumeText
  * @param {ProfileProviderConfig} config
@@ -758,7 +786,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
       { role: "user", content: buildUserPrompt(resumeText) },
     ],
     temperature: 0.2,
-    max_tokens: 3500,
+    max_tokens: PROFILE_DRAFT_MAX_OUTPUT_TOKENS,
   };
   /** @type {Record<string, string>} */
   const headers = { "Content-Type": "application/json" };
@@ -784,7 +812,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
     err.cause = cause;
     throw err;
   }
-  const data = /** @type {{ error?: { message?: string }, choices?: Array<{ message?: { content?: string } }> }} */ (
+  const data = /** @type {{ error?: { message?: string }, choices?: Array<{ finish_reason?: string, message?: { content?: string } }> }} */ (
     await resp.json().catch(() => ({}))
   );
   if (!resp.ok) {
@@ -796,6 +824,10 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
     err.provider = config.provider;
     err.upstreamStatus = resp.status;
     throw err;
+  }
+  const finishReason = String(data.choices?.[0]?.finish_reason || "");
+  if (finishReason === "length") {
+    throw truncatedDraftError(providerDisplayName(config.provider), "PROFILE_PROVIDER_TRUNCATED", config.provider);
   }
   const raw = data.choices?.[0]?.message?.content || "";
   if (!String(raw || "").trim()) {
@@ -843,7 +875,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
       },
       body: JSON.stringify({
         model,
-        max_tokens: 3500,
+        max_tokens: PROFILE_DRAFT_MAX_OUTPUT_TOKENS,
         temperature: 0.2,
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: buildUserPrompt(resumeText) }],
@@ -870,6 +902,9 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
     err.provider = "anthropic";
     err.upstreamStatus = resp.status;
     throw err;
+  }
+  if (String(/** @type {{ stop_reason?: string }} */ (data).stop_reason || "") === "max_tokens") {
+    throw truncatedDraftError("Anthropic", "PROFILE_PROVIDER_TRUNCATED", config.provider);
   }
   const raw = Array.isArray(data.content)
     ? data.content
@@ -913,7 +948,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(resumeText) }] }],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 3500,
+      maxOutputTokens: PROFILE_DRAFT_MAX_OUTPUT_TOKENS,
       responseMimeType: "application/json",
       responseSchema: GEMINI_RESPONSE_SCHEMA,
     },
@@ -952,8 +987,14 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     err.upstreamStatus = resp.status;
     throw err;
   }
+  const candidate = /** @type {{ finishReason?: string, content?: { parts?: Array<{ text?: string }> } } | undefined} */ (
+    data.candidates?.[0]
+  );
+  if (String(candidate?.finishReason || "") === "MAX_TOKENS") {
+    throw truncatedDraftError("Gemini", "GEMINI_TRUNCATED", "gemini");
+  }
   const raw =
-    data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
+    candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
   if (!raw.trim()) {
     const err = /** @type {ProfileProviderError} */ (
       new Error("Gemini returned empty content")
