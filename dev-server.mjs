@@ -26,6 +26,7 @@ import {
 import {
   authorizeLocalControlRequest,
   buildLocalControlCorsHeaders,
+  isLoopbackPeer,
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
 import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
@@ -197,6 +198,32 @@ export function resolveProfileApiPort() {
 
 function isProfileApiPath(pathname) {
   return pathname === "/profile" || pathname.startsWith("/profile/");
+}
+
+/**
+ * Authorization for the profile proxy: the /__proxy/* posture, plus the one
+ * case that posture cannot see.
+ *
+ * Every static response from this server carries `Referrer-Policy:
+ * no-referrer`, so Beat 6's same-origin `fetch("/profile")` arrives with
+ * neither Origin (browsers omit it on same-origin GETs) nor the Referer the
+ * shared guard falls back to — it would be 403'd by our own hardening.
+ * `Sec-Fetch-Site: same-origin` is what is left, and it is enough: it is a
+ * forbidden header name, so no page script can forge it, and a tab at
+ * https://evil.example gets `cross-site` from its own browser. A bare client
+ * that sends none of the three (curl) stays unauthorized.
+ */
+function isSameOriginProfileRequest(req) {
+  if (isLocalOrigin(req)) return true;
+  if (!isLoopbackPeer(req && req.socket ? req.socket.remoteAddress : "")) {
+    return false;
+  }
+  const headers = (req && req.headers) || {};
+  return (
+    String(headers["sec-fetch-site"] || "")
+      .trim()
+      .toLowerCase() === "same-origin"
+  );
 }
 
 function profilePreflightHeaders(req) {
@@ -2134,7 +2161,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
     // exact local-origin allowlist.
     if (isProfileApiPath(pathname)) {
       if (req.method === "OPTIONS") {
-        if (!isLocalOrigin(req)) {
+        if (!isSameOriginProfileRequest(req)) {
           denyNonLocalControl(res);
           return;
         }
@@ -2142,7 +2169,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
         res.end();
         return;
       }
-      if (!isLocalOrigin(req)) {
+      if (!isSameOriginProfileRequest(req)) {
         denyNonLocalControl(res);
         return;
       }

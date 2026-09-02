@@ -250,6 +250,28 @@ describe("SIXBEATS-C3 — dev server proxies /profile to the local API", () => {
     }
   });
 
+  it("serves the same-origin GET a `Referrer-Policy: no-referrer` dashboard makes", async () => {
+    // The dashboard sends `Referrer-Policy: no-referrer` with every static
+    // response, so Beat 6's same-origin `fetch("/profile")` arrives with
+    // NEITHER Origin (browsers omit it on same-origin GETs) NOR Referer.
+    // `Sec-Fetch-Site: same-origin` is the only signal left — and it is a
+    // forbidden header name, so page JS cannot forge it.
+    const upstream = await startStubApi((entry, res) => {
+      respondJson(res, 200, { ok: true, profile: { schemaVersion: 1 } });
+    });
+    try {
+      await withDashboard({ apiPort: upstream.port }, async ({ baseUrl }) => {
+        const res = await fetch(`${baseUrl}/profile`, {
+          headers: { "sec-fetch-site": "same-origin", "sec-fetch-mode": "cors" },
+        });
+        assert.equal(res.status, 200, "Beat 6 must not be 403'd by our own referrer policy");
+        assert.equal((await res.json()).ok, true);
+      });
+    } finally {
+      await closeServer(upstream.server);
+    }
+  });
+
   it("does not forward the browser Origin upstream (the API allowlists :8080 only)", async () => {
     const upstream = await startStubApi((entry, res) => {
       respondJson(res, 200, { ok: true });
@@ -304,6 +326,25 @@ describe("SIXBEATS-C3 — the profile proxy keeps the /__proxy authorization pos
         });
         assert.equal(res.status, 403);
         assert.equal(upstream.received.length, 0, "no cross-site write may land");
+      });
+    } finally {
+      await closeServer(upstream.server);
+    }
+  });
+
+  it("403s a cross-site Sec-Fetch-Site even though the TCP peer is loopback", async () => {
+    const upstream = await startStubApi((entry, res) => {
+      respondJson(res, 200, { ok: true, profile: { secret: "must-not-leak" } });
+    });
+    try {
+      await withDashboard({ apiPort: upstream.port }, async ({ baseUrl }) => {
+        for (const site of ["cross-site", "same-site", "none"]) {
+          const res = await fetch(`${baseUrl}/profile`, {
+            headers: { "sec-fetch-site": site, "sec-fetch-mode": "cors" },
+          });
+          assert.equal(res.status, 403, `Sec-Fetch-Site: ${site} must not be served`);
+        }
+        assert.equal(upstream.received.length, 0, "the API must never see the request");
       });
     } finally {
       await closeServer(upstream.server);
