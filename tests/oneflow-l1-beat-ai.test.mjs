@@ -61,29 +61,32 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
     assert.ok(text.includes("Now give it a brain."));
     assert.ok(
       text.includes(
+        // Spec §5 B2, restored verbatim by SIXBEATS-2 NEW-11: the sub-line
+        // names whichever card is pre-selected, and that is OpenRouter.
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
-          "letters. Gemini Flash is the recommended pin; OpenRouter is a " +
-          "free alternative.",
+          "letters. OpenRouter is free and takes about two minutes.",
       ),
     );
   });
 
-  it("offers exactly the five spec'd providers with Gemini pre-selected", async () => {
+  // SIXBEATS-2 NEW-11: this used to pin Gemini first and pre-selected,
+  // which is what the rerun caught contradicting spec §5 B2's card order.
+  it("offers exactly the five spec'd providers with OpenRouter pre-selected", async () => {
     const env = await openBeat();
     const providers = env
       .mount()
       .querySelectorAll("[data-provider]")
       .map((el) => el.dataset.provider);
     assert.deepEqual(providers, [
-      "gemini",
       "openrouter",
+      "gemini",
       "openai",
       "anthropic",
       "local",
     ]);
-    assert.equal(card(env, "gemini").dataset.selected, "true");
+    assert.equal(card(env, "openrouter").dataset.selected, "true");
     assert.match(renderedText(env.mount()), /OpenRouter — free/);
   });
 
@@ -262,13 +265,14 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
   it("clears the pasted key when the provider changes", async () => {
     const env = await openBeat();
     const field = env.mount().querySelector("#oneFlowAiKeyInput");
-    field.value = "AIzaSyTestKeyValue1234567";
+    field.value = "sk-or-abcdefgh12345678";
     field.dispatch("input", { target: field });
-    card(env, "openrouter").dispatch("click");
+    // Away from the pre-selected card (OpenRouter, spec §5 B2), not toward it.
+    card(env, "gemini").dispatch("click");
     assert.equal(
       env.mount().querySelector("#oneFlowAiKeyInput").value,
       "",
-      "a Gemini key checked against OpenRouter fails for a reason no copy can explain",
+      "an OpenRouter key checked against Gemini fails for a reason no copy can explain",
     );
   });
 

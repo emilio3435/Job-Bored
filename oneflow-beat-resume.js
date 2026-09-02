@@ -16,7 +16,16 @@
    survives; losing it is the bug, not the fallback.
 
    Drafting runs on the provider B2 verified, so the template path is a
-   CHOICE here, never the consolation prize for a missing key.
+   CHOICE here, never the consolation prize for a missing key. That is
+   literal now: the POST body carries `{provider, apiKey, model, baseUrl}`
+   from getResumeGenerationConfig(), because a server that only read its own
+   env answered a freshly-connected OpenRouter install with "Missing Gemini
+   API key" (SIXBEATS-2 NEW-2).
+
+   Everything the user has typed or drafted is also written through
+   ctx.saveDraft() — the controller's persisted scratch (SIXBEATS2-SPEC
+   locked decision 4) — so a refresh mid-beat costs neither the pasted
+   resume (NEW-7) nor the drafted profile B4 is waiting on (NEW-14).
 
    Classic-global IIFE, registered against window.JobBoredOneFlow.
    ============================================ */
@@ -141,6 +150,89 @@
     return node;
   }
 
+  /**
+   * Where each provider's key/model/base URL live in the config
+   * resume-generate.js publishes. `webhook` is deliberately absent: the
+   * drafter cannot call it, and sending it would only replace the server's
+   * usable env config with an unusable one.
+   */
+  const PROVIDER_FIELDS = {
+    gemini: { key: "resumeGeminiApiKey", model: "resumeGeminiModel", baseUrl: "" },
+    openrouter: {
+      key: "resumeOpenRouterApiKey",
+      model: "resumeOpenRouterModel",
+      baseUrl: "resumeOpenRouterBaseUrl",
+    },
+    openai: { key: "resumeOpenAIApiKey", model: "resumeOpenAIModel", baseUrl: "" },
+    anthropic: {
+      key: "resumeAnthropicApiKey",
+      model: "resumeAnthropicModel",
+      baseUrl: "",
+    },
+    local: {
+      key: "resumeLocalApiKey",
+      model: "resumeLocalModel",
+      baseUrl: "resumeLocalBaseUrl",
+    },
+  };
+
+  /**
+   * The B2-verified provider as the server reads it off the request body
+   * (SIXBEATS2-SPEC locked decision 3). Null when nothing usable is
+   * configured, which leaves the server's own env in charge exactly as
+   * before.
+   */
+  function verifiedProviderConfig() {
+    const api = window.CommandCenterResumeGenerate;
+    if (!api || typeof api.getResumeGenerationConfig !== "function") return null;
+    let cfg;
+    try {
+      cfg = api.getResumeGenerationConfig();
+    } catch (err) {
+      console.warn("[JobBored] one-flow B3 provider config:", err);
+      return null;
+    }
+    const fields = cfg && PROVIDER_FIELDS[cfg.provider];
+    if (!fields) return null;
+    return {
+      provider: cfg.provider,
+      apiKey: String((fields.key && cfg[fields.key]) || ""),
+      model: String((fields.model && cfg[fields.model]) || ""),
+      baseUrl: String((fields.baseUrl && cfg[fields.baseUrl]) || ""),
+    };
+  }
+
+  /**
+   * Write through to the controller's persisted scratch. Debounce and
+   * storage are the controller's job (locked decision 4); a controller
+   * that has not grown the seam yet simply loses nothing it had before.
+   */
+  function saveDraft(ctx, key, value) {
+    const context = ctx || lastCtx;
+    if (!context || typeof context.saveDraft !== "function") return;
+    try {
+      context.saveDraft(key, value);
+    } catch (err) {
+      console.warn("[JobBored] one-flow B3 saveDraft:", err);
+    }
+  }
+
+  /**
+   * Bring back what a refresh interrupted. Only fills what the beat does
+   * not already hold, so a repaint can never resurrect text the user has
+   * since cleared.
+   */
+  function hydrateFromDrafts(ctx) {
+    const drafts = ctx && ctx.runtime ? ctx.runtime.drafts : null;
+    if (!drafts || typeof drafts !== "object") return;
+    if (!state.pasteDraft && typeof drafts.resumeText === "string") {
+      state.pasteDraft = drafts.resumeText;
+    }
+    if (!state.draft && drafts.profileDraft && typeof drafts.profileDraft === "object") {
+      state.draft = drafts.profileDraft;
+    }
+  }
+
   function readPaste() {
     const node = fields.paste;
     if (node && typeof node.value === "string") return node.value;
@@ -252,7 +344,7 @@
     return zone;
   }
 
-  function renderPasteBox() {
+  function renderPasteBox(ctx) {
     const wrap = el("div", "oneflow-resume__paste");
     wrap.appendChild(
       el(
@@ -272,6 +364,7 @@
     });
     box.addEventListener("input", () => {
       state.pasteDraft = String(box.value || "");
+      saveDraft(ctx, "resumeText", state.pasteDraft);
     });
     fields.paste = box;
     wrap.appendChild(box);
@@ -313,6 +406,7 @@
   function render(container, ctx) {
     lastCtx = ctx;
     fields.paste = null;
+    hydrateFromDrafts(ctx);
     const body = el("div", "oneflow-resume");
     if (state.mode === "templates") {
       body.appendChild(renderTemplates(ctx));
@@ -320,7 +414,7 @@
       return;
     }
     body.appendChild(renderDropzone(ctx));
-    body.appendChild(renderPasteBox());
+    body.appendChild(renderPasteBox(ctx));
     body.appendChild(
       el(
         "p",
@@ -359,12 +453,15 @@
    */
   async function draftOnServer(text) {
     state.writeOrder.push("server");
+    const payload = { resumeText: text };
+    const provider = verifiedProviderConfig();
+    if (provider) Object.assign(payload, provider);
     let res;
     try {
       res = await fetch(profileUrl("/profile/from-resume"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ resumeText: text }),
+        body: JSON.stringify(payload),
       });
     } catch (err) {
       return {
@@ -417,6 +514,7 @@
     state.lastSource = source;
     state.failed = false;
     state.writeOrder = [];
+    saveDraft(context, "resumeText", clean);
     setStage(context, 0);
 
     try {
@@ -440,6 +538,7 @@
     setStage(context, 2);
     state.draft = { profile: drafted.profile, source, starterTemplate: "custom" };
     if (context && context.runtime) context.runtime.profileDraft = state.draft;
+    saveDraft(context, "profileDraft", state.draft);
     setStage(context, STAGE_LABELS.length);
 
     if (context && typeof context.completeBeat === "function") {
@@ -508,6 +607,7 @@
     state.mode = "intake";
     state.draft = { profile, source: "template", starterTemplate: id };
     if (context && context.runtime) context.runtime.profileDraft = state.draft;
+    saveDraft(context, "profileDraft", state.draft);
     syncActions();
     if (context && typeof context.completeBeat === "function") {
       await context.completeBeat({ source: "template" });
