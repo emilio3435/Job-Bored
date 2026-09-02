@@ -51,8 +51,10 @@
 
   function buildStage(job, stages) {
     var current = stages.toKey(job.stage) || "new";
-    var order = stages.pairs().map(function (p) { return p.key; }).filter(function (k) { return !stages.isClosed(k); });
-    return { current: current, order: order, terminal: !!stages.isClosed(current), daysInStage: job.daysInStage == null ? null : job.daysInStage, appliedAt: inline(job.appliedAt) };
+    /* Forward stages only: closed (rejected/passed) AND archived (expired) stay off the stepper. */
+    var isTerminal = function (k) { return !!(stages.isClosed(k) || (typeof stages.isArchived === "function" && stages.isArchived(k))); };
+    var order = stages.pairs().map(function (p) { return p.key; }).filter(function (k) { return !isTerminal(k); });
+    return { current: current, order: order, terminal: isTerminal(current), daysInStage: job.daysInStage == null ? null : job.daysInStage, appliedAt: inline(job.appliedAt) };
   }
 
   function buildNextAction(job, deps) {
