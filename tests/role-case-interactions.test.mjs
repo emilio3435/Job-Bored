@@ -282,6 +282,7 @@ function boot({ openKey = "job-1", job = fixtureJob() } = {}) {
   const events = [];
   const timers = [];
   const profileMatchOpens = [];
+  const stripRenders = [];
 
   const region = makeElement("section", { "data-region": "role" });
   const body = makeElement("body", { class: "jb-v2" });
@@ -326,6 +327,12 @@ function boot({ openKey = "job-1", job = fixtureJob() } = {}) {
         openProfileMatchModal: (j) => profileMatchOpens.push(j),
       },
     },
+    /* The real recruiter-strip.js innerHTML-overwrites whatever element it is
+       handed; the stub only records that role.js handed it the Case's own
+       mount and the open role's view-model. */
+    JobBoredRecruiterStrip: {
+      render: (mountEl, roleVm) => stripRenders.push({ mountEl, roleVm }),
+    },
   };
   listenersFor(windowEl, "window");
 
@@ -338,7 +345,7 @@ function boot({ openKey = "job-1", job = fixtureJob() } = {}) {
   for (const { filename, code } of sources) vm.runInContext(code, context, { filename });
 
   return {
-    region, win: windowEl, doc: documentEl, events, profileMatchOpens,
+    region, win: windowEl, doc: documentEl, events, profileMatchOpens, stripRenders,
     /* Details are minted inside the vm realm, so copy them into plain
        host objects before deepEqual compares prototypes. */
     writebacks: () => detailsOf(events, "jb:role:writeback"),
@@ -356,6 +363,31 @@ describe("The Case interactions", () => {
     assert.ok(region.querySelector('[data-mount="materials"]'), "the materials mount must render");
     assert.equal(region.querySelector(".case__title").getAttribute("value"), "Senior PM");
     assert.ok(region.querySelector('[data-action="notes"]'), "the notes surface must render");
+  });
+
+  /* L7 gap 2: the recruiter CRM row lived only in the retired Brief. The Case
+     renders the mount at the foot of YOUR MOVES and role.js — the region
+     owner, not the renderer — fills it, exactly as the Brief did. */
+  it("mounts the recruiter strip under People in the your-moves lane", () => {
+    const { region } = boot();
+    const mount = region.querySelector('[data-mount="recruiter-strip"]');
+    assert.ok(mount, "the recruiter-strip mount must render");
+    const moves = region.querySelector(".case__lane--moves");
+    assert.ok(moves && moves.contains(mount), "the mount belongs to the YOUR MOVES lane");
+    const people = region.querySelector(".case__kv");
+    assert.ok(people && moves.contains(people), "precondition: People renders in the same lane");
+  });
+
+  it("hands the recruiter strip its own mount and the open role", () => {
+    const { region, stripRenders } = boot();
+    assert.equal(stripRenders.length, 1, "role.js must render the strip exactly once per dossier render");
+    assert.equal(
+      stripRenders[0].mountEl,
+      region.querySelector('[data-mount="recruiter-strip"]'),
+      "the strip gets the dedicated mount, never a shared container it would overwrite",
+    );
+    assert.equal(stripRenders[0].roleVm.job.jobKey, "job-1");
+    assert.equal(stripRenders[0].roleVm.job.company, "Meridian Labs");
   });
 
   it("stage step click dispatches jb:pipeline:move with the rendered from-stage", () => {
