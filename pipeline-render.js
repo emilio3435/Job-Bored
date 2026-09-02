@@ -214,7 +214,11 @@ function renderKanbanCard(job, index) {
     <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
   </button>`;
 
-  const _attrEsc = (v) => `"${host().escapeHtml(String(v))}"`;
+  /* Attribute escaping goes through the shared text module (jb-text.js,
+     loaded earlier in the defer chain): it escapes exactly once AND encodes
+     newlines as &#10;, so a multi-paragraph value survives the round-trip
+     to the dossier instead of collapsing to a single line. */
+  const _attrEsc = (v) => `"${window.JobBoredText.escapeAttr(String(v))}"`;
   const _pair = (k, v) => (v == null || v === "" ? "" : `${k}=${_attrEsc(v)}`);
   const jdRaw = (job._postingEnrichment && job._postingEnrichment.description) || job.fitAssessment || "";
   /* P0-D hand-off: preserve all three response values instead of collapsing
@@ -236,7 +240,9 @@ function renderKanbanCard(job, index) {
   // the v2 Dossier can render the same intelligence. Strings get clipped to
   // safe lengths so the data attribute payload stays reasonable.
   const _enr = (job && job._postingEnrichment) || null;
-  const _clip = (s, n) => (s ? String(s).slice(0, n) : "");
+  /* Budgets are unchanged; only the cut is smarter — clip() breaks on a word
+     boundary, never splits a surrogate pair, and marks the cut with "…". */
+  const _clip = (s, n) => (s ? window.JobBoredText.clip(String(s), n) : "");
   const _arrJson = (a) => {
     if (!Array.isArray(a) || !a.length) return "";
     const out = a
@@ -247,7 +253,7 @@ function renderKanbanCard(job, index) {
   };
   const _enrPair = (attr, value) => _pair(attr, value || "");
   const v2Attrs = [
-    _pair("data-jd-snippet", jdRaw ? String(jdRaw).slice(0, 4000) : ""),
+    _pair("data-jd-snippet", jdRaw ? window.JobBoredText.clip(String(jdRaw), 4000) : ""),
     _pair("data-notes", job.notes || ""),
     _pair("data-location", job.location || ""),
     _pair("data-salary", job.salary || ""),
