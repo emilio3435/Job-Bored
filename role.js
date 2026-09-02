@@ -177,6 +177,21 @@
       && root.JobBoredFlowing.openRole.get();
   }
 
+  /* Optimistic paint for the three-state Replied segment (P0-3). */
+  function paintReplyChoice(region, chosen) {
+    if (!region || typeof region.querySelectorAll !== "function") return;
+    var chips = region.querySelectorAll('[data-action="edit-field"][data-field="reply"]');
+    for (var i = 0; i < chips.length; i++) {
+      var chip = chips[i];
+      var on = chip === chosen;
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+      if (chip.classList) {
+        if (on) chip.classList.add("case__seg-b--on");
+        else chip.classList.remove("case__seg-b--on");
+      }
+    }
+  }
+
   function wireRegionClickOnce(region) {
     if (region.__jbRoleClickWired) return;
     region.__jbRoleClickWired = true;
@@ -224,7 +239,14 @@
            itself rather than collapsing into a two-way flip. */
         if (action === "edit-field" && t.getAttribute("data-field") === "reply") {
           var replyValue = t.getAttribute("data-value");
-          if (replyValue) dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: replyValue });
+          if (replyValue) {
+            /* Nothing repaints the segment until the next render, so move the
+               pressed state here: without it the chosen chip stays unpressed
+               and the old one keeps announcing aria-pressed="true" for up to
+               the 5-minute poll. A later render re-paints the same truth. */
+            paintReplyChoice(region, t);
+            dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: replyValue });
+          }
           return;
         }
         if (action === "open-profile-match") {
@@ -320,6 +342,11 @@
         if (input.type === "date") {
           input.addEventListener("change", function () { commitEditField(input); });
         }
+        /* Enter on a <button> IS its click; preventing the default here
+           killed the Replied chips' keyboard path entirely (P0-1). Only
+           surfaces that carry a typed value commit through blur, so only
+           they need Enter/Escape — buttons commit through the click walker. */
+        if (input.tagName !== "INPUT" && input.tagName !== "TEXTAREA") return;
         input.addEventListener("keydown", function (e) {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -393,6 +420,35 @@
     return !!(ae && ae.matches && ae.matches(EDIT_SURFACE_SELECTOR) && region.contains(ae));
   }
 
+  /* Focus survival across the wholesale innerHTML rebuild (P0-2). The guard
+     above only DEFERS for edit surfaces; every other focusable control — a
+     stage step, a reply chip, a materials button — is destroyed by the swap
+     and focus falls to <body>, ejecting a keyboard user to the top of the
+     document mid-task. So record what had focus by identity (the attributes
+     the renderer re-emits, never the node) and re-focus its replacement. */
+  var FOCUS_IDENTITY_ATTRS = ["data-action", "data-stage", "data-field", "data-value", "data-doc", "data-feature"];
+
+  function focusIdentity(region) {
+    var ae = document.activeElement;
+    if (!ae || !ae.getAttribute || !region || typeof region.contains !== "function") return null;
+    if (!region.contains(ae) || ae === region) return null;
+    var action = ae.getAttribute("data-action");
+    if (!action) return null;
+    var selector = "";
+    for (var i = 0; i < FOCUS_IDENTITY_ATTRS.length; i++) {
+      var name = FOCUS_IDENTITY_ATTRS[i];
+      var value = ae.getAttribute(name);
+      if (value != null) selector += "[" + name + '="' + value + '"]';
+    }
+    return selector || null;
+  }
+
+  function restoreFocus(region, selector) {
+    if (!region || !selector || typeof region.querySelector !== "function") return;
+    var next = region.querySelector(selector);
+    if (next && typeof next.focus === "function") next.focus();
+  }
+
   function renderForKey(jobKey) {
     if (!shouldRun()) return;
     var region = getRegion();
@@ -402,6 +458,7 @@
       pendingRenderKey = jobKey;
       return;
     }
+    var focused = focusIdentity(region);
     if (!jobKey) {
       renderEmpty(region);
       return;
@@ -413,6 +470,7 @@
       return;
     }
     renderDossier(region, vm);
+    restoreFocus(region, focused);
   }
 
   function onOpened(e) {

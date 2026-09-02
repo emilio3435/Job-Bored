@@ -441,10 +441,10 @@
 
   /* Inside the Case a status line replaces the whole panel — the lane
      heading already says "Materials". */
-  function renderCaseHint(hostEl, message, extraClass) {
+  function renderCaseHint(hostEl, message, extraClass, hintClass) {
     appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows'
       + (extraClass ? " " + extraClass : "") + '" aria-label="Application materials">'
-      + '<p class="case__hint">' + escapeHtml(message) + '</p>'
+      + '<p class="case__hint' + (hintClass ? " " + hintClass : "") + '">' + escapeHtml(message) + '</p>'
       + '</section>');
   }
 
@@ -453,10 +453,12 @@
        brief is open, the role is known, and there's no matched package. */
     if (!briefEl) return;
     lastPaint = { kind: "empty", options: options };
+    lastPaintKey = paintedRoleKey();
     removeExisting(briefEl);
     var note = options && options.note ? options.note : "";
     if (isCaseMount(briefEl)) {
-      renderCaseHint(briefEl, note || "No tailored resume or cover letter on disk for this role yet.");
+      renderCaseHint(briefEl, note
+        || "Nothing written for this role yet \u2014 use Draft cover letter or Tailor resume above to start one.");
       return;
     }
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--empty" aria-label="Application materials">'
@@ -507,6 +509,21 @@
       case "complete":       return "Done! Your files are ready.";
       case "failed":         return "Something went sideways. Open the request again to retry.";
       default:               return "Writing your " + label + "…";
+    }
+  }
+
+  /* The compact row's phase word. defaultPhaseMessage says the same thing in
+     a sentence for the progress block; this is the two-or-three word version
+     that belongs on a status line — never the raw state-machine enum. */
+  function phaseWords(phase) {
+    switch (String(phase || "").toLowerCase()) {
+      case "queued":        return "in line";
+      case "drafting":      return "writing";
+      case "rendering_pdf": return "polishing the PDFs";
+      case "verifying":     return "double-checking";
+      case "complete":      return "done";
+      case "failed":        return "couldn't finish";
+      default:              return "writing";
     }
   }
 
@@ -702,9 +719,13 @@
           : (doc
             ? (String(doc.status || "").toLowerCase() === "ready" ? "ready" : "failed")
             : "missing"));
+      var attempt = Number(pendingProgress && pendingProgress.attempt) || 1;
       var sub = isPending
-        ? phase + " · " + (pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—")
-          + " · attempt " + (Number(pendingProgress && pendingProgress.attempt) || 1)
+        ? phaseWords(phase) + " · " + (pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—")
+          /* A retry count only above 1: "attempt 1" on every row reads as
+             "something already went wrong" (the legacy panel showed it only
+             once a run had actually been retried). */
+          + (attempt > 1 ? " · retry " + attempt : "")
         : (doc && doc.lastModifiedAt
           ? String(doc.lastModifiedAt).slice(0, 10)
           : (status === "missing" ? "not drafted" : ""));
@@ -730,13 +751,22 @@
         : (status === "missing" && def.draftAction
           ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="'
             + escapeHtml(def.draftAction) + '">Draft</button>']
-          : []);
+          /* A failure with no way out is a dead end: the legacy panel always
+             paired FAILED with dismiss + retry, and the row must too. The
+             feature is the pending run's, which is what both handlers key on. */
+          : (status === "failed" && pendingFeature
+            ? ['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-dismiss"'
+              + ' data-feature="' + escapeHtml(pendingFeature) + '">Dismiss</button>',
+              '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-retry"'
+              + ' data-feature="' + escapeHtml(pendingFeature) + '">Try again</button>']
+            : []));
       return '<div class="case__doc" data-doc="' + escapeHtml(def.type) + '">'
         + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span>'
           + (sub ? "<small>" + escapeHtml(sub) + "</small>" : "")
           + progressHtml
         + '</div>'
-        + '<span class="case__docst case__docst--' + status + '">' + status + '</span>'
+        + '<span class="case__docst case__docst--' + status + '">'
+          + escapeHtml(status === "failed" ? "couldn't finish" : status) + '</span>'
         + '<div class="case__doc-actions">' + actions.join("") + '</div>'
       + '</div>';
     }).join("");
@@ -816,9 +846,13 @@
   function renderError(briefEl, message) {
     if (!briefEl) return;
     lastPaint = { kind: "error", message: message };
+    lastPaintKey = paintedRoleKey();
     removeExisting(briefEl);
     if (isCaseMount(briefEl)) {
-      renderCaseHint(briefEl, message || "Local materials server is unreachable.", "brief-materials--error");
+      /* A failure must not read like an empty shelf: role-case.css hangs the
+         crimson, non-italic rule on case__hint--error (P1-0e). */
+      renderCaseHint(briefEl, message || "Local materials server is unreachable.",
+        "brief-materials--error", "case__hint--error");
       return;
     }
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--error" aria-label="Application materials">'
@@ -881,10 +915,27 @@
      rehydrateOpenRole() to repaint this state into the fresh mount
      WITHOUT re-dispatching the event (that would loop). */
   var lastPaint = null;
+  /* …and for WHICH role. Switching straight from A to B never fires
+     jb:role:closed, so without this the repaint painted A's files into B's
+     Materials lane (P0-0b). */
+  var lastPaintKey = null;
+
+  function paintedRoleKey() {
+    if (currentContext && currentContext.jobKey != null && currentContext.jobKey !== "") return String(currentContext.jobKey);
+    if (currentManifest && currentManifest.jobKey) return String(currentManifest.jobKey);
+    return "";
+  }
+
+  function openRoleKey() {
+    var flow = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+    var key = flow && typeof flow.get === "function" ? flow.get() : null;
+    return key == null ? "" : String(key);
+  }
 
   function commitManifest(hostEl, manifest, base, jobKey) {
     renderManifest(hostEl, manifest, base);
     lastPaint = { kind: "manifest" };
+    lastPaintKey = paintedRoleKey();
     currentManifest = {
       jobKey: jobKey != null && jobKey !== ""
         ? jobKey
@@ -905,6 +956,10 @@
   function rehydrateOpenRole() {
     var host = findMount();
     if (!host || !lastPaint) return;
+    /* Only ever repaint the role we painted: a stale repaint under a
+       different role lists the previous role's files (P0-0b). */
+    var open = openRoleKey();
+    if (open && lastPaintKey && open !== lastPaintKey) return;
     if (lastPaint.kind === "manifest") {
       if (currentManifest && currentManifest.manifest) renderManifest(host, currentManifest.manifest, currentManifest.base);
     } else if (lastPaint.kind === "empty") {
@@ -2304,6 +2359,7 @@
   function onClosed() {
     currentManifest = null;
     lastPaint = null;
+    lastPaintKey = null;
     clearCache();
   }
 
