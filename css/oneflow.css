@@ -791,6 +791,17 @@
   color: var(--jb-navy, var(--text));
 }
 
+/* The native file input sizes itself to the platform font (wider on Linux
+   than on macOS) and does not shrink on its own — on a 390px phone it was
+   the one element pushing the shell sideways (e2e-visual, CI 2026-09-02). */
+.oneflow-resume__file {
+  display: block;
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+}
+
 .oneflow-resume__paste {
   display: flex;
   flex-direction: column;
