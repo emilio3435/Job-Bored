@@ -123,6 +123,28 @@ describe("C6 · B2 Check & continue — the clock on a slow check (spec §5 B2)"
     );
   });
 
+  it("lets a Try again supersede the stalled check instead of racing it", async () => {
+    const first = deferred();
+    const second = deferred();
+    const answers = [first.promise, second.promise];
+    const env = await openAiBeat(() => answers.shift());
+    const running = env.beats.ai.handleAction("ai_check");
+    await sleep(FAST.stalledAfterMs + FAST.tickMs * 3);
+    const retried = env.beats.ai.handleAction("ai_retry_check");
+    // The first check answers LAST and answers "no". The screen belongs to
+    // the attempt the user started, so the stale verdict must not land on it.
+    second.resolve({ ok: true, provider: "gemini", model: "gemini-flash", ms: 30 });
+    await retried;
+    first.resolve({ ok: false, message: "stale verdict from the superseded check" });
+    await running;
+    assert.ok(env.flow.getState().completedBeats.includes("ai"));
+    assert.equal(
+      messageText(env.mount()).includes("stale verdict"),
+      false,
+      "a superseded check must not write over the screen the newer one owns",
+    );
+  });
+
   it("says nothing extra when the check answers before the slow threshold", async () => {
     const env = await openAiBeat(async () => ({
       ok: true,

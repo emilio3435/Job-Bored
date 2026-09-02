@@ -33,6 +33,7 @@
     "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
 
   const ACTION_CHECK = "ai_check";
+  const ACTION_RETRY_CHECK = "ai_retry_check";
   const KEY_INPUT_ID = "oneFlowAiKeyInput";
   const BASE_URL_INPUT_ID = "oneFlowAiBaseUrlInput";
 
@@ -46,6 +47,26 @@
 
   /** Inline note on the two providers a browser cannot call directly. */
   const CORS_NOTE = "runs through the local server — keep npm start running";
+
+  /**
+   * The clock on a slow check. A free tier under throttle takes seconds,
+   * and one motionless "Checking your key…" line above a disabled button is
+   * indistinguishable from a hang — the FROZEN shape §8 rules out. Past
+   * `slowAfterMs` the busy list counts the seconds out loud; past
+   * `stalledAfterMs` it stops calling this normal and the message slot
+   * offers a fresh attempt.
+   *
+   * This is an AFFORDANCE, never a timeout: the request in flight is left
+   * running, so a provider that finally answers still passes the beat.
+   * Mutable so tests can exercise the real timer wiring in milliseconds.
+   */
+  const CHECK_TIMINGS = { slowAfterMs: 2000, stalledAfterMs: 15000, tickMs: 1000 };
+
+  const STALLED_STAGE_LABEL = "Taking longer than usual";
+
+  const STALLED_MESSAGE =
+    "Still waiting on your provider. Nothing is lost — leave it running, or " +
+    "press Try again to start a fresh check.";
 
   /**
    * The five providers spec §5 B2 lists, in order. `webhook` is absent on
@@ -130,6 +151,11 @@
     stages: [],
     lastFailure: null, // { provider, message }
     geminiWroteThrough: false,
+    // The check that owns the screen. A retry started while an earlier check
+    // is still in flight bumps this, and the older one's answer is dropped
+    // rather than allowed to complete the beat behind the newer attempt.
+    checkRun: 0,
+    stalled: false,
   };
 
   const fields = { value: null };
@@ -196,6 +222,11 @@
   function syncActions() {
     ACTIONS.length = 0;
     ACTIONS.push({ id: ACTION_CHECK, label: "Check & continue", variant: "primary" });
+    // Only once the check has outstayed its welcome: an escape hatch offered
+    // up front reads as a warning about the product.
+    if (state.stalled) {
+      ACTIONS.push({ id: ACTION_RETRY_CHECK, label: "Try again", variant: "ghost" });
+    }
   }
 
   syncActions();
@@ -210,6 +241,52 @@
   function setStages(ctx, stages) {
     state.stages = stages;
     if (ctx && typeof ctx.setBusy === "function") ctx.setBusy(ACTION_CHECK, stages);
+  }
+
+  let checkWatch = null;
+
+  function stopCheckWatch() {
+    if (checkWatch != null) {
+      clearTimeout(checkWatch);
+      checkWatch = null;
+    }
+  }
+
+  /**
+   * Render the passing seconds for a check that has not answered yet.
+   * `run` is the check this clock belongs to — a superseded one goes quiet
+   * instead of writing over the screen the newer attempt owns.
+   */
+  function startCheckWatch(ctx, baseStages, run) {
+    stopCheckWatch();
+    const startedAt = Date.now();
+    const tick = () => {
+      checkWatch = null;
+      if (run !== state.checkRun) return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= CHECK_TIMINGS.stalledAfterMs) {
+        state.stalled = true;
+        syncActions();
+        setStages(
+          ctx,
+          baseStages.concat({ label: STALLED_STAGE_LABEL, state: "active" }),
+        );
+        if (ctx && typeof ctx.setMessage === "function") {
+          ctx.setMessage(STALLED_MESSAGE, "info");
+        }
+        // The clock stops here; the request does not.
+        return;
+      }
+      setStages(
+        ctx,
+        baseStages.concat({
+          label: `still checking… ${Math.floor(elapsed / 1000)} s`,
+          state: "active",
+        }),
+      );
+      checkWatch = setTimeout(tick, CHECK_TIMINGS.tickMs);
+    };
+    checkWatch = setTimeout(tick, CHECK_TIMINGS.slowAfterMs);
   }
 
   // ---------------------------------------------------------------
@@ -504,12 +581,27 @@
       return;
     }
 
-    setStages(ctx, [{ label: "Checking your key…", state: "active" }]);
+    const run = (state.checkRun += 1);
+    state.stalled = false;
+    syncActions();
+    const baseStages = [{ label: "Checking your key…", state: "active" }];
+    setStages(ctx, baseStages);
+    startCheckWatch(ctx, baseStages, run);
     let result;
     try {
       result = await verify();
     } catch (err) {
       result = { ok: false, message: String((err && err.message) || err || "") };
+    }
+    // A newer attempt owns the screen — this one's answer is history, and
+    // its clock now belongs to that attempt, so leave the timer alone.
+    if (run !== state.checkRun) return;
+    stopCheckWatch();
+    const wasStalled = state.stalled;
+    state.stalled = false;
+    syncActions();
+    if (wasStalled && ctx && typeof ctx.setMessage === "function") {
+      ctx.setMessage("", "info");
     }
     const ms = Number(result && result.ms) || 0;
     emit(steps().KEY_CHECK, {
@@ -572,7 +664,9 @@
   async function handleAction(actionId, ctx) {
     const context = ctx || lastCtx;
     if (!context) return undefined;
-    if (actionId === ACTION_CHECK) return checkAndContinue(context);
+    if (actionId === ACTION_CHECK || actionId === ACTION_RETRY_CHECK) {
+      return checkAndContinue(context);
+    }
     return undefined;
   }
 
@@ -606,5 +700,8 @@
     didWriteGeminiKeyThrough() {
       return state.geminiWroteThrough;
     },
+    // Test seam (read in tests; never relied on from app code) — the C6
+    // thresholds, so a probe need not wait fifteen real seconds.
+    _internal: { timings: CHECK_TIMINGS, state },
   };
 })();
