@@ -127,6 +127,9 @@
     s = s.replace(/\bci\/cd\b/g, "ci cd");
     s = s.replace(/\bnode\.js\b/g, "nodejs");
     s = s.replace(/\breact\.js\b/g, "react");
+    // Sentence-ending dots must not fuse into the token ("typescript." !== "typescript");
+    // dots inside a term (".net", "3.5") are kept.
+    s = s.replace(/\.(?![a-z0-9])/g, " ");
     s = s.replace(/&/g, " and ");
     s = s.replace(/[’']/g, "");
     s = s.replace(/[^a-z0-9+#.%/\-\s]+/g, " ");
@@ -547,6 +550,37 @@
     return `<section class="profile-match-card"><div class="profile-match-card__head"><div><p class="profile-match-card__kicker">Profile match</p><h4 class="profile-match-card__title">Comparing your profile to the role</h4></div><div class="profile-match-card__score">${analysis.percentage}%</div></div><p class="profile-match-card__summary">${escapeHtml(summary)}</p>${missingPreview ? `<p class="profile-match-card__hint">Gap to close: ${escapeHtml(missingPreview)}</p>` : ""}<div class="profile-match-card__groups">${groups.mustHaves.length ? `<div class="profile-match-card__group"><p class="profile-match-card__group-label">Must-haves</p><ul class="match-checklist">${renderMatchItemsHtml(analysis.groups.mustHaves, "match-checklist__item")}</ul></div>` : ""}${groups.skills.length ? `<div class="profile-match-card__group"><p class="profile-match-card__group-label">Skills</p><ul class="match-checklist">${renderMatchItemsHtml(analysis.groups.skills, "match-checklist__item")}</ul></div>` : ""}${groups.toolsAndStack.length ? `<div class="profile-match-card__group"><p class="profile-match-card__group-label">Tools &amp; stack</p><ul class="match-checklist">${renderMatchItemsHtml(analysis.groups.toolsAndStack, "match-checklist__item")}</ul></div>` : ""}</div></section>`;
   }
 
+  function analyzeJob(job) {
+    const cache = getCandidateProfileMatchCache();
+    if (!cache || !cache.loaded || !cache.rawText) return null;
+    const groups = collectJobKeywordGroups(job);
+    if (!groups.all || !groups.all.length) return null;
+    const analysis = analyzeKeywordGroupsAgainstText(groups, cache.rawText);
+    const byLabel = new Map();
+    ["requirements", "mustHaves", "skills", "toolsAndStack"].forEach((key) => {
+      (analysis.groups[key] || []).forEach((term) => {
+        const label = String(term.label || term.fullLabel || "")
+          .trim()
+          .toLowerCase();
+        if (label && !byLabel.has(label)) byLabel.set(label, term.status);
+      });
+    });
+    return { ...analysis, ...analysis.groups, byLabel };
+  }
+
+  function dispatchProfileMatchReady() {
+    try {
+      const ev = new window.CustomEvent("jb:profile-match:ready", {
+        detail: {},
+      });
+      window.dispatchEvent(ev);
+      if (typeof document !== "undefined" && document.dispatchEvent)
+        document.dispatchEvent(ev);
+    } catch (_) {
+      /* no CustomEvent in this host */
+    }
+  }
+
   async function refreshCandidateProfileMatchCache() {
     const UC = getUserContent();
     const Bundle = getResumeBundle();
@@ -557,6 +591,7 @@
         normalizedText: "",
         tokenSet: new Set(),
       };
+      dispatchProfileMatchReady();
       return candidateProfileMatchCache;
     }
     try {
@@ -583,6 +618,7 @@
         tokenSet: new Set(),
       };
     }
+    dispatchProfileMatchReady();
     return candidateProfileMatchCache;
   }
 
@@ -606,6 +642,7 @@
     // analysis helpers (available for shared/doc-match callers)
     collectJobKeywordGroups,
     analyzeKeywordGroupsAgainstText,
+    analyzeJob,
     buildKeywordSearchIndex,
     normalizeKeywordSearchText,
     getSignificantKeywordTokens,
