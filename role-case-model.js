@@ -68,12 +68,6 @@
   /* The next-move sentence reads as prose, so an ISO follow-up date is spoken
      as `Sep 4`. Anything that is not a plain YYYY-MM-DD passes through as the
      user typed it — this formats, it never invents a date. */
-  function shortDate(value) {
-    var m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value || "").trim());
-    if (!m) return String(value || "");
-    var month = SHORT_MONTHS[Number(m[2]) - 1];
-    return month ? month + " " + Number(m[3]) : String(value);
-  }
 
   /* One source of truth for the four branches: recruiter-strip.js `nextAction`
      is what the kanban compact strip already says, so the Case says the same
@@ -86,7 +80,7 @@
     return api.nextAction({
       contact: people.contact || "Unknown",
       reply: people.replied || "Unknown",
-      followUp: people.followUpAt ? shortDate(people.followUpAt) : "Unknown",
+      followUp: people.followUpAt || "Unknown",
     });
   }
 
