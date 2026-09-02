@@ -562,7 +562,19 @@
     // existing run tracker's toast + poll carry the run from there onto
     // the live board behind it (spec §5 B6 Actions).
     void triggerRun();
-    return ctx.completeBeat({ beat: "payoff", ran: true });
+    const result = await ctx.completeBeat({ beat: "payoff", ran: true });
+    // Land where the dashboard's own Run button shows a run: the drawer.
+    // Only once the flow has relinquished the surface — opened under a
+    // still-open shell it would sit hidden behind it.
+    const h = appHost();
+    if (h && typeof h.openDiscoveryDrawer === "function") {
+      try {
+        h.openDiscoveryDrawer();
+      } catch (e) {
+        console.warn("[JobBored] B6: could not open the discovery drawer:", e);
+      }
+    }
+    return result;
   }
 
   async function onAction(actionId, ctx) {

@@ -625,7 +625,36 @@
     emit(steps().FLOW_COMPLETED, { skips, durationMs });
     closeShell();
     openBeatId = "";
+    revealRealDashboard();
     return getState();
+  }
+
+  /**
+   * The exit every deferred reveal was waiting on. While a beat owns the
+   * surface, sign-in, session restore, and the sheet load all leave the
+   * dashboard hidden "until the flow's own payoff exit reveals it" — and
+   * the S0 overlay only unmounts when real rows render, which a sheet B1
+   * just created cannot do. Without this, both B6 actions dropped the user
+   * back on the sample board.
+   */
+  function revealRealDashboard() {
+    const board = window.JobBoredOneFlowDemoBoard;
+    if (board && typeof board.unmount === "function") {
+      try {
+        board.unmount();
+      } catch (e) {
+        console.warn("[JobBored] one-flow: could not unmount the demo board:", e);
+      }
+    }
+    const app = window.JobBoredApp;
+    const setup = (app && app.setup) || null;
+    if (setup && typeof setup.revealDashboardShell === "function") {
+      try {
+        setup.revealDashboardShell();
+      } catch (e) {
+        console.warn("[JobBored] one-flow: could not reveal the dashboard:", e);
+      }
+    }
   }
 
   function closeShell() {

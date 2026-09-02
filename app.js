@@ -440,6 +440,7 @@ function registerBridgeHosts() {
     notifyPipelineFiltersChanged,
     notifyPipelineRendered,
     openCommandCenterSettingsModal,
+    openDiscoveryDrawer,
     openDiscoverySetupWizard,
     openDrawerToSubtab,
     openJobDetail,
