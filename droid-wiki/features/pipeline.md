@@ -10,7 +10,7 @@ The Pipeline is the main spine of the product. The user sees rows from the Googl
 | v1 card render | `app.js:renderCardActions` (`app.js:13699`), `style.css` |
 | v2 sticker board | `pipeline.js`, `pipeline.css` |
 | v2 kanban | `lattice.js`, `lattice.css` |
-| Dossier (PART 03) | `role.js`, `role-brief.js`, `role-materials.js`, `role.css` |
+| Dossier (PART 03) | `role.js`, `role-case-model.js`, `role-case.js`, `role-materials.js`, `role-case.css`, `role.css` |
 | Shared store | `flowing-store.js` |
 | Write-back | `flowing-writes.js` (v2), `app.js` write helpers (v1) |
 | Card data attrs spec | `AGENT_CONTRACT.md` "v2 kanban-card data-attributes" |
@@ -40,7 +40,7 @@ Allowed fields: `stage`, `heardBack`, `reply`, `followupAt`, `passed`. Anything 
 
 `role.js` is the expand controller. The Dossier has three tabs:
 
-- **Brief** (`role-brief.js`) — AI summary, fit vs role, must-haves/nice-to-haves
+- **The Case** (`role-case-model.js` + `role-case.js`) — status rail, stage stepper, numbers band (fit / ATS / keywords / reply / materials), and the evidence board: what they want vs. what you have, matched against your resume
 - **Materials** (`role-materials.js`) — Hermes-generated resume + letter
 - **Notes** — sheet column write-back
 

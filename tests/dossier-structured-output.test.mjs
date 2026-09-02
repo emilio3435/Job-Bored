@@ -27,56 +27,13 @@ const fixture = JSON.parse(
     "utf8",
   ),
 );
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
 const jbTextJs = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const insightsJs = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 const validatorPath = join(repoRoot, "structured-output-validator.js");
 
-class TestCustomEvent {
-  constructor(type, options = {}) {
-    this.type = type;
-    this.detail = options ? options.detail : undefined;
-  }
-}
 
-function makeBus() {
-  const listeners = new Map();
-  return {
-    addEventListener(type, handler) {
-      const list = listeners.get(type) || [];
-      list.push(handler);
-      listeners.set(type, list);
-    },
-    removeEventListener() {},
-    dispatchEvent(event) {
-      if (!event.target) event.target = this;
-      const list = listeners.get(event.type) || [];
-      for (const fn of list) fn.call(this, event);
-      return true;
-    },
-  };
-}
 
-function makeClassList(initial) {
-  const set = new Set(initial || []);
-  return {
-    add(c) { set.add(c); },
-    contains(c) { return set.has(c); },
-  };
-}
 
-function makeMount() {
-  return {
-    classList: makeClassList(),
-    addEventListener() {},
-    setAttribute() {},
-    getAttribute() { return null; },
-    _innerHTML: "",
-    get innerHTML() { return this._innerHTML; },
-    set innerHTML(v) { this._innerHTML = String(v == null ? "" : v); },
-    querySelector() { return null; },
-  };
-}
 
 function loadValidator() {
   const src = readFileSync(validatorPath, "utf8");
@@ -142,50 +99,44 @@ function loadInsightsWithValidator() {
   return ctx.window.CommandCenterJobPostingInsights;
 }
 
-function renderBrief(enrichment) {
-  const documentEl = Object.assign(makeBus(), {
-    body: { classList: makeClassList(["jb-v2"]) },
-    readyState: "complete",
-    querySelector() { return null; },
-  });
-  const windowEl = makeBus();
-  windowEl.document = documentEl;
-  windowEl.matchMedia = () => ({ matches: false });
-  windowEl.CustomEvent = TestCustomEvent;
-  windowEl.JobBoredFlowing = {};
-  const context = vm.createContext({
-    CustomEvent: TestCustomEvent,
-    document: documentEl,
-    window: windowEl,
-    console: { error() {}, warn() {}, log() {} },
-    Date,
-    Number,
-    Math,
-    Array,
-    Object,
-    String,
-    JSON,
-  });
-  context.globalThis = context;
-  try {
-    vm.runInContext(
-      readFileSync(validatorPath, "utf8"),
-      context,
-      { filename: "structured-output-validator.js" },
-    );
-  } catch (err) {
-    if (err && err.code !== "ENOENT") throw err;
+/* The Case's render path, end to end: the region owner hands the view-model to
+   the model and the renderer paints it. The validator is loaded the way
+   index.html loads it, so the "fail closed" case exercises the real defense. */
+function renderCase(enrichment, { withValidator = true } = {}) {
+  const CASE_STAGES = ["new", "researching", "applied", "rejected"];
+  const stages = {
+    pairs: () => CASE_STAGES.map((k) => ({ key: k, label: k })),
+    toKey: (v) => (CASE_STAGES.includes(v) ? v : ""),
+    toLabel: (v) => String(v),
+    isClosed: (v) => v === "rejected",
+  };
+  const sandbox = { window: {} };
+  if (withValidator) {
+    try {
+      vm.runInNewContext(readFileSync(validatorPath, "utf8"), sandbox, {
+        filename: "structured-output-validator.js",
+      });
+    } catch (err) {
+      if (err && err.code !== "ENOENT") throw err;
+    }
   }
-  vm.runInContext(briefSource, context, { filename: "role-brief.js" });
-  const mount = makeMount();
-  context.window.JobBoredDossierBrief.renderBrief(mount, {
-    job: {
-      jobKey: "L1",
-      role: "Backend Engineer",
-      company: "Acme",
-      enrichment,
-    },
+  /* Trap 2: jb-text.js before the model and the renderer. */
+  for (const file of ["jb-text.js", "role-case-model.js", "role-case.js"]) {
+    vm.runInNewContext(readFileSync(join(repoRoot, file), "utf8"), sandbox, { filename: file });
+  }
+  const Case = sandbox.window.JobBoredCase;
+  const job = { jobKey: "L1", role: "Backend Engineer", company: "Acme", stage: "new", enrichment };
+  /* Mirrors role.js renderDossier's reviewedVm guard. */
+  const api = sandbox.window.JobBoredStructuredOutput;
+  const reviewed = api && typeof api.validateEnrichment === "function"
+    ? { job: { ...job, enrichment: api.validateEnrichment(enrichment) } }
+    : { job };
+  const model = Case.model.buildCaseModel("L1", {
+    vm: reviewed, stages, nowMs: Date.now(),
+    parseDate: (v) => { const t = Date.parse(v); return Number.isFinite(t) ? t : null; },
   });
+  const mount = { innerHTML: "" };
+  Case.render(mount, model);
   return mount.innerHTML;
 }
 
@@ -279,45 +230,41 @@ describe("F3A-DOSSIER02-STRUCT — insights pipeline applies the validator", () 
   });
 });
 
-describe("F3A-DOSSIER02-STRUCT — Brief shows review state, not polluted claims", () => {
-  it("does not render fence or chat tokens as must-have bullets", () => {
+describe("F3A-DOSSIER02-STRUCT — The Case never renders polluted claims", () => {
+  it("does not render fence or chat tokens as requirement bullets", () => {
     const api = loadValidator();
     const cleaned = api.validateEnrichment(fixture.parsedPolluted);
-    const html = renderBrief({ ...cleaned, status: "ready" });
+    const html = renderCase({ ...cleaned, status: "ready" });
     assert.doesNotMatch(html, /```json/);
-    assert.doesNotMatch(html, /&lt;must_haves&gt;|<must_haves>/);
+    assert.doesNotMatch(html, /must_haves/);
     assert.doesNotMatch(html, /im_start/);
     assert.doesNotMatch(html, /mustHaves:/);
-    assert.match(html, /5\+ years Python/);
-  });
-
-  it("surfaces a review state instead of treating polluted lists as facts", () => {
-    const api = loadValidator();
-    const cleaned = api.validateEnrichment(fixture.parsedPolluted);
-    const html = renderBrief({ ...cleaned, status: "ready" });
-    assert.match(
-      html,
-      /brief__review/,
-      "DOSSIER-02: show a review state, not only silently cleaned bullets",
-    );
-    assert.match(html, /review/i);
+    assert.match(html, /5\+ years Python/, "the real requirement still reads");
   });
 
   it("raw polluted enrichment that skipped the validator still does not render delimiter tokens", () => {
-    const html = renderBrief({
-      ...fixture.parsedPolluted,
-      status: "ready",
-    });
+    const html = renderCase({ ...fixture.parsedPolluted, status: "ready" });
     assert.doesNotMatch(
       html,
       /```json/,
-      "Brief must fail closed even if insights forgot to validate",
+      "the dossier must fail closed even if insights forgot to validate",
     );
     assert.doesNotMatch(html, /im_start/);
-    assert.match(
-      html,
-      /brief__review/,
-      "unvalidated polluted lists must still enter review state in the Brief",
-    );
+    assert.doesNotMatch(html, /must_haves/);
+    assert.match(html, /5\+ years Python/);
+  });
+
+  it("renders the pollution verbatim ONLY when the validator is absent — the guard is what saves us", () => {
+    /* Negative control: with structured-output-validator.js unloaded there is
+       nothing to fail closed with. This is what makes the case above a real
+       test of the guard rather than a test of the fixture. */
+    const html = renderCase({ ...fixture.parsedPolluted, status: "ready" }, { withValidator: false });
+    assert.match(html, /```json/);
   });
 });
+
+/* The Brief's `.brief__review` banner retired with role-brief.js: The Case has
+   no AI-prose block to caveat (spec §3 cuts postingSummary / fitAngle), so the
+   review STATE is no longer rendered. The behavior that mattered — polluted
+   lists never reach a bullet — is pinned above, and role.js's reviewedVm guard
+   is what enforces it. */

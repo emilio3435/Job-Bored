@@ -12,7 +12,7 @@ Existing extraction: `dawn.js`, `dawn-data.js`, `pipeline.js`, `lattice.js`, `ro
 
 ## `role-workshop.js` is still present
 
-The Workshop preceded the Dossier (`role.js` + `role-brief.js` + `role-materials.js`). The Workshop file lingers. If nothing references it, it can be deleted — but check `index.html` script tags first.
+The Workshop preceded the Dossier (`role.js` + `role-case-model.js` + `role-case.js` + `role-materials.js`). The Workshop file lingers. If nothing references it, it can be deleted — but check `index.html` script tags first.
 
 ## 26 root markdown files
 

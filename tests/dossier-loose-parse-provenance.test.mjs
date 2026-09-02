@@ -8,7 +8,6 @@ import vm from "node:vm";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const jbTextSource = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const insightsSource = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
 
 function loadInsights(rawText) {
   const window = {
@@ -43,45 +42,10 @@ async function enrich(rawText) {
   );
 }
 
-function renderRecovered(enrichment, metadata) {
-  const window = { JobBoredFlowing: {} };
-  const context = vm.createContext({
-    window,
-    document: {
-      body: { classList: { contains: (name) => name === "jb-v2" } },
-    },
-    Date,
-    Number,
-    Math,
-    Array,
-    Object,
-    String,
-    JSON,
-  });
-  const provenanceSource = readFileSync(
-    join(repoRoot, "dossier-field-provenance.js"),
-    "utf8",
-  );
-  vm.runInContext(provenanceSource, context, { filename: "dossier-field-provenance.js" });
-  vm.runInContext(briefSource, context, { filename: "role-brief.js" });
-  const mount = { innerHTML: "", querySelector() { return null; } };
-  window.JobBoredDossierBrief.renderBrief(mount, {
-    job: {
-      role: "Systems Engineer",
-      company: "Acme",
-      jdSections: [],
-      enrichment: {
-        ...(metadata === undefined ? {
-          source: "cheerio",
-          enrichedAt: "2026-08-30T12:00:00.000Z",
-        } : metadata),
-        ...enrichment,
-      },
-    },
-  });
-  return mount.innerHTML;
-}
 
+/* The "visibly demotes to recovered — review" case retired with role-brief.js:
+   The Case renders no .brief__struct provenance chip (spec §3). The parse-mode
+   lineage the chip read from is still asserted below, on the parser itself. */
 describe("DOSSIER-02 recovered parse provenance", () => {
   it("marks loose key/value recovery instead of presenting it as schema output", async () => {
     const out = await enrich(
@@ -106,21 +70,4 @@ describe("DOSSIER-02 recovered parse provenance", () => {
     assert.equal(out._parseMode, "schema");
   });
 
-  it("visibly demotes loose/repaired lists to recovered — review", () => {
-    for (const parseMode of ["loose", "repaired"]) {
-      const enrichment = {
-        _parseMode: parseMode,
-        mustHaves: ["5 years Rust"],
-        responsibilities: ["Build systems"],
-      };
-      for (const html of [
-        renderRecovered(enrichment),
-        renderRecovered(enrichment, {}),
-      ]) {
-        assert.match(html, /brief__struct--recovered/);
-        assert.match(html, /Recovered — review/);
-        assert.match(html, /unknown/i);
-      }
-    }
-  });
 });

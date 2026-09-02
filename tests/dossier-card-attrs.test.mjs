@@ -1,12 +1,17 @@
 /* ============================================================
    dossier-card-attrs.test.mjs
    ------------------------------------------------------------
-   Post-refactor (2026-05-20) IA contract: the Dossier renders
-   only the editorial Brief. The standalone Workshop block has
-   been removed; stage controls, ATS scorecard, hero CTAs, and
-   progress chips live in the renamed PART 04 Workshop region
-   (data-region="letter"). This test pins what the role region
-   must (and must not) contain.
+   IA contract for the role region. Post-refactor (2026-05-20)
+   the standalone Workshop block moved out to the renamed PART 04
+   Workshop region (data-region="letter"); at the dossier-case
+   cutover (2026-09-02) the editorial Brief it left behind became
+   The Case. This test pins what the role region must (and must
+   not) contain, retargeted block for block.
+
+   Trap 2: jb-text.js evaluates BEFORE role-case-model.js and
+   role-case.js, or both throw inside a try and the region paints
+   empty — so every assertion below that pins an ABSENCE is
+   paired with one that pins real content.
    ============================================================ */
 
 import assert from "node:assert/strict";
@@ -17,7 +22,10 @@ import vm from "node:vm";
 import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
+const caseSources = ["jb-text.js", "role-case-model.js", "role-case.js"].map((f) => ({
+  filename: f,
+  code: readFileSync(join(repoRoot, f), "utf8"),
+}));
 const workshopSource = readFileSync(join(repoRoot, "role-workshop.js"), "utf8");
 const roleSource = readFileSync(join(repoRoot, "role.js"), "utf8");
 
@@ -195,6 +203,14 @@ function fixtureVm() {
   };
 }
 
+const CARD_STAGES = ["new", "researching", "applied", "phone-screen", "interviewing", "offer", "rejected", "passed", "expired"];
+const cardStages = {
+  pairs: () => CARD_STAGES.map((k) => ({ key: k, label: k.replace("-", " ") })),
+  toKey: (v) => (CARD_STAGES.includes(v) ? v : ""),
+  toLabel: (v) => String(v).replace("-", " "),
+  isClosed: (v) => ["rejected", "passed", "expired"].includes(v),
+};
+
 function loadAllThree({ vm: roleVm }) {
   const documentEl = makeDocument();
   const region = makeRegion();
@@ -208,6 +224,7 @@ function loadAllThree({ vm: roleVm }) {
   windowEl.matchMedia = () => ({ matches: false });
   windowEl.CustomEvent = TestCustomEvent;
   windowEl.JobBoredDawn = { data: { getRoleViewModel: () => roleVm } };
+  windowEl.JobBoredStages = cardStages;
   windowEl.JobBoredFlowing = {
     openRole: {
       get: () => roleVm.job.jobKey,
@@ -235,7 +252,7 @@ function loadAllThree({ vm: roleVm }) {
     clearTimeout,
   });
 
-  vm.runInContext(briefSource, context, { filename: "role-brief.js" });
+  for (const { filename, code } of caseSources) vm.runInContext(code, context, { filename });
   vm.runInContext(workshopSource, context, { filename: "role-workshop.js" });
   vm.runInContext(roleSource, context, { filename: "role.js" });
   return { context, windowEl, documentEl, region };
@@ -250,7 +267,7 @@ function assembleHtml(region) {
 }
 
 describe("dossier card attrs", () => {
-  it("the dossier renders the brief with masthead + notes + full CTA cluster (View / Cover / Tailor)", () => {
+  it("the dossier renders The Case: rail, stepper, numbers, lanes, notes, record", () => {
     const roleVm = fixtureVm();
     const { context, region } = loadAllThree({ vm: roleVm });
 
@@ -258,32 +275,29 @@ describe("dossier card attrs", () => {
 
     const html = assembleHtml(region);
 
-    /* Dossier-owned actions: notes are the marginalia textarea inside
-       the brief. The CLOSE button on the divider has been removed —
-       users close the dossier via the kanban-row affordance instead. */
+    /* Dossier-owned actions: notes are the marginalia textarea. The CLOSE
+       button on the divider has been removed — users close the dossier via
+       the kanban-row affordance instead. */
     assert.doesNotMatch(html, /data-action="close-role"/, "close-role button should be removed");
     assert.match(html, /data-action="notes"/, "notes action selector missing");
 
-    /* Brief class selectors */
-    assert.match(html, /class="brief__masthead"/, "brief__masthead missing");
-    assert.match(
-      html,
-      /class="brief__identity-provenance"/,
-      "the dossier evidence panel must render even when metadata degrades to unknown",
-    );
-    assert.match(html, /class="brief__col brief__col--main[^"]*"/, "brief__col--main missing");
-    assert.match(html, /class="brief__col brief__col--side[^"]*"/, "brief__col--side missing");
+    /* Case block selectors (spec §1 layout, in order). */
+    assert.match(html, /class="case__rail"/, "status rail missing");
+    assert.match(html, /class="case__stepper"/, "stage stepper missing");
+    assert.match(html, /class="case__board"/, "evidence board missing");
+    assert.match(html, /class="case__notes"/, "notes block missing");
+    assert.match(html, /class="case__chron"/, "the record missing");
 
-    /* The Dossier hero owns the canonical action cluster: View posting,
-       Draft cover letter, Tailor resume. The Workshop is the doing
-       surface and does NOT duplicate these entry points. */
-    assert.match(html, /class="brief__cta-cluster"/, "brief__cta-cluster missing");
-    assert.match(html, /class="brief__cta brief__cta--view"/, "View posting CTA missing");
+    /* Identity is editable in place, through the frozen writeback contract. */
+    assert.match(html, /data-action="edit-field"[^\u003e]*data-field="title"/, "editable title missing");
+    assert.match(html, /data-action="edit-field"[^\u003e]*data-field="company"/, "editable company missing");
+    assert.match(html, /Senior Product Designer, Growth/, "the role title must actually render");
+
+    /* View posting stays the canonical outbound link. The resume-cover /
+       resume-tailor CTAs moved into the materials rows as Draft buttons
+       (plan Task 9) and are rendered by role-materials.js, which this
+       harness does not load — see tests/role-materials.test.mjs. */
     assert.match(html, /data-action="brief-view-posting"/, "brief-view-posting data-action missing");
-    assert.match(html, /class="brief__cta brief__cta--cover"/, "Cover-letter CTA missing");
-    assert.match(html, /data-action="resume-cover"/, "resume-cover CTA missing");
-    assert.match(html, /class="brief__cta brief__cta--tailor"/, "Tailor-resume CTA missing");
-    assert.match(html, /data-action="resume-tailor"/, "resume-tailor CTA missing");
     assert.match(html, /href="https:\/\/example\.com\/jobs\/42"/, "posting href missing");
     assert.match(html, /target="_blank"/, "external target missing");
   });
@@ -296,16 +310,15 @@ describe("dossier card attrs", () => {
     const html = assembleHtml(region);
 
     /* The standalone workshop block has been removed. None of these
-       Workshop-specific selectors may appear inside the dossier
-       region — they live in the renamed Workshop (data-region="letter")
-       instead. The CTAs themselves (resume-cover / resume-tailor) ARE
-       in the Dossier masthead as the canonical entry points; the
-       assertion target here is the Workshop's *editor and stepper UI*,
-       not the entry-point CTAs. */
+       Workshop-specific selectors may appear inside the dossier region —
+       they live in the renamed Workshop (data-region="letter") instead.
+       The Case's own stepper is `case__stepper`, deliberately NOT the
+       Workshop's `stepper`. */
+    assert.match(html, /class="case__stepper"/, "precondition: the Case's own stepper renders");
     assert.doesNotMatch(html, /class="workshop"/, "workshop block must not be in dossier");
     assert.doesNotMatch(html, /class="workshop__bar"/, "workshop__bar must not be in dossier");
     assert.doesNotMatch(html, /class="mode-divider"/, "mode-divider must not be in dossier");
-    assert.doesNotMatch(html, /class="stepper"/, "stage stepper must not be in dossier");
+    assert.doesNotMatch(html, /class="stepper"/, "the Workshop stage stepper must not be in dossier");
     assert.doesNotMatch(html, /class="writeback"/, "progress chips must not be in dossier");
     assert.doesNotMatch(html, /class="ats-card[^"]*"/, "ats-card must not be in dossier");
   });
@@ -320,43 +333,11 @@ describe("dossier card attrs", () => {
     assert.ok(briefMount, "expected a brief mount");
     assert.equal(workshopMount, undefined, "expected NO workshop mount in dossier");
 
-    assert.match(briefMount.innerHTML, /class="brief__masthead"/);
-    assert.match(briefMount.innerHTML, /class="brief__col brief__col--main[^"]*"/);
-    assert.match(briefMount.innerHTML, /class="brief__col brief__col--side[^"]*"/);
+    assert.match(briefMount.innerHTML, /class="case__rail"/);
+    assert.match(briefMount.innerHTML, /class="case__board"/);
     assert.match(briefMount.innerHTML, /data-action="notes"/);
-    assert.match(briefMount.innerHTML, /class="brief__cta-cluster"/);
-  });
-
-  it("feature-detects and mounts the recruiter strip into the rendered brief", () => {
-    const roleVm = fixtureVm();
-    const { context, region } = loadAllThree({ vm: roleVm });
-    let mounted = null;
-    context.window.JobBoredRecruiterStrip = {
-      render(mountEl, vmArg) {
-        mounted = { mountEl, vmArg };
-      },
-    };
-
-    context.window.JobBoredFlowing.role.renderForKey("linear-1");
-
-    assert.ok(mounted, "recruiter strip render should be called when the strip is present");
-    /* The strip innerHTML-overwrites whatever element it is handed, so it must
-       receive the dedicated [data-mount] div — handing it the brief root wipes
-       the whole rendered brief (caught by e2e-journey during T0 integration).
-       This fake DOM's querySelector cannot resolve the attribute selector, so
-       the mount arg is asserted negatively; the positive render-into-mount path
-       is covered by tests/recruiter-strip-dossier.test.mjs and e2e-journey. */
-    assert.notEqual(
-      mounted.mountEl,
-      region._mounts.get("brief"),
-      "render must receive the dedicated [data-mount] element, never the brief root",
-    );
-    assert.match(
-      region._mounts.get("brief").innerHTML,
-      /data-mount="recruiter-strip"/,
-      "the rendered brief must contain the recruiter-strip mount",
-    );
-    assert.equal(mounted.vmArg, roleVm);
+    /* The Case emits the materials mount role-materials.js renders into. */
+    assert.match(briefMount.innerHTML, /class="case__materials" data-mount="materials"/);
   });
 
   it("renderForKey on an unknown key falls back to the empty shelf, not the dossier", () => {

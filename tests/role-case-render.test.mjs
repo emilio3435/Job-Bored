@@ -13,7 +13,7 @@
    content except the four that pin a block's absence.
    ============================================================ */
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 import vm from "node:vm";
@@ -38,6 +38,7 @@ function load() {
   return sandbox.window.JobBoredCase;
 }
 const Case = load();
+const roleCssSource = readFileSync(join(repoRoot, "role.css"), "utf8");
 
 /* Same fixture as tests/role-case-model.test.mjs (Meridian Labs, fictional). */
 function baseDeps(over = {}) {
@@ -132,5 +133,33 @@ describe("The Case renders every block from the model", () => {
     const html = renderHtml(model({ vmPatch: { stage: "rejected" } }));
     assert.match(html, /class="case__terminal"[^>]*>[\s\S]*?rejected/i);
     assert.doesNotMatch(html, /data-action="stage-step"/);
+  });
+});
+
+/* ------------------------------------------------------------
+   The Brief is retired (plan Task 10, LD3). Its renderer, its
+   styles and its script tag are gone; only CHANGELOG history may
+   still name it. This guard is what keeps a revert from quietly
+   resurrecting the old presentation layer underneath the Case.
+   ------------------------------------------------------------ */
+describe("the Brief is retired", () => {
+  it("role.css carries no .brief__* presentation rules", () => {
+    assert.doesNotMatch(roleCssSource, /\.brief__lede/);
+    assert.doesNotMatch(roleCssSource, /\.brief__masthead/);
+    assert.doesNotMatch(roleCssSource, /\.brief__fact-input/);
+    assert.doesNotMatch(roleCssSource, /\.skim\b/);
+    assert.doesNotMatch(roleCssSource, /\.brief-notes\b/);
+    /* .brief-materials* survives: role-materials still renders the legacy
+       panel into a brief-only mount (plan Task 9). */
+    assert.match(roleCssSource, /\.brief-materials__head/);
+  });
+
+  it("role-brief.js is gone and nothing loads or falls back to it", () => {
+    assert.equal(existsSync(join(repoRoot, "role-brief.js")), false, "role-brief.js must be deleted");
+    for (const file of ["index.html", "role.js"]) {
+      const source = readFileSync(join(repoRoot, file), "utf8");
+      assert.doesNotMatch(source, /role-brief\.js/, file + " must not load role-brief.js");
+      assert.doesNotMatch(source, /JobBoredDossierBrief/, file + " must not reference the Brief renderer");
+    }
   });
 });

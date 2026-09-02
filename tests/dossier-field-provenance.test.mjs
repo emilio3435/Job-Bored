@@ -33,109 +33,19 @@ const unknownFields = JSON.parse(
   readFileSync(join(fixturesDir, "unknown-fields.json"), "utf8"),
 );
 
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
 const postingEnrichmentJs = readFileSync(
   join(repoRoot, "posting-enrichment.js"),
   "utf8",
 );
 
-const GROUNDED_LABEL = "grounded in the posting";
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
 
-class TestCustomEvent {
-  constructor(type, options = {}) {
-    this.type = type;
-    this.detail = options ? options.detail : undefined;
-    this.bubbles = !!(options && options.bubbles);
-    this.target = null;
-  }
-}
 
-function makeBus() {
-  const listeners = new Map();
-  return {
-    addEventListener(type, handler) {
-      const list = listeners.get(type) || [];
-      list.push(handler);
-      listeners.set(type, list);
-    },
-    removeEventListener(type, handler) {
-      const list = listeners.get(type) || [];
-      listeners.set(type, list.filter((h) => h !== handler));
-    },
-    dispatchEvent(event) {
-      if (!event.target) event.target = this;
-      const list = listeners.get(event.type) || [];
-      for (const fn of list) fn.call(this, event);
-      return true;
-    },
-  };
-}
 
-function makeClassList(initial) {
-  const set = new Set(initial || []);
-  return {
-    add(c) { set.add(c); },
-    remove(c) { set.delete(c); },
-    contains(c) { return set.has(c); },
-  };
-}
 
-function makeMount() {
-  const attributes = {};
-  return {
-    classList: makeClassList(),
-    addEventListener() {},
-    removeEventListener() {},
-    setAttribute(name, value) { attributes[name] = String(value); },
-    getAttribute(name) { return attributes[name] || null; },
-    _innerHTML: "",
-    get innerHTML() { return this._innerHTML; },
-    set innerHTML(v) { this._innerHTML = String(v == null ? "" : v); },
-    querySelector() { return null; },
-  };
-}
 
-function makeDocument() {
-  const bus = makeBus();
-  return Object.assign(bus, {
-    body: { classList: makeClassList(["jb-v2"]) },
-    readyState: "complete",
-    querySelector() { return null; },
-  });
-}
 
-function loadScripts(extraSources = []) {
-  const documentEl = makeDocument();
-  const windowEl = makeBus();
-  windowEl.document = documentEl;
-  windowEl.matchMedia = () => ({ matches: false });
-  windowEl.CustomEvent = TestCustomEvent;
-  windowEl.JobBoredFlowing = {};
-  const context = vm.createContext({
-    CustomEvent: TestCustomEvent,
-    document: documentEl,
-    window: windowEl,
-    globalThis: undefined,
-    console: { error() {}, warn() {}, log() {} },
-    Date,
-    Number,
-    Math,
-    Array,
-    Object,
-    String,
-    JSON,
-    setTimeout,
-    clearTimeout,
-  });
-  context.globalThis = context;
-  for (const { src, filename } of extraSources) {
-    vm.runInContext(src, context, { filename });
-  }
-  vm.runInContext(briefSource, context, { filename: "role-brief.js" });
-  return { context, windowEl, documentEl };
-}
 
 function tryLoadProvenanceHelper() {
   const src = readFileSync(
@@ -204,59 +114,14 @@ function loadPostingEnrichment() {
   return window.JobBoredApp.postingEnrichment;
 }
 
-function renderBrief(enrichment, extraJob = {}) {
-  const { context } = loadScripts();
-  const mount = makeMount();
-  context.window.JobBoredDossierBrief.renderBrief(mount, {
-    job: {
-      jobKey: "L1",
-      role: extraJob.role || extraJob.title || "Role",
-      company: extraJob.company || "Company",
-      enrichment,
-    },
-  });
-  return mount.innerHTML;
-}
 
-describe("F3A-DOSSIER01-PROV — title/company inference is not posting-grounded", () => {
-  it("does not label title/company-only inference as grounded in the posting", () => {
-    const html = renderBrief(titleCompanyOnly.enrichment, titleCompanyOnly.job);
-    assert.match(
-      html,
-      /brief__lede/,
-      "inferred summary still renders so the hunter can read it",
-    );
-    assert.doesNotMatch(
-      html,
-      /grounded in the posting/,
-      titleCompanyOnly.why,
-    );
-    assert.match(
-      html,
-      /inferred from title and company/i,
-      "the lede tag must say the claim was inferred from title and company",
-    );
-  });
 
-  it("may label a Cheerio-scraped posting summary as grounded in the posting", () => {
-    const html = renderBrief(postingGrounded.enrichment, postingGrounded.job);
-    assert.match(html, new RegExp(GROUNDED_LABEL));
-    assert.doesNotMatch(html, /inferred from title and company/i);
-  });
-
-  it("does not claim posting-grounded when enrichment has no source lineage", () => {
-    const html = renderBrief({
-      postingSummary: "A model wrote this without saying where from.",
-      status: "ready",
-    });
-    assert.doesNotMatch(
-      html,
-      /grounded in the posting/,
-      "missing source is unverified, not posting-grounded",
-    );
-  });
-});
-
+/* The rendering half of DOSSIER-01 retired with role-brief.js: The Case has
+   no lede, no provenance chip and no "Fetched …" line (spec §3 cuts the AI
+   prose block), so there is no rendered surface left to assert against. What
+   still ships is the provenance data itself — posting-enrichment.js stamps it
+   and dossier-field-provenance.js classifies it — and that is what is pinned
+   below, unweakened. */
 describe("F3A-DOSSIER01-PROV — cache TTL and visible freshness", () => {
   it("rejects cache hits older than the enrichment TTL", () => {
     const api = loadPostingEnrichment();
@@ -319,37 +184,6 @@ describe("F3A-DOSSIER01-PROV — cache TTL and visible freshness", () => {
     );
   });
 
-  it("renders cache freshness next to the AI summary so age is not hidden", () => {
-    const api = tryLoadProvenanceHelper();
-    const now = 1_800_360_000_000; // one hour after scrapedAt=1800000000000
-    const stamped = api.stampProvenance(
-      {
-        ...postingGrounded.enrichment,
-        scrapedAt: 1_800_000_000_000,
-      },
-      { nowMs: now, profileExcerpt: "I shipped activation at Stripe." },
-    );
-    const { context } = loadScripts([
-      {
-        src: readFileSync(join(repoRoot, "dossier-field-provenance.js"), "utf8"),
-        filename: "dossier-field-provenance.js",
-      },
-    ]);
-    const mount = makeMount();
-    context.window.JobBoredDossierBrief.renderBrief(mount, {
-      job: {
-        jobKey: "L1",
-        role: "Growth Designer",
-        company: "Linear",
-        enrichment: stamped,
-      },
-    });
-    assert.match(
-      mount.innerHTML,
-      /brief__freshness|fetched /i,
-      "DOSSIER-01: cache age/source must be visible in the Brief, not only in memory",
-    );
-  });
 });
 
 describe("F3A-DOSSIER01-PROV — unknown retained; profile revision stamped", () => {

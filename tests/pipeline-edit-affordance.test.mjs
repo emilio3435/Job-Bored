@@ -7,8 +7,8 @@ import { describe, it } from "node:test";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const pipelineJs = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
 const pipelineCss = readFileSync(join(repoRoot, "pipeline.css"), "utf8");
-const roleCss = readFileSync(join(repoRoot, "role.css"), "utf8");
-const briefJs = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
+const caseCss = readFileSync(join(repoRoot, "role-case.css"), "utf8");
+const caseJs = readFileSync(join(repoRoot, "role-case.js"), "utf8");
 
 describe("kanban card edit affordance (pencil -> dossier)", () => {
   it("renders a pencil button on each sticker card that carries the card key", () => {
@@ -69,18 +69,18 @@ describe("kanban card edit affordance (pencil -> dossier)", () => {
     );
   });
 
-  it("the selector pipeline.js queries matches the attributes role-brief.js emits (cross-module contract)", () => {
+  it("the selector pipeline.js queries matches the attributes role-case.js emits (cross-module contract)", () => {
     // WHY: the focus handoff silently breaks if the two modules disagree on the
     // attribute names. Lock both ends together.
     assert.match(
-      briefJs,
+      caseJs,
       /data-action="edit-field"/,
-      "role-brief masthead inputs must use data-action=edit-field",
+      "the Case's rail inputs must use data-action=edit-field",
     );
     assert.match(
-      briefJs,
-      /data-field="title"/,
-      "role-brief must emit a data-field=title input for the pencil to focus",
+      caseJs,
+      /editInput\("title"/,
+      "the Case must emit a data-field=title input for the pencil to focus",
     );
   });
 
@@ -107,19 +107,30 @@ describe("kanban card edit affordance (pencil -> dossier)", () => {
     );
   });
 
-  it("dossier identity fields read as editable (dashed underline, crimson focus)", () => {
+  it("dossier identity fields read as editable (dashed underline, focus accent)", () => {
     // WHY: once in the dossier, the fields must look editable — matching the
     // existing notes-textarea idiom — not like inert text or raw input boxes.
-    assert.match(roleCss, /\.brief__fact-input\s*\{/, "location/salary need an editable fact style");
+    // Retargeted at the cutover: the editable surfaces are The Case's rail
+    // inputs (on navy) and the People row's inline fields (on parchment).
     assert.match(
-      roleCss,
-      /\.brief__masthead \[data-action="edit-field"\]:focus\s*\{\s*border-bottom-color:\s*var\(--crimson\)/,
-      "focus must show the crimson underline used by the notes field",
+      caseCss,
+      /\.case__title,\s*\n[^\n]*\.case__company \{[^}]*border-bottom: 1px dashed transparent/,
+      "the rail inputs need the dashed-underline editable idiom",
     );
     assert.match(
-      roleCss,
-      /\.brief__masthead \[data-action="edit-field"\]:hover\s*\{\s*border-bottom-color:\s*var\(--border-strong\)/,
+      caseCss,
+      /\.case__rail \[data-action="edit-field"\]:hover \{ border-bottom-color:/,
       "hover must hint editability with the dashed underline",
+    );
+    assert.match(
+      caseCss,
+      /\.case__rail \[data-action="edit-field"\]:focus \{ border-bottom-color: var\(--amber\)/,
+      "focus must show an accent underline on the navy rail",
+    );
+    assert.match(
+      caseCss,
+      /\.case__v--edit:focus \{ border-bottom-color: var\(--crimson\)/,
+      "the People row's inline fields keep the crimson focus of the notes idiom",
     );
   });
 });

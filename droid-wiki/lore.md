@@ -31,7 +31,7 @@ timeline
 ## Big migrations
 
 - **v1 → v2 chrome**. `body.jb-v2` gates the redesign. v1 styles live in `style.css` (the 13k-line monolith). v2 is split per surface (`dawn.css`, `lattice.css`, `pipeline.css`, `role.css`, `letter.css`, `scribe.css`). Both render today; v2 is increasingly default.
-- **Workshop → Dossier (PART 03)**. Earlier role view was `role-workshop.js`. The Dossier is `role.js` + `role-brief.js` + `role-materials.js`. The workshop file is still present — see [cleanup opportunities](cleanup-opportunities.md).
+- **Workshop → Dossier → The Case (PART 03)**. Earlier role view was `role-workshop.js`. The Dossier is `role.js` + `role-case-model.js` + `role-case.js` + `role-materials.js`; the editorial Brief renderer it used before 2026-09-02 (`role-brief.js`) was retired with the Case cutover. The workshop file is still present — see [cleanup opportunities](cleanup-opportunities.md).
 - **Hermes-local profile → canonical UserProfile**. Hermes used to own its own profile JSON. The canonical profile is now `~/.jobbored/profile.json`, managed by `server/user-profile.mjs`. A migrator (`server/legacy-profile-migrator.mjs`) bridges the gap.
 - **Polling shape**. Older receivers responded with `status_path` snake_case; the dashboard tolerates both `statusPath` and `status_path`. New code emits camelCase.
 - **Schedule infra**. Earlier schedules were a per-OS shell script; now there's a generated cross-platform installer plus an optional GitHub Actions workflow. Walkthrough in `docs/SETTINGS-SCHEDULE.md`.
