@@ -11,6 +11,11 @@ function load() {
   // trap 2: the shared text module must exist before its consumer evaluates.
   vm.runInNewContext(readFileSync(join(repoRoot, "jb-text.js"), "utf8"), sandbox, { filename: "jb-text.js" });
   assert.equal(typeof sandbox.window.JobBoredText.normalizeInline, "function", "jb-text must load first");
+  /* Trap 2's sibling: the next-move sentence comes from recruiter-strip.js
+     `nextAction`, so the strip evaluates BEFORE the model or every sentence
+     assertion below would silently pass on "". */
+  vm.runInNewContext(readFileSync(join(repoRoot, "recruiter-strip.js"), "utf8"), sandbox, { filename: "recruiter-strip.js" });
+  assert.equal(typeof sandbox.window.JobBoredRecruiterStrip.nextAction, "function", "recruiter-strip must export nextAction");
   vm.runInNewContext(readFileSync(join(repoRoot, "role-case-model.js"), "utf8"), sandbox, { filename: "role-case-model.js" });
   return sandbox.window.JobBoredCase.model;
 }
@@ -113,5 +118,42 @@ describe("buildCaseModel", () => {
   it("collapses terminal stages", () => {
     const m = build(baseDeps({ vm: { job: { ...baseDeps().vm.job, stage: "rejected" } } }));
     assert.equal(m.stage.terminal, true);
+  });
+});
+
+/* ------------------------------------------------------------
+   People: the next move is one sentence, and it is the SAME
+   sentence the kanban compact strip shows — recruiter-strip.js
+   `nextAction` is the only place the four branches live.
+   ------------------------------------------------------------ */
+describe("moves.people.nextMove", () => {
+  function people(patch) {
+    return build(baseDeps({ vm: { job: { ...baseDeps().vm.job, ...patch } } })).moves.people;
+  }
+
+  it("asks for a contact before anything else", () => {
+    assert.equal(people({ contacts: [], followUpDate: "2026-09-04", replied: "Yes" }).nextMove, "Find a recruiter contact");
+  });
+
+  it("names the follow-up date once a contact is known", () => {
+    assert.equal(people({ contacts: [{ name: "Dana Reyes" }], followUpDate: "2026-09-04" }).nextMove, "Follow up on Sep 4");
+  });
+
+  it("moves to scheduling when they replied and no follow-up is set", () => {
+    assert.equal(people({ contacts: [{ name: "Dana Reyes" }], followUpDate: "", replied: "Yes" }).nextMove, "Schedule the next conversation");
+  });
+
+  it("asks for a follow-up date when they have not replied", () => {
+    assert.equal(people({ contacts: [{ name: "Dana Reyes" }], followUpDate: "", replied: "No" }).nextMove, "Set a follow-up date");
+  });
+
+  it("is the same function the compact kanban strip calls", () => {
+    const sandbox = { window: {} };
+    vm.runInNewContext(readFileSync(join(repoRoot, "jb-text.js"), "utf8"), sandbox, { filename: "jb-text.js" });
+    vm.runInNewContext(readFileSync(join(repoRoot, "recruiter-strip.js"), "utf8"), sandbox, { filename: "recruiter-strip.js" });
+    assert.equal(
+      sandbox.window.JobBoredRecruiterStrip.nextAction({ contact: "Dana", reply: "No", followUp: "Unknown" }),
+      "Set a follow-up date",
+    );
   });
 });
