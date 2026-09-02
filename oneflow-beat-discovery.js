@@ -97,6 +97,48 @@
     "or press Try again to start a fresh save.";
 
   const SERPAPI_ENV_KEY = "SERPAPI_API_KEY";
+
+  /**
+   * The quota line, from what SerpApi actually said (SIXBEATS2 NEW-3,
+   * locked decision 5). The shipped line was the string
+   * "Google Jobs index connected — 100 searches/mo", printed after an env
+   * write that never contacted SerpApi at all: a decoration that a typo'd
+   * key passed. An account with no quota in its payload gets no number —
+   * inventing one is the defect wearing a different coat.
+   */
+  function quotaLine(result) {
+    const plan = String((result && result.plan) || "").trim();
+    const left = result && Number(result.searchesLeft);
+    const hasLeft = Number.isFinite(left);
+    if (plan && hasLeft) {
+      return `Google Jobs index connected — ${plan} plan, ${left} searches left this month.`;
+    }
+    if (hasLeft) {
+      return `Google Jobs index connected — ${left} searches left this month.`;
+    }
+    return "Google Jobs index connected.";
+  }
+
+  /**
+   * Why the check failed, in the user's words, each naming the next action
+   * (voice rule §8.4). "Wrong key" and "you are offline" are different
+   * problems and must not share one shrug.
+   */
+  const FUEL_CHECK_ERRORS = Object.freeze({
+    invalid_key:
+      "SerpApi didn't recognise that key. Copy it again from " +
+      "serpapi.com/manage-api-key — the whole string, no spaces — then press " +
+      "Save & verify.",
+    unreachable:
+      "Couldn't reach SerpApi to check the key. Check this machine's " +
+      "internet connection, then press Save & verify again.",
+    upstream_error:
+      "SerpApi answered, but not with your account. Wait a moment, then " +
+      "press Save & verify again.",
+    no_local_server:
+      "Couldn't reach the local server to check your key — is it still " +
+      "running? Start it with `npm run web-only`, then press Save & verify.",
+  });
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
   const SELF_HOSTING_DOC = "docs/SELF-HOSTING.md";
@@ -117,6 +159,8 @@
     // dropped instead of landing behind the newer attempt.
     fuelRun: 0,
     fuelStalled: false,
+    // What SerpApi said, so the panel and the message agree on one truth.
+    fuelQuotaLine: "",
   };
 
   /**
@@ -298,7 +342,7 @@
         el(
           "p",
           "oneflow-panel__status oneflow-panel__status--ok",
-          "✓ Google Jobs index connected — 100 searches/mo",
+          `✓ ${state.fuelQuotaLine || quotaLine(null)}`,
         ),
       );
     }
@@ -397,6 +441,31 @@
   // Fuel — save the key, restart the worker, RENDER the result
   // ---------------------------------------------------------------
 
+  /**
+   * Ask the dev-server to ask SerpApi (locked decision 5). Answers the
+   * server's `{ok, plan, searchesLeft}` on success, and `{ok:false, reason}`
+   * otherwise — including when the local server itself is the thing that
+   * cannot be reached, which is a different problem with a different fix.
+   */
+  async function checkFuelKey(key) {
+    try {
+      const response = await fetch("/__proxy/serpapi-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      const body = response ? await response.json().catch(() => null) : null;
+      if (!body || typeof body !== "object") {
+        return { ok: false, reason: "no_local_server" };
+      }
+      if (body.ok) return body;
+      return { ok: false, reason: String(body.reason || "upstream_error") };
+    } catch (e) {
+      console.warn("[JobBored] B5 SerpApi check:", e && e.name ? e.name : e);
+      return { ok: false, reason: "no_local_server" };
+    }
+  }
+
   async function saveAndVerifyFuel(ctx) {
     const key = state.keyDraft.trim();
     if (!key) {
@@ -405,14 +474,42 @@
     }
     const startedAt = Date.now();
     const stages = [
-      { label: "Saving your key…", state: "active" },
-      { label: "Google Jobs index connected — 100 searches/mo", state: "todo" },
+      { label: "Checking your key with SerpApi…", state: "active" },
+      { label: "Saving your key…", state: "todo" },
+      { label: "Google Jobs index connected", state: "todo" },
     ];
     const run = (state.fuelRun += 1);
     state.fuelStalled = false;
     syncActions();
     ctx.setBusy(FUEL_ACTION, stages);
     startFuelWatch(ctx, stages, run);
+
+    // Verify FIRST. A key written into the worker env before anyone has
+    // asked SerpApi about it is the rerun's green-on-nothing (NEW-3): the
+    // beat reported connected, and discovery found nothing that night.
+    const checked = await checkFuelKey(key);
+    if (run !== state.fuelRun) return;
+    if (!checked.ok) {
+      stopFuelWatch();
+      state.fuelStalled = false;
+      syncActions();
+      ctx.clearBusy();
+      ctx.setMessage(
+        FUEL_CHECK_ERRORS[checked.reason] || FUEL_CHECK_ERRORS.upstream_error,
+        "error",
+      );
+      emit(steps().KEY_CHECK, {
+        beat: "discovery",
+        source: "serpapi",
+        ok: false,
+        ms: Date.now() - startedAt,
+      });
+      return;
+    }
+    stages[0].state = "done";
+    stages[1].state = "active";
+    stages[2].label = quotaLine(checked);
+    ctx.setBusy(FUEL_ACTION, stages);
 
     let wrote = false;
     try {
@@ -470,11 +567,11 @@
     state.fuelPassed = true;
     state.fuelStalled = false;
     state.keyDraft = "";
+    state.fuelQuotaLine = quotaLine(checked);
     syncActions();
-    stages[0].state = "done";
-    stages[1].state = "done";
+    for (const stage of stages) stage.state = "done";
     ctx.setBusy(FUEL_ACTION, stages);
-    ctx.setMessage("Google Jobs index connected — 100 searches/mo.", "success");
+    ctx.setMessage(state.fuelQuotaLine, "success");
     emit(steps().KEY_CHECK, {
       beat: "discovery",
       source: "serpapi",

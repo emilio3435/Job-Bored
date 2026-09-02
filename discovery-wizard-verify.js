@@ -744,23 +744,44 @@
         detailParts.push(message);
       }
       detailParts.push(`Tried: ${endpointUrl}`);
+      // SIXBEATS2 NEW-12: on the Tailscale path the beat renders the MESSAGE
+      // and nothing else, so "Can't reach the endpoint." on its own was a
+      // dead end no matter how good the remediation field was. A tailnet URL
+      // has a different first check than a bare origin, so it gets its own
+      // next action, in the sentence the user actually sees.
+      let isTailnet = false;
+      try {
+        isTailnet = /(^|\.)ts\.net$/i.test(new URL(endpointUrl).hostname);
+      } catch (_) {
+        isTailnet = false;
+      }
       return createVerificationResult({
         ok: false,
         kind: "network_error",
         engineState: "none",
         httpStatus: 0,
-        message: "Can't reach the endpoint.",
+        message: isTailnet
+          ? "Can't reach the endpoint. First check: run `tailscale status` on this machine — a tailnet URL only answers while Tailscale is up."
+          : "Can't reach the endpoint.",
         detail: detailParts.join(" — "),
         layer: "browser",
         // Voice rule §8.4: every error names the next action. The taxonomy
         // above is unchanged — this only replaces the dead end that the
         // catch-all used to be with the first check worth running.
-        remediation: [
-          `1. Open ${endpointUrl} in a browser tab. A timeout or DNS error means the endpoint is down, not that the URL is wrong.`,
-          "2. If it is your local worker, run `npm run discovery:bootstrap-local` on this machine to start it, then Re-check.",
-          "3. If it loads there but not here, the block is CORS or the dashboard's CSP — use the Tailscale path instead of a bare origin.",
-        ].join("\n"),
-        suggestedCommand: "npm run discovery:bootstrap-local",
+        remediation: isTailnet
+          ? [
+              "1. Run `tailscale status` on this machine. A tailnet URL only answers while Tailscale is up and logged in.",
+              "2. Then `tailscale serve status`: the worker is reachable only while a serve mapping publishes it.",
+              "3. Still nothing? Press Set it up for me again — it republishes the URL and re-verifies it.",
+            ].join("\n")
+          : [
+              `1. Open ${endpointUrl} in a browser tab. A timeout or DNS error means the endpoint is down, not that the URL is wrong.`,
+              "2. If it is your local worker, run `npm run discovery:bootstrap-local` on this machine to start it, then Re-check.",
+              "3. If it loads there but not here, the block is CORS or the dashboard's CSP — use the Tailscale path instead of a bare origin.",
+            ].join("\n"),
+        suggestedCommand: isTailnet
+          ? "tailscale status"
+          : "npm run discovery:bootstrap-local",
       });
     } finally {
       if (timeoutId != null) {

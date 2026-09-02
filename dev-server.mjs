@@ -1448,6 +1448,119 @@ async function handleDiscoveryEnvKey(req, res) {
 }
 
 /**
+ * Localhost-only: ask SerpApi whether a key is real, and what it can still do.
+ *
+ * SIXBEATS2 NEW-3. Beat 5 used to report "Google Jobs index connected" after
+ * an env write and a worker restart — neither of which ever shows the key to
+ * SerpApi, so a typo'd key produced a confident green check and a discovery
+ * engine that would find nothing. The browser cannot run this check itself:
+ * serpapi.com sends no CORS headers, and the key has no business crossing an
+ * origin it does not need to. So the check lives here, behind the same
+ * local-origin posture as its sibling proxies.
+ *
+ * Answers `{ok, plan, searchesLeft}` (SIXBEATS2-SPEC locked decision 5), and
+ * on failure a NAMED reason, because "wrong key" and "you are offline" need
+ * different next actions. Classified outcomes come back 200: the verdict is
+ * in `ok`, and the beat has to be able to read `reason` either way.
+ */
+const SERPAPI_ACCOUNT_URL = "https://serpapi.com/account.json";
+const SERPAPI_CHECK_TIMEOUT_MS = 12000;
+
+async function handleSerpApiCheck(req, res) {
+  const corsHeaders = buildLocalControlCorsHeaders(req, {
+    "content-type": "application/json",
+  });
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  let body = {};
+  try {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const parsed = raw ? JSON.parse(raw) : {};
+    body =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+  } catch (_) {
+    body = {};
+  }
+  const key = String(body.key || "").trim();
+  if (!key) {
+    res.writeHead(400, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "empty_key" }));
+    return;
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ctrl.abort();
+    } catch (_) {}
+  }, SERPAPI_CHECK_TIMEOUT_MS);
+  try {
+    const url = new URL(SERPAPI_ACCOUNT_URL);
+    url.searchParams.set("api_key", key);
+    const upstream = await fetch(url.toString(), {
+      headers: { accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    let data = null;
+    try {
+      data = await upstream.json();
+    } catch (_) {
+      data = null;
+    }
+    // A rejected key arrives either as 401/403 or as a 200 carrying an
+    // `error` string. Trusting `upstream.ok` alone is precisely the
+    // green-on-nothing this route exists to end.
+    const rejected =
+      upstream.status === 401 ||
+      upstream.status === 403 ||
+      !!(data && typeof data === "object" && data.error);
+    if (rejected) {
+      res.writeHead(200, corsHeaders);
+      res.end(JSON.stringify({ ok: false, reason: "invalid_key" }));
+      return;
+    }
+    if (!upstream.ok || !data || typeof data !== "object") {
+      res.writeHead(200, corsHeaders);
+      res.end(
+        JSON.stringify({
+          ok: false,
+          reason: "upstream_error",
+          status: upstream.status,
+        }),
+      );
+      return;
+    }
+    const searchesLeft = [data.total_searches_left, data.plan_searches_left].find(
+      (value) => Number.isFinite(Number(value)),
+    );
+    const plan = String(data.plan_name || "").trim();
+    res.writeHead(200, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: true,
+        ...(plan ? { plan } : {}),
+        ...(searchesLeft === undefined
+          ? {}
+          : { searchesLeft: Number(searchesLeft) }),
+      }),
+    );
+  } catch (_) {
+    // Never log the exception: an abort or a DNS failure can echo the URL,
+    // and the URL carries the key.
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "unreachable" }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Localhost-only: same-origin proxy for the worker's /health. Direct browser
  * fetches to the worker die on CORS (the /health route sends no CORS
  * headers), which made the enhancements wizard report "unknown / not
@@ -2295,6 +2408,17 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
         if (!res.headersSent) {
           res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/serpapi-check") {
+      handleSerpApiCheck(req, res).catch((err) => {
+        logError("  serpapi-check error:", err && err.name ? err.name : "error");
+        if (!res.headersSent) {
+          res.writeHead(500, jsonCorsHeaders(req));
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
       return;
