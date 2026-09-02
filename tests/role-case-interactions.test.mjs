@@ -109,8 +109,16 @@ function makeElement(tagName, attributes) {
     value: attrs.value != null ? decodeEntities(attrs.value) : "",
     get type() { return attrs.type || (el.tagName === "INPUT" ? "text" : ""); },
     get classList() {
+      /* Writes persist back onto the class attribute — role.js paints the
+         optimistic reply state by moving a class, and a throwaway Set would
+         make that unobservable (and let P0-3 pass while broken). */
       const set = new Set(String(attrs.class || "").split(/\s+/).filter(Boolean));
-      return { contains: (c) => set.has(c), add: (c) => set.add(c), remove: (c) => set.delete(c) };
+      const flush = () => { attrs.class = [...set].join(" "); };
+      return {
+        contains: (c) => set.has(c),
+        add: (c) => { set.add(c); flush(); },
+        remove: (c) => { set.delete(c); flush(); },
+      };
     },
     getAttribute(name) {
       return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
@@ -144,6 +152,16 @@ function makeElement(tagName, attributes) {
     },
     click() {
       el.dispatchEvent({ type: "click", target: el, preventDefault() {} });
+    },
+    /* Trap 3: the harness used to drive everything with .click(), which is why
+       P0-1 (Enter dead on the Replied chips) survived review. Real keydown —
+       including the browser's default action, where Enter on a <button>
+       activates it unless a handler calls preventDefault(). */
+    keydown(key) {
+      let prevented = false;
+      el.dispatchEvent({ type: "keydown", key: key, target: el, preventDefault() { prevented = true; } });
+      if (prevented) return;
+      if (el.tagName === "BUTTON" && (key === "Enter" || key === " ")) el.click();
     },
     querySelectorAll(selector) {
       const chains = compileSelector(selector);
@@ -502,6 +520,36 @@ describe("The Case interactions", () => {
     notes.blur();
     flushTimers();
     assert.equal(renderCount(), before + 1, "the deferred render flushes once notes give up focus");
+  });
+
+  /* P0-1: role.js bound Enter/Escape to every [data-action="edit-field"],
+     which matches the three Replied <button>s. On a button, click IS Enter's
+     default action, so preventDefault() cancelled the write outright: a
+     keyboard user could never set Replied. */
+  it("Enter on a replied chip writes back, exactly as a click does", () => {
+    for (const value of ["Yes", "No", "Unknown"]) {
+      const { region, writebacks } = boot();
+      region.querySelector(`[data-field="reply"][data-value="${value}"]`).keydown("Enter");
+      assert.deepEqual(writebacks(), [{ jobKey: "job-1", field: "reply", value: value }],
+        value + " must commit from the keyboard");
+    }
+  });
+
+  /* P0-3: the write succeeds and "saved" announces, but nothing repaints the
+     segment until the 5-minute poll — so the chip the user chose stayed
+     unpressed and the old one kept claiming aria-pressed="true". */
+  it("moves aria-pressed onto the chosen chip immediately on activation", () => {
+    const { region } = boot();
+    const chosen = region.querySelector('[data-field="reply"][data-value="Yes"]');
+    const previous = region.querySelector('[data-field="reply"][data-value="No"]');
+    assert.equal(previous.getAttribute("aria-pressed"), "true", "fixture: replied is No");
+
+    chosen.click();
+
+    assert.equal(chosen.getAttribute("aria-pressed"), "true", "the chosen chip reports pressed");
+    assert.equal(previous.getAttribute("aria-pressed"), "false", "the old chip lets go");
+    assert.ok(chosen.classList.contains("case__seg-b--on"), "the fill moves with it");
+    assert.ok(!previous.classList.contains("case__seg-b--on"), "and leaves the old chip");
   });
 
   it("the replied chips never commit through the input path", () => {

@@ -177,6 +177,21 @@
       && root.JobBoredFlowing.openRole.get();
   }
 
+  /* Optimistic paint for the three-state Replied segment (P0-3). */
+  function paintReplyChoice(region, chosen) {
+    if (!region || typeof region.querySelectorAll !== "function") return;
+    var chips = region.querySelectorAll('[data-action="edit-field"][data-field="reply"]');
+    for (var i = 0; i < chips.length; i++) {
+      var chip = chips[i];
+      var on = chip === chosen;
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+      if (chip.classList) {
+        if (on) chip.classList.add("case__seg-b--on");
+        else chip.classList.remove("case__seg-b--on");
+      }
+    }
+  }
+
   function wireRegionClickOnce(region) {
     if (region.__jbRoleClickWired) return;
     region.__jbRoleClickWired = true;
@@ -224,7 +239,14 @@
            itself rather than collapsing into a two-way flip. */
         if (action === "edit-field" && t.getAttribute("data-field") === "reply") {
           var replyValue = t.getAttribute("data-value");
-          if (replyValue) dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: replyValue });
+          if (replyValue) {
+            /* Nothing repaints the segment until the next render, so move the
+               pressed state here: without it the chosen chip stays unpressed
+               and the old one keeps announcing aria-pressed="true" for up to
+               the 5-minute poll. A later render re-paints the same truth. */
+            paintReplyChoice(region, t);
+            dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: replyValue });
+          }
           return;
         }
         if (action === "open-profile-match") {
@@ -320,6 +342,11 @@
         if (input.type === "date") {
           input.addEventListener("change", function () { commitEditField(input); });
         }
+        /* Enter on a <button> IS its click; preventing the default here
+           killed the Replied chips' keyboard path entirely (P0-1). Only
+           surfaces that carry a typed value commit through blur, so only
+           they need Enter/Escape — buttons commit through the click walker. */
+        if (input.tagName !== "INPUT" && input.tagName !== "TEXTAREA") return;
         input.addEventListener("keydown", function (e) {
           if (e.key === "Enter") {
             e.preventDefault();
