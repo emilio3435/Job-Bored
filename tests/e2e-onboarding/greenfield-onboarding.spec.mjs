@@ -75,13 +75,6 @@ const STARTER_PROFILE = {
     salaryRequired: false,
   },
 };
-const AUTH = Object.freeze({
-  clientId: CLIENT_ID,
-  accessToken: ACCESS_TOKEN,
-  sheetId: SHEET_ID,
-  userEmail: "qa@jobbored.example",
-});
-
 const GIS_STUB_SOURCE = `
 (() => {
   const state = { init: null, requests: [], revoked: [] };
@@ -453,6 +446,11 @@ function beat(page, id) {
   return page.locator(`#oneFlowMount .oneflow-beat[data-beat-id="${id}"]`);
 }
 
+/** The shell stamps every beat action with `data-action-id`. */
+function action(page, id) {
+  return page.locator(`#oneFlowMount [data-action-id="${id}"]`);
+}
+
 async function bootGreenfield(page) {
   const errors = captureBrowserErrors(page);
   const calls = await installHermeticBoundaries(page);
@@ -475,16 +473,35 @@ async function bootGreenfield(page) {
 }
 
 async function stageHarnessAuth(page) {
+  // bridge-registry.js splits the host by consumer: initAuth is published on
+  // JobBoredApp.bootstrap.host (:212) and the config-override writer on
+  // JobBoredApp.core.host (:566). Waiting on core.host.initAuth waits forever.
   await page.waitForFunction(
     () =>
       !!globalThis.__JOBBORED_E2E_GIS__ &&
-      typeof globalThis.JobBoredApp?.core?.host?.initAuth === "function",
+      typeof globalThis.JobBoredApp?.bootstrap?.host?.initAuth === "function",
   );
-  await page.evaluate(({ clientId }) => {
-    const host = globalThis.JobBoredApp.core.host;
-    host.mergeStoredConfigOverridePatch({ oauthClientId: clientId });
-    host.initAuth();
-  }, AUTH);
+  // Lane C's Beat 1 detour is the ONLY visible route to a Client ID on a
+  // fresh install, and lane F made saving one run the first-time GIS init.
+  const detour = page.locator("#oneFlowMount details.oneflow-google__detour");
+  await detour.locator("summary").click();
+  await page.locator("#oneFlowOauthClientIdInput").fill(CLIENT_ID);
+  await page.getByRole("button", { name: "Save Client ID" }).click();
+  await expect(
+    page.getByText("Client ID saved. Continue with Google below.", {
+      exact: true,
+    }),
+  ).toBeVisible();
+  // The visible save persists the id but does NOT arm GIS on a greenfield
+  // boot: applyOAuthClientChange() returns false (gisLoaded is still false),
+  // and the first-time init lane F added behind it — oneflow-beat-google.js:377
+  // `call("initAuth")` — resolves against window.JobBoredApp.core.host, which
+  // bridge-registry.js publishes WITHOUT initAuth (it lives on
+  // app.bootstrap.host, :212). Probed on this branch: core.host.initAuth is
+  // undefined, applyOAuthClientChange() === false, gisLoaded === false.
+  // Until that line reaches the bootstrap host, the journey has to arm GIS
+  // itself through the bridge seam that does exist.
+  await page.evaluate(() => globalThis.JobBoredApp.bootstrap.host.initAuth());
   await expect
     .poll(() =>
       page.evaluate(
@@ -557,15 +574,20 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   expect(state.calls.discoveryEnvWrites).toHaveLength(1);
   expect(state.calls.discoveryBoots).toHaveLength(1);
 
-  const payoffPrimary = page.locator(
-    '#oneFlowMount [data-action-id="payoff_run_now"], ' +
-      '#oneFlowMount [data-action="payoff_run_now"], ' +
-      '#oneFlowMount [data-action-id="payoff_connect_google"], ' +
-      '#oneFlowMount [data-action="payoff_connect_google"], ' +
-      '#oneFlowMount [data-action-id="payoff_fix_fit"], ' +
-      '#oneFlowMount [data-action="payoff_fix_fit"]',
-  );
-  await expect(payoffPrimary).toBeVisible();
+  // Beat 6's primary is decided twice over (oneflow-beat-payoff.js
+  // buildActions): the connect SKIP flips it first (spec §5 B6), and only an
+  // unskipped payoff adapts to readiness (GREENFIELD-SPEC §4.3). This walk
+  // skipped the connection, so the honest primary is the dashboard and the
+  // ghost is the way back to it.
+  await expect(action(page, "payoff_dashboard")).toHaveText("Go to my dashboard");
+  await expect(action(page, "payoff_connect_discovery")).toBeVisible();
+
+  // …and the walk really did earn a Sheet and roles: neither readiness
+  // detour renders, so nothing here is asking for work already done.
+  await expect(action(page, "payoff_connect_google")).toHaveCount(0);
+  await expect(action(page, "payoff_fix_fit")).toHaveCount(0);
+  await expect(beat(page, "payoff")).toContainText("Pipeline sheet connected");
+  await expect(beat(page, "payoff")).toContainText("AI connected — OpenRouter");
 
   expectCleanRun(state);
 });
