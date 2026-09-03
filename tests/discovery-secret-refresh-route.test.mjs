@@ -141,3 +141,60 @@ describe("refreshDiscoveryWebhookSecretFromBootstrapForEndpoint — the route th
     assert.equal(refreshed, "");
   });
 });
+
+/* ============================================================
+   The endpoint binding (added after the fleet review, 2026-09-02).
+
+   The first cut of this self-heal guarded only on "not *.workers.dev", so a
+   401 from ANY other endpoint — a recycled ngrok host, a dead relay, a
+   stranger's n8n or Apps Script receiver — made the dashboard fetch THIS
+   machine's worker secret, POST it there, and overwrite the secret the user
+   had saved for the real endpoint. A 401 is not proof the responder is ours.
+   ============================================================ */
+
+const FOREIGN = [
+  ["an Apps Script receiver", "https://script.google.com/macros/s/AKfycb/exec"],
+  ["a stranger's n8n host", "https://n8n.some-stranger.example.com/webhook/x"],
+  ["a recycled ngrok host", "https://1a2b3c.ngrok-free.app/webhook"],
+  ["a Cloudflare relay", "https://jobbored-relay.example.workers.dev/webhook"],
+];
+
+describe("the self-heal only ever hands the secret to this machine's worker", () => {
+  for (const [label, url] of FOREIGN) {
+    it(`refuses ${label}, and leaves the saved secret untouched`, async () => {
+      const env = loadConfigOverrides({
+        savedUrl: url,
+        savedSecret: "user-saved-remote-secret",
+        secretRoute: { ok: true, secret: SECRET, source: "env_file", wrote: false },
+      });
+
+      const refreshed =
+        await env.overrides.refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(url);
+
+      assert.equal(refreshed, "", `${label} must not receive the local secret`);
+      assert.equal(
+        env.stored().discoveryWebhookSecret,
+        "user-saved-remote-secret",
+        "the secret the user saved for that endpoint survives",
+      );
+      assert.equal(
+        env.fetchCalls.some((u) => /discovery-webhook-secret$/.test(u)),
+        false,
+        "the local secret is not even fetched for a foreign endpoint",
+      );
+    });
+  }
+
+  it("still heals a plain loopback worker URL", async () => {
+    const url = "http://127.0.0.1:8644/webhook";
+    const env = loadConfigOverrides({
+      savedUrl: url,
+      secretRoute: { ok: true, secret: SECRET, source: "env_file", wrote: false },
+    });
+
+    const refreshed =
+      await env.overrides.refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(url);
+
+    assert.equal(refreshed, SECRET);
+  });
+});
