@@ -946,7 +946,7 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
     assert.equal(activeStep(env.root()), 1);
   });
 
-  it("F2B-PROFILE02-RESUME: resume prefill POSTs browser-local extractedText as resumeText without forwarding secrets", async () => {
+  it("F2B-PROFILE02-RESUME: resume prefill POSTs browser-local extractedText as resumeText (no provider configured here, so no key is forwarded; GREENFIELD A4 covers the verified-provider case)", async () => {
     const staged = "I shipped distributed systems at Acme for ten years.";
     const env = loadWizard({
       userContent: {
