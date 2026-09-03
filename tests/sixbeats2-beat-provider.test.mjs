@@ -81,6 +81,9 @@ function draftCtx(drafts = {}) {
 
 async function openResume(options = {}) {
   const env = loadArrival({ fetchImpl: draftingFetch(), ...options });
+  // GREENFIELD §4.1 gates Beat 3 on Beat 2 — this suite's whole subject is
+  // "Beat 3 drafts through the provider Beat 2 verified", so Beat 2 is done.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.open("resume");
   return env;
 }
@@ -189,18 +192,19 @@ describe("SIXBEATS-2 NEW-2 — Beat 3 drafts through the provider Beat 2 verifie
     assert.equal(call.body.model, "gemma4:e2b");
   });
 
-  it("omits the provider block entirely when nothing is configured", async () => {
+  it("makes no request at all when nothing is configured", async () => {
     const env = await openResume();
     env.window.CommandCenterResumeGenerate.getResumeGenerationConfig = () => {
       throw new Error("not loaded");
     };
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
-    const call = env.fetchImpl.calls.find((c) => c.url.includes("/profile/from-resume"));
-    assert.equal(call.body.resumeText, RESUME_TEXT);
+    // GREENFIELD A3 supersedes the older "let the server fall back to its
+    // own env" reading: falling back is exactly how a fresh OpenRouter
+    // install was answered "Missing Gemini API key" (F1). With nothing to
+    // draft with, the honest move is to say so without spending a request.
     assert.equal(
-      "provider" in call.body,
-      false,
-      "a body with no provider must let the server fall back to its own env",
+      env.fetchImpl.calls.filter((c) => c.url.includes("/profile/from-resume")).length,
+      0,
     );
   });
 });

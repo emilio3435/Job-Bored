@@ -56,6 +56,15 @@ test.afterAll(async () => {
  * burst, not for the animations to be over.
  */
 async function openPayoff(page) {
+  // GREENFIELD §4.1 gates `payoff` on `google`, so a cold start that jumps
+  // straight to B6 is redirected to Beat 1. The subject here is the finale
+  // burst, not the ordering rule: earn Beat 1 first, then jump.
+  await page.evaluate(async () => {
+    const flow = globalThis.JobBoredOneFlow;
+    if (!flow.getState().completedBeats.includes("google")) {
+      await flow.completeBeat("google");
+    }
+  });
   await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("payoff"));
   await page.waitForFunction(
     () =>

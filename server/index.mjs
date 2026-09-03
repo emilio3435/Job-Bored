@@ -470,15 +470,18 @@ app.post("/profile/from-resume", async (req, res) => {
   } catch (err) {
     const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
     const code = error && error.code ? String(error.code) : "";
+    // A provider with no key is the CLIENT's configuration state, not a
+    // server fault: 409, so the dashboard can route the user to the AI step
+    // instead of reporting an internal error (walkthrough 2026-09-02, step 12).
     if (code === "GEMINI_NOT_CONFIGURED") {
-      return res.status(500).json({
+      return res.status(409).json({
         ok: false,
         reason: "gemini_not_configured",
         message: errorMessage(err, "profile provider failed"),
       });
     }
     if (code === "PROFILE_PROVIDER_NOT_CONFIGURED") {
-      return res.status(500).json({
+      return res.status(409).json({
         ok: false,
         reason: "profile_provider_not_configured",
         provider: error && typeof error.provider === "string" ? error.provider : undefined,
