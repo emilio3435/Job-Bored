@@ -360,13 +360,60 @@
     return writeDiscoveryWebhookSecretOverride(secret);
   }
 
-  /** A Cloudflare relay injects its own DISCOVERY_SECRET upstream; the browser's copy is not what that worker checks. */
-  function isLikelyCloudflareRelayUrl(raw) {
+  /**
+   * True when the endpoint is THIS machine's discovery worker — the only
+   * endpoint whose secret the local dev server is entitled to hand out.
+   *
+   * Without this binding the self-heal fetched the local worker's secret on a
+   * 401 from ANY non-Cloudflare endpoint — a recycled ngrok host, a dead
+   * relay, someone else's n8n or Apps Script receiver — POSTed it there, and
+   * overwrote the secret the user had saved for the real endpoint. A 401 is
+   * not proof that the responder is ours.
+   *
+   * A Cloudflare relay is excluded on top: it injects its own DISCOVERY_SECRET
+   * upstream, so the browser's copy is not what that worker checks.
+   */
+  function isThisMachinesWorkerEndpoint(endpoint) {
+    const url = String(endpoint || "").trim();
+    if (!url) return true; // no endpoint yet — the local worker is the default
+    const h = host();
     try {
-      return /\.workers\.dev$/i.test(new URL(String(raw || "").trim()).hostname);
+      if (
+        typeof h.isLikelyCloudflareWorkerUrl === "function" &&
+        h.isLikelyCloudflareWorkerUrl(url)
+      ) {
+        return false;
+      }
     } catch (_) {
-      return false;
+      /* an unclassifiable URL is decided by the checks below */
     }
+    try {
+      if (
+        typeof h.isLocalWebhookCandidateUrl === "function" &&
+        h.isLocalWebhookCandidateUrl(url)
+      ) {
+        return true;
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    // A tailnet name is this machine published by Tailscale (Beat 5's path).
+    try {
+      if (/(^|\.)ts\.net$/i.test(new URL(url).hostname)) return true;
+    } catch (_) {
+      /* not a parseable URL */
+    }
+    // Anything the transport state recorded as our own local/tunnel endpoint.
+    const transport = readDiscoveryTransportSetupState();
+    for (const candidate of [
+      transport.localWebhookUrl,
+      transport.tunnelPublicUrl,
+      transport.ngrokPublicUrl,
+      transport.publicTargetUrl,
+    ]) {
+      if (candidate && sameDiscoveryUrlOrigin(candidate, url)) return true;
+    }
+    return false;
   }
 
   /**
@@ -382,7 +429,8 @@
   ) {
     if (!isLocalDashboardOrigin()) return "";
     const endpoint = endpointUrl || host().getDiscoveryWebhookUrl();
-    if (isLikelyCloudflareRelayUrl(endpoint)) return "";
+    // Only this machine's worker gets this machine's secret.
+    if (!isThisMachinesWorkerEndpoint(endpoint)) return "";
     try {
       const res = await fetch(DISCOVERY_WEBHOOK_SECRET_ROUTE, {
         cache: "no-store",
