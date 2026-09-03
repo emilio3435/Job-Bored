@@ -280,12 +280,16 @@
   function render(mount, model) {
     if (!mount || !model) return;
     var stages = root.JobBoredStages;
-    var lanes = renderTheyWant(model) + renderYouHave(model) + renderMoves(model);
+    /* Spec §3.1: the board follows its lanes. Each lane returns "" when it
+       has nothing to show, so the count of non-empty lanes is the count the
+       board stamps — the empty third column cannot recur. */
+    var they = renderTheyWant(model), you = renderYouHave(model), moves = renderMoves(model);
+    var laneCount = (they ? 1 : 0) + (you ? 1 : 0) + (moves ? 1 : 0);
     mount.innerHTML = '<div class="case">' +
       renderRail(model) + renderStepper(model, stages) + renderNumbers(model) +
       (model.oneLine ? '<div class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</div>" : "") +
       (model.provenance && model.provenance.freshness ? '<div class="case__stamp case__stamp--fresh">' + esc(model.provenance.freshness) + "</div>" : "") +
-      '<div class="case__board">' + lanes + "</div>" +
+      '<div class="case__board" data-lanes="' + laneCount + '">' + they + you + moves + "</div>" +
       renderNotes(model) + renderRecord(model) +
     "</div>";
   }

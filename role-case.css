@@ -103,7 +103,14 @@ body.jb-v2 [data-region="role"] .case .case__src--inferred { border-color: var(-
    quote's own gutter rather than the in-lane .case__stamp's top margin. */
 body.jb-v2 [data-region="role"] .case .case__quote { padding: 16px 36px; border-bottom: 1px dashed var(--border); font-family: var(--serif); font-style: italic; font-size: 16px; color: var(--navy); display: flex; gap: 12px; align-items: baseline; overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__quote .case__k { font-family: var(--mono); font-style: normal; font-size: 9px; letter-spacing: 0.22em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
-body.jb-v2 [data-region="role"] .case .case__board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); }
+body.jb-v2 [data-region="role"] .case .case__board { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); align-items: start; }
+/* Spec §3.1: the board follows its lanes — the renderer stamps data-lanes
+   with the count it emitted. Below 1080px the single-column rule stands
+   untouched, so the per-count rules live above that breakpoint only. */
+@media (min-width: 1081px) {
+  body.jb-v2 [data-region="role"] .case .case__board[data-lanes="2"] { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  body.jb-v2 [data-region="role"] .case .case__board[data-lanes="1"] { grid-template-columns: 1fr; }
+}
 body.jb-v2 [data-region="role"] .case .case__lane { padding: 22px 24px 26px; border-right: 1px solid var(--border); min-width: 0; }
 body.jb-v2 [data-region="role"] .case .case__lane:last-child { border-right: none; }
 body.jb-v2 [data-region="role"] .case .case__lane-head { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; padding-bottom: 8px; border-bottom: 2px solid; }

@@ -67,7 +67,7 @@ function baseDeps(over = {}) {
     keywords: { percentage: 74, foundCount: 12, partialCount: 4, missingTerms: [{ label: "Kubernetes" }],
       byLabel: new Map([["5+ years design systems", "found"], ["wcag 2.2", "found"], ["react", "found"], ["storybook", "partial"], ["mentoring", "missing"]]) },
     scorecard: { result: { overallScore: 82, topStrengths: ["Led a11y guild"], evidence: [{ claim: "Token pipeline", sourceSnippet: "Built a token pipeline", sourceType: "resume" }],
-      criticalGaps: [{ gap: "Experimentation", whyItMatters: "Named twice", severity: "high" }],
+      criticalGaps: [{ gap: "Experimentation measurement gap", whyItMatters: "Named twice", severity: "high" }],
       dimensionScores: { requirementsCoverage: 84, experienceRelevance: 88, impactClarity: 72, atsParseability: 90, toneFit: 78 } }, storedAt: "2026-08-30T00:00:00Z" },
     manifest: { documents: [
       { type: "resume", label: "Tailored resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] },
@@ -147,6 +147,23 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="followupAt"[^>]*type="date"[^>]*value="2026-09-04"/);
     assert.match(html, /<span class="case__seg"[^>]*role="group"[^>]*aria-label="Replied"/);
     assert.match(html, /<textarea[^>]*data-action="notes"[^>]*>Recruiter: Dana<\/textarea>/);
+  });
+  /* Spec §3.1: the board follows its lanes — the renderer stamps data-lanes
+     with the count it actually emitted, so the empty third column cannot
+     recur. A keyword-less, scorecard-less model emits They want + Your moves. */
+  it("the board stamps the lanes it emitted, never an empty column", () => {
+    assert.match(renderHtml(model()), /<div class="case__board" data-lanes="3">/);
+    const two = renderHtml(model({ keywords: null, scorecard: null }));
+    assert.match(two, /<div class="case__board" data-lanes="2">/);
+    assert.equal((two.match(/<section class="case__lane /g) || []).length, 2, "no empty third column");
+    assert.doesNotMatch(two, /case__lane--you/);
+  });
+  it("the board is top-aligned with column rules per lane count", () => {
+    const board = /\.case__board \{([^}]*)\}/.exec(caseCssSource);
+    assert.ok(board, "the base .case__board rule must exist");
+    assert.match(board[1], /align-items: start/);
+    assert.match(caseCssSource, /\.case__board\[data-lanes="2"\][^{]*\{[^}]*repeat\(2/);
+    assert.match(caseCssSource, /\.case__board\[data-lanes="1"\][^{]*\{[^}]*1fr/);
   });
   it("record with hollow future step and configured provider", () => {
     const html = renderHtml(model());
