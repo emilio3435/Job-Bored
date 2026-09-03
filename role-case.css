@@ -223,6 +223,10 @@ body.jb-v2 [data-region="role"] .case .case__kv--people li { align-items: center
    native date input, which is why the attribute selector is the reliable
    one). */
 body.jb-v2 [data-region="role"] .case .case__date { display: inline-flex; align-items: baseline; gap: 8px; }
+/* Inside the inline-flex wrapper the shared 60% width resolves against a
+   shrink-to-fit box and clipped "09/06/2026" to "09/06/2…" (F1-case-1240.png).
+   A date is a fixed-width fact: size it to its own characters. */
+body.jb-v2 [data-region="role"] .case .case__date input.case__v--edit { width: auto; min-width: 11ch; }
 body.jb-v2 [data-region="role"] .case .case__date-empty { display: none; font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--mute); }
 body.jb-v2 [data-region="role"] .case .case__date input[value=""] + .case__date-empty { display: inline; }
 /* Replied: three chips in a row, the active one filled. 28px tall so the row
