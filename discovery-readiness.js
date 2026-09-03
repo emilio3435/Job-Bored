@@ -840,11 +840,14 @@ function showDiscoveryVerificationToast(result, options = {}) {
     action = {
       label: "Open discovery setup",
       onClick: () => {
-        const open =
-          typeof window !== "undefined" && typeof window.openDiscoveryDrawer === "function"
-            ? window.openDiscoveryDrawer
-            : null;
-        if (open) open();
+        // The wizard, not the drawer. The likeliest trigger is Drawer →
+        // Connection → Test webhook, so the user is already IN the drawer:
+        // reopening it changed nothing visible while the label promised a
+        // setup surface.
+        h("requestDiscoverySetup")({
+          entryPoint: "settings",
+          allowWhileOnboarding: true,
+        });
       },
     };
   } else if (!result.ok && h("isLocalDashboardOrigin")()) {
