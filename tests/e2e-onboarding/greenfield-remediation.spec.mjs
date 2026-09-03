@@ -46,6 +46,10 @@ function action(page, id) {
   );
 }
 
+function beat(page, id) {
+  return page.locator(`#oneFlowMount .oneflow-beat[data-beat-id="${id}"]`);
+}
+
 async function installBoundaries(page) {
   const fence = await installHermeticNetworkFence(page, {
     baseUrl: app.baseUrl,
@@ -157,7 +161,7 @@ async function reachSavedResumeBeat(page) {
   });
   await page.reload({ waitUntil: "load" });
   await waitForApp(page);
-  await expect(page.locator('#oneFlowMount [data-beat-id="resume"]')).toBeVisible();
+  await expect(beat(page, "resume")).toBeVisible();
 }
 
 async function reachConfiguredBoard(page) {
@@ -192,7 +196,7 @@ test("E1 Beat 3 is gated on Beat 2", async ({ page }) => {
   await bootGreenfield(page);
 
   await page.evaluate(() => globalThis.JobBoredOneFlow.open("resume"));
-  await expect(page.locator('#oneFlowMount [data-beat-id="ai"]')).toBeVisible();
+  await expect(beat(page, "ai")).toBeVisible();
   await expect(page.locator('#oneFlowMount [data-gate-note="ai"]')).toHaveText(
     CONNECT_AI_MESSAGE,
   );
@@ -225,7 +229,7 @@ test("E1 Beat 3 is gated on Beat 2", async ({ page }) => {
   });
 
   await page.evaluate(() => globalThis.JobBoredOneFlow.open("resume"));
-  await expect(page.locator('#oneFlowMount [data-beat-id="resume"]')).toBeVisible();
+  await expect(beat(page, "resume")).toBeVisible();
   await page.locator("#oneFlowResumePaste").fill(
     "Staff platform engineer with twelve years building reliable distributed " +
       "systems, developer platforms, observability, and incident response. ".repeat(4),
@@ -240,7 +244,7 @@ test("E1 Beat 3 is gated on Beat 2", async ({ page }) => {
     .filter({ hasText: /connect ai/i });
   await expect(connectAi).toBeVisible();
   await connectAi.click();
-  await expect(page.locator('#oneFlowMount [data-beat-id="ai"]')).toBeVisible();
+  await expect(beat(page, "ai")).toBeVisible();
 });
 
 test("E2 Pasted resume survives Escape and reload", async ({ browser }) => {
@@ -264,7 +268,7 @@ test("E2 Pasted resume survives Escape and reload", async ({ browser }) => {
       await waitForApp(page);
 
       await expect(
-        page.locator('#oneFlowMount [data-beat-id="resume"]'),
+        beat(page, "resume"),
         `${inputMethod} must resume on Beat 3 after reload`,
       ).toBeVisible();
       await expect(page.locator("#oneFlowResumePaste")).toHaveValue(resume);
@@ -283,7 +287,7 @@ test("E3 Drawer setup lands in OneFlow", async ({ page }) => {
   await page.locator("#settingsDiscoveryOpenSetupBtn").click();
 
   await expect(
-    page.locator('#oneFlowMount [data-beat-id="discovery"]'),
+    beat(page, "discovery"),
   ).toBeVisible();
   await expect(page.locator("#discoverySetupWizardMount")).toBeEmpty();
 });
@@ -295,10 +299,9 @@ test("E4 Beat 1 never punts to Settings", async ({ page }) => {
   await action(page, "google_continue").click();
 
   await expect(page.locator("#settingsModal")).toBeHidden();
-  await expect(page.locator("#oneFlowMount details.oneflow-google__detour")).toHaveAttribute(
-    "open",
-    "",
-  );
+  await expect(
+    page.locator("#oneFlowMount details.oneflow-google__detour"),
+  ).toHaveJSProperty("open", true);
   await expect(page.locator("#oneFlowOauthClientIdInput")).toBeFocused();
   await expect(
     page.getByText("Paste your Client ID to continue.", { exact: true }),
@@ -330,7 +333,7 @@ test("E5 Payoff is honest", async ({ page }) => {
   await expect(page.locator(".toast-error")).toHaveCount(0);
 
   await connectGoogle.click();
-  await expect(page.locator('#oneFlowMount [data-beat-id="google"]')).toBeVisible();
+  await expect(beat(page, "google")).toBeVisible();
 });
 
 test("E6 Settings shows receipts", async ({ page }) => {
@@ -354,9 +357,9 @@ test("E6 Settings shows receipts", async ({ page }) => {
   await googleReceipt.locator('[data-action="settings_change_in_setup"]').click();
 
   await expect(settings).toBeHidden();
-  await expect(page.locator('#oneFlowMount [data-beat-id="google"]')).toBeVisible();
+  await expect(beat(page, "google")).toBeVisible();
   await action(page, "google_continue").click();
   await expect(page.locator("#oneFlowMount")).toBeHidden();
-  await expect(page.locator('#oneFlowMount [data-beat-id="resume"]')).toHaveCount(0);
+  await expect(beat(page, "resume")).toHaveCount(0);
   await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
 });

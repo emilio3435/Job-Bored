@@ -20,6 +20,7 @@ const CONFIG_EXAMPLE_SOURCE = readFileSync(
 const CLIENT_ID = "jobbored-onboarding-e2e.apps.googleusercontent.com";
 const ACCESS_TOKEN = "jobbored-onboarding-e2e-token";
 const OPENROUTER_KEY = "sk-or-jobbored-onboarding-e2e";
+const SERPAPI_KEY = "jobbored-onboarding-e2e-serpapi-key";
 const SHEET_ID = "jobboredOnboardingE2ESheet1234567890";
 const GOOGLE_SCOPES = [
   "https://www.googleapis.com/auth/spreadsheets",
@@ -53,6 +54,33 @@ const STARTER_HEADERS = [
   "Approval Status",
   "Edit Lock",
 ];
+const STARTER_PROFILE = {
+  version: 1,
+  identity: {
+    targetRoles: ["Staff Engineer", "Platform Engineer"],
+    targetSeniority: "ic_staff",
+    primaryNarrative:
+      "I build reliable distributed systems and lead high-leverage platform work.",
+  },
+  strengths: [
+    { name: "Distributed systems", rank: 1 },
+    { name: "Technical leadership", rank: 2 },
+  ],
+  wants: ["Hands-on building"],
+  avoids: ["Quota sales"],
+  hardConstraints: {
+    workMode: "any",
+    workAuth: "us_authorized",
+    salaryFloor: 180000,
+    salaryRequired: false,
+  },
+};
+const AUTH = Object.freeze({
+  clientId: CLIENT_ID,
+  accessToken: ACCESS_TOKEN,
+  sheetId: SHEET_ID,
+  userEmail: "qa@jobbored.example",
+});
 
 const GIS_STUB_SOURCE = `
 (() => {
@@ -136,6 +164,13 @@ async function installHermeticBoundaries(page) {
     sheetsHeaders: [],
     sheetsReads: [],
     openrouterModels: [],
+    openrouterChecks: [],
+    llmConfigPins: [],
+    profileTemplates: [],
+    profileWrites: [],
+    serpApiChecks: [],
+    discoveryEnvWrites: [],
+    discoveryBoots: [],
     ollamaModels: [],
     violations: [],
     unexpectedExternal: [],
@@ -174,6 +209,49 @@ async function installHermeticBoundaries(page) {
       return;
     }
 
+    if (
+      url.origin === baseUrl &&
+      method === "POST" &&
+      url.pathname === "/profile/template/engineer"
+    ) {
+      calls.profileTemplates.push({ method, path: url.pathname });
+      await fulfillJson(route, { ok: true, template: STARTER_PROFILE });
+      return;
+    }
+
+    if (url.origin === baseUrl && method === "POST" && url.pathname === "/profile") {
+      calls.profileWrites.push(request.postDataJSON());
+      await fulfillJson(route, { ok: true, updatedAt: "2026-09-02T00:00:00Z" });
+      return;
+    }
+
+    if (url.origin === baseUrl && url.pathname === "/__proxy/serpapi-check") {
+      const body = request.postDataJSON();
+      calls.serpApiChecks.push(body);
+      if (method !== "POST") calls.violations.push(`SerpApi check method ${method}`);
+      if (body?.key !== SERPAPI_KEY) calls.violations.push("SerpApi check key");
+      await fulfillJson(route, { ok: true, plan: "Free", searchesLeft: 99 });
+      return;
+    }
+
+    if (url.origin === baseUrl && url.pathname === "/__proxy/discovery-env-key") {
+      const body = request.postDataJSON();
+      calls.discoveryEnvWrites.push(body);
+      if (method !== "POST") calls.violations.push(`discovery env method ${method}`);
+      if (body?.key !== "SERPAPI_API_KEY" || body?.value !== SERPAPI_KEY) {
+        calls.violations.push("discovery env SerpApi payload");
+      }
+      await fulfillJson(route, { ok: true });
+      return;
+    }
+
+    if (url.origin === baseUrl && url.pathname === "/__proxy/full-boot") {
+      calls.discoveryBoots.push({ method, search: url.search });
+      if (method !== "POST") calls.violations.push(`discovery boot method ${method}`);
+      await fulfillJson(route, { ok: true, state: "ready" });
+      return;
+    }
+
     if (url.origin === baseUrl && url.pathname.startsWith("/__proxy/")) {
       await fulfillJson(route, {
         ok: false,
@@ -189,6 +267,11 @@ async function installHermeticBoundaries(page) {
       url.origin === "http://127.0.0.1:3847" ||
       url.origin === "http://localhost:3847"
     ) {
+      if (method === "POST" && url.pathname === "/api/llm-config") {
+        calls.llmConfigPins.push(request.postDataJSON());
+        await fulfillJson(route, { ok: true });
+        return;
+      }
       await fulfillJson(route, { ok: true, applications: [], queue: [] });
       return;
     }
@@ -314,6 +397,29 @@ async function installHermeticBoundaries(page) {
 
     if (
       url.origin === "https://openrouter.ai" &&
+      url.pathname === "/api/v1/chat/completions"
+    ) {
+      if (method === "OPTIONS") {
+        await route.fulfill({ status: 204, headers: jsonHeaders() });
+        return;
+      }
+      const body = request.postDataJSON();
+      calls.openrouterChecks.push({ method, auth, body });
+      if (method !== "POST") calls.violations.push(`OpenRouter check method ${method}`);
+      if (auth !== `Bearer ${OPENROUTER_KEY}`) {
+        calls.violations.push(`OpenRouter check authorization ${auth || "missing"}`);
+      }
+      if (body?.model !== "openai/gpt-oss-120b:free") {
+        calls.violations.push(`OpenRouter check model ${body?.model || "missing"}`);
+      }
+      await fulfillJson(route, {
+        choices: [{ message: { content: "ok" } }],
+      });
+      return;
+    }
+
+    if (
+      url.origin === "https://openrouter.ai" &&
       url.pathname === "/api/v1/models"
     ) {
       if (method === "OPTIONS") {
@@ -343,103 +449,49 @@ async function installHermeticBoundaries(page) {
   return calls;
 }
 
-async function expectLoginGate(page) {
-  await expect(page.getByRole("heading", { name: "Connect Google" })).toBeVisible();
-  await expect(page.getByRole("textbox", { name: "Google OAuth Client ID" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Continue with Google" })).toBeVisible();
-  await expect(page.locator("#firstRunWizard")).toBeHidden();
+function beat(page, id) {
+  return page.locator(`#oneFlowMount .oneflow-beat[data-beat-id="${id}"]`);
 }
 
-async function bootGreenfield(page, { useUrlReset = false } = {}) {
+async function bootGreenfield(page) {
   const errors = captureBrowserErrors(page);
   const calls = await installHermeticBoundaries(page);
 
-  if (useUrlReset) {
-    await page.goto(`${baseUrl}/?greenfield=1`, { waitUntil: "load" });
-    await expect(page).toHaveURL(`${baseUrl}/?greenfield=1`);
-    await expectLoginGate(page);
-    // ?greenfield=1 clears config and IndexedDB on every load. Leave it before
-    // creating any state so the later persistence navigation cannot erase it.
-    await page.goto(`${baseUrl}/`, { waitUntil: "load" });
-    await expect(page).toHaveURL(`${baseUrl}/`);
-  } else {
-    await page.goto(`${baseUrl}/`, { waitUntil: "load" });
-  }
-  await expectLoginGate(page);
+  await page.goto(`${baseUrl}/?greenfield=1`, { waitUntil: "load" });
+  await page.waitForFunction(
+    () =>
+      typeof globalThis.JobBoredOneFlow?.open === "function" &&
+      globalThis.JobBoredOneFlowDemoBoard?.isActive() === true,
+  );
+  await expect(page).toHaveURL(`${baseUrl}/`);
 
-  return {
-    calls,
-    errors,
-    // The explicit URL reset arms production's one-shot consent request.
-    // A naturally fresh context uses the normal empty interactive request.
-    expectedInteractiveRequest: useUrlReset ? { prompt: "consent" } : {},
-  };
+  const setupCard = page.getByRole("region", { name: "Set up JobBored" });
+  await expect(setupCard).toBeVisible();
+  await expect(
+    setupCard.getByRole("button", { name: "Make it mine — 15 min, once" }),
+  ).toBeVisible();
+
+  return { calls, errors, setupCard };
 }
 
-async function connectGoogle(page, expectedInteractiveRequest) {
-  const clientId = page.getByRole("textbox", { name: "Google OAuth Client ID" });
-  const reloaded = page.waitForNavigation({ waitUntil: "load" });
-  await clientId.fill(CLIENT_ID);
-  await reloaded;
-
-  const signIn = page.getByRole("button", { name: "Log in with Google" });
-  await expect(signIn).toBeVisible();
-  await signIn.click();
-
-  const wizard = page.getByRole("dialog", { name: "Set up JobBored" });
-  await expect(wizard).toBeVisible();
-  await expect(wizard.getByRole("heading", { name: "Connect your Google Sheet" })).toBeVisible();
-  await expect(wizard.getByText("Step 1 of 2", { exact: true })).toBeVisible();
-  await expect(wizard.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "1");
-  const createSheet = wizard.getByRole("button", { name: "Create a starter sheet" });
-  await expect(createSheet).toBeEnabled();
-  await expect(createSheet).toBeFocused();
-
-  const gis = await page.evaluate(() => globalThis.__JOBBORED_E2E_GIS__);
-  expect(gis.init.clientId).toBe(CLIENT_ID);
-  expect(gis.init.scope.split(/\s+/).sort()).toEqual([...GOOGLE_SCOPES].sort());
-  expect(gis.init.includeGrantedScopes).toBe(true);
-  expect(gis.requests).toEqual([expectedInteractiveRequest]);
-  expect(gis.requests).not.toContainEqual({ prompt: "none" });
-}
-
-async function reachProfileOnboarding(page, options) {
-  const state = await bootGreenfield(page, options);
-  await connectGoogle(page, state.expectedInteractiveRequest);
-  await expect.poll(() => state.calls.userinfo.length).toBe(1);
-
-  const firstRun = page.getByRole("dialog", { name: "Set up JobBored" });
-  await firstRun.getByRole("button", { name: "Create a starter sheet" }).click();
-
-  await expect(firstRun.getByRole("heading", { name: "Choose your AI provider" })).toBeVisible();
-  await expect(firstRun.getByText("Step 2 of 2", { exact: true })).toBeVisible();
-  await expect(firstRun.getByRole("progressbar")).toHaveAttribute("aria-valuenow", "2");
-  await expect.poll(() => state.calls.sheetsCreate.length).toBe(1);
-  await expect.poll(() => state.calls.sheetsHeaders.length).toBe(1);
-
-  const freeProvider = firstRun.getByRole("radio", { name: /OpenRouter — free/ });
-  await expect(freeProvider).toBeChecked();
-  const finish = firstRun.getByRole("button", { name: "Finish setup" });
-  await expect(finish).toBeDisabled();
-
-  await firstRun.getByLabel("Paste a free OpenRouter key").fill(OPENROUTER_KEY);
-  await firstRun.getByRole("button", { name: "Save key" }).click();
-  await expect(firstRun.getByText("Key saved.", { exact: true })).toBeVisible();
-  await expect(finish).toBeEnabled();
-  await expect.poll(() => state.calls.openrouterModels.length).toBeGreaterThan(0);
-
-  await finish.click();
-  const celebration = page.getByRole("dialog", { name: "Workspace connected!" });
-  await expect(celebration).toBeVisible();
-  const buildProfile = celebration.getByRole("button", { name: /Build your profile/ });
-  await expect(buildProfile).toBeFocused();
-  await buildProfile.click();
-
-  const profile = page.getByRole("dialog", { name: "Resume" });
-  await expect(profile).toBeVisible();
-  await expect(profile.getByText("Step 1 of 4", { exact: true })).toBeVisible();
-  await expect(page.locator("#firstRunWizard")).toBeHidden();
-  return state;
+async function stageHarnessAuth(page) {
+  await page.waitForFunction(
+    () =>
+      !!globalThis.__JOBBORED_E2E_GIS__ &&
+      typeof globalThis.JobBoredApp?.core?.host?.initAuth === "function",
+  );
+  await page.evaluate(({ clientId }) => {
+    const host = globalThis.JobBoredApp.core.host;
+    host.mergeStoredConfigOverridePatch({ oauthClientId: clientId });
+    host.initAuth();
+  }, AUTH);
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => globalThis.__JOBBORED_E2E_GIS__?.init?.clientId || "",
+      ),
+    )
+    .toBe(CLIENT_ID);
 }
 
 function expectCleanRun(state) {
@@ -448,65 +500,72 @@ function expectCleanRun(state) {
   expect(state.errors, "browser console/page errors").toEqual([]);
 }
 
-test("VAL-WIZ-001: login gate sign-in opens the first-run wizard", async ({ page }) => {
+test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ page }) => {
   const state = await bootGreenfield(page);
-  await connectGoogle(page, state.expectedInteractiveRequest);
-  await expect.poll(() => state.calls.userinfo.length).toBe(1);
-  expectCleanRun(state);
-});
 
-test("VAL-WIZ-002: Sheet and provider steps hand off to profile onboarding", async ({ page }) => {
-  const state = await reachProfileOnboarding(page);
+  await state.setupCard
+    .getByRole("button", { name: "Make it mine — 15 min, once" })
+    .click();
+  await expect(beat(page, "google")).toBeVisible();
+
+  await stageHarnessAuth(page);
+  await page.getByRole("button", { name: "Continue with Google" }).click();
+  await expect(beat(page, "ai")).toBeVisible();
+  await expect.poll(() => state.calls.userinfo.length).toBe(1);
+
+  const gis = await page.evaluate(() => globalThis.__JOBBORED_E2E_GIS__);
+  expect(gis.init.clientId).toBe(CLIENT_ID);
+  expect(gis.init.scope.split(/\s+/).sort()).toEqual([...GOOGLE_SCOPES].sort());
+  expect(gis.init.includeGrantedScopes).toBe(true);
+  expect(gis.requests).toEqual([{ prompt: "consent" }]);
   expect(state.calls.sheetsCreate).toHaveLength(1);
   expect(state.calls.sheetsHeaders).toHaveLength(1);
-  expectCleanRun(state);
-});
 
-test("VAL-WIZ-003: completion survives a clean-URL reload and Settings reopens setup", async ({ page }) => {
-  const state = await reachProfileOnboarding(page, { useUrlReset: true });
+  const openrouter = beat(page, "ai").locator('[data-provider="openrouter"]');
+  await expect(openrouter).toHaveAttribute("aria-pressed", "true");
+  await beat(page, "ai")
+    .getByLabel("OpenRouter — free API key")
+    .fill(OPENROUTER_KEY);
+  await page.getByRole("button", { name: "Check & continue" }).click();
+  await expect(beat(page, "resume")).toBeVisible();
+  expect(state.calls.openrouterChecks).toHaveLength(1);
+  expect(state.calls.llmConfigPins).toHaveLength(1);
 
-  expect(new URL(page.url()).search).toBe("");
-  await page.goto(`${baseUrl}/`, { waitUntil: "load" });
-  await expect(page).toHaveURL(`${baseUrl}/`);
-  const profile = page.getByRole("dialog", { name: "Resume" });
-  await expect(profile).toBeVisible();
-  await expect(page.locator("#firstRunWizard")).toBeHidden();
-  await expect.poll(() => state.calls.sheetsReads).toContain("Pipeline!A:ZZ");
+  await page
+    .getByRole("button", { name: "I'd rather start from a template" })
+    .click();
+  await beat(page, "resume").locator('[data-template-id="engineer"]').click();
+  await expect(beat(page, "fit")).toBeVisible();
+  expect(state.calls.profileTemplates).toHaveLength(1);
 
-  // The current profile wizard has no close button; its production keyboard
-  // dismissal is the user-facing close path and releases the inert dashboard.
-  await page.keyboard.press("Escape");
-  await expect(profile).toBeHidden();
-  await expect(page.locator("#dashboard")).toBeVisible();
-  await page.getByRole("button", { name: "Settings and setup" }).click();
+  await page.getByRole("button", { name: "Looks like me →" }).click();
+  await expect(beat(page, "discovery")).toBeVisible();
+  expect(state.calls.profileWrites).toHaveLength(1);
 
-  const settings = page.getByRole("dialog", { name: "JobBored settings" });
-  await expect(settings).toBeVisible();
-  await expect.poll(() => state.calls.ollamaModels.length).toBeGreaterThan(0);
-  const runAgain = settings.getByRole("button", { name: "Run setup again" });
-  await expect(runAgain).toBeVisible();
-
-  let confirmation = "";
-  page.once("dialog", async (dialog) => {
-    confirmation = dialog.message();
-    await dialog.accept();
-  });
-  await runAgain.click();
-  expect(confirmation).toBe(
-    "Run the setup wizard again? Your connected Sheet, keys, and provider choice stay saved.",
+  await beat(page, "discovery")
+    .getByLabel("SerpApi API key")
+    .fill(SERPAPI_KEY);
+  await page.getByRole("button", { name: "Save & verify" }).click();
+  const skipConnection = page.locator(
+    '#oneFlowMount [data-action-id="oneflow_discovery_skip_connect"]',
   );
+  await expect(skipConnection).toBeEnabled();
+  await skipConnection.click();
+  await expect(beat(page, "payoff")).toBeVisible();
 
-  const firstRun = page.getByRole("dialog", { name: "Set up JobBored" });
-  await expect(firstRun).toBeVisible();
-  await expect(firstRun.getByText("Step 1 of 2", { exact: true })).toBeVisible();
-  await expect(firstRun.getByText("✓ Sheet connected", { exact: true })).toBeVisible();
-  const continueButton = firstRun.getByRole("button", { name: "Continue" });
-  await expect(continueButton).toBeEnabled();
-  await continueButton.click();
-  await expect(firstRun.getByRole("radio", { name: /OpenRouter — free/ })).toBeChecked();
-  await expect(firstRun.getByLabel("Paste a free OpenRouter key")).toHaveValue(
-    OPENROUTER_KEY,
+  expect(state.calls.serpApiChecks).toHaveLength(1);
+  expect(state.calls.discoveryEnvWrites).toHaveLength(1);
+  expect(state.calls.discoveryBoots).toHaveLength(1);
+
+  const payoffPrimary = page.locator(
+    '#oneFlowMount [data-action-id="payoff_run_discovery"], ' +
+      '#oneFlowMount [data-action="payoff_run_discovery"], ' +
+      '#oneFlowMount [data-action-id="payoff_connect_google"], ' +
+      '#oneFlowMount [data-action="payoff_connect_google"], ' +
+      '#oneFlowMount [data-action-id="payoff_fix_fit"], ' +
+      '#oneFlowMount [data-action="payoff_fix_fit"]',
   );
+  await expect(payoffPrimary).toBeVisible();
 
   expectCleanRun(state);
 });
