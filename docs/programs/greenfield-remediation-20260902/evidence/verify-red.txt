@@ -1,0 +1,59 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> command-center@0.1.0 test:e2e-onboarding
+> playwright test --config tests/e2e-onboarding/playwright.config.mjs
+
+
+Running 9 tests using 1 worker
+
+(node:1632) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  1 tests/e2e-onboarding/greenfield-onboarding.spec.mjs:451:1 › VAL-WIZ-001: login gate sign-in opens the first-run wizard (0ms)
+  -  2 tests/e2e-onboarding/greenfield-onboarding.spec.mjs:458:1 › VAL-WIZ-002: Sheet and provider steps hand off to profile onboarding
+  -  3 tests/e2e-onboarding/greenfield-onboarding.spec.mjs:465:1 › VAL-WIZ-003: completion survives a clean-URL reload and Settings reopens setup
+(node:1696) Warning: The 'NO_COLOR' env is ignored due to the 'FORCE_COLOR' env being set.
+(Use `node --trace-warnings ...` to show where the warning was created)
+  ✘  4 tests/e2e-onboarding/greenfield-remediation.spec.mjs:191:1 › E1 Beat 3 is gated on Beat 2 (0ms)
+  -  5 tests/e2e-onboarding/greenfield-remediation.spec.mjs:246:1 › E2 Pasted resume survives Escape and reload
+  -  6 tests/e2e-onboarding/greenfield-remediation.spec.mjs:277:1 › E3 Drawer setup lands in OneFlow
+  -  7 tests/e2e-onboarding/greenfield-remediation.spec.mjs:291:1 › E4 Beat 1 never punts to Settings
+  -  8 tests/e2e-onboarding/greenfield-remediation.spec.mjs:308:1 › E5 Payoff is honest
+  -  9 tests/e2e-onboarding/greenfield-remediation.spec.mjs:336:1 › E6 Settings shows receipts
+
+
+  1) tests/e2e-onboarding/greenfield-onboarding.spec.mjs:451:1 › VAL-WIZ-001: login gate sign-in opens the first-run wizard
+
+    Error: listen EPERM: operation not permitted 127.0.0.1
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--62788--opens-the-first-run-wizard/error-context.md
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--62788--opens-the-first-run-wizard/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--62788--opens-the-first-run-wizard/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--62788--opens-the-first-run-wizard/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/e2e-onboarding/greenfield-remediation.spec.mjs:191:1 › E1 Beat 3 is gated on Beat 2 ─────
+
+    Error: listen EPERM: operation not permitted 127.0.0.1
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/error-context.md
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/error-context.md
+
+    attachment #3: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2 failed
+    tests/e2e-onboarding/greenfield-onboarding.spec.mjs:451:1 › VAL-WIZ-001: login gate sign-in opens the first-run wizard
+    tests/e2e-onboarding/greenfield-remediation.spec.mjs:191:1 › E1 Beat 3 is gated on Beat 2 ──────
+  7 did not run
