@@ -58,6 +58,9 @@ function loadWithResumeDraft(options = {}) {
 
 /** Drive B3's paste path the way the beat's own action does. */
 async function ingestResume(env) {
+  // GREENFIELD §4.1 gates B3 on B2 — B3 drafts with the provider B2
+  // verified, so the handoff probe arrives having earned the beat.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.goToBeat("resume");
   await settle();
   const paste = env.document

@@ -46,6 +46,28 @@
   });
 
   /**
+   * GREENFIELD §4.1: what a beat needs BEFORE it can do its job. Beat 3
+   * drafts with the provider Beat 2 verified, and Beat 6 arms discovery
+   * against the Sheet Beat 1 created — reaching either one past an unmet
+   * prerequisite is the dead end F1 found (a fresh install answered "Missing
+   * Gemini API key" because Beat 3 was reachable with Beat 2 unverified).
+   * Every other beat stays reachable by id (locked decision 3).
+   */
+  const BEAT_PREREQS = Object.freeze({
+    resume: ["ai"],
+    payoff: ["google"],
+  });
+
+  /** The one line a redirected visitor gets. Copy is locked (§4.1). */
+  const GATE_NOTES = Object.freeze({
+    ai: "Connect an AI provider first \u2014 your resume is drafted with it.",
+    google: "Connect Google first \u2014 your board lives in that Sheet.",
+  });
+
+  /** Spoken when a deep link (§4.1 returnTo) closes where it opened. */
+  const RETURN_TO_TOAST = "Saved.";
+
+  /**
    * Spec §3.4: closing is pausing. The reasons here are the ones a PERSON
    * causes — Escape, the × button, and the programmatic close the S0 card
    * uses. "flow-complete" never reaches this function, and "destroy" is a
@@ -90,7 +112,7 @@
    * that must survive a refresh belongs in `runtime.drafts` (which the
    * controller mirrors into the flow state) or in its own store.
    */
-  const runtime = { drafts: {} };
+  const runtime = { drafts: {}, returnTo: "", returnToBeat: "" };
 
   let state = cloneState(DEFAULT_STATE);
   let hydrated = false;
@@ -544,8 +566,8 @@
       skipBeat(detail) {
         return skipBeat(beat.id, detail);
       },
-      goToBeat(id) {
-        return goToBeat(id);
+      goToBeat(id, options) {
+        return goToBeat(id, options);
       },
     };
   }
@@ -611,6 +633,78 @@
   // Navigation (spec §3.4)
   // ---------------------------------------------------------------
 
+  /**
+   * Is a Sheet configured, by any reader that can answer? sheetConfigured()
+   * asks the host bridge; the raw config is the second opinion a bare
+   * controller still has. COMMAND_CENTER_CONFIG is read directly on purpose:
+   * getConfig() nulls the WHOLE config on a malformed sheetId, which would
+   * turn "your id has a typo" into "you never connected Google".
+   */
+  function hasConfiguredSheet() {
+    if (sheetConfigured() === true) return true;
+    const cfg = window.COMMAND_CENTER_CONFIG;
+    return !!(cfg && typeof cfg === "object" && asString(cfg.sheetId));
+  }
+
+  /**
+   * GREENFIELD §4.1: the beat to land on, and the one line that explains
+   * why. A prerequisite is satisfied when its beat is complete — or, for
+   * "google", when a Sheet is already configured, because that IS Beat 1's
+   * exit condition and an install that has one owes this flow nothing.
+   *
+   * @returns {{beat: string, prereq: string, note: string}} `note` is ""
+   *   whenever nothing was gated, which is every beat but resume/payoff.
+   */
+  function gateBeat(requestedId, snapshot) {
+    const wanted = asString(requestedId);
+    const prereqs = BEAT_PREREQS[wanted] || [];
+    // `runtime.migratedBeats` is how the §3.3 ladder says "this profile has
+    // already cleared that rung" — it live-verifies the provider before it
+    // routes a legacy profile past B2, and the gate must not answer that by
+    // sending the user back to the screen they just proved they don't need.
+    const done = new Set([
+      ...((snapshot && snapshot.completedBeats) || []),
+      ...(Array.isArray(runtime.migratedBeats) ? runtime.migratedBeats : []),
+    ]);
+    for (const prereq of prereqs) {
+      if (done.has(prereq)) continue;
+      if (prereq === "google" && hasConfiguredSheet()) continue;
+      // A prerequisite nobody registered cannot be landed on; refusing the
+      // redirect keeps a partial boot reachable instead of blank.
+      if (!beats.has(prereq)) continue;
+      return { beat: prereq, prereq, note: GATE_NOTES[prereq] || "" };
+    }
+    return { beat: wanted, prereq: "", note: "" };
+  }
+
+  /**
+   * Put the gate's note in the shell's existing message slot and stamp the
+   * prerequisite on it, so the greenfield gate can assert WHICH beat sent
+   * the visitor here rather than matching on prose (§4.1).
+   */
+  function renderGateNote(prereqId, note) {
+    if (!note) return null;
+    const sh = shell();
+    if (!sh || typeof sh.setMessage !== "function") return null;
+    sh.setMessage(note, "info");
+    const mount =
+      typeof document.getElementById === "function"
+        ? document.getElementById(MOUNT_ID)
+        : null;
+    const slot =
+      mount && typeof mount.querySelector === "function"
+        ? mount.querySelector(".discovery-setup-wizard__message")
+        : null;
+    if (slot && slot.dataset) slot.dataset.gateNote = prereqId;
+    return slot;
+  }
+
+  /** Remember (or forget) that this entry closes where it opened (§4.1). */
+  function setReturnTo(mode, beatId) {
+    runtime.returnTo = mode === "close" ? "close" : "";
+    runtime.returnToBeat = runtime.returnTo ? asString(beatId) : "";
+  }
+
   function resolveEntryBeatId(requested) {
     const wanted = asString(requested);
     if (wanted && beats.has(wanted)) return wanted;
@@ -623,7 +717,7 @@
    * Open the flow. With no argument this RESUMES: the saved beat wins, so
    * a refresh or a re-entry from the S0 card never restarts the deal.
    */
-  async function open(beatId) {
+  async function open(beatId, options) {
     await hydrate();
     // Entering re-checks the sheet, not just booting does. maybeStart() runs
     // only inside the post-sign-in bootstrap, which a user with no sheet never
@@ -634,19 +728,25 @@
     await reconcileStaleCompletion();
     const target = resolveEntryBeatId(beatId);
     if (!target) return null;
+    // §4.1: the gate runs AFTER resolveEntryBeatId, so the funnel records
+    // where the visitor actually lands, not where they asked to go.
+    // goToBeat re-gates the SAME request — asking it to open the landing
+    // beat instead would gate an already-gated id and lose the note.
+    if (!(options && options.returnTo === "close")) setReturnTo("", "");
     if (!flowOpenEmitted) {
-      emit(steps().FLOW_OPENED, { beat: target });
+      emit(steps().FLOW_OPENED, { beat: gateBeat(target, state).beat });
       flowOpenEmitted = true;
     }
     if (!state.startedAt) {
       await patchState({ startedAt: new Date().toISOString() });
     }
-    return goToBeat(target);
+    return goToBeat(target, options);
   }
 
-  async function goToBeat(id) {
+  async function goToBeat(id, options) {
     await hydrate();
-    const beat = getBeat(id);
+    const gated = gateBeat(id, state);
+    const beat = getBeat(gated.beat);
     if (!beat) return null;
     // Land the keystrokes of the beat we are leaving before the next beat
     // reads the drafts bag (spec §3.4: resume lands "with drafts restored").
@@ -654,8 +754,10 @@
     await patchState({ beat: beat.id });
     mirrorDrafts();
     hideResumePill();
+    if (options && options.returnTo === "close") setReturnTo("close", beat.id);
     openBeatId = beat.id;
     const rendered = renderBeat(beat);
+    renderGateNote(gated.prereq, gated.note);
     emit(steps().BEAT_OPENED, { beat: beat.id });
     return rendered;
   }
@@ -669,6 +771,17 @@
       : [...state.completedBeats, beat.id];
     await patchState({ completedBeats });
     emit(steps().BEAT_COMPLETED, { ...detail, beat: beat.id });
+    // §4.1: a deep link from Settings or the discovery drawer opened ONE
+    // beat. Walking such a visitor forward through the whole of setup is
+    // the annoyance returnTo exists to prevent, so close where we opened.
+    if (runtime.returnTo === "close" && runtime.returnToBeat === beat.id) {
+      setReturnTo("", "");
+      await flushDrafts();
+      closeShell();
+      flowOpenEmitted = false;
+      toast(RETURN_TO_TOAST, "success");
+      return getState();
+    }
     const next = nextBeatAfter(beat.id);
     if (next) return goToBeat(next.id);
     return finishFlow();

@@ -24,6 +24,9 @@ function draftingFetch() {
 
 async function openBeat() {
   const env = loadArrival({ fetchImpl: draftingFetch() });
+  // GREENFIELD §4.1 gates B3 on B2; the template escape is probed from a
+  // B3 that was legitimately reached.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.open(BEAT_ID);
   return env;
 }

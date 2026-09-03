@@ -81,6 +81,9 @@ function draftCtx(drafts = {}) {
 
 async function openResume(options = {}) {
   const env = loadArrival({ fetchImpl: draftingFetch(), ...options });
+  // GREENFIELD §4.1 gates Beat 3 on Beat 2 — this suite's whole subject is
+  // "Beat 3 drafts through the provider Beat 2 verified", so Beat 2 is done.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.open("resume");
   return env;
 }

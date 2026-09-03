@@ -54,6 +54,9 @@ function draftingFetch(overrides = {}) {
 
 async function openBeat(options = {}) {
   const env = loadArrival({ fetchImpl: draftingFetch(), ...options });
+  // GREENFIELD §4.1 gates B3 on B2 — B3 drafts with the provider B2
+  // verified — so a probe of B3 has to arrive having earned it.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.open(BEAT_ID);
   return env;
 }
