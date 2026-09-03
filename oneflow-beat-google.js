@@ -346,7 +346,13 @@
       return;
     }
     call("mergeStoredConfigOverridePatch", { oauthClientId: raw });
-    call("applyOAuthClientChange", raw);
+    if (call("applyOAuthClientChange", raw) !== true) {
+      // Greenfield boot: initAuth() ran with no Client ID, so GIS was never
+      // initialized and the in-place re-init above refuses. Run the
+      // first-time init now that the id is saved — tryInit picks it up and
+      // builds the token client in-session, no reload needed.
+      call("initAuth");
+    }
     repaint(ctx, "Client ID saved. Continue with Google below.", "success");
   }
 
@@ -436,6 +442,7 @@
 
   async function continueWithGoogle(ctx) {
     if (!host()) {
+      clearStages(ctx);
       repaint(ctx, "JobBored is still starting up. Reload the page and try again.", "error");
       return;
     }
