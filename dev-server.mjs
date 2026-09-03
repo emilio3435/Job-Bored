@@ -1,10 +1,10 @@
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
-import { join, extname, resolve as resolvePath } from "node:path";
+import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 import {
@@ -553,6 +553,44 @@ export function buildDiscoveryWorkerEnv(port, baseEnv = process.env, options = {
  * with process.env on top. Kept separate from buildDiscoveryWorkerEnv so that
  * builder stays pure and testable.
  */
+/** The worker log beside its env file — the same file the keep-alive writes. */
+export function resolveDiscoveryWorkerLogPath(workerEnvPath = PACKAGED_PATHS.workerEnv) {
+  return join(dirname(String(workerEnvPath)), "logs", "worker.log");
+}
+
+/**
+ * stdio for a detached worker that keeps writing after we unref it: stdout
+ * and stderr appended to the worker log, so the worker the DASHBOARD starts
+ * leaves the same trail the starter and the keep-alive do. This spawn used
+ * `stdio: "ignore"`, and every Beat 5 save force-restarts through it — so
+ * the worker that ran a user's first discovery was the one with no output
+ * anywhere; a 46-minute scout hang left nothing on disk (2026-09-02).
+ * Returns `close()` for the parent's copies of the descriptors; the child
+ * keeps its own. If the file cannot be opened, output is ignored rather than
+ * failing the boot — an unobservable worker beats no worker.
+ */
+export function openDiscoveryWorkerLogStdio(logPath) {
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    const fd = openSync(logPath, "a");
+    return {
+      stdio: ["ignore", fd, fd],
+      close() {
+        try {
+          closeSync(fd);
+        } catch (_) {
+          /* already closed */
+        }
+      },
+    };
+  } catch (err) {
+    console.warn(
+      `[dev-server] worker output will not be logged (${(err && err.message) || err})`,
+    );
+    return { stdio: ["ignore", "ignore", "ignore"], close() {} };
+  }
+}
+
 export function buildDiscoveryWorkerSpawnEnv(port, baseEnv = process.env) {
   return buildDiscoveryWorkerEnv(port, baseEnv, {
     envFileLayers: readDiscoveryWorkerEnvFileLayers(),
@@ -585,17 +623,19 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
     };
   }
 
+  const workerLog = openDiscoveryWorkerLogStdio(resolveDiscoveryWorkerLogPath());
   const child = spawn(
     process.execPath,
     ["--experimental-strip-types", DISCOVERY_WORKER_SCRIPT],
     {
       cwd: ROOT,
       detached: true,
-      stdio: "ignore",
+      stdio: workerLog.stdio,
       env: buildDiscoveryWorkerSpawnEnv(resolvedPort),
     },
   );
   child.unref();
+  workerLog.close();
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
