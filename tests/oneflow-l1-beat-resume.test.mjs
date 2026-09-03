@@ -253,3 +253,66 @@ describe("B3 Hand us your resume — the template path (spec §5 B3)", () => {
     assert.equal(env.beats.resume.getDraft().starterTemplate, "blank");
   });
 });
+
+/* ============================================================
+   A provider that was never connected is a Beat 2 problem, not a Gemini one.
+
+   Greenfield walkthrough 2026-09-02, step 12: Beat 2 was left without a
+   key, Beat 3 still sent the STORED default provider, and the server
+   answered "Missing Gemini API key. Go back and reconnect Gemini" with a
+   500 — naming a provider the user never chose, as a server fault. From
+   Beat 3 the fix is always the same: connect one on the AI step.
+   ============================================================ */
+
+describe("B3 — an unconfigured provider points at the AI step (walkthrough step 12)", () => {
+  for (const [reason, provider] of [
+    ["profile_provider_not_configured", "openrouter"],
+    ["gemini_not_configured", "gemini"],
+  ]) {
+    it(`${reason}: names the AI step, not the provider the server fell back to`, async () => {
+      const env = await openBeat({
+        fetchImpl: draftingFetch({
+          fromResume: () => ({
+            ok: false,
+            status: 409,
+            json: {
+              ok: false,
+              reason,
+              provider,
+              message: `Missing ${provider} API key. Go back and reconnect ${provider}, then try drafting again.`,
+            },
+          }),
+        }),
+      });
+      await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+      const message = env.mount().querySelector(".discovery-setup-wizard__message");
+      assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
+      assert.match(
+        message.textContent,
+        /AI step/i,
+        "the user is sent to the step that connects a provider",
+      );
+      assert.doesNotMatch(
+        message.textContent,
+        /reconnect (gemini|openrouter)/i,
+        "no 'reconnect X' for a provider that was never connected",
+      );
+      assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
+    });
+  }
+
+  it("still surfaces a genuine provider error verbatim", async () => {
+    const env = await openBeat({
+      fetchImpl: draftingFetch({
+        fromResume: () => ({
+          ok: false,
+          status: 500,
+          json: { ok: false, reason: "profile_provider_error", message: "Rate limit reached" },
+        }),
+      }),
+    });
+    await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+    const message = env.mount().querySelector(".discovery-setup-wizard__message");
+    assert.match(message.textContent, /Rate limit reached/);
+  });
+});
