@@ -421,25 +421,45 @@
     return known ? false : null;
   }
 
-  /** Forget a completion the sheet can no longer vouch for; the deal restarts. */
+  /**
+   * Clear a completion the sheet can no longer vouch for, if there is one.
+   * Safe to call on every entry: it is a no-op unless the flow claims progress
+   * the configured sheet cannot support.
+   */
+  async function reconcileStaleCompletion() {
+    if (sheetConfigured() !== false) return false;
+    // Only progress a sheet VOUCHES for can go stale: a finished flow, or
+    // Beat 1 earned (its exit condition is a configured sheet). A visitor
+    // paused at any beat with nothing earned yet simply has no sheet YET —
+    // spec §3.4 says re-entry resumes them, and the journey suite pins it.
+    const vouched =
+      state.completed || state.completedBeats.includes("google");
+    if (!vouched) return false;
+    await resetStaleCompletion();
+    return true;
+  }
+
+  /**
+   * Forget a completion the sheet can no longer vouch for; the deal restarts.
+   *
+   * PROGRESS is cleared — those beats were earned against a sheet that is no
+   * longer configured. DRAFTS are not: a masked sheet id says nothing about
+   * the resume the user pasted or the profile B3 drafted, and making them
+   * retype it is exactly the punishment this flow exists to avoid. `startedAt`
+   * is kept too, so the honest "15 min, once" clock is not restarted by a
+   * bookkeeping repair.
+   */
   async function resetStaleCompletion() {
-    const s = store();
-    if (s && typeof s.clearOnboardingFlowState === "function") {
-      try {
-        await s.clearOnboardingFlowState();
-      } catch (e) {
-        console.warn("[JobBored] one-flow: could not clear stale flow state:", e);
-      }
-    }
-    state = cloneState(DEFAULT_STATE);
-    hydrated = false;
-    await hydrate();
+    const keptDrafts = { ...(state.drafts || {}) };
+    const keptStartedAt = state.startedAt;
     await patchState({
       completed: false,
       completedBeats: [],
       beat: "",
-      startedAt: new Date().toISOString(),
+      drafts: keptDrafts,
+      startedAt: keptStartedAt || new Date().toISOString(),
     });
+    mirrorDrafts();
   }
 
   /**
@@ -605,6 +625,13 @@
    */
   async function open(beatId) {
     await hydrate();
+    // Entering re-checks the sheet, not just booting does. maybeStart() runs
+    // only inside the post-sign-in bootstrap, which a user with no sheet never
+    // reaches — while the S0 invitation card calls open() directly. Without
+    // this, that card resumed `beat: "payoff"` and painted "You're live." over
+    // an install with nothing configured, with no route back to Beat 1
+    // (reproduced 2026-09-02).
+    await reconcileStaleCompletion();
     const target = resolveEntryBeatId(beatId);
     if (!target) return null;
     if (!flowOpenEmitted) {
