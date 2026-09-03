@@ -40,6 +40,43 @@
     list.forEach(function (s) { var k = s.toLowerCase(); if (!seen[k]) { seen[k] = 1; out.push(s); } });
     return out;
   }
+  function dropHeadingTails(list) {
+    var t = T();
+    return list.map(function (text) {
+      return t && typeof t.splitHeadingTail === "function" ? t.splitHeadingTail(text).body : text;
+    }).filter(Boolean);
+  }
+  function normalizeTalkingPoint(text) {
+    var t = T();
+    var value = t ? t.stripListGlyph(t.normalizeInline(text)) : String(text == null ? "" : text).trim();
+    return value.toLowerCase();
+  }
+  function parseTalkingPointCell(raw) {
+    var text = String(raw == null ? "" : raw);
+    var parts = /\n/.test(text) ? text.split(/\n+/) : text.split(/[;·]/);
+    return parts.map(function (part) {
+      var t = T();
+      return t ? t.stripListGlyph(t.normalizeInline(part)) : part.trim().replace(/^[-*•]\s+/, "");
+    }).filter(Boolean);
+  }
+  function countSheetPoints(app) {
+    var counts = new Map();
+    var getRows = app && app.core && app.core.getPipelineRawRows;
+    if (typeof getRows !== "function") return counts;
+    try {
+      var rows = getRows() || [];
+      rows.forEach(function (row) {
+        var seenInRow = Object.create(null);
+        parseTalkingPointCell(Array.isArray(row) ? row[16] : "").forEach(function (point) {
+          var key = normalizeTalkingPoint(point);
+          if (!key || seenInRow[key]) return;
+          seenInRow[key] = true;
+          counts.set(key, (counts.get(key) || 0) + 1);
+        });
+      });
+    } catch (e) { warn("getPipelineRawRows failed", e); }
+    return counts;
+  }
   /* The analyzer never stores a requirement whole: it splits long items on
      `;,|`/and/or, skips anything past 8 words, and truncates labels at 72
      chars. So an exact lookup of the requirement string marks almost nothing
@@ -60,7 +97,13 @@
     if (!keywords) return [];
     if (Array.isArray(keywords.uniqueTerms)) {
       return keywords.uniqueTerms.map(function (t) {
-        return { label: String((t && (t.label || t.fullLabel)) || ""), status: String((t && t.status) || "") };
+        return {
+          label: String((t && (t.label || t.fullLabel)) || ""),
+          status: String((t && t.status) || ""),
+          evidence: t && t.evidence && t.evidence.snippet ? {
+            snippet: String(t.evidence.snippet), source: String(t.evidence.source || "profile"),
+          } : null,
+        };
       }).filter(function (t) { return t.label; });
     }
     var out = [];
@@ -71,16 +114,20 @@
   }
   function markAll(list, terms) {
     return list.map(function (text) {
-      var norm = normTerm(text), best = "unknown", bestRank = 0;
+      var norm = normTerm(text), best = "unknown", bestRank = 0, evidence = null;
       for (var i = 0; i < terms.length; i++) {
         var tn = normTerm(terms[i].label);
         if (!tn || tn.length < 2 || !norm) continue;
         var truncatedPrefix = /…\s*$/.test(terms[i].label) && norm.indexOf(tn) === 0;
         if (tn !== norm && !containsTerm(norm, tn) && !containsTerm(tn, norm) && !truncatedPrefix) continue;
         var rank = STATUS_RANK[terms[i].status] || 0;
-        if (rank > bestRank) { bestRank = rank; best = terms[i].status; }
+        if (rank > bestRank) { bestRank = rank; best = terms[i].status; evidence = terms[i].evidence || null; }
       }
-      return { text: text, status: bestRank ? best : "unknown", evidence: null };
+      return {
+        text: text,
+        status: bestRank ? best : "unknown",
+        evidence: best === "found" || best === "partial" ? evidence : null,
+      };
     });
   }
   function rankRequirements(list) {
@@ -127,6 +174,42 @@
     return exact.filter(function (item) { return !item.drop; }).map(function (item) {
       return { text: item.text, status: item.status };
     });
+  }
+  function significantTokenCount(text) {
+    var api = root.JobBoredApp && root.JobBoredApp.keywordMatch;
+    if (api && typeof api.getSignificantKeywordTokens === "function") {
+      return api.getSignificantKeywordTokens(text).length;
+    }
+    var stop = {
+      a: 1, an: 1, and: 1, are: 1, as: 1, at: 1, be: 1, by: 1,
+      for: 1, from: 1, in: 1, into: 1, of: 1, on: 1, or: 1, the: 1,
+      to: 1, with: 1, using: 1, your: 1, our: 1, their: 1, you: 1, we: 1,
+      will: 1, have: 1, has: 1, had: 1, this: 1, that: 1, these: 1,
+      those: 1, years: 1, year: 1, plus: 1,
+      strong: 1, ability: 1, abilities: 1, experience: 1, experienced: 1,
+      knowledge: 1, understanding: 1, background: 1, preferred: 1,
+      required: 1, requirement: 1, requirements: 1,
+    };
+    return normTerm(text).split(" ").filter(function (token) {
+      return token && (token.length > 1 || /\d/.test(token)) && !stop[token];
+    }).length;
+  }
+  function claimIsFragment(text) {
+    return !!(T() && typeof T().isFragment === "function" && T().isFragment(text));
+  }
+  function collapsePrefixGaps(list) {
+    var seen = Object.create(null), unique = [];
+    list.forEach(function (item) {
+      var key = normTerm(item.gap);
+      if (!key || seen[key]) return;
+      seen[key] = true;
+      unique.push({ item: item, key: key });
+    });
+    return unique.filter(function (entry) {
+      return !unique.some(function (other) {
+        return other.key.length > entry.key.length && other.key.indexOf(entry.key + " ") === 0;
+      });
+    }).map(function (entry) { return entry.item; });
   }
   /* `Number(null) === 0`, so an unscored card used to render ATS 0/100 and
      five 0% bars — "not scored" made indistinguishable from "scored zero"
@@ -227,9 +310,13 @@
     if (r) {
       return {
         source: "scorecard", storedAt: scorecard.storedAt || "",
-        strengths: items(r.topStrengths),
+        strengths: items(r.topStrengths).filter(function (text) {
+          return !claimIsFragment(text) && significantTokenCount(text) >= 3;
+        }),
         evidence: (Array.isArray(r.evidence) ? r.evidence : []).map(function (e) { return { claim: inline(e && e.claim), sourceSnippet: inline(e && e.sourceSnippet), sourceType: inline(e && e.sourceType) }; }).filter(function (e) { return e.claim || e.sourceSnippet; }).slice(0, 3),
-        gaps: (Array.isArray(r.criticalGaps) ? r.criticalGaps : []).map(function (g) { return { gap: inline(g && g.gap), whyItMatters: inline(g && g.whyItMatters), severity: /^(high|medium|low)$/.test(String(g && g.severity)) ? g.severity : "medium" }; }).filter(function (g) { return g.gap; }).slice(0, 5),
+        gaps: collapsePrefixGaps((Array.isArray(r.criticalGaps) ? r.criticalGaps : []).map(function (g) {
+          return { gap: inline(g && g.gap), whyItMatters: inline(g && g.whyItMatters), severity: /^(high|medium|low)$/.test(String(g && g.severity)) ? g.severity : "medium" };
+        }).filter(function (g) { return g.gap && !claimIsFragment(g.gap); })).slice(0, 5),
         dimensions: DIMENSIONS.map(function (d) { return { key: d[0], label: d[1], score: scoreOf(r.dimensionScores && r.dimensionScores[d[0]]) }; }).filter(function (d) { return d.score != null; }),
       };
     }
@@ -327,7 +414,7 @@
     var ready = materials ? materials.filter(function (d) { return d.status === "ready"; }).length : 0;
     var drafting = materials ? materials.filter(function (d) { return d.status === "pending"; }).length : 0;
     var terms = termList(keywords);
-    var requirements = rankRequirements(markAll(dedupe(items(job.requirements).concat(items(enr.mustHaves))), terms));
+    var requirements = rankRequirements(markAll(dedupe(dropHeadingTails(items(job.requirements).concat(items(enr.mustHaves)))), terms));
     var niceToHaves = markAll(dedupe(items(enr.niceToHaves)), terms).map(function (item) { return { text: item.text, status: item.status }; });
     var allStack = dedupeStack(markAll(items(enr.toolsAndStack).concat(items(job.skills)).concat(items(job.tags)), terms));
     var stack = allStack.slice(0, 12);
@@ -335,6 +422,10 @@
     var foundAt = inline(job.foundAt || job.dateFound || "");
     var jobForRecord = { foundAt: foundAt, source: inline(job.source), lastHeardFrom: inline(job.lastHeardFrom), replied: job.replied, followUpDate: inline(job.followUpDate), appliedAt: inline(job.appliedAt) };
     var aiPoints = items(enr.talkingPoints);
+    var sheetPoints = items(job.talkingPoints).filter(function (point) {
+      return !deps.sheetPointCounts || typeof deps.sheetPointCounts.get !== "function" ||
+        (deps.sheetPointCounts.get(normalizeTalkingPoint(point)) || 0) < 2;
+    });
     var people = { contact: inline(job.contacts && job.contacts[0] && job.contacts[0].name), lastContactAt: inline(job.lastHeardFrom), replied: job.replied || "Unknown", followUpAt: inline(job.followUpDate) };
     people.nextMove = nextMove(people);
 
@@ -364,7 +455,7 @@
       theyWant: { requirements: requirements, visibleCount: 8, niceToHaves: niceToHaves, stack: stack, stackHidden: stackHidden, hasMatchData: !!keywords },
       youHave: buildYouHave(deps.scorecard),
       moves: {
-        talkingPoints: aiPoints.length ? aiPoints.slice(0, 6) : items(job.talkingPoints).slice(0, 6),
+        talkingPoints: aiPoints.length ? aiPoints.slice(0, 6) : sheetPoints.slice(0, 6),
         materials: materials,
         materialsError: deps.materialsError || "",
         people: people,
@@ -393,10 +484,12 @@
     try { cfg = root.CommandCenterResumeGenerate && root.CommandCenterResumeGenerate.getResumeGenerationConfig ? root.CommandCenterResumeGenerate.getResumeGenerationConfig() : null; } catch (e) { cfg = null; warn("getResumeGenerationConfig failed", e); }
     var providerId = cfg && cfg.provider ? String(cfg.provider).toLowerCase() : "";
     var stages = root.JobBoredStages;
+    var sheetPointCounts = countSheetPoints(app);
     return {
       vm: vm || { job: {} }, job: rawJob, keywords: keywords, scorecard: scorecard,
       manifest: mat && String(mat.jobKey) === String(jobKey) ? mat.manifest : null, materialsError: "",
       health: health, stages: stages,
+      sheetPointCounts: sheetPointCounts,
       providerLabel: providerId ? (PROVIDER_CASING[providerId] || providerId.charAt(0).toUpperCase() + providerId.slice(1)) : "",
       nowMs: Date.now(),
       parseDate: function (s) { var t = Date.parse(String(s || "")); return Number.isFinite(t) ? t : null; },
