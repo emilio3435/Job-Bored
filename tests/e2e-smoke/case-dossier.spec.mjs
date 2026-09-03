@@ -19,6 +19,12 @@ import {
   installHermeticNetworkFence,
   startHermeticApp,
 } from "../e2e-fixtures/hermetic-harness.mjs";
+import {
+  REAL_SHAPE_DUPLICATED_TALKING_POINT,
+  REAL_SHAPE_PIPELINE_JOBS,
+  REAL_SHAPE_PIPELINE_RAW_ROWS,
+  REAL_SHAPE_SCORECARD,
+} from "../e2e-fixtures/real-shape-posting.mjs";
 
 const DEMO_BOARD = "#oneFlowDemoBoard";
 const ROLE_REGION = '[data-region="role"]';
@@ -348,4 +354,173 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
     .toBe(false);
 
   expect(consoleErrors, "the Case run must be console-error free").toEqual([]);
+});
+
+test.describe("real-shape posting", () => {
+  const THEY_WANT = `${ROLE_REGION} .case__lane--they`;
+
+  async function openRealShapePosting(page, viewport) {
+    await bootGreenfield(page);
+    await page.waitForTimeout(3_000);
+    await page.setViewportSize(viewport);
+    await seedPipelineThroughApp(page, REAL_SHAPE_PIPELINE_JOBS);
+
+    const seeded = await page.evaluate(
+      ({ rawRows, scorecard }) => {
+        const app = window.JobBoredApp;
+        const core = app && app.core;
+        const materials = app && app.materialsState;
+        const jobs = core && core.getPipelineData && core.getPipelineData();
+        if (!core || typeof core.setPipelineRawRows !== "function") {
+          return { ok: false, seam: "window.JobBoredApp.core.setPipelineRawRows" };
+        }
+        if (!materials || typeof materials.setScorecardForJob !== "function") {
+          return {
+            ok: false,
+            seam: "window.JobBoredApp.materialsState.setScorecardForJob",
+          };
+        }
+        if (!Array.isArray(jobs) || !jobs[0]) {
+          return { ok: false, seam: "window.JobBoredApp.core.getPipelineData" };
+        }
+        core.setPipelineRawRows(rawRows);
+        materials.setScorecardForJob(jobs[0], scorecard, "resume_update");
+        return {
+          ok: true,
+          hasTextApi: !!(
+            window.JobBoredText &&
+            typeof window.JobBoredText.stripControlTokens === "function"
+          ),
+        };
+      },
+      {
+        rawRows: REAL_SHAPE_PIPELINE_RAW_ROWS,
+        scorecard: REAL_SHAPE_SCORECARD,
+      },
+    );
+
+    expect(
+      seeded.ok,
+      `real-shape setup requires the app's own Sheet and scorecard seams (${seeded.seam || "ready"})`,
+    ).toBe(true);
+    expect(
+      seeded.hasTextApi,
+      "the real-shape harness must load JobBoredText before Case consumers",
+    ).toBe(true);
+    expect(
+      await page.evaluate(() =>
+        window.matchMedia("(prefers-reduced-motion: reduce)").matches,
+      ),
+      "the page must actually receive reduced-motion emulation",
+    ).toBe(true);
+
+    await page.evaluate(() => {
+      window.JobBoredFlowing.openRole.set("0");
+    });
+    const caseRoot = page.locator(`${ROLE_REGION} .case`);
+    await expect(caseRoot).toBeVisible({ timeout: 10_000 });
+    await caseRoot.evaluate((el) => el.scrollIntoView({ block: "start" }));
+    return caseRoot;
+  }
+
+  async function visibleRequirementCount(page) {
+    return page.locator(THEY_WANT).evaluate((lane) => {
+      const niceToHaveHeading = [...lane.querySelectorAll(".case__sub")].find(
+        (node) => (node.textContent || "").trim() === "Nice to have",
+      );
+      return [...lane.querySelectorAll(".case__req li")].filter((item) => {
+        const beforeNiceToHaves =
+          !niceToHaveHeading ||
+          Boolean(
+            item.compareDocumentPosition(niceToHaveHeading) &
+              Node.DOCUMENT_POSITION_FOLLOWING,
+          );
+        return beforeNiceToHaves && item.getClientRects().length > 0;
+      }).length;
+    });
+  }
+
+  async function revealAllRequirements(page) {
+    const toggle = page.locator(
+      `${THEY_WANT} [data-action="toggle-requirements"]`,
+    );
+    await expect(toggle).toBeVisible();
+    await expect(toggle).toHaveText("Show all 25");
+    await expect(toggle).toHaveAttribute("aria-expanded", "false");
+    await toggle.click();
+    await expect(toggle).toHaveAttribute("aria-expanded", "true");
+    await expect.poll(() => visibleRequirementCount(page)).toBe(25);
+  }
+
+  test("at 1240px keeps rendered lanes balanced and truthful", async ({ page }) => {
+    const caseRoot = await openRealShapePosting(page, {
+      width: 1240,
+      height: 1170,
+    });
+    const board = caseRoot.locator(".case__board");
+    const laneShape = await board.evaluate((el) => ({
+      declared: Number(el.getAttribute("data-lanes")),
+      rendered: el.querySelectorAll(":scope > .case__lane").length,
+    }));
+    expect(
+      laneShape.declared,
+      "data-lanes must describe the lanes the renderer actually emitted",
+    ).toBe(laneShape.rendered);
+
+    const caseText = await caseRoot.innerText();
+    expect(caseText, "the live [<| control-token prefix must not render").not.toContain(
+      "[<|",
+    );
+    expect(
+      caseText,
+      "a sheet talking point repeated across three jobs is boilerplate",
+    ).not.toContain(REAL_SHAPE_DUPLICATED_TALKING_POINT);
+
+    const bareStrengths = await caseRoot.locator(".case__strength").evaluateAll(
+      (nodes) =>
+        nodes
+          .map((node) => (node.textContent || "").trim())
+          .filter((text) => /^\S+$/.test(text)),
+    );
+    expect(
+      bareStrengths,
+      "scorecard strengths must be claims, not single bare tokens",
+    ).toEqual([]);
+
+    await screenshotCase(page, 1240, 1170, "T4-real-shape-1240.png");
+
+    const heights = await board.locator(":scope > .case__lane").evaluateAll(
+      (lanes) => lanes.map((lane) => lane.getBoundingClientRect().height),
+    );
+    expect(heights.length, "the real-shape Case must render multiple lanes").toBeGreaterThan(1);
+    const shortest = Math.min(...heights);
+    const tallest = Math.max(...heights);
+    expect(shortest, "every rendered lane must have measurable height").toBeGreaterThan(0);
+    expect(
+      tallest / shortest,
+      `the tallest lane (${tallest}px) must stay within 1.6× the shortest (${shortest}px)`,
+    ).toBeLessThanOrEqual(1.6);
+  });
+
+  test("at 1240px caps requirements and reveals all 25", async ({ page }) => {
+    await openRealShapePosting(page, { width: 1240, height: 1170 });
+    const initiallyVisible = await visibleRequirementCount(page);
+    expect(initiallyVisible, "the collapsed lane must still show requirements").toBeGreaterThan(0);
+    expect(
+      initiallyVisible,
+      "no more than eight requirements may appear before disclosure",
+    ).toBeLessThanOrEqual(8);
+    await revealAllRequirements(page);
+  });
+
+  test("at 720px is single-column and still reveals all 25", async ({ page }) => {
+    await openRealShapePosting(page, { width: 720, height: 1200 });
+    const board = page.locator(`${ROLE_REGION} .case__board`);
+    const columns = await board.evaluate((el) =>
+      window.getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).filter(Boolean),
+    );
+    expect(columns, "the 720px Case board must have one computed grid track").toHaveLength(1);
+    await screenshotCase(page, 720, 1200, "T4-real-shape-720.png");
+    await revealAllRequirements(page);
+  });
 });
