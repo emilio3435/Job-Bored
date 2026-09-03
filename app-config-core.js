@@ -60,6 +60,31 @@
     };
   }
 
+  /**
+   * The overlay resolver: config.js values with this browser's stored
+   * overrides applied, and nothing nulled.
+   *
+   * getConfig() returns null the moment `sheetId` fails to parse, which is
+   * right for the sheet-shaped callers and wrong for everyone else — a typo'd
+   * spreadsheet URL took the OAuth client id, the AI provider, and every
+   * model name down with it, and Settings then re-asked for all of them
+   * (GREENFIELD F6). Read this when you want the other fields regardless of
+   * the sheet.
+   */
+  function getEffectiveConfig() {
+    const overrides =
+      window.JobBoredApp && window.JobBoredApp.configOverrides;
+    if (overrides && typeof overrides.applyStoredConfigOverrides === "function") {
+      try {
+        overrides.applyStoredConfigOverrides();
+      } catch (e) {
+        /* localStorage may be unavailable in private/embedded contexts. */
+      }
+    }
+    const cfg = window.COMMAND_CENTER_CONFIG;
+    return cfg && typeof cfg === "object" ? { ...cfg } : {};
+  }
+
   // Memoized decision for an off-config ?sheet= override so the resolver stays
   // cheap and only prompts once per session per target id.
   let urlSheetOverrideDecision;
@@ -279,6 +304,7 @@
     parseGoogleSheetId,
     normalizeDashboardTitle,
     getConfig,
+    getEffectiveConfig,
     getSheetId,
     getActiveSheetId,
     getOAuthClientId,

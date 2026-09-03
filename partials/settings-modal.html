@@ -58,13 +58,25 @@
               type="button"
               role="tab"
               class="settings-tablist__btn"
-              id="settings-tab-setup"
-              data-tab-id="setup"
-              aria-controls="settings-panel-setup"
+              id="settings-tab-google"
+              data-tab-id="google"
+              aria-controls="settings-panel-google"
               aria-selected="true"
               tabindex="0"
             >
-              Setup
+              Google
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-ai"
+              data-tab-id="ai"
+              aria-controls="settings-panel-ai"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              AI
             </button>
             <button
               type="button"
@@ -77,18 +89,6 @@
               tabindex="-1"
             >
               Fit Profile
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="settings-tablist__btn"
-              id="settings-tab-sheet"
-              data-tab-id="sheet"
-              aria-controls="settings-panel-sheet"
-              aria-selected="false"
-              tabindex="-1"
-            >
-              Sheet
             </button>
             <button
               type="button"
@@ -118,18 +118,6 @@
               type="button"
               role="tab"
               class="settings-tablist__btn"
-              id="settings-tab-ai-providers"
-              data-tab-id="ai_providers"
-              aria-controls="settings-panel-ai-providers"
-              aria-selected="false"
-              tabindex="-1"
-            >
-              AI Providers
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="settings-tablist__btn"
               id="settings-tab-upgrades"
               data-tab-id="upgrades"
               aria-controls="settings-panel-upgrades"
@@ -141,17 +129,36 @@
           </div>
 
           <div class="settings-tab-panels">
-            <!-- ── Setup tab ──────────────────────────────────────── -->
+            <!-- ── Google tab (former Setup + Sheet) ───────────── -->
             <div
               role="tabpanel"
-              id="settings-panel-setup"
+              id="settings-panel-google"
               class="settings-tab-panel"
-              aria-labelledby="settings-tab-setup"
+              aria-labelledby="settings-tab-google"
             >
-              <h4 class="settings-tab-panel__title">Setup</h4>
+              <h4 class="settings-tab-panel__title">Google</h4>
               <p class="settings-tab-panel__lede">
-                OAuth credentials and dashboard housekeeping.
+                Your board lives in a Google Sheet. Setup connected it — this
+                is what it holds.
               </p>
+
+              <div class="settings-receipt" data-receipt="google">
+                <p
+                  class="settings-receipt__state"
+                  data-receipt-state="google"
+                  aria-live="polite"
+                >
+                  Not connected
+                </p>
+                <button
+                  type="button"
+                  class="btn-modal-secondary settings-receipt__btn"
+                  data-action="settings_change_in_setup"
+                  data-beat="google"
+                >
+                  Change in setup
+                </button>
+              </div>
 
               <label
                 class="field-label"
@@ -170,6 +177,34 @@
               <p class="settings-field-hint settings-field-hint--compact">
                 For Sheets access and Apps Script deploy from here.
               </p>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">Sheet &amp; dashboard</p>
+                <label class="field-label" for="settingsSheetId"
+                  >Spreadsheet URL or Sheet ID</label
+                >
+                <input
+                  type="text"
+                  id="settingsSheetId"
+                  class="modal-input"
+                  placeholder="Paste full URL, e.g. https://docs.google.com/spreadsheets/d/…/edit"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Paste the open-in-browser link or the raw ID.
+                </p>
+
+                <label class="field-label" for="settingsTitle"
+                  >Dashboard title</label
+                >
+                <input
+                  type="text"
+                  id="settingsTitle"
+                  class="modal-input"
+                  placeholder="JobBored"
+                />
+              </div>
 
               <div class="settings-setup-block">
                 <p class="settings-setup-block__title">Onboarding</p>
@@ -274,6 +309,10 @@
                     (Tailscale or any public HTTPS webhook).
                   </p>
                 </div>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Discovery connection lives in the drawer → Connection. The
+                  webhook URL and secret are edited there, not here.
+                </p>
               </div>
 
               <div class="settings-setup-block">
@@ -360,44 +399,6 @@
               <p class="settings-tab-panel__lede">Loading your Fit Profile…</p>
             </div>
 
-            <!-- ── Sheet tab ──────────────────────────────────────── -->
-            <div
-              role="tabpanel"
-              id="settings-panel-sheet"
-              class="settings-tab-panel"
-              aria-labelledby="settings-tab-sheet"
-              hidden
-            >
-              <h4 class="settings-tab-panel__title">Sheet &amp; dashboard</h4>
-              <p class="settings-tab-panel__lede">
-                Connect your pipeline spreadsheet and how the app is titled.
-              </p>
-
-              <label class="field-label" for="settingsSheetId"
-                >Spreadsheet URL or Sheet ID</label
-              >
-              <input
-                type="text"
-                id="settingsSheetId"
-                class="modal-input"
-                placeholder="Paste full URL, e.g. https://docs.google.com/spreadsheets/d/…/edit"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <p class="settings-field-hint settings-field-hint--compact">
-                Paste the open-in-browser link or the raw ID.
-              </p>
-
-              <label class="field-label" for="settingsTitle"
-                >Dashboard title</label
-              >
-              <input
-                type="text"
-                id="settingsTitle"
-                class="modal-input"
-                placeholder="JobBored"
-              />
-            </div>
 
             <!-- ── Scraping tab ───────────────────────────────────── -->
             <div
@@ -493,19 +494,37 @@
               </p>
             </div>
 
-            <!-- ── AI Providers tab ───────────────────────────────── -->
+            <!-- ── AI tab ─────────────────────────────────────── -->
             <div
               role="tabpanel"
-              id="settings-panel-ai-providers"
+              id="settings-panel-ai"
               class="settings-tab-panel"
-              aria-labelledby="settings-tab-ai-providers"
+              aria-labelledby="settings-tab-ai"
               hidden
             >
-              <h4 class="settings-tab-panel__title">AI Providers</h4>
+              <h4 class="settings-tab-panel__title">AI</h4>
               <p class="settings-tab-panel__lede">
                 OpenRouter-first generic AI for drafts and suggestions. API
                 keys stay in this browser.
               </p>
+
+              <div class="settings-receipt" data-receipt="ai">
+                <p
+                  class="settings-receipt__state"
+                  data-receipt-state="ai"
+                  aria-live="polite"
+                >
+                  Not connected
+                </p>
+                <button
+                  type="button"
+                  class="btn-modal-secondary settings-receipt__btn"
+                  data-action="settings_change_in_setup"
+                  data-beat="ai"
+                >
+                  Change in setup
+                </button>
+              </div>
 
               <label class="field-label" for="settingsResumeProvider"
                 >Provider</label

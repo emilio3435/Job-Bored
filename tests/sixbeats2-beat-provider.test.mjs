@@ -133,11 +133,17 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
 });
 
 describe("SIXBEATS-2 NEW-8 — Beat 2 pins a Gemini model Google actually serves", () => {
+  // GREENFIELD D5: the default no longer lives on the PROVIDERS entry — one
+  // exported table in model-catalog.js feeds both the beat and Settings, so
+  // a Settings save can no longer downgrade the model the beat verified.
   it("defaults Gemini to gemini-3.5-flash, not the 404-ing `gemini-flash` alias", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
-    const gemini = env.beats.ai.PROVIDERS.find((p) => p.id === "gemini");
-    assert.equal(gemini.defaultModel, "gemini-3.5-flash");
+    assert.equal(env.beats.ai.defaultModelFor("gemini"), "gemini-3.5-flash");
+    assert.equal(
+      env.window.JobBoredModelCatalog.DEFAULT_MODEL_BY_PROVIDER.gemini,
+      "gemini-3.5-flash",
+    );
   });
 
   it("pins that model on the server when Gemini passes its check", async () => {

@@ -16,10 +16,7 @@
   var PROFILE_REFRESH_TIMEOUT_MS = 180_000;
   var MIN_RESTORABLE_WORKER_RESUME_CHARS = 40;
   var AUTO_REFRESH_STORAGE_KEY = "settings_profile_auto_refresh";
-  var DISCOVERY_TRANSPORT_SETUP_KEY =
-    "command_center_discovery_transport_setup";
   var DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
-  var COMMAND_CENTER_CONFIG_OVERRIDE_KEY = "command_center_config_overrides";
   var AUTO_REFRESH_VALID_HOURS = [6, 12, 24];
   var SCHEDULE_LOCAL_STORAGE_KEY = "settings_profile_schedule_local";
   var SCHEDULE_CLOUD_STORAGE_KEY = "settings_profile_schedule_cloud";
@@ -466,10 +463,19 @@
     }
   }
 
+  /** config-overrides.js owns every override/transport localStorage key. */
+  function configOverrides() {
+    var app = window.JobBoredApp;
+    return (app && app.configOverrides) || null;
+  }
+
   function readDiscoveryTransportSetupState() {
+    var store = configOverrides();
+    if (!store || typeof store.readDiscoveryTransportSetupState !== "function") {
+      return {};
+    }
     try {
-      var raw = localStorage.getItem(DISCOVERY_TRANSPORT_SETUP_KEY);
-      var parsed = raw ? JSON.parse(raw) : null;
+      var parsed = store.readDiscoveryTransportSetupState();
       return parsed && typeof parsed === "object" ? parsed : {};
     } catch (_) {
       return {};
@@ -793,20 +799,23 @@
     } catch (_) {
       // ignore
     }
+    // The override store has exactly one writer (config-overrides.js
+    // mergeStoredConfigOverridePatch). Reaching past it into the raw
+    // localStorage key was the second writer that let Settings and the
+    // six beats disagree about what was configured (GREENFIELD D2).
     try {
-      var raw = localStorage.getItem(COMMAND_CENTER_CONFIG_OVERRIDE_KEY);
-      var parsed = raw ? JSON.parse(raw) : {};
-      if (!parsed || typeof parsed !== "object") parsed = {};
-      if (
-        force ||
-        typeof parsed.discoveryWebhookSecret !== "string" ||
-        !parsed.discoveryWebhookSecret.trim()
-      ) {
-        parsed.discoveryWebhookSecret = value;
-        localStorage.setItem(
-          COMMAND_CENTER_CONFIG_OVERRIDE_KEY,
-          JSON.stringify(parsed),
-        );
+      var store = configOverrides();
+      if (store) {
+        var stored = store.readStoredConfigOverrides() || {};
+        var existing =
+          typeof stored.discoveryWebhookSecret === "string"
+            ? stored.discoveryWebhookSecret.trim()
+            : "";
+        if (force || !existing) {
+          store.mergeStoredConfigOverridePatch({
+            discoveryWebhookSecret: value,
+          });
+        }
       }
     } catch (_) {
       // ignore
@@ -2488,6 +2497,8 @@
       ensureLocalProfileEndpointReady: ensureLocalProfileEndpointReady,
       postProfileEndpoint: postProfileEndpoint,
       normalizeResumeText: normalizeResumeText,
+      updateDiscoverySecretCaches: updateDiscoverySecretCaches,
+      readDiscoveryTransportSetupState: readDiscoveryTransportSetupState,
       MIN_RESTORABLE_WORKER_RESUME_CHARS: MIN_RESTORABLE_WORKER_RESUME_CHARS,
     },
   };

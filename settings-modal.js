@@ -31,8 +31,30 @@
   }
 
 
-  function resolveGeminiModel(...args) {
-    return host().resolveGeminiModel(...args);
+  /**
+   * The overlay resolver (app-config-core.js). Settings reads config through
+   * it so a malformed sheet id no longer blanks the OAuth client, the
+   * provider, and every model name — which is what made Settings re-ask for
+   * what the six beats had already collected (GREENFIELD D1).
+   */
+  function getEffectiveConfig() {
+    const core = window.JobBoredApp && window.JobBoredApp.configCore;
+    if (core && typeof core.getEffectiveConfig === "function") {
+      const resolved = core.getEffectiveConfig();
+      if (resolved && typeof resolved === "object") return resolved;
+    }
+    return {
+      ...(window.COMMAND_CENTER_CONFIG || {}),
+      ...readStoredConfigOverrides(),
+    };
+  }
+
+  /** The one default-model table (model-catalog.js), read lazily. */
+  function defaultModelFor(providerId) {
+    const catalog = window.JobBoredModelCatalog;
+    const table = catalog && catalog.DEFAULT_MODEL_BY_PROVIDER;
+    const model = table && table[providerId];
+    return typeof model === "string" ? model : "";
   }
 
 // A11y focus + trap state (per-module). Saved on open and reapplied on close
@@ -433,10 +455,7 @@ async function populateDiscoveryProfileIntoSettingsForm() {
 }
 
 function populateCommandCenterSettingsForm() {
-  const cfg = {
-    ...(window.COMMAND_CENTER_CONFIG || {}),
-    ...readStoredConfigOverrides(),
-  };
+  const cfg = getEffectiveConfig();
   const set = (id, v) => {
     const el = document.getElementById(id);
     if (el) el.value = v != null ? String(v) : "";
@@ -445,8 +464,6 @@ function populateCommandCenterSettingsForm() {
   set("settingsSheetId", host().parseGoogleSheetId(sidRaw) || sidRaw);
   set("settingsOAuthClientId", cfg.oauthClientId);
   set("settingsTitle", host().normalizeDashboardTitle(cfg.title));
-  set("settingsDiscoveryWebhookUrl", cfg.discoveryWebhookUrl);
-  set("settingsDiscoveryWebhookSecret", cfg.discoveryWebhookSecret);
   set("settingsJobPostingScrapeUrl", cfg.jobPostingScrapeUrl);
   const atsMode = String(cfg.atsScoringMode || "server").toLowerCase();
   set("settingsAtsScoringMode", atsMode === "webhook" ? "webhook" : "server");
@@ -480,7 +497,139 @@ function populateCommandCenterSettingsForm() {
     err.textContent = "";
     err.style.display = "none";
   }
+  renderSettingsReceipts();
   host().renderAppsScriptDeployUi();
+}
+
+/* ============================================================
+   Receipts, not asks (GREENFIELD D4).
+
+   The Google and AI panels open with what setup already collected — the
+   Sheet, the signed-in account, the provider and model — and a single
+   "Change in setup" button that hands the user back to the beat that owns
+   that value. Settings stops being a second place to type credentials.
+   ============================================================ */
+
+const SETTINGS_RECEIPT_BEATS = Object.freeze({
+  google: "google",
+  ai: "ai",
+});
+
+const SETTINGS_PROVIDER_LABELS = Object.freeze({
+  openrouter: "OpenRouter",
+  gemini: "Gemini",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  local: "Local",
+  webhook: "My server",
+});
+
+const SETTINGS_PROVIDER_CREDENTIAL_FIELDS = Object.freeze({
+  openrouter: "resumeOpenRouterApiKey",
+  gemini: "resumeGeminiApiKey",
+  openai: "resumeOpenAIApiKey",
+  anthropic: "resumeAnthropicApiKey",
+  local: "resumeLocalBaseUrl",
+  webhook: "resumeGenerationWebhookUrl",
+});
+
+const SETTINGS_PROVIDER_MODEL_FIELDS = Object.freeze({
+  openrouter: "resumeOpenRouterModel",
+  gemini: "resumeGeminiModel",
+  openai: "resumeOpenAIModel",
+  anthropic: "resumeAnthropicModel",
+  local: "resumeLocalModel",
+});
+
+const SETTINGS_RECEIPT_NOT_CONNECTED = "Not connected";
+
+function settingsSignedInEmail() {
+  const app = window.JobBoredApp;
+  const auth = app && app.auth;
+  try {
+    if (auth && typeof auth.getUserEmail === "function") {
+      return String(auth.getUserEmail() || "").trim();
+    }
+    const h = window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host;
+    if (h && typeof h.getUserEmail === "function") {
+      return String(h.getUserEmail() || "").trim();
+    }
+  } catch (_) {
+    /* the auth module may not be loaded yet */
+  }
+  return "";
+}
+
+function buildGoogleReceipt(cfg) {
+  const rawSheet = cfg.sheetId != null ? String(cfg.sheetId).trim() : "";
+  if (!rawSheet) {
+    return { connected: false, text: SETTINGS_RECEIPT_NOT_CONNECTED };
+  }
+  const parsed = host().parseGoogleSheetId(rawSheet);
+  const title = host().normalizeDashboardTitle(cfg.title);
+  const sheetLabel = title && title !== "JobBored" ? title : parsed || rawSheet;
+  const email = settingsSignedInEmail();
+  return {
+    connected: true,
+    text: email ? `${sheetLabel} · ${email}` : sheetLabel,
+  };
+}
+
+function buildAiReceipt(cfg) {
+  const provider = String(cfg.resumeProvider || "").trim().toLowerCase();
+  if (!provider || !SETTINGS_PROVIDER_LABELS[provider]) {
+    return { connected: false, text: SETTINGS_RECEIPT_NOT_CONNECTED };
+  }
+  const credentialField = SETTINGS_PROVIDER_CREDENTIAL_FIELDS[provider];
+  const credential =
+    credentialField && typeof cfg[credentialField] === "string"
+      ? cfg[credentialField].trim()
+      : "";
+  if (!credential) {
+    return { connected: false, text: SETTINGS_RECEIPT_NOT_CONNECTED };
+  }
+  const modelField = SETTINGS_PROVIDER_MODEL_FIELDS[provider];
+  const model =
+    (modelField && typeof cfg[modelField] === "string"
+      ? cfg[modelField].trim()
+      : "") || defaultModelFor(provider);
+  const label = SETTINGS_PROVIDER_LABELS[provider];
+  return { connected: true, text: model ? `${label} · ${model}` : label };
+}
+
+/** @param {"google"|"ai"} kind */
+function buildSettingsReceipt(kind, config) {
+  const cfg = config || getEffectiveConfig();
+  return kind === "ai" ? buildAiReceipt(cfg) : buildGoogleReceipt(cfg);
+}
+
+function renderSettingsReceipts() {
+  if (typeof document === "undefined" || !document.querySelector) return;
+  const cfg = getEffectiveConfig();
+  for (const kind of Object.keys(SETTINGS_RECEIPT_BEATS)) {
+    const node = document.querySelector(`[data-receipt-state="${kind}"]`);
+    if (!node) continue;
+    const receipt = buildSettingsReceipt(kind, cfg);
+    node.textContent = receipt.text;
+    if (node.dataset) node.dataset.connected = receipt.connected ? "1" : "0";
+  }
+}
+
+/**
+ * Hand the user back to the beat that owns this value. `returnTo: "close"`
+ * (lane A's controller seam) closes the shell when that one beat completes,
+ * so a "Change" from Settings does not walk them through the whole flow.
+ */
+function settingsChangeInSetup(beatId) {
+  const beat = SETTINGS_RECEIPT_BEATS[beatId] || beatId;
+  closeCommandCenterSettingsModal();
+  const oneFlow = window.JobBoredOneFlow;
+  if (!oneFlow || typeof oneFlow.open !== "function") return;
+  try {
+    void oneFlow.open(beat, { returnTo: "close" });
+  } catch (_) {
+    /* the shell may not be mounted yet; the modal is already closed */
+  }
 }
 
 function updateSettingsProviderPanels() {
@@ -808,12 +957,6 @@ async function saveCommandCenterSettingsFromForm() {
   assignOwned(payload, "title", "settingsTitle", (value) =>
     host().normalizeDashboardTitle(value),
   );
-  assignOwned(payload, "discoveryWebhookUrl", "settingsDiscoveryWebhookUrl");
-  assignOwned(
-    payload,
-    "discoveryWebhookSecret",
-    "settingsDiscoveryWebhookSecret",
-  );
   assignOwned(payload, "jobPostingScrapeUrl", "settingsJobPostingScrapeUrl");
   assignOwned(payload, "atsScoringMode", "settingsAtsScoringMode", (value) =>
     value.toLowerCase() === "webhook" ? "webhook" : "server",
@@ -825,21 +968,21 @@ async function saveCommandCenterSettingsFromForm() {
     payload,
     "resumeGeminiModel",
     "settingsResumeGeminiModel",
-    (value) => value || resolveGeminiModel(),
+    (value) => value || defaultModelFor("gemini"),
   );
   assignOwned(payload, "resumeOpenAIApiKey", "settingsResumeOpenAIApiKey");
   assignOwned(
     payload,
     "resumeOpenAIModel",
     "settingsResumeOpenAIModel",
-    (value) => value || "gpt-4o-mini",
+    (value) => value || defaultModelFor("openai"),
   );
   assignOwned(payload, "resumeAnthropicApiKey", "settingsResumeAnthropicApiKey");
   assignOwned(
     payload,
     "resumeAnthropicModel",
     "settingsResumeAnthropicModel",
-    (value) => value || "claude-sonnet-4-6",
+    (value) => value || defaultModelFor("anthropic"),
   );
   assignOwned(
     payload,
@@ -850,7 +993,7 @@ async function saveCommandCenterSettingsFromForm() {
     payload,
     "resumeOpenRouterModel",
     "settingsResumeOpenRouterModel",
-    (value) => value || "openai/gpt-oss-120b:free",
+    (value) => value || defaultModelFor("openrouter"),
   );
   assignOwned(
     payload,
@@ -862,7 +1005,7 @@ async function saveCommandCenterSettingsFromForm() {
     payload,
     "resumeLocalModel",
     "settingsResumeLocalModel",
-    (value) => value || "gemma4:e2b",
+    (value) => value || defaultModelFor("local"),
   );
   assignOwned(payload, "resumeLocalApiKey", "settingsResumeLocalApiKey");
   assignOwned(
@@ -940,34 +1083,9 @@ async function saveCommandCenterSettingsFromForm() {
   }
   host().setSHEET_ID(sheetId);
   host().setDashboardSheetLinks();
-  if (!Object.prototype.hasOwnProperty.call(payload, "discoveryWebhookUrl")) {
-    host().syncDiscoveryButtonState();
-    showToast("Settings saved — reloading…", "success");
-    setTimeout(() => window.location.reload(), 400);
-    return;
-  }
-  const savedWebhookUrl = host().normalizeDiscoveryWebhookIdentity(
-    payload.discoveryWebhookUrl,
-  );
-  if (!savedWebhookUrl) {
-    await host().recordDiscoveryEngineState(
-      "",
-      host().getDiscoveryEngineStateNone(),
-      "settings_saved",
-    );
-  } else {
-    const managedUrl = host().getManagedAppsScriptWebhookIdentity();
-    const savedState = host().getSavedDiscoveryEngineStateForUrl(savedWebhookUrl);
-    await host().recordDiscoveryEngineState(
-      savedWebhookUrl,
-      savedState && savedState.state
-        ? savedState.state
-        : managedUrl && managedUrl === savedWebhookUrl
-          ? host().getDiscoveryEngineStateStubOnly()
-          : host().getDiscoveryEngineStateUnverified(),
-      "settings_saved",
-    );
-  }
+  // The discovery engine state follows the webhook URL, and that field is
+  // the drawer's Connection tab now — a Settings save cannot change it, so
+  // there is nothing here to re-record (GREENFIELD D5).
   host().syncDiscoveryButtonState();
   showToast("Settings saved — reloading…", "success");
   setTimeout(() => window.location.reload(), 400);
@@ -1154,6 +1272,13 @@ function initCommandCenterSettings() {
   document.getElementById("settingsSaveBtn")?.addEventListener("click", () => {
     void saveCommandCenterSettingsFromForm();
   });
+  for (const btn of Array.from(
+    document.querySelectorAll('[data-action="settings_change_in_setup"]'),
+  )) {
+    btn.addEventListener("click", () => {
+      settingsChangeInSetup(btn.getAttribute("data-beat") || "google");
+    });
+  }
   document.getElementById("settingsClearBtn")?.addEventListener("click", () => {
     showSettingsClearConfirmBar();
   });
@@ -1230,6 +1355,9 @@ function initCommandCenterSettings() {
     fillResumeModelSelectsFromConfig,
     populateDiscoveryProfileIntoSettingsForm,
     populateCommandCenterSettingsForm,
+    buildSettingsReceipt,
+    renderSettingsReceipts,
+    settingsChangeInSetup,
     updateSettingsProviderPanels,
     isSettingsFullExperienceUnlocked,
     maybeSyncSettingsModalModeAfterAuth,
