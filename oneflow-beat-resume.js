@@ -218,12 +218,40 @@
   }
 
   /**
+   * The synchronous copy of the pasted text (GREENFIELD spec §4.2).
+   *
+   * The controller owns the key, the shape and the cap; these two only
+   * reach it. Both answer "nothing" against a controller that predates
+   * the seam, which is the same thing the beat had before the mirror
+   * existed — no mirror is a lost keystroke, never a broken beat.
+   */
+  function writePasteMirror(text) {
+    if (flow && typeof flow.writeDraftMirror === "function") {
+      return flow.writeDraftMirror(text);
+    }
+    return false;
+  }
+
+  function readPasteMirror() {
+    if (flow && typeof flow.readDraftMirror === "function") {
+      return flow.readDraftMirror();
+    }
+    return "";
+  }
+
+  /**
    * Bring back what a refresh interrupted. Only fills what the beat does
    * not already hold, so a repaint can never resurrect text the user has
    * since cleared.
+   *
+   * The mirror is read FIRST because it is never staler than the drafts
+   * bag: it is written on the keystroke, the bag lands 400 ms later, and
+   * the reload that loses the difference between them is the F2 repro.
    */
   function hydrateFromDrafts(ctx) {
     const drafts = ctx && ctx.runtime ? ctx.runtime.drafts : null;
+    const mirrored = readPasteMirror();
+    if (!state.pasteDraft && mirrored) state.pasteDraft = mirrored;
     if (!drafts || typeof drafts !== "object") return;
     if (!state.pasteDraft && typeof drafts.resumeText === "string") {
       state.pasteDraft = drafts.resumeText;
@@ -362,9 +390,26 @@
       value: state.pasteDraft,
       "aria-label": "Resume text",
     });
-    box.addEventListener("input", () => {
+    /**
+     * Every route text takes into this box, not just typing: `input` for
+     * keystrokes, `change` for a programmatic value set, `paste` for the
+     * clipboard. The walkthrough pasted a resume and lost it because only
+     * the first of the three was ever recorded (GREENFIELD F2).
+     */
+    const record = () => {
       state.pasteDraft = String(box.value || "");
+      // Mirrored here as well as inside the controller's saveDraft, so the
+      // box's own guarantee does not depend on which context rendered it.
+      writePasteMirror(state.pasteDraft);
       saveDraft(ctx, "resumeText", state.pasteDraft);
+    };
+    box.addEventListener("input", record);
+    box.addEventListener("change", record);
+    box.addEventListener("paste", () => {
+      // The clipboard lands on the node AFTER this handler returns, so
+      // record what is there now and again once the text has arrived.
+      record();
+      setTimeout(record, 0);
     });
     fields.paste = box;
     wrap.appendChild(box);
