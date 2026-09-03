@@ -485,12 +485,28 @@
       };
     }
     if (!res || !res.ok || !data || data.ok !== true) {
+      // A provider that was never connected is a Beat 2 problem, whatever
+      // name the server fell back to. Beat 3 sends the STORED default
+      // provider even when Beat 2 verified nothing, so the server's own
+      // words ("reconnect Gemini") named a provider the user never chose
+      // (greenfield walkthrough 2026-09-02, step 12). From here the fix is
+      // always the same step.
+      const reason = String((data && data.reason) || "");
+      if (/_not_configured$/.test(reason)) {
+        return {
+          ok: false,
+          missing: false,
+          message:
+            "No AI provider is connected yet. Go back to the AI step, connect " +
+            "one, then try drafting again.",
+        };
+      }
       return {
         ok: false,
         missing: false,
         message:
           (data && data.message) ||
-          (data && data.reason) ||
+          reason ||
           `The profile drafter failed (HTTP ${res ? res.status : "?"}).`,
       };
     }
