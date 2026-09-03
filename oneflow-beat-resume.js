@@ -45,6 +45,17 @@
   const ACTION_RETRY = "resume_retry";
   const ACTION_USE_TEXT = "resume_use_text";
   const ACTION_BACK = "resume_back";
+  const ACTION_CONNECT_AI = "resume_connect_ai";
+
+  /**
+   * GREENFIELD §4.1 (F1). The one line a visitor with no usable provider
+   * reads, whether this beat refused to ask the server or the server said
+   * the same thing back. Locked copy, byte-for-byte the controller's gate
+   * note for the AI beat — the situation is identical, so the sentence is.
+   */
+  const CONNECT_AI_COPY =
+    "Connect an AI provider first \u2014 your resume is drafted with it.";
+  const CONNECT_AI_LABEL = "Connect an AI provider";
 
   const FILE_INPUT_ID = "oneFlowResumeFile";
   const PASTE_INPUT_ID = "oneFlowResumePaste";
@@ -100,6 +111,8 @@
     lastSource: "",
     writeOrder: [],
     draft: null,
+    // True while the only useful next step is Beat 2 (GREENFIELD A3/A4).
+    providerLocked: false,
   };
 
   const fields = { paste: null };
@@ -194,12 +207,21 @@
     }
     const fields = cfg && PROVIDER_FIELDS[cfg.provider];
     if (!fields) return null;
-    return {
+    const resolved = {
       provider: cfg.provider,
       apiKey: String((fields.key && cfg[fields.key]) || ""),
       model: String((fields.model && cfg[fields.model]) || ""),
       baseUrl: String((fields.baseUrl && cfg[fields.baseUrl]) || ""),
     };
+    // getResumeGenerationConfig() names a provider even when Beat 2 never
+    // persisted one (resume-generate.js defaults it), so a NAME is not
+    // evidence of anything. The credential is: a key for the hosted
+    // providers, a base URL for Local, which has no key by design. Without
+    // one there is nothing to draft with, and drafting anyway is how a
+    // fresh OpenRouter install got told "Missing Gemini API key" (F1).
+    const credential = cfg.provider === "local" ? resolved.baseUrl : resolved.apiKey;
+    if (!credential.trim()) return null;
+    return resolved;
   }
 
   /**
@@ -257,6 +279,15 @@
       ACTIONS.push({
         id: ACTION_USE_TEXT,
         label: "Draft from this text",
+        variant: "primary",
+      });
+    }
+    // GREENFIELD A3/A4: when there is no provider to draft with, the only
+    // action that changes the outcome is the one that connects one.
+    if (state.providerLocked) {
+      ACTIONS.push({
+        id: ACTION_CONNECT_AI,
+        label: CONNECT_AI_LABEL,
         variant: "primary",
       });
     }
@@ -449,13 +480,18 @@
   }
 
   /**
-   * @returns {Promise<{ok: true, profile: object} | {ok: false, message: string, missing: boolean}>}
+   * `locked` marks the one failure whose fix is Beat 2 rather than a retry.
+   *
+   * @returns {Promise<{ok: true, profile: object} | {ok: false, message: string, missing: boolean, locked?: boolean}>}
    */
   async function draftOnServer(text) {
-    state.writeOrder.push("server");
-    const payload = { resumeText: text };
     const provider = verifiedProviderConfig();
-    if (provider) Object.assign(payload, provider);
+    // GREENFIELD A3: no usable provider means no request. The server would
+    // only answer with an error, and an error the browser could have
+    // predicted is a round trip spent to say "we already knew".
+    if (!provider) return { ok: false, missing: false, locked: true, message: CONNECT_AI_COPY };
+    state.writeOrder.push("server");
+    const payload = { resumeText: text, ...provider };
     let res;
     try {
       res = await fetch(profileUrl("/profile/from-resume"), {
@@ -486,20 +522,15 @@
     }
     if (!res || !res.ok || !data || data.ok !== true) {
       // A provider that was never connected is a Beat 2 problem, whatever
-      // name the server fell back to. Beat 3 sends the STORED default
-      // provider even when Beat 2 verified nothing, so the server's own
-      // words ("reconnect Gemini") named a provider the user never chose
-      // (greenfield walkthrough 2026-09-02, step 12). From here the fix is
-      // always the same step.
+      // name the server fell back to — its own words ("reconnect Gemini")
+      // named a provider the user never chose (greenfield walkthrough
+      // 2026-09-02, step 12). The guard above catches this before the
+      // request in the ordinary case; the server can still answer it for a
+      // key blanked after Beat 2, or a stale server env. Same situation,
+      // same locked line, same button.
       const reason = String((data && data.reason) || "");
       if (/_not_configured$/.test(reason)) {
-        return {
-          ok: false,
-          missing: false,
-          message:
-            "No AI provider is connected yet. Go back to the AI step, connect " +
-            "one, then try drafting again.",
-        };
+        return { ok: false, missing: false, locked: true, message: CONNECT_AI_COPY };
       }
       return {
         ok: false,
@@ -529,6 +560,7 @@
     state.lastText = clean;
     state.lastSource = source;
     state.failed = false;
+    state.providerLocked = false;
     state.writeOrder = [];
     saveDraft(context, "resumeText", clean);
     setStage(context, 0);
@@ -546,7 +578,10 @@
     const drafted = await draftOnServer(clean);
     if (!drafted.ok) {
       clearStages(context);
-      state.failed = true;
+      // A locked draft is not a failure to retry — retrying without a
+      // provider lands in exactly the same place. Offer the fix instead.
+      state.providerLocked = !!drafted.locked;
+      state.failed = !drafted.locked;
       repaint(context, drafted.message, "error");
       return;
     }
@@ -645,6 +680,9 @@
         state.failed = false;
         repaint(context, "");
         return undefined;
+      case ACTION_CONNECT_AI:
+        if (typeof context.goToBeat === "function") return context.goToBeat("ai");
+        return undefined;
       case ACTION_TEMPLATE:
         state.mode = "templates";
         state.failed = false;
@@ -683,6 +721,11 @@
     SUB,
     TEMPLATES,
     STAGE_LABELS,
+    CONNECT_AI_COPY,
+    // Exported for the legacy fit-profile editor, which posts the same
+    // /profile/from-resume route and must send the same provider block
+    // (GREENFIELD A4). One reader, one definition of "usable provider".
+    verifiedProviderConfig,
     handleAction,
     ingestText(text, source) {
       return ingest(text, source || "paste", lastCtx);
