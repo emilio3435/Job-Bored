@@ -512,6 +512,12 @@ type DiscoveryPreflightFailure = {
   remediation?: string;
 };
 
+/** A Sheet id that is actually configured — the shipped placeholder is not. */
+function normalizeConfiguredSheetId(raw: unknown): string {
+  const value = String(raw || "").trim();
+  return value === PLACEHOLDER_SHEET_ID ? "" : value;
+}
+
 async function validateDiscoveryPreflight(
   request: DiscoveryWebhookRequestV1,
   runDependencies: RunDiscoveryDependencies,
@@ -584,41 +590,44 @@ async function validateDiscoveryPreflight(
     // Non-blank intent with empty companies → allowed (unrestricted discovery)
   }
 
-  const resolvedSheetId =
-    String(request.sheetId || "").trim() ||
-    (runDependencies.runtimeConfig.runMode === "local"
-      ? String(storedConfig.sheetId || "").trim()
-      : "");
-  if (!String(request.sheetId || "").trim()) {
-    // The id a fresh worker-config.json ships with is not a configured Sheet.
-    // Accepting it sent the run on to a credential probe that asked Google for
-    // a spreadsheet literally named YOUR_SHEET_ID_HERE, 404'd, and blamed a
-    // perfectly good service-account key (2026-09-02).
-    const storedSheetId = String(storedConfig.sheetId || "").trim();
-    const configuredStoredSheetId =
-      storedSheetId === PLACEHOLDER_SHEET_ID ? "" : storedSheetId;
-    if (
-      runDependencies.runtimeConfig.runMode === "local" &&
-      configuredStoredSheetId
-    ) {
-      return null;
+  // The id a fresh worker-config.json ships with is not a configured Sheet.
+  // Accepting it sent the run on to a credential probe that asked Google for a
+  // spreadsheet literally named YOUR_SHEET_ID_HERE, 404'd, and blamed a
+  // perfectly good service-account key (2026-09-02). Normalized once here, so
+  // an explicit placeholder in the payload is refused the same as a stored one.
+  const requestSheetId = normalizeConfiguredSheetId(request.sheetId);
+  const storedSheetId = normalizeConfiguredSheetId(storedConfig.sheetId);
+  if (!requestSheetId) {
+    const usingStoredSheet =
+      runDependencies.runtimeConfig.runMode === "local" && !!storedSheetId;
+    // Falls THROUGH to the credential check when the stored Sheet is usable.
+    // Returning here skipped it, and a worker with no Google credential
+    // answered 202 "run queued" instead of the 409 that names the problem.
+    if (!usingStoredSheet) {
+      const sawPlaceholder =
+        String(request.sheetId || "").trim() === PLACEHOLDER_SHEET_ID ||
+        String(storedConfig.sheetId || "").trim() === PLACEHOLDER_SHEET_ID;
+      return {
+        status: 400,
+        message: "sheetId is required.",
+        detail: storedSheetId
+          ? "Hosted worker requests must include sheetId explicitly; local worker config defaults are only accepted in local mode."
+          : sawPlaceholder
+            ? "No Google Sheet is connected yet: the request carried no sheetId and the worker config still holds its placeholder. Discovery writes results to your pipeline Sheet, so it needs one."
+            : "Provide `sheetId` in the webhook payload, or set `sheetId` in the local worker config before retrying.",
+        ...(sawPlaceholder
+          ? {
+              remediation:
+                "Finish setup in the dashboard — its first step connects or creates your pipeline Sheet — then run discovery again.",
+            }
+          : {}),
+      };
     }
-    return {
-      status: 400,
-      message: "sheetId is required.",
-      detail: configuredStoredSheetId
-        ? "Hosted worker requests must include sheetId explicitly; local worker config defaults are only accepted in local mode."
-        : storedSheetId === PLACEHOLDER_SHEET_ID
-          ? "No Google Sheet is connected yet: the request carried no sheetId and the worker config still holds its placeholder. Discovery writes results to your pipeline Sheet, so it needs one."
-          : "Provide `sheetId` in the webhook payload, or set `sheetId` in the local worker config before retrying.",
-      ...(storedSheetId === PLACEHOLDER_SHEET_ID
-        ? {
-            remediation:
-              "Finish setup in the dashboard — its first step connects or creates your pipeline Sheet — then run discovery again.",
-          }
-        : {}),
-    };
   }
+
+  const resolvedSheetId =
+    requestSheetId ||
+    (runDependencies.runtimeConfig.runMode === "local" ? storedSheetId : "");
 
   const sheetsCredentialReadiness = await validateSheetsCredentialReadiness(
     runDependencies.runtimeConfig,
