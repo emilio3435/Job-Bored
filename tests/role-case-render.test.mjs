@@ -178,6 +178,22 @@ describe("The Case renders every block from the model", () => {
     assert.doesNotMatch(html, /case__lane--you/);
     assert.match(html, /Add a resume to see what matches/);
   });
+  /* Spec §3.3 decision §9-2: the keyword-fallback lane is gone — keywords
+     with no scorecard yield source "none", and the renderer hides on it. */
+  it("a keyword-only model renders no You-have lane", () => {
+    const out = renderHtml(model({ scorecard: null }));
+    assert.doesNotMatch(out, /case__lane--you/);
+    assert.doesNotMatch(out, /You have/);
+    assert.match(renderHtml(model()), /case__lane--you/, "precondition: the scorecard model still renders the lane");
+  });
+  /* Spec §3.7: the follow-up date keeps type="date" but never reads its raw
+     placeholder as content — a Not-set sibling shows only while empty. */
+  it("the follow-up date carries a Not-set sibling inside a date wrap", () => {
+    const empty = renderHtml(model({ vmPatch: { followUpDate: "" } }));
+    assert.match(empty, /<span class="case__date"><input[^>]*data-field="followupAt"[^>]*type="date"[^>]* value=""[^>]*><span class="case__date-empty">Not set<\/span><\/span>/);
+    const set = renderHtml(model());
+    assert.match(set, /<span class="case__date"><input[^>]*data-field="followupAt"[^>]* value="2026-09-04"[^>]*><span class="case__date-empty">Not set<\/span><\/span>/);
+  });
   it("escapes exactly once", () => {
     const html = renderHtml(model({ vmPatch: { role: 'Eng <b>"x"</b> & co', location: 'Austin & "TX" <b>' } }));
     assert.match(html, /value="Eng &lt;b&gt;&quot;x&quot;&lt;\/b&gt; &amp; co"/);
@@ -283,6 +299,12 @@ describe("The Case renders every block from the model", () => {
   });
 });
 
+/* ------------------------------------------------------------
+   Spec §3.2: They want is ranked, capped, and disclosable. M2
+   delivers ranked requirements + visibleCount 8; the renderer
+   shows the first eight and discloses the rest behind a
+   client-state toggle — no event, no writeback, role.js untouched.
+   ------------------------------------------------------------ */
 /* Fake-DOM harness for the client-state toggles: the bound handler only
    touches addEventListener/querySelector on the mount and attributes +
    textContent on the button/panel, so these fakes exercise the real path. */
@@ -317,12 +339,6 @@ function fakePanel() {
   };
 }
 
-/* ------------------------------------------------------------
-   Spec §3.2: They want is ranked, capped, and disclosable. M2
-   delivers ranked requirements + visibleCount 8; the renderer
-   shows the first eight and discloses the rest behind a
-   client-state toggle — no event, no writeback, role.js untouched.
-   ------------------------------------------------------------ */
 describe("They want disclosure", () => {
   function reqModel(n) {
     const reqs = Array.from({ length: n }, (_, i) => "Requirement " + (i + 1) + " ownership");
@@ -334,7 +350,6 @@ describe("They want disclosure", () => {
       },
     } });
   }
-
   it("renders the first eight and discloses the rest", () => {
     const out = renderHtml(reqModel(10));
     const moreAt = out.indexOf('<div class="case__more"');
@@ -552,7 +567,7 @@ describe("the People block", () => {
   it("uses placeholders, not hint paragraphs, for the empty contact row", () => {
     const html = renderHtml(model({ vmPatch: { contacts: [] } }));
     assert.match(html, /data-field="contact"[^>]*value=""[^>]*aria-label="Contact" placeholder="Add a contact"/);
-    assert.match(html, /data-field="heardBack"[^>]*placeholder="Aug 30"/);
+    assert.match(html, /data-field="heardBack"[^>]*placeholder="Add a date"/);
   });
 
   it("no longer mounts the recruiter strip's dossier card under People", () => {
@@ -611,7 +626,7 @@ describe("posting dates and salary on the rail", () => {
 
   it("never overwrites the sheet's own salary with the posting's", () => {
     const meta = railMeta(renderHtml(model({ vmPatch: { postingSalary: "$185,000–$230,000 USD/yr" } })));
-    assert.match(meta, /data-field="salary"[^>]*value="\$185–230k"[^>]*placeholder="Salary"/);
+    assert.match(meta, /data-field="salary"[^>]*value="\$185–230k"[^>]*placeholder="Add salary"/);
     assert.doesNotMatch(meta, /case__src--scrape/, "a sheet salary needs no scrape tag");
   });
 });

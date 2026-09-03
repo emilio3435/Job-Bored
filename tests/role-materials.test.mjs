@@ -753,6 +753,17 @@ describe("materials rows in the case mount", () => {
     assert.doesNotMatch(rowFor(host, "qa_report"), /<button/);
   });
 
+  /* Spec §3.7: a missing document gets ONE label — the `not drafted` sub.
+     The status pill is dropped; the Draft button stays. */
+  it("a missing document prints not-drafted with no status pill", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, { ...CASE_MANIFEST, documents: [], pending: null }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.match(row, /not drafted/);
+    assert.doesNotMatch(row, /case__docst/, "no missing pill beside the sub-line");
+    assert.match(row, /data-action="resume-tailor"[^>]*>Draft</, "the Draft button stays");
+  });
+
   it("a document with a quality issue offers Repair in its row", () => {
     const host = makeCaseMount();
     api.renderManifest(host, {

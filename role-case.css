@@ -215,6 +215,16 @@ body.jb-v2 [data-region="role"] .case .case__move { display: flex; align-items: 
 body.jb-v2 [data-region="role"] .case .case__move-k { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--crimson); white-space: nowrap; }
 body.jb-v2 [data-region="role"] .case .case__move-v { font-family: var(--serif); font-style: italic; font-size: 15px; line-height: 1.5; color: var(--navy); }
 body.jb-v2 [data-region="role"] .case .case__kv--people li { align-items: center; }
+/* Spec §3.7: the native date control stays, but its raw mm/dd/yyyy never
+   reads as content. The Not-set sibling is always in the DOM and CSS alone
+   decides: hidden by default, revealed only while the rendered value
+   attribute is empty (role.js re-renders after every committed write, so
+   the attribute tracks the sheet; :placeholder-shown never fires on a
+   native date input, which is why the attribute selector is the reliable
+   one). */
+body.jb-v2 [data-region="role"] .case .case__date { display: inline-flex; align-items: baseline; gap: 8px; }
+body.jb-v2 [data-region="role"] .case .case__date-empty { display: none; font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__date input[value=""] + .case__date-empty { display: inline; }
 /* Replied: three chips in a row, the active one filled. 28px tall so the row
    stays a ledger line; the ::after stretches the hit area to the 44px the
    a11y floor asks for without growing the chip. */

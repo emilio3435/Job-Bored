@@ -49,7 +49,7 @@
     /* The posting's own salary is a scrape, not the user's data: it stands in
        as the placeholder so the empty input reads as a fact the sheet has yet
        to confirm, and the `scrape` tag says where the number came from. */
-    var salaryHint = !id.salary && id.postingSalary ? id.postingSalary : "Salary";
+    var salaryHint = !id.salary && id.postingSalary ? id.postingSalary : "Add salary";
     meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="' + attr(salaryHint) + '"'));
     if (!id.salary && id.postingSalary) meta.push(src("scrape"));
     if (id.source) meta.push("via " + esc(id.source));
@@ -320,9 +320,12 @@
       '<span class="case__move-v">' + esc(p.nextMove) + "</span></p>" +
       '<ul class="case__kv case__kv--people">' +
       '<li><span class="case__k">Contact</span>' + editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"') + savedMark("contact") + "</li>" +
-      '<li><span class="case__k">Last contact</span>' + editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Aug 30"') + savedMark("heardBack") + "</li>" +
+      '<li><span class="case__k">Last contact</span>' + editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Add a date"') + savedMark("heardBack") + "</li>" +
       '<li><span class="case__k">Replied</span>' + replySegment(p.replied) + savedMark("reply") + "</li>" +
-      '<li><span class="case__k">Follow-up</span><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date">' + savedMark("followupAt") + "</li>" +
+      /* Spec §3.7: the native date control stays, but its raw mm/dd/yyyy
+         never reads as content — a Not-set sibling shows only while the
+         input's value is empty (see the .case__date CSS rule). */
+      '<li><span class="case__k">Follow-up</span><span class="case__date"><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date"><span class="case__date-empty">Not set</span></span>' + savedMark("followupAt") + "</li>" +
     "</ul>";
     return html + "</section>";
   }

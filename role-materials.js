@@ -765,8 +765,11 @@
           + (sub ? "<small>" + escapeHtml(sub) + "</small>" : "")
           + progressHtml
         + '</div>'
-        + '<span class="case__docst case__docst--' + status + '">'
-          + escapeHtml(status === "failed" ? "couldn't finish" : status) + '</span>'
+        /* Spec §3.7: a missing document gets one label — the `not drafted`
+           sub. The status pill is dropped; the Draft button stays. */
+        + (status === "missing" ? ""
+          : '<span class="case__docst case__docst--' + status + '">'
+            + escapeHtml(status === "failed" ? "couldn't finish" : status) + '</span>')
         + '<div class="case__doc-actions">' + actions.join("") + '</div>'
       + '</div>';
     }).join("");
