@@ -86,21 +86,20 @@ describe("buildCaseModel", () => {
   it("demotes markdown in the one-liner and marks requirements from keyword analysis", () => {
     const m = build(baseDeps());
     assert.equal(m.oneLine, "Design infrastructure that ships.");
-    assert.deepEqual(m.theyWant.requirements, [{ text: "5+ years design systems", status: "found" }, { text: "WCAG 2.2", status: "found" }]);
+    assert.deepEqual(m.theyWant.requirements, [{ text: "5+ years design systems", status: "found", evidence: null }, { text: "WCAG 2.2", status: "found", evidence: null }]);
     /* P0-0 changed this line: the "Design Systems" tag is covered by the
        analyzer's "5+ years design systems" term, which the resume matched.
        `unknown` here was the exact-lookup bug, not the intended answer. */
     assert.deepEqual(m.theyWant.stack.map((s) => s.status), ["found", "partial", "found"]); // React, Storybook, Design Systems(tag)
     assert.equal(m.theyWant.hasMatchData, true);
   });
-  it("uses the scorecard for YOU HAVE and falls back to keywords without one", () => {
+  it("uses the scorecard for YOU HAVE and returns none without one", () => {
     const with_ = build(baseDeps());
     assert.equal(with_.youHave.source, "scorecard");
     assert.equal(with_.youHave.gaps[0].severity, "high");
     assert.equal(with_.youHave.dimensions.length, 5);
     const without = build(baseDeps({ scorecard: null }));
-    assert.equal(without.youHave.source, "keywords");
-    assert.deepEqual(without.youHave.gaps.map((g) => g.gap), ["Kubernetes"]);
+    assert.deepEqual(without.youHave, { source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [] });
   });
   it("builds a dated record with future steps hollow", () => {
     const m = build(baseDeps());
@@ -121,6 +120,73 @@ describe("buildCaseModel", () => {
   it("collapses terminal stages", () => {
     const m = build(baseDeps({ vm: { job: { ...baseDeps().vm.job, stage: "rejected" } } }));
     assert.equal(m.stage.terminal, true);
+  });
+});
+
+describe("They-want schema delta", () => {
+  it("ranks the live glued-heading requirements missing → partial → found → unknown, stably", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 1,
+      partialCount: 1,
+      missingTerms: [{ label: "automation" }, { label: "loyalty" }],
+      uniqueTerms: [
+        { label: "performance narrative", status: "found" },
+        { label: "capability edge", status: "partial" },
+        { label: "automation", status: "missing" },
+        { label: "loyalty", status: "missing" },
+      ],
+    } });
+    d.vm.job.requirements = [
+      "Own the performance narrative. Automation & Technology",
+      "Build a capability edge. Customer Intelligence & CDP",
+      "Lead an unknown workstream",
+      "Build automation systems",
+      "Grow the loyalty program",
+    ];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+
+    const m = build(d);
+    assert.deepEqual(m.theyWant.requirements.map((item) => item.status), ["missing", "missing", "partial", "found", "unknown"]);
+    assert.deepEqual(m.theyWant.requirements.map((item) => item.text), [
+      "Build automation systems",
+      "Grow the loyalty program",
+      "Build a capability edge. Customer Intelligence & CDP",
+      "Own the performance narrative. Automation & Technology",
+      "Lead an unknown workstream",
+    ]);
+    assert.ok(m.theyWant.requirements.every((item) => item.evidence === null));
+    assert.equal(m.theyWant.visibleCount, 8);
+  });
+
+  it("dedupes the live API/APIs and AI/AI integrations chips before the 12-chip cap", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 2,
+      partialCount: 0,
+      missingTerms: [{ label: "apis" }, { label: "ai integrations" }],
+      uniqueTerms: [
+        { label: "API", status: "found" },
+        { label: "APIs", status: "missing" },
+        { label: "AI", status: "found" },
+        { label: "AI integrations", status: "missing" },
+      ],
+    } });
+    d.vm.job.skills = [];
+    d.vm.job.tags = [];
+    d.vm.job.enrichment = {
+      mustHaves: [], niceToHaves: [],
+      toolsAndStack: ["API", "APIs", "AI", "AI integrations", "CRM", "CDP", "SMS", "Figma", "OpenAI", "Gemini", "Grok", "Llama", "React", "Storybook", "Node.js"],
+    };
+
+    const stack = build(d).theyWant;
+    assert.equal(stack.stack.length, 12);
+    assert.deepEqual(stack.stackHidden.map((item) => item.text), ["Node.js"]);
+    assert.equal(stack.stack.filter((item) => /^apis?$/i.test(item.text)).length, 1);
+    assert.equal(stack.stack.find((item) => item.text === "API").status, "found", "the strongest API/APIs status survives");
+    assert.equal(stack.stack.some((item) => item.text === "AI"), false);
+    assert.equal(stack.stack.find((item) => item.text === "AI integrations").status, "found", "the strongest nested-chip status survives");
+    assert.equal(stack.stack.some((item) => item.text === "CRM"), true);
   });
 });
 
@@ -278,7 +344,7 @@ describe("day counts are local calendar days (P0-0d)", () => {
   });
 });
 
-describe("the keyword fallback claims nothing it was not told (P0-7, P0-10)", () => {
+describe("the keyword analyzer never becomes a claims lane (P0-7, P0-10)", () => {
   function fallbackDeps() {
     const d = baseDeps({ scorecard: null, keywords: {
       percentage: 50, foundCount: 2, partialCount: 0,
@@ -288,13 +354,10 @@ describe("the keyword fallback claims nothing it was not told (P0-7, P0-10)", ()
     } });
     return d;
   }
-  it("emits no severity for a gap no engine graded (P0-7)", () => {
-    const g = build(fallbackDeps()).youHave.gaps[0];
-    assert.equal(g.gap, "Kubernetes");
-    assert.ok(!g.severity, `the fallback must not invent a severity, got ${JSON.stringify(g.severity)}`);
-  });
-  it("renders the term's own casing, not the lowercased map key (P0-10)", () => {
-    assert.deepEqual(build(fallbackDeps()).youHave.strengths, ["WCAG 2.2", "Figma design systems"]);
+  it("returns source none and no display claims when no scorecard exists", () => {
+    assert.deepEqual(build(fallbackDeps()).youHave, {
+      source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [],
+    });
   });
   it("keeps the scorecard's own severity untouched", () => {
     assert.equal(build(baseDeps()).youHave.gaps[0].severity, "high");

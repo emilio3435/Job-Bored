@@ -47,7 +47,15 @@
      in either direction after normalization, and take the strongest status
      among every term that overlaps. */
   var STATUS_RANK = { found: 3, partial: 2, missing: 1 };
-  function normTerm(s) { return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9+#.]+/g, " ").trim(); }
+  var REQUIREMENT_ORDER = { missing: 0, partial: 1, found: 2, unknown: 3 };
+  function normTerm(s) {
+    return String(s == null ? "" : s).toLowerCase()
+      .replace(/\.(?![a-z0-9])/g, " ")
+      .replace(/[^a-z0-9+#.]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+  function containsTerm(haystack, needle) { return (" " + haystack + " ").indexOf(" " + needle + " ") !== -1; }
   function termList(keywords) {
     if (!keywords) return [];
     if (Array.isArray(keywords.uniqueTerms)) {
@@ -66,12 +74,58 @@
       var norm = normTerm(text), best = "unknown", bestRank = 0;
       for (var i = 0; i < terms.length; i++) {
         var tn = normTerm(terms[i].label);
-        if (!tn || tn.length < 3 || !norm) continue;
-        if (tn !== norm && norm.indexOf(tn) === -1 && tn.indexOf(norm) === -1) continue;
+        if (!tn || tn.length < 2 || !norm) continue;
+        var truncatedPrefix = /…\s*$/.test(terms[i].label) && norm.indexOf(tn) === 0;
+        if (tn !== norm && !containsTerm(norm, tn) && !containsTerm(tn, norm) && !truncatedPrefix) continue;
         var rank = STATUS_RANK[terms[i].status] || 0;
         if (rank > bestRank) { bestRank = rank; best = terms[i].status; }
       }
-      return { text: text, status: bestRank ? best : "unknown" };
+      return { text: text, status: bestRank ? best : "unknown", evidence: null };
+    });
+  }
+  function rankRequirements(list) {
+    return list.map(function (item, index) { return { item: item, index: index }; }).sort(function (a, b) {
+      var delta = REQUIREMENT_ORDER[a.item.status] - REQUIREMENT_ORDER[b.item.status];
+      return delta || a.index - b.index;
+    }).map(function (entry) { return entry.item; });
+  }
+  function singularToken(token) {
+    if (token === "apis") return "api";
+    if (/[^aeiou]ies$/.test(token)) return token.slice(0, -3) + "y";
+    if (token.length >= 4 && /s$/.test(token) && !/(ss|us|is)$/.test(token)) return token.slice(0, -1);
+    return token;
+  }
+  function stackTokens(text) {
+    return normTerm(text).split(" ").filter(Boolean).map(singularToken);
+  }
+  function strongerStatus(a, b) {
+    return (STATUS_RANK[b] || 0) > (STATUS_RANK[a] || 0) ? b : a;
+  }
+  function dedupeStack(list) {
+    var byKey = Object.create(null), exact = [];
+    list.forEach(function (item) {
+      var tokens = stackTokens(item.text);
+      var key = tokens.join(" ");
+      if (!key) return;
+      if (byKey[key]) {
+        byKey[key].status = strongerStatus(byKey[key].status, item.status);
+        return;
+      }
+      var kept = { text: item.text, status: item.status, tokens: tokens, drop: false };
+      byKey[key] = kept;
+      exact.push(kept);
+    });
+    exact.forEach(function (single) {
+      if (single.tokens.length !== 1) return;
+      var compound = exact.filter(function (candidate) {
+        return candidate.tokens.length >= 2 && candidate.tokens.indexOf(single.tokens[0]) !== -1;
+      })[0];
+      if (!compound) return;
+      compound.status = strongerStatus(compound.status, single.status);
+      single.drop = true;
+    });
+    return exact.filter(function (item) { return !item.drop; }).map(function (item) {
+      return { text: item.text, status: item.status };
     });
   }
   /* `Number(null) === 0`, so an unscored card used to render ATS 0/100 and
@@ -168,7 +222,7 @@
     });
   }
 
-  function buildYouHave(scorecard, keywords) {
+  function buildYouHave(scorecard) {
     var r = scorecard && scorecard.result;
     if (r) {
       return {
@@ -177,20 +231,6 @@
         evidence: (Array.isArray(r.evidence) ? r.evidence : []).map(function (e) { return { claim: inline(e && e.claim), sourceSnippet: inline(e && e.sourceSnippet), sourceType: inline(e && e.sourceType) }; }).filter(function (e) { return e.claim || e.sourceSnippet; }).slice(0, 3),
         gaps: (Array.isArray(r.criticalGaps) ? r.criticalGaps : []).map(function (g) { return { gap: inline(g && g.gap), whyItMatters: inline(g && g.whyItMatters), severity: /^(high|medium|low)$/.test(String(g && g.severity)) ? g.severity : "medium" }; }).filter(function (g) { return g.gap; }).slice(0, 5),
         dimensions: DIMENSIONS.map(function (d) { return { key: d[0], label: d[1], score: scoreOf(r.dimensionScores && r.dimensionScores[d[0]]) }; }).filter(function (d) { return d.score != null; }),
-      };
-    }
-    if (keywords) {
-      /* The term carries its own display casing; the map key is lowercased, so
-         reading strengths off the key shipped "wcag 2.2" (P0-10). And no
-         engine graded these gaps, so the fallback names no severity — a MED
-         pill here is a judgement nobody made (P0-7). */
-      var found = termList(keywords).filter(function (t) { return t.status === "found"; }).map(function (t) { return inline(t.label); }).filter(Boolean);
-      return {
-        source: "keywords", storedAt: "",
-        strengths: dedupe(found).slice(0, 6),
-        evidence: [],
-        gaps: (keywords.missingTerms || []).map(function (t) { return { gap: inline(t && (t.label || t.fullLabel)), whyItMatters: "" }; }).filter(function (g) { return g.gap; }).slice(0, 5),
-        dimensions: [],
       };
     }
     return { source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [] };
@@ -287,9 +327,11 @@
     var ready = materials ? materials.filter(function (d) { return d.status === "ready"; }).length : 0;
     var drafting = materials ? materials.filter(function (d) { return d.status === "pending"; }).length : 0;
     var terms = termList(keywords);
-    var requirements = markAll(dedupe(items(job.requirements).concat(items(enr.mustHaves))), terms);
-    var niceToHaves = markAll(dedupe(items(enr.niceToHaves)), terms);
-    var stack = markAll(dedupe(items(enr.toolsAndStack).concat(items(job.skills)).concat(items(job.tags))), terms);
+    var requirements = rankRequirements(markAll(dedupe(items(job.requirements).concat(items(enr.mustHaves))), terms));
+    var niceToHaves = markAll(dedupe(items(enr.niceToHaves)), terms).map(function (item) { return { text: item.text, status: item.status }; });
+    var allStack = dedupeStack(markAll(items(enr.toolsAndStack).concat(items(job.skills)).concat(items(job.tags)), terms));
+    var stack = allStack.slice(0, 12);
+    var stackHidden = allStack.slice(12);
     var foundAt = inline(job.foundAt || job.dateFound || "");
     var jobForRecord = { foundAt: foundAt, source: inline(job.source), lastHeardFrom: inline(job.lastHeardFrom), replied: job.replied, followUpDate: inline(job.followUpDate), appliedAt: inline(job.appliedAt) };
     var aiPoints = items(enr.talkingPoints);
@@ -319,8 +361,8 @@
         materials: materials ? { ready: ready, total: CASE_DOC_TYPES.length, drafting: drafting } : null,
       },
       oneLine: inline(enr.roleInOneLine),
-      theyWant: { requirements: requirements, niceToHaves: niceToHaves, stack: stack, hasMatchData: !!keywords },
-      youHave: buildYouHave(deps.scorecard, keywords),
+      theyWant: { requirements: requirements, visibleCount: 8, niceToHaves: niceToHaves, stack: stack, stackHidden: stackHidden, hasMatchData: !!keywords },
+      youHave: buildYouHave(deps.scorecard),
       moves: {
         talkingPoints: aiPoints.length ? aiPoints.slice(0, 6) : items(job.talkingPoints).slice(0, 6),
         materials: materials,
