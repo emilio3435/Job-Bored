@@ -171,10 +171,17 @@
   function marked(list, cls, hasMatch) {
     return list.map(function (it) {
       var st = hasMatch ? it.status : "unknown";
+      /* Spec §3.3: under a found/partial requirement, the profile sentence
+         that answers it. Never on missing/unknown — the model already nulls
+         evidence there, and the renderer re-checks the status. */
+      var ev = hasMatch && (st === "found" || st === "partial") && it.evidence && it.evidence.snippet
+        ? '<span class="case__req-ev">&ldquo;' + esc(it.evidence.snippet) + "&rdquo; <i>from your resume</i></span>" : "";
       return "<li" + (cls ? ' class="' + cls + '"' : "") + ' data-status="' + st + '"><span class="case__m case__m--' + st + '"></span><span>' + esc(it.text) + "</span>" +
-        (hasMatch && st !== "unknown" ? '<span class="case__st">' + esc(st) + "</span>" : "") + "</li>";
+        (hasMatch && st !== "unknown" ? '<span class="case__st">' + esc(st) + "</span>" : "") + ev + "</li>";
     }).join("");
   }
+  function safeId(s) { var v = String(s == null ? "" : s).replace(/[^a-zA-Z0-9_-]+/g, "-"); return v || "case"; }
+  function niceList(list, h) { return '<div class="case__sub">Nice to have</div><ul class="case__req">' + marked(list, "", h) + "</ul>"; }
   function renderTheyWant(m) {
     var w = m.theyWant;
     if (m.loading.enrichment && !w.requirements.length) return '<section class="case__lane case__lane--they"><div class="case__lane-head"><h3 class="case__lane-title">They want</h3></div>' + skeletonRows(4, "Reading the posting…") + "</section>";
@@ -188,10 +195,66 @@
       src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "unverified") : "") + "</div>";
     if (!h) html += '<p class="case__hint">Add a resume to see what matches.</p>';
     var reqSub = review ? "Requirements · unverified — read these against the posting before you rely on them" : ("Requirements" + (h ? " · vs. your resume" : ""));
-    if (w.requirements.length) html += '<div class="case__sub">' + reqSub + '</div><ul class="case__req">' + marked(w.requirements, "", h) + "</ul>";
-    if (w.stack.length) html += '<div class="case__sub">Stack they name</div><div class="case__chips">' + w.stack.map(function (s) { var st = h ? s.status : "unknown"; return '<span class="case__chip" data-status="' + st + '"><span class="case__m case__m--' + st + '"></span>' + esc(s.text) + (h && st !== "unknown" ? '<span class="case__st case__st--vh">' + esc(st) + "</span>" : "") + "</span>"; }).join("") + "</div>";
-    if (w.niceToHaves.length) html += '<div class="case__sub">Nice to have</div><ul class="case__req">' + marked(w.niceToHaves, "", h) + "</ul>";
+    /* Spec §3.2: the first visibleCount requirements render; the rest sit in
+       .case__more behind a client-state toggle. Nice-to-haves keep their own
+       list but move inside .case__more when collapsed, so the visible lane
+       height stays bounded. At or under the cap there is no disclosure. */
+    var total = w.requirements.length;
+    var visibleCount = typeof w.visibleCount === "number" && w.visibleCount > 0 ? w.visibleCount : 8;
+    var collapsed = total > visibleCount;
+    var moreId = "case-more-" + safeId(m.jobKey);
+    if (total) html += '<div class="case__sub">' + reqSub + '</div><ul class="case__req">' + marked(collapsed ? w.requirements.slice(0, visibleCount) : w.requirements, "", h) + "</ul>";
+    if (collapsed) html += '<div class="case__more" id="' + attr(moreId) + '" hidden><ul class="case__req">' + marked(w.requirements.slice(visibleCount), "", h) + "</ul>";
+    if (w.niceToHaves.length && collapsed) html += niceList(w.niceToHaves, h);
+    if (collapsed) html += "</div>";
+    /* Spec §3.2: twelve chips, then one quiet +N more chip that expands in
+       place — the overflow sits in .case__chips-more under the same
+       client-state pattern as the requirements disclosure. */
+    function chip(s) { var st = h ? s.status : "unknown"; return '<span class="case__chip" data-status="' + st + '"><span class="case__m case__m--' + st + '"></span>' + esc(s.text) + (h && st !== "unknown" ? '<span class="case__st case__st--vh">' + esc(st) + "</span>" : "") + "</span>"; }
+    if (w.stack.length) {
+      html += '<div class="case__sub">Stack they name</div><div class="case__chips">' + w.stack.map(chip).join("");
+      var hiddenCount = w.stackHidden && w.stackHidden.length ? w.stackHidden.length : 0;
+      if (hiddenCount) {
+        var stackId = "case-stack-" + safeId(m.jobKey);
+        html += '<span class="case__chips-more" id="' + attr(stackId) + '" hidden>' + w.stackHidden.map(chip).join("") + "</span>" +
+          '<button type="button" class="case__chip case__chip--more" data-action="toggle-stack" aria-expanded="false" aria-controls="' + attr(stackId) + '" data-collapsed-label="+' + hiddenCount + ' more">+' + hiddenCount + " more</button>";
+      }
+      html += "</div>";
+    }
+    if (w.niceToHaves.length && !collapsed) html += niceList(w.niceToHaves, h);
+    if (collapsed) html += '<button type="button" class="case__more-btn" data-action="toggle-requirements" aria-expanded="false" aria-controls="' + attr(moreId) + '" data-collapsed-label="Show all ' + total + '">Show all ' + total + "</button>";
     return html + "</section>";
+  }
+  /* Spec §4: toggle-requirements and toggle-stack are client-state only — no
+     event, no writeback. role.js is frozen, so the Case binds its own
+     single delegated listener on the mount at render time. */
+  function toggleDisclosure(button, panel) {
+    var expanded = button.getAttribute("aria-expanded") === "true";
+    if (expanded) {
+      panel.setAttribute("hidden", "");
+      button.setAttribute("aria-expanded", "false");
+      button.textContent = button.getAttribute("data-collapsed-label") || button.textContent;
+    } else {
+      panel.removeAttribute("hidden");
+      button.setAttribute("aria-expanded", "true");
+      button.textContent = "Show fewer";
+    }
+  }
+  function onBoardClick(root, event) {
+    var target = event && event.target;
+    var button = target && typeof target.closest === "function"
+      ? target.closest('[data-action="toggle-requirements"], [data-action="toggle-stack"]')
+      : null;
+    if (!button) return;
+    var id = typeof button.getAttribute === "function" ? button.getAttribute("aria-controls") : null;
+    var panel = id && root && typeof root.querySelector === "function" ? root.querySelector("#" + id) : null;
+    if (!panel || typeof panel.removeAttribute !== "function") return;
+    toggleDisclosure(button, panel);
+  }
+  function bindBoardToggles(mountEl) {
+    if (!mountEl || typeof mountEl.addEventListener !== "function" || mountEl.__caseBoardBound) return;
+    mountEl.__caseBoardBound = true;
+    mountEl.addEventListener("click", function (event) { onBoardClick(mountEl, event); });
   }
   /* aria-busy alone is silent: a screen reader announces nothing while the
      enrichment runs. role="status" + aria-live="polite" make the region a
@@ -285,6 +348,7 @@
        board stamps — the empty third column cannot recur. */
     var they = renderTheyWant(model), you = renderYouHave(model), moves = renderMoves(model);
     var laneCount = (they ? 1 : 0) + (you ? 1 : 0) + (moves ? 1 : 0);
+    bindBoardToggles(mount);
     mount.innerHTML = '<div class="case">' +
       renderRail(model) + renderStepper(model, stages) + renderNumbers(model) +
       (model.oneLine ? '<div class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</div>" : "") +

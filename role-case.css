@@ -131,9 +131,29 @@ body.jb-v2 [data-region="role"] .case .case__m--partial { background: var(--ambe
 body.jb-v2 [data-region="role"] .case .case__m--missing { background: var(--crimson); }
 body.jb-v2 [data-region="role"] .case .case__m--unknown { background: transparent; border: 1px solid var(--border-strong); }
 body.jb-v2 [data-region="role"] .case .case__st { font-family: var(--mono); font-size: 8.5px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--mute); }
+/* Spec §3.3: the answering sentence under a marked requirement. It is a grid
+   item of the requirement row, pinned to the text column so it sits under
+   the demand it answers rather than the status dot. */
+body.jb-v2 [data-region="role"] .case .case__req-ev { grid-column: 2; margin-top: 2px; font-family: var(--serif); font-style: italic; font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); overflow-wrap: anywhere; }
+/* Spec §3.2: the requirements disclosure. The overflow div keeps the UA
+   hidden style (no display rule here, or [hidden] stops hiding it); the
+   button is a quiet pill with the same crimson ring the other case buttons
+   carry on focus. */
+body.jb-v2 [data-region="role"] .case .case__more-btn { display: inline-flex; align-items: center; margin-top: 10px; border: 1px solid var(--border-strong); border-radius: 999px; background: transparent; cursor: pointer; padding: 5px 12px; font-family: var(--mono); font-size: 9px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); }
+body.jb-v2 [data-region="role"] .case .case__more-btn:hover { border-color: var(--crimson); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__more-btn:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
 body.jb-v2 [data-region="role"] .case .case__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 body.jb-v2 [data-region="role"] .case .case__chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border-strong); font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
 body.jb-v2 [data-region="role"] .case .case__chip .case__m { width: 7px; height: 7px; top: 0; }
+/* Spec §3.2: the stack overflow expands in place — display:contents keeps
+   the disclosed chips in the same flex flow. The [hidden] rule must win
+   over display:contents, which otherwise overrides the UA hiding. The +N
+   chip is a real button wearing the chip shape, dashed so it reads quiet. */
+body.jb-v2 [data-region="role"] .case .case__chips-more { display: contents; }
+body.jb-v2 [data-region="role"] .case .case__chips-more[hidden] { display: none; }
+body.jb-v2 [data-region="role"] .case button.case__chip--more { cursor: pointer; border-style: dashed; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case button.case__chip--more:hover { border-color: var(--crimson); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case button.case__chip--more:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
 body.jb-v2 [data-region="role"] .case .case__strength { padding: 8px 0 8px 14px; border-left: 2px solid var(--mint-deep); margin-bottom: 8px; font-family: var(--serif); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__evidence { margin-top: 6px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-family: var(--serif); font-style: italic; font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__from { display: block; font-family: var(--mono); font-style: normal; font-size: 8px; letter-spacing: 0.2em; text-transform: uppercase; color: var(--mint-deep); margin-bottom: 4px; }

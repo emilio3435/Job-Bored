@@ -283,6 +283,202 @@ describe("The Case renders every block from the model", () => {
   });
 });
 
+/* Fake-DOM harness for the client-state toggles: the bound handler only
+   touches addEventListener/querySelector on the mount and attributes +
+   textContent on the button/panel, so these fakes exercise the real path. */
+function fakeMount() {
+  const listeners = {};
+  const byId = {};
+  return {
+    innerHTML: "",
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    querySelector(sel) { return sel[0] === "#" ? (byId[sel.slice(1)] || null) : null; },
+    dispatchEvent() { throw new Error("the toggle must not dispatch events"); },
+    __fire(type, event) { (listeners[type] || []).forEach((fn) => fn(event)); },
+    __register(id, el) { byId[id] = el; },
+  };
+}
+function fakeToggleButton(label, controls, action) {
+  const attrs = { "data-action": action, "aria-controls": controls, "aria-expanded": "false", "data-collapsed-label": label };
+  return {
+    textContent: label,
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    closest(sel) { return sel.indexOf(action) !== -1 ? this : null; },
+  };
+}
+function fakePanel() {
+  const attrs = { hidden: "" };
+  return {
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    removeAttribute(k) { delete attrs[k]; },
+    hasAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k); },
+  };
+}
+
+/* ------------------------------------------------------------
+   Spec §3.2: They want is ranked, capped, and disclosable. M2
+   delivers ranked requirements + visibleCount 8; the renderer
+   shows the first eight and discloses the rest behind a
+   client-state toggle — no event, no writeback, role.js untouched.
+   ------------------------------------------------------------ */
+describe("They want disclosure", () => {
+  function reqModel(n) {
+    const reqs = Array.from({ length: n }, (_, i) => "Requirement " + (i + 1) + " ownership");
+    return model({ vmPatch: {
+      requirements: reqs, skills: [], tags: [],
+      enrichment: {
+        roleInOneLine: "Design infrastructure that ships.", mustHaves: [], niceToHaves: ["Mentoring"],
+        toolsAndStack: [], talkingPoints: [], status: "ready",
+      },
+    } });
+  }
+
+  it("renders the first eight and discloses the rest", () => {
+    const out = renderHtml(reqModel(10));
+    const moreAt = out.indexOf('<div class="case__more"');
+    assert.ok(moreAt !== -1, "the overflow renders inside .case__more");
+    assert.match(out, /<div class="case__more" id="case-more-job-1" hidden>/);
+    assert.match(out, /<button type="button" class="case__more-btn" data-action="toggle-requirements" aria-expanded="false" aria-controls="case-more-job-1"[^>]*>Show all 10<\/button>/);
+    const visible = out.slice(0, moreAt);
+    for (let i = 1; i <= 8; i++) assert.match(visible, new RegExp("Requirement " + i + " ownership"), "R" + i + " visible");
+    assert.doesNotMatch(visible, /Requirement 9 ownership/);
+    assert.doesNotMatch(visible, /Requirement 10 ownership/);
+    const hidden = out.slice(moreAt);
+    assert.match(hidden, /Requirement 9 ownership/);
+    assert.match(hidden, /Requirement 10 ownership/);
+  });
+  it("renders all eight with no disclosure at the boundary", () => {
+    const out = renderHtml(reqModel(8));
+    assert.match(out, /Requirement 8 ownership/);
+    assert.doesNotMatch(out, /case__more/);
+    assert.doesNotMatch(out, /toggle-requirements/);
+  });
+  it("nests nice-to-haves inside the disclosure when collapsed", () => {
+    const collapsed = renderHtml(reqModel(10));
+    assert.ok(collapsed.indexOf("Mentoring") > collapsed.indexOf('<div class="case__more"'), "nice-to-haves sit inside .case__more when collapsed");
+    const open = renderHtml(reqModel(3));
+    assert.match(open, /Nice to have/);
+    assert.doesNotMatch(open, /case__more/);
+  });
+  it("the toggle flips hidden + aria-expanded + label, and nothing else", () => {
+    const mount = fakeMount();
+    Case.render(mount, reqModel(10));
+    assert.match(mount.innerHTML, /data-action="toggle-requirements"/, "precondition: the button rendered");
+    const panel = fakePanel();
+    mount.__register("case-more-job-1", panel);
+    const button = fakeToggleButton("Show all 10", "case-more-job-1", "toggle-requirements");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), false);
+    assert.equal(button.getAttribute("aria-expanded"), "true");
+    assert.equal(button.textContent, "Show fewer");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), true);
+    assert.equal(button.getAttribute("aria-expanded"), "false");
+    assert.equal(button.textContent, "Show all 10");
+    assert.doesNotThrow(() => mount.__fire("click", { target: { closest() { return null; } } }), "clicks elsewhere are ignored");
+  });
+});
+
+/* ------------------------------------------------------------
+   Spec §3.2: stack chips — 12 visible, then one quiet +N more
+   chip that expands in place under the same client-state pattern.
+   ------------------------------------------------------------ */
+describe("Stack disclosure", () => {
+  function stackModel(count) {
+    const tools = Array.from({ length: count }, (_, i) => "Platform tool " + (i + 1));
+    return model({ vmPatch: {
+      requirements: ["5+ years design systems"], skills: [], tags: [],
+      enrichment: {
+        roleInOneLine: "Design infrastructure that ships.", mustHaves: ["5+ years design systems"], niceToHaves: [],
+        toolsAndStack: tools, talkingPoints: [], status: "ready",
+      },
+    } });
+  }
+
+  it("shows twelve chips and discloses the rest behind +N more", () => {
+    const out = renderHtml(stackModel(15));
+    const moreAt = out.indexOf('<span class="case__chips-more"');
+    assert.ok(moreAt !== -1, "the overflow chips render inside .case__chips-more");
+    assert.match(out, /<span class="case__chips-more" id="case-stack-job-1" hidden>/);
+    assert.match(out, /<button type="button" class="case__chip case__chip--more" data-action="toggle-stack" aria-expanded="false" aria-controls="case-stack-job-1"[^>]*>\+3 more<\/button>/);
+    assert.equal((out.slice(0, moreAt).match(/<span class="case__chip"/g) || []).length, 12, "twelve chips before the disclosure");
+    assert.equal((out.slice(moreAt).match(/<span class="case__chip"/g) || []).length, 3, "three chips inside the disclosure");
+  });
+  it("renders every chip with no disclosure at the boundary", () => {
+    const out = renderHtml(stackModel(12));
+    assert.equal((out.match(/<span class="case__chip"/g) || []).length, 12);
+    assert.doesNotMatch(out, /case__chips-more/);
+    assert.doesNotMatch(out, /toggle-stack/);
+  });
+  it("the stack toggle flips the same client state", () => {
+    const mount = fakeMount();
+    Case.render(mount, stackModel(15));
+    assert.match(mount.innerHTML, /data-action="toggle-stack"/, "precondition: the +N more chip rendered");
+    const panel = fakePanel();
+    mount.__register("case-stack-job-1", panel);
+    const button = fakeToggleButton("+3 more", "case-stack-job-1", "toggle-stack");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), false);
+    assert.equal(button.getAttribute("aria-expanded"), "true");
+    assert.equal(button.textContent, "Show fewer");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), true);
+    assert.equal(button.textContent, "+3 more");
+  });
+});
+
+/* ------------------------------------------------------------
+   Spec §3.3: each found/partial requirement carries the profile
+   sentence that answers it, printed under the requirement. None
+   on missing/unknown.
+   ------------------------------------------------------------ */
+describe("Requirement evidence", () => {
+  function evModel() {
+    return model({
+      keywords: {
+        percentage: 74, foundCount: 1, partialCount: 1, missingTerms: [{ label: "Kubernetes" }],
+        uniqueTerms: [
+          { label: "5+ years design systems", status: "found", evidence: { snippet: "Led design systems & shipped tokens for five years", source: "resume" } },
+          { label: "Storybook", status: "partial", evidence: { snippet: "Shipped a Storybook pilot last quarter", source: "profile" } },
+        ],
+      },
+      vmPatch: {
+        requirements: ["5+ years design systems", "Storybook component coverage", "Unmatched requirement prose"],
+        skills: [], tags: [],
+        enrichment: {
+          roleInOneLine: "Design infrastructure that ships.", mustHaves: [], niceToHaves: ["Mentoring"],
+          toolsAndStack: [], talkingPoints: [], status: "ready",
+        },
+      },
+    });
+  }
+
+  it("prints the answering sentence under found and partial requirements", () => {
+    const out = renderHtml(evModel());
+    assert.equal((out.match(/class="case__req-ev"/g) || []).length, 2, "one line per marked requirement, none elsewhere");
+    assert.match(out, /<span class="case__req-ev">&ldquo;Shipped a Storybook pilot last quarter&rdquo; <i>from your resume<\/i><\/span>/);
+    assert.ok(out.indexOf("Shipped a Storybook pilot") > out.indexOf("Storybook component coverage"), "the line sits under its requirement");
+    assert.ok(out.indexOf("Shipped a Storybook pilot") < out.indexOf("5+ years design systems"), "ranking still orders partial before found");
+  });
+  it("escapes the snippet exactly once and never labels missing work as matched", () => {
+    const out = renderHtml(evModel());
+    assert.match(out, /Led design systems &amp; shipped tokens for five years/);
+    assert.doesNotMatch(out, /&amp;amp;/);
+    const niceUl = /Nice to have<\/div><ul class="case__req">([\s\S]*?)<\/ul>/.exec(out);
+    assert.ok(niceUl && /Mentoring/.test(niceUl[1]), "the missing nice-to-have renders");
+    assert.doesNotMatch(niceUl[1], /case__req-ev/);
+  });
+  it("styles the evidence line serif, muted, and indented to the text column", () => {
+    const rule = /body\.jb-v2 \[data-region="role"\] \.case \.case__req-ev \{([^}]*)\}/.exec(caseCssSource);
+    assert.ok(rule, "the evidence rule must be scoped under the Case");
+    assert.match(rule[1], /font-size: 12\.5px/);
+    assert.match(rule[1], /color: var\(--ink-soft\)/);
+    assert.match(rule[1], /grid-column: 2/);
+  });
+});
+
 /* ------------------------------------------------------------
    The Brief is retired (plan Task 10, LD3). Its renderer, its
    styles and its script tag are gone; only CHANGELOG history may
