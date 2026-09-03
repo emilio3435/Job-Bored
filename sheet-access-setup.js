@@ -634,6 +634,17 @@
 
     if (!host().getOAuthClientId()) {
       pendingStarterSheetCreateOptions = null;
+      // Beat 1 owns "no Client ID yet": it carries the console link, the six
+      // steps and the paste field. Punting the flow into the Settings modal
+      // was GREENFIELD-SPEC §1 F4 — the dead end the beat exists to replace.
+      // Outside the flow, Settings is still where an OAuth client is saved.
+      if (opts.context === "wizard") {
+        notify(
+          "Paste your Google OAuth Client ID above, then create the sheet.",
+          true,
+        );
+        return { ok: false, reason: "missing_client_id" };
+      }
       host().showToast(
         "Save a Google OAuth client in Settings first, then come back and create the sheet.",
         "error",

@@ -38,6 +38,9 @@
   const SHEET_URL_INPUT_ID = "oneFlowSheetUrlInput";
   const CLIENT_ID_INPUT_ID = "oneFlowOauthClientIdInput";
 
+  /** GREENFIELD-SPEC §4.4 — locked copy for the no-Client-ID state. */
+  const DETOUR_PROMPT = "Paste your Client ID to continue.";
+
   /** How long to wait for the GIS popup before saying so out loud. */
   const SIGN_IN_TIMEOUT_MS = 120000;
   const SIGN_IN_POLL_MS = 250;
@@ -51,6 +54,9 @@
     mode: "signin", // "signin" | "existing"
     sheetUrlDraft: "",
     clientIdDraft: "",
+    // The first-timer detour is collapsed until the beat needs it — which
+    // is the moment Continue with Google has nothing to continue with.
+    detourOpen: false,
     stages: [],
   };
 
@@ -242,6 +248,7 @@
 
   function renderDetour(ctx) {
     const details = el("details", "oneflow-google__detour");
+    if (state.detourOpen) details.open = true;
     details.appendChild(
       el(
         "summary",
@@ -332,6 +339,22 @@
       ),
     );
     return details;
+  }
+
+  function oauthClientId() {
+    return String(call("getOAuthClientId") || "").trim();
+  }
+
+  /**
+   * The shell builds a step body DETACHED and attaches it afterwards, so a
+   * focus() during render lands on a node that is not in the document yet.
+   * One tick later it is, and `fields.clientId` points at the live input.
+   */
+  function focusClientIdSoon() {
+    setTimeout(() => {
+      const node = fields.clientId;
+      if (node && typeof node.focus === "function") node.focus();
+    }, 0);
   }
 
   function saveClientId(ctx) {
@@ -437,6 +460,16 @@
   async function continueWithGoogle(ctx) {
     if (!host()) {
       repaint(ctx, "JobBored is still starting up. Reload the page and try again.", "error");
+      return;
+    }
+
+    // No Client ID: Google cannot sign anyone in, so asking is the dead end
+    // (GREENFIELD-SPEC §1 F4). The detour right here on the beat is the
+    // answer — never the Settings modal, which is out of the flow.
+    if (!oauthClientId()) {
+      state.detourOpen = true;
+      repaint(ctx, DETOUR_PROMPT, "info");
+      focusClientIdSoon();
       return;
     }
 
@@ -639,6 +672,7 @@
   window.JobBoredOneFlowBeatGoogle = {
     HEADLINE,
     SUB,
+    DETOUR_PROMPT,
     handleAction,
     getRenderedStages() {
       return state.stages.slice();
