@@ -558,8 +558,8 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   expect(state.calls.discoveryBoots).toHaveLength(1);
 
   const payoffPrimary = page.locator(
-    '#oneFlowMount [data-action-id="payoff_run_discovery"], ' +
-      '#oneFlowMount [data-action="payoff_run_discovery"], ' +
+    '#oneFlowMount [data-action-id="payoff_run_now"], ' +
+      '#oneFlowMount [data-action="payoff_run_now"], ' +
       '#oneFlowMount [data-action-id="payoff_connect_google"], ' +
       '#oneFlowMount [data-action="payoff_connect_google"], ' +
       '#oneFlowMount [data-action-id="payoff_fix_fit"], ' +

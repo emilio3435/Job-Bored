@@ -329,7 +329,7 @@ test("E5 Payoff is honest", async ({ page }) => {
   const connectGoogle = action(page, "payoff_connect_google");
   await expect(connectGoogle).toBeVisible();
   await expect(connectGoogle).toHaveText("Connect Google to go live");
-  await expect(action(page, "payoff_run_discovery")).toHaveCount(0);
+  await expect(action(page, "payoff_run_now")).toHaveCount(0);
   await expect(page.locator(".toast-error")).toHaveCount(0);
 
   await connectGoogle.click();
