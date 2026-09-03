@@ -50,6 +50,15 @@ function beat(page, id) {
   return page.locator(`#oneFlowMount .oneflow-beat[data-beat-id="${id}"]`);
 }
 
+/**
+ * Every toast is spoken twice: the visible `#toastContainer` node and the
+ * singleton visually-hidden live region `jb-a11y.js announce()` writes to.
+ * A bare getByText therefore resolves to two elements and trips strict mode.
+ */
+function toast(page, text) {
+  return page.locator("#toastContainer").getByText(text, { exact: true });
+}
+
 async function installBoundaries(page) {
   const fence = await installHermeticNetworkFence(page, {
     baseUrl: app.baseUrl,
@@ -239,9 +248,9 @@ test("E1 Beat 3 is gated on Beat 2", async ({ page }) => {
   await expect(page.getByText(CONNECT_AI_MESSAGE, { exact: true })).toBeVisible();
   expect(profilePosts).toEqual([]);
 
-  const connectAi = page
-    .locator('#oneFlowMount button')
-    .filter({ hasText: /connect ai/i });
+  // The shell stamps every beat action with data-action-id; the label is
+  // "Connect an AI provider", which no /connect ai/i text filter matches.
+  const connectAi = action(page, "resume_connect_ai");
   await expect(connectAi).toBeVisible();
   await connectAi.click();
   await expect(beat(page, "ai")).toBeVisible();
@@ -263,7 +272,7 @@ test("E2 Pasted resume survives Escape and reload", async ({ browser }) => {
       else await paste.fill(resume);
 
       await page.keyboard.press("Escape");
-      await expect(page.getByText(PAUSE_TOAST, { exact: true })).toBeVisible();
+      await expect(toast(page, PAUSE_TOAST)).toBeVisible();
       await page.reload({ waitUntil: "load" });
       await waitForApp(page);
 
@@ -315,13 +324,29 @@ test("E5 Payoff is honest", async ({ page }) => {
     completedBeats: ["google"],
     completed: false,
   });
+  // The controller hydrates its flow state ONCE per load, so a direct store
+  // write only reaches the gate after a reboot.
+  await page.reload({ waitUntil: "load" });
+  await waitForApp(page);
 
   await page.evaluate(() => {
     // A greenfield controller can know the persisted Beat 1 receipt even when
     // no live Sheet getter is available. The gate must honor that receipt;
     // Beat 6 itself owns the honest no-Sheet readiness state.
-    if (globalThis.JobBoredApp?.core?.host) {
-      globalThis.JobBoredApp.core.host.getSheetId = undefined;
+    //
+    // All three Sheet getters go: onboarding-flow.js sheetConfigured() reads
+    // core.host.getSheetId and core.getSHEET_ID, and a getter that answers ""
+    // (rather than being absent) means "no sheet", which makes the persisted
+    // Beat 1 receipt stale and wipes it before the gate ever sees it. With
+    // every getter gone the answer is "unknown", the receipt stands, and
+    // Beat 6 resolves its own readiness from the (masked) config.
+    const core = globalThis.JobBoredApp?.core;
+    if (core) {
+      core.getSHEET_ID = undefined;
+      if (core.host) {
+        core.host.getSheetId = undefined;
+        core.host.getSHEET_ID = undefined;
+      }
     }
     return globalThis.JobBoredOneFlow.open("payoff");
   });
@@ -361,5 +386,5 @@ test("E6 Settings shows receipts", async ({ page }) => {
   await action(page, "google_continue").click();
   await expect(page.locator("#oneFlowMount")).toBeHidden();
   await expect(beat(page, "resume")).toHaveCount(0);
-  await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+  await expect(toast(page, "Saved.")).toBeVisible();
 });
