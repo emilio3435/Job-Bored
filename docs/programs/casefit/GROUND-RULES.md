@@ -46,4 +46,10 @@ Lane S3 also: `cd integrations/browser-use-discovery && npm test`.
 
 ## Muse (lane F1 only)
 
-Flag set proven by the orchestrator's preflight: see the F1 kickoff. `node_modules` is a symlink to the primary checkout; do not run `npm install`.
+Flag set proven by the orchestrator's preflight (2026-09-03 02:05 CDT, 33s, wrote `.lane-evidence/PROBE.txt`, no prompt):
+
+```
+muse exec --model muse-spark-1.3-contributor --reasoning-effort xhigh --workspace <wt> --trust-workspace --approval-mode never --disable-sandbox --prompt-file <wt>/.lane-evidence/kickoff-F1.md
+```
+
+Sandbox is off, so loopback binding for the Playwright suites is unrestricted. Muse ignores `CLAUDE.md` where `AGENTS.md` exists — the repo contract in `AGENTS.md` is what the lane sees. `node_modules` is a symlink to the primary checkout; do not run `npm install`.
