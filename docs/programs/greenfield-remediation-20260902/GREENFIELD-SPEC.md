@@ -148,3 +148,17 @@ function getEffectiveConfig() { /* { ...window.COMMAND_CENTER_CONFIG } after app
 5. **Return-to:** `open(beatId, { returnTo: "close" })` closes the shell when that beat completes. Drawer and Settings deep links use it. (Orchestrator decision; bounded, ~20 lines, prevents the forward-walk annoyance.)
 6. **Settings tab collapse is bounded:** merge Setup + Sheet, rename AI Providers, remove drawer-owned webhook fields. Scraping and ATS Scoring stay as tabs; folding them into Upgrades is a follow-up.
 7. **Draft mirror:** yes, localStorage, single key, cleared only by the flow's reset path.
+
+## 6. Integration ledger (orchestrator, 2026-09-03)
+
+Locked decisions 8–10 were taken during integration and override anything contrary above.
+
+8. **PR #103 (`58366b6`) is absorbed, not reverted.** It merged to main at 23:39 on 2026-09-02 while the lanes ran and touched lane A's fence (`oneflow-beat-resume.js` `draftOnServer`, `server/index.mjs` 409 for `*_not_configured`). Lane A merged main and kept the server-side 409; the client copy is the locked §4.1 sentence with the `resume_connect_ai` action, and #103's two `oneflow-l1-beat-resume` assertions now assert that copy verbatim.
+9. **Lane F is the Muse Spark 1.3 agent's `fix/beat1-greenfield-gis-init` (`8be33a0`).** It was working on Beat 1 in the shared `~/Job-Bored` checkout in parallel with this program. Its duplicate no-Client-ID guard in `continueWithGoogle` was dropped in favor of lane C's §4.4 behavior; its `saveClientId → initAuth` fallback (GIS was never initialized on a greenfield boot, so the in-place re-init refused and "Continue with Google" no-op'd) is new and merged as lane F with its two tests.
+10. **The ready-state payoff action id is `payoff_run_now`.** §4.3 wrote `payoff_run_discovery`; that id never existed. Lane C kept `payoff_run_now`; lane E asserts it.
+
+Merge order and shas: B `e81284c` → A `866886e` (carries main `58366b6`) → C `ebe7b32` → D `0ea295a` → E `bffe91b` → F `8be33a0`. Every merge was clean (`git merge-tree` dry-run, then `--no-ff`). Gates (tests + lint) ran after each merge; the full floor (typecheck, e2e-smoke, e2e-visual, e2e-onboarding, contracts) ran once at the end. Evidence: `.lane-evidence/int-*.txt` in the integration worktree, copied to `evidence/`.
+
+Fence extensions declared by lanes and accepted: C edited `tests/e2e-visual/finale-burst.spec.mjs` (its subject changed from a fixed label to "the payoff's primary"); D added a scoped block to `settings-tabs.css` and one entry to `tests/oneflow-l1-harness.mjs`; A added `GREENFIELD A4` tests beside `tests/fit-profile-wizard.test.mjs` and recommends retitling its "without forwarding secrets" test (done by the orchestrator in the ledger commit).
+
+Follow-ups filed, not done here: `discovery-drawer.js:1090` and `resume-generate.js:180-181,457,503` still carry stale model defaults (D §5.3–5.4); the `tests/e2e/profile-flow-smoke` ↔ `profile-from-resume-unconfigured-provider` server-port race (A §5.1); `tests/server-error-schema.test.mjs` polls a spawned server forever when `server/node_modules` is absent, which hangs `npm test` in any fresh worktree (found during integration; three unrelated runners on this machine were hung on it).
