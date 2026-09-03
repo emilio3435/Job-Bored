@@ -100,6 +100,8 @@
   let pendingDrafts = null;
   let draftTimer = null;
   let draftWaiters = [];
+  /** One pagehide listener per document, however many drafts go by. */
+  let unloadFlushBound = false;
   let resumePillEl = null;
 
   function cloneState(raw) {
@@ -279,6 +281,92 @@
   }
 
   /**
+   * The unload-proof copy of the pasted resume (GREENFIELD spec §4.2).
+   *
+   * The IndexedDB write below is debounced 400 ms and asynchronous, so
+   * every route out of Beat 3 — Escape, a reload, closing the tab — has a
+   * window in which the typed text exists only in a transaction nobody is
+   * waiting on. The greenfield walkthrough fell into it and came back to
+   * an empty textarea (F2). localStorage is synchronous: this copy is on
+   * disk before the event handler that caused it returns.
+   *
+   * One key, resumeText only. `profileDraft` is structured and lands on a
+   * deliberate action, not a keystroke, so it has no such window.
+   */
+  const DRAFT_MIRROR_KEY = "jb_oneflow_draft_resumeText";
+
+  /** Same cap as the store this shadows (user-content-store.js). */
+  const DRAFT_MIRROR_TEXT_MAX = 100000;
+
+  function mirrorStorage() {
+    try {
+      const local = window.localStorage;
+      return local && typeof local.setItem === "function" ? local : null;
+    } catch (e) {
+      // Some incognito modes throw on the property itself.
+      return null;
+    }
+  }
+
+  /** Persist `text` synchronously. Answers whether it landed. */
+  function writeDraftMirror(text) {
+    const local = mirrorStorage();
+    if (!local) return false;
+    try {
+      local.setItem(
+        DRAFT_MIRROR_KEY,
+        JSON.stringify({
+          // String(), not asString(): a resume's trailing newline is part
+          // of what the user typed, and the restored value has to be
+          // character-for-character what the box held.
+          text: (text == null ? "" : String(text)).slice(
+            0,
+            DRAFT_MIRROR_TEXT_MAX,
+          ),
+          at: Date.now(),
+        }),
+      );
+      return true;
+    } catch (e) {
+      // A full or refusing quota loses nothing that was not already lost.
+      console.warn("[JobBored] one-flow: could not mirror the draft:", e);
+      return false;
+    }
+  }
+
+  /** The mirrored text, or "" when there is none to restore. */
+  function readDraftMirror() {
+    const local = mirrorStorage();
+    if (!local || typeof local.getItem !== "function") return "";
+    try {
+      const raw = local.getItem(DRAFT_MIRROR_KEY);
+      if (!raw) return "";
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed.text === "string" ? parsed.text : "";
+    } catch (e) {
+      return "";
+    }
+  }
+
+  /**
+   * Flush on the way out of the document (spec §4.2). Registered once, on
+   * the first draft: before that there is nothing to lose, and after it
+   * every later save reuses the same listener.
+   *
+   * `pagehide` rather than `unload` — it is the one the bfcache honours,
+   * so a back/forward navigation is covered too.
+   */
+  function ensureUnloadFlush() {
+    if (unloadFlushBound) return false;
+    if (typeof window.addEventListener !== "function") return false;
+    unloadFlushBound = true;
+    window.addEventListener("pagehide", () => {
+      flushDrafts();
+    });
+    return true;
+  }
+
+  /**
    * Write the pending drafts now and answer everyone who was waiting on
    * the debounce. Called by the timer, and directly whenever the flow is
    * about to move or close — a beat transition must never outrun the
@@ -320,6 +408,10 @@
     }
     if (!runtime.drafts || typeof runtime.drafts !== "object") runtime.drafts = {};
     runtime.drafts[name] = value;
+    // Before the debounce, not after it: the mirror exists precisely to
+    // cover the window the debounce opens (spec §4.2).
+    if (name === "resumeText") writeDraftMirror(value);
+    ensureUnloadFlush();
     pendingDrafts = { ...(pendingDrafts || {}), [name]: value };
     const waiter = new Promise((resolve) => draftWaiters.push(resolve));
     if (draftTimer) clearTimeout(draftTimer);
@@ -768,14 +860,16 @@
    * not a confirm dialog: a confirm would frame pausing as quitting, and
    * §3.4 says it is neither.
    */
-  function handleShellClose(reason) {
+  async function handleShellClose(reason) {
     if (!openBeatId) return;
     const beat = openBeatId;
     const why = asString(reason, "close");
     openBeatId = "";
     flowOpenEmitted = false;
-    // Pausing is the one moment a draft is most likely to be half-typed.
-    flushDrafts();
+    // Pausing is the one moment a draft is most likely to be half-typed —
+    // and this call used to be fired and forgotten, so "Setup paused" could
+    // be spoken over a write that never landed (GREENFIELD F2).
+    await flushDrafts();
     if (PAUSE_REASONS.has(why)) {
       toast(PAUSE_TOAST, "info");
       showResumePill(beat);
@@ -808,6 +902,9 @@
     getState,
     seedRuntime,
     saveDraft,
+    flushDrafts,
+    writeDraftMirror,
+    readDraftMirror,
     maybeStart,
     open,
     goToBeat,
