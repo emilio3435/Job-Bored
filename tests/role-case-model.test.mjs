@@ -256,7 +256,11 @@ describe("scores that were never scored (P0-0c)", () => {
    These use a local evening west of UTC — the exact case that reads a day
    early in production. */
 describe("day counts are local calendar days (P0-0d)", () => {
-  const LOCAL_EVENING = Date.parse("2026-09-03T18:30:00-06:00");
+  /* Built as LOCAL wall clock, not a fixed instant: "18:30 on Sep 3" must mean
+     the same thing to the runner as it does to a user, or the suite only proves
+     the fix in the zone it was written in (CI runs UTC; this was authored in
+     MDT, where a pinned -06:00 instant silently passed and CI failed). */
+  const LOCAL_EVENING = new Date(2026, 8, 3, 18, 30, 0, 0).getTime();
   it("a follow-up due tomorrow is 1 day out, not 0, at 18:30 local", () => {
     const d = baseDeps({ nowMs: LOCAL_EVENING });
     d.vm.job.followUpDate = "2026-09-04";
