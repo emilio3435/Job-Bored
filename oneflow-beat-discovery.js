@@ -145,7 +145,7 @@
       "press Save & verify again.",
     no_local_server:
       "Couldn't reach the local server to check your key — is it still " +
-      "running? Start it with `npm run web-only`, then press Save & verify.",
+      "running? Start it with `npm run dev`, then press Save & verify.",
   });
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";

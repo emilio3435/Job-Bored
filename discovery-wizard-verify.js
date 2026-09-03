@@ -477,7 +477,7 @@
             : "The discovery worker needs a webhook secret.",
           detail: workerDownstream
             ? "Your Cloudflare relay forwarded the request, but the upstream worker fail-closed because DISCOVERY_SECRET is missing or wrong."
-            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. With `npm run dev` running, JobBored re-syncs the secret from your local worker and retries on its own — if it still fails, open Discovery drawer → Connection → Set it up for me, which writes and verifies it for you.",
+            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. With `npm run dev` running, JobBored re-syncs the secret from your local worker and retries on its own — if it still fails, open Discovery drawer → Connection → Open discovery setup, which writes and verifies it for you.",
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
@@ -488,7 +488,7 @@
               ].join("\n")
             : [
                 "1. Make sure `npm run dev` is running on this machine.",
-                "2. Open Discovery drawer → Connection → Set it up for me.",
+                "2. Open Discovery drawer → Connection → Open discovery setup.",
                 "3. Click Test webhook (or Run discovery) again.",
               ].join("\n"),
           // The relay needs a redeploy with the secret; a local worker does
@@ -532,12 +532,18 @@
           kind: "invalid_endpoint",
           engineState: workerDownstream ? "unverified" : "none",
           httpStatus: 400,
+          // The worker now explains this case in human terms ("No Google Sheet
+          // is connected yet…") and names the setup step that fixes it. Prefer
+          // its words: restating the API field name here overwrote the good
+          // copy with a developer message on exactly the journey it describes.
           message: workerDownstream
             ? "Relay reached your server, but no Sheet ID was provided."
-            : "Sheet ID is required.",
-          detail: workerDownstream
-            ? "The Worker forwarded the request successfully. The discovery server rejected it because the request payload did not include `sheetId`."
-            : "This endpoint expects a `sheetId` field in the request payload.",
+            : "No Google Sheet is connected yet.",
+          detail:
+            text(data && data.detail) ||
+            (workerDownstream
+              ? "The Worker forwarded the request successfully. The discovery server rejected it because the request payload did not include `sheetId`."
+              : "Discovery writes its results to your pipeline Sheet, so it needs one."),
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
