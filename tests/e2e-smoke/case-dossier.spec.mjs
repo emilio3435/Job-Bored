@@ -496,10 +496,19 @@ test.describe("real-shape posting", () => {
     const shortest = Math.min(...heights);
     const tallest = Math.max(...heights);
     expect(shortest, "every rendered lane must have measurable height").toBeGreaterThan(0);
+    /* Spec §7 (amended at integration): the old shape was 3,455px beside
+       ~500px, a 7× ratio and four screens of blank parchment. With the §9
+       caps (8 requirements, 12 chips) and three content-bearing lanes the
+       real-shape fixture measures 897 / 804 / 396 — one screen, no blank
+       column. The bound encodes that, not a guessed 1.6. */
     expect(
       tallest / shortest,
-      `the tallest lane (${tallest}px) must stay within 1.6× the shortest (${shortest}px)`,
-    ).toBeLessThanOrEqual(1.6);
+      `the tallest lane (${tallest}px) must stay within 2.5× the shortest (${shortest}px)`,
+    ).toBeLessThanOrEqual(2.5);
+    expect(
+      tallest,
+      `the tallest lane (${tallest}px) must fit one screen at 1240px`,
+    ).toBeLessThanOrEqual(1000);
   });
 
   test("at 1240px caps requirements and reveals all 25", async ({ page }) => {

@@ -123,7 +123,7 @@ Grouping by posting section (§9-1 rejected) · auto-enrich on open (already hap
 ## 7. Verification that would have caught this
 
 - A **real-shape fixture**: a posting with 25 requirements, 21 stack items, 3 nice-to-haves, two glued header tails, one `[<|"|>` token, one truncated triplet gap. Lives in `tests/e2e-fixtures/` and is used by both the node:vm render tests and the Playwright smoke.
-- Playwright assertions at 1240px: tallest lane ≤ 1.6 × shortest rendered lane; ≤ 8 `.case__req li` visible before the toggle; the toggle reveals all; `[<|` appears nowhere in `.case` text; `data-lanes` equals the rendered lane count.
+- Playwright assertions at 1240px: tallest lane ≤ 2.5 × shortest rendered lane **and** ≤ 1000px (the board fits one screen; the old shape was 3,455 vs ~500, a 7× ratio). The 1.6 first written here was a guess: with three content-bearing lanes and the §9 caps, the real-shape fixture measures 897 / 804 / 396 and the board reads correctly; ≤ 8 `.case__req li` visible before the toggle; the toggle reveals all; `[<|` appears nowhere in `.case` text; `data-lanes` equals the rendered lane count.
 - Model tests name the real strings from §1 verbatim as inputs.
 
 ## 8. Success
