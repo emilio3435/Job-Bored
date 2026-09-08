@@ -34,7 +34,15 @@ import {
 } from "./visual-gate-helpers.mjs";
 
 const OVERLAY = "#onboardingCelebration";
-const RUN_NOW = "Run discovery now";
+/**
+ * The payoff's footer primary, whatever readiness makes it. It used to be
+ * spelled "Run discovery now" here, but GREENFIELD C4 stopped offering a
+ * run B6 cannot make: on this hermetic cold start there is no Sheet, so the
+ * primary is `Connect Google to go live`. The claim this spec exists for is
+ * unchanged — the burst must not intercept the beat's primary — so it now
+ * names the button by its role in the footer instead of by one label.
+ */
+const PRIMARY = "#oneFlowMount .discovery-setup-wizard__btn--primary";
 
 let app = null;
 
@@ -56,6 +64,15 @@ test.afterAll(async () => {
  * burst, not for the animations to be over.
  */
 async function openPayoff(page) {
+  // GREENFIELD §4.1 gates `payoff` on `google`, so a cold start that jumps
+  // straight to B6 is redirected to Beat 1. The subject here is the finale
+  // burst, not the ordering rule: earn Beat 1 first, then jump.
+  await page.evaluate(async () => {
+    const flow = globalThis.JobBoredOneFlow;
+    if (!flow.getState().completedBeats.includes("google")) {
+      await flow.completeBeat("google");
+    }
+  });
   await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("payoff"));
   await page.waitForFunction(
     () =>
@@ -148,7 +165,7 @@ for (const viewport of [DESKTOP, PHONE]) {
       expect(fence.unexpectedExternal).toEqual([]);
     });
 
-    test(`should let Run discovery now be clicked while the burst is up (${label})`, async ({
+    test(`should let the payoff's primary be clicked while the burst is up (${label})`, async ({
       page,
     }) => {
       const fence = await installHermeticNetworkFence(page, {
@@ -159,17 +176,13 @@ for (const viewport of [DESKTOP, PHONE]) {
       await openPayoff(page);
       await raiseBurst(page);
 
-      const primary = page.getByRole("button", { name: RUN_NOW, exact: true });
+      const primary = page.locator(PRIMARY);
       await expect(primary).toBeVisible();
 
       // The rerun's own measurement, repeated: what is actually on top of
       // the payoff's primary right now?
-      const topmost = await page.evaluate((name) => {
-        const button = [
-          ...globalThis.document.querySelectorAll(
-            "#oneFlowMount .discovery-setup-wizard__btn",
-          ),
-        ].find((el) => (el.textContent || "").trim() === name);
+      const topmost = await page.evaluate((sel) => {
+        const button = globalThis.document.querySelector(sel);
         const box = button.getBoundingClientRect();
         const hit = globalThis.document.elementFromPoint(
           box.left + box.width / 2,
@@ -182,7 +195,7 @@ for (const viewport of [DESKTOP, PHONE]) {
           hitIsTheButton: hit === button || button.contains(hit),
           hitClass: hit ? hit.className : null,
         };
-      }, RUN_NOW);
+      }, PRIMARY);
 
       expect(topmost.overlayUp, "the burst is on screen for this click").toBe(
         true,
@@ -196,13 +209,17 @@ for (const viewport of [DESKTOP, PHONE]) {
       // clicks, so an intercepting overlay fails here instead of hiding.
       await primary.click({ timeout: 5_000 });
 
-      // And the beat answers. On a hermetic cold start there is no saved fit
-      // profile, so B6's intent guard is the honest response; a run that
-      // fires is the other. Either proves the click reached the beat.
+      // And the beat answers. On a hermetic cold start the primary is the
+      // readiness detour, so landing on the beat that owns the missing piece
+      // is the honest response (GREENFIELD C5); a run that fires, or B6's
+      // intent guard, is the other. Any of them proves the click landed.
       await page.waitForFunction(
         (mountSel) => {
           const mount = globalThis.document.querySelector(mountSel);
           if (!mount) return true; // the shell closed — the run went out
+          const beatId =
+            mount.querySelector(".oneflow-beat")?.dataset.beatId || "";
+          if (beatId && beatId !== "payoff") return true;
           const text = mount.textContent || "";
           return (
             text.includes("Sending your search…") ||
@@ -267,9 +284,7 @@ test.describe("the B6 finale under prefers-reduced-motion", () => {
     expect(motion.titleVisible, "the payoff line still reads").toBe(true);
     expect(motion.confettiDisplay, "no falling pieces").toBe("none");
 
-    await page
-      .getByRole("button", { name: RUN_NOW, exact: true })
-      .click({ timeout: 5_000 });
+    await page.locator(PRIMARY).click({ timeout: 5_000 });
 
     await page.waitForFunction(
       (sel) => globalThis.document.querySelector(sel).hasAttribute("hidden"),

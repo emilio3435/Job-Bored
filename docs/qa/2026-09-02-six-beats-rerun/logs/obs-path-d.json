@@ -1,0 +1,847 @@
+{
+  "observations": [
+    {
+      "surface": "D-b2",
+      "file": "path-d-01-b2-bad-key-entered.png",
+      "copy": {
+        "beatId": "ai",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now give it a brain.",
+        "sub": "One AI key powers everything personal here: it drafts your fit profile from your resume on the next screen, scores every job discovery finds, and writes your tailored resumes and cover letters. Gemini Flash is the recommended pin; OpenRouter is a free alternative.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "current"
+          },
+          {
+            "label": "Resume",
+            "state": "todo"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 10 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "GeminiRecommended. Free tier, and it lights up URL import and grounded search.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "OpenRouter — freeFree tier, no card, works straight from the browser.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "OpenAIPaid. It runs through the local server — keep npm start running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "AnthropicPaid. It runs through the local server — keep npm start running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "Local — on your machineNo key, no cost. Needs a model server (Ollama) already running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "Check & continue",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Gemini",
+          "Recommended. Free tier, and it lights up URL import and grounded search.",
+          "OpenRouter — free",
+          "Free tier, no card, works straight from the browser.",
+          "OpenAI",
+          "Paid. It runs through the local server — keep npm start running.",
+          "Anthropic",
+          "Paid. It runs through the local server — keep npm start running.",
+          "Local — on your machine",
+          "No key, no cost. Needs a model server (Ollama) already running.",
+          "Create a free OpenRouter account ↗",
+          "Copy your key.",
+          "Paste it here.",
+          "The key is stored in this browser and sent only to the provider you picked."
+        ]
+      },
+      "msSincePrevious": 0
+    },
+    {
+      "surface": "D-b2",
+      "file": "path-d-02-b2-error-state.png",
+      "copy": {
+        "beatId": "ai",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now give it a brain.",
+        "sub": "One AI key powers everything personal here: it drafts your fit profile from your resume on the next screen, scores every job discovery finds, and writes your tailored resumes and cover letters. Gemini Flash is the recommended pin; OpenRouter is a free alternative.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "current"
+          },
+          {
+            "label": "Resume",
+            "state": "todo"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 10 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": "Your OpenRouter API key is invalid. Paste a valid free key from https://openrouter.ai/keys.",
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "GeminiRecommended. Free tier, and it lights up URL import and grounded search.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "OpenRouter — freeFree tier, no card, works straight from the browser.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "OpenAIPaid. It runs through the local server — keep npm start running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "AnthropicPaid. It runs through the local server — keep npm start running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "Local — on your machineNo key, no cost. Needs a model server (Ollama) already running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "Check & continue",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Gemini",
+          "Recommended. Free tier, and it lights up URL import and grounded search.",
+          "OpenRouter — free",
+          "Free tier, no card, works straight from the browser.",
+          "OpenAI",
+          "Paid. It runs through the local server — keep npm start running.",
+          "Anthropic",
+          "Paid. It runs through the local server — keep npm start running.",
+          "Local — on your machine",
+          "No key, no cost. Needs a model server (Ollama) already running.",
+          "Create a free OpenRouter account ↗",
+          "Copy your key.",
+          "Paste it here.",
+          "The key is stored in this browser and sent only to the provider you picked.",
+          "Having trouble?",
+          "Wrong key: keys are easy to truncate on copy. Re-copy the whole string from the provider's page and paste it again — nothing before or after it.",
+          "Rate limit or no credit: free tiers throttle. Wait a minute and press Check & continue again, or switch to OpenRouter's free tier above.",
+          "Blocked by the browser (CORS): OpenAI and Anthropic refuse direct browser calls, so they run through the local server — keep npm start running in your terminal and try again.",
+          "Check your key on OpenRouter — free ↗"
+        ]
+      },
+      "msSincePrevious": 534,
+      "badKeyMs": 534,
+      "beatId": "ai",
+      "message": "Your OpenRouter API key is invalid. Paste a valid free key from https://openrouter.ai/keys.",
+      "troubleBlock": [
+        "Having trouble? Wrong key: keys are easy to truncate on copy. Re-copy the whole string from the provider's page and paste it again — nothing before or after it. Rate limit or no credit: free tiers throttle. Wait a minute and press Check & continue again, or switch to OpenRouter's free tier above. Blocked by the browser (CORS): OpenAI and Anthropic refuse direct browser calls, so they run through t"
+      ]
+    },
+    {
+      "surface": "D-b2",
+      "file": "path-d-03-b2-recovered.png",
+      "copy": {
+        "beatId": "resume",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Drop in your resume. We'll do the typing.",
+        "sub": "From this one file we'll draft your whole fit profile — target roles, strengths, what you want, what to avoid. You'll review everything on the next screen; nothing is saved until you approve it.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "current"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 8 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Draft from this text",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "I'd rather start from a template",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Drag your resume here — PDF, Word, or plain text.",
+          "…OR PASTE THE TEXT INSTEAD",
+          "Your resume stays in this browser and on this machine. We send the text to the AI provider you connected on the last screen, and nowhere else."
+        ]
+      },
+      "msSincePrevious": 5783
+    },
+    {
+      "surface": "B3",
+      "tag": "draft-failed-taking-template-fallback",
+      "message": "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY."
+    },
+    {
+      "surface": "D-b5",
+      "file": "path-d-04-b5-bad-serpapi-entered.png",
+      "copy": {
+        "beatId": "discovery",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now the engine: jobs come to you.",
+        "sub": "Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline. Only your search terms leave this machine. Set up once; it runs itself.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "done"
+          },
+          {
+            "label": "Discovery",
+            "state": "current"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 4 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Use this endpoint",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary"
+          },
+          {
+            "text": "Save & verify",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Set it up for me",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Skip the connection for now — your keys are saved; jobs won't arrive on their own until you connect.",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "First, the fuel: Google's job index.",
+          "Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100+ boards at once. Free key, 100 searches a month — plenty for daily runs. Three steps, about 60 seconds.",
+          "1. Create a free SerpApi account (Google login works, no card needed).1 · Create your free account ↗",
+          "2. Copy your API key from the dashboard — it's the first thing on the page.2 · Copy your API key ↗",
+          "3. Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
+          "SERPAPI API KEY",
+          "Then the connection: let it run on its own.",
+          "One click sets this up over Tailscale — a free private network between your own devices. Nothing is exposed to the internet.",
+          "Add your SerpApi key above first — the engine needs fuel before it needs a connection.",
+          "Run without Tailscale, or paste your own endpoint"
+        ]
+      },
+      "msSincePrevious": 0
+    },
+    {
+      "surface": "D-b5",
+      "file": "path-d-05-b5-serpapi-result.png",
+      "copy": {
+        "beatId": "discovery",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now the engine: jobs come to you.",
+        "sub": "Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline. Only your search terms leave this machine. Set up once; it runs itself.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "done"
+          },
+          {
+            "label": "Discovery",
+            "state": "current"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 4 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": "Google Jobs index connected — 100 searches/mo.",
+        "stages": [
+          "✓ Saving your key…",
+          "✓ Google Jobs index connected — 100 searches/mo"
+        ],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Use this endpoint",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary"
+          },
+          {
+            "text": "Save & verify",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Set it up for me",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Skip the connection for now — your keys are saved; jobs won't arrive on their own until you connect.",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "First, the fuel: Google's job index.",
+          "Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100+ boards at once. Free key, 100 searches a month — plenty for daily runs. Three steps, about 60 seconds.",
+          "1. Create a free SerpApi account (Google login works, no card needed).1 · Create your free account ↗",
+          "2. Copy your API key from the dashboard — it's the first thing on the page.2 · Copy your API key ↗",
+          "3. Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
+          "SERPAPI API KEY",
+          "✓ Google Jobs index connected — 100 searches/mo",
+          "Then the connection: let it run on its own.",
+          "One click sets this up over Tailscale — a free private network between your own devices. Nothing is exposed to the internet.",
+          "Run without Tailscale, or paste your own endpoint"
+        ]
+      },
+      "msSincePrevious": 71,
+      "badFuelMs": 71,
+      "message": "Google Jobs index connected — 100 searches/mo.",
+      "messageTone": "discovery-setup-wizard__message discovery-setup-wizard__message--success",
+      "connectEnabled": true,
+      "skipEnabled": true
+    },
+    {
+      "surface": "D-b5",
+      "file": "path-d-06-b5-skip-available.png",
+      "copy": {
+        "beatId": "discovery",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now the engine: jobs come to you.",
+        "sub": "Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline. Only your search terms leave this machine. Set up once; it runs itself.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "done"
+          },
+          {
+            "label": "Discovery",
+            "state": "current"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 4 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": "Google Jobs index connected — 100 searches/mo.",
+        "stages": [
+          "✓ Saving your key…",
+          "✓ Google Jobs index connected — 100 searches/mo"
+        ],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Use this endpoint",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary"
+          },
+          {
+            "text": "Save & verify",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Set it up for me",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Skip the connection for now — your keys are saved; jobs won't arrive on their own until you connect.",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "First, the fuel: Google's job index.",
+          "Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100+ boards at once. Free key, 100 searches a month — plenty for daily runs. Three steps, about 60 seconds.",
+          "1. Create a free SerpApi account (Google login works, no card needed).1 · Create your free account ↗",
+          "2. Copy your API key from the dashboard — it's the first thing on the page.2 · Copy your API key ↗",
+          "3. Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
+          "SERPAPI API KEY",
+          "✓ Google Jobs index connected — 100 searches/mo",
+          "Then the connection: let it run on its own.",
+          "One click sets this up over Tailscale — a free private network between your own devices. Nothing is exposed to the internet.",
+          "Run without Tailscale, or paste your own endpoint"
+        ]
+      },
+      "msSincePrevious": 1349,
+      "skipLabel": "Skip the connection for now — your keys are saved; jobs won't arrive on their own until you connect."
+    },
+    {
+      "surface": "D-b6",
+      "file": "path-d-07-b6-adapted-payoff.png",
+      "copy": {
+        "beatId": "payoff",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "You're live.",
+        "sub": "That was the one-time part. From here, JobBored works for you.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "done"
+          },
+          {
+            "label": "Discovery",
+            "state": "done"
+          },
+          {
+            "label": "Done",
+            "state": "current"
+          }
+        ],
+        "spineTime": "almost done",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Go to my dashboard",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Actually — connect discovery",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "That was the one-time part. From here, JobBored works for you.",
+          "YOUR SEARCH",
+          "ROLES",
+          "Director of Performance Marketing · Senior Marketing Manager",
+          "YOUR EDGE",
+          "Performance marketing · Brand & content · Analytics & experimentation",
+          "WHAT HAPPENS NOW",
+          "✓ AI connected — Gemini",
+          "○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below",
+          "✓ Pipeline sheet connected —",
+          "open it ↗",
+          "⏱ First matches land tomorrow morning — or run it right now and watch.",
+          "More power-ups — URL import, grounded search, other devices — live in Settings → Upgrades, each one click, none required."
+        ]
+      },
+      "msSincePrevious": 1985,
+      "beatId": "payoff",
+      "cards": [
+        "YOUR SEARCH ROLES Director of Performance Marketing · Senior Marketing Manager YOUR EDGE Performance marketing · Brand & content · Analytics & experimentation WHAT HAPPENS NOW ✓ AI connected — Gemini ○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below ✓ Pipeline sheet connected — open it ↗ ⏱ First matches land tomorrow morning — or run it right now and watch.",
+        "YOUR SEARCH ROLES Director of Performance Marketing · Senior Marketing Manager YOUR EDGE Performance marketing · Brand & content · Analytics & experimentation",
+        "YOUR SEARCH",
+        "WHAT HAPPENS NOW ✓ AI connected — Gemini ○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below ✓ Pipeline sheet connected — open it ↗ ⏱ First matches land tomorrow morning — or run it right now and watch.",
+        "WHAT HAPPENS NOW"
+      ],
+      "footer": ""
+    },
+    {
+      "surface": "FATAL",
+      "tag": "run-aborted",
+      "fatal": {
+        "message": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button').filter({ hasText: 'Go to my dashboard' }).first()\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" data-step-id=\"payoff\" data-action-kind=\"action\" data-wizard-action=\"action\" data-action-id=\"payoff_dashboard\" class=\"discovery-setup-wizard__btn discovery-setup-wizard__btn--primary\">Go to my dashboard</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div role=\"dialog\" aria-modal=\"true\" aria-hidden=\"false\" id=\"onboardingCelebration\" aria-labelledby=\"onboardingCelebrationTitle\" class=\"onboarding-celebration onboarding-celebration--in\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div role=\"dialog\" aria-modal=\"true\" aria-hidden=\"false\" id=\"onboardingCelebration\" aria-labelledby=\"onboardingCelebrationTitle\" class=\"onboarding-celebration onboarding-celebration--in\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    58 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div role=\"dialog\" aria-modal=\"true\" aria-hidden=\"false\" id=\"onboardingCelebration\" aria-labelledby=\"onboardingCelebrationTitle\" class=\"onboarding-celebration onboarding-celebration--in\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n",
+        "stack": "locator.click: Timeout 30000ms exceeded. | Call log: | \u001b[2m  - waiting for locator('button').filter({ hasText: 'Go to my dashboard' }).first()\u001b[22m | \u001b[2m    - locator resolved to <button type=\"button\" data-step-id=\"payoff\" data-action-kind=\"action\" data-wizard-action=\"action\" data-action-id=\"payoff_dashboard\" class=\"discovery-setup-wizard__btn discovery-setup-wizard__btn--primary\">Go to my dashboard</button>\u001b[22m | \u001b[2m  - attempting click action\u001b[22m"
+      }
+    }
+  ],
+  "fatal": {
+    "message": "locator.click: Timeout 30000ms exceeded.\nCall log:\n\u001b[2m  - waiting for locator('button').filter({ hasText: 'Go to my dashboard' }).first()\u001b[22m\n\u001b[2m    - locator resolved to <button type=\"button\" data-step-id=\"payoff\" data-action-kind=\"action\" data-wizard-action=\"action\" data-action-id=\"payoff_dashboard\" class=\"discovery-setup-wizard__btn discovery-setup-wizard__btn--primary\">Go to my dashboard</button>\u001b[22m\n\u001b[2m  - attempting click action\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div role=\"dialog\" aria-modal=\"true\" aria-hidden=\"false\" id=\"onboardingCelebration\" aria-labelledby=\"onboardingCelebrationTitle\" class=\"onboarding-celebration onboarding-celebration--in\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m    - waiting 20ms\u001b[22m\n\u001b[2m    2 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m      - element is visible, enabled and stable\u001b[22m\n\u001b[2m      - scrolling into view if needed\u001b[22m\n\u001b[2m      - done scrolling\u001b[22m\n\u001b[2m      - <div role=\"dialog\" aria-modal=\"true\" aria-hidden=\"false\" id=\"onboardingCelebration\" aria-labelledby=\"onboardingCelebrationTitle\" class=\"onboarding-celebration onboarding-celebration--in\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m    - retrying click action\u001b[22m\n\u001b[2m      - waiting 100ms\u001b[22m\n\u001b[2m    58 × waiting for element to be visible, enabled and stable\u001b[22m\n\u001b[2m       - element is visible, enabled and stable\u001b[22m\n\u001b[2m       - scrolling into view if needed\u001b[22m\n\u001b[2m       - done scrolling\u001b[22m\n\u001b[2m       - <div role=\"dialog\" aria-modal=\"true\" aria-hidden=\"false\" id=\"onboardingCelebration\" aria-labelledby=\"onboardingCelebrationTitle\" class=\"onboarding-celebration onboarding-celebration--in\">…</div> intercepts pointer events\u001b[22m\n\u001b[2m     - retrying click action\u001b[22m\n\u001b[2m       - waiting 500ms\u001b[22m\n",
+    "stack": "locator.click: Timeout 30000ms exceeded. | Call log: | \u001b[2m  - waiting for locator('button').filter({ hasText: 'Go to my dashboard' }).first()\u001b[22m | \u001b[2m    - locator resolved to <button type=\"button\" data-step-id=\"payoff\" data-action-kind=\"action\" data-wizard-action=\"action\" data-action-id=\"payoff_dashboard\" class=\"discovery-setup-wizard__btn discovery-setup-wizard__btn--primary\">Go to my dashboard</button>\u001b[22m | \u001b[2m  - attempting click action\u001b[22m"
+  },
+  "log": {
+    "shots": [
+      {
+        "file": "path-d-01-b2-bad-key-entered.png",
+        "hash": "74ee1029f7fc3c3b",
+        "surface": "D-b2"
+      },
+      {
+        "file": "path-d-02-b2-error-state.png",
+        "hash": "c5822941a52ecc5b",
+        "surface": "D-b2"
+      },
+      {
+        "file": "path-d-03-b2-recovered.png",
+        "hash": "25421de15f68822c",
+        "surface": "D-b2"
+      },
+      {
+        "file": "path-d-04-b5-bad-serpapi-entered.png",
+        "hash": "b4f0283b6c197762",
+        "surface": "D-b5"
+      },
+      {
+        "file": "path-d-05-b5-serpapi-result.png",
+        "hash": "b772f1a44521937f",
+        "surface": "D-b5"
+      },
+      {
+        "file": "path-d-06-b5-skip-available.png",
+        "hash": "b772f1a44521937f",
+        "surface": "D-b5"
+      },
+      {
+        "file": "path-d-07-b6-adapted-payoff.png",
+        "hash": "426315c8e2af428b",
+        "surface": "D-b6"
+      }
+    ],
+    "console": [
+      {
+        "type": "error",
+        "text": "Access to fetch at 'http://127.0.0.1:3847/api/applications' from origin 'http://localhost:8095' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "at": "/?greenfield=1:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "at": "http://127.0.0.1:3847/api/applications:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/config.js:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Refused to execute script from 'http://localhost:8095/config.js' because its MIME type ('text/plain') is not executable, and strict MIME type checking is enabled.",
+        "at": "/?greenfield=1:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored startup] window:error {kind: resource, target: http://localhost:8095/config.js}",
+        "at": "/?greenfield=1:94:27",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 401 ()",
+        "at": "https://openrouter.ai/api/v1/chat/completions:0:0",
+        "surface": "D-b2"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 ()",
+        "at": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash:generateContent?key=<redacted>:0:0",
+        "surface": "D-b2"
+      },
+      {
+        "type": "warning",
+        "text": "[JobBored] Gemini model \"gemini-flash\" was rejected; retrying with gemini-3.5-flash.",
+        "at": "/resume-generate.js:579:16",
+        "surface": "D-b2"
+      },
+      {
+        "type": "error",
+        "text": "Access to fetch at 'http://127.0.0.1:3847/api/llm-config' from origin 'http://localhost:8095' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "at": "/:0:0",
+        "surface": "D-b2"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "at": "http://127.0.0.1:3847/api/llm-config:0:0",
+        "surface": "D-b2"
+      },
+      {
+        "type": "warning",
+        "text": "[JobBored] llm-config pin POST failed: Failed to fetch",
+        "at": "/oneflow-beat-ai.js:525:14",
+        "surface": "D-b2"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "at": "/profile/from-resume:0:0",
+        "surface": "D-b2"
+      },
+      {
+        "type": "error",
+        "text": "Access to fetch at 'http://127.0.0.1:3847/api/applications/queue' from origin 'http://localhost:8095' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "at": "/:0:0",
+        "surface": "D-b6"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "at": "http://127.0.0.1:3847/api/applications/queue:0:0",
+        "surface": "D-b6"
+      }
+    ],
+    "network": [
+      {
+        "method": "GET",
+        "url": "http://127.0.0.1:3847/api/applications",
+        "status": "FAILED",
+        "ms": 16,
+        "failure": "net::ERR_FAILED",
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/config.js",
+        "status": 403,
+        "ms": 34,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/config.js",
+        "status": "FAILED",
+        "ms": 35,
+        "failure": "net::ERR_ABORTED",
+        "surface": "boot"
+      },
+      {
+        "method": "POST",
+        "url": "https://openrouter.ai/api/v1/chat/completions",
+        "status": 401,
+        "ms": 463,
+        "surface": "D-b2"
+      },
+      {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash:generateContent?key=<redacted>",
+        "status": 404,
+        "ms": 508,
+        "surface": "D-b2"
+      },
+      {
+        "method": "POST",
+        "url": "http://127.0.0.1:3847/api/llm-config",
+        "status": "FAILED",
+        "ms": 4,
+        "failure": "net::ERR_FAILED",
+        "surface": "D-b2"
+      },
+      {
+        "method": "POST",
+        "url": "http://localhost:8095/profile/from-resume",
+        "status": 500,
+        "ms": 297,
+        "surface": "D-b2"
+      },
+      {
+        "method": "GET",
+        "url": "http://127.0.0.1:3847/api/applications/queue",
+        "status": "FAILED",
+        "ms": 6,
+        "failure": "net::ERR_FAILED",
+        "surface": "D-b6"
+      }
+    ],
+    "pageErrors": [
+      {
+        "type": "pageerror",
+        "text": "Cannot read properties of null (reading 'appendChild')",
+        "stack": "TypeError: Cannot read properties of null (reading 'appendChild') |     at <anonymous>:15:28 |     at <anonymous>:34:3 |     at <anonymous>:36:7",
+        "surface": "boot"
+      }
+    ]
+  }
+}

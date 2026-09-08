@@ -38,6 +38,9 @@
   const SHEET_URL_INPUT_ID = "oneFlowSheetUrlInput";
   const CLIENT_ID_INPUT_ID = "oneFlowOauthClientIdInput";
 
+  /** GREENFIELD-SPEC §4.4 — locked copy for the no-Client-ID state. */
+  const DETOUR_PROMPT = "Paste your Client ID to continue.";
+
   /** How long to wait for the GIS popup before saying so out loud. */
   const SIGN_IN_TIMEOUT_MS = 120000;
   const SIGN_IN_POLL_MS = 250;
@@ -51,6 +54,9 @@
     mode: "signin", // "signin" | "existing"
     sheetUrlDraft: "",
     clientIdDraft: "",
+    // The first-timer detour is collapsed until the beat needs it — which
+    // is the moment Continue with Google has nothing to continue with.
+    detourOpen: false,
     stages: [],
   };
 
@@ -242,6 +248,7 @@
 
   function renderDetour(ctx) {
     const details = el("details", "oneflow-google__detour");
+    if (state.detourOpen) details.open = true;
     details.appendChild(
       el(
         "summary",
@@ -334,6 +341,22 @@
     return details;
   }
 
+  function oauthClientId() {
+    return String(call("getOAuthClientId") || "").trim();
+  }
+
+  /**
+   * The shell builds a step body DETACHED and attaches it afterwards, so a
+   * focus() during render lands on a node that is not in the document yet.
+   * One tick later it is, and `fields.clientId` points at the live input.
+   */
+  function focusClientIdSoon() {
+    setTimeout(() => {
+      const node = fields.clientId;
+      if (node && typeof node.focus === "function") node.focus();
+    }, 0);
+  }
+
   function saveClientId(ctx) {
     const raw = String(readField("clientId", "clientIdDraft") || "").trim();
     if (!/\.apps\.googleusercontent\.com$/i.test(raw)) {
@@ -346,7 +369,13 @@
       return;
     }
     call("mergeStoredConfigOverridePatch", { oauthClientId: raw });
-    call("applyOAuthClientChange", raw);
+    if (call("applyOAuthClientChange", raw) !== true) {
+      // Greenfield boot: initAuth() ran with no Client ID, so GIS was never
+      // initialized and the in-place re-init above refuses. Run the
+      // first-time init now that the id is saved — tryInit picks it up and
+      // builds the token client in-session, no reload needed.
+      call("initAuth");
+    }
     repaint(ctx, "Client ID saved. Continue with Google below.", "success");
   }
 
@@ -436,7 +465,18 @@
 
   async function continueWithGoogle(ctx) {
     if (!host()) {
+      clearStages(ctx);
       repaint(ctx, "JobBored is still starting up. Reload the page and try again.", "error");
+      return;
+    }
+
+    // No Client ID: Google cannot sign anyone in, so asking is the dead end
+    // (GREENFIELD-SPEC §1 F4). The detour right here on the beat is the
+    // answer — never the Settings modal, which is out of the flow.
+    if (!oauthClientId()) {
+      state.detourOpen = true;
+      repaint(ctx, DETOUR_PROMPT, "info");
+      focusClientIdSoon();
       return;
     }
 
@@ -639,6 +679,7 @@
   window.JobBoredOneFlowBeatGoogle = {
     HEADLINE,
     SUB,
+    DETOUR_PROMPT,
     handleAction,
     getRenderedStages() {
       return state.stages.slice();
