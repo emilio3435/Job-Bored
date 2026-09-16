@@ -34,6 +34,7 @@ import {
   USER_PROFILE_SCHEMA_VERSION,
 } from "../contracts/user-profile.ts";
 import type { ListingScoreCache } from "../state/listing-score-cache.ts";
+import { inferRemoteBucket } from "./lead-normalizer.ts";
 
 // ═══════════════════════════════════════════════════════════════════════════
 // NEW: Pre-filter (deterministic, no LLM cost)
@@ -70,12 +71,23 @@ export function runPreFilter(
     }
   }
 
-  // 2. workMode = remote_only AND remoteBucket !== "remote"
-  if (hc.workMode === "remote_only" && rawListing.remoteBucket !== "remote") {
+  // 2. workMode = remote_only AND (inferred) remoteBucket !== "remote"
+  // Use inference to avoid hard-rejecting ATS listings that omit remote flags
+  // when the location/title/description clearly indicate remote.
+  const effectiveRemoteBucket =
+    hc.workMode === "remote_only"
+      ? inferRemoteBucket({
+          remoteBucket: rawListing.remoteBucket,
+          location: rawListing.location,
+          title: rawListing.title,
+          descriptionText: rawListing.descriptionText,
+        })
+      : rawListing.remoteBucket || "unknown";
+  if (hc.workMode === "remote_only" && effectiveRemoteBucket !== "remote") {
     return {
       pass: false,
       reason: "work_mode_mismatch",
-      detail: `Profile requires remote_only; listing remoteBucket=${rawListing.remoteBucket || "unknown"}.`,
+      detail: `Profile requires remote_only; listing remoteBucket=${effectiveRemoteBucket || "unknown"}.`,
     };
   }
 
