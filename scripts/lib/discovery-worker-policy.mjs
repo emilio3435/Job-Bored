@@ -53,3 +53,21 @@ export function decideAfterChildExit({ signal, initiatedByUs, replacementHealthy
   if (!signal) return "exit";
   return replacementHealthy ? "hold" : "respawn";
 }
+
+/**
+ * After the starter starts holding for an existing worker (reuse, failed
+ * restart, or a healthy replacement after our child was SIGTERM'd), each
+ * health probe must decide whether to keep holding or take the port back.
+ *
+ * A dead held worker cannot leave a zombie noop holder: under `npm run dev`
+ * that holder is the concurrently child, so nothing else respawns :8644
+ * (observed 2026-09-16 — starter alive for hours, no child, connection
+ * refused). Our own Ctrl-C / concurrently teardown still exits.
+ *
+ * @param {{ heldWorkerHealthy: boolean, shuttingDown: boolean }} input
+ * @returns {"keep_holding" | "respawn" | "exit"}
+ */
+export function decideHeldWorkerAction({ heldWorkerHealthy, shuttingDown }) {
+  if (shuttingDown) return "exit";
+  return heldWorkerHealthy ? "keep_holding" : "respawn";
+}
