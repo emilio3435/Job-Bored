@@ -180,6 +180,46 @@ export function parseDiscoveryRunsCells(
   };
 }
 
+export type DiscoveryRunLogErrorInput = {
+  status: DiscoveryRunStatusCell | string;
+  writeError?: { phase?: string; message?: string } | null;
+  error?: string;
+  reasonMessage?: string;
+  warnings?: readonly string[];
+};
+
+/**
+ * Error column text for DiscoveryRuns.
+ *
+ * Contract: blank only when status is success. Partial/failure used to drop
+ * warnings and lifecycle.reasonMessage, which made the Daily Brief panel show
+ * Partial + 0/0/0 with a blank Error even when the worker knew why.
+ */
+export function formatDiscoveryRunLogError(
+  input: DiscoveryRunLogErrorInput,
+): string {
+  const status = String(input.status || "").toLowerCase();
+  if (status === "success" || status === "completed" || status === "empty") {
+    return "";
+  }
+  const writeMessage = String(input.writeError?.message || "").trim();
+  if (writeMessage) {
+    const phase = String(input.writeError?.phase || "").trim();
+    return phase
+      ? `Sheet write failed during ${phase} phase: ${writeMessage}`
+      : writeMessage;
+  }
+  const explicit = String(input.error || "").trim();
+  if (explicit) return explicit;
+  const warnings = (input.warnings || [])
+    .map((warning) => String(warning || "").trim())
+    .filter(Boolean);
+  if (warnings[0]) return warnings[0];
+  const reason = String(input.reasonMessage || "").trim();
+  if (reason) return reason;
+  return "Discovery finished with partial results, but no warning text was recorded.";
+}
+
 export function buildDiscoveryRunLogRowFromStatus(
   status: DiscoveryRunStatusPayload,
   extras: {
@@ -208,7 +248,13 @@ export function buildDiscoveryRunLogRowFromStatus(
     leadsUpdated: Number(status.writeResult?.updated) || 0,
     source: extras.source || "worker",
     variationKey: String(status.request?.variationKey || ""),
-    error: logStatus === "success" ? "" : String(status.error || ""),
+    error: formatDiscoveryRunLogError({
+      status: logStatus,
+      writeError: status.writeResult?.writeError,
+      error: status.error,
+      reasonMessage: status.lifecycle?.reasonMessage,
+      warnings: status.warnings,
+    }),
   };
 }
 

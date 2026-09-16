@@ -8,7 +8,9 @@ import type {
 import { DISCOVERY_RUNS_SHEET_NAME } from "../../src/contracts.ts";
 import {
   appendDiscoveryRunRow,
+  buildDiscoveryRunLogRowFromStatus,
   createDiscoveryRunsLogger,
+  formatDiscoveryRunLogError,
 } from "../../src/sheets/discovery-runs-writer.ts";
 
 function makeRuntimeConfig(
@@ -391,4 +393,82 @@ test("createDiscoveryRunsLogger returns a bound append function that shares the 
   });
   const result = await logger.append("sheet-123", makeRow());
   assert.equal(result.ok, true);
+});
+
+test("formatDiscoveryRunLogError keeps success blank and prefers write errors", () => {
+  assert.equal(
+    formatDiscoveryRunLogError({ status: "success", warnings: ["ignored"] }),
+    "",
+  );
+  assert.match(
+    formatDiscoveryRunLogError({
+      status: "failure",
+      writeError: { phase: "append", message: "403 permission denied" },
+      warnings: ["later warning"],
+    }),
+    /append phase: 403 permission denied/,
+  );
+});
+
+test("formatDiscoveryRunLogError surfaces the first warning when Partial has no writeError", () => {
+  assert.equal(
+    formatDiscoveryRunLogError({
+      status: "partial",
+      warnings: [
+        "No target companies stored yet. ATS is using built-in example seeds (Scale AI, Figma, Notion).",
+        "Grounded web scout timed out",
+      ],
+      reasonMessage: "No surface discoveries were made.",
+    }),
+    "No target companies stored yet. ATS is using built-in example seeds (Scale AI, Figma, Notion).",
+  );
+});
+
+test("buildDiscoveryRunLogRowFromStatus copies warnings into Error for Partial", () => {
+  const row = buildDiscoveryRunLogRowFromStatus({
+    runId: "run_partial_zeros",
+    status: "partial",
+    terminal: true,
+    message: "Discovery completed with warnings — worker processed the run.",
+    trigger: "manual",
+    request: {
+      sheetId: "sheet-123",
+      variationKey: "8df3036921415e00",
+      requestedAt: "2026-09-16T16:42:00.000Z",
+    },
+    acceptedAt: "2026-09-16T16:42:00.000Z",
+    startedAt: "2026-09-16T16:42:00.000Z",
+    completedAt: "2026-09-16T16:44:44.000Z",
+    updatedAt: "2026-09-16T16:44:44.000Z",
+    warnings: [
+      "Grounded web Google Search skipped: optional Gemini google_search tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
+    ],
+    sources: [],
+    lifecycle: {
+      runId: "run_partial_zeros",
+      trigger: "manual",
+      startedAt: "2026-09-16T16:42:00.000Z",
+      completedAt: "2026-09-16T16:44:44.000Z",
+      state: "partial",
+      companyCount: 0,
+      detectionCount: 0,
+      listingCount: 0,
+      normalizedLeadCount: 0,
+      reasonMessage:
+        "No surface discoveries were made by ATS or browser scouts. Check configured companies, intent keywords, and ATS board availability.",
+    },
+    writeResult: {
+      sheetId: "sheet-123",
+      appended: 0,
+      updated: 0,
+      skippedDuplicates: 0,
+      skippedBlacklist: 0,
+      warnings: [],
+    },
+  });
+  assert.equal(row.status, "partial");
+  assert.equal(row.companiesSeen, 0);
+  assert.equal(row.leadsWritten, 0);
+  assert.equal(row.leadsUpdated, 0);
+  assert.match(row.error, /Gemini google_search|No surface discoveries/i);
 });
