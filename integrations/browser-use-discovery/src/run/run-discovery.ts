@@ -29,7 +29,10 @@ import type {
   SupportedSourceId,
 } from "../contracts.ts";
 import { ATS_SOURCE_IDS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
-import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
+import {
+  type DiscoveryRunsLogger,
+  resolveDiscoveryRunLogError,
+} from "../sheets/discovery-runs-writer.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
 import { effectiveAtsCompanySeeds } from "../discovery/company-keys.ts";
 import { resolveEffectiveCompanyPools } from "../discovery/effective-intent.ts";
@@ -282,6 +285,23 @@ function hasNonBlankModifierIntent(config: ResolvedRunSettings): boolean {
   );
 }
 
+function countConfiguredCompanies(config: {
+  companies?: Array<{ name?: string; companyKey?: string }>;
+  atsCompanies?: Array<{ name?: string; companyKey?: string }>;
+}): number {
+  const keys = new Set<string>();
+  for (const company of [
+    ...(config.companies || []),
+    ...(config.atsCompanies || []),
+  ]) {
+    const key = String(company.companyKey || company.name || "")
+      .trim()
+      .toLowerCase();
+    if (key) keys.add(key);
+  }
+  return keys.size;
+}
+
 export async function runDiscovery(
   request: DiscoveryWebhookRequestV1,
   trigger: "manual" | "scheduled",
@@ -397,10 +417,11 @@ export async function runDiscovery(
   const groundedScoutFailures = new Map<string, unknown>();
   let pendingGroundedExploit = false;
   // VAL-API-010 / VAL-ROUTE-011: Only warn about missing companies when the run
-  // cannot proceed without them. If grounded_web is in effectiveSources and we
-  // have valid modifier intent (targetRoles, keywordsInclude, etc.), the run can
-  // execute in unrestricted scope driven by modifiers alone - no misleading warning needed.
-  if (!config.companies.length) {
+  // cannot proceed without them. ATS seeds live on `atsCompanies` (and may be
+  // the only list after a fresh local bring-up). If grounded_web is in
+  // effectiveSources and we have valid modifier intent, the run can execute in
+  // unrestricted scope driven by modifiers alone — no misleading warning.
+  if (!config.companies.length && !(config.atsCompanies || []).length) {
     const hasModifierIntent = hasNonBlankModifierIntent(config);
     const canRunUnrestricted = config.effectiveSources.includes("grounded_web");
     if (!hasModifierIntent || !canRunUnrestricted) {
@@ -1541,6 +1562,21 @@ export async function runDiscovery(
     extractionResultsBySource,
     rejectionSummaryBySource,
   );
+  const companyCount = countConfiguredCompanies(config);
+  const logStatus = mapLifecycleStateToLogStatus(lifecycleState, writeResult);
+  const failureAttribution = classifyFailureReason(
+    lifecycleState,
+    writeResult,
+    loopCounters,
+    warnings,
+    config.effectiveSources,
+  );
+  const logError = resolveDiscoveryRunLogError({
+    status: logStatus,
+    writeError: writeResult.writeError,
+    reasonMessage: failureAttribution.reasonMessage,
+    warnings,
+  });
 
   // DiscoveryRuns sheet log (contract §3 / docs/INTERFACE-DISCOVERY-RUNS.md).
   // Best-effort: a logging failure must never fail the run itself.
@@ -1555,16 +1591,14 @@ export async function runDiscovery(
       const logRow: DiscoveryRunLogRow = {
         runAt: completedAt,
         trigger: resolveDiscoveryRunTrigger(request.trigger, trigger),
-        status: mapLifecycleStateToLogStatus(lifecycleState, writeResult),
+        status: logStatus,
         durationS,
-        companiesSeen: config.companies.length,
+        companiesSeen: companyCount,
         leadsWritten: writeResult.appended,
         leadsUpdated: writeResult.updated,
         source: dependencies.discoveryRunsSource || "worker",
         variationKey: request.variationKey || "",
-        error: writeResult.writeError
-          ? `Sheet write failed during ${writeResult.writeError.phase} phase: ${writeResult.writeError.message}`
-          : "",
+        error: logError,
       };
       const logResult = await dependencies.discoveryRunsLogger.append(
         config.sheetId,
@@ -1598,7 +1632,7 @@ export async function runDiscovery(
       startedAt,
       completedAt,
       state: lifecycleState,
-      companyCount: config.companies.length,
+      companyCount,
       detectionCount,
       listingCount,
       normalizedLeadCount: leadsToWrite.length,
@@ -1609,13 +1643,7 @@ export async function runDiscovery(
       // so telemetry consumers always have counter data regardless of run outcome.
       loopCounters,
       // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
-      ...classifyFailureReason(
-        lifecycleState,
-        writeResult,
-        loopCounters,
-        warnings,
-        config.effectiveSources,
-      ),
+      ...failureAttribution,
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,
