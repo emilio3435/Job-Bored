@@ -90,7 +90,12 @@ describe("runPreFilter", () => {
 
   test("workMode=remote_only rejects listings with unknown remoteBucket when location is clearly onsite", () => {
     const result = runPreFilter(
-      makeListing({ remoteBucket: "unknown", location: "New York, NY" }),
+      makeListing({
+        remoteBucket: "unknown",
+        location: "New York, NY",
+        // Avoid "distributed systems" triggering a remote inference via 'distributed'
+        descriptionText: "Work on backend services and APIs.",
+      }),
       makeProfile({ workMode: "remote_only" }),
     );
     assert.equal(result.pass, false);
