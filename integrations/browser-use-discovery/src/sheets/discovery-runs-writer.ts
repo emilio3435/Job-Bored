@@ -180,6 +180,71 @@ export function parseDiscoveryRunsCells(
   };
 }
 
+const MISSING_REQUIREMENT_ERROR_PATTERNS = [
+  /BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured/i,
+  /Gemini google_search/i,
+  /Gemini API key/i,
+  /Browser Use session manager is unavailable/i,
+  /SERPAPI_API_KEY is not configured/i,
+  /no companies and no role\/keyword intent/i,
+  /No companies are configured/i,
+  /exceeded its maximum duration/i,
+  /marked terminal after/i,
+];
+
+/**
+ * Build the DiscoveryRuns Error cell for a non-success row.
+ *
+ * Partial-with-zeros used to write a blank Error whenever `writeError` was
+ * absent, even though the run already had warnings and a reasonMessage.
+ * Prefer a concrete missing-requirement warning, then the classified
+ * reason, then any other warning / status message.
+ */
+export function resolveDiscoveryRunLogError(input: {
+  status: DiscoveryRunStatusCell | string;
+  writeError?: { phase?: string; message?: string } | null;
+  error?: string;
+  reasonMessage?: string;
+  warnings?: readonly string[];
+  message?: string;
+}): string {
+  const logStatus = mapStatusToLogCell(String(input.status || ""));
+  if (logStatus === "success") return "";
+
+  const writeError = input.writeError;
+  if (writeError?.message) {
+    const phase = writeError.phase ? ` during ${writeError.phase} phase` : "";
+    return truncate(
+      `Sheet write failed${phase}: ${writeError.message}`,
+      ERROR_MAX_LENGTH,
+    );
+  }
+
+  const explicit = String(input.error || "").trim();
+  if (explicit) return truncate(explicit, ERROR_MAX_LENGTH);
+
+  const warnings = (input.warnings || [])
+    .map((warning) => String(warning || "").trim())
+    .filter(Boolean);
+  const missingRequirement = warnings.find((warning) =>
+    MISSING_REQUIREMENT_ERROR_PATTERNS.some((pattern) => pattern.test(warning)),
+  );
+  if (missingRequirement) return truncate(missingRequirement, ERROR_MAX_LENGTH);
+
+  const reason = String(input.reasonMessage || "").trim();
+  if (reason) return truncate(reason, ERROR_MAX_LENGTH);
+  if (warnings[0]) return truncate(warnings[0], ERROR_MAX_LENGTH);
+
+  const message = String(input.message || "").trim();
+  if (message && !/^Discovery completed/i.test(message)) {
+    return truncate(message, ERROR_MAX_LENGTH);
+  }
+  if (logStatus === "partial") {
+    return "Discovery finished partial with 0 leads and no recorded reason.";
+  }
+  return truncate(message || "Discovery failed.", ERROR_MAX_LENGTH);
+}
+
 export function buildDiscoveryRunLogRowFromStatus(
   status: DiscoveryRunStatusPayload,
   extras: {
@@ -208,7 +273,14 @@ export function buildDiscoveryRunLogRowFromStatus(
     leadsUpdated: Number(status.writeResult?.updated) || 0,
     source: extras.source || "worker",
     variationKey: String(status.request?.variationKey || ""),
-    error: logStatus === "success" ? "" : String(status.error || ""),
+    error: resolveDiscoveryRunLogError({
+      status: logStatus,
+      writeError: status.writeResult?.writeError,
+      error: status.error,
+      reasonMessage: status.lifecycle?.reasonMessage,
+      warnings: status.warnings,
+      message: status.message,
+    }),
   };
 }
 

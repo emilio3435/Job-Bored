@@ -65,6 +65,8 @@ export function createSafetyTimer(
         terminal: true,
         message:
           "Discovery run exceeded its maximum duration; reporting partial results.",
+        error:
+          "Discovery run exceeded its maximum duration; reporting partial results.",
         completedAt: nowIso,
         updatedAt: nowIso,
         warnings: [

@@ -141,6 +141,9 @@ export function buildCompletedRunStatus(
     writeResult: result.writeResult,
     warnings: [...result.warnings],
     sources: result.sourceSummary.map(cloneSourceSummary),
+    ...(result.lifecycle.state === "partial" && result.lifecycle.reasonMessage
+      ? { error: result.lifecycle.reasonMessage }
+      : {}),
     // Expose resolved control-plane snapshot for VAL-API-001..005 validation.
     // These fields are only present at terminal state after config resolution.
     ultraPlanTuning: result.run.config.ultraPlanTuning,
