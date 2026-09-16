@@ -413,7 +413,10 @@ export async function runDiscovery(
     if (!hasModifierIntent || !canRunUnrestricted) {
       warnings.push("No companies are configured for this discovery run.");
     }
-    if (isBuiltInAtsCompanySeedList(config.atsCompanies)) {
+    if (
+      isBuiltInAtsCompanySeedList(config.atsCompanies) &&
+      config.effectiveSources.some((sourceId) => isAtsSourceId(sourceId))
+    ) {
       warnings.push(
         "No target companies stored yet. ATS is using built-in example seeds (Scale AI, Figma, Notion). Refresh companies from your profile, or add companies, before expecting relevant leads.",
       );
