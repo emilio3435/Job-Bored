@@ -244,7 +244,10 @@ const run = async () => {
 
   for (const variant of VARIANTS) {
     for (const width of WIDTHS) {
-      const page = await browser.newPage({ viewport: { width, height: 1000 }, deviceScaleFactor: 2 });
+      /* 1x for the full-dossier stills: a 1116px frame at 1x is exactly what
+         the dogfooder sees. The materials crop below re-shoots at 2x, where
+         the mid-word shredding is the detail that matters. */
+      const page = await browser.newPage({ viewport: { width, height: 1000 }, deviceScaleFactor: 1 });
       await page.goto(`file://${PROBE}?variant=${variant.id}`);
       await page.waitForSelector(".case__board");
       await page.evaluate(() => document.fonts.ready);
@@ -266,11 +269,26 @@ const run = async () => {
            the crop the dogfood report is describing. */
         if (width === 1440) {
           const rows = await page.$('[data-mount="materials"]');
-          if (rows) await rows.screenshot({ path: resolve(SHOTS, `before-materials-rows-${variant.id}.png`) });
+          if (rows) {
+            const hi = await browser.newPage({ viewport: { width, height: 1000 }, deviceScaleFactor: 2 });
+            await hi.goto(`file://${PROBE}?variant=${variant.id}`);
+            await hi.waitForSelector('[data-mount="materials"] .case__doc');
+            await hi.evaluate(() => document.fonts.ready);
+            await (await hi.$('[data-mount="materials"]'))
+              .screenshot({ path: resolve(SHOTS, `before-materials-rows-${variant.id}.png`) });
+            await hi.close();
+          }
         }
 
-        await page.evaluate(() => document.documentElement.classList.add("probe-paint"));
-        await el.screenshot({ path: resolve(SHOTS, `before-${variant.id}-${width}-overflow.png`) });
+        /* The painted pass is available (html.probe-paint) but is not
+           committed: it highlights almost nothing, because the shipped
+           layout does not overflow its frame — it crushes its own tracks
+           instead. That absence is the finding, and it is reported as a
+           number (escapes: 0) rather than as an empty picture. */
+        if (process.env.PROBE_PAINT === "1") {
+          await page.evaluate(() => document.documentElement.classList.add("probe-paint"));
+          await el.screenshot({ path: resolve(SHOTS, `before-${variant.id}-${width}-overflow.png`) });
+        }
       }
       await page.close();
     }

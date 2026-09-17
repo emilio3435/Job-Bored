@@ -21,18 +21,21 @@ const HERE = dirname(fileURLToPath(import.meta.url));
 const MOCKS = resolve(HERE, "..", "mocks");
 const SHOTS = resolve(HERE, "..", "screenshots");
 
+/* `scale` is deviceScaleFactor. A full 1220px dossier is ~2400px tall, so
+   it ships at 1x — which is exactly what the reader sees on screen — and
+   only the crops, where type detail is the point, go to 2x. */
 const SHOTS_TO_TAKE = [
-  { out: "after-default-1440", page: "01-default.html", width: 1560, target: '[data-mount="wide"] .dossier' },
-  { out: "after-default-1440-annotated", page: "01-default.html?annotate=1", width: 1560, target: '[data-mount="wide"] .dossier' },
-  { out: "after-default-1280", page: "01-default.html", width: 1400, target: '[data-mount="narrow-laptop"] .dossier' },
-  { out: "after-scrolled-1440", page: "02-scrolled.html?y=980", width: 1560, viewportShot: true, height: 900 },
-  { out: "after-materials-drafting", page: "03-materials-request.html", width: 1560, target: '[data-mount="drafting"] .dossier' },
-  { out: "after-materials-failed", page: "03-materials-request.html", width: 1560, target: '[data-mount="failed"] .dossier' },
-  { out: "after-materials-rows", page: "03-materials-request.html", width: 1560, target: '[data-mount="rows"]' },
-  { out: "after-narrow-900", page: "04-narrow.html", width: 1000, target: '[data-mount="w900"] .dossier' },
-  { out: "after-narrow-390", page: "04-narrow.html", width: 470, target: '[data-mount="w390"] .dossier' },
-  { out: "after-states", page: "05-states.html", width: 1560, target: ".mock-grid" },
-  { out: "after-annotation-legend", page: "01-default.html?annotate=1", width: 1400, target: ".mock-legend" },
+  { out: "after-default-1440", page: "01-default.html", width: 1560, target: '[data-mount="wide"] .dossier', scale: 1 },
+  { out: "after-default-1440-annotated", page: "01-default.html?annotate=1", width: 1560, target: '[data-mount="wide"] .dossier', scale: 1 },
+  { out: "after-default-1280", page: "01-default.html", width: 1400, target: '[data-mount="narrow-laptop"] .dossier', scale: 1 },
+  { out: "after-scrolled-1440", page: "02-scrolled.html?y=980", width: 1560, viewportShot: true, height: 900, scale: 1 },
+  { out: "after-materials-drafting", page: "03-materials-request.html", width: 1560, target: '[data-mount="drafting"] .dossier', scale: 1 },
+  { out: "after-materials-failed", page: "03-materials-request.html", width: 1560, target: '[data-mount="failed"] .dossier', scale: 1 },
+  { out: "after-materials-rows", page: "03-materials-request.html", width: 1560, target: '[data-mount="rows"]', scale: 2 },
+  { out: "after-narrow-900", page: "04-narrow.html", width: 1000, target: '[data-mount="w900"] .dossier', scale: 1 },
+  { out: "after-narrow-390", page: "04-narrow.html", width: 470, target: '[data-mount="w390"] .dossier', scale: 2 },
+  { out: "after-states", page: "05-states.html", width: 1560, target: ".mock-grid", scale: 1 },
+  { out: "after-annotation-legend", page: "01-default.html?annotate=1", width: 1400, target: ".mock-legend", scale: 2 },
 ];
 
 /* Widths the audit measures the full dossier at. The mock pages pin
@@ -130,7 +133,7 @@ const run = async () => {
   for (const s of SHOTS_TO_TAKE) {
     const page = await browser.newPage({
       viewport: { width: s.width, height: s.height || 1000 },
-      deviceScaleFactor: 2,
+      deviceScaleFactor: s.scale || 1,
     });
     await page.goto(`file://${resolve(MOCKS, s.page)}`);
     await page.waitForSelector(".dossier, .mock-shelf");
