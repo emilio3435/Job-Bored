@@ -892,6 +892,14 @@ async function runResumeGeneration(dataIndex, feature, options) {
     const text = (genResult && genResult.cleanText) || "";
     const insights = (genResult && genResult.insights) || null;
     const insightsError = (genResult && genResult.insightsError) || "";
+    // Honest UX: some providers can return only the sentinel block or an
+    // otherwise-empty body. Treat an empty draft as a failure so the user
+    // sees clear guidance instead of a blank preview that looks like success.
+    if (!String(text).trim()) {
+      throw new Error(
+        "The AI provider returned an empty draft. Adjust your instructions and try again, or switch providers in Settings.",
+      );
+    }
     const userTitle = options && typeof options.title === "string" ? options.title.trim() : "";
     let savedDraft = null;
     const UC2 = materialsState().getUserContent();
@@ -1049,6 +1057,13 @@ async function refineLastResumeGeneration() {
     const nextText = (genResult && genResult.cleanText) || "";
     const insights = (genResult && genResult.insights) || null;
     const insightsError = (genResult && genResult.insightsError) || "";
+    // Same honesty rule as initial generation: an empty refinement is a
+    // failure, not a silent "success" with a blank document.
+    if (!String(nextText).trim()) {
+      throw new Error(
+        "Refinement returned an empty draft. Keep or adjust your feedback and try again.",
+      );
+    }
     let savedDraft = null;
     const UC = materialsState().getUserContent();
     if (UC && typeof UC.saveGeneratedDraft === "function") {
