@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier audit — current 3-column layout, overflow probe</title>
+
+<!-- The real cascade, in index.html's order for the role region. Nothing is
+     re-implemented here: the probe loads production CSS and the production
+     renderer so the numbers it reports are the shipped layout's numbers. -->
+<link rel="stylesheet" href="../../../../vendor/fonts/fonts.css">
+<link rel="stylesheet" href="../../../../style.css">
+<link rel="stylesheet" href="../../../../tokens-v2.css">
+<link rel="stylesheet" href="../../../../jb-v2.css">
+<link rel="stylesheet" href="../../../../jb-type.css">
+<link rel="stylesheet" href="../../../../jb-ui.css">
+<link rel="stylesheet" href="../../../../jb-a11y.css">
+<link rel="stylesheet" href="../../../../role.css">
+<link rel="stylesheet" href="../../../../role-case.css">
+
+<style>
+  /* Probe chrome only — never inside [data-region="role"], so it cannot
+     perturb what is being measured. */
+  body { margin: 0; padding: 24px 0 96px; }
+  .probe-note {
+    width: min(1180px, calc(100% - 48px)); margin: 0 auto 20px;
+    font-family: "JetBrains Mono", ui-monospace, monospace; font-size: 11px;
+    letter-spacing: 0.08em; text-transform: uppercase; color: #7A7468;
+    display: flex; flex-wrap: wrap; gap: 6px 18px;
+  }
+  .probe-note b { color: #B23A48; }
+
+  /* Overflow paint: added by measure.mjs via <html class="probe-paint">, so
+     the unpainted render stays byte-clean for screenshots. Every element whose
+     ink leaves the .case content box gets a red hatch; every element that
+     overflows its own box gets an amber outline. */
+  html.probe-paint [data-probe="escapes"] {
+    outline: 2px solid rgba(178, 58, 72, 0.9) !important;
+    background-image: repeating-linear-gradient(45deg,
+      rgba(178, 58, 72, 0.16) 0 6px, transparent 6px 12px) !important;
+  }
+  html.probe-paint [data-probe="self-overflow"] {
+    outline: 2px dashed rgba(231, 181, 73, 0.95) !important;
+  }
+</style>
+</head>
+<body class="jb-v2">
+
+<div class="probe-note">
+  <span>Audit probe</span>
+  <span>current <b>.case__board</b> = repeat(3, minmax(0, 1fr))</span>
+  <span>fixture: 3E · AI &amp; Marketing Analytics Manager</span>
+</div>
+
+<!-- The production region wrapper, verbatim from index.html + role.js. -->
+<section data-region="role" aria-label="Role dossier (v2)">
+  <div class="dossier">
+    <article class="brief" data-mount="brief"></article>
+  </div>
+</section>
+
+<script src="../../../../jb-text.js"></script>
+<script src="../../../../stage-registry.js"></script>
+<script src="../../../../recruiter-strip.js"></script>
+<script src="../../../../dossier-field-provenance.js"></script>
+<script src="../../../../role-case-model.js"></script>
+<script src="../../../../role-case.js"></script>
+<script src="fixture-3e.js"></script>
+<script>
+  /* Build the model through the production assembler with an injected dep bag
+     (collectDeps reads the live app, which does not exist here). */
+  var deps = window.JobBoredAuditFixture.deps();
+  var model = window.JobBoredCase.model.buildCaseModel(deps.vm.job.jobKey, deps);
+  var mount = document.querySelector('[data-mount="brief"]');
+  window.JobBoredCase.render(mount, model);
+
+  /* role-materials.js owns [data-mount="materials"] at runtime and needs the
+     whole materials/profile stack to boot, so the probe mounts the same rows
+     its renderCaseRows() emits. The markup is transcribed from
+     role-materials.js renderCaseRows (rows + section wrapper); the fixture
+     picks the state, not the shape. */
+  var matMount = document.querySelector('[data-mount="materials"]');
+  if (matMount) matMount.innerHTML = window.JobBoredAuditFixture.materialsRowsHtml();
+</script>
+</body>
+</html>
