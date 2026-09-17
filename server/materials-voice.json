@@ -1,0 +1,78 @@
+{
+  "contract": "materials.voice.v1",
+  "version": "materials.voice.v3.0",
+  "note": "Deterministic half of the delint stage. A user copy at ~/.jobbored/profile/voice.md overrides `guide`; `banned`, `taglines`, and `cadence` are additive-only so a user cannot unban filler.",
+  "guide": {
+    "oneLine": "Direct, evidence-first, KPI to business outcome. Sounds like a readout, not a brand deck.",
+    "do": [
+      "Short sentences next to one longer one. Uneven on purpose.",
+      "Concrete nouns from the posting: readout, skills, connections, stage conversion, Demand Gen.",
+      "One vivid artifact per document.",
+      "First person in the letter; no I-spam on the resume.",
+      "Name the analog plainly instead of implying it."
+    ],
+    "dont": [
+      "Title stacking (\"X and Y with 10+ years optimizing...\").",
+      "Abstract noun piles.",
+      "Mission flattery.",
+      "Three consecutive bullets with the same grammar skeleton.",
+      "Claiming a tool the ledger records at level `none`."
+    ]
+  },
+  "banned": [
+    { "pattern": "leverage", "severity": "fail", "note": "classic filler" },
+    { "pattern": "synergize", "severity": "fail" },
+    { "pattern": "passionate about", "severity": "fail" },
+    { "pattern": "results-driven", "severity": "fail" },
+    { "pattern": "proven track record", "severity": "fail" },
+    { "pattern": "i am excited", "severity": "fail", "note": "flagged by the 3E dogfood run" },
+    { "pattern": "i'm excited", "severity": "fail" },
+    { "pattern": "excited to", "severity": "fail" },
+    { "pattern": "thrilled", "severity": "fail" },
+    { "pattern": "honored to", "severity": "fail" },
+    { "pattern": "distinctive opportunity", "severity": "fail", "note": "the 3E posting's own phrase" },
+    { "pattern": "unique opportunity", "severity": "fail" },
+    { "pattern": "hit the ground running", "severity": "fail" },
+    { "pattern": "value-add", "severity": "fail" },
+    { "pattern": "circle back", "severity": "fail" },
+    { "pattern": "transform how", "severity": "fail", "note": "transform as a self-verb" },
+    { "pattern": "transformative", "severity": "fail" },
+    { "pattern": "utilize", "severity": "fail" },
+    { "pattern": "facilitate", "severity": "review" },
+    { "pattern": "drive alignment", "severity": "fail" },
+    { "pattern": "seasoned professional", "severity": "fail" },
+    { "pattern": "dynamic leader", "severity": "fail" },
+    { "pattern": "thought leader", "severity": "fail" },
+    { "pattern": "deeply committed", "severity": "fail" },
+    { "pattern": "wealth of experience", "severity": "fail" },
+    { "pattern": "in today's", "severity": "review", "note": "essay opener" },
+    { "pattern": "i believe i would be", "severity": "fail" },
+    { "pattern": "perfect fit", "severity": "fail" },
+    { "pattern": "i would love the opportunity", "severity": "fail" },
+    { "pattern": "look forward to hearing", "severity": "review", "note": "replace with a concrete next step" }
+  ],
+  "taglines": [
+    { "pattern": "and the systems behind it", "severity": "fail", "note": "old template voice" },
+    { "pattern": "turning data into insights", "severity": "fail" },
+    { "pattern": "at the intersection of", "severity": "fail" },
+    { "pattern": "wear many hats", "severity": "fail" }
+  ],
+  "resumeSpeak": [
+    { "pattern": "responsible for", "severity": "review" },
+    { "pattern": "duties included", "severity": "fail" },
+    { "pattern": "team player", "severity": "fail" },
+    { "pattern": "detail-oriented", "severity": "fail" },
+    { "pattern": "self-starter", "severity": "fail" },
+    { "pattern": "go-to person", "severity": "review" }
+  ],
+  "cadence": {
+    "adjectiveStackMin": 3,
+    "parallelBulletRun": 3,
+    "letterEmDashMax": 2,
+    "letterSentenceWordsMax": 44,
+    "titleStackPattern": "\\b(manager|engineer|analyst|director|lead)\\b[^.]{0,40}\\band\\b[^.]{0,40}\\b(manager|engineer|analyst|director|lead)\\b[^.]{0,60}\\b\\d+\\+?\\s*years\\b"
+  },
+  "jdEcho": {
+    "windowWords": 8
+  }
+}
