@@ -1,5 +1,5 @@
 {
-  "generatedAt": "2026-09-17T18:35:04.621Z",
+  "generatedAt": "2026-09-17T18:57:27.491Z",
   "runs": [
     {
       "page": "01-default.html",
@@ -117,19 +117,38 @@
     },
     {
       "page": "04-narrow.html",
-      "mount": "w900",
-      "viewport": 1000,
-      "frameWidth": 900,
-      "columns": "846px",
-      "canvasWidth": 846,
-      "ledgerWidth": 846,
+      "mount": "w1024",
+      "viewport": 1100,
+      "frameWidth": 1024,
+      "columns": "586.219px 352px",
+      "canvasWidth": 586.2,
+      "ledgerWidth": 352,
       "docketPosition": "sticky",
       "frameOverflowX": "visible",
       "docNameCols": [
-        753,
-        706.6,
-        706.6,
-        706.6
+        259,
+        212.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w900",
+      "viewport": 1000,
+      "frameWidth": 900,
+      "columns": "851.312px",
+      "canvasWidth": 851.3,
+      "ledgerWidth": 851.3,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        758.3,
+        711.9,
+        711.9,
+        711.9
       ],
       "overflow": [],
       "shredded": []
@@ -139,16 +158,16 @@
       "mount": "w720",
       "viewport": 800,
       "frameWidth": 720,
-      "columns": "676.406px",
-      "canvasWidth": 676.4,
-      "ledgerWidth": 676.4,
+      "columns": "678px",
+      "canvasWidth": 678,
+      "ledgerWidth": 678,
       "docketPosition": "sticky",
       "frameOverflowX": "visible",
       "docNameCols": [
-        583.4,
-        537,
-        537,
-        537
+        585,
+        538.6,
+        538.6,
+        538.6
       ],
       "overflow": [],
       "shredded": []

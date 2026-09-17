@@ -61,7 +61,12 @@
      subtracts the shell gutter a second time and leaves it 104px
      narrower than the pipeline above it. */
   --dsr-frame-max: 1220px;
-  --dsr-pad-x: clamp(20px, 2.6vw, 36px);
+  /* cqi, not vw. The frame's own gutter must scale with the frame, or the
+     column threshold below cannot be computed: a vw-based padding makes the
+     space available to the tracks a function of the window, which is the
+     class of bug this redesign exists to remove. Used only on descendants of
+     .dossier, so cqi always resolves against the frame. */
+  --dsr-pad-x: clamp(20px, 2.6cqi, 36px);
 
   /* NEW 2 — bounded tracks. The canvas holds prose and is capped at a
      reading measure; the ledger holds widgets and is never narrower
@@ -70,7 +75,7 @@
   --dsr-canvas-max: 46rem;
   --dsr-ledger-min: 20rem;
   --dsr-ledger-max: 22rem;
-  --dsr-col-gap: clamp(24px, 3vw, 44px);
+  --dsr-col-gap: clamp(24px, 3cqi, 44px);
 
   /* NEW 3 — the docket parks below the app's sticky chrome. The host
      app owns the real number; this is the fallback. */
@@ -92,7 +97,7 @@
 
   width: min(var(--dsr-frame-max), 100%);
   margin-inline: auto;
-  padding: 0 0 clamp(28px, 3vw, 44px);
+  padding: 0 0 2.5rem;
 
   background: var(--parchment);
   border: 1px solid var(--border);
@@ -129,7 +134,7 @@
     "crest identity"
     "flags flags";
   gap: 14px 18px;
-  padding: clamp(20px, 2.2vw, 26px) var(--dsr-pad-x);
+  padding: clamp(20px, 2.2cqi, 26px) var(--dsr-pad-x);
   background: var(--navy);
   color: var(--parchment);
 }
@@ -175,7 +180,7 @@
 .dossier__title {
   margin: 0;
   font-family: var(--serif);
-  font-size: clamp(23px, 2.1vw, 30px);
+  font-size: clamp(23px, 2.5cqi, 30px);
   font-weight: 500;
   line-height: 1.15;
   letter-spacing: -0.01em;
@@ -259,6 +264,11 @@
 .dossier__pill--open { border-color: var(--mint-deep); color: var(--mint); }
 .dossier__pill--due { border-color: var(--amber); color: var(--amber); }
 .dossier__pill--alarm { border-color: var(--crimson); color: var(--crimson-soft); }
+/* The posting link. A navigation affordance among status pills, so it earns a
+   brighter border and a hover — it is the only interactive thing up here. */
+.dossier__pill--link { border-color: rgb(251 247 236 / 55%); text-decoration: none; }
+.dossier__pill--link:hover { border-color: var(--amber); color: var(--amber); }
+.dossier__pill--link:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
 
 .dossier__dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
 .dossier__dot--mint { background: var(--mint-deep); box-shadow: 0 0 0 3px rgb(110 159 135 / 25%); }
@@ -271,14 +281,14 @@
    source: see ../SPEC.md §4 for the derivation.
    ------------------------------------------------------------ */
 .dossier__verdict {
-  padding: clamp(16px, 1.8vw, 22px) var(--dsr-pad-x) 0;
+  padding: clamp(16px, 1.8cqi, 22px) var(--dsr-pad-x) 0;
 }
 
 .dossier__verdict-line {
   margin: 0;
   max-width: 54ch;
   font-family: var(--serif);
-  font-size: clamp(16px, 1.35vw, 19px);
+  font-size: clamp(16px, 1.6cqi, 19px);
   line-height: 1.45;
   color: var(--navy);
   text-wrap: pretty;
@@ -294,7 +304,7 @@
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
   gap: 1px;
-  margin: clamp(16px, 1.8vw, 22px) 0 0;
+  margin: clamp(16px, 1.8cqi, 22px) 0 0;
   padding: 0;
   list-style: none;
   background: var(--border);
@@ -553,15 +563,26 @@
 .dossier__body {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
-  gap: clamp(24px, 3vw, 36px) var(--dsr-col-gap);
-  padding: clamp(22px, 2.4vw, 30px) var(--dsr-pad-x) 0;
+  gap: clamp(24px, 3cqi, 36px) var(--dsr-col-gap);
+  padding: clamp(22px, 2.4cqi, 30px) var(--dsr-pad-x) 0;
 }
 
-/* 57rem = canvas floor (34) + ledger floor (20) + the widest gap
-   (2.75). Below it there is not enough room for both tracks at the
-   widths their contents are designed for, so there is one column.
-   That is the guarantee the shipped board does not make. */
-@container dossier (inline-size >= 57rem) {
+/* The threshold is arithmetic, and the arithmetic includes the frame's
+   own gutter — which is the mistake worth naming, because leaving the
+   padding out of it is how you get a two-column grid whose tracks are
+   wider than the box they sit in:
+
+     canvas floor        34.00rem
+     ledger floor        20.00rem
+     widest column gap    2.75rem
+     gutter × 2           4.50rem
+     ------------------------------
+                         61.25rem   → engage at 62rem (992px)
+
+   Below it there is not enough room for both tracks at the widths their
+   contents are designed for, so there is one column. That is the
+   guarantee `repeat(3, minmax(0, 1fr))` does not make. */
+@container dossier (inline-size >= 62rem) {
   .dossier__body {
     grid-template-columns:
       minmax(var(--dsr-canvas-min), var(--dsr-canvas-max))
@@ -578,7 +599,7 @@
   container-name: canvas;
   min-width: 0;
   display: grid;
-  gap: clamp(24px, 2.6vw, 34px);
+  gap: clamp(24px, 2.6cqi, 34px);
 }
 
 .dossier__ledger {
@@ -586,7 +607,7 @@
   container-name: ledger;
   min-width: 0;
   display: grid;
-  gap: clamp(20px, 2.2vw, 28px);
+  gap: clamp(20px, 2.2cqi, 28px);
   align-content: start;
 }
 
@@ -1226,7 +1247,7 @@
   display: grid;
   grid-template-columns: 1.1rem minmax(0, 1fr);
   gap: 4px 11px;
-  margin: clamp(16px, 1.8vw, 22px) var(--dsr-pad-x) 0;
+  margin: clamp(16px, 1.8cqi, 22px) var(--dsr-pad-x) 0;
   padding: 13px 15px;
   border: 1px solid var(--amber);
   border-left-width: 3px;

@@ -59,6 +59,17 @@
         + '<span class="dossier__dot dossier__dot--' + esc(p.dot) + '"></span>' + esc(p.text) + "</span>";
     }).join("");
 
+    /* The link to the posting is an identity affordance, not a role action:
+       it belongs with "via Google Jobs · found · posted", not with the
+       controls that change this role. Moving it out of the docket also gives
+       the stage stepper back ~125px, which is the difference between six
+       stages fitting and the last one scrolling out of view. */
+    if (id.postingHref) {
+      flags += '<a class="dossier__pill dossier__pill--link" data-action="brief-view-posting"'
+        + ' href="' + attr(id.postingHref) + '" target="_blank" rel="noopener">'
+        + 'View posting <span aria-hidden="true">&#8599;</span></a>';
+    }
+
     return '<header class="dossier__masthead">'
       + '<div class="dossier__crest">' + esc((id.company || "?").charAt(0).toUpperCase()) + "</div>"
       + '<div class="dossier__identity">'
@@ -110,7 +121,13 @@
       steps = '<div class="dossier__stepper"><span class="dossier__terminal">'
         + esc(stage.terminalLabel) + "</span></div>";
     } else {
-      var cur = stage.order.indexOf(stage.current);
+      /* order is a list of {key,label}, so the live step is found by key —
+         indexOf(stage.current) on that list is always -1, which silently
+         leaves every step un-marked. */
+      var cur = -1;
+      for (var si = 0; si < stage.order.length; si++) {
+        if (stage.order[si].key === stage.current) { cur = si; break; }
+      }
       steps = '<div class="dossier__stepper" role="group" aria-label="Stage">'
         + stage.order.map(function (s, i) {
           var state = i < cur ? "done" : (i === cur ? "now" : "");

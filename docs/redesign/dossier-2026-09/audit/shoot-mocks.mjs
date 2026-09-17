@@ -29,8 +29,11 @@ const SHOTS_TO_TAKE = [
   { out: "after-default-1440-annotated", page: "01-default.html?annotate=1", width: 1560, target: '[data-mount="wide"] .dossier', scale: 1 },
   { out: "after-default-1280", page: "01-default.html", width: 1400, target: '[data-mount="narrow-laptop"] .dossier', scale: 1 },
   { out: "after-scrolled-1440", page: "02-scrolled.html?y=980", width: 1560, viewportShot: true, height: 900, scale: 1 },
-  { out: "after-materials-drafting", page: "03-materials-request.html", width: 1560, target: '[data-mount="drafting"] .dossier', scale: 1 },
-  { out: "after-materials-failed", page: "03-materials-request.html", width: 1560, target: '[data-mount="failed"] .dossier', scale: 1 },
+  /* These two mounts are `.mock-crop` wrappers, so the crop itself is the
+     target: an element screenshot of the .dossier inside would capture the
+     full element box and pick up whatever is painted where the crop hides it. */
+  { out: "after-materials-drafting", page: "03-materials-request.html", width: 1560, target: '[data-mount="drafting"]', scale: 1 },
+  { out: "after-materials-failed", page: "03-materials-request.html", width: 1560, target: '[data-mount="failed"]', scale: 1 },
   { out: "after-materials-rows", page: "03-materials-request.html", width: 1560, target: '[data-mount="rows"]', scale: 2 },
   { out: "after-narrow-900", page: "04-narrow.html", width: 1000, target: '[data-mount="w900"] .dossier', scale: 1 },
   { out: "after-narrow-390", page: "04-narrow.html", width: 470, target: '[data-mount="w390"] .dossier', scale: 2 },
@@ -45,6 +48,10 @@ const AUDIT = [
   { page: "01-default.html", mount: "wide", widths: [1560, 1400] },
   { page: "03-materials-request.html", mount: "drafting", widths: [1560, 1400] },
   { page: "03-materials-request.html", mount: "failed", widths: [1560, 1400] },
+  /* 1024 is the tightest two-column case: the frame is 32px above the 62rem
+     threshold, so both tracks sit at their floors. This is the width that
+     catches a threshold whose arithmetic forgot the frame's own gutter. */
+  { page: "04-narrow.html", mount: "w1024", widths: [1100] },
   { page: "04-narrow.html", mount: "w900", widths: [1000] },
   { page: "04-narrow.html", mount: "w720", widths: [800] },
   { page: "04-narrow.html", mount: "w390", widths: [470] },
@@ -97,6 +104,28 @@ const collect = (mount) => {
   const canvas = root.querySelector(".dossier__canvas");
   const ledger = root.querySelector(".dossier__ledger");
   const docket = root.querySelector(".dossier__docket");
+
+  /* A two-column grid whose tracks are wider than the box they sit in does
+     not report as element overflow — grid just overflows the padding box and
+     the frame's clip-path eats it. So check it directly: the sum of the
+     tracks plus the gap must fit the body's content width. */
+  if (body) {
+    const bcs = getComputedStyle(body);
+    const tracks = bcs.gridTemplateColumns.split(" ").map(parseFloat).filter(Number.isFinite);
+    if (tracks.length > 1) {
+      const gap = parseFloat(bcs.columnGap) || 0;
+      const need = tracks.reduce((a, b) => a + b, 0) + gap * (tracks.length - 1);
+      const have = body.clientWidth - parseFloat(bcs.paddingLeft) - parseFloat(bcs.paddingRight);
+      if (need > have + 0.5) {
+        overflow.push({
+          el: "dossier__body (tracks exceed content box)",
+          overflowPx: round(need - have),
+          boxPx: round(have),
+          text: bcs.gridTemplateColumns,
+        });
+      }
+    }
+  }
 
   return {
     frameWidth: round(root.getBoundingClientRect().width),

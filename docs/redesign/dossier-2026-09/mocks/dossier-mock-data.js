@@ -251,11 +251,13 @@
     var actions = [
       { label: "Draft cover letter", action: "resume-cover", primary: true },
       { label: "Tailor resume", action: "resume-tailor" },
-      { label: "View posting", action: "brief-view-posting", href: "https://boards.greenhouse.io/3e/jobs/4416622007" },
     ];
+    /* A run in flight replaces the request button: the in-flight chip is the
+       control, so the same request cannot be issued twice from one surface. */
     if (v === "materials-drafting" || v === "materials-failed") {
       actions = actions.slice(1);
     }
+    if (v === "terminal") actions = [];
 
     var inflight = null;
     if (v === "materials-drafting") inflight = { text: "Drafting cover letter · 1m 07s" };
@@ -314,6 +316,7 @@
 
     return {
       identity: {
+        postingHref: "https://boards.greenhouse.io/3e/jobs/4416622007",
         title: v === "long-title" ? LONG_TITLE : "AI & Marketing Analytics Manager",
         company: v === "long-title" ? "Fanatics Betting & Gaming" : "3E",
         facts: [

@@ -41,10 +41,10 @@
   var LEGEND = [
     ["Masthead", "Identity only: who, what, where, and the posting's own facts as a wrapping definition list. The title is text that wraps — not an input that silently truncates at 81px."],
     ["Editable in place", "Title, company, location, salary, contact and dates keep the frozen data-action=\"edit-field\" contract. Display is text; clicking enters edit."],
-    ["Flags", "A bounded column, so pills can never take width from the title. Only deadline and health live here; everything else moved to the verdict."],
+    ["Flags", "A bounded column, so pills can never take width from the title. Deadline, posting health, and the link to the posting — which belongs with the posting facts, not with the controls that change this role."],
     ["Verdict line", "The lede the shipped dossier has no equivalent of. One derived sentence: standing, gap, next. No new data sources."],
     ["Stage stepper", "A scroller with an edge fade and scroll-snap, inside the sticky docket. Roving tabindex, aria-current on the live step."],
-    ["Docket", "Sticky under the app chrome. Stage on the left, the actions that change this role on the right, and the in-flight drafting run between them — so the reader can act from anywhere in the page."],
+    ["Docket", "Sticky under the app chrome. Stage on the left, the actions that change this role on the right, and the in-flight drafting run between them — so the reader can act from anywhere in the page. Keeping the posting link out of it is what makes all six stage labels fit."],
     ["They want", "Prose lives in the canvas at a 34–46rem measure. Requirement rows have a 12rem floor on the text track, so the status word can never crush the line."],
     ["You have", "Strengths, evidence, gaps and the scorecard bars, in the same column as the requirements they answer — the comparison the three-column board split across a 44px gutter."],
     ["Materials", "First in the ledger, at the top right. Two rows of two areas: name and state, then meta, then actions. The buttons never share a line with the label, which is what shredded \"Cover letter\" into nine lines."],
