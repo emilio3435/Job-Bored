@@ -21,6 +21,7 @@ import type {
   TriggerKind,
 } from "../contracts.ts";
 import type { RunDiscoveryResult } from "../run/run-discovery.ts";
+import { formatDiscoveryRunLogError } from "../sheets/discovery-runs-writer.ts";
 import {
   RUN_PROGRESS_PHASES,
   type DiscoveryRunProgress,
@@ -141,6 +142,14 @@ export function buildCompletedRunStatus(
     writeResult: result.writeResult,
     warnings: [...result.warnings],
     sources: result.sourceSummary.map(cloneSourceSummary),
+    error: formatDiscoveryRunLogError({
+      status: result.writeResult.writeError
+        ? "failure"
+        : result.lifecycle.state,
+      writeError: result.writeResult.writeError,
+      reasonMessage: result.lifecycle.reasonMessage,
+      warnings: result.warnings,
+    }),
     // Expose resolved control-plane snapshot for VAL-API-001..005 validation.
     // These fields are only present at terminal state after config resolution.
     ultraPlanTuning: result.run.config.ultraPlanTuning,

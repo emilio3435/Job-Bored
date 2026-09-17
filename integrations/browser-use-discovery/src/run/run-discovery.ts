@@ -29,8 +29,15 @@ import type {
   SupportedSourceId,
 } from "../contracts.ts";
 import { ATS_SOURCE_IDS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
-import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
-import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
+import {
+  formatDiscoveryRunLogError,
+  type DiscoveryRunsLogger,
+} from "../sheets/discovery-runs-writer.ts";
+import {
+  isBuiltInAtsCompanySeedList,
+  type ResolvedRunSettings,
+  type WorkerRuntimeConfig,
+} from "../config.ts";
 import { effectiveAtsCompanySeeds } from "../discovery/company-keys.ts";
 import { resolveEffectiveCompanyPools } from "../discovery/effective-intent.ts";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
@@ -405,6 +412,14 @@ export async function runDiscovery(
     const canRunUnrestricted = config.effectiveSources.includes("grounded_web");
     if (!hasModifierIntent || !canRunUnrestricted) {
       warnings.push("No companies are configured for this discovery run.");
+    }
+    if (
+      isBuiltInAtsCompanySeedList(config.atsCompanies) &&
+      config.effectiveSources.some((sourceId) => isAtsSourceId(sourceId))
+    ) {
+      warnings.push(
+        "No target companies stored yet. ATS is using built-in example seeds (Scale AI, Figma, Notion). Refresh companies from your profile, or add companies, before expecting relevant leads.",
+      );
     }
   }
 
@@ -1541,6 +1556,14 @@ export async function runDiscovery(
     extractionResultsBySource,
     rejectionSummaryBySource,
   );
+  const failureReason = classifyFailureReason(
+    lifecycleState,
+    writeResult,
+    loopCounters,
+    warnings,
+    config.effectiveSources,
+  );
+  const logStatus = mapLifecycleStateToLogStatus(lifecycleState, writeResult);
 
   // DiscoveryRuns sheet log (contract §3 / docs/INTERFACE-DISCOVERY-RUNS.md).
   // Best-effort: a logging failure must never fail the run itself.
@@ -1555,16 +1578,19 @@ export async function runDiscovery(
       const logRow: DiscoveryRunLogRow = {
         runAt: completedAt,
         trigger: resolveDiscoveryRunTrigger(request.trigger, trigger),
-        status: mapLifecycleStateToLogStatus(lifecycleState, writeResult),
+        status: logStatus,
         durationS,
         companiesSeen: config.companies.length,
         leadsWritten: writeResult.appended,
         leadsUpdated: writeResult.updated,
         source: dependencies.discoveryRunsSource || "worker",
         variationKey: request.variationKey || "",
-        error: writeResult.writeError
-          ? `Sheet write failed during ${writeResult.writeError.phase} phase: ${writeResult.writeError.message}`
-          : "",
+        error: formatDiscoveryRunLogError({
+          status: logStatus,
+          writeError: writeResult.writeError,
+          reasonMessage: failureReason.reasonMessage,
+          warnings,
+        }),
       };
       const logResult = await dependencies.discoveryRunsLogger.append(
         config.sheetId,
@@ -1609,13 +1635,7 @@ export async function runDiscovery(
       // so telemetry consumers always have counter data regardless of run outcome.
       loopCounters,
       // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
-      ...classifyFailureReason(
-        lifecycleState,
-        writeResult,
-        loopCounters,
-        warnings,
-        config.effectiveSources,
-      ),
+      ...failureReason,
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,

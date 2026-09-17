@@ -534,3 +534,56 @@ test("terminal snapshots remain queryable without recovery mutation", async () =
     await rm(tempDirectory, { recursive: true, force: true });
   }
 });
+
+test("buildCompletedRunStatus copies warnings into error for Partial-with-zeros", () => {
+  const result = {
+    run: {
+      runId: "run_partial_zeros",
+      trigger: "manual",
+      request: {
+        event: "discovery.request",
+        schemaVersion: 1,
+        sheetId: "sheet_123",
+        variationKey: "5dc2afe5b8667fa6",
+        requestedAt: "2026-09-16T16:41:00.000Z",
+      },
+      config: { sheetId: "sheet_123" },
+    },
+    lifecycle: {
+      runId: "run_partial_zeros",
+      trigger: "manual",
+      startedAt: "2026-09-16T16:41:00.000Z",
+      completedAt: "2026-09-16T16:43:42.000Z",
+      state: "partial",
+      companyCount: 0,
+      detectionCount: 0,
+      listingCount: 0,
+      normalizedLeadCount: 0,
+      reasonMessage:
+        "No surface discoveries were made by ATS or browser scouts. Check configured companies, intent keywords, and ATS board availability.",
+    },
+    extractionResults: [],
+    sourceSummary: [],
+    writeResult: {
+      sheetId: "sheet_123",
+      appended: 0,
+      updated: 0,
+      skippedDuplicates: 0,
+      skippedBlacklist: 0,
+      warnings: [],
+    },
+    warnings: [
+      "No target companies stored yet. ATS is using built-in example seeds (Scale AI, Figma, Notion).",
+    ],
+  } as RunDiscoveryResult;
+
+  const status = buildCompletedRunStatus(result, {
+    acceptedAt: "2026-09-16T16:41:00.000Z",
+    startedAt: "2026-09-16T16:41:00.000Z",
+  });
+  assert.equal(status.status, "partial");
+  assert.match(
+    String(status.error || ""),
+    /no target companies stored yet|No surface discoveries/i,
+  );
+});

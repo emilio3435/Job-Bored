@@ -5,6 +5,7 @@ import { join } from "node:path";
 import test from "node:test";
 
 import {
+  isBuiltInAtsCompanySeedList,
   loadRuntimeConfig,
   loadStoredWorkerConfig,
   mergeDiscoveryConfig,
@@ -1181,4 +1182,32 @@ test("VAL-API-006: explicit override can be lower than uplift default", () => {
   );
   // VAL-API-006: explicit override must be preserved exactly even when lower than default
   assert.equal(result.groundedSearchTuning.maxRuntimeMs, explicitTimeout, "explicit maxRuntimeMs override lower than default should be preserved");
+});
+
+test("isBuiltInAtsCompanySeedList recognizes only the shipped Scale/Figma/Notion trio", () => {
+  assert.equal(isBuiltInAtsCompanySeedList(undefined), false);
+  assert.equal(isBuiltInAtsCompanySeedList([]), false);
+  assert.equal(
+    isBuiltInAtsCompanySeedList([
+      { name: "Scale AI", companyKey: "scale-ai" },
+      { name: "Figma", companyKey: "figma" },
+    ]),
+    false,
+  );
+  assert.equal(
+    isBuiltInAtsCompanySeedList([
+      { name: "Scale AI", companyKey: "scale-ai" },
+      { name: "Figma", companyKey: "figma" },
+      { name: "Notion", companyKey: "notion" },
+    ]),
+    true,
+  );
+  assert.equal(
+    isBuiltInAtsCompanySeedList([
+      { name: "Acme", companyKey: "acme" },
+      { name: "Figma", companyKey: "figma" },
+      { name: "Notion", companyKey: "notion" },
+    ]),
+    false,
+  );
 });

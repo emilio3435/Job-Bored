@@ -1421,6 +1421,29 @@ function resolveAtsCompanies(
   return cloneCompanies(defaultAtsCompanies);
 }
 
+export function isBuiltInAtsCompanySeedList(
+  companies: readonly CompanyTarget[] | undefined,
+): boolean {
+  const list = Array.isArray(companies) ? companies : [];
+  if (list.length === 0 || list.length !== defaultAtsCompanies.length) {
+    return false;
+  }
+  const defaultKeys = new Set(
+    defaultAtsCompanies.map((company) =>
+      String(company.companyKey || company.normalizedName || company.name)
+        .trim()
+        .toLowerCase(),
+    ),
+  );
+  return list.every((company) =>
+    defaultKeys.has(
+      String(company.companyKey || company.normalizedName || company.name)
+        .trim()
+        .toLowerCase(),
+    ),
+  );
+}
+
 function cloneCompanies(companies: readonly CompanyTarget[]): CompanyTarget[] {
   return companies.map((company) => ({
     ...company,

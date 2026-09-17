@@ -149,14 +149,89 @@ test("runDiscovery calls discoveryRunsLogger.append with a row matching the run 
   assert.equal(logged.row.leadsWritten, 0);
   assert.equal(logged.row.leadsUpdated, 0);
   // No writer error, but the run emits warnings (because there were no
-  // adapters), so the lifecycle resolves to "partial".
+  // adapters), so the lifecycle resolves to "partial". The Error column must
+  // carry that warning — a blank Error on Partial is how the Daily Brief
+  // panel hides the real cause (0 companies / 0 leads).
   assert.ok(
     logged.row.status === "partial" || logged.row.status === "success",
     `status should be partial or success, got ${logged.row.status}`,
   );
-  assert.equal(logged.row.error, "");
+  if (logged.row.status === "partial") {
+    assert.ok(
+      String(logged.row.error || "").trim(),
+      "partial DiscoveryRuns rows must surface a warning or reason in Error",
+    );
+  }
   // The run itself must still return normally.
   assert.equal(result.run.runId, "run_logger_test");
+});
+
+test("runDiscovery logs an actionable Error when user companies are empty and ATS uses built-in seeds", async () => {
+  const loggerCalls: LoggerCall[] = [];
+  const dependencies = makeDependencies({
+    loggerAppend: async (sheetId, row) => {
+      loggerCalls.push({ sheetId, row });
+      return { ok: true, created: false };
+    },
+  });
+  dependencies.loadStoredWorkerConfig = async (sheetId: string) => ({
+    sheetId,
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [],
+    atsCompanies: [
+      { name: "Scale AI", companyKey: "scale-ai" },
+      { name: "Figma", companyKey: "figma" },
+      { name: "Notion", companyKey: "notion" },
+    ],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: ["Backend Engineer"],
+    locations: ["Remote"],
+    remotePolicy: "remote",
+    seniority: "senior",
+    maxLeadsPerRun: 5,
+    enabledSources: ["grounded_web", "greenhouse"] as const,
+    schedule: { enabled: false, cron: "" },
+  });
+  dependencies.mergeDiscoveryConfig = (
+    stored: Record<string, unknown>,
+    request: Record<string, unknown>,
+  ) => ({
+    ...stored,
+    sheetId: request.sheetId,
+    variationKey: request.variationKey,
+    requestedAt: request.requestedAt,
+    sourcePreset: "browser_plus_ats" as const,
+    effectiveSources: ["grounded_web", "greenhouse"],
+  });
+
+  const result = await runDiscovery(
+    {
+      ...makeRequest("manual"),
+      discoveryProfile: {
+        targetRoles: ["Backend Engineer"],
+        locations: ["Remote"],
+      },
+    },
+    "manual",
+    dependencies as unknown as Parameters<typeof runDiscovery>[2],
+  );
+
+  assert.equal(loggerCalls.length, 1);
+  assert.equal(loggerCalls[0].row.leadsWritten, 0);
+  assert.equal(loggerCalls[0].row.leadsUpdated, 0);
+  assert.equal(loggerCalls[0].row.status, "partial");
+  assert.match(
+    loggerCalls[0].row.error,
+    /no target companies stored yet|built-in example seeds|Scale AI/i,
+  );
+  assert.ok(
+    result.warnings.some((warning) =>
+      /no target companies stored yet/i.test(warning),
+    ),
+    "run warnings should name the empty company list and built-in ATS seeds",
+  );
 });
 
 test("runDiscovery falls back to dispatcher trigger when request.trigger is absent", async () => {
