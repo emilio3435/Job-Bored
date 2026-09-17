@@ -1,0 +1,196 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-render-model.v1.schema.json",
+  "title": "materials.render-model.v1",
+  "description": "The only input a Volt template reads. Templates carry no facts and accept no markup: emphasis is expressed as typed runs, produced deterministically by the metric tagger from ledger-verified tokens.",
+  "type": "object",
+  "required": ["contract", "template", "identity", "documents"],
+  "additionalProperties": false,
+  "$defs": {
+    "run": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "t": { "description": "Plain text.", "type": "string" },
+        "n": { "description": "Metric run. Must match a claim-ledger metric token.", "type": "string" },
+        "hl": { "description": "Highlighted clause. Statement only.", "type": "string" }
+      }
+    },
+    "runs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/run" } },
+    "textOrRuns": { "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/runs" }] }
+  },
+  "properties": {
+    "contract": { "const": "materials.render-model.v1" },
+    "note": { "type": "string" },
+    "template": {
+      "type": "object",
+      "required": ["family", "version", "pageBudget"],
+      "additionalProperties": false,
+      "properties": {
+        "family": { "const": "volt" },
+        "version": { "type": "string" },
+        "pageBudget": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "accent": { "enum": ["volt", "ink", "ember", "pine"] },
+        "density": { "enum": ["air", "standard", "tight"] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "identity": {
+      "type": "object",
+      "required": ["name", "target", "contact"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "contact": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["kind", "text"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["location", "phone", "email", "site", "linkedin", "other"] },
+              "text": { "type": "string" },
+              "href": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "documents": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "resume": {
+          "type": "object",
+          "required": ["templateId", "statement", "sections"],
+          "additionalProperties": false,
+          "properties": {
+            "templateId": { "const": "volt.resume" },
+            "statement": {
+              "type": "object",
+              "required": ["runs"],
+              "additionalProperties": false,
+              "properties": {
+                "runs": { "$ref": "#/$defs/runs" },
+                "words": { "type": "integer", "minimum": 20, "maximum": 55 }
+              }
+            },
+            "sections": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["kind", "label"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": { "enum": ["experience", "earlier", "tokens"] },
+                  "label": { "type": "string", "minLength": 1 },
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["employerId", "meta", "org"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "employerId": { "type": "string" },
+                        "meta": { "type": "array", "items": { "type": "string" } },
+                        "org": { "type": "string", "minLength": 1 },
+                        "seat": { "$ref": "#/$defs/textOrRuns" },
+                        "line": { "type": "string" },
+                        "bullets": {
+                          "type": "array",
+                          "minItems": 2,
+                          "maxItems": 4,
+                          "items": {
+                            "type": "object",
+                            "required": ["claimId", "runs"],
+                            "additionalProperties": false,
+                            "properties": {
+                              "claimId": { "type": "string", "minLength": 1 },
+                              "runs": { "$ref": "#/$defs/runs" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "tokens": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 13,
+                    "items": { "type": "string" }
+                  },
+                  "excluded": { "type": "array", "items": { "type": "string" } },
+                  "excludedReason": { "type": "string" }
+                }
+              }
+            },
+            "foot": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        "coverLetter": {
+          "type": "object",
+          "required": ["templateId", "salutation", "paragraphs"],
+          "additionalProperties": false,
+          "properties": {
+            "templateId": { "const": "volt.letter" },
+            "index": { "type": "array", "items": { "type": "string" } },
+            "rail": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["label", "lines"],
+                "additionalProperties": false,
+                "properties": {
+                  "label": { "type": "string" },
+                  "lines": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            },
+            "railRule": { "const": "restated-metadata-only" },
+            "salutation": { "type": "string", "minLength": 1 },
+            "paragraphs": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "required": ["id", "beat", "text"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string" },
+                  "beat": { "enum": ["thesis", "analytics-proof", "ai-ops-proof", "next-step"] },
+                  "claimId": { "type": "string" },
+                  "supportClaimIds": { "type": "array", "items": { "type": "string" } },
+                  "transferId": { "type": "string" },
+                  "words": { "type": "integer" },
+                  "text": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "bodyWords": { "type": "integer", "minimum": 150, "maximum": 280 },
+            "signoff": { "type": "string" },
+            "foot": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "atsText": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wrap": { "type": "integer", "minimum": 72, "maximum": 88 },
+        "bulletMarker": { "type": "string" },
+        "headings": { "enum": ["upper", "title"] }
+      }
+    }
+  }
+}
