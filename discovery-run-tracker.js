@@ -370,6 +370,9 @@
           this._state.errorMessage = "";
         } else {
           this._state.errorMessage = String(statusData.error || "");
+          if (!this._state.errorMessage) {
+            this._state.errorMessage = String(lifecycle.reasonMessage || "");
+          }
           if (!this._state.errorMessage && runStatus === "failed") {
             this._state.errorMessage = String(statusData.message || "Run failed");
           }

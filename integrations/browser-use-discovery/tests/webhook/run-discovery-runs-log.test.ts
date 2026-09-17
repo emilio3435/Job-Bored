@@ -149,12 +149,20 @@ test("runDiscovery calls discoveryRunsLogger.append with a row matching the run 
   assert.equal(logged.row.leadsWritten, 0);
   assert.equal(logged.row.leadsUpdated, 0);
   // No writer error, but the run emits warnings (because there were no
-  // adapters), so the lifecycle resolves to "partial".
+  // adapters), so the lifecycle resolves to "partial". The Error cell must
+  // carry the classified reason — blank Partial is what hid this in the UI.
   assert.ok(
     logged.row.status === "partial" || logged.row.status === "success",
     `status should be partial or success, got ${logged.row.status}`,
   );
-  assert.equal(logged.row.error, "");
+  if (logged.row.status === "partial") {
+    assert.ok(
+      logged.row.error,
+      "partial DiscoveryRuns rows must include a short Error reason",
+    );
+  } else {
+    assert.equal(logged.row.error, "");
+  }
   // The run itself must still return normally.
   assert.equal(result.run.runId, "run_logger_test");
 });
@@ -325,4 +333,61 @@ test("F1B-RUN05-FINAL: terminal history finalizer is idempotent per runId", asyn
   await finalizer.finalize("sheet_abc", { ...row, error: "second write" });
   assert.equal(appended.length, 1);
   assert.equal(appended[0].error, "watchdog");
+});
+
+test("runDiscovery counts ATS seeds as companiesSeen and does not warn when only atsCompanies are set", async () => {
+  const loggerCalls: LoggerCall[] = [];
+  const dependencies = makeDependencies({
+    loggerAppend: async (sheetId, row) => {
+      loggerCalls.push({ sheetId, row });
+      return { ok: true, created: false };
+    },
+  });
+  dependencies.loadStoredWorkerConfig = async (sheetId: string) => ({
+    sheetId,
+    mode: "hosted" as const,
+    timezone: "UTC",
+    companies: [],
+    atsCompanies: [
+      { name: "Scale AI", companyKey: "scale-ai" },
+      { name: "Figma", companyKey: "figma" },
+      { name: "Notion", companyKey: "notion" },
+    ],
+    includeKeywords: [],
+    excludeKeywords: [],
+    targetRoles: [],
+    locations: [],
+    remotePolicy: "",
+    seniority: "",
+    maxLeadsPerRun: 5,
+    enabledSources: ["greenhouse"] as const,
+    schedule: { enabled: false, cron: "" },
+  });
+  dependencies.mergeDiscoveryConfig = (
+    stored: Record<string, unknown>,
+    request: Record<string, unknown>,
+  ) => ({
+    ...stored,
+    sheetId: request.sheetId,
+    variationKey: request.variationKey,
+    requestedAt: request.requestedAt,
+    sourcePreset: "ats_only" as const,
+    effectiveSources: ["greenhouse"],
+  });
+
+  const result = await runDiscovery(
+    makeRequest("manual"),
+    "manual",
+    dependencies as unknown as Parameters<typeof runDiscovery>[2],
+  );
+
+  assert.equal(result.lifecycle.companyCount, 3);
+  assert.ok(
+    !result.warnings.some((warning) =>
+      warning.includes("No companies are configured"),
+    ),
+    "ATS-only seeds must not trip the empty-companies warning",
+  );
+  assert.equal(loggerCalls.length, 1);
+  assert.equal(loggerCalls[0].row.companiesSeen, 3);
 });
