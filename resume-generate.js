@@ -330,10 +330,7 @@
     if (!resp.ok) {
       const msg =
         data.error?.message || JSON.stringify(data) || `HTTP ${resp.status}`;
-      const fallback =
-        isGeminiModelNotFound(msg)
-          ? (model === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_PINNED_FALLBACK : GEMINI_FLASH_PINNED_FALLBACK)
-          : "";
+      const fallback = isGeminiModelNotFound(msg) ? GEMINI_FLASH_PINNED_FALLBACK : "";
       if (fallback && model !== fallback) {
         console.warn(
           `[JobBored] Gemini model "${model}" was rejected; retrying with ${fallback}.`,
@@ -516,7 +513,6 @@
 
   const GEMINI_FLASH_FAMILY = "gemini-flash";
   const GEMINI_FLASH_PINNED_FALLBACK = "gemini-3.7-flash";
-  const DEFAULT_GEMINI_MODEL = GEMINI_FLASH_FAMILY;
   /** The Gemini model that last answered — the live check reports this,
    *  not the configured id, so a repaired fallback shows the truth. */
   let lastGeminiModelUsed = "";
@@ -570,10 +566,7 @@
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       const message = data.error?.message || `Gemini HTTP ${resp.status}`;
-      const fallback =
-        isGeminiModelNotFound(message)
-          ? (resolvedModel === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_PINNED_FALLBACK : GEMINI_FLASH_PINNED_FALLBACK)
-          : "";
+      const fallback = isGeminiModelNotFound(message) ? GEMINI_FLASH_PINNED_FALLBACK : "";
       if (fallback && resolvedModel !== fallback) {
         console.warn(
           `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${fallback}.`,

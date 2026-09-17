@@ -32,6 +32,11 @@ import { applyRetryBroadeningGate } from "../run/retry-broadening.ts";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
 import { GEMINI_FLASH_FAMILY, GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
 
+function httpGeminiModel(model: string | undefined | null): string {
+  const id = String(model || "").trim();
+  return !id || id === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_FALLBACK : id;
+}
+
 const SEARCH_SYSTEM_PROMPT = [
   "You are a job-discovery agent. Your output feeds an automated pipeline that fetches and parses each URL you return, so stale, gated, or invalid URLs waste the entire run's budget.",
   "",
@@ -703,10 +708,6 @@ export function createGroundedSearchClient(
 ): GroundedSearchClient {
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
   const log = dependencies.log;
-  const httpGeminiModel = (m: string | undefined | null) => {
-    const id = String(m || "").trim();
-    return !id || id === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_FALLBACK : id;
-  };
   return {
     async search(company, run, options) {
       const apiKey = String(runtimeConfig.geminiApiKey || "").trim();
