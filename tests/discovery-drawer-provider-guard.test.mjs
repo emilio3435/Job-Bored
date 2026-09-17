@@ -97,7 +97,7 @@ const BASE_CONFIG = {
   resumeLocalModel: "gemma4:e2b",
   resumeLocalBaseUrl: "http://127.0.0.1:11434/v1",
   resumeGeminiApiKey: "AIza-test",
-  resumeGeminiModel: "gemini-3.5-flash",
+  resumeGeminiModel: "gemini-flash",
   resumeOpenAIApiKey: "sk-openai-test",
   resumeOpenAIModel: "gpt-4o-mini",
   resumeAnthropicApiKey: "sk-ant-test",

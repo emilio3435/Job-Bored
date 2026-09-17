@@ -68,7 +68,7 @@ Template: `server/ats-env.example`.
 | `BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY` / `BROWSER_USE_DISCOVERY_OPENROUTER_MODEL` / `BROWSER_USE_DISCOVERY_OPENROUTER_BASE_URL` | OpenRouter worker chat/JSON provider |
 | `BROWSER_USE_DISCOVERY_LLM_API_KEY` / `BROWSER_USE_DISCOVERY_LLM_MODEL` / `BROWSER_USE_DISCOVERY_LLM_BASE_URL` | Provider-neutral worker chat/JSON aliases |
 | `BROWSER_USE_DISCOVERY_GEMINI_API_KEY` | none | Optional Google-tool key for Grounded Search and URL Context |
-| `BROWSER_USE_DISCOVERY_GEMINI_MODEL` | `gemini-3.5-flash` | Optional Google-tool model |
+| `BROWSER_USE_DISCOVERY_GEMINI_MODEL` | `gemini-flash` | Optional Google-tool model (family alias; resolved to latest stable) |
 | `BROWSER_USE_API_KEY` | none | Browser Use cloud |
 | `BROWSER_USE_PROFILE_ID` | none | Cloud profile |
 | `SERPAPI_API_KEY` (or `BROWSER_USE_DISCOVERY_SERPAPI_API_KEY`, `DISCOVERY_SERPAPI_API_KEY`) | none | SerpApi lane |
