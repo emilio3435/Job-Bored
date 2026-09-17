@@ -191,7 +191,7 @@ The render model drives all three surfaces so they cannot drift:
 
 ### 6.7 `qa` — deterministic checks plus a rubric
 
-Sixteen checks with severities, all computable from the artifacts plus the extract and selection. Codes are listed in [`qa.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/qa.json); the ones that are new in v3 are `invented_fact`, `transfer_overclaim`, `ats_text_parity`, `omission_justified`, `jd_thin`, and `constraint_conflict`.
+Deterministic checks with severities, all computable from the artifacts plus the extract and selection — thirteen of them ran on the 3E fixture. Codes are listed in [`qa.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/qa.json); the ones that are new in v3 are `invented_fact`, `transfer_overclaim`, `ats_text_parity`, `omission_justified`, `jd_thin`, and `constraint_conflict`.
 
 The rubric is six rows scored 0–2 (thesis, differentiator, outcome ladder, noun coverage, reporting line/partners, constraints). `READY` requires status `pass` and rubric ≥ 10/12. Anything else is `REVIEW` with the scorecard attached — which the dossier already knows how to display.
 

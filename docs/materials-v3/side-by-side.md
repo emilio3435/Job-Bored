@@ -25,7 +25,7 @@ The v2 mocks were not badly made. They were made for the wrong year. Every surfa
 | Letter | `Date / To / Re` stack, Newsreader salutation at 13pt, full-measure paragraphs | Business-correspondence template from a 1990s word processor | Tracked mono index strip, half an inch of air, a 5.4in measure, and a metadata rail |
 | Screen view | Cream sheets on a tan desk with diagonal hatching | Looks like a scan | White sheet floating on near-black with a long indigo shadow |
 
-Two numbers make the same point. The v2 mock loaded **seven vendored woff2 files across three families** (Newsreader, IBM Plex Sans, IBM Plex Mono) copied into the mock folder. Volt uses **two families already vendored by the app** (`vendor/fonts/fonts.css` — Geist and JetBrains Mono), so materials inherit the product's own type system instead of importing a print-history one.
+Two numbers make the same point. The v2 mock loaded **nine vendored woff2 files across three families** (Newsreader, IBM Plex Sans, IBM Plex Mono) copied into the mock folder. Volt uses **two families already vendored by the app** (`vendor/fonts/fonts.css` — Geist and JetBrains Mono), so materials inherit the product's own type system instead of importing a print-history one.
 
 ---
 
@@ -72,17 +72,19 @@ Both mocks use the same real evidence. The difference is what each system though
 | | #117 | Volt |
 | --- | --- | --- |
 | Resume pages | 1 | 1 |
-| Resume visible words | ~410 | 376 |
+| Resume visible words | 352 | 376 |
 | Featured employers | 2 | 2 |
-| Letter body words | ~220 | 200 |
+| Letter body words | 187 | 200 |
 | Letter paragraphs | 4 | 4 |
 | Type families | 3 (Newsreader, IBM Plex Sans, IBM Plex Mono) | 2 (Geist, JetBrains Mono), both already in the app |
-| Font files shipped with the mock | 7 | 0 |
+| Font files shipped with the mock | 9 | 0 |
 | Resume PDF | 135KB | 152KB |
 | Letter PDF | 94KB | 108KB (the pre-v2 letter was ~449KB) |
 | Machine-readable artifacts | `jd-extract.json`, `claim-selection.json` | `jd-extract.json`, `claim-ledger.json`, `selection.json`, `render-model.json`, `qa.json`, `run.json` |
 | Fact store | the three-page master HTML | `claim-ledger.json` |
 | Pagination owner | the model, then a critic | a deterministic solver, then the PDF |
+
+Note the lengths: Volt is slightly *longer* on both documents, and both sit inside the same budget band. Length was never the problem #117 failed to solve — it solved that. The problem was that the package looked archival and that nothing underneath it could be inspected or trusted.
 
 The opening line is the clearest read on the difference in intent:
 

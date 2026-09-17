@@ -37,7 +37,7 @@ Machine-readable twin: [`qa.json`](qa.json) · stage ledger: [`run.json`](run.js
 - `letter_page_count` (pass): 1 page.
 - `letter_word_budget` (pass): 200 words.
 - `statement_present` (pass): 44 words, no title stacking.
-- `banned_filler` (pass): 0 hits across 41 patterns plus 3 JD echo bans.
+- `banned_filler` (pass): 0 hits across 40 patterns plus 3 JD echo bans.
 - `ai_cadence` (pass): no parallel bullet skeletons, no adjective stacks, 2 em-dashes in the letter.
 - `jd_noun_coverage` (pass): 0.80 weighted.
 - `differentiator_claimed` (pass): via `elio-platform` and `elio-ops`.

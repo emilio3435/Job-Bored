@@ -38,7 +38,7 @@
     { "code": "letter_page_count", "severity": "pass", "stage": "qa", "message": "1 page" },
     { "code": "letter_word_budget", "severity": "pass", "stage": "qa", "message": "200 words, inside 180–260" },
     { "code": "statement_present", "severity": "pass", "stage": "qa", "message": "44 words, no title stacking" },
-    { "code": "banned_filler", "severity": "pass", "stage": "delint", "message": "0 hits across 41 patterns and 3 JD echo bans" },
+    { "code": "banned_filler", "severity": "pass", "stage": "delint", "message": "0 hits across 40 patterns and 3 JD echo bans" },
     { "code": "ai_cadence", "severity": "pass", "stage": "delint", "message": "No 3-wide parallel bullet skeletons, no adjective stacks, 2 em-dashes in the letter" },
     { "code": "jd_noun_coverage", "severity": "pass", "stage": "qa", "message": "0.80 weighted coverage (threshold 0.6 review, 0.5 fail)" },
     { "code": "differentiator_claimed", "severity": "pass", "stage": "qa", "message": "skills-graph-ownership claimed via elio-platform and elio-ops" },
