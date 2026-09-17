@@ -386,7 +386,8 @@ describe("The Case interactions", () => {
     const { region } = boot();
     assert.ok(region.querySelector(".case__rail"), "the status rail must render");
     assert.ok(region.querySelector('[data-mount="materials"]'), "the materials mount must render");
-    assert.equal(region.querySelector(".case__title").getAttribute("value"), "Senior PM");
+    /* The title is a wrapping <textarea> (SPEC §5.2), so its value is its text. */
+    assert.equal(region.querySelector(".case__title").value, "Senior PM");
     assert.ok(region.querySelector('[data-action="notes"]'), "the notes surface must render");
   });
 
@@ -395,9 +396,9 @@ describe("The Case interactions", () => {
      one jb:role:writeback path. role.js must not call the strip at all. */
   it("renders one People block and never mounts the recruiter strip's card", () => {
     const { region, stripRenders } = boot();
-    const moves = region.querySelector(".case__lane--moves");
-    const people = region.querySelector(".case__kv--people");
-    assert.ok(people && moves.contains(people), "the People ledger belongs to the YOUR MOVES lane");
+    const section = region.querySelector(".case__section--people");
+    const people = region.querySelector(".case__rows--people");
+    assert.ok(people && section.contains(people), "the People ledger belongs to the People section");
     assert.equal(region.querySelector('[data-mount="recruiter-strip"]'), null, "the duplicate mount is gone");
     assert.equal(stripRenders.length, 0, "JobBoredRecruiterStrip.render must never be called");
   });
