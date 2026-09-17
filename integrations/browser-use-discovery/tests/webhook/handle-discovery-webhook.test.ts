@@ -4218,7 +4218,7 @@ test("F1B-RUN05-FINAL: catastrophic async failure writes one durable history row
 
 test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays idempotent", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout"] });
-  const rows: Array<{ status: string }> = [];
+  const rows: Array<{ status: string; error: string }> = [];
   let resolveHistoryWritten!: () => void;
   const historyWritten = new Promise<void>((resolve) => {
     resolveHistoryWritten = resolve;
@@ -4234,8 +4234,8 @@ test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays
         webhookSecret: SHARED_HEADER_VALUE,
       },
       discoveryRunsLogger: {
-        append: async (_sheetId: string, row: { status: string }) => {
-          rows.push({ status: row.status });
+        append: async (_sheetId: string, row: { status: string; error: string }) => {
+          rows.push({ status: row.status, error: row.error });
           resolveHistoryWritten();
           return { ok: true, created: false };
         },
@@ -4266,4 +4266,5 @@ test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays
   await historyWritten;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, "partial");
+  assert.match(rows[0].error, /exceeded its maximum duration|marked terminal after 15ms/i);
 });

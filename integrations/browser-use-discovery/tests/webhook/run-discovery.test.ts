@@ -2069,6 +2069,94 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
   );
 });
 
+test("runDiscovery skips grounded scout when Browser Use session manager is missing", async () => {
+  let searchCalls = 0;
+  const loggerCalls: Array<{ status: string; error: string }> = [];
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 5,
+      groundedSearchMaxPagesPerCompany: 2,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+      useStructuredExtraction: false,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async () => {
+        searchCalls += 1;
+        return { searchQueries: [], candidates: [], warnings: [] };
+      },
+    },
+    pipelineWriter: {
+      write: async () => {
+        throw new Error("pipelineWriter.write should not run with zero leads");
+      },
+    },
+    discoveryRunsLogger: {
+      append: async (_sheetId: string, row: { status: string; error: string }) => {
+        loggerCalls.push({ status: row.status, error: row.error });
+        return { ok: true, created: false };
+      },
+    },
+    loadStoredWorkerConfig: async (sheetId: string) => ({
+      sheetId,
+      mode: "hosted" as const,
+      timezone: "UTC",
+      companies: [],
+      includeKeywords: ["node"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 5,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_only" as const,
+      effectiveSources: ["grounded_web"],
+    }),
+    now: () => new Date("2026-09-16T16:42:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_no_session`,
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies as any);
+
+  assert.equal(searchCalls, 0, "scout must not run when exploit cannot use Browser Use");
+  assert.equal(result.lifecycle.state, "partial");
+  assert.equal(result.lifecycle.normalizedLeadCount, 0);
+  assert.match(
+    result.warnings.join(" | "),
+    /Browser Use session manager is unavailable/i,
+  );
+  assert.equal(loggerCalls.length, 1);
+  assert.equal(loggerCalls[0].status, "partial");
+  assert.match(loggerCalls[0].error, /Browser Use session manager is unavailable/i);
+});
+
 test("runDiscovery treats missing optional Google Search as advisory when another lane writes leads", async () => {
   const writtenLeads: Array<Record<string, unknown>> = [];
   const dependencies = {

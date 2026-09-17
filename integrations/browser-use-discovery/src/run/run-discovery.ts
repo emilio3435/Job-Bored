@@ -29,7 +29,10 @@ import type {
   SupportedSourceId,
 } from "../contracts.ts";
 import { ATS_SOURCE_IDS, SUPPORTED_SOURCE_IDS } from "../contracts.ts";
-import type { DiscoveryRunsLogger } from "../sheets/discovery-runs-writer.ts";
+import {
+  resolveDiscoveryRunLogError,
+  type DiscoveryRunsLogger,
+} from "../sheets/discovery-runs-writer.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
 import { effectiveAtsCompanySeeds } from "../discovery/company-keys.ts";
 import { resolveEffectiveCompanyPools } from "../discovery/effective-intent.ts";
@@ -901,7 +904,11 @@ export async function runDiscovery(
       });
 
       // RUN-08: lightweight scout (search only). Deep extract waits for score.
-      if (dependencies.groundedSearchClient) {
+      // Scout results cannot be exploited without a Browser Use session, so
+      // skip the Gemini search when that manager is missing — otherwise a
+      // post-onboarding run cooks for minutes and still writes Partial with
+      // 0 leads.
+      if (dependencies.groundedSearchClient && dependencies.browserSessionManager) {
         const companiesToSearch =
           config.companies.length > 0
             ? config.companies
@@ -1542,6 +1549,33 @@ export async function runDiscovery(
     rejectionSummaryBySource,
   );
 
+  const failureReason = classifyFailureReason(
+    lifecycleState,
+    writeResult,
+    loopCounters,
+    warnings,
+    config.effectiveSources,
+  );
+  const logStatus = mapLifecycleStateToLogStatus(lifecycleState, writeResult);
+  const logError = resolveDiscoveryRunLogError({
+    status: logStatus,
+    writeError: writeResult.writeError,
+    reasonMessage: failureReason.reasonMessage,
+    warnings,
+  });
+  if (logStatus === "partial") {
+    dependencies.log?.("discovery.run.partial_reason", {
+      runId,
+      reasonCode: failureReason.reasonCode || "",
+      failureClass: failureReason.failureClass || "",
+      error: logError,
+      companyCount: config.companies.length,
+      leadsWritten: writeResult.appended,
+      leadsUpdated: writeResult.updated,
+      warningCount: warnings.length,
+    });
+  }
+
   // DiscoveryRuns sheet log (contract §3 / docs/INTERFACE-DISCOVERY-RUNS.md).
   // Best-effort: a logging failure must never fail the run itself.
   if (dependencies.discoveryRunsLogger) {
@@ -1555,16 +1589,14 @@ export async function runDiscovery(
       const logRow: DiscoveryRunLogRow = {
         runAt: completedAt,
         trigger: resolveDiscoveryRunTrigger(request.trigger, trigger),
-        status: mapLifecycleStateToLogStatus(lifecycleState, writeResult),
+        status: logStatus,
         durationS,
         companiesSeen: config.companies.length,
         leadsWritten: writeResult.appended,
         leadsUpdated: writeResult.updated,
         source: dependencies.discoveryRunsSource || "worker",
         variationKey: request.variationKey || "",
-        error: writeResult.writeError
-          ? `Sheet write failed during ${writeResult.writeError.phase} phase: ${writeResult.writeError.message}`
-          : "",
+        error: logError,
       };
       const logResult = await dependencies.discoveryRunsLogger.append(
         config.sheetId,
@@ -1609,13 +1641,7 @@ export async function runDiscovery(
       // so telemetry consumers always have counter data regardless of run outcome.
       loopCounters,
       // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
-      ...classifyFailureReason(
-        lifecycleState,
-        writeResult,
-        loopCounters,
-        warnings,
-        config.effectiveSources,
-      ),
+      ...failureReason,
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,

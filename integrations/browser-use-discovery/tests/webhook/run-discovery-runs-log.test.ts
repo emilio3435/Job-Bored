@@ -148,15 +148,85 @@ test("runDiscovery calls discoveryRunsLogger.append with a row matching the run 
   // No adapters produced leads → pipelineWriter is not called → appended=0.
   assert.equal(logged.row.leadsWritten, 0);
   assert.equal(logged.row.leadsUpdated, 0);
-  // No writer error, but the run emits warnings (because there were no
-  // adapters), so the lifecycle resolves to "partial".
-  assert.ok(
-    logged.row.status === "partial" || logged.row.status === "success",
-    `status should be partial or success, got ${logged.row.status}`,
+  // No writer error, but grounded_web is enabled without a Gemini client, so
+  // the lifecycle resolves to "partial". The DiscoveryRuns Error cell must
+  // name that reason — a blank Partial is how dogfood runs looked finished
+  // but empty (2026-09-16).
+  assert.equal(logged.row.status, "partial");
+  assert.match(
+    logged.row.error,
+    /Gemini|google_search|BROWSER_USE_DISCOVERY_GEMINI_API_KEY|reason could not be determined/i,
   );
-  assert.equal(logged.row.error, "");
   // The run itself must still return normally.
   assert.equal(result.run.runId, "run_logger_test");
+});
+
+test("runDiscovery logs a concrete Error for Partial-with-zeros after empty-company onboarding", async () => {
+  const loggerCalls: LoggerCall[] = [];
+  const events: Array<[string, Record<string, unknown>]> = [];
+  const dependencies = {
+    ...makeDependencies({
+      loggerAppend: async (sheetId, row) => {
+        loggerCalls.push({ sheetId, row });
+        return { ok: true, created: false };
+      },
+    }),
+    loadStoredWorkerConfig: async (sheetId: string) => ({
+      sheetId,
+      mode: "hosted" as const,
+      timezone: "UTC",
+      companies: [],
+      includeKeywords: ["node"],
+      excludeKeywords: [],
+      targetRoles: ["Backend Engineer"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "senior",
+      maxLeadsPerRun: 5,
+      enabledSources: ["grounded_web", "serpapi_google_jobs"] as const,
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "browser_plus_ats" as const,
+      effectiveSources: ["grounded_web", "serpapi_google_jobs"],
+    }),
+    log: (event: string, details: Record<string, unknown>) => {
+      events.push([event, details]);
+    },
+  };
+
+  const result = await runDiscovery(
+    makeRequest("manual"),
+    "manual",
+    dependencies as unknown as Parameters<typeof runDiscovery>[2],
+  );
+
+  assert.equal(result.lifecycle.state, "partial");
+  assert.equal(result.lifecycle.companyCount, 0);
+  assert.equal(result.lifecycle.normalizedLeadCount, 0);
+  assert.equal(loggerCalls.length, 1);
+  assert.equal(loggerCalls[0].row.status, "partial");
+  assert.equal(loggerCalls[0].row.companiesSeen, 0);
+  assert.equal(loggerCalls[0].row.leadsWritten, 0);
+  assert.equal(loggerCalls[0].row.leadsUpdated, 0);
+  assert.ok(
+    loggerCalls[0].row.error.trim(),
+    "Partial-with-zeros must record a concrete Error, not a blank cell",
+  );
+  assert.match(
+    loggerCalls[0].row.error,
+    /Gemini|google_search|BROWSER_USE_DISCOVERY_GEMINI_API_KEY|Browser Use|session manager|SERPAPI|no matching leads|surface/i,
+  );
+  const reasonLog = events.find(([event]) => event === "discovery.run.partial_reason");
+  assert.ok(reasonLog, "expected discovery.run.partial_reason log entry");
+  assert.ok(
+    String(reasonLog![1].error || "").trim(),
+    "partial_reason log must include the Error text",
+  );
 });
 
 test("runDiscovery falls back to dispatcher trigger when request.trigger is absent", async () => {

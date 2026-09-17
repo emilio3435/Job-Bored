@@ -8,6 +8,7 @@ import type {
 import { DISCOVERY_RUNS_SHEET_NAME } from "../../src/contracts.ts";
 import {
   appendDiscoveryRunRow,
+  buildDiscoveryRunLogRowFromStatus,
   createDiscoveryRunsLogger,
 } from "../../src/sheets/discovery-runs-writer.ts";
 
@@ -306,6 +307,86 @@ test("appendDiscoveryRunRow returns ok:false without throwing when no Google cre
   if (result.ok === false) {
     assert.match(result.reason, /token resolution failed/);
   }
+});
+
+test("buildDiscoveryRunLogRowFromStatus fills Error from reasonMessage when Partial has no status.error", () => {
+  const row = buildDiscoveryRunLogRowFromStatus(
+    {
+      runId: "run_partial_zeros",
+      status: "partial",
+      terminal: true,
+      message: "Discovery completed with warnings — worker processed the run.",
+      trigger: "manual",
+      request: {
+        sheetId: "sheet_123",
+        variationKey: "8df3036921415e00",
+        requestedAt: "2026-09-16T16:42:00.000Z",
+      },
+      acceptedAt: "2026-09-16T16:42:00.000Z",
+      startedAt: "2026-09-16T16:42:00.000Z",
+      completedAt: "2026-09-16T16:44:44.000Z",
+      updatedAt: "2026-09-16T16:44:44.000Z",
+      lifecycle: {
+        runId: "run_partial_zeros",
+        trigger: "manual",
+        startedAt: "2026-09-16T16:42:00.000Z",
+        completedAt: "2026-09-16T16:44:44.000Z",
+        state: "partial",
+        companyCount: 0,
+        detectionCount: 0,
+        listingCount: 0,
+        normalizedLeadCount: 0,
+        reasonCode: "unknown",
+        reasonMessage:
+          "Grounded web source is enabled but the Browser Use session manager is unavailable.",
+      },
+      writeResult: {
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        skippedBlacklist: 0,
+        warnings: [],
+      },
+      warnings: [
+        "Grounded web source is enabled but the Browser Use session manager is unavailable.",
+      ],
+      sources: [],
+    },
+    { source: "worker", trigger: "manual" },
+  );
+
+  assert.equal(row.status, "partial");
+  assert.equal(row.companiesSeen, 0);
+  assert.equal(row.leadsWritten, 0);
+  assert.equal(row.leadsUpdated, 0);
+  assert.match(row.error, /Browser Use session manager is unavailable/i);
+});
+
+test("buildDiscoveryRunLogRowFromStatus fills Error from warnings when Partial has neither status.error nor reasonMessage", () => {
+  const row = buildDiscoveryRunLogRowFromStatus({
+    runId: "run_partial_warn",
+    status: "partial",
+    terminal: true,
+    message: "Discovery completed with warnings — worker processed the run.",
+    trigger: "manual",
+    request: {
+      sheetId: "sheet_123",
+      variationKey: "5dc2afe5b8667fa6",
+      requestedAt: "2026-09-16T16:41:00.000Z",
+    },
+    acceptedAt: "2026-09-16T16:41:00.000Z",
+    startedAt: "2026-09-16T16:41:00.000Z",
+    completedAt: "2026-09-16T16:43:42.000Z",
+    updatedAt: "2026-09-16T16:43:42.000Z",
+    warnings: [
+      "Grounded web Google Search skipped: optional Gemini google_search tool is unavailable because BROWSER_USE_DISCOVERY_GEMINI_API_KEY is not configured.",
+    ],
+    sources: [],
+  });
+
+  assert.equal(row.status, "partial");
+  assert.match(row.error, /GEMINI_API_KEY is not configured/i);
 });
 
 test("appendDiscoveryRunRow success case leaves error column blank even when row.error is set", async () => {
