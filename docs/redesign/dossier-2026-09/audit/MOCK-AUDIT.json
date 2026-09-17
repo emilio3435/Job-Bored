@@ -1,0 +1,176 @@
+{
+  "generatedAt": "2026-09-17T18:31:22.713Z",
+  "runs": [
+    {
+      "page": "01-default.html",
+      "mount": "wide",
+      "viewport": 1560,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        212.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "01-default.html",
+      "mount": "wide",
+      "viewport": 1400,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        212.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "drafting",
+      "viewport": 1560,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        236.8,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "drafting",
+      "viewport": 1400,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        236.8,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "failed",
+      "viewport": 1560,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        251.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "failed",
+      "viewport": 1400,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        251.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w900",
+      "viewport": 1000,
+      "frameWidth": 900,
+      "columns": "846px",
+      "canvasWidth": 846,
+      "ledgerWidth": 846,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        753,
+        706.6,
+        706.6,
+        706.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w720",
+      "viewport": 800,
+      "frameWidth": 720,
+      "columns": "676.406px",
+      "canvasWidth": 676.4,
+      "ledgerWidth": 676.4,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        583.4,
+        537,
+        537,
+        537
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w390",
+      "viewport": 470,
+      "frameWidth": 390,
+      "columns": "348px",
+      "canvasWidth": 348,
+      "ledgerWidth": 348,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        255,
+        208.6,
+        208.6,
+        208.6
+      ],
+      "overflow": [],
+      "shredded": []
+    }
+  ]
+}

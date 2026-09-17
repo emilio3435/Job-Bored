@@ -1,0 +1,66 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier redesign · 04 narrow widths</title>
+<link rel="stylesheet" href="../../../../vendor/fonts/fonts.css">
+<link rel="stylesheet" href="mock-shell.css">
+<link rel="stylesheet" href="dossier-redesign.css">
+</head>
+<body>
+
+<main class="mock-page">
+  <div data-mock-nav></div>
+
+  <header class="mock-head">
+    <span class="mock-head__kicker">Role dossier redesign · mock 04 · 1024 / 900 / 720 / 390</span>
+    <h1 class="mock-head__title">Narrow: <em>one column, same order</em></h1>
+    <p class="mock-head__note">
+      Every threshold below is a container query on the dossier frame, never a media query on the
+      window. That is the fix for the shipped layout's central bug: it switches on
+      <code>max-width: 1080px</code> of <em>viewport</em>, which is why it is correct at 1024 and
+      broken at 1440 — a 1080px window still only gives each of three lanes 323px of text.
+      Source order never changes, so the tab order and the reading order stay the same at every width.
+    </p>
+    <button type="button" class="mock-toggle" data-mock-toggle aria-pressed="false">
+      <span aria-hidden="true">◉</span><span>Annotations off</span>
+    </button>
+  </header>
+
+  <section class="mock-frame mock-frame--1024">
+    <p class="mock-frame__label">1024 · frame content ≈ 950px, still above the 57rem floor — two columns, ledger at its 20rem minimum</p>
+    <div class="mock-frame__body mock-crop" data-mount="w1024"></div>
+  </section>
+
+  <section class="mock-frame mock-frame--900">
+    <p class="mock-frame__label">900 · below the floor — one column, ledger follows the canvas, docket still sticky</p>
+    <div class="mock-frame__body mock-crop" data-mount="w900"></div>
+  </section>
+
+  <section class="mock-frame mock-frame--720">
+    <p class="mock-frame__label">720 · masthead flags wrap to their own row, metrics reflow to two-up</p>
+    <div class="mock-frame__body mock-crop" data-mount="w720"></div>
+  </section>
+
+  <section class="mock-frame mock-frame--390">
+    <p class="mock-frame__label">390 · phone. Metrics two-up, stepper scrolls, materials rows fully stacked, nothing truncated</p>
+    <div class="mock-frame__body" data-mount="w390"></div>
+  </section>
+
+  <div data-mock-legend></div>
+</main>
+
+<script src="dossier-mock-data.js"></script>
+<script src="dossier-mock.js"></script>
+<script src="mock-shell.js"></script>
+<script>
+  var Mock = window.JobBoredDossierMock;
+  var model = window.JobBoredDossierMockData.model("filled");
+  ["w1024", "w900", "w720", "w390"].forEach(function (k) {
+    Mock.render(document.querySelector('[data-mount="' + k + '"]'), model);
+  });
+  window.JobBoredMockShell.boot({ current: "04-narrow.html" });
+</script>
+</body>
+</html>
