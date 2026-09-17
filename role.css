@@ -224,7 +224,15 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   --radius-md: 10px;
   --radius-lg: 16px;
 
-  max-width: 1180px;
+  /* The wrapper carries the shell gutter exactly like every other flow
+     region ([data-region="pipeline"] et al), so the Case inside it can be a
+     plain min(1220px, 100%) and land on the same width. The old
+     `max-width: 1180px` was the second of three competing maxima: the token's
+     nested `100%` re-resolved against this box and subtracted the gutter a
+     second time, leaving the dossier 104px narrower than the pipeline above
+     it (docs/redesign/dossier-2026-09/TEARDOWN.md §4). */
+  width: var(--jb-flow-content-width, min(1220px, calc(100% - 32px)));
+  max-width: none;
   margin: 0 auto;
   display: flex;
   flex-direction: column;

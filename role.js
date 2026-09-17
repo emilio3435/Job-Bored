@@ -166,9 +166,56 @@
       if (root.JobBoredRoleMaterials && typeof root.JobBoredRoleMaterials.rehydrateOpenRole === "function") {
         root.JobBoredRoleMaterials.rehydrateOpenRole();
       }
+      scrollCurrentStepIntoView(region);
+      publishChromeHeight(region);
+      autosizeTitle(region);
     }
 
     wireDossier(region, job);
+  }
+
+  /* The masthead title is a wrapping <textarea> so a long posting title is
+     readable in full (role-case.css). `field-sizing: content` gives it its
+     height where it is supported; where it is not, size it from its own
+     content or a two-line title would sit behind a hidden scrollbar. */
+  function autosizeTitle(region) {
+    if (!region || typeof region.querySelector !== "function") return;
+    if (root.CSS && root.CSS.supports && root.CSS.supports("field-sizing", "content")) return;
+    var title = region.querySelector(".case__title");
+    if (!title || title.tagName !== "TEXTAREA" || !title.style) return;
+    function fit() {
+      title.style.height = "auto";
+      title.style.height = (title.scrollHeight || 0) + "px";
+    }
+    fit();
+    if (typeof title.addEventListener === "function") title.addEventListener("input", fit);
+  }
+
+  /* The sticky docket has to park FLUSH beneath the app's chrome: a gap is a
+     slot the page scrolls through, and an overlap hides the controls behind
+     the header. How tall the chrome is, is the app's business and not the
+     dossier's, so measure .page-top and publish it — role-case.css carries a
+     fallback for the render before this runs. */
+  function publishChromeHeight(region) {
+    if (!region || !region.style || typeof region.style.setProperty !== "function") return;
+    var chrome = document.querySelector(".page-top");
+    if (!chrome || typeof chrome.getBoundingClientRect !== "function") return;
+    var height = Math.round(chrome.getBoundingClientRect().height);
+    if (height > 0) region.style.setProperty("--jb-chrome-h", height + "px");
+  }
+
+  /* The docket's stepper is a horizontal scroller (role-case.css), so on a
+     narrow dossier the live stage can start out of view — which is the one
+     step the reader needs. Centre it by setting the scroller's own
+     scrollLeft: scrollIntoView() would scroll the page as well, moving the
+     dossier out from under the reader on every render. */
+  function scrollCurrentStepIntoView(region) {
+    if (!region || typeof region.querySelector !== "function") return;
+    var stepper = region.querySelector(".case__stepper");
+    var now = region.querySelector(".case__step--now");
+    if (!stepper || !now || typeof now.offsetLeft !== "number") return;
+    var target = now.offsetLeft - Math.max(0, (stepper.clientWidth - now.offsetWidth) / 2);
+    stepper.scrollLeft = Math.max(0, target);
   }
 
   function getCurrentJobKey() {
@@ -515,6 +562,9 @@
     /* Seam events (spec §2.3): a persisted scorecard, a resolved profile
        match, or a fresh materials manifest all change what the Case shows.
        All three funnel through renderForKey, so the focus guard still wins. */
+    /* The chrome's height changes with the viewport (its nav wraps), and the
+       docket's parking spot is derived from it. */
+    root.addEventListener("resize", function () { publishChromeHeight(getRegion()); });
     root.addEventListener("jb:ats:state", rerenderOpenRole);
     root.addEventListener("jb:profile-match:ready", rerenderOpenRole);
     root.addEventListener("jb:materials:manifest", function (e) {
