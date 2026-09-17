@@ -1,0 +1,89 @@
+{
+  "pageBudget": 1,
+  "pageBudgetReason": "IC/manager hybrid; two featured roles carry the 60/40 split.",
+  "thesis": "I already run the measurement + AI operating layer this JD describes.",
+  "claims": [
+    {
+      "id": "elio-skills-graph",
+      "fact": "Production multi-model platform on Cloud Run with RAG and live connections",
+      "source": "elio",
+      "mapsTo": ["Claude skills", "data connections", "self-serve GTM AI"],
+      "keep": true,
+      "reason": "Closest analog to owning ~25 skills and ~15 connections"
+    },
+    {
+      "id": "elio-forecast-21",
+      "fact": "21 SEM forecasts against $2.4M pipeline",
+      "source": "elio",
+      "mapsTo": ["spend → stage", "decision-support readout", "grounded AI"],
+      "keep": true,
+      "reason": "Readout artifact a seller actually carried"
+    },
+    {
+      "id": "elio-prod-ops",
+      "fact": "8–10 API keys, 3–4 GCP service accounts, scheduled workflows",
+      "source": "elio",
+      "mapsTo": ["ai-bar: not prompting-only"],
+      "keep": true,
+      "reason": "Clears the JD bar that standalone tools are insufficient"
+    },
+    {
+      "id": "audacy-book-attribution",
+      "fact": "$10M+ book; top-3 rank from #19 market via attribution + reallocation",
+      "source": "audacy-dsm",
+      "mapsTo": ["attribution", "marketing spend", "pipeline"],
+      "keep": true,
+      "reason": "Measurement ownership at manager scope"
+    },
+    {
+      "id": "audacy-qbr-framework",
+      "fact": "Bidding + attribution framework; trained 10 AE desks for QBRs",
+      "source": "audacy-dsm",
+      "mapsTo": ["executive readout", "SDR/RevOps partnership analog"],
+      "keep": true,
+      "reason": "Decision-support motion with non-technical partners"
+    },
+    {
+      "id": "audacy-sem-lift",
+      "fact": "130% YoY paid-search conversion; 13% new-user lift",
+      "source": "audacy-dsm",
+      "mapsTo": ["campaign measurement", "what we cut"],
+      "keep": true,
+      "reason": "One concrete conversion metric; not a SEM catalog"
+    },
+    {
+      "id": "jobbored-claude-code",
+      "fact": "JobBored agents run in Claude Code",
+      "source": "jobbored",
+      "mapsTo": ["Claude Code preferred"],
+      "keep": true,
+      "letterOnly": true,
+      "reason": "Preferred-stack proof without a third resume project card"
+    },
+    {
+      "id": "looker-ga4-transfer",
+      "fact": "Looker Studio, GA4, GTM dashboards",
+      "source": "audacy-dcm",
+      "mapsTo": ["Power BI/DAX preferred"],
+      "keep": true,
+      "transfer": true,
+      "transferTarget": "Power BI",
+      "reason": "Narrate adjacency in QA; do not list Power BI as a skill"
+    },
+    {
+      "id": "hormiga-playbook",
+      "keep": false,
+      "reason": "Generic agency/playbook; no 3E noun"
+    },
+    {
+      "id": "bucketz",
+      "keep": false,
+      "reason": "2016–17 recruitment side quest; burns a line"
+    },
+    {
+      "id": "capabilities-taxonomy",
+      "keep": false,
+      "reason": "Page-3 skill soup; v2 forbids"
+    }
+  ]
+}

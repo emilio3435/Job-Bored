@@ -1,0 +1,32 @@
+September 17, 2026
+
+Hiring team
+3E
+Bethesda, MD / Eastern remote
+
+Re: AI & Marketing Analytics Manager
+
+Dear hiring team,
+
+Your posting is 60 percent measurement and 40 percent AI ops on a live
+Claude graph. That is the work I already do.
+
+I spent eight years at Audacy owning a $10M digital book and the weekly
+argument about it: which channels moved stage conversion, which were
+last-click theater, what we should cut. Denver is a #19 market; we held a
+top-3 national rank because the readout was honest. I sat with AEs the
+way this role sits with Growth, SDR, and RevOps — same fight over
+definitions, same QBR where someone asks what we do Tuesday.
+
+In parallel I built Elio: a production multi-model platform on Cloud Run
+that routes across Claude and four other models, with grounded search and
+live connections. The SEM forecast ran 21 scenarios against $2.4M of
+pipeline. I also run JobBored's agents in Claude Code. I am not applying
+as a prompt hobbyist. I want the ~25 skills and ~15 connections.
+
+I can start by sitting in on one Demand Gen readout and tracing one skill
+from the CRM to the memo. If that is useful, I am easy to reach.
+
+Best,
+Emilio Nunez-Garcia
+501.366.2080 · emilio3435@gmail.com

@@ -1,0 +1,50 @@
+EMILIO NUNEZ-GARCIA
+AI & Marketing Analytics Manager
+
+Denver, CO · 501.366.2080 · emilio3435@gmail.com · emiliobuilds.com
+linkedin.com/in/emiliobuilds
+
+THESIS
+I build the measurement and AI operating layer that turns channel noise
+into weekly decision memos. I already run that stack: live model routing,
+grounded forecasts, and the readouts a seller carries into the room.
+
+EXPERIENCE
+
+Elio Intelligence Suite — elioai.app
+Founder & AI engineer · Denver · 2024–present
+- Production multi-model platform on GCP Cloud Run (Claude, GPT, Gemini,
+  Grok, Llama) with task-fit routing, Vertex AI Search RAG, and live data
+  connections — the same shape as an in-house Claude skills graph.
+- Shipped a Gemini-grounded SEM forecast that ran 21 scenarios against
+  $2.4M of real pipeline so a seller walked into a pitch with
+  spend-to-stage math, not a dashboard dump.
+- Scheduled agent workflows across 8–10 API keys and 3–4 GCP service
+  accounts. I write them, deploy them, and babysit them. Prompting-only
+  this is not.
+
+Audacy (formerly Entercom)
+Digital Sales Manager · Denver · 2021–2026 · $10M+ digital book
+- Owned the book and the attribution argument behind it. Reallocated
+  Google, Meta, OTT/CTV, and programmatic toward marginal ROAS; Denver
+  held a top-3 national rank from a #19-sized market.
+- Built the bidding and attribution framework used in QBRs — last-click
+  vs. assisted, incrementality, which channel actually moved pipeline —
+  then trained 10 AE desks to defend it in the room.
+- 130% YoY paid-search conversion growth and 13% new-user lift on a
+  flagship financial-services account. The readout was the product: what
+  happened, why, what we cut.
+
+EARLIER
+Senior KAM / KAM / Digital Campaign Manager, Audacy, 2017–2021 — hands-on
+Google, Meta, and OTT trafficking, market dashboards, then the digital SME
+sitting with AEs. SEM and WordPress programs, Primary Residential Mortgage,
+2015–2016.
+
+SELECTED FOR THIS ROLE
+Claude API · Claude Code · Gemini / Vertex AI · multi-model routing · RAG
+· Python · SQL · APIs · Looker Studio · GA4 · GTM · attribution
+(last-click, DDA, MTA) · Salesforce-adjacent reporting
+
+EDUCATION
+B.A. Mathematical Economics, Colorado College, 2017 · English / Spanish

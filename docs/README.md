@@ -28,6 +28,7 @@ Pointers to contract, setup, automation roadmap, hardening notes, and machine-re
 | [JB-A11Y.md](../JB-A11Y.md)                                                                                              | Shared dialog, drawer, live-region, field, tab, and stage-menu accessibility contracts.                                 |
 | [HERMETIC-BROWSER-GATE.md](HERMETIC-BROWSER-GATE.md)                                                                     | Requirements for turning the Playwright smoke and journey jobs into required CI gates.                                  |
 | [INTERFACE-COMPANY-ALLOWLIST.md](INTERFACE-COMPANY-ALLOWLIST.md)                                                         | Per-run company allowlist/blocklist resolution, validation, and fail-closed behavior.                                   |
+| [Materials v2](materials-v2/README.md)                                                                                   | Resume + cover-letter redesign: [spec](superpowers/specs/2026-09-17-materials-v2-design.md), [plan](superpowers/plans/2026-09-17-materials-v2.md), [3E mocks](materials-v2/mocks/3e-ai-marketing-analytics-manager/). |
 
 ## Schemas & examples
 
