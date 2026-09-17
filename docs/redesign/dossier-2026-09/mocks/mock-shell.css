@@ -1,0 +1,351 @@
+/* ============================================================
+   mock-shell.css — chrome for the mock pages only.
+   ------------------------------------------------------------
+   Everything here is scaffolding: the fake app bar (so the sticky
+   docket has something real to park under), the width frame, the
+   annotation layer and the legend. None of it is proposed for
+   production; the proposal is dossier-redesign.css.
+   ============================================================ */
+
+:root {
+  --mock-bg: #efe9dc;
+  --mock-navy: #1b2a4e;
+  --mock-parchment: #fbf7ec;
+  --mock-border: #c9c2a8;
+  --mock-mute: #5a5347;
+  --mock-crimson: #b23a48;
+  --mock-amber: #e7b549;
+  --mock-mint: #6e9f87;
+  --mock-mono: "JetBrains Mono", ui-monospace, monospace;
+  --mock-sans: "DM Sans", system-ui, sans-serif;
+  --mock-serif: "Lora", Georgia, serif;
+  --mock-chrome-h: 64px;
+}
+
+* { box-sizing: border-box; }
+html { scroll-padding-top: 96px; }
+body {
+  margin: 0;
+  background: var(--mock-bg);
+  font-family: var(--mock-sans);
+  color: #1a1a1a;
+}
+
+/* ---------- fake app chrome ---------- */
+.mock-chrome {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  height: var(--mock-chrome-h);
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  padding: 0 clamp(14px, 2vw, 26px);
+  background: color-mix(in srgb, var(--mock-parchment) 88%, transparent);
+  backdrop-filter: blur(10px);
+  border-bottom: 1px solid var(--mock-border);
+}
+.mock-chrome__mark {
+  font-family: var(--mock-serif);
+  font-size: 19px;
+  font-weight: 600;
+  color: var(--mock-navy);
+}
+.mock-chrome__mark em { font-style: italic; color: var(--mock-crimson); }
+.mock-chrome__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid var(--mock-border);
+  border-radius: 999px;
+}
+.mock-chrome__tab {
+  padding: 5px 13px;
+  border-radius: 999px;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mock-mute);
+}
+.mock-chrome__tab--on { background: var(--mock-navy); color: var(--mock-parchment); }
+.mock-chrome__spacer { flex: 1; }
+.mock-chrome__pill {
+  padding: 7px 15px;
+  border-radius: 999px;
+  background: var(--mock-navy);
+  color: var(--mock-parchment);
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+
+/* ---------- page furniture ---------- */
+.mock-page {
+  width: min(1520px, 100%);
+  margin: 0 auto;
+  padding: 26px clamp(12px, 2vw, 24px) 120px;
+}
+
+.mock-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-end;
+  gap: 10px 20px;
+  margin-bottom: 22px;
+  padding-bottom: 14px;
+  border-bottom: 1px solid var(--mock-border);
+}
+.mock-head__kicker {
+  width: 100%;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mock-mute);
+}
+.mock-head__title {
+  margin: 4px 0 0;
+  font-family: var(--mock-serif);
+  font-size: clamp(24px, 3vw, 34px);
+  font-weight: 500;
+  line-height: 1.1;
+  color: var(--mock-navy);
+}
+.mock-head__title em { font-style: italic; color: var(--mock-crimson); }
+.mock-head__note {
+  flex: 1 1 22rem;
+  margin: 0;
+  font-family: var(--mock-serif);
+  font-size: 15px;
+  line-height: 1.55;
+  color: #4a4a4a;
+  max-width: 62ch;
+}
+
+.mock-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  padding: 8px 14px;
+  border: 1px solid var(--mock-border);
+  border-radius: 999px;
+  background: var(--mock-parchment);
+  cursor: pointer;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mock-navy);
+}
+.mock-toggle[aria-pressed="true"] { background: var(--mock-amber); border-color: var(--mock-amber); }
+
+.mock-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin: 0 0 22px;
+  padding: 0;
+  list-style: none;
+}
+.mock-links a {
+  display: inline-block;
+  padding: 6px 12px;
+  border: 1px solid var(--mock-border);
+  border-radius: 999px;
+  background: var(--mock-parchment);
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mock-navy);
+  text-decoration: none;
+}
+.mock-links a:hover { border-color: var(--mock-crimson); color: var(--mock-crimson); }
+.mock-links a[aria-current="page"] { background: var(--mock-navy); color: var(--mock-parchment); border-color: var(--mock-navy); }
+
+/* ---------- width frame: the mock pinned to a stated width ---------- */
+.mock-frame { margin: 0 auto 40px; }
+.mock-frame__label {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 0 auto 10px;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mock-mute);
+}
+.mock-frame__label::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--mock-border);
+}
+.mock-frame__body { margin: 0 auto; }
+.mock-frame--1440 .mock-frame__body { width: min(1440px, 100%); }
+.mock-frame--1280 .mock-frame__body { width: min(1280px, 100%); }
+.mock-frame--1024 .mock-frame__body { width: min(1024px, 100%); }
+.mock-frame--900 .mock-frame__body { width: min(900px, 100%); }
+.mock-frame--720 .mock-frame__body { width: min(720px, 100%); }
+.mock-frame--390 .mock-frame__body { width: min(390px, 100%); }
+
+/* The docket parks flush beneath the app chrome. Any gap between the
+   two is a slot the page scrolls through, which reads as a rendering
+   fault in a still — so the offset is the chrome height exactly. */
+.mock-frame .dossier { --dsr-chrome-h: var(--mock-chrome-h); }
+
+/* ---------- annotations ---------- */
+.anno {
+  display: none;
+  min-width: 17px;
+  height: 17px;
+  margin-left: 6px;
+  padding: 0 4px;
+  border-radius: 999px;
+  background: var(--mock-crimson);
+  color: #fff;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  font-weight: 500;
+  font-style: normal;
+  letter-spacing: 0;
+  line-height: 17px;
+  text-align: center;
+  vertical-align: 2px;
+}
+body.is-annotated .anno { display: inline-block; }
+body.is-annotated .dossier__section { outline: 1px dashed rgb(178 58 72 / 28%); outline-offset: 7px; }
+body.is-annotated .dossier__canvas { outline: 1px solid rgb(27 42 78 / 22%); outline-offset: 12px; }
+body.is-annotated .dossier__ledger { outline: 1px solid rgb(110 159 135 / 45%); outline-offset: 12px; }
+
+.mock-legend {
+  display: none;
+  margin: 34px auto 0;
+  padding: 22px 24px;
+  background: var(--mock-parchment);
+  border: 1px solid var(--mock-border);
+  border-radius: 12px;
+}
+body.is-annotated .mock-legend { display: block; }
+.mock-legend h2 {
+  margin: 0 0 4px;
+  font-family: var(--mock-mono);
+  font-size: 11px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mock-navy);
+}
+.mock-legend > p {
+  margin: 0 0 16px;
+  font-family: var(--mock-serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--mock-mute);
+}
+.mock-legend ol {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(19rem, 1fr));
+  gap: 14px 30px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: legend;
+}
+.mock-legend li {
+  display: grid;
+  grid-template-columns: 1.4rem minmax(0, 1fr);
+  gap: 10px;
+  font-size: 14px;
+  line-height: 1.5;
+}
+.mock-legend li::before {
+  counter-increment: legend;
+  content: counter(legend);
+  width: 17px;
+  height: 17px;
+  border-radius: 999px;
+  background: var(--mock-crimson);
+  color: #fff;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  line-height: 17px;
+  text-align: center;
+  margin-top: 2px;
+}
+.mock-legend b {
+  display: block;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mock-navy);
+  margin-bottom: 2px;
+}
+.mock-legend span { color: #4a4a4a; }
+
+/* ---------- state gallery (05) ---------- */
+.mock-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(30rem, 1fr));
+  gap: 34px;
+  align-items: start;
+}
+.mock-card > h2 {
+  margin: 0 0 4px;
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mock-crimson);
+}
+.mock-card > p {
+  margin: 0 0 12px;
+  font-family: var(--mock-serif);
+  font-size: 14px;
+  line-height: 1.5;
+  color: #4a4a4a;
+  max-width: 58ch;
+}
+
+/* Cropped state cards: the state is at the top of the dossier, so the
+   gallery shows the top and fades the rest away. */
+.mock-crop {
+  max-height: 620px;
+  overflow: hidden;
+  mask-image: linear-gradient(180deg, #000 78%, transparent);
+}
+
+/* ---------- empty-state shelf (kept from production, restyled) ---------- */
+.mock-shelf {
+  padding: clamp(34px, 5vw, 66px) clamp(22px, 3vw, 44px);
+  background: var(--mock-parchment);
+  border: 1px solid #e5dfcc;
+  border-radius: 14px;
+}
+.mock-shelf__num {
+  font-family: var(--mock-mono);
+  font-size: 10px;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mock-mute);
+}
+.mock-shelf__title {
+  margin: 10px 0 8px;
+  font-family: var(--mock-serif);
+  font-size: clamp(28px, 3.4vw, 42px);
+  font-weight: 500;
+  line-height: 1.08;
+  color: var(--mock-navy);
+}
+.mock-shelf__title em { font-style: italic; color: var(--mock-crimson); }
+.mock-shelf__sub {
+  margin: 0;
+  max-width: 54ch;
+  font-family: var(--mock-serif);
+  font-size: 16px;
+  line-height: 1.6;
+  color: #4a4a4a;
+}
