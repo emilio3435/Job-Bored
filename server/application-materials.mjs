@@ -20,6 +20,7 @@ import { existsSync } from "node:fs";
 import { join, sep, basename } from "node:path";
 import { homedir } from "node:os";
 import { auditApplicationMaterials } from "./materials-quality.mjs";
+import { isUsableJobDescription } from "./materials-jd-gate.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
@@ -990,6 +991,13 @@ export async function writeJobDescription(slug, text, meta = {}) {
   if (!body) throw httpError("text is empty", 400);
   if (body.length > 500_000) throw httpError("text too large (>500KB)", 413);
   if (!isValidSlug(slug)) throw httpError("Invalid application slug", 400);
+  // Heuristic guard: reject fit blurbs and too-short bodies so cache never poisons downstream.
+  if (!isUsableJobDescription(body)) {
+    throw httpError(
+      "Job description is not a usable posting. Paste the full job posting text (not a fit blurb or score).",
+      422,
+    );
+  }
 
   const base = getApplicationsRoot();
   const dir = join(base, slug);
