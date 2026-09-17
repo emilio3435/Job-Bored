@@ -12,7 +12,7 @@ import { getApplicationsRoot } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { composeCoverLetter, composeResume } from "./materials-composer.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
-import { resolveJobDescription } from "./materials-jd-gate.mjs";
+import { resolveJobDescription, isUsableJobDescription } from "./materials-jd-gate.mjs";
 import { renderPdfIfPossible } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import { callEditor, callWriter } from "./materials-writer.mjs";
@@ -383,6 +383,8 @@ function stripJdComments(raw) {
 async function writeJdFile(dir, text, meta = {}) {
   const body = String(text || "").replace(/\r\n/g, "\n").trim();
   if (!body) return;
+  // Do not poison the cache with fit-score blurbs or too-short text.
+  if (!isUsableJobDescription(body)) return;
   const header = [
     "<!-- job-description.md",
     `source: ${meta.source || "unknown"}`,
@@ -656,6 +658,13 @@ export function createMaterialsDrafter(deps = {}) {
     job.record = withPhase(job.record, "drafting");
     await writePending(pendingPath, job.record);
 
+    // Prefer a usable JD provided in the request payload (pasted by the user in the UI)
+    // over anything on disk. This allows a quick success path without requiring a scrape.
+    const providedJdRaw =
+      (typeof payload.jobDescription === "string" && payload.jobDescription) ||
+      (typeof payload.jdText === "string" && payload.jdText) ||
+      "";
+
     let cachedText = "";
     try {
       cachedText = stripJdComments(await readFile(join(dir, "job-description.md"), "utf8"));
@@ -663,15 +672,23 @@ export function createMaterialsDrafter(deps = {}) {
       cachedText = "";
     }
 
-    const jd = await resolveJobDescription({
-      cachedText,
-      jobUrl: payload.jobUrl,
-      scrapeJob,
-    });
+    /** @type {{ text: string, source: "cache" | "scrape" | "request" } | { error: "jd_unusable" }} */
+    let jd;
+    if (isUsableJobDescription(providedJdRaw)) {
+      jd = { text: providedJdRaw.trim(), source: "request" };
+    } else {
+      jd = await resolveJobDescription({
+        cachedText,
+        jobUrl: payload.jobUrl,
+        scrapeJob,
+      });
+    }
     if ("error" in jd) {
       const jdIssue = {
         code: "jd_unusable",
-        message: "Cached job description is unusable and scraping the job URL failed.",
+        message:
+          "Cached job description is unusable and scraping the job URL failed. " +
+          "Paste the full job posting into the Dossier (not a fit blurb), or replace the aggregator/blocked URL with the employer careers page.",
         severity: "review",
       };
       await writeFile(
@@ -684,15 +701,40 @@ export function createMaterialsDrafter(deps = {}) {
     }
 
     const jdText = jd.text;
-    if (jd.source === "scrape") {
+    if (jd.source === "scrape" || jd.source === "request") {
       await writeJdFile(dir, jdText, {
-        source: "scrape",
+        source: jd.source,
         jobUrl: payload.jobUrl,
         nowIso: isoNow(),
       });
     }
 
     const resolved = await resolvePin(pin);
+    // Log and persist the exact model used for this draft for dogfood verification.
+    try {
+      // Console log for live verification
+      // Example: [materials] slug=eab-role provider=gemini requested_model=gemini-flash resolved_model=gemini-3.7-flash
+      // No secrets are logged.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[materials] slug=${payload.slug} provider=${String(resolved.provider || pin.provider || "")} requested_model=${String(pin.model || "")} resolved_model=${String(resolved.resolvedModel || "")}`,
+      );
+      // Include a small debug field in pending.json without changing the UI message.
+      job.record = {
+        ...job.record,
+        debug: {
+          ...(job.record && /** @type {Record<string, unknown>} */ (job.record).debug),
+          llm: {
+            provider: String(resolved.provider || pin.provider || ""),
+            requestedModel: String(pin.model || ""),
+            resolvedModel: String(resolved.resolvedModel || ""),
+          },
+        },
+      };
+      await writePending(pendingPath, job.record);
+    } catch {
+      // Best-effort only — never fail the draft if logging cannot be written.
+    }
     const [masterResumeHtml, masterLetterHtml] = await Promise.all([
       readMasterResume(),
       readMasterLetter(),

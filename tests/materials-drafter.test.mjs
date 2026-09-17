@@ -100,6 +100,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
     assert.match(report, /jd_unusable/);
+    assert.match(report, /full job posting/i, "actionable guidance should invite pasting the full posting");
+    assert.match(report, /(aggregator|employer careers page|blocked URL)/i, "guidance should mention replacing aggregator/blocked URLs");
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
     await assert.rejects(readFile(join(dir, "eab-role", "resume.html")));
@@ -259,6 +261,9 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
+    // Debug LLM model resolution should be present for dogfood verification.
+    assert.ok(pending.debug && pending.debug.llm, "pending.json should include llm debug info");
+    assert.equal(typeof pending.debug.llm.resolvedModel, "string");
   });
 
   it("fills nested letter chrome slots and keeps .dot children", async () => {
@@ -327,6 +332,33 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     assert.ok(Array.isArray(seen));
     assert.ok(seen.includes("write like a human operator"));
+  });
+
+  it("uses a usable JD provided in the request without scraping", async () => {
+    let scraped = 0;
+    const drafter = createMaterialsDrafter(
+      baseDeps(dir, {
+        scrapeJob: async () => {
+          scraped += 1;
+          throw new Error("scrape blocked");
+        },
+      }),
+    );
+    const providedJd = ("responsibility ".repeat(100)).trim();
+    await drafter.enqueue({
+      slug: "eab-role",
+      company: "EAB",
+      title: "Director",
+      feature: "both",
+      jobUrl: "https://example.com/job",
+      notes: "",
+      jdText: providedJd,
+    });
+    await drafter.runUntilIdle();
+    // HTML artifacts should exist even though scrape always fails.
+    await readFile(join(dir, "eab-role", "resume.html"), "utf8");
+    await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
+    assert.ok(scraped <= 1, "scrape should not be required when a usable JD is provided");
   });
 
   it("treats resume_page_count_high as review when PDF is skipped so HTML still lands", async () => {
