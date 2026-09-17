@@ -4,9 +4,10 @@ Acceptance snapshot for **AI & Marketing Analytics Manager @ 3E** (Bethesda / Ea
 
 | File | Use |
 |---|---|
-| `resume.html` | Print-ready 1-page resume (US Letter) |
-| `cover-letter.html` | Print-ready 1-page letter (~220 words) |
+| `resume.html` / `resume.pdf` | Print-ready 1-page resume (US Letter) |
+| `cover-letter.html` / `cover-letter.pdf` | Print-ready 1-page letter (~220 words) |
 | `resume.txt` / `cover-letter.txt` | ATS twins |
+| `readout.css` / `readout-fonts.css` / `fonts/` | Shared Readout visual system (local latin faces) |
 | `jd-extract.json` | Stage 1 fixture |
 | `claim-selection.json` | Stage 2 fixture |
 
