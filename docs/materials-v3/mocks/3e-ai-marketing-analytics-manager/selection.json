@@ -1,0 +1,131 @@
+{
+  "contract": "materials.selection.v1",
+  "jdHash": "sha256:9f1c0b7a4e2d5831",
+  "ledgerHash": "sha256:4be71d90c5a2f6e8",
+  "budget": {
+    "pages": 1,
+    "pagesReason": "IC/manager hybrid, two relevant employers, one 1-page target",
+    "featuredEmployers": 2,
+    "bulletsPerFeatured": 3,
+    "earlierLines": 2,
+    "tokens": 13,
+    "letterWords": [180, 260]
+  },
+  "kept": [
+    {
+      "claimId": "elio-platform",
+      "rank": 1,
+      "slot": "resume.featured.elio.b1",
+      "score": { "noun": 1.0, "outcome": 0.9, "differentiator": 1.0, "recency": 1.0, "proof": 0.8, "total": 0.94 },
+      "mapsTo": ["skills-graph-ownership", "data connections", "self-serve-gtm-ai"],
+      "reason": "Closest real analog to the 25-skill / 15-connection graph the JD says it is handing over"
+    },
+    {
+      "claimId": "elio-forecast",
+      "rank": 2,
+      "slot": "resume.featured.elio.b2",
+      "score": { "noun": 0.9, "outcome": 1.0, "differentiator": 0.4, "recency": 1.0, "proof": 1.0, "total": 0.88 },
+      "mapsTo": ["spend-to-stage", "decision-readout", "pipeline"],
+      "reason": "Only claim in the ledger that ties AI output to pipeline math for a named decision"
+    },
+    {
+      "claimId": "audacy-framework",
+      "rank": 3,
+      "slot": "resume.featured.audacy.b2",
+      "score": { "noun": 0.9, "outcome": 1.0, "differentiator": 0.2, "recency": 0.8, "proof": 0.7, "total": 0.82 },
+      "mapsTo": ["attribution-judgment", "decision-readout", "buying stage"],
+      "reason": "JD asks for attribution judgment and partner enablement, not attribution reporting"
+    },
+    {
+      "claimId": "audacy-book",
+      "rank": 4,
+      "slot": "resume.featured.audacy.b1",
+      "score": { "noun": 0.8, "outcome": 0.9, "differentiator": 0.1, "recency": 0.8, "proof": 1.0, "total": 0.79 },
+      "mapsTo": ["marketing spend", "spend-to-stage"],
+      "reason": "Scope plus a spend-reallocation outcome; carries the $10M book fact"
+    },
+    {
+      "claimId": "elio-ops",
+      "rank": 5,
+      "slot": "resume.featured.elio.b3",
+      "score": { "noun": 0.6, "outcome": 0.5, "differentiator": 0.8, "recency": 1.0, "proof": 0.9, "total": 0.74 },
+      "mapsTo": ["skills-graph-ownership"],
+      "clears": ["not-prompting-only"],
+      "reason": "Only claim that clears the JD's explicit prompting-only bar with operations evidence"
+    },
+    {
+      "claimId": "audacy-metric",
+      "rank": 6,
+      "slot": "resume.featured.audacy.b3",
+      "score": { "noun": 0.5, "outcome": 0.7, "differentiator": 0.0, "recency": 0.8, "proof": 1.0, "total": 0.66 },
+      "mapsTo": ["spend-to-stage"],
+      "reason": "Hard numbers on the channel that 3E spends the most on; one bullet, not five"
+    },
+    {
+      "claimId": "audacy-earlier-sme",
+      "rank": 7,
+      "slot": "resume.earlier.1",
+      "score": { "total": 0.42 },
+      "mapsTo": ["decision-readout"],
+      "reason": "Compressed to one line: explains the 2017–2021 gap and the partner-facing habit"
+    },
+    {
+      "claimId": "prmi-sem",
+      "rank": 8,
+      "slot": "resume.earlier.2",
+      "score": { "total": 0.21 },
+      "mapsTo": [],
+      "reason": "Dates only. Keeps the timeline continuous without spending a sentence"
+    },
+    {
+      "claimId": "education",
+      "rank": 9,
+      "slot": "resume.education",
+      "score": { "total": 0.3 },
+      "mapsTo": [],
+      "reason": "Quantitative degree is relevant to an analytics manager posting"
+    },
+    {
+      "claimId": "jobbored-claude-code",
+      "rank": 10,
+      "slot": "letter.p3.support",
+      "score": { "total": 0.55 },
+      "mapsTo": ["skills-graph-ownership"],
+      "reason": "Claude Code evidence belongs in the letter as one clause, not as a third resume project"
+    }
+  ],
+  "dropped": [
+    { "claimId": "bucketz-launch", "code": "no_jd_mapping", "reason": "Consumer marketplace launch maps to none of the extract outcomes" },
+    { "claimId": "hormiga-playbook", "code": "no_jd_mapping", "reason": "Playbook count is not decision-support evidence for this role" },
+    { "claimId": "certs", "code": "low_signal", "reason": "Certification list is table stakes for the seniority and costs four lines" }
+  ],
+  "omittedEmployers": [
+    { "employerId": "bucketz", "reason": "no kept claims", "justified": true },
+    { "employerId": "hormiga", "reason": "no kept claims", "justified": true }
+  ],
+  "transfers": [
+    {
+      "id": "powerbi",
+      "from": ["Looker Studio", "GA4"],
+      "to": "Power BI",
+      "allowed": "prose-only",
+      "note": "Letter may name it as new; resume tokens and skills must not list it"
+    },
+    {
+      "id": "dax",
+      "from": ["SQL"],
+      "to": "DAX",
+      "allowed": "prose-only"
+    }
+  ],
+  "letter": {
+    "analyticsProof": "audacy-framework",
+    "aiOpsProof": "elio-platform",
+    "differentiatorClaim": "elio-ops",
+    "close": "sit in on one Demand Gen readout; trace one skill from CRM to memo"
+  },
+  "unmatchedJdNouns": ["Power BI", "DAX", "Power Automate"],
+  "constraintsForQa": [
+    { "type": "location", "code": "constraint_conflict", "detail": "Candidate is in Denver; posting authorizes Colorado excluding Denver" }
+  ]
+}

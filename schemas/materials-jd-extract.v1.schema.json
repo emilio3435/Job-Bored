@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-jd-extract.v1.schema.json",
+  "title": "materials.jd-extract.v1",
+  "description": "Structured job-description extract produced by the Materials v3 jd.extract stage. Deterministic parsing fills role/stack/constraints; the model fills outcomes, differentiators, bars, and noun weights.",
+  "type": "object",
+  "required": ["contract", "jdHash", "gate", "role", "outcomes", "nouns"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": { "const": "materials.jd-extract.v1" },
+    "jdHash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+    "source": { "enum": ["paste", "cache", "scrape"] },
+    "gate": {
+      "type": "object",
+      "required": ["verdict", "confidence"],
+      "additionalProperties": false,
+      "properties": {
+        "verdict": { "enum": ["usable", "thin", "unusable"] },
+        "confidence": { "type": "number", "minimum": 0, "maximum": 1 },
+        "signals": {
+          "type": "object",
+          "additionalProperties": { "type": ["boolean", "integer", "number"] }
+        }
+      }
+    },
+    "role": {
+      "type": "object",
+      "required": ["title", "company"],
+      "additionalProperties": false,
+      "properties": {
+        "title": { "type": "string", "minLength": 1 },
+        "company": { "type": "string", "minLength": 1 },
+        "location": { "type": "string" },
+        "workMode": { "type": "string" },
+        "reportingLine": { "type": "string" },
+        "partners": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "split": {
+      "type": "object",
+      "additionalProperties": { "type": ["number", "boolean"] }
+    },
+    "outcomes": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "text": { "type": "string", "minLength": 1 },
+          "weight": { "type": "number", "minimum": 0, "maximum": 1 }
+        }
+      }
+    },
+    "nouns": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["term"],
+        "additionalProperties": false,
+        "properties": {
+          "term": { "type": "string", "minLength": 1 },
+          "weight": { "type": "number", "minimum": 0, "maximum": 1 },
+          "evidence": { "type": "string" }
+        }
+      }
+    },
+    "stack": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "required": { "type": "array", "items": { "type": "string" } },
+        "preferred": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    "differentiators": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "required": { "type": "boolean" }
+        }
+      }
+    },
+    "bars": {
+      "description": "Explicit disqualifiers stated by the posting. Selection prefers claims whose `clears` list names one.",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "text": { "type": "string" },
+          "provenance": { "type": "string" }
+        }
+      }
+    },
+    "constraints": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["type", "text"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string" },
+          "text": { "type": "string" },
+          "severity": { "enum": ["informational", "blocking-unknown", "blocking"] }
+        }
+      }
+    },
+    "echoBans": {
+      "description": "Phrases from this posting the letter may not echo back.",
+      "type": "array",
+      "items": { "type": "string" }
+    }
+  }
+}

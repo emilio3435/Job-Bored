@@ -28,6 +28,7 @@ Pointers to contract, setup, automation roadmap, hardening notes, and machine-re
 | [JB-A11Y.md](../JB-A11Y.md)                                                                                              | Shared dialog, drawer, live-region, field, tab, and stage-menu accessibility contracts.                                 |
 | [HERMETIC-BROWSER-GATE.md](HERMETIC-BROWSER-GATE.md)                                                                     | Requirements for turning the Playwright smoke and journey jobs into required CI gates.                                  |
 | [INTERFACE-COMPANY-ALLOWLIST.md](INTERFACE-COMPANY-ALLOWLIST.md)                                                         | Per-run company allowlist/blocklist resolution, validation, and fail-closed behavior.                                   |
+| [Materials v3 — Volt](materials-v3/README.md)                                                                            | Resume + cover-letter redesign: [visual system](superpowers/specs/2026-09-17-materials-v3-volt-design.md), [operating mechanism](superpowers/specs/2026-09-17-materials-v3-mechanism-design.md), [plan](superpowers/plans/2026-09-17-materials-v3.md), [3E mocks](materials-v3/mocks/3e-ai-marketing-analytics-manager/). |
 
 ## Schemas & examples
 
@@ -35,6 +36,7 @@ Pointers to contract, setup, automation roadmap, hardening notes, and machine-re
 | --------------------------------------------------------------- | ---------------------------------------------------------------------------- |
 | [schemas/](../schemas/)                                         | JSON Schema for webhook payloads and other machine-checkable shapes.         |
 | [schemas/pipeline-row.v1.json](../schemas/pipeline-row.v1.json) | Pipeline tab column letters, header row, and UI enums (Interface A).         |
+| [schemas/materials-\*.v1.schema.json](../schemas/)              | Materials v3 pipeline contracts: JD extract, claim ledger, selection, render model, QA, run ledger. |
 | [examples/](../examples/)                                       | Fixture JSON files for validating requests and tooling against the contract. |
 
 ## Integrations
