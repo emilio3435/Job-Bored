@@ -1,0 +1,92 @@
+{
+  "contract": "materials.jd-extract.v1",
+  "jdHash": "sha256:9f1c0b7a4e2d5831",
+  "source": "paste",
+  "gate": {
+    "verdict": "usable",
+    "confidence": 0.88,
+    "signals": {
+      "words": 742,
+      "hasResponsibilities": true,
+      "hasRequirements": true,
+      "companyNameMatch": true,
+      "distinctRoleNouns": 31,
+      "looksLikeFitBlurb": false,
+      "looksLikeSearchResults": false,
+      "looksLikeAggregatorStub": false
+    }
+  },
+  "role": {
+    "title": "AI & Marketing Analytics Manager",
+    "company": "3E",
+    "location": "Bethesda, MD",
+    "workMode": "remote-eastern",
+    "reportingLine": "Senior Director of Demand Generation",
+    "partners": ["Growth Marketing", "SDR", "Revenue Operations"]
+  },
+  "split": { "analytics": 0.6, "aiOps": 0.4, "statedInJd": true },
+  "outcomes": [
+    {
+      "id": "decision-readout",
+      "text": "weekly decision-support readouts: what happened, why, what next",
+      "weight": 1.0
+    },
+    {
+      "id": "spend-to-stage",
+      "text": "explain marketing spend against buying stage and pipeline",
+      "weight": 1.0
+    },
+    {
+      "id": "self-serve-gtm-ai",
+      "text": "make GTM AI self-serve for marketing and sales partners",
+      "weight": 0.8
+    },
+    {
+      "id": "attribution-judgment",
+      "text": "own attribution judgment, not just attribution reporting",
+      "weight": 0.7
+    }
+  ],
+  "nouns": [
+    { "term": "Claude skills", "weight": 1.0, "evidence": "own ~25 live Claude skills" },
+    { "term": "data connections", "weight": 1.0, "evidence": "~15 data connections" },
+    { "term": "attribution", "weight": 0.9, "evidence": "attribution models and judgment" },
+    { "term": "pipeline", "weight": 0.9, "evidence": "spend to pipeline explainability" },
+    { "term": "buying stage", "weight": 0.8, "evidence": "spend by buying stage" },
+    { "term": "executive readout", "weight": 0.8, "evidence": "readouts for leadership" },
+    { "term": "marketing spend", "weight": 0.8, "evidence": "marketing spend efficiency" },
+    { "term": "Demand Generation", "weight": 0.7, "evidence": "reports to Demand Gen" },
+    { "term": "SQL", "weight": 0.6, "evidence": "SQL required" },
+    { "term": "RevOps", "weight": 0.5, "evidence": "partner with Revenue Operations" }
+  ],
+  "stack": {
+    "required": ["Claude Code", "SQL", "data connections"],
+    "preferred": ["Power BI", "DAX", "Power Automate", "n8n", "Zapier", "Make"]
+  },
+  "differentiators": [
+    {
+      "id": "skills-graph-ownership",
+      "text": "inherit and operate an existing Claude operating model: ~25 live skills, ~15 data connections",
+      "required": true
+    }
+  ],
+  "bars": [
+    {
+      "id": "not-prompting-only",
+      "text": "prompting-only or standalone-tool experience is explicitly not sufficient",
+      "provenance": "qualifications"
+    }
+  ],
+  "constraints": [
+    {
+      "type": "location",
+      "text": "Colorado authorized excluding Denver; Eastern-hours remote",
+      "severity": "blocking-unknown"
+    }
+  ],
+  "echoBans": [
+    "distinctive opportunity",
+    "transform how our Marketing organization",
+    "self-serve GTM AI"
+  ]
+}

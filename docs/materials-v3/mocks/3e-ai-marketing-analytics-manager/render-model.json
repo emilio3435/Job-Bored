@@ -1,0 +1,206 @@
+{
+  "contract": "materials.render-model.v1",
+  "note": "The only input the Volt templates read. Templates carry no facts, and the writer never emits markup: `n` runs are produced by the deterministic metric tagger from ledger-verified tokens, so an invented number cannot be typeset as data.",
+  "template": { "family": "volt", "version": "1.0", "pageBudget": 1 },
+  "provenance": {
+    "jdHash": "sha256:9f1c0b7a4e2d5831",
+    "ledgerHash": "sha256:4be71d90c5a2f6e8",
+    "selectionHash": "sha256:c07a83b1e4d2",
+    "promptVersion": "materials.prompts.v3.0",
+    "model": "gemini-flash → gemini-3.7-flash"
+  },
+  "identity": {
+    "name": "Emilio Nunez-Garcia",
+    "target": "AI & Marketing Analytics Manager",
+    "contact": [
+      { "kind": "location", "text": "Denver, CO" },
+      { "kind": "phone", "text": "501.366.2080" },
+      { "kind": "email", "text": "emilio3435@gmail.com", "href": "mailto:emilio3435@gmail.com" },
+      { "kind": "site", "text": "emiliobuilds.com", "href": "https://emiliobuilds.com" },
+      { "kind": "linkedin", "text": "linkedin.com/in/emiliobuilds", "href": "https://www.linkedin.com/in/emiliobuilds" }
+    ]
+  },
+  "documents": {
+    "resume": {
+      "templateId": "volt.resume",
+      "statement": {
+        "runs": [
+          { "t": "Sixty percent of this role is " },
+          { "hl": "making spend explain itself" },
+          { "t": "; forty is running the AI that does the explaining. I have shipped both — an attribution argument over a $10M book, and a production multi-model stack with live data connections underneath it." }
+        ],
+        "words": 44
+      },
+      "sections": [
+        {
+          "kind": "experience",
+          "label": "Experience",
+          "entries": [
+            {
+              "employerId": "elio",
+              "meta": ["2024 —", "Present", "Denver"],
+              "org": "Elio Intelligence Suite",
+              "seat": "Founder & AI engineer · elioai.app",
+              "bullets": [
+                {
+                  "claimId": "elio-platform",
+                  "runs": [
+                    { "t": "Built and operate a multi-model platform on Cloud Run — Claude, Gemini, GPT, Grok, and Llama behind task-fit routing, Vertex AI Search retrieval, and live data connections. Structurally the same object as a " },
+                    { "n": "25" },
+                    { "t": "-skill Claude graph wired to " },
+                    { "n": "15" },
+                    { "t": " systems." }
+                  ]
+                },
+                {
+                  "claimId": "elio-forecast",
+                  "runs": [
+                    { "t": "Shipped a grounded SEM forecaster that ran " },
+                    { "n": "21" },
+                    { "t": " scenarios against " },
+                    { "n": "$2.4M" },
+                    { "t": " of live pipeline, so the seller walked in with spend-to-stage math instead of a dashboard." }
+                  ]
+                },
+                {
+                  "claimId": "elio-ops",
+                  "runs": [
+                    { "t": "Own the unglamorous half: " },
+                    { "n": "8–10" },
+                    { "t": " API keys, " },
+                    { "n": "3–4" },
+                    { "t": " GCP service accounts, scheduled agent runs, and the pager when a connection drifts." }
+                  ]
+                }
+              ]
+            },
+            {
+              "employerId": "audacy-dsm",
+              "meta": ["2021 —", "2026", "Denver"],
+              "org": "Audacy",
+              "seat": [{ "t": "Digital Sales Manager · " }, { "n": "$10M+" }, { "t": " digital book" }],
+              "bullets": [
+                {
+                  "claimId": "audacy-book",
+                  "runs": [
+                    { "t": "Carried the book and the attribution argument behind it. Reallocated Google, Meta, OTT/CTV, and programmatic against marginal ROAS until Denver held a " },
+                    { "n": "top-3" },
+                    { "t": " national rank out of a " },
+                    { "n": "#19" },
+                    { "t": "-sized market." }
+                  ]
+                },
+                {
+                  "claimId": "audacy-framework",
+                  "runs": [
+                    { "t": "Wrote the bidding and attribution framework the QBRs ran on — last-click versus assisted, incrementality, which channel actually moved buying stage — then taught " },
+                    { "n": "10" },
+                    { "t": " AE desks to defend it without me in the room." }
+                  ]
+                },
+                {
+                  "claimId": "audacy-metric",
+                  "runs": [
+                    { "n": "130%" },
+                    { "t": " YoY paid-search conversion growth and a " },
+                    { "n": "13%" },
+                    { "t": " new-user lift on a flagship financial-services account. The deliverable was the readout: what happened, why, what we cut Monday." }
+                  ]
+                }
+              ]
+            }
+          ]
+        },
+        {
+          "kind": "earlier",
+          "label": "Earlier",
+          "entries": [
+            {
+              "employerId": "audacy-earlier",
+              "meta": ["2017 —", "2021"],
+              "org": "Audacy — Senior KAM → KAM → Digital Campaign Manager",
+              "line": "Trafficked Google, Meta, and OTT, built the market's reporting, and became the digital SME account executives brought into client calls."
+            },
+            {
+              "employerId": "prmi",
+              "meta": ["2015 —", "2016"],
+              "org": "Primary Residential Mortgage — SEM & web programs"
+            }
+          ]
+        },
+        {
+          "kind": "tokens",
+          "label": "Selected for this role",
+          "tokens": [
+            "Claude API",
+            "Claude Code",
+            "Gemini + Vertex AI",
+            "multi-model routing",
+            "RAG",
+            "Python",
+            "SQL",
+            "REST + webhooks",
+            "scheduled agent runs",
+            "Looker Studio",
+            "GA4",
+            "GTM",
+            "attribution (last-click, DDA, MTA)"
+          ],
+          "excluded": ["Power BI", "DAX"],
+          "excludedReason": "transfer:prose-only"
+        },
+        {
+          "kind": "tokens",
+          "label": "Education",
+          "tokens": ["B.A. Mathematical Economics, Colorado College, 2017", "English & Spanish"]
+        }
+      ],
+      "foot": { "left": "Tailored for 3E · AI & Marketing Analytics Manager", "right": "1 / 1" }
+    },
+    "coverLetter": {
+      "templateId": "volt.letter",
+      "index": ["Emilio Nunez-Garcia", "Cover letter", "3E", "2026.09.17"],
+      "rail": [
+        { "label": "To", "lines": ["Hiring team", "3E", "Bethesda, MD", "Eastern remote"] },
+        { "label": "Re", "lines": ["AI & Marketing Analytics Manager"] },
+        { "label": "Date", "lines": ["September 17, 2026"] }
+      ],
+      "railRule": "restated-metadata-only",
+      "salutation": "Dear hiring team,",
+      "paragraphs": [
+        {
+          "id": "p1",
+          "beat": "thesis",
+          "words": 30,
+          "text": "You are hiring someone to keep a live Claude operating model honest and to make marketing spend explain itself to a pipeline. Those are the same week for me, already."
+        },
+        {
+          "id": "p2",
+          "beat": "analytics-proof",
+          "claimId": "audacy-framework",
+          "words": 66,
+          "text": "At Audacy I carried a $10M digital book in Denver and the argument that came with it: which channels moved buying stage, which were last-click theater, what we stopped funding. The framework I wrote is the one account executives defended in QBRs after I stopped sitting in them. A #19 market ranked top-3 nationally because the readouts were honest, not because the media plan was clever."
+        },
+        {
+          "id": "p3",
+          "beat": "ai-ops-proof",
+          "claimId": "elio-platform",
+          "supportClaimIds": ["elio-forecast", "elio-ops", "jobbored-claude-code"],
+          "words": 62,
+          "text": "The other half I built. Elio routes across Claude, Gemini, GPT, Grok, and Llama on Cloud Run with grounded retrieval and live data connections, and the forecaster inside it ran 21 scenarios against $2.4M of real pipeline. I hold the keys, the service accounts, and the schedules. That is the shape of 25 skills and 15 connections, and it is not prompting."
+        },
+        {
+          "id": "p4",
+          "beat": "next-step",
+          "words": 42,
+          "transferId": "powerbi",
+          "text": "I would start by sitting in on one Demand Gen readout and tracing a single skill from the CRM to the sentence someone acts on. Power BI would be new; Looker Studio, GA4, and SQL are not. Easy to reach either way."
+        }
+      ],
+      "bodyWords": 200,
+      "signoff": "Best,",
+      "foot": { "left": "Cover letter · 3E · AI & Marketing Analytics Manager", "right": "1 / 1" }
+    }
+  },
+  "atsText": { "wrap": 78, "bulletMarker": "- ", "headings": "upper" }
+}

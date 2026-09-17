@@ -1,0 +1,51 @@
+EMILIO NUNEZ-GARCIA
+AI & Marketing Analytics Manager
+Denver, CO | 501.366.2080 | emilio3435@gmail.com | emiliobuilds.com |
+linkedin.com/in/emiliobuilds
+
+SUMMARY
+Sixty percent of this role is making spend explain itself; forty is running
+the AI that does the explaining. I have shipped both - an attribution
+argument over a $10M book, and a production multi-model stack with live data
+connections underneath it.
+
+EXPERIENCE
+
+Elio Intelligence Suite - Founder & AI engineer
+Denver, CO | 2024 - Present
+- Built and operate a multi-model platform on Cloud Run - Claude, Gemini,
+  GPT, Grok, and Llama behind task-fit routing, Vertex AI Search retrieval,
+  and live data connections. Structurally the same object as a 25-skill
+  Claude graph wired to 15 systems.
+- Shipped a grounded SEM forecaster that ran 21 scenarios against $2.4M of
+  live pipeline, so the seller walked in with spend-to-stage math instead of
+  a dashboard.
+- Own the unglamorous half: 8-10 API keys, 3-4 GCP service accounts,
+  scheduled agent runs, and the pager when a connection drifts.
+
+Audacy - Digital Sales Manager
+Denver, CO | 2021 - 2026 | $10M+ digital book
+- Carried the book and the attribution argument behind it. Reallocated
+  Google, Meta, OTT/CTV, and programmatic against marginal ROAS until Denver
+  held a top-3 national rank out of a #19-sized market.
+- Wrote the bidding and attribution framework the QBRs ran on - last-click
+  versus assisted, incrementality, which channel actually moved buying stage
+  - then taught 10 AE desks to defend it without me in the room.
+- 130% YoY paid-search conversion growth and a 13% new-user lift on a
+  flagship financial-services account. The deliverable was the readout: what
+  happened, why, what we cut Monday.
+
+EARLIER
+Audacy - Senior KAM / KAM / Digital Campaign Manager | 2017 - 2021.
+Trafficked Google, Meta, and OTT, built the market's reporting, and became
+the digital SME account executives brought into client calls.
+Primary Residential Mortgage - SEM & web programs | 2015 - 2016.
+
+SELECTED FOR THIS ROLE
+Claude API, Claude Code, Gemini + Vertex AI, multi-model routing, RAG,
+Python, SQL, REST + webhooks, scheduled agent runs, Looker Studio, GA4, GTM,
+attribution (last-click, DDA, MTA)
+
+EDUCATION
+B.A. Mathematical Economics, Colorado College, 2017
+Languages: English, Spanish

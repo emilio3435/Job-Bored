@@ -1,0 +1,187 @@
+{
+  "contract": "materials.claim-ledger.v1",
+  "ledgerHash": "sha256:4be71d90c5a2f6e8",
+  "builtAt": "2026-09-17T18:40:11Z",
+  "note": "Excerpt. The real ledger is built once per profile change by materials ingest, not per draft. It is the only place resume facts live; templates never carry facts.",
+  "sources": [
+    { "id": "resume-2026-08", "kind": "resume", "hash": "sha256:11a4", "ingestedAt": "2026-08-02T00:00:00Z" },
+    { "id": "linkedin-2026-06", "kind": "linkedin", "hash": "sha256:77c0", "ingestedAt": "2026-06-14T00:00:00Z" },
+    { "id": "profile", "kind": "profile", "hash": "sha256:02df", "ingestedAt": "2026-09-16T00:00:00Z" }
+  ],
+  "employers": [
+    { "id": "elio", "name": "Elio Intelligence Suite", "title": "Founder & AI engineer", "location": "Denver, CO", "start": "2024-03", "end": null, "site": "elioai.app" },
+    { "id": "audacy-dsm", "name": "Audacy", "title": "Digital Sales Manager", "location": "Denver, CO", "start": "2021-04", "end": "2026-02", "scope": "$10M+ digital book" },
+    { "id": "audacy-earlier", "name": "Audacy", "title": "Senior KAM / KAM / Digital Campaign Manager", "location": "Denver, CO", "start": "2017-07", "end": "2021-04" },
+    { "id": "prmi", "name": "Primary Residential Mortgage", "title": "SEM & web programs", "location": "Denver, CO", "start": "2015-05", "end": "2016-09" },
+    { "id": "bucketz", "name": "Bucketz", "title": "Founder", "start": "2023-01", "end": "2024-01" },
+    { "id": "hormiga", "name": "Hormiga", "title": "Founder", "start": "2025-02", "end": null }
+  ],
+  "claims": [
+    {
+      "id": "elio-platform",
+      "employerId": "elio",
+      "kind": "system",
+      "text": "Production multi-model platform on GCP Cloud Run routing Claude, GPT, Gemini, Grok, and Llama by task fit, with Vertex AI Search retrieval and live data connections",
+      "metrics": [],
+      "tools": ["Claude API", "Gemini", "Vertex AI Search", "Cloud Run", "multi-model routing", "RAG"],
+      "outcomes": ["self-serve-gtm-ai", "skills-graph-ownership"],
+      "sourceRefs": ["resume-2026-08#elio-1", "profile#projects.elio"],
+      "verified": true
+    },
+    {
+      "id": "elio-forecast",
+      "employerId": "elio",
+      "kind": "achievement",
+      "text": "Gemini-grounded SEM forecaster ran 21 scenarios against $2.4M of live pipeline for a seller pitch",
+      "metrics": [
+        { "token": "21", "unit": "scenarios" },
+        { "token": "$2.4M", "unit": "pipeline" }
+      ],
+      "tools": ["Gemini", "SEM", "forecasting"],
+      "outcomes": ["spend-to-stage", "decision-readout"],
+      "sourceRefs": ["resume-2026-08#elio-2"],
+      "verified": true
+    },
+    {
+      "id": "elio-ops",
+      "employerId": "elio",
+      "kind": "operations",
+      "text": "Runs scheduled agent workflows across 8–10 API keys and 3–4 GCP service accounts, including on-call for connection drift",
+      "metrics": [
+        { "token": "8–10", "unit": "API keys" },
+        { "token": "3–4", "unit": "GCP service accounts" }
+      ],
+      "tools": ["GCP", "service accounts", "schedulers"],
+      "outcomes": ["skills-graph-ownership"],
+      "clears": ["not-prompting-only"],
+      "sourceRefs": ["resume-2026-08#elio-3"],
+      "verified": true
+    },
+    {
+      "id": "audacy-book",
+      "employerId": "audacy-dsm",
+      "kind": "achievement",
+      "text": "Owned a $10M+ digital book and reallocated Google, Meta, OTT/CTV, and programmatic against marginal ROAS; Denver held a top-3 national rank from a #19-sized market",
+      "metrics": [
+        { "token": "$10M+", "unit": "book" },
+        { "token": "top-3", "unit": "national rank" },
+        { "token": "#19", "unit": "market size" }
+      ],
+      "tools": ["Google Ads", "Meta", "OTT/CTV", "programmatic"],
+      "outcomes": ["spend-to-stage", "marketing spend"],
+      "sourceRefs": ["resume-2026-08#dsm-1", "linkedin-2026-06#dsm"],
+      "verified": true
+    },
+    {
+      "id": "audacy-framework",
+      "employerId": "audacy-dsm",
+      "kind": "system",
+      "text": "Wrote the bidding and attribution framework used in QBRs — last-click vs. assisted, incrementality, channel-to-stage movement — and trained 10 AE desks to defend it",
+      "metrics": [{ "token": "10", "unit": "AE desks" }],
+      "tools": ["attribution", "last-click", "DDA", "MTA", "Looker Studio", "GA4"],
+      "outcomes": ["attribution-judgment", "decision-readout"],
+      "sourceRefs": ["resume-2026-08#dsm-3"],
+      "verified": true
+    },
+    {
+      "id": "audacy-metric",
+      "employerId": "audacy-dsm",
+      "kind": "achievement",
+      "text": "130% YoY paid-search conversion growth and 13% new-user lift on a flagship financial-services account",
+      "metrics": [
+        { "token": "130%", "unit": "YoY paid-search conversion growth" },
+        { "token": "13%", "unit": "new-user lift" }
+      ],
+      "tools": ["paid search", "CRO"],
+      "outcomes": ["spend-to-stage"],
+      "sourceRefs": ["resume-2026-08#dsm-5"],
+      "verified": true
+    },
+    {
+      "id": "audacy-earlier-sme",
+      "employerId": "audacy-earlier",
+      "kind": "role",
+      "text": "Trafficked Google, Meta, and OTT campaigns, built market reporting, and became the digital SME joining AE client calls",
+      "metrics": [],
+      "tools": ["Google Ads", "Meta", "OTT", "dashboards"],
+      "outcomes": ["decision-readout"],
+      "sourceRefs": ["resume-2026-08#kam-1"],
+      "verified": true
+    },
+    {
+      "id": "prmi-sem",
+      "employerId": "prmi",
+      "kind": "role",
+      "text": "Ran paid search and WordPress site programs for loan-officer demand generation",
+      "metrics": [],
+      "tools": ["SEM", "WordPress"],
+      "outcomes": [],
+      "sourceRefs": ["resume-2026-08#prmi"],
+      "verified": true
+    },
+    {
+      "id": "jobbored-claude-code",
+      "employerId": "elio",
+      "kind": "system",
+      "text": "Runs JobBored's agent fleet in Claude Code against a user-owned Google Sheet",
+      "metrics": [],
+      "tools": ["Claude Code", "Google Sheets API"],
+      "outcomes": ["skills-graph-ownership"],
+      "clears": ["not-prompting-only"],
+      "sourceRefs": ["profile#projects.jobbored"],
+      "verified": true
+    },
+    {
+      "id": "bucketz-launch",
+      "employerId": "bucketz",
+      "kind": "achievement",
+      "text": "Launched a consumer marketplace side product and its paid acquisition test plan",
+      "metrics": [],
+      "tools": ["Meta Ads", "Shopify"],
+      "outcomes": [],
+      "sourceRefs": ["resume-2026-08#bucketz"],
+      "verified": true
+    },
+    {
+      "id": "hormiga-playbook",
+      "employerId": "hormiga",
+      "kind": "achievement",
+      "text": "Built an 18-idea growth playbook for small-business clients",
+      "metrics": [{ "token": "18", "unit": "ideas" }],
+      "tools": [],
+      "outcomes": [],
+      "sourceRefs": ["resume-2026-08#hormiga"],
+      "verified": true
+    },
+    {
+      "id": "certs",
+      "employerId": null,
+      "kind": "credential",
+      "text": "Google Ads, GA4, and Meta Blueprint certifications",
+      "metrics": [],
+      "tools": ["Google Ads", "GA4", "Meta"],
+      "outcomes": [],
+      "sourceRefs": ["linkedin-2026-06#certs"],
+      "verified": true
+    },
+    {
+      "id": "education",
+      "employerId": null,
+      "kind": "education",
+      "text": "B.A. Mathematical Economics, Colorado College, 2017",
+      "metrics": [],
+      "tools": [],
+      "outcomes": [],
+      "sourceRefs": ["resume-2026-08#edu"],
+      "verified": true
+    }
+  ],
+  "toolInventory": [
+    { "tool": "Looker Studio", "evidence": "audacy-framework", "level": "owned" },
+    { "tool": "GA4", "evidence": "audacy-framework", "level": "owned" },
+    { "tool": "SQL", "evidence": "profile#skills", "level": "owned" },
+    { "tool": "Power BI", "evidence": null, "level": "none", "transferFrom": ["Looker Studio", "GA4"] },
+    { "tool": "DAX", "evidence": null, "level": "none", "transferFrom": ["SQL"] },
+    { "tool": "Salesforce", "evidence": "profile#skills", "level": "adjacent" }
+  ]
+}
