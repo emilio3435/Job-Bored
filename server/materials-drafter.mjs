@@ -92,6 +92,7 @@ const PARENT_LETTER_SLOTS = [
  * @property {string} requested_at
  * @property {string} source
  * @property {PendingProgress} progress
+ * @property {{ llm?: { provider: string, requestedModel: string, resolvedModel: string } }} [debug]
  */
 
 /**
@@ -709,26 +710,27 @@ export function createMaterialsDrafter(deps = {}) {
       });
     }
 
-    const resolved = await resolvePin(pin);
+    /** @type {import("./materials-writer.mjs").WriterPin} */
+    const resolved = /** @type {import("./materials-writer.mjs").WriterPin} */ (await resolvePin(pin));
     // Log and persist the exact model used for this draft for dogfood verification.
     try {
+      const pinProvider = String((/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin))).provider || "");
+      const requestedModel = String((/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin))).model || "");
+      const resolvedModel = String(resolved.resolvedModel || "");
       // Console log for live verification
       // Example: [materials] slug=eab-role provider=gemini requested_model=gemini-flash resolved_model=gemini-3.7-flash
       // No secrets are logged.
       // eslint-disable-next-line no-console
       console.log(
-        `[materials] slug=${payload.slug} provider=${String(resolved.provider || pin.provider || "")} requested_model=${String(pin.model || "")} resolved_model=${String(resolved.resolvedModel || "")}`,
+        `[materials] slug=${payload.slug} provider=${String(resolved.provider || pinProvider)} requested_model=${requestedModel} resolved_model=${resolvedModel}`,
       );
       // Include a small debug field in pending.json without changing the UI message.
-      job.record = {
-        ...job.record,
-        debug: {
-          ...(job.record && /** @type {Record<string, unknown>} */ (job.record).debug),
-          llm: {
-            provider: String(resolved.provider || pin.provider || ""),
-            requestedModel: String(pin.model || ""),
-            resolvedModel: String(resolved.resolvedModel || ""),
-          },
+      /** @type {any} */ (job.record).debug = {
+        ...(/** @type {any} */ (job.record).debug),
+        llm: {
+          provider: String(resolved.provider || pinProvider),
+          requestedModel,
+          resolvedModel,
         },
       };
       await writePending(pendingPath, job.record);
