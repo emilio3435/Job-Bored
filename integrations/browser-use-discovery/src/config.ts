@@ -30,7 +30,7 @@ import {
 // @ts-expect-error JS pin store has JSDoc, no sibling .d.mts
 import { loadLlmConfig, migrateLlmConfigFromEnv } from "../../../server/llm-config.mjs";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
-import { GEMINI_FLASH_FALLBACK, isGeminiFlashFamily } from "../../../server/model-family.mjs";
+import { GEMINI_FLASH_FAMILY, GEMINI_FLASH_FALLBACK, isGeminiFlashFamily } from "../../../server/model-family.mjs";
 
 export type WorkerLlmProvider =
   | ""
@@ -359,7 +359,7 @@ export function loadRuntimeConfig(
       "BROWSER_USE_DISCOVERY_GEMINI_MODEL",
       "DISCOVERY_GEMINI_MODEL",
       "GEMINI_MODEL",
-    ]) || GEMINI_FLASH_FALLBACK;
+    ]) || GEMINI_FLASH_FAMILY;
   let llmProvider = resolveLlmProvider(runtimeEnv);
   let llmApiKey = resolveLlmApiKey(runtimeEnv, llmProvider);
   let llmModel = resolveLlmModel(runtimeEnv, llmProvider, geminiModel);

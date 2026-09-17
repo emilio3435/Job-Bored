@@ -114,10 +114,8 @@
       note: "Free tier, and it lights up URL import and grounded search.",
       keyField: "resumeGeminiApiKey",
       modelField: "resumeGeminiModel",
-      // A concrete id, not the `gemini-flash` alias: Google answers that
-      // one with 404 "models/gemini-flash is not found for API version
-      // v1beta" and the draft only survived on a fallback (NEW-8).
-      defaultModel: "gemini-3.5-flash",
+      // Use the Gemini Flash family alias as the default; HTTP falls back to a pinned snapshot when needed.
+      defaultModel: "gemini-flash",
       keyPlaceholder: "AIza…",
       signupUrl: "https://aistudio.google.com/app/apikey",
       signupLabel: "Create a free Gemini key ↗",

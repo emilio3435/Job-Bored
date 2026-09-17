@@ -132,7 +132,7 @@ The security/order invariant in `handle-discovery-webhook.ts` is non-negotiable:
   3. Service account (`..._SERVICE_ACCOUNT_JSON` / `_FILE`) — recommended for unattended cron
   4. OAuth token (`..._OAUTH_TOKEN_JSON` / `_FILE`)
 - **Generic worker AI** — OpenRouter-first chat/JSON tasks use `BROWSER_USE_DISCOVERY_LLM_PROVIDER=openrouter`, `BROWSER_USE_DISCOVERY_OPENROUTER_API_KEY`, and optional model/base URL overrides.
-- **Gemini Google tools** — `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`, default model `gemini-3.5-flash`, is optional and only powers Grounded Search (`google_search`) plus Add URL Context (`url_context`).
+- **Gemini Google tools** — `BROWSER_USE_DISCOVERY_GEMINI_API_KEY`, default model `gemini-flash` (family; resolved to the latest stable at call time), is optional and only powers Grounded Search (`google_search`) plus Add URL Context (`url_context`).
 - **Browser Use** — `BROWSER_USE_API_KEY` + `BROWSER_USE_PROFILE_ID` for cloud, or the bundled CLI wrapper at `integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs` falling back to plain `browser-use` falling back to direct fetch.
 - **SerpApi** — `SERPAPI_API_KEY` (also accepted as `BROWSER_USE_DISCOVERY_SERPAPI_API_KEY`, `DISCOVERY_SERPAPI_API_KEY`). Lane skips silently when unset.
 - **SQLite** — memory store at `BROWSER_USE_DISCOVERY_STATE_DB_PATH` (defaults under `~/.jobbored/browser-use-discovery/state/`).
