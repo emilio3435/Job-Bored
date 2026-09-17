@@ -100,7 +100,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `companyBlocklist`  | string[] | Optional. Non-empty array of trimmed company names/keys to suppress from results. Capped at 50 unique entries. Subtracted from both ATS and normal company pools after skip/allowlist filtering. |
 | `googleAccessToken` | string   | Optional. Short-lived dashboard Google OAuth token for this run only; receivers must not persist it.                                                    |
 | `mergedUserProfile` | object   | Optional. Master Fit Profile merged with per-run overrides (non-secret; no raw resume text). The worker parser preserves it, strips resume/secret keys, and uses it for this run after ajv validation. Invalid payloads are ignored and the worker falls back to its disk profile. Never persisted. |
-| `allowUnrestrictedFallback` | boolean | Optional. Explicit confirmation that an unmatched `companyAllowlist` may fall back to unrestricted stored-company search. Omitted/false fails closed. |
+| `allowUnrestrictedFallback` | boolean | Optional. Explicit confirmation that an unmatched `companyAllowlist` may fall back to unrestricted stored-company search. When the stored **active** company list and history are empty (typical post-wizard local install), that fallback seeds this run from the requested allowlist names instead of searching with a blank company. Omitted/false fails closed. |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -119,7 +119,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 
 Effective intent is one object (`intentContractVersion: 1`) derived from `discoveryProfile` fields, `searchPlan.query`, `profileSnapshot`, and `mergedUserProfile.identity`. Master-profile or search-plan roles/keywords are not `blank_intent`.
 
-`companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering. Unknown keys are reported; if none match the catalog, the run stays `blocked_unresolved` (empty pools, no unrestricted grounded-web fallback) unless `allowUnrestrictedFallback` is explicitly true. The worker never writes this field back to `worker-config.json`.
+`companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering. Unknown keys are reported; if none match the catalog, the run stays `blocked_unresolved` (empty pools, no unrestricted grounded-web fallback) unless `allowUnrestrictedFallback` is explicitly true. When that flag is true and the stored **active** list plus history are empty (local wizard installs ship `companies: []` and only example ATS seeds), the worker seeds this run from the requested allowlist names so grounded/ATS scout has real company targets. The worker never writes this field back to `worker-config.json`.
 
 `companyBlocklist` is applied after skip + allowlist filtering and subtracts matching companies from both the normal and ATS pools.
 
