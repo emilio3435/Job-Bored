@@ -1,0 +1,45 @@
+{
+  "role": "AI & Marketing Analytics Manager",
+  "company": "3E",
+  "reportingLine": "Senior Director of Demand Generation",
+  "partners": ["Growth Marketing", "SDR", "Revenue Operations", "AI/technical"],
+  "split": { "analytics": 0.6, "aiOps": 0.4 },
+  "outcomes": [
+    "decision-support readouts (what happened, why, what next)",
+    "spend → buying-stage / pipeline explainability",
+    "self-serve GTM AI on an existing Claude operating model"
+  ],
+  "mustNouns": [
+    "attribution",
+    "pipeline",
+    "marketing spend",
+    "Claude skills",
+    "data connections",
+    "executive readout",
+    "Demand Generation"
+  ],
+  "preferredStack": [
+    "Claude Code",
+    "Power BI/DAX",
+    "Power Automate",
+    "SQL",
+    "n8n/Zapier/Make"
+  ],
+  "differentiators": [
+    "own ~25 live Claude skills and ~15 data connections"
+  ],
+  "constraints": [
+    {
+      "type": "location",
+      "text": "Eastern remote; 3E authorized to hire in Colorado excluding Denver"
+    },
+    {
+      "type": "ai-bar",
+      "text": "prompting-only or standalone AI tools are not sufficient"
+    }
+  ],
+  "bannedEcho": [
+    "distinctive opportunity",
+    "transform how our Marketing organization"
+  ]
+}

@@ -1,0 +1,30 @@
+# Old failure modes vs Materials v2
+
+Paired with the 3E critique (`RESUME-CL-CRITIQUE-3E-2026-09-17.md`) and [the v2 spec](../superpowers/specs/2026-09-17-materials-v2-design.md). The mocks in [`mocks/3e-ai-marketing-analytics-manager/`](mocks/3e-ai-marketing-analytics-manager/) are the “after.”
+
+| # | What the 3E run did | Why the current system did it | What v2 does instead |
+|---|---|---|---|
+| 1 | Resume printed ~3 pages (`resume_page_count_high`) | Canonical `resume-template/resume.html` is a 3-page deck (`data-page="3"`, folio `01 / 03`). Composer only rewrites slots. Quality fails *after* 2 pages; Hermes prompt says ≤2; none of that can collapse page 3. | Compose into a 1-page Readout template. `pageBudget` default 1. Type size fixed; overflow drops claims. 3 pages always fail. |
+| 2 | Capabilities + stack + certs as a taxonomy page | Template §04–§06 are definition lists. Writer may *reorder* them (`capabilitiesOrder`) but cannot omit the section. Critic *reviews* if capabilities are missing — so the editor keeps them. | Capabilities default off. `selectedTools` is 8–12 JD-picked tokens on one line. Missing taxonomy is success. |
+| 3 | Too many bullets per role; everything Emilio has done is invited | Master DSM block has **8** tagged bullets. Writer schema is `roles[].bullets[]` with no max. Frozen-fact fail if an employer disappears. | Claim selection keeps 6–10 facts. 2–4 bullets per featured role. `include: false` removes a role. `omittedClaims[]` makes drops legal. |
+| 4 | Generic marketing-analytics soup; weak 3E nouns | Keyword gate = 3 tokens ≥ 5 letters. “marketing / analytics / pipeline” passes. No extract of “25 Claude skills,” Demand Gen, Power BI, SDR/RevOps. | `jd-extract.json` has `mustNouns`, `outcomes`, `differentiators`, `partners`. Rubric hard-fails `differentiator_missing` and `<50%` noun coverage. |
+| 5 | Metrics don’t ladder to 3E outcomes (readouts, spend→stage, self-serve GTM AI) | Writer is “rewrite the master for this JD” with the whole HTML pasted in. Coverage is the implicit reward. | Outline names the outcome each featured bullet must land on. Rubric row 3 scores the ladder. SEM-for-SEM’s-sake bullets get cut at selection. |
+| 6 | Opener is resume-speak (“Marketing analytics manager and AI product engineer with 10+ years optimizing…”) | Master opener + body are long title stacks. BYOK prompt asks for SUMMARY. No thesis slot. | Dedicated `thesis` slot, 28–45 words, title-stack regex fails QA. 3E mock: “measurement and AI operating layer… weekly decision memos.” |
+| 7 | No “I already do this job” proof | Letter schema is hook / whyThem / whyMe / whyNow / flourish — a brand essay. whyThem invites mission fluff. | Four beats: thesis, analytics proof, AI-ops proof (skills-graph analog), concrete next step. No flourish. |
+| 8 | Letter QA `banned_filler`; “I am excited,” “distinctive opportunity” | Banned regex is four phrases. JD itself says “distinctive opportunity” and “transform.” Letter floor **325 words** (`materials-quality.mjs`, tailorer prompt) forces padding. Repair *expands* short letters. | Floor 180, cap 280. Expand repair stops at 180. Banned list includes excited / distinctive / transform-as-self-verb / canned taglines. Extract `bannedEcho` is per-JD. |
+| 9 | AI-tell: parallel stacks, synonym runs, tag soup | `data-tags` on every `<li>`; no symmetry detector; Phase 3 asks to “preserve the design system.” | Anti-AI pass with no JD in context. `ai_cadence` flags 3-wide parallel bullets and adjective piles. Tags never render. |
+| 10 | Heavy HTML, ~449KB letter PDF | Fraunces + Inter + JetBrains, gold rules, React tweaks from unpkg, cream bleed, drop-caps. | Readout templates: two fonts, hairlines, no JS. ATS `*.txt` written from JSON, not from HTML. |
+| 11 | Partial customization; Claude graph underweighted | One-shot Hermes prompt: “keep tailored, specific, polished.” No claim map. JobBored/Elio look like extra projects, not the analog. | Stage 2 maps Elio (models + connections + forecast) → 25 skills / 15 connections. Letter p3 says the analog in plain English. JobBored appears only as Claude Code evidence if kept. |
+| 12 | Bethesda / Demand Gen / Eastern remote ignored | Extract is a bag of words. No reporting-line field. | Extract `reportingLine`, `partners`, `constraints`. Rubric rows 5–6. 3E mock names Demand Gen and Eastern remote. |
+| 13 | Location constraint invisible | 3E hires CO **excluding Denver**. Master contact is Denver. Nothing flags it. | `constraint_conflict` review on every 3E package. Do not invent a Bethesda address. Human decides. |
+| 14 | “Prompting-only is not enough” (JD bar) not proven | Elio bullets can read as a model zoo. No explicit production-ops proof. | Selection prefers keys / service accounts / scheduled workflows. Voice line: “Prompting-only this is not.” |
+| 15 | Transfer overclaim risk (Power BI / DAX / Salesforce) | Keyword stuffing toward preferred stack. Frozen facts don’t cover *adding* a tool. | `transfer: true` claims. Listing Power BI as a skill = `transfer_overclaim` fail. Looker/GA4 stay. |
+| 16 | BYOK compact template unused | `document-templates.js` has `resume_compact_one_page`; Queue always uses Hermes 3-page. | Wave 4: compact/readout become defaults. Same budgets on both paths. |
+| 17 | Hermes vs server vs BYOK disagree | 2-page Hermes prompt, 3-page template, 325-word BYOK letter, 2-page quality.v1. | One spec, one voice JSON, one budget table. Watcher prompt and tailorer prompt updated in the same waves. |
+
+## What v2 will *not* “fix” (honest leftover)
+
+- A weak `:free` model will still write mush. The weak-model warning stays.
+- Denver vs CO-exclude-Denver is a hiring-policy problem, not a prose problem.
+- If the claim bank has no analog for a JD noun, the rubric will REVIEW. That is correct. Do not hallucinate DAX.
+- Print-to-PDF still needs Playwright (or the browser) for a real page-count; HTML `.page { height: 11in; overflow: hidden }` is the design-time gate, not a substitute for `countPdfPages` in CI when PDF is present.

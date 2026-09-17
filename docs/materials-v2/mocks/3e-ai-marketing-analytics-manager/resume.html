@@ -1,0 +1,280 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emilio Nunez-Garcia — Resume — 3E AI &amp; Marketing Analytics Manager</title>
+<!--
+  Materials v2 mock (Readout template).
+  Role: AI & Marketing Analytics Manager @ 3E
+  Rules: 1 page, thesis first, selected claims only, no capabilities taxonomy.
+  Print: File → Print → US Letter, default margins (page handles its own).
+-->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:ital,wght@0,400;0,500;0,600;1,400&family=Newsreader:ital,opsz,wght@0,6..72,500;0,6..72,600;1,6..72,500&display=swap" rel="stylesheet" />
+<style>
+  :root {
+    --paper: #f4f1ea;
+    --ink: #1a1f1c;
+    --muted: #4a534c;
+    --rule: #3d5a4c;
+    --signal: #b4532a;
+    --hair: rgba(26, 31, 28, 0.16);
+    --display: "Newsreader", "Iowan Old Style", "Palatino Linotype", Palatino, serif;
+    --body: "IBM Plex Sans", "Helvetica Neue", Helvetica, Arial, sans-serif;
+    --mono: "IBM Plex Mono", "SFMono-Regular", ui-monospace, Menlo, monospace;
+  }
+
+  @page { size: 8.5in 11in; margin: 0; }
+
+  * { box-sizing: border-box; }
+  html, body { background: #d9d3c6; }
+  body {
+    margin: 0;
+    color: var(--ink);
+    font-family: var(--body);
+    -webkit-font-smoothing: antialiased;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .deck {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 20px;
+    padding: 36px 16px 64px;
+    background:
+      radial-gradient(ellipse 50% 40% at 80% 0%, rgba(180, 83, 42, 0.08), transparent 55%),
+      #d9d3c6;
+  }
+
+  .screen-note {
+    width: 8.5in;
+    font-family: var(--mono);
+    font-size: 10px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+  }
+
+  .page {
+    width: 8.5in;
+    height: 11in;
+    background: var(--paper);
+    padding: 0.62in 0.68in 0.5in;
+    display: flex;
+    flex-direction: column;
+    box-shadow: 0 18px 50px -28px rgba(26, 31, 28, 0.45);
+    overflow: hidden;
+  }
+
+  @media print {
+    html, body { background: var(--paper); }
+    .deck { display: block; padding: 0; background: var(--paper); min-height: 0; }
+    .screen-note { display: none; }
+    .page { box-shadow: none; margin: 0; }
+  }
+
+  .name {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 22pt;
+    line-height: 1.02;
+    letter-spacing: -0.018em;
+    margin: 0;
+  }
+
+  .target-title {
+    margin: 5pt 0 0;
+    font-family: var(--mono);
+    font-size: 8pt;
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    color: var(--rule);
+  }
+
+  .contact {
+    margin: 7pt 0 0;
+    font-size: 8.4pt;
+    color: var(--muted);
+    letter-spacing: 0.01em;
+  }
+  .contact a { color: inherit; text-decoration: none; }
+  .sep { margin: 0 0.45em; color: var(--rule); }
+
+  .thesis {
+    margin: 14pt 0 0;
+    padding: 0 0 10pt;
+    border-bottom: 2px solid var(--signal);
+  }
+  .thesis p {
+    margin: 0;
+    font-family: var(--display);
+    font-size: 12pt;
+    line-height: 1.32;
+    font-weight: 500;
+  }
+
+  .sec {
+    margin-top: 13pt;
+  }
+  .sec-label {
+    display: block;
+    font-family: var(--mono);
+    font-size: 7.4pt;
+    letter-spacing: 0.16em;
+    text-transform: uppercase;
+    color: var(--rule);
+    margin-bottom: 6pt;
+  }
+
+  .role { margin: 0 0 11pt; }
+  .role:last-child { margin-bottom: 0; }
+  .role-head {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+    gap: 12pt;
+  }
+  .role h3 {
+    margin: 0;
+    font-family: var(--body);
+    font-size: 10.2pt;
+    font-weight: 600;
+  }
+  .role h3 em {
+    font-style: italic;
+    font-weight: 400;
+    color: var(--muted);
+  }
+  .dates {
+    font-family: var(--mono);
+    font-size: 7.6pt;
+    letter-spacing: 0.04em;
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .role-meta {
+    margin: 1pt 0 4pt;
+    font-size: 8.6pt;
+    color: var(--muted);
+  }
+
+  ul {
+    margin: 0;
+    padding: 0 0 0 1em;
+  }
+  li {
+    margin: 0 0 3.5pt;
+    font-size: 9.4pt;
+    line-height: 1.32;
+  }
+  li:last-child { margin-bottom: 0; }
+
+  .earlier {
+    margin: 0;
+    font-size: 9.3pt;
+    line-height: 1.4;
+    color: var(--ink);
+  }
+
+  .tools {
+    margin: 0;
+    font-size: 9.2pt;
+    line-height: 1.45;
+  }
+
+  .edu {
+    margin: 0;
+    font-size: 9.3pt;
+  }
+
+  .pagefoot {
+    margin-top: auto;
+    padding-top: 10pt;
+    display: flex;
+    justify-content: space-between;
+    font-family: var(--mono);
+    font-size: 7pt;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    border-top: 1px solid var(--hair);
+  }
+</style>
+</head>
+<body>
+<div class="deck">
+  <p class="screen-note">Materials v2 mock · 3E · 1-page resume · print to US Letter</p>
+  <article class="page" data-page="1">
+    <header>
+      <h1 class="name">Emilio Nunez-Garcia</h1>
+      <p class="target-title" data-slot="target-title">AI &amp; Marketing Analytics Manager</p>
+      <p class="contact">
+        Denver, CO<span class="sep">·</span>501.366.2080<span class="sep">·</span>
+        <a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a><span class="sep">·</span>
+        <a href="https://emiliobuilds.com">emiliobuilds.com</a><span class="sep">·</span>
+        <a href="https://www.linkedin.com/in/emiliobuilds">linkedin.com/in/emiliobuilds</a>
+      </p>
+    </header>
+
+    <section class="thesis" data-section="thesis">
+      <p data-slot="thesis">I build the measurement and AI operating layer that turns channel noise into weekly decision memos. I already run that stack: live model routing, grounded forecasts, and the readouts a seller carries into the room.</p>
+    </section>
+
+    <section class="sec" data-section="experience">
+      <span class="sec-label">Experience</span>
+
+      <article class="role" data-role="elio">
+        <div class="role-head">
+          <h3>Elio Intelligence Suite <em>— elioai.app</em></h3>
+          <span class="dates">2024 — present</span>
+        </div>
+        <p class="role-meta">Founder &amp; AI engineer · Denver</p>
+        <ul>
+          <li>Production multi-model platform on GCP Cloud Run (Claude, GPT, Gemini, Grok, Llama) with task-fit routing, Vertex AI Search RAG, and live data connections — the same shape as an in-house Claude skills graph.</li>
+          <li>Shipped a Gemini-grounded SEM forecast that ran 21 scenarios against $2.4M of real pipeline so a seller walked into a pitch with spend-to-stage math, not a dashboard dump.</li>
+          <li>Scheduled agent workflows across 8–10 API keys and 3–4 GCP service accounts. I write them, deploy them, and babysit them. Prompting-only this is not.</li>
+        </ul>
+      </article>
+
+      <article class="role" data-role="audacy-dsm">
+        <div class="role-head">
+          <h3>Audacy <em>(formerly Entercom)</em></h3>
+          <span class="dates">2021 — 2026</span>
+        </div>
+        <p class="role-meta">Digital Sales Manager · Denver · $10M+ digital book</p>
+        <ul>
+          <li>Owned the book and the attribution argument behind it. Reallocated Google, Meta, OTT/CTV, and programmatic toward marginal ROAS; Denver held a top-3 national rank from a #19-sized market.</li>
+          <li>Built the bidding and attribution framework used in QBRs — last-click vs. assisted, incrementality, which channel actually moved pipeline — then trained 10 AE desks to defend it in the room.</li>
+          <li>130% YoY paid-search conversion growth and 13% new-user lift on a flagship financial-services account. The readout was the product: what happened, why, what we cut.</li>
+        </ul>
+      </article>
+    </section>
+
+    <section class="sec" data-section="earlier">
+      <span class="sec-label">Earlier</span>
+      <p class="earlier" data-slot="earlier">Senior KAM / KAM / Digital Campaign Manager, Audacy, 2017–2021 — hands-on Google, Meta, and OTT trafficking, market dashboards, then the digital SME sitting with AEs. SEM and WordPress programs, Primary Residential Mortgage, 2015–2016.</p>
+    </section>
+
+    <section class="sec" data-section="selected">
+      <span class="sec-label">Selected for this role</span>
+      <p class="tools" data-slot="selected-tools">Claude API · Claude Code · Gemini / Vertex AI · multi-model routing · RAG · Python · SQL · APIs · Looker Studio · GA4 · GTM · attribution (last-click, DDA, MTA) · Salesforce-adjacent reporting</p>
+    </section>
+
+    <section class="sec" data-section="education">
+      <span class="sec-label">Education</span>
+      <p class="edu">B.A. Mathematical Economics, Colorado College, 2017<span class="sep">·</span>English / Spanish</p>
+    </section>
+
+    <footer class="pagefoot">
+      <span>3E · AI &amp; Marketing Analytics Manager</span>
+      <span>1 / 1</span>
+    </footer>
+  </article>
+</div>
+</body>
+</html>
