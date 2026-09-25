@@ -194,3 +194,29 @@ Tails:
 ```
 
 Verdict: green. All seven floor commands pass.
+
+## Fix round 2 (independent review finding)
+
+The finding was correct. Failing test first, then a root-cause fix.
+
+| Finding | Root cause | Fix | Test (red before, green after) |
+|---|---|---|---|
+| `flowing-chrome.css:624`: Cmd/Ctrl+K does nothing on Today and the Dossier | C18 hides the pipeline region with display:none on those views. `pipeline.js:1494-1500` binds the hotkey document-wide, calls preventDefault, then focuses an input inside the hidden region, so focus lands nowhere and the browser shortcut is swallowed. Nothing showed the Pipeline view first. | `flowing-chrome.js` adds `handleSearchHotkey`, a keydown listener on `window` in the capture phase, bound in `mount` and removed in `unmount`. On Cmd/Ctrl+K (no Alt, not already defaultPrevented), when `JobBoredPipeline.focusSearch` and the pipeline region exist, it calls `showView("pipeline")` before `pipeline.js`'s bubble-phase handler runs. That handler then focuses the now-visible input as before. `pipeline.js` is not edited. | `shell-today.spec.mjs` "should focus the pipeline search on Cmd/Ctrl+K from the Today and Dossier views". It was red: the pipeline region stayed hidden after the keypress on Today. |
+
+Files touched in this round: `flowing-chrome.js`, `tests/e2e-journey/shell-today.spec.mjs`, and this report. Contracts touched: none. The hotkey behaviour of `JobBoredPipeline.focusSearch` is unchanged and only read. Baselines refreshed: none. Handoffs: none.
+
+### Floor (fix round 2, from the worktree root)
+
+Log: `~/Job-Bored.worktrees/.ux01-run/lane-c-r3-floor.log`. The seven commands ran chained with &&, and the chain ended with FLOOR_EXIT=0.
+
+```
+lint:repo          exit=0   lint:tokens ok: 35 sheet(s), 0 new finding(s), 0 brace error(s)
+typecheck:repo     exit=0
+test               exit=0   ℹ tests 3084 · ℹ pass 3083 · ℹ fail 0 · ℹ todo 1 (pre-existing)
+test:contract:all  exit=0   OK integrations/openclaw-command-center/SKILL.md
+test:e2e-smoke     exit=0   11 passed (15.6s)
+test:e2e-journey   exit=0   25 passed (33.8s)   (24 before, plus the new hotkey test)
+test:e2e-visual    exit=0   37 passed (1.1m)
+```
+
+Not verified: the hotkey on a real macOS Chrome session with a real Sheet. Only the hermetic harness was used, where ControlOrMeta+k is the platform modifier.
