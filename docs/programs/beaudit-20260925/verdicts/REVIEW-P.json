@@ -1,0 +1,16 @@
+{
+  "blocking": [],
+  "nonBlocking": [
+    {
+      "file": "scripts/lib/static-path-guard.mjs",
+      "line": 63,
+      "issue": "Confirmed: `new Set([\"AGENT_CONTRACT.md\"])` excludes README.md and SETUP.md, although served documentation references both. resolvePublicFile returns 200 on the base and 404 on the candidate for these files. Consider retaining these public setup documents."
+    },
+    {
+      "file": "tests/beaudit-p-e17-claim-coverage.test.mjs",
+      "line": 464,
+      "issue": "Confirmed implementation-pinning test: `/urlContextMetadata/.test(browser)` and the following assertion pass even if those names appear only in comments. Exercise the browser parser with the camelCase fixture instead. This concerns test quality, not the accepted E9 implementation deferral."
+    }
+  ],
+  "confidence": "High for inspected changes. 68 selected tests passed; contracts and both TypeScript checks passed. No fence violations found. Full suites and browser QA were not run; filesystem-writing tests were excluded. No files changed."
+}

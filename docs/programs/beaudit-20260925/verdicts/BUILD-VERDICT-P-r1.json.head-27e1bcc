@@ -1,0 +1,103 @@
+{
+  "claims": [
+    {
+      "command": "bash probes/E/probe-e-cors.sh DNS-rebinding shape adapted: GET+POST /api/llm-config Host=rebind.attacker.test:19000, Origin=http://rebind.attacker.test:19000 vs API :19000 HOME=.lane-evidence/home (node /tmp/e1-probe2.mjs)",
+      "excerpt": "GET /api/llm-config Host=rebind.attacker.test:19000 -> HTTP 403 {\"error\":\"Host not allowed for this local server.\",\"code\":\"HOST_NOT_ALLOWED\"} (audit: 200 + ACAO echo + pin). POST hijack -> HTTP 403 HOST_NOT_ALLOWED (audit: 200 exfil). pin on disk unchanged {provider:gemini,model:probe-model,keyPresent:true} (audit: openai_compatible/exfil/keyPresent:false). GET /health still {atsProvider:gemini,atsConfigured:true} (audit: attacker baseUrl). control legit Host 127.0.0.1:19000 -> 200.",
+      "id": "E1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash probes/G/g-profile-rebind.sh B=http://127.0.0.1:19001 adapted (dev :19001 + API :19000, HOME=.lane-evidence/home; node /tmp/g2-probe.mjs)",
+      "excerpt": "GET /profile rebound -> 403 {code:HOST_NOT_ALLOWED} (audit: 200 no_profile). POST /profile rebound -> 403 (audit: 400 then 200 write). template fetch POST /profile/template/engineer rebound -> 403, write skipped (audit: 200). readback rebound -> (no marker) 403 (audit: PROBE-REBIND-WRITE). control legit Host 127.0.0.1:19001 GET /profile -> 200 no_profile. /__proxy control still 403.",
+      "id": "G2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash probes/G/g-static-traversal.sh B=http://127.0.0.1:19001 adapted (dev :19001, HOME=.lane-evidence/home, status-only; node /tmp/g3-probe.mjs)",
+      "excerpt": "legit Host 127.0.0.1:19001: /package.json 404 (audit 200), /dev-server.mjs 404, /server/index.mjs 404, /AGENTS.md 404, /tmp/jobbored-dev.log 404 (audit 200 CANARY), /docs/redesign/logs/fe-dashboard.log 404 (audit 200), /uploads/resume.txt 404 (audit 200); allowlisted /index.html 200, /app.js 200, /AGENT_CONTRACT.md 200. foreign Host evil.example:19001: /index.html 403, /app.js 403, /package.json 403, /tmp/jobbored-dev.log 403 (audit 200). SEC-01 /.env 403, /server/.env 403, /.git/config 403; SEC-05 /%E0%A4%A 400, /%ff 400, /%00 403.",
+      "id": "G3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "sh probes/A/repro-a1-crash.sh + node probes/A/sec05-raw-paths.mjs 19003 adapted (worker :19003, HOME=.lane-evidence/home, Host 127.0.0.1:19003; node /tmp/a1-probe2.mjs)",
+      "excerpt": "before: health=200. \"//\" -> HTTP/1.1 400 Bad Request {ok:false,message:Malformed request URL} ; health=200 (audit: empty reply ; health=DOWN). \"//x\" -> 400 ; health=200 (audit: SOCKET_ERROR/ECONNREFUSED ; DOWN). \"//host/path\" -> 400 ; health=200. after: health=200. worker process: ALIVE (audit: EXITED). log: no Invalid URL / ERR_INVALID_URL (audit: TypeError server.ts:1021).",
+      "id": "A1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node probes/G/g-autodetect-fullboot.mjs adapted to read bbuild-p/discovery-autodetect.js (stub window+fetch, worker down; node /tmp/g4-probe.mjs)",
+      "excerpt": "calls: GET /__proxy/discovery-state, POST /__proxy/full-boot?skip_tunnel=1 body {} (audit: POST /__proxy/full-boot), GET /__proxy/discovery-state. full-boot URL carries skip_tunnel? true (audit: false). source: FULL_BOOT_ENDPOINT=\"/__proxy/full-boot?skip_tunnel=1\" discovery-autodetect.js:36. Silent tunnel+relay-deploy path closed; explicit UI buttons deferred (outside fence, as lane reports).",
+      "id": "G4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "curl -s -D - http://127.0.0.1:19001/ served CSP + grep buildContentSecurityPolicy (dev :19001, HOME=.lane-evidence/home; node /tmp/g10-probe.mjs)",
+      "excerpt": "served [200] style-src: style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style (audit: no GSI). served === dashboardSecurityHeaders()? true (audit: fixed list, extraConnectSrc never passed). temp config {jobBoredApiUrl run.app, resumeLocalBaseUrl LAN}: custom admits run.app true + LAN true (audit: blocked). extract quoted {\"jobBoredApiUrl\":\"https://api.example.com\"} -> [\"https://api.example.com\"] (audit red: []). grep: dev-server.mjs:722 buildContentSecurityPolicy({extraConnectSrc}) via dashboardSecurityHeaders, used in serveStatic.",
+      "id": "G10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "E17 rebinding-test half: node --test --test-name-pattern=E17 tests/beaudit-p-loopback-host-guard.test.mjs + resolveAllowedBrowserOrigin loopbackPort check (server/index.mjs:207 wiring)",
+      "excerpt": "resolveAllowedBrowserOrigin rebound on loopbackPort 3847 -> \"\" (must be empty; audit pinned echo). loopback same-origin -> \"http://127.0.0.1:3847\". hosted no loopbackPort app.example.com -> echo (preserved). new test 'E17: never derives same-origin from a non-loopback Host on a loopback listener' 1/1 pass; file 10/10. server/index.mjs:207 passes loopbackPort on loopback listeners; security-boundaries.mjs:178 enforces it. Broader E17 sub-gaps (E4 caller-coverage, E2 local-pin, E5 docker-sim) outside lane P fence remain.",
+      "id": "E17",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "> eslint . (clean) + > node scripts/lint-integration-skills.mjs -> OK integrations/openclaw-command-center/SKILL.md; EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit -p integrations/browser-use-discovery (clean) + node --check x N + > tsc --noEmit -p server (clean); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "tests 3083, suites 755, pass 3082, fail 0, todo 1 (known 'canonical submission evidence record', same as base); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "tests 741, suites 2, pass 741, fail 0; EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "test:contract 5 OK (3 schema + payload + readiness), test:ats-contract 4 OK, test:pipeline-contract 1 OK, test:pipeline-update-contract 1 OK, lint:skills 1 OK (12 OK lines); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=$REALHOME/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "fresh HOME still used; browsers from real HOME (plain fresh HOME alone: 9 failed, missing ms-playwright executable, env-only per r1/r3). With PLAYWRIGHT_BROWSERS_PATH: 9 passed (15.6s); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=$REALHOME/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "fresh HOME still used; browsers from real HOME. 13 passed (23.4s) incl. case-people-writeback + 12 critical-journey; EXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "27e1bccbac8f02921393a52edb6d39b8710b404c",
+  "lane": "P",
+  "summary": "Lane P at 27e1bcc: floor 7/7 green with fresh HOME each (e2e need PLAYWRIGHT_BROWSERS_PATH; plain fresh HOME e2e fails on missing browser, env-only). r3 tests green 6/6 + 4/4 + 10/10. All 7 claims FIXED on 127.0.0.1 ports 19000-19009 with HOME=.lane-evidence/home. git status clean; no code changes. Deferred (as lane reports): G4 UI buttons, G10 browser-storage-only URL, JOBBORED_API_ALLOWED_HOSTS docs, E17 E4/E2/E5 sub-gaps.",
+  "tests": [
+    {
+      "excerpt": "BEAUDIT G10 repair \u2014 quoted config keys: reads double-, single- and unquoted *Url keys alike (incl. {\"jobBoredApiUrl\"} -> [https://api.example.com], was []); tests 6 pass 6 fail 0",
+      "file": "tests/beaudit-p-csp-config-origins.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "BEAUDIT E1 repair \u2014 named-tunnel hostname is an allowed Host: bare/URL/name:port all admit discovery.example.com (was missing from allowedHosts); tunnel+rebound behavior held; tests 4 pass 4 fail 0",
+      "file": "tests/beaudit-p-worker-host-guard.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "BEAUDIT E1 repair \u2014 hosted API behind loopback reverse proxy x3 (19005 authed serves public Host + 401 anon; 19006 JOBBORED_API_ALLOWED_HOSTS trusted/403; 19007 loopback still refuses foreign, admits trusted) \u2014 all 403 HOST_NOT_ALLOWED at red; tests 10 pass 10 fail 0",
+      "file": "tests/beaudit-p-loopback-host-guard.test.mjs",
+      "passed": true
+    }
+  ]
+}

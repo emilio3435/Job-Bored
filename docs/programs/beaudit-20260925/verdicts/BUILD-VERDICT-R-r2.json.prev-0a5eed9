@@ -1,0 +1,68 @@
+{
+  "claims": [
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-r/.lane-evidence/home node /tmp/g1-verify-19010.mjs # adapted from LANE-REPORT-G \u00a74 `node .lane-evidence/probes/g-relay-open-proxy.mjs` (port 18176->19010, import->bbuild-r/templates/cloudflare-worker/worker.js)",
+      "excerpt": "== no-token-configured (original G1 env) ==\nanon POST / -> relay 401 body={\"error\":\"relay_token_not_configured\"}\nanon POST /webhook -> relay 401 body={\"error\":\"relay_token_not_configured\"}\nanon POST /anything/else -> relay 401 body={\"error\":\"relay_token_not_configured\"}\nupstream saw (should be []): []\n== token-configured ==\nanon POST / -> relay 401\nanon POST /webhook -> relay 401\nanon POST /anything/else -> relay 401\nupstream saw after anon (should be []): []\nauthed POST /webhook -> relay 202\nupstream saw after authed: [{\"path\":\"/webhook\",\"secret\":\"probe-secret\"}]\nvs audit red: anon 202 x3 with secret injected. Defect gone.\nEXIT:0",
+      "id": "G1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep -n G24 LANE-REPORT-G.md; grep -n \"^### G\" LANE-REPORT-G.md; ls probes/G/ | grep -i g24",
+      "excerpt": "| G24 | FEATURE | M | PROPOSED | Authenticated relay handshake: deploy mints a per-dashboard relay token... | G1 | ... |\n\u00a74 probes: G1, G2, G3+SEC-01+SEC-05, G4, G5+G11, G6, G7, G8, G9, G14, G10, G16/G17/G18 \u2014 no G24 entry\nls probes/G | grep -i g24: (no match; only g-relay-open-proxy.mjs/.out)\nBUILD-REPORT-R: \"\u00a74 has no reproducer for G24.\" No audit reproducer to re-run.",
+      "id": "G24",
+      "verdict": "UNCLEAR"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.uvN8buDp8J\n> eslint .\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.hS1wJSSxDJ\n> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\n+ node --check x N (all pass, no output)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.zvmpipdVHG\n\u2139 tests 3131\n\u2139 suites 750\n\u2139 pass 3130\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 1\n\u2139 duration_ms 13629.618875\ntodo: submission-record-audit blocked on canonical-ownership gate\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.CZGbzA7VDX\n\u2139 tests 741\n\u2139 suites 2\n\u2139 pass 741\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 2436.476041\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.kA4dKlQsC5\nOK schema: examples/discovery-webhook-request.v1.json (+with-profile, +preview-parity)\nOK discovery-payload.js covers schema / discovery-readiness.js delegates\nOK schema (ATS request/response) + 2 builder matches\nOK schemas/pipeline-row.v1.json \u2194 README \u2194 app-config-core \u2194 pipeline-render\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md (12 OK, no FAIL)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.mlcGCPrQnG\nRunning 9 tests using 1 worker\n\u2713 greenfield boot zero console errors / every <script src> 200 / S0 demo board / demo cards / OneFlow.open / requestDiscoverySetup / Case render / dossier 1280+1440 / dossier narrow\n9 passed (14.3s)\nEXIT:0 (PLAYWRIGHT_BROWSERS_PATH set, HOME still fresh)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.aucEGBST7W\nRunning 13 tests using 1 worker\n\u2713 Case People writeback + 12 critical-journey (zero-config board, pill, beats, pause/resume, queued/running/partial, pipeline+dossier, template back, greenfield-once, paused notice, live pill, /profile from API)\n13 passed (20.6s)\nEXIT:0 (PLAYWRIGHT_BROWSERS_PATH set, HOME still fresh)",
+      "passed": true
+    }
+  ],
+  "head": "0a5eed968255f5fdf27303e471afc993abbc74ce",
+  "lane": "R",
+  "summary": "HEAD 0a5eed9 clean (git status empty). Floor 7/7 green, each with fresh mktemp HOME (e2e plus PLAYWRIGHT_BROWSERS_PATH): lint 0, typecheck 0, npm test 3131/3130/0/1todo, worker 741/741, contract 12 OK, smoke 9 passed, journey 13 passed. Tests green: relay-g24-handshake 5/5, all relay 102/102. G1 FIXED: anon 401 fail-closed (no-token and token-configured), upstream empty, authed 202 with secret. G24 UNCLEAR in (c): LANE-REPORT-G \u00a74 names no reproducer (PROPOSED, evidence=G1); no probes/G/*g24* file. Lane reproducer in (b) is green 5/5. Tree left unchanged.",
+  "tests": [
+    {
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.aDsC2TUF1O\n\u25b6 G24 authenticated relay handshake\n\u2714 1. deploy mints a fresh per-dashboard token, kept across a same-Worker redeploy\n\u2714 2. the token is stored in config, owner-only, and served by the guarded route\n\u2714 3-4. the dashboard sends the Bearer and the relay admits only it\n\u2714 5a. the setup wizard model says \"Relay locked\" once the dashboard holds the token\n\u2714 5b. the deploy summary tells the user the relay is locked\n\u2139 tests 5 pass 5 fail 0 duration_ms 65.524417\nEXIT:0",
+      "file": "tests/relay-g24-handshake.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "FRESH_HOME=/var/folders/mz/.../tmp.NYWlcbNg9V\n\u2139 tests 102\n\u2139 suites 15\n\u2139 pass 102\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 711.217125\nEXIT:0",
+      "file": "tests/cloudflare-relay-*.test.mjs tests/relay-*.test.mjs",
+      "passed": true
+    }
+  ]
+}

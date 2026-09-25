@@ -1,0 +1,16 @@
+{
+  "blocking": [],
+  "nonBlocking": [
+    {
+      "file": "tests/cloudflare-relay-deploy-token.test.mjs",
+      "line": 25,
+      "issue": "Confirmed: source-text assertions still pin implementation rather than behavior. `assert.match(source, /\\[\"secret\", \"put\", \"RELAY_TOKEN\"/)` passes even for unreachable code and fails on equivalent refactors. Similar checks remain at lines 32–35 and 86, tests/relay-bootstrap-persist.test.mjs:51 (`block.includes(\"writeRelayBootstrap(relayRecord)\")`), and tests/relay-credential-durable.test.mjs:128–134. Prefer the existing subprocess/request/file-output assertions."
+    },
+    {
+      "file": "docs/GITHUB-PAGES.md",
+      "line": 63,
+      "issue": "Confirmed: the new hosted-mode warning conflicts with the retained instructions at line 65: \"put `templates/cloudflare-worker/` in front of it and set `CORS_ORIGIN` to your Pages origin.\" Lines 69–75 also retain that setup recipe, although Pages cannot obtain the new bearer. Remove or mark these instructions obsolete. This is incomplete documentation cleanup, so non-blocking."
+    }
+  ],
+  "confidence": "High for static review; runtime verification is partial. Browser relay POST sites: discovery-wizard-verify.js:711, settings-profile-tab.js:1138, ingest-url-flow.js:592, expired-review-ui.js:266. All use the bearer wrapper. No fence violations or contract-companion omissions found. git diff --check passed; contract suite passed; changed-JavaScript ESLint passed on base and candidate; 177 adjacent tests passed. Relay suite: 134 tests, 97 passed, 32 failed and 5 cancelled due to sandbox EPERM on listeners/temp directories. Full repository tests, real-browser behavior, and Cloudflare deployment remain unverified. Working tree stayed clean."
+}

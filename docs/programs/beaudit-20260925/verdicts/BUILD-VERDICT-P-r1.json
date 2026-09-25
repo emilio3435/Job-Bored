@@ -1,0 +1,98 @@
+{
+  "claims": [
+    {
+      "command": "bash probes/E/probe-e-cors.sh adapted to API 19000 HOME=.lane-evidence/home: GET+POST /api/llm-config with Host/Origin rebind.attacker.test:19000",
+      "excerpt": "REBIND GET: HTTP/1.1 403 {\"error\":\"Host not allowed for this local server.\",\"code\":\"HOST_NOT_ALLOWED\"}\nREBIND POST hijack: HTTP/1.1 403 same HOST_NOT_ALLOWED\npin on disk (presence only): {provider:'gemini',model:'probe-model',baseUrl:'',keyPresent:true}\nCONTROL loopback GET: {\"provider\":\"gemini\",\"model\":\"probe-model\",...} [HTTP 200]\nHEALTH: {\"atsProvider\":\"gemini\",\"atsConfigured\":true} (not attacker baseUrl)",
+      "id": "E1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash probes/G/g-profile-rebind.sh adapted B=http://127.0.0.1:19001 (dev 19001/API 19002) Host evil.example:19001",
+      "excerpt": "GET /profile rebound: {\"ok\":false,\"code\":\"HOST_NOT_ALLOWED\"} [403]\nPOST /profile rebound: same 403\ntemplate fetch rebound: 403 HOST_NOT_ALLOWED\nreadback PROBE-REBIND-WRITE: (empty)\nCONTROL same-origin loopback: {\"ok\":false,\"reason\":\"no_profile\"} [200]",
+      "id": "G2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash probes/G/g-static-traversal.sh adapted B=http://127.0.0.1:19001 (dev 19001)",
+      "excerpt": "403 /.env, 403 /%2eenv, 403 /config.js, 403 /.git/config\n404 /package.json (was 200 leak), 404 /README.md, 404 /tmp/jobbored-dev.log, 404 /docs/redesign/logs/..., 404 /uploads/...\n200 /index.html, 200 /AGENT_CONTRACT.md (allowlisted)\nforeign Host evil.example /index.html: 403 {\"code\":\"HOST_NOT_ALLOWED\"}",
+      "id": "G3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "sh probes/A/repro-a1-crash.sh adapted worker 19003: curl --path-as-is //, //x, //host/path",
+      "excerpt": "before: health=200\nGET //: HTTP/1.1 400 {\"ok\":false,\"message\":\"Malformed request URL.\"}\nGET //x: 400 same\nGET //host/path: 400 same\nafter: health=200 health body status ok (worker ALIVE, no TypeError)",
+      "id": "A1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node probes/G/g-autodetect-fullboot.mjs loaded against bbuild-p/discovery-autodetect.js",
+      "excerpt": "[{\"url\":\"/__proxy/discovery-state\"},{\"url\":\"/__proxy/full-boot?skip_tunnel=1\",\"method\":\"POST\"},{\"url\":\"/__proxy/discovery-state\"}]\nfull-boot URL carries skip_tunnel? true (audit was false)\n(FULL_BOOT_ENDPOINT=\"/__proxy/full-boot?skip_tunnel=1\" in discovery-autodetect.js:36)",
+      "id": "G4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "curl -s -D - http://127.0.0.1:19001/ (probes/G G10) + node --test tests/beaudit-p-csp-config-origins.test.mjs",
+      "excerpt": "served content-security-policy: style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style ...\norigins: ['https://jobbored-api-abc123.a.run.app','http://192.168.1.10:11434'] policy has run.app:true\ntests/beaudit-p-csp-config-origins: tests 7 pass 7 fail 0 (served connect-src names synthetic config.js origins)",
+      "id": "G10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "BEAUDIT_E17_STRICT=1 node --test tests/beaudit-p-e17-claim-coverage.test.mjs + probes/E/probe-e-local-pin.sh:19004 + errshape spots + E4 scan",
+      "excerpt": "strict: tests 20 pass 9 fail 11 todo 0 (default: 20/9/0/11)\nE2: POST local pin 200, GET /health {\"atsProvider\":\"gemini\",\"atsConfigured\":false}, ATS 503 Missing API key\nE7: missing-url {\"error\":\"Body must include { url: string }\"} no code; unknown route HTML 404 text/html\nE4: helper call sites 0, callers 13 missing 13\nE5/E9 fail in strict as claimed (write_failed ENOENT+path leak; camelCase rejected, snake control passes)",
+      "id": "E17",
+      "verdict": "STILL-BROKEN"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "FRESH_HOME=/var/.../tmp.qe63qylAMw\n> eslint .\n> OK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "FRESH_HOME=/var/.../tmp.yU5fxVPNdL\n> tsc --noEmit -p integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit -p server/tsconfig.json + node --check x N\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "FRESH_HOME=/var/.../tmp.wSSmTmlZ2u\nfailing list shows only todos: 11x E17 target behavior + 1x canonical submission evidence record\nEXIT:0 (summary truncated by tail; exit 0 proves fail 0)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "FRESH_HOME=/var/.../tmp.eOTRKNarTr\n\u2139 tests 741 \u2139 pass 741 \u2139 fail 0 \u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "FRESH_HOME=/var/.../tmp.EARSI92YU5\nOK schema x3 + OK discovery-payload + OK readiness + OK ATS x4 + OK pipeline + OK pipeline-update + OK SKILL (12 OK)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "FRESH_HOME=/var/.../tmp.kqWVYOxZF8\nRunning 9 tests using 1 worker / 9 passed (14.0s)\nEXIT:0 (first attempt with $HOME-expanded PLAYWRIGHT path failed 9 on missing browser; rerun with explicit path passed)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "FRESH_HOME=/var/.../tmp.Pn9V8Df2i8\nRunning 13 tests using 1 worker / 13 passed (20.4s)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "1e1df89f8a02ed5d4c7ba1cb91d0a55aca1ab9c2",
+  "lane": "P",
+  "summary": "Lane P HEAD 1e1df89: floor 7/7 green with fresh HOME (e2e need explicit PLAYWRIGHT_BROWSERS_PATH). E17 file matches expected 20/9/0/11 default EXIT 0 and 20/9/11 strict EXIT 1; fixture is valid lowerCamelCase synthetic. E1,G2,G3,A1,G4,G10 FIXED via adapted audit reproducers on 19000-19004 with HOME=.lane-evidence/home; E17 STILL-BROKEN (E2/E4/E7 directly reconfirmed, E5/E9 fail in strict). git status clean, no listeners left, no secrets read, no POST outside 127.0.0.1/19000-19009.",
+  "tests": [
+    {
+      "excerpt": "default HOME fresh: tests 20 suites 5 pass 9 fail 0 todo 11 EXIT:0\nstrict BEAUDIT_E17_STRICT=1: tests 20 pass 9 fail 11 todo 0 EXIT:1\nmatches lane red (e17-r6-strict-red.txt 9/11) and todo (e17-r6-todo.txt 9/0/11); 11 failures are E4x1 E2x2 E5x2 E7x4 E9x2 for claimed reasons",
+      "file": "tests/beaudit-p-e17-claim-coverage.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "valid JSON keys _comment,candidates,usageMetadata,modelVersion; has \"urlContextMetadata\":true, no snake_case:true, retrievedUrl https://jobs.example.com/roles/staff-backend\ntest 'fixture is the REST casing' passes; control snake_case passes so casing is only variable",
+      "file": "tests/fixtures/gemini-url-context-camelcase.json",
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,113 @@
+{
+  "claims": [
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/c1-ssrf-session-19020.mjs (adapted from probes/C/C-ssrf-session.mjs; PORT 18130->19020, absolute bbuild-x imports, per-call catch)",
+      "excerpt": "session(no command) loopback -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nsession(no command) redirect -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nsession(command fails -> fetch_fallback) -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nsafeFetch loopback -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nEXIT:0\n(orig defect: all three returned {\"mode\":\"fetch*\",\"text\":\"PROBE-INTERNAL-SECRET...\"}; now all refuse before fetch)",
+      "id": "C1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "rm -f /tmp/C2-fake-agent-browser.argv; echo '{\"url\":\"http://169.254.169.254/latest/meta-data/\",\"instruction\":\"x\",\"timeoutMs\":3000}' | HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home AGENT_BROWSER_PATH=\"/tmp/c2-fake-agent-browser.sh\" BROWSER_USE_DISCOVERY_AGENT_BROWSER_SOCKET_DIR=\"/tmp/c2-sock-19022\" node integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs (adapted from probes/C/C-ssrf-browser-command.sh)",
+      "excerpt": "browser-use-agent-browser: refused http://169.254.169.254/latest/meta-data/: Local and private-network scrape targets are not allowed\nexit=1\n--- argv seen by agent-browser:\n(no argv file: browser never spawned)\n(orig defect: exit=0 + argv \"open http://169.254.169.254/latest/meta-data/\")",
+      "id": "C2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/d15-cleanup-19021.mjs (adapted from probes/D/p14-cleanup-loopback-fetch.mjs; PORT 18140->19021, absolute import)",
+      "excerpt": "loopback hits: [] classification: unknown invalid_url\nblocked\nreason: Blocked unsafe job URL: Local and private-network scrape targets are not allowed\nEXIT:0\n(orig defect: hits [\"/internal-only\"] classification open open_marker + DEFECT CONFIRMED)",
+      "id": "D15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/c8-redirect-19022.mjs (adapted from probes/C/C-safefetch-redirect-headers.mjs; absolute import)",
+      "excerpt": "{\"url\":\"https://generativelanguage.googleapis.com/v1beta/models/x:generateContent\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}\n{\"url\":\"https://attacker.example/collect\",\"method\":\"GET\",\"apiKeyHeader\":null,\"bodySent\":false}\nEXIT:0\n(orig defect: 2nd hop {\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}; now stripped + POST 302->bodiless GET)",
+      "id": "C8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/c9-streaming-cap-19023.mjs (hermetic; orig LANE-REPORT-C \u00a75 needs https://speed.hetzner.de/100MB.bin, prohibited by no-network-beyond-127.0.0.1; mirrors safe-fetch-egress endless-body test)",
+      "excerpt": "rejected: Response body exceeds 262144 bytes pulls=6 cancelled=true\nFIXED: streaming cap cancels upstream\ncontent-length check: rejected: Response body exceeds 1024 bytes\nEXIT:0\n(orig defect INFERRED: pinnedFetch buffered unbounded before 4MB check; now maxBytes enforced while streaming + destroy upstream)",
+      "id": "C9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/e8-ssrf-bbuildx.mjs (adapted from probes/E/probe-e-ssrf.mjs; absolute import)",
+      "excerpt": "blocked  literal  http://[64:ff9b::7f00:1]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[64:ff9b::a9fe:a9fe]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[2002:7f00:1::]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://198.18.0.1/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[fec0::1]/  (Local and private-network scrape targets are not allowed)\nblocked  dns->64:ff9b::7f00:1  https://a.example/job\nblocked  dns->2002:a9fe:a9fe::1  https://b.example/job\nblocked  dns->10.0.0.5  https://c.example/job\nEXIT:0\n(orig defect: all NAT64/6to4/198.18/fec0 + dns cases ALLOWED; now all blocked)",
+      "id": "E8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types --test --test-name-pattern=\"session refuses a (loopback page|redirect to cloud metadata)\" integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts (C16 was TEST-GAP with no probe file; verifies added cases per \u00a73 fix)",
+      "excerpt": "\u2714 session refuses a loopback page on the real transport and the server sees no hit (3.499833ms)\n\u2714 session refuses a redirect to cloud metadata and never fetches the second hop (1.71475ms)\n\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0\nEXIT:0\n+ grep shows 9 session cases now exist (loopback, redirect-metadata, nip.io rebinding, command gate, fallback, body cap, abort, gzip)",
+      "id": "C16",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "> eslint . (clean, no findings)\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json (no errors)\n> tsc --noEmit --project server/tsconfig.json (no errors)\n> node --check ... (70+ files, no errors)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "\u2139 tests 3147\n\u2139 pass 3135\n\u2139 fail 0\n\u2139 todo 12\nEXIT:0\n(12 todo are wave-1 L/Q target-behavior tests, pre-existing)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "\u2714 session refuses a loopback page on the real transport and the server sees no hit\n\u2714 checkJobPostingUrl never fetches a loopback Link and flags it for review\n\u2139 tests 759\n\u2139 pass 759\n\u2139 fail 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "OK schema: examples/discovery-webhook-request.v1.json (+2 +2 payload lines =5)\nOK schema (ATS request/response) +2 builder lines (=4)\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md\n(12 OK lines, 0 FAIL)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "3be7c031e306e3b05b3791efe2d0f1d88bf96b76",
+  "lane": "X",
+  "summary": "Lane X at 3be7c031: all 5 floor commands pass with fresh HOME (lint, typecheck, 3147 root tests with 0 fail/12 todo, 759 discovery tests, 12 contract OKs); all 7 repair-round gzip/decode/cap/deadline tests pass individually; all 7 claims FIXED via adapted hermetic reproducers on 127.0.0.1:19020-19021 (C1/C2/D15 block loopback/metadata with no fetch/spawn/hit, C8 strips x-goog-api-key + POST302->GET, E8 blocks NAT64/6to4/198.18/fec0 literals+DNS, C9 streaming maxBytes rejects at 256KB pulls=6 cancelled=true, C16 loopback+metadata cases exist and pass). Tree left clean (git status empty).",
+  "tests": [
+    {
+      "excerpt": "\u2714 decodes a gzip body before the caller parses it (7.924417ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs: decodes a gzip body before the caller parses it",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 decodes a br body before the caller parses it (8.049916ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs: decodes a br body before the caller parses it",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 decodes a deflate body before the caller parses it (7.79825ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs: decodes a deflate body before the caller parses it",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 caps the decoded bytes, not the compressed ones (21.191292ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs: caps the decoded bytes, not the compressed ones",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 keeps the caller's deadline active until the body is consumed (152.322625ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs: keeps the caller's deadline active until the body is consumed",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 session decodes a gzip page before reading its title (10.338042ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\nEXIT:0",
+      "file": "integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts: session decodes a gzip page before reading its title",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 checkJobPostingUrl decodes a gzip posting before classifying it (9.85825ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\nEXIT:0",
+      "file": "integrations/browser-use-discovery/tests/sheets/expired-job-cleanup-ssrf.test.ts: checkJobPostingUrl decodes a gzip posting before classifying it",
+      "passed": true
+    }
+  ]
+}

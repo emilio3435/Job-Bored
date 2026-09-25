@@ -1,0 +1,83 @@
+{
+  "claims": [
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/bbuild-x-verify/C1-ssrf-session.mjs (adapted: absolute bbuild-x imports, port 18130->19020)",
+      "excerpt": "Error: Local and private-network scrape targets are not allowed\n  code: 'SSRF_BLOCKED'\nEXIT=1 (probe threw on first session.run: no PROBE-INTERNAL-SECRET returned; wrapped rerun: all 3 session paths BLOCKED SSRF_BLOCKED, server hits 0)",
+      "id": "C1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.../.lane-evidence/home; echo '{\"url\":\"http://169.254.169.254/latest/meta-data/\",\"instruction\":\"x\",\"timeoutMs\":3000}' | AGENT_BROWSER_PATH=/tmp/bbuild-x-verify/fake-agent-browser.sh BROWSER_USE_DISCOVERY_AGENT_BROWSER_SOCKET_DIR=/tmp/bbuild-x-verify/sock node integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs",
+      "excerpt": "browser-use-agent-browser: refused http://169.254.169.254/latest/meta-data/: Local and private-network scrape targets are not allowed\nexit=1\ncat: /tmp/bbuild-x-verify/C2-fake-agent-browser.argv: No such file or directory\n(no argv file: agent-browser never spawned)",
+      "id": "C2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node --experimental-strip-types /tmp/bbuild-x-verify/D15-p14.mjs (adapted: absolute import, port 18140->19021)",
+      "excerpt": "loopback hits: [] classification: unknown invalid_url\nblocked\nEXIT=0",
+      "id": "D15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/bbuild-x-verify/C8-redirect-headers.mjs (adapted: absolute security-boundaries import)",
+      "excerpt": "{\"url\":\"https://generativelanguage.googleapis.com/v1beta/models/x:generateContent\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}\n{\"url\":\"https://attacker.example/collect\",\"method\":\"GET\",\"apiKeyHeader\":null,\"bodySent\":false}\nEXIT=0",
+      "id": "C8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.../.lane-evidence/home node /tmp/bbuild-x-verify/C9-local.mjs (local hermetic equivalent; audit cmd needs https://speed.hetzner.de/100MB.bin external, prohibited by no-network-beyond-127.0.0.1 so not run)",
+      "excerpt": "upstream cancelled after MB: 34\nrejected: code=BODY_TOO_LARGE message=Response body exceeds 33554432 bytes streamedMB=34\nEXIT=0 (40MB stub stream capped at 32MB default while streaming, upstream cancelled)",
+      "id": "C9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/.lane-evidence/home node /tmp/bbuild-x-verify/E8-ssrf.mjs (adapted: absolute security-boundaries import)",
+      "excerpt": "blocked  literal  http://[64:ff9b::7f00:1]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[64:ff9b::a9fe:a9fe]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[2002:7f00:1::]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://198.18.0.1/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[fec0::1]/  (Local and private-network scrape targets are not allowed)\nblocked  dns->64:ff9b::7f00:1  https://a.example/job\nblocked  dns->2002:a9fe:a9fe::1  https://b.example/job\nblocked  dns->10.0.0.5  https://c.example/job\nEXIT=0 (all 12 literals + 3 dns blocked; audit had 5 ALLOWED + 2 ALLOWED)",
+      "id": "E8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts (no audit probe exists; C16 is TEST-GAP closed by this file per BUILD-REPORT-X)",
+      "excerpt": "\u2714 session refuses a loopback page on the real transport and the server sees no hit\n\u2714 session refuses a redirect to cloud metadata and never fetches the second hop\n\u2714 session refuses a hostname that resolves to loopback (127.0.0.1.nip.io)\n\u2714 session refuses a private URL before spawning the browser command, with no fetch fallback\n\u2714 session fetch fallback after a failed command is also guarded\n\u2714 session caps an endless page body instead of buffering it\n\u2139 tests 10\n\u2139 pass 10\n\u2139 fail 0\nEXIT=0",
+      "id": "C16",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "HOME=/var/folders/mz/.../tmp.hd0vCDJHQB (fresh mktemp -d)\n> eslint . (clean)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "HOME=/var/folders/mz/.../tmp.NmblrETbg7 (fresh mktemp -d)\n> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json (clean)\n> tsc --noEmit --project server/tsconfig.json (clean)\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "HOME=/var/folders/mz/.../tmp.xsw1DxJ1eD (fresh mktemp -d)\n\u2716 persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store (pre-existing todo)\nEXIT=0 (exit 0: no real failures; todo-only \u2716 as in BUILD-REPORT-X 12 todos)",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "HOME=/var/folders/mz/.../tmp.gc8Oqa7pIZ (fresh mktemp -d)\n\u2139 tests 767\n\u2139 pass 767\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\nEXIT=0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "HOME=/var/folders/mz/.../tmp.eAbd04ZbF4 (fresh mktemp -d)\nOK schema: examples/discovery-webhook-request.v1.json (+2 more, payload/readiness)\nOK schema (ATS request/response) + builders\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT=0",
+      "passed": true
+    }
+  ],
+  "head": "576e1d64cc8f16d6ca4eb273996c80c7474c79f7",
+  "lane": "X",
+  "summary": "Lane X at 576e1d64: all 5 floor commands exit 0 with fresh-HOME (lint, typecheck, root suite, 767/767 bud, all contracts); symlink test file 10/10 pass; all 7 claims FIXED (C1/C2/D15/C8/E8 via adapted audit probes on ports 19020-19021, C9 via local hermetic 40MB-stream cap since audit needs prohibited external host, C16 via 10/10 session-ssrf gap-closing tests). Tree left clean at HEAD.",
+  "tests": [
+    {
+      "excerpt": "\u2714 agent-browser command still runs when invoked through a symlink (202.08ms)\n\u2139 tests 10\n\u2139 pass 10\n\u2139 fail 0\nEXIT=0",
+      "file": "integrations/browser-use-discovery/tests/browser/agent-browser-bin-ssrf.test.ts",
+      "passed": true
+    }
+  ]
+}

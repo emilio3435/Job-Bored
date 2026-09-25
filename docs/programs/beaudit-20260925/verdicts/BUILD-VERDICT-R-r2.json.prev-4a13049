@@ -1,0 +1,73 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/g1-relay-open-proxy-19010.mjs (adapted from probes/G/g-relay-open-proxy.mjs named by LANE-REPORT-G.md \u00a74: bbuild-r worker import, capture server on 127.0.0.1:19010)",
+      "excerpt": "[no-token] anon POST / -> relay 401\n[no-token] anon POST /webhook -> relay 401\n[no-token] anon POST /anything/else -> relay 401\n[locked] anon POST / -> relay 401\n[locked] anon POST /webhook -> relay 401\n[locked] anon POST /anything/else -> relay 401\n[locked] authed POST /webhook -> relay 202\nupstream saw: [ { \"path\": \"/webhook\", \"secret\": \"probe-secret\", \"body\": \"{\\\"event\\\":\\\"command-center.discovery\\\",\\\"sheetId\\\":\\\"legit\\\"}\" } ]\nAudit showed anon POSTs -> relay 202 with 3 upstream hits carrying probe-secret; now all 6 anonymous POSTs are 401 and upstream saw only the authenticated control. EXIT:0",
+      "id": "G1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "none \u2014 LANE-REPORT-G.md \u00a74 names no G24 reproducer (G24 is FEATURE/PROPOSED, table row only at line 69; no probe file in probes/G/)",
+      "excerpt": "Grep across all LANE-REPORT-*.md: G24 appears once (LANE-REPORT-G.md:69 table row). \u00a74 has sections for G1,G2,G3,SEC-02,G4,G5+G11,G6,G7,G8,G9,G14,G10,G16/G17/G18 only. Nothing to re-run, so per instructions UNCLEAR. Supporting (non-audit) evidence passes: deploy-token 3/3 (mint/upload/bootstrap relayToken+relayLocked) and relay-dashboard-token 10/10 (hydrate from bootstrap, origin-scoped Bearer attach); no live wrangler deploy run (no network beyond 127.0.0.1).",
+      "id": "G24",
+      "verdict": "UNCLEAR"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "> eslint .\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\n+ node --check chain over app/dev-server/discovery/settings/scripts files\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "\u2139 tests 3080\n\u2139 suites 742\n\u2139 pass 3078\n\u2139 fail 1\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 1\n\u2716 the spawn-env builder is what supplies the real files (tests/discovery-worker-env-parity.test.mjs:74)\nAssertionError: BROWSER_USE_DISCOVERY_GEMINI_API_KEY from an env file must reach the worker\nEXIT:1\n(The second \u2716, submission-record-audit, is the counted todo.) Known environmental failure, also documented twice in BUILD-REPORT-R.md: a stale .env with an empty Gemini key under .lane-evidence/home/.jobbored/browser-use-discovery/ (regenerated during the run itself) breaks the parity assertion; git diff f227fbb..HEAD touches neither dev-server.mjs nor that test.",
+      "passed": false
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 741\n\u2139 suites 2\n\u2139 pass 741\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "OK discovery-payload.js covers schema properties schemas/discovery-webhook-request.v1.schema.json\nOK schema (ATS request/response) + builders\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-smoke",
+      "excerpt": "Running 9 tests using 1 worker\n\u2713 greenfield boot produces zero console errors\n\u2713 every <script src> in the served HTML returns 200\n\u2713 screen S0 demo board cold-start surface\n\u2713 demo cards watermarked w/ fit score\n\u2713 JobBoredOneFlow.open() beat hittable\n\u2713 requestDiscoverySetup() wizard shell\n\u2713 The Case renders from seeded pipeline data\n\u2713 dossier holds every track at 1280 and 1440\n\u2713 dossier collapses to one column on narrow frame\n9 passed (14.8s) EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-journey",
+      "excerpt": "Running 13 tests using 1 worker\n\u2713 Case People writeback to Sheet\n\u2713 zero-config visit on demo board\n\u2713 invitation collapses to corner pill\n\u2713 one shell beat 1 six-beat spine\n\u2713 Esc pauses, re-entry resumes\n\u2713 no one-flow after setup\n\u2713 queued/running/partial discovery outcomes\n\u2713 discovery carries into pipeline + dossier\n\u2713 beat 3 template grid way back\n\u2713 greenfield param spent once\n\u2713 on-screen paused notice\n\u2713 live corner pill after poke-around\n\u2713 dashboard /profile from local API\n13 passed (23.0s) EXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "4a1304973dd9d881084574f1f5d8da2475e30710",
+  "lane": "R",
+  "summary": "HEAD 4a13049 verified, tree left clean (git status empty). Floor: 6/7 green (lint, typecheck, browser-use-discovery 741/741, contract:all, e2e-smoke 9/9, e2e-journey 13/13); npm test red only on the known environmental discovery-worker-env-parity failure (stale .env regenerated by the run; lane diff touches neither dev-server.mjs nor that test). Lane tests green: relay-dashboard-token 10/10, cloudflare-relay-auth 9/9, cloudflare-relay-deploy-token 3/3. G1 FIXED (adapted audit probe: all anonymous POSTs 401, upstream sees only the authed control). G24 UNCLEAR (no \u00a74 audit reproducer exists; lane's deploy+dashboard token tests pass).",
+  "tests": [
+    {
+      "excerpt": "\u2714 exposes a relay auth API\n\u2714 stores the bootstrap relay token and reports the relay locked\n\u2714 never leaks the token to another origin\n\u2714 an unlocked or missing relay block leaves the relay unlocked\n\u2714 does not fetch the bootstrap from a non-local origin\n\u2714 discovery-wizard-verify.js attaches the relay bearer\n\u2714 settings-profile-tab.js attaches the relay bearer\n\u2714 ingest-url-flow.js attaches the relay bearer\n\u2714 expired-review-ui.js attaches the relay bearer\n\u2714 discovery-status-handoff.js attaches the relay bearer\n\u2139 tests 10 pass 10 fail 0 EXIT:0 (matches green-g24-dashboard.txt; red was 0/10)",
+      "file": "tests/relay-dashboard-token.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 401 anonymous POST / (+/webhook, +/anything/else), never injects\n\u2714 401 fail-closed with no token; 401 wrong bearer\n\u2714 forwards authed POST /webhook with secret injected\n\u2714 X-Relay-Token accepted; GET /runs/<id> forwarded\n\u2714 404 authed off-allowlist path; CORS preflight allows X-Relay-Token\n\u2139 tests 9 pass 9 fail 0 EXIT:0",
+      "file": "tests/cloudflare-relay-auth.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 mintRelayToken distinct high-entropy per call\n\u2714 uploads RELAY_TOKEN as Worker secret\n\u2714 writes token + relayLocked into bootstrap relay block\n\u2139 tests 3 pass 3 fail 0 EXIT:0",
+      "file": "tests/cloudflare-relay-deploy-token.test.mjs",
+      "passed": true
+    }
+  ]
+}

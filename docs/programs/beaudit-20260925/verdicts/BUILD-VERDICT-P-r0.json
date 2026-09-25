@@ -1,0 +1,97 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home PORT=19001 node server/index.mjs + curl -H \"Host: rebind.attacker.test:19001\" -H \"Origin: http://rebind.attacker.test:19001\" http://127.0.0.1:19001/api/llm-config (GET+POST) [probes/E/probe-e-cors.sh LANE-REPORT-E \u00a74]",
+      "excerpt": "GET rebound -> HTTP/1.1 403 Forbidden {\"error\":\"Host not allowed for this local server.\",\"code\":\"HOST_NOT_ALLOWED\"}\nPOST hijack -> HTTP/1.1 403 Forbidden same body\npin on disk still {provider:'gemini',model:'probe-model',baseUrl:'',keyPresent:true}\nGET /health {\"atsProvider\":\"gemini\",\"atsConfigured\":true} (was 200 + hijack to openai_compatible/exfil + attacker baseUrl)",
+      "id": "E1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home PORT=19005 node server/index.mjs + PORT=19002 JOBBORED_API_PORT=19005 node dev-server.mjs + curl -H \"Host: evil.example:19002\" -H \"Sec-Fetch-Site: same-origin\" http://127.0.0.1:19002/profile (GET+POST+template+readback) [probes/G/g-profile-rebind.sh \u00a74]",
+      "excerpt": "GET /profile rebound -> {\"ok\":false,\"code\":\"HOST_NOT_ALLOWED\"} [403]\nPOST /profile rebound -> same 403\ntemplate fetch rebound -> 403 HOST_NOT_ALLOWED\nreadback grep PROBE-REBIND-WRITE: no match; /tmp/profile-g2.json absent\nlegit GET with Sec-Fetch-Site:same-origin -> {\"reason\":\"no_profile\"} [200] (was 200 + PROBE-REBIND-WRITE persisted)",
+      "id": "G2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "curl --path-as-is http://127.0.0.1:19002/<path> + curl -H \"Host: evil.example:19002\" http://127.0.0.1:19002/index.html + node isServableRelativePath [probes/G/g-static-traversal.sh \u00a74]",
+      "excerpt": "404 /package.json :: Not found (was 200)\n200 /index.html; 200 /AGENT_CONTRACT.md; 404 /AGENTS.md; 404 /server/index.mjs; 403 /.env; 403 /config.js\nforeign Host /index.html -> 403 {\"code\":\"HOST_NOT_ALLOWED\"} (was 200 CANARY)\nunit: tmp/jobbored-dev.log false, docs/redesign/logs false, uploads false, package.json false, index.html true, AGENT_CONTRACT true",
+      "id": "G3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "env -i HOME=.lane-evidence/home BROWSER_USE_DISCOVERY_PORT=19007 node --experimental-strip-types integrations/browser-use-discovery/src/server.ts + node .../probes/A/sec05-raw-paths.mjs 19007 + curl --path-as-is http://127.0.0.1:19007// [probes/A/repro-a1-crash.sh \u00a74]",
+      "excerpt": "before health=200\nraw //,//x with Host 127.0.0.1:19007 -> HTTP/1.1 400 Bad Request {\"ok\":false,\"message\":\"Malformed request URL.\"} ; health=200\ncurl GET // -> 400 same body; GET //x -> 400; //host/path -> 400\nfinal health=200, worker alive (was empty reply + health DOWN + EXITED + TypeError Invalid URL server.ts:1021)",
+      "id": "A1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/g4-bbuild-p.mjs (replicates probes/G/g-autodetect-fullboot.mjs vm harness against bbuild-p/discovery-autodetect.js) [LANE-REPORT-G \u00a74 G4]",
+      "excerpt": "[{\"url\":\"/__proxy/discovery-state\"},{\"url\":\"/__proxy/full-boot?skip_tunnel=1\",\"method\":\"POST\"},{\"url\":\"/__proxy/discovery-state\"}]\nfull-boot URL carries skip_tunnel? true (was false)\nFULL_BOOT_ENDPOINT=\"/__proxy/full-boot?skip_tunnel=1\" in discovery-autodetect.js:36",
+      "id": "G4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep buildContentSecurityPolicy dev-server.mjs + node /tmp/g10-live.mjs (startDevServer port 19006 dashboardConfigPath synthetic, curl CSP) [LANE-REPORT-G \u00a74 G10]",
+      "excerpt": "dev-server.mjs:722 buildContentSecurityPolicy({ extraConnectSrc }) (was only buildContentSecurityPolicy() with no extra)\nserved connect-src includes https://jobbored-api-abc123.a.run.app + http://192.168.1.20:11434\nstyle-src includes https://accounts.google.com/gsi/style\nedit config.js -> other.example.com appears, run.app gone, served tracks edit",
+      "id": "G10",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "> eslint . (clean)\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit -p integrations/browser-use-discovery/tsconfig.json (clean)\n> tsc --noEmit -p server/tsconfig.json (clean) + node --check x76\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "\u2139 tests 3112\n\u2139 pass 3100\n\u2139 fail 0\n\u2139 todo 12 (11 E17 targets + 1 known base \"canonical submission evidence record\")\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 741\n\u2139 pass 741\n\u2139 fail 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "OK schema x3 + OK discovery-payload + OK readiness\nOK ATS x4\nOK pipeline-row\nOK pipeline-update\nOK SKILL.md (12 OK, 0 FAIL)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "Running 9 tests using 1 worker\n9 passed (14.1s)\nEXIT:0 (PLAYWRIGHT_BROWSERS_PATH set; fresh HOME alone misses browser exe, known env issue)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "Running 13 tests using 1 worker\n13 passed (20.9s)\nEXIT:0 (same PLAYWRIGHT note)",
+      "passed": true
+    }
+  ],
+  "head": "3962886acdcc9133b595a00ec8c0c65cd848f7c9",
+  "lane": "P",
+  "summary": "Lane P at 3962886a: floor 7/7 green with fresh HOME (e2e needed PLAYWRIGHT_BROWSERS_PATH for browser exe); 3/3 target tests green (hosted-proxy 3/3, worker-guard 4/4 with RUN_MODE=local, E17 9 pass/11 todo with AUTH_ROUTE_PATTERN removed and E4 it.todo); 6/6 claims FIXED (E1,G2,G3,A1,G4,G10) via adapted audit reproducers on 19000-19009 with lane HOME; E17 not checked per deferral; tree clean, no listeners left, no POST to 8080/3847/8644/8645.",
+  "tests": [
+    {
+      "excerpt": "\u2714 reaches webhook-secret gate with public Host instead of HOST_NOT_ALLOWED\n\u2714 resolveAllowedBrowserOrigin carries trust + loopback API admits Origin api.example.com:PORT, refuses evil.test\n\u2139 tests 3 pass 3 fail 0 EXIT:0 (22/22 across four guard files per report)",
+      "file": "tests/beaudit-p-hosted-proxy-trusted-origin.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "BROWSER_USE_DISCOVERY_RUN_MODE=local present\n\u2714 403s foreign Host, serves loopback/tunnel/configured (rebinding negative still passes)\n\u2139 tests 4 pass 4 fail 0 EXIT:0",
+      "file": "tests/beaudit-p-worker-host-guard.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "AUTH_ROUTE_PATTERN: no match (removed); E4 is it.todo with no body\n\u2139 tests 20 pass 9 fail 0 todo 11 EXIT:0 (todos are Q/L/O/B targets, E4 claims no coverage)",
+      "file": "tests/beaudit-p-e17-claim-coverage.test.mjs",
+      "passed": true
+    }
+  ]
+}

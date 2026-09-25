@@ -1,0 +1,63 @@
+{
+  "claims": [
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-r/.lane-evidence/home node /tmp/g1-verify.mjs (adapted from beaudit-integration/docs/programs/beaudit-20260925/probes/G/g-relay-open-proxy.mjs per LANE-REPORT-G \u00a74 `node .lane-evidence/probes/g-relay-open-proxy.mjs`; import->bbuild-r templates/cloudflare-worker/worker.js, port 18176->19011)",
+      "excerpt": "anon POST / -> relay 401\nanon POST /webhook -> relay 401\nanon POST /anything/else -> relay 401\nupstream saw: []\nEXIT:0\nAudit baseline (g-relay-open-proxy.out): 202/202/202 with 3 upstream posts carrying probe-secret. Defect no longer appears.",
+      "id": "G1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node --test tests/relay-g24-handshake.test.mjs",
+      "excerpt": "\u2714 1. deploy mints a fresh per-dashboard token, kept across a same-Worker redeploy\n\u2714 2. the token is stored in config, owner-only, and served by the guarded route\n\u2714 3-4. the dashboard sends the bearer; the relay admits only it\n\u2714 5a. the setup wizard model says \"Relay locked\" once the dashboard holds the token\n\u2714 5b. the deploy summary tells the user the relay is locked\n\u2139 tests 5\n\u2139 pass 5\n\u2139 fail 0\nEXIT:0\nNo audit probe for G24; test walks claim text (mint/store/send/401/locked) on 127.0.0.1:19012.",
+      "id": "G24",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "> eslint .\n(no errors)\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\n+ node --check x ~90 files (no output = pass)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "\u2139 tests 3150\n\u2139 suites 751\n\u2139 pass 3149\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 1\nEXIT:0\n(todo is tests/submission-record-audit.test.mjs blocked-on-canonical-ownership-gate)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 741\n\u2139 suites 2\n\u2139 pass 741\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "OK schema x3 + payload/ readiness (5)\nOK ATS request/response + builders (4)\nOK pipeline-row (1)\nOK pipeline-update request (1)\nOK integrations/openclaw-command-center/SKILL.md (1)\n12 OK, 0 FAIL\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "Strict HOME-only: 9 failed, browserType.launch: Executable doesn't exist at $FRESH_HOME/Library/Caches/ms-playwright/... (fresh HOME hides browser cache, known lane finding).\nWith PLAYWRIGHT_BROWSERS_PATH (still fresh HOME): 9 passed (14.5s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "Strict HOME-only: 13 failed, browserType.launch: Executable doesn't exist (same cache cause).\nWith PLAYWRIGHT_BROWSERS_PATH (still fresh HOME): 13 passed (21.1s)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "c92532fc035d320341e03df325efb0fdb8f8de36",
+  "lane": "R",
+  "summary": "HEAD c92532fc verified read-only. Floor 7/7 green (e2e need PLAYWRIGHT_BROWSERS_PATH with fresh HOME; strict fresh-HOME-only fails on missing browser cache). Companions 5/5 green, matching .lane-evidence red 0/5 and green 5/5. G1 FIXED (anon POST now 401, upstream empty). G24 FIXED (handshake 5/5, exercises mint/store/bearer/401/locked).",
+  "tests": [
+    {
+      "excerpt": "\u2714 examples/README.md curl commands send the relay bearer\n\u2714 examples/README.md verify-script command passes RELAY_TOKEN\n\u2714 examples/README.md says where the relay token lives\n\u2714 discovery webhook request schema notes the relay bearer $comment\n\u2714 CONTRACT-CHANGELOG and AGENT_CONTRACT name the example and schema companions\n\u2139 tests 5\n\u2139 pass 5\n\u2139 fail 0\nEXIT:0\n.lane-evidence/companions-red.txt: pass 0 fail 5; companions-green.txt: pass 5 fail 0 (confirmed).",
+      "file": "tests/relay-contract-companions.test.mjs",
+      "passed": true
+    }
+  ]
+}
