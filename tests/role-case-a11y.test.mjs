@@ -209,6 +209,22 @@ describe("P1 — the dossier is navigable and readable by assistive tech", () =>
     assert.match(caseCss, /body\.jb-v2 \[data-region="role"\] \.case \.case__step::after\b/);
     assert.match(caseCss, /body\.jb-v2 \[data-region="role"\] \.case \.case__fact-input::after|\.case__fact-input\s*\{[^}]*min-height:\s*24px/);
   });
+
+  /* Spec §4: the two disclosure toggles are real buttons with the same
+     crimson focus-visible ring the other case buttons carry. */
+  it("the disclosure toggles are keyboard-visible buttons", () => {
+    assert.match(caseCss, /\.case__more-btn:focus-visible\s*\{[^}]*outline:/);
+    assert.match(caseCss, /button\.case__chip--more:focus-visible\s*\{[^}]*outline:/);
+  });
+
+  /* Cascade trap: a single-class rule loses to body.jb-v2 h3/p (0,1,1), so
+     every new rule in this lane lives under the full Case scope. */
+  it("every new Case rule is scoped under the Case", () => {
+    for (const sel of ["case__more-btn", "case__chips-more", "case__chip--more", "case__req-ev", "case__date", "case__date-empty"]) {
+      const re = new RegExp("^[ \\t]*body\\.jb-v2 \\[data-region=\"role\"\\] \\.case [^{]*\\." + sel + "(?![\\w-])[^{]*\\{", "gm");
+      assert.ok(re.test(caseCss), sel + " must be scoped under body.jb-v2 [data-region=\"role\"] .case");
+    }
+  });
 });
 
 describe("P1-0 — the Case surface holds its own gutter and colors", () => {
@@ -272,6 +288,25 @@ describe("P1-0 — the Case surface holds its own gutter and colors", () => {
   });
 });
 
+/* Spec §3.7: labels tell the truth once. :placeholder-shown never fires
+   on a native date input, so the reliable selector is the rendered value
+   attribute — role.js re-renders after every committed write, keeping it
+   truthful. The span is always in the DOM; CSS alone decides. */
+describe("§3.7 — the follow-up empty state", () => {
+  it("wraps the date with a Not-set sibling", () => {
+    assert.match(html(), /<span class="case__date">[\s\S]*?case__date-empty">Not set</);
+    assert.match(html(), /data-field="followupAt"[^>]*type="date"/, "the native date control stays");
+  });
+  it("shows Not set only while the input's value is empty", () => {
+    assert.match(caseCss, /\.case__date-empty \{[^}]*display:\s*none/, "hidden by default");
+    assert.match(
+      caseCss,
+      /\.case__date input\[value=""\] \+ \.case__date-empty \{[^}]*display:\s*inline/,
+      "the rendered value attribute is what reveals it",
+    );
+  });
+});
+
 describe("P2 — the copy says what it means", () => {
   /* P2-2: "parse" is about JSON, not the job. */
   it("a recovered payload is tagged unverified, in words a hunter can act on", () => {
@@ -284,10 +319,13 @@ describe("P2 — the copy says what it means", () => {
   });
 
   /* P2-3: the acronym is never expanded, and crimson is the alarm color. */
-  it("the ATS tile is 'Resume score', and only a low score is crimson", () => {
+  /* UX01 C13 (TA-13): the tile names the document it rates. This fixture's
+     scorecard records no feature, so it is a "Draft score", never guessed to
+     be the resume. */
+  it("the ATS tile names its document, and only a low score is crimson", () => {
     const good = html({ scorecard: { result: { overallScore: 94, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
-    assert.match(good, /data-num="ats"[\s\S]*?Resume score/);
-    assert.match(good, /How well your draft answers this posting/);
+    assert.match(good, /data-num="ats"[\s\S]*?Draft score/);
+    assert.match(good, /scored draft · 2026-08-30/);
     assert.doesNotMatch(good, /data-num="ats"[\s\S]*?case__num-v--crimson/, "a 94 is not bad news");
     const bad = html({ scorecard: { result: { overallScore: 41, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
     assert.match(bad, /data-num="ats"[\s\S]*?case__num-v--crimson/);

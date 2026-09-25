@@ -64,12 +64,14 @@
 
     var heading = el("h5", { className: "fp-heading" }, ["Rescore old listings"]);
     var lede = el("p", { className: "fp-lede" }, [
-      "New discoveries automatically use your current Fit Profile. To rescore listings already in your Pipeline, trigger a discovery run or re-ingest specific URLs.",
+      "Rescore updates fit scores for roles already in your Pipeline. New roles use your current Fit Profile automatically.",
     ]);
     var status = el("div", { className: "fp-rescore-status", role: "status" });
     var button = el("button", {
       type: "button",
-      className: "btn-primary fp-rescore-btn",
+      // UX01 C22 (SS-15): a real, recognisable button (fp-btn is scoped
+      // by fit-profile.css, so the body.jb-v2 type rules cannot flatten it).
+      className: "fp-btn fp-btn--ghost fp-rescore-btn",
     }, ["Rescore"]);
 
     button.addEventListener("click", async function () {
@@ -81,10 +83,10 @@
         if (data && data.ok) {
           status.textContent = data.message || "Done.";
         } else {
-          status.textContent = "Rescore failed: " + (data && data.reason ? data.reason : "unknown error");
+          status.textContent = "Couldn’t rescore right now. Try again in a minute.";
         }
       } catch (err) {
-        status.textContent = "Rescore failed: " + (err && err.message ? err.message : String(err));
+        status.textContent = "Couldn’t reach JobBored’s local helper to rescore. Try again once it’s running.";
       } finally {
         button.disabled = false;
       }

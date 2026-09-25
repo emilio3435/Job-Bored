@@ -677,6 +677,14 @@
     return next;
   }
 
+  /**
+   * The unload-proof copy of B3's resume draft (GREENFIELD spec §4.2).
+   * onboarding-flow.js writes it; this is the ONLY thing that clears it,
+   * because the flow's reset is the only moment the text stops being the
+   * user's answer to "hand us your resume".
+   */
+  const ONBOARDING_FLOW_DRAFT_MIRROR_KEY = "jb_oneflow_draft_resumeText";
+
   async function clearOnboardingFlowState() {
     const fresh = {
       ...DEFAULT_ONBOARDING_FLOW_STATE,
@@ -685,6 +693,14 @@
       completedBeats: [],
     };
     await setSetting("onboardingFlowState", fresh);
+    try {
+      const local = window.localStorage;
+      if (local && typeof local.removeItem === "function") {
+        local.removeItem(ONBOARDING_FLOW_DRAFT_MIRROR_KEY);
+      }
+    } catch (_e) {
+      // A storage that will not answer has nothing left to clear.
+    }
     return { ...fresh };
   }
 

@@ -87,6 +87,13 @@
   const SCRAPER_HTTPS_BLOCKED_HINT =
     "HTTPS pages (e.g. GitHub Pages) cannot call http://127.0.0.1 — the browser blocks it. Deploy the scraper to a public HTTPS URL and paste it in Settings, or run the app locally with npm start. See DEPLOY-SCRAPER.md.";
 
+  // UX01 C22 (SS-03): opened from Settings, the guide used to inherit the
+  // Settings focus trap's `inert` and sit UNDER the Settings overlay, so
+  // every button was dead and the first click closed Settings. Lift it
+  // above Settings, un-inert it, own Escape, and hand focus back on close.
+  let scraperReturnFocus = null;
+  let scraperEscapeHandler = null;
+
   function openScraperSetupModal() {
     const modal = document.getElementById("scraperSetupModal");
     const result = document.getElementById("scraperTestResult");
@@ -94,15 +101,63 @@
       result.textContent = "";
       result.className = "scraper-test-result";
     }
-    if (modal) {
-      modal.style.display = "flex";
-      document.getElementById("scraperSetupDoneBtn")?.focus();
+    if (!modal) return;
+    scraperReturnFocus =
+      typeof document !== "undefined" ? document.activeElement : null;
+    modal.inert = false;
+    modal.removeAttribute("inert");
+    const settings = document.getElementById("settingsModal");
+    if (settings && settings.style.display === "flex") {
+      let z = 0;
+      try {
+        z = parseInt(window.getComputedStyle(settings).zIndex, 10) || 0;
+      } catch (_) {
+        z = 0;
+      }
+      modal.style.zIndex = String(Math.max(z + 1, 2001));
+      // Settings is behind us now; keep it out of the tab order and AT.
+      settings.inert = true;
+      modal.dataset.liftedOverSettings = "true";
     }
+    modal.style.display = "flex";
+    if (!scraperEscapeHandler) {
+      scraperEscapeHandler = (e) => {
+        if (e.key !== "Escape") return;
+        if (modal.style.display !== "flex") return;
+        e.stopImmediatePropagation();
+        e.preventDefault();
+        closeScraperSetupModal();
+      };
+      // Capture phase so the Settings Escape handler never sees this press.
+      document.addEventListener("keydown", scraperEscapeHandler, true);
+    }
+    document.getElementById("scraperSetupDoneBtn")?.focus();
   }
 
   function closeScraperSetupModal() {
     const modal = document.getElementById("scraperSetupModal");
-    if (modal) modal.style.display = "none";
+    if (modal) {
+      modal.style.display = "none";
+      if (modal.dataset.liftedOverSettings === "true") {
+        const settings = document.getElementById("settingsModal");
+        if (settings) settings.inert = false;
+        modal.style.zIndex = "";
+        delete modal.dataset.liftedOverSettings;
+      }
+    }
+    if (scraperEscapeHandler) {
+      document.removeEventListener("keydown", scraperEscapeHandler, true);
+      scraperEscapeHandler = null;
+    }
+    const back = scraperReturnFocus;
+    scraperReturnFocus = null;
+    if (back && typeof back.focus === "function" && document.contains(back)) {
+      try {
+        back.focus({ preventScroll: true });
+      } catch (_) {
+        /* best-effort */
+      }
+    }
   }
 
   function copyTextToClipboard(text) {

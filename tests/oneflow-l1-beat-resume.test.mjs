@@ -52,8 +52,27 @@ function draftingFetch(overrides = {}) {
   });
 }
 
+/**
+ * What B2 leaves behind when it verifies OpenRouter, in the shape
+ * resume-generate.js publishes. GREENFIELD A3 makes the KEY load-bearing:
+ * B3 refuses to ask the server to draft with a provider that has no
+ * credential, so a probe of the drafting path has to carry one.
+ */
+const VERIFIED_PROVIDER = {
+  provider: "openrouter",
+  resumeOpenRouterApiKey: "sk-or-verified-key",
+  resumeOpenRouterModel: "openai/gpt-oss-120b:free",
+  resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
+};
+
 async function openBeat(options = {}) {
   const env = loadArrival({ fetchImpl: draftingFetch(), ...options });
+  env.window.CommandCenterResumeGenerate.getResumeGenerationConfig = () => ({
+    ...VERIFIED_PROVIDER,
+  });
+  // GREENFIELD §4.1 gates B3 on B2 — B3 drafts with the provider B2
+  // verified — so a probe of B3 has to arrive having earned it.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.open(BEAT_ID);
   return env;
 }
@@ -287,15 +306,21 @@ describe("B3 — an unconfigured provider points at the AI step (walkthrough ste
       await env.beats.resume.ingestText(RESUME_TEXT, "paste");
       const message = env.mount().querySelector(".discovery-setup-wizard__message");
       assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
-      assert.match(
+      // GREENFIELD §4.1 supersedes this sentence: the controller's gate and
+      // this beat say the SAME locked line, so a visitor who is redirected
+      // and a visitor who is refused read one message, not two.
+      assert.equal(
         message.textContent,
-        /AI step/i,
-        "the user is sent to the step that connects a provider",
+        "Connect an AI provider first \u2014 your resume is drafted with it.",
       );
       assert.doesNotMatch(
         message.textContent,
         /reconnect (gemini|openrouter)/i,
         "no 'reconnect X' for a provider that was never connected",
+      );
+      assert.ok(
+        env.mount().querySelector('[data-action-id="resume_connect_ai"]'),
+        "and the step that fixes it is one button away (GREENFIELD A4)",
       );
       assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
     });

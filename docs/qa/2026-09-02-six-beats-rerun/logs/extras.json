@@ -1,0 +1,72 @@
+{
+  "coldStart": {
+    "pageErrors": [],
+    "requestCount": 160,
+    "offOrigin": [
+      "GET https://accounts.google.com/gsi/client",
+      "GET http://127.0.0.1:3847/api/applications"
+    ],
+    "firstPaintMs": {
+      "domContentLoaded": 178,
+      "load": 195,
+      "fcp": 152
+    }
+  },
+  "fitSave": {
+    "requests": [
+      "POST http://localhost:8095/profile"
+    ],
+    "profileResponses": [
+      {
+        "url": "http://localhost:8095/profile",
+        "status": 200,
+        "body": "{\"ok\":true,\"updatedAt\":\"2026-09-02T07:29:39.208Z\",\"logoRefresh\":{\"ok\":true}}"
+      }
+    ]
+  },
+  "fuelSave": {
+    "ms": 1805,
+    "requests": [
+      "POST http://localhost:8095/__proxy/discovery-env-key",
+      "POST http://localhost:8095/__proxy/full-boot?port=8644&skip_tunnel=1&force_restart=1"
+    ],
+    "contactedSerpApi": false,
+    "message": "Google Jobs index connected — 100 searches/mo."
+  },
+  "payoff": {
+    "headline": "You're live.",
+    "sub": "That was the one-time part. From here, JobBored works for you.",
+    "footerNote": null,
+    "beatLines": [
+      "That was the one-time part. From here, JobBored works for you.",
+      "YOUR SEARCH",
+      "ROLES",
+      "Director of Performance Marketing · Senior Marketing Manager",
+      "YOUR EDGE",
+      "Performance marketing · Brand & content · Analytics & experimentation",
+      "WHAT HAPPENS NOW",
+      "✓ AI connected — Gemini",
+      "○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below",
+      "✓ Pipeline sheet connected —",
+      "open it ↗",
+      "⏱ First matches land tomorrow morning — or run it right now and watch.",
+      "More power-ups — URL import, grounded search, other devices — live in Settings → Upgrades, each one click, none required."
+    ],
+    "buttons": [
+      "Go to my dashboard",
+      "Actually — connect discovery"
+    ],
+    "celebration": {
+      "cls": "onboarding-celebration onboarding-celebration--in",
+      "ariaHidden": "false",
+      "pointerEvents": "auto",
+      "zIndex": "100002",
+      "opacity": "1",
+      "box": {
+        "w": 1440,
+        "h": 900
+      },
+      "text": "You're live. That was the one-time part. From here, JobBored works for you. ✓ PROFILE ✓ JOB DISCOVERY ✓ OTHER DEVICES See what happens now → or start with your "
+    }
+  }
+}

@@ -74,13 +74,13 @@
       fitAngle: {
         type: "string",
         description:
-          "2-3 sentences on how the candidate should position themselves. If a candidate profile excerpt is provided (resume, LinkedIn, AI context), tie to their specific experience; otherwise stay role-generic.",
+          "2-3 sentences on how the candidate should position themselves. If a candidate profile excerpt is provided (resume, LinkedIn, AI context), tie to their specific experience; otherwise stay role-generic. Use second person, imperative, opening with a verb (Lead with…, Show…, Ask about…). Never a gerund opener, never third person.",
       },
       talkingPoints: {
         type: "array",
         items: { type: "string" },
         description:
-          "3-5 short bullets for interview prep or cover letter hooks. If a candidate profile excerpt is provided, tailor these to the candidate's actual background.",
+          "3-5 points, each ≤ 25 words, second person, imperative, opening with a verb (Lead with…, Show…, Ask about…). Each point names ONE must-have from this posting and the candidate-profile fact that answers it. Never a gerund opener, never third person.",
       },
       extraKeywords: {
         type: "array",

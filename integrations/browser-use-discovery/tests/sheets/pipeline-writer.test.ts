@@ -901,6 +901,34 @@ test("mergeExistingRow backfills Date Found when the legacy row had none", async
   assert.ok(merged[0], "an empty legacy Date Found must be backfilled with the discovery date");
 });
 
+test("buildLeadRow uses the local calendar day when discovery happens at 23:50 in America/Chicago", async () => {
+  const previousTz = process.env.TZ;
+  process.env.TZ = "America/Chicago";
+  try {
+    const { fetchImpl, calls } = createMockFetch({
+      headerRows: [PIPELINE_HEADER_ROW],
+      dataRows: [],
+      responses: [responseJson({ appendedRows: 1 })],
+    });
+    const writer = createPipelineWriter(runtimeConfig, {
+      fetchImpl,
+      now: () => new Date("2026-09-03T04:50:00Z"),
+    });
+
+    await writer.write("sheet_123", [
+      makeLead({ discoveredAt: "2026-09-03T04:50:00Z" }),
+    ]);
+
+    const appendCall = calls.find((c) => c.method === "POST" && /:append/.test(c.url));
+    assert.ok(appendCall, "the 23:50 local discovery must append a row");
+    const appendedRow = JSON.parse(appendCall.body).values[0];
+    assert.equal(appendedRow[0], "2026-09-02");
+  } finally {
+    if (previousTz === undefined) delete process.env.TZ;
+    else process.env.TZ = previousTz;
+  }
+});
+
 test("buildLeadRow emits COLUMN_COUNT (25) cells with a trailing empty Edit Lock", async () => {
   // buildLeadRow is private; we observe its output via the append path (a
   // brand-new lead with no existing match). The appended row must be exactly

@@ -32,6 +32,25 @@
     });
 
     setActiveSettingsTab(defaultTab, { silent: true });
+
+    // UX01 C22 (SS-16): Upgrades' "Turn on" lines are real buttons that
+    // jump to the tab (or field) that turns the extra on.
+    if (root.dataset.settingsGotoBound !== "true") {
+      root.dataset.settingsGotoBound = "true";
+      root.addEventListener("click", function (e) {
+        var t = e.target && e.target.closest
+          ? e.target.closest("[data-settings-goto-tab], [data-settings-goto-field]")
+          : null;
+        if (!t || !root.contains(t)) return;
+        var field = t.getAttribute("data-settings-goto-field");
+        if (field) {
+          activateTabForField(field);
+          return;
+        }
+        var tab = t.getAttribute("data-settings-goto-tab");
+        if (tab) setActiveSettingsTab(tab);
+      });
+    }
   }
 
   /**
@@ -75,6 +94,9 @@
     }
 
     activeTabId = tabId;
+    // UX01 C22 (SS-14): tabs with their own save (Fit Profile) or nothing to
+    // save (Upgrades) hide the footer Save — CSS keys off this attribute.
+    rootEl.setAttribute("data-active-tab", tabId);
 
     var silent = opts && opts.silent;
     if (!silent && activeBtn) {

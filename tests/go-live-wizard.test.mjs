@@ -1023,7 +1023,7 @@ describe("go-live wizard — path cards are real cards (frontend-design pass)", 
   });
 
   it("the card chrome CSS actually exists (the old classes were never styled)", () => {
-    const css = readFileSync(join(repoRoot, "css", "legacy-discovery-setup-wizard.css"), "utf8");
+    const css = readFileSync(join(repoRoot, "css", "discovery-setup-wizard.css"), "utf8");
     for (const cls of [
       ".go-live-wizard__path-card",
       ".go-live-wizard__path-card--recommended",

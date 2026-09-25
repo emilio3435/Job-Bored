@@ -107,6 +107,8 @@ export default [
       // tracked from before the ignore rule — don't lint throwaways.
       "tmp/**",
       ".lane-evidence/**",
+      // Workflow-tool scripts: a top-level `return` is legal in that runner, not in ESM.
+      "docs/programs/**/*.workflow.js",
     ],
   },
   {
@@ -187,5 +189,17 @@ export default [
       globals: { ...globals.node, ...globals.browser },
     },
     rules: correctnessRules,
+  },
+  {
+    // Program audit measurement scripts (kept so acceptance can be re-run):
+    // Playwright drivers with page.evaluate snippets that use the injected
+    // axe global. Throwaway probes, so unused bindings are not worth a gate.
+    files: ["docs/programs/**/audit/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...globals.node, ...globals.browser, axe: "readonly" },
+    },
+    rules: { ...correctnessRules, "no-unused-vars": "off" },
   },
 ];

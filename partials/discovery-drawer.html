@@ -133,6 +133,22 @@
               Shape and remix your discovery search. Values are saved locally and sent with the run.
             </p>
 
+            <!-- UX01 C9 (FD-26): what onboarding captured, as one line. The
+                 fields below open with "Edit for this run" and never write
+                 back to the saved profile. -->
+            <div class="dp-profile-summary" id="dpProfileSummary" hidden>
+              <p class="field-label">Searching for</p>
+              <p class="discovery-drawer__lede dp-profile-summary__text" id="dpProfileSummaryText"></p>
+              <button
+                type="button"
+                class="btn-modal-secondary dp-profile-summary__edit"
+                id="dpProfileEditBtn"
+                aria-controls="dpProfileFields"
+                aria-expanded="false"
+              >Edit for this run</button>
+            </div>
+
+            <div class="dp-profile-fields" id="dpProfileFields">
             <label class="field-label" for="dpTargetRoles">Target roles</label>
             <textarea
               id="dpTargetRoles"
@@ -156,24 +172,31 @@
                 <label class="field-label" for="dpRemotePolicy"
                   >Remote / work style</label
                 >
-                <input
-                  type="text"
-                  id="dpRemotePolicy"
-                  class="modal-input"
-                  placeholder="e.g. remote-first, hybrid"
-                  autocomplete="off"
-                />
+                <select id="dpRemotePolicy" class="modal-input">
+                  <option value="">Any</option>
+                  <option value="remote">Remote only</option>
+                  <option value="hybrid">Hybrid</option>
+                  <option value="onsite">On-site</option>
+                </select>
               </div>
               <div>
                 <label class="field-label" for="dpSeniority">Seniority</label>
-                <input
-                  type="text"
-                  id="dpSeniority"
-                  class="modal-input"
-                  placeholder="e.g. mid, senior, staff"
-                  autocomplete="off"
-                />
+                <select id="dpSeniority" class="modal-input">
+                  <option value="">Any</option>
+                  <option value="Intern">Intern</option>
+                  <option value="Entry">Entry</option>
+                  <option value="Mid">Mid</option>
+                  <option value="Senior">Senior</option>
+                  <option value="Staff">Staff</option>
+                  <option value="Principal">Principal</option>
+                  <option value="Manager">Manager</option>
+                  <option value="Director">Director</option>
+                  <option value="Head">Head</option>
+                  <option value="VP">VP</option>
+                  <option value="C-level">C-level</option>
+                </select>
               </div>
+            </div>
             </div>
 
             <label class="field-label" for="dpKeywordsInclude"
@@ -198,17 +221,20 @@
               autocomplete="off"
             />
 
-            <label class="field-label" for="dpMaxLeads"
-              >Max leads per run (optional)</label
-            >
-            <input
-              type="text"
-              id="dpMaxLeads"
-              class="modal-input"
-              inputmode="numeric"
-              placeholder="e.g. 15"
-              autocomplete="off"
-            />
+            <details class="dp-advanced" id="dpAdvanced">
+              <summary class="field-label">Advanced: max leads per run</summary>
+              <label class="field-label" for="dpMaxLeads"
+                >Max leads per run (optional)</label
+              >
+              <input
+                type="text"
+                id="dpMaxLeads"
+                class="modal-input"
+                inputmode="numeric"
+                placeholder="e.g. 15"
+                autocomplete="off"
+              />
+            </details>
 
             <!-- Company targeting (optional, but visible) -->
             <section class="discovery-drawer__section" aria-labelledby="dpCompanyTargetingLegend">
@@ -331,6 +357,21 @@
                   <button type="button" class="btn-modal-secondary dp-stratum-card__apply" data-action="apply-stratum">Apply</button>
                 </article>
               </div>
+            </section>
+            <!-- UX01 C10 (MP-02): a one-click clipper for any job site. -->
+            <section class="discovery-drawer__capture" aria-labelledby="ddCaptureTitle">
+              <p class="field-label" id="ddCaptureTitle">Save jobs from any site</p>
+              <p class="settings-field-hint settings-field-hint--compact">
+                Drag this button to your bookmarks bar. On a job posting, click
+                it and the role opens here, filled in, ready to save. Nothing is
+                sent anywhere else.
+              </p>
+              <a
+                class="btn-modal-secondary"
+                href="#"
+                data-capture-bookmarklet
+                draggable="true"
+              >+ Save to JobBored</a>
             </section>
           </section>
 
@@ -643,9 +684,13 @@
                   />
                   Enable — generate a GitHub Actions workflow for this schedule
                 </label>
+                <!-- UX01 C9 (FD-18): lane F sets this to the viewer's zone when
+                     the generated workflow's TZ guard follows it. -->
                 <label
                   class="field-label"
                   for="settingsProfileScheduleCloudTime"
+                  id="settingsProfileScheduleCloudTzLabel"
+                  data-tz="America/Chicago"
                 >
                   America/Chicago time
                 </label>
@@ -1037,6 +1082,21 @@
         </div>
 
         <footer class="discovery-drawer__footer">
+          <p
+            class="settings-field-hint settings-field-hint--compact discovery-drawer__setup-hint"
+            id="discoveryDrawerSetupHint"
+            hidden
+          >
+            Job search isn't set up yet. Setup takes about 3 minutes and asks
+            before it changes anything on this computer.
+            <button
+              type="button"
+              class="btn-modal-secondary discovery-drawer__setup-link"
+              id="discoveryDrawerAddInstead"
+            >
+              Add a job from a link instead
+            </button>
+          </p>
           <div
             class="discovery-run-preview-mount"
             id="discoveryRunPreviewMount"

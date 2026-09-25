@@ -165,7 +165,7 @@ describe("renderDiscoveryRunStatus — expired-key honest state", () => {
       errorMessage: "Worker timed out after 300s.",
     });
     status.renderDiscoveryRunStatus();
-    assert.match(toasts[0].msg, /Discovery run failed/i);
+    assert.match(toasts[0].msg, /Discovery didn't finish/i);
     assert.doesNotMatch(toasts[0].msg, /search key/i);
   });
 });

@@ -241,7 +241,53 @@
     if (footerSheetLink) footerSheetLink.href = sheetUrl;
   }
 
+  /** UX01 C21 (SS-09): plain gate copy built from the last failed read. */
+  function describeGateFailure() {
+    const read = window.JobBoredApp && window.JobBoredApp.sheetsRead;
+    if (!read || typeof read.describeLoadFailure !== "function") return null;
+    const state = typeof read.getLoadState === "function" ? read.getLoadState() : null;
+    const failure = (state && state.lastFailure) || null;
+    if (!failure) return null;
+    let email = "";
+    try {
+      const a = window.JobBoredApp.auth;
+      email = (a && typeof a.getUserEmail === "function" && a.getUserEmail()) || "";
+    } catch (_) {
+      email = "";
+    }
+    return read.describeLoadFailure({ ...failure, email });
+  }
+
+  const OPEN_SHEET_LINK_ID = "sheetAccessGateOpenSheetLink";
+
+  function renderOpenSheetAction(show) {
+    let link = document.getElementById(OPEN_SHEET_LINK_ID);
+    if (!show) {
+      if (link) link.hidden = true;
+      return;
+    }
+    const sid = host().getSheetId() || core().getSHEET_ID();
+    if (!sid) return;
+    if (!link) {
+      link = document.createElement("a");
+      link.id = OPEN_SHEET_LINK_ID;
+      link.className = "login-gate__btn-secondary";
+      link.target = "_blank";
+      link.rel = "noopener";
+      link.textContent = "Open the Sheet";
+      const row =
+        document.getElementById("sheetAccessGateSecondaryRow") ||
+        document.getElementById("sheetAccessGateScreen");
+      if (row) row.insertBefore(link, row.firstChild);
+    }
+    link.href = `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sid)}/edit`;
+    link.hidden = false;
+  }
+
   function showSheetAccessGate(mode) {
+    // Optional second argument { title, detail } (UX01 SS-25).
+    const gateOpts =
+      arguments[1] && typeof arguments[1] === "object" ? arguments[1] : {};
     releaseAuthPrepaintGuard("show-gate");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");
@@ -352,8 +398,11 @@
       footText = "Add a Client ID in Settings, then reload.";
       startLoginGateTipRotation();
     } else if (mode === "error") {
-      nextTitle = "Couldn’t load this sheet";
-      nextDetail = "Check the Sheet ID and permissions, then try again.";
+      const plain = describeGateFailure();
+      nextTitle = plain ? plain.title : "Couldn’t open your Sheet";
+      nextDetail = plain
+        ? plain.detail
+        : "Check that the Sheet link in Settings is right and that this Google account can open it, then reload.";
       nextStepTitle = "";
       nextStepBody = "";
       showSignIn = !!host().getOAuthClientId() && !host().getAccessToken();
@@ -369,14 +418,25 @@
       startLoginGateTipRotation();
     }
 
+    // Callers can name why the gate opened (e.g. an expired session, SS-25).
+    if (gateOpts.title) nextTitle = String(gateOpts.title);
+    if (gateOpts.detail) nextDetail = String(gateOpts.detail);
+
     if (title) title.textContent = nextTitle;
     if (detail) detail.textContent = nextDetail;
+    {
+      const plain = mode === "error" ? describeGateFailure() : null;
+      renderOpenSheetAction(!!plain && plain.kind === "forbidden");
+    }
     if (stepTitle) stepTitle.textContent = nextStepTitle;
     if (stepBody) stepBody.textContent = nextStepBody;
     renderStartFreshAction(mode === "error" && showStartFresh);
     if (signInBtn) signInBtn.hidden = !showSignIn;
     if (settingsBtn) settingsBtn.hidden = false;
-    if (reloadBtn) reloadBtn.hidden = false;
+    if (reloadBtn) {
+      reloadBtn.hidden = false;
+      reloadBtn.textContent = mode === "error" ? "Try again" : "Reload";
+    }
     if (spinner) spinner.hidden = !showSpinner;
     if (foot) foot.textContent = footText;
 
@@ -634,6 +694,17 @@
 
     if (!host().getOAuthClientId()) {
       pendingStarterSheetCreateOptions = null;
+      // Beat 1 owns "no Client ID yet": it carries the console link, the six
+      // steps and the paste field. Punting the flow into the Settings modal
+      // was GREENFIELD-SPEC §1 F4 — the dead end the beat exists to replace.
+      // Outside the flow, Settings is still where an OAuth client is saved.
+      if (opts.context === "wizard") {
+        notify(
+          "Paste your Google OAuth Client ID above, then create the sheet.",
+          true,
+        );
+        return { ok: false, reason: "missing_client_id" };
+      }
       host().showToast(
         "Save a Google OAuth client in Settings first, then come back and create the sheet.",
         "error",

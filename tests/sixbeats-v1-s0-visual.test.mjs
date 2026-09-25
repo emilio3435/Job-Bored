@@ -170,7 +170,7 @@ describe("S0 invitation — visible on first mount, never auto-collapsed (U1)", 
       .dispatch("click", { preventDefault() {} });
     const pill = root.querySelector(".oneflow-demo__pill");
     assert.ok(pill, "the escape collapses the card to the pill");
-    assert.equal(textOf(pill), "Set up JobBored — 15 min ▸");
+    assert.equal(textOf(pill), "Set up JobBored — 20–25 min ▸");
     assert.ok(
       pill.querySelector(".oneflow-demo__pill-mark"),
       "the pill is designed — it carries the mark, not just a label",

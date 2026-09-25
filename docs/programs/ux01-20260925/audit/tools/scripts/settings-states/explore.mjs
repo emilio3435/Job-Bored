@@ -1,0 +1,14 @@
+import { H, LENS } from "./common.mjs";
+const { openApp } = await import(H);
+const app = await openApp({ mode: "signed-in", viewport: "desktop" });
+const { page } = app;
+const navs = await page.evaluate(() => [...document.querySelectorAll("header button, header a, nav button, nav a")].filter(e=>e.offsetWidth).map(e => ({ id: e.id, cls: e.className.slice(0,60), text: (e.innerText||e.getAttribute("aria-label")||"").trim().slice(0,40) })));
+console.log(JSON.stringify(navs));
+await page.getByRole("button", { name: /pipeline/i }).first().click().catch(e=>console.log("nav fail", e.message));
+await page.waitForTimeout(1500);
+const acts = await page.evaluate(() => { const m = {}; for (const e of document.querySelectorAll("[data-action]")) if (e.offsetWidth) m[e.dataset.action] = (m[e.dataset.action]||0)+1; return m; });
+console.log(JSON.stringify(acts));
+const stickers = await page.evaluate(() => [...document.querySelectorAll(".pipe-sticker")].slice(0,2).map(e => e.outerHTML.slice(0,800)));
+console.log(stickers.join("\n----\n"));
+console.log(await page.evaluate(() => typeof window.loadAllData + " " + typeof window.JobBoredApp?.sheetsRead?.loadAllData));
+await app.close();

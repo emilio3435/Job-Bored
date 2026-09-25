@@ -1396,10 +1396,13 @@
   align-items: start;
 }
 
-/* Reduced opacity, applied once at the root — the demo reads as a
-   rehearsal of the product, never as the product. */
+/* UX01 C6 (AX-09): the demo used to be dimmed with opacity .82, which
+   dropped every title, chip and fit badge to ~2.8:1. The DEMO chips and
+   a tinted board carry "this is sample data" instead, at full ink. */
 .oneflow-demo--watermarked .oneflow-demo__board {
-  opacity: 0.82;
+  padding: var(--space-3);
+  border-radius: 14px;
+  background: var(--jb-paper-2, var(--surface-2));
 }
 
 .oneflow-demo .oneflow-demo__column {
@@ -1728,6 +1731,18 @@
   font-family: var(--jb-font-body, var(--font-body));
   font-size: 14px;
   line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* UX01 C7 (FR-11): what setup needs, named before the stranger commits. */
+.oneflow-demo .oneflow-demo__invite-needs {
+  margin: 0;
+  padding-left: 1.1em;
+  display: grid;
+  gap: 2px;
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: 13px;
+  line-height: 1.45;
   color: var(--jb-ink-2, var(--text-muted));
 }
 

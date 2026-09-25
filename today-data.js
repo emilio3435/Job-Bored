@@ -37,8 +37,25 @@
 
   /* Ranking bands, most urgent first. A job lands in the FIRST band it
      matches; the tail band is ordered by fit, which is what the old surface
-     used for everything. */
-  var BANDS = ["reply", "prep", "follow-up", "stale", "fit"];
+     used for everything.
+
+     UX01 C20 adds two bands the hidden legacy brief already knew about
+     (daily-brief.js upcomingFollowUps48h and its offer count): "due" is a
+     follow-up that falls today or within the next two days, and "offer" is
+     an open offer whose Follow-up Date is read as the decision date. */
+  var BANDS = ["reply", "prep", "follow-up", "due", "offer", "stale", "fit"];
+
+  /* How far "Done" pushes the next follow-up, and the Snooze presets. */
+  var NEXT_FOLLOW_UP_DAYS = 7;
+  var SNOOZE_PRESETS = [
+    { id: "2d", label: "In 2 days", days: 2 },
+    { id: "1w", label: "In a week", days: 7 },
+  ];
+
+  /* Stages whose follow-up date is a "nudge them" date (TR-15). The two
+     interview stages read Follow-up Date as the interview date (see
+     toFlagRecord), so a date inside 48 h there is already "prep". */
+  var DUE_STAGES = { "applied": true, "phone-screen": true };
 
   /* Stages a "fit" item can be in. Fit is a triage signal, so it only ranks
      roles you have not started yet — an Offer with no other signal is not
@@ -94,6 +111,13 @@
   function parseMs(value) {
     if (!value) return null;
     if (value instanceof Date) return isNaN(value.getTime()) ? null : value.getTime();
+    /* A bare Sheet date (YYYY-MM-DD) is a local calendar day. Date.parse
+       reads it as UTC midnight, which is the previous evening west of
+       Greenwich and moved "due tomorrow" to "due today". */
+    var bare = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(value).trim());
+    if (bare) {
+      return new Date(Number(bare[1]), Number(bare[2]) - 1, Number(bare[3])).getTime();
+    }
     var t = Date.parse(String(value));
     return isFinite(t) ? t : null;
   }
@@ -181,8 +205,48 @@
   /** Which band this row belongs in, plus the words that explain why.
    *  `order` sorts WITHIN the band (ascending). Returns null when there is
    *  genuinely nothing to do — Today never invents work. */
+  function isoDay(ms) {
+    var d = new Date(ms);
+    var m = d.getMonth() + 1;
+    var day = d.getDate();
+    return d.getFullYear() + "-" + (m < 10 ? "0" : "") + m + "-" + (day < 10 ? "0" : "") + day;
+  }
+
+  function addDaysIso(nowMs, days) {
+    var d = new Date(startOfLocalDay(nowMs));
+    d.setDate(d.getDate() + days);
+    return isoDay(d.getTime());
+  }
+
+  var MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+  function shortDate(ms) {
+    var d = new Date(ms);
+    return MONTHS[d.getMonth()] + " " + d.getDate();
+  }
+
+  /** TR-13: a reply is owed only until the user has answered it. "Answered"
+   *  is recorded with columns that already exist: Mark answered stamps Last
+   *  contact (R) and sets a Follow-up Date (P) after it. A follow-up date
+   *  later than the last contact therefore means "I answered and scheduled
+   *  the next nudge", so the reply stops nagging. No schema change.
+   *  With Last contact blank (a common way to fill the Sheet), the only
+   *  "after" we can know is today: a follow-up still ahead means the user
+   *  answered or snoozed it (Snooze writes P alone), so it stops nagging
+   *  too; a past one leaves the reply owed. */
+  function replyAnswered(job, nowMs) {
+    var followUpMs = parseMs(job.followUpDate);
+    if (followUpMs == null) return false;
+    var contactMs = parseMs(job.lastHeardFrom);
+    var afterMs = contactMs == null ? nowMs : contactMs;
+    if (afterMs == null) return false;
+    return startOfLocalDay(followUpMs) > startOfLocalDay(afterMs);
+  }
+
   function classify(job, stageKey, nowMs) {
-    var flag = computeFlag(toFlagRecord(job, stageKey), nowMs);
+    var rec = toFlagRecord(job, stageKey);
+    var answered = rec.replied && replyAnswered(job, nowMs);
+    if (answered) rec.replied = false;
+    var flag = computeFlag(rec, nowMs);
     var followUpMs = parseMs(job.followUpDate);
     var appliedMs = parseMs(job.appliedDate);
     var contactMs = parseMs(job.lastHeardFrom);
@@ -208,20 +272,64 @@
         order: followUpMs,
         headline: stageLabelOf(stageKey) + " " + relativeDays(inDays),
         detail: "Prep talking points before the call",
+        dueMs: followUpMs,
       };
     }
 
-    if (followUpMs != null && startOfLocalDay(followUpMs) < todayMs) {
+    if (followUpMs != null && startOfLocalDay(followUpMs) < todayMs && stageKey !== "offer") {
       var lateDays = daysBetween(startOfLocalDay(followUpMs), todayMs);
       return {
         reason: "follow-up",
         order: followUpMs, // most overdue first
         headline: "Follow-up slipped " + lateDays + (lateDays === 1 ? " day" : " days"),
         detail: "Due " + relativeDays(-lateDays),
+        dueMs: followUpMs,
       };
     }
 
-    if (flag === "stale" || isWaitingOnReply(job, stageKey, nowMs)) {
+    /* TR-15: a follow-up due today, tomorrow or the day after. */
+    if (DUE_STAGES[stageKey] && followUpMs != null) {
+      var dueIn = daysBetween(todayMs, startOfLocalDay(followUpMs));
+      if (dueIn >= 0 && dueIn <= 2) {
+        return {
+          reason: "due",
+          order: followUpMs,
+          headline: "Follow up " + relativeDays(dueIn),
+          detail: appliedMs == null
+            ? "Follow-up date " + shortDate(followUpMs)
+            : "Applied " + shortDate(appliedMs),
+          dueMs: followUpMs,
+        };
+      }
+    }
+
+    /* TR-15: an open offer. Follow-up Date doubles as the decision date. */
+    if (stageKey === "offer") {
+      if (followUpMs == null) {
+        return {
+          reason: "offer",
+          order: Infinity,
+          headline: "Offer open",
+          detail: "No decision date set",
+        };
+      }
+      var left = daysBetween(todayMs, startOfLocalDay(followUpMs));
+      return {
+        reason: "offer",
+        order: followUpMs,
+        headline: "Offer open · decide by " + shortDate(followUpMs),
+        detail: left < 0
+          ? "Decision date passed " + relativeDays(left)
+          : left === 0 ? "Decision due today" : left + (left === 1 ? " day left" : " days left"),
+        dueMs: followUpMs,
+      };
+    }
+
+    /* A follow-up already scheduled for the future means the silence is
+       handled: the row comes back in the "due" band when the date nears.
+       This is what lets Done clear a quiet application (TR-12). */
+    var scheduled = followUpMs != null && startOfLocalDay(followUpMs) >= todayMs;
+    if (!scheduled && (flag === "stale" || isWaitingOnReply(job, stageKey, nowMs))) {
       var quietDays = appliedMs == null ? null : daysBetween(appliedMs, nowMs);
       return {
         reason: "stale",
@@ -259,30 +367,79 @@
    *  jb:role:open       an intent this surface introduces; today.js falls back
    *                     to the navigation dawn.js already does when nothing
    *                     claims it (see today.js for the default binding). */
-  function actionFor(item, nowIso) {
-    if (item.reason === "reply") {
-      return {
-        id: "open-role",
-        label: "Open and reply",
-        event: "jb:role:open",
-        detail: { jobKey: item.jobKey, source: "today" },
-      };
+  function writeback(item, field, value) {
+    return {
+      event: "jb:role:writeback",
+      detail: { jobKey: item.jobKey, field: field, value: value },
+    };
+  }
+
+  function openRoleAction(item, label) {
+    return {
+      id: "open-role",
+      label: label,
+      event: "jb:role:open",
+      detail: { jobKey: item.jobKey, source: "today" },
+    };
+  }
+
+  /** "I did it": stamp Last contact (R) today and push Follow-up Date (P)
+   *  a week out through the existing bridge, so the row leaves its band
+   *  (TR-12). The first write is the action's own detail; `also` carries
+   *  the second so the primary stays a single contracted intent. */
+  function doneAction(item, nowMs, id, label) {
+    var first = writeback(item, "heardBack", isoDay(nowMs));
+    var next = writeback(item, "followupAt", addDaysIso(nowMs, NEXT_FOLLOW_UP_DAYS));
+    return {
+      id: id,
+      label: label,
+      event: first.event,
+      detail: first.detail,
+      also: [next],
+      patch: { lastHeardFrom: isoDay(nowMs), followUpDate: addDaysIso(nowMs, NEXT_FOLLOW_UP_DAYS) },
+    };
+  }
+
+  function snoozeAction(item) {
+    return {
+      id: "snooze",
+      label: "Snooze",
+      kind: "snooze",
+      presets: SNOOZE_PRESETS.slice(),
+      field: "followupAt",
+      detail: { jobKey: item.jobKey, field: "followupAt" },
+    };
+  }
+
+  function calendarAction(item, dueMs) {
+    if (dueMs == null) return null;
+    return {
+      id: "calendar",
+      label: "Add to calendar",
+      kind: "ics",
+      date: isoDay(dueMs),
+    };
+  }
+
+  /** The one primary next action for a band, plus the secondary actions
+   *  that clear or defer the row in place (MP-07). Every write is an intent
+   *  on the bus — Today never writes a cell and never calls a writer.
+   *
+   *  jb:role:writeback  heardBack -> Pipeline!R (Last contact),
+   *                     followupAt -> Pipeline!P (Follow-up Date),
+   *                     passed -> Pipeline!M (Status).
+   *  jb:pipeline:move   the existing stage-move contract.
+   *  jb:role:open       an intent this surface introduces; today.js falls back
+   *                     to opening the dossier when nothing claims it. */
+  function actionFor(item, nowMs) {
+    if (item.reason === "reply") return openRoleAction(item, "Open and reply");
+    if (item.reason === "prep") return openRoleAction(item, "Open and prep");
+    if (item.reason === "offer") return openRoleAction(item, "Open offer");
+    if (item.reason === "follow-up" || item.reason === "due") {
+      return doneAction(item, nowMs, "done", "Done");
     }
-    if (item.reason === "prep") {
-      return {
-        id: "open-role",
-        label: "Open and prep",
-        event: "jb:role:open",
-        detail: { jobKey: item.jobKey, source: "today" },
-      };
-    }
-    if (item.reason === "follow-up" || item.reason === "stale") {
-      return {
-        id: "log-follow-up",
-        label: "Log follow-up",
-        event: "jb:role:writeback",
-        detail: { jobKey: item.jobKey, field: "heardBack", value: nowIso },
-      };
+    if (item.reason === "stale") {
+      return doneAction(item, nowMs, "log-follow-up", "Log follow-up");
     }
     if (item.stage === "new") {
       return {
@@ -292,12 +449,104 @@
         detail: { jobKey: item.jobKey, fromStage: "new", toStage: "researching" },
       };
     }
+    return openRoleAction(item, "Open dossier");
+  }
+
+  function moreActionsFor(item, nowMs, dueMs) {
+    var out = [];
+    if (item.reason === "reply") {
+      var answered = doneAction(item, nowMs, "mark-answered", "Mark answered");
+      out.push(answered);
+      out.push(snoozeAction(item));
+    } else if (item.reason === "follow-up" || item.reason === "due" || item.reason === "stale") {
+      out.push(snoozeAction(item));
+      var cal = calendarAction(item, item.reason === "stale" ? null : dueMs);
+      if (cal) out.push(cal);
+    } else if (item.reason === "prep" || item.reason === "offer") {
+      var cal2 = calendarAction(item, dueMs);
+      if (cal2) out.push(cal2);
+    } else if (item.reason === "fit") {
+      var pass = writeback(item, "passed", true);
+      out.push({ id: "pass", label: "Pass", event: pass.event, detail: pass.detail });
+    }
+    return out;
+  }
+
+  /** TR-14: the single next-step source for every surface that names one
+   *  (Today, the Brief's lead, the card strip, the dossier's People row).
+   *  Returns null when nothing is waiting — callers keep their own copy. */
+  function nextStepFor(job, opts) {
+    if (!job || job.dismissedAt) return null;
+    var nowMs = opts && opts.now != null
+      ? (opts.now instanceof Date ? opts.now.getTime() : Number(opts.now))
+      : Date.now();
+    if (!isFinite(nowMs)) nowMs = Date.now();
+    var stageKey = stageKeyOf(job);
+    if (isArchivedStage(stageKey)) return null;
+    var verdict = classify(job, stageKey, nowMs);
+    if (!verdict) return null;
     return {
-      id: "open-role",
-      label: "Open dossier",
-      event: "jb:role:open",
-      detail: { jobKey: item.jobKey, source: "today" },
+      reason: verdict.reason,
+      rank: BANDS.indexOf(verdict.reason),
+      headline: verdict.headline,
+      detail: verdict.detail,
     };
+  }
+
+  /* RFC 5545 TEXT escaping: backslash, semicolon, comma, newline. */
+  function icsText(value) {
+    return String(value == null ? "" : value)
+      .replace(/\\/g, "\\\\")
+      .replace(/;/g, "\\;")
+      .replace(/,/g, "\\,")
+      .replace(/\r?\n/g, "\\n");
+  }
+
+  /* Lines longer than 75 octets are folded with CRLF + space. */
+  function icsFold(line) {
+    var out = [];
+    while (line.length > 74) {
+      out.push(line.slice(0, 74));
+      line = " " + line.slice(74);
+    }
+    out.push(line);
+    return out.join("\r\n");
+  }
+
+  function compactDate(isoDate) {
+    return String(isoDate).replace(/-/g, "").slice(0, 8);
+  }
+
+  /** An all-day RFC 5545 event any calendar app opens. Pure; the renderer
+   *  turns it into a download. */
+  function buildIcs(opts) {
+    var o = opts || {};
+    var date = String(o.date || "");
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) return "";
+    var start = compactDate(date);
+    var endMs = Date.parse(date + "T12:00:00") + DAY_MS;
+    var end = compactDate(isoDay(endMs));
+    var nowMs = o.now != null ? Number(o.now instanceof Date ? o.now.getTime() : o.now) : Date.now();
+    var stamp = new Date(nowMs).toISOString().replace(/[-:]/g, "").replace(/\.\d{3}/, "");
+    var summary = (o.summary || "Follow up") + ": " + (o.title || "Role") + (o.company ? " — " + o.company : "");
+    var uid = "jobbored-" + String(o.jobKey == null ? "role" : o.jobKey).replace(/[^\w-]/g, "") + "-" + start + "@jobbored.local";
+    var lines = [
+      "BEGIN:VCALENDAR",
+      "VERSION:2.0",
+      "PRODID:-//JobBored//Today//EN",
+      "CALSCALE:GREGORIAN",
+      "METHOD:PUBLISH",
+      "BEGIN:VEVENT",
+      "UID:" + uid,
+      "DTSTAMP:" + stamp,
+      "DTSTART;VALUE=DATE:" + start,
+      "DTEND;VALUE=DATE:" + end,
+      "SUMMARY:" + icsText(summary),
+    ];
+    if (o.description) lines.push("DESCRIPTION:" + icsText(o.description));
+    if (o.url) lines.push("URL:" + String(o.url).replace(/[\r\n]/g, ""));
+    lines.push("END:VEVENT", "END:VCALENDAR");
+    return lines.map(icsFold).join("\r\n") + "\r\n";
   }
 
   function readJobs(opts) {
@@ -322,7 +571,6 @@
       ? (opts.now instanceof Date ? opts.now.getTime() : Number(opts.now))
       : Date.now();
     if (!isFinite(nowMs)) nowMs = Date.now();
-    var nowIso = new Date(nowMs).toISOString().slice(0, 10);
     var jobs = readJobs(opts);
 
     var counts = {};
@@ -355,7 +603,9 @@
         _order: verdict.order,
         _seq: i,
       };
-      item.action = actionFor(item, nowIso);
+      item.dueMs = verdict.dueMs == null ? null : verdict.dueMs;
+      item.action = actionFor(item, nowMs);
+      item.more = moreActionsFor(item, nowMs, item.dueMs);
       counts[verdict.reason] += 1;
       items.push(item);
     }
@@ -381,6 +631,8 @@
   root.JobBoredToday = root.JobBoredToday || {};
   root.JobBoredToday.data = {
     getTodayQueue: getTodayQueue,
+    nextStepFor: nextStepFor,
+    buildIcs: buildIcs,
     BANDS: BANDS.slice(),
   };
 })(typeof window !== "undefined" ? window : globalThis);

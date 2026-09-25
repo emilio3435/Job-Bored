@@ -32,8 +32,8 @@
   "use strict";
 
   /* [key, sheet label, jb-stage-dot key] in schema-enum order.
-     `key` is the slug used by v2 surfaces and CSS (kanban-card--stage-X,
-     --jb-stage-X); `label` is the exact Sheet column-M value; `dotKey` is
+     `key` is the slug used by v2 surfaces, the card models dawn-data.js reads
+     (DS-08) and CSS (the legacy view's kanban-card--stage-X, --jb-stage-X); `label` is the exact Sheet column-M value; `dotKey` is
      the token name jb-ui.js <jb-stage-dot> understands (phone-screen
      collapses to "phone" because that is the token name in tokens-v2.css). */
   var ROWS = [

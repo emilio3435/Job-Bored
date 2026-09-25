@@ -17,13 +17,13 @@ describe("index.html decomposition", () => {
   it("loads decomposed discovery styles in cascade order", () => {
     const source = readFileSync(join(repoRoot, "index.html"), "utf8");
     const links = [
-      "css/legacy-discovery-setup-wizard.css",
-      "css/legacy-profile-modal.css",
-      "css/legacy-settings-profile.css",
-      "css/legacy-discovery-runs.css",
-      "css/legacy-discovery-drawer.css",
-      "css/legacy-fit-profile-overlay.css",
-      "css/legacy-discovery-coachmark.css",
+      "css/discovery-setup-wizard.css",
+      "css/materials-modal.css",
+      "css/settings-profile.css",
+      "css/runs-log.css",
+      "css/discovery-drawer.css",
+      "css/fit-profile-overlay.css",
+      "css/discovery-coachmark.css",
     ];
     assert.equal(source.includes("css/legacy-discovery.css"), false);
     let previous = -1;

@@ -51,8 +51,10 @@ describe("v2 pipeline Discovered column", () => {
       pipelineCss.includes("var(--pipe-col-new)") &&
         pipelineCss.includes("var(--pipe-col-researching)") &&
         pipelineCss.includes("var(--pipe-col-offer)") &&
-        pipelineCss.includes("var(--pipe-col-expired)"),
-      "pipeline board should allocate real column tracks for visible stages",
+        // UX01 C19: Rejected, Passed and Expired rest in the Closed row.
+        pipelineCss.includes(".pipe-closed") &&
+        !pipelineCss.includes("var(--pipe-col-expired)"),
+      "pipeline board should allocate real column tracks for the active stages",
     );
   });
 });

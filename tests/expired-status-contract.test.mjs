@@ -60,7 +60,10 @@ describe("Expired pipeline status contract", () => {
       false,
       "the Expired column must not be labelled Dismissed",
     );
-    assert.match(read("pipeline.css"), /--pipe-col-expired/);
+    // UX01 C19: Expired rests in the Closed chip row under the board, still a
+    // .pipe-col[data-stage="expired"] with its own stage colour.
+    assert.match(read("pipeline.css"), /\.pipe-col\[data-stage="expired"\]/);
+    assert.match(read("pipeline.js"), /CLOSED_STAGES = \{[^}]*expired: true/);
     assert.match(read("flowing-writes.js"), /"expired": "Expired"/);
   });
 });

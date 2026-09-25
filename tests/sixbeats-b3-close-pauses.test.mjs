@@ -27,6 +27,9 @@ async function openBeat() {
   return env;
 }
 
+/** One macrotask, so the close path's awaited flush has landed. */
+const closeSettled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 function toasts(env) {
   return env.host.__calls.filter((c) => c.name === "showToast").map((c) => c.args);
 }
@@ -35,6 +38,8 @@ describe("C5 · closing the flow is pausing, and says so (spec §3.4)", () => {
   it("toasts the pause line when the shell is closed with Escape", async () => {
     const env = await openBeat();
     env.mount().dispatch("keydown", { key: "Escape", preventDefault() {} });
+    // The close path awaits flushDrafts() before it speaks (GREENFIELD §4.2).
+    await closeSettled();
     assert.deepEqual(
       toasts(env).map((args) => args[0]),
       [PAUSE_TOAST],
@@ -45,6 +50,7 @@ describe("C5 · closing the flow is pausing, and says so (spec §3.4)", () => {
   it("toasts the same line when the flow is closed by the close button", async () => {
     const env = await openBeat();
     env.flow.close("close-button");
+    await closeSettled();
     assert.deepEqual(toasts(env).map((args) => args[0]), [PAUSE_TOAST]);
   });
 
@@ -62,6 +68,7 @@ describe("C5 · closing the flow is pausing, and says so (spec §3.4)", () => {
   it("still records beat_abandoned and leaves the saved beat intact", async () => {
     const env = await openBeat();
     env.mount().dispatch("keydown", { key: "Escape", preventDefault() {} });
+    await closeSettled();
     const abandoned = stepEvents(env.events, "beat_abandoned");
     assert.equal(abandoned.length, 1);
     assert.equal(abandoned[0].beat, BEAT_ID);
