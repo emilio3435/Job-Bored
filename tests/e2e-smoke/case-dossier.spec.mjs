@@ -256,12 +256,12 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
   const rail = page.locator(`${ROLE_REGION} .case__rail`);
   const nowStep = page.locator(`${ROLE_REGION} .case__stepper .case__step--now`);
   const fit = page.locator(`${ROLE_REGION} .case__numbers [data-num="fit"]`);
-  const theyWant = page.locator(`${ROLE_REGION} .case__lane--they li[data-status]`);
+  const theyWant = page.locator(`${ROLE_REGION} .case__section--they li[data-status]`);
   const materials = page.locator(
-    `${ROLE_REGION} .case__lane--moves [data-mount="materials"]`,
+    `${ROLE_REGION} .case__ledger [data-mount="materials"]`,
   );
   const notes = page.locator(`${ROLE_REGION} .case__notes textarea`);
-  const record = page.locator(`${ROLE_REGION} .case__chron .case__ev`);
+  const record = page.locator(`${ROLE_REGION} .case__section--record .case__ev`);
 
   await expectClickableBox(rail, "status rail");
   await expectClickableBox(nowStep, "current stepper step");
@@ -357,7 +357,7 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
 });
 
 test.describe("real-shape posting", () => {
-  const THEY_WANT = `${ROLE_REGION} .case__lane--they`;
+  const THEY_WANT = `${ROLE_REGION} .case__section--they`;
 
   async function openRealShapePosting(page, viewport) {
     await bootGreenfield(page);
@@ -452,21 +452,19 @@ test.describe("real-shape posting", () => {
     await expect.poll(() => visibleRequirementCount(page)).toBe(25);
   }
 
-  test("at 1240px keeps rendered lanes balanced and truthful", async ({ page }) => {
+  /* The dossier redesign (#119) retired the three-lane board for a stacked
+     reading canvas beside a bounded ledger, so the casefit lane-balance bound
+     (data-lanes, tallest/shortest ≤ 2.5×) has no board to measure. Its intent
+     survives as: no section is emitted empty, and the content is truthful. */
+  test("at 1240px renders no empty section and stays truthful", async ({ page }) => {
     const caseRoot = await openRealShapePosting(page, {
       width: 1240,
       height: 1170,
     });
-    const board = caseRoot.locator(".case__board");
-    const laneShape = await board.evaluate((el) => ({
-      declared: Number(el.getAttribute("data-lanes")),
-      rendered: el.querySelectorAll(":scope > .case__lane").length,
-    }));
     expect(
-      laneShape.declared,
-      "data-lanes must describe the lanes the renderer actually emitted",
-    ).toBe(laneShape.rendered);
-
+      await caseRoot.locator(".case__board").count(),
+      "the three-lane board is retired",
+    ).toBe(0);
     const caseText = await caseRoot.innerText();
     expect(caseText, "the live [<| control-token prefix must not render").not.toContain(
       "[<|",
@@ -489,26 +487,16 @@ test.describe("real-shape posting", () => {
 
     await screenshotCase(page, 1240, 1170, "T4-real-shape-1240.png");
 
-    const heights = await board.locator(":scope > .case__lane").evaluateAll(
-      (lanes) => lanes.map((lane) => lane.getBoundingClientRect().height),
-    );
-    expect(heights.length, "the real-shape Case must render multiple lanes").toBeGreaterThan(1);
-    const shortest = Math.min(...heights);
-    const tallest = Math.max(...heights);
-    expect(shortest, "every rendered lane must have measurable height").toBeGreaterThan(0);
-    /* Spec §7 (amended at integration): the old shape was 3,455px beside
-       ~500px, a 7× ratio and four screens of blank parchment. With the §9
-       caps (8 requirements, 12 chips) and three content-bearing lanes the
-       real-shape fixture measures 897 / 804 / 396 — one screen, no blank
-       column. The bound encodes that, not a guessed 1.6. */
+    const heights = await caseRoot
+      .locator(".case__canvas > .case__section, .case__ledger > .case__section")
+      .evaluateAll((sections) =>
+        sections.map((section) => section.getBoundingClientRect().height),
+      );
+    expect(heights.length, "the real-shape Case must render multiple sections").toBeGreaterThan(1);
     expect(
-      tallest / shortest,
-      `the tallest lane (${tallest}px) must stay within 2.5× the shortest (${shortest}px)`,
-    ).toBeLessThanOrEqual(2.5);
-    expect(
-      tallest,
-      `the tallest lane (${tallest}px) must fit one screen at 1240px`,
-    ).toBeLessThanOrEqual(1000);
+      Math.min(...heights),
+      "every rendered section must have measurable height",
+    ).toBeGreaterThan(0);
   });
 
   test("at 1240px caps requirements and reveals all 25", async ({ page }) => {
@@ -524,11 +512,11 @@ test.describe("real-shape posting", () => {
 
   test("at 720px is single-column and still reveals all 25", async ({ page }) => {
     await openRealShapePosting(page, { width: 720, height: 1200 });
-    const board = page.locator(`${ROLE_REGION} .case__board`);
-    const columns = await board.evaluate((el) =>
+    const body = page.locator(`${ROLE_REGION} .case__body`);
+    const columns = await body.evaluate((el) =>
       window.getComputedStyle(el).gridTemplateColumns.trim().split(/\s+/).filter(Boolean),
     );
-    expect(columns, "the 720px Case board must have one computed grid track").toHaveLength(1);
+    expect(columns, "the 720px Case body must have one computed grid track").toHaveLength(1);
     await screenshotCase(page, 720, 1200, "T4-real-shape-720.png");
     await revealAllRequirements(page);
   });

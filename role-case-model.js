@@ -296,13 +296,120 @@
       var isPending = !!(pendingFeature && pendingFeature === def.type && !/^(complete|done|failed)$/i.test(String(pending.progress.phase || "")));
       var status = isPending ? "pending" : (doc ? (String(doc.status || "").toLowerCase() === "ready" ? "ready" : (String(doc.status || "").toLowerCase() === "failed" ? "failed" : "pending")) : "missing");
       if (pendingFeature === def.type && pending && /^failed$/i.test(String(pending.progress.phase || ""))) status = "failed";
+      /* A run that FAILED is still this row's run: its phase, its clock and
+         its attempt count are what the docket chip and the verdict's gap
+         clause read, so they survive the pending→failed transition. */
+      var isRun = !!(pendingFeature && pendingFeature === def.type);
       return {
         type: def.type, label: def.label, draftAction: def.draftAction, status: status,
-        phase: isPending ? inline(pending.progress.phase) : "", elapsedSeconds: isPending ? Number(pending.progress.elapsedSeconds) || 0 : 0,
-        attempt: isPending ? Number(pending.progress.attempt) || 0 : 0,
+        phase: isRun ? inline(pending.progress.phase) : "", elapsedSeconds: isRun ? Number(pending.progress.elapsedSeconds) || 0 : 0,
+        attempt: isRun ? Number(pending.progress.attempt) || 0 : 0,
         updatedAt: doc ? inline(doc.lastModifiedAt) : "", files: doc && Array.isArray(doc.files) ? doc.files : [],
       };
     });
+  }
+
+  /* ---------------- the verdict line (SPEC §4) ----------------
+     The dossier had no lede: the reader had to assemble "how am I doing and
+     what next" by comparing three columns. One sentence does that work — and
+     it introduces NO new data source. Three slots, each filled from a field
+     the model already carries, each traceable, and an absent input DROPS its
+     clause rather than guessing it. This codebase has been burned twice by
+     derived prose asserting something nobody measured (`Number(null) === 0`
+     rendering as a score of 0; a MED severity pill no engine assigned), so
+     the fallback ladder below is exhaustive and every branch is unit-tested
+     with all-null inputs. */
+  function fitStanding(fit) {
+    var v = fit ? Number(fit.value) : NaN;
+    if (!Number.isFinite(v)) return "";
+    if (v >= 8) return "Strong fit";
+    if (v >= 6) return "Solid fit";
+    if (v >= 4) return "Mixed fit";
+    return "Weak fit";
+  }
+  function plural(n, word) { return n + " " + word + (Math.abs(n) === 1 ? "" : "s"); }
+  function docByType(materials, type) {
+    if (!Array.isArray(materials)) return null;
+    return materials.filter(function (d) { return d && d.type === type; })[0] || null;
+  }
+  /* What the reader can actually do something about — the only emphasis in
+     the sentence. Reads off the manifest the ledger rows render from, so the
+     two can never disagree. */
+  function materialsGap(materials) {
+    var resume = docByType(materials, "resume");
+    var letter = docByType(materials, "cover_letter");
+    if (!resume && !letter) return "";
+    var readyResume = !!(resume && resume.status === "ready");
+    var readyLetter = !!(letter && letter.status === "ready");
+    if (letter && letter.status === "pending") return "The cover letter is being written now.";
+    if (resume && resume.status === "pending") return "The resume is being tailored now.";
+    if (letter && letter.status === "failed") {
+      return "The cover letter failed" + (letter.attempt > 1 ? " after " + plural(letter.attempt, "attempt") : "")
+        + (readyResume ? "; the resume is ready." : ".");
+    }
+    if (resume && resume.status === "failed") {
+      return "The resume draft failed" + (readyLetter ? "; the cover letter is ready." : ".");
+    }
+    if (readyResume && readyLetter) return "The resume and the cover letter are both ready.";
+    if (readyResume) return "Resume is ready; the cover letter has not been drafted.";
+    if (readyLetter) return "The cover letter is ready; the resume has not been tailored.";
+    return "Nothing drafted yet.";
+  }
+  /* One clause only: the most urgent thing with a date on it. */
+  function urgentNext(bag) {
+    var closes = bag.closesInDays;
+    /* Same -30 day floor the rail pill uses: a mirror's stale validThrough is
+       a stale feed, not a deadline (P0-B). */
+    if (closes != null && closes <= 14 && closes >= -30) {
+      if (closes > 0) return "Closes in " + plural(closes, "day");
+      if (closes === 0) return "Closes today";
+      return "Closed " + plural(Math.abs(closes), "day") + " ago";
+    }
+    var due = bag.followUp && bag.followUp.daysUntil;
+    if (due != null && due < 0) return "Follow-up overdue by " + plural(Math.abs(due), "day");
+    if (bag.daysInStage != null && bag.stageLabel) return "Day " + bag.daysInStage + " in " + String(bag.stageLabel).toLowerCase();
+    return "";
+  }
+  function buildVerdict(bag) {
+    var v = { standing: "", gap: "", next: "", note: "" };
+    /* Rung 1: the enrichment is still running, so the read below the fold is
+       not there yet. Say that, rather than printing a fit read as if the
+       posting had been read. */
+    if (bag.loading) {
+      v.standing = "Reading the posting";
+      v.note = "The fit read and the requirement list land in a few seconds.";
+      return v;
+    }
+    /* Rung 4: a closed role's lede is what happened and what is still on
+       file. No deadline, no next move. */
+    if (bag.terminal) {
+      v.standing = bag.terminalLabel || "Closed";
+      if (bag.appliedAt) v.standing += ", applied " + bag.appliedAt;
+      var onFile = materialsGap(bag.materials);
+      v.gap = onFile === "Nothing drafted yet." ? "Nothing was drafted for it." : onFile;
+      return v;
+    }
+    var requirements = Array.isArray(bag.requirements) ? bag.requirements : [];
+    var matched = requirements.filter(function (r) { return r && r.status === "found"; }).length;
+    var missing = bag.keywords ? Number(bag.keywords.missing) || 0 : 0;
+    var standing = fitStanding(bag.fit);
+    if (standing && bag.hasMatchData && requirements.length) {
+      standing += " — " + matched + " of " + plural(requirements.length, "requirement") + " matched";
+      if (missing) standing += ", " + plural(missing, "keyword") + " missing";
+    } else if (!standing && bag.hasMatchData && requirements.length) {
+      standing = matched + " of " + plural(requirements.length, "requirement") + " matched";
+    } else if (standing && !bag.hasMatchData && bag.fit) {
+      standing = "Fit " + bag.fit.value + " of " + bag.fit.max;
+    }
+    v.standing = standing;
+    v.gap = materialsGap(bag.materials);
+    v.next = urgentNext(bag);
+    /* Rung 2: with no resume on file the match column is empty, so the line
+       says what would fill it instead of leaving a lane blank. */
+    if (!bag.hasMatchData && requirements.length) {
+      v.note = "Add a resume to see which of the " + plural(requirements.length, "requirement") + " you actually answer.";
+    }
+    return v;
   }
 
   function buildYouHave(scorecard) {
@@ -428,6 +535,11 @@
     });
     var people = { contact: inline(job.contacts && job.contacts[0] && job.contacts[0].name), lastContactAt: inline(job.lastHeardFrom), replied: job.replied || "Unknown", followUpAt: inline(job.followUpDate) };
     people.nextMove = nextMove(people);
+    var stage = buildStage(job, deps.stages);
+    var nextAction = buildNextAction(job, deps);
+    var fit = Number.isFinite(Number(job.fitScore)) && job.fitScore !== null ? { value: Number(job.fitScore), max: 10 } : null;
+    var keywordNumbers = keywords ? { percentage: Math.round(Number(keywords.percentage) || 0), found: Number(keywords.foundCount) || 0, partial: Number(keywords.partialCount) || 0, missing: (keywords.missingTerms || []).length } : null;
+    var stages = deps.stages;
 
     return {
       jobKey: String(jobKey || job.jobKey || ""),
@@ -441,16 +553,33 @@
         postedAt: inline(job.postedAt), closesAt: inline(job.closesAt), postingSalary: inline(job.postingSalary),
         closesInDays: closesInDays(inline(job.closesAt), deps),
       },
-      stage: buildStage(job, deps.stages),
-      nextAction: buildNextAction(job, deps),
+      stage: stage,
+      nextAction: nextAction,
       health: deps.health || { state: "unknown", label: "", detail: "", checkedAt: "" },
       numbers: {
-        fit: Number.isFinite(Number(job.fitScore)) && job.fitScore !== null ? { value: Number(job.fitScore), max: 10 } : null,
+        fit: fit,
         ats: deps.scorecard && deps.scorecard.result && scoreOf(deps.scorecard.result.overallScore) != null ? { value: scoreOf(deps.scorecard.result.overallScore) } : null,
-        keywords: keywords ? { percentage: Math.round(Number(keywords.percentage) || 0), found: Number(keywords.foundCount) || 0, partial: Number(keywords.partialCount) || 0, missing: (keywords.missingTerms || []).length } : null,
+        keywords: keywordNumbers,
         reply: { value: job.replied || "Unknown" },
         materials: materials ? { ready: ready, total: CASE_DOC_TYPES.length, drafting: drafting } : null,
       },
+      /* The lede (SPEC §4): derived here so the renderer never has to decide
+         what the numbers mean, and unit-tested branch by branch. */
+      verdict: buildVerdict({
+        loading: enr.status === "loading",
+        terminal: stage.terminal,
+        terminalLabel: stages && stages.toLabel ? stages.toLabel(stage.current) : stage.current,
+        appliedAt: stage.appliedAt,
+        fit: fit,
+        keywords: keywordNumbers,
+        hasMatchData: !!keywords,
+        requirements: requirements,
+        materials: materials,
+        closesInDays: closesInDays(inline(job.closesAt), deps),
+        followUp: nextAction,
+        daysInStage: stage.daysInStage,
+        stageLabel: stages && stages.toLabel ? stages.toLabel(stage.current) : stage.current,
+      }),
       oneLine: inline(enr.roleInOneLine),
       theyWant: { requirements: requirements, visibleCount: 8, niceToHaves: niceToHaves, stack: stack, stackHidden: stackHidden, hasMatchData: !!keywords },
       youHave: buildYouHave(deps.scorecard),

@@ -13,7 +13,7 @@
 The job-posting enrichment pipeline in `app.js` (`fetchJobPostingEnrichment`) was rewritten as a **single self-healing path with three lanes**:
 
 1. **Cheerio scraper** at `http://127.0.0.1:3847` (fast, free, optional — used when reachable)
-2. **Gemini URL Context tool** (`tools: [{ url_context: {} }]` on `gemini-3.5-flash`) — fetches the posting server-side from Google's infra. Works on GitHub Pages or any host. Two-call dance because URL Context is incompatible with `responseSchema`.
+2. **Gemini URL Context tool** (`tools: [{ url_context: {} }]` on `gemini-flash`) — fetches the posting server-side from Google's infra. Works on GitHub Pages or any host. Two-call dance because URL Context is incompatible with `responseSchema`.
 3. **Title + company + URL only** (last resort, no page text)
 
 The only user-visible prerequisite is a Gemini API key. No setup modal, no `npm start` triage, no scraper URL prompts in the enrichment flow.
@@ -27,8 +27,8 @@ The v2 Dossier (`role-brief.js` → `[data-mount="brief"]`) reads `data-enrichme
 | File | What changed |
 |------|--------------|
 | `app.js` | New `fetchJobPostingEnrichment` (single path), helpers `_tryScrape`, `_tryGeminiUrlContext`, `_safeProfileExcerpt`, `_toastForLlmError`, `_mergeLlmFields`, `_enrichmentPreconditionsOk`. Removed `openScraperSetupModal` calls from the flow. Constant `GEMINI_KEY_MISSING_TOAST`. Auto-enrich on `jb:role:opened` no longer requires a scraper URL. |
-| `job-posting-insights.js` | New exported `fetchViaGeminiUrlContext(postingUrl)`. `buildUserPrompt` now includes URL + hostname + conservative-inference hint when scrape failed. Default model → `gemini-3.5-flash`. Auto-upgrades legacy `gemini-1.x` to `gemini-3.5-flash`. |
-| `resume-generate.js` | `getResumeGenerationConfig()` accepts generic `geminiApiKey` / `openAIApiKey` / `anthropicApiKey` as fallback for the resume-prefixed fields. Default Gemini model → `gemini-3.5-flash`. |
+| `job-posting-insights.js` | New exported `fetchViaGeminiUrlContext(postingUrl)`. `buildUserPrompt` now includes URL + hostname + conservative-inference hint when scrape failed. Default model → `gemini-flash`. Auto-upgrades legacy `gemini-1.x` to a modern Flash snapshot. |
+| `resume-generate.js` | `getResumeGenerationConfig()` accepts generic `geminiApiKey` / `openAIApiKey` / `anthropicApiKey` as fallback for the resume-prefixed fields. Default Gemini model → `gemini-flash`. |
 | `role-brief.js` | Already has `renderEnrichmentLoading(job)` skeleton (gated on `vm.job.enrichment.status === "loading"`). |
 | `role.js` | Already listens for `jb:role:enriched` to re-render the dossier. |
 | `tests/enrichment-self-heal.test.mjs` | 30 static-analysis tests locking down the contract. All pass. |
@@ -86,7 +86,7 @@ The app reads `window.COMMAND_CENTER_CONFIG.resumeGeminiApiKey` (or `geminiApiKe
 ```js
 window.COMMAND_CENTER_CONFIG = Object.assign(window.COMMAND_CENTER_CONFIG || {}, {
   resumeGeminiApiKey: "AIza...your-real-key...",
-  resumeGeminiModel: "gemini-3.5-flash",
+  resumeGeminiModel: "gemini-flash",
   resumeProvider: "gemini",
 });
 ```

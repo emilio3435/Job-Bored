@@ -1,0 +1,3310 @@
+{
+  "generatedAt": "2026-09-17T18:35:01.218Z",
+  "probe": "current-3col-probe.html",
+  "runs": [
+    {
+      "variant": "default",
+      "label": "filled role · resume ready · letter failed",
+      "width": 1024,
+      "frame": {
+        "caseWidth": 962.5,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1024,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 962.5,
+        "unusedViewportPx": 61.5,
+        "boardColumns": "960.547px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        },
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        },
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        }
+      ],
+      "masthead": {
+        "inputWidth": 496.9,
+        "valueScrollWidth": 497,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 320.2,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 888.5,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 912.5,
+          "nameColPx": 647.5,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 1,
+          "nameColMinContentPx": 648
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 912.5,
+          "nameColPx": 601.5,
+          "statusColPx": 112,
+          "actionsColPx": 153.1,
+          "labelLines": 1,
+          "nameColMinContentPx": 602
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 912.5,
+          "nameColPx": 804.8,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 805
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 912.5,
+          "nameColPx": 804.8,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 805
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 642.8,
+          "inkHeight": 615.8
+        },
+        {
+          "lane": "case__lane",
+          "height": 729.8,
+          "inkHeight": 702.8
+        },
+        {
+          "lane": "case__lane",
+          "height": 752.2,
+          "inkHeight": 725.2
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 491,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 960.5,
+        "scrollWidth": 961,
+        "clientWidth": 961
+      }
+    },
+    {
+      "variant": "default",
+      "label": "filled role · resume ready · letter failed",
+      "width": 1280,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1280,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1216,
+        "unusedViewportPx": 164,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 650,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 12.3,
+          "statusColPx": 112,
+          "actionsColPx": 153.1,
+          "labelLines": 9,
+          "nameColMinContentPx": 12
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1067.5
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 526,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "default",
+      "label": "filled role · resume ready · letter failed",
+      "width": 1440,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1440,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1220,
+        "unusedViewportPx": 324,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 650,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 12.3,
+          "statusColPx": 112,
+          "actionsColPx": 153.1,
+          "labelLines": 9,
+          "nameColMinContentPx": 12
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1067.5
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 526,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "default",
+      "label": "filled role · resume ready · letter failed",
+      "width": 1512,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1512,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1220,
+        "unusedViewportPx": 396,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 650,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 12.3,
+          "statusColPx": 112,
+          "actionsColPx": 153.1,
+          "labelLines": 9,
+          "nameColMinContentPx": 12
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1067.5
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 526,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "materials-drafting",
+      "label": "cover letter drafting in flight",
+      "width": 1024,
+      "frame": {
+        "caseWidth": 962.5,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1024,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 962.5,
+        "unusedViewportPx": 61.5,
+        "boardColumns": "960.547px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        },
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        },
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        }
+      ],
+      "masthead": {
+        "inputWidth": 496.9,
+        "valueScrollWidth": 497,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 320.2,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 888.5,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 912.5,
+          "nameColPx": 647.5,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 1,
+          "nameColMinContentPx": 648
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 912.5,
+          "nameColPx": 800.3,
+          "statusColPx": 66.3,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 800
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 912.5,
+          "nameColPx": 804.8,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 805
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 912.5,
+          "nameColPx": 804.8,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 805
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 642.8,
+          "inkHeight": 615.8
+        },
+        {
+          "lane": "case__lane",
+          "height": 729.8,
+          "inkHeight": 702.8
+        },
+        {
+          "lane": "case__lane",
+          "height": 782.4,
+          "inkHeight": 755.4
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 491,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 960.5,
+        "scrollWidth": 961,
+        "clientWidth": 961
+      }
+    },
+    {
+      "variant": "materials-drafting",
+      "label": "cover letter drafting in flight",
+      "width": 1280,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1280,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1216,
+        "unusedViewportPx": 164,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 650,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 211.1,
+          "statusColPx": 66.3,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 211
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 998.8
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 526,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "materials-drafting",
+      "label": "cover letter drafting in flight",
+      "width": 1440,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1440,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1220,
+        "unusedViewportPx": 324,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 650,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 211.1,
+          "statusColPx": 66.3,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 211
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 998.8
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 526,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "materials-drafting",
+      "label": "cover letter drafting in flight",
+      "width": 1512,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1512,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1220,
+        "unusedViewportPx": 396,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 650,
+        "truncatedPx": 0,
+        "value": "AI & Marketing Analytics Manager"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 211.1,
+          "statusColPx": 66.3,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 211
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 998.8
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 526,
+            "boxPx": 1,
+            "text": "AI & Marketing Analytics Manager at 3E",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "long-title",
+      "label": "long posting title in the masthead",
+      "width": 1024,
+      "frame": {
+        "caseWidth": 962.5,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1024,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 962.5,
+        "unusedViewportPx": 61.5,
+        "boardColumns": "960.547px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        },
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        },
+        {
+          "name": "case__lane",
+          "width": 960.5,
+          "contentWidth": 912.5
+        }
+      ],
+      "masthead": {
+        "inputWidth": 496.9,
+        "valueScrollWidth": 731,
+        "truncatedPx": 234,
+        "value": "Senior Marketing Manager, Digital Brand Media (US Remote)"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 320.2,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 888.5,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 912.5,
+          "nameColPx": 647.5,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 1,
+          "nameColMinContentPx": 648
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 912.5,
+          "nameColPx": 750.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 54.2,
+          "labelLines": 1,
+          "nameColMinContentPx": 751
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 912.5,
+          "nameColPx": 804.8,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 805
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 912.5,
+          "nameColPx": 804.8,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 805
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 642.8,
+          "inkHeight": 615.8
+        },
+        {
+          "lane": "case__lane",
+          "height": 729.8,
+          "inkHeight": 702.8
+        },
+        {
+          "lane": "case__lane",
+          "height": 759.8,
+          "inkHeight": 732.8
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__title",
+            "overflowPx": 234,
+            "boxPx": 497,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 1084,
+            "boxPx": 1,
+            "text": "Senior Marketing Manager, Digital Brand Media (US Remote) at Fanatic…",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 960.5,
+        "scrollWidth": 961,
+        "clientWidth": 961
+      }
+    },
+    {
+      "variant": "long-title",
+      "label": "long posting title in the masthead",
+      "width": 1280,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1280,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1216,
+        "unusedViewportPx": 164,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 731,
+        "truncatedPx": 81,
+        "value": "Senior Marketing Manager, Digital Brand Media (US Remote)"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 161.4,
+          "statusColPx": 61.7,
+          "actionsColPx": 54.2,
+          "labelLines": 1,
+          "nameColMinContentPx": 161
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 941.2
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__title",
+            "overflowPx": 81,
+            "boxPx": 650,
+            "text": ""
+          },
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 1159,
+            "boxPx": 1,
+            "text": "Senior Marketing Manager, Digital Brand Media (US Remote) at Fanatic…",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "long-title",
+      "label": "long posting title in the masthead",
+      "width": 1440,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1440,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1220,
+        "unusedViewportPx": 324,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 731,
+        "truncatedPx": 81,
+        "value": "Senior Marketing Manager, Digital Brand Media (US Remote)"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 161.4,
+          "statusColPx": 61.7,
+          "actionsColPx": 54.2,
+          "labelLines": 1,
+          "nameColMinContentPx": 161
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 941.2
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__title",
+            "overflowPx": 81,
+            "boxPx": 650,
+            "text": ""
+          },
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 1159,
+            "boxPx": 1,
+            "text": "Senior Marketing Manager, Digital Brand Media (US Remote) at Fanatic…",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    },
+    {
+      "variant": "long-title",
+      "label": "long posting title in the masthead",
+      "width": 1512,
+      "frame": {
+        "caseWidth": 1116,
+        "caseOverflowX": "hidden",
+        "dossierMaxWidth": "1180px",
+        "viewport": 1512,
+        "flowContentWidth": "min(\n    1220px,\n    calc(100% - clamp(16px, 3vw, 32px) - clamp(16px, 3vw, 32px))\n  )",
+        "siblingRegionWidth": 1220,
+        "unusedViewportPx": 396,
+        "boardColumns": "371.328px 371.328px 371.344px"
+      },
+      "lanes": [
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        },
+        {
+          "name": "case__lane",
+          "width": 371.3,
+          "contentWidth": 323.3
+        }
+      ],
+      "masthead": {
+        "inputWidth": 650.4,
+        "valueScrollWidth": 731,
+        "truncatedPx": 81,
+        "value": "Senior Marketing Manager, Digital Brand Media (US Remote)"
+      },
+      "numbers": {
+        "tileCount": 4,
+        "tileWidth": 278.5,
+        "subOverflow": [
+          {
+            "tile": "fit",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "ats",
+            "overflowPx": 0,
+            "lines": 2
+          },
+          {
+            "tile": "keywords",
+            "overflowPx": 0,
+            "lines": 1
+          },
+          {
+            "tile": "materials",
+            "overflowPx": 0,
+            "lines": 1
+          }
+        ]
+      },
+      "record": {
+        "eventCount": 6,
+        "columnWidth": 173.7,
+        "tallestLabelLines": 2
+      },
+      "materials": [
+        {
+          "doc": "resume",
+          "rowWidth": 323.3,
+          "nameColPx": 58.3,
+          "statusColPx": 46.7,
+          "actionsColPx": 172.4,
+          "labelLines": 2,
+          "nameColMinContentPx": 58
+        },
+        {
+          "doc": "cover_letter",
+          "rowWidth": 323.3,
+          "nameColPx": 161.4,
+          "statusColPx": 61.7,
+          "actionsColPx": 54.2,
+          "labelLines": 1,
+          "nameColMinContentPx": 161
+        },
+        {
+          "doc": "manual_apply_checklist",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        },
+        {
+          "doc": "qa_report",
+          "rowWidth": 323.3,
+          "nameColPx": 215.6,
+          "statusColPx": 61.7,
+          "actionsColPx": 0,
+          "labelLines": 1,
+          "nameColMinContentPx": 216
+        }
+      ],
+      "laneHeights": [
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 953.6
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 1081.7
+        },
+        {
+          "lane": "case__lane",
+          "height": 1107.7,
+          "inkHeight": 941.2
+        }
+      ],
+      "dimensionRows": [
+        {
+          "label": "Requirements",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Relevance",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Impact clarity",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "ATS parse",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        },
+        {
+          "label": "Tone fit",
+          "labelColPx": 118,
+          "labelOverflowPx": 0
+        }
+      ],
+      "findings": {
+        "escapes": [],
+        "selfOverflow": [
+          {
+            "el": "case__title",
+            "overflowPx": 81,
+            "boxPx": 650,
+            "text": ""
+          },
+          {
+            "el": "case__v",
+            "overflowPx": 15,
+            "boxPx": 194,
+            "text": ""
+          }
+        ],
+        "columnBleed": [],
+        "noise": [
+          {
+            "el": "case__vh",
+            "overflowPx": 1159,
+            "boxPx": 1,
+            "text": "Senior Marketing Manager, Digital Brand Media (US Remote) at Fanatic…",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 41,
+            "text": "New",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 156,
+            "text": "Researching · day 3",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 71,
+            "text": "Applied",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Phone Screen",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 108,
+            "text": "Interviewing",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__step",
+            "overflowPx": 4,
+            "boxPx": 56,
+            "text": "Offer",
+            "why": "hit-target pseudo"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 31,
+            "boxPx": 1,
+            "text": "found",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "partial",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          },
+          {
+            "el": "case__st",
+            "overflowPx": 44,
+            "boxPx": 1,
+            "text": "missing",
+            "why": "visually hidden by design"
+          }
+        ]
+      },
+      "stepper": {
+        "width": 1114,
+        "scrollWidth": 1114,
+        "clientWidth": 1114
+      }
+    }
+  ]
+}

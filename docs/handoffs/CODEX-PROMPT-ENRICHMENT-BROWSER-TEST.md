@@ -11,7 +11,7 @@ You are validating a job-posting enrichment pipeline in a vanilla HTML/JS dashbo
 The app's "Dossier" view (`role-brief.js` → mount `[data-mount="brief"]` inside `[data-region="role"]`) shows AI-enriched info about a job posting. There's a single self-healing pipeline `fetchJobPostingEnrichment(dataIndex)` in `app.js` (around line 15178) with three lanes, tried in order:
 
 1. **Cheerio scraper** at `http://127.0.0.1:3847/api/scrape-job` (only when reachable)
-2. **Gemini URL Context tool** — Gemini fetches the URL server-side. Request body has `"tools":[{"url_context":{}}]`. Uses `gemini-3.5-flash`.
+2. **Gemini URL Context tool** — Gemini fetches the URL server-side. Request body has `"tools":[{"url_context":{}}]`. Uses `gemini-flash` (family; resolved at call time).
 3. **Title + company + URL only** — last resort.
 
 The user-visible prerequisite is exactly one thing: a Gemini API key. No setup modal. No `npm start` triage.
@@ -37,7 +37,7 @@ npm test -- tests/enrichment-self-heal.test.mjs
 # 1. Edit config.js (gitignored — already exists, just add the key)
 # Add (or replace) these lines so window.COMMAND_CENTER_CONFIG includes them:
 #   resumeGeminiApiKey: "AIza...",
-#   resumeGeminiModel: "gemini-3.5-flash",
+#   resumeGeminiModel: "gemini-flash",
 #   resumeProvider: "gemini",
 # If you don't have a real Gemini key, ask the user for one before continuing.
 

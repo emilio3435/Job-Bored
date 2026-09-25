@@ -77,10 +77,14 @@ describe("kanban card edit affordance (pencil -> dossier)", () => {
       /data-action="edit-field"/,
       "the Case's rail inputs must use data-action=edit-field",
     );
+    /* The title is a wrapping <textarea> since the redesign (SPEC §5.2), so a
+       57-character posting title is readable in full. The pencil handoff is
+       unaffected: it queries by data-field and calls focus() + select(), which
+       a textarea supports exactly as an input does. */
     assert.match(
       caseJs,
-      /editInput\("title"/,
-      "the Case must emit a data-field=title input for the pencil to focus",
+      /editText\("title"/,
+      "the Case must emit a data-field=title edit surface for the pencil to focus",
     );
   });
 

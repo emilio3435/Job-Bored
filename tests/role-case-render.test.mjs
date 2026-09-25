@@ -106,10 +106,11 @@ describe("The Case renders every block from the model", () => {
   it("rail, stepper, numbers, one-line", () => {
     const html = renderHtml(model());
     assert.match(html, /<header class="case__rail">/);
-    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="title"[^>]*value="Senior PM"/);
+    /* TEARDOWN §7: an <input width: 100%> lost 81px of a real posting title
+       with no ellipsis and no wrap. The title wraps now (SPEC §5.2), through the
+       same frozen edit-field contract. */
+    assert.match(html, /<textarea class="case__title" rows="1" data-action="edit-field" data-field="title" data-original="Senior PM"[^>]*>Senior PM<\/textarea>/);
     assert.match(html, /data-action="brief-view-posting"[^>]*href="https:\/\/jobs\.test\/1"/);
-    assert.match(html, /<button[^>]*class="case__cta case__cta--btn"[^>]*data-action="resume-cover"[^>]*aria-label="Draft a cover letter for this role"[^>]*>Draft cover letter<\/button>/);
-    assert.match(html, /<button[^>]*data-action="resume-tailor"[^>]*aria-label="Tailor your resume for this role"[^>]*>Tailor resume<\/button>/);
     assert.match(html, /class="case__pill case__pill--due"[^>]*>[\s\S]*?2026-09-04[\s\S]*?in 3 days/);
     assert.match(html, /class="case__pill case__pill--open"/);
     assert.match(html, /<button[^>]*data-action="stage-step"[^>]*data-stage="applied"/);
@@ -118,6 +119,77 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /data-num="keywords"[\s\S]*?74<small>%<\/small>[\s\S]*?12 found · 4 partial · 1 missing/);
     assert.match(html, /<button[^>]*data-action="open-profile-match"/);
     assert.match(html, /class="case__quote"[^>]*>[\s\S]*?Design infrastructure that ships\./);
+  });
+
+  /* The docket (SPEC §5.1). The drafting actions used to sit in the masthead,
+     which scrolls away after ~200px of a 1,956px-tall dossier — so for 88% of
+     the scroll depth there was no way to request materials without going back
+     to the top. They live in a sticky bar now, with the stage stepper and the
+     close control that role.js has always been wired for. */
+  describe("the docket", () => {
+    it("carries the stepper, both drafting actions and close", () => {
+      const html = renderHtml(model({ manifest: { documents: [], pending: null } }));
+      assert.match(html, /<div class="case__docket" role="group" aria-label="Role docket">/);
+      assert.match(html, /class="case__docket"[\s\S]*?class="case__stepper"/, "the stepper moved into the docket");
+      assert.match(html, /<button[^>]*class="case__btn case__btn--primary"[^>]*data-action="resume-cover"[^>]*aria-label="Draft a cover letter for this role"[^>]*>Draft cover letter<\/button>/);
+      assert.match(html, /<button[^>]*data-action="resume-tailor"[^>]*aria-label="Tailor your resume for this role"[^>]*>Tailor resume<\/button>/);
+      assert.match(html, /<button[^>]*data-action="close-role"[^>]*aria-label="Close this role"/);
+      assert.doesNotMatch(html, /case__rail[\s\S]*?data-action="resume-cover"[\s\S]*?case__docket/, "one home per action: the masthead keeps none of them");
+    });
+
+    /* A run in flight replaces its own request button, so the same draft
+       cannot be asked for twice from the same surface — and the chip reads
+       from the manifest the ledger row renders from, in the same pass. */
+    it("replaces the button of a run in flight with a live chip", () => {
+      const html = renderHtml(model());
+      assert.match(html, /<span class="case__inflight" role="status" aria-live="polite" data-doc="cover_letter" data-phase="drafting">[\s\S]*?Drafting cover letter · 42s<\/span>/);
+      assert.doesNotMatch(html, /data-action="resume-cover"/, "the request cannot be issued twice");
+      assert.match(html, /data-action="resume-tailor"/, "the resume is not in flight, so its button stands");
+    });
+
+    it("a failed run offers the retry in the docket, in crimson", () => {
+      const html = renderHtml(model({
+        manifest: { documents: [], pending: { feature: "cover_letter", progress: { phase: "failed", elapsedSeconds: 67, attempt: 2 } } },
+      }));
+      assert.match(html, /<button[^>]*class="case__inflight case__inflight--failed"[^>]*data-action="materials-retry"[^>]*data-feature="cover_letter"[^>]*>Cover letter failed · retry<\/button>/);
+    });
+
+    it("a terminal role keeps close and drops the drafting actions", () => {
+      const html = renderHtml(model({ vmPatch: { stage: "rejected" } }));
+      assert.match(html, /data-action="close-role"/);
+      assert.doesNotMatch(html, /data-action="resume-cover"/);
+      assert.doesNotMatch(html, /data-action="resume-tailor"/);
+    });
+  });
+
+  /* The verdict (SPEC §4): the single most valuable sentence in the dossier
+     was the one it never wrote. Every clause is traceable to a model field,
+     and an absent input drops its clause rather than guessing it. */
+  describe("the verdict line", () => {
+    it("opens with standing, gap and the one urgent clause", () => {
+      const html = renderHtml(model({ vmPatch: { closesAt: "2026-09-10" } }));
+      assert.match(html, /<p class="case__verdict-line"><b>Strong fit — 2 of 2 requirements matched, 1 keyword missing\.<\/b> <em>The cover letter is being written now\.<\/em> Closes in 9 days\.<\/p>/);
+    });
+
+    it("says it is still reading rather than printing a fit read it does not have", () => {
+      const html = renderHtml(model({
+        keywords: null,
+        vmPatch: { requirements: [], skills: [], tags: [], enrichment: { status: "loading" } },
+      }));
+      assert.match(html, /case__verdict-line"><b>Reading the posting\.<\/b>[\s\S]*?land in a few seconds\./);
+      assert.doesNotMatch(html, /fit —/i);
+    });
+
+    it("invites a resume instead of leaving the match empty", () => {
+      const html = renderHtml(model({ keywords: null, scorecard: null }));
+      assert.match(html, /case__verdict-line"><b>Fit 8 of 10\.<\/b>[\s\S]*?Add a resume to see which of the 2 requirements you actually answer\./);
+    });
+
+    it("a closed role's lede is what happened and what is still on file", () => {
+      const html = renderHtml(model({ vmPatch: { stage: "rejected", appliedAt: "2026-08-20" } }));
+      assert.match(html, /case__verdict-line"><b>rejected, applied 2026-08-20\.<\/b> <em>The cover letter is being written now\.<\/em>/i);
+      assert.doesNotMatch(html, /case__verdict-line[^<]*<b>[^<]*<\/b>[\s\S]*?Day \d/, "a closed role has no next move");
+    });
   });
   /* L7 gap 1 (spec §5): the rail edits four fields, not two. Location and
      salary are inline fact inputs on the navy rail, carrying the same
@@ -136,34 +208,44 @@ describe("The Case renders every block from the model", () => {
     assert.match(html, /data-field="salary"[^>]*value=""[^>]*aria-label="Salary"/);
   });
 
-  it("they want / you have / your moves lanes", () => {
+  /* The canvas holds the read, the ledger holds the widgets, and the ledger
+     follows the canvas in source order so tab order and reading order agree at
+     every width (SPEC §2). The three equal-weight lanes are gone: "They want"
+     and "You have" are a pair, and the board split them into adjacent columns
+     whose vertical positions never corresponded (TEARDOWN §6). */
+  it("the canvas carries the read and the ledger carries the widgets", () => {
     const html = renderHtml(model());
-    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?<li[^>]*data-status="found"[^>]*>[\s\S]*?5\+ years design systems/);
-    assert.match(html, /class="case__chip"[^>]*data-status="partial"[^>]*>[\s\S]*?Storybook/);
-    assert.match(html, /class="case__lane case__lane--you"[\s\S]*?case__sev--high[\s\S]*?Experimentation/);
-    assert.match(html, /class="case__dim"[\s\S]*?style="width: 84%;"/);
-    assert.match(html, /class="case__lane case__lane--moves"[\s\S]*?<span class="case__idx">01<\/span>/);
-    assert.match(html, /<div class="case__materials" data-mount="materials"><\/div>/);
-    assert.match(html, /<input[^>]*data-action="edit-field"[^>]*data-field="followupAt"[^>]*type="date"[^>]*value="2026-09-04"/);
-    assert.match(html, /<span class="case__seg"[^>]*role="group"[^>]*aria-label="Replied"/);
-    assert.match(html, /<textarea[^>]*data-action="notes"[^>]*>Recruiter: Dana<\/textarea>/);
+    const body = /<div class="case__body">([\s\S]*)<\/div><\/div>$/.exec(html);
+    assert.ok(body, "the body must render");
+    const canvas = /<div class="case__canvas">([\s\S]*?)<\/div><aside class="case__ledger"/.exec(html);
+    const ledger = /<aside class="case__ledger" aria-label="Role ledger">([\s\S]*)<\/aside>/.exec(html);
+    assert.ok(canvas && ledger, "the canvas must precede the ledger in source order");
+
+    assert.match(canvas[1], /class="case__quote"[^>]*>[\s\S]*?In their words/, "the lede opens the canvas");
+    assert.match(canvas[1], /class="case__section case__section--they"[\s\S]*?<li[^>]*data-status="found"[^>]*>[\s\S]*?5\+ years design systems/);
+    assert.match(canvas[1], /class="case__chip"[^>]*data-status="partial"[^>]*>[\s\S]*?Storybook/);
+    assert.match(canvas[1], /class="case__section case__section--you"[\s\S]*?case__sev--high[\s\S]*?Experimentation/);
+    assert.match(canvas[1], /class="case__dim"[\s\S]*?style="width: 84%;"/);
+    assert.match(canvas[1], /class="case__section case__section--say"[\s\S]*?<span class="case__idx">01<\/span>/);
+    assert.match(canvas[1], /<textarea[^>]*data-action="notes"[^>]*>Recruiter: Dana<\/textarea>/);
+
+    assert.match(ledger[1], /class="case__section case__section--materials"[\s\S]*?<div class="case__materials" data-mount="materials"><\/div>/);
+    assert.match(ledger[1], /class="case__section case__section--people"/);
+    assert.match(ledger[1], /<input[^>]*data-action="edit-field"[^>]*data-field="followupAt"[^>]*type="date"[^>]*value="2026-09-04"/);
+    assert.match(ledger[1], /<span class="case__seg"[^>]*role="group"[^>]*aria-label="Replied"/);
+    assert.match(ledger[1], /class="case__section case__section--record"/);
   });
-  /* Spec §3.1: the board follows its lanes — the renderer stamps data-lanes
-     with the count it actually emitted, so the empty third column cannot
-     recur. A keyword-less, scorecard-less model emits They want + Your moves. */
-  it("the board stamps the lanes it emitted, never an empty column", () => {
-    assert.match(renderHtml(model()), /<div class="case__board" data-lanes="3">/);
+  /* Spec §3.1 (casefit) asked the three-lane board to follow its lanes so
+     an empty third column could not recur. The dossier redesign (#119)
+     retired the board for a stacked canvas + ledger, so the intent now reads:
+     a section with nothing to show is not emitted at all. */
+  it("a section with nothing to show is never emitted as an empty column", () => {
+    const full = renderHtml(model());
+    assert.match(full, /case__section--you/, "precondition: the scorecard model renders You have");
+    assert.doesNotMatch(full, /case__board|data-lanes=/, "the three-lane board is retired");
     const two = renderHtml(model({ keywords: null, scorecard: null }));
-    assert.match(two, /<div class="case__board" data-lanes="2">/);
-    assert.equal((two.match(/<section class="case__lane /g) || []).length, 2, "no empty third column");
-    assert.doesNotMatch(two, /case__lane--you/);
-  });
-  it("the board is top-aligned with column rules per lane count", () => {
-    const board = /\.case__board \{([^}]*)\}/.exec(caseCssSource);
-    assert.ok(board, "the base .case__board rule must exist");
-    assert.match(board[1], /align-items: start/);
-    assert.match(caseCssSource, /\.case__board\[data-lanes="2"\][^{]*\{[^}]*repeat\(2/);
-    assert.match(caseCssSource, /\.case__board\[data-lanes="1"\][^{]*\{[^}]*1fr/);
+    assert.doesNotMatch(two, /case__section--you/);
+    assert.equal((two.match(/<section class="case__section case__section--they"/g) || []).length, 1);
   });
   it("record with hollow future step and configured provider", () => {
     const html = renderHtml(model());
@@ -175,16 +257,16 @@ describe("The Case renders every block from the model", () => {
     const html = renderHtml(model({ keywords: null, scorecard: null, manifest: null, vmPatch: { followUpDate: "" } }));
     assert.doesNotMatch(html, /case__pill--due/);
     assert.doesNotMatch(html, /data-num="keywords"/);
-    assert.doesNotMatch(html, /case__lane--you/);
+    assert.doesNotMatch(html, /case__section--you/);
     assert.match(html, /Add a resume to see what matches/);
   });
   /* Spec §3.3 decision §9-2: the keyword-fallback lane is gone — keywords
      with no scorecard yield source "none", and the renderer hides on it. */
   it("a keyword-only model renders no You-have lane", () => {
     const out = renderHtml(model({ scorecard: null }));
-    assert.doesNotMatch(out, /case__lane--you/);
-    assert.doesNotMatch(out, /You have/);
-    assert.match(renderHtml(model()), /case__lane--you/, "precondition: the scorecard model still renders the lane");
+    assert.doesNotMatch(out, /case__section--you/);
+    assert.doesNotMatch(out, />You have</);
+    assert.match(renderHtml(model()), /case__section--you/, "precondition: the scorecard model still renders the section");
   });
   /* Spec §3.7: the follow-up date keeps type="date" but never reads its raw
      placeholder as content — a Not-set sibling shows only while empty. */
@@ -196,7 +278,7 @@ describe("The Case renders every block from the model", () => {
   });
   it("escapes exactly once", () => {
     const html = renderHtml(model({ vmPatch: { role: 'Eng <b>"x"</b> & co', location: 'Austin & "TX" <b>' } }));
-    assert.match(html, /value="Eng &lt;b&gt;&quot;x&quot;&lt;\/b&gt; &amp; co"/);
+    assert.match(html, /data-original="Eng &lt;b&gt;&quot;x&quot;&lt;\/b&gt; &amp; co"[^>]*>Eng &lt;b&gt;&quot;x&quot;&lt;\/b&gt; &amp; co<\/textarea>/);
     assert.match(html, /data-field="location"[^>]*value="Austin &amp; &quot;TX&quot; &lt;b&gt;"/);
     assert.doesNotMatch(html, /&amp;amp;/);
   });
@@ -208,7 +290,7 @@ describe("The Case renders every block from the model", () => {
       keywords: null,
       vmPatch: { requirements: [], skills: [], tags: [], enrichment: { status: "loading" } },
     }));
-    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?class="case__skeleton"/, "the skeleton stands in for the THEY WANT lane");
+    assert.match(html, /class="case__section case__section--they"[\s\S]*?class="case__skeleton"/, "the skeleton stands in for the THEY WANT section");
     assert.match(html, /<div class="case__skeleton"[^>]*role="status"/);
     assert.match(html, /<div class="case__skeleton"[^>]*aria-live="polite"/);
     assert.match(html, /<div class="case__skeleton"[^>]*aria-busy="true"/);
@@ -232,7 +314,7 @@ describe("The Case renders every block from the model", () => {
       roleInOneLine: "Design infrastructure that ships.",
       mustHaves: ["5+ years design systems"], status: "ready", parseMode: "repaired",
     } } }));
-    assert.match(html, /class="case__lane case__lane--they"[\s\S]*?class="case__src case__src--review" aria-hidden="true">unverified<\/span>/);
+    assert.match(html, /class="case__section case__section--they"[\s\S]*?class="case__src case__src--review" aria-hidden="true">unverified<\/span>/);
     assert.match(html, /<div class="case__sub">Requirements · unverified — read these against the posting before you rely on them<\/div>/);
     assert.match(html, /class="case__req"[\s\S]*?5\+ years design systems/, "the recovered requirements still render, flagged");
   });
@@ -279,7 +361,9 @@ describe("The Case renders every block from the model", () => {
       roleInOneLine: "Design infrastructure that ships.", mustHaves: ["5+ years design systems"], status: "ready",
       parseMode: "schema", source: "cheerio", scrapedAt: NOW - 2 * 3600e3,
     } } }));
-    assert.match(html, /class="case__quote"[\s\S]*?<\/div><div class="case__stamp case__stamp--fresh">fetched 2h ago<\/div>/);
+    /* The freshness stamp closes the record now: how old the read is belongs
+       with what has happened to the role, not floating under the lede. */
+    assert.match(html, /case__section--record"[\s\S]*?<div class="case__stamp case__stamp--fresh">fetched 2h ago<\/div>/);
     assert.doesNotMatch(html, /stale/i, "a two-hour-old scrape is inside the TTL");
   });
 
@@ -533,7 +617,7 @@ describe("the Brief is retired", () => {
 describe("the People block", () => {
   it("opens with the next move as a sentence, not a form field", () => {
     const html = renderHtml(model({ vmPatch: { contacts: [{ name: "Dana Reyes" }], followUpDate: "2026-09-04" } }));
-    assert.match(html, /<div class="case__sub">People<\/div><p class="case__move"><span class="case__move-k">Next move<\/span><span class="case__move-v">Follow up on 2026-09-04<\/span><\/p>/);
+    assert.match(html, /<h3 class="case__section-title">People<\/h3>[\s\S]*?<p class="case__move"><span class="case__move-k">Next move<\/span><span class="case__move-v">Follow up on 2026-09-04<\/span><\/p>/);
     assert.doesNotMatch(html, /Next action/, "the strip's label is retired; the Case says Next move");
   });
 
@@ -572,7 +656,7 @@ describe("the People block", () => {
 
   it("no longer mounts the recruiter strip's dossier card under People", () => {
     const html = renderHtml(model());
-    assert.match(html, /class="case__kv case__kv--people"/, "precondition: the People ledger rendered");
+    assert.match(html, /class="case__rows case__rows--people"/, "precondition: the People ledger rendered");
     assert.doesNotMatch(html, /data-mount="recruiter-strip"/);
     assert.doesNotMatch(html, /jb-recruiter-strip/);
     assert.doesNotMatch(html, /Save follow-up/);

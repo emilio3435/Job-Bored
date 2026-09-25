@@ -1,0 +1,1359 @@
+/* ============================================================
+   dossier-redesign.css — mock stylesheet for the Role Dossier redesign
+   ------------------------------------------------------------
+   This is a MOCK. It lives under docs/ and is loaded only by the mock
+   pages in this folder. Production CSS (role.css / role-case.css) is
+   untouched by this pass.
+
+   It is written production-shaped on purpose: real JobBored tokens, the
+   class names proposed in ../SPEC.md, and the container queries the
+   migration will use. An engineer should be able to lift whole blocks.
+
+   Three rules govern every track definition below, and they are the
+   redesign (see ../TEARDOWN.md for why):
+
+     1. `minmax(0, 1fr)` is BANNED as a track for content-bearing columns.
+        It is what let the shipped board crush a 12px column and shred a
+        label into nine lines. Every column track names a floor in rem.
+     2. Thresholds are CONTAINER queries, never viewport media queries.
+        The dossier's width is a function of the frame it sits in, not of
+        the window; the shipped 1080px media query is why the layout is
+        correct at 1024px and broken at 1440px.
+     3. The frame never clips. Nothing here sets `overflow: hidden` on an
+        ancestor of content. Surfaces that may legitimately exceed their
+        box scroll, and say so with an edge fade.
+   ============================================================ */
+
+/* ------------------------------------------------------------
+   Tokens. Values are the shipped dossier palette (style.css
+   :root, the "Direction F" block) so the redesign is a layout
+   and hierarchy change, not a repaint. The three additions are
+   noted.
+   ------------------------------------------------------------ */
+.dossier {
+  --navy: #1b2a4e;
+  --navy-soft: #2a3a60;
+  --ink: #1a1a1a;
+  --ink-soft: #4a4a4a;
+  --mute: #5a5347;
+  --parchment: #fbf7ec;
+  --parchment-deep: #f5efdc;
+  --surface: #fffef9;
+  --border: #e5dfcc;
+  --border-strong: #c9c2a8;
+  --mint: #b5d4c2;
+  --mint-deep: #6e9f87;
+  --mint-ink: #3f6b55;
+  --amber: #e7b549;
+  --amber-ink: #a16207;
+  --crimson: #b23a48;
+  --crimson-soft: #f2b8c0;
+
+  --serif: "Lora", "Source Serif Pro", Georgia, serif;
+  --sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, monospace;
+  --typewriter: "Special Elite", "JetBrains Mono", ui-monospace, monospace;
+
+  --shadow-soft: 0 1px 2px rgb(27 42 78 / 6%), 0 8px 24px rgb(27 42 78 / 8%);
+
+  /* NEW 1 — the frame matches the rest of the flow. The shipped dossier
+     resolves --jb-flow-content-width inside two capped ancestors, which
+     subtracts the shell gutter a second time and leaves it 104px
+     narrower than the pipeline above it. */
+  --dsr-frame-max: 1220px;
+  /* cqi, not vw. The frame's own gutter must scale with the frame, or the
+     column threshold below cannot be computed: a vw-based padding makes the
+     space available to the tracks a function of the window, which is the
+     class of bug this redesign exists to remove. Used only on descendants of
+     .dossier, so cqi always resolves against the frame. */
+  --dsr-pad-x: clamp(20px, 2.6cqi, 36px);
+
+  /* NEW 2 — bounded tracks. The canvas holds prose and is capped at a
+     reading measure; the ledger holds widgets and is never narrower
+     than the width those widgets are designed and tested at. */
+  --dsr-canvas-min: 34rem;
+  --dsr-canvas-max: 46rem;
+  --dsr-ledger-min: 20rem;
+  --dsr-ledger-max: 22rem;
+  --dsr-col-gap: clamp(24px, 3cqi, 44px);
+
+  /* NEW 3 — the docket parks below the app's sticky chrome. The host
+     app owns the real number; this is the fallback. */
+  --dsr-chrome-h: 88px;
+
+  /* Type floor. Nothing in the dossier goes below --dsr-label; the
+     shipped file has 21 declarations under 10px, 14 of them under
+     9.5px, all uppercase and tracked at 0.16-0.22em. */
+  --dsr-label: 10px;
+  --dsr-label-lg: 11px;
+}
+
+/* ------------------------------------------------------------
+   Frame
+   ------------------------------------------------------------ */
+.dossier {
+  container-type: inline-size;
+  container-name: dossier;
+
+  width: min(var(--dsr-frame-max), 100%);
+  margin-inline: auto;
+  padding: 0 0 2.5rem;
+
+  background: var(--parchment);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  box-shadow: var(--shadow-soft);
+
+  font-family: var(--sans);
+  color: var(--ink);
+
+  /* Deliberately no `overflow: hidden`. On the shipped frame it turns
+     every deficit into an invisible clip AND, because it makes the
+     frame a scroll container, it forecloses `position: sticky` for
+     anything inside — which is why the actions could never follow the
+     reader down the page. `clip-path` gives the radius back without
+     creating a scrollport. */
+  clip-path: inset(0 round 14px);
+}
+
+.dossier *,
+.dossier *::before,
+.dossier *::after { box-sizing: border-box; }
+
+/* ------------------------------------------------------------
+   1 · MASTHEAD — identity. Navy, full-bleed inside the frame.
+   Three areas: crest, identity, flags. `auto` is not used for any
+   of them: the flags column is bounded so it can never eat the
+   title's width the way the shipped `56px minmax(0,1fr) auto`
+   rail does.
+   ------------------------------------------------------------ */
+.dossier__masthead {
+  display: grid;
+  grid-template-columns: 3.5rem minmax(0, 1fr);
+  grid-template-areas:
+    "crest identity"
+    "flags flags";
+  gap: 14px 18px;
+  padding: clamp(20px, 2.2cqi, 26px) var(--dsr-pad-x);
+  background: var(--navy);
+  color: var(--parchment);
+}
+
+@container dossier (inline-size >= 46rem) {
+  .dossier__masthead {
+    grid-template-columns: 3.5rem minmax(18rem, 1fr) minmax(14rem, 19rem);
+    grid-template-areas: "crest identity flags";
+    align-items: start;
+  }
+}
+
+.dossier__crest {
+  grid-area: crest;
+  width: 3.5rem;
+  aspect-ratio: 1;
+  display: grid;
+  place-items: center;
+  border-radius: 12px;
+  background: var(--parchment);
+  color: var(--navy);
+  font-family: var(--serif);
+  font-size: 26px;
+  font-weight: 600;
+}
+.dossier__crest img { width: 100%; height: 100%; border-radius: 12px; object-fit: cover; }
+
+.dossier__identity { grid-area: identity; min-width: 0; }
+
+.dossier__eyebrow {
+  margin: 0 0 6px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: rgb(251 247 236 / 62%);
+}
+
+/* The title WRAPS. In the shipped rail it is an <input> with
+   width: 100%, so a 57-character posting title loses its last 81px
+   with no ellipsis and no way to read it. Here the title is text
+   that wraps, and editing is a mode you enter. */
+.dossier__title {
+  margin: 0;
+  font-family: var(--serif);
+  font-size: clamp(23px, 2.5cqi, 30px);
+  font-weight: 500;
+  line-height: 1.15;
+  letter-spacing: -0.01em;
+  color: var(--parchment);
+  text-wrap: pretty;
+}
+
+.dossier__company {
+  margin: 3px 0 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  color: var(--mint);
+}
+
+/* Edit affordance: a dotted underline that only appears on hover or
+   focus, so the masthead reads as type and behaves as a field. */
+.dossier__editable {
+  border: 0;
+  padding: 0;
+  background: none;
+  font: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: text;
+  border-bottom: 1px dashed transparent;
+}
+.dossier__editable:hover { border-bottom-color: rgb(251 247 236 / 38%); }
+.dossier__editable:focus-visible {
+  outline: 2px solid var(--amber);
+  outline-offset: 3px;
+  border-radius: 2px;
+}
+
+/* Posting facts as a definition list: wraps, and each fact says what
+   it is. */
+.dossier__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px 16px;
+  margin: 12px 0 0;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: rgb(251 247 236 / 72%);
+}
+.dossier__fact { display: flex; align-items: baseline; gap: 6px; min-width: 0; }
+.dossier__fact dt { color: rgb(251 247 236 / 52%); }
+.dossier__fact dd { margin: 0; color: var(--parchment); }
+.dossier__fact--flag dd { color: var(--amber); }
+
+/* Flags: status pills. Bounded column, wraps within it, and never
+   more than the three that carry a deadline or a health verdict —
+   the rest of the state lives in the verdict line and the docket. */
+.dossier__flags {
+  grid-area: flags;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-content: start;
+}
+@container dossier (inline-size >= 46rem) {
+  .dossier__flags { justify-content: flex-end; }
+}
+
+.dossier__pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border: 1px solid rgb(251 247 236 / 32%);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--parchment);
+  white-space: nowrap;
+}
+.dossier__pill--open { border-color: var(--mint-deep); color: var(--mint); }
+.dossier__pill--due { border-color: var(--amber); color: var(--amber); }
+.dossier__pill--alarm { border-color: var(--crimson); color: var(--crimson-soft); }
+/* The posting link. A navigation affordance among status pills, so it earns a
+   brighter border and a hover — it is the only interactive thing up here. */
+.dossier__pill--link { border-color: rgb(251 247 236 / 55%); text-decoration: none; }
+.dossier__pill--link:hover { border-color: var(--amber); color: var(--amber); }
+.dossier__pill--link:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+
+.dossier__dot { width: 7px; height: 7px; border-radius: 50%; flex: none; }
+.dossier__dot--mint { background: var(--mint-deep); box-shadow: 0 0 0 3px rgb(110 159 135 / 25%); }
+.dossier__dot--amber { background: var(--amber); box-shadow: 0 0 0 3px rgb(231 181 73 / 25%); }
+.dossier__dot--crimson { background: var(--crimson); box-shadow: 0 0 0 3px rgb(178 58 72 / 25%); }
+
+/* ------------------------------------------------------------
+   2 · VERDICT — the lede the shipped dossier does not have. One
+   derived sentence, then the numbers. Nothing here is a new data
+   source: see ../SPEC.md §4 for the derivation.
+   ------------------------------------------------------------ */
+.dossier__verdict {
+  padding: clamp(16px, 1.8cqi, 22px) var(--dsr-pad-x) 0;
+}
+
+.dossier__verdict-line {
+  margin: 0;
+  max-width: 54ch;
+  font-family: var(--serif);
+  font-size: clamp(16px, 1.6cqi, 19px);
+  line-height: 1.45;
+  color: var(--navy);
+  text-wrap: pretty;
+}
+.dossier__verdict-line em { font-style: italic; color: var(--crimson); }
+.dossier__verdict-line b { font-weight: 600; }
+
+/* Metric tiles. `auto-fit` + a rem floor: N tiles reflow onto a
+   second row instead of each getting 1/Nth of the width. The shipped
+   `repeat(var(--case-num-cols), minmax(0,1fr))` has no floor, so a
+   fifth tile makes all five narrower. */
+.dossier__metrics {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));
+  gap: 1px;
+  margin: clamp(16px, 1.8cqi, 22px) 0 0;
+  padding: 0;
+  list-style: none;
+  background: var(--border);
+  border-block: 1px solid var(--border);
+}
+
+/* The <li> is the grid cell and carries no ink; the tile inside fills
+   it. Without this an actionable tile (a <button>) is only as tall as
+   its own content and the 1px gap colour shows through beside it. */
+.dossier__metrics > li { display: grid; }
+
+.dossier__metric {
+  display: block;
+  width: 100%;
+  height: 100%;
+  padding: 14px 16px 15px;
+  border: 0;
+  background: var(--parchment);
+  text-align: left;
+  font: inherit;
+  color: inherit;
+}
+.dossier__metric--action { cursor: pointer; }
+.dossier__metric--action:hover { background: var(--parchment-deep); }
+.dossier__metric--action:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+
+/* Wraps. The key and its provenance tag are both nowrap in themselves,
+   so a flex row that cannot wrap is exactly the shape that overflows
+   once the tile reaches its 10rem floor on a phone. */
+.dossier__metric-k {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 5px 8px;
+  margin-bottom: 7px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dossier__metric-v {
+  font-family: var(--serif);
+  font-size: 27px;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--navy);
+}
+.dossier__metric-v small {
+  font-family: var(--mono);
+  font-size: var(--dsr-label-lg);
+  font-weight: 400;
+  letter-spacing: 0.08em;
+  color: var(--mute);
+  margin-left: 3px;
+}
+.dossier__metric-v--alarm { color: var(--crimson); }
+.dossier__metric-sub {
+  margin-top: 7px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.04em;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+
+/* Provenance tag. 10px floor, and it is decoration for the eye: the
+   owning tile's aria-label carries the same words. */
+.dossier__src {
+  padding: 2px 6px;
+  border: 1px solid var(--border-strong);
+  border-radius: 3px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--mute);
+  white-space: nowrap;
+}
+.dossier__src--ai { border-color: rgb(178 58 72 / 40%); color: var(--crimson); }
+.dossier__src--derived { border-color: var(--mint-ink); color: var(--mint-ink); }
+.dossier__src--review { border-color: var(--crimson); background: rgb(178 58 72 / 8%); color: var(--crimson); }
+
+/* ------------------------------------------------------------
+   3 · DOCKET — sticky. Stage on the left, the actions that change
+   this role on the right, and the in-flight materials run in
+   between. This is the surface that makes the layout work: the
+   reader can be anywhere in the dossier and still act.
+   ------------------------------------------------------------ */
+.dossier__docket {
+  position: sticky;
+  top: var(--dsr-chrome-h);
+  z-index: 5;
+
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px 18px;
+  padding: 10px var(--dsr-pad-x);
+
+  background: color-mix(in srgb, var(--parchment-deep) 92%, transparent);
+  backdrop-filter: blur(8px);
+  border-bottom: 1px solid var(--border-strong);
+}
+@container dossier (inline-size >= 52rem) {
+  .dossier__docket {
+    grid-template-columns: minmax(0, 1fr) auto;
+    align-items: center;
+  }
+}
+
+.dossier__docket--stuck { box-shadow: 0 6px 18px -12px rgb(27 42 78 / 35%); }
+
+/* Stepper: a scroller with a fade at each end, not a squeeze. The
+   shipped stepper already sets overflow-x: auto but gives no signal
+   that there is more, and the row it lives in has no floor. */
+.dossier__stepper {
+  display: flex;
+  align-items: center;
+  gap: 0;
+  min-width: 0;
+  overflow-x: auto;
+  scrollbar-width: none;
+  scroll-snap-type: x proximity;
+  mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent);
+}
+.dossier__stepper::-webkit-scrollbar { display: none; }
+
+.dossier__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  flex: none;
+  padding: 7px 2px;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  scroll-snap-align: center;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+  white-space: nowrap;
+}
+.dossier__step-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  border: 1.5px solid var(--border-strong);
+  background: var(--parchment);
+  flex: none;
+}
+.dossier__step--done .dossier__step-dot { background: var(--navy); border-color: var(--navy); }
+.dossier__step--now { color: var(--navy); font-weight: 600; }
+.dossier__step--now .dossier__step-dot {
+  background: var(--crimson);
+  border-color: var(--crimson);
+  box-shadow: 0 0 0 4px rgb(178 58 72 / 18%);
+}
+.dossier__step-days { color: var(--crimson); font-weight: 600; letter-spacing: 0.06em; }
+/* Decoration yields before content. The connectors are the only
+   shrinkable thing in the row, so a tight docket takes width out of
+   them — 5 × 14px of give — and only scrolls once they are spent. A
+   stage label is never half-cut to make room for a rule. */
+.dossier__step-line {
+  flex: 0 1 22px;
+  min-width: 8px;
+  height: 1px;
+  background: var(--border-strong);
+  margin: 0 8px;
+}
+.dossier__step:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; border-radius: 3px; }
+
+.dossier__terminal {
+  padding: 5px 12px;
+  border: 1px solid var(--crimson);
+  border-radius: 999px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--crimson);
+}
+
+.dossier__docket-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+}
+
+.dossier__btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  min-height: 34px;
+  padding: 7px 14px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: var(--dsr-label-lg);
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.dossier__btn--primary { background: var(--navy); border-color: var(--navy); color: var(--parchment); }
+.dossier__btn--primary:hover { background: var(--navy-soft); }
+.dossier__btn:hover { border-color: var(--crimson); color: var(--crimson); }
+.dossier__btn--primary:hover { color: var(--parchment); }
+.dossier__btn:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+.dossier__btn--icon { padding: 7px 10px; }
+
+/* The in-flight materials run, mirrored into the docket. While a
+   draft is running this is the only place the user has to look; the
+   ledger row carries the same state for when they scroll to it. */
+.dossier__inflight {
+  display: inline-flex;
+  align-items: center;
+  gap: 9px;
+  min-height: 34px;
+  padding: 6px 12px 6px 10px;
+  border: 1px solid var(--amber);
+  border-radius: 999px;
+  background: rgb(231 181 73 / 14%);
+  font-family: var(--mono);
+  font-size: var(--dsr-label-lg);
+  letter-spacing: 0.08em;
+  color: var(--amber-ink);
+  white-space: nowrap;
+}
+.dossier__inflight--failed { border-color: var(--crimson); background: rgb(178 58 72 / 10%); color: var(--crimson); }
+.dossier__inflight-spin {
+  width: 11px;
+  height: 11px;
+  flex: none;
+  border: 2px solid rgb(161 98 7 / 30%);
+  border-top-color: var(--amber-ink);
+  border-radius: 50%;
+  animation: dsr-spin 900ms linear infinite;
+}
+@keyframes dsr-spin { to { transform: rotate(360deg); } }
+
+/* ------------------------------------------------------------
+   4 · BODY — canvas + ledger.
+
+   The whole redesign is this one rule set. Both tracks are bounded,
+   the row is centred rather than stretched, and the switch to a
+   single column is a container query on the frame, not a media
+   query on the window.
+   ------------------------------------------------------------ */
+.dossier__body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: clamp(24px, 3cqi, 36px) var(--dsr-col-gap);
+  padding: clamp(22px, 2.4cqi, 30px) var(--dsr-pad-x) 0;
+}
+
+/* The threshold is arithmetic, and the arithmetic includes the frame's
+   own gutter — which is the mistake worth naming, because leaving the
+   padding out of it is how you get a two-column grid whose tracks are
+   wider than the box they sit in:
+
+     canvas floor        34.00rem
+     ledger floor        20.00rem
+     widest column gap    2.75rem
+     gutter × 2           4.50rem
+     ------------------------------
+                         61.25rem   → engage at 62rem (992px)
+
+   Below it there is not enough room for both tracks at the widths their
+   contents are designed for, so there is one column. That is the
+   guarantee `repeat(3, minmax(0, 1fr))` does not make. */
+@container dossier (inline-size >= 62rem) {
+  .dossier__body {
+    grid-template-columns:
+      minmax(var(--dsr-canvas-min), var(--dsr-canvas-max))
+      minmax(var(--dsr-ledger-min), var(--dsr-ledger-max));
+    /* Surplus width past the two maxima becomes margin, not longer
+       lines of text. */
+    justify-content: center;
+    align-items: start;
+  }
+}
+
+.dossier__canvas {
+  container-type: inline-size;
+  container-name: canvas;
+  min-width: 0;
+  display: grid;
+  gap: clamp(24px, 2.6cqi, 34px);
+}
+
+.dossier__ledger {
+  container-type: inline-size;
+  container-name: ledger;
+  min-width: 0;
+  display: grid;
+  gap: clamp(20px, 2.2cqi, 28px);
+  align-content: start;
+}
+
+/* ------------------------------------------------------------
+   Section furniture, shared by canvas and ledger.
+   ------------------------------------------------------------ */
+.dossier__section { min-width: 0; }
+
+.dossier__section-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 10px;
+  margin-bottom: 13px;
+  padding-bottom: 7px;
+  border-bottom: 2px solid var(--border-strong);
+}
+.dossier__section-title {
+  margin: 0;
+  flex: 1 1 auto;
+  min-width: 0;
+  font-family: var(--mono);
+  font-size: var(--dsr-label-lg);
+  font-weight: 600;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--navy);
+}
+.dossier__section--they .dossier__section-head { border-bottom-color: var(--crimson); }
+.dossier__section--you .dossier__section-head { border-bottom-color: var(--mint-ink); }
+.dossier__section--say .dossier__section-head { border-bottom-color: var(--amber); }
+.dossier__section--materials .dossier__section-head { border-bottom-color: var(--navy); }
+
+.dossier__sub {
+  margin: 20px 0 9px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dossier__section-head + .dossier__sub { margin-top: 0; }
+
+.dossier__hint {
+  margin: 0 0 12px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  color: var(--mute);
+}
+
+/* ------------------------------------------------------------
+   Canvas · the lede (the posting in its own words)
+   ------------------------------------------------------------ */
+.dossier__lede {
+  margin: 0;
+  padding: 16px 18px;
+  border-left: 3px solid var(--amber);
+  background: var(--parchment-deep);
+  border-radius: 0 8px 8px 0;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 16px;
+  line-height: 1.6;
+  color: var(--navy);
+  text-wrap: pretty;
+}
+.dossier__lede-k {
+  display: block;
+  margin-bottom: 6px;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: var(--dsr-label);
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+/* ------------------------------------------------------------
+   Canvas · requirements
+   Three tracks with a floor on the text. At canvas widths the
+   status word sits at the end of the row; when the canvas is the
+   only column on a phone it drops under the text instead of
+   squeezing it.
+   ------------------------------------------------------------ */
+.dossier__reqs { margin: 0; padding: 0; list-style: none; }
+
+.dossier__req {
+  display: grid;
+  grid-template-columns: 0.75rem minmax(12rem, 1fr) auto;
+  gap: 10px;
+  align-items: baseline;
+  padding: 8px 0;
+  border-bottom: 1px dotted var(--border-strong);
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.dossier__req:last-child { border-bottom: 0; }
+
+@container canvas (inline-size < 22rem) {
+  .dossier__req {
+    grid-template-columns: 0.75rem minmax(0, 1fr);
+    grid-template-areas: "mark text" ". status";
+    row-gap: 4px;
+  }
+  .dossier__req > .dossier__mark { grid-area: mark; }
+  .dossier__req > .dossier__req-text { grid-area: text; }
+  .dossier__req > .dossier__req-status { grid-area: status; }
+}
+
+.dossier__mark {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  position: relative;
+  top: 1px;
+}
+.dossier__mark--found { background: var(--mint-ink); }
+.dossier__mark--partial { background: var(--amber); }
+.dossier__mark--missing { background: var(--crimson); }
+.dossier__mark--unknown { background: transparent; border: 1px solid var(--border-strong); }
+
+.dossier__req-status {
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+  white-space: nowrap;
+}
+
+.dossier__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+.dossier__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: var(--surface);
+  font-family: var(--mono);
+  font-size: var(--dsr-label-lg);
+  color: var(--ink-soft);
+}
+.dossier__chip .dossier__mark { width: 7px; height: 7px; top: 0; }
+
+/* ------------------------------------------------------------
+   Canvas · you have
+   ------------------------------------------------------------ */
+.dossier__strength {
+  margin-bottom: 9px;
+  padding: 8px 0 8px 14px;
+  border-left: 2px solid var(--mint-ink);
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+
+.dossier__evidence {
+  margin-top: 8px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+.dossier__from {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-style: normal;
+  font-size: var(--dsr-label);
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+  color: var(--mint-ink);
+}
+
+.dossier__gap {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 10px;
+  align-items: baseline;
+  padding: 9px 0;
+  border-bottom: 1px dotted var(--border-strong);
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.dossier__gap:not(:has(+ .dossier__gap)) { border-bottom: 0; }
+.dossier__sev {
+  padding: 3px 7px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+}
+.dossier__sev--high { background: rgb(178 58 72 / 12%); color: var(--crimson); }
+.dossier__sev--medium,
+.dossier__sev--low { background: rgb(231 181 73 / 20%); color: var(--amber-ink); }
+.dossier__why { display: block; margin-top: 3px; font-size: 13.5px; font-style: italic; color: var(--mute); }
+
+/* Score bars. The shipped `118px 1fr 30px` has a hard label track
+   that neither grows for a long dimension name nor shrinks when the
+   bar needs the room. */
+.dossier__dims { display: grid; gap: 7px; }
+.dossier__dim {
+  display: grid;
+  grid-template-columns: minmax(6rem, 9rem) minmax(4rem, 1fr) 2.25rem;
+  gap: 10px;
+  align-items: center;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+}
+@container canvas (inline-size < 20rem) {
+  .dossier__dim { grid-template-columns: minmax(0, 1fr) 2.25rem; }
+  .dossier__dim > .dossier__dim-k { grid-column: 1 / -1; }
+}
+.dossier__bar { height: 6px; background: var(--parchment-deep); border-radius: 3px; overflow: hidden; }
+.dossier__bar i { display: block; height: 100%; background: var(--mint-ink); border-radius: 3px; }
+.dossier__dim b { text-align: right; color: var(--navy); }
+
+/* ------------------------------------------------------------
+   Canvas · say this
+   ------------------------------------------------------------ */
+.dossier__points { margin: 0; padding: 0; list-style: none; counter-reset: dsr-point; }
+.dossier__point {
+  display: grid;
+  grid-template-columns: 1.6rem minmax(0, 1fr);
+  gap: 10px;
+  padding: 9px 0;
+  border-bottom: 1px dotted var(--border-strong);
+  font-family: var(--serif);
+  font-size: 15px;
+  line-height: 1.5;
+  text-wrap: pretty;
+}
+.dossier__point:last-child { border-bottom: 0; }
+.dossier__point::before {
+  counter-increment: dsr-point;
+  content: counter(dsr-point, decimal-leading-zero);
+  font-family: var(--mono);
+  font-size: var(--dsr-label-lg);
+  letter-spacing: 0.08em;
+  color: var(--crimson);
+  padding-top: 3px;
+}
+
+/* ------------------------------------------------------------
+   Canvas · notes
+   ------------------------------------------------------------ */
+.dossier__notes {
+  position: relative;
+  padding: 20px 18px 14px;
+  background: var(--parchment-deep);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+}
+.dossier__notes::before {
+  content: "NOTES · YOURS";
+  position: absolute;
+  top: -9px;
+  left: 16px;
+  padding: 0 8px;
+  background: var(--parchment);
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.2em;
+  color: var(--crimson);
+}
+.dossier__notes textarea {
+  width: 100%;
+  min-height: 92px;
+  padding: 6px 4px;
+  border: 0;
+  border-bottom: 1px dashed var(--border-strong);
+  background: none;
+  resize: vertical;
+  font-family: var(--typewriter);
+  font-size: 14.5px;
+  line-height: 1.65;
+  color: var(--ink);
+}
+.dossier__notes textarea:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+
+/* ------------------------------------------------------------
+   Ledger · materials
+   THE fix. The shipped row is `minmax(0,1fr) auto auto`: the status
+   pill and the button group are content-sized and cannot shrink, so
+   in a 323px lane the name track collapses to 12px and
+   `overflow-wrap: anywhere` shreds "Cover letter" into nine lines.
+
+   Here the row is two rows of two areas. The name has a 8rem floor
+   and never shares a line with the buttons, so the buttons cannot
+   take its width — and if even that does not fit, the container
+   query below stacks every area.
+   ------------------------------------------------------------ */
+.dossier__docs { display: grid; gap: 8px; }
+
+.dossier__doc {
+  display: grid;
+  grid-template-columns: minmax(8rem, 1fr) auto;
+  grid-template-areas:
+    "name  state"
+    "meta  meta"
+    "acts  acts";
+  gap: 5px 12px;
+  padding: 11px 13px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+}
+.dossier__doc--drafting { border-color: var(--amber); background: rgb(231 181 73 / 7%); }
+.dossier__doc--failed { border-color: rgb(178 58 72 / 45%); }
+
+.dossier__doc-name {
+  grid-area: name;
+  min-width: 0;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.3;
+  color: var(--ink);
+  /* No `overflow-wrap: anywhere`. A label that cannot fit must widen
+     its row or wrap on a word boundary — never break mid-word, which
+     is the tell that the layout has failed. */
+  text-wrap: pretty;
+}
+
+.dossier__doc-state {
+  grid-area: state;
+  align-self: start;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 8px;
+  border-radius: 3px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.dossier__doc-state--ready { background: rgb(110 159 135 / 20%); color: var(--mint-ink); }
+.dossier__doc-state--drafting { background: rgb(231 181 73 / 22%); color: var(--amber-ink); }
+.dossier__doc-state--failed { background: rgb(178 58 72 / 12%); color: var(--crimson); }
+.dossier__doc-state--missing { border: 1px dashed var(--border-strong); color: var(--mute); }
+
+/* The meta line is where the sentence goes. One word in the pill,
+   the human explanation here, with the whole row's width. */
+.dossier__doc-meta {
+  grid-area: meta;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.06em;
+  color: var(--mute);
+  text-wrap: pretty;
+}
+.dossier__doc-meta em {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--serif);
+  font-size: 13px;
+  font-style: italic;
+  letter-spacing: 0;
+  color: var(--ink-soft);
+}
+
+.dossier__doc-actions {
+  grid-area: acts;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 3px;
+}
+.dossier__doc-btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 28px;
+  padding: 5px 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 999px;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--ink-soft);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.dossier__doc-btn--primary { border-color: var(--navy); color: var(--navy); }
+.dossier__doc-btn:hover { border-color: var(--crimson); color: var(--crimson); }
+.dossier__doc-btn:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+/* AA 2.5.8: 28px chips, so the target is grown without moving the ink. */
+.dossier__doc-btn { position: relative; }
+.dossier__doc-btn::after { content: ""; position: absolute; inset: -8px -2px; }
+
+/* Last resort. A ledger this narrow means the host is a phone in
+   portrait; the row gives up its two-up head rather than crush it. */
+@container ledger (inline-size < 15rem) {
+  .dossier__doc {
+    grid-template-columns: minmax(0, 1fr);
+    grid-template-areas: "name" "state" "meta" "acts";
+  }
+  .dossier__doc-state { justify-self: start; }
+}
+
+.dossier__progress {
+  grid-area: meta;
+  display: block;
+}
+.dossier__progress-k {
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber-ink);
+}
+.dossier__progress-msg {
+  display: block;
+  margin-top: 3px;
+  font-family: var(--serif);
+  font-size: 13.5px;
+  font-style: italic;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+.dossier__progress-track {
+  display: block;
+  height: 3px;
+  margin-top: 8px;
+  border-radius: 2px;
+  background: rgb(231 181 73 / 25%);
+  overflow: hidden;
+}
+.dossier__progress-track i {
+  display: block;
+  width: 40%;
+  height: 100%;
+  border-radius: 2px;
+  background: var(--amber);
+  animation: dsr-indeterminate 1.6s ease-in-out infinite;
+}
+@keyframes dsr-indeterminate {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+/* ------------------------------------------------------------
+   Ledger · people, follow-up, and any key/value block.
+   Label above value: at 320px a nowrap mono label plus a 60%-width
+   input is what truncated "Dana Whitfield (Talent Partner)" to
+   "Dana Whitfield (Talent Partn" in the shipped dossier.
+   ------------------------------------------------------------ */
+.dossier__move {
+  display: block;
+  margin: 0 0 14px;
+  padding: 11px 13px;
+  background: var(--parchment-deep);
+  border-radius: 8px;
+}
+.dossier__move-k {
+  display: block;
+  margin-bottom: 4px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--crimson);
+}
+.dossier__move-v {
+  font-family: var(--serif);
+  font-style: italic;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--navy);
+  text-wrap: pretty;
+}
+
+.dossier__rows { margin: 0; }
+.dossier__row {
+  display: grid;
+  gap: 3px;
+  padding: 9px 0;
+  border-bottom: 1px dotted var(--border-strong);
+}
+.dossier__row:last-child { border-bottom: 0; }
+.dossier__row dt {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dossier__row dd {
+  margin: 0;
+  min-width: 0;
+  font-family: var(--serif);
+  font-size: 15px;
+  color: var(--navy);
+  text-wrap: pretty;
+}
+.dossier__row dd input[type="text"],
+.dossier__row dd input[type="date"] {
+  width: 100%;
+  padding: 2px 4px;
+  border: 0;
+  border-bottom: 1px dashed transparent;
+  background: none;
+  font: inherit;
+  color: inherit;
+}
+.dossier__row dd input:hover { border-bottom-color: var(--border-strong); }
+.dossier__row dd input:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; border-radius: 2px; }
+.dossier__row dd .dossier__placeholder { color: var(--mute); font-style: italic; }
+
+.dossier__seg { display: inline-flex; gap: 5px; }
+.dossier__seg-b {
+  position: relative;
+  min-height: 30px;
+  padding: 0 11px;
+  border: 1px solid var(--border-strong);
+  border-radius: 4px;
+  background: none;
+  cursor: pointer;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dossier__seg-b::after { content: ""; position: absolute; inset: -7px 0; }
+.dossier__seg-b--on { background: var(--navy); border-color: var(--navy); color: var(--parchment); }
+.dossier__seg-b:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
+
+.dossier__saved {
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mint-ink);
+  white-space: nowrap;
+}
+
+/* ------------------------------------------------------------
+   Ledger · the record. A vertical timeline: one row per event, so
+   the layout does not depend on how many events there are. The
+   shipped record is `grid-auto-flow: column` with
+   `grid-auto-columns: minmax(0, 1fr)`, which divides a fixed width
+   by a data-driven N — every new event narrows all of them.
+   ------------------------------------------------------------ */
+.dossier__record { display: grid; gap: 0; position: relative; }
+.dossier__event {
+  display: grid;
+  grid-template-columns: 1rem minmax(0, 1fr);
+  gap: 4px 11px;
+  padding: 9px 0;
+  position: relative;
+}
+.dossier__event:not(:last-child)::before {
+  content: "";
+  position: absolute;
+  left: 0.44rem;
+  top: 20px;
+  bottom: -2px;
+  width: 1px;
+  background: var(--border-strong);
+}
+.dossier__event-dot {
+  width: 11px;
+  height: 11px;
+  margin-top: 5px;
+  border-radius: 50%;
+  background: var(--navy);
+  box-shadow: 0 0 0 3px var(--parchment);
+  z-index: 1;
+}
+.dossier__event--due .dossier__event-dot { background: var(--amber); }
+.dossier__event--future .dossier__event-dot { background: var(--parchment); box-shadow: 0 0 0 1px var(--border-strong), 0 0 0 3px var(--parchment); }
+.dossier__event-d {
+  grid-column: 2;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dossier__event-t {
+  grid-column: 2;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.4;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.dossier__event-t small {
+  display: block;
+  margin-top: 2px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dossier__event--future .dossier__event-t { color: var(--mute); font-style: italic; }
+
+.dossier__stamp {
+  margin-top: 12px;
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--mute);
+  text-wrap: pretty;
+}
+
+/* ------------------------------------------------------------
+   States: banner, invite, error, skeleton.
+   ------------------------------------------------------------ */
+.dossier__banner {
+  display: grid;
+  grid-template-columns: 1.1rem minmax(0, 1fr);
+  gap: 4px 11px;
+  margin: clamp(16px, 1.8cqi, 22px) var(--dsr-pad-x) 0;
+  padding: 13px 15px;
+  border: 1px solid var(--amber);
+  border-left-width: 3px;
+  border-radius: 8px;
+  background: rgb(231 181 73 / 10%);
+}
+.dossier__banner--error { border-color: var(--crimson); background: rgb(178 58 72 / 8%); }
+.dossier__banner-icon { font-family: var(--serif); font-weight: 600; color: var(--amber-ink); }
+.dossier__banner--error .dossier__banner-icon { color: var(--crimson); }
+.dossier__banner-k {
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--amber-ink);
+}
+.dossier__banner--error .dossier__banner-k { color: var(--crimson); }
+.dossier__banner-t {
+  grid-column: 2;
+  margin: 0;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.5;
+  color: var(--ink);
+  text-wrap: pretty;
+}
+.dossier__banner-actions { grid-column: 2; display: flex; flex-wrap: wrap; gap: 8px; margin-top: 9px; }
+
+/* An absent input is an invitation, not a blank. */
+.dossier__invite {
+  padding: 16px 17px;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--surface);
+}
+.dossier__invite p {
+  margin: 0 0 11px;
+  font-family: var(--serif);
+  font-size: 14.5px;
+  line-height: 1.55;
+  color: var(--ink-soft);
+  text-wrap: pretty;
+}
+.dossier__invite p:last-child { margin-bottom: 0; }
+
+.dossier__skeleton { display: grid; gap: 9px; }
+.dossier__skeleton-k {
+  font-family: var(--mono);
+  font-size: var(--dsr-label);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+.dossier__shimmer {
+  display: block;
+  height: 13px;
+  border-radius: 3px;
+  background:
+    linear-gradient(90deg,
+      rgb(165 207 184 / 10%) 0%,
+      rgb(165 207 184 / 32%) 38%,
+      rgb(255 247 230 / 55%) 50%,
+      rgb(165 207 184 / 32%) 62%,
+      rgb(165 207 184 / 10%) 100%),
+    var(--parchment-deep);
+  background-size: 220% 100%, 100% 100%;
+  animation: dsr-shimmer 1.8s ease-in-out infinite;
+}
+.dossier__shimmer--short { width: 62%; }
+@keyframes dsr-shimmer {
+  0% { background-position: 120% 0, 0 0; }
+  100% { background-position: -120% 0, 0 0; }
+}
+
+/* Screen-reader-only, for the headings and status words the eye gets
+   from position and colour. */
+.dossier__vh {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* The sticky docket must not hide the target of an in-page jump or a
+   focus move. Every focusable in the body clears it. */
+.dossier__body :is(a, button, input, textarea, select, [tabindex]),
+.dossier__body :target,
+.dossier__section { scroll-margin-top: calc(var(--dsr-chrome-h) + 68px); }
+
+@media (prefers-reduced-motion: reduce) {
+  .dossier__shimmer,
+  .dossier__progress-track i,
+  .dossier__inflight-spin { animation: none; }
+  .dossier__stepper { scroll-behavior: auto; }
+}
+
+/* Forced colours: the marks and states are dot + word everywhere, so
+   only the decorative tints need to step aside. */
+@media (forced-colors: active) {
+  .dossier__doc,
+  .dossier__metric,
+  .dossier__banner { border: 1px solid CanvasText; }
+  .dossier__bar i { background: Highlight; }
+}
