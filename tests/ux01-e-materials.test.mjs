@@ -92,7 +92,9 @@ function load({
   manifest = { slug: SLUG, documents: [], pending: null },
   storage = {},
   submission,
+  applications = [{ slug: SLUG, company: "Kestrel", title: "Staff Frontend Engineer" }],
 } = {}) {
+  const net = { serverDown };
   const docBus = makeBus();
   const winBus = makeBus();
   const fetchCalls = [];
@@ -139,19 +141,21 @@ function load({
     document: documentEl,
     CustomEvent: TestCustomEvent,
     console: { log() {}, info() {}, warn() {}, error() {} },
-    setTimeout, clearTimeout,
+    /* Polling timers must not keep the test process alive. */
+    setTimeout: (fn, ms) => { const t = setTimeout(fn, ms); if (t && t.unref) t.unref(); return t; },
+    clearTimeout,
     setInterval: () => 1, clearInterval: () => {},
     encodeURIComponent,
     fetch: async (url, options = {}) => {
       fetchCalls.push({ url, options });
-      if (serverDown) throw new TypeError("Failed to fetch");
+      if (net.serverDown) throw new TypeError("Failed to fetch");
       if (/\/request$/.test(url) && options.method === "POST") {
         if (requestResponse) return requestResponse;
         return jsonResponse({ ok: true, slug: SLUG });
       }
       if (/\/manifest$/.test(url)) return jsonResponse(manifest);
       if (/\/job-description$/.test(url) && !options.method) return jsonResponse({ exists: true });
-      if (/\/api\/applications$/.test(url)) return jsonResponse({ applications: [{ slug: SLUG, company: "Kestrel", title: "Staff Frontend Engineer" }] });
+      if (/\/api\/applications$/.test(url)) return jsonResponse({ applications });
       if (/\.md(\?|$)/.test(url)) return { ok: true, status: 200, text: async () => "# QA report\n\n- Runs to 2 pages" };
       return jsonResponse({ ok: true });
     },
@@ -161,7 +165,11 @@ function load({
   const html = () => mount.childNodes.map((c) => c.innerHTML).join("\n");
   const lastHtml = () => (mount.childNodes.length ? mount.childNodes[mount.childNodes.length - 1].innerHTML : "");
   const requestPosts = () => fetchCalls.filter((c) => /\/request$/.test(c.url) && c.options.method === "POST");
+  const events = [];
+  winBus.addEventListener("jb:materials:manifest", (e) => events.push(e.detail));
   return {
+    net,
+    events,
     get mount() { return mount; },
     /* What role.js does on jb:materials:manifest: a Case render replaces the
        materials mount with a fresh element. */
@@ -271,6 +279,46 @@ describe("C12 · drafting states match reality", () => {
     await settle();
     assert.equal(h.requestPosts().length, 0);
     assert.doesNotMatch(h.html(), /queued/i);
+  });
+
+  it("should keep the row pending after a 2xx /request whose manifest has no pending yet (TA-05)", async () => {
+    const h = load({ manifest: { slug: SLUG, documents: [], pending: null } });
+    h.open();
+    await settle();
+    h.draft();
+    await settle();
+    assert.equal(h.requestPosts().length, 1);
+    const row = (h.lastHtml().match(/<div class="case__doc [^"]*" data-doc="cover_letter">[\s\S]*?<\/div><\/div>/) || [""])[0];
+    assert.match(row, /data-status="drafting"/, "the cover letter row stays pending");
+    assert.doesNotMatch(row, /never requested|data-action="resume-cover"/, "the row must not invite a second request");
+    const last = h.api.getCurrentManifest();
+    assert.ok(last && last.manifest && last.manifest.pending, "the committed manifest holds the optimistic pending");
+  });
+
+  it("should let a server-written pending replace the optimistic one", async () => {
+    const serverPending = { feature: "cover_letter", requestedAt: new Date().toISOString(), progress: { phase: "drafting", startedAt: new Date().toISOString(), attempt: 1 } };
+    const h = load({ manifest: { slug: SLUG, documents: [], pending: serverPending } });
+    h.open();
+    await settle();
+    h.draft();
+    await settle();
+    assert.deepEqual(h.api.getCurrentManifest().manifest.pending.progress, serverPending.progress);
+  });
+
+  it("should re-enable Draft after Retry finds the server up, even with no folder yet (TA-06)", async () => {
+    const h = load({ serverDown: true, applications: [] });
+    h.open();
+    await settle();
+    assert.equal(h.api.getServerState(), "down");
+    h.net.serverDown = false;
+    const before = h.events.length;
+    h.api.retryServer();
+    await settle();
+    assert.equal(h.api.getServerState(), "up");
+    assert.ok(
+      h.events.slice(before).some((d) => d && d.reason === "state" && d.jobKey === "7"),
+      "leaving 'down' must tell the Case to re-render its docket",
+    );
   });
 
   it("should not auto-draft on a move to Researching unless the user opted in", async () => {

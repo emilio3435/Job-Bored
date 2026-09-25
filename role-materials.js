@@ -594,8 +594,11 @@
     wireSection(hostEl);
   }
 
+  /* Retry keeps "down" until the load answers: the load's own
+     setServerState("up") is then a down → up change, which re-renders the
+     Case docket and re-enables Draft (TA-06). Resetting to "" here would
+     turn it into an unannounced "" → up. */
   function retryServer() {
-    serverState = "";
     clearCache();
     var key = openRoleKey() || (currentContext && currentContext.jobKey);
     if (key != null && key !== "") loadForOpenRole(key);
@@ -628,13 +631,16 @@
   /* -------------------- C12 (TA-05): the optimistic row holds --------------------
      A 2xx /request whose manifest has not caught up yet used to revert the row
      to "not drafted" and invite a second request. The optimistic pending block
-     survives until the manifest shows pending, a document, or the hold lapses. */
+     survives until the manifest shows a server-written pending, a document,
+     or the hold lapses. The run's own optimistic pending block (the same
+     object, committed by renderOptimisticPending) is not "caught up". */
   var optimisticRun = null;
 
   function holdOptimistic(manifest) {
     if (!optimisticRun || !manifest || manifest.slug !== optimisticRun.slug) return manifest;
     var docs = Array.isArray(manifest.documents) ? manifest.documents : [];
-    var caughtUp = !!manifest.pending || docs.some(function (d) {
+    var serverPending = !!manifest.pending && manifest.pending !== optimisticRun.pending;
+    var caughtUp = serverPending || docs.some(function (d) {
       return d && (d.type === optimisticRun.feature || optimisticRun.feature === "both") && d.lastModifiedAt
         && Date.parse(d.lastModifiedAt) >= optimisticRun.at;
     });
@@ -1258,6 +1264,7 @@
       jobKey: currentManifest.jobKey,
       manifest: manifest,
     });
+    return manifest;
   }
 
   function getCurrentManifest() {
@@ -1787,8 +1794,8 @@
         .then(function (manifest) {
           var brief = findMount();
           if (!brief) return;
-          commitManifest(brief, manifest, base);
-          if (manifest.pending) {
+          var committed = commitManifest(brief, manifest, base);
+          if (committed && committed.pending) {
             var delay = Math.min(maxDelay, minDelay + attempts * 500);
             poller = { timeoutId: setTimeout(tick, delay) };
           } else {
@@ -2559,7 +2566,7 @@
     });
   }
 
-  function renderOptimisticPending(ctx, feature, notes, source) {
+  function renderOptimisticPending(ctx, feature, notes, source, pending) {
     var brief = findMount();
     if (!brief) return;
 
@@ -2569,7 +2576,7 @@
       title: ctx.title,
       derived: true,
       documents: [],
-      pending: {
+      pending: pending || {
         feature: feature,
         company: ctx.company,
         title: ctx.title,
@@ -2625,13 +2632,16 @@
     refreshContextApplication(ctx).then(function () {
       return refreshContextFromLocalMaterials(ctx);
     }).then(function () {
-      renderOptimisticPending(ctx, feature, notes, "jobbored-dossier");
+      /* The hold is set first and shares its pending object with the
+         optimistic commit, so holdOptimistic can tell the run's own block
+         from a server-written one (TA-05). */
       optimisticRun = {
         slug: ctx.slug,
         feature: feature,
         at: Date.now(),
-        pending: { feature: feature, company: ctx.company, title: ctx.title, requestedAt: new Date().toISOString(), notes: notes, source: "jobbored-dossier" },
+        pending: { feature: feature, company: ctx.company, title: ctx.title, jobUrl: ctx.jobUrl, requestedAt: new Date().toISOString(), notes: notes, source: "jobbored-dossier" },
       };
+      renderOptimisticPending(ctx, feature, notes, "jobbored-dossier", optimisticRun.pending);
       /* Run the JD fallback chain BEFORE asking Hermes to draft. The
          contract is: pending.json should not get written unless the
          slug folder has a job-description.md, otherwise Dobby's
@@ -2664,8 +2674,10 @@
       /* Force the applications cache to refresh so the next role open
          sees the new folder (Hermes creates it when none existed). */
       getApplications(ctx.base, { refresh: true });
-      commitManifest(brief2, manifest, ctx.base, ctx.jobKey);
-      if (manifest.pending) startPolling(manifest.slug, ctx.base);
+      /* A held manifest still shows pending, so poll until the server's
+         own pending or a document lands (or the hold lapses). */
+      var committed = commitManifest(brief2, manifest, ctx.base, ctx.jobKey);
+      if (committed && committed.pending) startPolling(committed.slug || ctx.slug, ctx.base);
       /* Nudge the global queue strip so it shows the new request
          without waiting for its next poll. */
       dispatch("jb:materials:changed", { slug: ctx.slug });
@@ -2962,6 +2974,7 @@
     renderError: renderError,
     /* UX01 lane E: read by role-case-model.js collectDeps (C11, C12). */
     getServerState: getServerState,
+    retryServer: retryServer,
     getResumeSummary: getResumeSummary,
     isAutoDraftEnabled: isAutoDraftEnabled,
     AUTO_DRAFT_STORAGE_KEY: AUTO_DRAFT_STORAGE_KEY,
