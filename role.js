@@ -589,14 +589,15 @@
     root.addEventListener("jb:role:closed", onClosed);
     /* Cached enrichments are restored when app.js renders the Pipeline.
        If a role was already open (for example after a hard reload with a
-       #role hash), re-read the freshly-rendered card data-* attrs so the
+       #role hash), re-read the card data from the freshly loaded rows
+       (dawn-data.js getRoleViewModel, DS-08) so the
        Dossier does not stay on its pre-hydration basic view. */
     if (document && document.addEventListener) {
       document.addEventListener("jb:pipeline:rendered", rerenderOpenRole);
       document.addEventListener("jb:write:succeeded", onWriteSucceeded);
     }
-    /* When app.js finishes scrape + Gemini enrichment for a role, the
-       kanban-card's data-* attributes are refreshed; re-render the
+    /* When app.js finishes scrape + Gemini enrichment for a role, the row
+       gains the new fields and the pipeline re-renders; re-render the
        Dossier so it picks up the new AI fields. */
     /* Seam events (spec §2.3): a persisted scorecard, a resolved profile
        match, or a fresh materials manifest all change what the Case shows.

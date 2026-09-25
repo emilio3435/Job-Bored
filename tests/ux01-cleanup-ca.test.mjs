@@ -14,7 +14,8 @@ describe("TR-20: jb:pipeline:rendered drives the v2 repaints", () => {
   it("should dispatch jb:pipeline:rendered with detail.count from pipeline-render.js", () => {
     const src = read("pipeline-render.js");
     assert.match(src, /new CustomEvent\("jb:pipeline:rendered", \{ detail: \{ count, total \} \}\)/);
-    assert.equal((src.match(/emitPipelineRendered\(/g) || []).length, 4, "definition plus the three render exits");
+    // DS-08 added the fourth exit: the v2 gate, which draws no #jobCards.
+    assert.equal((src.match(/emitPipelineRendered\(/g) || []).length, 5, "definition plus the four render exits");
   });
 
   it("should repaint the v2 board from app.js on the event", () => {

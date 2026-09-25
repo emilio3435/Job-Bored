@@ -451,7 +451,6 @@ function registerBridgeHosts() {
     normalizeProfileTextInput,
     normalizeResponseFlag,
     notifyPipelineFiltersChanged,
-    notifyPipelineRendered,
     openCommandCenterSettingsModal,
     openDiscoveryDrawer,
     openDiscoverySetupWizard,

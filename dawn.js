@@ -8,9 +8,10 @@
    Does NOT mutate any DOM outside region:dawn.
    Does NOT introduce new fetches.
    Re-renders idempotently. Uses requestIdleCallback (rAF fallback).
-   Forwards activity-feed clicks to legacy .kanban-card[data-stable-key]
-   so the existing openJobDetail() / expandedJobKeys contract flows
-   unchanged.
+   Activity-feed clicks open the Case through JobBoredFlowing.openRole
+   (data-stable-key is the row index), so the openJobDetail() /
+   expandedJobKeys contract is unchanged. It reads no legacy .kanban-card
+   DOM (DS-08).
    ============================================================ */
 
 (function (root) {

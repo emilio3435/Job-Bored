@@ -678,7 +678,6 @@
       },
       runPostAccessBootstrapOnce: host.runPostAccessBootstrapOnce,
       markJobViewed: host.markJobViewed,
-      notifyPipelineRendered: host.notifyPipelineRendered,
       toggleFavorite: host.toggleFavorite,
       restoreJob: host.restoreJob,
       updateJobStatus: host.updateJobStatus,

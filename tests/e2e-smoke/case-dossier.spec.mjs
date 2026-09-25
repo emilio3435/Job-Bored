@@ -232,9 +232,9 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
   await page.waitForTimeout(3_000);
 
   await seedPipelineThroughApp(page, fixtureJobs());
-  // Legacy kanban is display:none under body.jb-v2; dawn-data still reads
-  // the hidden cards. Assert attached, not visible.
-  await expect(page.locator('.kanban-card[data-stable-key="0"]')).toBeAttached({
+  // DS-08: under body.jb-v2 the legacy renderer builds no .kanban-card; the
+  // v2 board's sticker is the "seeded" signal.
+  await expect(page.locator('[data-region="pipeline"] .pipe-sticker[data-stable-key="0"]')).toBeAttached({
     timeout: 10_000,
   });
   await expect(page.locator(DEMO_BOARD)).toHaveCount(0);

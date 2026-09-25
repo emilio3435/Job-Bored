@@ -118,24 +118,38 @@ test("?jb-v2=0 still renders the legacy board and announces it", async ({ page }
   expect(fence.unexpectedExternal).toEqual([]);
 });
 
-// DS-08 gate proof. Expected to fail until the legacy renderer stops building
-// #jobCards under body.jb-v2. That gate is blocked outside lane cA: dawn-data.js
-// (jobsFromCards, getPipelineViewModel), flowing-store.js lookupJobMeta and
-// pipeline.js still read the legacy .kanban-card nodes, so gating today blanks
-// the v2 views. Whoever lands the gate removes `test.fail` and this goes green;
-// until then Playwright reports "expected to fail", and it turns red the moment
-// the gate lands without the marker being removed.
+// DS-08 gate proof: under body.jb-v2 the legacy renderer builds no #jobCards
+// DOM, and every v2 surface still gets its rows (they read
+// pipelineRender.getBoardCardModels() / getPipelineJobs(), not .kanban-card).
 test("v2: the boot builds no legacy pipeline nodes (DS-08 gate)", async ({ page }) => {
-  test.fail(true, "DS-08 gate blocked on dawn-data.js moving to getPipelineJobs() (lane cA handoff)");
   const fence = await boot(page, "/?greenfield=1");
   expect(await page.evaluate(() => document.body.classList.contains("jb-v2"))).toBe(true);
 
   await seed(page, THREE);
-  // The v2 board must still show every row once the gate lands.
+  // The v2 board still shows every row.
   await expect(page.locator('[data-region="pipeline"] .pipe-sticker[data-stable-key]')).toHaveCount(3);
   expect(await page.evaluate(() => window.__jbRendered)).toEqual([3]);
+  await expect.poll(() => page.evaluate(() => window.JobBoredDawn._lastVM && window.JobBoredDawn._lastVM.total)).toBe(3);
   expect(fence.unexpectedExternal).toEqual([]);
 
   // The gate itself: no legacy card nodes under v2.
   expect(await page.locator("#jobCards .kanban-card").count()).toBe(0);
+});
+
+test("JB_V2.disable() draws the legacy board the v2 gate skipped", async ({ page }) => {
+  const fence = await boot(page, "/?greenfield=1");
+  await seed(page, THREE);
+  expect(await page.locator("#jobCards .kanban-card").count()).toBe(0);
+
+  await page.evaluate(() => window.JB_V2.disable());
+  const cards = page.locator("#jobCards .pipeline-board .kanban-card[data-stable-key]");
+  await expect(cards).toHaveCount(3);
+  await expect(cards.first()).toBeVisible();
+
+  // Turning v2 back on drops the legacy board again.
+  await page.evaluate(() => window.JB_V2.enable());
+  await expect(page.locator("#jobCards .kanban-card")).toHaveCount(0);
+  await expect(page.locator('[data-region="pipeline"] .pipe-sticker[data-stable-key]')).toHaveCount(3);
+
+  expect(fence.unexpectedExternal).toEqual([]);
 });
