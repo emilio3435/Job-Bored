@@ -1,0 +1,12 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+Listing tests:
+  greenfield-onboarding.spec.mjs:451:1 › VAL-WIZ-001: login gate sign-in opens the first-run wizard
+  greenfield-onboarding.spec.mjs:458:1 › VAL-WIZ-002: Sheet and provider steps hand off to profile onboarding
+  greenfield-onboarding.spec.mjs:465:1 › VAL-WIZ-003: completion survives a clean-URL reload and Settings reopens setup
+  greenfield-remediation.spec.mjs:191:1 › E1 Beat 3 is gated on Beat 2
+  greenfield-remediation.spec.mjs:246:1 › E2 Pasted resume survives Escape and reload
+  greenfield-remediation.spec.mjs:277:1 › E3 Drawer setup lands in OneFlow
+  greenfield-remediation.spec.mjs:291:1 › E4 Beat 1 never punts to Settings
+  greenfield-remediation.spec.mjs:308:1 › E5 Payoff is honest
+  greenfield-remediation.spec.mjs:336:1 › E6 Settings shows receipts
+Total: 9 tests in 2 files

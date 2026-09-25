@@ -482,9 +482,20 @@ test("should give beat 3's template grid a way back, with the pasted draft intac
   const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
   await bootColdStart(page, fence);
 
+  // GREENFIELD §4.1 gates Beat 3 on Beat 2, so a jump straight to "resume"
+  // from a fresh install lands on "ai". Stage Beat 2 as complete; Beat 1 is
+  // left alone because this hermetic visit has no Sheet, and a "google"
+  // receipt without a Sheet is exactly what reconcileStaleCompletion resets.
+  // The invitation then resumes the saved beat.
+  await page.evaluate(async () => {
+    await globalThis.CommandCenterUserContent.saveOnboardingFlowState({
+      beat: "resume",
+      completedBeats: ["ai"],
+      completed: false,
+    });
+  });
   await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toBeVisible();
-  await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("resume"));
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
     "data-beat-id",
     "resume",

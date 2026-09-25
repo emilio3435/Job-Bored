@@ -79,6 +79,22 @@
     return [GEMINI_FLASH_OPTION, ...rest];
   }
 
+  /**
+   * The one default model per provider. Beat 2 offers it on a fresh install
+   * and Settings falls back to it when a model field is left blank; before
+   * this table the two disagreed (Settings still saved gpt-4o-mini and
+   * claude-sonnet-4-6 while the beat had moved to gpt-5.6-terra and
+   * claude-sonnet-5), so a save from Settings silently downgraded the model
+   * the flow had just verified (GREENFIELD D5).
+   */
+  const DEFAULT_MODEL_BY_PROVIDER = Object.freeze({
+    openrouter: "openai/gpt-oss-120b:free",
+    gemini: "gemini-flash",
+    openai: "gpt-5.6-terra",
+    anthropic: "claude-sonnet-5",
+    local: "gemma4:e2b",
+  });
+
   const STATIC_FALLBACK = {
     gemini: [
       GEMINI_FLASH_OPTION,
@@ -546,6 +562,7 @@
 
   window.JobBoredModelCatalog = {
     STATIC: STATIC_FALLBACK,
+    DEFAULT_MODEL_BY_PROVIDER,
     getStaticModels,
     fetchProviderModels,
     pingProvider,

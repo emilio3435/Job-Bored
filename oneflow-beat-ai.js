@@ -102,7 +102,6 @@
       note: "Recommended. Free tier, no card, works straight from the browser.",
       keyField: "resumeOpenRouterApiKey",
       modelField: "resumeOpenRouterModel",
-      defaultModel: "openai/gpt-oss-120b:free",
       keyPlaceholder: "sk-or-…",
       signupUrl: "https://openrouter.ai/keys",
       signupLabel: "Create a free OpenRouter account ↗",
@@ -114,8 +113,6 @@
       note: "Free tier, and it lights up URL import and grounded search.",
       keyField: "resumeGeminiApiKey",
       modelField: "resumeGeminiModel",
-      // Use the Gemini Flash family alias as the default; HTTP falls back to a pinned snapshot when needed.
-      defaultModel: "gemini-flash",
       keyPlaceholder: "AIza…",
       signupUrl: "https://aistudio.google.com/app/apikey",
       signupLabel: "Create a free Gemini key ↗",
@@ -127,7 +124,6 @@
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeOpenAIApiKey",
       modelField: "resumeOpenAIModel",
-      defaultModel: "gpt-5.6-terra",
       keyPlaceholder: "sk-…",
       signupUrl: "https://platform.openai.com/api-keys",
       signupLabel: "Create an OpenAI key ↗",
@@ -139,7 +135,6 @@
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeAnthropicApiKey",
       modelField: "resumeAnthropicModel",
-      defaultModel: "claude-sonnet-5",
       keyPlaceholder: "sk-ant-…",
       signupUrl: "https://console.anthropic.com/settings/keys",
       signupLabel: "Create an Anthropic key ↗",
@@ -151,7 +146,6 @@
       note: "No key, no cost. Needs a model server (Ollama) already running.",
       keyField: "",
       modelField: "resumeLocalModel",
-      defaultModel: "gemma4:e2b",
       baseUrlField: "resumeLocalBaseUrl",
       baseUrlPlaceholder: "http://127.0.0.1:11434/v1",
       cors: false,
@@ -492,7 +486,26 @@
   // ---------------------------------------------------------------
 
   function liveConfig() {
-    return (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+    if (typeof window === "undefined") return {};
+    const core = window.JobBoredApp && window.JobBoredApp.configCore;
+    if (core && typeof core.getEffectiveConfig === "function") {
+      const resolved = core.getEffectiveConfig();
+      if (resolved && typeof resolved === "object") return resolved;
+    }
+    return window.COMMAND_CENTER_CONFIG || {};
+  }
+
+  /**
+   * Read lazily: model-catalog.js loads after this file in index.html, so a
+   * default captured at parse time would be undefined at runtime and green
+   * in every node test.
+   */
+  function defaultModelFor(providerId) {
+    const catalog =
+      typeof window !== "undefined" && window.JobBoredModelCatalog;
+    const table = catalog && catalog.DEFAULT_MODEL_BY_PROVIDER;
+    const model = table && table[providerId];
+    return typeof model === "string" ? model : "";
   }
 
   function resolveModel(def) {
@@ -501,7 +514,7 @@
       def.modelField && typeof cfg[def.modelField] === "string"
         ? cfg[def.modelField].trim()
         : "";
-    return fromCfg || def.defaultModel || "";
+    return fromCfg || defaultModelFor(def.id);
   }
 
   function resolveJobBoredApiUrl() {
@@ -726,6 +739,8 @@
     getSelectedProvider() {
       return state.provider;
     },
+    /** The catalog-resolved default for a provider id (GREENFIELD D5). */
+    defaultModelFor,
     didWriteGeminiKeyThrough() {
       return state.geminiWroteThrough;
     },

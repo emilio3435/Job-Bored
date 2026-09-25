@@ -570,13 +570,18 @@ describe("§7 · the drawer's Connection section is one button", () => {
     );
   });
 
-  it("the one button opens the discovery wizard the beats also use", () => {
+  it("the one button opens the six-beat flow at Beat 5", () => {
+    // GREENFIELD C1: it used to call requestDiscoverySetup, which opens the
+    // LEGACY three-step wizard — a second onboarding surface beside the
+    // beats (GREENFIELD-SPEC §1 F3). The legacy call survives only as the
+    // fallback for a page without onboarding-flow.js.
     const source = read("discovery-setup-modals.js");
     const fnIdx = source.indexOf("function initDiscoverySetupGuide()");
     assert.notEqual(fnIdx, -1);
     const body = source.slice(fnIdx, fnIdx + 2000);
     assert.match(body, /settingsDiscoveryOpenSetupBtn/);
-    assert.match(body, /requestDiscoverySetup/);
+    assert.match(body, /oneFlow\.open\("discovery", \{ returnTo: "close" \}\)/);
+    assert.match(body, /requestDiscoverySetup/, "the fallback stays reachable");
     assert.match(body, /entryPoint: "settings"/);
   });
 });

@@ -111,6 +111,42 @@
   color: var(--text);
 }
 
+/* ── Receipts (GREENFIELD D4) ────────────────────────────────────────
+   The Google and AI panels open with what setup already collected, so the
+   fields below read as "change this", not "fill this in". Selectors are
+   scoped under .settings-receipt so `body.jb-v2 p` (0,1,1) cannot outrank
+   the state line. ──────────────────────────────────────────────────── */
+.settings-receipt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-3);
+  flex-wrap: wrap;
+  margin-bottom: var(--space-4);
+  padding: var(--space-3) var(--space-4);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--divider);
+  background: var(--surface-2);
+}
+
+.settings-receipt .settings-receipt__state {
+  margin: 0;
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--text);
+}
+
+.settings-receipt .settings-receipt__state[data-connected="0"] {
+  font-weight: 500;
+  color: var(--text-muted, var(--text));
+}
+
+.settings-receipt .settings-receipt__btn {
+  flex-shrink: 0;
+}
+
 /* ── Modal structure overrides for tabbed layout ────────────────────── */
 .settings-modal--tabbed {
   display: flex;

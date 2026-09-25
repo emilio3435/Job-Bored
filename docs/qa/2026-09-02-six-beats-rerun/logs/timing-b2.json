@@ -1,0 +1,34 @@
+[
+  {
+    "ms": 61,
+    "key": "[\"ai\",null,[\"◌ Checking your key…\"],true]",
+    "beat": "ai",
+    "msg": null,
+    "tone": null,
+    "stages": [
+      "◌ Checking your key…"
+    ],
+    "primaryDisabled": true
+  },
+  {
+    "ms": 1612,
+    "key": "[\"ai\",null,[\"✓ Checking your key…\",\"✓ ✓ Connected — gemini-3.5-flash responded\"],true]",
+    "beat": "ai",
+    "msg": null,
+    "tone": null,
+    "stages": [
+      "✓ Checking your key…",
+      "✓ ✓ Connected — gemini-3.5-flash responded"
+    ],
+    "primaryDisabled": true
+  },
+  {
+    "ms": 1718,
+    "key": "[\"resume\",null,[],false]",
+    "beat": "resume",
+    "msg": null,
+    "tone": null,
+    "stages": [],
+    "primaryDisabled": false
+  }
+]

@@ -1,0 +1,304 @@
+<title>Greenfield Remediation Roadmap</title>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,500;9..144,700&family=Source+Sans+3:ital,wght@0,400;0,600;1,400&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+  :root {
+    --paper: #F6F3EA;
+    --surface: #FFFEF9;
+    --ink: #1E2A24;
+    --muted: #5C6B62;
+    --line: #DCD6C3;
+    --moss: #2F7D5B;
+    --moss-soft: #E3F0E8;
+    --p0: #A33F2A;  --p0-soft: #F7E3DD;
+    --p1: #A8711C;  --p1-soft: #F8EBD3;
+    --p2: #35648F;  --p2-soft: #DFE9F3;
+    --fixed: #2F7D5B; --fixed-soft: #E3F0E8;
+    --display: "Fraunces", "Iowan Old Style", Georgia, serif;
+    --body: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --paper: #161A17; --surface: #1F2521; --ink: #E9E5D9; --muted: #A5AFA8; --line: #333B35;
+      --moss: #6FBF93; --moss-soft: #1F3A2C;
+      --p0: #E58A72; --p0-soft: #3E2620; --p1: #E0B15A; --p1-soft: #3C3019; --p2: #8DB4DC; --p2-soft: #1F2E3E;
+      --fixed: #6FBF93; --fixed-soft: #1F3A2C;
+    }
+  }
+  :root[data-theme="dark"] {
+    --paper: #161A17; --surface: #1F2521; --ink: #E9E5D9; --muted: #A5AFA8; --line: #333B35;
+    --moss: #6FBF93; --moss-soft: #1F3A2C;
+    --p0: #E58A72; --p0-soft: #3E2620; --p1: #E0B15A; --p1-soft: #3C3019; --p2: #8DB4DC; --p2-soft: #1F2E3E;
+    --fixed: #6FBF93; --fixed-soft: #1F3A2C;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink); font-family: var(--body); font-size: 16px; line-height: 1.5; }
+  .wrap { max-width: 1120px; margin: 0 auto; padding: 40px 28px 72px; display: grid; gap: 44px; }
+  h1, h2, h3 { font-family: var(--display); font-weight: 700; margin: 0; text-wrap: balance; letter-spacing: -0.01em; }
+  h1 { font-size: clamp(34px, 5vw, 50px); line-height: 1.05; }
+  h2 { font-size: 26px; line-height: 1.15; }
+  h3 { font-size: 18px; font-weight: 600; }
+  p { margin: 0; max-width: 68ch; }
+  code, .path { font-family: var(--mono); font-size: 0.82em; }
+  .path { color: var(--muted); }
+  .eyebrow { font-family: var(--mono); font-size: 12px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--muted); }
+  .lede { font-size: 19px; color: var(--ink); max-width: 62ch; }
+  .muted { color: var(--muted); }
+  a { color: var(--moss); }
+
+  header { display: grid; gap: 14px; }
+  .thesis { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 14px; margin-top: 8px; }
+  .thesis div { border-top: 2px solid var(--moss); padding-top: 10px; }
+  .thesis strong { display: block; font-family: var(--display); font-size: 20px; font-weight: 600; }
+  .thesis span { color: var(--muted); font-size: 15px; }
+
+  /* Spine, echoing the six-beat onboarding rail */
+  .spine { display: grid; grid-template-columns: repeat(6, 1fr); gap: 10px; }
+  .beat { display: grid; gap: 8px; }
+  .beat .bar { height: 6px; border-radius: 3px; background: var(--line); }
+  .beat[data-state="fixed"] .bar { background: var(--fixed); }
+  .beat[data-state="residual"] .bar { background: var(--p0); }
+  .beat[data-state="structural"] .bar { background: var(--p1); }
+  .beat[data-state="clean"] .bar { background: var(--moss); opacity: .45; }
+  .beat .name { font-family: var(--mono); font-size: 11px; letter-spacing: .1em; text-transform: uppercase; color: var(--muted); }
+  .beat .what { font-size: 14px; line-height: 1.35; }
+  .chip { display: inline-block; font-family: var(--mono); font-size: 11px; letter-spacing: .06em; text-transform: uppercase; padding: 2px 8px; border-radius: 999px; line-height: 1.6; white-space: nowrap; }
+  .chip.fixed { background: var(--fixed-soft); color: var(--fixed); }
+  .chip.residual { background: var(--p0-soft); color: var(--p0); }
+  .chip.structural { background: var(--p1-soft); color: var(--p1); }
+  .chip.clean { background: var(--moss-soft); color: var(--moss); }
+  .chip.p0 { background: var(--p0-soft); color: var(--p0); }
+  .chip.p1 { background: var(--p1-soft); color: var(--p1); }
+  .chip.p2 { background: var(--p2-soft); color: var(--p2); }
+
+  section { display: grid; gap: 18px; }
+  .section-head { display: flex; align-items: baseline; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+
+  /* Findings table */
+  .findings { display: grid; gap: 0; border-top: 1px solid var(--line); }
+  .finding { display: grid; grid-template-columns: 28px 1.2fr 110px 1.6fr; gap: 16px; padding: 14px 0; border-bottom: 1px solid var(--line); align-items: start; }
+  .finding .n { font-family: var(--display); font-size: 20px; color: var(--muted); }
+  .finding .title { font-weight: 600; }
+  .finding .sub { color: var(--muted); font-size: 14px; }
+  .finding .fix { font-size: 15px; }
+  .finding .fix .path { display: block; margin-top: 4px; }
+
+  /* Phase board */
+  .board { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; align-items: start; }
+  .col { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 12px; }
+  .col header { display: flex; align-items: center; justify-content: space-between; gap: 8px; }
+  .col h3 { font-size: 17px; }
+  .col .meta { font-size: 13px; color: var(--muted); }
+  .item { display: grid; gap: 3px; padding-top: 10px; border-top: 1px dashed var(--line); font-size: 15px; }
+  .item:first-of-type { border-top: 0; padding-top: 0; }
+  .item b { font-weight: 600; }
+  .item .path { font-size: 12px; }
+  .item .eff { font-size: 12px; color: var(--muted); font-family: var(--mono); }
+  .col[data-p="p0"] { border-top: 4px solid var(--p0); }
+  .col[data-p="p1"] { border-top: 4px solid var(--p1); }
+  .col[data-p="p2"] { border-top: 4px solid var(--p2); }
+
+  /* Tier flow */
+  .flow { display: grid; grid-template-columns: 1fr auto 1fr auto 1fr; gap: 10px; align-items: center; }
+  .node { background: var(--surface); border: 1px solid var(--line); border-radius: 10px; padding: 14px; display: grid; gap: 4px; font-size: 14px; }
+  .node .k { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); }
+  .node b { font-family: var(--display); font-size: 17px; font-weight: 600; }
+  .arrow { color: var(--muted); font-size: 20px; text-align: center; }
+  .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 14px; }
+  .tier { border: 1px solid var(--line); border-radius: 10px; padding: 16px; display: grid; gap: 8px; background: var(--surface); }
+  .tier .k { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--moss); }
+  .tier ul { margin: 0; padding-left: 18px; font-size: 14px; }
+  .tier li { margin: 2px 0; }
+  .tier .model { font-family: var(--mono); font-size: 12px; color: var(--muted); }
+
+  /* Compact tables */
+  table { border-collapse: collapse; width: 100%; font-size: 15px; }
+  th, td { text-align: left; padding: 9px 12px 9px 0; border-bottom: 1px solid var(--line); vertical-align: top; }
+  th { font-family: var(--mono); font-size: 11px; letter-spacing: .08em; text-transform: uppercase; color: var(--muted); font-weight: 500; }
+  td.num { font-variant-numeric: tabular-nums; font-family: var(--mono); font-size: 14px; white-space: nowrap; }
+  .scroll { overflow-x: auto; }
+
+  .two { display: grid; grid-template-columns: 1.1fr .9fr; gap: 28px; align-items: start; }
+  .callout { background: var(--surface); border: 1px solid var(--line); border-left: 4px solid var(--p1); border-radius: 8px; padding: 16px 18px; display: grid; gap: 8px; font-size: 15px; }
+  .callout h3 { font-size: 16px; }
+  .callout ul { margin: 0; padding-left: 18px; }
+  .callout li { margin: 4px 0; }
+
+  .constraints { display: flex; flex-wrap: wrap; gap: 8px; }
+  .constraints span { border: 1px solid var(--line); border-radius: 999px; padding: 4px 12px; font-size: 13px; color: var(--muted); background: var(--surface); }
+
+  footer { border-top: 1px solid var(--line); padding-top: 18px; font-size: 14px; color: var(--muted); display: grid; gap: 6px; }
+
+  @media (max-width: 860px) {
+    .thesis, .board, .tiers { grid-template-columns: 1fr; }
+    .spine { grid-template-columns: repeat(3, 1fr); }
+    .finding { grid-template-columns: 24px 1fr; }
+    .finding .chip-cell { grid-column: 2; }
+    .finding .fix { grid-column: 2; }
+    .flow { grid-template-columns: 1fr; }
+    .arrow { transform: rotate(90deg); }
+    .two { grid-template-columns: 1fr; }
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .beat .bar { transition: background .2s; }
+  }
+</style>
+
+<div class="wrap">
+  <header>
+    <div class="eyebrow">JobBored · greenfield walkthrough vs. main @ 04433c6 · 2026-09-02</div>
+    <h1>Greenfield Remediation Roadmap</h1>
+    <p class="lede">A stranger clones the repo, runs <code>npm start</code>, and reaches a scored board — without a Google Cloud Console detour, a dead AI call, or a lost keystroke. Free tiers, their own keys, their own Sheet, no hosted backend.</p>
+    <div class="thesis">
+      <div><strong>2 of 6 already closed</strong><span>The Beat 6 modal is fixed on main; the draft-loss and provider fixes landed this morning. The report text is stale.</span></div>
+      <div><strong>4 residual fixes, ~2 days</strong><span>Small, testable, file-specific. Ship this week on one branch through the normal PR gate.</span></div>
+      <div><strong>1 structural unlock</strong><span>A maintainer-published Client ID plus the non-sensitive <code>drive.file</code> scope removes the Cloud Console from the default path.</span></div>
+    </div>
+  </header>
+
+  <section>
+    <div class="section-head">
+      <h2>The six beats, as the code stands today</h2>
+      <span class="muted">Bar color: <span class="chip fixed">fixed</span> <span class="chip residual">residual</span> <span class="chip structural">structural</span> <span class="chip clean">no finding</span></span>
+    </div>
+    <div class="spine">
+      <div class="beat" data-state="structural"><div class="bar"></div><div class="name">Google</div><div class="what">Cloud Console Client ID is the drop-off. Sensitive <code>spreadsheets</code> scope; no-ID users get punted into Settings.</div></div>
+      <div class="beat" data-state="residual"><div class="bar"></div><div class="name">AI</div><div class="what">Skippable without verifying a key. No beat-ordering gate, so Beat 3 inherits an empty default provider.</div></div>
+      <div class="beat" data-state="residual"><div class="bar"></div><div class="name">Resume</div><div class="what">Server is provider-agnostic now. Client still forwards <code>gemini</code> with no key; drafts persist but nothing flushes on unload.</div></div>
+      <div class="beat" data-state="clean"><div class="bar"></div><div class="name">Your fit</div><div class="what">OK in this walk. Reload-emptiness (rerun NEW-14) was fixed in the same commit as the drafts.</div></div>
+      <div class="beat" data-state="residual"><div class="bar"></div><div class="name">Discovery</div><div class="what">Beat itself is fine. The drawer's "Open discovery setup" still opens the legacy 3-step transport wizard.</div></div>
+      <div class="beat" data-state="fixed"><div class="bar"></div><div class="name">Done</div><div class="what">Modal collision fixed by <code>b231c0d</code>. New: the payoff fires "Run discovery now" with no Sheet and no roles.</div></div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Six findings, three buckets</h2></div>
+    <div class="findings">
+      <div class="finding">
+        <div class="n">1</div>
+        <div><div class="title">Google OAuth / Sheet setup friction</div><div class="sub">Every user mints their own OAuth client because the scope is sensitive and there is no shared one.</div></div>
+        <div class="chip-cell"><span class="chip structural">structural</span></div>
+        <div class="fix">Ship a maintainer Client ID for localhost / 127.0.0.1 / Pages origins; narrow to <code>drive.file</code> so it needs no Google verification. Never punt to Settings from the wizard.<span class="path">auth-session.js:22 · app-config-core.js:192 · sheet-access-setup.js:636 · config.example.js</span></div>
+      </div>
+      <div class="finding">
+        <div class="n">2</div>
+        <div><div class="title">"Missing Gemini API key" on Beat 3</div><div class="sub">Server honors <code>{provider, apiKey}</code> since <code>1feb7c7</code>. Beat 3 sends the default provider when Beat 2 was skipped.</div></div>
+        <div class="chip-cell"><span class="chip residual">residual · P0</span></div>
+        <div class="fix">Forward only a verified provider; inline "Connect AI first" that jumps to Beat 2; gate <code>resume</code> on <code>ai</code> in the flow.<span class="path">oneflow-beat-resume.js:186 · onboarding-flow.js:614 · fit-profile-wizard.js:168</span></div>
+      </div>
+      <div class="finding">
+        <div class="n">3</div>
+        <div><div class="title">Resume text lost on Escape + reload</div><div class="sub">Debounced <code>saveDraft</code> + hydrate exist since <code>d1a35d6</code>. Saves only on <code>input</code>; no <code>pagehide</code> flush; no Beat 3 reload test.</div></div>
+        <div class="chip-cell"><span class="chip residual">residual · P0</span></div>
+        <div class="fix">Save on <code>change</code>/<code>paste</code> too, sync-mirror to localStorage, await the flush before the pause toast, flush on <code>pagehide</code>. Red-first Playwright twin of SB2-FIT-RELOAD.<span class="path">oneflow-beat-resume.js:364 · onboarding-flow.js:313, :778</span></div>
+      </div>
+      <div class="finding">
+        <div class="n">4</div>
+        <div><div class="title">Celebration modal masks Beat 6</div><div class="sub">Already a non-blocking burst: <code>pointer-events: none</code>, <code>role="status"</code>, 2.5 s. The report's own screenshot shows the burst.</div></div>
+        <div class="chip-cell"><span class="chip fixed">fixed</span></div>
+        <div class="fix">No code change. Amend the walkthrough prompt so every verdict must cite its own media. Bonus P0: make the payoff honest when Sheet or roles are missing.<span class="path">tests/e2e-visual/finale-burst.spec.mjs:151 · oneflow-beat-payoff.js:549</span></div>
+      </div>
+      <div class="finding">
+        <div class="n">5</div>
+        <div><div class="title">Drawer opens the legacy 3-step wizard</div><div class="sub">One handler still calls <code>requestDiscoverySetup</code>, which routes to the old shell.</div></div>
+        <div class="chip-cell"><span class="chip residual">residual · P0</span></div>
+        <div class="fix">Call <code>JobBoredOneFlow.open("discovery")</code> with the old call as fallback. Keep the legacy wizard for its 15 repair call sites; rename it "Advanced transports".<span class="path">discovery-setup-modals.js:140 · tests/oneflow-l7-sweep.test.mjs:592</span></div>
+      </div>
+      <div class="finding">
+        <div class="n">6</div>
+        <div><div class="title">Settings re-asks for everything</div><div class="sub">Real but smaller: Settings has 7 tabs, not 12. Two writers plus one raw-localStorage bypass share one key; model defaults are stale.</div></div>
+        <div class="chip-cell"><span class="chip structural">structural · P1</span></div>
+        <div class="fix">One contract (<code>COMMAND_CENTER_OVERRIDE_KEYS</code>) + <code>getEffectiveConfig()</code>; tabs become receipts with a "Change" that deep-links into the beat; merge Setup + Sheet; drop webhook fields the drawer owns.<span class="path">config-overrides.js:23 · settings-profile-tab.js:797 · settings-tab-schema.js:18</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Three phases</h2><span class="muted">Effort is engineer-hours on one lane. Nothing adds a hosted service, a paid API, or a database outside the user's machine and Sheet.</span></div>
+    <div class="board">
+      <div class="col" data-p="p0">
+        <header><h3>Phase 1 · Critical greenfield fixes</h3><span class="chip p0">P0 · ~2 days</span></header>
+        <div class="item"><b>Verified-provider guard + Beat 2 gate</b><span class="path">oneflow-beat-resume.js · onboarding-flow.js</span><span class="eff">5 h</span></div>
+        <div class="item"><b>Draft flush hardening + Beat 3 reload test</b><span class="path">oneflow-beat-resume.js · onboarding-flow.js</span><span class="eff">3 h</span></div>
+        <div class="item"><b>Drawer setup → OneFlow Beat 5</b><span class="path">discovery-setup-modals.js:140</span><span class="eff">1 h</span></div>
+        <div class="item"><b>Beat 1 never punts to Settings</b><span class="path">sheet-access-setup.js:636</span><span class="eff">2 h</span></div>
+        <div class="item"><b>Payoff honesty: gate "Run discovery now"</b><span class="path">oneflow-beat-payoff.js</span><span class="eff">3 h</span></div>
+        <div class="item"><b>Close #4; walkthrough prompt cites media</b><span class="path">docs/qa/GEMINI-GREENFIELD-WALKTHROUGH-PROMPT.md</span><span class="eff">30 min</span></div>
+      </div>
+      <div class="col" data-p="p1">
+        <header><h3>Phase 2 · Onboarding ergonomics</h3><span class="chip p1">P1 · ~1.5 wk</span></header>
+        <div class="item"><b>Scope → <code>drive.file</code>; Picker for existing sheets</b><span class="path">auth-session.js · google-sheet-capability.js</span><span class="eff">2 d · lands first</span></div>
+        <div class="item"><b>Maintainer Client ID as the default; own client under Advanced</b><span class="path">config.example.js · oneflow-beat-google.js</span><span class="eff">1 d</span></div>
+        <div class="item"><b>Settings unification: contract, receipts, deep links, tab collapse</b><span class="path">app-config-core.js · settings-*.js</span><span class="eff">3 d</span></div>
+        <div class="item"><b>Client-side extraction for static deploys</b><span class="path">profile-from-resume-prompt.js (shared)</span><span class="eff">2 d</span></div>
+        <div class="item"><b>Legacy wizard → "Advanced transports"</b><span class="path">discovery-wizard-shell.js</span><span class="eff">1 d</span></div>
+        <div class="item"><b>Conditional: "Sheet later" local pipeline</b><span class="path">worker PipelineWriter · sheets-read-load.js</span><span class="eff">1–2 wk · only if Beat 1 still drops</span></div>
+      </div>
+      <div class="col" data-p="p2">
+        <header><h3>Phase 3 · Cost-conscious intelligence</h3><span class="chip p2">P2 · ~2 wk</span></header>
+        <div class="item"><b>Tiered pin: <code>llm.json</code> {default, tiers} + <code>task</code> through all three clients</b><span class="path">server/llm-config.mjs · resume-generate.js · chat-provider.ts</span><span class="eff">3 d · after BATCHSCORE</span></div>
+        <div class="item"><b>Catalog tier metadata; "Bulk" / "Writing" selects</b><span class="path">model-catalog.js · settings-modal.js</span><span class="eff">1 d</span></div>
+        <div class="item"><b>Server caches: rescore skip, scorecard hash, drafts hash</b><span class="path">profile-rescore-worker.mjs · ats-scorecard.mjs</span><span class="eff">2 d</span></div>
+        <div class="item"><b>SerpApi budget: counter, quota parse, rotation, seen-URL skip</b><span class="path">serpapi-google-jobs.ts · discovery-memory-store.ts</span><span class="eff">3 d</span></div>
+        <div class="item"><b>Free lane widening: 10 ATS providers in scout; company watchlist</b><span class="path">run-discovery.ts:470 · discovery-payload.js</span><span class="eff">2 d</span></div>
+      </div>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Model tiering on the pin that already exists</h2></div>
+    <div class="flow">
+      <div class="node"><div class="k">today</div><b>One pin</b><span><code>~/.jobbored/llm.json</code> holds one <code>{provider, model, key}</code>. Browser, server, and worker all read it. No call site says what it is for.</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="k">change</div><b>Task → tier → pin</b><span>Each call names its task (<code>extract · score · scout · critique · write</code>). A resolver maps task to tier. A flat file still means "one model for everything".</span></div>
+      <div class="arrow">→</div>
+      <div class="node"><div class="k">effect</div><b>Bulk work goes free by default</b><span>Scoring, extraction, and scout run on free tiers; the frontier key is spent only on documents a hiring manager reads.</span></div>
+    </div>
+    <div class="tiers">
+      <div class="tier"><div class="k">Tier 1 · Bulk</div><h3>High volume, schema-shaped</h3><ul><li>Profile extraction, posting enrichment</li><li>Listing scoring (12 per call), matcher, rescore</li><li>Grounded scout queries</li></ul><div class="model">gemini-3.5-flash free · openai/gpt-oss-120b:free · gemma4:e2b</div></div>
+      <div class="tier"><div class="k">Tier 2 · Writing</div><h3>Low volume, visible quality</h3><ul><li>Materials writer + editor loop (1–3 calls per application)</li><li>Resume and cover-letter synthesis</li><li>Optionally the ATS critique</li></ul><div class="model">claude-sonnet-5 · gpt-5.6-terra · falls back to Tier 1 when unset</div></div>
+      <div class="tier"><div class="k">Tier 3 · Local</div><h3>Offline, zero cost</h3><ul><li>Ollama via the <code>local</code> provider, already wired on all three surfaces</li><li>Fine for Tier 1; slow for Tier 2 on laptops</li></ul><div class="model">model-download.js pulls gemma4:e2b</div></div>
+    </div>
+  </section>
+
+  <section class="two">
+    <div>
+      <div class="section-head"><h2>Discovery inside 100 free searches</h2></div>
+      <p class="muted" style="margin:10px 0 14px">Free-first lane order already exists (memory → ATS → grounded → SerpApi). What is missing is counting, skipping, and rotating.</p>
+      <div class="scroll"><table>
+        <thead><tr><th>Lever</th><th>Today</th><th>After</th></tr></thead>
+        <tbody>
+          <tr><td>Credits per run</td><td class="num">≤5, always</td><td class="num">0–3, only new rungs</td></tr>
+          <tr><td>Runs per month on 100</td><td class="num">20</td><td class="num">daily</td></tr>
+          <tr><td>Quota awareness</td><td>none; 429 mapped to a generic warning</td><td>persisted monthly counter; "N of 100 left" in the drawer</td></tr>
+          <tr><td>Skip when satisfied</td><td>never</td><td>zero credits if memory + ATS hit <code>maxLeadsPerRun</code></td></tr>
+          <tr><td>Seen-URL suppression on SerpApi</td><td>in-run only</td><td>cross-run via <code>listing_fingerprints</code></td></tr>
+          <tr><td>ATS providers in the free scout</td><td class="num">3 of 10</td><td class="num">10 of 10</td></tr>
+          <tr><td>Company watchlist</td><td>LLM strata only</td><td>user-editable list feeds <code>companyAllowlist</code></td></tr>
+        </tbody>
+      </table></div>
+    </div>
+    <div class="callout">
+      <h3>What the walkthrough got wrong</h3>
+      <ul>
+        <li><b>Step 17 is stale.</b> The modal was retired by <code>b231c0d</code>, an ancestor of the build it claims to test. Its own screenshot shows the burst and step 18's click succeeds.</li>
+        <li><b>Step 23 conflates two surfaces.</b> Search, Sources, Automation, Connection, and History are discovery-drawer tabs, not Settings tabs.</li>
+        <li><b>Step 12 is a skipped Beat 2, not env coupling.</b> The error copy shown is the request-origin branch: the browser sent <code>gemini</code> with an empty key.</li>
+        <li><b>Step 22 likely used <code>fill()</code>.</b> Programmatic value sets never fire <code>input</code>, so nothing saved. Real hazard, different cause.</li>
+      </ul>
+      <p class="muted">Every future walkthrough verdict must cite its own media and be re-checked on a live dev-server before it enters a program.</p>
+    </div>
+  </section>
+
+  <section>
+    <div class="section-head"><h2>Constraints held</h2></div>
+    <div class="constraints">
+      <span>Static vanilla front end</span><span>Optional local Express server</span><span>Local discovery worker</span><span>Google Sheet stays the source of truth</span><span>BYOK for search and LLMs</span><span>No hosted backend</span><span>No paid proxies or scraping APIs</span><span>No subscription database</span>
+    </div>
+  </section>
+
+  <footer>
+    <div>Full roadmap with root causes, line-cited fixes, and tests: <code>docs/programs/greenfield-remediation-20260902/ROADMAP.md</code></div>
+    <div>Floors before any PR: <code>npm test</code> · <code>npm run lint:repo</code> · both Playwright suites · a greenfield re-walk. Phase 3 items touching <code>profile-aware-scorer.ts</code> wait for BATCHSCORE to merge.</div>
+  </footer>
+</div>

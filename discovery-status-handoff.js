@@ -1257,8 +1257,30 @@ async function resolveOneFlowEntryBeat() {
     }
     return "fit";
   }
-  if (await hasVerifiedProvider()) return "resume";
+  if (await hasVerifiedProvider()) {
+    // GREENFIELD §4.1 gates Beat 3 on Beat 2. This rung IS Beat 2's exit
+    // condition — the configured provider just answered a live check — so
+    // the ladder has to SAY so, or the controller reads the skip as an unmet
+    // prerequisite and sends a migrated user back to the AI screen.
+    seedMigratedBeats(["ai"]);
+    return "resume";
+  }
   return "ai";
+}
+
+/**
+ * Tell the controller which rungs this profile has already cleared, through
+ * the same §3.3 seed seam that hands B4 its drafted profile. In-memory by
+ * contract: the ladder re-derives it on every boot.
+ */
+function seedMigratedBeats(beatIds) {
+  const flow = oneFlow();
+  if (!flow || typeof flow.seedRuntime !== "function") return;
+  try {
+    flow.seedRuntime({ migratedBeats: beatIds });
+  } catch (e) {
+    console.warn("[JobBored] one-flow: could not seed migrated beats:", e);
+  }
 }
 
 /**
