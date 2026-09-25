@@ -148,9 +148,10 @@ GET to `/runs` and `/runs/<id>`. Every other path is 404 (for example
 `/pipeline-update` and `/health`), and any other method on an allowed path is
 405. The `?target=` query override is gone.
 
-`deploy-cloudflare-relay.mjs` writes the token into the relay block of
-`discovery-local-bootstrap.json`. The static-file server denies that file, so a
-local dashboard fetches the token from the loopback-guarded dev-server route
+`deploy-cloudflare-relay.mjs` saves the token only in
+`.jobbored-relay/credential.json` (gitignored, mode 0600); the relay block of
+`discovery-local-bootstrap.json` carries the Worker URL without it. A local
+dashboard fetches the token from the loopback-guarded dev-server route
 `GET /__proxy/discovery-relay-token`, which returns only
 `{ ok, relay: { workerUrl, relayToken, relayLocked } }`. A redeploy of the same
 Worker keeps the existing token so a dashboard's cached bearer stays valid; pass
@@ -159,6 +160,24 @@ re-reads the token once and retries. Deploy verification sends the bearer
 itself. To check a locked relay by hand, run `npm run test:discovery-webhook`
 with `RELAY_TOKEN` set (or pass `--relay-token`); without it the relay answers
 401.
+
+## GitHub Actions and the Cloudflare relay
+
+The Cloudflare relay is not a supported GitHub Actions target. It answers 401
+to any caller without the per-dashboard `RELAY_TOKEN` bearer, and the GitHub
+Actions discovery workflow (the one Settings generates and the template) sends
+no bearer, so a scheduled GitHub POST to the relay gets 401 and never reaches
+your worker.
+
+If `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` in your repo secrets is a
+`workers.dev` relay URL, migrate one of two ways:
+
+- Keep the relay and schedule from it instead: re-run
+  `npm run cloudflare-relay:deploy -- --sheet-id <your Sheet ID>` so the relay's
+  own Cloudflare Cron posts discovery, then delete the GitHub workflow.
+- Keep GitHub Actions and point `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` at your
+  worker's public URL (for example its tunnel URL ending in `/webhook`) or an
+  Apps Script `/exec` URL, never the relay.
 
 ## Hosted mode is unsupported
 
