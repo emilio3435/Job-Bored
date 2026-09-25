@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 import {
@@ -33,7 +33,10 @@ import {
   isLoopbackPeer,
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
-import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
+import {
+  buildContentSecurityPolicy,
+  extractConfigConnectOrigins,
+} from "./scripts/lib/browser-csp-policy.mjs";
 import { checkLoopbackRequestHost } from "./server/security-boundaries.mjs";
 
 export const DEFAULT_PORT = 8080;
@@ -692,6 +695,39 @@ const STATIC_SECURITY_HEADERS = {
   "referrer-policy": "no-referrer",
 };
 
+// BEAUDIT G10: the served policy admits the origins the local config.js
+// names (hosted jobBoredApiUrl, LAN Ollama, custom AI hosts). Re-read only
+// when config.js (path or mtime) changes.
+let dashboardCspCache = { key: "", policy: STATIC_SECURITY_HEADERS["content-security-policy"] };
+
+export function dashboardSecurityHeaders(configPath = join(ROOT, "config.js")) {
+  let mtimeMs = 0;
+  try {
+    mtimeMs = statSync(configPath).mtimeMs;
+  } catch {
+    mtimeMs = 0;
+  }
+  const key = `${configPath}\0${mtimeMs}`;
+  if (key !== dashboardCspCache.key) {
+    let extraConnectSrc = [];
+    if (mtimeMs) {
+      try {
+        extraConnectSrc = extractConfigConnectOrigins(readFileSync(configPath, "utf8"));
+      } catch {
+        extraConnectSrc = [];
+      }
+    }
+    dashboardCspCache = {
+      key,
+      policy: buildContentSecurityPolicy({ extraConnectSrc }),
+    };
+  }
+  return {
+    ...STATIC_SECURITY_HEADERS,
+    "content-security-policy": dashboardCspCache.policy,
+  };
+}
+
 function writeStaticGuardResponse(res, status) {
   const message =
     status === 400 ? "Bad request" : status === 403 ? "Forbidden" : "Not found";
@@ -726,7 +762,7 @@ async function serveStatic(urlPath, res) {
       res.writeHead(200, {
         "content-type": ct,
         "cache-control": "no-cache",
-        ...STATIC_SECURITY_HEADERS,
+        ...dashboardSecurityHeaders(),
       });
       res.end(data);
       return;
@@ -735,7 +771,7 @@ async function serveStatic(urlPath, res) {
     res.writeHead(200, {
       "content-type": ct,
       "cache-control": "no-cache",
-      ...STATIC_SECURITY_HEADERS,
+      ...dashboardSecurityHeaders(),
     });
     res.end(data);
   } catch {
