@@ -254,3 +254,50 @@ Tails:
 [6]   25 passed (30.4s)
 [7]   37 passed (1.1m)
 ```
+
+## Merge · feat/ux-zero-to-one into feat/ux01-shell-today (2026-09-25)
+
+Merge commit d97fa6f. One text conflict, in `index.html` `<body>` (this lane's region): lane A's C4 deleted the lattice region and `lattice.js`; this lane had only given that section an id and label. Resolved by taking lane A's deletion. No `<head>` hunk conflicted. `tests/e2e-journey/critical-journey.spec.mjs` auto-merged. No baselines conflicted or were refreshed.
+
+Leftover, harmless: `flowing-chrome.js` `VIEW_REGIONS.pipeline` still lists `"lattice"` and `flowing-chrome.css` still has two `[data-region="lattice"]` selectors; both are no-ops now the region is gone. Left for a tidy commit.
+
+Contracts touched by the merge: none. data-action, data-stable-key, expandedJobKeys, updateJobStatus and schemas/pipeline-row.v1.json are unchanged by the resolution.
+
+### Floor after the merge (HEAD d97fa6f)
+
+Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/laneC-merge-floor-<command>.log`.
+
+| Command | Result | Counts |
+|---|---|---|
+| npm run lint:repo | PASS (exit 0) | lint:tokens 34 sheets, 0 new findings |
+| npm run typecheck:repo | PASS (exit 0) | clean |
+| npm test | PASS (exit 0) | 3049 tests, 3048 pass, 0 fail, 1 todo |
+| npm run test:contract:all | PASS (exit 0) | all OK |
+| npm run test:e2e-smoke | **FAIL (exit 1)** | 11 passed, 4 failed |
+| npm run test:e2e-journey | PASS (exit 0) | 25 passed |
+| npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Floor is **not green**. The 4 smoke failures are all of `tests/e2e-smoke/board-apply.spec.mjs` (lane D, C17/C19), each timing out on `page.locator('[data-region="pipeline"]').scrollIntoViewIfNeeded()` with "element is not visible".
+
+Cause (confirmed): this lane's C18 makes views exclusive and Today the default, so the pipeline region is hidden until the Pipeline view is shown. Lane D's `bootBoard()` seeds rows and adds `jb-v2` but never selects the Pipeline view. Proof: adding the one line below after `document.body.classList.add("jb-v2");` in `bootBoard()` made all 4 pass (4 passed, 2.4s). That edit was reverted, not committed, because the file is lane D's.
+
+### Handoff (lane D, or the integrator)
+
+- File: `tests/e2e-smoke/board-apply.spec.mjs`, `bootBoard()` page.evaluate.
+- Change: after `document.body.classList.add("jb-v2");` add
+  `if (window.JobBoredFlowing && window.JobBoredFlowing.views) window.JobBoredFlowing.views.show("pipeline", { focus: false });`
+- API used: `window.JobBoredFlowing.views.show(id, { focus })` (lane C, C18), already on this branch.
+
+```
+[test:e2e-smoke]
+  4 failed
+  11 passed (6.3m)
+EXIT 1
+[test]
+ℹ tests 3049
+ℹ pass 3048
+ℹ fail 0
+ℹ todo 1
+[test:e2e-journey]  25 passed (28.9s)
+[test:e2e-visual]   37 passed (1.0m)
+```
