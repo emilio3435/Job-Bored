@@ -1260,23 +1260,6 @@ async function main() {
       }),
     };
 
-    if (args.sheetId && args.autoVerify) {
-      console.log("");
-      console.log("cloudflare-relay: verifying deployed Worker with its relay token...");
-      payload.verified = await verifyRelayDeployment({
-        workerUrl,
-        sheetId: args.sheetId,
-        relayToken,
-        log: (line) => console.log(line),
-      });
-      if (payload.verified === false) {
-        console.log("");
-        console.log(
-          "cloudflare-relay: verify step failed. The Worker may still need a moment to propagate; rerun the verify command below after a short wait.",
-        );
-      }
-    }
-
     // ====== [discovery-autodetect lane: persist relay info for dashboard auto-fill] ======
     // The dashboard polls discovery-local-bootstrap.json on every load and
     // already auto-fills localWebhookUrl, tunnelPublicUrl, and the webhook
@@ -1337,6 +1320,26 @@ async function main() {
       );
     }
     // ====== [/discovery-autodetect lane] ======
+
+    // Verify only now, after RELAY_TOKEN is live: on a first deploy or a
+    // --rotate-token run the relay does not hold relayToken until the upload
+    // above, so an earlier verify was always a 401 (verified:false).
+    if (args.sheetId && args.autoVerify) {
+      console.log("");
+      console.log("cloudflare-relay: verifying deployed Worker with its relay token...");
+      payload.verified = await verifyRelayDeployment({
+        workerUrl,
+        sheetId: args.sheetId,
+        relayToken,
+        log: (line) => console.log(line),
+      });
+      if (payload.verified === false) {
+        console.log("");
+        console.log(
+          "cloudflare-relay: verify step failed. The Worker may still need a moment to propagate; rerun the verify command below after a short wait.",
+        );
+      }
+    }
 
     if (args.json) {
       console.log(JSON.stringify(payload, null, 2));
