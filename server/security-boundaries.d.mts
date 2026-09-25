@@ -31,8 +31,20 @@ export function resolveAllowedBrowserOrigin(
     allowedOrigins?: string[];
     requestHost?: unknown;
     requestProtocol?: unknown;
+    loopbackPort?: unknown;
   },
 ): string;
+
+export function isAllowedLoopbackHost(hostHeader: unknown, port: unknown): boolean;
+
+export function isLoopbackAddress(address: unknown): boolean;
+
+export function checkLoopbackRequestHost(req: {
+  headers?: Record<string, unknown>;
+  socket?: { localAddress?: unknown; localPort?: unknown } | null;
+}):
+  | { ok: true }
+  | { ok: false; status: 403; code: "HOST_NOT_ALLOWED"; error: string };
 
 export function validateScrapeTarget(rawUrl: unknown): ScrapeTargetValidation;
 
