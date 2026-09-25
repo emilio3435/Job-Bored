@@ -194,12 +194,76 @@ export function hermeticConfigJs() {
   return readFileSync(join(REPO_ROOT, "config.example.js"), "utf8");
 }
 
+/**
+ * Same-origin paths whose real dev-server handlers act on the host machine:
+ * `/__proxy/*` can restart the live discovery worker, rewrite
+ * ~/.jobbored .env files and install launchd agents; `/profile*` proxies to
+ * the local API. The fence answers these in the browser; the server spy
+ * below is the backstop that proves it (UX01 C1, incident 2026-09-25, FD-19).
+ */
+export function isHostPath(pathname) {
+  return (
+    pathname.startsWith("/__proxy/") ||
+    pathname === "/profile" ||
+    pathname.startsWith("/profile/")
+  );
+}
+
+/** Status the server spy answers with, so a leak is unmistakable. */
+export const HOST_SPY_REFUSED_STATUS = 599;
+
+/**
+ * Wrap the in-process server's request listeners. A host path that reaches
+ * the server is recorded in `hostRequests` and refused with 599, so its real
+ * handler never executes — unless a spec explicitly allows that exact path
+ * (`allowHostPath`) to exercise the proxy against its own stub API.
+ */
+function installHostPathSpy(server) {
+  const hostRequests = [];
+  const allowed = new Set();
+  const listeners = server.listeners("request");
+  server.removeAllListeners("request");
+  server.on("request", (req, res) => {
+    const pathname = new URL(req.url || "/", "http://hermetic.invalid")
+      .pathname;
+    if (isHostPath(pathname)) {
+      hostRequests.push(`${req.method} ${pathname}`);
+      if (!allowed.has(pathname)) {
+        res.writeHead(HOST_SPY_REFUSED_STATUS, {
+          "content-type": "application/json",
+        });
+        res.end(
+          JSON.stringify({
+            ok: false,
+            hermetic: true,
+            error: "host_path_reached_server",
+          }),
+        );
+        return;
+      }
+    }
+    for (const listener of listeners) listener.call(server, req, res);
+  });
+  return {
+    hostRequests,
+    allowHostPath(pathname) {
+      allowed.add(pathname);
+      return () => allowed.delete(pathname);
+    },
+  };
+}
+
 export async function startHermeticApp({ logger = quietLogger } = {}) {
   const server = await startDevServer({ port: 0, logger });
+  const spy = installHostPathSpy(server);
   return {
     server,
     baseUrl: `http://127.0.0.1:${server.address().port}`,
     repoRoot: REPO_ROOT,
+    /** Every `/__proxy/*` or `/profile*` request that reached the server. */
+    hostRequests: spy.hostRequests,
+    /** Let one exact host path reach its real handler; returns a disposer. */
+    allowHostPath: spy.allowHostPath,
     async close() {
       await new Promise((done) => server.close(done));
     },
@@ -209,7 +273,8 @@ export async function startHermeticApp({ logger = quietLogger } = {}) {
 /**
  * Install one catch-all route before navigation. Same-origin static assets
  * continue to the in-process server except /config.js, which is always the
- * example file. Every off-origin request must match an explicit mock or it
+ * example file, and the host-acting paths (`/__proxy/*`, `/profile*`), which
+ * the fence stubs so no suite can restart the live worker or edit .env. Every off-origin request must match an explicit mock or it
  * is aborted and recorded.
  */
 export async function installHermeticNetworkFence(page, options = {}) {
@@ -219,6 +284,7 @@ export async function installHermeticNetworkFence(page, options = {}) {
   const discoveryOrigin = auth.discoveryOrigin;
   const materialsOrigin = auth.materialsOrigin;
   const unexpectedExternal = [];
+  const hostPathRequests = [];
   const statusResponses = options.statusResponses || [];
   const statusGates = statusResponses.map(() => deferred());
   const materialsReadyGate = deferred();
@@ -244,17 +310,38 @@ export async function installHermeticNetworkFence(page, options = {}) {
         });
         return;
       }
-      if (url.pathname === "/__proxy/discovery-state") {
-        await fulfillJson(route, {
-          ok: true,
-          recommendation: "ready",
-          worker: { up: false, originAllowed: true },
-          ngrok: {},
-        });
-        return;
-      }
-      if (url.pathname === "/profile") {
-        await fulfillJson(route, { ok: false, error: "No profile staged" }, 404);
+      if (isHostPath(url.pathname)) {
+        // UX01 C1: the fence answers every host-acting path itself. A spec
+        // that must exercise a real handler registers its own route after
+        // the fence AND calls app.allowHostPath(path) on the server spy.
+        hostPathRequests.push(`${method} ${url.pathname}`);
+        if (url.pathname === "/__proxy/discovery-state") {
+          await fulfillJson(route, {
+            ok: true,
+            recommendation: "ready",
+            worker: { up: false, originAllowed: true },
+            ngrok: {},
+          });
+          return;
+        }
+        if (url.pathname === "/profile" && method === "GET") {
+          await fulfillJson(
+            route,
+            { ok: false, error: "No profile staged" },
+            404,
+          );
+          return;
+        }
+        await fulfillJson(
+          route,
+          {
+            ok: false,
+            hermetic: true,
+            error:
+              "Blocked by the hermetic harness: this call would reach the host machine.",
+          },
+          503,
+        );
         return;
       }
       await route.continue();
@@ -466,6 +553,8 @@ export async function installHermeticNetworkFence(page, options = {}) {
 
   return {
     unexpectedExternal,
+    /** Same-origin `/__proxy/*` and `/profile*` requests the fence answered. */
+    hostPathRequests,
     releaseStatus(responseIndex) {
       statusGates[responseIndex]?.resolve();
     },
