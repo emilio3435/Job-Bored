@@ -1,0 +1,280 @@
+"""Final-submit classification and verification — H4, H5, H7, H11.
+
+A scripted fake browser stands in for Playwright, and a scripted planner stands
+in for the LLM, so the live-mode loop runs without a browser or network.
+"""
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+import pytest
+
+import universal_filler as uf
+
+APPLY_URL = "https://jobs.example.com/acme/apply/1"
+DONE_URL = "https://jobs.example.com/acme/apply/1/thanks"
+
+
+def field(selector, label, value="", *, required=True, kind="text", **extra):
+    return {"selector": selector, "label": label, "required": required, "value": value,
+            "visible": True, "kind": kind, "type": extra.pop("type", kind), **extra}
+
+
+def button(selector, text, *, typ="button"):
+    return {"selector": selector, "label": text, "text": text, "kind": "button",
+            "tag": "button", "type": typ, "visible": True, "required": False}
+
+
+class FakeLocator:
+    def __init__(self, page, selector):
+        self.page = page
+        self.selector = selector
+
+    def count(self):
+        return 1
+
+    @property
+    def first(self):
+        return self
+
+    def scroll_into_view_if_needed(self, timeout=None):
+        pass
+
+    def fill(self, value, timeout=None):
+        self.page.filled[self.selector] = value
+
+    def click(self, timeout=None):
+        self.page.clicked.append(self.selector)
+        self.page.on_click(self.selector)
+
+    def check(self, timeout=None):
+        self.click(timeout)
+
+    def select_option(self, **kwargs):
+        pass
+
+    def set_input_files(self, path, timeout=None):
+        pass
+
+
+class FakePage:
+    def __init__(self, before, after, *, submit_selector, after_url):
+        self.url = "about:blank"
+        self.before = before
+        self.after = after
+        self.state = before
+        self.submit_selector = submit_selector
+        self.after_url = after_url
+        self.clicked = []
+        self.filled = {}
+
+    def goto(self, url, **kwargs):
+        self.url = url
+
+    def screenshot(self, path, full_page=True):
+        Path(path).write_bytes(f"shot of {self.url} {len(self.clicked)}".encode())
+
+    def evaluate(self, js):
+        return {**self.state, "url": self.url}
+
+    def locator(self, selector):
+        return FakeLocator(self, selector)
+
+    def wait_for_load_state(self, *args, **kwargs):
+        pass
+
+    def on_click(self, selector):
+        if selector == self.submit_selector:
+            self.state = self.after
+            self.url = self.after_url
+
+
+class FakePlaywright:
+    def __init__(self, page):
+        self.page = page
+        self.chromium = self
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def launch(self, headless=True):
+        return self
+
+    def new_context(self, **kwargs):
+        return self
+
+    def new_page(self):
+        return self.page
+
+    def close(self):
+        pass
+
+
+class ScriptedPlanner:
+    def __init__(self, *plans):
+        self.plans = list(plans)
+
+    def plan(self, page_state, action_history, dry_run=True):
+        return self.plans.pop(0) if self.plans else [{"action": "stop", "reason": "done"}]
+
+
+@pytest.fixture
+def app_dir(tmp_path):
+    d = tmp_path / "app"
+    d.mkdir()
+    (d / "resume.pdf").write_text("pdf")
+    (d / "cover-letter.pdf").write_text("pdf")
+    return d
+
+
+@pytest.fixture(autouse=True)
+def example_profile(tmp_path, monkeypatch):
+    profile_dir = tmp_path / "profile"
+    profile_dir.mkdir()
+    example = Path(uf.__file__).resolve().parents[1] / "profile" / "filler-profile.example.json"
+    (profile_dir / "filler-profile.json").write_text(example.read_text())
+    monkeypatch.setenv("JHOS_PROFILE_DIR", str(profile_dir))
+    return profile_dir
+
+
+@pytest.fixture(autouse=True)
+def fast(monkeypatch):
+    monkeypatch.setattr(uf.time, "sleep", lambda *_: None)
+    monkeypatch.setattr(uf, "random_delay", lambda: None)
+
+
+def run_live(app_dir, page, planner):
+    filler = uf.UniversalFiller(
+        url=APPLY_URL,
+        app_dir=app_dir,
+        dry_run=False,
+        gate2_confirmed=True,
+        max_steps=3,
+        reasoner=planner,
+        playwright_factory=lambda: FakePlaywright(page),
+    )
+    return filler.run()
+
+
+FILLED_FORM = {
+    "title": "Apply",
+    "text": "Apply for Role at Acme. Required fields are marked.",
+    "elements": [field("#email", "Email", "candidate@example.com"), button("#send", "Send")],
+    "validation_errors": [],
+    "captcha_detected": False,
+}
+
+
+# ─── H4: every final click is a submit ───────────────────────────────
+
+
+@pytest.mark.parametrize("label", ["Send", "Done", "Confirm", "Send my application"])
+def test_final_buttons_without_the_word_submit_are_classified_as_submit(label):
+    action = {"action": "click", "selector": "#b", "reason": label}
+    assert uf.is_submit_like_action(action, button("#b", label)) is True
+
+
+def test_type_submit_button_is_final_whatever_its_label():
+    assert uf.is_submit_like_action({"action": "click", "selector": "#go"}, button("#go", "Go", typ="submit")) is True
+
+
+def test_next_button_stays_navigation():
+    assert uf.is_submit_like_action({"action": "click", "selector": "#n"}, button("#n", "Next")) is False
+
+
+def test_send_click_counts_as_a_submit_and_verifies(app_dir):
+    after = {
+        "title": "Thanks",
+        "text": "Application submitted. We received your application.",
+        "elements": [],
+        "validation_errors": [],
+        "captcha_detected": False,
+    }
+    page = FakePage(FILLED_FORM, after, submit_selector="#send", after_url=DONE_URL)
+    result = run_live(app_dir, page, ScriptedPlanner([{"action": "click", "selector": "#send", "reason": "Send"}]))
+    assert result["submit_attempted"] is True
+    assert result["submission_state"] == "verified"
+    assert result["submitted"] is True
+    assert result["confirmation_screenshot_sha256"]
+
+
+def test_send_click_with_an_empty_required_field_is_blocked_before_clicking(app_dir):
+    before = {**FILLED_FORM, "elements": [field("#email", "Email", ""), button("#send", "Send")]}
+    page = FakePage(before, before, submit_selector="#send", after_url=DONE_URL)
+    result = run_live(app_dir, page, ScriptedPlanner([{"action": "click", "selector": "#send", "reason": "Send"}]))
+    assert page.clicked == []
+    assert result["manual_review"] is True
+    assert result["submitted"] is False
+
+
+# ─── H5: "Thank you" on the form is not a confirmation ───────────────
+
+
+def test_thank_you_text_on_an_unchanged_form_is_not_verified(app_dir):
+    before = {
+        **FILLED_FORM,
+        "text": "Thank you for your interest in Acme! Please complete the form.",
+        "elements": [field("#email", "Email", "candidate@example.com"), button("#submit", "Submit application", typ="submit")],
+    }
+    # The click fails validation silently: same URL, same form, same text.
+    page = FakePage(before, before, submit_selector="#submit", after_url=APPLY_URL)
+    result = run_live(app_dir, page, ScriptedPlanner([{"action": "click", "selector": "#submit", "reason": "Submit application"}]))
+    assert result["submit_attempted"] is True
+    assert result["submitted"] is False
+    assert result["submission_state"] == "unknown_after_submit"
+    assert result["manual_review"] is True
+
+
+def test_generic_thank_you_after_navigation_still_needs_a_success_marker(app_dir):
+    after = {"title": "Acme", "text": "Thank you!", "elements": [], "validation_errors": [], "captcha_detected": False}
+    page = FakePage(FILLED_FORM, after, submit_selector="#send", after_url=DONE_URL)
+    result = run_live(app_dir, page, ScriptedPlanner([{"action": "click", "selector": "#send", "reason": "Send"}]))
+    assert result["submission_state"] == "unknown_after_submit"
+
+
+# ─── H7: the CLI cannot submit ───────────────────────────────────────
+
+
+def test_cli_has_no_live_mode(app_dir, monkeypatch, capsys):
+    monkeypatch.setenv("JHOS_GATE2_CONFIRMED", "1")
+    with pytest.raises(SystemExit) as exc:
+        uf.main(["--url", APPLY_URL, "--app-dir", str(app_dir), "--submit"])
+    assert exc.value.code == 2
+
+
+def test_env_flag_is_not_a_gate2_confirmation():
+    source = Path(uf.__file__).read_text()
+    assert "JHOS_GATE2_CONFIRMED" not in source
+    env_example = Path(uf.__file__).resolve().parents[1] / ".env.example"
+    assert "JHOS_GATE2_CONFIRMED" not in env_example.read_text()
+
+
+# ─── H11: dependencies ───────────────────────────────────────────────
+
+
+def test_module_imports_without_browser_dependencies(monkeypatch):
+    for name in ["httpx", "playwright", "playwright.sync_api"]:
+        monkeypatch.setitem(sys.modules, name, None)
+    import importlib
+
+    reloaded = importlib.reload(uf)
+    assert hasattr(reloaded, "UniversalFiller")
+    report = reloaded.preflight_runtime()
+    assert report["ok"] is False
+    assert {"httpx", "playwright"} <= set(report["missing"])
+
+
+def test_requirements_list_the_filler_dependencies():
+    req = (Path(uf.__file__).resolve().parents[1] / "requirements.txt").read_text()
+    assert "httpx" in req
+    assert "playwright" in req
+
+
+def test_extractor_is_read_from_the_scripts_directory():
+    assert uf.EXTRACTOR_PATH == Path(uf.__file__).resolve().parent / "page_state_extractor.js"

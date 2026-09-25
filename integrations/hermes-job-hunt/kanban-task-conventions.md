@@ -8,7 +8,7 @@
 
 | Type | Purpose | Assigned To |
 |------|---------|-------------|
-| `DISCOVER` | Find new jobs matching Emilio's profile, write deduped rows to Pipeline | `default` profile orchestrates; JobBored worker executes discovery/writeback |
+| `DISCOVER` | Find new jobs matching the user's profile, write deduped rows to Pipeline | `default` profile orchestrates; JobBored worker executes discovery/writeback |
 | `RESEARCH` | Deep-dive on a specific job/company — score, summarize, assess fit | `default` / Opus 4.7 |
 | `DRAFT` | Generate application materials — resume tailor, cover letter, talking points | `default` / GPT-5.5 |
 | `APPLY` | Orchestrate the apply pipeline: draft → approval → assisted fill → submit only after guard passes | `default` |
@@ -52,17 +52,17 @@ Every card body must include:
 **Pipeline Row:** [Row #]
 **Materials needed:** [Resume / Cover Letter / Recruiter Notes / Talking Points — list which]
 **JD keywords:** [Top 5–10 keywords from the job description]
-**Fit rationale:** [Why Emilio is a strong fit — 1–2 sentences]
+**Fit rationale:** [Why the candidate is a strong fit — 1–2 sentences]
 ```
 
 ### APPLY-specific fields
 
 ```
 **Pipeline Row:** [Row #]
-**Pipeline status before:** [e.g. "Researched"]
+**Pipeline status before:** [e.g. "Researching"]
 **Status after apply:** [e.g. "Applied"]
 **Submission method:** [Greenhouse / Lever / LinkedIn Easy Apply / etc.]
-**Approval status:** [Must be "Approved" in the chosen Pipeline approval marker before submit; current A–T schema needs explicit approval-field decision]
+**Approval status:** [Must be "Approved" in Pipeline column X `Approval Status` (Gate 1, approval-contract.v1.json) before submit]
 **Idempotency key:** [Normalized job URL — prevents double-apply]
 ```
 
@@ -94,13 +94,15 @@ Archived    → archived — Invalid / duplicate / superseded
 
 | Kanban Action | Pipeline Effect |
 |--------------|-----------------|
-| DISCOVER complete | Write new row (status: `Discovered`) |
-| RESEARCH complete | Update row (status: `Researched`); write Fit Score to Match Score column |
+| DISCOVER complete | Write new row (status: `New`) |
+| RESEARCH complete | Row stays `Researching`; write Fit Score (column H) |
 | DRAFT complete | No Pipeline write — materials go to task comment or file |
-| APPLY complete | Update row (status: `Applied`); screenshot evidence attached to card |
-| FOLLOWUP complete | Update row (status: `Followed Up`) |
+| APPLY complete | Update row (status: `Applied`, Applied Date, Notes); screenshot evidence attached to card |
+| FOLLOWUP complete | No Status change (Status has no follow-up value); set Follow-up Date (P) / Last contact (R) |
 
-**Kanban never advances Pipeline past `Approved` without human confirmation.**
+Status values are the `schemas/pipeline-row.v1.json` enum only: `New`, `Researching`, `Applied`, `Phone Screen`, `Interviewing`, `Offer`, `Rejected`, `Passed`, `Expired`.
+
+**Kanban never submits unless Approval Status (column X) is `Approved` (Gate 1) AND the Gate 2 chat confirmation arrived.**
 
 ---
 
@@ -184,7 +186,7 @@ Link the artifact path in the card comment for downstream agents to retrieve.
 **Link:** https://boards.greenhouse.io/vercel/jobs/1234
 **Source:** Greenhouse (discovered via DISCOVER card)
 **Priority:** 60
-**Notes:** Evaluate fit against Emilio's profile. Focus on B2B SaaS experience + GCP/Vertex AI exposure.
+**Notes:** Evaluate fit against the candidate's profile. Focus on B2B SaaS experience + GCP/Vertex AI exposure.
 **Profile refs:** ~/.hermes/job-hunt/profile/{profile.md,voice.md,resume-bullets.md,job-preferences.md}
 
 **Fit Score:** [1–10]
@@ -205,7 +207,7 @@ Link the artifact path in the card comment for downstream agents to retrieve.
 
 **Materials needed:** [Resume, Cover Letter, Talking Points]
 **JD keywords:** ["Google Ads", "B2B SaaS", "performance max", "campaign optimization", "Vertex AI"]
-**Fit rationale:** Emilio managed $2M+ SEM budgets at Audacy; strong GCP/Vertex AI exposure from elio-intelligence-suite work.
+**Fit rationale:** Candidate managed a large SEM budget; strong GCP/Vertex AI exposure from recent project work.
 ```
 
 ### APPLY
@@ -216,7 +218,7 @@ Link the artifact path in the card comment for downstream agents to retrieve.
 **Link:** https://boards.greenhouse.io/vercel/jobs/1234
 **Source:** DRAFT complete
 **Priority:** 60
-**Notes:** Greenhouse fill. Submit lock must hold until Pipeline `Approval Status` = `Approved` + dedicated submit-approval thread confirmation received. Gate 2 delivery target: `telegram:-1003800236296:48` (thread 48, derived from https://t.me/c/3800236296/48/50).
+**Notes:** Greenhouse fill. Submit lock must hold until Pipeline `Approval Status` = `Approved` + dedicated submit-approval thread confirmation received. Gate 2 delivery target: `telegram:<gate2.chatId>:<gate2.threadId>` from the local `approval-contract.local.json`.
 **Profile refs:** ~/.hermes/job-hunt/profile/{profile.md,voice.md,resume-bullets.md,job-preferences.md}
 
 **Pipeline status before:** Drafted

@@ -13,19 +13,22 @@ Silent when no action items (watchdog pattern).
 Usage:
     python3 followup_monitor.py           # Print follow-up report
     python3 followup_monitor.py --update  # Also set Follow-up Date for flagged rows
+
+The Sheet ID comes from the discovery worker-config.json (never hardcoded),
+the Google token from the shared Hermes token via jhos_common, and "today"
+from the user's timezone with real DST rules.
 """
 
-import json
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import jhos_common  # noqa: E402
 
 # ─── Config ───────────────────────────────────────────────────────────
 
-SHEET_ID = "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
-TOKEN_PATH = Path.home() / ".hermes" / "google_token.json"
-CT = timezone(timedelta(hours=-5))  # Central Time
-TODAY = datetime.now(CT).date()
+PIPELINE_RANGE = "Pipeline!A:X"  # open-ended: no row cap
 
 # Column indices (0-based)
 COL_TITLE = 1
@@ -39,19 +42,12 @@ COL_DID_REPLY = 18
 
 
 def get_sheets_service():
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
-    with open(TOKEN_PATH) as f:
-        token_data = json.load(f)
-    creds = Credentials.from_authorized_user_info(
-        token_data, ["https://www.googleapis.com/auth/spreadsheets"]
-    )
-    if creds.expired and creds.refresh_token:
-        from google.auth.transport.requests import Request
-        creds.refresh(Request())
-        with open(TOKEN_PATH, "w") as f:
-            json.dump(json.loads(creds.to_json()), f)
-    return build("sheets", "v4", credentials=creds)
+    # Loads the shared token with its own scopes and writes refreshes atomically.
+    return jhos_common.oauth_sheets_service()
+
+
+def today():
+    return jhos_common.local_today()
 
 
 def parse_date(date_str: str):
@@ -66,13 +62,16 @@ def parse_date(date_str: str):
     return None
 
 
-def main():
-    update_mode = "--update" in sys.argv
+def main(argv=None, service=None):
+    argv = sys.argv[1:] if argv is None else argv
+    update_mode = "--update" in argv
+    TODAY = today()
+    sheet_id = jhos_common.sheet_id_from_worker_config()
 
-    service = get_sheets_service()
+    service = service or get_sheets_service()
     result = service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID,
-        range="Pipeline!A1:X500"
+        spreadsheetId=sheet_id,
+        range=PIPELINE_RANGE,
     ).execute()
     rows = result.get("values", [])
 
@@ -180,7 +179,7 @@ def main():
                 })
         if updates:
             service.spreadsheets().values().batchUpdate(
-                spreadsheetId=SHEET_ID,
+                spreadsheetId=sheet_id,
                 body={"valueInputOption": "RAW", "data": updates}
             ).execute()
             print(f"\n✅ Set Follow-up Date to {followup_target} for {len(updates)} roles.")

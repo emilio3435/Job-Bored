@@ -5,16 +5,21 @@ import importlib.util
 import sys
 from pathlib import Path
 
-SCRIPTS_DIR = Path.home() / ".hermes" / "job-hunt" / "scripts"
+# H10: test the repo copy, never the runtime copy under ~/.hermes.
+SCRIPTS_DIR = Path(__file__).resolve().parents[1] / "scripts"
 sys.path.insert(0, str(SCRIPTS_DIR))
 
 
-def test_filler_profile_contains_required_candidate_and_skip_salary():
+def test_filler_profile_contains_required_candidate_and_skip_salary(tmp_path, monkeypatch):
     import filler_profile
 
-    assert filler_profile.CANDIDATE["first_name"] == "Emilio"
-    assert filler_profile.CANDIDATE["email"] == "emilio3435@gmail.com"
-    assert filler_profile.ANSWER_STRATEGIES["salary_expectation"] == "__SKIP__"
+    example = SCRIPTS_DIR.parent / "profile" / "filler-profile.example.json"
+    (tmp_path / "filler-profile.json").write_text(example.read_text())
+    monkeypatch.setenv("JHOS_PROFILE_DIR", str(tmp_path))
+    candidate = filler_profile.load_candidate()
+    assert candidate["first_name"] == "Alex"
+    assert candidate["email"] == "alex.candidate@example.com"
+    assert filler_profile.get_answer_strategies()["salary_expectation"] == "__SKIP__"
     context = filler_profile.build_profile_context()
     assert "Candidate Profile" in context
     assert "Do not" not in context
@@ -48,7 +53,7 @@ def test_validate_required_fields_detects_unfilled_required_fields():
 
     page_state = {
         "elements": [
-            {"selector": "#first", "label": "First Name", "required": True, "value": "Emilio", "visible": True},
+            {"selector": "#first", "label": "First Name", "required": True, "value": "Alex", "visible": True},
             {"selector": "#email", "label": "Email", "required": True, "value": "", "visible": True},
             {"selector": "#salary", "label": "Salary", "required": False, "value": "", "visible": True},
         ],
@@ -63,9 +68,9 @@ def test_validate_required_fields_detects_unfilled_required_fields():
 def test_extract_json_array_tolerates_markdown_fences():
     import universal_filler
 
-    raw = """Here is the plan:\n```json\n[{\"action\": \"fill\", \"selector\": \"#email\", \"value\": \"x@y.com\"}]\n```"""
+    raw = """Here is the plan:\n```json\n[{\"action\": \"fill\", \"selector\": \"#email\", \"value\": \"x@example.com\"}]\n```"""
     plan = universal_filler.extract_json_array(raw)
-    assert plan == [{"action": "fill", "selector": "#email", "value": "x@y.com"}]
+    assert plan == [{"action": "fill", "selector": "#email", "value": "x@example.com"}]
 
 
 def test_execute_action_dry_run_records_without_mutating_page():
@@ -74,7 +79,7 @@ def test_execute_action_dry_run_records_without_mutating_page():
     class DummyPage:
         pass
 
-    action = {"action": "fill", "selector": "#first", "value": "Emilio", "reason": "First name"}
+    action = {"action": "fill", "selector": "#first", "value": "Alex", "reason": "First name"}
     result = universal_filler.execute_action(DummyPage(), action, dry_run=True)
     assert result["ok"] is True
     assert result["dry_run"] is True

@@ -1,0 +1,4 @@
+# Local, per-user files for the Hermes job-hunt integration (never commit).
+# Owner IDs and identity live here instead of in tracked files (BEAUDIT §0.2).
+approval-contract.local.json
+profile/filler-profile.json

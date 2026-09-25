@@ -11,74 +11,59 @@ Usage as module:
 
 Usage as CLI:
     python3 gate2_telegram.py send --title "..." --company "..." [--platform "..."] [--fit "..."]
-    python3 gate2_telegram.py poll --company "..." [--timeout 600]
+    python3 gate2_telegram.py poll --company "..." --after-message-id <request id> [--timeout 600]
     python3 gate2_telegram.py test   # sends a test message and waits 60s
 """
 
+from __future__ import annotations
+
 import json
-import os
 import re
 import sys
 import time
-import urllib.request
-import urllib.error
-from pathlib import Path
 
+import jhos_common
 from approval_contract import (
+    GATE2_APPROVER_USER_IDS,
     GATE2_CHAT_ID,
+    GATE2_CONFIRMATION_PREFIX,
     GATE2_POLL_INTERVAL_SECONDS,
     GATE2_THREAD_ID,
     GATE2_TIMEOUT_SECONDS,
 )
 
-# ─── Configuration (approval-contract.v1.json) ─────────────────────────
+# ─── Configuration (approval-contract.v1.json + local override) ───────
 
 CHAT_ID = GATE2_CHAT_ID
 THREAD_ID = GATE2_THREAD_ID
+APPROVER_USER_IDS = GATE2_APPROVER_USER_IDS
 DEFAULT_TIMEOUT = GATE2_TIMEOUT_SECONDS
 POLL_INTERVAL = GATE2_POLL_INTERVAL_SECONDS
+NOT_CONFIGURED = (
+    "Gate 2 Telegram chat/thread is not configured. Copy approval-contract.local.example.json "
+    "to approval-contract.local.json and set gate2.chatId, gate2.threadId and gate2.approverUserIds."
+)
 
 
 def _load_bot_token() -> str:
-    """Load Telegram bot token from ~/.hermes/.env or environment."""
-    # Check environment first
-    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
-    if token:
-        return token
-    # Parse .env file
-    env_path = Path.home() / ".hermes" / ".env"
-    if env_path.exists():
-        with open(env_path) as f:
-            for line in f:
-                line = line.strip()
-                if line.startswith("#") or "=" not in line:
-                    continue
-                key, val = line.split("=", 1)
-                if key.strip() == "TELEGRAM_BOT_TOKEN":
-                    return val.strip()
-    raise RuntimeError("TELEGRAM_BOT_TOKEN not found in environment or ~/.hermes/.env")
+    """Bot token for Gate 2. JHOS_GATE2_BOT_TOKEN (a bot the Hermes gateway does
+    not poll) wins over the shared TELEGRAM_BOT_TOKEN."""
+    return jhos_common.telegram_bot_token("JHOS_GATE2_BOT_TOKEN")
 
 
 def _api_call(method: str, payload: dict, token: str | None = None) -> dict:
-    """Make a Telegram Bot API call."""
+    """Make a Telegram Bot API call (also used by the materials scripts)."""
     if not token:
         token = _load_bot_token()
-    url = f"https://api.telegram.org/bot{token}/{method}"
-    data = json.dumps(payload).encode()
-    req = urllib.request.Request(
-        url,
-        data=data,
-        headers={"Content-Type": "application/json"},
-        method="POST",
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            return json.loads(resp.read())
-    except urllib.error.HTTPError as e:
-        body = e.read().decode() if e.fp else ""
-        return {"ok": False, "error": f"HTTP {e.code}: {body}"}
-    except Exception as e:
-        return {"ok": False, "error": str(e)}
+    return jhos_common.telegram_api_call(method, payload, token)
+
+
+def normalize_confirmation(text: str) -> str:
+    return " ".join((text or "").upper().split())
+
+
+def expected_confirmation(company: str) -> str:
+    return normalize_confirmation(f"{GATE2_CONFIRMATION_PREFIX} {company}")
 
 
 # ─── Send Approval Request ──────────────────────────────────────────
@@ -93,7 +78,13 @@ def send_approval_request(
     """Send a Gate 2 submit-approval request to the contract thread.
 
     Returns {ok, message_id, message_text} on success, {ok: False, error} on failure.
+    Refuses (fail closed) when the company is blank or Gate 2 is not configured.
     """
+    company = " ".join((company or "").split())
+    if not company:
+        return {"ok": False, "error": "Refusing Gate 2 request: company is blank"}
+    if CHAT_ID is None or THREAD_ID is None:
+        return {"ok": False, "error": NOT_CONFIGURED}
     lines = [
         "🔒 *SUBMIT APPROVAL REQUEST*",
         "",
@@ -105,7 +96,7 @@ def send_approval_request(
         lines.append(f"*Fit:* {_escape_md(fit_summary)}")
     lines += [
         "",
-        f"Reply `YES SUBMIT {company.upper()}` within 10 minutes to approve\\.",
+        f"Reply to this message with `{_escape_md(expected_confirmation(company))}` within 10 minutes to approve\\.",
         "Any other reply or timeout → cancelled\\.",
     ]
     message_text = "\n".join(lines)
@@ -133,7 +124,7 @@ def send_approval_request(
             plain_lines.append(f"Fit: {fit_summary}")
         plain_lines += [
             "",
-            f"Reply YES SUBMIT {company.upper()} within 10 minutes to approve.",
+            f"Reply to this message with {expected_confirmation(company)} within 10 minutes to approve.",
             "Any other reply or timeout → cancelled.",
         ]
         plain_text = "\n".join(plain_lines)
@@ -162,102 +153,74 @@ def poll_for_confirmation(
     after_message_id: int | None = None,
     token: str | None = None,
 ) -> tuple[bool, str]:
-    """Poll getUpdates for a YES SUBMIT <COMPANY> reply in the contract thread.
+    """Wait for the exact `YES SUBMIT <COMPANY>` reply to the request message.
 
-    Args:
-        company: Company name to match against
-        timeout: Max seconds to wait
-        after_message_id: Only consider messages after this ID (the approval request)
-        token: Bot token (auto-loaded if not provided)
+    Confirms only when all hold: the message is in the contract chat and thread,
+    it replies to the request (`after_message_id`), its sender is in
+    `approverUserIds`, and its normalized text equals the expected phrase.
+    Any other reply to the request, or any other message from an approver in the
+    thread, cancels. Blank company, missing request id, an empty approver list
+    and a 409 getUpdates conflict all fail closed.
 
-    Returns:
-        (confirmed: bool, reason: str)
+    Returns (confirmed, reason).
     """
+    company = " ".join((company or "").split())
+    if not company:
+        return False, "Cancelled: company is blank, so no confirmation phrase can be matched"
+    if CHAT_ID is None or THREAD_ID is None:
+        return False, f"Cancelled: {NOT_CONFIGURED}"
+    if after_message_id is None:
+        return False, "Cancelled: no Gate 2 request message id to match replies against"
+    if not APPROVER_USER_IDS:
+        return False, "Cancelled: no approver user ids configured (gate2.approverUserIds)"
     if not token:
         token = _load_bot_token()
 
-    expected = f"YES SUBMIT {company.upper()}"
+    expected = expected_confirmation(company)
     start = time.time()
-    last_update_id = None
-
-    # Flush old updates first by getting current offset
-    flush = _api_call("getUpdates", {"timeout": 0, "limit": 1, "offset": -1}, token)
-    if flush.get("ok") and flush.get("result"):
-        last_update_id = flush["result"][-1]["update_id"] + 1
+    offset = None  # never flush with offset=-1: that acknowledges other consumers' updates
 
     while time.time() - start < timeout:
         remaining = int(timeout - (time.time() - start))
         if remaining <= 0:
             break
-
-        # Long poll (up to 30s per call, but respect remaining timeout)
-        poll_timeout = min(30, remaining)
-        params = {
-            "timeout": poll_timeout,
-            "allowed_updates": ["message"],
-        }
-        if last_update_id is not None:
-            params["offset"] = last_update_id
+        params = {"timeout": min(30, remaining), "allowed_updates": ["message"]}
+        if offset is not None:
+            params["offset"] = offset
 
         result = _api_call("getUpdates", params, token)
-
         if not result.get("ok"):
-            # Transient error — wait and retry
+            error = str(result.get("error") or "unknown getUpdates error")
+            print(f"[gate2] getUpdates failed: {error}", file=sys.stderr)
+            if result.get("status") == 409 or "HTTP 409" in error or "Conflict" in error:
+                return False, (
+                    "Cancelled: Telegram getUpdates returned 409 Conflict — another consumer "
+                    "(likely the Hermes gateway) is polling this bot token. Set "
+                    "JHOS_GATE2_BOT_TOKEN to a dedicated bot for Gate 2."
+                )
             time.sleep(POLL_INTERVAL)
             continue
 
-        updates = result.get("result", [])
-        for update in updates:
-            last_update_id = update["update_id"] + 1
-            msg = update.get("message", {})
-
-            # Must be in our chat and thread
+        for update in result.get("result", []):
+            offset = update["update_id"] + 1
+            msg = update.get("message") or {}
             if msg.get("chat", {}).get("id") != CHAT_ID:
                 continue
             if msg.get("message_thread_id") != THREAD_ID:
                 continue
-
-            # Must be after our approval request
-            if after_message_id and msg.get("message_id", 0) <= after_message_id:
+            if msg.get("message_id", 0) <= after_message_id:
                 continue
-
-            # Check text
-            text = (msg.get("text") or "").strip().upper()
-            if text == expected:
-                return True, f"Confirmed: received '{expected}' from user {msg.get('from', {}).get('first_name', '?')}"
-
-            # Also accept partial matches like "YES SUBMIT" alone or with slight variations
-            if text.startswith("YES SUBMIT") and company.upper() in text:
-                return True, f"Confirmed (fuzzy): received '{text}'"
-
-        # If no updates came back and we're within timeout, the long poll handles waiting
-        # No explicit sleep needed when using getUpdates long polling
+            sender = (msg.get("from") or {}).get("id")
+            is_approver = sender in APPROVER_USER_IDS
+            replies_to_request = (msg.get("reply_to_message") or {}).get("message_id") == after_message_id
+            if not is_approver and not replies_to_request:
+                continue  # unrelated chatter in the thread
+            text = normalize_confirmation(msg.get("text") or "")
+            if is_approver and replies_to_request and text == expected:
+                return True, f"Confirmed: received '{expected}' from approver {sender}"
+            return False, f"Cancelled: reply '{text[:60]}' from {sender} is not the exact confirmation"
 
     return False, f"Timeout: no '{expected}' received within {timeout}s"
-
-
-# ─── Cancellation Notification ───────────────────────────────────────
-
-def send_cancellation(title: str, company: str, reason: str, token: str | None = None) -> dict:
-    """Send a cancellation notice to the Gate 2 contract thread."""
-    text = f"⏰ Submission for {title} @ {company} expired — {reason}. Card returned to queue."
-    result = _api_call("sendMessage", {
-        "chat_id": CHAT_ID,
-        "message_thread_id": THREAD_ID,
-        "text": text,
-    }, token)
-    return {"ok": result.get("ok", False)}
-
-
-def send_success(title: str, company: str, token: str | None = None) -> dict:
-    """Send a success notice to the Gate 2 contract thread."""
-    text = f"✅ Applied to {title} @ {company} — evidence captured. Check Pipeline for details."
-    result = _api_call("sendMessage", {
-        "chat_id": CHAT_ID,
-        "message_thread_id": THREAD_ID,
-        "text": text,
-    }, token)
-    return {"ok": result.get("ok", False)}
 
 
 # ─── CLI ─────────────────────────────────────────────────────────────
@@ -300,7 +263,7 @@ def main():
         )
         print(json.dumps(result, indent=2))
         if result.get("ok"):
-            print(f"\nPolling for 'YES SUBMIT TESTCO' for 60 seconds...")
+            print(f"\nPolling for '{expected_confirmation('TestCo')}' for 60 seconds...")
             confirmed, reason = poll_for_confirmation(
                 "TestCo",
                 timeout=60,

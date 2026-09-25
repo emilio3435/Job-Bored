@@ -12,8 +12,14 @@
 # OSS note: sheetId comes from worker-config.json (set during onboarding),
 # webhook secret from .env, OAuth token from Hermes google_token.json.
 # Nothing is hardcoded.
+#
+# Secrets never go into a process argv (visible to every local user via `ps`):
+# the access token reaches Python through the environment, and curl reads the
+# JSON body and the x-discovery-secret header from mode-600 temp files.
 
 set -euo pipefail
+umask 077
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
 # ─── Configuration (all from environment/config, nothing hardcoded) ─────
 HERMES_HOME="${HERMES_HOME:-$HOME/.hermes}"
@@ -55,7 +61,7 @@ if [ ! -d "$WORKER_DIR" ]; then
   exit 1
 fi
 
-SHEET_ID=$("$PYTHON_BIN" -c "import json; print(json.load(open('$WORKER_CONFIG'))['sheetId'])" 2>/dev/null || echo "")
+SHEET_ID=$(JB_WORKER_CONFIG="$WORKER_CONFIG" "$PYTHON_BIN" -c 'import json, os; print(json.load(open(os.environ["JB_WORKER_CONFIG"]))["sheetId"])' 2>/dev/null || echo "")
 if [ -z "$SHEET_ID" ]; then
   echo "ERROR: sheetId is empty in $WORKER_CONFIG. Complete JobBored onboarding first."
   exit 1
@@ -145,61 +151,69 @@ fi
 
 # ─── Get fresh Google OAuth access token ─────────────────────────────────
 # Try to get a token via the google-workspace skill's token file
+# The shared token is refreshed and rewritten atomically by jhos_common
+# (keeps its scopes; temp file + os.replace under a lock).
 ACCESS_TOKEN=""
 if [ -f "$HERMES_HOME/google_token.json" ]; then
-  ACCESS_TOKEN=$($PYTHON_BIN -c "
-import json, sys
-from google.oauth2.credentials import Credentials
-from google.auth.transport.requests import Request
-creds = Credentials.from_authorized_user_file('$HERMES_HOME/google_token.json')
-if creds.expired and creds.refresh_token:
-    creds.refresh(Request())
-    with open('$HERMES_HOME/google_token.json', 'w') as f:
-        f.write(creds.to_json())
-print(creds.token)
-" 2>/dev/null || echo "")
+  ACCESS_TOKEN=$(JHOS_SCRIPTS_DIR="$SCRIPT_DIR" JB_GOOGLE_TOKEN="$HERMES_HOME/google_token.json" "$PYTHON_BIN" -c '
+import os, sys
+sys.path.insert(0, os.environ["JHOS_SCRIPTS_DIR"])
+import jhos_common
+print(jhos_common.load_google_credentials(os.environ["JB_GOOGLE_TOKEN"]).token)
+' 2>/dev/null || echo "")
 fi
 
 # ─── POST discovery webhook ─────────────────────────────────────────────
 NOW=$(date -u +"%Y-%m-%dT%H:%M:%SZ")
 
-# Build discoveryProfile from worker-config.json (webhook expects these in the payload)
-PAYLOAD=$("$PYTHON_BIN" -c "
-import json
-
-config = json.load(open('$WORKER_CONFIG'))
-d = {
-    'event': 'command-center.discovery',
-    'schemaVersion': 1,
-    'sheetId': config.get('sheetId', ''),
-    'variationKey': config.get('sheetId', ''),
-    'requestedAt': '$NOW',
-    'trigger': 'scheduled-local',
-    'discoveryProfile': {
-        'targetRoles': ', '.join(config.get('targetRoles', [])),
-        'keywordsInclude': ', '.join(config.get('includeKeywords', [])),
-        'keywordsExclude': ', '.join(config.get('excludeKeywords', [])),
-        'locations': ', '.join(config.get('locations', [])),
-        'remotePolicy': config.get('remotePolicy', ''),
-        'seniority': config.get('seniority', ''),
-        'maxLeadsPerRun': str(config.get('maxLeadsPerRun', 25)),
-    },
-}
-tok = '$ACCESS_TOKEN'
-if tok:
-    d['googleAccessToken'] = tok
-print(json.dumps(d))
-")
-
 RESPONSE_BODY=$(mktemp "${TMPDIR:-/tmp}/jobbored-discovery-webhook.XXXXXX")
 CURL_ERROR=$(mktemp "${TMPDIR:-/tmp}/jobbored-discovery-curl.XXXXXX")
-trap 'rm -f "$RESPONSE_BODY" "$CURL_ERROR"' EXIT
+PAYLOAD_FILE=$(mktemp "${TMPDIR:-/tmp}/jobbored-discovery-payload.XXXXXX")
+HEADER_FILE=$(mktemp "${TMPDIR:-/tmp}/jobbored-discovery-headers.XXXXXX")
+chmod 600 "$PAYLOAD_FILE" "$HEADER_FILE"
+trap 'rm -f "$RESPONSE_BODY" "$CURL_ERROR" "$PAYLOAD_FILE" "$HEADER_FILE"' EXIT
+
+# Build discoveryProfile from worker-config.json (webhook expects these in the payload).
+# Values travel through the environment and the payload lands in a mode-600 file.
+JB_WORKER_CONFIG="$WORKER_CONFIG" JB_REQUESTED_AT="$NOW" JB_ACCESS_TOKEN="$ACCESS_TOKEN" \
+JB_PAYLOAD_FILE="$PAYLOAD_FILE" "$PYTHON_BIN" -c '
+import json, os
+
+config = json.load(open(os.environ["JB_WORKER_CONFIG"]))
+d = {
+    "event": "command-center.discovery",
+    "schemaVersion": 1,
+    "sheetId": config.get("sheetId", ""),
+    "variationKey": config.get("sheetId", ""),
+    "requestedAt": os.environ["JB_REQUESTED_AT"],
+    "trigger": "scheduled-local",
+    "discoveryProfile": {
+        "targetRoles": ", ".join(config.get("targetRoles", [])),
+        "keywordsInclude": ", ".join(config.get("includeKeywords", [])),
+        "keywordsExclude": ", ".join(config.get("excludeKeywords", [])),
+        "locations": ", ".join(config.get("locations", [])),
+        "remotePolicy": config.get("remotePolicy", ""),
+        "seniority": config.get("seniority", ""),
+        "maxLeadsPerRun": str(config.get("maxLeadsPerRun", 25)),
+    },
+}
+tok = os.environ.get("JB_ACCESS_TOKEN", "")
+if tok:
+    d["googleAccessToken"] = tok
+with open(os.environ["JB_PAYLOAD_FILE"], "w") as f:
+    f.write(json.dumps(d))
+'
+
+# printf is a bash builtin, so the secret never appears in an argv.
+{
+  printf 'Content-Type: application/json\n'
+  printf 'x-discovery-secret: %s\n' "$WEBHOOK_SECRET"
+} > "$HEADER_FILE"
 
 post_webhook() {
   HTTP_STATUS=$(curl -sS -X POST "$WEBHOOK_URL" \
-    -H "Content-Type: application/json" \
-    -H "x-discovery-secret: $WEBHOOK_SECRET" \
-    -d "$PAYLOAD" \
+    -H @"$HEADER_FILE" \
+    --data-binary @"$PAYLOAD_FILE" \
     --max-time 300 \
     -o "$RESPONSE_BODY" \
     -w "%{http_code}" \
@@ -313,22 +327,18 @@ HERMES_HOME = os.path.expanduser('$HERMES_HOME')
 # Try Sheets API first, fall back to CSV
 rows = []
 try:
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
-    creds = Credentials.from_authorized_user_file(f'{HERMES_HOME}/google_token.json')
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-    service = build('sheets', 'v4', credentials=creds)
+    sys.path.insert(0, '$SCRIPT_DIR')
+    import jhos_common
+    service = jhos_common.oauth_sheets_service(f'{HERMES_HOME}/google_token.json')
     result = service.spreadsheets().values().get(
         spreadsheetId=SHEET_ID,
-        range='Pipeline!A1:M500'
+        range='Pipeline!A:M'
     ).execute()
     rows = result.get('values', [])
 except Exception as e:
     # CSV fallback
     import urllib.request
-    url = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Pipeline&range=A1:M500'
+    url = f'https://docs.google.com/spreadsheets/d/{SHEET_ID}/gviz/tq?tqx=out:csv&sheet=Pipeline&range=A:M'
     import csv, io
     resp = urllib.request.urlopen(url, timeout=30).read().decode()
     rows = list(csv.reader(io.StringIO(resp)))

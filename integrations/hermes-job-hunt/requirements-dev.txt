@@ -1,0 +1,4 @@
+# Test-only dependencies for integrations/hermes-job-hunt/tests (CI: hermes-pytest).
+# The suite stubs Google, Telegram, httpx and Playwright, so the runtime
+# requirements are not needed to run it.
+pytest>=8,<10

@@ -8,11 +8,14 @@ sit between the LLM and the browser so hard rules are code-enforced, not merely
 prompt-enforced.
 
 Safety:
-  - Defaults to dry-run. Live submit requires --submit.
-  - Direct CLI live submit requires JHOS_GATE2_CONFIRMED=1; orchestrator sets it
-    only after Telegram Gate 2 confirmation.
+  - The CLI is dry-run only. Live mode exists only inside apply-orchestrator.py,
+    after Gate 1, the submit lock and the Telegram Gate 2 confirmation.
+  - Live mode refuses to start without the user's local candidate profile.
   - Workday redirects are blocked for manual review.
-  - Final submit/apply clicks require all visible required fields satisfied.
+  - In live mode every click passes the required-field safety gate first, and
+    any click that is not clearly Next/Continue counts as a final submit.
+  - A submit is "verified" only when the page navigated or the form went away
+    AND a success marker appeared that was not on the page before the click.
   - Compensation fields are hard-blocked at execution time.
   - Uploads are restricted to resume.pdf and cover-letter.pdf in app_dir.
 """
@@ -27,15 +30,17 @@ import re
 import sys
 import time
 from dataclasses import dataclass, field
-from datetime import datetime, timedelta, timezone
+import hashlib
+import importlib
 from pathlib import Path
-from typing import Any
-
-import httpx
-from playwright.sync_api import Page, sync_playwright
+from typing import TYPE_CHECKING, Any, Callable
 
 sys.path.insert(0, str(Path(__file__).parent))
 import filler_profile
+import jhos_common
+
+if TYPE_CHECKING:  # pragma: no cover - typing only; imported lazily at runtime
+    from playwright.sync_api import Page
 
 def env_path(name: str, default: Path) -> Path:
     return Path(os.environ.get(name) or default).expanduser()
@@ -43,8 +48,9 @@ def env_path(name: str, default: Path) -> Path:
 
 HERMES_HOME = env_path("HERMES_HOME", Path.home() / ".hermes")
 JHOS_ROOT = env_path("HERMES_JOB_HUNT_HOME", HERMES_HOME / "job-hunt")
-SCRIPTS_DIR = JHOS_ROOT / "scripts"
+SCRIPTS_DIR = Path(__file__).resolve().parent
 EXTRACTOR_PATH = SCRIPTS_DIR / "page_state_extractor.js"
+RUNTIME_DEPENDENCIES = ("httpx", "playwright")
 DEFAULT_MODEL = os.environ.get("JHOS_FILLER_MODEL", "anthropic/claude-sonnet-4.5")
 OPENROUTER_URL = "https://openrouter.ai/api/v1/chat/completions"
 ALLOWED_UPLOAD_FILES = {"resume.pdf", "cover-letter.pdf"}
@@ -58,28 +64,68 @@ LEGAL_REVIEW_TERMS = (
     "non-compete", "noncompete", "conflict of interest", "sanctions", "export control",
     "certify", "attest", "consent", "license", "relocation", "travel requirement",
 )
-SUBMIT_TERMS = ("submit", "submit application", "send application", "apply", "finish", "complete application")
-NAVIGATION_TERMS = ("next", "continue", "save and continue", "review", "proceed")
-CONFIRMATION_TERMS = ("thank you", "application submitted", "we received your application", "successfully submitted")
+SUBMIT_TERMS = (
+    "submit", "send", "apply", "finish", "complete", "done", "confirm", "finalize",
+)
+NAVIGATION_TERMS = ("next", "continue", "save and continue", "review", "proceed", "back", "previous")
+# Success markers must name the application being received. A bare "thank you"
+# appears on many forms before submit ("Thank you for your interest…").
+CONFIRMATION_TERMS = (
+    "application submitted",
+    "application has been submitted",
+    "application was submitted",
+    "application received",
+    "application has been received",
+    "we received your application",
+    "we have received your application",
+    "we've received your application",
+    "successfully submitted",
+    "thank you for applying",
+    "thanks for applying",
+    "thank you for your application",
+    "thanks for your application",
+)
 
 
 def log(msg: str, level: str = "INFO") -> None:
-    ts = datetime.now(timezone(timedelta(hours=-5))).strftime("%H:%M:%S CT")
-    print(f"[{ts}] [{level}] {msg}")
+    now = jhos_common.local_now()
+    print(f"[{now.strftime('%H:%M:%S')} {jhos_common.tz_label(now)}] [{level}] {msg}")
 
 
-def load_dotenv(path: Path = HERMES_HOME / ".env") -> None:
+def preflight_runtime() -> dict[str, Any]:
+    """Check the browser dependencies before anyone is asked to confirm Gate 2."""
+    missing = []
+    for name in RUNTIME_DEPENDENCIES:
+        try:
+            if importlib.import_module(name) is None:
+                raise ImportError(name)
+        except Exception:
+            missing.append(name)
+    if not missing:
+        try:
+            importlib.import_module("playwright.sync_api")
+        except Exception:
+            missing.append("playwright.sync_api")
+    if not EXTRACTOR_PATH.exists():
+        missing.append(str(EXTRACTOR_PATH))
+    return {
+        "ok": not missing,
+        "missing": missing,
+        "hint": "Install with `.venv/bin/python -m pip install -r requirements.txt` and "
+        "`.venv/bin/python -m playwright install chromium`." if missing else "",
+    }
+
+
+def _default_playwright():
+    from playwright.sync_api import sync_playwright
+
+    return sync_playwright()
+
+
+def load_dotenv(path: Path | None = None) -> None:
     """Load simple KEY=VALUE lines without logging secrets."""
-    if not path.exists():
-        return
-    for line in path.read_text().splitlines():
-        line = line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip().strip('"').strip("'")
-        if key and key not in os.environ:
+    for key, value in jhos_common.read_env_file(path or (HERMES_HOME / ".env")).items():
+        if key not in os.environ:
             os.environ[key] = value
 
 
@@ -127,20 +173,39 @@ def is_workday_url(url: str | None) -> bool:
     return "myworkdayjobs.com" in low or "workdayjobs.com" in low or "workday.com" in low
 
 
-def is_submit_like_action(action: dict[str, Any], element_meta: dict[str, Any] | None = None) -> bool:
-    if action.get("action") != "click":
-        return False
-    blob = field_blob(element_meta, action)
-    if any(term in blob for term in NAVIGATION_TERMS) and not any(term in blob for term in SUBMIT_TERMS):
-        return False
-    return any(term in blob for term in SUBMIT_TERMS)
+def _has_term(blob: str, terms: tuple[str, ...]) -> bool:
+    return any(re.search(rf"\b{re.escape(term)}\b", blob) for term in terms)
+
+
+def _click_label_blob(element_meta: dict[str, Any] | None, action: dict[str, Any]) -> str:
+    meta = element_meta or {}
+    parts = [str(meta.get(k) or "") for k in ("label", "text", "name", "id", "value")]
+    parts.append(str(action.get("reason") or ""))
+    return " ".join(parts).lower()
 
 
 def is_navigation_click(action: dict[str, Any], element_meta: dict[str, Any] | None = None) -> bool:
+    """A click that only moves between steps of a multi-page form."""
     if action.get("action") != "click":
         return False
-    blob = field_blob(element_meta, action)
-    return any(term in blob for term in NAVIGATION_TERMS) and not is_submit_like_action(action, element_meta)
+    blob = _click_label_blob(element_meta, action)
+    return _has_term(blob, NAVIGATION_TERMS) and not _has_term(blob, SUBMIT_TERMS)
+
+
+def is_submit_like_action(action: dict[str, Any], element_meta: dict[str, Any] | None = None) -> bool:
+    """Any click that may be the final submission.
+
+    A click is final unless it is clearly Next/Continue-style navigation. A
+    `type=submit` button is final whatever its label, unless its label is
+    navigation ("Next" buttons are often type=submit on multi-step forms).
+    Unknown buttons count as final so the safety gate runs and an unverified
+    outcome is reported as unknown_after_submit, never as "retry".
+    """
+    if action.get("action") != "click":
+        return False
+    if is_navigation_click(action, element_meta):
+        return False
+    return True
 
 
 def safe_upload_path(app_dir: Path, file_name: str) -> Path:
@@ -323,6 +388,8 @@ class LLMReasoner:
         last_error = None
         for attempt in range(3):
             try:
+                import httpx
+
                 with httpx.Client(timeout=self.timeout) as client:
                     resp = client.post(self.base_url, headers=headers, json=payload)
                     resp.raise_for_status()
@@ -362,6 +429,11 @@ def validate_action_plan(plan: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def fallback_plan(page_state: dict[str, Any], dry_run: bool = True) -> list[dict[str, Any]]:
     """Simple semantic fallback used when the LLM API is unavailable."""
     actions: list[dict[str, Any]] = []
+    try:
+        candidate = filler_profile.load_candidate()
+    except filler_profile.ProfileMissingError as exc:
+        return [{"action": "stop", "reason": f"Candidate profile missing: {exc}"}]
+    strategies = filler_profile.get_answer_strategies()
     resume_assigned = False
     cover_assigned = False
     for el in page_state.get("elements", []):
@@ -392,33 +464,33 @@ def fallback_plan(page_state: dict[str, Any], dry_run: bool = True) -> list[dict
             continue
         value = None
         if "first" in text and "name" in text:
-            value = filler_profile.CANDIDATE["first_name"]
+            value = candidate.get("first_name")
         elif "last" in text and "name" in text:
-            value = filler_profile.CANDIDATE["last_name"]
+            value = candidate.get("last_name")
         elif "full" in text and "name" in text:
-            value = filler_profile.CANDIDATE["full_name"]
+            value = candidate.get("full_name")
         elif "email" in text:
-            value = filler_profile.CANDIDATE["email"]
+            value = candidate.get("email")
         elif "phone" in text or "mobile" in text:
-            value = filler_profile.CANDIDATE["phone"]
+            value = candidate.get("phone")
         elif "linkedin" in text:
-            value = filler_profile.CANDIDATE["linkedin"]
+            value = candidate.get("linkedin")
         elif "website" in text or "portfolio" in text:
-            value = filler_profile.CANDIDATE["website"]
+            value = candidate.get("website")
         elif "city" in text:
-            value = filler_profile.CANDIDATE["city"]
+            value = candidate.get("city")
         elif "state" in text:
-            value = filler_profile.CANDIDATE["state"]
+            value = candidate.get("state")
         elif "location" in text or "address" in text:
-            value = filler_profile.CANDIDATE["location"]
+            value = candidate.get("location")
         elif "authorized" in text or "eligible to work" in text:
-            value = "Yes"
+            value = strategies.get("work_authorization")
         elif "sponsor" in text or "visa" in text:
-            value = "No"
+            value = strategies.get("require_sponsorship")
         elif "how did you hear" in text or "source" in text or "referral" in text:
-            value = "Job Board"
+            value = strategies.get("how_did_you_hear")
         elif "start" in text or "available" in text:
-            value = "Immediately"
+            value = strategies.get("start_date")
         elif "gender" in text or "race" in text or "ethnicity" in text or "veteran" in text or "disability" in text:
             value = "Decline"
         if value:
@@ -471,7 +543,7 @@ def best_option_match(options: list[dict[str, Any]], wanted: str) -> str | None:
     return None
 
 
-def execute_action(page: Page, action: dict[str, Any], app_dir: Path | None = None, dry_run: bool = False, element_meta: dict[str, Any] | None = None) -> dict[str, Any]:
+def execute_action(page: "Page", action: dict[str, Any], app_dir: Path | None = None, dry_run: bool = False, element_meta: dict[str, Any] | None = None) -> dict[str, Any]:
     """Execute one action. In dry-run, validates intent but does not mutate page."""
     kind = action.get("action")
     selector = action.get("selector")
@@ -549,6 +621,36 @@ def execute_action(page: Page, action: dict[str, Any], app_dir: Path | None = No
     return result
 
 
+def count_form_fields(page_state: dict[str, Any]) -> int:
+    """Visible, enabled input-like elements (buttons excluded)."""
+    count = 0
+    for el in page_state.get("elements", []):
+        kind = (el.get("kind") or "").lower()
+        if not el.get("visible", True) or el.get("disabled"):
+            continue
+        if kind in {"button", "submit", "hidden", "link"}:
+            continue
+        count += 1
+    return count
+
+
+def verify_submission(pre_submit: dict[str, Any], url_after: str, page_state_after: dict[str, Any]) -> dict[str, Any]:
+    """A submit is verified only when the page moved on AND a success marker
+    appeared that was not already on the pre-submit page (H5)."""
+    text_after = (page_state_after.get("text") or "").lower()
+    text_before = pre_submit.get("text") or ""
+    new_markers = [t for t in CONFIRMATION_TERMS if t in text_after and t not in text_before]
+    url_changed = bool(url_after) and url_after != pre_submit.get("url")
+    form_gone = pre_submit.get("form_fields", 0) > 0 and count_form_fields(page_state_after) == 0
+    blocked = bool(page_state_after.get("validation_errors")) or bool(page_state_after.get("captcha_detected"))
+    return {
+        "verified": bool(new_markers) and (url_changed or form_gone) and not blocked,
+        "success_markers": new_markers,
+        "url_changed": url_changed,
+        "form_gone": form_gone,
+    }
+
+
 @dataclass
 class UniversalFiller:
     url: str
@@ -558,6 +660,8 @@ class UniversalFiller:
     max_steps: int = 8
     model: str = DEFAULT_MODEL
     gate2_confirmed: bool = False
+    reasoner: Any = None
+    playwright_factory: Callable[[], Any] | None = None
     evidence_dir: Path = field(init=False)
     screenshots: list[str] = field(default_factory=list)
     action_history: list[dict[str, Any]] = field(default_factory=list)
@@ -567,22 +671,22 @@ class UniversalFiller:
         self.evidence_dir = self.app_dir / "evidence" / ("dry-run" if self.dry_run else "live")
         self.evidence_dir.mkdir(parents=True, exist_ok=True)
 
-    def screenshot(self, page: Page, name: str) -> str:
-        ts = datetime.now(timezone(timedelta(hours=-5))).strftime("%Y%m%d-%H%M%S-%f")
+    def screenshot(self, page: "Page", name: str) -> str:
+        ts = jhos_common.local_now().strftime("%Y%m%d-%H%M%S-%f")
         path = str(self.evidence_dir / f"universal-{name}-{ts}.png")
         page.screenshot(path=path, full_page=True)
         self.screenshots.append(path)
         log(f"Screenshot: {path}")
         return path
 
-    def extract_state(self, page: Page) -> dict[str, Any]:
+    def extract_state(self, page: "Page") -> dict[str, Any]:
         js = EXTRACTOR_PATH.read_text()
         return page.evaluate(js)
 
     def element_meta_by_selector(self, page_state: dict[str, Any]) -> dict[str, dict[str, Any]]:
         return {el.get("selector"): el for el in page_state.get("elements", []) if el.get("selector")}
 
-    def block_workday_if_needed(self, page: Page, results: dict[str, Any]) -> bool:
+    def block_workday_if_needed(self, page: "Page", results: dict[str, Any]) -> bool:
         if is_workday_url(page.url):
             results["manual_review"] = True
             results["error"] = "Workday hostname detected after navigation; automation blocked"
@@ -610,6 +714,13 @@ class UniversalFiller:
             results["error"] = "Live run blocked: Gate 2 confirmation token missing"
             results["manual_review"] = True
             return results
+        if not self.dry_run:
+            try:
+                filler_profile.load_candidate()
+            except filler_profile.ProfileMissingError as exc:
+                results["error"] = f"Live run blocked: candidate profile missing — {exc}"
+                results["manual_review"] = True
+                return results
         for name in ["resume_pdf", "cover_letter_pdf"]:
             if not files[name].exists():
                 results["error"] = f"Required file missing: {files[name]}"
@@ -618,8 +729,10 @@ class UniversalFiller:
             results["error"] = f"Extractor missing: {EXTRACTOR_PATH}"
             return results
 
-        reasoner = LLMReasoner(model=self.model)
-        with sync_playwright() as p:
+        reasoner = self.reasoner or LLMReasoner(model=self.model)
+        factory = self.playwright_factory or _default_playwright
+        pre_submit: dict[str, Any] | None = None
+        with factory() as p:
             browser = p.chromium.launch(headless=self.headless)
             context = browser.new_context(
                 viewport={"width": 1280, "height": 900},
@@ -673,16 +786,22 @@ class UniversalFiller:
                             action = {"action": "stop", "reason": "Legal/screening field requires manual review"}
                         if self.dry_run and is_submit_like_action(action, element_meta):
                             action = {**action, "action": "skip", "reason": "Dry-run final submit/apply click blocked"}
-                        if (not self.dry_run) and is_submit_like_action(action, element_meta):
+                        if (not self.dry_run) and action.get("action") == "click":
+                            # Safety gate before ANY live click (H4).
                             current_state = self.extract_state(page)
                             current_safety = validate_required_fields(current_state, self.action_history)
                             if not current_safety["ok"]:
                                 results["manual_review"] = True
-                                step_record["stop_reason"] = f"Final submit blocked by safety gate: {current_safety}"
+                                step_record["stop_reason"] = f"Click blocked by safety gate: {current_safety}"
                                 action = {"action": "stop", "reason": step_record["stop_reason"]}
-                            else:
+                            elif is_submit_like_action(action, element_meta):
                                 self.submit_attempted = True
                                 results["submit_attempted"] = True
+                                pre_submit = {
+                                    "url": page.url,
+                                    "text": (current_state.get("text") or "").lower(),
+                                    "form_fields": count_form_fields(current_state),
+                                }
                         if action.get("action") == "stop":
                             safe = {**action, "ok": True}
                             self.action_history.append(safe)
@@ -721,12 +840,16 @@ class UniversalFiller:
                         break
 
                     page_state_after = self.extract_state(page)
-                    safety_after = validate_required_fields(page_state_after, self.action_history)
-                    text = (page_state_after.get("text") or "").lower()
-                    if self.submit_attempted and safety_after["ok"] and any(term in text for term in CONFIRMATION_TERMS):
-                        results["submitted"] = True
-                        results["submission_state"] = "verified"
-                        break
+                    if self.submit_attempted and pre_submit is not None:
+                        verdict = verify_submission(pre_submit, page.url, page_state_after)
+                        step_record["verification"] = verdict
+                        if verdict["verified"]:
+                            results["submitted"] = True
+                            results["submission_state"] = "verified"
+                            shot = self.screenshot(page, "confirmation")
+                            results["confirmation_screenshot"] = shot
+                            results["confirmation_screenshot_sha256"] = hashlib.sha256(Path(shot).read_bytes()).hexdigest()
+                            break
 
                 results["submit_attempted"] = self.submit_attempted
                 if self.submit_attempted and not results["submitted"]:
@@ -755,32 +878,32 @@ class UniversalFiller:
         return results
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Universal job application form filler")
+def main(argv: list[str] | None = None) -> None:
+    """Dry-run CLI. There is no live mode here: live submits run only through
+    apply-orchestrator.py (Gate 1 + lock + Telegram Gate 2)."""
+    parser = argparse.ArgumentParser(
+        description="Universal job application form filler (dry run only; live submit runs via apply-orchestrator.py)"
+    )
     parser.add_argument("--url", required=True, help="Job application URL")
     parser.add_argument("--app-dir", required=True, help="Application directory containing resume.pdf and cover-letter.pdf")
-    parser.add_argument("--submit", action="store_true", help="Allow live actions; requires JHOS_GATE2_CONFIRMED=1")
     parser.add_argument("--visible", action="store_true", help="Show browser window")
     parser.add_argument("--max-steps", type=int, default=8, help="Maximum agent loop steps")
     parser.add_argument("--model", default=DEFAULT_MODEL, help="OpenRouter model id")
-    args = parser.parse_args()
+    args = parser.parse_args(argv)
 
     app_dir = Path(args.app_dir).expanduser()
     if not app_dir.is_dir():
         print(f"Error: {app_dir} is not a directory", file=sys.stderr)
         sys.exit(1)
 
-    dry_run = not args.submit
-    gate2_confirmed = os.environ.get("JHOS_GATE2_CONFIRMED") == "1"
-    log(f"Mode: {'LIVE' if not dry_run else 'DRY RUN'}")
+    log("Mode: DRY RUN")
     filler = UniversalFiller(
         url=args.url,
         app_dir=app_dir,
         headless=not args.visible,
-        dry_run=dry_run,
+        dry_run=True,
         max_steps=args.max_steps,
         model=args.model,
-        gate2_confirmed=gate2_confirmed,
     )
     result = filler.run()
     print("\n" + json.dumps(result, indent=2))
