@@ -110,7 +110,7 @@ export function buildContentSecurityPolicy(options = {}) {
 /**
  * BEAUDIT G10: origins the local config.js points the browser at
  * (jobBoredApiUrl, resumeLocalBaseUrl, custom AI base URLs, ...). Reads
- * string literals assigned to keys ending in "Url" and keeps only http(s)
+ * string literals assigned to keys ending in "Url", bare or quoted, and keeps only http(s)
  * origins, in order, without duplicates.
  *
  * @param {unknown} configText
@@ -119,10 +119,13 @@ export function buildContentSecurityPolicy(options = {}) {
 export function extractConfigConnectOrigins(configText) {
   const text = String(configText || "");
   const origins = [];
-  const pattern = /\b[A-Za-z0-9_]*Url\s*:\s*(["'`])([^"'`\n]*)\1/g;
+  // The key may be bare (jobBoredApiUrl:) or quoted ("jobBoredApiUrl": or
+  // 'jobBoredApiUrl':); a quoted key must close with the quote it opened.
+  const pattern =
+    /(?:(["'])[A-Za-z0-9_$]*Url\1|\b[A-Za-z0-9_$]*Url)\s*:\s*(["'`])([^"'`\n]*)\2/g;
   let match;
   while ((match = pattern.exec(text))) {
-    const origin = originForConnectSrc(match[2]);
+    const origin = originForConnectSrc(match[3]);
     if (origin && !origins.includes(origin)) origins.push(origin);
   }
   return origins;

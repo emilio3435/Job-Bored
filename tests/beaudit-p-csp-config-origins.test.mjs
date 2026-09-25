@@ -121,3 +121,22 @@ describe("BEAUDIT G10 — dev-server serves the config.js-derived CSP", () => {
     }
   });
 });
+
+describe("BEAUDIT G10 repair — quoted config keys", () => {
+  it("reads double-, single- and unquoted *Url keys alike", () => {
+    assert.deepEqual(
+      extractConfigConnectOrigins('{"jobBoredApiUrl":"https://api.example.com"}'),
+      ["https://api.example.com"],
+    );
+    assert.deepEqual(
+      extractConfigConnectOrigins("{ 'resumeLocalBaseUrl' : 'http://10.0.0.5:11434/v1' }"),
+      ["http://10.0.0.5:11434"],
+    );
+    assert.deepEqual(
+      extractConfigConnectOrigins('window.COMMAND_CENTER_CONFIG = { jobBoredApiUrl: "https://a.example", "discoveryWebhookUrl": "https://b.example/hook" };'),
+      ["https://a.example", "https://b.example"],
+    );
+    assert.deepEqual(extractConfigConnectOrigins('{"title":"https://not-a-url-key.example"}'), []);
+    assert.deepEqual(extractConfigConnectOrigins('{"jobBoredApiUrl\':"https://mismatch.example"}'), []);
+  });
+});
