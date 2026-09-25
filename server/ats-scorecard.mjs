@@ -132,10 +132,12 @@ function clipText(text, max) {
 // E18: a posting description is mostly company blurb, benefits and EEO
 // boilerplate. Keep only the sections under a requirements-like heading;
 // when the posting has no such heading, fall back to a shorter clip.
+// "About" drops only company boilerplate (About us / the company / <Employer>);
+// About the role/position/team/job is kept, since it carries requirements.
 const POSTING_KEEP_HEADING =
-  /^(?:#+\s*)?(?:\*\*)?\s*(?:(?:basic|minimum|preferred|key|core|required)\s+)?(?:requirements?|qualifications?|responsibilities|what you(?:'|\u2019)?ll (?:do|need|bring)|what we(?:'|\u2019)?re looking for|who you are|about you|you (?:have|bring|will)|must[- ]haves?|nice[- ]to[- ]haves?|skills|experience|the role|your role|duties|tech(?:nical)? stack|tools)\b[^\n]{0,40}$/i;
+  /^(?:#+\s*)?(?:\*\*)?\s*(?:(?:basic|minimum|preferred|key|core|required)\s+)?(?:requirements?|qualifications?|responsibilities|about (?:the|this) (?:role|position|team|job|opportunity)|what you(?:'|\u2019)?ll (?:do|need|bring)|what we(?:'|\u2019)?re looking for|who you are|about you|you (?:have|bring|will)|must[- ]haves?|nice[- ]to[- ]haves?|skills|experience|the role|your role|duties|tech(?:nical)? stack|tools)\b[^\n]{0,40}$/i;
 const POSTING_DROP_HEADING =
-  /^(?:#+\s*)?(?:\*\*)?\s*(?:about (?:us|the company|[A-Z][\w&.-]*)|benefits|perks|compensation|salary|pay (?:range|transparency)|what we offer|why (?:join|work)|equal (?:employment )?opportunity|eeo|our (?:values|mission|culture)|life at|how to apply|privacy)\b[^\n]{0,40}$/i;
+  /^(?:#+\s*)?(?:\*\*)?\s*(?:about (?:us|(?:the|our) company|(?!(?:the|this|our|your|you|a|an)\b)[A-Z][\w&.-]*)|benefits|perks|compensation|salary|pay (?:range|transparency)|what we offer|why (?:join|work)|equal (?:employment )?opportunity|eeo|our (?:values|mission|culture)|life at|how to apply|privacy)\b[^\n]{0,40}$/i;
 const POSTING_TRIMMED_MAX = 4000;
 const POSTING_FALLBACK_MAX = 3000;
 /** E18: one budget for every optional profile excerpt in the ATS prompt. */

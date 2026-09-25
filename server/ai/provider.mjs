@@ -563,6 +563,8 @@ export async function chat(input) {
     body = {
       model,
       max_tokens: maxTokens,
+      // Sampling options travel on every provider's wire, Anthropic included.
+      temperature,
       ...(system ? { system } : {}),
       messages: rest.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
       ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {}),
