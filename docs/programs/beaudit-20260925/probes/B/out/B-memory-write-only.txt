@@ -1,0 +1,4 @@
+run 1: state=completed leads=1 snapshotReadAtStart={"intentKey":"run:run_1","companies":0,"surfaces":0,"intentCoverage":0,"roleFamilies":0}
+   memory counts after run 1: {"companyRegistry":0,"careerSurfaces":0,"hostSuppressions":0,"deadLinkCache":0,"listingFingerprints":0,"intentCoverage":0,"scoutObservations":0,"exploitOutcomes":1,"roleFamilies":1}
+run 2: state=completed leads=1 snapshotReadAtStart={"intentKey":"run:run_2","companies":0,"surfaces":0,"intentCoverage":0,"roleFamilies":1}
+   memory counts after run 2: {"companyRegistry":0,"careerSurfaces":0,"hostSuppressions":0,"deadLinkCache":0,"listingFingerprints":0,"intentCoverage":0,"scoutObservations":0,"exploitOutcomes":2,"roleFamilies":1}

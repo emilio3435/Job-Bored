@@ -1,0 +1,6 @@
+muse: workspace root: /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-C (explicit)
+muse: warning: rules file at /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-C/AGENTS.md exists, but the workspace is untrusted, so it is skipped for this session; restart with --trust-workspace to load project rules
+muse: Skills: 35 loaded · 1 warning · 1 detail hidden
+muse:   .agents: project-skills-untrusted: project skills skipped because workspace is untrusted
+muse:   Run `muse skills list --source all` for full diagnostics.
+muse: Agent delegation: auto unavailable: workspace is untrusted.

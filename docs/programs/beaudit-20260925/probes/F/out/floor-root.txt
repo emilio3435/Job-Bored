@@ -1,0 +1,250 @@
+
+> command-center@0.1.0 test
+> node scripts/run-tests.mjs tests/application-materials-root.test.mjs tests/application-materials.test.mjs tests/brand-logos-endpoint.test.mjs tests/materials-composer.test.mjs tests/materials-critic.test.mjs tests/materials-drafter.test.mjs tests/materials-jd-gate.test.mjs tests/materials-pdf.test.mjs tests/materials-repair.test.mjs tests/materials-request-endpoint.test.mjs tests/materials-request-no-hermes.test.mjs tests/materials-writer.test.mjs tests/oneflow-l1-server-resume.test.mjs tests/profile-draft-truncation.test.mjs tests/profile-from-resume-staged.test.mjs tests/profile-provider-pin-precedence.test.mjs tests/profile-rescore-provider.test.mjs tests/integration/profile-from-resume-unconfigured-provider.test.mjs
+
+▶ getApplicationsRoot
+  ✔ prefers JOBBORED_APPLICATIONS_ROOT (2.001292ms)
+  ✔ falls back to HERMES_APPLICATIONS_ROOT for tests (0.182875ms)
+  ✔ defaults under ~/.jobbored/applications (0.220791ms)
+✔ getApplicationsRoot (3.078167ms)
+▶ migrateHermesApplicationsIfNeeded
+  ✔ copies leftover Hermes packages into an empty JobBored root (39.320916ms)
+  ✔ does not copy when dest already has a slug (4.815542ms)
+✔ migrateHermesApplicationsIfNeeded (44.328334ms)
+▶ isValidSlug
+  ✔ accepts lowercase dashed slugs (0.574833ms)
+  ✔ rejects path traversal, uppercase, and reserved prefixes (0.096625ms)
+✔ isValidSlug (30.344291ms)
+▶ isAllowedFilename
+  ✔ accepts every documented allowlist entry (0.095417ms)
+  ✔ rejects anything not on the allowlist or with traversal (0.115583ms)
+✔ isAllowedFilename (0.321041ms)
+▶ contentTypeFor
+  ✔ maps known extensions (0.115ms)
+  ✔ falls back to octet-stream for unknown extensions (0.065916ms)
+✔ contentTypeFor (0.26475ms)
+▶ resolveApplicationDir
+  ✔ returns the absolute dir for a real slug (2.823834ms)
+  ✔ rejects invalid slugs with a 400 (0.402541ms)
+  ✔ returns 404 when the slug is not on disk (0.16525ms)
+✔ resolveApplicationDir (3.629333ms)
+▶ buildManifest
+  ✔ derives company + title from slug when manifest.json is missing (6.286417ms)
+  ✔ prefers manifest.json company + title when present (1.643708ms)
+  ✔ orders documents by readiness regardless of fs ordering (2.259459ms)
+  ✔ attaches quality metadata for sparse two-page resumes (1.820292ms)
+  ✔ surfaces pending.json when present (1.201916ms)
+  ✔ ignores malformed pending.json without throwing (1.057667ms)
+  ✔ surfaces the progress block when Dobby has populated it (1.540333ms)
+  ✔ normalizes stale cover-letter progress text on a newer resume request (1.625583ms)
+  ✔ suppresses a terminal failed pending state once the requested cover letter PDF is ready (4.928417ms)
+  ✔ keeps a terminal failed pending state when the requested PDF predates the request (1.791042ms)
+✔ buildManifest (24.593375ms)
+▶ buildManifest — watcher failure reconciliation
+  ✔ turns a still-'drafting' run into a FAILED card when pending_error.json is at/after the request (3.323167ms)
+  ✔ ignores a superseded (older) failure while a fresh retry is in flight (2.537625ms)
+  ✔ resets the elapsed start to the request time when a repair reuses an older draft's progress (2.053375ms)
+  ✔ leaves started_at untouched for a normal draft that started after its request (2.011083ms)
+  ✔ does NOT flash FAILED for a benign pending_error.json note written mid-draft (3.723625ms)
+  ✔ marks a non-terminal run FAILED when its heartbeat is older than 30 minutes (2.17775ms)
+  ✔ synthesizes a FAILED card when only pending_error.json remains (no pending.json) (2.572375ms)
+  ✔ surfaces the failure when pending.json is empty/malformed mid-sync but a failure exists (2.103375ms)
+  ✔ does NOT surface a failure superseded by freshly-rendered documents (2.887833ms)
+✔ buildManifest — watcher failure reconciliation (23.8065ms)
+▶ buildManifest — delivery detection (spinner stops on file arrival)
+  ✔ stops a still-'drafting' pending once the requested file lands fresh (3.782917ms)
+  ✔ keeps a 'drafting' pending during a re-draft while only a stale prior file exists (3.264584ms)
+  ✔ waits for ALL requested deliverables on a 'both' draft (resume done, letter pending) (2.96625ms)
+✔ buildManifest — delivery detection (spinner stops on file arrival) (10.180917ms)
+▶ dismissPending
+  ✔ archives pending.json with a dismissed.<stamp> suffix (2.53775ms)
+  ✔ returns 404 when neither pending.json nor pending_error.json is on disk (1.183416ms)
+  ✔ archives pending_error.json alongside pending.json so the FAILED card clears (2.377ms)
+  ✔ dismisses a failure that has no pending.json (error-only FAILED card) (2.394208ms)
+  ✔ rejects invalid slugs without touching disk (0.499875ms)
+✔ dismissPending (9.224708ms)
+▶ resolveFile
+  ✔ returns a real path inside the application dir (0.704ms)
+  ✔ rejects path traversal attempts before touching the filesystem (0.13625ms)
+  ✔ rejects unlisted filenames even if the file exists on disk (0.121666ms)
+  ✔ rejects symlinks that point outside the application dir (1.505916ms)
+✔ resolveFile (2.652042ms)
+▶ listApplications
+  ✔ returns valid packages and skips invalid / non-dir entries (13.109167ms)
+  ✔ returns an empty array when the root does not exist (0.1945ms)
+✔ listApplications (13.392542ms)
+▶ writeJobDescription
+  ✔ creates the application dir if missing and writes job-description.md (2.832875ms)
+  ✔ rejects empty text with 400 (1.146583ms)
+  ✔ rejects oversized text with 413 (0.674333ms)
+  ✔ rejects invalid slugs without touching disk (0.710459ms)
+  ✔ rejects a fit blurb with 422 so cache is not poisoned (0.758042ms)
+  ✔ rejects too-short non-empty text with 422 (0.655458ms)
+✔ writeJobDescription (7.0135ms)
+▶ listPendingQueue
+  ✔ returns pending requests FIFO by requested_at across slugs (3.583625ms)
+  ✔ normalizes stale cover-letter queue progress for resume requests (1.971625ms)
+  ✔ returns [] when no pending.json files exist (1.044792ms)
+  ✔ skips invalid slug directories (1.341541ms)
+  ✔ skips corrupt pending.json without throwing (2.746458ms)
+  ✔ skips terminal failed queue entries once the requested artifact is ready (4.107375ms)
+  ✔ drops a still-'drafting' entry from the queue once its file is delivered (2.245375ms)
+✔ listPendingQueue (17.322667ms)
+✔ POST /api/brand-logos/:slug accepts a real image upload and exposes it via GET (272.834459ms)
+✔ POST /api/brand-logos/:slug rejects a non-image upload (1.960791ms)
+✔ POST /api/brand-logos/:slug rejects invalid slugs (1.81225ms)
+✔ POST /api/brand-logos/:slug rejects unsupported file extensions (1.360125ms)
+✔ POST /api/brand-logos/:slug rejects multipart requests without a boundary (1.507ms)
+✔ POST /api/brand-logos/:slug rejects malformed multipart bodies (1.1265ms)
+✔ POST /api/brand-logos/:slug rejects uploads over 2 MB (4.106292ms)
+✔ POST /api/brand-logos/:slug rejects uploads when uploads dir escapes template root (2.804125ms)
+✔ POST /profile regenerates logos.json from experiences and projects (84.442667ms)
+▶ POST /profile/from-resume with a provider that has no key
+  ✔ answers 409 profile_provider_not_configured for a keyless OpenRouter pick (10.345458ms)
+  ✔ answers 409 gemini_not_configured for a keyless Gemini pick (2.684542ms)
+✔ POST /profile/from-resume with a provider that has no key (327.834208ms)
+▶ composeCoverLetter
+  ✔ fills slots and leaves CSS alone (4.225625ms)
+✔ composeCoverLetter (4.664458ms)
+▶ composeResume
+  ✔ fills an existing data-role and does not invent roles (1.3215ms)
+✔ composeResume (1.382666ms)
+▶ critiqueMaterials
+  ✔ fails a 200-word letter (26.594834ms)
+  ✔ flags banned filler (9.29725ms)
+  ✔ fails HTML smuggled in a slot (6.424292ms)
+✔ critiqueMaterials (43.074917ms)
+▶ createMaterialsDrafter
+  ✔ 409s without a pin and does not write pending (3.981125ms)
+  ✔ writes REVIEW with jd_unusable when scrape fails on a blurb (8.719084ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ loops the editor once then READY when the second critic passes (12.650708ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ stops after two editor loops at REVIEW, never READY (7.751042ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ returns accepted pending fields and deletes pending.json on READY (4.972958ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ returns the existing pending for the same in-flight slug (4.589958ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ keeps failed pending.json when the writer crashes (4.247125ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ fills nested letter chrome slots and keeps .dot children (5.902791ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ passes payload.notes into the writer as voice samples (4.3925ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ uses a usable JD provided in the request without scraping (7.958459ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ treats resume_page_count_high as review when PDF is skipped so HTML still lands (8.003708ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ keeps the pre-merge scorecard when PDF page-count audit throws (11.438209ms)
+[materials] slug=eab-role provider=gemini requested_model=gemini-3.7-flash resolved_model=gemini-3.7-flash
+  ✔ reserves the same slug before any await so a concurrent enqueue is a no-op (4.505416ms)
+✔ createMaterialsDrafter (90.695167ms)
+▶ isUsableJobDescription
+  ✔ rejects the EAB fit blurb (0.44725ms)
+  ✔ rejects short text (0.133125ms)
+  ✔ accepts a real posting (0.071708ms)
+✔ isUsableJobDescription (1.048375ms)
+▶ resolveJobDescription
+  ✔ scrapes when cache is junk (0.279209ms)
+  ✔ returns jd_unusable when scrape fails (0.124334ms)
+✔ resolveJobDescription (0.505792ms)
+▶ renderPdfIfPossible
+  ✔ returns pdf_skipped when playwright is unavailable or injected skip (8.382208ms)
+  ✔ returns the output path when an injected playwright renders (10.638792ms)
+  ✔ returns pdf_skipped when launch/setContent/pdf exceeds the timeout (34.66775ms)
+  ✔ returns pdf_skipped when setContent rejects after the timeout without unhandledRejection (151.722917ms)
+✔ renderPdfIfPossible (206.137417ms)
+▶ buildRepairRequestPayload
+  ✔ turns sparse resume review issues into an expand-or-collapse request (1.035292ms)
+  ✔ defaults to the first review artifact with resume priority (0.20725ms)
+  ✔ turns long cover letters into a collapse request (2.116917ms)
+  ✔ rejects unsupported features and artifacts without review issues (0.289875ms)
+  ✔ rejects repair while a materials request is already pending (0.078834ms)
+✔ buildRepairRequestPayload (4.554584ms)
+▶ normalizeRequestBody
+  ✔ accepts a fully-formed body (0.852417ms)
+  ✔ rejects invalid slugs (0.326833ms)
+  ✔ rejects unknown features (0.097375ms)
+  ✔ requires company and title (0.220667ms)
+  ✔ caps notes to a reasonable maximum (0.143209ms)
+  ✔ trims whitespace and discards \r so newlines stay consistent (0.170583ms)
+✔ normalizeRequestBody (2.319ms)
+▶ spawnMaterialsRequest
+  ✔ delegates to options.enqueue and keeps dossier field names (0.138291ms)
+  ✔ propagates enqueue errors including 409 llm_unconfigured (0.159208ms)
+✔ spawnMaterialsRequest (0.418209ms)
+▶ materials-request no longer spawns Hermes
+  ✔ does not spawn materials-request.sh (0.2685ms)
+✔ materials-request no longer spawns Hermes (0.615875ms)
+▶ parseWriterJson
+  ✔ parses a fenced JSON payload (3.824542ms)
+  ✔ throws on garbage (0.274208ms)
+✔ parseWriterJson (4.562166ms)
+▶ callWriter
+  ✔ posts to the resolved Gemini model and returns JSON (0.845083ms)
+  ✔ retries once on invalid JSON then throws (0.362625ms)
+  ✔ dispatches openai/openrouter/local to chat completions (0.495834ms)
+  ✔ dispatches anthropic to /v1/messages (0.432375ms)
+  ✔ dispatches webhook POST to pin.baseUrl and accepts { text } (1.557708ms)
+  ✔ accepts raw writer JSON from a webhook (0.161834ms)
+✔ callWriter (4.131833ms)
+▶ callEditor
+  ✔ posts scorecard and current JSON with the rewrite instruction (0.387084ms)
+✔ callEditor (0.479ms)
+▶ L1 §5 B3 — staged resume text is persisted for the next reader
+  ✔ writes request-body resumeText to ~/.jobbored/resume.txt (11.870042ms)
+  ✔ still prefers the body over anything already on disk (3.155417ms)
+  ✔ never persists a body with no resumeText (1.163459ms)
+  ✔ returns the draft even when the disk write is impossible (3.2355ms)
+✔ L1 §5 B3 — staged resume text is persisted for the next reader (20.160708ms)
+▶ L1 §5 B3 — the drafting prompt returns all six sections
+  ✔ no longer orders the model to leave wants and avoids empty (1.134042ms)
+  ✔ asks for wants and avoids explicitly (1.057125ms)
+  ✔ keeps wants and avoids in the returned profile (1.2245ms)
+✔ L1 §5 B3 — the drafting prompt returns all six sections (3.567625ms)
+▶ profile drafter — output cap and truncation
+  ✔ Gemini: asks for at least 8192 output tokens (0.909333ms)
+  ✔ Gemini: a MAX_TOKENS answer is reported as truncated, not as non-JSON (0.645875ms)
+  ✔ OpenAI-compatible: finish_reason=length is reported as truncated and the cap is ≥ 8192 (0.542042ms)
+✔ profile drafter — output cap and truncation (3.330583ms)
+▶ F2B-PROFILE02-RESUME — resolveResumeTextForAnalysis
+  ✔ prefers staged request resumeText over any other lookup location (9.9335ms)
+  ✔ falls back to stored resume when the body has no staged text (2.790166ms)
+  ✔ ignores secret-looking body fields and never treats them as resume text (1.531ms)
+✔ F2B-PROFILE02-RESUME — resolveResumeTextForAnalysis (14.789625ms)
+▶ profile drafter provider precedence
+  ✔ an ATS pin without a key does not shadow a configured PROFILE_PROVIDER (2.333833ms)
+  ✔ an explicit PROFILE_PROVIDER wins even over a keyed ATS pin (0.162666ms)
+  ✔ with no PROFILE_PROVIDER, a keyed ATS/Gemini pin is still used (compatibility) (0.271209ms)
+✔ profile drafter provider precedence (3.196541ms)
+▶ profile rescore provider config
+  ✔ accepts OpenRouter env config without a Gemini key (0.9565ms)
+  ✔ reports provider-neutral missing config for selected OpenRouter (0.570333ms)
+  ✔ keeps legacy Gemini API-key config usable with the default model (0.451ms)
+✔ profile rescore provider config (2.493292ms)
+▶ rescoreAllPipelineRows provider behavior
+  ✔ dryRun counts rows without requiring any LLM provider config (3.275625ms)
+  ✔ scores rows through OpenRouter chat/completions and preserves progress payloads (7.34575ms)
+✔ rescoreAllPipelineRows provider behavior (10.825417ms)
+▶ POST /profile/rescore provider validation
+  ✔ returns llm_not_configured for selected OpenRouter before opening SSE (224.524459ms)
+✔ POST /profile/rescore provider validation (224.667875ms)
+▶ F0D provider isolation for profile rescore
+  ✔ F0D-F07-AMBIENT does not copy OPENAI_API_KEY onto openai_compatible (0.493667ms)
+  ✔ F0D-F05-REDACT omits provider body from rescore HTTP errors (1.692334ms)
+  ✔ F0D-F06-TIMEOUT disconnect cancellation aborts in-flight LLM fetch (77.7485ms)
+✔ F0D provider isolation for profile rescore (80.111542ms)
+ℹ tests 146
+ℹ suites 38
+ℹ pass 146
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 545.28875
+npm notice
+npm notice New minor version of npm available! 11.19.1 -> 11.20.0
+npm notice Changelog: https://github.com/npm/cli/releases/tag/v11.20.0
+npm notice To update run: npm install -g npm@11.20.0
+npm notice

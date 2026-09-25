@@ -1,0 +1,57 @@
+{"ok":true,"service":"command-center-job-scraper","atsProvider":"gemini","atsConfigured":false,"atsConfigError":"Missing API key. Save a key in Settings."}
+POST /profile (Pat Probe):
+{"ok":true,"updatedAt":"2026-09-25T10:44:27.859Z","logoRefresh":{"ok":true}}
+=== S1 good stub: whose resume does a non-Emilio user get? (F1) ===
+{"ok":true,"path":"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/.lane-evidence/home-e2e-1790333067/.jobbored/applications/s1-good/job-description.md","bytesWritten":772,"source":"user-paste"}
+{"ok":true,"slug":"s1-good","pending_path":"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/.lane-evidence/home-e2e-1790333067/.jobbored/applications/s1-good/pending.json","requested_at":"2026-09-25T10:44:27.935Z","accepted":true}
+wall_s=1
+job-description.md
+qa-report.md
+resume.html
+   1 <h1 class="name">Emilio Nunez-Garcia</h1>
+   8 Audacy
+   2 <redacted-email>
+Pat Probe occurrences in resume.html: 0
+-- qa-report.md
+# QA report
+
+Status: REVIEW
+
+pdf_skipped
+
+## Issues
+
+- `cover_letter_too_short` (review): Cover letter has 194 words; add specific role evidence.
+- `resume_page_count_high` (review): Resume renders to 3 pages; target an intentional one-page or two-page resume.
+- `banned_filler` (review): Cover letter uses banned filler phrasing.
+-- stub calls for S1:
+{"n":1,"mode":"good","path":"/v1/chat/completions","model":"stub-model","max_tokens":4096,"systemHead":"Rewrite the candidate's materials for this JD. Freeze employ","systemChars":510,"userChars":47145,"approxInputTokens":11914,"userHasEmilio":true,"userHasProbeCandidate":false,"userHasVoiceSamples":false,"voiceSamplesHead":"","isEditor":false}
+{"n":2,"mode":"good","path":"/v1/chat/completions","model":"stub-model","max_tokens":4096,"systemHead":"Rewrite the candidate's materials for this JD. Freeze employ","systemChars":510,"userChars":48955,"approxInputTokens":12366,"userHasEmilio":true,"userHasProbeCandidate":false,"userHasVoiceSamples":false,"voiceSamplesHead":"","isEditor":true}
+{"n":3,"mode":"good","path":"/v1/chat/completions","model":"stub-model","max_tokens":4096,"systemHead":"Rewrite the candidate's materials for this JD. Freeze employ","systemChars":510,"userChars":48955,"approxInputTokens":12366,"userHasEmilio":true,"userHasProbeCandidate":false,"userHasVoiceSamples":false,"voiceSamplesHead":"","isEditor":true}
+=== S2 empty model output (F3) ===
+{"ok":true,"slug":"s2-empty","pending_path":"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/.lane-evidence/home-e2e-1790333067/.jobbored/applications/s2-empty/pending.json","requested_at":"2026-09-25T10:44:28.539Z","accepted":true}
+{"phase":"failed","message":"WriterJsonError: no JSON object found","started_at":"2026-09-25T10:44:28.539Z","updated_at":"2026-09-25T10:44:28.546Z","attempt":1,"elapsed_seconds":0}
+manifest pending:
+{"phase":"failed","message":"WriterJsonError: no JSON object found","startedAt":"2026-09-25T10:44:28.539Z","updatedAt":"2026-09-25T10:44:28.546Z","attempt":1,"elapsedSeconds":0}
+stub calls for S2: 2
+=== S3 truncated JSON (maxOutput 4096 hit) ===
+{"ok":true,"slug":"s3-trunc","pending_path":"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/.lane-evidence/home-e2e-1790333067/.jobbored/applications/s3-trunc/pending.json","requested_at":"2026-09-25T10:44:28.670Z","accepted":true}
+WriterJsonError: unterminated JSON object
+stub calls for S3: 2
+=== S4 provider HTTP 500 ===
+{"ok":true,"slug":"s4-500","pending_path":"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/.lane-evidence/home-e2e-1790333067/.jobbored/applications/s4-500/pending.json","requested_at":"2026-09-25T10:44:28.777Z","accepted":true}
+Local HTTP 500
+stub calls for S4: 1
+=== S5 jobDescription in request body is dropped by normalizeRequestBody (F9) ===
+{"ok":true,"slug":"s5-bodyjd","pending_path":"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/.lane-evidence/home-e2e-1790333067/.jobbored/applications/s5-bodyjd/pending.json","requested_at":"2026-09-25T10:44:28.877Z","accepted":true}
+Cached job description is unusable and scraping the job URL failed. Paste the full job posting into the Dossier (not a fit blurb), or replace the aggregator/blocked URL with the employer careers page.
+pending.json
+qa-report.md
+stub calls for S5: 0
+=== S6 repair notes arrive as 'Voice samples' (F8) ===
+{"ok":true,"slug":"s1-good","pending_path":"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-F/.lane-evidence/home-e2e-1790333067/.jobbored/applications/s1-good/pending.json","requested_at":"2026-09-25T10:44:28.940Z","accepted":true,"repair":{"feature":"resume","strategy":"collapse","issueCodes":["resume_page_count_high"]}}
+{"n":9,"isEditor":false,"userHasVoiceSamples":true,"voiceSamplesHead":"Voice samples:\n[\"Goal: Repair the tailored resume so it intentionally fits the page target.\\n\\nSuccess means:\\n- Collapse the resume to an intentional one-page "}
+{"n":10,"isEditor":true,"userHasVoiceSamples":true,"voiceSamplesHead":"Voice samples:\n[\"Goal: Repair the tailored resume so it intentionally fits the page target.\\n\\nSuccess means:\\n- Collapse the resume to an intentional one-page "}
+{"n":11,"isEditor":true,"userHasVoiceSamples":true,"voiceSamplesHead":"Voice samples:\n[\"Goal: Repair the tailored resume so it intentionally fits the page target.\\n\\nSuccess means:\\n- Collapse the resume to an intentional one-page "}
+=== egress attempts blocked ===
+0
