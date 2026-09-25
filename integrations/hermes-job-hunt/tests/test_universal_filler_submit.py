@@ -213,6 +213,69 @@ def test_send_click_with_an_empty_required_field_is_blocked_before_clicking(app_
     assert result["submitted"] is False
 
 
+# Repair round: the H4 gate guards submission, not the clicks that fill fields.
+
+COUNTRY_OPTION = '[role="option"]:has-text("United States")'
+
+
+class ComboboxPage(FakePage):
+    """Country is an empty required combobox; opening it and picking an option fills it."""
+
+    def on_click(self, selector):
+        if selector == COUNTRY_OPTION:
+            self.state = {**self.state, "elements": [
+                field("#country", "Country", "United States", kind="combobox", role="combobox"),
+                button("#send", "Send"),
+            ]}
+        super().on_click(selector)
+
+
+def combobox_form():
+    return {**FILLED_FORM, "elements": [
+        field("#country", "Country", "", kind="combobox", role="combobox",
+              options=[{"label": "United States", "value": "US"}]),
+        button("#send", "Send"),
+    ]}
+
+
+def test_clicking_an_empty_required_combobox_to_fill_it_is_allowed(app_dir):
+    after = {"title": "Thanks", "text": "Application submitted. We received your application.",
+             "elements": [], "validation_errors": [], "captcha_detected": False}
+    page = ComboboxPage(combobox_form(), after, submit_selector="#send", after_url=DONE_URL)
+    planner = ScriptedPlanner(
+        [{"action": "click", "selector": "#country", "reason": "Open Country"}],
+        [{"action": "click", "selector": COUNTRY_OPTION, "reason": "Pick United States"}],
+        [{"action": "click", "selector": "#send", "reason": "Send"}],
+    )
+    result = run_live(app_dir, page, planner)
+    assert page.clicked == ["#country", COUNTRY_OPTION, "#send"]
+    assert result["submission_state"] == "verified"
+
+
+def test_field_clicks_do_not_count_as_submit_attempts():
+    assert uf.is_submit_like_action({"action": "click", "selector": "#country"},
+                                    field("#country", "Country", kind="combobox", role="combobox")) is False
+    assert uf.is_submit_like_action({"action": "click", "selector": "#agree"},
+                                    field("#agree", "I agree", kind="checkbox")) is False
+    assert uf.is_submit_like_action({"action": "click", "selector": COUNTRY_OPTION}, None) is False
+    assert uf.is_submit_like_action({"action": "click", "selector": "#go"},
+                                    field("#go", "Apply", kind="submit", tag="input")) is True
+    assert uf.is_submit_like_action({"action": "click", "selector": "#mystery"}, None) is True
+
+
+def test_submit_after_a_field_click_is_still_gated_on_required_fields(app_dir):
+    page = ComboboxPage(combobox_form(), combobox_form(), submit_selector="#send", after_url=DONE_URL)
+    planner = ScriptedPlanner(
+        [{"action": "click", "selector": "#country", "reason": "Open Country"}],
+        [{"action": "click", "selector": "#send", "reason": "Send"}],
+    )
+    result = run_live(app_dir, page, planner)
+    assert page.clicked == ["#country"]
+    assert result["submit_attempted"] is False
+    assert result["submitted"] is False
+    assert result["manual_review"] is True
+
+
 # ─── H5: "Thank you" on the form is not a confirmation ───────────────
 
 

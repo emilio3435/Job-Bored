@@ -12,8 +12,10 @@ Safety:
     after Gate 1, the submit lock and the Telegram Gate 2 confirmation.
   - Live mode refuses to start without the user's local candidate profile.
   - Workday redirects are blocked for manual review.
-  - In live mode every click passes the required-field safety gate first, and
-    any click that is not clearly Next/Continue counts as a final submit.
+  - In live mode every click passes the required-field safety gate first, except
+    field interactions (opening a combobox, picking an option, toggling a
+    checkbox) that fill those fields; any other click that is not clearly
+    Next/Continue counts as a final submit.
   - A submit is "verified" only when the page navigated or the form went away
     AND a success marker appeared that was not on the page before the click.
   - Compensation fields are hard-blocked at execution time.
@@ -192,6 +194,35 @@ def is_navigation_click(action: dict[str, Any], element_meta: dict[str, Any] | N
     return _has_term(blob, NAVIGATION_TERMS) and not _has_term(blob, SUBMIT_TERMS)
 
 
+# Element kinds from page_state_extractor.js that hold a value. Clicking one
+# opens or toggles the field; it cannot submit the form.
+FIELD_CLICK_KINDS = frozenset({
+    "text", "email", "tel", "url", "number", "date", "datetime-local", "month",
+    "week", "time", "search", "password", "textarea", "select", "combobox",
+    "listbox", "checkbox", "radio", "contenteditable", "file",
+})
+_OPTION_SELECTOR = re.compile(r"""\[\s*role\s*=\s*["']?option["']?\s*\]|^option\b""", re.IGNORECASE)
+
+
+def is_field_interaction_click(action: dict[str, Any], element_meta: dict[str, Any] | None = None) -> bool:
+    """A click that fills a field: opening a combobox/select, toggling a checkbox
+    or radio, focusing a text input, or picking a `role=option` from an open list.
+    Buttons, links and `type=submit|button|image|reset` inputs never qualify."""
+    if action.get("action") != "click":
+        return False
+    if element_meta:
+        tag = str(element_meta.get("tag") or "").lower()
+        typ = str(element_meta.get("type") or "").lower()
+        kind = str(element_meta.get("kind") or "").lower()
+        role = str(element_meta.get("role") or "").lower()
+        if tag in {"button", "a"} or role in {"button", "link"}:
+            return False
+        if typ in {"submit", "button", "image", "reset"}:
+            return False
+        return kind in FIELD_CLICK_KINDS or role in {"combobox", "listbox", "option", "checkbox", "radio"}
+    return bool(_OPTION_SELECTOR.search(str(action.get("selector") or "").strip()))
+
+
 def is_submit_like_action(action: dict[str, Any], element_meta: dict[str, Any] | None = None) -> bool:
     """Any click that may be the final submission.
 
@@ -204,6 +235,8 @@ def is_submit_like_action(action: dict[str, Any], element_meta: dict[str, Any] |
     if action.get("action") != "click":
         return False
     if is_navigation_click(action, element_meta):
+        return False
+    if is_field_interaction_click(action, element_meta):
         return False
     return True
 
@@ -786,8 +819,13 @@ class UniversalFiller:
                             action = {"action": "stop", "reason": "Legal/screening field requires manual review"}
                         if self.dry_run and is_submit_like_action(action, element_meta):
                             action = {**action, "action": "skip", "reason": "Dry-run final submit/apply click blocked"}
-                        if (not self.dry_run) and action.get("action") == "click":
-                            # Safety gate before ANY live click (H4).
+                        if (
+                            (not self.dry_run)
+                            and action.get("action") == "click"
+                            and not is_field_interaction_click(action, element_meta)
+                        ):
+                            # Safety gate before every live click except the field
+                            # interactions that fill required fields (H4).
                             current_state = self.extract_state(page)
                             current_safety = validate_required_fields(current_state, self.action_history)
                             if not current_safety["ok"]:
