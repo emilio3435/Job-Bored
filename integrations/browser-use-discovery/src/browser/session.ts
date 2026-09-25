@@ -122,6 +122,14 @@ async function runCommandSession(
         settled = true;
         reject(error);
       });
+      const onStdinError = (error: Error) => {
+        cleanup();
+        if (settled) return;
+        settled = true;
+        child.kill("SIGKILL");
+        reject(error);
+      };
+      child.stdin.once("error", onStdinError);
       child.once("close", (code) => {
         cleanup();
         if (settled) return;
@@ -132,7 +140,11 @@ async function runCommandSession(
         }
         resolve({ stdout, stderr });
       });
-      child.stdin.end(`${payload}\n`);
+      try {
+        child.stdin.end(`${payload}\n`);
+      } catch (error) {
+        onStdinError(error as Error);
+      }
     },
   );
 

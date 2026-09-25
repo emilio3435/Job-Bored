@@ -202,17 +202,22 @@ test("session caps an endless page body instead of buffering it", async () => {
 
 test("session passes request.abortSignal through to the fetch path", async () => {
   const controller = new AbortController();
-  let sawSignal = false;
+  let fetchEntered: () => void = () => {};
+  const enteredFetch = new Promise<void>((resolve) => {
+    fetchEntered = resolve;
+  });
   await withPatchedFetch(
-    (_url, init) =>
-      new Promise<Response>((_resolve, reject) => {
-        sawSignal = Boolean(init?.signal);
+    (_url, init) => {
+      fetchEntered();
+      assert.equal(init?.signal, controller.signal);
+      return new Promise<Response>((_resolve, reject) => {
         init?.signal?.addEventListener("abort", () => {
           const error = new Error("aborted");
           error.name = "AbortError";
           reject(error);
         });
-      }),
+      });
+    },
     async () => {
       const session = createBrowserUseSessionManager(makeRuntimeConfig());
       const pending = session.run({
@@ -220,9 +225,9 @@ test("session passes request.abortSignal through to the fetch path", async () =>
         instruction: "x",
         abortSignal: controller.signal,
       });
-      setTimeout(() => controller.abort(), 10);
+      await Promise.race([enteredFetch, pending]);
+      controller.abort();
       await assert.rejects(() => pending, (error: Error) => error.name === "AbortError");
-      assert.equal(sawSignal, true);
     },
   );
 });
