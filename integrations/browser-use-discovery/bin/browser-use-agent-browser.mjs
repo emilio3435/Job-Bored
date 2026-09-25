@@ -3,7 +3,7 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { access, mkdir } from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
@@ -35,14 +35,16 @@ if (isEntrypoint()) {
   });
 }
 
+// Compare canonical paths: a symlinked launcher (npm bin shim, ~/.local/bin
+// link) gives argv[1] the link path while import.meta.url is the real file.
 function isEntrypoint() {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const self = fileURLToPath(import.meta.url);
   try {
-    return (
-      Boolean(process.argv[1]) &&
-      path.resolve(process.argv[1]) === fileURLToPath(import.meta.url)
-    );
+    return realpathSync(path.resolve(invoked)) === realpathSync(self);
   } catch {
-    return false;
+    return path.resolve(invoked) === self;
   }
 }
 

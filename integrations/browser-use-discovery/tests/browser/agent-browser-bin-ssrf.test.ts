@@ -3,7 +3,7 @@
 // a fake agent-browser records its argv so the test sees whether it ran.
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
-import { chmod, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { chmod, mkdtemp, readFile, rm, symlink, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import test from "node:test";
@@ -34,8 +34,8 @@ async function makeFakeAgentBrowser(dir: string, openUrl: string | null) {
   return { fake, argvLog };
 }
 
-async function runBin(dir: string, fake: string, url: string) {
-  const child = spawn(process.execPath, [BIN], {
+async function runBin(dir: string, fake: string, url: string, bin: string = BIN) {
+  const child = spawn(process.execPath, [bin], {
     env: {
       ...process.env,
       HOME: dir,
@@ -89,6 +89,24 @@ test("agent-browser command opens a public URL", async () => {
     assert.match(result.stdout, /PROBE-PAGE-BODY/);
     const argv = await readArgv(argvLog);
     assert.deepEqual(argv[0].slice(3), ["open", "http://192.0.2.10/jobs"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("agent-browser command still runs when invoked through a symlink", async () => {
+  // npm bin shims and ~/.local/bin links reach the CLI through a symlink; the
+  // entry check must compare canonical paths or main() silently never runs.
+  const dir = await mkdtemp(join(tmpdir(), "jb-agent-browser-ssrf-"));
+  try {
+    const { fake, argvLog } = await makeFakeAgentBrowser(dir, null);
+    const link = join(dir, "browser-use-agent-browser-link.mjs");
+    await symlink(BIN, link);
+    const result = await runBin(dir, fake, "http://192.0.2.10/jobs", link);
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /PROBE-PAGE-BODY/);
+    const argv = await readArgv(argvLog);
+    assert.deepEqual(argv[0]?.slice(3), ["open", "http://192.0.2.10/jobs"]);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
