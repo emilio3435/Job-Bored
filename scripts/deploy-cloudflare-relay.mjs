@@ -65,6 +65,9 @@ Options:
                    Falls back to DISCOVERY_WEBHOOK_SECRET / BROWSER_USE_DISCOVERY_WEBHOOK_SECRET env.
   --no-auto-login  Do not launch \`wrangler login\` automatically when auth is missing.
   --no-verify      Do not run the webhook verification step automatically after deploy.
+  --rotate-token   Mint a new RELAY_TOKEN even when this Worker already has one in
+                   discovery-local-bootstrap.json. By default a redeploy keeps the
+                   existing token so the dashboard's cached bearer stays valid.
   --json           Print machine-readable JSON on success.
   --help           Show this message.
 
@@ -118,6 +121,7 @@ function parseArgs(argv) {
     cron: DEFAULT_CRON,
     autoLogin: true,
     autoVerify: true,
+    rotateToken: false,
     json: false,
   };
   for (let i = 0; i < argv.length; i += 1) {
@@ -129,6 +133,10 @@ function parseArgs(argv) {
     }
     if (arg === "--no-verify") {
       out.autoVerify = false;
+      continue;
+    }
+    if (arg === "--rotate-token") {
+      out.rotateToken = true;
       continue;
     }
     if (arg === "--json") {
@@ -752,28 +760,126 @@ function mintRelayToken() {
   return randomBytes(32).toString("base64url");
 }
 
-function runVerify(workerUrl, sheetId, relayToken = "") {
-  if (!workerUrl || !sheetId) return null;
-  console.log("");
-  console.log("cloudflare-relay: verifying deployed Worker...");
-  const result = spawnSync(
-    "node",
-    [
-      join("scripts", "verify-discovery-webhook.mjs"),
-      "--url",
-      workerUrl,
-      "--sheet-id",
-      sheetId,
-    ],
-    {
-      cwd: repoRoot,
-      stdio: "inherit",
-      env: relayToken
-        ? { ...process.env, RELAY_TOKEN: relayToken }
-        : process.env,
-    },
-  );
-  return typeof result.status === "number" ? result.status === 0 : false;
+/**
+ * The token a deploy uploads. A redeploy of the same Worker keeps the token
+ * already in the bootstrap relay block, so a dashboard that cached it keeps
+ * working (fix-setup redeploys the relay every time the tunnel URL rotates).
+ * A different Worker, a missing block, or --rotate-token mints a new one.
+ */
+function resolveRelayToken({ existingBootstrap, workerName, rotate = false } = {}) {
+  const relay =
+    existingBootstrap &&
+    typeof existingBootstrap === "object" &&
+    existingBootstrap.relay &&
+    typeof existingBootstrap.relay === "object"
+      ? existingBootstrap.relay
+      : null;
+  const kept =
+    relay && typeof relay.relayToken === "string" ? relay.relayToken.trim() : "";
+  if (
+    !rotate &&
+    kept.length >= 32 &&
+    relay.workerName &&
+    workerName &&
+    String(relay.workerName) === String(workerName)
+  ) {
+    return kept;
+  }
+  return mintRelayToken();
+}
+
+/**
+ * The body of the dashboard's protected relay-token route. It hands out only
+ * the relay block's Worker URL, token and lock flag, never the rest of the
+ * bootstrap file (webhook secret, ports), which static-path-guard keeps denied.
+ * The route itself must be loopback-origin guarded like
+ * /__proxy/discovery-webhook-secret.
+ */
+function buildDashboardRelayTokenResponse(bootstrap) {
+  const relay =
+    bootstrap && typeof bootstrap === "object" && bootstrap.relay &&
+    typeof bootstrap.relay === "object"
+      ? bootstrap.relay
+      : null;
+  const relayToken =
+    relay && typeof relay.relayToken === "string" ? relay.relayToken.trim() : "";
+  const workerUrl =
+    relay && typeof relay.workerUrl === "string" ? relay.workerUrl.trim() : "";
+  if (!relayToken || !/^https?:\/\//i.test(workerUrl)) {
+    return { ok: false, reason: "relay_not_deployed" };
+  }
+  return {
+    ok: true,
+    relay: { workerUrl, relayToken, relayLocked: relay.relayLocked !== false },
+  };
+}
+
+function readBootstrapFile(bootstrapPath) {
+  if (!existsSync(bootstrapPath)) return {};
+  try {
+    const parsed = JSON.parse(readFileSync(bootstrapPath, "utf8"));
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch (_) {
+    return {};
+  }
+}
+
+/**
+ * Verifies the deployed relay with its own bearer. This replaced a spawn of
+ * scripts/verify-discovery-webhook.mjs, which never read RELAY_TOKEN, so every
+ * verification of a locked relay was a 401.
+ */
+async function verifyRelayDeployment({
+  workerUrl,
+  sheetId,
+  relayToken,
+  retries = 6,
+  retryDelayMs = 5000,
+  fetchImpl = globalThis.fetch,
+  log = () => {},
+} = {}) {
+  if (!workerUrl || !sheetId || !relayToken) return null;
+  let body;
+  try {
+    body = JSON.parse(
+      readFileSync(
+        join(repoRoot, "examples", "discovery-webhook-request.v1.json"),
+        "utf8",
+      ),
+    );
+  } catch (_) {
+    body = { event: "command-center.discovery", schemaVersion: 1 };
+  }
+  body.sheetId = String(sheetId).trim();
+  body.variationKey = `verify-${Date.now().toString(36)}`;
+  body.requestedAt = new Date().toISOString();
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    try {
+      const res = await fetchImpl(workerUrl, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${relayToken}`,
+        },
+        body: JSON.stringify(body),
+      });
+      await res.text().catch(() => "");
+      log(`cloudflare-relay: verify HTTP ${res.status}`);
+      if (res.ok) return true;
+      // 401/403/404 will not change on retry; 5xx and 429 may be propagation.
+      if (res.status < 500 && res.status !== 429) return false;
+    } catch (err) {
+      log(
+        `cloudflare-relay: verify attempt ${attempt + 1} failed: ${
+          err && err.message ? err.message : String(err)
+        }`,
+      );
+    }
+    if (attempt < retries) {
+      await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
+    }
+  }
+  return false;
 }
 
 function tryReadStatusUrl(configPath) {
@@ -906,11 +1012,18 @@ async function main() {
         "wrangler secret put TARGET_URL failed. Check your Cloudflare auth and account permissions.",
     });
 
-    // BEAUDIT G1 / spec §0.7: mint a per-dashboard bearer token. The relay
+    // BEAUDIT G1 / spec §0.7: a per-dashboard bearer token. The relay
     // answers 401 without it, so an anonymous caller can no longer reach the
     // worker with DISCOVERY_SECRET injected. The token is written to the
-    // bootstrap file below so the dashboard stores it in its config.
-    const relayToken = mintRelayToken();
+    // bootstrap file below so the dashboard can fetch it. A redeploy of the
+    // same Worker keeps the existing token (resolveRelayToken).
+    const relayToken = resolveRelayToken({
+      existingBootstrap: readBootstrapFile(
+        join(repoRoot, "discovery-local-bootstrap.json"),
+      ),
+      workerName,
+      rotate: args.rotateToken,
+    });
     console.log("cloudflare-relay: setting RELAY_TOKEN secret...");
     runWrangler(["secret", "put", "RELAY_TOKEN", "--config", configPath], {
       cwd: tempDir,
@@ -986,7 +1099,14 @@ async function main() {
     };
 
     if (args.sheetId && args.autoVerify) {
-      payload.verified = runVerify(workerUrl, args.sheetId, relayToken);
+      console.log("");
+      console.log("cloudflare-relay: verifying deployed Worker with its relay token...");
+      payload.verified = await verifyRelayDeployment({
+        workerUrl,
+        sheetId: args.sheetId,
+        relayToken,
+        log: (line) => console.log(line),
+      });
       if (payload.verified === false) {
         console.log("");
         console.log(
@@ -1077,7 +1197,7 @@ async function main() {
       if (args.sheetId) {
         console.log("");
         console.log(
-          `Verify: npm run test:discovery-webhook -- --url "${workerUrl}" --sheet-id "${args.sheetId}"`,
+          "Verify: re-run this deploy. It verifies with the relay token; npm run test:discovery-webhook does not send RELAY_TOKEN, so it gets 401 from a locked relay.",
         );
       }
     }
@@ -1100,4 +1220,10 @@ if (__invokedAsCli) {
 // Test-only exports. Keep the surface narrow — these are not a stable public
 // API; they exist so tests can exercise wrangler stdout parsing without
 // running the full deploy pipeline.
-export { extractWranglerJson, mintRelayToken };
+export {
+  buildDashboardRelayTokenResponse,
+  extractWranglerJson,
+  mintRelayToken,
+  resolveRelayToken,
+  verifyRelayDeployment,
+};

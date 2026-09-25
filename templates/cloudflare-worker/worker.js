@@ -25,6 +25,21 @@ function isRelayReadOnlyPath(pathname) {
   return pathname === "/runs" || pathname.startsWith("/runs/");
 }
 
+/**
+ * POST paths the relay forwards to the upstream worker: the discovery webhook
+ * plus the dashboard's sibling worker routes (Settings profile run, Add URL,
+ * expired-row cleanup). `/` maps to TARGET_URL itself. Anything else, such as
+ * /pipeline-update (agents call the worker directly) or /health, is 404.
+ */
+const RELAY_POST_PATHS = new Set([
+  "/",
+  "/webhook",
+  "/discovery",
+  "/discovery-profile",
+  "/ingest-url",
+  "/cleanup-expired",
+]);
+
 function timingSafeEqual(a, b) {
   const x = String(a);
   const y = String(b);
@@ -86,10 +101,10 @@ export default {
       return json({ error: "Missing TARGET_URL secret" }, 400, env);
     }
 
-    // Path allowlist: `/` and `/webhook` reach the discovery webhook, `/runs`
-    // and `/runs/<id>` reach run-status polling. `/forward` and `/forward/<p>`
-    // are the legacy FORWARD_SECRET spellings of the same paths. Everything
-    // else is 404 so the relay cannot reach other routes on the tunnel origin.
+    // Path allowlist: RELAY_POST_PATHS take POST, `/runs` and `/runs/<id>`
+    // take GET for run-status polling. `/forward` and `/forward/<p>` are the
+    // legacy FORWARD_SECRET spellings of the same paths. Everything else is
+    // 404 so the relay cannot reach other routes on the tunnel origin.
     let relayPath = url.pathname || "/";
     if (relayPath === "/forward") relayPath = "/";
     else if (relayPath.startsWith("/forward/")) {
@@ -99,15 +114,20 @@ export default {
     let useTargetPath = false;
     if (relayPath === "/") {
       useTargetPath = true;
-    } else if (relayPath !== "/webhook" && !isRelayReadOnlyPath(relayPath)) {
+    } else if (
+      !RELAY_POST_PATHS.has(relayPath) &&
+      !isRelayReadOnlyPath(relayPath)
+    ) {
       return new Response("Not found", { status: 404, headers: h });
     }
 
-    // GET is allowed only for the read-only run-status path. Every other
-    // GET is rejected. POST is allowed everywhere it was before.
+    // GET is allowed only for the read-only run-status path; POST only for
+    // RELAY_POST_PATHS.
     const isReadOnlyGet =
       request.method === "GET" && isRelayReadOnlyPath(relayPath);
-    if (request.method !== "POST" && !isReadOnlyGet) {
+    const isAllowedPost =
+      request.method === "POST" && RELAY_POST_PATHS.has(relayPath);
+    if (!isAllowedPost && !isReadOnlyGet) {
       return new Response("Method Not Allowed", { status: 405, headers: h });
     }
 

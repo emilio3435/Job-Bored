@@ -26,8 +26,154 @@ describe("deploy-cloudflare-relay mints a relay token", () => {
   });
 
   it("writes the token and relayLocked into the bootstrap relay block", () => {
-    const block = source.slice(source.indexOf("relay: {"));
+    const block = source.slice(source.lastIndexOf("relay: {"));
     assert.match(block.slice(0, 400), /relayToken,/);
     assert.match(block.slice(0, 400), /relayLocked: true/);
+  });
+});
+
+// Repair round (G24): a redeploy must not strand the dashboard's cached token,
+// deploy verification must authenticate to the locked relay, and the dashboard
+// token must be delivered by a protected endpoint rather than the static
+// bootstrap file (which static-path-guard denies).
+import { createServer } from "node:http";
+
+const KEPT = "kept-token-abcdefghijklmnopqrstuvwxyz0123456";
+
+describe("deploy-cloudflare-relay keeps the dashboard's token across redeploys", () => {
+  it("reuses the bootstrap token for the same Worker", async () => {
+    const mod = await import(scriptPath);
+    const existing = {
+      relay: { workerName: "jobbored-relay", relayToken: KEPT },
+    };
+    assert.equal(
+      mod.resolveRelayToken({ existingBootstrap: existing, workerName: "jobbored-relay" }),
+      KEPT,
+    );
+  });
+
+  it("mints a new token for another Worker, a missing block, or --rotate-token", async () => {
+    const mod = await import(scriptPath);
+    const existing = {
+      relay: { workerName: "jobbored-relay", relayToken: KEPT },
+    };
+    for (const input of [
+      { existingBootstrap: existing, workerName: "other-relay" },
+      { existingBootstrap: {}, workerName: "jobbored-relay" },
+      { existingBootstrap: null, workerName: "jobbored-relay" },
+      { existingBootstrap: existing, workerName: "jobbored-relay", rotate: true },
+    ]) {
+      const token = mod.resolveRelayToken(input);
+      assert.notEqual(token, KEPT);
+      assert.match(token, /^[A-Za-z0-9_-]{43}$/);
+    }
+  });
+
+  it("does not reuse a short hand-edited token", async () => {
+    const mod = await import(scriptPath);
+    const token = mod.resolveRelayToken({
+      existingBootstrap: { relay: { workerName: "w", relayToken: "short" } },
+      workerName: "w",
+    });
+    assert.notEqual(token, "short");
+  });
+
+  it("parses --rotate-token", async () => {
+    assert.match(source, /"--rotate-token"/);
+  });
+});
+
+describe("deploy verification authenticates to the locked relay", () => {
+  async function withServer(status, fn) {
+    const seen = [];
+    const server = createServer((req, res) => {
+      let body = "";
+      req.on("data", (c) => (body += c));
+      req.on("end", () => {
+        seen.push({ method: req.method, url: req.url, headers: req.headers, body });
+        res.writeHead(status, { "content-type": "application/json" });
+        res.end(status < 300 ? '{"ok":true,"kind":"accepted_async","runId":"r1"}' : '{"error":"Unauthorized"}');
+      });
+    });
+    await new Promise((r) => server.listen(19013, "127.0.0.1", r));
+    try {
+      return await fn(seen);
+    } finally {
+      await new Promise((r) => server.close(r));
+    }
+  }
+
+  it("POSTs the discovery payload with Authorization: Bearer <RELAY_TOKEN>", async () => {
+    const mod = await import(scriptPath);
+    await withServer(202, async (seen) => {
+      const ok = await mod.verifyRelayDeployment({
+        workerUrl: "http://127.0.0.1:19013/",
+        sheetId: "sheet-example",
+        relayToken: "verify-token-1",
+        retries: 0,
+      });
+      assert.equal(ok, true);
+      assert.equal(seen.length, 1);
+      assert.equal(seen[0].method, "POST");
+      assert.equal(seen[0].headers.authorization, "Bearer verify-token-1");
+      const body = JSON.parse(seen[0].body);
+      assert.equal(body.event, "command-center.discovery");
+      assert.equal(body.sheetId, "sheet-example");
+    });
+  });
+
+  it("reports a relay 401 as a failed verification", async () => {
+    const mod = await import(scriptPath);
+    await withServer(401, async () => {
+      const ok = await mod.verifyRelayDeployment({
+        workerUrl: "http://127.0.0.1:19013/",
+        sheetId: "sheet-example",
+        relayToken: "verify-token-1",
+        retries: 0,
+      });
+      assert.equal(ok, false);
+    });
+  });
+
+  it("no longer hands verification to verify-discovery-webhook.mjs, which never sends RELAY_TOKEN", () => {
+    assert.doesNotMatch(source, /verify-discovery-webhook\.mjs"/);
+  });
+});
+
+describe("protected dashboard token delivery", () => {
+  it("builds the relay-token response from the bootstrap relay block", async () => {
+    const mod = await import(scriptPath);
+    const res = mod.buildDashboardRelayTokenResponse({
+      localPort: 8644,
+      webhookSecret: "not-for-this-route",
+      relay: {
+        workerName: "jobbored-relay",
+        workerUrl: "https://jobbored-relay.example.workers.dev/",
+        relayToken: "dash-token-1",
+        relayLocked: true,
+        targetUrl: "https://tunnel.example/webhook",
+      },
+    });
+    assert.deepEqual(res, {
+      ok: true,
+      relay: {
+        workerUrl: "https://jobbored-relay.example.workers.dev/",
+        relayToken: "dash-token-1",
+        relayLocked: true,
+      },
+    });
+    assert.doesNotMatch(JSON.stringify(res), /not-for-this-route/);
+  });
+
+  it("answers ok:false when no relay token was deployed", async () => {
+    const mod = await import(scriptPath);
+    assert.deepEqual(mod.buildDashboardRelayTokenResponse(null), {
+      ok: false,
+      reason: "relay_not_deployed",
+    });
+    assert.deepEqual(
+      mod.buildDashboardRelayTokenResponse({ relay: { workerUrl: "https://x.example/" } }),
+      { ok: false, reason: "relay_not_deployed" },
+    );
   });
 });

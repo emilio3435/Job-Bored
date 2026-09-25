@@ -124,9 +124,61 @@ describe("Cloudflare relay caller authentication (G1)", () => {
     assert.equal(calls[0].init.method, "GET");
   });
 
-  it("answers 404 to an authenticated caller on a path outside /webhook and /runs/*", async () => {
+  // Repair round: the dashboard also POSTs these worker routes through the
+  // relay (settings-profile-tab.js /discovery-profile, ingest-url-flow.js
+  // /ingest-url, expired-review-ui.js /cleanup-expired, discovery-wizard-verify.js
+  // /discovery). An authenticated POST must still reach each of them.
+  for (const path of [
+    "/discovery",
+    "/discovery-profile",
+    "/ingest-url",
+    "/cleanup-expired",
+  ]) {
+    it(`forwards an authenticated POST ${path} to the same upstream path`, async () => {
+      const worker = await loadWorker();
+      const res = await worker.fetch(
+        new Request("https://relay.example.workers.dev" + path, {
+          method: "POST",
+          headers: {
+            Authorization: "Bearer relay-token-123",
+            "content-type": "application/json",
+          },
+          body: "{}",
+        }),
+        ENV,
+      );
+      assert.equal(res.status, 202, path);
+      assert.equal(calls.length, 1);
+      assert.equal(calls[0].url, "https://upstream.example" + path);
+      assert.equal(calls[0].init.method, "POST");
+      assert.equal(calls[0].init.headers["x-discovery-secret"], "probe-secret");
+    });
+  }
+
+  it("rejects GET on the dashboard POST routes (read-only GET is /runs/* only)", async () => {
     const worker = await loadWorker();
-    for (const path of ["/anything/else", "/discovery-profile", "/admin"]) {
+    for (const path of ["/discovery-profile", "/ingest-url", "/webhook"]) {
+      const res = await worker.fetch(
+        new Request("https://relay.example.workers.dev" + path, {
+          method: "GET",
+          headers: { Authorization: "Bearer relay-token-123" },
+        }),
+        ENV,
+      );
+      assert.equal(res.status, 405, path);
+    }
+    assert.equal(calls.length, 0);
+  });
+
+  it("answers 404 to an authenticated caller on a path outside the dashboard routes", async () => {
+    const worker = await loadWorker();
+    for (const path of [
+      "/anything/else",
+      "/admin",
+      "/pipeline-update",
+      "/discovery-profile/x",
+      "/health",
+    ]) {
       const res = await worker.fetch(
         new Request("https://relay.example.workers.dev" + path, {
           method: "POST",

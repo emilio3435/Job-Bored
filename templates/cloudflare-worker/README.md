@@ -114,8 +114,22 @@ open Worker URL or the browser test path will fail.
 The relay is locked. Every request must carry the per-dashboard `RELAY_TOKEN`
 as `Authorization: Bearer <token>` (or `X-Relay-Token`); anonymous calls get
 401 and never reach your worker, and a relay with no token configured fails
-closed. Only `/`, `/webhook`, `/runs` and `/runs/<id>` are forwarded; every
-other path is 404. The `?target=` query override is gone.
+closed. The relay forwards POST to `/` (TARGET_URL itself), `/webhook`,
+`/discovery`, `/discovery-profile`, `/ingest-url` and `/cleanup-expired`, and
+GET to `/runs` and `/runs/<id>`. Every other path is 404 (for example
+`/pipeline-update` and `/health`), and any other method on an allowed path is
+405. The `?target=` query override is gone.
+
+`deploy-cloudflare-relay.mjs` writes the token into the relay block of
+`discovery-local-bootstrap.json`. The static-file server denies that file, so a
+local dashboard fetches the token from the loopback-guarded dev-server route
+`GET /__proxy/discovery-relay-token`, which returns only
+`{ ok, relay: { workerUrl, relayToken, relayLocked } }`. A redeploy of the same
+Worker keeps the existing token so a dashboard's cached bearer stays valid; pass
+`--rotate-token` to mint a new one. When the relay answers 401 the dashboard
+re-reads the token once and retries. Deploy verification sends the bearer
+itself; `npm run test:discovery-webhook` does not, so it gets 401 from a locked
+relay.
 
 ## Hosted mode is unsupported
 
