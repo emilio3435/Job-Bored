@@ -284,8 +284,10 @@
     link.hidden = false;
   }
 
-  function showSheetAccessGate(mode, opts) {
-    const gateOpts = opts && typeof opts === "object" ? opts : {};
+  function showSheetAccessGate(mode) {
+    // Optional second argument { title, detail } (UX01 SS-25).
+    const gateOpts =
+      arguments[1] && typeof arguments[1] === "object" ? arguments[1] : {};
     releaseAuthPrepaintGuard("show-gate");
     const screen = document.getElementById("sheetAccessGateScreen");
     const dashboard = document.getElementById("dashboard");

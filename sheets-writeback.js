@@ -346,6 +346,42 @@ async function deleteBlacklistRowByUrl(url) {
   return true;
 }
 
+/** Write every pending favorite whose Sheet cell disagrees with the
+ *  user's pick. Called on "online" and from the Retry action. Quiet on
+ *  success per row; one summary toast at the end. */
+async function flushPendingFavorites() {
+  const read = sheetsRead();
+  if (!read || !host().getAccessToken()) return 0;
+  let map = {};
+  try {
+    map = JSON.parse(localStorage.getItem("jobbored.favorites.pending") || "{}") || {};
+  } catch (_) {
+    map = {};
+  }
+  const keys = Object.keys(map);
+  if (!keys.length) return 0;
+  const data = host().getPipelineData() || [];
+  const updates = [];
+  const flushed = [];
+  data.forEach((job, idx) => {
+    const key = read.favoriteCacheKeyForJob(job);
+    if (!key || !(key in map)) return;
+    const row = getSheetRow(idx);
+    if (!row) return;
+    updates.push({ range: `Pipeline!V${row}`, value: map[key] ? "★" : "" });
+    flushed.push(key);
+  });
+  if (!updates.length) return 0;
+  const ok = await updateMultipleCells(updates, false, { silent: true });
+  if (!ok) return 0;
+  for (const key of flushed) read.clearPendingFavorite(key);
+  host().showToast(
+    flushed.length === 1 ? "Star saved to your Sheet" : `${flushed.length} stars saved to your Sheet`,
+    "success",
+  );
+  return flushed.length;
+}
+
 async function toggleFavorite(stableKey) {
   const job = host().getPipelineData()[stableKey];
   if (!job) return false;
@@ -401,42 +437,6 @@ async function toggleFavorite(stableKey) {
     { label: "Retry", onClick: () => void flushPendingFavorites() },
   );
   return true;
-}
-
-/** Write every pending favorite whose Sheet cell disagrees with the
- *  user's pick. Called on "online" and from the Retry action. Quiet on
- *  success per row; one summary toast at the end. */
-async function flushPendingFavorites() {
-  const read = sheetsRead();
-  if (!read || !host().getAccessToken()) return 0;
-  let map = {};
-  try {
-    map = JSON.parse(localStorage.getItem("jobbored.favorites.pending") || "{}") || {};
-  } catch (_) {
-    map = {};
-  }
-  const keys = Object.keys(map);
-  if (!keys.length) return 0;
-  const data = host().getPipelineData() || [];
-  const updates = [];
-  const flushed = [];
-  data.forEach((job, idx) => {
-    const key = read.favoriteCacheKeyForJob(job);
-    if (!key || !(key in map)) return;
-    const row = getSheetRow(idx);
-    if (!row) return;
-    updates.push({ range: `Pipeline!V${row}`, value: map[key] ? "★" : "" });
-    flushed.push(key);
-  });
-  if (!updates.length) return 0;
-  const ok = await updateMultipleCells(updates, false, { silent: true });
-  if (!ok) return 0;
-  for (const key of flushed) read.clearPendingFavorite(key);
-  host().showToast(
-    flushed.length === 1 ? "Star saved to your Sheet" : `${flushed.length} stars saved to your Sheet`,
-    "success",
-  );
-  return flushed.length;
 }
 
 async function dismissJob(stableKey) {

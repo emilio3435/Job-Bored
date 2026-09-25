@@ -634,16 +634,17 @@ async function openCommandCenterSettingsModal(opts) {
     // global Escape that closes Settings raw, which skipped the unsaved-
     // changes question (UX01 SS-27). Settings owns its own Escape now.
     settingsEscapeHandler = (e) => {
-      if (e.key !== "Escape" || !isSettingsModalOpen()) return;
-      const scraper = document.getElementById("scraperSetupModal");
-      if (scraper && scraper.style.display === "flex") return;
-      e.stopImmediatePropagation();
-      const clearBar = document.getElementById("settingsClearConfirmBar");
-      if (clearBar && !clearBar.hidden) {
-        hideSettingsClearConfirmBar();
-        return;
+      if (e.key === "Escape" && isSettingsModalOpen()) {
+        const scraper = document.getElementById("scraperSetupModal");
+        if (scraper && scraper.style.display === "flex") return;
+        e.stopImmediatePropagation();
+        const clearBar = document.getElementById("settingsClearConfirmBar");
+        if (clearBar && !clearBar.hidden) {
+          hideSettingsClearConfirmBar();
+          return;
+        }
+        requestCloseCommandCenterSettingsModal();
       }
-      requestCloseCommandCenterSettingsModal();
     };
     document.addEventListener("keydown", settingsEscapeHandler, true);
   }
@@ -796,7 +797,9 @@ function closeCommandCenterSettingsModal() {
     typeof document !== "undefined" &&
     typeof document.removeEventListener === "function"
   ) {
+    // Registered in the capture phase; the capture flag must match to remove.
     document.removeEventListener("keydown", settingsEscapeHandler, true);
+    document.removeEventListener("keydown", settingsEscapeHandler);
     settingsEscapeHandler = null;
   }
   if (

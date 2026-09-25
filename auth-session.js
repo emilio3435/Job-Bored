@@ -25,9 +25,7 @@
     "https://www.googleapis.com/auth/userinfo.profile",
   ].join(" ");
   const GIS_INIT_STUCK_MS = 8000;
-  // UX01 C21 (SS-25): a silent restore that never answers must not leave a
-  // blank page. After this long, open the sign-in gate and say why.
-  const SILENT_RESTORE_TIMEOUT_MS = 8000;
+  // UX01 C21 (SS-25): the gate copy for a session that could not be restored.
   const SESSION_ENDED_GATE = {
     title: "Your Google session ended",
     detail: "Sign in again to pick up where you left off.",
@@ -530,14 +528,20 @@ function restoreOAuthSession() {
 
   oauthPendingOp = { kind: "silent-restore" };
   const restoreOp = oauthPendingOp;
+  // UX01 SS-25: 8 s, the same budget as GIS_INIT_STUCK_MS. Kept local so the
+  // function stays self-contained.
+  const restoreTimeoutMs = 8000;
   setTimeout(() => {
     if (oauthPendingOp !== restoreOp || accessToken) return;
     oauthPendingOp = null;
-    console.warn("[JobBored] silent restore timed out after", SILENT_RESTORE_TIMEOUT_MS, "ms");
+    console.warn("[JobBored] silent restore timed out after", restoreTimeoutMs, "ms");
     if (host().getOAuthClientId()) {
-      host().showSheetAccessGate("signin", SESSION_ENDED_GATE);
+      host().showSheetAccessGate("signin", {
+        title: "Your Google session ended",
+        detail: "Sign in again to pick up where you left off.",
+      });
     }
-  }, SILENT_RESTORE_TIMEOUT_MS);
+  }, restoreTimeoutMs);
   try {
     tokenClient.requestAccessToken({ prompt: "none" });
   } catch (e) {
