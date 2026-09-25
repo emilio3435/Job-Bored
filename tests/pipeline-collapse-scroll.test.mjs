@@ -21,31 +21,30 @@ describe("v2 pipeline column collapse and scrolling", () => {
     );
   });
 
-  it("persists collapsed columns and reapplies their grid tracks", () => {
+  it("persists explicit open/close choices and reapplies their grid tracks", () => {
     assert.ok(
-      pipelineJs.includes('var COLLAPSED_STORAGE_KEY = "jb_pipelineCollapsedColumns";'),
-      "collapsed columns should use a stable localStorage key",
+      pipelineJs.includes('var COLUMN_PREFS_STORAGE_KEY = "jb_pipelineColumns.v2";'),
+      "column choices should use a stable localStorage key",
     );
     assert.ok(
-      pipelineJs.includes("loadCollapsedState()") &&
-        pipelineJs.includes("saveCollapsedState(state)") &&
+      pipelineJs.includes("loadColumnPrefs()") &&
+        pipelineJs.includes("saveColumnPrefs(state)") &&
         pipelineJs.includes('board.style.setProperty('),
-      "collapsed column state should survive rerenders and update board tracks",
+      "column choices should survive rerenders and update board tracks",
     );
   });
 
-  it("hydrates hard refreshes with Researching as the expanded default column", () => {
+  it("UX01 C19 (TR-09): opens every stage that holds a role by default", () => {
     assert.ok(
-      pipelineJs.includes('var DEFAULT_FOCUSED_STAGE = "researching";') &&
-        pipelineJs.includes("function defaultCollapsedState") &&
-        pipelineJs.includes("if (s.key !== DEFAULT_FOCUSED_STAGE) next[s.key] = true;") &&
-        pipelineJs.includes("function inferFocusedStageFromCollapsed") &&
-        pipelineJs.includes("focusedStage: inferFocusedStageFromCollapsed(collapsed),"),
-      "no saved preference should start with Researching as the single expanded column",
+      pipelineJs.includes("function isCollapsed(state, stageKey)") &&
+        pipelineJs.includes("return count === 0;") &&
+        pipelineJs.includes("state.counts[s.key] = cards.length;"),
+      "with no saved choice, an empty stage rests as a rail and every non-empty stage is open",
     );
-    assert.ok(
-      pipelineJs.includes("state.focusedStage = state.focusedStage || inferFocusedStageFromCollapsed(state.collapsed);"),
-      "a saved single-open collapse state should rehydrate its expanded focus on refresh",
+    assert.equal(
+      pipelineJs.includes('var DEFAULT_FOCUSED_STAGE = "researching";'),
+      false,
+      "no single Researching-only default: new roles land in Discovered and must be visible",
     );
   });
 
@@ -67,30 +66,30 @@ describe("v2 pipeline column collapse and scrolling", () => {
     );
   });
 
-  it("uses single-open behavior when a column chevron expands a stage", () => {
+  it("UX01 C19: a column chevron flips only its own column", () => {
     assert.ok(
-      pipelineJs.includes("function expandColumnExclusive") &&
-        pipelineJs.includes("if (isCollapsed(state, stageKey)) expandColumnExclusive(region, state, stageKey);") &&
-        pipelineJs.includes("else state.collapsed[s.key] = true;"),
-      "expanding a collapsed column from its chevron should collapse every other column",
+      pipelineJs.includes("function toggleColumn") &&
+        pipelineJs.includes("if (stageKey) toggleColumn(region, state, stageKey);") &&
+        !pipelineJs.includes("function expandColumnExclusive"),
+      "expanding one stage must not collapse the others",
     );
   });
 
-  it("lets the selected card column consume available width in focus mode", () => {
+  it("UX01 C19 (TR-08): no focus track can squeeze a column to 22 px", () => {
     assert.ok(
       pipelineJs.includes("function focusColumnForCard") &&
-        pipelineJs.includes("state.focusedStage = stageKey;") &&
-        pipelineJs.includes("state.selectedJobKey = String(jobKey);") &&
-        pipelineJs.includes("else state.collapsed[s.key] = true;"),
-      "opening a card should select it and collapse every non-selected column",
+        pipelineJs.includes("state.selectedJobKey = String(jobKey);"),
+      "opening a card still selects it",
+    );
+    assert.equal(
+      pipelineCss.includes("--pipe-col-focused: minmax(0, 1fr);"),
+      false,
+      "the minmax(0, 1fr) focus track squeezed the phone board to 22 px",
     );
     assert.ok(
-      pipelineCss.includes(".pipe-board[data-focus-stage]") &&
-        pipelineCss.includes("--pipe-col-focused: minmax(0, 1fr);") &&
-        pipelineCss.includes("width: 100%;") &&
-        pipelineCss.includes('.pipe-sticker[data-selected="true"]') &&
+      pipelineCss.includes('.pipe-sticker[data-selected="true"]') &&
         pipelineCss.includes("box-sizing: border-box;"),
-      "focus mode should let the selected card's column take the remaining kanban width",
+      "the selected card still fills its column",
     );
   });
 

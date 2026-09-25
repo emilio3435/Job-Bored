@@ -146,7 +146,7 @@ describe("F2A-MOVE: board movement calls F1-A adapter", () => {
       return loaded;
     }
 
-    it("applies the planned patches through the host patchApi and dispatches nothing", async () => {
+    it("applies the planned patches through the host patchApi and never hands the move off", async () => {
       const applied = [];
       const { adapter, dispatched } = loadWithHost({
         host: {
@@ -169,9 +169,14 @@ describe("F2A-MOVE: board movement calls F1-A adapter", () => {
         "the Status cell must be in the batch",
       );
       assert.equal(
-        dispatched.length,
+        dispatched.filter((e) => e.type === "jb:pipeline:move").length,
         0,
         "a completed write must not ALSO dispatch jb:pipeline:move — that is a double write",
+      );
+      // UX01 C17 (TR-01): the completed write is announced so every surface syncs.
+      assert.ok(
+        dispatched.some((e) => e.type === "jb:write:succeeded" && e.detail.kind === "pipeline:move"),
+        "a completed write emits jb:write:succeeded",
       );
     });
 
