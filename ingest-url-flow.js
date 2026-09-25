@@ -813,11 +813,20 @@ function setIngestManualModalError(message) {
   els.error.textContent = message;
 }
 
-function openIngestManualModal({ url, message }) {
+// UX01 C5 (FD-01): when the manual modal was opened because the worker could
+// not be reached, the row is appended straight to the Sheet — sending it back
+// through the same unreachable worker would fail the same way.
+let ingestManualDirect = false;
+
+function openIngestManualModal({ url, message, title, company, location, direct }) {
   const els = getIngestManualModalEls();
-  if (!els.modal || !els.form) return;
+  if (!els.modal || !els.form) return false;
   els.form.reset();
+  ingestManualDirect = direct === true;
   if (els.urlField) els.urlField.value = url || "";
+  if (els.title && title) els.title.value = String(title);
+  if (els.company && company) els.company.value = String(company);
+  if (els.location && location) els.location.value = String(location);
   if (els.fit) els.fit.value = "5";
   if (els.fitLabel) els.fitLabel.textContent = "5";
   if (els.explain) {
@@ -826,9 +835,26 @@ function openIngestManualModal({ url, message }) {
   }
   setIngestManualModalError("");
   els.modal.style.display = "flex";
-  if (els.title) {
-    setTimeout(() => els.title.focus(), 0);
+  const firstEmpty = [els.title, els.company].find((el) => el && !el.value);
+  const focusTarget = firstEmpty || els.title;
+  if (focusTarget) {
+    setTimeout(() => focusTarget.focus(), 0);
   }
+  return true;
+}
+
+/* Worker-side failures where the posting itself is fine but the ingest worker
+   could not be reached or did not answer. */
+function isIngestTransportFailure(err) {
+  if (!err) return false;
+  if (err.discoveryVerificationResult) return true;
+  const message = String(err.message || "");
+  return (
+    message === "missing_discovery_webhook" ||
+    message === "invalid_endpoint" ||
+    message === "timeout" ||
+    /network|fetch|failed/i.test(message)
+  );
 }
 
 function closeIngestManualModal() {
@@ -1343,9 +1369,9 @@ async function submitIngestFromManualModal() {
       description,
       fitScore,
     };
-    const data = url
+    const data = url && !ingestManualDirect
       ? await handleIngestUrlSubmit(url, manualPayload)
-      : await appendManualPipelineRowDirect(manualPayload);
+      : await appendManualPipelineRowDirect({ ...manualPayload, url });
     if (data && data.ok === true) {
       handleIngestUrlResponse(data, url);
       const toolbarInput = document.getElementById("ingestUrlInput");
@@ -1361,7 +1387,12 @@ async function submitIngestFromManualModal() {
         "Worker rejected the manual entry. Check the fields and try again.",
     );
   } catch (err) {
-    if (err && err.message === "missing_discovery_webhook") {
+    if (
+      err &&
+      err.message !== "signed_out" &&
+      err.message !== "missing_sheet" &&
+      isIngestTransportFailure(err)
+    ) {
       try {
         const direct = await appendManualPipelineRowDirect({
           title,
@@ -1377,7 +1408,9 @@ async function submitIngestFromManualModal() {
         setIngestManualModalError(
           directErr && directErr.message === "signed_out"
             ? "Sign in with Google so JobBored can append this row to Pipeline."
-            : "Could not append directly to Pipeline.",
+            : directErr && directErr.message === "missing_sheet"
+              ? "Connect your Pipeline sheet before adding manual rows."
+              : "Could not append directly to Pipeline.",
         );
       }
     } else if (err && err.message === "timeout") {
@@ -1458,6 +1491,31 @@ function initIngestUrlFlow() {
     });
   }
 }
+
+  /* UX01 lane D public API (C5; consumed by lane C's top-bar "Add job" and
+     empty states, and lane B's capture bookmarklet):
+       window.JobBoredIngest.openManual({ url, title, company, location,
+                                          message?, direct? }) -> boolean
+     Opens the manual-entry modal with whatever is known already filled in.
+     Returns false when the modal is not in the page. */
+  window.JobBoredIngest = window.JobBoredIngest || {};
+  window.JobBoredIngest.openManual = function openManual(prefill) {
+    const p = prefill && typeof prefill === "object" ? prefill : {};
+    const hasUrl = !!String(p.url || "").trim();
+    return openIngestManualModal({
+      url: String(p.url || "").trim(),
+      title: p.title,
+      company: p.company,
+      location: p.location,
+      direct: p.direct === true,
+      message:
+        p.message ||
+        (hasUrl
+          ? "Fill in what you know. JobBored will add the role to your Pipeline."
+          : "No link handy? Fill in the basics and JobBored will track it in your Pipeline."),
+    });
+  };
+  window.JobBoredIngest.isTransportFailure = isIngestTransportFailure;
 
   Object.assign(ingestUrlFlow, {
     resolveIngestUrlEndpoint,

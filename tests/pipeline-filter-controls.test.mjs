@@ -95,16 +95,15 @@ describe("v2 pipeline filter controls", () => {
     );
   });
 
-  it("focuses the selected kanban column and collapses the rest", () => {
+  it("focuses the selected kanban column and keeps every other open stage open (UX01 C19)", () => {
     assert.ok(
       pipelineJs.includes("function focusColumnForCard") &&
         pipelineJs.includes("state.focusedStage = stageKey;") &&
-        pipelineJs.includes("else state.collapsed[s.key] = true;") &&
+        !pipelineJs.includes("else state.collapsed[s.key] = true;") &&
         pipelineJs.includes('el.setAttribute("data-expanded", selected ? "true" : "false");') &&
-        pipelineCss.includes("--pipe-col-focused") &&
         pipelineCss.includes('.pipe-col[data-focused="true"]') &&
-        pipelineCss.includes('.pipe-col[data-focused="true"] .pipe-sticker:not([data-selected="true"])'),
-      "opening a v2 pipeline card should focus that card's column, expand only that card, and collapse the rest",
+        pipelineCss.includes('.pipe-sticker:not([data-selected="true"])'),
+      "opening a v2 pipeline card should focus that card's column and expand only that card, without collapsing the rest",
     );
     assert.ok(
       latticeJs.includes("function openCard(dataIndex, stage)") &&
@@ -198,7 +197,8 @@ describe("v2 pipeline filter controls", () => {
         pipelineJs.includes("data-pipeline-url-modal") &&
         pipelineJs.includes("data-pipeline-url-progress") &&
         pipelineJs.includes("api.ingestJobUrl(url") &&
-        pipelineJs.includes("api.openIngestManualFallback(url, data)") &&
+        pipelineJs.includes("openManualEntry({") &&
+        pipelineJs.includes("root.JobBoredIngest") &&
         pipelineCss.includes(".pipe-url-modal__panel") &&
         pipelineCss.includes(".pipe-url-modal__bar") &&
         pipelineCss.includes("pipe-url-spin"),

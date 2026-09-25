@@ -73,8 +73,16 @@
   };
 
   var SORT_DEFAULT = "urgency";
-  var COLLAPSED_STORAGE_KEY = "jb_pipelineCollapsedColumns";
-  var DEFAULT_FOCUSED_STAGE = "researching";
+  /* UX01 C19 (TR-09): every stage that holds a role is open by default and
+     more than one can be open at once; an empty stage rests as a 56 px rail.
+     Only explicit open/close choices are remembered, per device. The old
+     single-open key (jb_pipelineCollapsedColumns) is left behind on purpose:
+     it stored a Researching-only layout for everyone. */
+  var COLUMN_PREFS_STORAGE_KEY = "jb_pipelineColumns.v2";
+  /* C19 (TR-08 / MP-09): below 760 px the board is a grouped list with a
+     Board toggle; the choice is remembered per device. */
+  var VIEW_STORAGE_KEY = "jb_pipelineView";
+  var LIST_VIEW_QUERY = "(max-width: 760px)";
   // Per-company visible cap (helpers live in company-cap.js so dawn/lattice/
   // app.js share the same rules). The local fallback below keeps pipeline.js
   // self-sufficient if the shared script ever fails to load.
@@ -399,49 +407,54 @@
     return "--pipe-col-" + stageKey;
   }
 
-  function defaultCollapsedState() {
+  function readStorage(key) {
+    try {
+      return root.localStorage ? root.localStorage.getItem(key) : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function writeStorage(key, value) {
+    try {
+      if (!root.localStorage) return;
+      if (value == null) root.localStorage.removeItem(key);
+      else root.localStorage.setItem(key, value);
+    } catch (_) {
+      /* Layout choices are a browser preference; ignore storage failures. */
+    }
+  }
+
+  function loadColumnPrefs() {
     var next = {};
-    STAGES.forEach(function (s) {
-      if (s.key !== DEFAULT_FOCUSED_STAGE) next[s.key] = true;
-    });
+    try {
+      var parsed = JSON.parse(readStorage(COLUMN_PREFS_STORAGE_KEY) || "{}");
+      STAGES.forEach(function (s) {
+        var v = parsed && parsed[s.key];
+        if (v === "open" || v === "closed") next[s.key] = v;
+      });
+    } catch (_) {
+      /* fall through to defaults */
+    }
     return next;
   }
 
-  function loadCollapsedState() {
+  function saveColumnPrefs(state) {
+    writeStorage(COLUMN_PREFS_STORAGE_KEY, JSON.stringify(state.colPrefs || {}));
+  }
+
+  function prefersListView() {
     try {
-      if (!root.localStorage) return defaultCollapsedState();
-      var raw = root.localStorage.getItem(COLLAPSED_STORAGE_KEY);
-      if (!raw) return defaultCollapsedState();
-      var parsed = JSON.parse(raw);
-      var next = {};
-      STAGES.forEach(function (s) {
-        if (parsed && parsed[s.key] === true) next[s.key] = true;
-      });
-      return next;
+      return !!(root.matchMedia && root.matchMedia(LIST_VIEW_QUERY).matches);
     } catch (_) {
-      return defaultCollapsedState();
+      return false;
     }
   }
 
-  function saveCollapsedState(state) {
-    try {
-      if (!root.localStorage) return;
-      root.localStorage.setItem(COLLAPSED_STORAGE_KEY, JSON.stringify(state.collapsed || {}));
-    } catch (_) {
-      /* Collapse state is a browser preference; ignore storage failures. */
-    }
-  }
-
-  function inferFocusedStageFromCollapsed(collapsed) {
-    var openStage = "";
-    var openCount = 0;
-    STAGES.forEach(function (s) {
-      if (!collapsed || collapsed[s.key] !== true) {
-        openStage = s.key;
-        openCount += 1;
-      }
-    });
-    return openCount === 1 ? openStage : "";
+  function resolveView(state) {
+    var stored = state && state.viewChoice;
+    if (stored === "board" || stored === "list") return stored;
+    return prefersListView() ? "list" : "board";
   }
 
   // How long a freshly-moved card stays pinned in its destination column,
@@ -450,12 +463,14 @@
   var RECENTLY_MOVED_TTL_MS = 30000;
 
   function initialState() {
-    var collapsed = loadCollapsedState();
+    var stored = readStorage(VIEW_STORAGE_KEY);
     return {
       sort: SORT_DEFAULT,
-      collapsed: collapsed,
+      colPrefs: loadColumnPrefs(),
+      counts: {},
+      viewChoice: stored === "board" || stored === "list" ? stored : "",
       filters: readPipelineFilters(),
-      focusedStage: inferFocusedStageFromCollapsed(collapsed),
+      focusedStage: "",
       selectedJobKey: "",
       search: "",
       recentlyMovedJobKey: "",
@@ -464,9 +479,11 @@
   }
 
   function ensureStateShape(state) {
-    if (!state.collapsed) state.collapsed = loadCollapsedState();
+    if (!state.colPrefs) state.colPrefs = loadColumnPrefs();
+    if (!state.counts) state.counts = {};
+    if (state.viewChoice == null) state.viewChoice = "";
     state.filters = readPipelineFilters(state.filters);
-    state.focusedStage = state.focusedStage || inferFocusedStageFromCollapsed(state.collapsed);
+    state.focusedStage = state.focusedStage || "";
     state.selectedJobKey = state.selectedJobKey || "";
     state.search = state.search || "";
     state.recentlyMovedJobKey = state.recentlyMovedJobKey || "";
@@ -569,6 +586,11 @@
     });
   }
 
+  /** The title button opens the dossier but is also where people grab a card. */
+  function isCardOpenTarget(target) {
+    return !!(target && target.closest && target.closest('[data-card-action="open"]'));
+  }
+
   function isInteractiveTarget(target) {
     return !!(target && target.closest && target.closest("button, a, input, select, textarea, [data-card-action]"));
   }
@@ -587,21 +609,24 @@
     if (input && input.value !== (state.search || "")) input.value = state.search || "";
   }
 
+  /** Open unless the person closed it, or it holds no role and they never
+   *  opened it. The selected card's column is always open. */
   function isCollapsed(state, stageKey) {
-    return !!(state && state.collapsed && state.collapsed[stageKey]);
+    if (!state) return false;
+    var pref = state.colPrefs && state.colPrefs[stageKey];
+    if (pref === "open") return false;
+    if (state.selectedStage && state.selectedStage === stageKey && state.selectedJobKey) return false;
+    if (pref === "closed") return true;
+    var count = state.counts ? state.counts[stageKey] : undefined;
+    return count === 0;
   }
 
   function applyColumnTrack(region, state, stageKey) {
     var board = region.querySelector(".pipe-board");
     if (!board) return;
-    var focused = state && state.focusedStage === stageKey && !isCollapsed(state, stageKey);
     board.style.setProperty(
       columnVarName(stageKey),
-      isCollapsed(state, stageKey)
-        ? "var(--pipe-col-collapsed)"
-        : focused
-          ? "var(--pipe-col-focused)"
-          : "var(--pipe-col-open)",
+      isCollapsed(state, stageKey) ? "var(--pipe-col-collapsed)" : "var(--pipe-col-open)",
     );
   }
 
@@ -628,31 +653,18 @@
     applyColumnTrack(region, state, stageKey);
   }
 
-  function setColumnCollapsed(region, state, stageKey, collapsed, opts) {
-    opts = opts || {};
-    state.collapsed = state.collapsed || {};
-    if (!opts.keepFocus) {
-      state.focusedStage = "";
-      state.selectedJobKey = "";
-    }
-    if (collapsed) state.collapsed[stageKey] = true;
-    else delete state.collapsed[stageKey];
-    saveCollapsedState(state);
-    applyBoardFocus(region, state);
-    applyColumnCollapsed(region, state, stageKey);
-    applySelectedCardState(region, state);
-  }
-
-  function expandColumnExclusive(region, state, stageKey) {
+  /** A column chevron flips only its own column; other open stages stay open. */
+  function toggleColumn(region, state, stageKey) {
     if (!stageKey) return;
-    state.collapsed = state.collapsed || {};
-    state.focusedStage = stageKey;
-    state.selectedJobKey = "";
-    STAGES.forEach(function (s) {
-      if (s.key === stageKey) delete state.collapsed[s.key];
-      else state.collapsed[s.key] = true;
-    });
-    saveCollapsedState(state);
+    state.colPrefs = state.colPrefs || {};
+    var collapsed = isCollapsed(state, stageKey);
+    state.colPrefs[stageKey] = collapsed ? "open" : "closed";
+    if (!collapsed && state.selectedStage === stageKey) {
+      state.selectedJobKey = "";
+      state.selectedStage = "";
+      state.focusedStage = "";
+    }
+    saveColumnPrefs(state);
     rerender(region, state);
   }
 
@@ -668,16 +680,12 @@
     else board.removeAttribute("data-focus-stage");
   }
 
+  /** Select a card; its column opens, and every other open column stays open. */
   function focusColumnForCard(region, state, stageKey, jobKey) {
     if (!stageKey || jobKey == null || String(jobKey) === "") return;
-    state.collapsed = state.collapsed || {};
     state.focusedStage = stageKey;
+    state.selectedStage = stageKey;
     state.selectedJobKey = String(jobKey);
-    STAGES.forEach(function (s) {
-      if (s.key === stageKey) delete state.collapsed[s.key];
-      else state.collapsed[s.key] = true;
-    });
-    saveCollapsedState(state);
     rerender(region, state);
   }
 
@@ -772,6 +780,8 @@
     }
     els.error.hidden = false;
     els.error.textContent = message;
+    // FD-22: an error ends the attempt; a spinner still turning under it lies.
+    if (els.progress) els.progress.hidden = true;
   }
 
   function setUrlModalProgress(region, update) {
@@ -842,11 +852,42 @@
     }
     var message = String((err && err.message) || "");
     if (message === "invalid_url") return "Paste a valid http(s) job posting URL.";
-    if (message === "missing_discovery_webhook") return "No ingest worker is connected. Use the manual form, or connect a discovery worker.";
+    if (message === "missing_discovery_webhook") return "No ingest worker is connected. Add it manually, or connect a discovery worker.";
     if (message === "invalid_endpoint") return "The discovery webhook URL is not valid. Check Settings and try again.";
     if (message === "timeout") return "The worker took too long. Try again in a minute.";
     if (/network|fetch|failed/i.test(message)) return "Could not reach the ingest worker. Check your discovery setup and try again.";
     return message || "Could not add this URL. Try again.";
+  }
+
+  /* UX01 C5 (FD-01): open the manual-entry modal through the lane-D API,
+     window.JobBoredIngest.openManual (ingest-url-flow.js), falling back to the
+     older app-level hook. Returns true when a manual form actually opened. */
+  function openManualEntry(prefill) {
+    var ingest = root.JobBoredIngest;
+    if (ingest && typeof ingest.openManual === "function") {
+      try {
+        return ingest.openManual(prefill) !== false;
+      } catch (_) {
+        /* fall through */
+      }
+    }
+    var api = root.JobBored;
+    if (api && typeof api.openIngestManualFallback === "function" && prefill && prefill.url) {
+      api.openIngestManualFallback(prefill.url, { message: prefill.message });
+      return true;
+    }
+    return false;
+  }
+
+  /** Worker-side failures: the posting is fine, the worker is not reachable. */
+  function isWorkerFailure(err) {
+    if (!err) return false;
+    if (err.discoveryVerificationResult) return true;
+    var message = String(err.message || "");
+    return message === "missing_discovery_webhook" ||
+      message === "invalid_endpoint" ||
+      message === "timeout" ||
+      /network|fetch|failed/i.test(message);
   }
 
   function shouldOfferIngestManualFallback(data) {
@@ -889,19 +930,13 @@
       });
       if (data && data.ok === false && data.reason !== "duplicate") {
         setUrlModalBusy(region, false);
-        if (
-          shouldOfferIngestManualFallback(data) &&
-          api &&
-          typeof api.openIngestManualFallback === "function"
-        ) {
+        var reasonCopy = data.hint || data.message || "The worker could not add this URL.";
+        if (shouldOfferIngestManualFallback(data) &&
+            openManualEntry({ url: url, message: reasonCopy + " Fill in what you know and JobBored adds it to your Pipeline." })) {
           closeJobUrlModal(region);
-          api.openIngestManualFallback(url, data);
           return;
         }
-        setUrlModalError(
-          region,
-          data.hint || data.message || "The worker could not add this URL."
-        );
+        setUrlModalError(region, reasonCopy + " You can add it manually instead.");
         return;
       }
       setUrlModalProgress(region, { progress: 100, label: "Added to Pipeline", step: "done" });
@@ -914,6 +949,19 @@
       }, 650);
     } catch (err) {
       setUrlModalBusy(region, false);
+      /* FD-01: a stranger with no worker used to meet a dead end here. The
+         role is still worth saving, so open the manual form with the URL in
+         it; that path appends the row straight to the Sheet. */
+      if (isWorkerFailure(err) && openManualEntry({
+        url: url,
+        direct: true,
+        message: "Couldn't read the posting automatically (" +
+          ingestErrorMessage(err).replace(/\.$/, "") +
+          "). Fill in what you know and JobBored adds it straight to your Pipeline.",
+      })) {
+        closeJobUrlModal(region);
+        return;
+      }
       setUrlModalError(region, ingestErrorMessage(err));
     }
   }
@@ -950,12 +998,11 @@
     el.setAttribute("data-expanded", selected ? "true" : "false");
     if (selected) el.setAttribute("aria-current", "true");
     if (flag) el.setAttribute("data-flag", flag);
-    el.setAttribute("tabindex", "0");
-    el.setAttribute("role", "button");
-    var ariaLabel = (card.role || "Role") +
-      (card.company ? " at " + card.company : "") +
-      " — open letter";
-    el.setAttribute("aria-label", ariaLabel);
+    /* AX-13 / TR-23: the article is no longer a role=button wrapping eleven
+       buttons. The role title is the real "Open dossier" button; the article
+       keeps data-stable-key and its drag + click-anywhere behaviour. */
+    var openLabel = "Open dossier: " + (card.role || "Untitled role") +
+      (card.company ? " at " + card.company : "");
 
     var appliedAgeHtml = appliedAgeBadgeHtml(job);
     el.innerHTML = [
@@ -968,7 +1015,10 @@
       '      <span class="pipe-sticker__co">' + escapeHtml(card.company || "—") + '</span>',
       materialsBadgesHtml(materials),
       '    </span>',
-      '    <span class="pipe-sticker__role">' + escapeHtml(card.role || "Untitled role") + '</span>',
+      '    <button type="button" class="pipe-sticker__open" data-card-action="open"',
+      '            data-key="' + escapeHtml(cardKey) + '" aria-label="' + escapeHtml(openLabel) + '">',
+      '      <span class="pipe-sticker__role">' + escapeHtml(card.role || "Untitled role") + '</span>',
+      '    </button>',
       '  </span>',
       '  <button type="button" class="pipe-sticker__edit" data-card-action="edit-open"',
       '          data-key="' + escapeHtml(cardKey) + '"',
@@ -1060,6 +1110,8 @@
         ).then(function (result) {
           // ok:false means the adapter dispatched jb:write:failed and wrote
           // nothing; the menu must revert its label rather than claim the move.
+          // AX-03: a cancelled Applied dialog is not a failure and not a move.
+          if (result && result.cancelled) return "cancelled";
           return !(result && result.ok === false);
         }, function () { return false; });
       },
@@ -1116,6 +1168,10 @@
       '    </div>',
       '  </div>',
       '  <div class="pipe-tool__actions">',
+      '    <div class="pipe-tool__view" role="group" aria-label="Pipeline layout">',
+      '      <button type="button" class="pipe-tool__chip pipe-tool__chip--view" data-pipeline-view="board" aria-pressed="' + (resolveView(state) === "board" ? "true" : "false") + '">Board</button>',
+      '      <button type="button" class="pipe-tool__chip pipe-tool__chip--view" data-pipeline-view="list" aria-pressed="' + (resolveView(state) === "list" ? "true" : "false") + '">List</button>',
+      '    </div>',
       '    <button type="button" class="pipe-tool__btn pipe-tool__btn--url" data-action="add-job-url"',
       '            aria-label="Add a job opportunity by pasting its posting URL">',
       '      + Add job from URL',
@@ -1131,14 +1187,13 @@
       '     aria-labelledby="pipeUrlModalTitle" aria-describedby="pipeUrlModalCopy" data-busy="false" data-progress-step="idle">',
       '  <div class="pipe-url-modal__panel">',
       '    <header class="pipe-url-modal__head">',
-      '      <span class="pipe-url-modal__eyebrow">Manual add</span>',
       '      <h3 class="pipe-url-modal__title" id="pipeUrlModalTitle">Paste a job posting URL</h3>',
       '      <button type="button" class="pipe-url-modal__close" data-pipeline-url-close aria-label="Close add job modal">',
       '        <span aria-hidden="true">&times;</span>',
       '      </button>',
       '    </header>',
       '    <p class="pipe-url-modal__copy" id="pipeUrlModalCopy">',
-      '      Paste the posting you found online. JobBored will add it to Pipeline, scrape the page when reachable, and ask Gemini to fill the role details.',
+      '      Paste the posting you found online. JobBored adds it to your Pipeline and reads the page with your AI provider when it can. No worker? Add it manually instead.',
       '    </p>',
       '    <form class="pipe-url-modal__form" data-pipeline-url-form autocomplete="off" novalidate>',
       '      <label class="pipe-url-modal__label" for="pipeUrlModalInput">Job URL</label>',
@@ -1157,12 +1212,13 @@
       '        <div class="pipe-url-modal__steps" aria-hidden="true">',
       '          <span>Worker</span>',
       '          <span>Scrape</span>',
-      '          <span>Gemini</span>',
+      '          <span>AI</span>',
       '          <span>Pipeline</span>',
       '        </div>',
       '      </div>',
       '      <footer class="pipe-url-modal__actions">',
       '        <button type="button" class="pipe-url-modal__secondary" data-pipeline-url-cancel>Cancel</button>',
+      '        <button type="button" class="pipe-url-modal__secondary" data-pipeline-url-manual>Add manually</button>',
       '        <button type="submit" class="pipe-url-modal__primary" data-pipeline-url-submit>',
       '          <span data-pipeline-url-submit-label>Add to Pipeline</span>',
       '        </button>',
@@ -1177,7 +1233,7 @@
     var cols = STAGES.map(function (s) {
       var bodyId = "pipe-col-body-" + s.key;
       return [
-        '<section class="pipe-col" data-stage="' + s.key + '" aria-label="' + escapeHtml(s.label) + ' column">',
+        '<section class="pipe-col" role="listitem" data-stage="' + s.key + '" aria-label="' + escapeHtml(s.label) + ' column">',
         '  <header class="pipe-col__head">',
         '    <span class="pipe-col__dot" aria-hidden="true"></span>',
         '    <span class="pipe-col__title">' + escapeHtml(s.label) + '</span>',
@@ -1195,7 +1251,7 @@
     }).join("");
 
     return [
-      '<div class="pipe-board" role="list">',
+      '<div class="pipe-board" role="list" aria-label="Pipeline stages">',
       cols,
       '</div>',
     ].join("");
@@ -1244,6 +1300,8 @@
         ? root.JobBoredCompanyCap.summarizeHidden(filtered, capped)
         : [];
       var searchMatch = searchActive && ordered.length > 0;
+      state.counts = state.counts || {};
+      state.counts[s.key] = cards.length;
       if (ordered.length === 0) {
         body.innerHTML = emptyPlaceholderHtml(s.key);
       } else {
@@ -1278,6 +1336,26 @@
     });
 
     applySelectedCardState(region, state);
+    applyView(region, state);
+  }
+
+  function applyView(region, state) {
+    var view = resolveView(state);
+    region.setAttribute("data-view", view);
+    var shell = region.querySelector(".pipe-shell");
+    if (shell) shell.setAttribute("data-view", view);
+    var btns = region.querySelectorAll("[data-pipeline-view]");
+    btns.forEach(function (b) {
+      b.setAttribute("aria-pressed", b.getAttribute("data-pipeline-view") === view ? "true" : "false");
+    });
+  }
+
+  function setView(region, state, view) {
+    if (view !== "board" && view !== "list") return;
+    state.viewChoice = view;
+    writeStorage(VIEW_STORAGE_KEY, view);
+    applyView(region, state);
+    rerender(region, state);
   }
 
   function ensureShell(region, state) {
@@ -1285,6 +1363,22 @@
     region.__pipeMounted = true;
     region.innerHTML = buildShell(state);
     applyCollapsedState(region, state);
+    applyView(region, state);
+    if (root.matchMedia && !region.__pipeViewMql) {
+      try {
+        var mql = root.matchMedia(LIST_VIEW_QUERY);
+        var onChange = function () {
+          if (state.viewChoice) return;
+          applyView(region, state);
+          rerender(region, state);
+        };
+        if (typeof mql.addEventListener === "function") mql.addEventListener("change", onChange);
+        else if (typeof mql.addListener === "function") mql.addListener(onChange);
+        region.__pipeViewMql = mql;
+      } catch (_) {
+        /* No media queries: the board view stays. */
+      }
+    }
     setFilterChipState(region, state);
     setSearchInputState(region, state);
     bindToolbar(region, state);
@@ -1354,10 +1448,21 @@
       if (toggle) {
         e.preventDefault();
         var stageKey = toggle.getAttribute("data-stage-toggle");
-        if (stageKey) {
-          if (isCollapsed(state, stageKey)) expandColumnExclusive(region, state, stageKey);
-          else setColumnCollapsed(region, state, stageKey, true);
-        }
+        if (stageKey) toggleColumn(region, state, stageKey);
+        return;
+      }
+      var viewBtn = e.target.closest("[data-pipeline-view]");
+      if (viewBtn) {
+        e.preventDefault();
+        setView(region, state, viewBtn.getAttribute("data-pipeline-view"));
+        return;
+      }
+      var manualBtn = e.target.closest("[data-pipeline-url-manual]");
+      if (manualBtn) {
+        e.preventDefault();
+        var urlEls = getUrlModalEls(region);
+        var typed = urlEls.input ? String(urlEls.input.value || "").trim() : "";
+        if (openManualEntry({ url: typed, direct: false })) closeJobUrlModal(region);
         return;
       }
       var favoriteBtn = e.target.closest('[data-card-action="toggle-favorite"]');
@@ -1518,6 +1623,15 @@
         focusDossierField("title");
         return;
       }
+      var openBtn = e.target.closest('[data-card-action="open"]');
+      if (openBtn) {
+        e.preventDefault();
+        var openCard = openBtn.closest(".pipe-sticker");
+        if (openCard && openCard.__pipeJustDragged) return;
+        if (openCard) openCard.__pipeTapPending = false;
+        openRoleAndScroll(openBtn.getAttribute("data-key"), openCard ? openCard.getAttribute("data-stage") : null);
+        return;
+      }
       if (isInteractiveTarget(e.target)) return;
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (sticker && !sticker.__pipeJustDragged) {
@@ -1534,7 +1648,7 @@
     // we know it was a tap (no drag movement, no pointer capture taken).
     region.addEventListener("pointerup", function (e) {
       if (e.button !== 0) return;
-      if (isInteractiveTarget(e.target)) return;
+      if (isInteractiveTarget(e.target) && !isCardOpenTarget(e.target)) return;
       var sticker = e.target.closest(".pipe-sticker[data-stable-key]");
       if (!sticker || sticker.__pipeJustDragged) return;
       // Defer one tick so the natural `click` event (if it comes) still wins
@@ -1590,30 +1704,41 @@
       var jobKey = detail.jobKey;
       if (jobKey == null || jobKey === "") return;
       var pendingList = region.__pipePending || [];
+      var rolledBack = null;
       for (var i = pendingList.length - 1; i >= 0; i--) {
-        var p = pendingList[i];
-        if (p.jobKey === jobKey) {
-          var card = region.querySelector('.pipe-sticker[data-stable-key="' + cssEscape(jobKey) + '"]');
-          var fromBody = region.querySelector('[data-stage-body="' + p.fromStage + '"]');
-          if (card && fromBody) {
-            // Remove placeholder if the from column had become empty.
-            var emptyEl = fromBody.querySelector(".pipe-col__empty");
-            if (emptyEl) emptyEl.remove();
-            fromBody.appendChild(card);
-            card.setAttribute("data-stage", p.fromStage);
-            // Re-add placeholder to current (toStage) column if it is now empty.
-            var toBody = region.querySelector('[data-stage-body="' + p.toStage + '"]');
-            if (toBody && !toBody.querySelector(".pipe-sticker")) {
-              toBody.innerHTML = emptyPlaceholderHtml(p.toStage);
-            }
-            updateColumnCount(region, p.fromStage, +1);
-            updateColumnCount(region, p.toStage, -1);
-            showToast(region, "Move undone — write failed.");
-          }
+        if (String(pendingList[i].jobKey) === String(jobKey)) {
+          rolledBack = pendingList[i];
           pendingList.splice(i, 1);
         }
       }
+      if (!rolledBack) return;
+      /* TR-04: roll back by re-rendering from the view-model, never by
+         applying +/-1 to counts on a board that may already be redrawn. */
+      scheduleRender();
+      /* TR-05: name what happened. Cancel and Undo are choices, not faults. */
+      var reason = String(detail.reason || "");
+      var fromLabel = stageLabel(rolledBack.fromStage);
+      if (reason === "cancelled" || reason === "undone") {
+        notify(region, "Kept in " + fromLabel + ".", "info");
+        return;
+      }
+      notify(region, "Couldn't save the move. It is still in " + fromLabel + ".", "error", {
+        label: "Retry",
+        onClick: function () {
+          retryMove(region, rolledBack);
+        },
+      });
     });
+  }
+
+  /** Re-issue a failed drag as a fresh move through the same planner. */
+  function retryMove(region, move) {
+    var card = region.querySelector('.pipe-sticker[data-stable-key="' + cssEscape(move.jobKey) + '"]');
+    if (card) {
+      optimisticMove(region, { card: card, jobKey: move.jobKey, fromStage: move.fromStage }, move.toStage);
+      return;
+    }
+    emitBoardMove({ jobKey: move.jobKey, fromStage: move.fromStage, toStage: move.toStage });
   }
 
   function focusJob(jobKey) {
@@ -1673,6 +1798,16 @@
     }, 900);
   }
 
+  /** Toast with an optional action; the shared a11y toast when present. */
+  function notify(region, msg, type, action) {
+    var A11y = root.JobBoredA11y;
+    if (A11y && typeof A11y.toast === "function") {
+      A11y.toast(msg, type || "info", action ? { action: action } : {});
+      return;
+    }
+    showToast(region, msg);
+  }
+
   function showToast(region, msg) {
     var t = region.querySelector(".pipe-toast");
     if (!t) {
@@ -1702,7 +1837,7 @@
 
     region.addEventListener("pointerdown", function (e) {
       if (e.button !== 0) return;
-      if (isInteractiveTarget(e.target)) return;
+      if (isInteractiveTarget(e.target) && !isCardOpenTarget(e.target)) return;
       var card = e.target.closest(".pipe-sticker[data-stable-key]");
       if (!card) return;
       // Begin tracking; commit to drag (and capture pointer) only after
@@ -1732,6 +1867,10 @@
       var dy = e.clientY - drag.startY;
       if (!drag.moved && (Math.abs(dx) > 4 || Math.abs(dy) > 4)) {
         drag.moved = true;
+        drag.card.__pipeJustDragged = true;
+        // TR-03: flag the card the moment it becomes a drag. The tap handlers
+        // registered before this one read the flag on the same pointerup, so
+        // setting it only at drop time let every drag open the dossier too.
         // Capture the pointer once we know this is a drag, not a click.
         try { drag.card.setPointerCapture(e.pointerId); drag.captured = true; } catch (_) { /* noop */ }
         startGhost(region, drag);
@@ -1748,6 +1887,7 @@
         try { drag.card.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
       }
       if (drag.moved) {
+        if (typeof e.preventDefault === "function") e.preventDefault();
         var col = colUnderPoint(region, e.clientX, e.clientY);
         endGhost(region, drag);
         if (col) {
@@ -1773,6 +1913,10 @@
         try { drag.card.releasePointerCapture(e.pointerId); } catch (_) { /* noop */ }
       }
       endGhost(region, drag);
+      if (drag.moved) {
+        var cancelled = drag.card;
+        setTimeout(function () { cancelled.__pipeJustDragged = false; }, 150);
+      }
       drag = null;
     });
   }
