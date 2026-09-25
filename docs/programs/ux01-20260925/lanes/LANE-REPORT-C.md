@@ -161,3 +161,36 @@ test:e2e-visual    exit=0   37 passed (1.0m)
 ```
 
 Not verified: a live signed-in run against a real Sheet (hermetic harness only).
+
+## Verification · floor (C-r2)
+
+Independent verifier (a fresh Opus context), run on 2026-09-25 against `feat/ux01-shell-today` @ `75c1789`, from the worktree root. The seven commands ran in order. Logs: `~/Job-Bored.worktrees/.ux01-run/C-r2-floor/<n>.log`. No retries were needed and no flaky tests were seen.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | lint:tokens ok: 35 sheet(s), 0 new finding(s), 0 brace error(s) |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | tsc browser-use-discovery + server clean; all node --check ok |
+| 3 | `npm test` | PASS (exit 0) | tests 3084 · pass 3083 · fail 0 · skipped 0 · todo 1 |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | 12 OK lines, 0 FAIL |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed (15.5s) |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 24 passed (31.3s) |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed (1.0m) |
+
+Note on #3: the runner prints one "✖ failing tests" entry. It is the `todo` test `tests/submission-record-audit.test.mjs:17`, "persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate". A todo does not count as a failure, and the run reports fail 0.
+
+Tails:
+
+```
+[1] lint:tokens ok: 35 sheet(s), 0 new finding(s), 0 brace error(s)
+[2] > tsc --noEmit --project server/tsconfig.json   (no output, exit 0)
+[3] ℹ tests 3084 / ℹ suites 745 / ℹ pass 3083 / ℹ fail 0 / ℹ cancelled 0 / ℹ skipped 0 / ℹ todo 1 / ℹ duration_ms 14020.8
+[4] OK schema (pipeline-update request): examples/pipeline-update-request.v1.json
+    OK integrations/openclaw-command-center/SKILL.md
+[5]   11 passed (15.5s)
+[6]   ✓ 24 tests/e2e-journey/shell-today.spec.mjs:327:1 › should move a snoozed reply with no Last contact out of You owe an answer (956ms)
+      24 passed (31.3s)
+[7]   ✓ 37 tests/e2e-visual/shell-structure.spec.mjs:310:3 › ... dock the footer at the bottom of the viewport, not the bottom of the card (1.0s)
+      37 passed (1.0m)
+```
+
+Verdict: green. All seven floor commands pass.
