@@ -22,13 +22,19 @@
 
   const HEADLINE = "Now give it a brain.";
 
+  /** Normative, spec §5 B2 — it names the pre-selected card, so it moved
+   *  with the recommendation (SIXBEATS-2 NEW-11). */
   const SUB =
     "One AI key powers everything personal here: it drafts your fit " +
     "profile from your resume on the next screen, scores every job " +
     "discovery finds, and writes your tailored resumes and cover " +
     "letters. OpenRouter is free and takes about two minutes.";
 
+  const WEAK_MATERIALS_MODEL_WARNING =
+    "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
+
   const ACTION_CHECK = "ai_check";
+  const ACTION_RETRY_CHECK = "ai_retry_check";
   const KEY_INPUT_ID = "oneFlowAiKeyInput";
   const BASE_URL_INPUT_ID = "oneFlowAiBaseUrlInput";
 
@@ -44,6 +50,46 @@
   const CORS_NOTE = "runs through the local server — keep npm start running";
 
   /**
+   * The clock on a slow check. A free tier under throttle takes seconds,
+   * and one motionless "Checking your key…" line above a disabled button is
+   * indistinguishable from a hang — the FROZEN shape §8 rules out. Past
+   * `slowAfterMs` the busy list counts the seconds out loud; past
+   * `stalledAfterMs` it stops calling this normal and the message slot
+   * offers a fresh attempt.
+   *
+   * This is an AFFORDANCE, never a timeout: the request in flight is left
+   * running, so a provider that finally answers still passes the beat.
+   * Mutable so tests can exercise the real timer wiring in milliseconds.
+   */
+  /**
+   * `successHoldMs` is the one the SIXBEATS2 rerun added (NEW-4): the
+   * promised "✓ Connected — <model> responded" line was on screen for
+   * ~106 ms before the beat was replaced, which is a reward nobody can
+   * read. The beat now holds that line for a beat and a half before it
+   * advances — measured from the moment the line is painted, so the
+   * write-through and the config pin spend the hold rather than adding
+   * to it.
+   */
+  const CHECK_TIMINGS = {
+    slowAfterMs: 2000,
+    stalledAfterMs: 15000,
+    tickMs: 1000,
+    successHoldMs: 1400,
+  };
+
+  /** A pause, or nothing at all when the work already outlasted it. */
+  function wait(ms) {
+    if (!(ms > 0)) return Promise.resolve();
+    return new Promise((resolve) => setTimeout(resolve, ms));
+  }
+
+  const STALLED_STAGE_LABEL = "Taking longer than usual";
+
+  const STALLED_MESSAGE =
+    "Still waiting on your provider. Nothing is lost — leave it running, or " +
+    "press Try again to start a fresh check.";
+
+  /**
    * The five providers spec §5 B2 lists, in order. `webhook` is absent on
    * purpose: it moved to Settings, and it cannot be live-verified, which
    * makes it incompatible with a beat whose exit condition is a passed
@@ -55,6 +101,8 @@
       label: "OpenRouter — free",
       note: "Recommended. Free tier, no card, works straight from the browser.",
       keyField: "resumeOpenRouterApiKey",
+      modelField: "resumeOpenRouterModel",
+      defaultModel: "openai/gpt-oss-120b:free",
       keyPlaceholder: "sk-or-…",
       signupUrl: "https://openrouter.ai/keys",
       signupLabel: "Create a free OpenRouter account ↗",
@@ -63,8 +111,11 @@
     {
       id: "gemini",
       label: "Gemini",
-      note: "Google's free tier. Also lights up URL import and grounded search.",
+      note: "Free tier, and it lights up URL import and grounded search.",
       keyField: "resumeGeminiApiKey",
+      modelField: "resumeGeminiModel",
+      // Use the Gemini Flash family alias as the default; HTTP falls back to a pinned snapshot when needed.
+      defaultModel: "gemini-flash",
       keyPlaceholder: "AIza…",
       signupUrl: "https://aistudio.google.com/app/apikey",
       signupLabel: "Create a free Gemini key ↗",
@@ -75,6 +126,8 @@
       label: "OpenAI",
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeOpenAIApiKey",
+      modelField: "resumeOpenAIModel",
+      defaultModel: "gpt-5.6-terra",
       keyPlaceholder: "sk-…",
       signupUrl: "https://platform.openai.com/api-keys",
       signupLabel: "Create an OpenAI key ↗",
@@ -85,6 +138,8 @@
       label: "Anthropic",
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeAnthropicApiKey",
+      modelField: "resumeAnthropicModel",
+      defaultModel: "claude-sonnet-5",
       keyPlaceholder: "sk-ant-…",
       signupUrl: "https://console.anthropic.com/settings/keys",
       signupLabel: "Create an Anthropic key ↗",
@@ -95,6 +150,8 @@
       label: "Local — on your machine",
       note: "No key, no cost. Needs a model server (Ollama) already running.",
       keyField: "",
+      modelField: "resumeLocalModel",
+      defaultModel: "gemma4:e2b",
       baseUrlField: "resumeLocalBaseUrl",
       baseUrlPlaceholder: "http://127.0.0.1:11434/v1",
       cors: false,
@@ -110,12 +167,18 @@
   // ---------------------------------------------------------------
 
   const state = {
+    // Spec §5 B2: `OpenRouter — free` is the pre-selected card (NEW-11).
     provider: "openrouter",
     keyDraft: "",
     baseUrlDraft: "",
     stages: [],
     lastFailure: null, // { provider, message }
     geminiWroteThrough: false,
+    // The check that owns the screen. A retry started while an earlier check
+    // is still in flight bumps this, and the older one's answer is dropped
+    // rather than allowed to complete the beat behind the newer attempt.
+    checkRun: 0,
+    stalled: false,
   };
 
   const fields = { value: null };
@@ -182,6 +245,11 @@
   function syncActions() {
     ACTIONS.length = 0;
     ACTIONS.push({ id: ACTION_CHECK, label: "Check & continue", variant: "primary" });
+    // Only once the check has outstayed its welcome: an escape hatch offered
+    // up front reads as a warning about the product.
+    if (state.stalled) {
+      ACTIONS.push({ id: ACTION_RETRY_CHECK, label: "Try again", variant: "ghost" });
+    }
   }
 
   syncActions();
@@ -196,6 +264,52 @@
   function setStages(ctx, stages) {
     state.stages = stages;
     if (ctx && typeof ctx.setBusy === "function") ctx.setBusy(ACTION_CHECK, stages);
+  }
+
+  let checkWatch = null;
+
+  function stopCheckWatch() {
+    if (checkWatch != null) {
+      clearTimeout(checkWatch);
+      checkWatch = null;
+    }
+  }
+
+  /**
+   * Render the passing seconds for a check that has not answered yet.
+   * `run` is the check this clock belongs to — a superseded one goes quiet
+   * instead of writing over the screen the newer attempt owns.
+   */
+  function startCheckWatch(ctx, baseStages, run) {
+    stopCheckWatch();
+    const startedAt = Date.now();
+    const tick = () => {
+      checkWatch = null;
+      if (run !== state.checkRun) return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= CHECK_TIMINGS.stalledAfterMs) {
+        state.stalled = true;
+        syncActions();
+        setStages(
+          ctx,
+          baseStages.concat({ label: STALLED_STAGE_LABEL, state: "active" }),
+        );
+        if (ctx && typeof ctx.setMessage === "function") {
+          ctx.setMessage(STALLED_MESSAGE, "info");
+        }
+        // The clock stops here; the request does not.
+        return;
+      }
+      setStages(
+        ctx,
+        baseStages.concat({
+          label: `still checking… ${Math.floor(elapsed / 1000)} s`,
+          state: "active",
+        }),
+      );
+      checkWatch = setTimeout(tick, CHECK_TIMINGS.tickMs);
+    };
+    checkWatch = setTimeout(tick, CHECK_TIMINGS.slowAfterMs);
   }
 
   // ---------------------------------------------------------------
@@ -377,14 +491,63 @@
   // Persist + verify (spec §5 B2 exit condition)
   // ---------------------------------------------------------------
 
+  function liveConfig() {
+    return (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  }
+
+  function resolveModel(def) {
+    const cfg = liveConfig();
+    const fromCfg =
+      def.modelField && typeof cfg[def.modelField] === "string"
+        ? cfg[def.modelField].trim()
+        : "";
+    return fromCfg || def.defaultModel || "";
+  }
+
+  function resolveJobBoredApiUrl() {
+    const raw = String(liveConfig().jobBoredApiUrl || "").trim();
+    if (raw) return raw.replace(/\/+$/, "");
+    return "http://127.0.0.1:3847";
+  }
+
   /** The one write path: the override store, mirrored into the live config. */
   function persistProviderConfig(def, value) {
     const patch = { resumeProvider: def.id };
     if (def.baseUrlField) patch[def.baseUrlField] = value;
-    else patch[def.keyField] = value;
+    else if (def.keyField) patch[def.keyField] = value;
+    if (def.modelField) patch[def.modelField] = resolveModel(def);
     call("mergeStoredConfigOverridePatch", patch);
     const cfg = window.COMMAND_CENTER_CONFIG;
     if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
+  }
+
+  async function postLlmConfigPin(def, value) {
+    const model = resolveModel(def);
+    if (!def.id || !model) return;
+    if (typeof fetch !== "function") return;
+    const pin = {
+      provider: def.id,
+      model,
+      apiKey: def.baseUrlField ? "" : String(value || "").trim(),
+      baseUrl: def.baseUrlField ? String(value || "").trim() : "",
+    };
+    try {
+      const resp = await fetch(resolveJobBoredApiUrl() + "/api/llm-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify(pin),
+      });
+      if (!resp || resp.ok === false) {
+        const status = resp && typeof resp.status === "number" ? resp.status : 0;
+        console.warn("[JobBored] llm-config pin POST failed:", status || "network");
+      }
+    } catch (err) {
+      const message =
+        err && typeof err === "object" && "message" in err
+          ? String(err.message)
+          : String(err);
+      console.warn("[JobBored] llm-config pin POST failed:", message);
+    }
   }
 
   async function writeGeminiKeyThrough(key) {
@@ -441,12 +604,27 @@
       return;
     }
 
-    setStages(ctx, [{ label: "Checking your key…", state: "active" }]);
+    const run = (state.checkRun += 1);
+    state.stalled = false;
+    syncActions();
+    const baseStages = [{ label: "Checking your key…", state: "active" }];
+    setStages(ctx, baseStages);
+    startCheckWatch(ctx, baseStages, run);
     let result;
     try {
       result = await verify();
     } catch (err) {
       result = { ok: false, message: String((err && err.message) || err || "") };
+    }
+    // A newer attempt owns the screen — this one's answer is history, and
+    // its clock now belongs to that attempt, so leave the timer alone.
+    if (run !== state.checkRun) return;
+    stopCheckWatch();
+    const wasStalled = state.stalled;
+    state.stalled = false;
+    syncActions();
+    if (wasStalled && ctx && typeof ctx.setMessage === "function") {
+      ctx.setMessage("", "info");
     }
     const ms = Number(result && result.ms) || 0;
     emit(steps().KEY_CHECK, {
@@ -482,13 +660,31 @@
         state: "done",
       },
     ]);
+    const successAt = Date.now();
 
     if (def.id === "gemini") {
       state.geminiWroteThrough = await writeGeminiKeyThrough(value);
     }
 
+    await postLlmConfigPin(def, value);
+
+    const pinModel = resolveModel(def);
+    const catalog = window.JobBoredModelCatalog;
+    const isWeak =
+      catalog && typeof catalog.isWeakMaterialsModel === "function"
+        ? catalog.isWeakMaterialsModel(pinModel)
+        : false;
+    if (isWeak) {
+      repaint(ctx, WEAK_MATERIALS_MODEL_WARNING, "warn");
+    }
+
     state.keyDraft = "";
     fields.value = null;
+    // Let the success line be read (NEW-4). Anything the beat did after
+    // painting it counts against the hold, and a newer check started
+    // during it owns the screen from here.
+    await wait(CHECK_TIMINGS.successHoldMs - (Date.now() - successAt));
+    if (run !== state.checkRun) return;
     if (ctx && typeof ctx.completeBeat === "function") {
       await ctx.completeBeat({ provider: def.id, checkMs: ms });
     }
@@ -497,7 +693,9 @@
   async function handleAction(actionId, ctx) {
     const context = ctx || lastCtx;
     if (!context) return undefined;
-    if (actionId === ACTION_CHECK) return checkAndContinue(context);
+    if (actionId === ACTION_CHECK || actionId === ACTION_RETRY_CHECK) {
+      return checkAndContinue(context);
+    }
     return undefined;
   }
 
@@ -520,6 +718,7 @@
     SUB,
     PROVIDERS,
     GEMINI_BONUS_LINE,
+    WEAK_MATERIALS_MODEL_WARNING,
     handleAction,
     getRenderedStages() {
       return state.stages.slice();
@@ -530,5 +729,8 @@
     didWriteGeminiKeyThrough() {
       return state.geminiWroteThrough;
     },
+    // Test seam (read in tests; never relied on from app code) — the C6
+    // thresholds, so a probe need not wait fifteen real seconds.
+    _internal: { timings: CHECK_TIMINGS, state },
   };
 })();

@@ -4,13 +4,27 @@ import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
-import { describe, it } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 
 import {
   getProfileRescoreProviderConfigFromEnv,
   getProfileRescoreProviderStatus,
   rescoreAllPipelineRows,
 } from "../server/profile-rescore-worker.mjs";
+
+let pinDir;
+const prevPinPath = process.env.JOBBORED_LLM_CONFIG_PATH;
+
+beforeEach(() => {
+  pinDir = mkdtempSync(join(tmpdir(), "jb-rescore-pin-"));
+  process.env.JOBBORED_LLM_CONFIG_PATH = join(pinDir, "llm.json");
+});
+
+afterEach(() => {
+  if (prevPinPath === undefined) delete process.env.JOBBORED_LLM_CONFIG_PATH;
+  else process.env.JOBBORED_LLM_CONFIG_PATH = prevPinPath;
+  rmSync(pinDir, { recursive: true, force: true });
+});
 
 function sampleProfile() {
   return {
@@ -242,12 +256,15 @@ describe("POST /profile/rescore provider validation", () => {
         JOBBORED_PROFILE_PATH: profilePath,
         HOME: tmpDir,
         USERPROFILE: tmpDir,
+        JOBBORED_LLM_CONFIG_PATH: join(tmpDir, "llm.json"),
         PROFILE_RESCORE_PROVIDER: "openrouter",
         PROFILE_RESCORE_OPENROUTER_API_KEY: "",
         ATS_OPENROUTER_API_KEY: "",
         OPENROUTER_API_KEY: "",
         GEMINI_API_KEY: "",
         ATS_GEMINI_API_KEY: "",
+        ATS_GEMINI_MODEL: "",
+        ATS_PROVIDER: "",
       },
       stdio: ["ignore", "ignore", "pipe"],
     });

@@ -90,6 +90,7 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
       : "";
   const values = new Set(opts.map((o) => o.value));
   const isGeminiSelect = selectId === "settingsResumeGeminiModel";
+  const isGeminiFlashFamily = isGeminiSelect && v === "gemini-flash";
   sel.innerHTML = "";
   opts.forEach((o) => {
     const opt = document.createElement("option");
@@ -98,7 +99,7 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
     if (o.description) opt.title = o.description;
     sel.appendChild(opt);
   });
-  if (v && !values.has(v) && !isGeminiSelect) {
+  if (v && !values.has(v) && (!isGeminiSelect || isGeminiFlashFamily)) {
     const opt = document.createElement("option");
     opt.value = v;
     opt.textContent = `${v} (saved)`;
@@ -206,9 +207,14 @@ function fillVisualThemeSelect(selectId, currentId) {
 function fillResumeModelSelectsFromConfig(cfg) {
   const m = window.CommandCenterResumeModelOptions;
   if (!m) return;
+  const catalog = window.JobBoredModelCatalog;
+  const geminiList =
+    catalog && typeof catalog.getStaticModels === "function"
+      ? catalog.getStaticModels("gemini")
+      : m.gemini;
   fillOneResumeModelSelect(
     "settingsResumeGeminiModel",
-    m.gemini,
+    geminiList,
     cfg.resumeGeminiModel,
   );
   fillOneResumeModelSelect(
@@ -242,6 +248,7 @@ const SETTINGS_PROVIDER_DEFS = {
     cap: "OpenRouter",
     keyInputId: "settingsResumeOpenRouterApiKey",
     modelSelectId: "settingsResumeOpenRouterModel",
+    baseUrlInputId: "settingsResumeOpenRouterBaseUrl",
     configKeyField: "resumeOpenRouterApiKey",
     configModelField: "resumeOpenRouterModel",
   },
@@ -275,6 +282,44 @@ const SETTINGS_PROVIDER_DEFS = {
     configModelField: "resumeLocalModel",
   },
 };
+
+function resolveJobBoredApiUrl() {
+  const cfg =
+    (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+  const raw = String(cfg.jobBoredApiUrl || "").trim();
+  if (raw) return raw.replace(/\/+$/, "");
+  return "http://127.0.0.1:3847";
+}
+
+async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
+  const p = String(provider || "").trim();
+  const m = String(model || "").trim();
+  if (!p || !m) return;
+  if (typeof fetch !== "function") return;
+  const jobBoredApiUrl = resolveJobBoredApiUrl();
+  try {
+    const resp = await fetch(jobBoredApiUrl + "/api/llm-config", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        provider: p,
+        model: m,
+        apiKey: String(apiKey || "").trim(),
+        baseUrl: String(baseUrl || "").trim(),
+      }),
+    });
+    if (!resp || resp.ok === false) {
+      const status = resp && typeof resp.status === "number" ? resp.status : 0;
+      console.warn("[JobBored] llm-config pin POST failed:", status || "network");
+    }
+  } catch (err) {
+    const message =
+      err && typeof err === "object" && "message" in err
+        ? String(err.message)
+        : String(err);
+    console.warn("[JobBored] llm-config pin POST failed:", message);
+  }
+}
 
 function readSettingsProviderInputs(def) {
   const keyEl = document.getElementById(def.keyInputId);
@@ -881,6 +926,17 @@ async function saveCommandCenterSettingsFromForm() {
       err.style.display = "block";
     }
     return;
+  }
+  const selectedDef = SETTINGS_PROVIDER_DEFS[provider];
+  if (selectedDef) {
+    await postLlmConfigPin({
+      provider,
+      model: payload[selectedDef.configModelField],
+      apiKey: payload[selectedDef.configKeyField],
+      baseUrl: selectedDef.baseUrlInputId
+        ? val(selectedDef.baseUrlInputId)
+        : "",
+    });
   }
   host().setSHEET_ID(sheetId);
   host().setDashboardSheetLinks();

@@ -477,7 +477,7 @@
             : "The discovery worker needs a webhook secret.",
           detail: workerDownstream
             ? "Your Cloudflare relay forwarded the request, but the upstream worker fail-closed because DISCOVERY_SECRET is missing or wrong."
-            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+            : "The browser-use worker fail-closes on empty or mismatched x-discovery-secret. With `npm run dev` running, JobBored re-syncs the secret from your local worker and retries on its own — if it still fails, open Discovery drawer → Connection → Open discovery setup, which writes and verifies it for you.",
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
@@ -487,11 +487,15 @@
                 "3. Click Test webhook again.",
               ].join("\n")
             : [
-                "1. Run `npm run discovery:bootstrap-local` on this machine.",
-                "2. Reload the dashboard — the secret will autofill.",
+                "1. Make sure `npm run dev` is running on this machine.",
+                "2. Open Discovery drawer → Connection → Open discovery setup.",
                 "3. Click Test webhook (or Run discovery) again.",
               ].join("\n"),
-          suggestedCommand: "npm run discovery:bootstrap-local",
+          // The relay needs a redeploy with the secret; a local worker does
+          // not need a command at all — the dashboard re-syncs it itself.
+          ...(workerDownstream
+            ? { suggestedCommand: "npm run discovery:bootstrap-local" }
+            : {}),
         });
       }
       if (isRouteNotFoundResponse(status, data, responseText)) {
@@ -528,12 +532,18 @@
           kind: "invalid_endpoint",
           engineState: workerDownstream ? "unverified" : "none",
           httpStatus: 400,
+          // The worker now explains this case in human terms ("No Google Sheet
+          // is connected yet…") and names the setup step that fixes it. Prefer
+          // its words: restating the API field name here overwrote the good
+          // copy with a developer message on exactly the journey it describes.
           message: workerDownstream
             ? "Relay reached your server, but no Sheet ID was provided."
-            : "Sheet ID is required.",
-          detail: workerDownstream
-            ? "The Worker forwarded the request successfully. The discovery server rejected it because the request payload did not include `sheetId`."
-            : "This endpoint expects a `sheetId` field in the request payload.",
+            : "No Google Sheet is connected yet.",
+          detail:
+            text(data && data.detail) ||
+            (workerDownstream
+              ? "The Worker forwarded the request successfully. The discovery server rejected it because the request payload did not include `sheetId`."
+              : "Discovery writes its results to your pipeline Sheet, so it needs one."),
           layer: workerDownstream ? "downstream" : "upstream",
           remediation: workerDownstream
             ? [
@@ -744,23 +754,44 @@
         detailParts.push(message);
       }
       detailParts.push(`Tried: ${endpointUrl}`);
+      // SIXBEATS2 NEW-12: on the Tailscale path the beat renders the MESSAGE
+      // and nothing else, so "Can't reach the endpoint." on its own was a
+      // dead end no matter how good the remediation field was. A tailnet URL
+      // has a different first check than a bare origin, so it gets its own
+      // next action, in the sentence the user actually sees.
+      let isTailnet = false;
+      try {
+        isTailnet = /(^|\.)ts\.net$/i.test(new URL(endpointUrl).hostname);
+      } catch (_) {
+        isTailnet = false;
+      }
       return createVerificationResult({
         ok: false,
         kind: "network_error",
         engineState: "none",
         httpStatus: 0,
-        message: "Can't reach the endpoint.",
+        message: isTailnet
+          ? "Can't reach the endpoint. First check: run `tailscale status` on this machine — a tailnet URL only answers while Tailscale is up."
+          : "Can't reach the endpoint.",
         detail: detailParts.join(" — "),
         layer: "browser",
         // Voice rule §8.4: every error names the next action. The taxonomy
         // above is unchanged — this only replaces the dead end that the
         // catch-all used to be with the first check worth running.
-        remediation: [
-          `1. Open ${endpointUrl} in a browser tab. A timeout or DNS error means the endpoint is down, not that the URL is wrong.`,
-          "2. If it is your local worker, run `npm run discovery:bootstrap-local` on this machine to start it, then Re-check.",
-          "3. If it loads there but not here, the block is CORS or the dashboard's CSP — use the Tailscale path instead of a bare origin.",
-        ].join("\n"),
-        suggestedCommand: "npm run discovery:bootstrap-local",
+        remediation: isTailnet
+          ? [
+              "1. Run `tailscale status` on this machine. A tailnet URL only answers while Tailscale is up and logged in.",
+              "2. Then `tailscale serve status`: the worker is reachable only while a serve mapping publishes it.",
+              "3. Still nothing? Press Set it up for me again — it republishes the URL and re-verifies it.",
+            ].join("\n")
+          : [
+              `1. Open ${endpointUrl} in a browser tab. A timeout or DNS error means the endpoint is down, not that the URL is wrong.`,
+              "2. If it is your local worker, run `npm run discovery:bootstrap-local` on this machine to start it, then Re-check.",
+              "3. If it loads there but not here, the block is CORS or the dashboard's CSP — use the Tailscale path instead of a bare origin.",
+            ].join("\n"),
+        suggestedCommand: isTailnet
+          ? "tailscale status"
+          : "npm run discovery:bootstrap-local",
       });
     } finally {
       if (timeoutId != null) {

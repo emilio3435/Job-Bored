@@ -362,8 +362,9 @@ describe("openrouter config wiring across files", () => {
     }
   });
 
-  it("config.example.js ships openrouter as the default provider with defaulted keys", () => {
-    assert.match(configExampleJs, /resumeProvider:\s*"openrouter"/);
+  it("config.example.js ships gemini as the default provider with openrouter fields still present", () => {
+    assert.match(configExampleJs, /resumeProvider:\s*"gemini"/);
+    assert.match(configExampleJs, /resumeGeminiModel:\s*"gemini-flash"/);
     assert.match(configExampleJs, /resumeOpenRouterApiKey:\s*""/);
     assert.match(
       configExampleJs,

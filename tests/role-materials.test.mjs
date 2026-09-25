@@ -17,6 +17,12 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const source = readFileSync(join(repoRoot, "role-materials.js"), "utf8");
+/* Trap 2: jb-text.js before role-case-model.js, or the model throws and
+   CASE_DOC_TYPES is missing — the rows would silently degrade to the panel. */
+const caseSources = ["jb-text.js", "role-case-model.js"].map((f) => ({
+  filename: f,
+  code: readFileSync(join(repoRoot, f), "utf8"),
+}));
 
 class TestCustomEvent {
   constructor(type, options = {}) {
@@ -173,6 +179,10 @@ before(() => {
     console: { log() {}, warn() {}, error() {} },
     setTimeout,
     clearTimeout,
+    /* The live elapsed ticker is the panel's concern, not this suite's:
+       hand it a token it can clear so nothing keeps the loop alive. */
+    setInterval: () => 1,
+    clearInterval: () => {},
     fetch: () => Promise.reject(new Error("fetch not stubbed in unit test")),
     Date,
     Number,
@@ -182,6 +192,10 @@ before(() => {
     String,
     JSON,
   });
+  for (const { filename, code } of caseSources) vm.runInContext(code, ctx, { filename });
+  if (!windowEl.JobBoredCase?.model?.CASE_DOC_TYPES?.length) {
+    throw new Error("role-case-model.js did not expose CASE_DOC_TYPES");
+  }
   vm.runInContext(source, ctx, { filename: "role-materials.js" });
   api = windowEl.JobBoredRoleMaterials;
   if (!api) throw new Error("role-materials.js did not expose JobBoredRoleMaterials");
@@ -628,5 +642,218 @@ describe("renderManifest", () => {
     assert.equal(brief.children.length, 1);
     const html = brief.children[0].innerHTML || "";
     assert.match(html, /Second pass/);
+  });
+});
+
+/* ------------------------------------------------------------
+   Compact document rows inside the Case (plan Task 9, spec §3).
+   The legacy panel survives only for a brief-only mount.
+   ------------------------------------------------------------ */
+describe("materials rows in the case mount", () => {
+  const CASE_MANIFEST = {
+    slug: "meridian-labs-product-manager",
+    company: "Meridian Labs",
+    title: "Product Manager",
+    documents: [
+      {
+        type: "resume",
+        label: "Tailored Resume",
+        status: "ready",
+        primary: "resume.pdf",
+        lastModifiedAt: "2026-08-30T09:00:00.000Z",
+        files: [
+          { filename: "resume.pdf", format: "pdf", size: 354257, modifiedAt: "2026-08-30T09:00:00.000Z" },
+          { filename: "resume.html", format: "html", size: 28890, modifiedAt: "2026-08-30T09:00:00.000Z" },
+        ],
+      },
+    ],
+    pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 42, attempt: 1 } },
+  };
+
+  function makeCaseMount() {
+    return makeElement("div", { "data-mount": "materials" });
+  }
+
+  function rowsHtml(host) {
+    return (host.children[0] && host.children[0].innerHTML) || "";
+  }
+
+  function rowFor(host, type) {
+    const html = rowsHtml(host);
+    const re = new RegExp('<div class="case__doc case__doc--[a-z]+" data-doc="' + type + '">([\\s\\S]*?)<\\/div><\\/div>');
+    const m = re.exec(html);
+    return m ? m[0] : "";
+  }
+
+  it("renders every CASE_DOC_TYPES row, in the model's order", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
+    const order = [...rowsHtml(host).matchAll(/data-doc="([^"]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(order, ["resume", "cover_letter", "manual_apply_checklist", "qa_report"]);
+  });
+
+  it("a ready document keeps its preview + download actions", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.match(row, /case__docst--ready" data-status="ready">ready</);
+    /* SPEC §3.4: the pill carries one word; the sentence goes in the meta
+       line, which has the whole row rather than the most width-constrained
+       slot on the page. */
+    assert.match(row, /case__doc-meta">drafted 2026-08-30 · 2 files/);
+    assert.match(row, /data-action="materials-preview"/);
+    assert.match(row, /data-action="materials-download"/);
+    assert.match(row, /\/files\/resume\.pdf\?download=1&amp;v=/);
+  });
+
+  it("a drafting document shows phase, elapsed and attempt instead of actions", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    /* P0-4: the row says the phase in words, and no retry count on attempt 1. */
+    assert.match(row, /case__docst--drafting" data-status="drafting">drafting</);
+    assert.match(row, /case__doc-eyebrow">drafting in progress · 42s</);
+    assert.match(row, /case__doc-track"/, "an indeterminate track says the run is still alive");
+    assert.doesNotMatch(row, /data-action="materials-preview"/);
+  });
+
+  it("a queued document shows the queue eyebrow and the worker's message (journey contract)", () => {
+    const host = makeCaseMount();
+    const queued = {
+      ...CASE_MANIFEST,
+      pending: {
+        ...CASE_MANIFEST.pending,
+        progress: { ...CASE_MANIFEST.pending.progress, phase: "queued", message: "Queued for the drafting worker." },
+      },
+    };
+    api.renderManifest(host, queued, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /case__docst--queued" data-status="drafting">queued</);
+    assert.match(row, /case__doc-eyebrow">waiting in queue · 42s</);
+    assert.match(row, /case__doc-msg">Queued for the drafting worker\.</);
+    assert.match(row, /data-phase="queued"/);
+  });
+
+  it("an optimistic pending block with no progress yet renders as queued (legacy parity)", () => {
+    const host = makeCaseMount();
+    const optimistic = {
+      ...CASE_MANIFEST,
+      pending: { feature: "cover_letter", requestedAt: "2026-09-02T00:00:00Z", source: "jobbored-dossier" },
+    };
+    api.renderManifest(host, optimistic, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /case__docst--queued" data-status="drafting">queued</);
+    assert.match(row, /case__doc-eyebrow">waiting in queue · —</);
+  });
+
+  it("missing resume / cover letter offer a Draft button; support docs do not", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, { ...CASE_MANIFEST, documents: [], pending: null }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "resume"), /data-action="resume-tailor"[^>]*>Draft</);
+    assert.match(rowFor(host, "cover_letter"), /data-action="resume-cover"[^>]*>Draft</);
+    assert.match(rowFor(host, "resume"), /case__docst--missing" data-status="missing">not drafted</);
+    assert.match(rowFor(host, "resume"), /case__doc-meta">never requested</);
+    assert.doesNotMatch(rowFor(host, "manual_apply_checklist"), /<button/);
+    assert.doesNotMatch(rowFor(host, "qa_report"), /<button/);
+    /* SPEC §6 state 7: a deliverable nothing can draft on its own says what
+       produces it instead of leaving a row with no cause and no action. */
+    assert.match(rowFor(host, "qa_report"), /case__doc-meta">written with the resume</);
+  });
+
+  it("a document with a quality issue offers Repair in its row", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      pending: null,
+      quality: { documents: { resume: { status: "review", issues: [{ code: "x", message: "Second page is sparse." }] } } },
+    }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "resume"), /data-action="materials-repair"[^>]*data-feature="resume"/);
+  });
+
+  it("collapses the empty and error states to a single hint line", () => {
+    const host = makeCaseMount();
+    api.renderEmpty(host, { note: "Nothing on disk yet." });
+    assert.match(rowsHtml(host), /class="case__hint">Nothing on disk yet\.</);
+    assert.doesNotMatch(rowsHtml(host), /brief-materials__head/);
+
+    api.renderError(host, "Server is down.");
+    assert.equal(host.children.length, 1, "the hint replaces the prior section");
+    assert.match(rowsHtml(host), /class="case__hint case__hint--error">Server is down\.</);
+  });
+
+  /* P0-4: the row printed the raw state-machine enum — `rendering_pdf` —
+     and always printed `attempt 1`, which reads as "something already went
+     wrong". The legacy panel showed the count only above 1. */
+  it("says the phase in words and hides the retry count at attempt 1", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      pending: { feature: "cover_letter", progress: { phase: "rendering_pdf", elapsedSeconds: 64, attempt: 1 } },
+    }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /case__doc-eyebrow">polishing the PDFs · 1m 04s</);
+    assert.doesNotMatch(row, /rendering_pdf ·/);
+    assert.doesNotMatch(row, /attempt/);
+  });
+
+  it("shows the retry count once a run is past its first attempt", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 5, attempt: 3 } },
+    }, "http://127.0.0.1:3847");
+    assert.match(rowFor(host, "cover_letter"), /case__doc-eyebrow">drafting in progress · 5s · retry 3</);
+  });
+
+  /* P2-5: a failed row stated the failure and offered no exit, unlike the
+     legacy panel's dismiss + retry pair. TEARDOWN §2: the humane copy the
+     pill carried — "couldn't finish" — was 15 nowrap characters in the most
+     width-constrained slot on the page, and it is what took the name column's
+     width. Same words, better place: the meta line. */
+  it("a failed row says what happened in the meta line and offers retry and dismiss", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, {
+      ...CASE_MANIFEST,
+      documents: [],
+      pending: { feature: "cover_letter", progress: { phase: "failed", elapsedSeconds: 12, attempt: 1 } },
+    }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "cover_letter");
+    assert.match(row, /case__docst--failed" data-status="failed">failed</);
+    assert.doesNotMatch(row, /couldn&#39;t finish/, "the pill carries one word, not a sentence");
+    assert.match(row, /case__doc-meta">stopped after 12s/);
+    assert.match(row, /case__doc-msg">The drafting worker stopped before the cover letter was written\. Nothing was saved\.</);
+    assert.match(row, /data-action="materials-retry"[^>]*data-feature="cover_letter"[^>]*>Try again</);
+    assert.match(row, /data-action="materials-dismiss"[^>]*data-feature="cover_letter"[^>]*>Dismiss</);
+  });
+
+  /* P2-6: "on disk" is machine vocabulary, and the Case branch returned
+     before the invitation the legacy panel pairs with it. */
+  it("the empty state invites the user to start a draft, in human words", () => {
+    const host = makeCaseMount();
+    api.renderEmpty(host);
+    const html = rowsHtml(host);
+    assert.match(html, /Nothing written for this role yet — use Draft cover letter or Tailor resume above to start one\./);
+    assert.doesNotMatch(html, /on disk/);
+  });
+
+  /* P1-0e: a failure rendered in the same muted italic as "nothing here yet",
+     so the Case needs its own error hook to style (role-case.css owns the
+     rule; this asserts the class the rule hangs on). */
+  it("an error hint carries the case-scoped error class", () => {
+    const host = makeCaseMount();
+    api.renderError(host, "Local materials server is unreachable.");
+    assert.match(rowsHtml(host), /class="case__hint case__hint--error"/);
+
+    api.renderEmpty(host);
+    assert.doesNotMatch(rowsHtml(host), /case__hint--error/, "an empty shelf is not an error");
+  });
+
+  it("falls back to the legacy panel in a brief-only mount", () => {
+    const brief = makeElement("div", { "data-mount": "brief" });
+    api.renderManifest(brief, CASE_MANIFEST, "http://127.0.0.1:3847");
+    assert.equal(brief.children[0].attributes.class, "brief-materials");
+    assert.match(brief.children[0].innerHTML, /brief-materials__head/);
+    assert.match(brief.children[0].innerHTML, /data-doc-type="resume"/);
+    assert.doesNotMatch(brief.children[0].innerHTML, /case__doc/);
   });
 });

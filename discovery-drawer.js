@@ -1106,22 +1106,25 @@ function resolveGeminiModel(explicit) {
   if (typeof cfg.resumeGeminiModel === "string" && cfg.resumeGeminiModel.trim()) {
     return cfg.resumeGeminiModel.trim();
   }
-  return "gemini-3.5-flash";
+  return "gemini-flash";
 }
 
 async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   const resolvedModel = resolveGeminiModel(model);
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-  // Detect 2.5+ family — those models burn "thinking tokens" against the
-  // output budget, so a 2048-cap on a long-system-prompt JSON response can
-  // silently produce zero visible characters with finishReason=MAX_TOKENS.
+  // Detect thinking models (gemini-flash family alias and 2.5+/3.x snapshots).
+  // Those models burn "thinking tokens" against the output budget, so a
+  // 2048-cap on a long-system-prompt JSON response can silently produce
+  // zero visible characters with finishReason=MAX_TOKENS.
   // Also pin response MIME to JSON whenever the caller marks the request
   // as JSON-only — this dramatically improves reliability vs. free-form
   // prose responses that have to be regex-extracted later.
   const wantJson = !!(opts && opts.json);
-  const isThinkingModel = /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
+  const isThinkingModel =
+    resolvedModel === "gemini-flash" ||
+    /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
   const generationConfig = {
-    maxOutputTokens: isThinkingModel ? 8192 : 2048,
+    maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
     temperature: 0.5,
   };
   if (wantJson) generationConfig.responseMimeType = "application/json";

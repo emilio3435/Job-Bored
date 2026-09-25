@@ -61,6 +61,8 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
     assert.ok(text.includes("Now give it a brain."));
     assert.ok(
       text.includes(
+        // Spec §5 B2, restored verbatim by SIXBEATS-2 NEW-11: the sub-line
+        // names whichever card is pre-selected, and that is OpenRouter.
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
@@ -69,6 +71,8 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
     );
   });
 
+  // SIXBEATS-2 NEW-11: this used to pin Gemini first and pre-selected,
+  // which is what the rerun caught contradicting spec §5 B2's card order.
   it("offers exactly the five spec'd providers with OpenRouter pre-selected", async () => {
     const env = await openBeat();
     const providers = env
@@ -263,6 +267,7 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
     const field = env.mount().querySelector("#oneFlowAiKeyInput");
     field.value = "sk-or-abcdefgh12345678";
     field.dispatch("input", { target: field });
+    // Away from the pre-selected card (OpenRouter, spec §5 B2), not toward it.
     card(env, "gemini").dispatch("click");
     assert.equal(
       env.mount().querySelector("#oneFlowAiKeyInput").value,

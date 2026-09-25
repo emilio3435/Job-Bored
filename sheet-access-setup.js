@@ -53,6 +53,74 @@
     return true;
   }
 
+  const START_FRESH_BTN_ID = "sheetAccessGateStartFreshBtn";
+  let startFreshBtn = null;
+
+  /**
+   * "Set up JobBored for this account" — rendered only in the gate's error
+   * mode while a token is present. Created here rather than in index.html
+   * so it exists wherever the gate does.
+   */
+  function renderStartFreshAction(show) {
+    let btn = startFreshBtn || document.getElementById(START_FRESH_BTN_ID);
+    if (!show) {
+      if (btn) btn.hidden = true;
+      return;
+    }
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = START_FRESH_BTN_ID;
+      btn.className = "login-gate__btn-secondary";
+      btn.textContent = "Set up JobBored for this account";
+      btn.addEventListener("click", () => {
+        void startFreshForThisAccount();
+      });
+      const row =
+        document.getElementById("sheetAccessGateSecondaryRow") ||
+        document.getElementById("sheetAccessGateScreen");
+      if (row) row.appendChild(btn);
+      startFreshBtn = btn;
+    }
+    btn.hidden = false;
+  }
+
+  /**
+   * Switch this install to the signed-in account: forget the configured
+   * sheet, drop the legacy completion flags (otherwise the one-flow's
+   * migration would mark setup complete and never render, spec §3.3), and
+   * hand the surface to Beat 1 — which, seeing a signed-in session with no
+   * sheet, creates this account's own Pipeline sheet.
+   */
+  async function startFreshForThisAccount() {
+    startupLog("sheet-access:start-fresh-for-account", {});
+    const h = host();
+    h.mergeStoredConfigOverridePatch({ sheetId: "" });
+    if (typeof h.setSHEET_ID === "function") h.setSHEET_ID("");
+    if (typeof h.setInitialSheetAccessResolved === "function") {
+      h.setInitialSheetAccessResolved(false);
+    }
+    const UC = window.CommandCenterUserContent;
+    if (UC) {
+      for (const fn of [
+        "resetInfraSetupCompletion",
+        "resetOnboardingCompletion",
+        "clearOnboardingFlowState",
+      ]) {
+        if (typeof UC[fn] === "function") {
+          try {
+            await UC[fn]();
+          } catch (_) {
+            /* best-effort: a wedged store must not block the hand-off */
+          }
+        }
+      }
+    }
+    hideSheetAccessGate();
+    const flow = window.JobBoredOneFlow;
+    if (flow && typeof flow.open === "function") await flow.open("google");
+  }
+
   function startupLog(label, detail, level = "info") {
     const logger = window.JobBoredStartupLog;
     if (logger && typeof logger.mark === "function") {
@@ -233,6 +301,7 @@
     let nextStepTitle = "";
     let nextStepBody = "";
     let showSignIn = false;
+    let showStartFresh = false;
     let footText = "Google sign-in";
     let showSpinner = mode === "loading";
 
@@ -288,9 +357,15 @@
       nextStepTitle = "";
       nextStepBody = "";
       showSignIn = !!host().getOAuthClientId() && !host().getAccessToken();
+      // A signed-in identity that cannot read the configured sheet is most
+      // often a DIFFERENT Google account on an already-set-up install. Offer
+      // the way into setup for that account instead of a dead end.
+      showStartFresh = !!host().getAccessToken();
       footText = showSignIn
         ? "Sign in with the account that can open this sheet."
-        : "Check Settings or your network and reload.";
+        : showStartFresh
+          ? "Signed in as a different account? Set JobBored up for it instead."
+          : "Check Settings or your network and reload.";
       startLoginGateTipRotation();
     }
 
@@ -298,6 +373,7 @@
     if (detail) detail.textContent = nextDetail;
     if (stepTitle) stepTitle.textContent = nextStepTitle;
     if (stepBody) stepBody.textContent = nextStepBody;
+    renderStartFreshAction(mode === "error" && showStartFresh);
     if (signInBtn) signInBtn.hidden = !showSignIn;
     if (settingsBtn) settingsBtn.hidden = false;
     if (reloadBtn) reloadBtn.hidden = false;

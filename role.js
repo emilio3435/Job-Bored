@@ -12,9 +12,9 @@
               jb:role:action      { action, jobKey }
               jb:role:note        { jobKey, body }
               jb:role:writeback   { jobKey, field, value }
-              (masthead title/company/location/salary edits, on
-              blur/Enter; routed to app.js editJobField by the
-              flowing-writes.js bridge)
+              (rail title/company/location/salary edits and the People
+              row's contact / heardBack / reply / followupAt, on
+              blur/Enter/change; routed by the flowing-writes.js bridge)
               (and re-triggers a smooth scroll to letter region)
 
    Activation: body.jb-v2 only. Off-flag: no-op.
@@ -117,7 +117,28 @@
 
 
 
-  function renderDossier(region, vm) {
+  /* Fail closed on delimiter pollution. The retired Brief ran every enrichment
+     through structured-output-validator.js before rendering, so a model reply
+     that leaked a code fence, an XML tag or a chat-template token never
+     reached a bullet even when the insights pipeline forgot to validate. The
+     Case model is pure assembly, so the region owner keeps that defense here —
+     on a copy, never by mutating the view-model dawn-data handed us. */
+  function reviewedVm(vm) {
+    var job = (vm && vm.job) || null;
+    var api = root.JobBoredStructuredOutput;
+    if (!job || !job.enrichment || !api || typeof api.validateEnrichment !== "function") return vm;
+    try {
+      var reviewed = api.validateEnrichment(job.enrichment);
+      if (!reviewed || reviewed === job.enrichment) return vm;
+      var copy = {};
+      for (var k in job) { if (Object.prototype.hasOwnProperty.call(job, k)) copy[k] = job[k]; }
+      copy.enrichment = reviewed;
+      return { job: copy };
+    } catch (e) { return vm; }
+  }
+
+  function renderDossier(region, rawVm) {
+    var vm = reviewedVm(rawVm);
     var job = (vm && vm.job) || {};
 
     region.innerHTML = '' +
@@ -125,18 +146,97 @@
         '<article class="brief" data-mount="brief"></article>' +
       '</div>';
 
-    var briefMount = region.querySelector('[data-mount="brief"]');
-    if (briefMount && root.JobBoredDossierBrief && typeof root.JobBoredDossierBrief.renderBrief === "function") {
-      root.JobBoredDossierBrief.renderBrief(briefMount, vm);
+    /* The Case owns the dossier body (spec §2.1): role.js gathers the deps,
+       the model assembles them, the renderer paints. role-materials.js then
+       mounts its rows into the [data-mount="materials"] the Case emitted. */
+    var mount = region.querySelector('[data-mount="brief"]');
+    var Case = root.JobBoredCase;
+    if (mount && Case && Case.model && typeof Case.render === "function") {
+      var key = job.jobKey || getCurrentJobKey();
+      var deps = Case.model.collectDeps(key);
+      deps.vm = vm;
+      Case.render(mount, Case.model.buildCaseModel(key, deps));
+      /* A render replaces the People rows, so a saved mark that is still
+         inside its 1.6s window is re-painted rather than lost (ground rule:
+         anything painted outside the renderer must survive a re-render). */
+      paintSavedMarks(region);
+      /* Every render replaces the materials mount; ask role-materials to
+         repaint its last state into it (rows / empty hint / error) — it
+         does so without re-dispatching jb:materials:manifest, so no loop. */
+      if (root.JobBoredRoleMaterials && typeof root.JobBoredRoleMaterials.rehydrateOpenRole === "function") {
+        root.JobBoredRoleMaterials.rehydrateOpenRole();
+      }
+      scrollCurrentStepIntoView(region);
+      publishChromeHeight(region);
+      autosizeTitle(region);
     }
 
     wireDossier(region, job);
+  }
+
+  /* The masthead title is a wrapping <textarea> so a long posting title is
+     readable in full (role-case.css). `field-sizing: content` gives it its
+     height where it is supported; where it is not, size it from its own
+     content or a two-line title would sit behind a hidden scrollbar. */
+  function autosizeTitle(region) {
+    if (!region || typeof region.querySelector !== "function") return;
+    if (root.CSS && root.CSS.supports && root.CSS.supports("field-sizing", "content")) return;
+    var title = region.querySelector(".case__title");
+    if (!title || title.tagName !== "TEXTAREA" || !title.style) return;
+    function fit() {
+      title.style.height = "auto";
+      title.style.height = (title.scrollHeight || 0) + "px";
+    }
+    fit();
+    if (typeof title.addEventListener === "function") title.addEventListener("input", fit);
+  }
+
+  /* The sticky docket has to park FLUSH beneath the app's chrome: a gap is a
+     slot the page scrolls through, and an overlap hides the controls behind
+     the header. How tall the chrome is, is the app's business and not the
+     dossier's, so measure .page-top and publish it — role-case.css carries a
+     fallback for the render before this runs. */
+  function publishChromeHeight(region) {
+    if (!region || !region.style || typeof region.style.setProperty !== "function") return;
+    var chrome = document.querySelector(".page-top");
+    if (!chrome || typeof chrome.getBoundingClientRect !== "function") return;
+    var height = Math.round(chrome.getBoundingClientRect().height);
+    if (height > 0) region.style.setProperty("--jb-chrome-h", height + "px");
+  }
+
+  /* The docket's stepper is a horizontal scroller (role-case.css), so on a
+     narrow dossier the live stage can start out of view — which is the one
+     step the reader needs. Centre it by setting the scroller's own
+     scrollLeft: scrollIntoView() would scroll the page as well, moving the
+     dossier out from under the reader on every render. */
+  function scrollCurrentStepIntoView(region) {
+    if (!region || typeof region.querySelector !== "function") return;
+    var stepper = region.querySelector(".case__stepper");
+    var now = region.querySelector(".case__step--now");
+    if (!stepper || !now || typeof now.offsetLeft !== "number") return;
+    var target = now.offsetLeft - Math.max(0, (stepper.clientWidth - now.offsetWidth) / 2);
+    stepper.scrollLeft = Math.max(0, target);
   }
 
   function getCurrentJobKey() {
     return root.JobBoredFlowing
       && root.JobBoredFlowing.openRole
       && root.JobBoredFlowing.openRole.get();
+  }
+
+  /* Optimistic paint for the three-state Replied segment (P0-3). */
+  function paintReplyChoice(region, chosen) {
+    if (!region || typeof region.querySelectorAll !== "function") return;
+    var chips = region.querySelectorAll('[data-action="edit-field"][data-field="reply"]');
+    for (var i = 0; i < chips.length; i++) {
+      var chip = chips[i];
+      var on = chip === chosen;
+      chip.setAttribute("aria-pressed", on ? "true" : "false");
+      if (chip.classList) {
+        if (on) chip.classList.add("case__seg-b--on");
+        else chip.classList.remove("case__seg-b--on");
+      }
+    }
   }
 
   function wireRegionClickOnce(region) {
@@ -147,11 +247,62 @@
       if (root.JobBoredFlowing && root.JobBoredFlowing.openRole) root.JobBoredFlowing.openRole.clear();
     }
 
+    /* Deferred-render flush: when a guarded edit surface gives up focus, run
+       the render that renderForKey queued. Deferred to a macrotask so a focus
+       move BETWEEN two edit surfaces (focusout fires before the next focusin)
+       does not rebuild the DOM out from under the incoming field. */
+    region.addEventListener("focusout", function (e) {
+      var t = e.target;
+      if (!t || !t.matches || !t.matches(EDIT_SURFACE_SELECTOR)) return;
+      root.setTimeout(function () {
+        if (!hasPendingRender || editSurfaceFocusedIn(region)) return;
+        var key = pendingRenderKey;
+        hasPendingRender = false;
+        pendingRenderKey = null;
+        renderForKey(key);
+      }, 0);
+    });
+
     region.addEventListener("click", function (e) {
       var t = e.target;
       while (t && t !== region) {
         var action = t.getAttribute && t.getAttribute("data-action");
         if (action === "close-role") { closeRole(); return; }
+        /* Stage stepper (spec §5): the rendered "now" step is the only
+           source of the from-stage, so a step that is already current
+           is a no-op rather than a self-move. */
+        if (action === "stage-step") {
+          var toStage = t.getAttribute("data-stage");
+          var now = region.querySelector(".case__step--now");
+          var fromStage = now ? now.getAttribute("data-stage") : null;
+          if (toStage && toStage !== fromStage) {
+            dispatch("jb:pipeline:move", { jobKey: getCurrentJobKey(), fromStage: fromStage, toStage: toStage });
+          }
+          return;
+        }
+        /* The replied chips are <button>s, not inputs: each carries the value
+           it writes in data-value and commits on click. The value is read
+           verbatim — the control is three-state, so `Unknown` writes as
+           itself rather than collapsing into a two-way flip. */
+        if (action === "edit-field" && t.getAttribute("data-field") === "reply") {
+          var replyValue = t.getAttribute("data-value");
+          if (replyValue) {
+            /* Nothing repaints the segment until the next render, so move the
+               pressed state here: without it the chosen chip stays unpressed
+               and the old one keeps announcing aria-pressed="true" for up to
+               the 5-minute poll. A later render re-paints the same truth. */
+            paintReplyChoice(region, t);
+            dispatch("jb:role:writeback", { jobKey: getCurrentJobKey(), field: "reply", value: replyValue });
+          }
+          return;
+        }
+        if (action === "open-profile-match") {
+          var km = root.JobBoredApp && root.JobBoredApp.keywordMatch;
+          var core = root.JobBoredApp && root.JobBoredApp.core;
+          var raw = core && typeof core.getJobByStableKey === "function" ? core.getJobByStableKey(getCurrentJobKey()) : null;
+          if (km && raw && typeof km.openProfileMatchModal === "function") km.openProfileMatchModal(raw);
+          return;
+        }
         if (action === "resume-cover" || action === "resume-tailor") {
           /* Materials-first pivot (2026-05-27): the dossier CTAs now
              trigger a Hermes drafting request via the materials API
@@ -190,17 +341,40 @@
       });
     }
 
-    // Masthead identity fields (title/company/location/salary) — borderless
-    // inputs rendered by role-brief.js. Commit on blur/Enter only (never per
+    // Rail identity fields (title/company) and the People row (contact,
+    // heardBack) — borderless inputs rendered by role-case.js. Commit on
+    // blur/Enter only (never per
     // keystroke, matching the notes pattern above); Escape restores the seeded
     // value. A commit no-ops when the value is unchanged vs data-original so we
     // never issue a needless Sheet write or re-lock the column.
     function commitEditField(input) {
+      /* Buttons (the replied toggle) are edit surfaces too, but they have no
+         string value and commit through the click walker instead. */
+      if (!input || typeof input.value !== "string") return;
       var field = input.getAttribute("data-field");
       var original = input.getAttribute("data-original") || "";
       var value = input.value.trim();
       if (value === original) return;
       dispatch("jb:role:writeback", { jobKey: jobKey, field: field, value: value });
+      /* Re-seed the baseline so a date input's change + blur pair — or any
+         second commit before the next render — cannot write twice. */
+      input.setAttribute("data-original", value);
+    }
+
+    /* `field-sizing: content` sizes the borderless location/salary inputs on
+       engines that support it (role-case.css). Where it is unsupported the
+       inputs would collapse to the UA default width, so size them from their
+       value instead — capped so a pasted paragraph cannot blow out the rail. */
+    if (!(root.CSS && root.CSS.supports && root.CSS.supports("field-sizing", "content"))
+        && typeof region.querySelectorAll === "function") {
+      var factInputs = region.querySelectorAll(".case__fact-input");
+      for (var fi = 0; fi < factInputs.length; fi++) {
+        (function (inp) {
+          function size() { inp.style.width = Math.min((inp.value || "").length + 2, 40) + "ch"; }
+          size();
+          inp.addEventListener("input", size);
+        })(factInputs[fi]);
+      }
     }
 
     var editFields = typeof region.querySelectorAll === "function"
@@ -211,6 +385,15 @@
         input.addEventListener("blur", function () {
           commitEditField(input);
         });
+        /* A date picker is committed by choosing a date, not by tabbing out. */
+        if (input.type === "date") {
+          input.addEventListener("change", function () { commitEditField(input); });
+        }
+        /* Enter on a <button> IS its click; preventing the default here
+           killed the Replied chips' keyboard path entirely (P0-1). Only
+           surfaces that carry a typed value commit through blur, so only
+           they need Enter/Escape — buttons commit through the click walker. */
+        if (input.tagName !== "INPUT" && input.tagName !== "TEXTAREA") return;
         input.addEventListener("keydown", function (e) {
           if (e.key === "Enter") {
             e.preventDefault();
@@ -224,26 +407,105 @@
     }
   }
 
+  /* -------------------- saved marks -------------------- */
+
+  /* The People rows commit silently, so the write's result gets its own mark:
+     a transient `saved` at the row's right edge, cleared after 1.6s. The
+     renderer emits the empty slots; this fills them, keyed by the write kind
+     flowing-writes.js reports on jb:write:succeeded. */
+  var SAVED_KINDS = { contact: true, heardBack: true, reply: true, followupAt: true };
+  var SAVED_MS = 1600;
+  var savedMarks = Object.create(null);
+  var savedSeq = 0;
+
+  function paintSavedMarks(region) {
+    if (!region || typeof region.querySelectorAll !== "function") return;
+    var marks = region.querySelectorAll(".case__saved");
+    for (var i = 0; i < marks.length; i++) {
+      var mark = marks[i];
+      var on = savedMarks[mark.getAttribute("data-saved")] != null;
+      mark.textContent = on ? "saved" : "";
+      if (mark.classList) {
+        if (on) mark.classList.add("case__saved--on");
+        else mark.classList.remove("case__saved--on");
+      }
+    }
+  }
+
+  function onWriteSucceeded(e) {
+    var kind = e && e.detail && e.detail.kind;
+    if (!kind || !SAVED_KINDS[kind]) return;
+    var token = ++savedSeq;
+    savedMarks[kind] = token;
+    paintSavedMarks(getRegion());
+    root.setTimeout(function () {
+      if (savedMarks[kind] !== token) return;
+      delete savedMarks[kind];
+      paintSavedMarks(getRegion());
+    }, SAVED_MS);
+  }
+
   /* -------------------- top-level render -------------------- */
 
   // Focus re-render guard: skip the wholesale innerHTML rebuild while the user
-  // is mid-edit in a masthead [data-action="edit-field"] input. The dossier is
-  // a single open instance, so guarding one region is enough — this is the
-  // analog of pipeline.js scheduleRender's __pipePending bail and is what keeps
+  // is mid-edit in one of the region's edit surfaces. The dossier is a single
+  // open instance, so guarding one region is enough — this is the analog of
+  // pipeline.js scheduleRender's __pipePending bail and is what keeps
   // jb:pipeline:rendered (5-min poll / jb:write:succeeded cascade) from wiping
-  // keystrokes before blur commits. Scoped to ONLY an edit-field activeElement
-  // so genuine updates (e.g. enrichment) are never swallowed.
-  function editFieldFocusedIn(region) {
+  // keystrokes before blur commits. The guard covers BOTH the masthead
+  // [data-action="edit-field"] inputs and the Notes textarea (spec D6), and
+  // the swallowed render is QUEUED, not dropped: it flushes on focusout so the
+  // dossier never sits stale after the user stops typing. Scoped to ONLY an
+  // edit-surface activeElement so genuine updates (e.g. enrichment) still land.
+  var EDIT_SURFACE_SELECTOR = '[data-action="edit-field"], [data-action="notes"]';
+  var hasPendingRender = false;
+  var pendingRenderKey = null;
+
+  function editSurfaceFocusedIn(region) {
     if (!region) return false;
     var ae = document.activeElement;
-    return !!(ae && ae.matches && ae.matches('[data-action="edit-field"]') && region.contains(ae));
+    return !!(ae && ae.matches && ae.matches(EDIT_SURFACE_SELECTOR) && region.contains(ae));
+  }
+
+  /* Focus survival across the wholesale innerHTML rebuild (P0-2). The guard
+     above only DEFERS for edit surfaces; every other focusable control — a
+     stage step, a reply chip, a materials button — is destroyed by the swap
+     and focus falls to <body>, ejecting a keyboard user to the top of the
+     document mid-task. So record what had focus by identity (the attributes
+     the renderer re-emits, never the node) and re-focus its replacement. */
+  var FOCUS_IDENTITY_ATTRS = ["data-action", "data-stage", "data-field", "data-value", "data-doc", "data-feature"];
+
+  function focusIdentity(region) {
+    var ae = document.activeElement;
+    if (!ae || !ae.getAttribute || !region || typeof region.contains !== "function") return null;
+    if (!region.contains(ae) || ae === region) return null;
+    var action = ae.getAttribute("data-action");
+    if (!action) return null;
+    var selector = "";
+    for (var i = 0; i < FOCUS_IDENTITY_ATTRS.length; i++) {
+      var name = FOCUS_IDENTITY_ATTRS[i];
+      var value = ae.getAttribute(name);
+      if (value != null) selector += "[" + name + '="' + value + '"]';
+    }
+    return selector || null;
+  }
+
+  function restoreFocus(region, selector) {
+    if (!region || !selector || typeof region.querySelector !== "function") return;
+    var next = region.querySelector(selector);
+    if (next && typeof next.focus === "function") next.focus();
   }
 
   function renderForKey(jobKey) {
     if (!shouldRun()) return;
     var region = getRegion();
     if (!region) return;
-    if (editFieldFocusedIn(region)) return;
+    if (editSurfaceFocusedIn(region)) {
+      hasPendingRender = true;
+      pendingRenderKey = jobKey;
+      return;
+    }
+    var focused = focusIdentity(region);
     if (!jobKey) {
       renderEmpty(region);
       return;
@@ -255,6 +517,7 @@
       return;
     }
     renderDossier(region, vm);
+    restoreFocus(region, focused);
   }
 
   function onOpened(e) {
@@ -266,7 +529,6 @@
   }
 
   function rerenderOpenRole() {
-    if (editFieldFocusedIn(getRegion())) return;
     var key = root.JobBoredFlowing
       && root.JobBoredFlowing.openRole
       && root.JobBoredFlowing.openRole.get();
@@ -292,10 +554,24 @@
        Dossier does not stay on its pre-hydration basic view. */
     if (document && document.addEventListener) {
       document.addEventListener("jb:pipeline:rendered", rerenderOpenRole);
+      document.addEventListener("jb:write:succeeded", onWriteSucceeded);
     }
     /* When app.js finishes scrape + Gemini enrichment for a role, the
        kanban-card's data-* attributes are refreshed; re-render the
        Dossier so it picks up the new AI fields. */
+    /* Seam events (spec §2.3): a persisted scorecard, a resolved profile
+       match, or a fresh materials manifest all change what the Case shows.
+       All three funnel through renderForKey, so the focus guard still wins. */
+    /* The chrome's height changes with the viewport (its nav wraps), and the
+       docket's parking spot is derived from it. */
+    root.addEventListener("resize", function () { publishChromeHeight(getRegion()); });
+    root.addEventListener("jb:ats:state", rerenderOpenRole);
+    root.addEventListener("jb:profile-match:ready", rerenderOpenRole);
+    root.addEventListener("jb:materials:manifest", function (e) {
+      var k = e && e.detail && e.detail.jobKey;
+      var openKey = getCurrentJobKey();
+      if (k == null || String(k) === String(openKey)) rerenderOpenRole();
+    });
     root.addEventListener("jb:role:enriched", function (e) {
       var k = e && e.detail && e.detail.jobKey;
       var openKey = root.JobBoredFlowing

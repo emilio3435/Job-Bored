@@ -105,7 +105,7 @@ describe("repo validation surface", () => {
     );
     assert.equal(
       pkg.scripts["start:discovery-worker"],
-      "node scripts/start-discovery-worker-local.mjs",
+      "node scripts/start-discovery-worker-local.mjs --restart-existing",
     );
     const startDiscoveryWorkerLocal = await readFile(
       join(repoRoot, "scripts/start-discovery-worker-local.mjs"),

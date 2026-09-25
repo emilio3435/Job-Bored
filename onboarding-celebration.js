@@ -2,24 +2,29 @@
    The one celebration (ONE-FLOW-ONBOARDING-SPEC §5 B6, §7).
 
    The teardown counted FOUR confetti bursts before the user's first job.
-   The spec collapses them to ONE, at B6, with the payoff attached — but
-   the player itself is the best-tested piece of the old onboarding: a
-   persistent CTA handoff (never a timed intermission), the
-   reveal-under-the-fade that keeps the dashboard from blinking between
-   chapters, and the `inert` click-through fix that made the CTA
-   clickable over an overflow:auto wizard in Chromium.
+   The spec collapses them to ONE, at B6, with the payoff attached.
 
-   So the player MOVED rather than got rewritten. It lived in
-   onboarding-wizard.js:137-344; L7 deleted that file, and the flow's
-   single celebration did not go with it. Its four legacy stages, its
-   delegating alias, and every caller but B6 went with the wizard — one
-   stage remains, because there is one payoff.
+   SIXBEATS2 (docs/programs/sixbeats2-20260902/SIXBEATS2-SPEC.md, locked
+   decision 2) then changed WHAT that one moment is. The acceptance rerun
+   found this overlay mounted on top of Beat 6 as a full-viewport
+   `role="dialog" aria-modal="true"` card with `pointer-events: auto`,
+   z-index 100002, carrying a second, older payoff — the three-circle
+   ✓ PROFILE ✓ JOB DISCOVERY ✓ OTHER DEVICES strip, its own
+   `See what happens now →` primary, and an `or start with your other
+   devices →` link. It never dismissed itself: `Run discovery now` was
+   covered for the whole 29 870 ms sample (rerun NEW-1, BLOCKER).
 
-   Behavior is unchanged. Two additions, both for B6:
-     · the stage table is `flow_payoff` alone, the flow finale,
-     · per-call title/sub/cta overrides, because "You're live, {firstName}."
-       is resolved by B6 from the Google session — the player renders what
-       it is handed and never owns the user's name.
+   So the finale is no longer a modal. It is a BURST: confetti plus the
+   title and sub float over a fully visible, fully clickable Beat 6 for
+   ~2.5 s and then fade. No journey strip, no alt link, no CTA gate, no
+   inerting, no focus steal — the beat underneath keeps the screen, and
+   the burst is announced politely rather than trapping assistive tech
+   behind aria-modal.
+
+   index.html still ships the legacy card markup (journey strip, CTA, alt
+   link) for the deleted wizard stages; `normalizeBurstOverlay` strips it
+   on the way up, so the burst is what renders no matter which build of
+   the markup is cached.
 
    Classic-global IIFE under window.JobBoredOnboardingCelebration.
    ============================================ */
@@ -27,6 +32,17 @@
   const root =
     window.JobBoredOnboardingCelebration ||
     (window.JobBoredOnboardingCelebration = {});
+
+  /**
+   * How long the burst floats, and how long it takes to fade out after
+   * that. Spec decision 2 says ~2.5 s: long enough to read two lines,
+   * short enough that nobody waits on it — and it is a TIMER, not an
+   * animation end, so the reduced-motion path (where the confetti never
+   * animates at all) dismisses on exactly the same schedule.
+   */
+  const TIMINGS = { burstMs: 2500, fadeMs: 320 };
+
+  const BURST_CLASS = "onboarding-celebration--burst";
 
   // Confetti burst — a handful of mint/amber/violet pieces with randomized
   // start, drift, and spin. Pure decoration (aria-hidden); cleared when the
@@ -52,15 +68,13 @@
   // configs — profile / discovery / devices / bonus — were four "done"
   // moments before a single job existed, and they left with their callers.
   //
-  // currentIndex 4 sits past the last journey step, so every step renders
-  // done and none renders current — which is the truth at B6: nothing is
-  // next, the deal is finished.
+  // Two keys, because the burst says two things. The `cta` and the journey
+  // `currentIndex` went with the modal (SIXBEATS2 decision 2): there is no
+  // CTA to gate on and nothing is "next" at B6.
   const STAGE_CELEBRATIONS = {
     flow_payoff: {
       title: "You're live.",
       sub: "That was the one-time part. From here, JobBored works for you.",
-      cta: "See what happens now →",
-      currentIndex: 4,
     },
   };
 
@@ -78,125 +92,93 @@
     if (title) title.textContent = pick("title");
     const sub = document.getElementById("onboardingCelebrationSub");
     if (sub) sub.textContent = pick("sub");
-    const cta = document.getElementById("onboardingCelebrationContinue");
-    if (cta) cta.textContent = pick("cta");
-    if (overlay && typeof overlay.querySelectorAll === "function") {
-      const steps = overlay.querySelectorAll(
-        ".onboarding-celebration__journey-step",
-      );
-      Array.from(steps || []).forEach((li, idx) => {
-        if (!li || !li.classList) return;
-        li.classList.toggle(
-          "onboarding-celebration__journey-step--done",
-          idx < stage.currentIndex,
-        );
-        li.classList.toggle(
-          "onboarding-celebration__journey-step--current",
-          idx === stage.currentIndex,
-        );
-        if (idx === stage.currentIndex) {
-          li.setAttribute("aria-current", "step");
-        } else if (typeof li.removeAttribute === "function") {
-          li.removeAttribute("aria-current");
-        }
-        const dot =
-          typeof li.querySelector === "function"
-            ? li.querySelector(".onboarding-celebration__journey-dot")
-            : null;
-        if (dot) {
-          dot.textContent = idx < stage.currentIndex ? "✓" : String(idx + 1);
-        }
-      });
-    }
   }
 
-  // Play the celebration. PERSISTENT: the overlay stays up until the user
-  // clicks the continue CTA, which fades it out and then runs onDone (the
-  // next chapter) — one continuous setup flow, no timed intermission.
-  // Degrades gracefully: missing overlay → immediate onDone; overlay
-  // without the CTA (stale cached markup) → the old timed dismissal, so
-  // the handoff can never strand.
+  function dropNode(node) {
+    if (node && typeof node.remove === "function") node.remove();
+  }
+
+  /**
+   * Turn whatever markup the page shipped into the burst.
+   *
+   * Two jobs. First, the legacy card body goes: the journey strip, the
+   * CTA and the alt link were the modal's whole reason to block, and
+   * leaving them would leave a second payoff arguing with the real one.
+   * Second, the overlay stops claiming to be a dialog — decoration over a
+   * live beat must not hide that beat from assistive tech, so it becomes
+   * a polite live region that announces the two lines and gets out of
+   * the way. The class carries the CSS that turns pointer events off.
+   */
+  function normalizeBurstOverlay(overlay) {
+    if (!overlay) return;
+    if (typeof overlay.querySelectorAll === "function") {
+      const legacy = [
+        ".onboarding-celebration__journey",
+        ".onboarding-celebration__cta",
+        ".onboarding-celebration__alt",
+      ];
+      for (const selector of legacy) {
+        for (const node of Array.from(overlay.querySelectorAll(selector) || [])) {
+          dropNode(node);
+        }
+      }
+    }
+    for (const id of [
+      "onboardingCelebrationContinue",
+      "onboardingCelebrationAlt",
+    ]) {
+      dropNode(document.getElementById(id));
+    }
+    if (typeof overlay.removeAttribute === "function") {
+      overlay.removeAttribute("aria-modal");
+      overlay.removeAttribute("aria-labelledby");
+    }
+    if (typeof overlay.setAttribute === "function") {
+      overlay.setAttribute("role", "status");
+      overlay.setAttribute("aria-live", "polite");
+    }
+    if (overlay.classList) overlay.classList.add(BURST_CLASS);
+  }
+
+  /**
+   * Play the finale. NON-BLOCKING: the burst floats over the beat for
+   * TIMINGS.burstMs and then fades itself out; `onDone` runs at fade
+   * START, which is where the old player ran it too, so a caller that
+   * chains something behind the celebration still mounts it under the
+   * fade rather than after a blink. Degrades gracefully: no overlay in
+   * the DOM → immediate onDone, so the handoff can never strand.
+   */
   function playOnboardingCelebration(onDone, stageKey, opts) {
-    const options = opts || {};
     const finishCb = typeof onDone === "function" ? onDone : () => {};
-    // Which callback the dismiss hands off to — the alt link swaps it.
-    let handoff = finishCb;
-    let dismissRef = () => {};
     const overlay = document.getElementById("onboardingCelebration");
     if (!overlay) {
       finishCb();
       return;
     }
-    applyCelebrationStage(overlay, stageKey || "discovery", options);
-    // Optional alternate path (e.g. first-run's "start with your other
-    // devices") — rendered as a quiet link under the CTA.
-    const altBtn = document.getElementById("onboardingCelebrationAlt");
-    if (altBtn) {
-      if (typeof options.onAlt === "function") {
-        altBtn.hidden = false;
-        altBtn.addEventListener(
-          "click",
-          () => {
-            handoff = options.onAlt;
-            dismissRef();
-          },
-          { once: true },
-        );
-      } else {
-        altBtn.hidden = true;
-      }
-    }
+    normalizeBurstOverlay(overlay);
+
+    // Show FIRST, then write the copy: the overlay is a live region now,
+    // and a region that is still `hidden` when its text changes announces
+    // nothing.
+    overlay.removeAttribute("hidden");
+    overlay.setAttribute("aria-hidden", "false");
+    overlay.classList.remove("onboarding-celebration--out");
+    overlay.classList.add("onboarding-celebration--in");
+    applyCelebrationStage(overlay, stageKey || "flow_payoff", opts || {});
+
     const burst = document.getElementById("onboardingCelebrationConfetti");
     if (burst) {
       if (typeof burst.replaceChildren === "function") burst.replaceChildren();
       spawnCelebrationConfetti(burst);
     }
-    overlay.removeAttribute("hidden");
-    overlay.setAttribute("aria-hidden", "false");
-    overlay.classList.remove("onboarding-celebration--out");
-    overlay.classList.add("onboarding-celebration--in");
-    // The first-run + onboarding wizards' focus-trap inerts EVERY body
-    // sibling on show — including this celebration overlay — so the
-    // overlay arrives inert and intercepts no clicks (CTA appears dead;
-    // synthetic .click() and keyboard Enter still work because they bypass
-    // hit-testing on the focused button). Un-inert the overlay AND inert
-    // every other body sibling so the background can't steal pointer
-    // events. Both decisions get restored at dismiss.
-    let wasInert = false;
-    const inertTargets = [];
-    try {
-      if (overlay.hasAttribute("inert")) {
-        overlay.removeAttribute("inert");
-        wasInert = true;
-      }
-      const body = document.body;
-      if (body && body.children) {
-        for (const sibling of Array.from(body.children)) {
-          if (
-            !sibling ||
-            sibling === overlay ||
-            sibling.hasAttribute("inert")
-          ) {
-            continue;
-          }
-          sibling.setAttribute("inert", "");
-          inertTargets.push(sibling);
-        }
-      }
-    } catch (_) {
-      /* DOM might be sparse in tests; best-effort */
-    }
+
     let finished = false;
     const dismiss = () => {
       if (finished) return;
       finished = true;
       overlay.classList.add("onboarding-celebration--out");
-      // Reveal-under-the-fade: open the next chapter at fade START so it
-      // mounts beneath the overlay (celebration z-index sits above every
-      // wizard) and is revealed as the fade clears — the user never sees
-      // the dashboard blink between stages.
       try {
-        handoff();
+        finishCb();
       } catch (err) {
         console.warn("[JobBored] celebration handoff:", err);
       }
@@ -208,36 +190,17 @@
         if (burst && typeof burst.replaceChildren === "function") {
           burst.replaceChildren();
         }
-        // Restore interactivity on whatever we inerted on show, and put
-        // the inert back on the overlay if it had it before we cleared it
-        // (so the upstream focus-trap's bookkeeping stays consistent).
-        for (const el of inertTargets) {
-          el.removeAttribute("inert");
-        }
-        if (wasInert) overlay.setAttribute("inert", "");
-      }, 320);
+      }, TIMINGS.fadeMs);
     };
-    dismissRef = dismiss;
-    const cta = document.getElementById("onboardingCelebrationContinue");
-    if (!cta) {
-      // Stale markup without the CTA — keep the old timed handoff.
-      setTimeout(dismiss, 1500);
-      return;
-    }
-    cta.addEventListener("click", dismiss, { once: true });
-    if (typeof cta.focus === "function") {
-      try {
-        cta.focus();
-      } catch (_) {
-        /* focus is best-effort */
-      }
-    }
+    setTimeout(dismiss, TIMINGS.burstMs);
   }
 
   Object.assign(root, {
     STAGES: STAGE_CELEBRATIONS,
+    TIMINGS,
     playOnboardingCelebration,
     spawnCelebrationConfetti,
     applyCelebrationStage,
+    normalizeBurstOverlay,
   });
 })();

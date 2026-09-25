@@ -1,9 +1,11 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { decideAfterChildExit, decideExistingWorkerAction, parseStarterOptions } from "./lib/discovery-worker-policy.mjs";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
+import { mergeEnvFileValues, parseEnvFileText } from "./lib/env-file-merge.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./lib/llm-env.mjs";
 
 const repoRoot = process.cwd();
@@ -27,33 +29,15 @@ const bundledBrowserUseCommandPath = join(
   "browser-use-agent-browser.mjs",
 );
 
-function parseEnvFile(text) {
-  const out = {};
-  if (typeof text !== "string" || !text) return out;
-  for (const rawLine of text.split(/\r?\n/)) {
-    const line = rawLine.trim();
-    if (!line || line.startsWith("#")) continue;
-    const eq = line.indexOf("=");
-    if (eq <= 0) continue;
-    const key = line.slice(0, eq).trim();
-    let value = line.slice(eq + 1).trim();
-    if (
-      (value.startsWith('"') && value.endsWith('"') && value.length >= 2) ||
-      (value.startsWith("'") && value.endsWith("'") && value.length >= 2)
-    ) {
-      value = value.slice(1, -1);
-    }
-    if (key) out[key] = value;
-  }
-  return out;
-}
 
 function readEnvFiles() {
-  const merged = {};
+  // Later files override earlier ones, but a present-but-EMPTY value never
+  // erases a configured one — see scripts/lib/env-file-merge.mjs.
+  const layers = [];
   for (const path of envFilePaths) {
     if (!existsSync(path)) continue;
     try {
-      Object.assign(merged, parseEnvFile(readFileSync(path, "utf8")));
+      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
     } catch (err) {
       console.warn(
         `[start:discovery-worker] could not read ${path}: ${
@@ -62,7 +46,7 @@ function readEnvFiles() {
       );
     }
   }
-  return merged;
+  return mergeEnvFileValues(layers);
 }
 
 function readFirstEnvValue(source, keys) {
@@ -361,15 +345,13 @@ async function main() {
 
   if (Number.isFinite(port) && port > 0) {
     const existingHealthy = await probeExistingWorker(host, port);
-    if (existingHealthy) {
-      const reuseExisting =
-        String(runtimeEnv.BROWSER_USE_DISCOVERY_REUSE_EXISTING || "")
-          .trim()
-          .toLowerCase() === "true";
-      if (reuseExisting) {
-        holdProcessOpenForExistingWorker(host, port);
-        return;
-      }
+    const { restartExisting } = parseStarterOptions(process.argv.slice(2), runtimeEnv);
+    const action = decideExistingWorkerAction({ existingHealthy, restartExisting });
+    if (action === "reuse") {
+      holdProcessOpenForExistingWorker(host, port);
+      return;
+    }
+    if (action === "restart") {
       console.info(
         `[start:discovery-worker] browser-use discovery worker already running at http://${host}:${port}; restarting to load latest code.`,
       );
@@ -385,23 +367,37 @@ async function main() {
     }
   }
 
-  const child = spawn(
-    "node",
-    [
-      "--experimental-strip-types",
-      "integrations/browser-use-discovery/src/server.ts",
-    ],
-    {
-      cwd: repoRoot,
-      env: runtimeEnv,
-      stdio: "inherit",
-    },
-  );
+  superviseWorker(runtimeEnv, host, port);
+}
+
+/** Poll /health until a worker answers or the deadline passes. */
+async function waitForHealthyWorker(host, port, timeoutMs) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (await probeExistingWorker(host, port)) return true;
+    await sleep(500);
+  }
+  return false;
+}
+
+/**
+ * Run the worker as a supervised child. When something ELSE terminates it
+ * (the dashboard's full-boot after an env-key write, a keep-alive, an
+ * autostart), this process must not exit — under `npm run dev` it is a
+ * `concurrently -k` child and its exit tears web + scraper down (2026-09-02).
+ * Policy: scripts/lib/discovery-worker-policy.mjs decideAfterChildExit.
+ */
+function superviseWorker(runtimeEnv, host, port) {
+  const MAX_RESPAWNS = 3;
+  let current = null;
+  let shuttingDown = false;
+  let respawns = 0;
 
   const forwardSignal = (signal) => {
-    if (!child.killed) {
+    shuttingDown = true;
+    if (current && !current.killed) {
       try {
-        child.kill(signal);
+        current.kill(signal);
       } catch {
         // best effort
       }
@@ -410,13 +406,68 @@ async function main() {
   process.on("SIGINT", () => forwardSignal("SIGINT"));
   process.on("SIGTERM", () => forwardSignal("SIGTERM"));
 
-  child.on("exit", (code, signal) => {
-    if (signal) {
-      process.kill(process.pid, signal);
-      return;
-    }
-    process.exit(code || 0);
-  });
+  const spawnOnce = () => {
+    const child = spawn(
+      "node",
+      [
+        "--experimental-strip-types",
+        "integrations/browser-use-discovery/src/server.ts",
+      ],
+      {
+        cwd: repoRoot,
+        env: runtimeEnv,
+        stdio: "inherit",
+      },
+    );
+    current = child;
+    child.on("exit", async (code, signal) => {
+      console.warn(
+        `[start:discovery-worker] worker exited (code=${code === null ? "null" : code}, signal=${signal || "none"})${shuttingDown ? "" : " — something else terminated the listener on port " + port + "."}`,
+      );
+      const replacementHealthy = shuttingDown || !signal
+        ? false
+        : await waitForHealthyWorker(host, port, 8000);
+      const action = decideAfterChildExit({
+        signal,
+        code,
+        initiatedByUs: shuttingDown,
+        replacementHealthy,
+      });
+      if (action === "hold") {
+        console.info(
+          `[start:discovery-worker] a replacement worker is healthy on port ${port}; keeping the dev stack up on its behalf.`,
+        );
+        holdProcessOpenForExistingWorker(host, port);
+        return;
+      }
+      if (action === "respawn") {
+        if (respawns >= MAX_RESPAWNS) {
+          console.error(
+            `[start:discovery-worker] worker was terminated ${respawns} times with no replacement; giving up.`,
+          );
+          process.exit(1);
+          return;
+        }
+        respawns += 1;
+        console.info(
+          `[start:discovery-worker] no replacement worker appeared; respawning (${respawns}/${MAX_RESPAWNS}).`,
+        );
+        await sleep(1000);
+        if (await probeExistingWorker(host, port)) {
+          holdProcessOpenForExistingWorker(host, port);
+          return;
+        }
+        spawnOnce();
+        return;
+      }
+      if (signal) {
+        process.kill(process.pid, signal);
+        return;
+      }
+      process.exit(code || 0);
+    });
+  };
+  spawnOnce();
 }
 
 main().catch((err) => {

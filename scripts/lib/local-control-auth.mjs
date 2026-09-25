@@ -20,7 +20,35 @@ export function isLoopbackPeer(remoteAddress) {
 
 export function readRequestOrigin(req) {
   const headers = req && req.headers ? req.headers : {};
-  return String(headers.origin || headers.Origin || "").trim();
+  const explicit = String(headers.origin || headers.Origin || "").trim();
+  if (explicit) return explicit;
+  // A same-origin GET from the dashboard's own tab carries no Origin header
+  // (browsers attach Origin only to CORS and non-GET requests). It does
+  // carry `Sec-Fetch-Site: same-origin` plus a same-origin Referer, so that
+  // pair — and only that pair — stands in for Origin. A bare client that
+  // sends neither (curl) stays unauthorized.
+  const site = String(headers["sec-fetch-site"] || "").trim().toLowerCase();
+  if (site !== "same-origin") return "";
+  const referer = String(headers.referer || headers.Referer || "").trim();
+  if (referer) {
+    try {
+      return new URL(referer).origin;
+    } catch {
+      /* fall through to Host */
+    }
+  }
+  // The dev server sends `Referrer-Policy: no-referrer`, so a real browser's
+  // same-origin GET carries Sec-Fetch-Site and Host — and no Referer at all
+  // (reproduced in Chromium, sixbeats B1). Host + the socket's scheme is the
+  // origin the browser is asserting; isTrustedLocalOrigin still decides.
+  const host = String(headers.host || headers.Host || "").trim();
+  if (!host) return "";
+  const scheme = req && req.socket && req.socket.encrypted ? "https" : "http";
+  try {
+    return new URL(`${scheme}://${host}`).origin;
+  } catch {
+    return "";
+  }
 }
 
 export function localControlOrigins({ port, tls = false } = {}) {

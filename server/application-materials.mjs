@@ -1,6 +1,6 @@
 /**
- * Application Materials API — safe local file access for Hermes-generated
- * job application packages under ~/.hermes/job-hunt/applications/<slug>/.
+ * Application Materials API — safe local file access for job application
+ * packages under ~/.jobbored/applications/<slug>/.
  *
  * Contract (kept narrow on purpose):
  *   - Only directories matching the slug pattern are exposed.
@@ -10,14 +10,17 @@
  *   - A manifest is always derivable from on-disk files even when
  *     manifest.json is absent; manifest.json values win when present.
  *
- * The root can be overridden with HERMES_APPLICATIONS_ROOT for tests.
+ * Root resolution: JOBBORED_APPLICATIONS_ROOT, else HERMES_APPLICATIONS_ROOT
+ * (test alias), else ~/.jobbored/applications. Leftover Hermes packages
+ * are copied once when the new root is missing or empty.
  */
 
-import { readFile, readdir, stat, realpath, rename, writeFile, mkdir } from "node:fs/promises";
+import { readFile, readdir, stat, realpath, rename, writeFile, mkdir, cp } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join, sep, basename } from "node:path";
 import { homedir } from "node:os";
 import { auditApplicationMaterials } from "./materials-quality.mjs";
+import { isUsableJobDescription } from "./materials-jd-gate.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 
@@ -116,10 +119,47 @@ const DOC_TYPES = [
   },
 ];
 
-export function getApplicationsRoot() {
-  const override = process.env.HERMES_APPLICATIONS_ROOT;
-  if (override) return override;
-  return join(homedir(), ".hermes", "job-hunt", "applications");
+/**
+ * @param {NodeJS.ProcessEnv} [env]
+ */
+export function getApplicationsRoot(env = process.env) {
+  if (env.JOBBORED_APPLICATIONS_ROOT) return env.JOBBORED_APPLICATIONS_ROOT;
+  if (env.HERMES_APPLICATIONS_ROOT) return env.HERMES_APPLICATIONS_ROOT;
+  return join(homedir(), ".jobbored", "applications");
+}
+
+/**
+ * Copy leftover Hermes packages into the JobBored applications root when
+ * the destination is missing or empty. Source is HERMES_APPLICATIONS_LEGACY_ROOT
+ * or ~/.hermes/job-hunt/applications. Does not overwrite an already-populated dest.
+ *
+ * @param {NodeJS.ProcessEnv} [env]
+ * @returns {Promise<{ copied: number }>}
+ */
+export async function migrateHermesApplicationsIfNeeded(env = process.env) {
+  const dest = getApplicationsRoot(env);
+  const source =
+    env.HERMES_APPLICATIONS_LEGACY_ROOT ||
+    join(homedir(), ".hermes", "job-hunt", "applications");
+  if (!existsSync(source)) return { copied: 0 };
+  if (existsSync(dest)) {
+    let destEntries;
+    try {
+      destEntries = await readdir(dest);
+    } catch {
+      return { copied: 0 };
+    }
+    if (destEntries.length > 0) return { copied: 0 };
+  } else {
+    await mkdir(dest, { recursive: true });
+  }
+  const names = await readdir(source);
+  let copied = 0;
+  for (const name of names) {
+    await cp(join(source, name), join(dest, name), { recursive: true });
+    copied += 1;
+  }
+  return { copied };
 }
 
 /** @param {unknown} slug */
@@ -951,6 +991,13 @@ export async function writeJobDescription(slug, text, meta = {}) {
   if (!body) throw httpError("text is empty", 400);
   if (body.length > 500_000) throw httpError("text too large (>500KB)", 413);
   if (!isValidSlug(slug)) throw httpError("Invalid application slug", 400);
+  // Heuristic guard: reject fit blurbs and too-short bodies so cache never poisons downstream.
+  if (!isUsableJobDescription(body)) {
+    throw httpError(
+      "Job description is not a usable posting. Paste the full job posting text (not a fit blurb or score).",
+      422,
+    );
+  }
 
   const base = getApplicationsRoot();
   const dir = join(base, slug);

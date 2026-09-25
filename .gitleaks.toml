@@ -1,0 +1,14 @@
+title = "JobBored"
+
+# Dummy first-run wizard key `AIza-test-1234` lived in
+# tests/first-run-wizard-provider-picker.test.mjs (commit efa7cd1). The
+# file is gone after the one-flow merge, but gitleaks still scans PR
+# history. That string was never a real credential.
+[allowlist]
+description = "Synthetic test keys, including a deleted first-run wizard fixture still present in PR history"
+regexes = [
+  '''AIza-test-1234''',
+]
+commits = [
+  "efa7cd1369d57ac28e1691f2ac8e9bab0c0ea26d",
+]

@@ -5,7 +5,10 @@ name: PR lint
 # ci.yml: contract-tests, test, lint, audit:prod, coverage).
 on:
   pull_request_target:
-    types: [opened, edited, reopened]
+    # synchronize is required: pr-lint is a required status check, so every
+    # new head SHA must report it. opened/edited/reopened alone leaves later
+    # pushes sitting on "Expected — Waiting for status to be reported".
+    types: [opened, edited, reopened, synchronize]
 
 jobs:
   pr-lint:

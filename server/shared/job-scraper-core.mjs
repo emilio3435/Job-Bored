@@ -7,6 +7,11 @@ import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
 import { fetchAtsJobPosting } from "./ats-job-fetchers.mjs";
 import { scrapeViaGeminiUrlContext } from "./gemini-url-context-scrape.mjs";
+import {
+  decodeHtmlEntities,
+  normalizeInlineField,
+  normalizeJobText,
+} from "./text-normalize.mjs";
 
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingOptions} ScrapeJobPostingOptions */
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingResult} ScrapeJobPostingResult */
@@ -712,6 +717,9 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
     title: normalizeSpace(matched.title || context.title) || null,
     company: normalizeSpace(matched.company_name || context.company),
     location: normalizeSpace(matched.location || ""),
+    postedAt: "",
+    closesAt: "",
+    postingSalary: "",
     description,
     requirements,
     skills,
@@ -775,11 +783,61 @@ async function trySerpFallback(originalUrl, options = {}) {
   }
 }
 
+const BLOCK_BREAK_TAGS = new Set([
+  "p",
+  "div",
+  "section",
+  "article",
+  "header",
+  "footer",
+  "ul",
+  "ol",
+  "table",
+  "blockquote",
+  "h1",
+  "h2",
+  "h3",
+  "h4",
+  "h5",
+  "h6",
+]);
+
+/**
+ * Block-aware text for a Cheerio element — the structural twin of htmlToText
+ * for an already-parsed DOM.
+ * @param {CheerioApi} $
+ * @param {unknown} node
+ */
+function blockText($, node) {
+  let out = "";
+  /** @param {any} n */
+  const walk = (n) => {
+    if (!n) return;
+    if (n.type === "text") {
+      out += n.data || "";
+      return;
+    }
+    const name = String(n.name || "").toLowerCase();
+    if (name === "script" || name === "style" || name === "noscript") return;
+    if (name === "br") {
+      out += "\n";
+      return;
+    }
+    if (name === "li") out += "\n- ";
+    for (const child of n.children || []) walk(child);
+    if (name === "li" || name === "tr") out += "\n";
+    else if (name === "td" || name === "th") out += " · ";
+    else if (BLOCK_BREAK_TAGS.has(name)) out += "\n\n";
+  };
+  walk(node);
+  return normalizeJobText(out);
+}
+
 /** @param {unknown} html */
 function stripTags(html) {
   if (!html || typeof html !== "string") return "";
   const $ = cheerio.load(html);
-  return normalizeSpace($.text());
+  return blockText($, $.root().get(0));
 }
 
 /**
@@ -887,6 +945,90 @@ function locationFromJobPostingLd(j) {
   return [...new Set(parts.filter(Boolean))].join(" · ");
 }
 
+/** @param {unknown} value */
+function postingDate(value) {
+  if (typeof value !== "string") return "";
+  const text = normalizeInlineField(value);
+  if (!text) return "";
+
+  const isoDate = text.match(/^(\d{4})-(\d{2})-(\d{2})(?=$|T)/);
+  if (isoDate) {
+    const year = Number(isoDate[1]);
+    const month = Number(isoDate[2]);
+    const day = Number(isoDate[3]);
+    const check = new Date(Date.UTC(year, month - 1, day));
+    const validCalendarDate =
+      check.getUTCFullYear() === year &&
+      check.getUTCMonth() === month - 1 &&
+      check.getUTCDate() === day;
+    if (validCalendarDate && (text.length === 10 || Number.isFinite(Date.parse(text)))) {
+      return isoDate[0];
+    }
+    return "";
+  }
+
+  const parsed = new Date(text);
+  return Number.isFinite(parsed.getTime()) ? parsed.toISOString().slice(0, 10) : "";
+}
+
+/** @param {unknown} value */
+function salaryNumber(value) {
+  if (typeof value === "number") return Number.isFinite(value) ? value : null;
+  if (typeof value !== "string") return null;
+  const text = normalizeInlineField(value).replace(/,/g, "");
+  if (!/^[+-]?(?:\d+(?:\.\d*)?|\.\d+)$/.test(text)) return null;
+  const parsed = Number(text);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+/** @param {UnknownRecord} jobPosting */
+function salaryFromJobPostingLd(jobPosting) {
+  const rawSalary = jobPosting.baseSalary;
+  if (!rawSalary || typeof rawSalary !== "object" || Array.isArray(rawSalary)) {
+    return "";
+  }
+
+  const salary = /** @type {UnknownRecord} */ (rawSalary);
+  const nestedValue =
+    salary.value && typeof salary.value === "object" && !Array.isArray(salary.value)
+      ? /** @type {UnknownRecord} */ (salary.value)
+      : null;
+  const values = nestedValue || salary;
+  const min = salaryNumber(values.minValue);
+  const max = salaryNumber(values.maxValue);
+  const exact = salaryNumber(nestedValue ? values.value : salary.value);
+  if (min === null && max === null && exact === null) return "";
+
+  const currency = normalizeInlineField(
+    values.currency || salary.currency || jobPosting.salaryCurrency,
+  ).toUpperCase();
+  const symbols = /** @type {Record<string, string>} */ ({
+    USD: "$",
+    EUR: "€",
+    GBP: "£",
+  });
+  const prefix = symbols[currency] || (currency ? currency + " " : "");
+  const formatter = new Intl.NumberFormat("en-US", { maximumFractionDigits: 20 });
+  const amount = (/** @type {number} */ value) => prefix + formatter.format(value);
+  // A bound is not an offer: only a min+max range, or an explicit exact value,
+  // may render as a bare number.
+  const singleValue = exact ?? min ?? max;
+  const boundLabel = exact !== null ? "" : min !== null ? "From " : "Up to ";
+  const displayAmount =
+    min !== null && max !== null
+      ? amount(min) + "–" + amount(max)
+      : singleValue === null
+        ? ""
+        : boundLabel + amount(singleValue);
+
+  const unit = normalizeInlineField(values.unitText || salary.unitText).toUpperCase();
+  const unitSuffix =
+    { YEAR: "/yr", MONTH: "/mo", WEEK: "/wk", DAY: "/day", HOUR: "/hr" }[unit] ||
+    (unit ? " per " + unit.toLowerCase() : "");
+  const currencySuffix = symbols[currency] ? " " + currency : "";
+  return displayAmount + currencySuffix + unitSuffix;
+}
+
 /** @param {CheerioApi} $ */
 function employerFromDom($) {
   const itemprop = normalizeSpace(
@@ -910,7 +1052,9 @@ function textFromJobPostingLd(j) {
   let desc = "";
   const d = j.description;
   if (typeof d === "string") {
-    desc = d.includes("<") ? stripTags(d) : normalizeSpace(d);
+    desc = d.includes("<")
+      ? stripTags(d)
+      : normalizeJobText(decodeHtmlEntities(d));
   } else if (d && typeof d === "object" && "@type" in d && d["@type"] === "HTMLString") {
     desc = stripTags(String("value" in d ? d.value || d : d));
   }
@@ -1030,7 +1174,7 @@ function findBestDescriptionFromDom($) {
   const trySel = (sel, minLen, broad) => {
     $(sel).each((_, node) => {
       const $el = $(node);
-      const t = normalizeSpace($el.text());
+      const t = blockText($, node);
       if (t.length > best.length && t.length >= minLen) {
         if (broad && t.length > 80000) return;
         best = t;
@@ -1068,7 +1212,7 @@ function largestTextBlock($, root) {
   let best = "";
   const scope = root && root.length ? root : $.root();
   scope.find("p, li, div").each((_, el) => {
-    const t = normalizeSpace($(el).text());
+    const t = blockText($, el);
     if (t.length > best.length && t.length < 120000) best = t;
   });
   return best;
@@ -1368,6 +1512,9 @@ export async function scrapeJobPosting(url, options = {}) {
   const blocks = collectJsonLdBlocks($);
   const jobPostings = findJobPostingObjects(blocks);
   const bestJp = pickBestJobPostingLd(jobPostings);
+  const postedAt = bestJp ? postingDate(bestJp.datePosted) : "";
+  const closesAt = bestJp ? postingDate(bestJp.validThrough) : "";
+  const postingSalary = bestJp ? salaryFromJobPostingLd(bestJp) : "";
 
   let ldTitle = null;
   let ldText = "";
@@ -1521,6 +1668,9 @@ export async function scrapeJobPosting(url, options = {}) {
     title: title || null,
     company: company || undefined,
     location: location || undefined,
+    postedAt,
+    closesAt,
+    postingSalary,
     description,
     requirements,
     skills,
@@ -1583,6 +1733,9 @@ function finalizeTextScrape(url, fields) {
     title: fields.title || null,
     company: fields.company || "",
     location: fields.location || "",
+    postedAt: "",
+    closesAt: "",
+    postingSalary: "",
     description,
     requirements,
     skills,

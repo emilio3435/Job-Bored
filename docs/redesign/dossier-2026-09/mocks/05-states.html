@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier redesign · 05 empty, loading, error, review, terminal</title>
+<link rel="stylesheet" href="../../../../vendor/fonts/fonts.css">
+<link rel="stylesheet" href="mock-shell.css">
+<link rel="stylesheet" href="dossier-redesign.css">
+</head>
+<body>
+
+<main class="mock-page">
+  <div data-mock-nav></div>
+
+  <header class="mock-head">
+    <span class="mock-head__kicker">Role dossier redesign · mock 05 · every state that is not “filled”</span>
+    <h1 class="mock-head__title">Empty, loading, missing, <em>broken</em>, closed</h1>
+    <p class="mock-head__note">
+      Six states, each cropped to its top because that is where the state lives. The rule behind all
+      of them: an absent input is an invitation, a failure names its cause and its way out, and an
+      unverified reading says so before the reader acts on it — never a blank column, never a bare
+      chip, never silence.
+    </p>
+  </header>
+
+  <div class="mock-grid">
+
+    <section class="mock-card">
+      <h2>A · No role open</h2>
+      <p>The shelf. Kept from production, retuned to the new type scale.</p>
+      <div class="mock-shelf">
+        <p class="mock-shelf__num">Part 03 · Waiting</p>
+        <h3 class="mock-shelf__title">Open a role to <em>read</em>.</h3>
+        <p class="mock-shelf__sub">
+          Pick any card in the pipeline above. The dossier, your tailored materials and the record
+          of everything you have done on that role unfold here.
+        </p>
+      </div>
+    </section>
+
+    <section class="mock-card">
+      <h2>B · Loading — the posting is being read</h2>
+      <p>
+        The verdict line says what is happening in words; the section that is waiting carries the
+        skeleton and the live region. Nothing else is blanked, because nothing else is unknown.
+      </p>
+      <div class="mock-crop" data-mount="loading"></div>
+    </section>
+
+    <section class="mock-card">
+      <h2>C · No resume on file</h2>
+      <p>
+        There is no match data, so “You have” is an invitation with the action attached rather than
+        an empty lane. Requirements still render, marked unknown.
+      </p>
+      <div class="mock-crop" data-mount="no-resume"></div>
+    </section>
+
+    <section class="mock-card">
+      <h2>D · The posting could not be read</h2>
+      <p>
+        Cause, consequence, and two ways out, in the same shape the scraper's own error payload uses
+        (<code>code</code>, <code>detail</code>, <code>nextStep</code>, <code>retryable</code>).
+      </p>
+      <div class="mock-crop" data-mount="enrich-error"></div>
+    </section>
+
+    <section class="mock-card">
+      <h2>E · Recovered from a bad parse</h2>
+      <p>
+        A banner above the read, not only a 7.5px chip beside a lane title. The reader is told before
+        they act on a requirement list nobody has verified.
+      </p>
+      <div class="mock-crop" data-mount="needs-review"></div>
+    </section>
+
+    <section class="mock-card">
+      <h2>F · Closed — rejected</h2>
+      <p>
+        The stepper collapses to the terminal chip, the drafting actions go, and the verdict says
+        what is still on file. The record keeps everything.
+      </p>
+      <div class="mock-crop" data-mount="terminal"></div>
+    </section>
+
+  </div>
+</main>
+
+<script src="dossier-mock-data.js"></script>
+<script src="dossier-mock.js"></script>
+<script src="mock-shell.js"></script>
+<script>
+  var Mock = window.JobBoredDossierMock;
+  var Data = window.JobBoredDossierMockData;
+  ["loading", "no-resume", "enrich-error", "needs-review", "terminal"].forEach(function (v) {
+    Mock.render(document.querySelector('[data-mount="' + v + '"]'), Data.model(v));
+  });
+  window.JobBoredMockShell.boot({ current: "05-states.html", legend: false });
+</script>
+</body>
+</html>

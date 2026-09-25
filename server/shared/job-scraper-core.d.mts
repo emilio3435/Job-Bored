@@ -13,6 +13,9 @@ export type ScrapeJobPostingResult = {
   title: string | null;
   company?: string;
   location?: string;
+  postedAt: string;
+  closesAt: string;
+  postingSalary: string;
   description: string;
   requirements: string[];
   skills: string[];

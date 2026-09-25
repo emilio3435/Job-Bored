@@ -19,7 +19,7 @@ concurrency:
 #   - scan   (gitleaks secret scan, .github/workflows/gitleaks.yml)
 # Defined here and INTENDED to become required once stable (add each to the
 # ruleset to enforce): lint, coverage, audit-prod, pr-lint (pr-lint.yml).
-# Advisory only (never blocks a merge): e2e-smoke, e2e-journey, audit-dev.
+# Advisory only (never blocks a merge): e2e-smoke, e2e-journey, e2e-visual, audit-dev.
 # F4-D hermetic harness is in place (tests/e2e-fixtures/hermetic-harness.mjs).
 # Do NOT drop continue-on-error on the browser jobs until repair Gates A–D
 # exist. Switch steps: docs/HERMETIC-BROWSER-GATE.md.
@@ -87,6 +87,29 @@ jobs:
         with:
           name: e2e-smoke-traces
           path: tests/e2e-smoke/test-results/
+          retention-days: 7
+
+  # Structural visual gate for S0 and the one shell (tests/e2e-visual). Non-blocking until
+  # Gates A–D: hermetic fixtures are ready, but the required-CI switch waits
+  # on the repair gate ledger. See docs/HERMETIC-BROWSER-GATE.md.
+  e2e-visual:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: 'npm'
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run test:e2e-visual
+      - uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: e2e-visual-traces
+          path: tests/e2e-visual/test-results/
           retention-days: 7
 
   # Critical signed-in product journey (tests/e2e-journey). Non-blocking until

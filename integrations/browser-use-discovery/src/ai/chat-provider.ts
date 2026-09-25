@@ -276,7 +276,7 @@ function buildProvider(
         "companyJudgeGeminiModel",
         "companyScoringGeminiModel",
         "geminiModel",
-      ]) || "gemini-3.5-flash";
+      ]) || "gemini-3.7-flash";
     return {
       provider,
       model,

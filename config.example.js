@@ -59,8 +59,8 @@ window.COMMAND_CENTER_CONFIG = {
 
   // --- Resume Updater & Cover Letter Writer (optional) ---
   // Materials (resume, samples, preferences) are stored locally in IndexedDB.
-  // Generation sends text to ONE of: OpenRouter (free default), Gemini, OpenAI,
-  // Anthropic, or your webhook — never to our servers.
+  // Generation sends text to ONE of: Gemini (recommended), OpenRouter, OpenAI,
+  // Anthropic, Local, or your webhook — never to our servers.
   //
   // ATS scorecard mode:
   // - "server" (default): POST /api/ats-scorecard on your local/deployed server
@@ -72,17 +72,18 @@ window.COMMAND_CENTER_CONFIG = {
   atsScoringWebhookUrl: "",
   //
   // For "Draft cover letter" and "Tailor resume" on job cards you must configure ONE of:
-  // - OpenRouter (default, free tier): resumeProvider "openrouter" + a FREE resumeOpenRouterApiKey
+  // - Gemini (recommended default): resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/
+  //   Model alias "gemini-flash" resolves at call time to the newest stable Flash.
+  // - OpenRouter (free tier): resumeProvider "openrouter" + a FREE resumeOpenRouterApiKey
   //   from https://openrouter.ai/keys — no paid plan needed. CORS-friendly from the browser.
   // - Local: resumeProvider "local" + resumeLocalBaseUrl (e.g. Ollama on http://127.0.0.1:11434/v1)
   //   + resumeLocalModel (e.g. gemma4:e2b) — fully offline, no key required.
-  // - Gemini: resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/
   // - OpenAI: resumeProvider "openai" + resumeOpenAIApiKey (CORS may block on some hosts)
   // - Anthropic: resumeProvider "anthropic" + resumeAnthropicApiKey (CORS may block; use webhook if needed)
   // - Webhook: resumeProvider "webhook" + resumeGenerationWebhookUrl (your server calls the LLM)
   //
-  // Provider: "openrouter" (default, free), "local", "gemini", "openai", "anthropic", or "webhook"
-  resumeProvider: "openrouter",
+  // Provider: "gemini" (default), "openrouter", "local", "openai", "anthropic", or "webhook"
+  resumeProvider: "gemini",
   // OpenRouter free-tier key (browser-safe; paste a FREE key, do not commit real keys to public repos).
   // Get one at https://openrouter.ai/keys. Free models work without any paid plan.
   resumeOpenRouterApiKey: "",
@@ -101,7 +102,7 @@ window.COMMAND_CENTER_CONFIG = {
   resumeLocalApiKey: "",
   // Google AI Studio API key (browser-safe; do not commit real keys to public repos)
   resumeGeminiApiKey: "",
-  resumeGeminiModel: "gemini-3.5-flash",
+  resumeGeminiModel: "gemini-flash",
   // OpenAI may be blocked by CORS from some static hosts; prefer Gemini or webhook.
   resumeOpenAIApiKey: "",
   resumeOpenAIModel: "gpt-4o-mini",

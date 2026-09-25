@@ -1,3 +1,9 @@
+import {
+  loadLlmConfig,
+  migrateLlmConfigFromEnv,
+  resolveActivePin,
+} from "./llm-config.mjs";
+
 const ATS_RESPONSE_SCHEMA = {
   type: "object",
   properties: {
@@ -86,6 +92,9 @@ const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free";
 const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 const MAX_PROVIDER_TIMEOUT_MS = 120_000;
+const DEFAULT_GEMINI_MODEL = "gemini-flash";
+const NO_PIN_REASON = "No LLM pin configured. Save an AI provider in Settings.";
+const PIN_MISSING_KEY_REASON = "Missing API key. Save a key in Settings.";
 
 /** @typedef {"gemini" | "openai" | "anthropic" | "openrouter" | "openai_compatible"} AtsProvider */
 /** @typedef {Record<string, unknown>} UnknownRecord */
@@ -830,7 +839,31 @@ function normalizeAtsProvider(value) {
   return "gemini";
 }
 
-export function getProviderConfigFromEnv() {
+/**
+ * @typedef {object} AtsProviderConfig
+ * @property {AtsProvider} provider
+ * @property {string} geminiApiKey
+ * @property {string} openAIApiKey
+ * @property {string} anthropicApiKey
+ * @property {string} openRouterApiKey
+ * @property {string} openAICompatibleApiKey
+ * @property {string} geminiModel
+ * @property {string} openAIModel
+ * @property {string} anthropicModel
+ * @property {string} openRouterModel
+ * @property {string} openRouterBaseUrl
+ * @property {string} openAICompatibleModel
+ * @property {string} openAICompatibleBaseUrl
+ */
+
+/** @returns {import("./llm-config.mjs").LlmConfig | null} */
+function loadAtsPin() {
+  migrateLlmConfigFromEnv(process.env);
+  return loadLlmConfig(process.env);
+}
+
+/** @returns {AtsProviderConfig} */
+function readProviderConfigFromEnv() {
   const provider = normalizeAtsProvider(process.env.ATS_PROVIDER || "gemini");
   return {
     provider,
@@ -852,7 +885,7 @@ export function getProviderConfigFromEnv() {
         process.env.OPENAI_COMPATIBLE_API_KEY ||
         "",
     ).trim(),
-    geminiModel: String(process.env.ATS_GEMINI_MODEL || "gemini-3.5-flash").trim(),
+    geminiModel: String(process.env.ATS_GEMINI_MODEL || DEFAULT_GEMINI_MODEL).trim(),
     openAIModel: String(process.env.ATS_OPENAI_MODEL || "gpt-5.4-mini").trim(),
     anthropicModel: String(process.env.ATS_ANTHROPIC_MODEL || "claude-sonnet-4-6").trim(),
     openRouterModel: String(
@@ -881,40 +914,102 @@ export function getProviderConfigFromEnv() {
   };
 }
 
+/**
+ * @param {AtsProviderConfig} cfg
+ * @param {{ provider?: unknown, model?: unknown, apiKey?: unknown, baseUrl?: unknown }} pin
+ * @returns {AtsProviderConfig}
+ */
+function applyLlmPinToConfig(cfg, pin) {
+  const provider = normalizeAtsProvider(pin.provider);
+  const model = String(pin.model || "").trim();
+  const apiKey = String(pin.apiKey || "").trim();
+  const baseUrl = String(pin.baseUrl || "").trim();
+  cfg.provider = provider;
+  if (provider === "openai") {
+    cfg.openAIApiKey = apiKey;
+    if (model) cfg.openAIModel = model;
+  } else if (provider === "anthropic") {
+    cfg.anthropicApiKey = apiKey;
+    if (model) cfg.anthropicModel = model;
+  } else if (provider === "openrouter") {
+    cfg.openRouterApiKey = apiKey;
+    if (model) cfg.openRouterModel = model;
+    if (baseUrl) cfg.openRouterBaseUrl = baseUrl;
+  } else if (provider === "openai_compatible") {
+    cfg.openAICompatibleApiKey = apiKey;
+    if (model) cfg.openAICompatibleModel = model;
+    if (baseUrl) cfg.openAICompatibleBaseUrl = baseUrl;
+  } else {
+    cfg.geminiApiKey = apiKey;
+    cfg.geminiModel = model || DEFAULT_GEMINI_MODEL;
+  }
+  return cfg;
+}
+
+/** @param {AtsProviderConfig} cfg */
+function activeModelFromCfg(cfg) {
+  if (cfg.provider === "openai") return cfg.openAIModel;
+  if (cfg.provider === "anthropic") return cfg.anthropicModel;
+  if (cfg.provider === "openrouter") return cfg.openRouterModel;
+  if (cfg.provider === "openai_compatible") return cfg.openAICompatibleModel;
+  return cfg.geminiModel;
+}
+
+export function getProviderConfigFromEnv() {
+  const loaded = loadAtsPin();
+  const cfg = readProviderConfigFromEnv();
+  if (loaded) {
+    // Pin wins. Do not keep ATS_GEMINI_MODEL when llm.json is present.
+    cfg.geminiModel = DEFAULT_GEMINI_MODEL;
+    return applyLlmPinToConfig(cfg, loaded);
+  }
+  return cfg;
+}
+
 export function getAtsConfigStatus() {
+  const loaded = loadAtsPin();
   const cfg = getProviderConfigFromEnv();
+  const model = loaded ? loaded.model : activeModelFromCfg(cfg);
+  if (!loaded) {
+    return {
+      configured: false,
+      provider: cfg.provider,
+      model,
+      reason: NO_PIN_REASON,
+    };
+  }
   if (cfg.provider === "openai") {
     if (!cfg.openAIApiKey) {
       return {
         configured: false,
         provider: cfg.provider,
-        reason:
-          "Missing API key: set ATS_OPENAI_API_KEY or OPENAI_API_KEY when ATS_PROVIDER=openai.",
+        model,
+        reason: PIN_MISSING_KEY_REASON,
       };
     }
-    return { configured: true, provider: cfg.provider, reason: "" };
+    return { configured: true, provider: cfg.provider, model, reason: "" };
   }
   if (cfg.provider === "anthropic") {
     if (!cfg.anthropicApiKey) {
       return {
         configured: false,
         provider: cfg.provider,
-        reason:
-          "Missing API key: set ATS_ANTHROPIC_API_KEY or ANTHROPIC_API_KEY when ATS_PROVIDER=anthropic.",
+        model,
+        reason: PIN_MISSING_KEY_REASON,
       };
     }
-    return { configured: true, provider: cfg.provider, reason: "" };
+    return { configured: true, provider: cfg.provider, model, reason: "" };
   }
   if (cfg.provider === "openrouter") {
     if (!cfg.openRouterApiKey) {
       return {
         configured: false,
         provider: cfg.provider,
-        reason:
-          "Missing API key: set ATS_OPENROUTER_API_KEY or OPENROUTER_API_KEY when ATS_PROVIDER=openrouter.",
+        model,
+        reason: PIN_MISSING_KEY_REASON,
       };
     }
-    return { configured: true, provider: cfg.provider, reason: "" };
+    return { configured: true, provider: cfg.provider, model, reason: "" };
   }
   if (cfg.provider === "openai_compatible") {
     if (
@@ -924,21 +1019,22 @@ export function getAtsConfigStatus() {
       return {
         configured: false,
         provider: cfg.provider,
+        model,
         reason:
           "Missing OpenAI-compatible ATS config: set ATS_OPENAI_COMPATIBLE_BASE_URL and ATS_OPENAI_COMPATIBLE_MODEL when ATS_PROVIDER=openai_compatible. ATS_OPENAI_COMPATIBLE_API_KEY is optional for local servers.",
       };
     }
-    return { configured: true, provider: cfg.provider, reason: "" };
+    return { configured: true, provider: cfg.provider, model, reason: "" };
   }
   if (!cfg.geminiApiKey) {
     return {
       configured: false,
       provider: cfg.provider,
-      reason:
-        "Missing API key: set ATS_GEMINI_API_KEY or GEMINI_API_KEY when ATS_PROVIDER=gemini.",
+      model,
+      reason: PIN_MISSING_KEY_REASON,
     };
   }
-  return { configured: true, provider: cfg.provider, reason: "" };
+  return { configured: true, provider: cfg.provider, model, reason: "" };
 }
 
 /** @param {AtsPayload} payload */
@@ -947,6 +1043,16 @@ export async function analyzeAtsScorecard(payload) {
   const status = getAtsConfigStatus();
   if (!status.configured) {
     throw new Error(status.reason);
+  }
+  const loaded = loadLlmConfig(process.env);
+  if (loaded) {
+    const pin = await resolveActivePin(loaded);
+    applyLlmPinToConfig(cfg, {
+      provider: pin.provider,
+      model: pin.resolvedModel,
+      apiKey: pin.apiKey,
+      baseUrl: pin.baseUrl,
+    });
   }
 
   const userPrompt = buildUserPrompt(payload);

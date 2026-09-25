@@ -1,8 +1,8 @@
 /* ============================================================
    role-field-edit-render-guard.test.mjs
    ------------------------------------------------------------
-   Locks down the two UX-correctness grafts that make masthead
-   identity editing safe in the jb-v2 role dossier:
+   Locks down the UX-correctness grafts that make in-place
+   editing safe in the jb-v2 role dossier:
 
      (1) FOCUS RE-RENDER GUARD — "no lost keystrokes."
          Every render rebuilds the dossier innerHTML wholesale.
@@ -10,23 +10,41 @@
          jb:pipeline:rendered, which would re-render the OPEN
          dossier WHILE the user is still typing (pre-blur) and
          wipe the in-progress value. role.js must skip the
-         re-render when an [data-action="edit-field"] input
-         inside the region is document.activeElement — the
-         dossier analog of pipeline.js scheduleRender's
-         __pipePending bail. The guard is scoped to ONLY an
-         edit-field activeElement so genuine updates (enrichment,
+         re-render when a guarded edit surface inside the region
+         is document.activeElement — the dossier analog of
+         pipeline.js scheduleRender's __pipePending bail. The
+         guard covers the masthead [data-action="edit-field"]
+         inputs AND the [data-action="notes"] textarea, and is
+         scoped to ONLY those so genuine updates (enrichment,
          stage change) are never swallowed.
 
-     (2) COMMIT-ON-BLUR + ESCAPE-TO-CANCEL — "forgiving edits."
+     (2) DEFERRED-RENDER FLUSH — "never left stale."
+         A swallowed render is queued, not dropped: focusout on
+         a guarded surface flushes it on the next macrotask, so
+         the enrichment that arrived mid-typing paints as soon
+         as the user stops.
+
+     (3) COMMIT-ON-BLUR + ESCAPE-TO-CANCEL — "forgiving edits."
          Typing must NOT dispatch a write per keystroke; the
          write happens exactly once on blur (or Enter). Escape
          restores the seeded value and dispatches NOTHING.
 
-   These are runtime tests over the REAL role-brief.js +
-   role.js wiring, driven through a small DOM emulation that
-   supports exactly what the wiring touches (innerHTML mounts,
+   These are runtime tests over the REAL Case renderer + role.js
+   wiring, driven through a small DOM emulation that supports
+   exactly what the wiring touches (innerHTML mounts,
    querySelectorAll for edit-field inputs, document.activeElement,
    region.contains).
+
+   Retargeted at the cutover (Case plan Task 8): the guarded rail
+   inputs are now `.case__title` / `.case__company` and the People
+   row's `contact`, not the retired `.brief__*` masthead. Every
+   behavioral assertion above is unchanged.
+
+     (4) FACT-INPUT WIDTH FALLBACK — the borderless location /
+         salary inputs stay legible where `field-sizing: content`
+         is unsupported. Restored with the rail's location and
+         salary edit fields (L7 gap 1); the selector is now
+         `.case__fact-input`, the behaviour is the Brief's.
    ============================================================ */
 
 import assert from "node:assert/strict";
@@ -37,8 +55,22 @@ import vm from "node:vm";
 import { describe, it } from "node:test";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
+/* Trap 2: jb-text.js MUST evaluate before the Case model/renderer, or both
+   throw inside a try and the region paints empty — a test asserting only
+   absence would then "pass" on nothing. */
+const caseSources = ["jb-text.js", "role-case-model.js", "role-case.js"].map((f) => ({
+  filename: f,
+  code: readFileSync(join(repoRoot, f), "utf8"),
+}));
 const roleSource = readFileSync(join(repoRoot, "role.js"), "utf8");
+
+const STAGES = ["new", "researching", "applied", "phone-screen", "interviewing", "offer", "rejected", "passed", "expired"];
+const stages = {
+  pairs: () => STAGES.map((k) => ({ key: k, label: k.replace("-", " ") })),
+  toKey: (v) => (STAGES.includes(v) ? v : ""),
+  toLabel: (v) => String(v).replace("-", " "),
+  isClosed: (v) => ["rejected", "passed", "expired"].includes(v),
+};
 
 class TestCustomEvent {
   constructor(type, options = {}) {
@@ -80,15 +112,19 @@ function makeBus() {
   };
 }
 
-/* A minimal editable <input> node. preventDefault() and Escape need
-   blur() to actually fire the registered blur listeners, and matches()
-   must recognize the edit-field selector for the focus guard. */
-function makeInput(attrs, doc) {
+/* A minimal editable <input>/<textarea> node. preventDefault() and Escape
+   need blur() to actually fire the registered blur listeners; matches()
+   must recognize EVERY selector in a comma-joined edit-surface list so the
+   focus guard sees the notes textarea as well as the masthead inputs; and
+   blur() must bubble a focusout to the region so the deferred-render flush
+   listener runs (spec D6). */
+function makeField(attrs, doc, tagName) {
   const listeners = new Map();
   const node = {
     nodeType: 1,
-    tagName: "INPUT",
+    tagName: tagName || "INPUT",
     value: attrs.value || "",
+    style: {},
     _attrs: { ...attrs },
     getAttribute(name) {
       return name in this._attrs ? this._attrs[name] : null;
@@ -97,10 +133,10 @@ function makeInput(attrs, doc) {
       this._attrs[name] = String(v);
     },
     matches(selector) {
-      if (selector === '[data-action="edit-field"]') {
-        return this._attrs["data-action"] === "edit-field";
-      }
-      return false;
+      return String(selector).split(",").some((part) => {
+        const m = /^\s*\[data-action="([^"]+)"\]\s*$/.exec(part);
+        return !!m && this._attrs["data-action"] === m[1];
+      });
     },
     addEventListener(type, handler) {
       const list = listeners.get(type) || [];
@@ -122,6 +158,11 @@ function makeInput(attrs, doc) {
     blur() {
       this.dispatch("blur");
       if (doc.activeElement === node) doc.activeElement = doc.body;
+      // Real focusout bubbles to the region; the flush listener lives there.
+      const region = doc._region;
+      if (region && typeof region.dispatchEvent === "function") {
+        region.dispatchEvent({ type: "focusout", target: node });
+      }
     },
     _listeners: listeners,
   };
@@ -131,19 +172,44 @@ function makeInput(attrs, doc) {
 /* Parse edit-field <input> tags out of an assembled HTML string into
    live node objects so the real wiring (querySelectorAll + blur/keydown)
    operates on the same nodes the test drives. */
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
+function parseAttrs(attrText) {
+  const attrs = {};
+  const attrRe = /([a-zA-Z_][\w:-]*)="([^"]*)"/g;
+  let a;
+  while ((a = attrRe.exec(attrText)) !== null) attrs[a[1]] = a[2];
+  return attrs;
+}
+
 function parseEditFields(html, doc) {
   const out = [];
   const re = /<input\b([^>]*\bdata-action="edit-field"[^>]*)>/g;
   let m;
-  while ((m = re.exec(html)) !== null) {
-    const attrText = m[1];
-    const attrs = {};
-    const attrRe = /([a-zA-Z_][\w:-]*)="([^"]*)"/g;
-    let a;
-    while ((a = attrRe.exec(attrText)) !== null) attrs[a[1]] = a[2];
-    out.push(makeInput(attrs, doc));
+  while ((m = re.exec(html)) !== null) out.push(makeField(parseAttrs(m[1]), doc, "INPUT"));
+  /* The masthead title is a wrapping <textarea> so a long posting title is
+     readable in full (SPEC §5.2) — same edit-field contract, and role.js's
+     keydown wiring already accepts TEXTAREA. Its value is its text content. */
+  const areaRe = /<textarea\b([^>]*\bdata-action="edit-field"[^>]*)>([\s\S]*?)<\/textarea>/g;
+  while ((m = areaRe.exec(html)) !== null) {
+    const attrs = parseAttrs(m[1]);
+    attrs.value = decodeEntities(m[2]);
+    out.push(makeField(attrs, doc, "TEXTAREA"));
   }
   return out;
+}
+
+/* The Notes textarea is the second guarded edit surface (spec D6). */
+function parseNotes(html, doc) {
+  const m = /<textarea\b([^>]*\bdata-action="notes"[^>]*)>/.exec(html);
+  return m ? makeField(parseAttrs(m[1]), doc, "TEXTAREA") : null;
 }
 
 function makeMount(doc) {
@@ -196,23 +262,29 @@ function makeRegion(doc) {
     },
     set innerHTML(v) {
       html = String(v == null ? "" : v);
+      region._renderCount += 1;
       mounts.clear();
       const re = /data-mount="([^"]+)"/g;
       let m;
       while ((m = re.exec(html)) !== null) mounts.set(m[1], makeMount(doc));
       doc._reindexEditFields();
     },
+    _renderCount: 0,
     querySelector(selector) {
       const mountM = selector.match(/^\[data-mount="([^"]+)"\]$/);
       if (mountM) return mounts.get(mountM[1]) || null;
+      if (selector === '[data-action="notes"]') return doc._notes;
       return null;
     },
     querySelectorAll(selector) {
       if (selector === '[data-action="edit-field"]') return doc._editFields;
+      if (selector === ".case__fact-input") {
+        return doc._editFields.filter((n) => /case__fact-input/.test(n.getAttribute("class") || ""));
+      }
       return [];
     },
     contains(node) {
-      return doc._editFields.includes(node);
+      return doc._editFields.includes(node) || (!!doc._notes && node === doc._notes);
     },
     _mounts: mounts,
     _assembledHtml() {
@@ -233,12 +305,17 @@ function makeDocument() {
     readyState: "complete",
     activeElement: body,
     _editFields: [],
+    _notes: null,
+    _region: null,
     _reindexEditFields() {
       if (!region) {
         this._editFields = [];
+        this._notes = null;
         return;
       }
-      this._editFields = parseEditFields(region._assembledHtml(), this);
+      const assembled = region._assembledHtml();
+      this._editFields = parseEditFields(assembled, this);
+      this._notes = parseNotes(assembled, this);
     },
     querySelector(selector) {
       if (selector === '[data-region="role"]') return region;
@@ -246,13 +323,14 @@ function makeDocument() {
     },
     setRegion(r) {
       region = r;
+      this._region = r;
     },
   });
   doc.body.contains = () => false;
   return doc;
 }
 
-function loadHarness(roleVm) {
+function loadHarness(roleVm, opts = {}) {
   const documentEl = makeDocument();
   const region = makeRegion(documentEl);
   documentEl.setRegion(region);
@@ -260,8 +338,21 @@ function loadHarness(roleVm) {
   const windowEl = makeBus();
   windowEl.document = documentEl;
   windowEl.matchMedia = () => ({ matches: false });
+  windowEl.JobBoredStages = stages;
+  if (opts.supportsFieldSizing) windowEl.CSS = { supports: () => true };
+  /* role.js schedules the deferred-render flush via root.setTimeout; capture
+     the queue so tests drive it deterministically. */
+  const timers = [];
+  windowEl.setTimeout = (fn) => {
+    timers.push(fn);
+    return timers.length;
+  };
+  const flushTimers = () => {
+    while (timers.length) timers.shift()();
+  };
   windowEl.CustomEvent = TestCustomEvent;
   windowEl.JobBoredDawn = { data: { getRoleViewModel: () => roleVm } };
+  windowEl.JobBoredApp = { core: { getJobByStableKey: () => roleVm.job } };
   windowEl.JobBoredFlowing = {
     openRole: {
       get: () => roleVm.job.jobKey,
@@ -290,14 +381,25 @@ function loadHarness(roleVm) {
     Object,
     String,
     JSON,
+    Map,
+    Set,
+    RegExp,
     setTimeout,
     clearTimeout,
   });
 
-  vm.runInContext(briefSource, context, { filename: "role-brief.js" });
+  for (const { filename, code } of caseSources) vm.runInContext(code, context, { filename });
   vm.runInContext(roleSource, context, { filename: "role.js" });
 
-  return { context, windowEl, documentEl, region, writebacks };
+  return {
+    context,
+    windowEl,
+    documentEl,
+    region,
+    writebacks,
+    flushTimers,
+    renderCount: () => region._renderCount,
+  };
 }
 
 function fixtureVm() {
@@ -312,6 +414,10 @@ function fixtureVm() {
       employment: "Full-time",
       stage: "applied",
       notes: { body: "", editedAt: "" },
+      contacts: [{ name: "Dana Reyes" }],
+      lastHeardFrom: "2026-08-31",
+      followUpDate: "",
+      replied: "No",
       links: [{ label: "Posting", href: "https://example.com/jobs/42" }],
     },
   };
@@ -328,7 +434,10 @@ describe("dossier masthead edit — focus re-render guard", () => {
 
     context.window.JobBoredFlowing.role.renderForKey("linear-1");
     const before = region.innerHTML;
-    assert.ok(/data-action="edit-field"/.test(region._assembledHtml()), "masthead inputs must render");
+    const assembled = region._assembledHtml();
+    assert.ok(/class="case__rail"/.test(assembled), "the Case rail must render (trap 2: empty HTML must not pass)");
+    assert.ok(/class="case__title"/.test(assembled), "the guarded rail input is now .case__title");
+    assert.ok(/data-action="edit-field"/.test(assembled), "rail inputs must render");
 
     // User is mid-edit: type into the title field and keep focus.
     const titleInput = fieldInput(documentEl, "title");
@@ -430,17 +539,194 @@ describe("dossier masthead edit — Escape cancels, blur commits once", () => {
     const { context, documentEl, writebacks } = loadHarness(roleVm);
     context.window.JobBoredFlowing.role.renderForKey("linear-1");
 
-    const salaryInput = fieldInput(documentEl, "salary");
-    salaryInput.focus();
+    const contactInput = fieldInput(documentEl, "contact");
+    contactInput.focus();
     // Leave the value identical (modulo whitespace) to data-original.
-    salaryInput.value = "  $165k  ";
-    salaryInput.blur();
+    contactInput.value = "  Dana Reyes  ";
+    contactInput.blur();
 
     assert.equal(
       writebacks.length,
       0,
       "an unchanged value must not dispatch a writeback (avoids a needless " +
         "Sheet write + re-lock of the column)",
+    );
+  });
+});
+
+/* ------------------------------------------------------------
+   (3) NOTES IS A GUARDED EDIT SURFACE + DEFERRED RENDER FLUSH
+   Resilience spec D6: the Notes textarea loses keystrokes to the
+   same background cascade the masthead inputs were protected
+   from, and a swallowed render must not leave the dossier stale
+   forever — it flushes once the surface gives up focus.
+   ------------------------------------------------------------ */
+describe("notes textarea is a guarded edit surface", () => {
+  it("skips re-render while the notes textarea has focus", () => {
+    const { context, region, renderCount } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const notes = region.querySelector('[data-action="notes"]');
+    assert.ok(notes, "the notes textarea must render");
+    notes.value = "Recruiter: Sam";
+    notes.focus();
+
+    const before = renderCount();
+    // Background poll analog: jb:pipeline:rendered / jb:role:enriched.
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    assert.equal(
+      renderCount(),
+      before,
+      "render must be deferred while the notes textarea is focused",
+    );
+    assert.equal(notes.value, "Recruiter: Sam", "in-progress notes must survive");
+  });
+
+  it("flushes the deferred render after blur, so the dossier is not left stale", () => {
+    const { context, region, renderCount, flushTimers } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const notes = region.querySelector('[data-action="notes"]');
+    notes.focus();
+    const before = renderCount();
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+    assert.equal(renderCount(), before, "precondition: the render was deferred");
+
+    notes.blur(); // fires blur + focusout in the stub
+    flushTimers(); // drain the setTimeout(0) queue
+
+    assert.equal(
+      renderCount(),
+      before + 1,
+      "the pending render must run once the guarded surface blurs",
+    );
+  });
+
+  it("a masthead edit-field also defers and then flushes on blur", () => {
+    const { context, documentEl, region, renderCount, flushTimers } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const titleInput = fieldInput(documentEl, "title");
+    titleInput.focus();
+    const before = renderCount();
+    documentEl.dispatchEvent(new TestCustomEvent("jb:pipeline:rendered", { detail: {} }));
+    assert.equal(renderCount(), before, "precondition: the render was deferred");
+
+    titleInput.blur();
+    flushTimers();
+
+    assert.equal(
+      renderCount(),
+      before + 1,
+      "the masthead guard must queue the render, not drop it on the floor",
+    );
+    assert.ok(region.innerHTML.length > 0, "the flushed render must paint the region");
+  });
+
+  it("nothing is flushed when no render was deferred", () => {
+    const { context, region, renderCount, flushTimers } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const notes = region.querySelector('[data-action="notes"]');
+    notes.focus();
+    const before = renderCount();
+
+    notes.blur(); // focus/blur with no background cascade in between
+    flushTimers();
+
+    assert.equal(renderCount(), before, "a blur with no pending render must not re-render");
+  });
+});
+
+/* ------------------------------------------------------------
+   (4) THE RAIL'S LOCATION / SALARY FACT INPUTS (L7 gap 1)
+   Spec §5 makes all four rail identity fields editable. They are
+   edit-field inputs like title and company, so they must commit
+   on blur, hold the render guard while focused, and stay legible
+   where `field-sizing: content` is unsupported.
+   ------------------------------------------------------------ */
+describe("rail location and salary are editable", () => {
+  it("location commits on blur through the writeback contract", () => {
+    const { context, documentEl, writebacks } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const location = fieldInput(documentEl, "location");
+    assert.ok(location, "the rail must render a location edit-field");
+    assert.equal(location.getAttribute("data-original"), "Remote");
+    assert.equal(location.getAttribute("aria-label"), "Location");
+
+    location.focus();
+    location.value = "Austin, TX";
+    location.blur();
+
+    assert.deepEqual(writebacks, [{ jobKey: "linear-1", field: "location", value: "Austin, TX" }]);
+  });
+
+  it("salary commits on blur through the writeback contract", () => {
+    const { context, documentEl, writebacks } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const salary = fieldInput(documentEl, "salary");
+    assert.ok(salary, "the rail must render a salary edit-field");
+    assert.equal(salary.getAttribute("data-original"), "$165k");
+    assert.equal(salary.getAttribute("aria-label"), "Salary");
+
+    salary.focus();
+    salary.value = "$185k";
+    salary.blur();
+
+    assert.deepEqual(writebacks, [{ jobKey: "linear-1", field: "salary", value: "$185k" }]);
+  });
+
+  it("defers the background re-render while a fact input is focused, then flushes", () => {
+    const { context, documentEl, renderCount, flushTimers } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const salary = fieldInput(documentEl, "salary");
+    salary.focus();
+    salary.value = "$19";
+    const before = renderCount();
+
+    documentEl.dispatchEvent(new TestCustomEvent("jb:pipeline:rendered", { detail: {} }));
+    assert.equal(renderCount(), before, "a focused fact input must hold the render");
+    assert.equal(
+      fieldInput(documentEl, "salary").value,
+      "$19",
+      "the half-typed salary must survive the cascade",
+    );
+
+    salary.blur();
+    flushTimers();
+    assert.equal(renderCount(), before + 1, "the held render must flush once the fact input blurs");
+  });
+});
+
+describe("fact-input width fallback", () => {
+  it("sizes fact inputs in ch when field-sizing is unsupported", () => {
+    const { context, documentEl } = loadHarness(fixtureVm());
+    context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const locationInput = fieldInput(documentEl, "location");
+    assert.equal(locationInput.getAttribute("class"), "case__fact-input");
+    // "Remote".length + 2
+    assert.equal(locationInput.style.width, "8ch");
+
+    // Growing the value re-sizes on input, capped at 40ch.
+    locationInput.value = "x".repeat(80);
+    locationInput.dispatch("input", {});
+    assert.equal(locationInput.style.width, "40ch");
+  });
+
+  it("leaves the inputs alone when the engine supports field-sizing", () => {
+    const harness = loadHarness(fixtureVm(), { supportsFieldSizing: true });
+    harness.context.window.JobBoredFlowing.role.renderForKey("linear-1");
+
+    const locationInput = fieldInput(harness.documentEl, "location");
+    assert.equal(
+      locationInput.style.width,
+      undefined,
+      "native field-sizing must not be overridden by the JS fallback",
     );
   });
 });

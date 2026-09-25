@@ -41,20 +41,28 @@
     "100 searches a month — plenty for daily runs. Three steps, about " +
     "60 seconds.";
 
-  /** The three steps, deep-linked (from the retired enhancements card). */
+  /**
+   * The three steps, deep-linked (from the retired enhancements card).
+   *
+   * SIXBEATS2 NEW-9: the numbers used to be typed into the text, and the
+   * <ol> around them carried `list-style: none` — so the only numbering on
+   * screen was a literal "1." that landed immediately behind the previous
+   * sentence's full stop, next to a link label that also started "1 ·". The
+   * list draws its own markers now; the sentences are unchanged.
+   */
   const FUEL_STEPS = [
     {
-      text: "1. Create a free SerpApi account (Google login works, no card needed).",
+      text: "Create a free SerpApi account (Google login works, no card needed).",
       href: "https://serpapi.com/users/sign_up",
-      linkLabel: "1 · Create your free account ↗",
+      linkLabel: "Create your free account ↗",
     },
     {
-      text: "2. Copy your API key from the dashboard — it's the first thing on the page.",
+      text: "Copy your API key from the dashboard — it's the first thing on the page.",
       href: "https://serpapi.com/manage-api-key",
-      linkLabel: "2 · Copy your API key ↗",
+      linkLabel: "Copy your API key ↗",
     },
     {
-      text: "3. Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
+      text: "Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
     },
   ];
 
@@ -73,11 +81,72 @@
   });
 
   const FUEL_ACTION = "oneflow_discovery_save_verify";
+  const FUEL_RETRY_ACTION = "oneflow_discovery_fuel_retry";
   const CONNECT_ACTION = "oneflow_discovery_connect";
   const SKIP_ACTION = "oneflow_discovery_skip_connect";
   const MANUAL_VERIFY_ACTION = "oneflow_discovery_manual_verify";
 
+  /**
+   * The clock on the fuel write. Saving the key and force-restarting the
+   * worker is two round trips, and a worker that is slow to come back leaves
+   * "Saving your key…" motionless above a disabled button — the same FROZEN
+   * shape B2's key check had. Past `slowAfterMs` the busy list counts the
+   * seconds; past `stalledAfterMs` it says so and offers a fresh attempt.
+   *
+   * An affordance, not a timeout: the write in flight is never cancelled.
+   * Mutable so tests exercise the real timer wiring in milliseconds.
+   */
+  const CHECK_TIMINGS = { slowAfterMs: 2000, stalledAfterMs: 15000, tickMs: 1000 };
+
+  const STALLED_STAGE_LABEL = "Taking longer than usual";
+
+  const STALLED_MESSAGE =
+    "Still waiting on the local server. Nothing is lost — leave it running, " +
+    "or press Try again to start a fresh save.";
+
   const SERPAPI_ENV_KEY = "SERPAPI_API_KEY";
+
+  /**
+   * The quota line, from what SerpApi actually said (SIXBEATS2 NEW-3,
+   * locked decision 5). The shipped line was the string
+   * "Google Jobs index connected — 100 searches/mo", printed after an env
+   * write that never contacted SerpApi at all: a decoration that a typo'd
+   * key passed. An account with no quota in its payload gets no number —
+   * inventing one is the defect wearing a different coat.
+   */
+  function quotaLine(result) {
+    const plan = String((result && result.plan) || "").trim();
+    const left = result && Number(result.searchesLeft);
+    const hasLeft = Number.isFinite(left);
+    if (plan && hasLeft) {
+      return `Google Jobs index connected — ${plan} plan, ${left} searches left this month.`;
+    }
+    if (hasLeft) {
+      return `Google Jobs index connected — ${left} searches left this month.`;
+    }
+    return "Google Jobs index connected.";
+  }
+
+  /**
+   * Why the check failed, in the user's words, each naming the next action
+   * (voice rule §8.4). "Wrong key" and "you are offline" are different
+   * problems and must not share one shrug.
+   */
+  const FUEL_CHECK_ERRORS = Object.freeze({
+    invalid_key:
+      "SerpApi didn't recognise that key. Copy it again from " +
+      "serpapi.com/manage-api-key — the whole string, no spaces — then press " +
+      "Save & verify.",
+    unreachable:
+      "Couldn't reach SerpApi to check the key. Check this machine's " +
+      "internet connection, then press Save & verify again.",
+    upstream_error:
+      "SerpApi answered, but not with your account. Wait a moment, then " +
+      "press Save & verify again.",
+    no_local_server:
+      "Couldn't reach the local server to check your key — is it still " +
+      "running? Start it with `npm run dev`, then press Save & verify.",
+  });
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
   const SELF_HOSTING_DOC = "docs/SELF-HOSTING.md";
@@ -93,6 +162,13 @@
     connectState: "",
     manualUrl: "",
     manualSecret: "",
+    // The fuel write that owns the screen. A retry pressed while an earlier
+    // write is still in flight bumps this, and the older one's answer is
+    // dropped instead of landing behind the newer attempt.
+    fuelRun: 0,
+    fuelStalled: false,
+    // What SerpApi said, so the panel and the message agree on one truth.
+    fuelQuotaLine: "",
   };
 
   /**
@@ -182,10 +258,63 @@
   function syncActions() {
     const blocked =
       state.connectState === "needs_install" ||
-      state.connectState === "needs_login";
+      state.connectState === "needs_login" ||
+      state.connectState === "needs_server";
     ACTIONS[1].label = blocked ? "Re-check" : "Set it up for me";
     ACTIONS[1].disabled = !state.fuelPassed;
     ACTIONS[2].disabled = !state.fuelPassed;
+    // The stall escape hatch is appended, never woven in: the three
+    // descriptors above are addressed by index and must keep their places.
+    const hasRetry = ACTIONS.length > 3;
+    if (state.fuelStalled && !hasRetry) {
+      ACTIONS.push({ id: FUEL_RETRY_ACTION, label: "Try again", variant: "ghost" });
+    } else if (!state.fuelStalled && hasRetry) {
+      ACTIONS.length = 3;
+    }
+  }
+
+  let fuelWatch = null;
+
+  function stopFuelWatch() {
+    if (fuelWatch != null) {
+      clearTimeout(fuelWatch);
+      fuelWatch = null;
+    }
+  }
+
+  /**
+   * Render the passing seconds for a fuel write that has not answered yet.
+   * `run` is the write this clock belongs to — a superseded one goes quiet
+   * rather than writing over the screen the newer attempt owns.
+   */
+  function startFuelWatch(ctx, baseStages, run) {
+    stopFuelWatch();
+    const startedAt = Date.now();
+    const tick = () => {
+      fuelWatch = null;
+      if (run !== state.fuelRun) return;
+      const elapsed = Date.now() - startedAt;
+      if (elapsed >= CHECK_TIMINGS.stalledAfterMs) {
+        state.fuelStalled = true;
+        syncActions();
+        ctx.setBusy(
+          FUEL_ACTION,
+          baseStages.concat({ label: STALLED_STAGE_LABEL, state: "active" }),
+        );
+        ctx.setMessage(STALLED_MESSAGE, "info");
+        // The clock stops here; the write does not.
+        return;
+      }
+      ctx.setBusy(
+        FUEL_ACTION,
+        baseStages.concat({
+          label: `still checking… ${Math.floor(elapsed / 1000)} s`,
+          state: "active",
+        }),
+      );
+      fuelWatch = setTimeout(tick, CHECK_TIMINGS.tickMs);
+    };
+    fuelWatch = setTimeout(tick, CHECK_TIMINGS.slowAfterMs);
   }
 
   // ---------------------------------------------------------------
@@ -222,7 +351,7 @@
         el(
           "p",
           "oneflow-panel__status oneflow-panel__status--ok",
-          "✓ Google Jobs index connected — 100 searches/mo",
+          `✓ ${state.fuelQuotaLine || quotaLine(null)}`,
         ),
       );
     }
@@ -321,6 +450,31 @@
   // Fuel — save the key, restart the worker, RENDER the result
   // ---------------------------------------------------------------
 
+  /**
+   * Ask the dev-server to ask SerpApi (locked decision 5). Answers the
+   * server's `{ok, plan, searchesLeft}` on success, and `{ok:false, reason}`
+   * otherwise — including when the local server itself is the thing that
+   * cannot be reached, which is a different problem with a different fix.
+   */
+  async function checkFuelKey(key) {
+    try {
+      const response = await fetch("/__proxy/serpapi-check", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ key }),
+      });
+      const body = response ? await response.json().catch(() => null) : null;
+      if (!body || typeof body !== "object") {
+        return { ok: false, reason: "no_local_server" };
+      }
+      if (body.ok) return body;
+      return { ok: false, reason: String(body.reason || "upstream_error") };
+    } catch (e) {
+      console.warn("[JobBored] B5 SerpApi check:", e && e.name ? e.name : e);
+      return { ok: false, reason: "no_local_server" };
+    }
+  }
+
   async function saveAndVerifyFuel(ctx) {
     const key = state.keyDraft.trim();
     if (!key) {
@@ -329,9 +483,41 @@
     }
     const startedAt = Date.now();
     const stages = [
-      { label: "Saving your key…", state: "active" },
-      { label: "Google Jobs index connected — 100 searches/mo", state: "todo" },
+      { label: "Checking your key with SerpApi…", state: "active" },
+      { label: "Saving your key…", state: "todo" },
+      { label: "Google Jobs index connected", state: "todo" },
     ];
+    const run = (state.fuelRun += 1);
+    state.fuelStalled = false;
+    syncActions();
+    ctx.setBusy(FUEL_ACTION, stages);
+    startFuelWatch(ctx, stages, run);
+
+    // Verify FIRST. A key written into the worker env before anyone has
+    // asked SerpApi about it is the rerun's green-on-nothing (NEW-3): the
+    // beat reported connected, and discovery found nothing that night.
+    const checked = await checkFuelKey(key);
+    if (run !== state.fuelRun) return;
+    if (!checked.ok) {
+      stopFuelWatch();
+      state.fuelStalled = false;
+      syncActions();
+      ctx.clearBusy();
+      ctx.setMessage(
+        FUEL_CHECK_ERRORS[checked.reason] || FUEL_CHECK_ERRORS.upstream_error,
+        "error",
+      );
+      emit(steps().KEY_CHECK, {
+        beat: "discovery",
+        source: "serpapi",
+        ok: false,
+        ms: Date.now() - startedAt,
+      });
+      return;
+    }
+    stages[0].state = "done";
+    stages[1].state = "active";
+    stages[2].label = quotaLine(checked);
     ctx.setBusy(FUEL_ACTION, stages);
 
     let wrote = false;
@@ -348,7 +534,14 @@
       wrote = false;
     }
 
+    // A newer attempt owns the screen — this one's answer is history, and
+    // its clock now belongs to that attempt, so leave the timer alone.
+    if (run !== state.fuelRun) return;
+
     if (!wrote) {
+      stopFuelWatch();
+      state.fuelStalled = false;
+      syncActions();
       ctx.clearBusy();
       ctx.setMessage(
         "Couldn't save your SerpApi key — is the local server running? Try again.",
@@ -378,13 +571,16 @@
       console.warn("[JobBored] B5 worker restart:", e);
     }
 
+    if (run !== state.fuelRun) return;
+    stopFuelWatch();
     state.fuelPassed = true;
+    state.fuelStalled = false;
     state.keyDraft = "";
+    state.fuelQuotaLine = quotaLine(checked);
     syncActions();
-    stages[0].state = "done";
-    stages[1].state = "done";
+    for (const stage of stages) stage.state = "done";
     ctx.setBusy(FUEL_ACTION, stages);
-    ctx.setMessage("Google Jobs index connected — 100 searches/mo.", "success");
+    ctx.setMessage(state.fuelQuotaLine, "success");
     emit(steps().KEY_CHECK, {
       beat: "discovery",
       source: "serpapi",
@@ -505,7 +701,7 @@
   // ---------------------------------------------------------------
 
   async function handleAction(actionId, ctx) {
-    if (actionId === FUEL_ACTION) {
+    if (actionId === FUEL_ACTION || actionId === FUEL_RETRY_ACTION) {
       return saveAndVerifyFuel(ctx);
     }
     // The gate is enforced here as well as on the buttons: a disabled
@@ -569,6 +765,8 @@
       },
       whenIdle: () => pending,
       CONNECT_STAGE_LABELS,
+      // The C6 thresholds, so a probe need not wait fifteen real seconds.
+      timings: CHECK_TIMINGS,
     },
   };
 })();

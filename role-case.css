@@ -1,0 +1,463 @@
+/* ============================================================
+   role-case.css — The Case (spec §7). Loaded after role.css.
+   ------------------------------------------------------------
+   Owner:    dossier-case L4 (claim E)
+   Scope:    EVERY rule is scoped under
+             body.jb-v2 [data-region="role"] .case
+             A bare `.case__x` rule (0,1,0) loses to jb-v2's
+             `body.jb-v2 [data-region="role"] h3 / p` (0,1,1+)
+             and silently never applies. Do not unscope one.
+   ------------------------------------------------------------
+   Tokens:   style.css palette only — no new tokens (spec §7).
+   ============================================================ */
+/* Parchment tokens, pinned here so the Case never falls back to :root's
+   legacy blue-grey --surface/--border. Values come from the v2 token layer
+   (tokens-v2.css); the hex is only the fallback the linter sanctions for a
+   var(--jb-*) reference, never a literal of record. --case-crimson-soft has
+   no --jb-* equivalent yet (there is no soft rose in the palette). */
+body.jb-v2 [data-region="role"] .case {
+  --surface: var(--jb-surface, #FFFEF9);
+  --border: var(--jb-line-soft, #E5DFCC);
+  --case-crimson-soft: var(--jb-rose-soft, #F2B8C0);
+  --case-amber-deep: var(--jb-warn);
+  /* P1-0c: mint-deep on parchment is 2.81:1 — the "saved" mark, the ready
+     pill, the evidence label, the derived tag and the scorecard bars all sat
+     under the floor. #6E9F87 stays only where it sits on navy; everything on
+     a light Case ground uses this darker mint instead (4.6:1 on parchment). */
+  --case-mint-on-light: var(--jb-mint-ink, #3F6B55);
+  /* P1-0d: --mute is 4.34:1 on parchment and 4.04:1 on parchment-deep, and it
+     carries nearly every label in the dossier at 8.5-10.5px — none of it
+     large-scale. Redefining it inside the Case darkens all fifteen rules at
+     once without touching the token elsewhere in v2. */
+  --mute: var(--jb-ink-soft, #5A5347);
+  /* Layout tokens (SPEC §9). The gutter and the column gap are sized in cqi,
+     never vw: the space left for the two body tracks has to be a function of
+     the frame, or the column threshold below cannot be computed at all. */
+  --dsr-pad-x: clamp(20px, 2.6cqi, 36px);
+  --dsr-canvas-min: 34rem;
+  --dsr-canvas-max: 46rem;
+  --dsr-ledger-min: 20rem;
+  --dsr-ledger-max: 22rem;
+  --dsr-col-gap: clamp(24px, 3cqi, 44px);
+  /* The docket parks flush beneath the app's sticky chrome — a gap is a slot
+     the page scrolls through, and an overlap hides the controls. How tall the
+     chrome is, is the app's business: role.js measures .page-top
+     (flowing-chrome.css) and publishes --jb-chrome-h, and this is the fallback
+     for the first render and for any host that never publishes one. */
+  --dsr-chrome-h: var(--jb-chrome-h, 75px);
+  /* Type floor: nothing in the dossier goes below --dsr-label, and anything
+     carrying state a reader must act on is --dsr-label-lg. */
+  --dsr-label: 10px;
+  --dsr-label-lg: 11px;
+}
+/* The frame. Three properties here are each a fix (SPEC §3.1):
+   - `min(1220px, 100%)` is ONE maximum, and it is the same one every other
+     flow region resolves to. The old `min(var(--jb-flow-content-width), 100%)`
+     re-resolved the token's nested percentage against .dossier and subtracted
+     the shell gutter twice, so the frame rendered 1116px against a 1220px
+     pipeline (TEARDOWN §4).
+   - no `overflow: hidden`. It made the frame a scroll container, which
+     silently disables `position: sticky` for the docket (TEARDOWN §5).
+     `clip-path` gives the radius back without creating a scrollport.
+   - `container-type: inline-size` makes the frame the query container, so
+     every threshold below asks how wide the DOSSIER is rather than how wide
+     the window is — the difference between correct at 1024 and shredded at
+     1440 (TEARDOWN §3). */
+body.jb-v2 [data-region="role"] .case { container-type: inline-size; container-name: dossier; width: min(1220px, 100%); margin: 0 auto; background: var(--parchment); border: 1px solid var(--border); border-radius: 14px; box-shadow: var(--shadow-soft); clip-path: inset(0 round 14px); font-family: var(--sans); color: var(--ink); }
+/* The masthead. `auto` is not used for any track: the flags column is bounded
+   (14–19rem), so it can never eat the identity's width the way the shipped
+   `56px minmax(0, 1fr) auto` rail could. Below 46rem the flags drop to their
+   own row rather than squeezing the title (SPEC §3.3). */
+body.jb-v2 [data-region="role"] .case .case__rail { background: var(--navy); color: var(--parchment); padding: clamp(20px, 2.2cqi, 26px) var(--dsr-pad-x); display: grid; grid-template-columns: 56px minmax(0, 1fr); grid-template-areas: "crest identity" "flags flags"; gap: 14px 18px; align-items: start; }
+@container dossier (inline-size >= 46rem) {
+  body.jb-v2 [data-region="role"] .case .case__rail { grid-template-columns: 56px minmax(18rem, 1fr) minmax(14rem, 19rem); grid-template-areas: "crest identity flags"; }
+}
+body.jb-v2 [data-region="role"] .case .case__rail .case__logo { grid-area: crest; }
+body.jb-v2 [data-region="role"] .case .case__rail-id { grid-area: identity; min-width: 0; }
+body.jb-v2 [data-region="role"] .case .case__title-h { margin: 0; font-weight: 500; }
+body.jb-v2 [data-region="role"] .case .case__logo { width: 56px; height: 56px; border-radius: 12px; object-fit: cover; background: var(--parchment); }
+body.jb-v2 [data-region="role"] .case .case__logo--mono { display: flex; align-items: center; justify-content: center; color: var(--navy); font-family: var(--serif); font-size: 26px; font-weight: 600; }
+body.jb-v2 [data-region="role"] .case .case__title,
+body.jb-v2 [data-region="role"] .case .case__company { display: block; width: 100%; appearance: none; border: none; border-bottom: 1px dashed transparent; background: transparent; outline: none; padding: 1px 0; color: var(--parchment); font-family: var(--serif); }
+/* The title is a wrapping textarea, not a truncating input: `resize: none` and
+   `overflow: hidden` keep it reading as type, and the height comes from
+   field-sizing where it exists and from role.js where it does not. */
+body.jb-v2 [data-region="role"] .case .case__title { font-size: clamp(23px, 2.5cqi, 30px); line-height: 1.15; font-weight: 500; resize: none; overflow: hidden; }
+@supports (field-sizing: content) {
+  body.jb-v2 [data-region="role"] .case .case__title { field-sizing: content; }
+}
+body.jb-v2 [data-region="role"] .case .case__company { font-style: italic; font-size: 16px; color: var(--mint); margin-top: 2px; }
+body.jb-v2 [data-region="role"] .case .case__rail [data-action="edit-field"]:hover { border-bottom-color: rgba(251, 247, 236, 0.35); }
+body.jb-v2 [data-region="role"] .case .case__rail [data-action="edit-field"]:focus { border-bottom-color: var(--amber); }
+/* Rail fact inputs (spec §5): location and salary edit in place on the navy
+   rail. `field-sizing: content` sizes them to their value where it is
+   supported; role.js sizes them in `ch` where it is not. The hover/focus
+   underline is the shared .case__rail [data-action="edit-field"] pair above,
+   so a fact input highlights exactly like the title does. */
+body.jb-v2 [data-region="role"] .case .case__fact-input { font: inherit; color: inherit; background: transparent; border: none; border-bottom: 1px dashed transparent; outline: none; width: 12ch; max-width: 100%; }
+/* 12ch is the fallback every engine gets (role.js re-sizes it in ch there);
+   where field-sizing lands the input hugs its own value instead, with a floor
+   so an empty fact still shows its placeholder. */
+@supports (field-sizing: content) {
+  body.jb-v2 [data-region="role"] .case .case__fact-input { field-sizing: content; width: auto; min-width: 6ch; }
+}
+body.jb-v2 [data-region="role"] .case .case__meta { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-family: var(--mono); font-size: 10.5px; letter-spacing: 0.1em; text-transform: uppercase; color: rgba(251, 247, 236, 0.72); }
+body.jb-v2 [data-region="role"] .case .case__meta b { color: var(--parchment); font-weight: 600; }
+body.jb-v2 [data-region="role"] .case .case__rail-right { grid-area: flags; display: flex; flex-wrap: wrap; gap: 8px; align-content: start; }
+@container dossier (inline-size >= 46rem) {
+  body.jb-v2 [data-region="role"] .case .case__rail-right { justify-content: flex-end; }
+}
+body.jb-v2 [data-region="role"] .case .case__pill { display: inline-flex; align-items: center; gap: 8px; padding: 6px 12px; border-radius: 999px; border: 1px solid rgba(251, 247, 236, 0.35); font-family: var(--mono); font-size: 10px; letter-spacing: 0.16em; text-transform: uppercase; color: var(--parchment); }
+body.jb-v2 [data-region="role"] .case .case__pill--open { border-color: var(--mint-deep); color: var(--mint); }
+body.jb-v2 [data-region="role"] .case .case__pill--due { border-color: var(--amber); color: var(--amber); }
+body.jb-v2 [data-region="role"] .case .case__pill--review,
+body.jb-v2 [data-region="role"] .case .case__pill--expired { border-color: var(--crimson); color: var(--case-crimson-soft); }
+body.jb-v2 [data-region="role"] .case .case__dot { width: 7px; height: 7px; border-radius: 50%; }
+body.jb-v2 [data-region="role"] .case .case__dot--mint { background: var(--mint-deep); box-shadow: 0 0 0 3px rgba(110, 159, 135, 0.25); }
+body.jb-v2 [data-region="role"] .case .case__dot--amber { background: var(--amber); box-shadow: 0 0 0 3px rgba(231, 181, 73, 0.25); }
+body.jb-v2 [data-region="role"] .case .case__dot--crimson { background: var(--crimson); box-shadow: 0 0 0 3px rgba(178, 58, 72, 0.25); }
+body.jb-v2 [data-region="role"] .case .case__cta { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--parchment); text-decoration: none; border: 1px solid rgba(251, 247, 236, 0.55); border-radius: 999px; padding: 6px 12px; white-space: nowrap; }
+/* ---- The docket (SPEC §5.1) --------------------------------------------
+   Sticky, parked flush under the app's own chrome. This is only possible
+   because the frame stopped being a scroll container (TEARDOWN §5): while
+   `overflow: hidden` sat on .case, sticky resolved against a box that never
+   scrolls, so the drafting actions could not follow the reader down a
+   1,956px-tall dossier. */
+body.jb-v2 [data-region="role"] .case .case__docket { position: sticky; top: var(--dsr-chrome-h); z-index: 5; display: grid; grid-template-columns: minmax(0, 1fr); gap: 10px 18px; padding: 10px var(--dsr-pad-x); background: color-mix(in srgb, var(--parchment-deep) 92%, transparent); backdrop-filter: blur(8px); border-block: 1px solid var(--border-strong); }
+@container dossier (inline-size >= 52rem) {
+  body.jb-v2 [data-region="role"] .case .case__docket { grid-template-columns: minmax(0, 1fr) auto; align-items: center; }
+}
+body.jb-v2 [data-region="role"] .case .case__docket-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; }
+body.jb-v2 [data-region="role"] .case .case__btn { display: inline-flex; align-items: center; gap: 7px; min-height: 34px; padding: 7px 14px; border: 1px solid var(--border-strong); border-radius: 999px; background: var(--surface); cursor: pointer; font-family: var(--mono); font-size: var(--dsr-label-lg); letter-spacing: 0.1em; text-transform: uppercase; color: var(--ink-soft); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__btn--primary { background: var(--navy); border-color: var(--navy); color: var(--parchment); }
+body.jb-v2 [data-region="role"] .case .case__btn--icon { padding: 7px 12px; font-size: 15px; line-height: 1; }
+body.jb-v2 [data-region="role"] .case .case__btn:hover { border-color: var(--crimson); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__btn--primary:hover { background: var(--navy); border-color: var(--amber); color: var(--amber); }
+body.jb-v2 [data-region="role"] .case .case__btn:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
+/* The in-flight run, mirrored from the same manifest the ledger row reads.
+   While a draft is running this is the only place the reader has to look —
+   the fix for materials state having two homes that did not agree. */
+body.jb-v2 [data-region="role"] .case .case__inflight { display: inline-flex; align-items: center; gap: 9px; min-height: 34px; padding: 6px 12px; border: 1px solid var(--amber); border-radius: 999px; background: rgba(231, 181, 73, 0.14); font-family: var(--mono); font-size: var(--dsr-label-lg); letter-spacing: 0.08em; color: var(--case-amber-deep); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__inflight--failed { border-color: var(--crimson); background: rgba(178, 58, 72, 0.1); color: var(--crimson); cursor: pointer; text-transform: uppercase; }
+body.jb-v2 [data-region="role"] .case .case__inflight--failed:hover { background: rgba(178, 58, 72, 0.16); }
+body.jb-v2 [data-region="role"] .case .case__inflight:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
+body.jb-v2 [data-region="role"] .case .case__inflight-spin { width: 11px; height: 11px; flex: none; border: 2px solid rgba(161, 98, 7, 0.3); border-top-color: var(--case-amber-deep); border-radius: 50%; animation: case-spin 900ms linear infinite; }
+@keyframes case-spin { to { transform: rotate(360deg); } }
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="role"] .case .case__inflight-spin { animation: none; }
+}
+/* The stepper is a scroller with an edge fade, not a squeeze — and it is the
+   one place in the dossier where a zero-floor track is legitimate, because
+   the overflow is reachable by design and says so. */
+body.jb-v2 [data-region="role"] .case .case__stepper { display: flex; align-items: center; min-width: 0; overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; mask-image: linear-gradient(90deg, transparent, #000 18px, #000 calc(100% - 18px), transparent); }
+body.jb-v2 [data-region="role"] .case .case__stepper::-webkit-scrollbar { display: none; }
+body.jb-v2 [data-region="role"] .case .case__step { display: inline-flex; align-items: center; gap: 7px; flex: none; border: none; background: transparent; cursor: pointer; padding: 7px 2px; scroll-snap-align: center; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__step-dot { width: 10px; height: 10px; border-radius: 50%; border: 1.5px solid var(--border-strong); background: var(--parchment); }
+body.jb-v2 [data-region="role"] .case .case__step--done .case__step-dot { background: var(--navy); border-color: var(--navy); }
+body.jb-v2 [data-region="role"] .case .case__step--now { color: var(--navy); font-weight: 600; }
+body.jb-v2 [data-region="role"] .case .case__step--now .case__step-dot { background: var(--crimson); border-color: var(--crimson); box-shadow: 0 0 0 4px rgba(178, 58, 72, 0.18); }
+/* Decoration yields before content (SPEC §3.6): the connectors are the only
+   shrinkable items in the row, giving 5 × 14px of slack before the stepper
+   scrolls. A stage label is never half-cut to make room for a rule. */
+body.jb-v2 [data-region="role"] .case .case__step-line { flex: 0 1 22px; min-width: 8px; height: 1px; background: var(--border-strong); margin: 0 8px; }
+body.jb-v2 [data-region="role"] .case .case__step-days { color: var(--crimson); font-weight: 600; letter-spacing: 0.06em; }
+body.jb-v2 [data-region="role"] .case .case__terminal { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.16em; text-transform: uppercase; color: var(--crimson); border: 1px solid var(--crimson); border-radius: 999px; padding: 5px 12px; }
+/* ---- The verdict (SPEC §4) --------------------------------------------- */
+body.jb-v2 [data-region="role"] .case .case__verdict { padding: clamp(16px, 1.8cqi, 22px) var(--dsr-pad-x) 0; }
+body.jb-v2 [data-region="role"] .case .case__verdict-line { margin: 0; max-width: 54ch; font-family: var(--serif); font-size: clamp(16px, 1.6cqi, 19px); line-height: 1.45; color: var(--navy); text-wrap: pretty; }
+body.jb-v2 [data-region="role"] .case .case__verdict-line b { font-weight: 600; }
+/* The gap clause is the only emphasis in the line, because it is always the
+   thing the reader can do something about. */
+body.jb-v2 [data-region="role"] .case .case__verdict-line em { font-style: italic; color: var(--crimson); }
+/* `auto-fit` with a floor: N tiles reflow onto a second row instead of each
+   getting 1/Nth of the width. `repeat(var(--n), minmax(0, 1fr))` made every
+   tile narrower each time one was added (SPEC §3.3). */
+body.jb-v2 [data-region="role"] .case .case__numbers { display: grid; grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr)); gap: 1px; margin: clamp(16px, 1.8cqi, 22px) 0 0; padding: 0; list-style: none; background: var(--border); border-block: 1px solid var(--border); }
+/* The <li> is the cell and carries no ink; the tile fills it, so an
+   actionable tile is as tall as its neighbours. */
+body.jb-v2 [data-region="role"] .case .case__numbers > li { display: grid; }
+body.jb-v2 [data-region="role"] .case .case__num { display: block; width: 100%; height: 100%; padding: 14px 16px 15px; border: none; background: var(--parchment); text-align: left; font: inherit; color: inherit; }
+body.jb-v2 [data-region="role"] .case .case__num--btn { cursor: pointer; }
+body.jb-v2 [data-region="role"] .case .case__num-k { display: flex; flex-wrap: wrap; align-items: center; gap: 5px 8px; margin-bottom: 7px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__num-v { font-family: var(--serif); font-size: 27px; font-weight: 600; line-height: 1; color: var(--navy); letter-spacing: -0.01em; }
+body.jb-v2 [data-region="role"] .case .case__num-v small { font-family: var(--mono); font-size: var(--dsr-label-lg); color: var(--mute); font-weight: 400; letter-spacing: 0.08em; margin-left: 3px; }
+body.jb-v2 [data-region="role"] .case .case__num-v--crimson { color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__num-sub { font-family: var(--mono); font-size: var(--dsr-label); color: var(--ink-soft); letter-spacing: 0.04em; margin-top: 7px; text-wrap: pretty; }
+body.jb-v2 [data-region="role"] .case .case__src { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.12em; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; border: 1px solid var(--border-strong); color: var(--mute); background: var(--surface); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__src--ai { border-color: rgba(178, 58, 72, 0.4); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__src--derived { border-color: rgba(110, 159, 135, 0.6); color: var(--mint-deep); }
+/* Provenance tags. --review is the loudest source tag in the lane head: it
+   says the list under it came out of a recovered or polluted parse. --inferred
+   sits on the navy rail, so it borrows the rail's own light-on-dark treatment
+   instead of the parchment chip the other source tags wear. */
+body.jb-v2 [data-region="role"] .case .case__src--review { border-color: var(--crimson); color: var(--crimson); background: rgba(178, 58, 72, 0.08); }
+body.jb-v2 [data-region="role"] .case .case__src--inferred { border-color: var(--amber); color: var(--amber); background: transparent; }
+/* ---- The body: a reading canvas beside a bounded ledger (SPEC §3.2) ------
+   The whole redesign is this one rule set, and four properties of it are each
+   a fix:
+   1. BOTH tracks are bounded. `minmax(0, 1fr)` is banned as a track in any
+      multi-track row that carries text — a zero floor is what let the shipped
+      board render a 12px column. The one exception in the dossier is the
+      docket's stepper, whose overflow is an explicit scroller.
+   2. The threshold is arithmetic, not taste, and the arithmetic includes the
+      frame's own gutter: 34rem canvas + 20rem ledger + 2.75rem gap + 4.5rem
+      gutter = 61.25rem, so two columns engage at 62rem. Leaving the gutter out
+      produces a grid whose tracks are wider than the box they sit in, which
+      does not report as element overflow — it just overflows the padding box
+      and the frame's clip-path eats it.
+   3. It is a container query. The dossier's width is a function of the frame,
+      not the window; a viewport media query is why the shipped board was
+      correct at 1024 and broken at 1440.
+   4. Surplus becomes margin. Past the two maxima the extra width is
+      whitespace, not longer lines: prose has a measure. */
+body.jb-v2 [data-region="role"] .case .case__body { display: grid; grid-template-columns: minmax(0, 1fr); gap: clamp(24px, 3cqi, 36px) var(--dsr-col-gap); padding: clamp(22px, 2.4cqi, 30px) var(--dsr-pad-x) clamp(28px, 3cqi, 38px); }
+@container dossier (inline-size >= 62rem) {
+  body.jb-v2 [data-region="role"] .case .case__body { grid-template-columns: minmax(var(--dsr-canvas-min), var(--dsr-canvas-max)) minmax(var(--dsr-ledger-min), var(--dsr-ledger-max)); justify-content: center; align-items: start; }
+}
+body.jb-v2 [data-region="role"] .case .case__canvas { container-type: inline-size; container-name: canvas; min-width: 0; display: grid; gap: clamp(24px, 2.6cqi, 34px); align-content: start; }
+body.jb-v2 [data-region="role"] .case .case__ledger { container-type: inline-size; container-name: ledger; min-width: 0; display: grid; gap: clamp(20px, 2.2cqi, 28px); align-content: start; }
+body.jb-v2 [data-region="role"] .case .case__section { min-width: 0; }
+/* The sticky docket must never cover the target of a focus move or an in-page
+   jump (SPEC §5.3). */
+body.jb-v2 [data-region="role"] .case .case__body :is(a, button, input, textarea, select, [tabindex]),
+body.jb-v2 [data-region="role"] .case .case__section { scroll-margin-top: calc(var(--dsr-chrome-h) + 68px); }
+/* The posting in its own words, at the top of the canvas. */
+body.jb-v2 [data-region="role"] .case .case__quote { margin: 0; padding: 16px 18px; border-left: 3px solid var(--amber); border-radius: 0 8px 8px 0; background: var(--parchment-deep); font-family: var(--serif); font-style: italic; font-size: 16px; line-height: 1.6; color: var(--navy); text-wrap: pretty; }
+body.jb-v2 [data-region="role"] .case .case__quote .case__k { display: block; margin-bottom: 6px; font-family: var(--mono); font-style: normal; font-size: var(--dsr-label); letter-spacing: 0.2em; text-transform: uppercase; color: var(--mute); white-space: nowrap; }
+/* The head wraps. Its title and its provenance chips are each nowrap, so a
+   row that cannot wrap is exactly the shape that shreds a chip into three
+   one-word lines once the column reaches its floor. */
+body.jb-v2 [data-region="role"] .case .case__section-head { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 10px; margin-bottom: 13px; padding-bottom: 7px; border-bottom: 2px solid var(--border-strong); }
+body.jb-v2 [data-region="role"] .case .case__section--they .case__section-head { border-bottom-color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__section--you .case__section-head { border-bottom-color: var(--case-mint-on-light); }
+body.jb-v2 [data-region="role"] .case .case__section--say .case__section-head { border-bottom-color: var(--amber); }
+body.jb-v2 [data-region="role"] .case .case__section--materials .case__section-head { border-bottom-color: var(--navy); }
+body.jb-v2 [data-region="role"] .case .case__section-title { font-family: var(--mono); font-size: var(--dsr-label-lg); letter-spacing: 0.2em; text-transform: uppercase; color: var(--navy); font-weight: 600; flex: 1 1 auto; min-width: 0; }
+body.jb-v2 [data-region="role"] .case .case__sub { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--mute); margin: 18px 0 8px; }
+body.jb-v2 [data-region="role"] .case .case__section-head + .case__sub,
+body.jb-v2 [data-region="role"] .case .case__hint + .case__sub { margin-top: 0; }
+body.jb-v2 [data-region="role"] .case .case__hint { margin: 0 0 12px; font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__req { list-style: none; margin: 0; padding: 0; }
+/* A floor on the text track, and the status word drops under it rather than
+   squeezing it once the canvas is the only column on a phone (SPEC §7). */
+body.jb-v2 [data-region="role"] .case .case__req li { display: grid; grid-template-columns: 0.75rem minmax(12rem, 1fr) auto; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px dotted var(--border-strong); font-family: var(--serif); font-size: 15px; line-height: 1.5; text-wrap: pretty; }
+@container canvas (inline-size < 22rem) {
+  body.jb-v2 [data-region="role"] .case .case__req li { grid-template-columns: 0.75rem minmax(0, 1fr); }
+  body.jb-v2 [data-region="role"] .case .case__req li .case__st { grid-column: 2; }
+}
+body.jb-v2 [data-region="role"] .case .case__req li:last-child { border-bottom: none; }
+body.jb-v2 [data-region="role"] .case .case__m { width: 9px; height: 9px; border-radius: 50%; position: relative; top: 1px; display: inline-block; }
+body.jb-v2 [data-region="role"] .case .case__m--found { background: var(--mint-deep); }
+body.jb-v2 [data-region="role"] .case .case__m--partial { background: var(--amber); }
+body.jb-v2 [data-region="role"] .case .case__m--missing { background: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__m--unknown { background: transparent; border: 1px solid var(--border-strong); }
+body.jb-v2 [data-region="role"] .case .case__st { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__chips { display: flex; flex-wrap: wrap; gap: 6px; }
+body.jb-v2 [data-region="role"] .case .case__chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border-strong); font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
+body.jb-v2 [data-region="role"] .case .case__chip .case__m { width: 7px; height: 7px; top: 0; }
+body.jb-v2 [data-region="role"] .case .case__strength { padding: 8px 0 8px 14px; border-left: 2px solid var(--mint-deep); margin-bottom: 8px; font-family: var(--serif); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+body.jb-v2 [data-region="role"] .case .case__evidence { margin-top: 6px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-family: var(--serif); font-style: italic; font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); overflow-wrap: anywhere; }
+body.jb-v2 [data-region="role"] .case .case__from { display: block; font-family: var(--mono); font-style: normal; font-size: var(--dsr-label); letter-spacing: 0.16em; text-transform: uppercase; color: var(--mint-deep); margin-bottom: 4px; }
+body.jb-v2 [data-region="role"] .case .case__gap { display: grid; grid-template-columns: auto 1fr; gap: 10px; align-items: baseline; padding: 8px 0; border-bottom: 1px dotted var(--border-strong); font-family: var(--serif); font-size: 14px; line-height: 1.45; overflow-wrap: anywhere; }
+body.jb-v2 [data-region="role"] .case .case__gap:last-of-type { border-bottom: none; }
+body.jb-v2 [data-region="role"] .case .case__sev { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; padding: 2px 6px; border-radius: 3px; text-transform: uppercase; }
+body.jb-v2 [data-region="role"] .case .case__sev--high { background: rgba(178, 58, 72, 0.12); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__sev--medium,
+body.jb-v2 [data-region="role"] .case .case__sev--low { background: rgba(231, 181, 73, 0.18); color: var(--case-amber-deep); }
+body.jb-v2 [data-region="role"] .case .case__why { display: block; font-size: 12.5px; color: var(--mute); font-style: italic; margin-top: 2px; }
+body.jb-v2 [data-region="role"] .case .case__dims { display: grid; gap: 6px; margin-top: 4px; }
+/* The shipped `118px 1fr 30px` has a hard label track that neither grows for
+   a long dimension name nor yields when the bar needs the room. Both flexible
+   tracks now carry a floor in rem, so the row tracks the reader's font size
+   (SPEC §3.3). */
+body.jb-v2 [data-region="role"] .case .case__dim { display: grid; grid-template-columns: minmax(6rem, 9rem) minmax(4rem, 1fr) 2.25rem; gap: 10px; align-items: center; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.06em; color: var(--ink-soft); text-transform: uppercase; }
+body.jb-v2 [data-region="role"] .case .case__bar { height: 6px; background: var(--parchment-deep); border-radius: 3px; overflow: hidden; }
+body.jb-v2 [data-region="role"] .case .case__bar i { display: block; height: 100%; background: var(--mint-deep); border-radius: 3px; }
+body.jb-v2 [data-region="role"] .case .case__dim b { text-align: right; color: var(--navy); }
+body.jb-v2 [data-region="role"] .case .case__stamp { margin-top: 12px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); text-wrap: pretty; }
+/* The freshness stamp closes the record: how old the read is belongs with what
+   has happened, not floating under the lede. */
+body.jb-v2 [data-region="role"] .case .case__stamp--fresh { margin-top: 14px; padding-top: 10px; border-top: 1px dashed var(--border); }
+body.jb-v2 [data-region="role"] .case .case__tp { list-style: none; margin: 0; padding: 0; }
+body.jb-v2 [data-region="role"] .case .case__tp li { display: grid; grid-template-columns: 26px 1fr; gap: 8px; padding: 8px 0; border-bottom: 1px dotted var(--border-strong); font-family: var(--serif); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
+body.jb-v2 [data-region="role"] .case .case__tp li:last-child { border-bottom: none; }
+body.jb-v2 [data-region="role"] .case .case__idx { font-family: var(--mono); font-size: 10px; color: var(--crimson); letter-spacing: 0.1em; padding-top: 2px; }
+/* --- Materials rows (plan Task 9) ---------------------------------------
+   role-materials.js renders its section into [data-mount="materials"]; these
+   rules strip the legacy panel's chrome so only the rows read, and the panel
+   itself is untouched for the brief-only fallback. */
+body.jb-v2 [data-region="role"] .case .brief-materials--rows { display: block; margin: 0; padding: 0; background: none; border: none; box-shadow: none; }
+/* THE fix (SPEC §3.4). The shipped row was `minmax(0, 1fr) auto auto` — name,
+   pill, buttons on one line — and both `auto` tracks were nowrap text, so
+   their min-content width WAS their full width: 309 of a 323px row, leaving
+   the name track 12.3px and "Cover letter" shredded over nine lines
+   (TEARDOWN §1–2). Three rows of areas mean the buttons and the label never
+   share a line, so no content-sized track can take the label's width, and
+   the name track carries an 8rem floor rather than a zero one. */
+body.jb-v2 [data-region="role"] .case .case__doc { display: grid; grid-template-columns: minmax(8rem, 1fr) auto; grid-template-areas: "name state" "meta meta" "acts acts"; gap: 5px 12px; padding: 11px 13px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; margin-bottom: 8px; }
+body.jb-v2 [data-region="role"] .case .case__doc:last-child { margin-bottom: 0; }
+body.jb-v2 [data-region="role"] .case .case__doc--drafting { border-color: var(--amber); background: rgba(231, 181, 73, 0.07); }
+body.jb-v2 [data-region="role"] .case .case__doc--failed { border-color: rgba(178, 58, 72, 0.45); }
+/* No `overflow-wrap: anywhere`. A label that cannot fit must widen its row or
+   wrap on a word boundary; breaking mid-word is not graceful degradation, it
+   is the tell that the layout has already failed — and allowing it is what
+   hid the failure from every automated check. */
+body.jb-v2 [data-region="role"] .case .case__doc-n { grid-area: name; min-width: 0; font-family: var(--serif); font-size: 13.5px; line-height: 1.3; color: var(--ink); }
+body.jb-v2 [data-region="role"] .case .case__doc-meta { grid-area: meta; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.06em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__doc-progress { display: block; }
+body.jb-v2 [data-region="role"] .case .case__doc-eyebrow { display: block; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--case-amber-deep); }
+body.jb-v2 [data-region="role"] .case .case__doc-msg { display: block; margin-top: 3px; font-family: var(--serif); font-style: italic; font-size: 13px; letter-spacing: 0; text-transform: none; color: var(--ink-soft); }
+body.jb-v2 [data-region="role"] .case .case__doc-track { display: block; height: 3px; margin-top: 8px; border-radius: 2px; background: rgba(231, 181, 73, 0.25); overflow: hidden; }
+body.jb-v2 [data-region="role"] .case .case__doc-track i { display: block; width: 40%; height: 100%; border-radius: 2px; background: var(--amber); animation: case-indeterminate 1.6s ease-in-out infinite; }
+@keyframes case-indeterminate { 0% { transform: translateX(-100%); } 100% { transform: translateX(250%); } }
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="role"] .case .case__doc-track i { animation: none; }
+}
+/* One word, and the state is in the text as well as the tint (SPEC §8.3). */
+body.jb-v2 [data-region="role"] .case .case__docst { grid-area: state; align-self: start; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; padding: 3px 8px; border-radius: 3px; white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__docst--ready { background: rgba(110, 159, 135, 0.18); color: var(--mint-deep); }
+body.jb-v2 [data-region="role"] .case .case__docst--drafting,
+body.jb-v2 [data-region="role"] .case .case__docst--queued { background: rgba(231, 181, 73, 0.18); color: var(--case-amber-deep); }
+body.jb-v2 [data-region="role"] .case .case__docst--failed { background: rgba(178, 58, 72, 0.12); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__docst--missing { background: transparent; border: 1px dashed var(--border-strong); color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__doc-actions { grid-area: acts; display: flex; flex-wrap: wrap; gap: 8px; align-items: center; margin-top: 3px; }
+body.jb-v2 [data-region="role"] .case .case__doc-btn { display: inline-flex; align-items: center; min-height: 28px; border: 1px solid var(--border-strong); border-radius: 999px; background: transparent; cursor: pointer; padding: 5px 11px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.12em; text-transform: uppercase; color: var(--ink-soft); text-decoration: none; white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__doc-btn--primary { border-color: var(--navy); color: var(--navy); }
+body.jb-v2 [data-region="role"] .case .case__doc-btn:hover { border-color: var(--crimson); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__doc + .case__hint,
+body.jb-v2 [data-region="role"] .case .brief-materials--rows .case__hint { margin: 0; }
+
+/* A ledger row puts its label ABOVE its value, so the value gets the row's
+   whole width. A nowrap mono label beside a `width: 60%` input is what
+   truncated a 31-character contact name in the shipped dossier
+   (TEARDOWN §7). */
+body.jb-v2 [data-region="role"] .case .case__rows { margin: 0; }
+body.jb-v2 [data-region="role"] .case .case__row { display: grid; gap: 3px; padding: 9px 0; border-bottom: 1px dotted var(--border-strong); }
+body.jb-v2 [data-region="role"] .case .case__row:last-child { border-bottom: none; }
+body.jb-v2 [data-region="role"] .case .case__row dd { margin: 0; min-width: 0; }
+body.jb-v2 [data-region="role"] .case .case__k { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__v { font-family: var(--serif); font-size: 15px; color: var(--navy); font-weight: 500; }
+body.jb-v2 [data-region="role"] .case .case__v--edit { appearance: none; border: none; border-bottom: 1px dashed transparent; background: transparent; outline: none; padding: 2px 4px; min-width: 0; width: 100%; font: inherit; color: inherit; }
+body.jb-v2 [data-region="role"] .case .case__v--edit:hover { border-bottom-color: var(--border-strong); }
+body.jb-v2 [data-region="role"] .case .case__v--edit:focus { border-bottom-color: var(--crimson); }
+/* People (spec §5): one native block. The next move is a sentence, not a
+   form field — a mono crimson eyebrow at the .case__sub scale, then the move
+   itself in the serif italic the Case uses for everything it is quoting back
+   at you. Everything below is a quiet ledger row; no card, no shadow. */
+body.jb-v2 [data-region="role"] .case .case__move { display: block; margin: 0 0 14px; padding: 11px 13px; background: var(--parchment-deep); border-radius: 8px; }
+body.jb-v2 [data-region="role"] .case .case__move-k { display: block; margin-bottom: 4px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__move-v { font-family: var(--serif); font-style: italic; font-size: 15px; line-height: 1.5; color: var(--navy); text-wrap: pretty; }
+/* Replied: three chips in a row, the active one filled. 28px tall so the row
+   stays a ledger line; the ::after stretches the hit area to the 44px the
+   a11y floor asks for without growing the chip. */
+body.jb-v2 [data-region="role"] .case .case__seg { display: inline-flex; gap: 4px; }
+body.jb-v2 [data-region="role"] .case .case__seg-b { position: relative; min-height: 28px; padding: 0 10px; border: 1px solid var(--border-strong); border-radius: 3px; background: transparent; cursor: pointer; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__seg-b::after { content: ""; position: absolute; inset: -8px 0; min-height: 44px; }
+body.jb-v2 [data-region="role"] .case .case__seg-b--on { background: var(--navy); border-color: var(--navy); color: var(--parchment); }
+body.jb-v2 [data-region="role"] .case .case__seg-b:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
+/* The write landed. Mono mint, right edge of the row, gone in 1.6s. */
+body.jb-v2 [data-region="role"] .case .case__saved { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--case-mint-on-light); white-space: nowrap; }
+body.jb-v2 [data-region="role"] .case .case__saved--on { animation: case-saved 1.6s ease-out forwards; }
+@keyframes case-saved { 0%, 55% { opacity: 1; } 100% { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="role"] .case .case__saved--on { animation: none; }
+}
+body.jb-v2 [data-region="role"] .case .case__notes { margin: 0; padding: 20px 18px 14px; background: var(--parchment-deep); border: 1px solid var(--border); border-radius: 10px; position: relative; }
+body.jb-v2 [data-region="role"] .case .case__notes::before { content: "NOTES · YOURS"; position: absolute; top: -9px; left: 16px; background: var(--parchment); padding: 0 8px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.2em; color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__notes textarea { width: 100%; min-height: 96px; border: none; border-bottom: 1px dashed var(--border-strong); background: transparent; padding: 8px 4px; font-family: "Special Elite", var(--mono); font-size: 14px; line-height: 1.65; color: var(--ink); resize: vertical; outline: none; }
+body.jb-v2 [data-region="role"] .case .case__notes textarea:focus { border-bottom-color: var(--crimson); }
+/* A timeline MUST NOT be laid out on an axis whose track count comes from
+   data (SPEC §3.5). The shipped record was `grid-auto-flow: column` with
+   `grid-auto-columns: minmax(0, 1fr)`, so it divided a fixed width by N and
+   every event added narrowed all of them — the same no-floor pattern as the
+   materials row, waiting for the event list to grow. One row per event, with
+   the rail drawn per event rather than across the row. */
+body.jb-v2 [data-region="role"] .case .case__events { display: grid; gap: 0; position: relative; }
+body.jb-v2 [data-region="role"] .case .case__ev { display: grid; grid-template-columns: 1rem minmax(0, 1fr); gap: 4px 11px; padding: 9px 0; position: relative; }
+body.jb-v2 [data-region="role"] .case .case__ev:not(:last-child)::before { content: ""; position: absolute; left: 0.44rem; top: 20px; bottom: -2px; width: 1px; background: var(--border-strong); }
+body.jb-v2 [data-region="role"] .case .case__ev-dot { width: 11px; height: 11px; margin-top: 5px; border-radius: 50%; background: var(--navy); box-shadow: 0 0 0 3px var(--parchment); position: relative; z-index: 1; }
+body.jb-v2 [data-region="role"] .case .case__ev--future .case__ev-dot { background: var(--parchment); box-shadow: 0 0 0 1px var(--border-strong), 0 0 0 3px var(--parchment); }
+body.jb-v2 [data-region="role"] .case .case__ev--due .case__ev-dot { background: var(--amber); }
+body.jb-v2 [data-region="role"] .case .case__ev-d { grid-column: 2; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__ev-t { grid-column: 2; font-family: var(--serif); font-size: 14px; line-height: 1.4; color: var(--ink); }
+body.jb-v2 [data-region="role"] .case .case__ev-t small { display: block; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.08em; color: var(--mute); margin-top: 3px; text-transform: uppercase; }
+body.jb-v2 [data-region="role"] .case .case__ev--future .case__ev-t { color: var(--mute); font-style: italic; }
+body.jb-v2 [data-region="role"] .case .case__skeleton { display: grid; gap: 8px; }
+/* The one line the loading skeleton reads out (role="status" above) and shows.
+   It sits above the shimmer rows, in the lane's own sub-head voice. */
+body.jb-v2 [data-region="role"] .case .case__skeleton-status { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__shimmer { display: block; height: 12px; border-radius: 3px; background: linear-gradient(90deg, rgba(165, 207, 184, 0.10) 0%, rgba(165, 207, 184, 0.32) 38%, rgba(255, 247, 230, 0.55) 50%, rgba(165, 207, 184, 0.32) 62%, rgba(165, 207, 184, 0.10) 100%), var(--parchment-deep); background-size: 220% 100%, 100% 100%; animation: case-shimmer 1.8s ease-in-out infinite; }
+body.jb-v2 [data-region="role"] .case .case__shimmer--short { width: 65%; }
+@keyframes case-shimmer { 0% { background-position: 120% 0, 0 0; } 100% { background-position: -120% 0, 0 0; } }
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="role"] .case .case__shimmer { animation: none; }
+}
+/* Last resort for the ledger: below 15rem the host is a phone in portrait, so
+   the materials row gives up its two-up head rather than crush it (SPEC §7). */
+@container ledger (inline-size < 15rem) {
+  body.jb-v2 [data-region="role"] .case .case__doc { grid-template-columns: minmax(0, 1fr); grid-template-areas: "name" "state" "meta" "acts"; }
+  body.jb-v2 [data-region="role"] .case .case__docst { justify-self: start; }
+}
+/* And for the canvas: the score bar's label moves above its bar rather than
+   taking width the bar needs. */
+@container canvas (inline-size < 20rem) {
+  body.jb-v2 [data-region="role"] .case .case__dim { grid-template-columns: minmax(0, 1fr) 2.25rem; }
+  body.jb-v2 [data-region="role"] .case .case__dim > span:first-child { grid-column: 1 / -1; }
+}
+
+/* ============================================================
+   Polish pass P3 (spec docs/superpowers/specs/2026-09-02-case-polish-design.md)
+   Every rule below is scoped under body.jb-v2 [data-region="role"] .case:
+   a single-class rule (0,1,0) loses to jb-v2's `body.jb-v2 h3 / p` (0,1,1)
+   and silently never applies.
+   ============================================================ */
+
+/* P1-1: the dossier had zero headings, so H-key navigation and the rotor
+   returned an empty list. The identity heading is the masthead's own title
+   block; the spoken name inside it is clipped, not display:none, or assistive
+   tech drops it too. The section titles are h3s and need their v2 heading
+   margin cleared. */
+body.jb-v2 [data-region="role"] .case .case__vh,
+body.jb-v2 [data-region="role"] .case .case__st--vh { position: absolute; width: 1px; height: 1px; margin: -1px; padding: 0; overflow: hidden; clip: rect(0 0 0 0); clip-path: inset(50%); white-space: nowrap; border: 0; }
+body.jb-v2 [data-region="role"] .case h3.case__section-title { margin: 0; }
+
+/* P1-0c applied: every mint that lands on a light Case ground. */
+body.jb-v2 [data-region="role"] .case .case__from { color: var(--case-mint-on-light); }
+body.jb-v2 [data-region="role"] .case .case__src--derived { border-color: var(--case-mint-on-light); color: var(--case-mint-on-light); }
+body.jb-v2 [data-region="role"] .case .case__docst--ready { color: var(--case-mint-on-light); }
+body.jb-v2 [data-region="role"] .case .case__bar i { background: var(--case-mint-on-light); }
+
+/* P1-0f (second half): `.case__gap:last-of-type` never matches when a
+   scorecard is present, so a stray dotted rule hung above "Scorecard
+   dimensions". Sibling handling drops the border off the last gap in the run
+   regardless of what follows it. */
+body.jb-v2 [data-region="role"] .case .case__gap:not(:has(+ .case__gap)) { border-bottom: none; padding-bottom: 0; }
+
+/* P1-0g: "View posting" was the only pill with no hover, and the clickable
+   Keywords tile was visually identical to the four static tiles beside it. */
+body.jb-v2 [data-region="role"] .case .case__cta:hover { border-color: var(--amber); color: var(--amber); }
+body.jb-v2 [data-region="role"] .case .case__cta:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; }
+body.jb-v2 [data-region="role"] .case .case__num--btn:hover { background: var(--parchment-deep); }
+body.jb-v2 [data-region="role"] .case .case__num--btn:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+
+/* P1-5: `outline: none` at (0,4,1) beats the app's :focus-visible rule, so a
+   1px dashed underline was the only focus signal on these surfaces — under
+   the SC 2.4.11 threshold, and nearly invisible on the navy rail. */
+body.jb-v2 [data-region="role"] .case .case__title:focus-visible,
+body.jb-v2 [data-region="role"] .case .case__company:focus-visible,
+body.jb-v2 [data-region="role"] .case .case__fact-input:focus-visible { outline: 2px solid var(--amber); outline-offset: 2px; border-radius: 2px; }
+body.jb-v2 [data-region="role"] .case .case__v--edit:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; border-radius: 2px; }
+body.jb-v2 [data-region="role"] .case .case__notes textarea:focus-visible { outline: 2px solid var(--navy); outline-offset: -2px; }
+
+/* P1-6: hit targets below the floor — stepper steps ~21px tall, rail fact
+   inputs ~14px, doc actions ~70x21 and 6px apart (failing even the AA 24px
+   spacing exception). The ::after inset pattern is the one the Replied chips
+   already use: the target grows, the ink does not move. */
+body.jb-v2 [data-region="role"] .case .case__step { position: relative; }
+body.jb-v2 [data-region="role"] .case .case__step::after { content: ""; position: absolute; inset: -6px -4px; }
+body.jb-v2 [data-region="role"] .case .case__fact-input { min-height: 24px; }
+/* The doc actions are 28px chips in a 320px ledger, so the target grows
+   without moving the ink (AA 2.5.8), and the row's 8px gap satisfies the
+   24px spacing exception. */
+body.jb-v2 [data-region="role"] .case .case__doc-btn { position: relative; }
+body.jb-v2 [data-region="role"] .case .case__doc-btn::after { content: ""; position: absolute; inset: -8px -2px; }

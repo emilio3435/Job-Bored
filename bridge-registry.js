@@ -480,6 +480,7 @@
     app.core = app.core || {};
     app.core.host = {
       showToast: host.showToast,
+      openDiscoveryDrawer: host.openDiscoveryDrawer,
       escapeHtml(...args) {
         return app.utils.escapeHtml(...args);
       },
@@ -697,6 +698,16 @@
       setSHEET_ID: host.setSHEET_ID,
       getPipelineData: host.getPipelineData,
       setPipelineData: host.setPipelineData,
+      /* A card's data-stable-key is its index in the loaded pipeline array
+         (pipeline-render.js). The Case model resolves the raw job from the
+         key the dossier was opened with; every other consumer already had a
+         job object in hand, so this is the first accessor for it. */
+      getJobByStableKey(stableKey) {
+        const index = Number(stableKey);
+        if (!Number.isInteger(index) || index < 0) return null;
+        const jobs = host.getPipelineData();
+        return (Array.isArray(jobs) && jobs[index]) || null;
+      },
       getPipelineRawRows: host.getPipelineRawRows,
       setPipelineRawRows: host.setPipelineRawRows,
       getAccessToken: host.getAccessToken,

@@ -489,6 +489,10 @@
             ? String(row[18]).trim()
             : null,
         logoUrl: row[19] ? String(row[19]).trim() : null,
+        matchScore:
+          row[20] != null && String(row[20]).trim() !== "" && Number.isFinite(Number(row[20]))
+            ? Number(row[20])
+            : null,
         favorite: row[21] === "★",
         dismissedAt: row[22] ? String(row[22]).trim() || null : null,
         _editLock: row[24] != null ? String(row[24]).trim() : "",

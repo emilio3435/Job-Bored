@@ -563,15 +563,55 @@
     "payoff",
   ]);
 
+  /**
+   * The only beat-local drafts the flow persists (SIXBEATS2 locked
+   * decision 4). A closed list, not a bag: the acceptance rerun's B2 key
+   * text and B3 resume both wanted somewhere to live, and only one of
+   * them may ever touch disk — an unverified provider key is a secret,
+   * a half-typed resume is not.
+   */
+  const ONBOARDING_FLOW_DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft"]);
+
+  /** A resume pasted in full, with room to spare — not a whole document. */
+  const ONBOARDING_FLOW_DRAFT_TEXT_MAX = 100000;
+
   const DEFAULT_ONBOARDING_FLOW_STATE = {
     version: ONBOARDING_FLOW_STATE_VERSION,
     // "" is screen S0 — the demo board, before any beat opens.
     beat: "",
     completedBeats: [],
     skipped: {},
+    drafts: {},
     startedAt: "",
     completed: false,
   };
+
+  /**
+   * Beat-local drafts (spec §3.2): text stays text, structured drafts are
+   * stored as DATA — a JSON round-trip, never a live reference the beat
+   * can keep mutating after the write. An unknown key is dropped rather
+   * than persisted, so a beat cannot turn this into a credential store.
+   */
+  function normalizeOnboardingFlowDrafts(raw) {
+    const o = raw && typeof raw === "object" ? raw : {};
+    const drafts = {};
+    for (const key of ONBOARDING_FLOW_DRAFT_KEYS) {
+      const value = o[key];
+      if (value == null) continue;
+      if (typeof value === "object") {
+        try {
+          drafts[key] = JSON.parse(JSON.stringify(value));
+        } catch (_e) {
+          // A draft that will not serialize is a draft we cannot restore.
+        }
+        continue;
+      }
+      // "" means the user cleared the field: no draft, not an empty one.
+      const text = String(value).slice(0, ONBOARDING_FLOW_DRAFT_TEXT_MAX);
+      if (text) drafts[key] = text;
+    }
+    return drafts;
+  }
 
   function normalizeOnboardingFlowState(raw) {
     const o = raw && typeof raw === "object" ? raw : {};
@@ -598,6 +638,7 @@
           )]
         : [],
       skipped,
+      drafts: normalizeOnboardingFlowDrafts(o.drafts),
       startedAt: normalizeWizardText(o.startedAt, ""),
       completed: !!o.completed,
     };
@@ -606,7 +647,12 @@
   async function getOnboardingFlowState() {
     const s = await getSetting("onboardingFlowState");
     if (!s || typeof s !== "object") {
-      return { ...DEFAULT_ONBOARDING_FLOW_STATE, skipped: {}, completedBeats: [] };
+      return {
+        ...DEFAULT_ONBOARDING_FLOW_STATE,
+        skipped: {},
+        drafts: {},
+        completedBeats: [],
+      };
     }
     return normalizeOnboardingFlowState({
       ...DEFAULT_ONBOARDING_FLOW_STATE,
@@ -623,6 +669,9 @@
       // Merge the skip map rather than replacing it: B5 writes one key and
       // must not erase a skip another beat recorded.
       skipped: { ...cur.skipped, ...(patch.skipped || {}) },
+      // Same for drafts: a debounced B3 write naming only resumeText must
+      // not drop the profile draft B4 is about to confirm.
+      drafts: { ...cur.drafts, ...(patch.drafts || {}) },
     });
     await setSetting("onboardingFlowState", next);
     return next;
@@ -632,6 +681,7 @@
     const fresh = {
       ...DEFAULT_ONBOARDING_FLOW_STATE,
       skipped: {},
+      drafts: {},
       completedBeats: [],
     };
     await setSetting("onboardingFlowState", fresh);
@@ -1377,6 +1427,7 @@
     clearOnboardingFlowState,
     DEFAULT_ONBOARDING_FLOW_STATE,
     ONBOARDING_FLOW_BEATS,
+    ONBOARDING_FLOW_DRAFT_KEYS,
     normalizeOnboardingFlowState,
     getAgentSetupDismissed,
     setAgentSetupDismissed,

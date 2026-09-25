@@ -106,6 +106,7 @@ export default [
       // Scratch dir: gitignored going forward, but one stale file is still
       // tracked from before the ignore rule — don't lint throwaways.
       "tmp/**",
+      ".lane-evidence/**",
     ],
   },
   {
@@ -177,8 +178,9 @@ export default [
   {
     // Playwright specs run snippets INSIDE the browser via page.evaluate —
     // window/document/getComputedStyle are real there even though the file
-    // itself executes under Node.
-    files: ["tests/e2e-smoke/**/*.mjs"],
+    // itself executes under Node. The dossier layout audit scripts under
+    // docs/redesign/ drive Playwright the same way.
+    files: ["tests/e2e-smoke/**/*.mjs", "docs/redesign/**/audit/*.mjs"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",

@@ -81,7 +81,7 @@ package.json                      (typecheck:repo includes new files)
 - **Slug constraint:** `/^[a-z0-9][a-z0-9-]{0,127}$/`. Enforced in both the Python script and `normalizeRequestBody`. Any path traversal attempt is rejected before spawn.
 - **No shell interpolation.** `spawnMaterialsRequest` uses `child_process.spawn(bin, args)`; quotes, semicolons, `$(...)` etc. in notes/company/title are forwarded as plain argv. Verified by `tests/materials-request-endpoint.test.mjs:"forwards exact args to the script as argv"`.
 - **Legacy letter.js and role-workshop.js stay on disk.** They're no longer loaded by `index.html`, but the files remain so the older root tests that import them still pass. Don't delete them without checking `tests/role-workshop.test.*`.
-- **`openDraftNotesModal` still exists in `app.js`.** It's wired by `app.js`'s `forEach` only to legacy *drawer* buttons that exist at script-load time (lines 13300–13312). The dossier brief CTAs (rendered dynamically by `role-brief.js`) are not caught by that wiring — confirmed by grep. Don't try to "clean up" that path during this work unless asked.
+- **`openDraftNotesModal` still exists in `app.js`.** It's wired by `app.js`'s `forEach` only to legacy *drawer* buttons that exist at script-load time (lines 13300–13312). The dossier CTAs (rendered dynamically — by `role-brief.js` when this was written, by `role-case.js` + `role-materials.js` since the 2026-09-02 Case cutover) are not caught by that wiring — confirmed by grep. Don't try to "clean up" that path during this work unless asked.
 
 ---
 

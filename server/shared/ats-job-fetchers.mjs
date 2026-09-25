@@ -5,6 +5,7 @@
  */
 import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
+import { htmlToText } from "./text-normalize.mjs";
 
 const ATS_TIMEOUT_MS = 12000;
 const BROWSER_UA =
@@ -1182,30 +1183,7 @@ async function fetchJson(url, fetchImpl) {
 /** @param {unknown} html */
 function stripHtml(html) {
   if (!html || typeof html !== "string") return "";
-  // Greenhouse (and some Workday payloads) entity-encode the HTML. Decode
-  // first or tag stripping never sees a real "<".
-  const decoded = html
-    .replace(/&nbsp;/gi, " ")
-    .replace(/&#(\d+);/g, (_, code) => String.fromCharCode(Number(code)))
-    .replace(/&#x([0-9a-f]+);/gi, (_, code) =>
-      String.fromCharCode(Number.parseInt(code, 16)),
-    )
-    .replace(/&lt;/gi, "<")
-    .replace(/&gt;/gi, ">")
-    .replace(/&quot;/gi, '"')
-    .replace(/&#39;|&apos;/gi, "'")
-    .replace(/&amp;/gi, "&");
-  return decoded
-    .replace(/<script[\s\S]*?<\/script>/gi, " ")
-    .replace(/<style[\s\S]*?<\/style>/gi, " ")
-    .replace(/<br\s*\/?>/gi, "\n")
-    .replace(/<\/(p|div|h\d|li|ul|ol)>/gi, "\n")
-    .replace(/<li[^>]*>/gi, "• ")
-    .replace(/<[^>]+>/g, " ")
-    .replace(/\s+\n/g, "\n")
-    .replace(/\n{3,}/g, "\n\n")
-    .replace(/[ \t]{2,}/g, " ")
-    .trim();
+  return htmlToText(html);
 }
 
 /** @param {Record<string, unknown> | null} record @param {string} key */

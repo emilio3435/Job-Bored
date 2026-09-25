@@ -7,7 +7,7 @@ Project-specific terms in JobBored. The team gives modules themed names; this pa
 - **Command Center** — the product name in code (`window.COMMAND_CENTER_CONFIG`, event names like `command-center.discovery`). The user-facing name is **JobBored**.
 - **Pipeline** — the canonical Google Sheet tab with one row per job. Column letters and enums are defined in `schemas/pipeline-row.v1.json`.
 - **Daily Brief** — the read-only summary at the top of the dashboard with follow-ups, "waiting on", and stuck applications. Implemented by `dawn.js` / `dawn-data.js`.
-- **Dossier** — the expanded "PART 03" surface for a single role, owned by `role.js` + `role-brief.js` + `role-materials.js`. Replaces the older Workshop / Letter columns.
+- **Dossier** — the expanded "PART 03" surface for a single role, owned by `role.js` + `role-case-model.js` + `role-case.js` + `role-materials.js`. Its layout is **The Case** (status rail, stage stepper, numbers band, evidence board, live materials, dated record). Replaces the older Workshop / Letter columns and the editorial Brief.
 - **Materials** — Hermes-generated resume + cover-letter artifacts under `~/.hermes/job-hunt/applications/<slug>/`. Surfaced by `role-materials.js` and `materials-queue.js`.
 - **Welcome / Onboarding** — the 9-step paced first-run flow, implemented by `welcome.js`. Separate from "agent setup".
 - **Discovery drawer** — the side drawer with **Search**, **Sources**, **Automation**, **Connection**, **History** sub-tabs. Implemented by `discovery-wizard-*.js`.
@@ -21,7 +21,7 @@ These names are intentional — finding `dawn.js` tells you it's the daily brief
 | **Dawn** | Daily Brief renderer + data adapter | `dawn.js`, `dawn-data.js`, `dawn.css` |
 | **Lattice** | Kanban-style v2 pipeline | `lattice.js`, `lattice.css`, `LATTICE.md` |
 | **Pipeline** (P2.C) | Horizontal sticker board v2 | `pipeline.js`, `pipeline.css` |
-| **Dossier (PART 03)** | Expanded role view | `role.js`, `role-brief.js`, `role-materials.js`, `role.css` |
+| **Dossier (PART 03)** | Expanded role view (The Case) | `role.js`, `role-case-model.js`, `role-case.js`, `role-materials.js`, `role-case.css`, `role.css` |
 | **Scribe** | ATS + cover-letter workspace (v2 Phase 3) | `scribe.js`, `scribe.css`, `SCRIBE.md` |
 | **Letter** | Letter editor + ATS scorecard | `letter.js`, `letter.css` |
 | **Flowing chrome** | Sticky top page chrome + scroll-spy | `flowing-chrome.js`, `flowing-chrome.css` |

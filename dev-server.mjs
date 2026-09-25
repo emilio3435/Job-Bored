@@ -1,10 +1,10 @@
 import { createServer as createHttpServer, request as httpRequest } from "node:http";
 import { createServer as createHttpsServer } from "node:https";
 import { readFile } from "node:fs/promises";
-import { join, extname, resolve as resolvePath } from "node:path";
+import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 import {
@@ -14,6 +14,10 @@ import {
   resolvePublicFile,
 } from "./scripts/lib/static-path-guard.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
+import {
+  mergeEnvFileValues,
+  parseEnvFileText,
+} from "./scripts/lib/env-file-merge.mjs";
 import {
   detectTailscale,
   deriveTailnetDashboardUrl,
@@ -26,6 +30,7 @@ import {
 import {
   authorizeLocalControlRequest,
   buildLocalControlCorsHeaders,
+  isLoopbackPeer,
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
 import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
@@ -38,6 +43,20 @@ const TLS_KEY_PATH = join(TLS_CACHE_DIR, "localhost-key.pem");
 const TLS_CERT_SUBJECT = "/CN=localhost";
 const TLS_CERT_SAN = "subjectAltName=DNS:localhost,IP:127.0.0.1";
 const DEFAULT_DISCOVERY_WORKER_PORT = 8644;
+// The local API (server/index.mjs) that owns /profile. On a fresh install
+// `jobBoredApiUrl` is empty, so the browser resolves /profile same-origin
+// against THIS static host — the dashboard proxies those calls onward so a
+// stranger never has to configure a URL (SIXBEATS claim C3).
+const DEFAULT_PROFILE_API_PORT = 3847;
+const PROFILE_PROXY_METHODS = new Set(["GET", "POST", "PUT"]);
+// /profile/from-resume is LLM-backed and can think for tens of seconds; the
+// 3s cap the /__proxy status probes use would abort a live save.
+const PROFILE_PROXY_TIMEOUT_MS = 120000;
+// Everything else about the browser's request is either hop-by-hop or a
+// credential we refuse to relay. Origin in particular must NOT go upstream:
+// the API allowlists http://localhost:8080, so a dashboard on any other port
+// would be 403'd by its own origin check.
+const PROFILE_FORWARDED_REQUEST_HEADERS = ["content-type", "content-length", "accept"];
 const TAILSCALE_SERVE_PORTS = new Set([DEFAULT_PORT, DEFAULT_DISCOVERY_WORKER_PORT]);
 const EXPECTED_DISCOVERY_WORKER_SERVICE = "browser-use-discovery-worker";
 const DISCOVERY_WORKER_SCRIPT = join(
@@ -165,6 +184,114 @@ function proxyRequest(target, req, res) {
     res.end(JSON.stringify({ error: "upstream_timeout" }));
   });
   upstream.end();
+}
+
+/**
+ * Port of the local API that serves /profile. `JOBBORED_API_PORT` mirrors the
+ * `PORT` server/index.mjs itself reads (this process already owns `PORT` for
+ * its own listen port), and anything unparseable falls back to the default
+ * rather than failing the dashboard's boot.
+ */
+export function resolveProfileApiPort() {
+  const raw = String(process.env.JOBBORED_API_PORT || "").trim();
+  const port = Number.parseInt(raw, 10);
+  return Number.isInteger(port) && port > 0 && port < 65536
+    ? port
+    : DEFAULT_PROFILE_API_PORT;
+}
+
+function isProfileApiPath(pathname) {
+  return pathname === "/profile" || pathname.startsWith("/profile/");
+}
+
+/**
+ * Authorization for the profile proxy: the /__proxy/* posture, plus the one
+ * case that posture cannot see.
+ *
+ * Every static response from this server carries `Referrer-Policy:
+ * no-referrer`, so Beat 6's same-origin `fetch("/profile")` arrives with
+ * neither Origin (browsers omit it on same-origin GETs) nor the Referer the
+ * shared guard falls back to — it would be 403'd by our own hardening.
+ * `Sec-Fetch-Site: same-origin` is what is left, and it is enough: it is a
+ * forbidden header name, so no page script can forge it, and a tab at
+ * https://evil.example gets `cross-site` from its own browser. A bare client
+ * that sends none of the three (curl) stays unauthorized.
+ */
+function isSameOriginProfileRequest(req) {
+  if (isLocalOrigin(req)) return true;
+  if (!isLoopbackPeer(req && req.socket ? req.socket.remoteAddress : "")) {
+    return false;
+  }
+  const headers = (req && req.headers) || {};
+  return (
+    String(headers["sec-fetch-site"] || "")
+      .trim()
+      .toLowerCase() === "same-origin"
+  );
+}
+
+function profilePreflightHeaders(req) {
+  return buildLocalControlCorsHeaders(req, {
+    "access-control-allow-methods": "GET, POST, PUT, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+  });
+}
+
+function profileUpstreamHeaders(req) {
+  const source = (req && req.headers) || {};
+  const headers = {};
+  for (const name of PROFILE_FORWARDED_REQUEST_HEADERS) {
+    const value = source[name];
+    if (typeof value === "string" && value) headers[name] = value;
+  }
+  return headers;
+}
+
+/**
+ * Stream /profile and /profile/* to the local API, body and status unchanged.
+ * Only the CORS headers are rewritten — the browser must see this dashboard's
+ * own origin echoed back, never `*` and never the API's idea of an origin.
+ */
+function proxyProfileRequest(req, res, path) {
+  const upstream = httpRequest(
+    {
+      hostname: "127.0.0.1",
+      port: resolveProfileApiPort(),
+      path,
+      method: req.method,
+      headers: profileUpstreamHeaders(req),
+      timeout: PROFILE_PROXY_TIMEOUT_MS,
+    },
+    (upRes) => {
+      const headers = { ...upRes.headers };
+      delete headers["transfer-encoding"];
+      delete headers["access-control-allow-origin"];
+      delete headers["access-control-allow-credentials"];
+      Object.assign(headers, buildLocalControlCorsHeaders(req));
+      res.writeHead(upRes.statusCode || 502, headers);
+      upRes.pipe(res);
+    },
+  );
+  const failClosed = (status, error) => {
+    // Once piping began the headers are already sent; writing them again
+    // throws ERR_HTTP_HEADERS_SENT and takes the whole dev stack down.
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    res.writeHead(status, jsonCorsHeaders(req));
+    res.end(JSON.stringify({ ok: false, error }));
+  };
+  upstream.on("error", () => failClosed(502, "profile_api_unreachable"));
+  upstream.on("timeout", () => {
+    upstream.destroy();
+    failClosed(504, "profile_api_timeout");
+  });
+  // A client that walks away mid-upload must not leave the upstream socket
+  // open, and an unhandled 'error' on `req` would crash the server.
+  req.on("error", () => upstream.destroy());
+  req.pipe(upstream);
 }
 
 function requestLocalJson(target, { method = "GET", body = null, timeout = 3000 } = {}) {
@@ -344,7 +471,42 @@ async function probeDiscoveryWorkerHealth(port) {
   return classifyDiscoveryWorkerHealthResponse(response, port);
 }
 
-export function buildDiscoveryWorkerEnv(port, baseEnv = process.env) {
+/**
+ * The env files the worker starter layers, in the same order. The dashboard
+ * starts the worker through this module (/__proxy/full-boot), and building
+ * the child env from process.env alone gave that worker a DIFFERENT env than
+ * `npm run dev` gives it — a credential declared only in the repo's env file
+ * was simply absent, and the worker refused every run (2026-09-02).
+ */
+export function readDiscoveryWorkerEnvFileLayers() {
+  const paths = [
+    join(ROOT, "integrations", "browser-use-discovery", ".env"),
+    join(ROOT, "server", ".env"),
+    PACKAGED_PATHS.workerEnv,
+  ].filter((path, index, all) => path && all.indexOf(path) === index);
+  const layers = [];
+  for (const path of paths) {
+    if (!existsSync(path)) continue;
+    try {
+      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
+    } catch (err) {
+      console.warn(
+        `[dev-server] could not read ${path}: ${(err && err.message) || err}`,
+      );
+    }
+  }
+  return layers;
+}
+
+export function buildDiscoveryWorkerEnv(port, baseEnv = process.env, options = {}) {
+  // Files layer first (later file wins, empties never erase), then the real
+  // process env on top: an explicit export still outranks any file. Layers
+  // are injected, never read here — this builder stays deterministic, and
+  // buildDiscoveryWorkerSpawnEnv is what supplies the real files.
+  const fileLayers = Array.isArray(options.envFileLayers)
+    ? options.envFileLayers
+    : [];
+  baseEnv = { ...mergeEnvFileValues(fileLayers), ...baseEnv };
   const fallbackGemini = [
     baseEnv.BROWSER_USE_DISCOVERY_GEMINI_API_KEY,
     baseEnv.DISCOVERY_GEMINI_API_KEY,
@@ -386,6 +548,55 @@ export function buildDiscoveryWorkerEnv(port, baseEnv = process.env) {
   return applyDiscoveryWorkerLlmAliases(env);
 }
 
+/**
+ * The env an actually-spawned worker gets: the same files the starter layers,
+ * with process.env on top. Kept separate from buildDiscoveryWorkerEnv so that
+ * builder stays pure and testable.
+ */
+/** The worker log beside its env file — the same file the keep-alive writes. */
+export function resolveDiscoveryWorkerLogPath(workerEnvPath = PACKAGED_PATHS.workerEnv) {
+  return join(dirname(String(workerEnvPath)), "logs", "worker.log");
+}
+
+/**
+ * stdio for a detached worker that keeps writing after we unref it: stdout
+ * and stderr appended to the worker log, so the worker the DASHBOARD starts
+ * leaves the same trail the starter and the keep-alive do. This spawn used
+ * `stdio: "ignore"`, and every Beat 5 save force-restarts through it — so
+ * the worker that ran a user's first discovery was the one with no output
+ * anywhere; a 46-minute scout hang left nothing on disk (2026-09-02).
+ * Returns `close()` for the parent's copies of the descriptors; the child
+ * keeps its own. If the file cannot be opened, output is ignored rather than
+ * failing the boot — an unobservable worker beats no worker.
+ */
+export function openDiscoveryWorkerLogStdio(logPath) {
+  try {
+    mkdirSync(dirname(logPath), { recursive: true });
+    const fd = openSync(logPath, "a");
+    return {
+      stdio: ["ignore", fd, fd],
+      close() {
+        try {
+          closeSync(fd);
+        } catch (_) {
+          /* already closed */
+        }
+      },
+    };
+  } catch (err) {
+    console.warn(
+      `[dev-server] worker output will not be logged (${(err && err.message) || err})`,
+    );
+    return { stdio: ["ignore", "ignore", "ignore"], close() {} };
+  }
+}
+
+export function buildDiscoveryWorkerSpawnEnv(port, baseEnv = process.env) {
+  return buildDiscoveryWorkerEnv(port, baseEnv, {
+    envFileLayers: readDiscoveryWorkerEnvFileLayers(),
+  });
+}
+
 async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
   const resolvedPort = normalizeDiscoveryWorkerPort(port);
   const before = await probeDiscoveryWorkerHealth(resolvedPort);
@@ -412,17 +623,19 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
     };
   }
 
+  const workerLog = openDiscoveryWorkerLogStdio(resolveDiscoveryWorkerLogPath());
   const child = spawn(
     process.execPath,
     ["--experimental-strip-types", DISCOVERY_WORKER_SCRIPT],
     {
       cwd: ROOT,
       detached: true,
-      stdio: "ignore",
-      env: buildDiscoveryWorkerEnv(resolvedPort),
+      stdio: workerLog.stdio,
+      env: buildDiscoveryWorkerSpawnEnv(resolvedPort),
     },
   );
   child.unref();
+  workerLog.close();
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
     await new Promise((resolve) => setTimeout(resolve, 1000));
@@ -1325,6 +1538,119 @@ async function handleDiscoveryEnvKey(req, res) {
 }
 
 /**
+ * Localhost-only: ask SerpApi whether a key is real, and what it can still do.
+ *
+ * SIXBEATS2 NEW-3. Beat 5 used to report "Google Jobs index connected" after
+ * an env write and a worker restart — neither of which ever shows the key to
+ * SerpApi, so a typo'd key produced a confident green check and a discovery
+ * engine that would find nothing. The browser cannot run this check itself:
+ * serpapi.com sends no CORS headers, and the key has no business crossing an
+ * origin it does not need to. So the check lives here, behind the same
+ * local-origin posture as its sibling proxies.
+ *
+ * Answers `{ok, plan, searchesLeft}` (SIXBEATS2-SPEC locked decision 5), and
+ * on failure a NAMED reason, because "wrong key" and "you are offline" need
+ * different next actions. Classified outcomes come back 200: the verdict is
+ * in `ok`, and the beat has to be able to read `reason` either way.
+ */
+const SERPAPI_ACCOUNT_URL = "https://serpapi.com/account.json";
+const SERPAPI_CHECK_TIMEOUT_MS = 12000;
+
+async function handleSerpApiCheck(req, res) {
+  const corsHeaders = buildLocalControlCorsHeaders(req, {
+    "content-type": "application/json",
+  });
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  let body = {};
+  try {
+    let raw = "";
+    for await (const chunk of req) raw += chunk;
+    const parsed = raw ? JSON.parse(raw) : {};
+    body =
+      parsed && typeof parsed === "object" && !Array.isArray(parsed)
+        ? parsed
+        : {};
+  } catch (_) {
+    body = {};
+  }
+  const key = String(body.key || "").trim();
+  if (!key) {
+    res.writeHead(400, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "empty_key" }));
+    return;
+  }
+
+  const ctrl = new AbortController();
+  const timer = setTimeout(() => {
+    try {
+      ctrl.abort();
+    } catch (_) {}
+  }, SERPAPI_CHECK_TIMEOUT_MS);
+  try {
+    const url = new URL(SERPAPI_ACCOUNT_URL);
+    url.searchParams.set("api_key", key);
+    const upstream = await fetch(url.toString(), {
+      headers: { accept: "application/json" },
+      signal: ctrl.signal,
+    });
+    let data = null;
+    try {
+      data = await upstream.json();
+    } catch (_) {
+      data = null;
+    }
+    // A rejected key arrives either as 401/403 or as a 200 carrying an
+    // `error` string. Trusting `upstream.ok` alone is precisely the
+    // green-on-nothing this route exists to end.
+    const rejected =
+      upstream.status === 401 ||
+      upstream.status === 403 ||
+      !!(data && typeof data === "object" && data.error);
+    if (rejected) {
+      res.writeHead(200, corsHeaders);
+      res.end(JSON.stringify({ ok: false, reason: "invalid_key" }));
+      return;
+    }
+    if (!upstream.ok || !data || typeof data !== "object") {
+      res.writeHead(200, corsHeaders);
+      res.end(
+        JSON.stringify({
+          ok: false,
+          reason: "upstream_error",
+          status: upstream.status,
+        }),
+      );
+      return;
+    }
+    const searchesLeft = [data.total_searches_left, data.plan_searches_left].find(
+      (value) => Number.isFinite(Number(value)),
+    );
+    const plan = String(data.plan_name || "").trim();
+    res.writeHead(200, corsHeaders);
+    res.end(
+      JSON.stringify({
+        ok: true,
+        ...(plan ? { plan } : {}),
+        ...(searchesLeft === undefined
+          ? {}
+          : { searchesLeft: Number(searchesLeft) }),
+      }),
+    );
+  } catch (_) {
+    // Never log the exception: an abort or a DNS failure can echo the URL,
+    // and the URL carries the key.
+    res.writeHead(200, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "unreachable" }));
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+/**
  * Localhost-only: same-origin proxy for the worker's /health. Direct browser
  * fetches to the worker die on CORS (the /health route sends no CORS
  * headers), which made the enhancements wizard report "unknown / not
@@ -2012,6 +2338,12 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       return;
     }
     const pathname = decoded.pathname;
+    if (pathname.startsWith("/__proxy/") || pathname === "/profile" || pathname.startsWith("/profile/")) {
+      // Control-plane and API-proxy requests used to be invisible in this log
+      // (only static files were logged), which hid a self-repair full-boot
+      // that restarted the dev worker (2026-09-02). Name them.
+      log(`  HTTP  ${new Date().toLocaleTimeString()} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
+    }
 
     if (pathname.startsWith("/__proxy/")) {
       if (req.method === "OPTIONS") {
@@ -2028,6 +2360,38 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
         denyNonLocalControl(res);
         return;
       }
+    }
+
+    // SIXBEATS C3: Beat 4 (POST /profile) and Beat 6 (GET /profile) resolve
+    // same-origin whenever `jobBoredApiUrl` is empty — which is every fresh
+    // install — and used to hit this static host and 404, so the server fit
+    // profile silently never persisted. Forward them to the local API with
+    // the same authorization posture as /__proxy/*: loopback peer AND an
+    // exact local-origin allowlist.
+    if (isProfileApiPath(pathname)) {
+      if (req.method === "OPTIONS") {
+        if (!isSameOriginProfileRequest(req)) {
+          denyNonLocalControl(res);
+          return;
+        }
+        res.writeHead(204, profilePreflightHeaders(req));
+        res.end();
+        return;
+      }
+      if (!isSameOriginProfileRequest(req)) {
+        denyNonLocalControl(res);
+        return;
+      }
+      if (!PROFILE_PROXY_METHODS.has(String(req.method || ""))) {
+        res.writeHead(
+          405,
+          jsonCorsHeaders(req, { allow: "GET, POST, PUT, OPTIONS" }),
+        );
+        res.end(JSON.stringify({ ok: false, error: "method_not_allowed" }));
+        return;
+      }
+      proxyProfileRequest(req, res, url.pathname + url.search);
+      return;
     }
 
     if (req.method === "POST" && pathname === "/__proxy/fix-setup") {
@@ -2140,6 +2504,17 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
         if (!res.headersSent) {
           res.writeHead(500, jsonCorsHeaders(req));
           res.end(JSON.stringify({ ok: false }));
+        }
+      });
+      return;
+    }
+
+    if (req.method === "POST" && pathname === "/__proxy/serpapi-check") {
+      handleSerpApiCheck(req, res).catch((err) => {
+        logError("  serpapi-check error:", err && err.name ? err.name : "error");
+        if (!res.headersSent) {
+          res.writeHead(500, jsonCorsHeaders(req));
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
         }
       });
       return;
@@ -2330,6 +2705,7 @@ export function startDevServer({
       const workerPort = resolveDiscoveryWorkerPort();
       log(`  Proxying /__proxy/local-health → 127.0.0.1:${workerPort}/health`);
       log(`  Proxying /__proxy/ngrok-tunnels → 127.0.0.1:4040/api/tunnels`);
+      log(`  Proxying /profile, /profile/* → 127.0.0.1:${resolveProfileApiPort()}`);
       log(`  POST /__proxy/fix-setup → one-click recovery helper`);
       log(`  POST /__proxy/start-discovery-worker → starts local discovery worker`);
       resolve(server);

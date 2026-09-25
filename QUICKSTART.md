@@ -7,7 +7,7 @@ Goal: Go from a fresh clone to a live dashboard — searching jobs, moving cards
 Success means:
 - The dashboard opens at `http://localhost:8080`.
 - Your `Pipeline` Sheet rows render as cards you can move between stages.
-- "Tailor resume" produces a draft using OpenRouter's free model path with a free key, or a local model with no hosted AI.
+- "Tailor resume" produces a draft on the local scraper server using the model you picked at setup.
 
 Stop when: You have generated one resume draft and moved one card to a new stage.
 
@@ -29,10 +29,12 @@ recommended if you plan to set up job discovery in the wizard. (`npm run
 web-only` serves the dashboard alone.)
 
 Open `http://localhost:8080` and follow the setup flow: **Google** connects the
-Sheet you own, **AI** connects the provider that powers personal results,
-**Resume** reads your experience, **Fit** lets you review what JobBored should
-look for, and **Discovery** connects the runner that fills your Pipeline; the
-flow then shows the payoff and lands on your Pipeline.
+Sheet you own, **AI** connects the provider that powers personal results
+(Gemini Flash is the recommended pin), **Resume** reads your experience, **Fit**
+lets you review what JobBored should look for, and **Discovery** connects the
+runner that fills your Pipeline; the flow then shows the payoff and lands on
+your Pipeline. Cover letters and tailored resumes run on the local scraper
+server with that setup-chosen model.
 
 Move a card between stages by dragging it or using the stage control on the card. Every change writes straight back to your Sheet — the Sheet stays the source of truth. To tailor a resume, open any card and click **Tailor resume**.
 
@@ -60,7 +62,7 @@ The tailorer sends your profile and the job posting to **one** model of your cho
 | **Bring your own key** | Highest quality or specific models | Provider `Gemini` / `OpenAI` / `Anthropic` + your API key |
 | **Webhook** | Your own server calls the model | Provider `Webhook` + your endpoint URL |
 
-OpenRouter is the first generic AI path for drafts and inline AI suggestions. Gemini is optional unless you choose it as your provider or enable Google-tool lanes such as URL Context and Grounded Search.
+Drafts run on the local scraper server with the model you picked at setup. Gemini Flash is the recommended pin; OpenRouter and Local remain generic AI paths for drafts and inline suggestions.
 
 To run fully local with **Ollama**:
 

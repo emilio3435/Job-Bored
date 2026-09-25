@@ -29,6 +29,7 @@ import {
   writeJobDescription,
   getApplicationsRoot,
   isValidSlug,
+  migrateHermesApplicationsIfNeeded,
 } from "./application-materials.mjs";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
@@ -54,6 +55,7 @@ import {
 import { migrateLegacyProfileIfPresent } from "./legacy-profile-migrator.mjs";
 import {
   analyzeResumeToProfile,
+  parseProfileProviderConfigFromBody,
   resolveResumeTextForAnalysis,
 } from "./profile-from-resume.mjs";
 import {
@@ -62,6 +64,7 @@ import {
   loadWorkerConfig,
   rescoreAllPipelineRows,
 } from "./profile-rescore-worker.mjs";
+import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -227,6 +230,9 @@ if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
     : join(import.meta.dirname || ".", "..");
   app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
 }
+
+app.get("/api/llm-config", (req, res) => handleGetLlmConfig(req, res));
+app.post("/api/llm-config", (req, res) => handlePostLlmConfig(req, res));
 
 app.post("/api/scrape-job", async (req, res) => {
   let targetUrl = "";
@@ -427,9 +433,11 @@ app.post("/profile/template/:id", (req, res) => {
  * ~/.jobbored/resume.txt — the server half of the ONE-FLOW resume dual
  * write (spec §5 B3), so the next reader sees the same resume the browser
  * has. Falls back to stored resume text (worker config,
- * ~/.jobbored/resume.txt, or legacy hermes). Runs the configured profile
- * AI provider and returns a draft v1 UserProfile for review. Does NOT save
- * the profile — the user confirms that on the next screen.
+ * ~/.jobbored/resume.txt, or legacy hermes). Runs the provider the request
+ * body names — the one the browser verified on Beat 2 — falling back to the
+ * server's env config when the body names none, and returns a draft v1
+ * UserProfile for review. Does NOT save the profile — the user confirms
+ * that on the next screen.
  *
  * 200 { ok: true, profile, source }   — got a draft profile
  * 404 { ok: false, reason: "no_resume_stored" }
@@ -449,21 +457,31 @@ app.post("/profile/from-resume", async (req, res) => {
   if (!stored) {
     return res.status(404).json({ ok: false, reason: "no_resume_stored" });
   }
+  // The provider the browser verified on Beat 2 wins over the server's env
+  // (SIXBEATS2-SPEC locked decision 3). Without this a fresh install that
+  // connected OpenRouter was answered "Missing Gemini API key" — NEW-2.
+  const requestedConfig = parseProfileProviderConfigFromBody(req.body);
   try {
-    const profile = await analyzeResumeToProfile(stored.text);
+    const profile = await analyzeResumeToProfile(
+      stored.text,
+      requestedConfig ? { config: requestedConfig } : {},
+    );
     return res.json({ ok: true, profile, source: stored.source });
   } catch (err) {
     const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
     const code = error && error.code ? String(error.code) : "";
+    // A provider with no key is the CLIENT's configuration state, not a
+    // server fault: 409, so the dashboard can route the user to the AI step
+    // instead of reporting an internal error (walkthrough 2026-09-02, step 12).
     if (code === "GEMINI_NOT_CONFIGURED") {
-      return res.status(500).json({
+      return res.status(409).json({
         ok: false,
         reason: "gemini_not_configured",
         message: errorMessage(err, "profile provider failed"),
       });
     }
     if (code === "PROFILE_PROVIDER_NOT_CONFIGURED") {
-      return res.status(500).json({
+      return res.status(409).json({
         ok: false,
         reason: "profile_provider_not_configured",
         provider: error && typeof error.provider === "string" ? error.provider : undefined,
@@ -622,8 +640,9 @@ app.post("/profile/rescore", async (req, res) => {
  *                                                is absent)
  * GET /api/applications/:slug/files/:filename → stream allowlisted file
  *
- * These endpoints only ever read from ~/.hermes/job-hunt/applications/
- * (override via HERMES_APPLICATIONS_ROOT). The allowlist + slug pattern +
+ * These endpoints only ever read from ~/.jobbored/applications/
+ * (override via JOBBORED_APPLICATIONS_ROOT; HERMES_APPLICATIONS_ROOT is
+ * a test alias). The allowlist + slug pattern +
  * realpath check in application-materials.mjs are what keep this safe.
  */
 /**
@@ -631,10 +650,15 @@ app.post("/profile/rescore", async (req, res) => {
  * @param {unknown} err
  */
 function sendAppError(res, err) {
-  const error = /** @type {{ statusCode?: unknown } | null | undefined} */ (err);
+  const error = /** @type {{ statusCode?: unknown, code?: unknown } | null | undefined} */ (err);
   const status = Number(error && error.statusCode);
   const message = errorMessage(err, "Application materials error");
-  res.status(Number.isFinite(status) ? status : 500).json({ error: message });
+  /** @type {{ error: string, code?: string }} */
+  const body = { error: message };
+  if (error && typeof error.code === "string" && error.code) {
+    body.code = error.code;
+  }
+  res.status(Number.isFinite(status) ? status : 500).json(body);
 }
 
 app.get("/api/applications", async (_req, res) => {
@@ -681,10 +705,9 @@ app.post("/api/applications/:slug/request", async (req, res) => {
   }
 });
 
-/* Converts a Review-status artifact into a concrete Hermes regeneration
- * request. The quality gate decides which document needs work; this
- * endpoint turns those issue codes into repair notes that ask Hermes to
- * expand sparse drafts or collapse overlong ones automatically. */
+/* Converts a Review-status artifact into a regeneration request on the
+ * in-process drafter FIFO. The quality gate decides which document needs
+ * work; this endpoint turns those issue codes into repair notes. */
 app.post("/api/applications/:slug/repair", async (req, res) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
@@ -866,4 +889,5 @@ app.listen(PORT, HOST, () => {
   if (!ats.configured) {
     console.warn(`[ats-scorecard] not configured: ${ats.reason}`);
   }
+  void migrateHermesApplicationsIfNeeded();
 });

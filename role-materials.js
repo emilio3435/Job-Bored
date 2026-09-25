@@ -31,6 +31,7 @@
 
   var REGION_SELECTOR = '[data-region="role"]';
   var BRIEF_SELECTOR = '[data-mount="brief"]';
+  var MATERIALS_MOUNT_SELECTOR = '[data-mount="materials"]';
   var SECTION_CLASS = "brief-materials";
 
   /* Allowlist mirrored from server/application-materials.mjs. Keep in
@@ -329,12 +330,53 @@
     return String(base || "").replace(/\/+$/, "") === getLocalMaterialsBaseUrl();
   }
 
-  function renderCard(slug, doc, base, pending, identity, quality) {
-    var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
-    var primaryFile = ALLOWED_FILES[doc.primary] || null;
+  /* Repair / Preview / Download PDF for one document. Shared by the legacy
+     panel card and the Case's compact rows so the allowlist, the inline-vs-
+     download split and the cache-busting version all live in one place;
+     `cls(kind)` supplies each host's own button classes. */
+  function docActionButtons(slug, doc, base, primaryQualityIssue, cls) {
     var preview = pickPreviewFile(doc);
     var download = pickDownloadFile(doc);
     var hasPreview = !!(preview && (ALLOWED_FILES[preview.filename] || {}).inline);
+    var typeAttr = escapeHtml(doc.type);
+    var actions = [];
+    if (primaryQualityIssue) {
+      actions.push(
+        '<button type="button" class="' + cls("primary") + '"'
+        + ' data-action="materials-repair"'
+        + ' data-feature="' + typeAttr + '"'
+        + '>Repair</button>'
+      );
+    }
+    if (hasPreview && preview) {
+      actions.push(
+        '<a class="' + cls("primary") + '"'
+        + ' href="' + escapeHtml(fileUrl(base, slug, preview.filename)) + '"'
+        + ' target="_blank" rel="noopener"'
+        + ' data-action="materials-preview"'
+        + ' data-filename="' + escapeHtml(preview.filename) + '"'
+        + '>Preview</a>'
+      );
+    }
+    if (download) {
+      actions.push(
+        '<a class="' + cls("ghost") + '"'
+        + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, {
+          download: true,
+          version: fileVersion(download),
+        })) + '"'
+        + ' download'
+        + ' data-action="materials-download"'
+        + ' data-filename="' + escapeHtml(download.filename) + '"'
+        + '>Download PDF</a>'
+      );
+    }
+    return actions;
+  }
+
+  function renderCard(slug, doc, base, pending, identity, quality) {
+    var meta = DOC_LABELS[doc.type] || { label: doc.label || doc.type, role: "support" };
+    var primaryFile = ALLOWED_FILES[doc.primary] || null;
     var formats = doc.files.map(function (f) {
       return (ALLOWED_FILES[f.filename] && ALLOWED_FILES[f.filename].format) || (f.format || "").toUpperCase();
     });
@@ -354,38 +396,9 @@
     var statusLabel = primaryQualityIssue ? "Review" : "Ready";
     var statusAttr = primaryQualityIssue ? "needs_review" : "ready";
 
-    var actions = [];
-    if (primaryQualityIssue) {
-      actions.push(
-        '<button type="button" class="brief-materials__btn brief-materials__btn--primary"'
-        + ' data-action="materials-repair"'
-        + ' data-feature="' + typeAttr + '"'
-        + '>Repair</button>'
-      );
-    }
-    if (hasPreview && preview) {
-      actions.push(
-        '<a class="brief-materials__btn brief-materials__btn--primary"'
-        + ' href="' + escapeHtml(fileUrl(base, slug, preview.filename)) + '"'
-        + ' target="_blank" rel="noopener"'
-        + ' data-action="materials-preview"'
-        + ' data-filename="' + escapeHtml(preview.filename) + '"'
-        + '>Preview</a>'
-      );
-    }
-    if (download) {
-      actions.push(
-        '<a class="brief-materials__btn brief-materials__btn--ghost"'
-        + ' href="' + escapeHtml(fileUrl(base, slug, download.filename, {
-          download: true,
-          version: fileVersion(download),
-        })) + '"'
-        + ' download'
-        + ' data-action="materials-download"'
-        + ' data-filename="' + escapeHtml(download.filename) + '"'
-        + '>Download PDF</a>'
-      );
-    }
+    var actions = docActionButtons(slug, doc, base, primaryQualityIssue, function (kind) {
+      return "brief-materials__btn brief-materials__btn--" + kind;
+    });
 
     var metaParts = [];
     var primaryFormat = formats.filter(function (f) { return f; })[0];
@@ -426,12 +439,28 @@
       + '</article>';
   }
 
+  /* Inside the Case a status line replaces the whole panel — the lane
+     heading already says "Materials". */
+  function renderCaseHint(hostEl, message, extraClass, hintClass) {
+    appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows'
+      + (extraClass ? " " + extraClass : "") + '" aria-label="Application materials">'
+      + '<p class="case__hint' + (hintClass ? " " + hintClass : "") + '">' + escapeHtml(message) + '</p>'
+      + '</section>');
+  }
+
   function renderEmpty(briefEl, options) {
     /* Empty state: a single line tag and a hint. Renders only when the
        brief is open, the role is known, and there's no matched package. */
     if (!briefEl) return;
+    lastPaint = { kind: "empty", options: options };
+    lastPaintKey = paintedRoleKey();
     removeExisting(briefEl);
     var note = options && options.note ? options.note : "";
+    if (isCaseMount(briefEl)) {
+      renderCaseHint(briefEl, note
+        || "Nothing written for this role yet \u2014 use Draft cover letter or Tailor resume above to start one.");
+      return;
+    }
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--empty" aria-label="Application materials">'
       + '<header class="brief-materials__head">'
         + '<h3 class="section-label">Application Materials</h3>'
@@ -480,6 +509,21 @@
       case "complete":       return "Done! Your files are ready.";
       case "failed":         return "Something went sideways. Open the request again to retry.";
       default:               return "Writing your " + label + "…";
+    }
+  }
+
+  /* The compact row's phase word. defaultPhaseMessage says the same thing in
+     a sentence for the progress block; this is the two-or-three word version
+     that belongs on a status line — never the raw state-machine enum. */
+  function phaseWords(phase) {
+    switch (String(phase || "").toLowerCase()) {
+      case "queued":        return "in line";
+      case "drafting":      return "writing";
+      case "rendering_pdf": return "polishing the PDFs";
+      case "verifying":     return "double-checking";
+      case "complete":      return "done";
+      case "failed":        return "couldn't finish";
+      default:              return "writing";
     }
   }
 
@@ -630,9 +674,151 @@
       + '</div>';
   }
 
+  /* The Case's [data-mount="materials"] gets compact rows; the legacy
+     [data-mount="brief"] fallback keeps the full panel. */
+  function isCaseMount(hostEl) {
+    return !!(hostEl && typeof hostEl.getAttribute === "function"
+      && hostEl.getAttribute("data-mount") === "materials");
+  }
+
+  /* The document taxonomy is the Case model's contract (spec §3), never a
+     copy: without it we degrade to the panel rather than render nothing. */
+  function caseDocTypes() {
+    var model = root.JobBoredCase && root.JobBoredCase.model;
+    return model && Array.isArray(model.CASE_DOC_TYPES) && model.CASE_DOC_TYPES.length
+      ? model.CASE_DOC_TYPES
+      : null;
+  }
+
+  function caseRowsFor(hostEl) {
+    return isCaseMount(hostEl) ? caseDocTypes() : null;
+  }
+
+  /* One row per CASE_DOC_TYPES entry — every deliverable is always listed,
+     so "not drafted yet" is as visible as "ready". */
+  function renderCaseRows(hostEl, manifest, base, defs) {
+    var docs = Array.isArray(manifest.documents) ? manifest.documents : [];
+    /* A pending block with a feature but no progress yet is the optimistic
+       "just requested" state — the legacy panel reads that as queued
+       (isQueued = phase === "queued" || !progress); the rows must too. */
+    var pending = manifest.pending && manifest.pending.feature ? manifest.pending : null;
+    var pendingFeature = pending ? String(pending.feature || "") : "";
+    var pendingProgress = pending && pending.progress ? pending.progress : null;
+    var qualityDocs = manifest.quality && manifest.quality.documents ? manifest.quality.documents : {};
+
+    var rows = defs.map(function (def) {
+      var doc = docs.filter(function (d) { return d && d.type === def.type; })[0] || null;
+      var phase = pending && pendingFeature === def.type
+        ? (pendingProgress ? (String(pendingProgress.phase || "") || "queued") : "queued")
+        : "";
+      var isPending = !!phase && !/^(complete|done|failed)$/i.test(phase);
+      var status = isPending
+        ? "drafting"
+        : (/^failed$/i.test(phase)
+          ? "failed"
+          : (doc
+            ? (String(doc.status || "").toLowerCase() === "ready" ? "ready" : "failed")
+            : "missing"));
+      var attempt = Number(pendingProgress && pendingProgress.attempt) || 1;
+      var elapsed = pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—";
+      var isQueued = /^queued$/i.test(phase);
+      /* The meta line, which owns the whole row's width (SPEC §3.4). Every
+         sentence the row has to say lands here rather than beside the label:
+         the pill carries one word, so it can never claim the name column's
+         width again. */
+      var meta = "";
+      if (status === "failed") {
+        meta = "stopped after " + elapsed + (attempt > 1 ? " · attempt " + attempt : "");
+      } else if (status === "ready") {
+        var files = doc && Array.isArray(doc.files) ? doc.files.length : 0;
+        meta = (doc && doc.lastModifiedAt ? "drafted " + String(doc.lastModifiedAt).slice(0, 10) : "drafted")
+          + (files ? " · " + files + " file" + (files === 1 ? "" : "s") : "");
+      } else if (status === "missing") {
+        /* A deliverable nothing can draft on its own says what produces it,
+           instead of offering a button that does nothing (SPEC §6 state 7). */
+        meta = def.draftAction ? "never requested" : "written with the resume";
+      }
+      /* The queue state, carried into the row: the eyebrow says what is
+         happening and for how long, the worker's own message says what it is
+         doing, and the indeterminate track says it is still alive. */
+      var progressHtml = "";
+      if (isPending) {
+        var prog = pendingProgress;
+        var eyebrow = (isQueued ? "waiting in queue" : (/^drafting$/i.test(phase) ? "drafting in progress" : phaseWords(phase)))
+          + " · " + elapsed
+          /* A retry count only above 1: "attempt 1" on every row reads as
+             "something already went wrong" (the legacy panel showed it only
+             once a run had actually been retried). */
+          + (attempt > 1 ? " · retry " + attempt : "");
+        var msg = prog && prog.message ? String(prog.message) : defaultPhaseMessage(phase, pending.feature);
+        progressHtml = '<span class="case__doc-progress" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
+          + '<span class="case__doc-eyebrow">' + escapeHtml(eyebrow) + '</span>'
+          + '<span class="case__doc-msg">' + escapeHtml(msg) + '</span>'
+          + '<span class="case__doc-track" aria-hidden="true"><i></i></span>'
+        + '</span>';
+      } else if (status === "failed") {
+        /* Same words the pill used to carry in 15 nowrap characters, in the
+           place that has room for them. */
+        var reason = pendingProgress && pendingProgress.message
+          ? String(pendingProgress.message)
+          : "The drafting worker stopped before the " + featureLabel(pendingFeature || def.type) + " was written. Nothing was saved.";
+        progressHtml = '<span class="case__doc-msg">' + escapeHtml(reason) + '</span>';
+      }
+      var quality = qualityDocs[def.type];
+      var issue = quality && Array.isArray(quality.issues) ? quality.issues[0] : null;
+      var actions = status === "ready"
+        ? docActionButtons(manifest.slug, doc, base, issue, function (kind) {
+          return "case__doc-btn case__doc-btn--" + kind;
+        })
+        : (status === "missing" && def.draftAction
+          ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="'
+            + escapeHtml(def.draftAction) + '">Draft</button>']
+          /* A failure with no way out is a dead end: the legacy panel always
+             paired FAILED with dismiss + retry, and the row must too. The
+             feature is the pending run's, which is what both handlers key on. */
+          : (status === "failed" && pendingFeature
+            ? ['<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-dismiss"'
+              + ' data-feature="' + escapeHtml(pendingFeature) + '">Dismiss</button>',
+              '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-retry"'
+              + ' data-feature="' + escapeHtml(pendingFeature) + '">Try again</button>']
+            : []));
+      /* Three areas, never one line (SPEC §3.4). The shipped row was
+         `minmax(0, 1fr) auto auto` — name, pill, buttons — and both `auto`
+         tracks were nowrap, so at a 323px lane they took 309px and the name
+         track rendered at 12.3px with "Cover letter" shredded over nine
+         lines (TEARDOWN §2). Here the buttons and the label never share a
+         line, so no content-sized track can take the label's width. */
+      var stateWord = status === "missing"
+        ? "not drafted"
+        : (isPending && isQueued ? "queued" : status);
+      var stateClass = isPending && isQueued ? "queued" : status;
+      return '<div class="case__doc case__doc--' + status + '" data-doc="' + escapeHtml(def.type) + '">'
+        + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
+        + '<span class="case__docst case__docst--' + stateClass + '" data-status="' + escapeHtml(status) + '">'
+          + escapeHtml(stateWord) + '</span>'
+        + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + '</div>'
+        + (actions.length ? '<div class="case__doc-actions">' + actions.join("") + '</div>' : "")
+      + '</div>';
+    }).join("");
+
+    appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows"'
+      + ' aria-label="Application materials" data-slug="' + escapeHtml(manifest.slug) + '">'
+      + rows
+      + '</section>');
+    wireSection(hostEl);
+    /* No per-second ticker here: the row's elapsed value is recomputed from
+       started_at on every manifest poll (3-12s), which is the right cadence
+       for a one-line status. The big panel keeps the live clock. */
+  }
+
   function renderManifest(briefEl, manifest, base) {
     if (!briefEl || !manifest) return;
     removeExisting(briefEl);
+    var caseDefs = caseRowsFor(briefEl);
+    if (caseDefs) {
+      renderCaseRows(briefEl, manifest, base, caseDefs);
+      return;
+    }
     var docsAll = Array.isArray(manifest.documents) ? manifest.documents : [];
     var pending = manifest.pending || null;
     /* Filter to only the user-facing deliverables: tailored resume +
@@ -689,7 +875,16 @@
 
   function renderError(briefEl, message) {
     if (!briefEl) return;
+    lastPaint = { kind: "error", message: message };
+    lastPaintKey = paintedRoleKey();
     removeExisting(briefEl);
+    if (isCaseMount(briefEl)) {
+      /* A failure must not read like an empty shelf: role-case.css hangs the
+         crimson, non-italic rule on case__hint--error (P1-0e). */
+      renderCaseHint(briefEl, message || "Local materials server is unreachable.",
+        "brief-materials--error", "case__hint--error");
+      return;
+    }
     var html = '<section class="' + SECTION_CLASS + ' brief-materials--error" aria-label="Application materials">'
       + '<header class="brief-materials__head">'
         + '<h3 class="section-label">Application Materials</h3>'
@@ -725,6 +920,83 @@
       }
       if (typeof root.dispatchEvent === "function") root.dispatchEvent(ev);
     } catch (e) { /* swallow */ }
+  }
+
+  /* The Case renders its own [data-mount="materials"]; the legacy dossier
+     only has [data-mount="brief"]. Resolve the panel host once, here, so
+     every render path lands in the same place during the cutover. */
+  function findMount() {
+    if (typeof document === "undefined" || !document.querySelector) return null;
+    var region = document.querySelector(REGION_SELECTOR);
+    if (!region || typeof region.querySelector !== "function") return null;
+    return (
+      region.querySelector(MATERIALS_MOUNT_SELECTOR)
+      || region.querySelector(BRIEF_SELECTOR)
+    );
+  }
+
+  /* Manifest ownership: role-materials is the only module that fetches the
+     manifest, so it announces every manifest it renders and keeps the last
+     one readable. The Case model reads it instead of re-fetching. */
+  var currentManifest = null;
+  /* What role-materials last painted into the mount: the Case rebuilds
+     its whole region on jb:materials:manifest (and other events), which
+     replaces the [data-mount="materials"] element — role.js then calls
+     rehydrateOpenRole() to repaint this state into the fresh mount
+     WITHOUT re-dispatching the event (that would loop). */
+  var lastPaint = null;
+  /* …and for WHICH role. Switching straight from A to B never fires
+     jb:role:closed, so without this the repaint painted A's files into B's
+     Materials lane (P0-0b). */
+  var lastPaintKey = null;
+
+  function paintedRoleKey() {
+    if (currentContext && currentContext.jobKey != null && currentContext.jobKey !== "") return String(currentContext.jobKey);
+    if (currentManifest && currentManifest.jobKey) return String(currentManifest.jobKey);
+    return "";
+  }
+
+  function openRoleKey() {
+    var flow = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+    var key = flow && typeof flow.get === "function" ? flow.get() : null;
+    return key == null ? "" : String(key);
+  }
+
+  function commitManifest(hostEl, manifest, base, jobKey) {
+    renderManifest(hostEl, manifest, base);
+    lastPaint = { kind: "manifest" };
+    lastPaintKey = paintedRoleKey();
+    currentManifest = {
+      jobKey: jobKey != null && jobKey !== ""
+        ? jobKey
+        : (currentContext && currentContext.jobKey) || "",
+      manifest: manifest,
+      base: base,
+    };
+    dispatch("jb:materials:manifest", {
+      jobKey: currentManifest.jobKey,
+      manifest: manifest,
+    });
+  }
+
+  function getCurrentManifest() {
+    return currentManifest;
+  }
+
+  function rehydrateOpenRole() {
+    var host = findMount();
+    if (!host || !lastPaint) return;
+    /* Only ever repaint the role we painted: a stale repaint under a
+       different role lists the previous role's files (P0-0b). */
+    var open = openRoleKey();
+    if (open && lastPaintKey && open !== lastPaintKey) return;
+    if (lastPaint.kind === "manifest") {
+      if (currentManifest && currentManifest.manifest) renderManifest(host, currentManifest.manifest, currentManifest.base);
+    } else if (lastPaint.kind === "empty") {
+      renderEmpty(host, lastPaint.options);
+    } else if (lastPaint.kind === "error") {
+      renderError(host, lastPaint.message);
+    }
   }
 
   function wireSection(briefEl) {
@@ -787,13 +1059,12 @@
         return fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
       })
       .then(function (manifest) {
-        var region = document.querySelector(REGION_SELECTOR);
-        var brief = region && region.querySelector(BRIEF_SELECTOR);
-        if (brief) renderManifest(brief, manifest, base);
+        var brief = findMount();
+        if (brief) commitManifest(brief, manifest, base);
         dispatch("jb:materials:changed", { slug: slug, reason: "dismiss" });
       })
       .catch(function (err) {
-        var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+        var brief = findMount();
         if (brief) renderError(brief, "Couldn't dismiss: " + ((err && err.message) || "unknown error"));
       });
   }
@@ -804,8 +1075,7 @@
     /* Retry is dismiss + immediate re-request, reusing the original
        notes and metadata so the user doesn't have to retype. */
     var prevNotes = "";
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     var noteEl = brief && brief.querySelector(".brief-materials__progress-note");
     if (noteEl) {
       prevNotes = String(noteEl.textContent || "").replace(/^"|"$/g, "").trim();
@@ -838,10 +1108,10 @@
         dispatch("jb:materials:changed", { slug: slug, reason: "repair-sent" });
         return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
       }).then(function (manifest) {
-        var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+        var brief = findMount();
         if (!brief) return;
         getApplications(ctx.base, { refresh: true });
-        renderManifest(brief, manifest, ctx.base);
+        commitManifest(brief, manifest, ctx.base, ctx.jobKey);
         if (manifest.pending) startPolling(manifest.slug, ctx.base);
         dispatch("jb:materials:changed", { slug: slug });
       });
@@ -854,7 +1124,7 @@
       renderOptimisticPending(ctx, feature, repairNote, "jobbored-dossier-repair");
       return ensureJobDescription(ctx);
     }).then(completeRepairRequest).catch(function (err) {
-      var brief = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+      var brief = findMount();
       if (!brief) return;
       if (err && err.code === "JD_PASTE_REQUIRED") {
         renderJdPasteForm(brief, ctx, feature, repairNote, completeRepairRequest);
@@ -1091,8 +1361,7 @@
         /* Honesty over silence: a draft that has produced nothing in 30
            minutes almost certainly has a dead worker behind it. Say so
            instead of freezing the progress card mid-climb. */
-        var capRegion = document.querySelector(REGION_SELECTOR);
-        var capBrief = capRegion && capRegion.querySelector(BRIEF_SELECTOR);
+        var capBrief = findMount();
         if (capBrief) {
           renderError(
             capBrief,
@@ -1103,10 +1372,9 @@
       }
       fetchJson(base + "/api/applications/" + encodeURIComponent(slug) + "/manifest")
         .then(function (manifest) {
-          var region = document.querySelector(REGION_SELECTOR);
-          var brief = region && region.querySelector(BRIEF_SELECTOR);
+          var brief = findMount();
           if (!brief) return;
-          renderManifest(brief, manifest, base);
+          commitManifest(brief, manifest, base);
           if (manifest.pending) {
             var delay = Math.min(maxDelay, minDelay + attempts * 500);
             poller = { timeoutId: setTimeout(tick, delay) };
@@ -1250,7 +1518,7 @@
     if (!shouldRun()) return;
     var region = document.querySelector(REGION_SELECTOR);
     if (!region) return;
-    var brief = region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     var job = getMaterialsJob(jobKey);
@@ -1295,7 +1563,7 @@
       }
       return fetchJson(base + "/api/applications/" + encodeURIComponent(picked.slug) + "/manifest")
         .then(function (manifest) {
-          renderManifest(brief, manifest, base);
+          commitManifest(brief, manifest, base, jobKey);
           if (manifest.pending) startPolling(manifest.slug, base);
           else stopPolling();
         });
@@ -1469,10 +1737,9 @@
 
   function renderAutoDraftManifestInOpenDossier(jobKey, manifest, base) {
     if (!isOpenRole(jobKey)) return;
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
-    renderManifest(brief, manifest, base);
+    commitManifest(brief, manifest, base, jobKey);
     if (manifest && manifest.pending) startPolling(manifest.slug, base);
     else stopPolling();
   }
@@ -1703,7 +1970,7 @@
   function showNotesForm(feature, onSubmit) {
     if (!shouldRun()) return;
     var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     /* Remove any prior open form so a second click replaces it cleanly. */
@@ -1822,8 +2089,7 @@
   function handleDraftRequest(feature, jobKeyHint) {
     if (!shouldRun()) return;
     var ctx = resolveMaterialsContext(jobKeyHint);
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!ctx) {
       if (brief) {
         var base = getBaseUrl();
@@ -1847,8 +2113,7 @@
   }
 
   function renderOptimisticPending(ctx, feature, notes, source) {
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     var optimisticManifest = {
@@ -1876,13 +2141,12 @@
         if (manifest) {
           base.pending = optimisticManifest.pending;
         }
-        renderManifest(brief, base, ctx.base);
+        commitManifest(brief, base, ctx.base, ctx.jobKey);
       });
   }
 
   function submitDraftRequest(ctx, feature, notes) {
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = region && region.querySelector(BRIEF_SELECTOR);
+    var brief = findMount();
     if (!brief) return;
 
     /* Optimistic UI: stamp a fresh "pending" banner immediately so the
@@ -1919,18 +2183,18 @@
       /* Re-fetch so we render the real pending.json the server wrote. */
       return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/manifest");
     }).then(function (manifest) {
-      var brief2 = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+      var brief2 = findMount();
       if (!brief2) return;
       /* Force the applications cache to refresh so the next role open
          sees the new folder (Hermes creates it when none existed). */
       getApplications(ctx.base, { refresh: true });
-      renderManifest(brief2, manifest, ctx.base);
+      commitManifest(brief2, manifest, ctx.base, ctx.jobKey);
       if (manifest.pending) startPolling(manifest.slug, ctx.base);
       /* Nudge the global queue strip so it shows the new request
          without waiting for its next poll. */
       dispatch("jb:materials:changed", { slug: ctx.slug });
     }).catch(function (err) {
-      var brief3 = document.querySelector(REGION_SELECTOR + " " + BRIEF_SELECTOR);
+      var brief3 = findMount();
       if (!brief3) return;
       /* The "needs paste" path is a structured error — show a paste
          form instead of a generic error string. */
@@ -2123,6 +2387,9 @@
     }
   }
   function onClosed() {
+    currentManifest = null;
+    lastPaint = null;
+    lastPaintKey = null;
     clearCache();
   }
 
@@ -2199,6 +2466,8 @@
     buildCandidateSlug: buildCandidateSlug,
     pickApplication: pickApplication,
     renderManifest: renderManifest,
+    getCurrentManifest: getCurrentManifest,
+    rehydrateOpenRole: rehydrateOpenRole,
     renderEmpty: renderEmpty,
     renderError: renderError,
     /** Test-only hook to inject a fresh applications list. */

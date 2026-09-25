@@ -24,9 +24,24 @@ const FUEL_ACTION = "oneflow_discovery_save_verify";
 const CONNECT_ACTION = "oneflow_discovery_connect";
 const SKIP_ACTION = "oneflow_discovery_skip_connect";
 
-/** A fetch that answers both of the beat's own calls successfully. */
-function makeFuelFetch({ envOk = true, bootOk = true } = {}) {
+/**
+ * A fetch that answers all three of the beat's own calls successfully.
+ *
+ * SIXBEATS2 NEW-3 (spec locked decision 5) put a real SerpApi check in front
+ * of the env write, so a fuel fetch that only knows the write is a fuel
+ * fetch that never gets past the check.
+ */
+function makeFuelFetch({ checkOk = true, envOk = true, bootOk = true } = {}) {
   return async (url) => {
+    if (String(url).includes("serpapi-check")) {
+      return {
+        ok: true,
+        json: async () =>
+          checkOk
+            ? { ok: true, plan: "Free", searchesLeft: 97 }
+            : { ok: false, reason: "invalid_key" },
+      };
+    }
     if (String(url).includes("discovery-env-key")) {
       return { ok: envOk, json: async () => ({ ok: envOk }) };
     }
@@ -198,20 +213,31 @@ describe("ONEFLOW L3 · B5 Save & verify renders its result (spec §10 Phase 0 �
     assert.match(boot.url, /force_restart=1/);
     const message = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(message, "the outcome must reach the screen");
-    assert.match(message.textContent, /Google Jobs index connected — 100 searches\/mo/);
+    // SIXBEATS2 locked decision 5 replaced the hardcoded "100 searches/mo"
+    // with the quota SerpApi actually reported (NEW-3).
+    assert.match(
+      message.textContent,
+      /Google Jobs index connected — Free plan, 97 searches left this month\./,
+    );
     assert.ok(
       message.classList.contains("discovery-setup-wizard__message--success"),
       "a passed check reads as a pass",
     );
   });
 
-  it("renders both stages live while the key is saved", async () => {
+  it("renders every stage live while the key is checked and saved", async () => {
     const stages = [];
     const env = await openBeat(
       loadDiscoveryBeat({
         fetchImpl: async (url) => {
           const busy = env.mount.querySelector(".discovery-setup-wizard__busy");
           if (busy) stages.push(busy.textContent);
+          if (String(url).includes("serpapi-check")) {
+            return {
+              ok: true,
+              json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }),
+            };
+          }
           return String(url).includes("discovery-env-key") ||
             String(url).includes("full-boot")
             ? { ok: true, json: async () => ({ ok: true }) }
@@ -221,9 +247,13 @@ describe("ONEFLOW L3 · B5 Save & verify renders its result (spec §10 Phase 0 �
     );
     await passFuel(env);
     assert.ok(stages.length, "the stage list must be on screen DURING the work");
-    assert.match(stages[0], /Saving your key…/);
+    assert.match(stages[0], /Checking your key with SerpApi…/);
     const busy = env.mount.querySelector(".discovery-setup-wizard__busy");
-    assert.match(busy.textContent, /Google Jobs index connected — 100 searches\/mo/);
+    assert.match(busy.textContent, /Saving your key…/);
+    assert.match(
+      busy.textContent,
+      /Google Jobs index connected — Free plan, 97 searches left this month\./,
+    );
   });
 
   it("a failed env write reports the failure and leaves the connect panel gated", async () => {

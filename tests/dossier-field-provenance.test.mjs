@@ -33,109 +33,62 @@ const unknownFields = JSON.parse(
   readFileSync(join(fixturesDir, "unknown-fields.json"), "utf8"),
 );
 
-const briefSource = readFileSync(join(repoRoot, "role-brief.js"), "utf8");
 const postingEnrichmentJs = readFileSync(
   join(repoRoot, "posting-enrichment.js"),
   "utf8",
 );
 
-const GROUNDED_LABEL = "grounded in the posting";
 const THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
 const FOUR_DAYS_MS = 4 * 24 * 60 * 60 * 1000;
 
-class TestCustomEvent {
-  constructor(type, options = {}) {
-    this.type = type;
-    this.detail = options ? options.detail : undefined;
-    this.bubbles = !!(options && options.bubbles);
-    this.target = null;
+/* The rendering half of DOSSIER-01 is restored against The Case (L7 gap 4).
+   Trap 2: jb-text.js and dossier-field-provenance.js must both evaluate
+   BEFORE role-case-model.js / role-case.js, or the model throws inside a try
+   and the renderer paints empty HTML that an absence-only assertion would
+   happily accept. Every case below asserts positive content first. */
+const CASE_STAGES = ["new", "researching", "applied", "rejected"];
+const caseStages = {
+  pairs: () => CASE_STAGES.map((k) => ({ key: k, label: k })),
+  toKey: (v) => (CASE_STAGES.includes(v) ? v : ""),
+  toLabel: (v) => String(v),
+  isClosed: (v) => v === "rejected",
+};
+
+function loadCase() {
+  const sandbox = { window: { JobBoredStages: caseStages } };
+  for (const file of ["jb-text.js", "dossier-field-provenance.js", "role-case-model.js", "role-case.js"]) {
+    vm.runInNewContext(readFileSync(join(repoRoot, file), "utf8"), sandbox, { filename: file });
   }
+  assert.equal(typeof sandbox.window.JobBoredText.escapeHtml, "function", "jb-text must load first");
+  return sandbox.window.JobBoredCase;
 }
 
-function makeBus() {
-  const listeners = new Map();
-  return {
-    addEventListener(type, handler) {
-      const list = listeners.get(type) || [];
-      list.push(handler);
-      listeners.set(type, list);
-    },
-    removeEventListener(type, handler) {
-      const list = listeners.get(type) || [];
-      listeners.set(type, list.filter((h) => h !== handler));
-    },
-    dispatchEvent(event) {
-      if (!event.target) event.target = this;
-      const list = listeners.get(event.type) || [];
-      for (const fn of list) fn.call(this, event);
-      return true;
-    },
-  };
-}
-
-function makeClassList(initial) {
-  const set = new Set(initial || []);
-  return {
-    add(c) { set.add(c); },
-    remove(c) { set.delete(c); },
-    contains(c) { return set.has(c); },
-  };
-}
-
-function makeMount() {
-  const attributes = {};
-  return {
-    classList: makeClassList(),
-    addEventListener() {},
-    removeEventListener() {},
-    setAttribute(name, value) { attributes[name] = String(value); },
-    getAttribute(name) { return attributes[name] || null; },
-    _innerHTML: "",
-    get innerHTML() { return this._innerHTML; },
-    set innerHTML(v) { this._innerHTML = String(v == null ? "" : v); },
-    querySelector() { return null; },
-  };
-}
-
-function makeDocument() {
-  const bus = makeBus();
-  return Object.assign(bus, {
-    body: { classList: makeClassList(["jb-v2"]) },
-    readyState: "complete",
-    querySelector() { return null; },
+/** Render The Case for one enrichment payload; returns [html, model]. */
+function renderCase(enrichment, jobFixture = {}, nowMs = 1_800_000_000_000) {
+  const Case = loadCase();
+  const model = Case.model.buildCaseModel("prov-1", {
+    vm: { job: {
+      jobKey: "prov-1",
+      role: jobFixture.title || "Role",
+      company: jobFixture.company || "Company",
+      location: jobFixture.location || "",
+      stage: "applied",
+      enrichment,
+    } },
+    keywords: null, scorecard: null, manifest: null, health: null,
+    stages: caseStages, providerLabel: "", nowMs,
+    parseDate: (v) => { const t = Date.parse(String(v || "")); return Number.isFinite(t) ? t : null; },
   });
+  const mount = { innerHTML: "" };
+  Case.render(mount, model);
+  return [mount.innerHTML, model];
 }
 
-function loadScripts(extraSources = []) {
-  const documentEl = makeDocument();
-  const windowEl = makeBus();
-  windowEl.document = documentEl;
-  windowEl.matchMedia = () => ({ matches: false });
-  windowEl.CustomEvent = TestCustomEvent;
-  windowEl.JobBoredFlowing = {};
-  const context = vm.createContext({
-    CustomEvent: TestCustomEvent,
-    document: documentEl,
-    window: windowEl,
-    globalThis: undefined,
-    console: { error() {}, warn() {}, log() {} },
-    Date,
-    Number,
-    Math,
-    Array,
-    Object,
-    String,
-    JSON,
-    setTimeout,
-    clearTimeout,
-  });
-  context.globalThis = context;
-  for (const { src, filename } of extraSources) {
-    vm.runInContext(src, context, { filename });
-  }
-  vm.runInContext(briefSource, context, { filename: "role-brief.js" });
-  return { context, windowEl, documentEl };
-}
+
+
+
+
+
 
 function tryLoadProvenanceHelper() {
   const src = readFileSync(
@@ -204,56 +157,47 @@ function loadPostingEnrichment() {
   return window.JobBoredApp.postingEnrichment;
 }
 
-function renderBrief(enrichment, extraJob = {}) {
-  const { context } = loadScripts();
-  const mount = makeMount();
-  context.window.JobBoredDossierBrief.renderBrief(mount, {
-    job: {
-      jobKey: "L1",
-      role: extraJob.role || extraJob.title || "Role",
-      company: extraJob.company || "Company",
-      enrichment,
-    },
-  });
-  return mount.innerHTML;
-}
+
 
 describe("F3A-DOSSIER01-PROV — title/company inference is not posting-grounded", () => {
   it("does not label title/company-only inference as grounded in the posting", () => {
-    const html = renderBrief(titleCompanyOnly.enrichment, titleCompanyOnly.job);
+    const [html] = renderCase(titleCompanyOnly.enrichment, titleCompanyOnly.job);
     assert.match(
       html,
-      /brief__lede/,
-      "inferred summary still renders so the hunter can read it",
+      /class="case__req"[\s\S]*?Paid media strategy/,
+      "the inferred requirements still render so the hunter can read them",
     );
-    assert.doesNotMatch(
-      html,
-      /grounded in the posting/,
-      titleCompanyOnly.why,
-    );
+    assert.doesNotMatch(html, /grounded in the posting/, titleCompanyOnly.why);
     assert.match(
       html,
-      /inferred from title and company/i,
-      "the lede tag must say the claim was inferred from title and company",
+      /<span class="case__src case__src--inferred" aria-hidden="true">inferred<\/span>/,
+      "the rail must say the claim was inferred from title and company",
     );
   });
 
-  it("may label a Cheerio-scraped posting summary as grounded in the posting", () => {
-    const html = renderBrief(postingGrounded.enrichment, postingGrounded.job);
-    assert.match(html, new RegExp(GROUNDED_LABEL));
-    assert.doesNotMatch(html, /inferred from title and company/i);
+  it("may treat a Cheerio-scraped posting summary as grounded in the posting", () => {
+    const [html, model] = renderCase(postingGrounded.enrichment, postingGrounded.job);
+    assert.match(html, /class="case__req"[\s\S]*?5\+ years growth design/);
+    assert.equal(model.provenance.inferredFields.length, 0, "a real posting scrape infers nothing");
+    assert.doesNotMatch(html, /case__src--inferred/);
   });
 
   it("does not claim posting-grounded when enrichment has no source lineage", () => {
-    const html = renderBrief({
+    const enrichment = {
       postingSummary: "A model wrote this without saying where from.",
+      roleInOneLine: "A model wrote this without saying where from.",
+      mustHaves: ["Something the model asserted"],
       status: "ready",
-    });
-    assert.doesNotMatch(
-      html,
-      /grounded in the posting/,
+    };
+    const [html, model] = renderCase(enrichment);
+    assert.match(html, /class="case__quote"/, "the unsourced summary still renders");
+    assert.equal(
+      tryLoadProvenanceHelper().classify(enrichment, "", "postingSummary").label,
+      "unknown",
       "missing source is unverified, not posting-grounded",
     );
+    assert.equal(model.provenance.inferredFields.length, 0);
+    assert.doesNotMatch(html, /case__src--inferred/);
   });
 });
 
@@ -321,33 +265,19 @@ describe("F3A-DOSSIER01-PROV — cache TTL and visible freshness", () => {
 
   it("renders cache freshness next to the AI summary so age is not hidden", () => {
     const api = tryLoadProvenanceHelper();
-    const now = 1_800_360_000_000; // one hour after scrapedAt=1800000000000
+    /* 1_800_360_000_000 - 1_800_000_000_000 = 100 h. The T0 case called this
+       "one hour" and asserted only /fetched /i, so the slip never showed; the
+       stamp now pins the helper's real label, TTL verdict included. */
+    const now = 1_800_360_000_000;
     const stamped = api.stampProvenance(
-      {
-        ...postingGrounded.enrichment,
-        scrapedAt: 1_800_000_000_000,
-      },
+      { ...postingGrounded.enrichment, scrapedAt: 1_800_000_000_000 },
       { nowMs: now, profileExcerpt: "I shipped activation at Stripe." },
     );
-    const { context } = loadScripts([
-      {
-        src: readFileSync(join(repoRoot, "dossier-field-provenance.js"), "utf8"),
-        filename: "dossier-field-provenance.js",
-      },
-    ]);
-    const mount = makeMount();
-    context.window.JobBoredDossierBrief.renderBrief(mount, {
-      job: {
-        jobKey: "L1",
-        role: "Growth Designer",
-        company: "Linear",
-        enrichment: stamped,
-      },
-    });
+    const [html] = renderCase(stamped, postingGrounded.job, now);
     assert.match(
-      mount.innerHTML,
-      /brief__freshness|fetched /i,
-      "DOSSIER-01: cache age/source must be visible in the Brief, not only in memory",
+      html,
+      /<div class="case__stamp case__stamp--fresh">fetched 4d ago · stale<\/div>/,
+      "DOSSIER-01: cache age must be visible in the Case, not only in memory",
     );
   });
 });

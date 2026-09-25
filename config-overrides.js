@@ -18,6 +18,7 @@
   const DISCOVERY_TRANSPORT_SETUP_KEY =
     "command_center_discovery_transport_setup";
   const DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
+  const DISCOVERY_WEBHOOK_SECRET_ROUTE = "/__proxy/discovery-webhook-secret";
 
   const COMMAND_CENTER_OVERRIDE_KEYS = [
     "sheetId",
@@ -359,20 +360,91 @@
     return writeDiscoveryWebhookSecretOverride(secret);
   }
 
+  /**
+   * True when the endpoint is THIS machine's discovery worker — the only
+   * endpoint whose secret the local dev server is entitled to hand out.
+   *
+   * Without this binding the self-heal fetched the local worker's secret on a
+   * 401 from ANY non-Cloudflare endpoint — a recycled ngrok host, a dead
+   * relay, someone else's n8n or Apps Script receiver — POSTed it there, and
+   * overwrote the secret the user had saved for the real endpoint. A 401 is
+   * not proof that the responder is ours.
+   *
+   * A Cloudflare relay is excluded on top: it injects its own DISCOVERY_SECRET
+   * upstream, so the browser's copy is not what that worker checks.
+   */
+  function isThisMachinesWorkerEndpoint(endpoint) {
+    const url = String(endpoint || "").trim();
+    if (!url) return true; // no endpoint yet — the local worker is the default
+    const h = host();
+    try {
+      if (
+        typeof h.isLikelyCloudflareWorkerUrl === "function" &&
+        h.isLikelyCloudflareWorkerUrl(url)
+      ) {
+        return false;
+      }
+    } catch (_) {
+      /* an unclassifiable URL is decided by the checks below */
+    }
+    try {
+      if (
+        typeof h.isLocalWebhookCandidateUrl === "function" &&
+        h.isLocalWebhookCandidateUrl(url)
+      ) {
+        return true;
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    // A tailnet name is this machine published by Tailscale (Beat 5's path).
+    try {
+      if (/(^|\.)ts\.net$/i.test(new URL(url).hostname)) return true;
+    } catch (_) {
+      /* not a parseable URL */
+    }
+    // Anything the transport state recorded as our own local/tunnel endpoint.
+    const transport = readDiscoveryTransportSetupState();
+    for (const candidate of [
+      transport.localWebhookUrl,
+      transport.tunnelPublicUrl,
+      transport.ngrokPublicUrl,
+      transport.publicTargetUrl,
+    ]) {
+      if (candidate && sameDiscoveryUrlOrigin(candidate, url)) return true;
+    }
+    return false;
+  }
+
+  /**
+   * The 401 self-heal. `discovery-local-bootstrap.json` carries the secret,
+   * so the static-path guard denies it (#75) — every browser got a 403 and
+   * this refresh never refreshed anything (2026-09-02). The dev server
+   * resolves the same secret behind the origin-guarded route Beat 5 already
+   * uses, so a run that 401s against this machine's worker re-syncs from
+   * there and retries. A relay is left alone; a fetch that fails is "".
+   */
   async function refreshDiscoveryWebhookSecretFromBootstrapForEndpoint(
     endpointUrl,
   ) {
     if (!isLocalDashboardOrigin()) return "";
+    const endpoint = endpointUrl || host().getDiscoveryWebhookUrl();
+    // Only this machine's worker gets this machine's secret.
+    if (!isThisMachinesWorkerEndpoint(endpoint)) return "";
     try {
-      const res = await fetch(DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH, {
+      const res = await fetch(DISCOVERY_WEBHOOK_SECRET_ROUTE, {
         cache: "no-store",
       });
-      if (!res.ok) return "";
+      if (!res || !res.ok) return "";
       const data = await res.json().catch(() => null);
-      const secret = getBootstrapDiscoveryWebhookSecret(data);
+      const secret =
+        data && data.ok && typeof data.secret === "string"
+          ? data.secret.trim()
+          : "";
       if (!secret) return "";
-      if (!isBootstrapManagedDiscoveryEndpoint(data, endpointUrl)) return "";
-      autofillDiscoveryWebhookSecretFromBootstrap(data, { endpointUrl });
+      if (host().getDiscoveryWebhookSecret() !== secret) {
+        if (!writeDiscoveryWebhookSecretOverride(secret)) return "";
+      }
       return host().getDiscoveryWebhookSecret() === secret ? secret : "";
     } catch (_) {
       return "";
@@ -439,6 +511,9 @@
     }
   }
 
+  /** The cold-start switch and its two aliases, in one place. */
+  const GREENFIELD_URL_PARAMS = ["greenfield", "fresh", "reset"];
+
   /**
    * Dev/dogfooding greenfield: `?greenfield=1` (aliases ?fresh=1, ?reset=1)
    * forces a cold-start install in ANY browser — incognito, a fresh profile,
@@ -450,15 +525,19 @@
    * (so reloads within the session stay cold-start without re-adding the param),
    * and best-effort drops the IndexedDB user-content store. Runs BEFORE
    * applyStoredConfigOverrides so the mask is what lands on COMMAND_CENTER_CONFIG.
+   *
+   * The param is spent once it has been applied: it is stripped from the URL so
+   * a refresh mid-setup resumes at the saved beat instead of dropping the
+   * IndexedDB store again and landing back on cold start (ONE-FLOW spec §3.4
+   * "reopening or refreshing lands on onboardingFlowState.beat"). The persisted
+   * mask is what carries the cold start across reloads — the param does not
+   * need to, and re-running it costs the user their progress.
    */
   function maybeApplyGreenfieldUrlReset() {
     let on = false;
     try {
       const params = new URLSearchParams(window.location.search);
-      on =
-        params.get("greenfield") === "1" ||
-        params.get("fresh") === "1" ||
-        params.get("reset") === "1";
+      on = GREENFIELD_URL_PARAMS.some((param) => params.get(param) === "1");
     } catch (_) {
       return false;
     }
@@ -492,7 +571,29 @@
     } catch (_) {
       /* sessionStorage unavailable → best-effort */
     }
+    stripGreenfieldUrlParams();
     return true;
+  }
+
+  /**
+   * Take greenfield/fresh/reset back out of the address bar, leaving every
+   * other param, the path, and the hash alone. replaceState rather than a
+   * navigation: the reset has already run in this document, and a reload here
+   * would be the very re-reset this is removing.
+   */
+  function stripGreenfieldUrlParams() {
+    try {
+      const url = new URL(window.location.href);
+      for (const param of GREENFIELD_URL_PARAMS) url.searchParams.delete(param);
+      const next = `${url.pathname}${url.search}${url.hash}`;
+      if (window.history && typeof window.history.replaceState === "function") {
+        window.history.replaceState(null, "", next);
+      }
+    } catch (e) {
+      // No History API (file://, some embedded webviews): the reset still
+      // applied — the user just keeps a spent param in the bar.
+      console.warn("[JobBored] greenfield URL cleanup:", e);
+    }
   }
 
   maybeApplyGreenfieldUrlReset();

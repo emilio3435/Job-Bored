@@ -438,14 +438,23 @@
         ? { googleAccessToken: cleanString(source.googleAccessToken, 4096) }
         : {}),
       ...(allow.length ? { companyAllowlist: allow } : {}),
+      // A dashboard allowlist is a PREFERENCE, not a reference into the
+      // worker's curated catalog — which a local install ships empty, so
+      // every name resolves "unknown" and the run fails closed with
+      // "companyAllowlist did not match the configured company catalog"
+      // (2026-09-02). The contract's own escape hatch is this flag, so the
+      // dashboard opts in whenever it sends a list. An explicit `false`
+      // from a caller that wants fail-closed is preserved below.
+      ...(source.allowUnrestrictedFallback === false
+        ? { allowUnrestrictedFallback: false }
+        : allow.length
+          ? { allowUnrestrictedFallback: true }
+          : {}),
       ...(block.length ? { companyBlocklist: block } : {}),
       // Optional non-secret master Fit Profile merged with per-run overrides.
       // Passed through verbatim; the worker re-validates it via ajv.
       ...(source.mergedUserProfile && typeof source.mergedUserProfile === "object"
         ? { mergedUserProfile: source.mergedUserProfile }
-        : {}),
-      ...(source.allowUnrestrictedFallback === true
-        ? { allowUnrestrictedFallback: true }
         : {}),
     };
   }

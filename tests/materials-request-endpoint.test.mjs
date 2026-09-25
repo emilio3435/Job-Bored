@@ -1,84 +1,15 @@
 /**
- * Tests for server/materials-request.mjs — the bridge that spawns
- * the Hermes materials-request shell wrapper from a POST request.
- *
- * Covers:
- *   - request body validation (slug, feature, company, title)
- *   - args forwarded to the script as argv (no shell interpolation)
- *   - JSON output parsed and returned
- *   - non-zero exit codes mapped to HTTP-tagged errors
- *   - notes capped to a reasonable size
+ * Tests for server/materials-request.mjs — request body validation and
+ * enqueue delegation for the in-process materials drafter.
  */
 
 import assert from "node:assert/strict";
-import { describe, it, before, after } from "node:test";
-import { mkdtemp, rm, writeFile, chmod, readFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { describe, it } from "node:test";
 
 import {
   normalizeRequestBody,
   spawnMaterialsRequest,
-  getMaterialsRequestBin,
 } from "../server/materials-request.mjs";
-
-let stubDir;
-let okBin;
-let echoBin;
-let failBin;
-let telegramFailBin;
-let invalidBin;
-
-async function writeStubBin(path, body) {
-  await writeFile(path, body);
-  await chmod(path, 0o755);
-}
-
-before(async () => {
-  stubDir = await mkdtemp(join(tmpdir(), "jb-mats-req-"));
-
-  /* okBin: prints JSON, exits 0 */
-  okBin = join(stubDir, "ok.sh");
-  await writeStubBin(okBin, `#!/usr/bin/env bash
-echo '{"ok": true, "slug": "test-slug", "telegram_message_id": 42, "pending_path": "/tmp/x", "requested_at": "2026-05-27T20:00:00Z"}'
-exit 0
-`);
-
-  /* echoBin: writes its argv to a sidecar file so we can assert the
-     exact arguments the server passes, then prints JSON OK. */
-  echoBin = join(stubDir, "echo.sh");
-  await writeStubBin(echoBin, `#!/usr/bin/env bash
-echo "$@" > "${stubDir}/echo-args.txt"
-echo '{"ok": true, "slug": "echo-slug"}'
-exit 0
-`);
-
-  /* failBin: bad input (exit 1) */
-  failBin = join(stubDir, "fail.sh");
-  await writeStubBin(failBin, `#!/usr/bin/env bash
-echo '{"ok": false, "error": "bad input"}' >&2
-exit 1
-`);
-
-  /* telegramFailBin: pending written but telegram failed (exit 2) */
-  telegramFailBin = join(stubDir, "tg-fail.sh");
-  await writeStubBin(telegramFailBin, `#!/usr/bin/env bash
-echo '{"ok": false, "slug": "x", "pending_path": "/tmp/x/pending.json", "telegram_message_id": null, "telegram_error": "HTTP 401"}'
-exit 2
-`);
-
-  /* invalidBin: garbage output, non-zero exit */
-  invalidBin = join(stubDir, "invalid.sh");
-  await writeStubBin(invalidBin, `#!/usr/bin/env bash
-echo "not json at all"
-exit 1
-`);
-});
-
-after(async () => {
-  if (stubDir) await rm(stubDir, { recursive: true, force: true });
-});
 
 describe("normalizeRequestBody", () => {
   const valid = {
@@ -139,29 +70,6 @@ describe("normalizeRequestBody", () => {
   });
 });
 
-describe("getMaterialsRequestBin", () => {
-  it("returns the env override when set", () => {
-    const original = process.env.HERMES_MATERIALS_REQUEST_BIN;
-    process.env.HERMES_MATERIALS_REQUEST_BIN = "/tmp/override.sh";
-    try {
-      assert.equal(getMaterialsRequestBin(), "/tmp/override.sh");
-    } finally {
-      if (original == null) delete process.env.HERMES_MATERIALS_REQUEST_BIN;
-      else process.env.HERMES_MATERIALS_REQUEST_BIN = original;
-    }
-  });
-
-  it("falls back to the bundled wrapper path", () => {
-    const original = process.env.HERMES_MATERIALS_REQUEST_BIN;
-    delete process.env.HERMES_MATERIALS_REQUEST_BIN;
-    try {
-      assert.ok(getMaterialsRequestBin().endsWith("materials-request.sh"));
-    } finally {
-      if (original != null) process.env.HERMES_MATERIALS_REQUEST_BIN = original;
-    }
-  });
-});
-
 describe("spawnMaterialsRequest", () => {
   const goodPayload = {
     slug: "test-slug",
@@ -172,108 +80,41 @@ describe("spawnMaterialsRequest", () => {
     notes: "A note",
   };
 
-  it("returns the parsed JSON when the script exits 0", async () => {
-    const result = await spawnMaterialsRequest(goodPayload, { bin: okBin });
+  it("delegates to options.enqueue and keeps dossier field names", async () => {
+    /** @type {unknown} */
+    let received = null;
+    const result = await spawnMaterialsRequest(goodPayload, {
+      enqueue: async (payload) => {
+        received = payload;
+        return {
+          ok: true,
+          slug: payload.slug,
+          pending_path: "/tmp/x/pending.json",
+          requested_at: "2026-05-27T20:00:00Z",
+          accepted: true,
+        };
+      },
+    });
+    assert.deepEqual(received, goodPayload);
     assert.equal(result.ok, true);
     assert.equal(result.slug, "test-slug");
-    assert.equal(result.telegram_message_id, 42);
+    assert.equal(result.pending_path, "/tmp/x/pending.json");
+    assert.equal(result.requested_at, "2026-05-27T20:00:00Z");
+    assert.equal(result.accepted, true);
   });
 
-  it("forwards exact args to the script as argv (no shell interpolation)", async () => {
-    await spawnMaterialsRequest(
-      {
-        slug: "echo-slug",
-        company: 'Test "quoted" Co',
-        title: "Role; rm -rf /",
-        feature: "resume",
-        jobUrl: "https://x.example.com/path",
-        notes: "$(whoami) is curious",
-      },
-      { bin: echoBin },
-    );
-    const args = (await readFile(join(stubDir, "echo-args.txt"), "utf8")).trim();
-    /* Each value should appear verbatim. If shell interpolation had
-       occurred, '$(whoami)' would have been substituted. */
-    assert.match(args, /--slug echo-slug/);
-    assert.match(args, /--feature resume/);
-    assert.match(args, /\$\(whoami\) is curious/);
-    assert.match(args, /Role; rm -rf \//);
-  });
-
-  it("maps exit code 1 to a 400 error", async () => {
+  it("propagates enqueue errors including 409 llm_unconfigured", async () => {
     await assert.rejects(
-      () => spawnMaterialsRequest(goodPayload, { bin: failBin }),
-      (e) => e.statusCode === 400 && /bad input/.test(e.message),
+      () =>
+        spawnMaterialsRequest(goodPayload, {
+          enqueue: async () => {
+            throw Object.assign(new Error("No LLM pin configured."), {
+              statusCode: 409,
+              code: "llm_unconfigured",
+            });
+          },
+        }),
+      (err) => err.statusCode === 409 && err.code === "llm_unconfigured",
     );
-  });
-
-  it("treats legacy exit code 2 (Telegram-only failure) as success", async () => {
-    /* Telegram delivery is a non-blocking side effect — pending.json
-       was still written, so Hermes will pick up the work. The shell
-       script may have exited 2 (legacy behavior) but we coerce that
-       to success and pass telegram_error through as metadata so the
-       UI can show a soft warning if desired. */
-    const result = await spawnMaterialsRequest(goodPayload, { bin: telegramFailBin });
-    assert.equal(result.ok, true);
-    assert.equal(result.slug, "x");
-    assert.equal(result.telegram_error, "HTTP 401");
-  });
-
-  it("falls back to stderr/exit-code message when stdout is not JSON", async () => {
-    /* invalidBin prints non-JSON to stdout and exits 1 (validation
-       failure semantics). The bridge maps exit 1 → 400 even when the
-       JSON parse fails, and surfaces a generic error message. */
-    await assert.rejects(
-      () => spawnMaterialsRequest(goodPayload, { bin: invalidBin }),
-      (e) => e.statusCode === 400 && /exited 1/.test(e.message),
-    );
-  });
-
-  it("forwards --no-telegram when skipTelegram is true", async () => {
-    await spawnMaterialsRequest(
-      goodPayload,
-      { bin: echoBin, skipTelegram: true, applicationsRoot: "/tmp/xyz" },
-    );
-    const args = (await readFile(join(stubDir, "echo-args.txt"), "utf8")).trim();
-    assert.match(args, /--no-telegram/);
-    assert.match(args, /--applications-root \/tmp\/xyz/);
-  });
-});
-
-describe("end-to-end against the real Hermes wrapper", () => {
-  /* Smoke test that the real materials-request.sh wrapper still works
-     end-to-end (writes pending.json without contacting Telegram). */
-  it("writes pending.json via the real wrapper with --no-telegram", async () => {
-    const realBin = getMaterialsRequestBin();
-    if (!existsSync(realBin)) return; // bundled wrapper missing on this checkout
-    const root = await mkdtemp(join(tmpdir(), "jb-mats-e2e-"));
-    try {
-      const out = await spawnMaterialsRequest(
-        {
-          slug: "smoke-test-role",
-          company: "Smoke Co",
-          title: "Smoke Engineer",
-          feature: "cover_letter",
-          jobUrl: "",
-          notes: "Real wrapper smoke",
-        },
-        { bin: realBin, skipTelegram: true, applicationsRoot: root },
-      );
-      assert.equal(out.ok, true);
-      const pending = JSON.parse(
-        await readFile(join(root, "smoke-test-role", "pending.json"), "utf8"),
-      );
-      assert.equal(pending.feature, "cover_letter");
-      assert.equal(pending.company, "Smoke Co");
-      assert.equal(pending.source, "jobbored-dossier");
-      assert.equal(pending.quality_contract.version, "materials-quality.v1");
-      assert.equal(
-        pending.quality_contract.profile_path,
-        "~/.hermes/job-hunt/profile/materials-quality.md",
-      );
-      assert.equal(pending.quality_contract.qa_required, true);
-    } finally {
-      await rm(root, { recursive: true, force: true });
-    }
   });
 });

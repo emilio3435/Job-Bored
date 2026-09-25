@@ -67,6 +67,44 @@
     };
   }
 
+  var AUDIT_STAMP_RE =
+    /\[(\d{4}-\d{2}-\d{2}(?:T[\d:.]+Z?)?)\][^\n]*(?:expired[-\s]?review|availability|cleanup)/i;
+
+  function getPostingHealth(job, options) {
+    if (!job || typeof job !== "object") {
+      return { state: "unknown", label: "", detail: "", checkedAt: "" };
+    }
+    var notes = String(job._rawNotes || job.notes || "");
+    var stamp = AUDIT_STAMP_RE.exec(notes);
+    var checkedAt = stamp ? stamp[1] : "";
+    if (normalizeStatus(job.status) === "expired") {
+      return {
+        state: "expired",
+        label: "Posting expired",
+        detail: "Marked Expired in the sheet.",
+        checkedAt: checkedAt,
+      };
+    }
+    var reason = getReviewReason(job, options);
+    if (reason && reason.kind === "cleanup-note") {
+      return {
+        state: "needs-review",
+        label: "Needs review",
+        detail: reason.detail,
+        checkedAt: checkedAt,
+      };
+    }
+    if (!ACTIVE_STATUS_KEYS[normalizeStatus(job.status)] || !hasHttpUrl(job.link)) {
+      return { state: "unknown", label: "", detail: "", checkedAt: checkedAt };
+    }
+    return {
+      state: "open",
+      label: "Posting open",
+      detail: reason ? reason.detail : "",
+      checkedAt: checkedAt,
+    };
+  }
+
   function getReviewJobs(jobs, options) {
     if (!Array.isArray(jobs)) return [];
     return jobs
@@ -92,5 +130,6 @@
     DEFAULT_STALE_DAYS: DEFAULT_STALE_DAYS,
     getReviewJobs: getReviewJobs,
     getReviewReason: getReviewReason,
+    getPostingHealth: getPostingHealth,
   };
 })(typeof window !== "undefined" ? window : globalThis);

@@ -264,6 +264,31 @@ describe("job scraper ATS public JSON lanes", () => {
     assert.ok(!calls.some((url) => /job-boards\.greenhouse\.io/.test(url)));
   });
 
+  it("greenhouse content keeps paragraph and list structure", async () => {
+    const result = await scrapeJobPosting(
+      "https://job-boards.greenhouse.io/anthropic/jobs/4461450008",
+      {
+        fetchImpl: async (url) => {
+          if (/boards-api\.greenhouse\.io/.test(url)) {
+            return jsonResponse({
+              title: "Account Executive, AI Native",
+              company_name: "Anthropic",
+              location: { name: "San Francisco" },
+              content:
+                "&lt;p&gt;Sell Claude to AI-native companies and own a book of business end to end.&lt;/p&gt;&lt;p&gt;Run demos and close annual contracts.&lt;/p&gt;&lt;ul&gt;&lt;li&gt;5+ years enterprise sales&lt;/li&gt;&lt;li&gt;Comfort with technical buyers&lt;/li&gt;&lt;/ul&gt;",
+              absolute_url: "https://job-boards.greenhouse.io/anthropic/jobs/4461450008",
+            });
+          }
+          return htmlResponse(CAREERS_LISTING_HTML);
+        },
+      },
+    );
+    assert.match(
+      result.description,
+      /own a book of business end to end\.\n\nRun demos and close annual contracts\.\n\n- 5\+ years enterprise sales\n- Comfort with technical buyers/,
+    );
+  });
+
   it("uses the Ashby board payload to recover a posting the HTML SPA left empty", async () => {
     const result = await scrapeJobPosting(
       "https://jobs.ashbyhq.com/openai/8fb1615c-34bf-47c4-a1d1-b7b2f836bbd3",

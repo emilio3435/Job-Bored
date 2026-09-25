@@ -87,7 +87,7 @@ Salvage from `welcome.js`: the paced single-card rhythm, Enter-to-advance, and p
   > **This is your job hunt on autopilot.**
   > Set it up once — about fifteen focused minutes — and roles scored against *your* fit land here every morning. Your resume and pipeline stay in your Google Sheet and on this machine.
   > `[ Make it mine — 15 min, once ]` `[ Poke around first ]`
-- **Interactions:** *Make it mine* → B1. *Poke around first* → the card collapses to a corner pill (`Set up JobBored — 15 min ▸`) that persists across the session and reopens the flow. Demo cards open read-only detail views.
+- **Interactions:** *Make it mine* → B1. *Poke around first* → the card collapses to a corner pill (`Set up JobBored — 15 min ▸`) that persists for the visit — a fresh page load shows the invitation card again, never the bare board — and reopens the flow. Demo cards open read-only detail views.
 - **Exit:** first real Sheet row replaces the fixture; the pill and watermark disappear.
 - **Implementation notes:** seed via a `getPipelineData()` demo source when `!getSheetId()`; bypass `showSheetAccessGate` for the render path; keep the gate's error mode for genuinely broken configs. Delete the credential-first `no-oauth` opening.
 
@@ -148,7 +148,7 @@ Each beat lists: content (copy is normative — ship these strings), interaction
 - **The only celebration:** one confetti burst (reuse the existing, well-tested celebration player; all other call sites removed). Headline: "You're live, {firstName}." Sub: "That was the one-time part. From here, JobBored works for you."
 - **Card 1 — Your search:** roles · where · floor · edge (top 3 strengths), all read from the just-saved profile.
 - **Card 2 — What happens now:** `✓ AI connected — {provider}` · `✓ Discovery armed — {n} sources watching, including Google's job index` · `✓ Pipeline sheet connected — open it ↗` · `⏱ First matches land tomorrow morning — or run it right now and watch.`
-- **Actions:** `Run discovery now` (primary; guaranteed full-power — B4 wrote intent, B2/B5 verified the keys) → the shell fades while the run streams its first cards onto the board behind it, with a live toast (`Discovery running — {n} matches so far`). `Take me to my dashboard` (ghost).
+- **Actions:** `Run discovery now` (primary; guaranteed full-power — B4 wrote intent, B2/B5 verified the keys) → the shell fades, the demo board (if still up) is torn down, the real dashboard is revealed, and the discovery drawer opens on it — the same surface the dashboard's own Run button uses — while the run streams its first cards onto the board behind it, with a live toast (`Discovery running — {n} matches so far`). `Take me to my dashboard` (ghost) → same teardown + reveal, no drawer.
 - **Skipped-connect variant:** the armed line becomes `○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below`, and the primary becomes `Go to my dashboard`. Three-circles-of-skip screens never render.
 - **Footer line:** "More power-ups — URL import, grounded search, other devices — live in Settings → Upgrades, each one click, none required."
 - **Exit:** writes all completion flags (§3.2), `flow_completed {skips, durationMs}`.

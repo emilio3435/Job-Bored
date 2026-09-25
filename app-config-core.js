@@ -147,8 +147,16 @@
   }
 
   /** Optional POST target for "Run discovery" (browser-use worker / Hermes / n8n / Apps Script). */
+  /**
+   * The discovery getters read the raw config, NOT getConfig(): that
+   * helper nulls whenever the sheet id fails to parse, and a saved webhook
+   * URL/secret is exactly as valid with a masked sheet id as without. Read
+   * through getConfig() they vanished together with the sheet, the run went
+   * out unauthenticated, and the worker's 401 was blamed on a missing
+   * bootstrap (2026-09-02).
+   */
   function getDiscoveryWebhookUrl() {
-    const cfg = getConfig();
+    const cfg = window.COMMAND_CENTER_CONFIG;
     const u = cfg && cfg.discoveryWebhookUrl;
     if (!u || typeof u !== "string") return "";
     const t = u.trim();
@@ -161,7 +169,7 @@
    * on empty secrets (e.g. the browser-use worker) accept the request.
    */
   function getDiscoveryWebhookSecret() {
-    const cfg = getConfig();
+    const cfg = window.COMMAND_CENTER_CONFIG;
     const s = cfg && cfg.discoveryWebhookSecret;
     if (!s || typeof s !== "string") return "";
     const t = s.trim();

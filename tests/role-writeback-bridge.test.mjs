@@ -122,6 +122,32 @@ describe("role writeback bridge", () => {
       expectedKind: "reply",
     },
     {
+      /* The Case's People row is a three-state segmented control over the
+         column's own enum (schemas/pipeline-row.v1.json: Yes | No | Unknown):
+         "No" and "Unknown" write as themselves. Every other payload
+         (including the legacy date-shaped one above) still means "replied". */
+      field: "reply",
+      value: "No",
+      expectedRange: "Pipeline!S7",
+      expectedValue: "No",
+      expectedKind: "reply",
+    },
+    {
+      field: "reply",
+      value: "Unknown",
+      expectedRange: "Pipeline!S7",
+      expectedValue: "Unknown",
+      expectedKind: "reply",
+    },
+    {
+      /* Contact name (column L) — new with The Case's People row. */
+      field: "contact",
+      value: "Dana Reyes",
+      expectedRange: "Pipeline!L7",
+      expectedValue: "Dana Reyes",
+      expectedKind: "contact",
+    },
+    {
       field: "followupAt",
       value: "2026-05-22",
       expectedRange: "Pipeline!P7",

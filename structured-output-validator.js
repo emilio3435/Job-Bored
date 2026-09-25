@@ -9,7 +9,7 @@
    review state instead of being treated as facts.
 
    Lane: F3-A (DOSSIER-02). Loaded before job-posting-insights.js
-   and role-brief.js once index.html is wired.
+   and the dossier renderer once index.html is wired.
    ============================================ */
 (function (root) {
   "use strict";

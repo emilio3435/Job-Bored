@@ -1,0 +1,13 @@
+graph TD
+  JD["This job's posting"] --> Writer
+  Master["Master resume facts<br/>employers, titles, dates, metrics stay frozen"] --> Writer
+  Voice["Your voice samples"] --> Writer
+
+  Writer["1 Writer LLM = the author<br/>rewrites letter and bullets for THIS job"]
+  Writer --> Composer["2 Composer = the typesetter<br/>drops prose into branded HTML. never writes."]
+  Composer --> Critic["3 Critic = the ruler<br/>counts words, pages, keywords. never writes."]
+
+  Critic -->|fits the budget| Ready["PDF + dossier READY"]
+  Critic -->|too long or weak, tries left| Editor["4 Editor LLM = the author again<br/>rewrites against the scorecard"]
+  Editor --> Composer
+  Critic -->|still failing after 2 loops| Review["Dossier REVIEW with QA report"]

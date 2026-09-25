@@ -530,6 +530,16 @@
           result,
           error: "",
         });
+        const scoredSession = core().getLastResumeGenerationSession();
+        const scoredJob =
+          (scoredSession && scoredSession.job) || (payload && payload.job) || null;
+        if (scoredJob) {
+          materialsState().setScorecardForJob(
+            scoredJob,
+            result,
+            payload && payload.feature,
+          );
+        }
       } catch (err) {
         if (getAtsScorecardState().cacheKey !== cacheKey) return;
         setAtsScorecardState({

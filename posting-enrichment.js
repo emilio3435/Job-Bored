@@ -183,6 +183,9 @@ function cacheEnrichment(jobOrUrl, enrichment) {
   // Store AI fields + trimmed description; skip huge raw text to save space
   const stored = {
     ...enrichment,
+    postedAt: String(enrichment.postedAt || ""),
+    closesAt: String(enrichment.closesAt || ""),
+    postingSalary: String(enrichment.postingSalary || ""),
     description: enrichment.description
       ? String(enrichment.description).slice(0, ENRICHMENT_CACHE_DESC_LIMIT)
       : undefined,

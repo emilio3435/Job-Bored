@@ -15,6 +15,7 @@
                                           → {ok, status, message}
      getProviderModels({provider, apiKey, baseUrl, forceRefresh?, fetchImpl?})
                                           → {models, source:"live"|"cache"|"static", error?}
+     isWeakMaterialsModel(model)          → boolean (:free suffix or gpt-oss free ids)
      clearCache(provider?)
 
    Endpoints used (all CORS-friendly per provider docs):
@@ -53,28 +54,36 @@
   // Anthropic static list is hard-pinned to current ids (claude-opus-4-8,
   // claude-fable-5) because legacy options in CommandCenterResumeModelOptions
   // pre-dated the model line-up the OSS docs reference.
+  const GEMINI_FLASH_OPTION = {
+    value: "gemini-flash",
+    label: "Gemini Flash (latest)",
+    description: "Newest stable Flash. Resolves at call time.",
+  };
+
+  const WEAK_EXACT = new Set([
+    "openai/gpt-oss-120b:free",
+    "openai/gpt-oss-20b:free",
+  ]);
+
+  function isWeakMaterialsModel(model) {
+    const id = String(model || "").trim().toLowerCase();
+    if (!id) return false;
+    if (WEAK_EXACT.has(id)) return true;
+    return id.endsWith(":free");
+  }
+
+  function withGeminiFlashFirst(list) {
+    const rest = (Array.isArray(list) ? list : []).filter(
+      (o) => o && o.value !== GEMINI_FLASH_OPTION.value,
+    );
+    return [GEMINI_FLASH_OPTION, ...rest];
+  }
+
   const STATIC_FALLBACK = {
     gemini: [
-      {
-        value: "gemini-3.5-flash",
-        label: "Gemini 3.5 Flash · Stable",
-        description: "Most intelligent everyday model — recommended default.",
-      },
-      {
-        value: "gemini-3.1-pro-preview",
-        label: "Gemini 3.1 Pro · Preview",
-        description: "Strongest reasoning, higher latency/cost.",
-      },
-      {
-        value: "gemini-3-flash-preview",
-        label: "Gemini 3 Flash · Preview",
-        description: "Fast, economical preview.",
-      },
-      {
-        value: "gemini-3.1-flash-lite-preview",
-        label: "Gemini 3.1 Flash-Lite · Preview",
-        description: "Cheapest/fastest option.",
-      },
+      GEMINI_FLASH_OPTION,
+      { value: "gemini-pro", label: "Gemini Pro (latest)", description: "Advanced reasoning family." },
+      { value: "gemini-flash-lite", label: "Gemini Flash Lite (latest)", description: "Cheapest/fastest option." },
     ],
     openai: [
       { value: "gpt-5.4", label: "GPT-5.4" },
@@ -138,10 +147,12 @@
     const fromSettings =
       window.CommandCenterResumeModelOptions &&
       window.CommandCenterResumeModelOptions[p];
-    if (Array.isArray(fromSettings) && fromSettings.length > 0) {
-      return fromSettings.slice();
-    }
-    return (STATIC_FALLBACK[p] || []).slice();
+    const list =
+      Array.isArray(fromSettings) && fromSettings.length > 0
+        ? fromSettings.slice()
+        : (STATIC_FALLBACK[p] || []).slice();
+    if (p === "gemini") return withGeminiFlashFirst(list);
+    return list;
   }
 
   function hashKey(s) {
@@ -539,6 +550,7 @@
     fetchProviderModels,
     pingProvider,
     getProviderModels,
+    isWeakMaterialsModel,
     clearCache,
   };
 })();

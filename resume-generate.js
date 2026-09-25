@@ -54,28 +54,22 @@
   window.CommandCenterResumeModelOptions = {
     gemini: [
       {
-        value: "gemini-3.1-pro-preview",
-        label: "Gemini 3.1 Pro · Preview",
+        value: "gemini-flash",
+        label: "Gemini Flash (latest)",
         description:
-          "Advanced intelligence for complex problem-solving, agentic flows, and vibe coding. Pro: strongest reasoning. Con: higher latency/cost.",
+          "Newest stable Flash family. Resolves at call time. Pro: stays current. Con: exact snapshot chosen at call time.",
       },
       {
-        value: "gemini-3.5-flash",
-        label: "Gemini 3.5 Flash · Stable",
+        value: "gemini-pro",
+        label: "Gemini Pro (latest)",
         description:
-          "Most intelligent model for sustained frontier performance on agentic and coding tasks. Pro: dependable default. Con: less experimental than preview models.",
+          "Advanced reasoning family for complex problem-solving. Pro: strongest reasoning. Con: higher latency/cost.",
       },
       {
-        value: "gemini-3-flash-preview",
-        label: "Gemini 3 Flash · Preview",
+        value: "gemini-flash-lite",
+        label: "Gemini Flash Lite (latest)",
         description:
-          "Frontier-class performance rivaling larger models at lower cost. Pro: fast and economical. Con: preview stability.",
-      },
-      {
-        value: "gemini-3.1-flash-lite-preview",
-        label: "Gemini 3.1 Flash-Lite · Preview",
-        description:
-          "Lightweight frontier model at a fraction of the cost. Pro: cheapest/fastest option. Con: weaker on complex reasoning.",
+          "Lightweight Flash family at a fraction of the cost. Pro: cheapest/fastest option. Con: weaker on complex reasoning.",
       },
     ],
     openai: [
@@ -170,7 +164,7 @@
       resumeAnthropicApiKey:
         c.resumeAnthropicApiKey || c.anthropicApiKey || "",
       resumeOpenRouterApiKey: c.resumeOpenRouterApiKey || "",
-      resumeGeminiModel: c.resumeGeminiModel || "gemini-3.5-flash",
+      resumeGeminiModel: c.resumeGeminiModel || "gemini-flash",
       resumeOpenAIModel: c.resumeOpenAIModel || "gpt-4o-mini",
       resumeAnthropicModel: c.resumeAnthropicModel || "claude-sonnet-4-6",
       resumeOpenRouterModel:
@@ -336,8 +330,18 @@
     if (!resp.ok) {
       const msg =
         data.error?.message || JSON.stringify(data) || `HTTP ${resp.status}`;
+      const fallback = isGeminiModelNotFound(msg) ? GEMINI_FLASH_PINNED_FALLBACK : "";
+      if (fallback && model !== fallback) {
+        console.warn(
+          `[JobBored] Gemini model "${model}" was rejected; retrying with ${fallback}.`,
+        );
+        const insights = await callGemini(bundle, apiKey, fallback);
+        repairStoredGeminiModel(fallback);
+        return insights;
+      }
       throw new Error(msg);
     }
+    lastGeminiModelUsed = model;
     const parts = data.candidates?.[0]?.content?.parts;
     const text = parts?.map((p) => p.text || "").join("") || "";
     if (!text.trim()) throw new Error("Empty response from Gemini");
@@ -507,12 +511,38 @@
     return text.trim();
   }
 
+  const GEMINI_FLASH_FAMILY = "gemini-flash";
+  const GEMINI_FLASH_PINNED_FALLBACK = "gemini-3.7-flash";
+  /** The Gemini model that last answered — the live check reports this,
+   *  not the configured id, so a repaired fallback shows the truth. */
+  let lastGeminiModelUsed = "";
+
+  /** Google's 404 for a stale/mistyped model id (seen 2026-09-01 with
+   *  `gemini-flash`): "models/<id> is not found for API version v1beta, or
+   *  is not supported for generateContent." */
+  function isGeminiModelNotFound(message) {
+    const m = String(message || "");
+    return /is not found for API version|not supported for generateContent/i.test(m);
+  }
+
+  /** Repair a stored model id that Google rejected, so the fallback sticks. */
+  function repairStoredGeminiModel(model) {
+    try {
+      const app = window.JobBoredApp;
+      if (app && typeof app.mergeStoredConfigOverridePatch === "function") {
+        app.mergeStoredConfigOverridePatch({ resumeGeminiModel: model });
+      }
+    } catch (_) {
+      /* best-effort */
+    }
+  }
+
   async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
-    const resolvedModel = model || "gemini-3.5-flash";
+    const resolvedModel = model || GEMINI_FLASH_FAMILY;
     const wantJson = wantsJsonResponse(opts);
-    const isThinkingModel = /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(
-      resolvedModel,
-    );
+    const isThinkingModel =
+      resolvedModel === GEMINI_FLASH_FAMILY ||
+      /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
     const generationConfig = {
       maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
       temperature: 0.5,
@@ -534,8 +564,20 @@
       throw wrapFetchFailure(e, "Gemini", false);
     }
     const data = await resp.json().catch(() => ({}));
-    if (!resp.ok)
-      throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
+    if (!resp.ok) {
+      const message = data.error?.message || `Gemini HTTP ${resp.status}`;
+      const fallback = isGeminiModelNotFound(message) ? GEMINI_FLASH_PINNED_FALLBACK : "";
+      if (fallback && resolvedModel !== fallback) {
+        console.warn(
+          `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${fallback}.`,
+        );
+        const text = await callConfiguredAiGemini(system, user, apiKey, fallback, opts);
+        repairStoredGeminiModel(fallback);
+        return text;
+      }
+      throw new Error(message);
+    }
+    lastGeminiModelUsed = resolvedModel;
     const candidate = data.candidates?.[0];
     const text =
       candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
@@ -647,7 +689,7 @@
       return {
         ok: true,
         provider,
-        model: model || "",
+        model: (provider === "gemini" && lastGeminiModelUsed) || model || "",
         ms: Date.now() - startedAt,
         reply: String(reply || "").trim().slice(0, 120),
       };

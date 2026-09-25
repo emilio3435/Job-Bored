@@ -385,11 +385,17 @@
     return card;
   }
 
-  /** Build B6's body into `container` from an already-resolved state. */
+  /**
+   * Build B6's body into `container` from an already-resolved state.
+   *
+   * The sub-line is NOT rendered here. `registerBeat({ sub })` hands the
+   * same string to the shell, which paints it as the step lede above this
+   * body — so a paragraph here made the rerun read the promise twice in a
+   * row (SIXBEATS2 NEW-10). One lede, one voice.
+   */
   function renderPayoff(container, state) {
     if (!container) return container;
     const wrap = el("div", "oneflow-payoff");
-    wrap.appendChild(el("p", "oneflow-payoff__sub", state.sub));
     const cards = el("div", "oneflow-payoff__cards");
     cards.appendChild(buildSearchCard(state));
     cards.appendChild(buildNowCard(state));
@@ -556,7 +562,19 @@
     // existing run tracker's toast + poll carry the run from there onto
     // the live board behind it (spec §5 B6 Actions).
     void triggerRun();
-    return ctx.completeBeat({ beat: "payoff", ran: true });
+    const result = await ctx.completeBeat({ beat: "payoff", ran: true });
+    // Land where the dashboard's own Run button shows a run: the drawer.
+    // Only once the flow has relinquished the surface — opened under a
+    // still-open shell it would sit hidden behind it.
+    const h = appHost();
+    if (h && typeof h.openDiscoveryDrawer === "function") {
+      try {
+        h.openDiscoveryDrawer();
+      } catch (e) {
+        console.warn("[JobBored] B6: could not open the discovery drawer:", e);
+      }
+    }
+    return result;
   }
 
   async function onAction(actionId, ctx) {

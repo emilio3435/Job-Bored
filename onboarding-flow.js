@@ -45,11 +45,38 @@
     payoff: "Done",
   });
 
+  /**
+   * Spec §3.4: closing is pausing. The reasons here are the ones a PERSON
+   * causes — Escape, the × button, and the programmatic close the S0 card
+   * uses. "flow-complete" never reaches this function, and "destroy" is a
+   * teardown nobody asked for, so neither earns the line.
+   */
+  const PAUSE_TOAST = "Setup paused — pick up right here anytime.";
+  const PAUSE_REASONS = new Set(["escape", "close-button", "close"]);
+
+  /**
+   * Beat-local drafts that survive a refresh (spec §3.2, SIXBEATS2 locked
+   * decision 4). Two keys, both written by the beat that owns them:
+   * `resumeText` by B3 on input, `profileDraft` by B3 when the draft lands
+   * and by B4 on every correction. Anything else is refused — a beat is
+   * never allowed to talk this store into holding a key or a token.
+   */
+  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft"]);
+
+  /** One write per typing burst, not one per keystroke (spec §3.2). */
+  const DRAFT_SAVE_DELAY_MS = 400;
+
+  /** The re-entry a paused flow leaves behind (SIXBEATS2 locked decision 6). */
+  const RESUME_PILL_ID = "oneFlowResumePill";
+  const RESUME_PILL_LABEL = "Resume setup ▸";
+  const DEMO_BOARD_ID = "oneFlowDemoBoard";
+
   const DEFAULT_STATE = Object.freeze({
     version: FLOW_STATE_VERSION,
     beat: "",
     completedBeats: [],
     skipped: {},
+    drafts: {},
     startedAt: "",
     completed: false,
   });
@@ -60,14 +87,20 @@
   /**
    * Cross-beat scratch: B3's resume draft is what B4 confirms, B2's
    * verified provider is what B3 drafts with. In-memory only — anything
-   * that must survive a refresh belongs in the flow state or its own store.
+   * that must survive a refresh belongs in `runtime.drafts` (which the
+   * controller mirrors into the flow state) or in its own store.
    */
-  const runtime = {};
+  const runtime = { drafts: {} };
 
   let state = cloneState(DEFAULT_STATE);
   let hydrated = false;
   let flowOpenEmitted = false;
   let openBeatId = "";
+  /** Draft writes waiting out the debounce, and who is waiting on them. */
+  let pendingDrafts = null;
+  let draftTimer = null;
+  let draftWaiters = [];
+  let resumePillEl = null;
 
   function cloneState(raw) {
     return {
@@ -75,6 +108,7 @@
       beat: raw.beat,
       completedBeats: [...raw.completedBeats],
       skipped: { ...raw.skipped },
+      drafts: { ...(raw.drafts || {}) },
       startedAt: raw.startedAt,
       completed: !!raw.completed,
     };
@@ -92,6 +126,14 @@
   function shell() {
     const ns = window.JobBoredDiscoveryWizard;
     return (ns && ns.shell) || null;
+  }
+
+  function toast(message, tone) {
+    const app = window.JobBoredApp;
+    const bridge = (app && app.core && app.core.host) || null;
+    if (bridge && typeof bridge.showToast === "function") {
+      bridge.showToast(message, tone);
+    }
   }
 
   function emit(step, detail) {
@@ -196,6 +238,7 @@
       }
     }
     hydrated = true;
+    mirrorDrafts();
     return state;
   }
 
@@ -212,13 +255,212 @@
     }
     // No store (or a failed write): keep the in-memory machine moving so a
     // storage fault degrades to "this session only", never to a dead flow.
-    state = cloneState({ ...state, ...partial, skipped: { ...state.skipped, ...(partial.skipped || {}) } });
+    state = cloneState({
+      ...state,
+      ...partial,
+      skipped: { ...state.skipped, ...(partial.skipped || {}) },
+      drafts: { ...state.drafts, ...(partial.drafts || {}) },
+    });
     return state;
+  }
+
+  // ---------------------------------------------------------------
+  // Beat-local drafts (spec §3.2, SIXBEATS2 locked decision 4)
+  // ---------------------------------------------------------------
+
+  /**
+   * Republish the persisted drafts onto the runtime every beat reads.
+   * Anything still inside the debounce window wins over what is on disk:
+   * the user typed it, it just has not landed yet.
+   */
+  function mirrorDrafts() {
+    runtime.drafts = { ...state.drafts, ...(pendingDrafts || {}) };
+    return runtime.drafts;
+  }
+
+  /**
+   * Write the pending drafts now and answer everyone who was waiting on
+   * the debounce. Called by the timer, and directly whenever the flow is
+   * about to move or close — a beat transition must never outrun the
+   * keystrokes that preceded it.
+   */
+  async function flushDrafts() {
+    if (draftTimer) {
+      clearTimeout(draftTimer);
+      draftTimer = null;
+    }
+    const drafts = pendingDrafts;
+    const waiters = draftWaiters;
+    pendingDrafts = null;
+    draftWaiters = [];
+    if (drafts) {
+      await hydrate();
+      await patchState({ drafts });
+      mirrorDrafts();
+    }
+    for (const resolve of waiters) resolve(true);
+    return true;
+  }
+
+  /**
+   * Persist one beat-local draft. Resolves true once the (debounced)
+   * write lands, false for a key this store does not own.
+   *
+   * The rerun's NEW-7 and NEW-14 are both this function's absence: the
+   * drafted profile and the typed resume lived on `runtime` alone, so a
+   * refresh mid-flow returned a stranger to an empty Beat 4.
+   */
+  function saveDraft(key, value) {
+    const name = asString(key);
+    if (!DRAFT_KEYS.includes(name)) {
+      console.warn(
+        `[JobBored] one-flow: "${name}" is not a draft key (${DRAFT_KEYS.join(", ")}).`,
+      );
+      return Promise.resolve(false);
+    }
+    if (!runtime.drafts || typeof runtime.drafts !== "object") runtime.drafts = {};
+    runtime.drafts[name] = value;
+    pendingDrafts = { ...(pendingDrafts || {}), [name]: value };
+    const waiter = new Promise((resolve) => draftWaiters.push(resolve));
+    if (draftTimer) clearTimeout(draftTimer);
+    draftTimer = setTimeout(() => {
+      flushDrafts();
+    }, DRAFT_SAVE_DELAY_MS);
+    return waiter;
+  }
+
+  // ---------------------------------------------------------------
+  // Re-entry after a pause (SIXBEATS2 locked decision 6, spec §3.4)
+  // ---------------------------------------------------------------
+
+  /** True while S0 is the live surface — its invitation card re-enters there. */
+  function demoBoardActive() {
+    const board = window.JobBoredOneFlowDemoBoard;
+    if (board && typeof board.isActive === "function") {
+      try {
+        if (board.isActive()) return true;
+      } catch (e) {
+        // A board that cannot answer is a board that is not on screen.
+      }
+    }
+    return !!(
+      typeof document.getElementById === "function" &&
+      document.getElementById(DEMO_BOARD_ID)
+    );
+  }
+
+  function hideResumePill() {
+    const pill = resumePillEl;
+    resumePillEl = null;
+    if (pill && typeof pill.remove === "function") pill.remove();
+  }
+
+  /**
+   * The pill NEW-6 found missing: on a configured install, Escape dropped
+   * the user on the dashboard with the flow paused and nothing on screen
+   * that led back to it. S0 has its invitation card; everywhere else gets
+   * this — same shape, one job, gone the moment the flow is open or done.
+   */
+  function showResumePill(beatId) {
+    if (state.completed) return null;
+    if (demoBoardActive()) return null;
+    const body = document.body;
+    if (!body || typeof document.createElement !== "function") return null;
+    hideResumePill();
+    const beat = getBeat(beatId);
+    const label = beat ? beat.label : "";
+    const pill = document.createElement("button");
+    pill.type = "button";
+    pill.id = RESUME_PILL_ID;
+    pill.className = "oneflow-resume-pill";
+    pill.textContent = RESUME_PILL_LABEL;
+    pill.setAttribute(
+      "aria-label",
+      label ? `Resume setup — ${label}` : "Resume setup",
+    );
+    pill.addEventListener("click", () => {
+      hideResumePill();
+      open();
+    });
+    body.appendChild(pill);
+    resumePillEl = pill;
+    return pill;
   }
 
   // ---------------------------------------------------------------
   // Entry decision (spec §3.3 / §3.4) — L6 wires this into boot.
   // ---------------------------------------------------------------
+
+  /**
+   * B1's exit condition, asked of the host: true when a sheet is configured
+   * (config or runtime), false when a getter exists and answers empty, and
+   * null when no getter is reachable — a bare controller (tests, a partial
+   * boot) cannot call a completion stale on evidence it does not have.
+   */
+  function sheetConfigured() {
+    const app = window.JobBoredApp;
+    const h = app && app.core && app.core.host;
+    const core = app && app.core;
+    let known = false;
+    try {
+      if (h && typeof h.getSheetId === "function") {
+        known = true;
+        if (asString(h.getSheetId())) return true;
+      }
+    } catch (e) {
+      /* a getter that throws is a sheet that is not configured */
+    }
+    try {
+      if (core && typeof core.getSHEET_ID === "function") {
+        known = true;
+        if (asString(core.getSHEET_ID())) return true;
+      }
+    } catch (e) {
+      /* same */
+    }
+    return known ? false : null;
+  }
+
+  /**
+   * Clear a completion the sheet can no longer vouch for, if there is one.
+   * Safe to call on every entry: it is a no-op unless the flow claims progress
+   * the configured sheet cannot support.
+   */
+  async function reconcileStaleCompletion() {
+    if (sheetConfigured() !== false) return false;
+    // Only progress a sheet VOUCHES for can go stale: a finished flow, or
+    // Beat 1 earned (its exit condition is a configured sheet). A visitor
+    // paused at any beat with nothing earned yet simply has no sheet YET —
+    // spec §3.4 says re-entry resumes them, and the journey suite pins it.
+    const vouched =
+      state.completed || state.completedBeats.includes("google");
+    if (!vouched) return false;
+    await resetStaleCompletion();
+    return true;
+  }
+
+  /**
+   * Forget a completion the sheet can no longer vouch for; the deal restarts.
+   *
+   * PROGRESS is cleared — those beats were earned against a sheet that is no
+   * longer configured. DRAFTS are not: a masked sheet id says nothing about
+   * the resume the user pasted or the profile B3 drafted, and making them
+   * retype it is exactly the punishment this flow exists to avoid. `startedAt`
+   * is kept too, so the honest "15 min, once" clock is not restarted by a
+   * bookkeeping repair.
+   */
+  async function resetStaleCompletion() {
+    const keptDrafts = { ...(state.drafts || {}) };
+    const keptStartedAt = state.startedAt;
+    await patchState({
+      completed: false,
+      completedBeats: [],
+      beat: "",
+      drafts: keptDrafts,
+      startedAt: keptStartedAt || new Date().toISOString(),
+    });
+    mirrorDrafts();
+  }
 
   /**
    * Should the one-flow run for this profile? Resolves false for anyone
@@ -228,9 +470,21 @@
    */
   async function maybeStart() {
     await hydrate();
-    if (state.completed) return false;
+    // Only a host that CAN answer "no sheet" makes a completion stale.
+    const stale = sheetConfigured() === false;
+    if (state.completed) {
+      if (!stale) return false;
+      // A "completed" flow with no sheet is a stale answer, not a finished
+      // user: B1's exit condition is a configured sheet (spec §5 B1). The
+      // greenfield reset masks localStorage, but its IndexedDB drop is
+      // best-effort — blocked while another tab holds the store — and boot
+      // then trusted `completed`, never re-ran B1, and every config getter
+      // read empty (2026-09-02). Restart the deal instead of stranding them.
+      await resetStaleCompletion();
+      return true;
+    }
     const s = store();
-    if (s && typeof s.isInfraSetupComplete === "function") {
+    if (!stale && s && typeof s.isInfraSetupComplete === "function") {
       const [infra, onboarding] = await Promise.all([
         s.isInfraSetupComplete(),
         s.isOnboardingComplete(),
@@ -280,6 +534,9 @@
       clearBusy() {
         const sh = shell();
         if (sh && sh.clearBusy) sh.clearBusy();
+      },
+      saveDraft(key, value) {
+        return saveDraft(key, value);
       },
       completeBeat(detail) {
         return completeBeat(beat.id, detail);
@@ -368,6 +625,13 @@
    */
   async function open(beatId) {
     await hydrate();
+    // Entering re-checks the sheet, not just booting does. maybeStart() runs
+    // only inside the post-sign-in bootstrap, which a user with no sheet never
+    // reaches — while the S0 invitation card calls open() directly. Without
+    // this, that card resumed `beat: "payoff"` and painted "You're live." over
+    // an install with nothing configured, with no route back to Beat 1
+    // (reproduced 2026-09-02).
+    await reconcileStaleCompletion();
     const target = resolveEntryBeatId(beatId);
     if (!target) return null;
     if (!flowOpenEmitted) {
@@ -384,7 +648,12 @@
     await hydrate();
     const beat = getBeat(id);
     if (!beat) return null;
+    // Land the keystrokes of the beat we are leaving before the next beat
+    // reads the drafts bag (spec §3.4: resume lands "with drafts restored").
+    await flushDrafts();
     await patchState({ beat: beat.id });
+    mirrorDrafts();
+    hideResumePill();
     openBeatId = beat.id;
     const rendered = renderBeat(beat);
     emit(steps().BEAT_OPENED, { beat: beat.id });
@@ -425,6 +694,8 @@
    * onboardingFlowState to keep working.
    */
   async function finishFlow() {
+    await flushDrafts();
+    hideResumePill();
     const startedAt = Date.parse(state.startedAt);
     const durationMs = Number.isFinite(startedAt) ? Date.now() - startedAt : 0;
     const skips = Object.keys(state.skipped);
@@ -444,7 +715,36 @@
     emit(steps().FLOW_COMPLETED, { skips, durationMs });
     closeShell();
     openBeatId = "";
+    revealRealDashboard();
     return getState();
+  }
+
+  /**
+   * The exit every deferred reveal was waiting on. While a beat owns the
+   * surface, sign-in, session restore, and the sheet load all leave the
+   * dashboard hidden "until the flow's own payoff exit reveals it" — and
+   * the S0 overlay only unmounts when real rows render, which a sheet B1
+   * just created cannot do. Without this, both B6 actions dropped the user
+   * back on the sample board.
+   */
+  function revealRealDashboard() {
+    const board = window.JobBoredOneFlowDemoBoard;
+    if (board && typeof board.unmount === "function") {
+      try {
+        board.unmount();
+      } catch (e) {
+        console.warn("[JobBored] one-flow: could not unmount the demo board:", e);
+      }
+    }
+    const app = window.JobBoredApp;
+    const setup = (app && app.setup) || null;
+    if (setup && typeof setup.revealDashboardShell === "function") {
+      try {
+        setup.revealDashboardShell();
+      } catch (e) {
+        console.warn("[JobBored] one-flow: could not reveal the dashboard:", e);
+      }
+    }
   }
 
   function closeShell() {
@@ -461,13 +761,26 @@
   /**
    * The shell's own × / Esc path lands here (spec §3.4): closing is
    * pausing. The saved beat is untouched; only the drop-off is recorded.
+   *
+   * The state machine always honoured that, but the SCREEN said nothing —
+   * Escape dropped you onto the board with no acknowledgement, which reads
+   * as "did I just lose my setup?". So the pause is now spoken. A toast and
+   * not a confirm dialog: a confirm would frame pausing as quitting, and
+   * §3.4 says it is neither.
    */
   function handleShellClose(reason) {
     if (!openBeatId) return;
     const beat = openBeatId;
+    const why = asString(reason, "close");
     openBeatId = "";
     flowOpenEmitted = false;
-    emit(steps().BEAT_ABANDONED, { beat, reason: asString(reason, "close") });
+    // Pausing is the one moment a draft is most likely to be half-typed.
+    flushDrafts();
+    if (PAUSE_REASONS.has(why)) {
+      toast(PAUSE_TOAST, "info");
+      showResumePill(beat);
+    }
+    emit(steps().BEAT_ABANDONED, { beat, reason: why });
   }
 
   function close(reason) {
@@ -494,6 +807,7 @@
     getBeat,
     getState,
     seedRuntime,
+    saveDraft,
     maybeStart,
     open,
     goToBeat,
