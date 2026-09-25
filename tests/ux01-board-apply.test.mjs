@@ -309,3 +309,150 @@ describe("C17/C19 card and board semantics", () => {
     assert.match(css, /\[data-view="list"\]/);
   });
 });
+
+/* ------------------------------------------------------------------------
+ * Conformance pass against the mockup (2026-09-25). Each probe below was red
+ * on 15cc958 (lane D + lane C merged) before the fix.
+ * ---------------------------------------------------------------------- */
+
+describe("conformance C17: a failed move names the role and the stage, with Retry", () => {
+  it("SS-07: a refused planner write toasts the role, the stage it stayed in, and Retry", async () => {
+    let calls = 0;
+    const { window, toasts, events } = loadStack({
+      applyCells: () => {
+        calls += 1;
+        return calls > 1; // first write refused, the retry lands
+      },
+    });
+    const result = await window.JobBoredPipelineTransitionAdapter.move({
+      jobKey: "0", fromStage: "researching", toStage: "interviewing",
+    });
+    assert.equal(result.ok, false);
+    const failToast = toasts.find((t) => t.type === "error");
+    assert.ok(failToast, "a failed move must show a toast, not only a live-region line");
+    assert.match(failToast.message, /Staff Engineer at Acme/, "names the role");
+    assert.match(failToast.message, /Researching/, "names the stage it stayed in");
+    assert.equal(failToast.opts.action.label, "Retry");
+    const failed = events.find((e) => e.type === "jb:write:failed");
+    assert.equal(failed.detail.announced, true, "the board must not stack a second toast");
+    await failToast.opts.action.onClick();
+    assert.equal(calls, 2, "Retry re-issues the same move through the planner");
+    assert.ok(events.some((e) => e.type === "jb:write:succeeded"), "the retried move lands");
+  });
+
+  it("SS-07: a cancelled Applied dialog is not a failure toast", async () => {
+    const { window, toasts } = loadStack({
+      withSubmission: true,
+      dialogResult: { confirmed: false, values: {} },
+    });
+    await window.JobBoredPipelineTransitionAdapter.move({
+      jobKey: "0", fromStage: "researching", toStage: "applied",
+    });
+    assert.equal(toasts.some((t) => t.type === "error"), false);
+  });
+
+  it("SS-07: the board's own failure toast names the role too, and skips moves the adapter announced", () => {
+    const src = read("pipeline.js");
+    assert.match(src, /detail\.announced/);
+    assert.doesNotMatch(src, /"Couldn't save the move\. It is still in "/);
+  });
+});
+
+describe("conformance C15: Applied dialog", () => {
+  it("TR-06/TA-04: the primary reads Mark applied, matching the stage it sets", async () => {
+    const { window } = loadStack({ withSubmission: true, dialogResult: { confirmed: false, values: {} } });
+    await window.JobBoredSubmission.confirmApplied("0", { fromStage: "researching" });
+    assert.equal(window.__dialogSpec.confirmLabel, "Mark applied");
+  });
+
+  it("TR-06/TA-04: the dialog's primary is the kit's filled navy button, the cancel its secondary", () => {
+    const src = read("jb-a11y.js");
+    assert.match(src, /jb-a11y-dialog__btn--confirm[^"]*jb-btn jb-btn--primary|jb-btn jb-btn--primary[^"]*jb-a11y-dialog__btn--confirm/);
+    assert.match(src, /jb-a11y-dialog__btn--cancel[^"]*jb-btn jb-btn--secondary|jb-btn jb-btn--secondary[^"]*jb-a11y-dialog__btn--cancel/);
+    const css = read("jb-a11y.css");
+    assert.doesNotMatch(css, /\.jb-a11y-dialog__btn--confirm\s*\{[^}]*mint-soft/, "no pale mint primary");
+  });
+
+  it("TA-21: a Sent with it group lists the role's materials, preselected", async () => {
+    const { window } = loadStack({ withSubmission: true, dialogResult: { confirmed: false, values: {} } });
+    await window.JobBoredSubmission.confirmApplied({
+      dataIndex: 0,
+      prefill: {
+        materials: [
+          { id: "resume", label: "Tailored resume v2" },
+          { id: "cover_letter", label: "Cover letter v1" },
+        ],
+      },
+    });
+    const group = window.__dialogSpec.checks;
+    assert.ok(group, "the dialog spec carries a checkbox group");
+    assert.equal(group.label, "Sent with it");
+    assert.deepEqual(JSON.parse(JSON.stringify(group.items.map((i) => [i.label, i.checked]))), [
+      ["Tailored resume v2", true],
+      ["Cover letter v1", true],
+    ]);
+  });
+
+  it("TA-21: the checked materials are recorded in Notes with the application", async () => {
+    const { window, cellsWritten } = loadStack({
+      withSubmission: true,
+      dialogResult: {
+        confirmed: true,
+        values: {
+          "jb-submission-source": "Greenhouse",
+          "jb-submission-sent-resume": "true",
+          "jb-submission-sent-cover_letter": "false",
+        },
+      },
+    });
+    await window.JobBoredSubmission.confirmApplied({
+      dataIndex: 0,
+      fromStage: "researching",
+      prefill: {
+        materials: [
+          { id: "resume", label: "Tailored resume v2" },
+          { id: "cover_letter", label: "Cover letter v1" },
+        ],
+      },
+    });
+    const byCol = Object.fromEntries(cellsWritten[0].map((p) => [p.column, p.value]));
+    assert.match(byCol.O, /sent: Tailored resume v2/);
+    assert.doesNotMatch(byCol.O, /Cover letter v1/, "an unchecked file is not recorded");
+  });
+
+  it("TA-21: without a prefill, the dialog asks the board for the role's materials", () => {
+    const src = read("submission-flow.js");
+    assert.match(src, /JobBoredPipeline[\s\S]{0,80}materialsFor/);
+    assert.match(read("pipeline.js"), /materialsFor\s*=/);
+  });
+});
+
+describe("conformance C5: an unreadable link opens a plain warn banner", () => {
+  const COPY = "We couldn't read that page from here. Fill in the rest and it goes straight to your Sheet.";
+  it("FD-01/FR-04: the URL modal's failure path hands over the plain copy, not the transport error", () => {
+    const src = read("pipeline.js");
+    assert.ok(src.includes(COPY), "the mockup's sentence");
+    assert.doesNotMatch(src, /Couldn't read the posting automatically \(" \+/, "no error text spliced in");
+  });
+  it("FD-01: the manual modal shows that copy in a jb-banner warn, not paragraph text", () => {
+    const partial = read("partials/ingest-manual-modal.html");
+    assert.match(partial, /class="jb-banner[^"]*"[^>]*data-tone="warn"|data-tone="warn"[^>]*class="jb-banner/);
+    const flow = read("ingest-url-flow.js");
+    assert.match(flow, /tone/);
+    assert.doesNotMatch(flow, /CORS|Cloudflare Access|stale tunnel/, "no network jargon reaches the manual form");
+  });
+});
+
+describe("conformance C19: six active columns and a Closed row", () => {
+  const src = read("pipeline.js");
+  const css = read("pipeline.css");
+  it("TR-09: Rejected, Passed and Expired render in a Closed chip row, not as board columns", () => {
+    assert.match(src, /pipe-closed/);
+    assert.match(src, /CLOSED_STAGES/);
+    assert.doesNotMatch(css, /var\(--pipe-col-rejected\)\s*\n\s*var\(--pipe-col-passed\)/);
+  });
+  it("TR-16: a resting card shows one place · pay line", () => {
+    assert.match(src, /pipe-sticker__meta/);
+    assert.match(css, /\.pipe-sticker__meta/);
+  });
+});
