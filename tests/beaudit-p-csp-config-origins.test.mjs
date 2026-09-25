@@ -120,6 +120,36 @@ describe("BEAUDIT G10 — dev-server serves the config.js-derived CSP", () => {
       await new Promise((r) => server.close(r));
     }
   });
+
+  it("the served connect-src names the origins a synthetic config.js declares", async () => {
+    const { mkdtempSync, writeFileSync, rmSync } = await import("node:fs");
+    const { tmpdir } = await import("node:os");
+    const { join } = await import("node:path");
+    const dir = mkdtempSync(join(tmpdir(), "beaudit-g10-http-"));
+    const dashboardConfigPath = join(dir, "config.js");
+    writeFileSync(dashboardConfigPath, CONFIG_JS);
+    const server = await startDevServer({
+      port: 0,
+      dashboardConfigPath,
+      logger: { log() {}, error() {} },
+    });
+    const port = server.address().port;
+    try {
+      const csp = await new Promise((resolve, reject) => {
+        const req = httpRequest({ host: "127.0.0.1", port, path: "/", method: "GET" }, (res) => {
+          res.resume();
+          res.on("end", () => resolve(String(res.headers["content-security-policy"] || "")));
+        });
+        req.on("error", reject);
+        req.end();
+      });
+      assert.match(directive(csp, "connect-src"), /https:\/\/jobbored-api-abc123\.a\.run\.app/);
+      assert.match(directive(csp, "connect-src"), /http:\/\/192\.168\.1\.20:11434/);
+    } finally {
+      await new Promise((r) => server.close(r));
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
 });
 
 describe("BEAUDIT G10 repair — quoted config keys", () => {

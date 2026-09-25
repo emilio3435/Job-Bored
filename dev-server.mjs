@@ -738,7 +738,7 @@ function writeStaticGuardResponse(res, status) {
   res.end(message);
 }
 
-async function serveStatic(urlPath, res) {
+async function serveStatic(urlPath, res, { dashboardConfigPath } = {}) {
   const resolved = await resolvePublicFile(urlPath, { root: ROOT });
   if (!resolved.ok) {
     writeStaticGuardResponse(res, resolved.status || 404);
@@ -762,7 +762,7 @@ async function serveStatic(urlPath, res) {
       res.writeHead(200, {
         "content-type": ct,
         "cache-control": "no-cache",
-        ...dashboardSecurityHeaders(),
+        ...dashboardSecurityHeaders(dashboardConfigPath),
       });
       res.end(data);
       return;
@@ -771,7 +771,7 @@ async function serveStatic(urlPath, res) {
     res.writeHead(200, {
       "content-type": ct,
       "cache-control": "no-cache",
-      ...dashboardSecurityHeaders(),
+      ...dashboardSecurityHeaders(dashboardConfigPath),
     });
     res.end(data);
   } catch {
@@ -2370,7 +2370,12 @@ function readDashboardAllowedHosts(env = process.env) {
     .filter(Boolean);
 }
 
-function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
+function createRequestHandler({
+  currentPort,
+  logger,
+  discoveryWorkerStarter,
+  dashboardConfigPath,
+}) {
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
   const logError =
@@ -2710,7 +2715,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
     const ts = new Date().toLocaleTimeString();
     log(`  HTTP  ${ts} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
 
-    serveStatic(pathname, res).then(() => {
+    serveStatic(pathname, res, { dashboardConfigPath }).then(() => {
       log(`  HTTP  ${ts} ${req.socket.remoteAddress} Returned ${res.statusCode} in ${0} ms`);
     });
   };
@@ -2721,6 +2726,7 @@ export function createDevServer({
   logger = console,
   tls = false,
   discoveryWorkerStarter,
+  dashboardConfigPath,
 } = {}) {
   const currentPort = normalizePort(port);
   const useTls = normalizeBooleanFlag(tls);
@@ -2728,6 +2734,7 @@ export function createDevServer({
     currentPort,
     logger,
     discoveryWorkerStarter,
+    dashboardConfigPath,
   });
 
   if (useTls) {
@@ -2750,6 +2757,7 @@ export function startDevServer({
   logger = console,
   tls = false,
   discoveryWorkerStarter,
+  dashboardConfigPath,
 } = {}) {
   const requestedPort = normalizePort(port);
   const listenHost = resolveListenHost({ host });
@@ -2763,6 +2771,7 @@ export function startDevServer({
       logger,
       tls: useTls,
       discoveryWorkerStarter,
+      dashboardConfigPath,
     });
     server.once("error", reject);
     server.listen(requestedPort, listenHost, () => {
