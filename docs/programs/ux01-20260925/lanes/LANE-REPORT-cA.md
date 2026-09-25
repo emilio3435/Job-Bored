@@ -16,7 +16,7 @@ Branch `feat/ux01-cleanup-system`, cut from `feat/ux-zero-to-one` at e37f2f4. No
 | Dawn post-render keys off the event (dawn.js) | done | `observeLegacy` no longer watches `#jobCards`. It adds one `jb:pipeline:rendered` listener. It still watches `#briefStats` and `#briefHeadline`, because the legacy brief (`daily-brief.js`) is still rendered and is Dawn's source for the hero numbers. Session-expiry clears of `#jobCards` (`sheets-read-load.js showErrorState`) still reach Dawn through `jb:data:load-failed`. |
 | Gate the legacy renderers under `body.jb-v2` (DS-08) | partial, blocked on ownership | See the summary and the handoffs. `?jb-v2=0` is unchanged and still works. |
 | Drop `jb-v2-legacy-hide.css` rules that become dead | partial | Removed the two `[data-region="letter"]` rules: `index.html` no longer has that region and the dev server sends `no-cache`. Updated the header comment, which still named Lattice. The `#pipelineSection`, `.pipeline-board`, `main.main-content`, `.command-strip` and `#resumeGenerateModal` rules are still live and stay until the gate lands. |
-| Test: v2 boot creates no legacy pipeline nodes | not written | It would fail until the gate lands. I did not add a skipped test. |
+| Test: v2 boot creates no legacy pipeline nodes | written, expected-fail (fix round 1) | `pipeline-rendered-event.spec.mjs` test 3, marked `test.fail`. See the fix round below. |
 | Test: `?jb-v2=0` still renders the legacy board | done | `tests/e2e-smoke/pipeline-rendered-event.spec.mjs` test 2. |
 
 ## Red, then green
@@ -107,4 +107,31 @@ Note: `npm test` prints a "failing tests" block for one test, `tests/submission-
 [test:e2e-journey]  25 passed (27.9s)
 [test:e2e-visual]   37 passed (1.0m)
 [lint:repo]         lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)
+```
+
+## Fix round 1 (review findings)
+
+HEAD before: `7288e23e`. Commits: `53f70ccd` (test), plus this report.
+
+| Finding | Verdict | Status |
+|---|---|---|
+| `pipeline-render.js:1173`: the legacy renderer is not gated under `body.jb-v2` | Correct. | **Blocked, not fixed.** The review itself confirms the root cause is outside this lane. Consumers that still read legacy `.kanban-card` nodes from `document` (confirmed by grep on HEAD): `dawn-data.js` (`jobsFromCards`, which drives the board, Case and Dawn view models), `flowing-store.js lookupJobMeta`, `flowing-writes.js`, `role.js`, `stage-registry.js`, `pipeline-controller.js`, and the `#jobCards` observer in `pipeline.js`. Only `pipeline-render.js` (event emission only), `app.js`, `dawn.js` and the CSS are mine. Two things rule out a gate today. Gating inside `pipeline-render.js` is outside the "event emission only" grant. Gating it any other way blanks every v2 surface. There is no fix inside my files that I could stand behind. The orchestrator has to sequence it: dawn-data (and the other readers) move to `getPipelineJobs()` first, then the gate. See the Handoffs table above. |
+| `pipeline-rendered-event.spec.mjs:73`: the v2 no-legacy-nodes proof is missing | Correct. | **Done as a pinned red test.** Test 3, "v2: the boot builds no legacy pipeline nodes (DS-08 gate)", boots `/?greenfield=1`, seeds 3 rows, and checks three things: 3 `.pipe-sticker` cards, event `[3]`, and **0** `#jobCards .kanban-card`. It is marked `test.fail(true, …)`. The gate lane removes that marker, and the test must then pass. If the gate lands and the marker stays, Playwright reports "expected to fail but passed" and the suite goes red, so the pin cannot rot silently. |
+
+Red for the right reason: with the marker switched off, test 3 fails only at the last assertion, `Expected: 0 / Received: 3` (log `.ux01-run/cA-fix/red-unmarked.log`). Tests 1 and 2 pass in that run. With the marker on, the run shows 3 passed (log `.ux01-run/cA-fix/marked.log`).
+
+Caveat: `test.fail` counts any failure as expected. A regression in the sticker or event assertions of test 3 would therefore be hidden. Test 1 covers both of those unmarked, so nothing is left unguarded.
+
+### Floor (fix round 1)
+
+HEAD `53f70ccd`. Logs are in `~/Job-Bored.worktrees/.ux01-run/cA-fix/`. All 7 commands ran in order, and none was filtered or re-run.
+
+```
+npm run lint:repo          exit 0  lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)
+npm run typecheck:repo     exit 0  tsc --noEmit --project server/tsconfig.json (clean)
+npm test                   exit 0  tests 3065 · pass 3064 · fail 0 · skipped 0 · todo 1 (pre-existing submission-record todo)
+npm run test:contract:all  exit 0  OK integrations/openclaw-command-center/SKILL.md (last line; all OK)
+npm run test:e2e-smoke     exit 0  20 passed (18.3s)  (19 before, plus the expected-fail test 3)
+npm run test:e2e-journey   exit 0  25 passed (27.6s)
+npm run test:e2e-visual    exit 0  37 passed (59.2s)  (no baseline refreshed)
 ```
