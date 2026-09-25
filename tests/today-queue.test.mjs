@@ -165,7 +165,7 @@ describe("F3C-UX01-TODAY — default Today queue membership", () => {
     assert.equal(model.items.length, 3);
     assert.deepEqual(
       { ...model.counts },
-      { reply: 1, prep: 0, "follow-up": 1, stale: 1, fit: 0 },
+      { reply: 1, prep: 0, "follow-up": 1, due: 0, offer: 0, stale: 1, fit: 0 },
     );
     assert.equal(model.empty, false);
   });

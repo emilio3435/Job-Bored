@@ -144,7 +144,7 @@ describe("Today attention queue — ranking (UX-01)", () => {
 
   it("counts each band so the surface can say why it is short", () => {
     const model = queue();
-    assert.deepEqual({ ...model.counts }, { reply: 1, prep: 1, "follow-up": 1, stale: 1, fit: 1 });
+    assert.deepEqual({ ...model.counts }, { reply: 1, prep: 1, "follow-up": 1, due: 0, offer: 0, stale: 1, fit: 1 });
   });
 
   it("reuses the shared flag vocabulary rather than minting a second one", () => {
