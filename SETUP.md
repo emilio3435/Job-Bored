@@ -171,6 +171,8 @@ the raw checkout produces an incomplete dashboard.
 
 For GitHub Pages-specific setup, including safe `config.js` options, GitHub Actions-generated config, OAuth origins, relay CORS, and hosted/local-worker expectations, see **[docs/GITHUB-PAGES.md](docs/GITHUB-PAGES.md)**.
 
+> **Hosted mode is unsupported for now.** Run the dashboard and discovery worker locally. A Cloudflare relay deployed with `npm run cloudflare-relay:deploy` answers `401` to any caller without its per-dashboard `RELAY_TOKEN` bearer; only a local dashboard receives that token (from `GET /__proxy/discovery-relay-token`). See [templates/cloudflare-worker/README.md](templates/cloudflare-worker/README.md).
+
 ---
 
 ## Recommended: enable the SerpApi Google Jobs source
