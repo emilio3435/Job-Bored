@@ -1013,12 +1013,56 @@ function hasNonBlankStringValue(value: unknown): boolean {
   return Boolean(String(value || "").trim());
 }
 
-const server = createServer(async (request, response) => {
+/**
+ * BEAUDIT A1 (SEC-05): `new URL("//", base)` throws ERR_INVALID_URL. Parse
+ * inside a guard so a raw path is a 400, never an unhandled rejection that
+ * kills the worker and every in-flight run.
+ */
+export function parseWorkerRequestUrl(rawUrl: string | undefined): URL | null {
+  // A request target must be origin-form. `//host/path` would otherwise be
+  // read as a network-path reference that swaps the authority.
+  if (String(rawUrl || "/").startsWith("//")) return null;
+  try {
+    return new URL(rawUrl || "/", "http://127.0.0.1");
+  } catch {
+    return null;
+  }
+}
+
+const server = createServer((request, response) => {
+  handleWorkerRequest(request, response).catch((error: unknown) => {
+    // Catch-all: a handler bug answers 500 and never rethrows.
+    console.error(
+      "[browser-use-discovery] request handler failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    try {
+      if (!response.headersSent) {
+        response.writeHead(500, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ ok: false, message: "Internal error." }));
+      } else {
+        response.end();
+      }
+    } catch {
+      // The socket is already gone; nothing left to answer.
+    }
+  });
+});
+
+async function handleWorkerRequest(
+  request: import("node:http").IncomingMessage,
+  response: import("node:http").ServerResponse,
+): Promise<void> {
   const requestId = randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const origin = getHeaderValue(request.headers.origin);
   const corsHeaders = buildCorsHeaders(runtimeConfig.allowedOrigins, origin);
-  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+  const requestUrl = parseWorkerRequestUrl(request.url);
+  if (!requestUrl) {
+    response.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
+    response.end(JSON.stringify({ ok: false, message: "Malformed request URL." }));
+    return;
+  }
   const requestPath = requestUrl.pathname;
   const method = (request.method || "GET").toUpperCase();
 
@@ -1640,7 +1684,7 @@ const server = createServer(async (request, response) => {
       corsHeaders,
     );
   }
-});
+}
 
 server.listen(runtimeConfig.port, runtimeConfig.host, () => {
   const host =
