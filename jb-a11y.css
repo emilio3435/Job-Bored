@@ -137,14 +137,69 @@
   transition: background var(--jb-transition-fast);
 }
 
+/* TR-06 / TA-04: the confirm is the one filled navy primary (it also carries
+   .jb-btn--primary; this rule keeps it navy where the kit is not loaded). */
 .jb-a11y-dialog__btn--confirm {
-  background: var(--jb-mint-soft);
-  border-color: var(--jb-mint-deep);
-  color: var(--jb-navy);
+  background: var(--jb-action);
+  border-color: var(--jb-action);
+  color: var(--jb-on-action);
+  font-weight: 600;
 }
 
-.jb-a11y-dialog__btn:hover {
-  background: var(--jb-paper-2);
+.jb-a11y-dialog__btn--confirm:hover {
+  background: color-mix(in srgb, var(--jb-action) 82%, var(--jb-ink));
+}
+
+.jb-a11y-dialog__btn--cancel {
+  background: var(--jb-paper);
+  color: var(--jb-action);
+}
+
+.jb-a11y-dialog__btn--cancel:hover {
+  background: var(--jb-paper-3);
+}
+
+/* TA-21: "Sent with it" — the files that went with the application. */
+.jb-a11y-checks {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jb-space-2) var(--jb-space-4);
+  margin: 0 0 0.875rem;
+  padding: 0;
+  border: 0;
+}
+
+.jb-a11y-checks__legend {
+  width: 100%;
+  margin-bottom: var(--jb-space-2);
+  padding: 0;
+  font: 500 var(--jb-type-label) / 1.2 var(--jb-font-mono);
+  letter-spacing: var(--jb-label-tracking);
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+}
+
+.jb-a11y-checks__item {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--jb-space-2);
+  min-height: 2.75rem;
+  font-size: var(--jb-type-small);
+  color: var(--jb-ink);
+  cursor: pointer;
+}
+
+.jb-a11y-checks__item input {
+  width: 1.125rem;
+  height: 1.125rem;
+  margin: 0;
+  accent-color: var(--jb-action);
+}
+
+.jb-a11y-dialog__note {
+  margin: 0;
+  font-size: var(--jb-type-small);
+  color: var(--jb-ink-3);
 }
 
 /* ============================================================

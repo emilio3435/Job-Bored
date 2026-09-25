@@ -480,9 +480,12 @@ body.jb-v2 [data-region="pipeline"] .pipe-shell::-webkit-scrollbar-thumb:hover {
 }
 
 /* ───────────────────────── board ───────────────────────── */
+/* UX01 C19: the six active stages share the width, so at 1440 Discovered
+   through Offer are all on screen. A track never drops below 164 px; past
+   that the shell scrolls (and below 760 px the list view takes over).
+   Rejected, Passed and Expired live in .pipe-closed under the board. */
 body.jb-v2 [data-region="pipeline"] .pipe-board {
-  --pipe-col-open: clamp(236px, 22vw, 280px);
-  --pipe-col-focused: clamp(380px, 42vw, 520px);
+  --pipe-col-open: minmax(164px, 1fr);
   --pipe-col-collapsed: 56px;
   --pipe-col-new: var(--pipe-col-open);
   --pipe-col-researching: var(--pipe-col-open);
@@ -490,10 +493,6 @@ body.jb-v2 [data-region="pipeline"] .pipe-board {
   --pipe-col-phone-screen: var(--pipe-col-open);
   --pipe-col-interviewing: var(--pipe-col-open);
   --pipe-col-offer: var(--pipe-col-open);
-  /* Include all terminal stages so the grid never wraps to a new row. */
-  --pipe-col-rejected: var(--pipe-col-open);
-  --pipe-col-passed: var(--pipe-col-open);
-  --pipe-col-expired: var(--pipe-col-open);
   display: grid;
   grid-template-columns:
     var(--pipe-col-new)
@@ -501,14 +500,10 @@ body.jb-v2 [data-region="pipeline"] .pipe-board {
     var(--pipe-col-applied)
     var(--pipe-col-phone-screen)
     var(--pipe-col-interviewing)
-    var(--pipe-col-offer)
-    /* Keep the full ordered set on one horizontal row */
-    var(--pipe-col-rejected)
-    var(--pipe-col-passed)
-    var(--pipe-col-expired);
+    var(--pipe-col-offer);
   gap: 12px;
-  width: max-content;
-  min-width: 100%;
+  width: 100%;
+  min-width: 0;
   min-height: 520px;
   align-items: stretch;
   transition: grid-template-columns var(--jb-transition-base);
@@ -519,10 +514,6 @@ body.jb-v2 [data-region="pipeline"] .pipe-board {
    keeps --pipe-col-open and the shell scrolls, or the list view takes over. */
 
 @media (max-width: 1280px) {
-  body.jb-v2 [data-region="pipeline"] .pipe-board {
-    --pipe-col-open: clamp(232px, 26vw, 268px);
-    --pipe-col-focused: clamp(360px, 72vw, 460px);
-  }
   body.jb-v2 [data-region="pipeline"] .pipe-col {
     scroll-snap-align: start;
   }
@@ -1443,6 +1434,214 @@ body.jb-v2 [data-region="pipeline"][data-view="list"] .pipe-tool__chip {
   body.jb-v2 [data-region="pipeline"] .pipe-tool__search-input,
   body.jb-v2 [data-region="pipeline"] .pipe-tool__btn,
   body.jb-v2 [data-region="pipeline"] .pipe-toast {
+    transition: none;
+  }
+}
+
+/* ───────────────────────── C19 Closed row ─────────────────────────
+   Mockup "The Pipeline view": Rejected, Passed and Expired rest as chips
+   under the board. A chip is the column's toggle, so the .pipe-col[data-stage]
+   contract (drop target, counts, collapse state) is unchanged. */
+body.jb-v2 [data-region="pipeline"] .pipe-closed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--jb-space-2);
+  margin-block-start: var(--jb-space-3);
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed[data-empty="true"] {
+  display: none;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed__label {
+  font: 500 var(--jb-type-label)/1.2 var(--jb-font-mono);
+  letter-spacing: var(--jb-label-tracking);
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] {
+  display: contents;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-col__head {
+  display: contents;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-closed__chip {
+  width: auto;
+  height: auto;
+  flex: 0 0 auto;
+  order: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 32px;
+  padding: 0 var(--jb-space-3);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-paper-3);
+  color: var(--jb-ink-2);
+  box-shadow: none;
+  font: 500 var(--jb-type-small)/1 var(--jb-font-body);
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-closed__chip:hover {
+  background: var(--jb-paper-2);
+  border-color: var(--pipe-stage);
+  transform: none;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-closed__chip[aria-expanded="true"] {
+  background: var(--jb-paper);
+  border-color: var(--pipe-stage);
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-col__dot {
+  width: 8px;
+  height: 8px;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-col__title {
+  flex: 0 0 auto;
+  writing-mode: horizontal-tb;
+  transform: none;
+  max-height: none;
+  font: inherit;
+  color: inherit;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-col__count {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: inherit;
+  font: 500 var(--jb-type-small)/1 var(--jb-font-mono);
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-col__body {
+  display: none;
+}
+
+/* An opened closed stage lays its roles out in a row under the chips. */
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-collapsed="false"] .pipe-col__body {
+  order: 1;
+  flex: 1 0 100%;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+  max-height: none;
+  min-height: 0;
+  overflow: visible;
+  padding: var(--jb-space-2) 0 0;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-drop-active="true"] .pipe-closed__chip {
+  border-color: var(--pipe-stage);
+  background: var(--jb-paper);
+}
+
+@media (pointer: coarse) {
+  body.jb-v2 [data-region="pipeline"] .pipe-closed .pipe-col--closed[data-stage] .pipe-closed__chip {
+    min-height: var(--jb-touch-min, 44px);
+  }
+}
+
+/* ───────────────────────── C19 resting card (TR-16) ─────────────────────────
+   Company and fit ring, the title, one "place · pay" line, and at most one
+   status chip. Source and tag chips, the salary chip and the note open with
+   the selected card. */
+body.jb-v2 [data-region="pipeline"] .pipe-sticker__meta {
+  margin: 4px 0 0;
+  font: 400 var(--jb-type-small)/1.35 var(--jb-font-body);
+  color: var(--jb-ink-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-sticker[data-selected="true"] .pipe-sticker__meta {
+  display: none;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__detail,
+body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__salary {
+  display: none;
+}
+
+body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__foot:not(:has(.jb-applied-age)),
+body.jb-v2 [data-region="pipeline"] .pipe-sticker[data-flag]:not([data-selected="true"]) .pipe-sticker__foot {
+  display: none;
+}
+
+/* On a fine pointer the card's tools (edit, favorite, Move to stage) sit
+   out of the flow at the card's foot and appear on hover or keyboard focus,
+   so a resting card is only as tall as its facts. A favorited star stays. */
+@media (pointer: fine) {
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__head {
+    grid-template-columns: minmax(0, 1fr) auto;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__edit,
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__favorite,
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .jb-a11y-stage-menu {
+    position: absolute;
+    bottom: 8px;
+    z-index: 2;
+    margin: 0;
+    transition: opacity var(--jb-transition-fast);
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__favorite {
+    right: 8px;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__edit {
+    right: 40px;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .jb-a11y-stage-menu {
+    right: 72px;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .jb-a11y-stage-menu__trigger {
+    width: auto;
+    min-width: 0;
+    min-height: 28px;
+    padding: 0 10px;
+    border-style: solid;
+    border-color: var(--jb-line);
+    border-radius: var(--jb-radius-pill);
+    background: var(--jb-paper);
+    color: var(--jb-ink);
+    white-space: nowrap;
+    font-size: 0;
+  }
+
+  /* The visible word is "Move"; the accessible name stays "Move to stage —
+     currently <stage>" (aria-label), which contains it. */
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .jb-a11y-stage-menu__trigger::before {
+    content: "Move";
+    font: 500 var(--jb-type-small)/1 var(--jb-font-body);
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .pipe-sticker__favorite:not([aria-pressed="true"]),
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]) .jb-a11y-stage-menu {
+    opacity: 0;
+  }
+
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]):hover .pipe-sticker__favorite,
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]):focus-within .pipe-sticker__favorite,
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]):hover .jb-a11y-stage-menu,
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker:not([data-selected="true"]):focus-within .jb-a11y-stage-menu {
+    opacity: 1;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 [data-region="pipeline"] .pipe-sticker .jb-a11y-stage-menu {
     transition: none;
   }
 }

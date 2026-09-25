@@ -49,7 +49,7 @@ function jobs() {
   ];
 }
 
-async function bootBoard(page, { width, height }) {
+async function bootBoard(page, { width, height, rows = jobs() }) {
   await page.setViewportSize({ width, height });
   const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
   await page.emulateMedia({ reducedMotion: "reduce" });
@@ -81,9 +81,9 @@ async function bootBoard(page, { width, height }) {
       window.JobBoredPipeline.scheduleRender();
     }
     return core.getPipelineData().length;
-  }, jobs());
-  expect(seeded).toBe(3);
-  await expect(page.locator(`${REGION} .pipe-sticker`)).toHaveCount(3, { timeout: 15_000 });
+  }, rows);
+  expect(seeded).toBe(rows.length);
+  await expect(page.locator(`${REGION} .pipe-sticker`).first()).toBeVisible({ timeout: 15_000 });
   await page.locator(REGION).scrollIntoViewIfNeeded();
   return fence;
 }
@@ -144,4 +144,70 @@ test("should give a keyboard-focused card a ring and a real Open dossier button 
   await page.keyboard.press("Tab");
   const ring = await open.evaluate((el) => getComputedStyle(el).boxShadow);
   expect(ring, "focus-visible must paint the focus ring").not.toBe("none");
+});
+
+/* Conformance pass (mockup frame "The Pipeline view"): a full pipeline. */
+function fullPipeline() {
+  const base = jobs()[0];
+  const row = (title, company, status, extra = {}) => ({
+    ...base,
+    title,
+    company,
+    status,
+    link: `https://jobs.example.test/${encodeURIComponent(company)}`,
+    ...extra,
+  });
+  return [
+    row("Senior Product Designer", "Lumen Labs", "New", { location: "Remote (US)", salary: "$170–210k", tags: "Design, Systems, Figma" }),
+    row("Staff Frontend Engineer", "Kestrel", "Researching", { location: "Remote", salary: "$190–240k" }),
+    row("Product Engineer", "Juniper Bank", "Applied", { location: "Brooklyn", salary: "$160–200k", appliedDate: "2026-09-19" }),
+    row("Frontend Engineer", "Tidewater", "Phone Screen", { location: "Boston, hybrid", salary: "" }),
+    row("Design Engineer", "Orbital", "Interviewing", { location: "Remote", salary: "$175–215k" }),
+    row("Software Engineer, Payments UI", "Brightline", "Offer", { location: "Seattle", salary: "$175k" }),
+    row("Platform Engineer", "Quarry", "Rejected"),
+    row("UI Engineer", "Fathom", "Passed"),
+    row("Web Engineer", "Ledger", "Expired"),
+  ];
+}
+
+test("should fit all six active stages on screen at 1440 and collapse the closed ones into a chip row (C19)", async ({ page }) => {
+  await bootBoard(page, { width: 1440, height: 900, rows: fullPipeline() });
+  const active = ["new", "researching", "applied", "phone-screen", "interviewing", "offer"];
+  for (const stage of active) {
+    const col = page.locator(`${REGION} .pipe-board .pipe-col[data-stage="${stage}"]`);
+    await expect(col).toHaveAttribute("data-collapsed", "false");
+    const box = await col.boundingBox();
+    expect(box, `${stage} column renders`).not.toBeNull();
+    expect(box.x + box.width, `${stage} column fits inside 1440`).toBeLessThanOrEqual(1440);
+  }
+  for (const stage of ["rejected", "passed", "expired"]) {
+    await expect(page.locator(`${REGION} .pipe-board .pipe-col[data-stage="${stage}"]`)).toHaveCount(0);
+  }
+  const closed = page.locator(`${REGION} .pipe-closed`);
+  await expect(closed).toBeVisible();
+  await expect(closed).toContainText("Closed");
+  await expect(closed.locator('[data-stage-toggle="rejected"]')).toContainText(/Rejected\s*1/);
+  await expect(closed.locator('[data-stage-toggle="passed"]')).toContainText(/Passed\s*1/);
+  await expect(closed.locator('[data-stage-toggle="expired"]')).toContainText(/Expired\s*1/);
+  const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+  expect(overflow, "no horizontal page scroll at 1440").toBeLessThanOrEqual(1);
+
+  // A closed chip opens its roles in place.
+  await closed.locator('[data-stage-toggle="rejected"]').click();
+  await expect(closed.locator('.pipe-col[data-stage="rejected"] .pipe-sticker')).toBeVisible();
+});
+
+test("should rest a card at company, fit, title and one place · pay line (TR-16)", async ({ page }) => {
+  for (const size of [{ width: 1440, height: 900 }, { width: 375, height: 812 }]) {
+    await bootBoard(page, { ...size, rows: fullPipeline() });
+    const card = page.locator(`${REGION} .pipe-sticker[data-stage="applied"]`).first();
+    await expect(card).toBeVisible();
+    await expect(card.locator(".pipe-sticker__meta")).toHaveText("Brooklyn · $160–200k");
+    await expect(card.locator(".pipe-sticker__detail")).toBeHidden();
+    await expect(card.locator(".pipe-sticker__salary")).toBeHidden();
+    const chips = await card.locator(".pipe-sticker__flag:visible, .jb-applied-age:visible").count();
+    expect(chips, "at most one status chip").toBeLessThanOrEqual(1);
+    const box = await card.boundingBox();
+    expect(box.height, `a resting card is compact at ${size.width}`).toBeLessThanOrEqual(130);
+  }
 });

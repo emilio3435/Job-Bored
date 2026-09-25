@@ -72,6 +72,15 @@
     "expired":      "Postings that closed rest here for reference.",
   };
 
+  /* UX01 C19 (mockup "The Pipeline view"): the six active stages are the
+     board. Rejected, Passed and Expired rest in a "Closed" chip row under it;
+     a chip opens its roles in place. */
+  var CLOSED_STAGES = { rejected: true, passed: true, expired: true };
+
+  function isClosedStage(stageKey) {
+    return CLOSED_STAGES[stageKey] === true;
+  }
+
   var SORT_DEFAULT = "urgency";
   /* UX01 C19 (TR-09): every stage that holds a role is open by default and
      more than one can be open at once; an empty stage rests as a 56 px rail.
@@ -250,6 +259,43 @@
       letterNeedsRepair: hasLetter && needsRepair("cover_letter"),
     };
   }
+
+  /* TA-21: the role's sendable files, for the Applied dialog's "Sent with
+     it" group (submission-flow.js). Reads the cached materials index only;
+     never fetches. Labels carry the file date so a later phone screen can
+     tell which version this company received. */
+  var SENDABLE_DOCS = [
+    { type: "resume", label: "Tailored resume" },
+    { type: "cover_letter", label: "Cover letter" },
+  ];
+
+  function shortDate(iso) {
+    var t = Date.parse(iso);
+    if (isNaN(t)) return "";
+    try {
+      return new Date(t).toLocaleDateString("en-US", { month: "short", day: "numeric" });
+    } catch (_) {
+      return String(iso).slice(0, 10);
+    }
+  }
+
+  function materialsFor(jobKey) {
+    var job = getPipelineJobByKey(jobKey);
+    if (!job) return [];
+    var entry = materialsLookup(null, job);
+    var docs = entry && Array.isArray(entry.documents) ? entry.documents : [];
+    var out = [];
+    SENDABLE_DOCS.forEach(function (def) {
+      var doc = docs.filter(function (d) { return d && d.type === def.type; })[0];
+      if (!doc || (doc.status && doc.status !== "ready")) return;
+      var when = shortDate(doc.lastModifiedAt);
+      out.push({ id: def.type, label: def.label + (when ? " (" + when + ")" : ""), checked: true });
+    });
+    return out;
+  }
+
+  root.JobBoredPipeline = root.JobBoredPipeline || {};
+  root.JobBoredPipeline.materialsFor = materialsFor;
 
   // Tiny inline chips that show, at a glance, whether the user has
   // presentable application documents on file for this opportunity.
@@ -617,11 +663,13 @@
     if (pref === "open") return false;
     if (state.selectedStage && state.selectedStage === stageKey && state.selectedJobKey) return false;
     if (pref === "closed") return true;
+    if (isClosedStage(stageKey)) return true;
     var count = state.counts ? state.counts[stageKey] : undefined;
     return count === 0;
   }
 
   function applyColumnTrack(region, state, stageKey) {
+    if (isClosedStage(stageKey)) return;
     var board = region.querySelector(".pipe-board");
     if (!board) return;
     board.style.setProperty(
@@ -647,8 +695,15 @@
     }
     if (btn) {
       btn.setAttribute("aria-expanded", collapsed ? "false" : "true");
-      btn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + label);
-      btn.setAttribute("title", (collapsed ? "Expand " : "Collapse ") + label);
+      if (isClosedStage(stageKey)) {
+        var n = state && state.counts ? Number(state.counts[stageKey] || 0) : 0;
+        btn.setAttribute("aria-label", label + ", " + n + (n === 1 ? " role" : " roles") +
+          (collapsed ? " (show)" : " (hide)"));
+        btn.removeAttribute("title");
+      } else {
+        btn.setAttribute("aria-label", (collapsed ? "Expand " : "Collapse ") + label);
+        btn.setAttribute("title", (collapsed ? "Expand " : "Collapse ") + label);
+      }
     }
     applyColumnTrack(region, state, stageKey);
   }
@@ -879,6 +934,12 @@
     return false;
   }
 
+  /* C5 (FD-01, FR-04): the one sentence a stranger sees when a link can't be
+     read, whatever the cause. The transport detail (CORS, tunnels, endpoint
+     URLs) stays in the console; the manual form is the way forward. */
+  var UNREADABLE_LINK_COPY =
+    "We couldn't read that page from here. Fill in the rest and it goes straight to your Sheet.";
+
   /** Worker-side failures: the posting is fine, the worker is not reachable. */
   function isWorkerFailure(err) {
     if (!err) return false;
@@ -932,7 +993,7 @@
         setUrlModalBusy(region, false);
         var reasonCopy = data.hint || data.message || "The worker could not add this URL.";
         if (shouldOfferIngestManualFallback(data) &&
-            openManualEntry({ url: url, message: reasonCopy + " Fill in what you know and JobBored adds it to your Pipeline." })) {
+            openManualEntry({ url: url, tone: "warn", message: UNREADABLE_LINK_COPY })) {
           closeJobUrlModal(region);
           return;
         }
@@ -949,15 +1010,17 @@
       }, 650);
     } catch (err) {
       setUrlModalBusy(region, false);
+      if (typeof console !== "undefined" && console.info) {
+        console.info("[pipeline] URL ingest failed; opening manual entry:", ingestErrorMessage(err));
+      }
       /* FD-01: a stranger with no worker used to meet a dead end here. The
          role is still worth saving, so open the manual form with the URL in
          it; that path appends the row straight to the Sheet. */
       if (isWorkerFailure(err) && openManualEntry({
         url: url,
         direct: true,
-        message: "Couldn't read the posting automatically (" +
-          ingestErrorMessage(err).replace(/\.$/, "") +
-          "). Fill in what you know and JobBored adds it straight to your Pipeline.",
+        tone: "warn",
+        message: UNREADABLE_LINK_COPY,
       })) {
         closeJobUrlModal(region);
         return;
@@ -987,6 +1050,9 @@
     var tags = job && job.tags ? String(job.tags).split(/[,;|]/).map(function (t) { return t.trim(); }).filter(Boolean).slice(0, 3) : [];
     var flag = card.flag || "";
     var hasMeta = !!(location || source || tags.length);
+    /* TR-16: one readable "place · pay" line for a resting card. The source
+       and tag chips stay in .pipe-sticker__detail for the selected card. */
+    var metaLine = [location, salary].filter(Boolean).join(" · ");
     var materials = materialsBadgeData(card, job);
 
     var el = document.createElement("article");
@@ -1044,6 +1110,9 @@
       '    <span class="pipe-sticker__fit-num">' + (fitNum == null ? "—" : escapeHtml(String(fitNum))) + '</span>',
       '  </span>',
       '</header>',
+      metaLine
+        ? '<p class="pipe-sticker__meta">' + escapeHtml(metaLine) + '</p>'
+        : '',
       hasMeta
         ? '<div class="pipe-sticker__detail">' +
             (location ? '<span>' + escapeHtml(location) + '</span>' : '') +
@@ -1229,8 +1298,39 @@
     ].join("");
   }
 
+  /** A closed stage: its header is one chip button ("Rejected 1") that opens
+   *  the stage's roles in place. Same .pipe-col[data-stage] contract. */
+  function buildClosedColumn(s) {
+    var bodyId = "pipe-col-body-" + s.key;
+    return [
+      '<section class="pipe-col pipe-col--closed" data-stage="' + s.key + '" aria-label="' + escapeHtml(s.label) + ' column">',
+      '  <header class="pipe-col__head">',
+      '    <button type="button" class="pipe-col__toggle pipe-closed__chip jb-chip" data-stage-toggle="' + s.key + '"',
+      '            aria-controls="' + bodyId + '" aria-expanded="false">',
+      '      <span class="pipe-col__dot" aria-hidden="true"></span>',
+      '      <span class="pipe-col__title">' + escapeHtml(s.label) + '</span>',
+      '      <span class="pipe-col__count" data-count="0">0</span>',
+      '    </button>',
+      '    <span class="pipe-col__search-hit" aria-hidden="true"></span>',
+      '  </header>',
+      '  <div class="pipe-col__body" id="' + bodyId + '" data-stage-body="' + s.key + '"></div>',
+      '</section>',
+    ].join("");
+  }
+
+  function buildClosedRow() {
+    var cols = STAGES.filter(function (s) { return isClosedStage(s.key); })
+      .map(buildClosedColumn).join("");
+    return [
+      '<div class="pipe-closed" role="group" aria-label="Closed roles" data-empty="true">',
+      '  <span class="pipe-closed__label">Closed</span>',
+      cols,
+      '</div>',
+    ].join("");
+  }
+
   function buildBoardSkeleton() {
-    var cols = STAGES.map(function (s) {
+    var cols = STAGES.filter(function (s) { return !isClosedStage(s.key); }).map(function (s) {
       var bodyId = "pipe-col-body-" + s.key;
       return [
         '<section class="pipe-col" data-stage="' + s.key + '" aria-label="' + escapeHtml(s.label) + ' column">',
@@ -1266,6 +1366,7 @@
       '<div class="pipe-shell">',
         buildBoardSkeleton(),
       '</div>',
+      buildClosedRow(),
       buildJobUrlModal(),
     ].join("");
   }
@@ -1337,6 +1438,15 @@
       }
       applyColumnCollapsed(region, state, s.key);
     });
+
+    var closedRow = region.querySelector(".pipe-closed");
+    if (closedRow) {
+      var closedTotal = 0;
+      STAGES.forEach(function (s) {
+        if (isClosedStage(s.key)) closedTotal += Number(state.counts[s.key] || 0);
+      });
+      closedRow.setAttribute("data-empty", closedTotal > 0 ? "false" : "true");
+    }
 
     applySelectedCardState(region, state);
     applyView(region, state);
@@ -1725,7 +1835,15 @@
         notify(region, "Kept in " + fromLabel + ".", "info");
         return;
       }
-      notify(region, "Couldn't save the move. It is still in " + fromLabel + ".", "error", {
+      /* SS-07: the transition adapter already named the role, the stage and
+         Retry for this move; a second toast would only stack on top of it. */
+      if (detail.announced) return;
+      var job = getPipelineJobByKey(rolledBack.jobKey);
+      var who = job && job.title
+        ? String(job.title) + (job.company ? " at " + String(job.company) : "")
+        : "The role";
+      notify(region, "Couldn't move " + who + " to " + stageLabel(rolledBack.toStage) +
+        ". It is still in " + fromLabel + ".", "error", {
         label: "Retry",
         onClick: function () {
           retryMove(region, rolledBack);
