@@ -112,3 +112,32 @@ npm run test:e2e-visual    → 37 passed (1.0m) · EXIT 0
 ```
 
 The first smoke run failed. The resume read could re-render the Case while the materials fetch was in flight, and the rows then painted into a detached mount. The regression test for this fails without the fix and passes with it. Fixed in `d8a5dc3`; smoke and visual were then re-run green.
+
+## Verification · floor (E-r1)
+
+Independent Opus verifier, fresh context, run 2026-09-25 on `feat/ux01-dossier-tailor` at `26c9660`. All seven commands ran in order from the workspace root. None was retried or filtered, and no spec was re-run. Logs are in `Job-Bored.worktrees/.ux01-run/E-r1-floor/<n>.log`.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | eslint + skills lint clean |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | all tsc projects clean |
+| 3 | `npm test` | PASS (exit 0) | 3092 tests · 3091 pass · 0 fail · 0 skipped · 1 todo |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | all schema/contract checks OK |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed (14.8s) |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 13 passed (20.2s) |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed (60.0s) |
+
+Flaky: none. One note: the node runner prints a "failing tests" block for one **todo** test. It is not counted as a failure (fail 0, todo 1) and the command exits 0. The test is `tests/submission-record-audit.test.mjs:17`, "persists and can remove the canonical submission evidence record", and it is marked `# blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store`. Its body currently fails `deepStrictEqual` (actual `[]`, expected one evidence record).
+
+```
+ℹ tests 3092
+ℹ suites 753
+ℹ pass 3091
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+  11 passed (14.8s)   # e2e-smoke
+  13 passed (20.2s)   # e2e-journey
+  37 passed (60.0s)   # e2e-visual
+```
