@@ -160,6 +160,8 @@
         localStorage.setItem("jb_viewedKeys", JSON.stringify([...viewedJobKeys]));
       }
     } catch (_) {}
+    // Legacy view only: under body.jb-v2 no .kanban-card exists (DS-08), and
+    // the next legacy render reads viewedJobKeys anyway.
     const el = document.querySelector(
       `.kanban-card[data-stable-key="${stableKey}"]`,
     );
@@ -199,17 +201,6 @@
       );
     } catch (_) {
       /* Filter notifications are best-effort for optional v2 surfaces. */
-    }
-  }
-
-  function notifyPipelineRendered() {
-    try {
-      if (typeof document === "undefined" || typeof CustomEvent !== "function") {
-        return;
-      }
-      document.dispatchEvent(new CustomEvent("jb:pipeline:rendered"));
-    } catch (_) {
-      /* Render notifications are best-effort for optional v2 surfaces. */
     }
   }
 
@@ -325,7 +316,6 @@
     setPipelineViewFilters,
     syncPipelineFilterControls,
     notifyPipelineFiltersChanged,
-    notifyPipelineRendered,
     applyPipelineStageWrite,
     applyPipelineNotesWrite,
   });

@@ -3,14 +3,17 @@
    ------------------------------------------------------------
    Owner:    Dawn (Daily Brief screen agent)
    Purpose:  Thin read-only adapter that derives a stable view-model
-             for dawn.js from already-rendered legacy DOM. NEVER
+             for dawn.js from the loaded pipeline rows. NEVER
              fetches anything. NEVER mutates legacy state. NEVER
              introduces new schema fields.
 
-   Inputs (read from DOM only):
-     - .stat-card values inside #briefStats         (Found / Applied / In loop / Offers + sub-text)
-     - .kanban-card[data-stable-key]                (per-job stage + role + company snapshot)
-     - #briefDate                                   (locale-formatted date string)
+   Inputs (DS-08: rows, not legacy DOM):
+     - JobBoredApp.brief.getBriefStats()             (Found / Applied / In loop / Offers)
+     - JobBoredApp.pipelineRender.getBoardCardModels() (per-job stage + role + company + data-* attrs,
+                                                      built from window.JobBored.getPipelineJobs() rows)
+     - #briefDate                                   (locale-formatted date string; falls back to now)
+   With opts.doc (tests, self-test) the same values are read from
+   .stat-card nodes in #briefStats and .kanban-card[data-stable-key] nodes.
 
    Outputs:
      window.JobBoredDawn.getDawnViewModel() => {
@@ -105,9 +108,92 @@
     return out;
   }
 
+  /* ── DS-08: where the cards come from ─────────────────────────────────
+     Under body.jb-v2 the legacy renderer builds no #jobCards DOM. The live
+     page reads the same cards as data from pipeline-render.js
+     getBoardCardModels() (the rows window.JobBored.getPipelineJobs() wraps,
+     with the legacy board's filters, order and data-* attributes). An
+     explicit opts.doc (tests, the self-test below) and a page without
+     pipeline-render.js still read .kanban-card nodes from the document. */
+  function _liveCardModels(opts) {
+    if (opts && opts.doc) return null;
+    var app = root.JobBoredApp;
+    var pr = app && app.pipelineRender;
+    if (!pr || typeof pr.getBoardCardModels !== "function") return null;
+    try {
+      var models = pr.getBoardCardModels();
+      return Array.isArray(models) ? models : null;
+    } catch (_) {
+      // app.js core not wired yet: nothing is loaded, so nothing to read.
+      return null;
+    }
+  }
+
+  function _textNode(t) {
+    return { textContent: String(t == null ? "" : t) };
+  }
+
+  /** One card model read through the same accessors a .kanban-card offers. */
+  function _cardRecordFromModel(m) {
+    var attrs = (m && m.attrs) || {};
+    return {
+      className: (m && m.className) || "",
+      getAttribute: function (name) {
+        return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
+      },
+      querySelector: function (sel) {
+        if (sel === ".kanban-card__title") return _textNode(m.title);
+        if (sel === ".kanban-card__company") return _textNode(m.company);
+        return null;
+      },
+      querySelectorAll: function (sel) {
+        if (String(sel).indexOf(".kanban-card__tag") !== -1) return (m.tags || []).map(_textNode);
+        return [];
+      },
+    };
+  }
+
+  function _cardRecords(doc, opts) {
+    var models = _liveCardModels(opts);
+    if (models) return models.map(_cardRecordFromModel);
+    if (!doc || typeof doc.querySelectorAll !== "function") return [];
+    return Array.prototype.slice.call(doc.querySelectorAll(".kanban-card[data-stable-key]") || []);
+  }
+
+  /** Hero numbers from daily-brief.js getBriefStats(), the numbers #briefStats
+   *  shows. The sub-lines repeat daily-brief.js renderBriefStats word for word. */
+  function _heroFromBriefStats(s) {
+    function n(v) { var x = Number(v); return Number.isFinite(x) ? x : 0; }
+    return {
+      found: n(s.discRecent),
+      applied: n(s.appRecent),
+      inLoop: n(s.inLoop),
+      offers: n(s.offers),
+      foundSub: "vs " + n(s.discPrior) + " prior week",
+      appliedSub: "vs " + n(s.appPrior) + " prior week",
+      inLoopSub: "interviewing + screens",
+      offersSub: s.medianDays != null ? s.medianDays + "d median find\u2009\u2192\u2009apply" : "full pipeline",
+    };
+  }
+
+  function readHero(doc, opts) {
+    if (!(opts && opts.doc)) {
+      var brief = root.JobBoredApp && root.JobBoredApp.brief;
+      if (brief && typeof brief.getBriefStats === "function") {
+        try {
+          var stats = brief.getBriefStats();
+          if (stats) return _heroFromBriefStats(stats);
+        } catch (_) {
+          /* brief host not wired yet: fall back to the rendered brief. */
+        }
+      }
+    }
+    return readHeroFromDom(doc);
+  }
+
   /** Derive each job's stage CSS key from kanban-card classes. */
-  function jobsFromCards(doc) {
-    var cards = doc.querySelectorAll(".kanban-card[data-stable-key]");
+  function jobsFromCards(doc, opts) {
+    var cards = _cardRecords(doc, opts);
     var out = [];
     cards.forEach(function (card) {
       var key = card.getAttribute("data-stable-key") || "";
@@ -586,8 +672,8 @@
     if (!doc) {
       return _emptyVM();
     }
-    var hero = readHeroFromDom(doc);
-    var jobs = jobsFromCards(doc);
+    var hero = readHero(doc, opts);
+    var jobs = jobsFromCards(doc, opts);
     var funnel = buildFunnel(jobs);
     var activity = buildActivity(jobs, 5);
     var isEmpty = jobs.length === 0;
@@ -857,9 +943,7 @@
     if (!doc) {
       return { stages: PIPELINE_STAGES.map(function (s) { return { key: s.key, label: s.label, cards: [] }; }), untriaged: [], empty: true };
     }
-    var nodeList = doc.querySelectorAll(".kanban-card[data-stable-key]");
-    var records = [];
-    nodeList.forEach(function (n) { records.push(_readCard(n)); });
+    var records = _cardRecords(doc, opts).map(_readCard);
 
     var byStage = {};
     PIPELINE_STAGES.forEach(function (s) { byStage[s.key] = []; });
@@ -1096,8 +1180,8 @@
     return _normalizeAts(null, draft);
   }
 
-  function _findCardByStableKey(doc, key) {
-    var cards = doc.querySelectorAll(".kanban-card[data-stable-key]");
+  function _findCardByStableKey(doc, key, opts) {
+    var cards = _cardRecords(doc, opts);
     for (var i = 0; i < cards.length; i++) {
       if (_attr(cards[i], "data-stable-key") === key) return cards[i];
     }
@@ -1449,7 +1533,7 @@
 
     if (!doc) return { job: EMPTY_JOB };
 
-    var card = _findCardByStableKey(doc, key);
+    var card = _findCardByStableKey(doc, key, opts);
     if (!card) return { job: EMPTY_JOB };
 
     var rec = _readCard(card);
@@ -1575,7 +1659,7 @@
       };
     }
 
-    var card = _findCardByStableKey(doc, key);
+    var card = _findCardByStableKey(doc, key, opts);
     if (!card) {
       return {
         job: { jobKey: key, role: "", company: "", jdSnippet: "", salary: null },
@@ -1620,6 +1704,8 @@
     computeFlag: computeFlag,
     _internal: {
       readHeroFromDom: readHeroFromDom,
+      readHero: readHero,
+      cardRecords: _cardRecords,
       jobsFromCards: jobsFromCards,
       buildFunnel: buildFunnel,
       buildActivity: buildActivity,

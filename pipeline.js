@@ -2169,19 +2169,13 @@
   }
 
   function observeLegacy() {
-    // Observe the LEGACY board (#jobCards) so we re-mirror when app.js renders
-    // fresh data. Never fall back to document.body: this region rewrites its own
-    // innerHTML on every render, so a body-subtree observer would see our own
-    // writes and re-trigger scheduleRender forever (a render loop that silently
-    // rebuilds every card each idle frame). #kanbanPipeline does not exist — the
-    // real legacy container is #jobCards.
-    var pipelineRoot = document.getElementById("kanbanPipeline") || document.getElementById("jobCards");
-    var mo = new MutationObserver(function () {
-      // Settle a frame to coalesce bursts.
-      scheduleRender();
-    });
-    if (pipelineRoot) mo.observe(pipelineRoot, { childList: true, subtree: true, attributes: false });
-
+    // DS-08 / TR-20: fresh data arrives as jb:pipeline:rendered (app.js calls
+    // scheduleRender on it). Under body.jb-v2 the legacy renderer builds no
+    // #jobCards board, so there is nothing to observe there. Never observe the
+    // document.body subtree: this region rewrites its own innerHTML on every
+    // render, and a subtree observer would re-trigger scheduleRender forever
+    // (a render loop that silently rebuilds every card each idle frame). Only
+    // the body's class attribute is watched, for the jb-v2 flag.
     var bodyMo = new MutationObserver(function () {
       if (!shouldRun()) {
         clearRegion();
@@ -2192,7 +2186,7 @@
     if (document.body) bodyMo.observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
     root.JobBoredPipeline = root.JobBoredPipeline || {};
-    root.JobBoredPipeline._observers = { mo: mo, bodyMo: bodyMo };
+    root.JobBoredPipeline._observers = { bodyMo: bodyMo };
 
     // Hash listener for navigation away from #letter (no-op here, just wired).
     // Drop targets / write failures handled inside bindRegion.

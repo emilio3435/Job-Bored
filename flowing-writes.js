@@ -284,6 +284,24 @@
     return "";
   }
 
+  /**
+   * DS-08: the posting link from the loaded pipeline row (jobKey is its
+   * index). Returns "" when there is no such row or no link.
+   * @param {string|number} jobKey
+   */
+  function readJobLinkFromApp(jobKey) {
+    var jb = window.JobBored;
+    if (!jb || typeof jb.getPipelineJobs !== "function") return "";
+    var idx = Number(jobKey);
+    if (!Number.isInteger(idx) || idx < 0) return "";
+    try {
+      var job = (jb.getPipelineJobs() || [])[idx];
+      return job && job.link ? String(job.link).trim() : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function readSheetRowFromApp(jobKey) {
     var jb = window.JobBored;
     if (!jb || typeof jb.getPipelineSheetRow !== "function") return null;
@@ -341,8 +359,8 @@
     if (appRow) return appRow;
     var domRow = readSheetRowFromDom(jobKey);
     if (domRow) return domRow;
-    // 3) DOM indirection -> URL match.
-    var domLink = readJobLinkFromDom(jobKey);
+    // 3) Row (or, without app.js, rendered card) link -> URL match.
+    var domLink = readJobLinkFromApp(jobKey) || readJobLinkFromDom(jobKey);
     var domKey = normalizeUrl(domLink);
     if (domKey) {
       var map2 = await getUrlToRowMap(false);
@@ -640,6 +658,7 @@
       getUrlToRowMap: getUrlToRowMap,
       sheetsValuesUpdate: sheetsValuesUpdate,
       sheetsValuesGet: sheetsValuesGet,
+      readJobLinkFromApp: readJobLinkFromApp,
       readJobLinkFromDom: readJobLinkFromDom,
       readSheetRowFromDom: readSheetRowFromDom,
       _resetCache: function () { rowIndexCache = null; rowIndexCacheAt = 0; },
