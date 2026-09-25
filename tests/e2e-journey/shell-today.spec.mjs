@@ -192,6 +192,18 @@ test("should put Add job in the top bar and open the link intake from any view",
   await expect(page.locator("[data-pipeline-url-modal]")).toBeVisible();
 });
 
+test("should open the manual entry, warned, when the top-bar link intake cannot open (C5)", async ({ page }) => {
+  await bootSignedIn(page);
+  /* The link path fails: the pipeline's URL dialog is not in the page. */
+  await page.evaluate(() => {
+    document.querySelectorAll("[data-pipeline-url-modal]").forEach((n) => n.remove());
+  });
+  await page.locator(".page-top").getByRole("button", { name: "Add job" }).click();
+  await expect(page.locator("#ingestManualModal")).toBeVisible();
+  await expect(page.locator("#ingestManualModalBanner")).toBeVisible();
+  await expect(page.locator("#ingestManualModalBannerText")).not.toHaveText("");
+});
+
 test("should give an empty pipeline the three ways in, each a real button", async ({ page }) => {
   await bootSignedIn(page, []);
   const today = page.locator(TODAY);

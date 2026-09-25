@@ -575,18 +575,44 @@
     return api && typeof api === "object" ? api : null;
   }
 
+  var LINK_INTAKE_FAILED_COPY =
+    "The link box didn't open here. Fill in what you know and JobBored adds the role to your Pipeline.";
+
+  function urlModalOpen() {
+    var modal = document.querySelector('[data-region="pipeline"] [data-pipeline-url-modal]');
+    return !!(modal && !modal.hidden);
+  }
+
   /** Paste-a-link intake: the pipeline's own URL modal (whose failure path
-   *  opens the prefilled manual entry). Without it, go straight to manual. */
-  function openAddJobUrl() {
+   *  opens the prefilled manual entry). When the link path itself fails —
+   *  no opener, a throw, or a click that leaves no dialog open — the manual
+   *  entry opens instead, prefilled with any link and warned (C5). */
+  function openAddJobUrl(url) {
+    var link = typeof url === "string" ? url.trim() : "";
     var ingest = ingestApi();
-    if (ingest && typeof ingest.openAddJob === "function") return ingest.openAddJob();
-    showView("pipeline", { focus: false });
-    var btn = document.querySelector('[data-region="pipeline"] [data-action="add-job-url"]');
-    if (btn && typeof btn.click === "function") {
-      btn.click();
-      return;
+    try {
+      if (ingest && typeof ingest.openAddJob === "function" && ingest.openAddJob(link ? { url: link } : undefined) !== false) {
+        return;
+      }
+      showView("pipeline", { focus: false });
+      var btn = document.querySelector('[data-region="pipeline"] [data-action="add-job-url"]');
+      if (btn && typeof btn.click === "function") {
+        btn.click();
+        if (urlModalOpen()) return;
+      }
+    } catch (_) {
+      /* fall through to the manual entry */
     }
-    openAddJobManual();
+    linkIntakeFailed(link);
+  }
+
+  function linkIntakeFailed(link) {
+    var ingest = ingestApi();
+    if (ingest && typeof ingest.openManual === "function") {
+      var opened = ingest.openManual({ url: link, tone: "warn", message: LINK_INTAKE_FAILED_COPY });
+      if (opened !== false) return;
+    }
+    showView("pipeline", { focus: true });
   }
 
   /** Type-it-in intake. Lane D's JobBoredIngest.openManual; until it lands,
