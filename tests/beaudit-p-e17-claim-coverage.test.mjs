@@ -4,7 +4,9 @@
  * beaudit-p-loopback-host-guard.test.mjs):
  *
  *   E4  caller coverage: every packaged browser file that calls the API must
- *       route through the hosted-auth helper (or one apiFetch()).
+ *       attach the hosted token. Only the caller inventory runs here; the
+ *       coverage itself is a todo with no body (see below), because a source
+ *       grep for helper names proves nothing about outgoing headers.
  *   E2  a `provider:"local"` pin must reach ATS as openai_compatible.
  *   E5  the server/ image layout (Dockerfile build context) must boot and
  *       save a profile without leaking filesystem paths.
@@ -12,7 +14,8 @@
  *   E9  Gemini's REST JSON is lowerCamelCase (urlContextMetadata).
  *
  * The fixes for E2, E4, E5, E7 and E9 belong to other lanes (Q, B, O, L; spec
- * §3), outside lane P's fence. Each target assertion therefore runs now as a
+ * §3), outside lane P's fence, so E17 is deferred to them. Each target
+ * assertion for E2, E5, E7 and E9 therefore runs now as a
  * node:test `todo`: it executes, reports its failure, and does not fail the
  * floor. The harness assertions around it are hard. Set BEAUDIT_E17_STRICT=1
  * to turn every todo into a hard test; the integration runner does that once
@@ -114,7 +117,6 @@ async function readJson(res) {
 /** Browser-side references to routes served by server/index.mjs. */
 const API_CALL_PATTERN =
   /\/api\/(?:scrape-job|ats-scorecard|llm-config|applications|brand-logos|profile)|["'`]\/profile\b|jobBoredApiUrl|getJobBoredApiUrl/;
-const AUTH_ROUTE_PATTERN = /applyHostedApiAuth|JobBoredHostedApiAuth|\bapiFetch\s*\(/;
 
 /** @param {string} source */
 function callsApi(source) {
@@ -135,12 +137,6 @@ describe("BEAUDIT E17/E4 hosted-auth caller coverage", () => {
     assert.equal(callsApi("fetch(cfg.jobBoredApiUrl + '/profile')"), true);
     assert.equal(callsApi('fetch("https://sheets.googleapis.com/v4")'), false);
     assert.equal(callsApi('const u = "/api/scrape-job";'), false);
-    assert.equal(AUTH_ROUTE_PATTERN.test("apiFetch(url, init)"), true);
-    assert.equal(
-      AUTH_ROUTE_PATTERN.test("JobBoredHostedApiAuth.applyHostedApiAuth(init, t)"),
-      true,
-    );
-    assert.equal(AUTH_ROUTE_PATTERN.test("fetch(url, init)"), false);
   });
 
   it("finds the packaged API callers and the helper the page loads", () => {
@@ -152,15 +148,14 @@ describe("BEAUDIT E17/E4 hosted-auth caller coverage", () => {
     assert.match(indexHtml, /<script src="hosted-api-auth\.js"/);
   });
 
-  it(
-    "every packaged API caller attaches the hosted token",
-    target("wave-2 lane B (E4: one apiFetch())"),
-    () => {
-      const missing = packagedBrowserApiCallers().filter(
-        (name) => !AUTH_ROUTE_PATTERN.test(readFileSync(join(REPO_ROOT, name), "utf8")),
-      );
-      assert.deepEqual(missing, [], `API callers that never attach the hosted token: ${missing.join(", ")}`);
-    },
+  // Scaffolding only; this claims no coverage. The owning lane (wave-2 lane
+  // B, E4: one apiFetch()) replaces it with a behavior test: drive each caller
+  // from packagedBrowserApiCallers() against a recording fetch with a hosted
+  // token configured and assert the outgoing request carries X-Api-Token (or
+  // Authorization: Bearer); as the negative control, with no token configured
+  // the same request carries neither header.
+  it.todo(
+    "every packaged API caller attaches the hosted token to its outgoing request (lane B)",
   );
 });
 
