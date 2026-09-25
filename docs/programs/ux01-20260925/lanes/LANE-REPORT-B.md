@@ -37,6 +37,18 @@ The same risk applies to #102 in `discovery-status-handoff.js` and `discovery-ru
   - Run toasts drop run IDs and "worker logs". A finished run says "Found N new roles" with a View action, and a failure points at Runs.
   - The run preview shows roles, where and sources in plain words, with hashes behind "Technical details".
   - The runs log stops saying "Loading runs…" under loaded rows, and stops promising a retry that will never come.
+- **The drawer believes onboarding** (fix round 1).
+  - "Set up your Fit Profile" now appears only when neither the local API's `/profile` nor what onboarding saved has any roles. Its button, "Add your roles", opens the one-flow fit step, not the second 7-step wizard. The search fields are never hidden.
+  - The Search tab shows what onboarding captured as one line ("Senior Product Designer, Design Engineer · Remote only · Senior") with "Edit for this run", and focus lands on that button.
+  - Work mode and seniority are selects, and a seniority edit now counts.
+  - What you said to avoid is filled into "Keywords to exclude".
+  - Max leads moved under "Advanced: max leads per run".
+- **The runs log fits a phone** (fix round 1).
+  - Four columns: Run at, Status, New roles, Why. The reason a run failed wraps and stays readable.
+  - Tap the time to see trigger, duration, companies, updated, source and variation.
+  - The new-roles count opens Pipeline.
+  - The header has "Run discovery".
+  - Measured in the audit harness: 291/291 px at 375 (was 947/291) and 1028/1028 px at 1440.
 - **A capture button for any job site.** The drawer's Search tab has a draggable "+ Save to JobBored" bookmarklet. On a posting, it reads the page's schema.org JobPosting and opens JobBored with manual add prefilled. It uses no server and no extension, and nothing is sent anywhere else.
 
 ## Changes
@@ -46,7 +58,7 @@ The same risk applies to #102 in `discovery-status-handoff.js` and `discovery-ru
 | C6 | done | FR-02, FR-10, FR-19 and AX-09 all shipped. The FR-10 manual add goes through `JobBoredIngest.openManual`, falling back to the legacy manual modal. |
 | C7 | partial | Done: FR-05, 07, 09, 11–18, 20. **FR-23 skipped:** P3, and removing the burst card's headline and sub moves five pinned suites plus the finale-burst visual spec. **SS-12 handed off:** `settings-modal.js` and `config.example.js` belong to lane F. **FR-17 deviation:** the audit says to use `npm start`, but that doesn't start the discovery worker B5 needs, so every beat names `npm run dev`. **FR-20 partial:** the beat says "Signed in as … · Sheet connected ✓" and Continue finishes without creating a sheet, but it does not auto-advance. |
 | C8 | done | FD-04, 05, 06, 14, 19 and 20 shipped. FD-19 covers every call site this lane owns. `setup-doctor.js:631` and `settings-profile-tab.js:615` are handed off. |
-| C9 | partial | Done: FD-09, 10, 11, 12 (the toast counts found roles and has a View action), 15, 16, 25, and SS-24. **Handed off:** FD-18 and SS-19 (the cron is generated in `settings-profile-tab.js`; the label now has a hook), FD-21 (tab scrolling is CSS in lane A's `legacy-discovery-drawer.css`), FD-07 (Connection belongs in Settings, lane F). **Not done (M effort, out of time):** FD-12's persistent strip under the top bar (lane C owns the top bar), FD-13, FD-17's 4-column runs table, FD-26's profile summary with "Edit for this run", FD-08. |
+| C9 | partial | Done: FD-08, 09, 10, 11, 12 (the toast counts found roles and has a View action), 15, 16, 17, 25, 26, and SS-24. Fix round 1 added FD-08, FD-17 and FD-26 (see below). **Handed off:** FD-18 and SS-19 (the cron is generated in `settings-profile-tab.js`; the label now has a hook), FD-21 (tab scrolling is CSS in lane A's `legacy-discovery-drawer.css`), FD-07 (Connection belongs in Settings, lane F), and FD-12's persistent strip under the top bar (lane C owns the top bar). **Not done:** FD-13. |
 | C10 | done, pending one handoff | `capture-bookmarklet.js` plus the drawer's "Save jobs from any site" button. It goes live once `index.html` loads the script (handoff). |
 
 ## Contracts touched
@@ -56,6 +68,8 @@ The same risk applies to #102 in `discovery-status-handoff.js` and `discovery-ru
   - `query.targetRoles` now carries every user role plus at most one adjacent title (it used to carry one of the user's roles plus one adjacent title).
   - New field `selected.alsoTrying: string[]`.
   - The worker reads `targetRoles` as a comma list, as before.
+- `DiscoveryRuns`: the visible runs table went from 10 columns to 4, with the other 6 in a row disclosure. The Sheet's 10-column parse contract (`parseDiscoveryRunsValues`, header mapping) did not change.
+- The fit beat's saved discovery profile: `keywordsExclude` now carries `avoids` as well as `skipTitles`, deduplicated.
 - `discovery-readiness-truth` labels changed. The `level` and `reason` codes did not.
 
 ## APIs added
@@ -66,6 +80,8 @@ The same risk applies to #102 in `discovery-status-handoff.js` and `discovery-ru
 - `window.JobBoredDiscoveryCoach.isActive()`.
 - `JobBoredDiscovery.drawer.syncDiscoveryDrawerFooter(classified)`.
 - `recoverIfPossible({ confirmRecover })`. `runDiscoveryTailscaleAutoSetup({ confirmHostChange })` is a test seam.
+- `JobBoredDiscovery.drawer`: `shouldShowFitProfileBanner(master, local)`, `buildSearchProfileSummary(fields)`, `normalizeRemoteChoice`, `normalizeSeniorityChoice`, `humanToTargetSeniority`, `mergeKeywordList`, `syncProfileSummary({ expand })`.
+- The runs log dispatches `jb:view:request` `{ view: "pipeline", source: "runs_log" }` from New roles.
 - `window.JobBoredCapture`: `parseCaptureHash`, `encodeCapture`, `sanitizeCapture`, `extractJobPosting`, `buildBookmarkletHref`, `openManualWithCapture`, `consumeCaptureHash`, `installBookmarkletLinks`.
 - Consumed but not built here: `JobBoredIngest.openManual({ source, url?, prefill? })` (lane D), and the `jb:view:request` event `{ view: "pipeline" }` (lane C).
 
@@ -84,6 +100,8 @@ None. The e2e-visual suites assert structure, not pixel snapshots. The copy cons
 | `settings-modal.js`, `config.example.js` | F | SS-12: one default provider; match B2 (OpenRouter with `openai/gpt-5.4-mini`). | none |
 | `bridge-registry.js` | owner of the bridge (F?) | Add `openDiscoverySetupWizard` to `discovery.drawer.host`. The drawer calls the wizard UI directly until then. | none |
 | `css/legacy-discovery-drawer.css` (to be renamed) | A | FD-21: scroll the tablist horizontally at 375 with an edge fade. Style `.discovery-drawer__setup-hint` and `.discovery-drawer__capture`, which use the existing hint and button classes for now. | none |
+| `css/legacy-discovery-runs.css` (to be renamed) | A | FD-17: move the scoped `<style>` block at the top of `partials/discovery-runs-modal.html` into the renamed runs sheet. It covers the `.runs-at-cell`, `.runs-new-cell`, `.runs-why-cell`, `.runs-row-toggle`, `.runs-view-pipeline` and `.runs-detail*` rules plus the ≤720 padding. Then retire the `td:nth-child(4–9)` rules, which were written for 10 columns. Tokens only. | none |
+| `css/legacy-discovery-drawer.css` (to be renamed) | A | FD-26: style `.dp-profile-summary` and `.dp-advanced` (the summary uses the existing `field-label`, `discovery-drawer__lede` and `btn-modal-secondary` classes for now). | none |
 | top bar | C | FD-12: a persistent run strip ("Searching…", "Found N new · View") under the top bar. Listen for `jobbored:job-discovery-run-updated`, and answer `jb:view:request`. | none |
 
 ## Tests added
@@ -93,6 +111,7 @@ None. The e2e-visual suites assert structure, not pixel snapshots. The copy cons
 - `tests/ux01-c8-consent.test.mjs`
 - `tests/ux01-c9-find.test.mjs`
 - `tests/ux01-c10-capture.test.mjs`
+- Fix round 1 added 14 cases to `tests/ux01-c9-find.test.mjs` (FD-08, FD-26, FD-17) and 1 to `tests/oneflow-l2-fit-beat.test.mjs` (avoids reach excludes). All 15 were run red before the fix (14 fail in c9, 1 in l2). `tests/runs-tab.test.mjs`: the two render tests that pinned 10 visible cells and 10 skeleton bars now pin 4. The 10-column parse tests are unchanged.
 
 Red-then-green was recorded for two of them. C6: 8 of 11 failed before the change. C9 FD-09: 2 of 2 failed before the change. Existing tests that pinned the old copy or behaviour were updated in the same commit as the change they pin.
 
@@ -174,3 +193,37 @@ Tails:
 ```
 
 Verdict: floor green, 7/7.
+
+## Fix round 1 (review findings FD-08, FD-26, FD-17)
+
+All three findings were correct: each item was listed as not done. What caused each, and the fix:
+
+- **FD-08.** `renderFitProfileEmptyState` looked only at GET `/profile`. It ignored the discovery profile that onboarding saves through `getDiscoveryProfile()`, which is already in hand when the drawer opens. The fix passes both sources to the banner. The banner shows only when neither has roles, and its call to action is `JobBoredOneFlow.open("fit")`. It also stopped hiding `[data-fit-profile-input]` fields.
+- **FD-26.** The drawer rendered every profile field as an editable text box, and the fit beat's `discoveryPayload` left out `avoids`. The fix:
+  - A summary line with "Edit for this run" replaces the fields.
+  - Work mode and seniority are selects. A legacy free-text value keeps its own option, so nothing is lost.
+  - A seniority change is recorded as the profile enum.
+  - Avoids and skip titles are merged into the excluded keywords, both in the fit beat and in the GET /profile prefill.
+  - Max leads moved under Advanced.
+- **FD-17.** The render path wrote one visible cell for each of the Sheet's 10 columns. The fix shows 4 visible cells and puts the other fields in a disclosure row. The Sheet parse contract did not change. The layout rules are scoped in the partial and handed off to lane A.
+
+Commits: `0806cd0` (runs) and `5bb45e0` (drawer and fit beat). The floor ran after both, at HEAD `76e7e15` plus this report. Logs are in `~/Job-Bored.worktrees/.ux01-run/fix1-B/`.
+
+| # | Command | Result | Tail |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | EXIT 0 | eslint clean |
+| 2 | `npm run typecheck:repo` | EXIT 0 | tsc clean |
+| 3 | `npm test` | EXIT 0 | tests 3136 · pass 3135 · fail 0 · skipped 0 · todo 1 (the same `submission-record-audit` todo as on the base) |
+| 4 | `npm run test:contract:all` | EXIT 0 | 12 OK lines |
+| 5 | `npm run test:e2e-smoke` | EXIT 0 | 11 passed (15.8s) |
+| 6 | `npm run test:e2e-journey` | EXIT 0 | 13 passed (21.9s) |
+| 7 | `npm run test:e2e-visual` | EXIT 0 | 37 passed (1.0m) |
+
+Browser check, done in the audit harness (not the host):
+- The runs table measures 291/291 px at 375 and 1028/1028 px at 1440. The disclosure opens.
+- With onboarding roles saved and the local API fenced, the drawer shows no banner. It shows "Senior Product Designer, Design Engineer · Remote only · Senior", and focus lands on "Edit for this run".
+- With no profile anywhere, the banner shows and the fields stay visible.
+
+No baselines were refreshed, because the visual suites assert structure.
+
+**Not verified:** clicking "Add your roles" end to end into the fit beat. Unit tests and a source check cover it.
