@@ -883,14 +883,24 @@
   /* Park the workspace inside the open role's dossier while one of its
      documents is open (TA-09); otherwise it sits hidden where index.html put
      it, so an empty editor never costs a fifth of the page and 16 tab stops.
-     role-materials.js calls this after every Case render, because a render
-     replaces the mount. */
+     role-materials.js calls this after every Case render. Create the section
+     only for an open document so the reading canvas has no empty sections. */
   function remount() {
     const region = getRegion();
     if (!region) return;
     const open = openRoleKey();
     if (doc.open && open && open !== doc.open.jobKey) closeDocument();
-    const mount = document.querySelector ? document.querySelector(SCRIBE_MOUNT) : null;
+    let mount = document.querySelector ? document.querySelector(SCRIBE_MOUNT) : null;
+    if (doc.open && !mount && document.querySelector) {
+      const canvas = document.querySelector('[data-region="role"] .case__canvas');
+      if (canvas) {
+        mount = document.createElement("section");
+        mount.className = "case__section case__section--scribe";
+        mount.setAttribute("data-mount", "scribe");
+        mount.setAttribute("aria-label", "Edit this role’s document");
+        canvas.insertBefore(mount, canvas.querySelector(".case__section--say, .case__section--notes"));
+      }
+    }
     if (doc.open && mount) {
       if (!doc.home && region.parentNode && typeof document.createComment === "function") {
         doc.home = document.createComment("scribe-home");
@@ -924,6 +934,8 @@
       doc.home.parentNode.insertBefore(region, doc.home);
     }
     if (region) region.setAttribute("hidden", "");
+    const mount = document.querySelector ? document.querySelector(SCRIBE_MOUNT) : null;
+    if (mount) mount.remove();
     renderCoverage();
   }
 

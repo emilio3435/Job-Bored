@@ -503,10 +503,6 @@
     var canvas = '<div class="case__canvas">' +
       (model.oneLine ? '<blockquote class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</blockquote>" : "") +
       renderTheyWant(model) + renderYouHave(model) +
-      /* C14 (TA-09): Scribe parks here, bound to one of this role's
-         documents, when the reader chooses Edit on it; scribe.js moves its
-         workspace in and out (role-materials.js asks after every render). */
-      '<section class="case__section case__section--scribe" data-mount="scribe" aria-label="Edit this role\u2019s document" hidden></section>' +
       renderSayThis(model) + renderNotes(model) +
     "</div>";
     var ledger = '<aside class="case__ledger" aria-label="Role ledger">' +
