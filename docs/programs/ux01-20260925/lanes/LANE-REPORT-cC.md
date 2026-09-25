@@ -65,3 +65,19 @@ npm run test:e2e-visual    37 passed (1.0m)                                     
 ```
 
 The `npm test` log ends with an `ERR_ASSERTION` block. That block is stderr from a test that expects a failure; the summary is 0 failures. The one `todo` was already there before this lane.
+
+## Verification · floor (cC-r1)
+
+An independent Opus verifier ran this in a fresh context at commit `b480cc2f`, with a clean tree. All seven commands ran in order with no retries, no `--grep`, no `--shard` and no `--update-snapshots`. Logs are in `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/cC-r1/`.
+
+| command | result | counts |
+|---|---|---|
+| `npm run lint:repo` | EXIT 0 | lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s) |
+| `npm run typecheck:repo` | EXIT 0 | browser-use-discovery and server tsc are clean, and every `node --check` passes |
+| `npm test` | EXIT 0 | tests 3070 · pass 3069 · fail 0 · cancelled 0 · skipped 0 · todo 1 |
+| `npm run test:contract:all` | EXIT 0 | ends `OK integrations/openclaw-command-center/SKILL.md` |
+| `npm run test:e2e-smoke` | EXIT 0 | 17 passed (17.8s) |
+| `npm run test:e2e-journey` | EXIT 0 | 26 passed (28.6s) |
+| `npm run test:e2e-visual` | EXIT 0 | 37 passed (60.0s) |
+
+Verdict: **green**. No test failed and none was flaky. The `npm test` log ends with an `ERR_ASSERTION` stderr block from a test that expects a failure. The summary still shows 0 failures.
