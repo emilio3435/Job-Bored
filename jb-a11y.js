@@ -490,7 +490,9 @@
 
   /**
    * @param {{title: string, body?: string, confirmLabel?: string,
-   *          cancelLabel?: string, fields?: Array<object>}} spec
+   *          cancelLabel?: string, fields?: Array<object>, note?: string,
+   *          checks?: {label: string, items: Array<{id: string,
+   *            label: string, checked?: boolean}>}}} spec
    * @returns {Promise<{confirmed: boolean, values: Record<string, string>}>}
    */
   function confirmDialog(spec) {
@@ -527,17 +529,53 @@
       panel.appendChild(field.wrap);
     }
 
+    /* TA-21: an optional checkbox group, e.g. "Sent with it". Each item's
+       value reads back as "true" / "false" under its id. */
+    var checks = s.checks && typeof s.checks === "object" && Array.isArray(s.checks.items)
+      ? s.checks
+      : null;
+    if (checks && checks.items.length) {
+      var set = document.createElement("fieldset");
+      set.className = "jb-a11y-checks";
+      var legend = document.createElement("legend");
+      legend.className = "jb-a11y-checks__legend";
+      legend.textContent = String(checks.label || "");
+      set.appendChild(legend);
+      for (var c = 0; c < checks.items.length; c++) {
+        var item = checks.items[c] || {};
+        var row = document.createElement("label");
+        row.className = "jb-a11y-checks__item";
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.id = item.id || uid("check");
+        box.checked = item.checked !== false;
+        row.appendChild(box);
+        row.appendChild(document.createTextNode(" " + String(item.label || "")));
+        set.appendChild(row);
+        built.push({ key: box.id, input: box, checkbox: true });
+      }
+      panel.appendChild(set);
+    }
+
+    if (s.note) {
+      var note = document.createElement("p");
+      note.className = "jb-a11y-dialog__note";
+      note.textContent = String(s.note);
+      panel.appendChild(note);
+    }
+
     var actions = document.createElement("div");
     actions.className = "jb-a11y-dialog__actions";
     var cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className =
-      "jb-a11y-dialog__btn jb-a11y-dialog__btn--cancel jb-a11y-touch-target";
+      "jb-a11y-dialog__btn jb-a11y-dialog__btn--cancel jb-btn jb-btn--secondary jb-a11y-touch-target";
     cancelBtn.textContent = s.cancelLabel || "Cancel";
     var confirmBtn = document.createElement("button");
     confirmBtn.type = "button";
+    // TR-06 / TA-04: the kit's filled navy primary, never a pale tint.
     confirmBtn.className =
-      "jb-a11y-dialog__btn jb-a11y-dialog__btn--confirm jb-a11y-touch-target";
+      "jb-a11y-dialog__btn jb-a11y-dialog__btn--confirm jb-btn jb-btn--primary jb-a11y-touch-target";
     confirmBtn.textContent = s.confirmLabel || "Confirm";
     actions.appendChild(cancelBtn);
     actions.appendChild(confirmBtn);
@@ -550,6 +588,10 @@
       function readValues() {
         var values = {};
         for (var j = 0; j < built.length; j++) {
+          if (built[j].checkbox) {
+            values[built[j].key] = built[j].input.checked ? "true" : "false";
+            continue;
+          }
           values[built[j].key] = String(
             built[j].input.value == null ? "" : built[j].input.value,
           );

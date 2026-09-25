@@ -8,6 +8,8 @@
  * planner row can be resolved.
  *
  * Lane-D API (C16): confirmApplied({dataIndex, prefill:{source, date}}).
+ * TA-21: prefill.materials = [{id, label, checked?}] fills "Sent with it";
+ * without it, JobBoredPipeline.materialsFor(dataIndex) is asked.
  */
 (function (root) {
   "use strict";
@@ -85,12 +87,64 @@
     ];
   }
 
-  function evidenceFrom(values, defaults) {
+  /* TA-21: the files that went with the application. Lane E (or any caller)
+     can pass them as prefill.materials; otherwise the board's cached
+     materials index is asked for this role's ready resume and letter. */
+  var SENT_PREFIX = "jb-submission-sent-";
+
+  function materialsFor(jobKey, prefilled) {
+    var list = Array.isArray(prefilled) ? prefilled : null;
+    if (!list) {
+      var board = root.JobBoredPipeline;
+      if (board && typeof board.materialsFor === "function") {
+        try {
+          list = board.materialsFor(jobKey);
+        } catch (_) {
+          list = null;
+        }
+      }
+    }
+    if (!Array.isArray(list)) return [];
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i] || {};
+      var id = text(m.id || m.type);
+      var label = text(m.label);
+      if (!id || !label || seen[id]) continue;
+      seen[id] = true;
+      out.push({ id: id, label: label, checked: m.checked !== false });
+    }
+    return out;
+  }
+
+  function sentChecks(materials) {
+    if (!materials.length) return null;
+    return {
+      label: "Sent with it",
+      items: materials.map(function (m) {
+        return { id: SENT_PREFIX + m.id, label: m.label, checked: m.checked };
+      }),
+    };
+  }
+
+  function sentFrom(values, materials) {
+    var sent = [];
+    for (var i = 0; i < materials.length; i++) {
+      var raw = values && values[SENT_PREFIX + materials[i].id];
+      var on = raw == null ? materials[i].checked : String(raw) === "true";
+      if (on) sent.push(materials[i].label);
+    }
+    return sent;
+  }
+
+  function evidenceFrom(values, defaults, materials) {
     return {
       appliedDate: fieldValue(values, "appliedDate") || defaults.appliedDate,
       source: fieldValue(values, "source") || "Unknown",
       receiptNote: fieldValue(values, "receiptNote"),
       followUpDate: fieldValue(values, "followUpDate") || defaults.followUpDate,
+      sent: sentFrom(values, materials || []),
     };
   }
 
@@ -160,6 +214,7 @@
   function noteFor(evidence) {
     var parts = ["Applied via " + evidence.source];
     if (evidence.receiptNote) parts.push("receipt: " + evidence.receiptNote);
+    if (evidence.sent && evidence.sent.length) parts.push("sent: " + evidence.sent.join(", "));
     return parts.join(" · ");
   }
 
@@ -180,6 +235,7 @@
           source: prefill.source,
           receiptNote: prefill.receiptNote,
           followUpDate: prefill.followUpDate,
+          materials: prefill.materials,
         },
       };
     }
@@ -256,16 +312,20 @@
       followUpDate: ctx.followUpDate || (row && row.followUpDate),
     };
     var defaults = defaultsFor(seeded);
+    var materials = materialsFor(jobKey, ctx.materials);
     var company = job && text(job.company);
     var decision;
     try {
       decision = await confirm({
-        title: company ? "Did you apply to " + company + "?" : "Mark application submitted?",
+        title: company ? "Did you apply to " + company + "?" : "Mark this role as applied?",
         body: "Confirm the details for " + roleName(job) +
           ". They are written to your Sheet as you enter them.",
-        confirmLabel: "Mark submitted",
+        // TR-06: the label matches the stage it sets.
+        confirmLabel: "Mark applied",
         cancelLabel: "Cancel",
         fields: confirmationFields(defaults),
+        checks: sentChecks(materials),
+        note: "These are written to your Sheet as shown: Applied Date, Follow-up Date, and a line in Notes.",
       });
     } catch (err) {
       dispatchWriteFailure(
@@ -281,7 +341,7 @@
       return { confirmed: false, cancelled: true, evidence: null };
     }
 
-    var evidence = evidenceFrom(decision.values, defaults);
+    var evidence = evidenceFrom(decision.values, defaults, materials);
     var outcome;
     try {
       outcome = await persistApplied(jobKey, ctx.fromStage, evidence);
@@ -301,6 +361,9 @@
             date: evidence.appliedDate,
             followUpDate: evidence.followUpDate,
             receiptNote: evidence.receiptNote,
+            materials: materials.map(function (m) {
+              return { id: m.id, label: m.label, checked: evidence.sent.indexOf(m.label) !== -1 };
+            }),
           } });
         },
       });
