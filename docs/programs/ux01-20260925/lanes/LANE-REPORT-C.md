@@ -220,3 +220,37 @@ test:e2e-visual    exit=0   37 passed (1.1m)
 ```
 
 Not verified: the hotkey on a real macOS Chrome session with a real Sheet. Only the hermetic harness was used, where ControlOrMeta+k is the platform modifier.
+
+## Verification · floor (C-r3)
+
+Verifier: fresh Opus context, independent of the author. HEAD 62b7cb4 on feat/ux01-shell-today, 2026-09-25. Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/C-r3-floor/<n>.log`. No retries used; no flaky specs.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | npm run lint:repo | PASS (exit 0) | lint:tokens 35 sheets, 0 new findings |
+| 2 | npm run typecheck:repo | PASS (exit 0) | tsc clean |
+| 3 | npm test | PASS (exit 0) | 3084 tests, 3083 pass, 0 fail, 1 todo |
+| 4 | npm run test:contract:all | PASS (exit 0) | 12 OK checks, 0 failures |
+| 5 | npm run test:e2e-smoke | PASS (exit 0) | 11 passed |
+| 6 | npm run test:e2e-journey | PASS (exit 0) | 25 passed |
+| 7 | npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Green: all seven commands passed.
+
+Note: npm test lists one "✖" under "failing tests"; it is the todo-marked test "persists and can remove the canonical submission evidence record" (# blocked on the canonical-ownership gate), counted as todo 1, fail 0.
+
+Tails:
+
+```
+[3] ℹ tests 3084
+ℹ suites 745
+ℹ pass 3083
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 13939.586708
+[5]   11 passed (14.8s)
+[6]   25 passed (30.4s)
+[7]   37 passed (1.1m)
+```
