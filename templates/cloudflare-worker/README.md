@@ -98,7 +98,8 @@ open Worker URL or the browser test path will fail.
 | `TARGET_URL`       | Secret | HTTPS downstream webhook. Required.                                        |
 | `DISCOVERY_SECRET` | Secret | Optional. When set, injected as `x-discovery-secret` on the upstream POST. |
 | `REFRESH_SHEET_ID` | Secret | Required for Cloudflare Cron discovery. Used as the webhook `sheetId`.     |
-| `FORWARD_SECRET`   | Secret | Optional lock for `POST /forward` on private/manual tests.                 |
+| `RELAY_TOKEN`      | Secret | Required. Per-dashboard bearer minted by `deploy-cloudflare-relay.mjs`; callers send `Authorization: Bearer <token>` or `X-Relay-Token`. Without it the relay answers 401. |
+| `FORWARD_SECRET`   | Secret | Legacy name for the same bearer; accepted when `RELAY_TOKEN` is unset. |
 | `CORS_ORIGIN`      | Var    | Optional browser origin. Defaults to `*` when omitted.                     |
 
 ## Notes
@@ -107,3 +108,17 @@ open Worker URL or the browser test path will fail.
 - The downstream target is the real webhook behind the relay.
 - If the downstream is Apps Script, keep treating the Apps Script stub as
   stub-only until it actually writes Pipeline rows.
+
+## Caller authentication (BEAUDIT G1)
+
+The relay is locked. Every request must carry the per-dashboard `RELAY_TOKEN`
+as `Authorization: Bearer <token>` (or `X-Relay-Token`); anonymous calls get
+401 and never reach your worker, and a relay with no token configured fails
+closed. Only `/`, `/webhook`, `/runs` and `/runs/<id>` are forwarded; every
+other path is 404. The `?target=` query override is gone.
+
+## Hosted mode is unsupported
+
+Running the dashboard and discovery worker as a hosted, multi-user service is
+unsupported until the hosted-mode fixes (BEAUDIT E4-E6) land. Use the local
+worker with this relay.

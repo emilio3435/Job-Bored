@@ -11,6 +11,7 @@
  *   - `CLOUDFLARE_API_TOKEN` + `CLOUDFLARE_ACCOUNT_ID`
  */
 import { spawnSync } from "child_process";
+import { randomBytes } from "crypto";
 import {
   copyFileSync,
   existsSync,
@@ -209,9 +210,12 @@ function normalizeTargetUrl(raw) {
 }
 
 function isLocalOnlyHost(hostname) {
-  const host = String(hostname || "").replace(/^\[|\]$/g, "").toLowerCase();
+  const host = String(hostname || "")
+    .replace(/^\[|\]$/g, "")
+    .toLowerCase();
   if (!host) return false;
-  if (host === "localhost" || host === "127.0.0.1" || host === "::1") return true;
+  if (host === "localhost" || host === "127.0.0.1" || host === "::1")
+    return true;
   if (/^10\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
   if (/^192\.168\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
   if (/^172\.(1[6-9]|2\d|3[0-1])\.\d{1,3}\.\d{1,3}$/.test(host)) return true;
@@ -252,7 +256,10 @@ function classifyTargetUrl(raw) {
         "TARGET_URL must be public. A localhost or private-network URL cannot be reached from Cloudflare.",
     };
   }
-  if (/\.workers\.dev$/i.test(parsed.hostname) || /(^|\.)cloudflareworkers\.com$/i.test(parsed.hostname)) {
+  if (
+    /\.workers\.dev$/i.test(parsed.hostname) ||
+    /(^|\.)cloudflareworkers\.com$/i.test(parsed.hostname)
+  ) {
     const pathname = parsed.pathname.replace(/\/+$/, "");
     if (/\/forward$/i.test(pathname)) {
       return {
@@ -425,17 +432,21 @@ function extractWranglerJson(stdout) {
 }
 
 function parseWranglerWhoAmI() {
-  const result = spawnSync(NPX.command, ["--yes", "wrangler", "whoami", "--json"], {
-    cwd: repoRoot,
-    encoding: "utf8",
-    shell: NPX.shell,
-    env: {
-      ...process.env,
-      CI: "1",
-      FORCE_COLOR: "0",
-      WRANGLER_SEND_METRICS: "false",
+  const result = spawnSync(
+    NPX.command,
+    ["--yes", "wrangler", "whoami", "--json"],
+    {
+      cwd: repoRoot,
+      encoding: "utf8",
+      shell: NPX.shell,
+      env: {
+        ...process.env,
+        CI: "1",
+        FORCE_COLOR: "0",
+        WRANGLER_SEND_METRICS: "false",
+      },
     },
-  });
+  );
   if (result.status !== 0) {
     return null;
   }
@@ -488,7 +499,9 @@ function resolveAccountId(explicitAccountId, autoLogin) {
   }
   if (accounts.length > 1) {
     const list = accounts
-      .map((account) => `${account.name || "Unnamed"} (${account.id || "no-id"})`)
+      .map(
+        (account) => `${account.name || "Unnamed"} (${account.id || "no-id"})`,
+      )
       .join(", ");
     fail(
       `multiple Cloudflare accounts detected. Re-run with --account-id or set CLOUDFLARE_ACCOUNT_ID. Accounts: ${list}`,
@@ -516,7 +529,11 @@ function isWorkersSubdomainConflict(status, message) {
   );
 }
 
-function buildWorkersSubdomainCandidates(explicitSubdomain, workerName, accountId) {
+function buildWorkersSubdomainCandidates(
+  explicitSubdomain,
+  workerName,
+  accountId,
+) {
   const found = new Set();
   const push = (value) => {
     const normalized = normalizeWorkersSubdomain(value);
@@ -537,14 +554,17 @@ function buildWorkersSubdomainCandidates(explicitSubdomain, workerName, accountI
 }
 
 async function callCloudflareApi(accountId, apiToken, method, path, body) {
-  const response = await fetch(`${cloudflareApiBase}/accounts/${accountId}${path}`, {
-    method,
-    headers: {
-      Authorization: `Bearer ${apiToken}`,
-      ...(body ? { "Content-Type": "application/json" } : {}),
+  const response = await fetch(
+    `${cloudflareApiBase}/accounts/${accountId}${path}`,
+    {
+      method,
+      headers: {
+        Authorization: `Bearer ${apiToken}`,
+        ...(body ? { "Content-Type": "application/json" } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
     },
-    ...(body ? { body: JSON.stringify(body) } : {}),
-  });
+  );
 
   const rawText = await response.text();
   let payload = null;
@@ -557,7 +577,9 @@ async function callCloudflareApi(accountId, apiToken, method, path, body) {
   const errors = Array.isArray(payload?.errors) ? payload.errors : [];
   const errorMessage =
     errors
-      .map((error) => String(error && error.message ? error.message : "").trim())
+      .map((error) =>
+        String(error && error.message ? error.message : "").trim(),
+      )
       .filter(Boolean)
       .join("; ") ||
     rawText.trim() ||
@@ -579,12 +601,16 @@ async function getWorkersSubdomain(accountId, apiToken) {
     "/workers/subdomain",
   );
   if (result.ok) {
-    return String(result.payload?.result?.subdomain || "").trim().toLowerCase();
+    return String(result.payload?.result?.subdomain || "")
+      .trim()
+      .toLowerCase();
   }
   if (result.status === 404) {
     return "";
   }
-  fail(`Cloudflare API could not read your workers.dev subdomain: ${result.errorMessage}`);
+  fail(
+    `Cloudflare API could not read your workers.dev subdomain: ${result.errorMessage}`,
+  );
 }
 
 async function createWorkersSubdomain(accountId, apiToken, subdomain) {
@@ -637,7 +663,11 @@ async function ensureWorkersSubdomain(
     console.log(
       `cloudflare-relay: creating workers.dev subdomain "${candidate}"...`,
     );
-    const created = await createWorkersSubdomain(accountId, apiToken, candidate);
+    const created = await createWorkersSubdomain(
+      accountId,
+      apiToken,
+      candidate,
+    );
     if (created.ok) {
       return created.subdomain;
     }
@@ -717,7 +747,12 @@ function runWrangler(args, options = {}) {
   fail(options.failureMessage || `wrangler ${args.join(" ")} failed`);
 }
 
-function runVerify(workerUrl, sheetId) {
+/** Per-dashboard relay bearer token (BEAUDIT G1): 32 random bytes, base64url. */
+function mintRelayToken() {
+  return randomBytes(32).toString("base64url");
+}
+
+function runVerify(workerUrl, sheetId, relayToken = "") {
   if (!workerUrl || !sheetId) return null;
   console.log("");
   console.log("cloudflare-relay: verifying deployed Worker...");
@@ -733,7 +768,9 @@ function runVerify(workerUrl, sheetId) {
     {
       cwd: repoRoot,
       stdio: "inherit",
-      env: process.env,
+      env: relayToken
+        ? { ...process.env, RELAY_TOKEN: relayToken }
+        : process.env,
     },
   );
   return typeof result.status === "number" ? result.status === 0 : false;
@@ -742,7 +779,15 @@ function runVerify(workerUrl, sheetId) {
 function tryReadStatusUrl(configPath) {
   const result = spawnSync(
     "npx",
-    ["--yes", "wrangler", "deployments", "status", "--json", "--config", configPath],
+    [
+      "--yes",
+      "wrangler",
+      "deployments",
+      "status",
+      "--json",
+      "--config",
+      configPath,
+    ],
     {
       cwd: repoRoot,
       encoding: "utf8",
@@ -861,6 +906,20 @@ async function main() {
         "wrangler secret put TARGET_URL failed. Check your Cloudflare auth and account permissions.",
     });
 
+    // BEAUDIT G1 / spec §0.7: mint a per-dashboard bearer token. The relay
+    // answers 401 without it, so an anonymous caller can no longer reach the
+    // worker with DISCOVERY_SECRET injected. The token is written to the
+    // bootstrap file below so the dashboard stores it in its config.
+    const relayToken = mintRelayToken();
+    console.log("cloudflare-relay: setting RELAY_TOKEN secret...");
+    runWrangler(["secret", "put", "RELAY_TOKEN", "--config", configPath], {
+      cwd: tempDir,
+      input: `${relayToken}\n`,
+      outputFile: secretOutputPath,
+      failureMessage:
+        "wrangler secret put RELAY_TOKEN failed. Check your Cloudflare auth and account permissions.",
+    });
+
     if (args.discoverySecret) {
       console.log("cloudflare-relay: setting DISCOVERY_SECRET secret...");
       runWrangler(
@@ -912,6 +971,7 @@ async function main() {
       corsOrigin: corsOrigin || "*",
       cron: args.cron,
       refreshSheetIdUploaded: !!args.sheetId,
+      relayLocked: true,
       auth: {
         mode: authGuidance.mode,
         accountId,
@@ -926,7 +986,7 @@ async function main() {
     };
 
     if (args.sheetId && args.autoVerify) {
-      payload.verified = runVerify(workerUrl, args.sheetId);
+      payload.verified = runVerify(workerUrl, args.sheetId, relayToken);
       if (payload.verified === false) {
         console.log("");
         console.log(
@@ -966,6 +1026,8 @@ async function main() {
           workerUrl,
           targetUrl,
           corsOrigin: corsOrigin || "*",
+          relayToken,
+          relayLocked: true,
           deployedAt: new Date().toISOString(),
         },
       };
@@ -1028,7 +1090,8 @@ async function main() {
 // (`node scripts/deploy-cloudflare-relay.mjs`). When imported from a test, the
 // exported helpers below stay testable without running the deploy pipeline.
 const __invokedAsCli =
-  process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.url);
+  process.argv[1] &&
+  resolve(process.argv[1]) === fileURLToPath(import.meta.url);
 
 if (__invokedAsCli) {
   await main();
@@ -1037,4 +1100,4 @@ if (__invokedAsCli) {
 // Test-only exports. Keep the surface narrow — these are not a stable public
 // API; they exist so tests can exercise wrangler stdout parsing without
 // running the full deploy pipeline.
-export { extractWranglerJson };
+export { extractWranglerJson, mintRelayToken };
