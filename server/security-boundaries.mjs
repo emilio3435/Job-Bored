@@ -2,6 +2,8 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
+import { Readable, Transform, pipeline } from "node:stream";
+import * as zlib from "node:zlib";
 
 const MAX_SCRAPE_REDIRECTS = 5;
 const PLATFORM_FETCH = globalThis.fetch;
@@ -279,6 +281,7 @@ function isPrivateIpv4(ip) {
     (a === 169 && b === 254) || // link-local incl. cloud metadata 169.254.169.254
     (a === 172 && b >= 16 && b <= 31) ||
     (a === 192 && b === 168) ||
+    (a === 198 && (b === 18 || b === 19)) || // 198.18.0.0/15 benchmark
     a >= 224 // multicast/reserved
   );
 }
@@ -317,6 +320,11 @@ function expandIpv6Groups(value) {
   return numeric;
 }
 
+/** @param {number} high @param {number} low */
+function embeddedIpv4(high, low) {
+  return `${high >> 8}.${high & 0xff}.${low >> 8}.${low & 0xff}`;
+}
+
 /** @param {string} value */
 function isPrivateIpv6(value) {
   const groups = expandIpv6Groups(value);
@@ -325,15 +333,34 @@ function isPrivateIpv6(value) {
   if (allZeroExceptLast && (groups[7] === 1 || groups[7] === 0)) return true; // ::1 and ::
   // IPv4-mapped (::ffff:a.b.c.d) and IPv4-compatible — check embedded IPv4
   if (groups.slice(0, 5).every((g) => g === 0) && (groups[5] === 0xffff || groups[5] === 0)) {
-    const a = groups[6] >> 8;
-    const b = groups[6] & 0xff;
-    const c = groups[7] >> 8;
-    const d = groups[7] & 0xff;
-    return isPrivateIpv4(`${a}.${b}.${c}.${d}`);
+    return isPrivateIpv4(embeddedIpv4(groups[6], groups[7]));
+  }
+  // IPv4-translated ::ffff:0:a.b.c.d (::ffff:0:0/96)
+  if (groups.slice(0, 4).every((g) => g === 0) && groups[4] === 0xffff && groups[5] === 0) {
+    return isPrivateIpv4(embeddedIpv4(groups[6], groups[7]));
   }
   const first = groups[0];
+  // NAT64: well-known 64:ff9b::/96 carries the IPv4 in the low 32 bits;
+  // local-use 64:ff9b:1::/48 translates into private space by definition.
+  if (first === 0x64 && groups[1] === 0xff9b) {
+    if (groups[2] === 1) return true;
+    if (groups.slice(2, 6).every((g) => g === 0)) {
+      return isPrivateIpv4(embeddedIpv4(groups[6], groups[7]));
+    }
+  }
+  // 6to4 2002::/16 carries the IPv4 in groups 1-2.
+  if (first === 0x2002) return isPrivateIpv4(embeddedIpv4(groups[1], groups[2]));
+  // Teredo 2001:0::/32: server IPv4 in groups 2-3, client IPv4 inverted in 6-7.
+  if (first === 0x2001 && groups[1] === 0) {
+    return (
+      isPrivateIpv4(embeddedIpv4(groups[2], groups[3])) ||
+      isPrivateIpv4(embeddedIpv4(groups[6] ^ 0xffff, groups[7] ^ 0xffff))
+    );
+  }
   if (first >= 0xfc00 && first <= 0xfdff) return true; // fc00::/7 unique-local
   if (first >= 0xfe80 && first <= 0xfebf) return true; // fe80::/10 link-local
+  if (first >= 0xfec0 && first <= 0xfeff) return true; // fec0::/10 site-local (deprecated)
+  if (first >= 0xff00) return true; // ff00::/8 multicast
   return false;
 }
 
@@ -343,6 +370,13 @@ function isPrivateIpLiteral(value) {
   if (ipVersion === 4) return isPrivateIpv4(value);
   if (ipVersion === 6) return isPrivateIpv6(value);
   return null;
+}
+
+// URL.hostname keeps the brackets around an IPv6 literal ("[::1]"); isIP,
+// DNS and net.connect all want the bare address.
+/** @param {string} hostname */
+function unbracketHost(hostname) {
+  return String(hostname || "").replace(/^\[(.*)\]$/, "$1");
 }
 
 /** @param {unknown} value */
@@ -371,10 +405,11 @@ function isPrivateNetworkHostname(value) {
 // Resolve a hostname and confirm every returned address is publicly routable.
 // Fails closed: resolution errors are treated as a blocked target.
 /**
- * @param {string} hostname
+ * @param {string} rawHostname
  * @param {{ lookupImpl?: LookupAll }} [options]
  */
-async function resolvedAddressesArePrivate(hostname, { lookupImpl = dnsLookup } = {}) {
+async function resolvedAddressesArePrivate(rawHostname, { lookupImpl = dnsLookup } = {}) {
+  const hostname = unbracketHost(rawHostname);
   if (isIP(hostname)) return isPrivateNetworkHostname(hostname);
   let addresses;
   try {
@@ -419,10 +454,16 @@ export async function validateScrapeTargetWithDns(
 // is fail-closed: resolve every hop and pin the connect. Injected `fetchImpl`
 // or a test that patches `globalThis.fetch` stays hermetic unless the caller
 // passes `lookupImpl` / `resolveDns: true`.
+//
+// Redirects follow the fetch spec's method rules (303, and 301/302 after a
+// POST, become a bodiless GET). A hop that changes origin drops credential
+// headers, and refuses to replay a request body. `init.redirect` "error"
+// throws on any 3xx and "manual" returns it. The response body is capped at
+// `maxBytes` while it streams (default DEFAULT_MAX_RESPONSE_BYTES).
 /**
  * @param {string} rawUrl
  * @param {RequestInit} [init]
- * @param {{ fetchImpl?: typeof globalThis.fetch, lookupImpl?: LookupAll, resolveDns?: boolean, maxRedirects?: number }} [options]
+ * @param {{ fetchImpl?: typeof globalThis.fetch, lookupImpl?: LookupAll, resolveDns?: boolean, maxRedirects?: number, maxBytes?: number }} [options]
  */
 export async function safeFetch(
   rawUrl,
@@ -432,6 +473,7 @@ export async function safeFetch(
     lookupImpl,
     resolveDns,
     maxRedirects = MAX_SCRAPE_REDIRECTS,
+    maxBytes = DEFAULT_MAX_RESPONSE_BYTES,
   } = {},
 ) {
   const signal = init && init.signal ? init.signal : undefined;
@@ -439,26 +481,173 @@ export async function safeFetch(
   const resolver = lookupImpl || dnsLookup;
   const wantDns = (resolveDns ?? !injectedFetch) || typeof lookupImpl === "function";
   const usePinnedTransport = !injectedFetch;
+  const redirectMode = cleanString(init && init.redirect) || "follow";
+  /** @type {RequestInit & { headers: Record<string, string> }} */
+  let hopInit = { ...init, headers: headersToObject(init && init.headers) };
   let currentUrl = rawUrl;
   for (let hop = 0; hop <= maxRedirects; hop += 1) {
     throwIfAborted(signal);
     const target = wantDns
       ? await validateScrapeTargetWithDns(currentUrl, { lookupImpl: resolver, signal })
       : validateScrapeTarget(currentUrl);
-    if (!target.ok) throw new Error(target.error);
+    if (!target.ok) throw blockedTargetError(target.error);
     const response = usePinnedTransport
-      ? await pinnedFetch(target.url, init, resolver)
-      : await abortable(fetchImpl(target.url, { ...init, redirect: "manual" }), signal);
+      ? await pinnedFetch(target.url, hopInit, resolver)
+      : await abortable(fetchImpl(target.url, { ...hopInit, redirect: "manual" }), signal);
     const status = Number(response && response.status);
     if (status >= 300 && status < 400 && response.headers && typeof response.headers.get === "function") {
       const location = response.headers.get("location");
-      if (!location) return response;
-      currentUrl = new URL(location, target.url).href;
+      // A redirect handed back to the caller is still read under the
+      // deadline and the cap, like any final response.
+      if (!location || redirectMode === "manual") {
+        return readCappedBody(response, maxBytes, target.url, signal);
+      }
+      discardBody(response);
+      if (redirectMode === "error") {
+        throw new Error(`Unexpected redirect (HTTP ${status}) from ${target.url}`);
+      }
+      const nextUrl = new URL(location, target.url).href;
+      hopInit = nextHopInit(hopInit, status, target.url, nextUrl);
+      currentUrl = nextUrl;
       continue;
     }
-    return response;
+    return readCappedBody(response, maxBytes, target.url, signal);
   }
   throw new Error("Too many redirects");
+}
+
+const DEFAULT_MAX_RESPONSE_BYTES = 32 * 1024 * 1024;
+
+// Header names that carry credentials; dropped when a redirect changes origin.
+const CREDENTIAL_HEADER_NAMES = new Set([
+  "authorization",
+  "proxy-authorization",
+  "cookie",
+  "x-goog-api-key",
+  "x-api-key",
+  "api-key",
+  "x-auth-token",
+  "x-webhook-secret",
+]);
+const CREDENTIAL_HEADER_PATTERN = /(api[-_]?key|token|secret|auth|session|password)/i;
+const BODY_HEADER_NAMES = new Set(["content-type", "content-length", "content-encoding", "content-language", "content-location"]);
+
+/** @param {string} message */
+function blockedTargetError(message) {
+  const error = /** @type {Error & { code?: string }} */ (new Error(message));
+  error.code = "SSRF_BLOCKED";
+  return error;
+}
+
+/**
+ * @param {RequestInit & { headers: Record<string, string> }} previous
+ * @param {number} status
+ * @param {string} fromUrl
+ * @param {string} toUrl
+ */
+function nextHopInit(previous, status, fromUrl, toUrl) {
+  const method = String(previous.method || "GET").toUpperCase();
+  /** @type {Record<string, string>} */
+  let headers = { ...previous.headers };
+  /** @type {RequestInit & { headers: Record<string, string> }} */
+  const next = { ...previous, headers };
+  const becomesGet = (status === 303 && method !== "HEAD") || ((status === 301 || status === 302) && method === "POST");
+  if (becomesGet) {
+    next.method = "GET";
+    delete next.body;
+    headers = Object.fromEntries(
+      Object.entries(headers).filter(([name]) => !BODY_HEADER_NAMES.has(name.toLowerCase())),
+    );
+    next.headers = headers;
+  }
+  if (new URL(fromUrl).origin !== new URL(toUrl).origin) {
+    next.headers = Object.fromEntries(
+      Object.entries(next.headers).filter(([name]) => {
+        const lower = name.toLowerCase();
+        return !CREDENTIAL_HEADER_NAMES.has(lower) && !CREDENTIAL_HEADER_PATTERN.test(lower);
+      }),
+    );
+    if (next.body != null) {
+      throw new Error(`Refusing to replay a request body across a cross-origin redirect to ${new URL(toUrl).origin}`);
+    }
+  }
+  return next;
+}
+
+/** @param {any} response */
+function discardBody(response) {
+  try {
+    const body = response && response.body;
+    if (body && typeof body.cancel === "function") body.cancel().catch(() => {});
+  } catch {
+    // Nothing to release.
+  }
+}
+
+/** @param {number} maxBytes */
+function bodyTooLargeError(maxBytes) {
+  const error = /** @type {Error & { code?: string }} */ (
+    new Error(`Response body exceeds ${maxBytes} bytes`)
+  );
+  error.code = "BODY_TOO_LARGE";
+  return error;
+}
+
+// Read the whole body, under `signal`, before handing the Response back. It
+// fails, and cancels the upstream (destroying the socket on the pinned
+// transport), as soon as it passes `maxBytes`. The final hop's URL is kept on
+// the returned Response. Non-Response stubs pass through.
+/**
+ * @param {any} response
+ * @param {number} maxBytes
+ * @param {string} finalUrl
+ * @param {AbortSignal | undefined} signal
+ * @returns {Promise<any>}
+ */
+async function readCappedBody(response, maxBytes, finalUrl, signal) {
+  if (typeof Response !== "function" || !(response instanceof Response)) return response;
+  const limit = Number(maxBytes);
+  const capped = Number.isFinite(limit) && limit > 0;
+  const declared = Number(response.headers.get("content-length"));
+  // HEAD and 304 carry a Content-Length for a representation they never send.
+  if (capped && response.body && Number.isFinite(declared) && declared > limit) {
+    discardBody(response);
+    throw bodyTooLargeError(limit);
+  }
+  /** @type {Uint8Array<ArrayBuffer> | null} */
+  let bytes = null;
+  if (response.body) {
+    const reader = response.body.getReader();
+    /** @type {Uint8Array[]} */
+    const chunks = [];
+    let seen = 0;
+    try {
+      for (;;) {
+        const { done, value } = await abortable(reader.read(), signal);
+        if (done) break;
+        seen += value.byteLength;
+        if (capped && seen > limit) throw bodyTooLargeError(limit);
+        chunks.push(value);
+      }
+    } catch (error) {
+      reader.cancel().catch(() => {});
+      throw error;
+    }
+    bytes = new Uint8Array(seen);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
+  }
+  const nullBody = [101, 204, 205, 304].includes(response.status);
+  const wrapped = new Response(nullBody ? null : bytes, {
+    status: response.status,
+    statusText: response.statusText,
+    headers: response.headers,
+  });
+  Object.defineProperty(wrapped, "url", { value: response.url || finalUrl });
+  return wrapped;
 }
 
 /** @param {AbortSignal | undefined} signal */
@@ -546,11 +735,12 @@ function headersToObject(headers) {
  */
 function createConnectLookup(lookupImpl, signal) {
   /**
-   * @param {string} hostname
+   * @param {string} rawHostname
    * @param {unknown} optionsOrCb
    * @param {((...args: any[]) => void) | undefined} [maybeCallback]
    */
-  return (hostname, optionsOrCb, maybeCallback) => {
+  return (rawHostname, optionsOrCb, maybeCallback) => {
+    const hostname = unbracketHost(rawHostname);
     /** @type {Record<string, unknown>} */
     let options = {};
     /** @type {(...args: any[]) => void} */
@@ -594,6 +784,140 @@ function createConnectLookup(lookupImpl, signal) {
   };
 }
 
+// Build a fetch Response from a Node IncomingMessage, decoding the
+// Content-Encoding the way platform fetch does (gzip, deflate, br, zstd where
+// Node has it). The decoded stream is what safeFetch caps, so a compression
+// bomb stops at maxBytes of output. An unknown coding passes through raw, as
+// in platform fetch. Exported so tests can drive it against a loopback
+// server, which the pinned transport refuses.
+/**
+ * @param {import("node:http").IncomingMessage} res
+ * @param {{ method?: string, url: string }} options
+ * @returns {Response}
+ */
+export function responseFromIncomingMessage(res, { method = "GET", url }) {
+  const status = res.statusCode || 0;
+  const nullBody = String(method).toUpperCase() === "HEAD" || [101, 204, 205, 304].includes(status);
+  const decoders = nullBody ? [] : contentDecoders(res.headers["content-encoding"]);
+  /** @type {Array<[string, string]>} */
+  const headerInit = [];
+  for (const [key, value] of Object.entries(res.headers)) {
+    if (value == null) continue;
+    // Once decoded, the coding and the wire length no longer describe the body.
+    if (decoders && decoders.length > 0 && (key === "content-encoding" || key === "content-length")) continue;
+    headerInit.push([key, Array.isArray(value) ? value.join(", ") : String(value)]);
+  }
+  if (nullBody) res.resume();
+  /** @type {import("node:stream").Readable} */
+  let bodyStream = res;
+  if (decoders && decoders.length > 0) {
+    const last = decoders[decoders.length - 1];
+    pipeline(/** @type {any} */ ([res, ...decoders]), (error) => {
+      if (error) last.destroy(error);
+    });
+    bodyStream = last;
+  }
+  const response = new Response(
+    nullBody ? null : /** @type {ReadableStream} */ (/** @type {unknown} */ (Readable.toWeb(bodyStream))),
+    {
+      status,
+      statusText: res.statusMessage || "",
+      headers: headerInit,
+    },
+  );
+  Object.defineProperty(response, "url", { value: url });
+  return response;
+}
+
+// Decoders for a Content-Encoding header, applied in reverse of the order the
+// server listed them. Returns null when any coding is unknown, so the raw
+// bytes pass through untouched.
+/**
+ * @param {string | string[] | undefined} header
+ * @returns {import("node:stream").Transform[] | null}
+ */
+function contentDecoders(header) {
+  const codings = String(Array.isArray(header) ? header.join(",") : header || "")
+    .split(",")
+    .map((coding) => coding.trim().toLowerCase())
+    .filter((coding) => coding && coding !== "identity");
+  /** @type {import("node:stream").Transform[]} */
+  const decoders = [];
+  const flush = { flush: zlib.constants.Z_SYNC_FLUSH, finishFlush: zlib.constants.Z_SYNC_FLUSH };
+  for (const coding of codings.reverse()) {
+    if (coding === "gzip" || coding === "x-gzip") decoders.push(zlib.createGunzip(flush));
+    else if (coding === "deflate") decoders.push(deflateDecoder(flush));
+    else if (coding === "br") {
+      decoders.push(zlib.createBrotliDecompress({
+        flush: zlib.constants.BROTLI_OPERATION_FLUSH,
+        finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH,
+      }));
+    } else if (coding === "zstd" && typeof (/** @type {any} */ (zlib)).createZstdDecompress === "function") {
+      decoders.push((/** @type {any} */ (zlib)).createZstdDecompress());
+    } else {
+      for (const decoder of decoders) decoder.destroy();
+      return null;
+    }
+  }
+  return decoders;
+}
+
+// "deflate" is meant to be zlib-wrapped (RFC 9110), but some servers send raw
+// DEFLATE and platform fetch accepts both. Sniff the first two bytes: a zlib
+// header has CM=8 in the low nibble and (CMF*256 + FLG) % 31 === 0.
+/**
+ * @param {import("node:zlib").ZlibOptions} flush
+ * @returns {import("node:stream").Transform}
+ */
+function deflateDecoder(flush) {
+  /** @type {import("node:stream").Transform | null} */
+  let inner = null;
+  /** @type {Buffer} */
+  let head = Buffer.alloc(0);
+  /** @param {Transform} self */
+  const start = (self) => {
+    const wrapped = head.length >= 2 && (head[0] & 0x0f) === 8 && ((head[0] << 8) | head[1]) % 31 === 0;
+    const decoder = wrapped ? zlib.createInflate(flush) : zlib.createInflateRaw(flush);
+    decoder.on("data", (chunk) => self.push(chunk));
+    decoder.on("error", (error) => self.destroy(error));
+    inner = decoder;
+    const pending = head;
+    head = Buffer.alloc(0);
+    return new Promise((resolve) => {
+      if (pending.length === 0) resolve(undefined);
+      else decoder.write(pending, () => resolve(undefined));
+    });
+  };
+  const transform = new Transform({
+    transform(chunk, _encoding, callback) {
+      if (inner) {
+        inner.write(chunk, () => callback());
+        return;
+      }
+      head = Buffer.concat([head, chunk]);
+      if (head.length < 2) {
+        callback();
+        return;
+      }
+      start(transform).then(() => callback(), callback);
+    },
+    flush(callback) {
+      const finish = () => {
+        if (!inner) return callback();
+        inner.once("end", () => callback());
+        inner.end();
+      };
+      if (!inner) start(transform).then(finish, callback);
+      else finish();
+    },
+    destroy(error, callback) {
+      if (inner) inner.destroy();
+      callback(error);
+    },
+  });
+  return transform;
+}
+
 /**
  * @param {string} urlText
  * @param {RequestInit} init
@@ -606,6 +930,11 @@ function pinnedFetch(urlText, init, lookupImpl) {
   const signal = init && init.signal ? init.signal : undefined;
   throwIfAborted(signal);
   const headers = headersToObject(init.headers);
+  // Platform fetch advertises the codings it decodes; responseFromIncomingMessage
+  // decodes the same set.
+  if (!Object.keys(headers).some((name) => name.toLowerCase() === "accept-encoding")) {
+    headers["accept-encoding"] = "gzip, deflate, br";
+  }
   const method = String(init.method || "GET").toUpperCase();
 
   return new Promise((resolve, reject) => {
@@ -620,7 +949,7 @@ function pinnedFetch(urlText, init, lookupImpl) {
     const req = requestFn(
       {
         protocol: parsed.protocol,
-        hostname: parsed.hostname,
+        hostname: unbracketHost(parsed.hostname),
         port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
         path: `${parsed.pathname}${parsed.search}`,
         method,
@@ -629,27 +958,15 @@ function pinnedFetch(urlText, init, lookupImpl) {
         signal,
       },
       (res) => {
-        /** @type {Buffer[]} */
-        const chunks = [];
-        res.on("data", (chunk) => {
-          chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
-        });
-        res.on("end", () => {
-          /** @type {Array<[string, string]>} */
-          const headerInit = [];
-          for (const [key, value] of Object.entries(res.headers)) {
-            if (value == null) continue;
-            headerInit.push([key, Array.isArray(value) ? value.join(", ") : String(value)]);
-          }
-          const response = new Response(Buffer.concat(chunks), {
-            status: res.statusCode || 0,
-            statusText: res.statusMessage || "",
-            headers: headerInit,
-          });
-          Object.defineProperty(response, "url", { value: parsed.href });
-          finish(resolve, response);
-        });
-        res.on("error", (error) => finish(reject, error));
+        let response;
+        try {
+          response = responseFromIncomingMessage(res, { method, url: parsed.href });
+        } catch (error) {
+          res.destroy();
+          finish(reject, error);
+          return;
+        }
+        finish(resolve, response);
       },
     );
     req.on("error", (error) => {
