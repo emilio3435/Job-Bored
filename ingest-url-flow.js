@@ -537,13 +537,18 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
     if (activeDiscoverySecret) {
       headers["x-discovery-secret"] = activeDiscoverySecret;
     }
-    const relayAuth =
-      typeof window !== "undefined" ? window.JobBoredRelayAuth : null;
-    if (relayAuth && typeof relayAuth.headersFor === "function") {
-      Object.assign(headers, relayAuth.headersFor(endpoint));
-    }
     return headers;
   }
+
+  // Relay requests (the Add URL POST and its status poll) carry the
+  // per-dashboard bearer (G24) and retry once with a refreshed token on a
+  // relay 401.
+  const relayFetch =
+    typeof window !== "undefined" &&
+    window.JobBoredRelayAuth &&
+    typeof window.JobBoredRelayAuth.fetch === "function"
+      ? window.JobBoredRelayAuth.fetch
+      : fetch;
 
   async function buildRequestBody(options = {}) {
     const body = {
@@ -583,15 +588,8 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
       () => controller.abort(),
       INGEST_URL_TIMEOUT_MS,
     );
-    if (
-      typeof window !== "undefined" &&
-      window.JobBoredRelayAuth &&
-      typeof window.JobBoredRelayAuth.prepare === "function"
-    ) {
-      await window.JobBoredRelayAuth.prepare(endpoint).catch(() => false);
-    }
     try {
-      const res = await fetch(endpoint, {
+      const res = await relayFetch(endpoint, {
         method: "POST",
         headers: buildDiscoveryWorkerHeaders(),
         body: JSON.stringify(body),
@@ -689,7 +687,7 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
       await new Promise((resolve) => setTimeout(resolve, pollAfterMs));
       let res;
       try {
-        res = await fetch(statusUrl, {
+        res = await relayFetch(statusUrl, {
           method: "GET",
           mode: "cors",
           headers: statusApi.buildDiscoveryStatusPollHeaders(statusUrl),

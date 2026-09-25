@@ -895,11 +895,13 @@
   // ====== Relay auth (G24) ======
   // scripts/deploy-cloudflare-relay.mjs mints a per-dashboard bearer token and
   // writes { relay: { workerUrl, relayToken, relayLocked } } into
-  // discovery-local-bootstrap.json. The relay answers 401 without it. This
-  // store reads that block on a local dashboard origin, keeps it in this
-  // browser, and hands the bearer only to requests aimed at the relay origin.
+  // discovery-local-bootstrap.json. The relay answers 401 without it. The
+  // static-path guard denies that file, so the dev server hands out only the
+  // relay block through the loopback-guarded RELAY_TOKEN_ROUTE. This store
+  // keeps the block in this browser and hands the bearer only to requests
+  // aimed at the relay origin.
   const RELAY_AUTH_STORAGE_KEY = "jobbored.discoveryRelayAuth";
-  const RELAY_BOOTSTRAP_PATH = "discovery-local-bootstrap.json";
+  const RELAY_TOKEN_ROUTE = "/__proxy/discovery-relay-token";
 
   function safeOrigin(raw) {
     try {
@@ -972,7 +974,7 @@
   async function hydrateRelayAuth() {
     if (!isLocalRelayDashboardOrigin()) return false;
     try {
-      const res = await window.fetch(RELAY_BOOTSTRAP_PATH, {
+      const res = await window.fetch(RELAY_TOKEN_ROUTE, {
         cache: "no-store",
       });
       if (!res || !res.ok) return false;
@@ -1001,19 +1003,94 @@
   }
 
   let relayHydration = null;
-  // Loads the bootstrap token once per page, and only when a request is about
-  // to leave for a remote origin. Greenfield boot never fetches the file.
+  // One in-flight hydration at a time. A failed one is dropped, so a later
+  // request retries once the relay is deployed.
+  function startRelayHydration() {
+    if (!relayHydration) {
+      relayHydration = hydrateRelayAuth().then(
+        (ok) => {
+          relayHydration = null;
+          return ok;
+        },
+        () => {
+          relayHydration = null;
+          return false;
+        },
+      );
+    }
+    return relayHydration;
+  }
+
+  // Loads the token only when a request is about to leave for a remote origin
+  // with no token cached for it. Greenfield boot never calls the route.
   async function prepareRelayAuth(url) {
     if (!safeOrigin(url) || isLocalTarget(url)) return false;
     const auth = readRelayAuth();
     if (auth && safeOrigin(auth.workerUrl) === safeOrigin(url)) return true;
-    if (!relayHydration) relayHydration = hydrateRelayAuth();
-    return relayHydration;
+    await startRelayHydration();
+    const next = readRelayAuth();
+    return !!(next && safeOrigin(next.workerUrl) === safeOrigin(url));
+  }
+
+  // Re-reads the token after the relay answered 401 (a redeploy with a new
+  // token). True only when a different token for this relay origin arrived.
+  async function refreshRelayAuth(url) {
+    if (!safeOrigin(url) || isLocalTarget(url)) return false;
+    const before = readRelayAuth();
+    await startRelayHydration();
+    const after = readRelayAuth();
+    return !!(
+      after &&
+      safeOrigin(after.workerUrl) === safeOrigin(url) &&
+      (!before || before.token !== after.token)
+    );
+  }
+
+  function withRelayAuthHeaders(init, url) {
+    const add = relayAuthHeadersFor(url);
+    const base = init && typeof init === "object" ? init : {};
+    if (!add.Authorization) return base;
+    const headers = base.headers;
+    if (typeof Headers !== "undefined" && headers instanceof Headers) {
+      const copy = new Headers(headers);
+      copy.set("Authorization", add.Authorization);
+      return { ...base, headers: copy };
+    }
+    return {
+      ...base,
+      headers: {
+        ...(headers && typeof headers === "object" ? headers : {}),
+        Authorization: add.Authorization,
+      },
+    };
+  }
+
+  function canReplayBody(init) {
+    const body = init && typeof init === "object" ? init.body : undefined;
+    return body == null || typeof body === "string";
+  }
+
+  // fetch() for relay call sites: attaches the bearer for the relay origin,
+  // and on a 401 refreshes the token and retries once. Non-relay URLs pass
+  // straight through.
+  async function relayAuthFetch(input, init) {
+    const url = typeof input === "string" ? input : String((input && input.url) || input || "");
+    if (typeof input !== "string" || !safeOrigin(url) || isLocalTarget(url)) {
+      return window.fetch(input, init);
+    }
+    await prepareRelayAuth(url).catch(() => false);
+    const res = await window.fetch(input, withRelayAuthHeaders(init, url));
+    if (!res || res.status !== 401 || !canReplayBody(init)) return res;
+    const refreshed = await refreshRelayAuth(url).catch(() => false);
+    if (!refreshed) return res;
+    return window.fetch(input, withRelayAuthHeaders(init, url));
   }
 
   const relayAuth = Object.freeze({
     hydrate: hydrateRelayAuth,
     prepare: prepareRelayAuth,
+    refresh: refreshRelayAuth,
+    fetch: relayAuthFetch,
     hydrateFromBootstrap: hydrateRelayAuthFromBootstrap,
     headersFor: relayAuthHeadersFor,
     isLocked() {

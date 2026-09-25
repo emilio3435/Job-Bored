@@ -594,11 +594,6 @@ function buildDiscoveryStatusPollHeaders(statusUrl) {
     ...(isLikelyNgrokUrl(statusUrl)
       ? { "ngrok-skip-browser-warning": "true" }
       : {}),
-    ...(typeof window !== "undefined" &&
-    window.JobBoredRelayAuth &&
-    typeof window.JobBoredRelayAuth.headersFor === "function"
-      ? window.JobBoredRelayAuth.headersFor(statusUrl)
-      : {}),
   };
 }
 
