@@ -81,3 +81,32 @@ An independent Opus verifier ran this in a fresh context at commit `b480cc2f`, w
 | `npm run test:e2e-visual` | EXIT 0 | 37 passed (60.0s) |
 
 Verdict: **green**. No test failed and none was flaky. The `npm test` log ends with an `ERR_ASSERTION` stderr block from a test that expects a failure. The summary still shows 0 failures.
+
+## Fix round 2 (cC-r2) · review finding on recruiter-strip.js:55
+
+**Finding (confirmed):** the stage whitelist only knew the dot token `phone`, but pipeline.js writes the canonical `data-stage="phone-screen"`. As a result, `bindStage` removed the `<jb-stage-dot>` on every Phone Screen card. A `vm.stage` or `job.stage` holding the Sheet label `Phone Screen` hit the same miss. The earlier test only used `data-stage="phone"`, so it could not catch this.
+
+**Root-cause fix (commit `13767695`):** `stageKey()` now normalises through `root.JobBoredStages.toDotKey`, which it reads lazily at call time because script order is not guaranteed. If the registry is missing, it falls back to a local map: lowercase, collapse whitespace and underscores to `-`, then `phone-screen`/`phonescreen` → `phone`. Whitelist lookups now use `hasOwnProperty`.
+
+**Tests written first (all 3 failed before the fix):**
+- A card with `data-stage="phone-screen"` and no registry keeps its dot, with `stage="phone"`.
+- A card with `data-stage="phone-screen"` and the real stage-registry.js loaded gets its dot through `toDotKey`.
+- A vm stage of `Phone Screen` or `phone-screen` renders `<jb-stage-dot stage="phone"`.
+
+Items (a) to (e) keep the status recorded above. Only (a) changed in this round, and it remains **done**.
+
+### Floor (cC-r2), run on `13767695`
+
+Logs are in `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/cC-r2-*.log`.
+
+```
+npm run lint:repo          lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)   EXIT 0
+npm run typecheck:repo     tsc --noEmit --project server/tsconfig.json                         EXIT 0
+npm test                   ℹ tests 3073 · pass 3072 · fail 0 · cancelled 0 · skipped 0 · todo 1   EXIT 0
+npm run test:contract:all  OK integrations/openclaw-command-center/SKILL.md                    EXIT 0
+npm run test:e2e-smoke     17 passed (17.3s)                                                   EXIT 0
+npm run test:e2e-journey   26 passed (29.6s)                                                   EXIT 0
+npm run test:e2e-visual    37 passed (1.0m)                                                    EXIT 0
+```
+
+As before, the `npm test` log ends with an expected-failure `ERR_ASSERTION` stderr block, and its summary shows 0 failures. No visual baseline was refreshed.
