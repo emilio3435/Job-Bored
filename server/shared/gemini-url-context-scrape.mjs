@@ -8,6 +8,12 @@ import {
   GEMINI_FLASH_FAMILY,
   GEMINI_FLASH_FALLBACK,
 } from "../model-family.mjs";
+import { loadLlmConfig } from "../llm-config.mjs";
+import {
+  geminiGenerateContentUrl,
+  geminiHeaders,
+  normalizeProvider,
+} from "../ai/provider.mjs";
 import { normalizeInlineField, normalizeJobText } from "./text-normalize.mjs";
 
 const GEMINI_TIMEOUT_MS = 25000;
@@ -15,30 +21,31 @@ const MIN_DESCRIPTION_CHARS = 80;
 
 /**
  * @param {string} rawUrl
- * @param {{ fetchImpl?: typeof globalThis.fetch, geminiApiKey?: string, geminiModel?: string, title?: string, company?: string }} [options]
+ * @param {{ fetchImpl?: typeof globalThis.fetch, geminiApiKey?: string, geminiModel?: string, title?: string, company?: string, signal?: AbortSignal }} [options]
+ *   `geminiApiKey`/`geminiModel` override the pin (tests, explicit callers);
+ *   otherwise the llm.json pin decides. `signal` cancels the billed call
+ *   when the request goes away (E11).
  * @returns {Promise<{ title: string | null, company: string, location: string, description: string, provider: string, apiUrl: string } | null>}
  */
 export async function scrapeViaGeminiUrlContext(rawUrl, options = {}) {
-  const apiKey = getGeminiApiKey(options);
-  if (!apiKey) return null;
+  const credentials = resolveGeminiCredentials(options);
+  if (!credentials) return null;
   const target = validateScrapeTarget(rawUrl);
   if (!target.ok) return null;
+  if (options.signal && options.signal.aborted) return null;
 
-  const model = resolveGeminiModel(options.geminiModel);
-  const apiUrl = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+  const model = resolveGeminiModel(credentials.model);
+  const apiUrl = geminiGenerateContentUrl(model);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), GEMINI_TIMEOUT_MS);
+  const timeout = AbortSignal.timeout(GEMINI_TIMEOUT_MS);
+  const signal = options.signal ? AbortSignal.any([timeout, options.signal]) : timeout;
   try {
     const response = await safeFetch(
       apiUrl,
       {
         method: "POST",
-        signal: controller.signal,
-        headers: {
-          "Content-Type": "application/json",
-          "x-goog-api-key": apiKey,
-        },
+        signal,
+        headers: geminiHeaders(credentials.apiKey),
         body: JSON.stringify({
           contents: [
             {
@@ -71,26 +78,28 @@ export async function scrapeViaGeminiUrlContext(rawUrl, options = {}) {
     };
   } catch {
     return null;
-  } finally {
-    clearTimeout(timer);
   }
 }
 
-/** @param {{ geminiApiKey?: string }} [options] */
-function getGeminiApiKey(options = {}) {
-  return String(
-    options.geminiApiKey ||
-      process.env.ATS_GEMINI_API_KEY ||
-      process.env.GEMINI_API_KEY ||
-      "",
-  ).trim();
+/**
+ * The key and model come from the llm.json pin (E10): the posting URL, title
+ * and company go to Google only when the user chose Gemini. No env fallback.
+ * @param {{ geminiApiKey?: string, geminiModel?: string }} [options]
+ * @returns {{ apiKey: string, model: string } | null}
+ */
+function resolveGeminiCredentials(options = {}) {
+  const explicitKey = String(options.geminiApiKey || "").trim();
+  if (explicitKey) return { apiKey: explicitKey, model: String(options.geminiModel || "").trim() };
+  const pin = loadLlmConfig(process.env);
+  if (!pin || normalizeProvider(pin.provider) !== "gemini") return null;
+  const apiKey = String(pin.apiKey || "").trim();
+  if (!apiKey) return null;
+  return { apiKey, model: String(options.geminiModel || pin.model || "").trim() };
 }
 
 /** @param {string | undefined} raw */
 function resolveGeminiModel(raw) {
-  const configured =
-    String(raw || process.env.ATS_GEMINI_MODEL || process.env.GEMINI_MODEL || "").trim() ||
-    GEMINI_FLASH_FALLBACK;
+  const configured = String(raw || "").trim() || GEMINI_FLASH_FALLBACK;
   // Upgrade legacy 1.x to a modern Flash snapshot
   if (/^gemini-1\.|^models\/gemini-1\./i.test(configured)) return GEMINI_FLASH_FALLBACK;
   // Family alias is fine for config, but HTTP should use a pinned snapshot
@@ -122,20 +131,28 @@ function buildExtractPrompt(url, options = {}) {
   );
 }
 
-/** @param {unknown} payload */
+/**
+ * The REST API answers in lowerCamelCase (`urlContextMetadata.urlMetadata[]
+ * .urlRetrievalStatus`); older fixtures and SDK dumps use snake_case. Accept
+ * both (E9).
+ * @param {unknown} payload
+ */
 function urlContextSucceeded(payload) {
   const candidate = firstCandidate(payload);
-  const metaRaw = candidate ? candidate.url_context_metadata : null;
+  const metaRaw = candidate
+    ? candidate.urlContextMetadata ?? candidate.url_context_metadata
+    : null;
   const meta =
     metaRaw && typeof metaRaw === "object" && !Array.isArray(metaRaw)
       ? /** @type {Record<string, unknown>} */ (metaRaw)
       : null;
-  const rows = meta && Array.isArray(meta.url_metadata) ? meta.url_metadata : [];
+  const rowsRaw = meta ? meta.urlMetadata ?? meta.url_metadata : null;
+  const rows = Array.isArray(rowsRaw) ? rowsRaw : [];
   if (!rows.length) return false;
   return rows.some((row) => {
     if (!row || typeof row !== "object") return false;
     const record = /** @type {Record<string, unknown>} */ (row);
-    return String(record.url_retrieval_status || "")
+    return String(record.urlRetrievalStatus ?? record.url_retrieval_status ?? "")
       .toUpperCase()
       .includes("SUCCESS");
   });

@@ -19,7 +19,7 @@
      clearCache(provider?)
 
    Endpoints used (all CORS-friendly per provider docs):
-     gemini    GET https://generativelanguage.googleapis.com/v1beta/models?key=KEY
+     gemini    GET https://generativelanguage.googleapis.com/v1beta/models  Header: x-goog-api-key
      openai    GET https://api.openai.com/v1/models           Auth: Bearer KEY
      anthropic GET https://api.anthropic.com/v1/models        Headers: x-api-key,
                                                               anthropic-version: 2023-06-01,
@@ -259,9 +259,10 @@
   function endpointFor({ provider, apiKey, baseUrl }) {
     const p = String(provider || "").toLowerCase();
     if (p === "gemini") {
+      // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
       return {
-        url: `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey || "")}`,
-        headers: {},
+        url: "https://generativelanguage.googleapis.com/v1beta/models",
+        headers: apiKey ? { "x-goog-api-key": apiKey } : {},
       };
     }
     if (p === "openai") {
