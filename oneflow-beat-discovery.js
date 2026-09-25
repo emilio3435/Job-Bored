@@ -31,15 +31,15 @@
     "Discovery runs on this computer, searches the job boards " +
     "overnight, scores each role against your fit, and drops the " +
     "matches into your pipeline. Only your search terms leave this " +
-    "machine. Set up once; it runs itself.";
+    "computer. Leave this computer on and JobBored running for " +
+    "overnight runs.";
 
   const FUEL_TITLE = "First, the fuel: Google's job index.";
 
   const FUEL_COPY =
     "Discovery reads job boards directly, but Google's index is the " +
-    "single biggest source — it watches 100+ boards at once. Free key, " +
-    "100 searches a month — plenty for daily runs. Three steps, about " +
-    "60 seconds.";
+    "single biggest source — it watches 100+ boards at once. The free " +
+    "key covers about 20 runs a month. Three steps, about 60 seconds.";
 
   /**
    * The three steps, deep-linked (from the retired enhancements card).
@@ -76,7 +76,7 @@
   const CONNECT_STAGE_LABELS = Object.freeze({
     machine: "Checked your machine",
     worker: "Started the discovery worker",
-    publish: "Publishing a private URL on your tailnet",
+    publish: "Making a private link between your devices",
     verify: "Verifying the connection",
   });
 
@@ -85,6 +85,9 @@
   const CONNECT_ACTION = "oneflow_discovery_connect";
   const SKIP_ACTION = "oneflow_discovery_skip_connect";
   const MANUAL_VERIFY_ACTION = "oneflow_discovery_manual_verify";
+  /** UX01 C7 (FR-18): dashboard and discovery on one computer, no Tailscale. */
+  const LOCAL_ACTION = "oneflow_discovery_local";
+  const LOCAL_LABEL = "Just this computer";
 
   /**
    * The clock on the fuel write. Saving the key and force-restarting the
@@ -358,6 +361,31 @@
     container.appendChild(panel);
   }
 
+
+  /**
+   * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+   * JobBoredDiscoveryHelpers.confirmHostChange (names the change, logs it).
+   */
+  function askHostChange(opts) {
+    const helpers = window.JobBoredDiscoveryHelpers;
+    if (helpers && typeof helpers.confirmHostChange === "function") {
+      return helpers.confirmHostChange(opts);
+    }
+    if (typeof window.confirm === "function") {
+      return !!window.confirm(
+        "JobBored will " +
+          [
+            opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+            opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+          ]
+            .filter(Boolean)
+            .join(", and ") +
+          " on this computer. Continue?",
+      );
+    }
+    return true;
+  }
+
   function renderConnectPanel(container) {
     const panel = el("section", "oneflow-panel oneflow-connect");
     if (!state.fuelPassed) {
@@ -393,6 +421,31 @@
       panel.appendChild(row);
     }
 
+    // UX01 C7 (FR-18): the same-machine path is first-class, not buried
+    // under "Advanced" behind an HTTPS-only label.
+    const local = el("div", "oneflow-connect__local");
+    local.appendChild(
+      el(
+        "p",
+        "oneflow-panel__copy",
+        "Only using JobBored on this computer? Skip Tailscale — connect to " +
+          "the search that runs right here.",
+      ),
+    );
+    const localBtn = el(
+      "button",
+      "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary",
+      LOCAL_LABEL,
+    );
+    localBtn.type = "button";
+    localBtn.dataset.actionId = LOCAL_ACTION;
+    if (!state.fuelPassed) localBtn.disabled = true;
+    localBtn.addEventListener("click", () => {
+      if (lastContext) void dispatch(LOCAL_ACTION, lastContext);
+    });
+    local.appendChild(localBtn);
+    panel.appendChild(local);
+
     const details = document.createElement("details");
     details.className = "oneflow-connect__advanced";
     const summary = el(
@@ -403,7 +456,7 @@
     details.appendChild(summary);
     field(details, {
       id: "oneFlowManualEndpointInput",
-      label: "Worker URL (any stable HTTPS endpoint you control)",
+      label: "Address of the part that searches for you (HTTPS, or this computer)",
       type: "url",
       value: state.manualUrl,
       placeholder: "https://your-machine.tailXXXX.ts.net/webhook",
@@ -414,10 +467,10 @@
     });
     field(details, {
       id: "oneFlowManualSecretInput",
-      label: "Discovery webhook shared secret",
+      label: "Its shared password",
       type: "password",
       value: state.manualSecret,
-      placeholder: "The worker's BROWSER_USE_DISCOVERY_WEBHOOK_SECRET",
+      placeholder: "Leave empty to keep the one already saved",
       disabled: !state.fuelPassed,
       onInput(value) {
         state.manualSecret = value;
@@ -519,6 +572,25 @@
     stages[1].state = "active";
     stages[2].label = quotaLine(checked);
     ctx.setBusy(FUEL_ACTION, stages);
+
+    if (
+      !askHostChange({
+        action: "Save & verify",
+        writesEnv: true,
+        envKeys: [SERPAPI_ENV_KEY],
+        restartsWorker: true,
+      })
+    ) {
+      stopFuelWatch();
+      state.fuelStalled = false;
+      syncActions();
+      ctx.clearBusy();
+      ctx.setMessage(
+        "Your key checks out, but it isn't saved — nothing on this computer changed. Press Save & verify when you're ready.",
+        "info",
+      );
+      return;
+    }
 
     let wrote = false;
     try {
@@ -720,6 +792,13 @@
       if (!state.fuelPassed) return undefined;
       return runManualConnect(ctx);
     }
+    if (actionId === LOCAL_ACTION) {
+      if (!state.fuelPassed) return undefined;
+      // The worker on this machine; an empty password keeps the saved one,
+      // and verification runs through the same path as a pasted endpoint.
+      state.manualUrl = `http://127.0.0.1:${WORKER_PORT}/webhook`;
+      return runManualConnect(ctx);
+    }
     if (actionId === SKIP_ACTION) {
       if (!state.fuelPassed) {
         ctx.setMessage(
@@ -737,7 +816,7 @@
     id: "discovery",
     order: 5,
     label: "Discovery",
-    timeLabel: "about 4 min left",
+    timeLabel: "about 7 min left",
     headline: HEADLINE,
     sub: SUB,
     actions: ACTIONS,

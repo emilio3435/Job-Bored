@@ -254,7 +254,7 @@ describe("integration: sign-in walks B1 → B6 (spec §5)", () => {
 });
 
 describe("integration: escape is pausing, not skipping (spec §3.4)", () => {
-  it("closing returns to the demo board and re-entry lands on the saved beat", async () => {
+  it("closing after B1 made a Sheet reveals the real board, and re-entry lands on the saved beat", async () => {
     const env = newFlowEnv();
     env.bootstrap.init();
     await settle();
@@ -271,10 +271,12 @@ describe("integration: escape is pausing, not skipping (spec §3.4)", () => {
     await settle();
 
     assert.equal(env.flow.isOpen(), false, "the shell is closed");
+    // UX01 C6 (FR-02): B1 created the Sheet, so pausing lands on the REAL
+    // board — the demo board is taken down, and the resume pill leads back.
     assert.equal(
       env.board.isActive(),
-      true,
-      "and the (demo) board is what is behind it",
+      false,
+      "with a Sheet, the real board replaces the demo board",
     );
     const abandoned = stepEvents(env.events, "beat_abandoned");
     assert.equal(abandoned.length, 1);

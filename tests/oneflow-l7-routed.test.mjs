@@ -42,6 +42,15 @@ function loadWithResumeDraft(options = {}) {
     sheetId: "SHEET_1",
     signedIn: true,
     serverProfile: null,
+    // These probes enter at B3 rather than walking B2, so they carry what
+    // a verified B2 would have written: GREENFIELD A3 refuses to draft
+    // with a provider that has no credential.
+    config: {
+      resumeProvider: "openrouter",
+      resumeOpenRouterApiKey: "sk-or-verified-key",
+      resumeOpenRouterModel: "openai/gpt-oss-120b:free",
+      resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
+    },
     ...options,
     async fetchImpl(call) {
       if (/\/profile\/from-resume$/.test(call.url)) {
@@ -58,6 +67,9 @@ function loadWithResumeDraft(options = {}) {
 
 /** Drive B3's paste path the way the beat's own action does. */
 async function ingestResume(env) {
+  // GREENFIELD §4.1 gates B3 on B2 — B3 drafts with the provider B2
+  // verified, so the handoff probe arrives having earned the beat.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.goToBeat("resume");
   await settle();
   const paste = env.document

@@ -246,6 +246,48 @@ test("F1C-DISC05-GW: grounded-web opt-out is authoritative in effective-source r
   assert.ok(sources.includes("greenhouse"));
 });
 
+test("empty active list + shipped ATS seeds + allowlist fallback still seeds the requested names", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const resolved = intent.resolveEffectiveCompanyPools({
+    companies: [],
+    atsCompanies: [
+      { name: "Scale AI", companyKey: "scale-ai" },
+      { name: "Figma", companyKey: "figma" },
+      { name: "Notion", companyKey: "notion" },
+    ],
+    companyHistory: [],
+    companyAllowlist: ["The Trade Desk", "LiveRamp", "HubSpot"],
+    allowUnrestrictedFallback: true,
+  });
+  assert.equal(resolved.allowlistResolution.mode, "explicit_unrestricted");
+  assert.deepEqual(
+    resolved.companies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+});
+
+test("empty catalog + allowlist + fallback seeds ephemeral companies from the requested names", () => {
+  const intent = require("../discovery-effective-intent.js");
+  const resolved = intent.resolveEffectiveCompanyPools({
+    companies: [],
+    atsCompanies: [],
+    companyHistory: [],
+    negativeCompanyKeys: [],
+    companyAllowlist: ["The Trade Desk", "LiveRamp", "HubSpot"],
+    companyBlocklist: ["Meta"],
+    allowUnrestrictedFallback: true,
+  });
+  assert.equal(resolved.allowlistResolution.mode, "explicit_unrestricted");
+  assert.deepEqual(
+    resolved.companies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+  assert.deepEqual(
+    resolved.atsCompanies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+});
+
 test("F1C-DISC06-ALLOW: unknown-only allowlist does not silently broaden to unrestricted search", () => {
   const intent = require("../discovery-effective-intent.js");
   const catalog = [

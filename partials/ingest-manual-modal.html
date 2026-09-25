@@ -29,11 +29,34 @@
             </svg>
           </button>
         </div>
+        <div
+          class="jb-banner ingest-manual-banner"
+          data-tone="warn"
+          id="ingestManualModalBanner"
+          role="status"
+          style="display: none; margin-bottom: 12px"
+        >
+          <svg
+            viewBox="0 0 24 24"
+            fill="none"
+            stroke="currentColor"
+            stroke-width="2"
+            stroke-linecap="round"
+            stroke-linejoin="round"
+            aria-hidden="true"
+            focusable="false"
+          >
+            <path d="M12 3 2 21h20L12 3z" />
+            <line x1="12" y1="10" x2="12" y2="14" />
+            <line x1="12" y1="17.5" x2="12" y2="17.5" />
+          </svg>
+          <p id="ingestManualModalBannerText"></p>
+        </div>
         <p
           class="modal-lede settings-modal-lede"
           id="ingestManualModalExplain"
         >
-          We couldn't auto-scrape this URL — fill in what you can.
+          Fill in what you know. JobBored will add the role to your Pipeline.
         </p>
         <p
           class="settings-form-error"

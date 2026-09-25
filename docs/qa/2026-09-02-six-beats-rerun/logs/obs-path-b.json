@@ -1,0 +1,2685 @@
+{
+  "observations": [
+    {
+      "surface": "B-gate",
+      "file": "path-b-01-landing-gate.png",
+      "copy": {
+        "beatId": null,
+        "headerTitle": null,
+        "kicker": null,
+        "headline": null,
+        "sub": null,
+        "spine": [],
+        "spineTime": null,
+        "progressSystems": [],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "01Brief",
+            "disabled": false,
+            "cls": "page-nav__pill is-active"
+          },
+          {
+            "text": "02Pipeline",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "03Dossier",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-discovery page-top__action page-top__action--primary"
+          },
+          {
+            "text": "0",
+            "disabled": false,
+            "cls": "btn-materials btn-materials--icon btn-expired-review page-top__action page-top__action--icon"
+          },
+          {
+            "text": "Continue",
+            "disabled": false,
+            "cls": "btn-google-signin"
+          },
+          {
+            "text": "Q",
+            "disabled": false,
+            "cls": "auth-menu-toggle"
+          },
+          {
+            "text": "Resume onboarding",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Setup health",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovery worker on boot",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Sign out",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovered 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Researched 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Applied 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Phone screen 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Interview 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Offer 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Expired 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Turn on job discovery",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Use JobBored on other devices",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Dismiss",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Later",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__later"
+          },
+          {
+            "text": "Don't show again",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Urgency",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Fit",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Newest",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "★ Favorites",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "Dismissed",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "+ Add job from URL",
+            "disabled": false,
+            "cls": "pipe-tool__btn pipe-tool__btn--url"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "pipe-url-modal__close"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "pipe-url-modal__secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "pipe-url-modal__primary"
+          },
+          {
+            "text": "↑ Pick a role from the pipeline⌘Kto search",
+            "disabled": false,
+            "cls": "jb-shelf__cta"
+          },
+          {
+            "text": "Cover letter",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Resume",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Save version",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Rescore",
+            "disabled": false,
+            "cls": "scribe-btn scribe-scorecard__rescore"
+          },
+          {
+            "text": "more specific",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "cut to 250 words",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "emphasize Python",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Log in with Google",
+            "disabled": false,
+            "cls": "login-gate__btn-google"
+          },
+          {
+            "text": "Settings",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Set up JobBored for this account",
+            "disabled": false,
+            "cls": "login-gate__btn-secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "ingest-url-hero__submit ingest-url-submit"
+          },
+          {
+            "text": "Add manually",
+            "disabled": false,
+            "cls": "ingest-url-hero__manual-link"
+          },
+          {
+            "text": "⭐ Favorites only",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Show dismissed",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Set up job discovery →",
+            "disabled": false,
+            "cls": "onboarding-celebration__cta"
+          },
+          {
+            "text": "or start with your other devices →",
+            "disabled": false,
+            "cls": "onboarding-celebration__alt"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Manual",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Scheduled",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Success",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Partial",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Failure",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "runs-refresh-btn"
+          },
+          {
+            "text": "Run cleanup now",
+            "disabled": false,
+            "cls": "expired-review-card__run"
+          },
+          {
+            "text": "Mark Expired",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Dismiss",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Set Researching",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Setup",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Fit Profile",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Sheet",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Scraping",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "ATS Scoring",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "AI Providers",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Upgrades",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Redo onboarding wizard",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Run setup again",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Clear saved settings",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Remove saved settings",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Scraper setup",
+            "disabled": false,
+            "cls": "btn-setup-scraper-link"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Download model",
+            "disabled": false,
+            "cls": "btn-modal-secondary model-download-control__btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Save & reload",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Test connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Save paste",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Guided capture",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Add sample",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Copy prompt to clipboard",
+            "disabled": false,
+            "cls": "profile-ai-copy-btn"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save preferences",
+            "disabled": false,
+            "cls": "profile-btn-save"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "profile-btn-reset"
+          },
+          {
+            "text": "Save to profile",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-doc-primary"
+          },
+          {
+            "text": "Continue without notes",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Generate draft",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "?",
+            "disabled": false,
+            "cls": "discovery-drawer__coach-btn"
+          },
+          {
+            "text": "Search",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Sources",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Automation",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Connection",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "History",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Exclude",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Scrape",
+            "disabled": false,
+            "cls": "btn-modal-secondary btn-dp-scrape"
+          },
+          {
+            "text": "Generate ideas",
+            "disabled": false,
+            "cls": "btn-modal-primary btn-dp-suggest"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Copy install command",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy uninstall command",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Download workflow file",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Open discovery setup",
+            "disabled": false,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Test webhook",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Open discovery setup",
+            "disabled": false,
+            "cls": "settings-apps-script-status__action btn-discovery-setup"
+          },
+          {
+            "text": "Deploy Google Apps Script stub",
+            "disabled": true,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Copy /exec URL",
+            "disabled": true,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Re-check public access",
+            "disabled": true,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Open discovery runs log",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Close",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy bootstrap command",
+            "disabled": false,
+            "cls": "toast-action-btn"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": []
+      },
+      "msSincePrevious": 6299,
+      "url": "http://localhost:8095/",
+      "gate": {
+        "visible": true,
+        "text": "JOBBORED DID YOU KNOW? Your pipeline, one glance Scan cards for stage, notes, and follow-ups without digging through rows. Couldn’t load this sheet Check the Sheet ID and permissions, then try again. Settings Reload Set up JobBored for this account Signed in as a different account? Set JobBored up for it instead.",
+        "buttons": [
+          {
+            "id": "sheetAccessGateSignInBtn",
+            "text": "Log in with Google",
+            "hidden": true
+          },
+          {
+            "id": "sheetAccessGateOpenSettingsBtn",
+            "text": "Settings",
+            "hidden": false
+          },
+          {
+            "id": "sheetAccessGateReloadBtn",
+            "text": "Reload",
+            "hidden": false
+          },
+          {
+            "id": "sheetAccessGateStartFreshBtn",
+            "text": "Set up JobBored for this account",
+            "hidden": false
+          }
+        ]
+      },
+      "bodyHead": [
+        "TODAY",
+        "What is waiting on you",
+        "Nothing is waiting on you today.",
+        "No replies to answer, no interviews inside 48 hours, no follow-up past due.",
+        "JOBBORED",
+        "DID YOU KNOW?",
+        "Your pipeline, one glance",
+        "Scan cards for stage, notes, and follow-ups without digging through rows.",
+        "Couldn’t load this sheet",
+        "Check the Sheet ID and permissions, then try again.",
+        "Settings",
+        "Reload",
+        "Set up JobBored for this account",
+        "Signed in as a different account? Set JobBored up for it instead.",
+        "✗",
+        "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+        "Copy bootstrap command",
+        "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret."
+      ]
+    },
+    {
+      "surface": "B-gate",
+      "file": "path-b-02-account-action.png",
+      "copy": {
+        "beatId": null,
+        "headerTitle": null,
+        "kicker": null,
+        "headline": null,
+        "sub": null,
+        "spine": [],
+        "spineTime": null,
+        "progressSystems": [],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "01Brief",
+            "disabled": false,
+            "cls": "page-nav__pill is-active"
+          },
+          {
+            "text": "02Pipeline",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "03Dossier",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-discovery page-top__action page-top__action--primary"
+          },
+          {
+            "text": "0",
+            "disabled": false,
+            "cls": "btn-materials btn-materials--icon btn-expired-review page-top__action page-top__action--icon"
+          },
+          {
+            "text": "Continue",
+            "disabled": false,
+            "cls": "btn-google-signin"
+          },
+          {
+            "text": "Q",
+            "disabled": false,
+            "cls": "auth-menu-toggle"
+          },
+          {
+            "text": "Resume onboarding",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Setup health",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovery worker on boot",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Sign out",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovered 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Researched 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Applied 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Phone screen 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Interview 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Offer 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Expired 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Turn on job discovery",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Use JobBored on other devices",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Dismiss",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Later",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__later"
+          },
+          {
+            "text": "Don't show again",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Urgency",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Fit",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Newest",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "★ Favorites",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "Dismissed",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "+ Add job from URL",
+            "disabled": false,
+            "cls": "pipe-tool__btn pipe-tool__btn--url"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "pipe-url-modal__close"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "pipe-url-modal__secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "pipe-url-modal__primary"
+          },
+          {
+            "text": "↑ Pick a role from the pipeline⌘Kto search",
+            "disabled": false,
+            "cls": "jb-shelf__cta"
+          },
+          {
+            "text": "Cover letter",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Resume",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Save version",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Rescore",
+            "disabled": false,
+            "cls": "scribe-btn scribe-scorecard__rescore"
+          },
+          {
+            "text": "more specific",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "cut to 250 words",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "emphasize Python",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Log in with Google",
+            "disabled": false,
+            "cls": "login-gate__btn-google"
+          },
+          {
+            "text": "Settings",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Set up JobBored for this account",
+            "disabled": false,
+            "cls": "login-gate__btn-secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "ingest-url-hero__submit ingest-url-submit"
+          },
+          {
+            "text": "Add manually",
+            "disabled": false,
+            "cls": "ingest-url-hero__manual-link"
+          },
+          {
+            "text": "⭐ Favorites only",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Show dismissed",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Set up job discovery →",
+            "disabled": false,
+            "cls": "onboarding-celebration__cta"
+          },
+          {
+            "text": "or start with your other devices →",
+            "disabled": false,
+            "cls": "onboarding-celebration__alt"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Manual",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Scheduled",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Success",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Partial",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Failure",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "runs-refresh-btn"
+          },
+          {
+            "text": "Run cleanup now",
+            "disabled": false,
+            "cls": "expired-review-card__run"
+          },
+          {
+            "text": "Mark Expired",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Dismiss",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Set Researching",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Setup",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Fit Profile",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Sheet",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Scraping",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "ATS Scoring",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "AI Providers",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Upgrades",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Redo onboarding wizard",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Run setup again",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Clear saved settings",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Remove saved settings",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Scraper setup",
+            "disabled": false,
+            "cls": "btn-setup-scraper-link"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Download model",
+            "disabled": false,
+            "cls": "btn-modal-secondary model-download-control__btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Save & reload",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Test connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Save paste",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Guided capture",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Add sample",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Copy prompt to clipboard",
+            "disabled": false,
+            "cls": "profile-ai-copy-btn"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save preferences",
+            "disabled": false,
+            "cls": "profile-btn-save"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "profile-btn-reset"
+          },
+          {
+            "text": "Save to profile",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-doc-primary"
+          },
+          {
+            "text": "Continue without notes",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Generate draft",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "?",
+            "disabled": false,
+            "cls": "discovery-drawer__coach-btn"
+          },
+          {
+            "text": "Search",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Sources",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Automation",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Connection",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "History",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Exclude",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Scrape",
+            "disabled": false,
+            "cls": "btn-modal-secondary btn-dp-scrape"
+          },
+          {
+            "text": "Generate ideas",
+            "disabled": false,
+            "cls": "btn-modal-primary btn-dp-suggest"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Copy install command",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy uninstall command",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Download workflow file",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Open discovery setup",
+            "disabled": false,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Test webhook",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Open discovery setup",
+            "disabled": false,
+            "cls": "settings-apps-script-status__action btn-discovery-setup"
+          },
+          {
+            "text": "Deploy Google Apps Script stub",
+            "disabled": true,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Copy /exec URL",
+            "disabled": true,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Re-check public access",
+            "disabled": true,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Open discovery runs log",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Close",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy bootstrap command",
+            "disabled": false,
+            "cls": "toast-action-btn"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": []
+      },
+      "msSincePrevious": 143,
+      "actionLabel": "Set up JobBored for this account",
+      "actionHidden": false
+    },
+    {
+      "surface": "B-b1",
+      "file": "path-b-03-beat1-google.png",
+      "copy": {
+        "beatId": "google",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Your pipeline lives in a Google Sheet you own.",
+        "sub": "Sign in and we'll create it for you. Nothing is stored on our side — there is no 'our side.'",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "current"
+          },
+          {
+            "label": "AI",
+            "state": "todo"
+          },
+          {
+            "label": "Resume",
+            "state": "todo"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 15 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "oneflow-google__detour-copy"
+          },
+          {
+            "text": "Save Client ID",
+            "disabled": false,
+            "cls": "oneflow-google__client-id-save"
+          },
+          {
+            "text": "Continue with Google",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Connect an existing sheet instead",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.",
+          "First time? You'll need a free Client ID"
+        ]
+      },
+      "msSincePrevious": 1377,
+      "beatId": "google",
+      "sheetIdAfterAction": ""
+    },
+    {
+      "surface": "B-b2",
+      "file": "path-b-04-beat2-verified-to-beat3.png",
+      "copy": {
+        "beatId": "resume",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Drop in your resume. We'll do the typing.",
+        "sub": "From this one file we'll draft your whole fit profile — target roles, strengths, what you want, what to avoid. You'll review everything on the next screen; nothing is saved until you approve it.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "current"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 8 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Draft from this text",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "I'd rather start from a template",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Drag your resume here — PDF, Word, or plain text.",
+          "…OR PASTE THE TEXT INSTEAD",
+          "Your resume stays in this browser and on this machine. We send the text to the AI provider you connected on the last screen, and nowhere else."
+        ]
+      },
+      "msSincePrevious": 2492
+    },
+    {
+      "surface": "B3",
+      "tag": "draft-failed-taking-template-fallback",
+      "message": "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY."
+    },
+    {
+      "surface": "B-b4",
+      "file": "path-b-05-beat4-fit.png",
+      "copy": {
+        "beatId": "fit",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Here's how we'll judge every job for you.",
+        "sub": "We drafted this from your resume. Fix anything that's off — this is the one-time part that makes every match yours.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "current"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 7 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "edit",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Looks like me →",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Looking for",
+          "↑",
+          "↓",
+          "×",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Seniority",
+          "Intern",
+          "Entry",
+          "Mid",
+          "Senior",
+          "Staff",
+          "Principal",
+          "Manager",
+          "Director",
+          "Head",
+          "VP",
+          "C-level",
+          "Any",
+          "Anywhere",
+          "Your edge",
+          "1",
+          "↑",
+          "↓",
+          "×",
+          "2",
+          "↑",
+          "↓",
+          "×",
+          "3",
+          "↑",
+          "↓",
+          "×",
+          "4",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Growth marketer who has owned both brand and performance for B2C and B2B brands. I run paid acquisition, lifecycle, and content as one system, and I judge channels on contribution margin, not vanity reach. I want a senior role where strategy, budget, and execution all sit on my desk.",
+          "edit",
+          "Lean toward / away",
+          "Lean toward",
+          "×",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Lean away",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Edit details",
+          "Raw profile JSON"
+        ]
+      },
+      "msSincePrevious": 3406
+    },
+    {
+      "surface": "B-b5",
+      "file": "path-b-06-beat5-discovery.png",
+      "copy": {
+        "beatId": "discovery",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now the engine: jobs come to you.",
+        "sub": "Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline. Only your search terms leave this machine. Set up once; it runs itself.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "done"
+          },
+          {
+            "label": "Discovery",
+            "state": "current"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 4 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Use this endpoint",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary"
+          },
+          {
+            "text": "Save & verify",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Set it up for me",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Skip the connection for now — your keys are saved; jobs won't arrive on their own until you connect.",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "First, the fuel: Google's job index.",
+          "Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100+ boards at once. Free key, 100 searches a month — plenty for daily runs. Three steps, about 60 seconds.",
+          "1. Create a free SerpApi account (Google login works, no card needed).1 · Create your free account ↗",
+          "2. Copy your API key from the dashboard — it's the first thing on the page.2 · Copy your API key ↗",
+          "3. Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
+          "SERPAPI API KEY",
+          "Then the connection: let it run on its own.",
+          "One click sets this up over Tailscale — a free private network between your own devices. Nothing is exposed to the internet.",
+          "Add your SerpApi key above first — the engine needs fuel before it needs a connection.",
+          "Run without Tailscale, or paste your own endpoint"
+        ]
+      },
+      "msSincePrevious": 1358
+    },
+    {
+      "surface": "B-b5",
+      "file": "path-b-07-beat5-fuel-verified.png",
+      "copy": {
+        "beatId": "discovery",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now the engine: jobs come to you.",
+        "sub": "Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline. Only your search terms leave this machine. Set up once; it runs itself.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "done"
+          },
+          {
+            "label": "Discovery",
+            "state": "current"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 4 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": "Google Jobs index connected — 100 searches/mo.",
+        "stages": [
+          "✓ Saving your key…",
+          "✓ Google Jobs index connected — 100 searches/mo"
+        ],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Use this endpoint",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary"
+          },
+          {
+            "text": "Save & verify",
+            "disabled": true,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Set it up for me",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Skip the connection for now — your keys are saved; jobs won't arrive on their own until you connect.",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "First, the fuel: Google's job index.",
+          "Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100+ boards at once. Free key, 100 searches a month — plenty for daily runs. Three steps, about 60 seconds.",
+          "1. Create a free SerpApi account (Google login works, no card needed).1 · Create your free account ↗",
+          "2. Copy your API key from the dashboard — it's the first thing on the page.2 · Copy your API key ↗",
+          "3. Paste it below and hit Save & verify — we write it into the worker and restart it for you.",
+          "SERPAPI API KEY",
+          "✓ Google Jobs index connected — 100 searches/mo",
+          "Then the connection: let it run on its own.",
+          "One click sets this up over Tailscale — a free private network between your own devices. Nothing is exposed to the internet.",
+          "Run without Tailscale, or paste your own endpoint"
+        ]
+      },
+      "msSincePrevious": 2598
+    },
+    {
+      "surface": "B-b6",
+      "file": "path-b-08-beat6-payoff.png",
+      "copy": {
+        "beatId": "payoff",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "You're live.",
+        "sub": "That was the one-time part. From here, JobBored works for you.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "done"
+          },
+          {
+            "label": "Discovery",
+            "state": "done"
+          },
+          {
+            "label": "Done",
+            "state": "current"
+          }
+        ],
+        "spineTime": "almost done",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Go to my dashboard",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Actually — connect discovery",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗ The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.Copy bootstrap command",
+          "✗",
+          "The discovery worker needs a webhook secret. The browser-use worker fail-closes on empty or mismatched x-discovery-secret. Run `npm run discovery:bootstrap-local` on this machine and reload — the dashboard autofills the secret. Or paste it into Discovery drawer → Connection → Discovery webhook secret.",
+          "Copy bootstrap command"
+        ],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "That was the one-time part. From here, JobBored works for you.",
+          "YOUR SEARCH",
+          "ROLES",
+          "Director of Performance Marketing · Senior Marketing Manager",
+          "YOUR EDGE",
+          "Performance marketing · Brand & content · Analytics & experimentation",
+          "WHAT HAPPENS NOW",
+          "✓ AI connected — Gemini",
+          "○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below",
+          "✓ Pipeline sheet connected —",
+          "open it ↗",
+          "⏱ First matches land tomorrow morning — or run it right now and watch.",
+          "More power-ups — URL import, grounded search, other devices — live in Settings → Upgrades, each one click, none required."
+        ]
+      },
+      "msSincePrevious": 1877,
+      "beatId": "payoff"
+    }
+  ],
+  "fatal": null,
+  "log": {
+    "shots": [
+      {
+        "file": "path-b-01-landing-gate.png",
+        "hash": "1bdcfe6aa4984a71",
+        "surface": "B-gate"
+      },
+      {
+        "file": "path-b-02-account-action.png",
+        "hash": "8ec9f57b1ffde6f6",
+        "surface": "B-gate"
+      },
+      {
+        "file": "path-b-03-beat1-google.png",
+        "hash": "9afa324414c333ae",
+        "surface": "B-b1"
+      },
+      {
+        "file": "path-b-04-beat2-verified-to-beat3.png",
+        "hash": "71cfbb8a38aa84e6",
+        "surface": "B-b2"
+      },
+      {
+        "file": "path-b-05-beat4-fit.png",
+        "hash": "028811b1fc488698",
+        "surface": "B-b4"
+      },
+      {
+        "file": "path-b-06-beat5-discovery.png",
+        "hash": "e047f2128b9ec119",
+        "surface": "B-b5"
+      },
+      {
+        "file": "path-b-07-beat5-fuel-verified.png",
+        "hash": "dd11c0ce46b15a41",
+        "surface": "B-b5"
+      },
+      {
+        "file": "path-b-08-beat6-payoff.png",
+        "hash": "3fd5aa057cc59e0d",
+        "surface": "B-b6"
+      }
+    ],
+    "console": [
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/config.js:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Refused to execute script from 'http://localhost:8095/config.js' because its MIME type ('text/plain') is not executable, and strict MIME type checking is enabled.",
+        "at": "/:5230:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored startup] window:error {kind: resource, target: http://localhost:8095/config.js}",
+        "at": "/:94:27",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Access to fetch at 'http://127.0.0.1:3847/api/applications' from origin 'http://localhost:8095' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "at": "/:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "at": "http://127.0.0.1:3847/api/applications:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/discovery-local-bootstrap.json:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/discovery-local-bootstrap.json:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/discovery-local-bootstrap.json:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/discovery-local-bootstrap.json:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 401 (Unauthorized)",
+        "at": "http://127.0.0.1:8644/webhook:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/discovery-local-bootstrap.json:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "https://sheets.googleapis.com/v4/spreadsheets/qa-second-identity-sheet-20260902/values/Pipeline!A%3AZZ:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored] Sheets API read failed: 403 {code: 403, message: The caller does not have permission to access this spreadsheet., status: PERMISSION_DENIED}",
+        "at": "/sheets-read-load.js?v=3:305:14",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored startup] window:error {kind: resource, target: https://docs.google.com/spreadsheets/d/qa-second-i…sponseHandler:__commandCenter_cb_1&sheet=Pipeline}",
+        "at": "/:94:27",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored] JSONP script error for Pipeline",
+        "at": "/sheets-read-load.js?v=3:226:16",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored] JSONP failed for Pipeline: Script load failed for Pipeline",
+        "at": "/sheets-read-load.js?v=3:377:14",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 ()",
+        "at": "https://docs.google.com/spreadsheets/d/qa-second-identity-sheet-20260902/gviz/tq?tqx=out:csv&sheet=Pipeline:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 ()",
+        "at": "https://docs.google.com/spreadsheets/d/qa-second-identity-sheet-20260902/pub?gid=0&single=true&output=csv:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored] All fetch attempts failed for Pipeline",
+        "at": "/sheets-read-load.js?v=3:401:12",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored startup] sheets-read:load:fetch-failed {initialAccessResolved: false, hasAccessToken: true}",
+        "at": "/:94:27",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "https://sheets.googleapis.com/v4/spreadsheets/qa-second-identity-sheet-20260902?fields=sheets(properties(title,sheetId)):0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "https://sheets.googleapis.com/v4/spreadsheets/qa-second-identity-sheet-20260902/values/Pipeline!A1:Z1:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 ()",
+        "at": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash:generateContent?key=<redacted>:0:0",
+        "surface": "B-b2"
+      },
+      {
+        "type": "warning",
+        "text": "[JobBored] Gemini model \"gemini-flash\" was rejected; retrying with gemini-3.5-flash.",
+        "at": "/resume-generate.js:579:16",
+        "surface": "B-b2"
+      },
+      {
+        "type": "error",
+        "text": "Access to fetch at 'http://127.0.0.1:3847/api/llm-config' from origin 'http://localhost:8095' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "at": "/:0:0",
+        "surface": "B-b2"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "at": "http://127.0.0.1:3847/api/llm-config:0:0",
+        "surface": "B-b2"
+      },
+      {
+        "type": "warning",
+        "text": "[JobBored] llm-config pin POST failed: Failed to fetch",
+        "at": "/oneflow-beat-ai.js:525:14",
+        "surface": "B-b2"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "at": "/profile/from-resume:0:0",
+        "surface": "B-b3"
+      }
+    ],
+    "network": [
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/config.js",
+        "status": 403,
+        "ms": 89,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/config.js",
+        "status": "FAILED",
+        "ms": 95,
+        "failure": "net::ERR_ABORTED",
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://127.0.0.1:3847/api/applications",
+        "status": "FAILED",
+        "ms": 77,
+        "failure": "net::ERR_FAILED",
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/discovery-local-bootstrap.json",
+        "status": 403,
+        "ms": 21,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/discovery-local-bootstrap.json",
+        "status": 403,
+        "ms": 3,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/discovery-local-bootstrap.json",
+        "status": 403,
+        "ms": 2,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/discovery-local-bootstrap.json",
+        "status": 403,
+        "ms": 2,
+        "surface": "boot"
+      },
+      {
+        "method": "POST",
+        "url": "http://127.0.0.1:8644/webhook",
+        "status": 401,
+        "ms": 4,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/discovery-local-bootstrap.json",
+        "status": 403,
+        "ms": 1,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/qa-second-identity-sheet-20260902/values/Pipeline!A%3AZZ",
+        "status": 403,
+        "ms": 2,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "https://docs.google.com/spreadsheets/d/qa-second-identity-sheet-20260902/gviz/tq?tqx=out:json;responseHandler:__commandCenter_cb_1&sheet=Pipeline",
+        "status": "FAILED",
+        "ms": 882,
+        "failure": "net::ERR_BLOCKED_BY_ORB",
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "https://docs.google.com/spreadsheets/d/qa-second-identity-sheet-20260902/gviz/tq?tqx=out:csv&sheet=Pipeline",
+        "status": 404,
+        "ms": 623,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "https://docs.google.com/spreadsheets/d/qa-second-identity-sheet-20260902/pub?gid=0&single=true&output=csv",
+        "status": 404,
+        "ms": 192,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/qa-second-identity-sheet-20260902?fields=sheets(properties(title,sheetId))",
+        "status": 403,
+        "ms": 2,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "https://sheets.googleapis.com/v4/spreadsheets/qa-second-identity-sheet-20260902/values/Pipeline!A1:Z1",
+        "status": 403,
+        "ms": 2,
+        "surface": "boot"
+      },
+      {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash:generateContent?key=<redacted>",
+        "status": 404,
+        "ms": 554,
+        "surface": "B-b2"
+      },
+      {
+        "method": "POST",
+        "url": "http://127.0.0.1:3847/api/llm-config",
+        "status": "FAILED",
+        "ms": 6,
+        "failure": "net::ERR_FAILED",
+        "surface": "B-b2"
+      },
+      {
+        "method": "POST",
+        "url": "http://localhost:8095/profile/from-resume",
+        "status": 500,
+        "ms": 152,
+        "surface": "B-b3"
+      }
+    ],
+    "pageErrors": [
+      {
+        "type": "pageerror",
+        "text": "Cannot read properties of null (reading 'appendChild')",
+        "stack": "TypeError: Cannot read properties of null (reading 'appendChild') |     at <anonymous>:15:28 |     at <anonymous>:34:3 |     at <anonymous>:36:7",
+        "surface": "boot"
+      }
+    ]
+  }
+}

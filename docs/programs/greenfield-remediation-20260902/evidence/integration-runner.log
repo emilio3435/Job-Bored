@@ -1,0 +1,109 @@
+Auto-merging tests/e2e-visual/finale-burst.spec.mjs
+Merge made by the 'ort' strategy.
+ discovery-setup-modals.js                 |  12 +-
+ oneflow-beat-google.js                    |  34 ++++
+ oneflow-beat-payoff.js                    | 126 ++++++++++++--
+ sheet-access-setup.js                     |  11 ++
+ tests/e2e-visual/finale-burst.spec.mjs    |  38 +++--
+ tests/greenfield-c-drawer.test.mjs        | 114 +++++++++++++
+ tests/greenfield-c-google-nopunt.test.mjs | 237 +++++++++++++++++++++++++++
+ tests/greenfield-c-payoff.test.mjs        | 264 ++++++++++++++++++++++++++++++
+ tests/oneflow-l7-sweep.test.mjs           |   9 +-
+ 9 files changed, 815 insertions(+), 30 deletions(-)
+ create mode 100644 tests/greenfield-c-drawer.test.mjs
+ create mode 100644 tests/greenfield-c-google-nopunt.test.mjs
+ create mode 100644 tests/greenfield-c-payoff.test.mjs
+### 02:44:31 merged lane C — drawer lands in the flow, Beat 1 detour, honest payoff -> 7b10aa0
+### 03:00:45 RESUME after server/node_modules fix
+### 03:00:45 already merged lane C — drawer lands in the flow, Beat 1 detour, honest payoff
+ℹ pass 3111
+ℹ fail 1
+### 03:01:00 gate C: test exit=1 lint exit=127
+### 03:01:00 STOP: gate C red
+### 03:02:18 RESUME after node_modules link
+### 03:02:18 already merged lane C — drawer lands in the flow, Beat 1 detour, honest payoff
+ℹ pass 3111
+ℹ fail 1
+### 03:02:34 gate C: test exit=1 lint exit=127
+### 03:02:34 STOP: gate C red
+### 03:02:41 RESUME after node_modules symlink
+### 03:02:41 already merged lane C — drawer lands in the flow, Beat 1 detour, honest payoff
+ℹ pass 3112
+ℹ fail 0
+### 03:03:04 gate C: test exit=0 lint exit=0
+Auto-merging tests/sixbeats2-beat-provider.test.mjs
+Merge made by the 'ort' strategy.
+ app-config-core.js                                 |  26 +
+ model-catalog.js                                   |  17 +
+ oneflow-beat-ai.js                                 |  33 +-
+ partials/settings-modal.html                       | 161 +++---
+ settings-modal.js                                  | 222 +++++++--
+ settings-profile-tab.js                            |  47 +-
+ settings-tab-schema.js                             | 106 ++--
+ settings-tabs.css                                  |  36 ++
+ tests/greenfield-d-effective-config.test.mjs       | 388 +++++++++++++++
+ tests/greenfield-d-receipts.test.mjs               | 551 +++++++++++++++++++++
+ tests/greenfield-d-tabs.test.mjs                   | 178 +++++++
+ tests/oneflow-l1-harness.mjs                       |   4 +
+ ...ettings-modal-webhook-secret-roundtrip.test.mjs |  24 +-
+ tests/settings-profile-schedule-card.test.mjs      |  13 +-
+ tests/sixbeats2-beat-provider.test.mjs             |  10 +-
+ 15 files changed, 1612 insertions(+), 204 deletions(-)
+ create mode 100644 tests/greenfield-d-effective-config.test.mjs
+ create mode 100644 tests/greenfield-d-receipts.test.mjs
+ create mode 100644 tests/greenfield-d-tabs.test.mjs
+### 03:03:05 merged lane D — one effective config, Google + AI tabs with receipts -> 2226d4c
+ℹ pass 3153
+ℹ fail 0
+### 03:03:25 gate D: test exit=0 lint exit=0
+Merge made by the 'ort' strategy.
+ .../KICKOFF-verify-fix.md                          |  16 +
+ .../evidence/verify-base-red-orchestrator-run.txt  | 389 ++++++++++++++
+ .../evidence/verify-floor-contract-all.txt         |  42 ++
+ .../evidence/verify-floor-e2e-smoke.txt            |  57 ++
+ .../evidence/verify-floor-e2e-visual.txt           | 144 ++++++
+ .../evidence/verify-floor-lint-repo.txt            |  16 +
+ .../evidence/verify-floor-npm-test-sandbox.txt     |   7 +
+ .../evidence/verify-floor-npm-test.txt             |  10 +
+ .../evidence/verify-floor-typecheck-repo.txt       |  14 +
+ .../evidence/verify-red.txt                        |  59 +++
+ .../evidence/verify-test-list.txt                  |  12 +
+ package.json                                       |   3 +-
+ .../e2e-onboarding/greenfield-onboarding.spec.mjs  | 571 +++++++++++++++++++++
+ .../e2e-onboarding/greenfield-remediation.spec.mjs | 365 +++++++++++++
+ tests/e2e-onboarding/playwright.config.mjs         |  21 +
+ 15 files changed, 1725 insertions(+), 1 deletion(-)
+ create mode 100644 docs/programs/greenfield-remediation-20260902/KICKOFF-verify-fix.md
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-base-red-orchestrator-run.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-floor-contract-all.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-floor-e2e-smoke.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-floor-e2e-visual.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-floor-lint-repo.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-floor-npm-test-sandbox.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-floor-npm-test.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-floor-typecheck-repo.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-red.txt
+ create mode 100644 docs/programs/greenfield-remediation-20260902/evidence/verify-test-list.txt
+ create mode 100644 tests/e2e-onboarding/greenfield-onboarding.spec.mjs
+ create mode 100644 tests/e2e-onboarding/greenfield-remediation.spec.mjs
+ create mode 100644 tests/e2e-onboarding/playwright.config.mjs
+### 03:03:26 merged lane E — E1–E6 greenfield gate and the OneFlow journey -> 79c4fd6
+ℹ pass 3153
+ℹ fail 0
+### 03:03:46 gate E: test exit=0 lint exit=0
+Auto-merging oneflow-beat-google.js
+Merge made by the 'ort' strategy.
+ oneflow-beat-google.js                |  9 ++++-
+ tests/oneflow-l1-beat-google.test.mjs | 65 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 73 insertions(+), 1 deletion(-)
+### 03:03:46 merged lane F (Muse Spark) — greenfield Client ID save runs the first-time GIS init -> 5f8d065
+ℹ pass 3155
+ℹ fail 0
+### 03:04:06 gate F: test exit=0 lint exit=0
+### 03:04:06 full floor begins
+### 03:04:11 typecheck exit=0
+### 03:04:25 smoke exit=0   7 passed (13.3s)
+### 03:05:44 visual exit=0   41 passed (1.3m)
+### 03:07:57 onboarding exit=1   2 passed (2.2m)
+### 03:07:59 contract exit=0
+### 03:07:59 DONE

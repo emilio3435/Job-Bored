@@ -1,151 +1,240 @@
 /* ============================================================
-   tokens-v2.css — JobBored visual refactor (Atlas / Phase 1)
+   tokens-v2.css — the ONE place JobBored's design values live
    ------------------------------------------------------------
-   Owner:    Atlas (foundation agent)
-   Purpose:  Additive design-token layer for the v2 redesign.
-             Every token is prefixed --jb-. Loaded alongside the
-             legacy style.css; takes EFFECT only when
-             <body class="jb-v2"> is present (jb-v2.css consumes
-             these). Without that class, this file is a no-op:
-             the legacy UI renders pixel-identically.
-   Consumed by: Forge, Quill, Dawn, Lattice, Scribe, Welcome.
-   DO NOT EDIT directly during a swarm run — Atlas owns this.
+   UX01 C2 (docs/programs/ux01-20260925/SPEC.md §2).
+   - Every colour, type, space, radius, shadow, z-index and motion
+     value is defined here and nowhere else.
+   - style.css :root holds only aliases of these tokens (legacy
+     names such as --text, --accent, --space-4 resolve here), so
+     the legacy view (?jb-v2=0) and v2 draw from one palette.
+   - Tier 1 (primitives) holds raw values. Tier 2 (semantic)
+     aliases tier 1: new CSS should reach for a semantic name.
+   - `npm run lint:tokens` (tools/lint-tokens.mjs) fails CI on a
+     new colour literal outside this file, a var() that names an
+     undefined token with no fallback, or an unbalanced brace.
+   Contrast figures are WCAG ratios on --jb-paper (#FFFEF9).
    ============================================================ */
 
 :root {
-  /* --------------------------------------------------------
-     Surfaces — warm-paper newsprint foundation.
-     There is no separate "white surface" in v2: paper is the
-     surface. Raised paper is the cream tint.
-     -------------------------------------------------------- */
-  --jb-paper:          #FFFEF9;                       /* was: --bg-raised — warm paper replaces white */
-  --jb-paper-2:        #FBF7EE;                       /* was: --surface-2 */
-  --jb-surface:        #FFFEF9;                       /* was: --surface */
-  --jb-surface-raised: #FBF7EE;                       /* was: --bg-raised */
+  /* ========================================================
+     TIER 1 — PRIMITIVES
+     ======================================================== */
 
-  /* --------------------------------------------------------
-     Lines — hairlines, dividers, dashed rules.
-     -------------------------------------------------------- */
-  --jb-line:        #C9C2B0;                          /* was: --border-bright — hard line per wireframe */
-  --jb-line-soft:   #E5DFCC;                          /* was: --border — default border */
-  --jb-line-strong: rgba(14, 58, 78, 0.12);           /* was: --divider — navy-tinted strong rule */
+  /* Surfaces — warm-paper newsprint foundation. */
+  --jb-paper:          #FFFEF9;
+  --jb-paper-2:        #FBF7EE;
+  --jb-paper-3:        #F3EEE2;
+  --jb-surface:        var(--jb-paper);
+  --jb-surface-raised: var(--jb-paper-2);
 
-  /* --------------------------------------------------------
-     Ink (text) — body / muted / faint / inverse.
-     -------------------------------------------------------- */
-  --jb-ink:         #1B2B33;                          /* was: --text */
-  --jb-ink-2:       #3A5566;                          /* was: --text-muted */
-  --jb-ink-3:       #6B8493;                          /* was: --text-faint */
-  --jb-ink-inverse: #FFFEF9;                          /* was: --text-inverse — paper, on dark navy */
+  /* Lines */
+  --jb-line:        #C9C2B0;
+  --jb-line-soft:   #E5DFCC;
+  --jb-line-strong: rgba(14, 58, 78, 0.12);
 
-  /* --------------------------------------------------------
-     Brand — navy / mint / amber / violet / rose / yellow-tape.
-     -------------------------------------------------------- */
-  --jb-navy:        #0E3A4E;                          /* was: --accent-text — deeper navy than legacy --text */
+  /* Ink */
+  --jb-ink:         #1B2B33;   /* 14.4:1 */
+  --jb-ink-2:       #3A5566;   /*  7.8:1 */
+  --jb-ink-3:       #587080;   /*  5.1:1 (was #6B8493, 3.9:1 — AX-07) */
+  --jb-ink-inverse: #FFFEF9;
+
+  /* Brand */
+  --jb-navy:        #0E3A4E;   /* 12.0:1 — the one primary */
   --jb-navy-soft:   #355467;
-  --jb-mint:        #5FCB8E;                          /* was: --accent */            /* warmer than legacy */
-  --jb-mint-deep:   #2F8A5A;                          /* was: --accent-hover */      /* warmer than legacy */
-  --jb-mint-soft:   #DCF1E2;                          /* was: --accent-dim */
-  --jb-amber:       #EF8F26;                          /* was: --hot-orange */
-  --jb-amber-soft:  #FAE2C2;                          /* was: --hot-bg / --hot-border */
-  --jb-violet:      #7C3AED;                          /* was: --status-researching-text */
-  --jb-violet-soft: #E8DEF7;                          /* was: --status-researching-bg */
-  --jb-rose:        #C0392B;                          /* was: --toast-error / --status-rejected-text */
-  --jb-yellow-tape: #FCEFA8;                          /* was: --high-bg / --high-border — washi tape */
-  --jb-yellow:      #FCEFA8;                          /* alias of --jb-yellow-tape — used by sticker callouts */
+  --jb-mint:        #5FCB8E;
+  --jb-mint-hover:  #52C184;   /* navy text on it 5.4:1 */
+  --jb-mint-deep:   #2F8A5A;
+  --jb-mint-soft:   #DCF1E2;
+  --jb-mint-tint:   rgba(95, 203, 142, 0.12);
+  --jb-green-ink:   #1F6F4A;   /*  6.1:1 */
+  --jb-amber:       #EF8F26;
+  --jb-amber-soft:  #FAE2C2;
+  --jb-violet:      #7C3AED;
+  --jb-violet-ink:  #6D28D9;   /* 5.5:1 on --jb-violet-soft */
+  --jb-violet-soft: #E8DEF7;
+  --jb-rose:        #C0392B;
+  --jb-yellow-tape: #FCEFA8;
+  --jb-yellow:      var(--jb-yellow-tape);
+  --jb-yellow-soft: #FEFBE6;
+  --jb-cyan:        #5BB5C9;   /* funnel "Phone screen" tick */
+  --jb-green:       #1FA463;   /* funnel "Offer" tick */
 
-  /* --------------------------------------------------------
-     Newspaper-brief funnel accents (Phase-2 / Dawn brief refit).
-     These two hues do not appear elsewhere in the palette and
-     map directly to the funnel rows in brief-mockup.html.
-     -------------------------------------------------------- */
-  --jb-cyan:        #5BB5C9;                          /* funnel "Phone screen" tick */
-  --jb-green:       #1FA463;                          /* funnel "Offer" tick */
+  /* Dossier (Direction F) primitives — promoted from style.css
+     (DS-02). Values unchanged; role.css / role-case.css read them
+     through their legacy aliases (--navy, --parchment, --crimson …). */
+  --jb-dossier-navy:      #1B2A4E;
+  --jb-dossier-navy-soft: #2A3A60;
+  --jb-dossier-ink:       #1A1A1A;
+  --jb-dossier-ink-soft:  #4A4A4A;
+  --jb-dossier-mute:      #7A7468;
+  --jb-parchment:         #FBF7EC;
+  --jb-parchment-deep:    #F5EFDC;
+  --jb-workshop-bg:       #EDEDE4;
+  --jb-workshop-card:     #F8F7F1;
+  --jb-dossier-line:      #C9C2A8;
+  --jb-dossier-mint:      #B5D4C2;
+  --jb-dossier-mint-deep: #6E9F87;
+  --jb-dossier-amber:     #E7B549;
+  --jb-crimson:           #B23A48;
 
-  /* --------------------------------------------------------
-     Stage rails — pipeline kanban left-border tokens.
-     1:1 mapping from legacy --stage-rail-* so Lattice can swap
-     names without changing meaning.
-     -------------------------------------------------------- */
-  --jb-stage-new:           #6B8493;                  /* was: --stage-rail-new */
-  --jb-stage-researching:   #7C3AED;                  /* was: --stage-rail-researching */
-  --jb-stage-applied:       #EF8F26;                  /* was: --stage-rail-applied */
-  --jb-stage-phone:         #0891B2;                  /* was: --stage-rail-phone-screen */
-  --jb-stage-interviewing:  #5FCB8E;                  /* was: --stage-rail-interviewing */ /* warmer than legacy */
-  --jb-stage-offer:         #2F8A5A;                  /* was: --stage-rail-offer */
-  --jb-stage-rejected:      #C0392B;                  /* was: --stage-rail-rejected */
-  --jb-stage-passed:        #64748B;                  /* was: --stage-rail-passed */
-  --jb-stage-expired:       #57534E;                  /* was: --stage-rail-expired */
+  /* ========================================================
+     TIER 2 — SEMANTIC (aliases of tier 1, plus status values)
+     ======================================================== */
 
-  /* --------------------------------------------------------
-     Status — generic ok / warn / err / info, AA-safe on paper.
-     Backgrounds are tinted overlays; text passes contrast on
-     warm paper backgrounds.
-     -------------------------------------------------------- */
-  --jb-ok:      #15803D;                              /* was: --status-ok / --toast-success */
-  --jb-ok-bg:   rgba(47, 138, 90, 0.12);              /* was: --status-ok-bg */
-  --jb-warn:    #A16207;                              /* was: --status-warn / --high-yellow */
-  --jb-warn-bg: rgba(239, 143, 38, 0.14);             /* was: --status-warn-bg */
-  --jb-err:     #C0392B;                              /* was: --status-err / --toast-error */
-  --jb-err-bg:  rgba(192, 57, 43, 0.12);              /* was: --status-err-bg */
-  --jb-info:    #0E3A4E;                              /* was: --status-info / --toast-info */
-  --jb-info-bg: rgba(14, 58, 78, 0.08);               /* was: --status-info-bg */
+  /* Roles (SPEC §2 colour roles) */
+  --jb-action:      var(--jb-navy);       /* the only primary */
+  --jb-accent:      var(--jb-mint);
+  --jb-on-accent:   var(--jb-navy);       /* text on a mint fill: 6.0:1 (white was 2.0:1 — DS-06/AX-06) */
+  --jb-on-mint:     var(--jb-on-accent);
+  --jb-accent-ink:  var(--jb-green-ink);  /* mint-family text on paper: 6.1:1 */
+  --jb-on-action:   var(--jb-ink-inverse);
 
-  /* --------------------------------------------------------
-     Fit — role-fit ring tokens (high / mid / low).
-     -------------------------------------------------------- */
-  --jb-fit-high: #2F8A5A;                             /* was: --fit-high */
-  --jb-fit-mid:  #A16207;                             /* was: --fit-mid */
-  --jb-fit-low:  #6B8493;                             /* was: --fit-low */
+  /* Status — text passes 4.5:1 on paper and on its tint. */
+  --jb-ok:        #15803D;
+  --jb-ok-bg:     rgba(47, 138, 90, 0.12);
+  --jb-ok-tint:   #EEF7F0;
+  --jb-warn:      #A15C07;                /* 5.1:1 */
+  --jb-warn-bg:   rgba(239, 143, 38, 0.14);
+  --jb-warn-tint: #FBF0DF;
+  --jb-err:       #B4321F;                /* 6.1:1 */
+  --jb-err-bg:    rgba(180, 50, 31, 0.12);
+  --jb-err-tint:  #FBEBE8;
+  --jb-info:      var(--jb-navy);
+  --jb-info-bg:   rgba(14, 58, 78, 0.08);
+  --jb-info-tint: #EDF2F4;
 
-  /* --------------------------------------------------------
-     Type stack
-     Caveat: reserved for h1/h2 + .jb-handwritten only.
-     Geist:  body / UI face.
-     JetBrains Mono: code / labels / numerics.
-     -------------------------------------------------------- */
+  /* Stage rails — unchanged by UX01. */
+  --jb-stage-new:           #6B8493;
+  --jb-stage-researching:   var(--jb-violet);
+  --jb-stage-applied:       var(--jb-amber);
+  --jb-stage-phone:         #0891B2;
+  --jb-stage-interviewing:  var(--jb-mint);
+  --jb-stage-offer:         var(--jb-mint-deep);
+  --jb-stage-rejected:      var(--jb-rose);
+  --jb-stage-passed:        #64748B;
+  --jb-stage-expired:       #57534E;
+
+  /* Fit — unchanged by UX01. */
+  --jb-fit-high: var(--jb-mint-deep);
+  --jb-fit-mid:  #A16207;
+  --jb-fit-low:  #6B8493;
+
+  /* ========================================================
+     TYPE
+     display Caveat 40 (view h1 only) · title 24 · heading 18 ·
+     body 15 · small 13 · label mono 11 caps · data mono 13 ·
+     read Lora 17. Nothing below 13px is set as a sentence.
+     ======================================================== */
   --jb-font-display: "Caveat", "Bradley Hand", cursive;
   --jb-font-body:    "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --jb-font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --jb-font-serif:   "Lora", "Source Serif Pro", Georgia, serif;
+  /* Legacy face names, kept as aliases so sheets that still read them
+     resolve to the v2 faces. C4 retired the DM Sans and typewriter faces (DS-12,
+     DS-23); nothing vendors either one. */
+  --jb-font-legacy-body:  var(--jb-font-body);
+  --jb-font-legacy-mono:  "JetBrains Mono", "Fira Code", monospace;
+  --jb-font-dossier-sans: var(--jb-font-body);
+  --jb-font-dossier-mono: var(--jb-font-mono);
 
-  /* --------------------------------------------------------
-     Type scale — fluid clamps, anchored ~14–15px base.
-     -------------------------------------------------------- */
+  /* Named roles (fixed sizes) */
+  --jb-type-display: 2.5rem;     /* 40 */
+  --jb-type-title:   1.5rem;     /* 24 */
+  --jb-type-heading: 1.125rem;   /* 18 */
+  --jb-type-body:    0.9375rem;  /* 15 */
+  --jb-type-small:   0.8125rem;  /* 13 */
+  --jb-type-label:   0.6875rem;  /* 11, mono caps only */
+  --jb-type-data:    0.8125rem;  /* 13, mono */
+  --jb-type-read:    1.0625rem;  /* 17, Lora */
+  --jb-label-tracking: 0.08em;
+
+  /* Fluid ramp (existing consumers). --jb-text-2xs / -label are the
+     floor for caps labels only, never sentences (DS-11). */
+  --jb-text-2xs:   0.625rem;
+  --jb-text-label: var(--jb-type-label);
   --jb-text-xs:   clamp(0.75rem,  0.70rem + 0.20vw, 0.8125rem);
   --jb-text-sm:   clamp(0.8125rem, 0.78rem + 0.20vw, 0.875rem);
   --jb-text-base: clamp(0.875rem, 0.84rem + 0.25vw, 0.9375rem);
+  --jb-text-md:   var(--jb-text-lg);
   --jb-text-lg:   clamp(1rem,     0.95rem + 0.25vw, 1.0625rem);
   --jb-text-xl:   clamp(1.125rem, 1.05rem + 0.40vw, 1.375rem);
   --jb-text-2xl:  clamp(1.5rem,   1.20rem + 1.40vw, 2.25rem);
   --jb-text-3xl:  clamp(2rem,     1.60rem + 2.00vw, 3rem);
 
-  /* --------------------------------------------------------
-     Radius
-     -------------------------------------------------------- */
+  /* ========================================================
+     SPACE — n × 4px (DS-21)
+     ======================================================== */
+  --jb-space-0:  0;
+  --jb-space-1:  0.25rem;   /*  4 */
+  --jb-space-2:  0.5rem;    /*  8 */
+  --jb-space-3:  0.75rem;   /* 12 */
+  --jb-space-4:  1rem;      /* 16 */
+  --jb-space-5:  1.25rem;   /* 20 */
+  --jb-space-6:  1.5rem;    /* 24 */
+  --jb-space-7:  1.75rem;   /* 28 */
+  --jb-space-8:  2rem;      /* 32 */
+  --jb-space-9:  2.25rem;   /* 36 */
+  --jb-space-10: 2.5rem;    /* 40 */
+  --jb-space-12: 3rem;      /* 48 */
+  --jb-space-14: 3.5rem;    /* 56 */
+  --jb-space-16: 4rem;      /* 64 */
+
+  /* ========================================================
+     RADIUS — 6 · 10 · 14 · pill
+     ======================================================== */
   --jb-radius-xs:   4px;
-  --jb-radius-sm:   8px;
-  --jb-radius-md:   12px;
+  --jb-radius-sm:   6px;
+  --jb-radius-md:   10px;
   --jb-radius-lg:   14px;
-  --jb-radius-xl:   22px;
+  --jb-radius-xl:   var(--jb-radius-lg);
   --jb-radius-pill: 999px;
 
-  /* --------------------------------------------------------
-     Shadow
-     pencil  — soft 6px offset, hand-drawn paper feel
-     sticker — hard 3/4px offset, polaroid / washi-tape pop
-     card    — long, soft, navy-tinted base shadow
-     focus   — AA focus ring, mint at 35% alpha
-     -------------------------------------------------------- */
-  --jb-shadow-pencil:  0 1px 0 #C9C2B0, 0 6px 0 -3px rgba(14, 58, 78, 0.08);
+  /* ========================================================
+     SHADOW
+     pencil / sticker / card — the paper look.
+     sm / md / lg / hover  — soft elevation (legacy surfaces).
+     soft / strong         — dossier elevation.
+     focus                 — 2px navy ring on a 2px paper gap, 12:1
+                             (was 35% mint, 1.28:1 — AX-11).
+     ======================================================== */
+  --jb-shadow-pencil:  0 1px 0 var(--jb-line), 0 6px 0 -3px rgba(14, 58, 78, 0.08);
   --jb-shadow-sticker: 3px 4px 0 rgba(14, 58, 78, 0.12);
   --jb-shadow-card:    2px 3px 0 rgba(14, 58, 78, 0.08), 0 0 0 1px rgba(14, 58, 78, 0.10);
-  --jb-shadow-focus:   0 0 0 3px rgba(89, 203, 137, 0.35);
+  --jb-shadow-sm:      0 1px 2px rgba(0, 0, 0, 0.04);
+  --jb-shadow-md:      0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
+  --jb-shadow-lg:      0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --jb-shadow-hover:   0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --jb-shadow-soft:    0 1px 2px rgba(27, 42, 78, 0.06), 0 8px 24px rgba(27, 42, 78, 0.08);
+  --jb-shadow-strong:  0 2px 4px rgba(27, 42, 78, 0.10), 0 18px 40px rgba(27, 42, 78, 0.14);
+  /* Overlay chassis (css/overlay.css, UX01 C4): the modal and drawer scrims
+     and the drawer edge shadow, at the values they already rendered with. */
+  --jb-scrim-modal:    rgba(15, 23, 42, 0.45);
+  --jb-scrim-drawer:   rgba(15, 23, 42, 0.32);
+  --jb-shadow-drawer:  -4px 0 32px rgba(15, 23, 42, 0.14);
+  --jb-focus-color:    var(--jb-navy);
+  --jb-focus-gap:      var(--jb-paper);
+  --jb-shadow-focus:   0 0 0 2px var(--jb-focus-gap), 0 0 0 4px var(--jb-focus-color);
 
-  /* --------------------------------------------------------
-     Motion
-     -------------------------------------------------------- */
+  /* ========================================================
+     Z-INDEX (DS-14) — drawer 800 · modal 2000 · toast 2100
+     ======================================================== */
+  --jb-z-base:        1;
+  --jb-z-sticky:      40;
+  --jb-z-dropdown:    100;
+  --jb-z-drawer:      800;
+  --jb-z-modal:       2000;
+  --jb-z-toast:       2100;
+  --jb-z-wizard:      3200;
+  --jb-z-celebration: 3300;
+
+  /* ========================================================
+     MOTION — 120 · 200 · 320 ms; reduced motion gets fades only
+     ======================================================== */
   --jb-ease:            cubic-bezier(0.16, 1, 0.3, 1);
-  --jb-transition-fast: 120ms var(--jb-ease);
-  --jb-transition-base: 180ms var(--jb-ease);
-  --jb-transition-slow: 320ms var(--jb-ease);
+  --jb-duration-fast:   120ms;
+  --jb-duration-base:   200ms;
+  --jb-duration-slow:   320ms;
+  --jb-transition-fast: var(--jb-duration-fast) var(--jb-ease);
+  --jb-transition-base: var(--jb-duration-base) var(--jb-ease);
+  --jb-transition-slow: var(--jb-duration-slow) var(--jb-ease);
 }

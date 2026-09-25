@@ -34,7 +34,7 @@ test("SETUP-03: an unverified saved endpoint is ready_to_test, never verified", 
   assert.deepEqual(result, {
     level: "ready_to_test",
     reason: "endpoint_unverified",
-    label: "Ready to test",
+    label: "Connected — run a check",
   });
 });
 
@@ -51,7 +51,7 @@ test("SETUP-03-stale: a connected endpoint with an old check is stale", () => {
 
   assert.equal(result.level, "stale");
   assert.equal(result.reason, "verification_stale");
-  assert.equal(result.label, "Discovery check stale");
+  assert.equal(result.label, "Re-check your search");
 });
 
 test("SETUP-01 visibility: clearing a previously saved webhook is blocked/webhook_cleared", () => {
@@ -67,7 +67,7 @@ test("SETUP-01 visibility: clearing a previously saved webhook is blocked/webhoo
 
   assert.equal(result.level, "blocked");
   assert.equal(result.reason, "webhook_cleared");
-  assert.equal(result.label, "Discovery blocked");
+  assert.equal(result.label, "Search disconnected — reconnect");
 });
 
 test("SETUP-03 drawer probe: readiness chip delegates to engine truth", () => {
@@ -102,7 +102,7 @@ test("SETUP-03 chip styling: every level the classifier can emit is styled", () 
     "utf8",
   );
   const chipCss = readFileSync(
-    join(repoRoot, "css/legacy-discovery-drawer.css"),
+    join(repoRoot, "css/discovery-drawer.css"),
     "utf8",
   );
 

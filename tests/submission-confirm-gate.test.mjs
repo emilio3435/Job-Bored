@@ -115,7 +115,8 @@ describe("APPLY-01 submission confirmation gate", () => {
 
     const result = await runtime.api.confirmApplied("4", { fromStage: "researching" });
 
-    assert.deepEqual(runtime.sequence.slice(0, 2), ["confirm", "toast"]);
+    // UX01 C15 (TA-19): no 10-second hold; the write follows the confirm.
+    assert.deepEqual(runtime.sequence.slice(0, 3), ["confirm", "write", "toast"]);
     assert.ok(
       runtime.sequence.indexOf("write") > runtime.sequence.indexOf("confirm"),
       "the Applied write must happen only after confirmation",
@@ -156,7 +157,7 @@ describe("APPLY-01 submission confirmation gate", () => {
     ));
   });
 
-  it("Undo restores the held move before the grace window can persist it", async () => {
+  it("writes as soon as it is confirmed, with no timer that a closed tab can lose (TA-19)", async () => {
     const runtime = loadRuntime({
       dialogResult: {
         confirmed: true,
@@ -171,21 +172,14 @@ describe("APPLY-01 submission confirmation gate", () => {
     });
     assert.ok(runtime.api, "APPLY-01: confirmation adapter must exist");
 
-    const pending = runtime.api.confirmApplied("6", { fromStage: "researching" });
-    for (let i = 0; i < 10 && runtime.toastCalls.length === 0; i++) {
-      await new Promise((resolve) => setImmediate(resolve));
-    }
-    assert.equal(runtime.toastCalls.length, 1);
-    runtime.toastCalls[0].options.action.onClick();
-    runtime.timers.splice(0).forEach((timer) => timer());
-    const result = await pending;
+    const result = await runtime.api.confirmApplied("6", { fromStage: "researching" });
 
-    assert.equal(result.confirmed, false);
-    assert.equal(runtime.writeCalls.length, 0);
-    assert.ok(runtime.events.some((event) =>
-      event.type === "jb:write:failed" &&
-      event.detail.jobKey === "6" &&
-      event.detail.reason === "undone"
-    ));
+    assert.equal(runtime.timers.length, 0, "nothing waits on a timer before the write");
+    assert.equal(result.confirmed, true);
+    assert.equal(runtime.writeCalls.length, 1);
+    assert.equal(
+      runtime.toastCalls.some((call) => /Saving in 10 seconds/.test(call.message)),
+      false,
+    );
   });
 });

@@ -1,0 +1,212 @@
+
+> command-center@0.1.0 test:e2e-onboarding
+> playwright test --config tests/e2e-onboarding/playwright.config.mjs
+
+
+Running 7 tests using 1 worker
+
+  ✘  1 tests/e2e-onboarding/greenfield-onboarding.spec.mjs:503:1 › VAL-ONEFLOW-001: six beats reach the payoff on a fresh install (1.5m)
+  ✘  2 tests/e2e-onboarding/greenfield-remediation.spec.mjs:195:1 › E1 Beat 3 is gated on Beat 2 (16.9s)
+  ✘  3 tests/e2e-onboarding/greenfield-remediation.spec.mjs:250:1 › E2 Pasted resume survives Escape and reload (1.6s)
+  ✓  4 tests/e2e-onboarding/greenfield-remediation.spec.mjs:281:1 › E3 Drawer setup lands in OneFlow (1.8s)
+  ✓  5 tests/e2e-onboarding/greenfield-remediation.spec.mjs:295:1 › E4 Beat 1 never punts to Settings (988ms)
+  ✘  6 tests/e2e-onboarding/greenfield-remediation.spec.mjs:311:1 › E5 Payoff is honest (15.6s)
+  ✘  7 tests/e2e-onboarding/greenfield-remediation.spec.mjs:339:1 › E6 Settings shows receipts (1.8s)
+
+
+  1) tests/e2e-onboarding/greenfield-onboarding.spec.mjs:503:1 › VAL-ONEFLOW-001: six beats reach the payoff on a fresh install 
+
+    Test timeout of 90000ms exceeded.
+
+    Error: page.waitForFunction: Test timeout of 90000ms exceeded.
+
+      476 |
+      477 | async function stageHarnessAuth(page) {
+    > 478 |   await page.waitForFunction(
+          |              ^
+      479 |     () =>
+      480 |       !!globalThis.__JOBBORED_E2E_GIS__ &&
+      481 |       typeof globalThis.JobBoredApp?.core?.host?.initAuth === "function",
+        at stageHarnessAuth (/private/tmp/Job-Bored-greenfield-integration/tests/e2e-onboarding/greenfield-onboarding.spec.mjs:478:14)
+        at /private/tmp/Job-Bored-greenfield-integration/tests/e2e-onboarding/greenfield-onboarding.spec.mjs:511:9
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--3e064-e-payoff-on-a-fresh-install/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--3e064-e-payoff-on-a-fresh-install/error-context.md
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--3e064-e-payoff-on-a-fresh-install/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--3e064-e-payoff-on-a-fresh-install/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/onboarding-e2e/test-results/greenfield-onboarding-VAL--3e064-e-payoff-on-a-fresh-install/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  2) tests/e2e-onboarding/greenfield-remediation.spec.mjs:195:1 › E1 Beat 3 is gated on Beat 2 ─────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('#oneFlowMount button').filter({ hasText: /connect ai/i })
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for locator('#oneFlowMount button').filter({ hasText: /connect ai/i })
+
+
+      243 |     .locator('#oneFlowMount button')
+      244 |     .filter({ hasText: /connect ai/i });
+    > 245 |   await expect(connectAi).toBeVisible();
+          |                           ^
+      246 |   await connectAi.click();
+      247 |   await expect(beat(page, "ai")).toBeVisible();
+      248 | });
+        at /private/tmp/Job-Bored-greenfield-integration/tests/e2e-onboarding/greenfield-remediation.spec.mjs:245:27
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/error-context.md
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E1-Beat-3-is-gated-on-Beat-2/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  3) tests/e2e-onboarding/greenfield-remediation.spec.mjs:250:1 › E2 Pasted resume survives Escape and reload 
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('Setup paused — pick up right here anytime.', { exact: true })
+    Expected: visible
+    Error: strict mode violation: getByText('Setup paused — pick up right here anytime.', { exact: true }) resolved to 2 elements:
+        1) <span class="toast-message">Setup paused — pick up right here anytime.</span> aka locator('#toastContainer').getByText('Setup paused — pick up right')
+        2) <div role="status" aria-live="polite" aria-atomic="true" data-jb-a11y-live="polite" class="jb-a11y-visually-hidden">Setup paused — pick up right here anytime.</div> aka getByRole('status')
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for getByText('Setup paused — pick up right here anytime.', { exact: true })
+
+
+      264 |
+      265 |       await page.keyboard.press("Escape");
+    > 266 |       await expect(page.getByText(PAUSE_TOAST, { exact: true })).toBeVisible();
+          |                                                                  ^
+      267 |       await page.reload({ waitUntil: "load" });
+      268 |       await waitForApp(page);
+      269 |
+        at /private/tmp/Job-Bored-greenfield-integration/tests/e2e-onboarding/greenfield-remediation.spec.mjs:266:66
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E2--ee78f--survives-Escape-and-reload/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E2--ee78f--survives-Escape-and-reload/error-context.md
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E2--ee78f--survives-Escape-and-reload/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E2--ee78f--survives-Escape-and-reload/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E2--ee78f--survives-Escape-and-reload/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  4) tests/e2e-onboarding/greenfield-remediation.spec.mjs:311:1 › E5 Payoff is honest ──────────────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: locator('#oneFlowMount [data-action-id="payoff_connect_google"], #oneFlowMount [data-action="payoff_connect_google"]')
+    Expected: visible
+    Timeout: 15000ms
+    Error: element(s) not found
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for locator('#oneFlowMount [data-action-id="payoff_connect_google"], #oneFlowMount [data-action="payoff_connect_google"]')
+
+
+      328 |
+      329 |   const connectGoogle = action(page, "payoff_connect_google");
+    > 330 |   await expect(connectGoogle).toBeVisible();
+          |                               ^
+      331 |   await expect(connectGoogle).toHaveText("Connect Google to go live");
+      332 |   await expect(action(page, "payoff_run_now")).toHaveCount(0);
+      333 |   await expect(page.locator(".toast-error")).toHaveCount(0);
+        at /private/tmp/Job-Bored-greenfield-integration/tests/e2e-onboarding/greenfield-remediation.spec.mjs:330:31
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E5-Payoff-is-honest/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E5-Payoff-is-honest/error-context.md
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E5-Payoff-is-honest/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E5-Payoff-is-honest/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E5-Payoff-is-honest/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5) tests/e2e-onboarding/greenfield-remediation.spec.mjs:339:1 › E6 Settings shows receipts ───────
+
+    Error: expect(locator).toBeVisible() failed
+
+    Locator: getByText('Saved.', { exact: true })
+    Expected: visible
+    Error: strict mode violation: getByText('Saved.', { exact: true }) resolved to 2 elements:
+        1) <span class="toast-message">Saved.</span> aka locator('#toastContainer').getByText('Saved.')
+        2) <div role="status" aria-live="polite" aria-atomic="true" data-jb-a11y-live="polite" class="jb-a11y-visually-hidden">Saved.</div> aka getByRole('status')
+
+    Call log:
+      - Expect "toBeVisible" with timeout 15000ms
+      - waiting for getByText('Saved.', { exact: true })
+
+
+      362 |   await expect(page.locator("#oneFlowMount")).toBeHidden();
+      363 |   await expect(beat(page, "resume")).toHaveCount(0);
+    > 364 |   await expect(page.getByText("Saved.", { exact: true })).toBeVisible();
+          |                                                           ^
+      365 | });
+      366 |
+        at /private/tmp/Job-Bored-greenfield-integration/tests/e2e-onboarding/greenfield-remediation.spec.mjs:364:59
+
+    attachment #1: screenshot (image/png) ──────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E6-Settings-shows-receipts/test-failed-1.png
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E6-Settings-shows-receipts/error-context.md
+
+    Error Context: .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E6-Settings-shows-receipts/error-context.md
+
+    attachment #4: trace (application/zip) ─────────────────────────────────────────────────────────
+    .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E6-Settings-shows-receipts/trace.zip
+    Usage:
+
+        npx playwright show-trace .lane-evidence/onboarding-e2e/test-results/greenfield-remediation-E6-Settings-shows-receipts/trace.zip
+
+    ────────────────────────────────────────────────────────────────────────────────────────────────
+
+  5 failed
+    tests/e2e-onboarding/greenfield-onboarding.spec.mjs:503:1 › VAL-ONEFLOW-001: six beats reach the payoff on a fresh install 
+    tests/e2e-onboarding/greenfield-remediation.spec.mjs:195:1 › E1 Beat 3 is gated on Beat 2 ──────
+    tests/e2e-onboarding/greenfield-remediation.spec.mjs:250:1 › E2 Pasted resume survives Escape and reload 
+    tests/e2e-onboarding/greenfield-remediation.spec.mjs:311:1 › E5 Payoff is honest ───────────────
+    tests/e2e-onboarding/greenfield-remediation.spec.mjs:339:1 › E6 Settings shows receipts ────────
+  2 passed (2.2m)

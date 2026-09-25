@@ -32,8 +32,8 @@
           </button>
         </div>
         <p class="modal-lede settings-modal-lede settings-modal__full">
-          Saved only in this browser; overrides
-          <code class="modal-code">config.js</code>.
+          Saved in this browser only. Fill in what you use — everything
+          else can stay blank.
         </p>
         <p class="modal-lede settings-modal-lede settings-modal__oauth-only">
           Add your Google OAuth Web Client ID and save. After you sign in with
@@ -58,13 +58,25 @@
               type="button"
               role="tab"
               class="settings-tablist__btn"
-              id="settings-tab-setup"
-              data-tab-id="setup"
-              aria-controls="settings-panel-setup"
+              id="settings-tab-google"
+              data-tab-id="google"
+              aria-controls="settings-panel-google"
               aria-selected="true"
               tabindex="0"
             >
-              Setup
+              Google
+            </button>
+            <button
+              type="button"
+              role="tab"
+              class="settings-tablist__btn"
+              id="settings-tab-ai"
+              data-tab-id="ai"
+              aria-controls="settings-panel-ai"
+              aria-selected="false"
+              tabindex="-1"
+            >
+              AI
             </button>
             <button
               type="button"
@@ -77,18 +89,6 @@
               tabindex="-1"
             >
               Fit Profile
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="settings-tablist__btn"
-              id="settings-tab-sheet"
-              data-tab-id="sheet"
-              aria-controls="settings-panel-sheet"
-              aria-selected="false"
-              tabindex="-1"
-            >
-              Sheet
             </button>
             <button
               type="button"
@@ -118,18 +118,6 @@
               type="button"
               role="tab"
               class="settings-tablist__btn"
-              id="settings-tab-ai-providers"
-              data-tab-id="ai_providers"
-              aria-controls="settings-panel-ai-providers"
-              aria-selected="false"
-              tabindex="-1"
-            >
-              AI Providers
-            </button>
-            <button
-              type="button"
-              role="tab"
-              class="settings-tablist__btn"
               id="settings-tab-upgrades"
               data-tab-id="upgrades"
               aria-controls="settings-panel-upgrades"
@@ -141,17 +129,36 @@
           </div>
 
           <div class="settings-tab-panels">
-            <!-- ── Setup tab ──────────────────────────────────────── -->
+            <!-- ── Google tab (former Setup + Sheet) ───────────── -->
             <div
               role="tabpanel"
-              id="settings-panel-setup"
+              id="settings-panel-google"
               class="settings-tab-panel"
-              aria-labelledby="settings-tab-setup"
+              aria-labelledby="settings-tab-google"
             >
-              <h4 class="settings-tab-panel__title">Setup</h4>
+              <h4 class="settings-tab-panel__title">Google</h4>
               <p class="settings-tab-panel__lede">
-                OAuth credentials and dashboard housekeeping.
+                Your board lives in a Google Sheet. Setup connected it — this
+                is what it holds.
               </p>
+
+              <div class="settings-receipt" data-receipt="google">
+                <p
+                  class="settings-receipt__state"
+                  data-receipt-state="google"
+                  aria-live="polite"
+                >
+                  Not connected
+                </p>
+                <button
+                  type="button"
+                  class="btn-modal-secondary settings-receipt__btn"
+                  data-action="settings_change_in_setup"
+                  data-beat="google"
+                >
+                  Change in setup
+                </button>
+              </div>
 
               <label
                 class="field-label"
@@ -168,8 +175,37 @@
                 spellcheck="false"
               />
               <p class="settings-field-hint settings-field-hint--compact">
-                For Sheets access and Apps Script deploy from here.
+                Lets JobBored sign in to Google and open your Sheet. You can
+                leave this alone if sign-in already works.
               </p>
+
+              <div class="settings-setup-block">
+                <p class="settings-setup-block__title">Sheet &amp; dashboard</p>
+                <label class="field-label" for="settingsSheetId"
+                  >Spreadsheet URL or Sheet ID</label
+                >
+                <input
+                  type="text"
+                  id="settingsSheetId"
+                  class="modal-input"
+                  placeholder="Paste full URL, e.g. https://docs.google.com/spreadsheets/d/…/edit"
+                  autocomplete="off"
+                  spellcheck="false"
+                />
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Paste the open-in-browser link or the raw ID.
+                </p>
+
+                <label class="field-label" for="settingsTitle"
+                  >Dashboard title</label
+                >
+                <input
+                  type="text"
+                  id="settingsTitle"
+                  class="modal-input"
+                  placeholder="JobBored"
+                />
+              </div>
 
               <div class="settings-setup-block">
                 <p class="settings-setup-block__title">Onboarding</p>
@@ -270,10 +306,14 @@
                   <p
                     class="settings-field-hint settings-setup-wizard-row__hint"
                   >
-                    Connect or change the worker that finds new roles
-                    (Tailscale or any public HTTPS webhook).
+                    Connect the helper that finds new roles for you. Skip it
+                    if you add roles yourself.
                   </p>
                 </div>
+                <p class="settings-field-hint settings-field-hint--compact">
+                  Discovery connection lives in the drawer → Connection. The
+                  webhook URL and secret are edited there, not here.
+                </p>
               </div>
 
               <div class="settings-setup-block">
@@ -360,44 +400,6 @@
               <p class="settings-tab-panel__lede">Loading your Fit Profile…</p>
             </div>
 
-            <!-- ── Sheet tab ──────────────────────────────────────── -->
-            <div
-              role="tabpanel"
-              id="settings-panel-sheet"
-              class="settings-tab-panel"
-              aria-labelledby="settings-tab-sheet"
-              hidden
-            >
-              <h4 class="settings-tab-panel__title">Sheet &amp; dashboard</h4>
-              <p class="settings-tab-panel__lede">
-                Connect your pipeline spreadsheet and how the app is titled.
-              </p>
-
-              <label class="field-label" for="settingsSheetId"
-                >Spreadsheet URL or Sheet ID</label
-              >
-              <input
-                type="text"
-                id="settingsSheetId"
-                class="modal-input"
-                placeholder="Paste full URL, e.g. https://docs.google.com/spreadsheets/d/…/edit"
-                autocomplete="off"
-                spellcheck="false"
-              />
-              <p class="settings-field-hint settings-field-hint--compact">
-                Paste the open-in-browser link or the raw ID.
-              </p>
-
-              <label class="field-label" for="settingsTitle"
-                >Dashboard title</label
-              >
-              <input
-                type="text"
-                id="settingsTitle"
-                class="modal-input"
-                placeholder="JobBored"
-              />
-            </div>
 
             <!-- ── Scraping tab ───────────────────────────────────── -->
             <div
@@ -425,10 +427,16 @@
               />
               <p class="settings-field-hint settings-field-hint--row">
                 <span
-                  ><code class="modal-code">localhost</code>: blank uses
-                  <code class="modal-code">http://127.0.0.1:3847</code> with
-                  <code class="modal-code">npm start</code>. GitHub Pages needs
-                  a deployed HTTPS URL. No trailing slash.</span
+                  >Reads job postings when you paste a link. Leave it blank if
+                  you run JobBored on your own computer.
+                  <details class="settings-field-details">
+                    <summary>Details</summary>
+                    On <code class="modal-code">localhost</code>, blank uses
+                    <code class="modal-code">http://127.0.0.1:3847</code> with
+                    <code class="modal-code">npm start</code>. A hosted copy
+                    (for example GitHub Pages) needs a deployed HTTPS URL. No
+                    trailing slash.
+                  </details></span
                 >
                 <button
                   type="button"
@@ -493,19 +501,37 @@
               </p>
             </div>
 
-            <!-- ── AI Providers tab ───────────────────────────────── -->
+            <!-- ── AI tab ─────────────────────────────────────── -->
             <div
               role="tabpanel"
-              id="settings-panel-ai-providers"
+              id="settings-panel-ai"
               class="settings-tab-panel"
-              aria-labelledby="settings-tab-ai-providers"
+              aria-labelledby="settings-tab-ai"
               hidden
             >
-              <h4 class="settings-tab-panel__title">AI Providers</h4>
+              <h4 class="settings-tab-panel__title">AI</h4>
               <p class="settings-tab-panel__lede">
                 OpenRouter-first generic AI for drafts and suggestions. API
                 keys stay in this browser.
               </p>
+
+              <div class="settings-receipt" data-receipt="ai">
+                <p
+                  class="settings-receipt__state"
+                  data-receipt-state="ai"
+                  aria-live="polite"
+                >
+                  Not connected
+                </p>
+                <button
+                  type="button"
+                  class="btn-modal-secondary settings-receipt__btn"
+                  data-action="settings_change_in_setup"
+                  data-beat="ai"
+                >
+                  Change in setup
+                </button>
+              </div>
 
               <label class="field-label" for="settingsResumeProvider"
                 >Provider</label
@@ -786,8 +812,8 @@
             >
               <h4 class="settings-tab-panel__title">Upgrades</h4>
               <p class="settings-tab-panel__lede">
-                Power-ups, each one click, none required. Onboarding never
-                asks for these — turn any of them on whenever you want.
+                Optional extras. None are required, and onboarding never asks
+                for them — turn any on whenever you want.
               </p>
 
               <div class="settings-setup-block">
@@ -797,9 +823,13 @@
                   applicant-tracking systems do, so you know what to fix
                   before applying.
                 </p>
-                <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: Settings → ATS Scoring.
-                </p>
+                <button
+                  type="button"
+                  class="btn-setup-scraper-link"
+                  data-settings-goto-tab="ats_scoring"
+                >
+                  Turn on ATS scoring
+                </button>
               </div>
 
               <div class="settings-setup-block">
@@ -810,8 +840,8 @@
                   part.
                 </p>
                 <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: set <code>logoDevToken</code> in your
-                  <code>config.js</code>.
+                  Needs a one-line file edit: add <code>logoDevToken</code>
+                  to <code>config.js</code> (see SETUP.md).
                 </p>
               </div>
 
@@ -822,8 +852,9 @@
                   your laptop is off or asleep.
                 </p>
                 <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: set <code>BROWSER_USE_API_KEY</code> in the
-                  discovery worker's <code>.env</code>.
+                  Needs a one-line file edit: add
+                  <code>BROWSER_USE_API_KEY</code> to the discovery helper's
+                  <code>.env</code> (see SETUP.md).
                 </p>
               </div>
 
@@ -834,9 +865,13 @@
                   your pipeline instead of you retyping it. A Gemini key
                   from onboarding already unlocked this.
                 </p>
-                <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: Settings → AI Providers → Gemini API key.
-                </p>
+                <button
+                  type="button"
+                  class="btn-setup-scraper-link"
+                  data-settings-goto-field="settingsResumeGeminiApiKey"
+                >
+                  Add a Gemini key
+                </button>
               </div>
 
               <div class="settings-setup-block">
@@ -847,9 +882,13 @@
                   Lets discovery search the open web with Google's
                   grounding, on top of the boards it already reads.
                 </p>
-                <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: Settings → AI Providers → Gemini API key.
-                </p>
+                <button
+                  type="button"
+                  class="btn-setup-scraper-link"
+                  data-settings-goto-field="settingsResumeGeminiApiKey"
+                >
+                  Add a Gemini key
+                </button>
               </div>
 
               <div class="settings-setup-block">
@@ -880,7 +919,7 @@
 
         <div class="modal-actions settings-modal-actions">
           <button type="button" class="btn-modal-primary" id="settingsSaveBtn">
-            Save &amp; reload
+            Save
           </button>
         </div>
       </div>

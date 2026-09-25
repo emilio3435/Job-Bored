@@ -1,0 +1,40 @@
+// Applied confirm: edit every field, confirm, capture the Sheets write.
+import { openApp, shoot } from "/Users/emilionunezgarcia/Job-Bored.worktrees/ux01/docs/programs/ux01-20260925/audit/tools/audit-harness.mjs";
+const app = await openApp({ mode: "signed-in", viewport: "desktop" });
+const { page } = app;
+const writes = [];
+page.on("request", r => { if (r.url().includes("sheets.googleapis.com") && r.method() !== "GET" && r.method() !== "OPTIONS") writes.push(r.postData()); });
+await page.locator('[data-region="pipeline"] article.pipe-sticker', { hasText: "Kestrel" }).first().click();
+await page.waitForTimeout(1500);
+await page.locator('[data-region="role"] [data-action="stage-step"][data-stage="applied"]').first().click();
+await page.waitForTimeout(800);
+const dlgInfo = await page.evaluate(() => {
+  const d = [...document.querySelectorAll('dialog[open], [role="dialog"], [role="alertdialog"]')].find(x => /Mark application submitted/.test(x.textContent));
+  return d ? { tag: d.tagName, role: d.getAttribute("role"), inputs: [...d.querySelectorAll("input,textarea")].map(i => ({ id: i.id, name: i.name, type: i.type, value: i.value, label: i.labels?.[0]?.textContent.trim() })) , focus: document.activeElement?.outerHTML.slice(0,120)} : null;
+});
+console.log("DIALOG", JSON.stringify(dlgInfo));
+await page.getByLabel(/Applied date/i).fill("2026-09-20");
+await page.getByLabel(/Submission source/i).fill("Company portal");
+await page.getByLabel(/Receipt or checklist/i).fill("Confirmation #A1B2");
+await page.getByLabel(/Follow-up date/i).last().fill("2026-10-10");
+const vals = await page.evaluate(() => [...document.querySelectorAll('[id^="jb-submission"]')].map(i => i.id + "=" + i.value));
+console.log("FILLED", vals);
+await shoot(page, "tailor-apply", "applied-confirm-filled");
+await page.getByRole("button", { name: "Mark submitted" }).click();
+await page.waitForTimeout(12000);
+console.log("WRITES", JSON.stringify(writes));
+const toasts = await page.evaluate(() => [...document.querySelectorAll('#toastContainer .toast-message')].map(e => e.textContent.trim()));
+console.log("TOASTS", toasts);
+const rec = await page.evaluate(() => document.querySelector('[data-region="role"] .case__section--record')?.innerText);
+console.log("RECORD", rec);
+await shoot(page, "tailor-apply", "applied-after-write", { locator: '[data-region="role"]' });
+// Cancel path on another role
+await page.locator('[data-region="pipeline"] article.pipe-sticker', { hasText: "Canopy" }).first().click().catch(()=>{});
+await page.waitForTimeout(1500);
+await page.locator('[data-region="role"] [data-action="stage-step"][data-stage="applied"]').first().click().catch(e=>console.log("no stepper", String(e).slice(0,100)));
+await page.waitForTimeout(800);
+await page.getByRole("button", { name: "Cancel" }).last().click().catch(()=>{});
+await page.waitForTimeout(1200);
+console.log("CANCEL TOASTS", await page.evaluate(() => [...document.querySelectorAll('#toastContainer .toast-message')].map(e => e.textContent.trim())));
+await shoot(page, "tailor-apply", "applied-cancel");
+await app.close();

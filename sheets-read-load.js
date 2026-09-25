@@ -26,6 +26,324 @@
     }
   }
 
+  /* ------------------------------------------------------------------
+     UX01 C21 — a failed load never looks empty.
+     loadState is the single record of "what did the last read do":
+       dataLoaded    true once any load succeeded this page life
+       lastSyncedAt  epoch ms of the last good read (0 = never)
+       lastFailure   { status, kind } of the last failed read, or null
+     Events (window AND document; lane C gates its empty copy on them):
+       jb:data:loaded       { rows, count, first, lastSyncedAt }
+       jb:data:load-failed  { status, kind, lastSyncedAt, hasLastGood }
+     ------------------------------------------------------------------ */
+  const loadState = {
+    dataLoaded: false,
+    lastSyncedAt: 0,
+    lastFailure: null,
+    loading: false,
+  };
+  let lastReadFailure = null;
+  let syncTicker = null;
+  let connectivityWired = false;
+
+  function emitDataEvent(type, detail) {
+    try {
+      if (typeof CustomEvent !== "function") return;
+      const make = () => new CustomEvent(type, { detail });
+      if (typeof window.dispatchEvent === "function") window.dispatchEvent(make());
+      if (typeof document.dispatchEvent === "function") document.dispatchEvent(make());
+    } catch (_) {
+      /* events are best-effort; never break a load */
+    }
+  }
+
+  function isOnline() {
+    const nav =
+      (window && window.navigator) ||
+      (typeof navigator !== "undefined" ? navigator : null);
+    return !nav || nav.onLine !== false;
+  }
+
+  function signedInEmail() {
+    try {
+      const a = window.JobBoredApp && window.JobBoredApp.auth;
+      return a && typeof a.getUserEmail === "function" ? a.getUserEmail() || "" : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  /** Plain words for a failed read. Never prints Google's raw sentence,
+   *  a status code, or a file name (SS-09, SS-10). */
+  function describeLoadFailure(failure) {
+    const f = failure || {};
+    const status = Number(f.status) || 0;
+    const email = String(f.email || "").trim();
+    if (f.kind === "offline" || (status === 0 && f.kind !== "unknown")) {
+      return {
+        kind: "offline",
+        title: "You’re offline",
+        detail:
+          "JobBored can’t reach Google right now. It will try again when your connection comes back.",
+      };
+    }
+    if (status === 401) {
+      return {
+        kind: "session",
+        title: "Your Google session ended",
+        detail: "Sign in again to keep syncing with your Sheet.",
+      };
+    }
+    if (status === 403) {
+      const who = email || "This Google account";
+      return {
+        kind: "forbidden",
+        title: `${who} can’t open this Sheet`,
+        detail: email
+          ? `Ask the Sheet’s owner to share it with ${email}, or switch to the account that owns it.`
+          : "Ask the Sheet’s owner to share it with you, or switch to the account that owns it.",
+      };
+    }
+    if (status === 404) {
+      return {
+        kind: "not-found",
+        title: "That Sheet doesn’t exist",
+        detail:
+          "The Sheet link in Settings doesn’t point at a Google Sheet any more. Paste the right link in Settings.",
+      };
+    }
+    return {
+      kind: "unknown",
+      title: "Couldn’t reach your Sheet",
+      detail: "Google didn’t answer. Try again in a moment.",
+    };
+  }
+
+  function formatSyncedAgo(at, now) {
+    const t = Number(at) || 0;
+    if (!t) return "Not synced yet";
+    const diff = Math.max(0, (Number(now) || Date.now()) - t);
+    if (diff < 60000) return "Synced just now";
+    if (diff < 3600000) return `Synced ${Math.floor(diff / 60000)} min ago`;
+    if (diff < 86400000) return `Synced ${Math.floor(diff / 3600000)} h ago`;
+    return `Synced ${Math.floor(diff / 86400000)} d ago`;
+  }
+
+  function getLoadState() {
+    return {
+      dataLoaded: loadState.dataLoaded,
+      lastSyncedAt: loadState.lastSyncedAt,
+      lastFailure: loadState.lastFailure ? { ...loadState.lastFailure } : null,
+      loading: loadState.loading,
+    };
+  }
+
+  /* ---- sync bar: "Synced 2 min ago" + Refresh, and the failure banner ---- */
+
+  function makeEl(tag, cls, text) {
+    const el = document.createElement(tag);
+    if (cls) el.className = cls;
+    if (text != null) el.textContent = text;
+    return el;
+  }
+
+  function clearChildren(el) {
+    if (typeof el.replaceChildren === "function") {
+      el.replaceChildren();
+      return;
+    }
+    while (el.firstChild) el.removeChild(el.firstChild);
+  }
+
+  function ensureSyncBar() {
+    if (typeof document.createElement !== "function" || !document.body) return null;
+    const existing = document.getElementById("jbSyncBar");
+    if (existing) return existing;
+    const bar = makeEl("div", "jb-sync");
+    bar.setAttribute("id", "jbSyncBar");
+    bar.setAttribute("data-state", "ok");
+    bar.hidden = true;
+
+    const row = makeEl("div", "jb-sync__row");
+    const label = makeEl("span", "jb-sync__label", "Not synced yet");
+    label.setAttribute("id", "jbSyncLabel");
+    const refresh = makeEl("button", "jb-sync__refresh", "Refresh");
+    refresh.setAttribute("type", "button");
+    refresh.setAttribute("id", "jbSyncRefreshBtn");
+    refresh.setAttribute("aria-label", "Refresh from your Google Sheet");
+    refresh.addEventListener("click", () => {
+      void loadAllData();
+    });
+    row.appendChild(label);
+    row.appendChild(refresh);
+    bar.appendChild(row);
+
+    const banner = makeEl("div", "jb-sync__banner");
+    banner.setAttribute("id", "jbSyncBanner");
+    banner.setAttribute("role", "alert");
+    banner.hidden = true;
+    bar.appendChild(banner);
+
+    const anchor =
+      typeof document.querySelector === "function"
+        ? document.querySelector('[data-region="today"]')
+        : null;
+    if (anchor && anchor.parentNode) {
+      anchor.parentNode.insertBefore(bar, anchor);
+    } else {
+      document.body.appendChild(bar);
+    }
+    return bar;
+  }
+
+  function renderSyncLabel() {
+    const label = document.getElementById("jbSyncLabel");
+    if (label) label.textContent = formatSyncedAgo(loadState.lastSyncedAt, Date.now());
+  }
+
+  function startSyncTicker() {
+    if (syncTicker || typeof setInterval !== "function") return;
+    syncTicker = setInterval(renderSyncLabel, 30000);
+  }
+
+  function setSyncBusy(busy) {
+    const bar = document.getElementById("jbSyncBar");
+    if (bar) bar.setAttribute("aria-busy", busy ? "true" : "false");
+    const btn = document.getElementById("jbSyncRefreshBtn");
+    if (btn) {
+      btn.textContent = busy ? "Refreshing…" : "Refresh";
+      if (busy) btn.setAttribute("disabled", "");
+      else btn.removeAttribute("disabled");
+    }
+  }
+
+  function renderSyncBanner(failure) {
+    const bar = ensureSyncBar();
+    if (!bar) return;
+    const banner = document.getElementById("jbSyncBanner");
+    if (!banner) return;
+    if (!failure) {
+      banner.hidden = true;
+      bar.setAttribute("data-state", "ok");
+      return;
+    }
+    const copy = describeLoadFailure({ ...failure, email: signedInEmail() });
+    bar.setAttribute("data-state", copy.kind === "offline" ? "offline" : "failed");
+    bar.hidden = false;
+    clearChildren(banner);
+    const text = makeEl("div", "jb-sync__banner-text");
+    text.appendChild(makeEl("strong", "jb-sync__banner-title", copy.title));
+    const since = loadState.lastSyncedAt
+      ? ` You’re seeing what was ${formatSyncedAgo(loadState.lastSyncedAt, Date.now()).replace(/^Synced /, "synced ")}.`
+      : "";
+    text.appendChild(makeEl("span", "jb-sync__banner-detail", copy.detail + since));
+    banner.appendChild(text);
+
+    const actions = makeEl("div", "jb-sync__banner-actions");
+    const retry = makeEl("button", "jb-sync__btn jb-sync__btn--primary", "Retry");
+    retry.setAttribute("type", "button");
+    retry.addEventListener("click", () => {
+      void loadAllData();
+    });
+    actions.appendChild(retry);
+    const h = host();
+    if (copy.kind === "forbidden") {
+      const sid = normalizeActiveSheetId(h.getActiveSheetId && h.getActiveSheetId());
+      if (sid) {
+        const open = makeEl("a", "jb-sync__btn", "Open Sheet");
+        open.setAttribute(
+          "href",
+          `https://docs.google.com/spreadsheets/d/${encodeURIComponent(sid)}/edit`,
+        );
+        open.setAttribute("target", "_blank");
+        open.setAttribute("rel", "noopener");
+        actions.appendChild(open);
+      }
+    }
+    if (copy.kind === "forbidden" || copy.kind === "not-found") {
+      const settings = makeEl("button", "jb-sync__btn", "Open Settings");
+      settings.setAttribute("type", "button");
+      settings.addEventListener("click", () => {
+        if (typeof window.openCommandCenterSettingsModal === "function") {
+          window.openCommandCenterSettingsModal();
+        }
+      });
+      actions.appendChild(settings);
+    }
+    if (copy.kind === "session") {
+      const signIn = makeEl("button", "jb-sync__btn", "Sign in");
+      signIn.setAttribute("type", "button");
+      signIn.addEventListener("click", () => {
+        if (typeof h.showSheetAccessGate === "function") h.showSheetAccessGate("signin");
+      });
+      actions.appendChild(signIn);
+    }
+    banner.appendChild(actions);
+    banner.hidden = false;
+  }
+
+  function hideSyncBar() {
+    const bar = document.getElementById && document.getElementById("jbSyncBar");
+    if (bar) bar.hidden = true;
+  }
+
+  function wireConnectivity() {
+    if (connectivityWired || typeof window.addEventListener !== "function") return;
+    connectivityWired = true;
+    window.addEventListener("offline", () => {
+      if (!loadState.dataLoaded) return;
+      renderSyncBanner({ status: 0, kind: "offline" });
+    });
+    window.addEventListener("online", () => {
+      if (!loadState.dataLoaded) return;
+      void loadAllData().then((ok) => {
+        const w = window.JobBoredApp && window.JobBoredApp.sheetsWrite;
+        if (ok && w && typeof w.flushPendingFavorites === "function") {
+          void w.flushPendingFavorites();
+        }
+      });
+    });
+  }
+
+  function recordLoadSuccess(pipelineData) {
+    const first = !loadState.dataLoaded;
+    loadState.dataLoaded = true;
+    loadState.lastSyncedAt = Date.now();
+    loadState.lastFailure = null;
+    try {
+      if (document.documentElement && document.documentElement.dataset) {
+        document.documentElement.dataset.jbDataLoaded = "true";
+      }
+    } catch (_) {
+      /* dataset is a convenience hook for CSS; ignore */
+    }
+    const bar = ensureSyncBar();
+    if (bar) bar.hidden = false;
+    renderSyncBanner(null);
+    renderSyncLabel();
+    startSyncTicker();
+    wireConnectivity();
+    emitDataEvent("jb:data:loaded", {
+      rows: pipelineData,
+      count: Array.isArray(pipelineData) ? pipelineData.length : 0,
+      first,
+      lastSyncedAt: loadState.lastSyncedAt,
+    });
+  }
+
+  function recordLoadFailure() {
+    const failure = lastReadFailure ||
+      (isOnline() ? { status: 0, kind: "unknown" } : { status: 0, kind: "offline" });
+    loadState.lastFailure = failure;
+    emitDataEvent("jb:data:load-failed", {
+      status: failure.status,
+      kind: failure.kind,
+      lastSyncedAt: loadState.lastSyncedAt,
+      hasLastGood: loadState.dataLoaded,
+    });
+    return failure;
+  }
+
   // localStorage-backed pending favorites map. Keyed by the job link (or by a
   // link-less synthetic key built from title|company so manually-entered rows
   // without a link still persist). Survives across refresh so a user who
@@ -295,9 +613,13 @@
       // could not be refreshed, so surface it honestly instead of letting
       // the caller silently downgrade to unauthenticated reads. Concurrent
       // reads race here at boot — only the first one clears and toasts.
+      lastReadFailure = { status: 401, kind: "session" };
       if (h.getAccessToken()) {
         h.clearSessionAuthState();
-        h.showToast("Session expired — please sign in again", "error", true);
+        h.showToast("Your Google session ended — sign in again", "error", true, {
+          label: "Sign in",
+          onClick: () => h.showSheetAccessGate("signin"),
+        });
       }
       return null;
     }
@@ -312,6 +634,7 @@
         (err.error && err.error.message) ||
         `Sheets API ${resp.status} on ${name}`;
       h.recordSheetAccessError({ message: msg, status: resp.status });
+      lastReadFailure = { status: resp.status, kind: "http" };
       return null;
     }
     const data = await resp.json();
@@ -333,6 +656,9 @@
         }
       } catch (e) {
         console.warn("[JobBored] Sheets API read:", e);
+        // fetch() rejects only when the request never got an answer:
+        // offline, DNS, or a blocked connection. Say so in plain words.
+        lastReadFailure = { status: 0, kind: "offline" };
       }
       if (!h.getAccessToken()) {
         // The session expired mid-read (401 + failed silent refresh cleared
@@ -504,6 +830,7 @@
 
   async function loadAllData() {
     const h = host();
+    lastReadFailure = null;
     startupLog("sheets-read:load:start", {
       hasOAuthClientId: !!h.getOAuthClientId(),
       hasAccessToken: !!h.getAccessToken(),
@@ -520,10 +847,12 @@
       h.setPipelineData([]);
       h.setDashboardDataHydrated(false);
       h.showSheetAccessGate("signin");
+      hideSyncBar();
       return false;
     }
 
     if (!normalizeActiveSheetId(h.getActiveSheetId())) {
+      hideSyncBar();
       startupLog("sheets-read:load:missing-sheet-id", {
         hasAccessToken: !!h.getAccessToken(),
         hasOAuthClientId: !!h.getOAuthClientId(),
@@ -546,6 +875,8 @@
 
     const refreshBtn = document.getElementById("refreshBtn");
     if (refreshBtn) refreshBtn.classList.add("loading");
+    loadState.loading = true;
+    setSyncBusy(true);
 
     try {
       const pipelineRows = await fetchSheetCSV("Pipeline");
@@ -555,6 +886,7 @@
           initialAccessResolved: !!h.getInitialSheetAccessResolved(),
           hasAccessToken: !!h.getAccessToken(),
         }, "error");
+        const failure = recordLoadFailure();
         if (!h.getInitialSheetAccessResolved()) {
           if (!h.getAccessToken() && h.getOAuthClientId()) {
             h.showSheetAccessGate("signin");
@@ -564,6 +896,8 @@
             h.showSheetAccessGate("error");
           }
         } else {
+          // Mid-session: keep the last good board, say what broke, offer Retry.
+          renderSyncBanner(failure);
           showErrorState();
         }
         h.setDataLoadFailed(true);
@@ -601,6 +935,7 @@
         h.revealDashboardShell();
         h.runPostAccessBootstrapOnce();
       }
+      recordLoadSuccess(pipelineData);
       startupLog("sheets-read:load:complete", {
         jobCount: pipelineData.length,
         dashboardHydrated: true,
@@ -613,17 +948,21 @@
         { message: err && err.message ? err.message : String(err) },
         "error",
       );
+      const failure = recordLoadFailure();
       if (!h.getInitialSheetAccessResolved()) {
         h.showSheetAccessGate(
           !h.getAccessToken() && h.getOAuthClientId() ? "signin" : "error",
         );
       } else {
+        renderSyncBanner(failure);
         showErrorState();
       }
       h.setDataLoadFailed(true);
       return false;
     } finally {
       if (refreshBtn) refreshBtn.classList.remove("loading");
+      loadState.loading = false;
+      setSyncBusy(false);
     }
   }
 
@@ -635,26 +974,40 @@
     const errorViewSheet = document.getElementById("errorViewSheet");
     const errorHint = document.getElementById("errorStateHint");
 
-    jobCards.innerHTML = "";
-    errorState.style.display = "block";
-    errorOpenDirect.href = window.location.href;
-    errorViewSheet.href = `https://docs.google.com/spreadsheets/d/${h.getActiveSheetId()}`;
-    if (errorHint) {
-      // Prefer the real Sheets API error recorded during the failed read
-      // (e.g. "The caller does not have permission") over a generic guess.
-      const lastApiError =
-        typeof h.getLastSheetAccessError === "function"
-          ? String(h.getLastSheetAccessError() || "")
-          : "";
-      if (lastApiError) {
-        errorHint.textContent = lastApiError;
-      } else if (h.getOAuthClientId()) {
-        errorHint.textContent =
-          "Confirm you’re signed in with Google and the Sheet ID is correct.";
-      } else {
-        errorHint.textContent =
-          "Publish the sheet for public read access, or add an OAuth client in Settings.";
+    // SS-01: a failed refresh after a good load must not wipe the board —
+    // the sync banner above carries the error and the Retry. Only a load
+    // that never succeeded falls back to the legacy error block.
+    if (loadState.dataLoaded) {
+      if (errorState) errorState.style.display = "none";
+      return;
+    }
+    if (jobCards) jobCards.innerHTML = "";
+    if (errorState) errorState.style.display = "block";
+    if (errorOpenDirect) {
+      // SS-10: the primary action retries instead of reopening this page.
+      errorOpenDirect.textContent = "Retry";
+      errorOpenDirect.href = "#";
+      errorOpenDirect.target = "";
+      if (
+        typeof errorOpenDirect.addEventListener === "function" &&
+        !errorOpenDirect._jbRetryWired
+      ) {
+        errorOpenDirect.addEventListener("click", (e) => {
+          if (e && typeof e.preventDefault === "function") e.preventDefault();
+          void loadAllData();
+        });
+        errorOpenDirect._jbRetryWired = true;
       }
+    }
+    if (errorViewSheet) {
+      errorViewSheet.href = `https://docs.google.com/spreadsheets/d/${h.getActiveSheetId()}`;
+    }
+    if (errorHint) {
+      const copy = describeLoadFailure({
+        ...(loadState.lastFailure || { status: 0, kind: "unknown" }),
+        email: signedInEmail(),
+      });
+      errorHint.textContent = `${copy.title}. ${copy.detail}`;
     }
   }
 
@@ -669,6 +1022,9 @@
     getUsedPublicSheetFallback,
     setUsedPublicSheetFallback,
     loadAllData,
+    describeLoadFailure,
+    formatSyncedAgo,
+    getLoadState,
     showErrorState,
     hideErrorState,
     applyFavoriteCache,

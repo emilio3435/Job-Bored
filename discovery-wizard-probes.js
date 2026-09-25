@@ -1051,9 +1051,49 @@
     requestFixSetup,
   });
 
+
+  /**
+   * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+   * JobBoredDiscoveryHelpers.confirmHostChange, which names what changes and
+   * logs the answer.
+   */
+  function askHostChange(opts) {
+    const helpers = typeof window !== "undefined" ? window.JobBoredDiscoveryHelpers : null;
+    if (helpers && typeof helpers.confirmHostChange === "function") {
+      return helpers.confirmHostChange(opts);
+    }
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      return !!window.confirm(
+        "JobBored will " +
+          [
+            opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+            opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+          ]
+            .filter(Boolean)
+            .join(", and ") +
+          " on this computer. Continue?",
+      );
+    }
+    return true;
+  }
+
   async function requestFixSetup() {
     const origin = window.location.origin || "http://localhost:8080";
     const url = `${origin}/__proxy/fix-setup`;
+    if (
+      !askHostChange({
+        action: "Fix setup",
+        writesEnv: true,
+        restartsWorker: true,
+        redeploysRelay: true,
+      })
+    ) {
+      return {
+        ok: false,
+        phase: "declined",
+        message: "Setup left unchanged — nothing on this computer was touched.",
+      };
+    }
     try {
       const res = await fetch(url, { method: "POST" });
       return await res.json();

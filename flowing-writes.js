@@ -106,6 +106,15 @@
     return u.trim().toLowerCase();
   }
 
+  /**
+   * UX01 C20: a jobKey / dataIndex of numeric 0 is a real key (the first
+   * pipelineData row). Only null, undefined and "" count as missing.
+   * @param {any} key
+   */
+  function isMissingKey(key) {
+    return key == null || key === "";
+  }
+
   function toSheetRowNumber(value) {
     if (typeof value === "number" && Number.isFinite(value) && value >= 2) {
       return Math.floor(value);
@@ -230,7 +239,7 @@
   }
 
   function findCardsForJobKey(jobKey) {
-    if (!jobKey || typeof document === "undefined" || !document.querySelector) return [];
+    if (isMissingKey(jobKey) || typeof document === "undefined" || !document.querySelector) return [];
     var sel = "[data-stable-key=\"" + String(jobKey).replace(/"/g, "\\\"") + "\"]";
     try {
       if (document.querySelectorAll) return document.querySelectorAll(sel) || [];
@@ -275,6 +284,24 @@
     return "";
   }
 
+  /**
+   * DS-08: the posting link from the loaded pipeline row (jobKey is its
+   * index). Returns "" when there is no such row or no link.
+   * @param {string|number} jobKey
+   */
+  function readJobLinkFromApp(jobKey) {
+    var jb = window.JobBored;
+    if (!jb || typeof jb.getPipelineJobs !== "function") return "";
+    var idx = Number(jobKey);
+    if (!Number.isInteger(idx) || idx < 0) return "";
+    try {
+      var job = (jb.getPipelineJobs() || [])[idx];
+      return job && job.link ? String(job.link).trim() : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function readSheetRowFromApp(jobKey) {
     var jb = window.JobBored;
     if (!jb || typeof jb.getPipelineSheetRow !== "function") return null;
@@ -316,7 +343,7 @@
    * @returns {Promise<number>} sheet row (>= 2), throws on miss.
    */
   async function resolveSheetRow(jobKey) {
-    if (jobKey == null || jobKey === "") {
+    if (isMissingKey(jobKey)) {
       throw new Error("Missing jobKey");
     }
     // 1) URL match against column E.
@@ -332,8 +359,8 @@
     if (appRow) return appRow;
     var domRow = readSheetRowFromDom(jobKey);
     if (domRow) return domRow;
-    // 3) DOM indirection -> URL match.
-    var domLink = readJobLinkFromDom(jobKey);
+    // 3) Row (or, without app.js, rendered card) link -> URL match.
+    var domLink = readJobLinkFromApp(jobKey) || readJobLinkFromDom(jobKey);
     var domKey = normalizeUrl(domLink);
     if (domKey) {
       var map2 = await getUrlToRowMap(false);
@@ -372,6 +399,34 @@
     try {
       if (!label) {
         throw new Error("Unknown toStage: " + String(detail.toStage));
+      }
+      /* UX01 C17 (TR-11): the dossier stepper and Today used to write Status
+         alone, so a role's applied and follow-up dates depended on which
+         button was pressed. Every move now goes through the one planner; the
+         Status-only PUT below is the fallback when the planner cannot resolve
+         a row (no adapter host in the page). */
+      var adapter = window.JobBoredPipelineTransitionAdapter;
+      if (adapter && typeof adapter.move === "function") {
+        var planned = await adapter.move({
+          jobKey: jobKey,
+          fromStage: detail.fromStage,
+          toStage: detail.toStage,
+          note: detail.note,
+          source: detail.source || "flowing-writes",
+          handOff: false,
+        });
+        if (planned && (planned.ok || planned.cancelled)) return;
+        var code = planned && planned.code;
+        if (code !== "missing_row" && code !== "missing_patch_api" && code !== "no_writer") {
+          // The adapter (or the Applied dialog) already reported the failure
+          // with jb:write:failed; name it once for the person.
+          if (planned && !planned.applied && code !== "applied_not_saved" &&
+              code !== "persist-failed" && code !== "confirmation-unavailable" &&
+              code !== "confirmation-failed") {
+            safeToast("Couldn't save stage change. It is still in its old stage.", "error");
+          }
+          return;
+        }
       }
       if (String(detail.toStage).trim().toLowerCase() === "applied" &&
           window.JobBoredSubmission &&
@@ -542,7 +597,7 @@
     var jobKey = detail.jobKey;
     var field = detail.field;
     var value = detail.value;
-    if (!jobKey || !field) return;
+    if (isMissingKey(jobKey) || !field) return;
     switch (field) {
       case "stage": return writeStage(jobKey, value);
       case "heardBack": return writeHeardBack(jobKey, value);
@@ -603,6 +658,7 @@
       getUrlToRowMap: getUrlToRowMap,
       sheetsValuesUpdate: sheetsValuesUpdate,
       sheetsValuesGet: sheetsValuesGet,
+      readJobLinkFromApp: readJobLinkFromApp,
       readJobLinkFromDom: readJobLinkFromDom,
       readSheetRowFromDom: readSheetRowFromDom,
       _resetCache: function () { rowIndexCache = null; rowIndexCacheAt = 0; },

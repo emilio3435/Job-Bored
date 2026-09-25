@@ -341,8 +341,10 @@ export type DiscoveryWebhookRequestV1 = {
   /**
    * Optional. When true AND a per-run companyAllowlist matches zero catalog
    * entries, the run may fall back to unrestricted stored-company search.
-   * Omitted/false fails closed (`blocked_unresolved`) instead of silently
-   * broadening.
+   * If the stored active company list and history are empty, that fallback
+   * seeds this run from the requested allowlist names (ephemeral; not
+   * persisted). Omitted/false fails closed (`blocked_unresolved`) instead
+   * of silently broadening.
    */
   allowUnrestrictedFallback?: boolean;
 };

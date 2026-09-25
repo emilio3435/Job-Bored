@@ -94,7 +94,18 @@ async function loadScheduleModule(overrides = {}) {
     }),
   };
 
-  vm.runInNewContext(source, context, {
+  // GREENFIELD D2: settings-profile-tab.js no longer reaches into the raw
+  // override localStorage key — config-overrides.js is the single writer, so
+  // the sandbox loads it exactly as index.html does, before the tab.
+  const configOverridesSource = await readFile(
+    join(repoRoot, "config-overrides.js"),
+    "utf8",
+  );
+  vm.createContext(context);
+  vm.runInContext(configOverridesSource, context, {
+    filename: "config-overrides.js",
+  });
+  vm.runInContext(source, context, {
     filename: "settings-profile-tab.js",
   });
 

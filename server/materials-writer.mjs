@@ -10,6 +10,7 @@ const MAX_OUTPUT_TOKENS = 4096;
 
 const WRITER_SYSTEM_PROMPT = [
   "Rewrite the candidate's materials for this JD.",
+  "The candidate's resume below is the only source of facts: their name, contact details, employers, titles, dates, education, and metrics come from it and nowhere else.",
   "Freeze employers, titles, dates, and metrics — never invent a role or change those facts.",
   "Return JSON only matching the spec schema.",
   "No HTML/CSS in any field.",
@@ -29,10 +30,11 @@ const WRITER_SYSTEM_PROMPT = [
       flourish: "",
     },
     resume: {
+      header: { name: "", headline: "", contact: [""] },
       summary: { opener: "", body: "" },
-      roles: [{ id: "audacy-dsm", bullets: [""] }],
-      capabilitiesOrder: ["..."],
-      stackEmphasis: ["..."],
+      roles: [{ id: "employer-slug", company: "", title: "", dates: "", location: "", bullets: [""] }],
+      education: [""],
+      skills: [""],
     },
   }),
 ].join(" ");
@@ -61,13 +63,20 @@ const WRITER_SYSTEM_PROMPT = [
 /**
  * @typedef {object} ResumeRole
  * @property {string} id
+ * @property {string} [company]
+ * @property {string} [title]
+ * @property {string} [dates]
+ * @property {string} [location]
  * @property {string[]} bullets
  */
 
 /**
  * @typedef {object} ResumeJson
  * @property {ResumeSummary} [summary]
+ * @property {{ name?: string, headline?: string, contact?: string[] }} [header]
  * @property {ResumeRole[]} [roles]
+ * @property {string[]} [education]
+ * @property {string[]} [skills]
  * @property {string[]} [capabilitiesOrder]
  * @property {string[]} [stackEmphasis]
  */
@@ -99,7 +108,8 @@ const WRITER_SYSTEM_PROMPT = [
  * @typedef {object} WriterInput
  * @property {WriterPin} pin
  * @property {string} jdText
- * @property {string} masterResumeHtml
+ * @property {string} masterResumeHtml TEST-ONLY sample layout; "" in production
+ * @property {string} [resumeText] the user's own resume, plain text — the source of facts
  * @property {unknown} [voiceSamples]
  * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
  * @property {number} [timeoutMs]
@@ -194,10 +204,13 @@ export function parseWriterJson(text) {
  * @returns {string}
  */
 function buildUserPrompt(input, extraUserText) {
-  const parts = [
-    `Job description:\n${input.jdText ?? ""}`,
-    `Master resume HTML:\n${input.masterResumeHtml ?? ""}`,
-  ];
+  const parts = [`Job description:\n${input.jdText ?? ""}`];
+  if (input.resumeText) {
+    parts.push(`Candidate's resume (their own words; the only source of facts):\n${input.resumeText}`);
+  }
+  if (input.masterResumeHtml) {
+    parts.push(`Resume layout HTML (fill its role ids):\n${input.masterResumeHtml}`);
+  }
   if (input.voiceSamples != null && !(Array.isArray(input.voiceSamples) && input.voiceSamples.length === 0)) {
     parts.push(`Voice samples:\n${JSON.stringify(input.voiceSamples)}`);
   }

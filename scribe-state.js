@@ -40,6 +40,7 @@
   const UNBOUND_LABEL = "No role bound yet";
 
   const state = {
+    override: null,
     binding: null,
     save: { state: "idle", at: 0, error: "", reason: "", truncated: false },
     autosaveRecord: null,
@@ -88,7 +89,47 @@
     }
   }
 
+  /* UX01 C14 (TA-08): the dossier binds Scribe to the open role's own
+     document. That binding wins over the legacy in-browser session, which
+     v2 never creates. */
+  function bindDocument(doc) {
+    const d = doc || {};
+    const job = d.job && typeof d.job === "object"
+      ? d.job
+      : { title: String(d.title || ""), company: String(d.company || "") };
+    state.override = {
+      job,
+      jobKey: String(d.jobKey == null ? "" : d.jobKey),
+      feature: d.feature === "resume" || d.feature === "resume_update" ? "resume_update" : "cover_letter",
+      filename: String(d.filename || ""),
+    };
+    return refresh();
+  }
+
+  function clearDocument() {
+    if (!state.override) return getBinding();
+    state.override = null;
+    return refresh();
+  }
+
   function buildBinding() {
+    if (state.override) {
+      const o = state.override;
+      const title = String((o.job && (o.job.title || o.job.role)) || "").trim();
+      const company = String((o.job && o.job.company) || "").trim();
+      const parts = [title, company].filter(Boolean);
+      return {
+        bound: parts.length > 0,
+        roleLabel: parts.length ? parts.join(" · ") : UNBOUND_LABEL,
+        title,
+        company,
+        job: o.job,
+        jobKey: o.jobKey,
+        feature: o.feature,
+        filename: o.filename,
+        sessionDraftId: null,
+      };
+    }
     const session = readSession();
     const job = session && session.job && typeof session.job === "object" ? session.job : null;
     const title = String((job && job.title) || "").trim();
@@ -389,6 +430,8 @@
     TEXT_MAX_CHARS,
     UNBOUND_LABEL,
     getBinding,
+    bindDocument,
+    clearDocument,
     refresh,
     subscribe,
     getSaveState,

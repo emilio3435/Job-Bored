@@ -2,10 +2,8 @@
 // ------------------------------------------------------------
 // Vanilla custom elements registered on import:
 //   <jb-fit-ring percent size? label?>
-//   <jb-spark data width? height? color? fill? label?>
 //   <jb-stage-dot stage label?>
 //   <jb-ai-chip variant? icon?>...slot...</jb-ai-chip>
-//   <jb-kbd keys>
 //
 // Plus a CSS-only .jb-sticker primitive (see jb-ui.css).
 //
@@ -14,7 +12,6 @@
 // style without piercing shadow DOM. Outside `body.jb-v2` every
 // element is hidden via display:none in jb-ui.css.
 
-const SVG_NS = "http://www.w3.org/2000/svg";
 
 /* ============================================================
    <jb-fit-ring>
@@ -95,168 +92,6 @@ class JbFitRing extends HTMLElement {
     this.style.setProperty("--jb-ring-angle", `${(percent / 100) * 360}deg`);
 
     this._text.textContent = labelAttr ? labelAttr : `${Math.round(percent)}%`;
-  }
-}
-
-/* ============================================================
-   <jb-spark>
-   ============================================================ */
-
-class JbSpark extends HTMLElement {
-  static get observedAttributes() {
-    return ["data", "width", "height", "color", "fill", "label"];
-  }
-
-  constructor() {
-    super();
-    this._built = false;
-  }
-
-  connectedCallback() {
-    if (!this._built) this._build();
-    this._render();
-  }
-
-  attributeChangedCallback() {
-    if (!this._built) return;
-    this._render();
-  }
-
-  _build() {
-    this.textContent = "";
-    const svg = document.createElementNS(SVG_NS, "svg");
-    svg.setAttribute("class", "jb-spark__svg");
-    svg.setAttribute("preserveAspectRatio", "none");
-    const area = document.createElementNS(SVG_NS, "polygon");
-    area.setAttribute("class", "jb-spark__area");
-    const line = document.createElementNS(SVG_NS, "polyline");
-    line.setAttribute("class", "jb-spark__line");
-    line.setAttribute("fill", "none");
-    const dot = document.createElementNS(SVG_NS, "circle");
-    dot.setAttribute("class", "jb-spark__dot");
-    svg.appendChild(area);
-    svg.appendChild(line);
-    svg.appendChild(dot);
-    this.appendChild(svg);
-    this._svg = svg;
-    this._area = area;
-    this._line = line;
-    this._dot = dot;
-    this._built = true;
-  }
-
-  _parseData(raw) {
-    if (!raw) return [];
-    const trimmed = String(raw).trim();
-    if (!trimmed) return [];
-    if (trimmed.startsWith("[")) {
-      try {
-        const arr = JSON.parse(trimmed);
-        if (Array.isArray(arr)) {
-          return arr.map((v) => Number(v)).filter((v) => Number.isFinite(v));
-        }
-      } catch {
-        /* fall through to CSV */
-      }
-    }
-    return trimmed
-      .split(",")
-      .map((s) => Number(s.trim()))
-      .filter((v) => Number.isFinite(v));
-  }
-
-  _render() {
-    const width = Math.max(1, Number(this.getAttribute("width")) || 60);
-    const height = Math.max(1, Number(this.getAttribute("height")) || 16);
-    const data = this._parseData(this.getAttribute("data"));
-    const colorName = (this.getAttribute("color") || "mint").replace(
-      /[^a-z0-9-]/gi,
-      "",
-    );
-    const colorVar = `var(--jb-${colorName || "mint"})`;
-    const fillAttr = this.getAttribute("fill");
-    const fillOn = fillAttr === null ? true : fillAttr !== "false";
-    const labelAttr = this.getAttribute("label");
-
-    this._svg.setAttribute("width", String(width));
-    this._svg.setAttribute("height", String(height));
-    this._svg.setAttribute("viewBox", `0 0 ${width} ${height}`);
-    this._line.setAttribute("stroke", colorVar);
-    this._line.setAttribute("stroke-width", "1.5");
-    this._line.setAttribute("stroke-linecap", "round");
-    this._line.setAttribute("stroke-linejoin", "round");
-    this._dot.setAttribute("r", "2");
-    this._dot.setAttribute("fill", colorVar);
-
-    if (labelAttr) {
-      this.setAttribute("role", "img");
-      this.setAttribute("aria-label", labelAttr);
-      this.removeAttribute("aria-hidden");
-    } else {
-      this.setAttribute("aria-hidden", "true");
-      this.removeAttribute("role");
-      this.removeAttribute("aria-label");
-    }
-
-    const pad = 1.5;
-    const innerW = Math.max(0.0001, width - pad * 2);
-    const innerH = Math.max(0.0001, height - pad * 2);
-
-    let points;
-    let dotX;
-    let dotY;
-
-    if (data.length === 0) {
-      const y = height / 2;
-      points = `${pad},${y} ${width - pad},${y}`;
-      dotX = width - pad;
-      dotY = y;
-    } else if (data.length === 1) {
-      const y = height / 2;
-      const x = width / 2;
-      points = `${x},${y}`;
-      dotX = x;
-      dotY = y;
-    } else {
-      let min = Infinity;
-      let max = -Infinity;
-      for (const v of data) {
-        if (v < min) min = v;
-        if (v > max) max = v;
-      }
-      const range = max - min;
-      const step = innerW / (data.length - 1);
-      const coords = data.map((v, i) => {
-        const x = pad + step * i;
-        const norm = range === 0 ? 0.5 : (v - min) / range;
-        const y = pad + (1 - norm) * innerH;
-        return [x, y];
-      });
-      points = coords.map(([x, y]) => `${x.toFixed(2)},${y.toFixed(2)}`).join(" ");
-      const last = coords[coords.length - 1];
-      dotX = last[0];
-      dotY = last[1];
-    }
-
-    this._line.setAttribute("points", points);
-    this._dot.setAttribute("cx", dotX.toFixed(2));
-    this._dot.setAttribute("cy", dotY.toFixed(2));
-
-    if (fillOn && data.length >= 2) {
-      const baseY = height - pad;
-      const firstX = pad;
-      const lastX = width - pad;
-      const areaPoints = `${firstX},${baseY} ${points} ${lastX},${baseY}`;
-      this._area.setAttribute("points", areaPoints);
-      this._area.setAttribute(
-        "fill",
-        `color-mix(in srgb, ${colorVar} 18%, transparent)`,
-      );
-      this._area.setAttribute("stroke", "none");
-      this._area.style.display = "";
-    } else {
-      this._area.style.display = "none";
-    }
   }
 }
 
@@ -388,86 +223,12 @@ class JbAiChip extends HTMLElement {
 }
 
 /* ============================================================
-   <jb-kbd>
-   ============================================================ */
-
-const KEY_PRETTY = {
-  cmd: "⌘",
-  command: "⌘",
-  meta: "⌘",
-  shift: "⇧",
-  alt: "⌥",
-  option: "⌥",
-  ctrl: "⌃",
-  control: "⌃",
-  esc: "Esc",
-  escape: "Esc",
-  enter: "Enter",
-  return: "Enter",
-  tab: "Tab",
-  space: "Space",
-  up: "↑",
-  down: "↓",
-  left: "←",
-  right: "→",
-};
-
-function prettyKey(raw) {
-  const k = raw.trim();
-  if (!k) return "";
-  const lower = k.toLowerCase();
-  if (KEY_PRETTY[lower]) return KEY_PRETTY[lower];
-  if (k.length === 1) return k.toUpperCase();
-  return k;
-}
-
-class JbKbd extends HTMLElement {
-  static get observedAttributes() {
-    return ["keys"];
-  }
-
-  connectedCallback() {
-    this._render();
-  }
-
-  attributeChangedCallback() {
-    this._render();
-  }
-
-  _render() {
-    const raw = this.getAttribute("keys") || "";
-    const parts = raw
-      .split("+")
-      .map((p) => p.trim())
-      .filter((p) => p.length > 0);
-    this.textContent = "";
-    parts.forEach((part, i) => {
-      const chip = document.createElement("span");
-      chip.className = "jb-kbd__key";
-      chip.textContent = prettyKey(part);
-      this.appendChild(chip);
-      if (i < parts.length - 1) {
-        const sep = document.createElement("span");
-        sep.className = "jb-kbd__sep";
-        sep.setAttribute("aria-hidden", "true");
-        sep.textContent = "·";
-        this.appendChild(sep);
-      }
-    });
-    this.setAttribute("role", "group");
-    this.setAttribute("aria-label", parts.join(" plus "));
-  }
-}
-
-/* ============================================================
    Self-register
    ============================================================ */
 
 if (!customElements.get("jb-fit-ring")) customElements.define("jb-fit-ring", JbFitRing);
-if (!customElements.get("jb-spark")) customElements.define("jb-spark", JbSpark);
 if (!customElements.get("jb-stage-dot")) customElements.define("jb-stage-dot", JbStageDot);
 if (!customElements.get("jb-ai-chip")) customElements.define("jb-ai-chip", JbAiChip);
-if (!customElements.get("jb-kbd")) customElements.define("jb-kbd", JbKbd);
 
 // Loaded as a classic <script defer> (see index.html), NOT a module — an ES
 // `export` here is a SyntaxError that aborts the entire file and unregisters

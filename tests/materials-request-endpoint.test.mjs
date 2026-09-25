@@ -19,6 +19,12 @@ describe("normalizeRequestBody", () => {
     feature: "cover_letter",
     jobUrl: "https://example.com/jobs/1",
     notes: "Tighten the opening paragraph.",
+    resume: {
+      source: "portfolio",
+      filename: "resume.pdf",
+      addedAt: "2026-09-20T00:00:00.000Z",
+      text: "Sample Candidate\nAnalyst",
+    },
   };
 
   it("accepts a fully-formed body", () => {
@@ -78,6 +84,12 @@ describe("spawnMaterialsRequest", () => {
     feature: "cover_letter",
     jobUrl: "https://example.com/jobs/1",
     notes: "A note",
+    resume: {
+      source: "portfolio",
+      filename: "resume.pdf",
+      addedAt: "2026-09-20T00:00:00.000Z",
+      text: "Sample Candidate\nAnalyst",
+    },
   };
 
   it("delegates to options.enqueue and keeps dossier field names", async () => {

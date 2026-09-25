@@ -1,0 +1,14 @@
+import { openApp, shoot } from "/Users/emilionunezgarcia/Job-Bored.worktrees/ux01/docs/programs/ux01-20260925/audit/tools/audit-harness.mjs";
+const vp = process.argv[2] || "phone";
+const app = await openApp({ mode: "signed-in", viewport: vp });
+const { page } = app;
+const r = (s) => page.evaluate((s) => [...document.querySelectorAll(s)].slice(0,12).map(e => { const b = e.getBoundingClientRect(); const cs = getComputedStyle(e); return `${e.className.toString().slice(0,50)} x=${Math.round(b.x)} w=${Math.round(b.width)} h=${Math.round(b.height)} ov=${cs.overflowX} disp=${cs.display}`; }), s);
+console.log("chrome", await r(".page-top__actions, .page-top__action, #authMenuToggle, .page-top__menu, [class*=hamburger], .page-top__burger"));
+console.log("board", await r(".pipe-board"));
+console.log("cols", await r(".pipe-col"));
+console.log("cards", await r(".pipe-sticker"));
+const t = page.locator('[data-action="move-to-stage"]:visible').first();
+await t.scrollIntoViewIfNeeded(); await t.click(); await page.waitForTimeout(1200);
+console.log("menu", await page.evaluate(() => { const m = document.querySelector(".jb-a11y-stage-menu__list:not([hidden])") || document.querySelector(".jb-a11y-stage-menu__list"); if (!m) return "none"; const items = [...m.querySelectorAll("[role=menuitem]")]; return { listHidden: m.hidden, style: getComputedStyle(m).position + " z=" + getComputedStyle(m).zIndex + " op=" + getComputedStyle(m).opacity, active: document.activeElement?.textContent?.trim(), items: items.map(i => { const b = i.getBoundingClientRect(); const top = document.elementFromPoint(b.x + b.width/2, b.y + b.height/2); return `${i.textContent.trim()} ${Math.round(b.width)}x${Math.round(b.height)} hit=${top === i || i.contains(top) ? "self" : (top?.className?.toString().slice(0,40))}`; }) }; }));
+await shoot(page, "access-responsive", "stage-menu-open-card", { });
+await app.close();

@@ -668,6 +668,67 @@ test("F1C-DISC03: mergeDiscoveryConfig uses merged profile and nested profile in
   assert.equal(result.seniority, "ic_staff");
 });
 
+test("mergeDiscoveryConfig replaces shipped ATS example seeds with dashboard allowlist names", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [],
+      atsCompanies: [
+        { name: "Scale AI", companyKey: "scale-ai" },
+        { name: "Figma", companyKey: "figma" },
+        { name: "Notion", companyKey: "notion" },
+      ],
+    }) as any,
+    makeRequest({
+      companyAllowlist: ["The Trade Desk", "LiveRamp"],
+      allowUnrestrictedFallback: true,
+      discoveryProfile: {
+        targetRoles: "Director of Integrated Marketing",
+      },
+    }),
+  );
+
+  assert.deepEqual(
+    result.companies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp"],
+  );
+  assert.deepEqual(
+    (result.atsCompanies || []).map((company) => company.name),
+    ["The Trade Desk", "LiveRamp"],
+  );
+});
+
+test("mergeDiscoveryConfig seeds an empty local catalog from dashboard allowlist names", () => {
+  const result = mergeDiscoveryConfig(
+    makeStoredConfig({
+      companies: [],
+      atsCompanies: [],
+    }) as any,
+    makeRequest({
+      companyAllowlist: ["The Trade Desk", "LiveRamp", "HubSpot"],
+      allowUnrestrictedFallback: true,
+      discoveryProfile: {
+        targetRoles: "Director of Integrated Marketing",
+        keywordsInclude: "programmatic",
+      },
+    }),
+  );
+
+  assert.equal(result.allowlistResolution.mode, "explicit_unrestricted");
+  assert.deepEqual(
+    result.companies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+  assert.deepEqual(
+    (result.atsCompanies || []).map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+  assert.ok(
+    result.effectiveSources.includes("grounded_web") ||
+      result.effectiveSources.length > 0,
+    "seeding must not clear effectiveSources the way blocked_unresolved does",
+  );
+});
+
 test("F1C-DISC06: mergeDiscoveryConfig carries blocked_unresolved into run settings", () => {
   const result = mergeDiscoveryConfig(
     makeStoredConfig({
