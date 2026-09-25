@@ -25,7 +25,7 @@ Branch `feat/ux01-shell-today`, cut from `feat/ux-zero-to-one` at cca3e30. Lane 
 | C18 | partial | **Done:** views on the same anchors (TR-19); focus on view change; skip link (AX-12); dossier takes focus and returns it (AX-05, TA-17); pills are plain buttons with `aria-current` pointing at real region ids (AX-12); Escape and `aria-expanded` on the menu (AX-16); chrome at 375 (AX-15); no "(v2)" (AX-23); Ctrl K (AX-24). Scribe now renders only in the Dossier view (TA-09, cost part). **Left to other lanes:** TR-23 card semantics (`pipeline.js`, lane D), AX-25 stepper (`role-case.css`, lane E), and Scribe `hidden` until bound (`scribe.js`, lane E). See handoffs. |
 | C20 | partial | **Done:** one engine (`today-data.js`) with Due in 48 h and Offer open bands (TR-15); Mark answered and the answered rule (TR-13); Done writes R and P once each (TR-12); Snooze and `.ics` (MP-07); Brief lead and card strip read the engine (TR-14); honest 30-day numbers (TR-18). **Left to other lanes:** the dossier People "Next move" (`role-case-model.js`, lane E) and Add to calendar inside Mark submitted (`submission-flow.js`, lane D). The APIs they need exist; see handoffs. |
 | TR-21 | done | `[hidden]` rule in `flowing-chrome.css` now wins over the action display rules. |
-| `jb:data:*` gating | partial | Today listens for `jb:data:loading`, `jb:data:loaded` and `jb:data:load-failed` on `document`. Before the first signal it behaves as it did before. The Brief's empty copy is not gated yet; it now carries action buttons instead of dead copy. |
+| `jb:data:*` gating | done | Today and the Brief both listen for `jb:data:loading`, `jb:data:loaded` and `jb:data:load-failed` on `document`. Before the first signal each behaves as it did before. While loading, the Brief's empty-leads card says "Loading your pipeline…"; after a failed load with no rows it says the pipeline didn't load. Neither shows the first-run Add job / Run discovery buttons. (Fix round 1.) |
 
 ## Tests (a failing test first for each behaviour change)
 
@@ -75,7 +75,8 @@ None. The visual suite asserts structure and has no pixel baselines. Screenshots
 | E | `role-case-model.js:135` | TR-14: the People "Next move" should read `JobBoredRecruiterStrip.nextStep({ jobKey, contact, reply, followUp })` so it says what Today says. | `nextStep` (added) |
 | E | `scribe.js` | TA-09: keep `[data-region="scribe"]` hidden until `binding.bound`. The region already renders only in the Dossier view. | none |
 | E | `role-case.css:152` | AX-25: wrap the stage stepper at 375. | none |
-| F | `app-bootstrap.js` / `sheets-*` | Emit `jb:data:loading` before the first load, then `jb:data:loaded` or `jb:data:load-failed` on `document`. Today shows "Loading your pipeline…" and never shows empty copy after a failed load. | events |
+| F | `app-bootstrap.js` / `sheets-*` | Emit `jb:data:loading` before the first load, then `jb:data:loaded` or `jb:data:load-failed` on `document`. Today and the Brief show "Loading your pipeline…" and never show empty copy after a failed load. | events |
+| owner of `flowing-store.js` | `flowing-store.js:182` | Optional. `setOpen(key)` sends no event when `key` is already open. The chrome now covers this by wrapping `openRole.set` (fix round 1), so nothing is broken. A `jb:role:reopened` event from the store would let the chrome drop the wrapper. | `jb:role:reopened` `{ jobKey }` (proposed) |
 | A | `jb-v2-legacy-hide.css:84-89` | That sheet sets every region to `display:block !important` behind `:has(#dashboard…)`. The view rule therefore needs `!important` and one extra type selector to win. When C4 retires or renames the sheet, the view rule in `flowing-chrome.css` can drop both. | none |
 
 ## Floor (worktree root, after the lane A C2 merge, HEAD 93587e7 plus this report)
@@ -131,3 +132,32 @@ EXIT=0
 [6]   20 passed (24.7s) EXIT=0 
 [7]   37 passed (1.0m) EXIT=0 
 ```
+
+## Fix round 1 (independent review findings)
+
+All four findings were correct. Each got a failing test first, then a root-cause fix.
+
+| Finding | Root cause | Fix | Test (red before, green after) |
+|---|---|---|---|
+| `role.js:560`: the pencil loses focus a tick after it opens the dossier | `focusHeading` ran on every `jb:role:opened` and moved focus to the heading without checking where focus already was. The pencil (`pipeline.js:1517-1518`) puts focus in the title input synchronously, before that tick runs. | `focusHeading` returns early when focus is already inside the role region. A caller that placed focus there did it on purpose. | `shell-today.spec.mjs` "should keep focus in the title input when the card pencil opens the dossier". It was red: after the tick the textarea was "inactive". |
+| `flowing-chrome.js:453`: re-opening the role that is already open does nothing | The view follows `jb:role:opened`, and the store sends that only when the key changes. A view pill leaves `openRole` set, so opening the same role again changed nothing and sent no event. | The chrome owns the views, so at mount it wraps `JobBoredFlowing.openRole.set`. A set to the key that is already open, made while another view shows, captures the opener and shows the Dossier view with focus. Callers are unchanged: pipeline cards, the pencil, Today's `openRoleFallback`, and the Brief's `open-dossier`. `pipeline.js` and `flowing-store.js` are not edited. | "should show the dossier again when the role already open is opened from another view" covers the card click again after a pill, then `openRole.set` from Today. It was red: the dossier stayed hidden. |
+| `today-data.js:263`: Snooze has no effect on a reply row with Last contact blank | `replyAnswered` needed both R and P, and Snooze writes only P. | With R blank, the reference point is today. A Follow-up Date after today means answered or snoozed. A past or blank one leaves the reply owed. Snooze still writes only P, so it never records a contact that did not happen. | `today-next-step-engine.test.mjs` "should take a snoozed reply out of the reply band when Last contact is blank" was red. It has a companion test for a past follow-up that stays owed, and an e2e test that goes through Snooze, then "In 2 days", with one P write. |
+| `dawn.js:156`: the Brief's empty-leads card ignores `jb:data:*` | Only `today.js` listened for the load contract. | `dawn.js` keeps the same `dataState`, bound on `document` at load. The empty-leads card shows a loading or failed status in those states, with no first-run buttons. `.brief-leads-empty__hint` in `dawn.css` uses tokens only. | "should not call a loading or failed pipeline empty in the Brief" was red: the copy said "No active roles" while loading. |
+
+Files touched in this round: `role.js`, `flowing-chrome.js`, `today-data.js`, `dawn.js`, `dawn.css`, `tests/today-next-step-engine.test.mjs`, `tests/e2e-journey/shell-today.spec.mjs`, and this report. Contracts touched: `JobBoredFlowing.openRole.set` is wrapped with the same signature and return value, so the store's event contract is unchanged. The `jb:data:*` contract is read only. There were no Sheet writes beyond the existing `followupAt` path. Baselines refreshed: none.
+
+### Floor (fix round 1, from the worktree root)
+
+Logs: `~/Job-Bored.worktrees/.ux01-run/C-r1-floor-<cmd>.log`, and the summary is in `C-r1-floor-summary.log`.
+
+```
+lint:repo          exit=0   lint:tokens ok: 35 sheet(s), 0 new finding(s), 0 brace error(s)
+typecheck:repo     exit=0
+test               exit=0   ℹ tests 3084 · ℹ pass 3083 · ℹ fail 0 · ℹ todo 1 (pre-existing)
+test:contract:all  exit=0   OK integrations/openclaw-command-center/SKILL.md
+test:e2e-smoke     exit=0   11 passed (14.1s)
+test:e2e-journey   exit=0   24 passed (28.8s)
+test:e2e-visual    exit=0   37 passed (1.0m)
+```
+
+Not verified: a live signed-in run against a real Sheet (hermetic harness only).
