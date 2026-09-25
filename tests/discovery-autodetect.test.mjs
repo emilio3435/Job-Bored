@@ -177,7 +177,7 @@ describe("discovery-autodetect", () => {
               relay: { reachable: true },
             });
           }
-          if (url === "/__proxy/full-boot") {
+          if (String(url).startsWith("/__proxy/full-boot")) {
             return jsonResponse(200, { ok: true, phases: [] });
           }
           throw new Error("unexpected url: " + url);
@@ -187,7 +187,7 @@ describe("discovery-autodetect", () => {
       assert.equal(v.ready, true, "should be ready after recovery");
       assert.equal(probeCount, 2, "should probe twice (before + after)");
       assert.ok(
-        calls.some((c) => c.url === "/__proxy/full-boot" && c.init.method === "POST"),
+        calls.some((c) => String(c.url).startsWith("/__proxy/full-boot") && c.init.method === "POST"),
         "full-boot must have been POSTed",
       );
     });
@@ -202,7 +202,7 @@ describe("discovery-autodetect", () => {
               recoverableHint: "ngrok_rotated",
             });
           }
-          if (url === "/__proxy/full-boot") {
+          if (String(url).startsWith("/__proxy/full-boot")) {
             return jsonResponse(200, { ok: true });
           }
           throw new Error("unexpected url: " + url);
@@ -258,7 +258,7 @@ describe("discovery-autodetect", () => {
       const v = await api.recoverIfPossible({ allowRecover: false });
       assert.equal(v.recommendation, "auto_recoverable");
       assert.ok(
-        !calls.some((c) => c.url === "/__proxy/full-boot"),
+        !calls.some((c) => String(c.url).startsWith("/__proxy/full-boot")),
         "must not call full-boot when allowRecover is false",
       );
     });
@@ -280,5 +280,33 @@ describe("discovery-autodetect", () => {
       api.clearCache();
       assert.equal(api.getCachedState(), null);
     });
+  });
+});
+
+describe("BEAUDIT G4 — autodetect only starts the local worker", () => {
+  it("POSTs full-boot with skip_tunnel=1 so no tunnel or relay deploy runs without consent", async () => {
+    let probeCount = 0;
+    const { api, calls } = loadModule({
+      fetchHandler: async (url) => {
+        if (url === "/__proxy/discovery-state") {
+          probeCount += 1;
+          return jsonResponse(200, {
+            ok: true,
+            recommendation: probeCount === 1 ? "auto_recoverable" : "ready",
+            recoverableHint: "worker_down",
+            worker: { up: probeCount > 1, port: 8644 },
+          });
+        }
+        if (String(url).startsWith("/__proxy/full-boot")) {
+          return jsonResponse(200, { ok: true, phases: [] });
+        }
+        throw new Error("unexpected url: " + url);
+      },
+    });
+    await api.recoverIfPossible();
+    const boots = calls.filter((c) => String(c.url).startsWith("/__proxy/full-boot"));
+    assert.equal(boots.length, 1, "exactly one full-boot");
+    const bootUrl = new URL(boots[0].url, "http://127.0.0.1:8080");
+    assert.equal(bootUrl.searchParams.get("skip_tunnel"), "1", "full-boot must carry skip_tunnel=1");
   });
 });

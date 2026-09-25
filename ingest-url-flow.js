@@ -540,6 +540,16 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
     return headers;
   }
 
+  // Relay requests (the Add URL POST and its status poll) carry the
+  // per-dashboard bearer (G24) and retry once with a refreshed token on a
+  // relay 401.
+  const relayFetch =
+    typeof window !== "undefined" &&
+    window.JobBoredRelayAuth &&
+    typeof window.JobBoredRelayAuth.fetch === "function"
+      ? window.JobBoredRelayAuth.fetch
+      : fetch;
+
   async function buildRequestBody(options = {}) {
     const body = {
       event: "ingest.url.request",
@@ -579,7 +589,7 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
       INGEST_URL_TIMEOUT_MS,
     );
     try {
-      const res = await fetch(endpoint, {
+      const res = await relayFetch(endpoint, {
         method: "POST",
         headers: buildDiscoveryWorkerHeaders(),
         body: JSON.stringify(body),
@@ -677,7 +687,7 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
       await new Promise((resolve) => setTimeout(resolve, pollAfterMs));
       let res;
       try {
-        res = await fetch(statusUrl, {
+        res = await relayFetch(statusUrl, {
           method: "GET",
           mode: "cors",
           headers: statusApi.buildDiscoveryStatusPollHeaders(statusUrl),

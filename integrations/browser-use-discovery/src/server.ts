@@ -34,6 +34,7 @@ import {
 import type { RankedPlannedCompany } from "./discovery/company-planner.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
 import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
+import { checkLoopbackRequestHost } from "../../../server/security-boundaries.mjs";
 import { createWorkerChatMatchClient } from "./match/job-matcher.ts";
 import {
   runDiscovery,
@@ -1013,12 +1014,76 @@ function hasNonBlankStringValue(value: unknown): boolean {
   return Boolean(String(value || "").trim());
 }
 
-const server = createServer(async (request, response) => {
+/**
+ * BEAUDIT A1 (SEC-05): `new URL("//", base)` throws ERR_INVALID_URL. Parse
+ * inside a guard so a raw path is a 400, never an unhandled rejection that
+ * kills the worker and every in-flight run.
+ */
+export function parseWorkerRequestUrl(rawUrl: string | undefined): URL | null {
+  // A request target must be origin-form. `//host/path` would otherwise be
+  // read as a network-path reference that swaps the authority.
+  if (String(rawUrl || "/").startsWith("//")) return null;
+  try {
+    return new URL(rawUrl || "/", "http://127.0.0.1");
+  } catch {
+    return null;
+  }
+}
+
+const server = createServer((request, response) => {
+  handleWorkerRequest(request, response).catch((error: unknown) => {
+    // Catch-all: a handler bug answers 500 and never rethrows.
+    console.error(
+      "[browser-use-discovery] request handler failed:",
+      error instanceof Error ? error.message : String(error),
+    );
+    try {
+      if (!response.headersSent) {
+        response.writeHead(500, { "Content-Type": "application/json" });
+        response.end(JSON.stringify({ ok: false, message: "Internal error." }));
+      } else {
+        response.end();
+      }
+    } catch {
+      // The socket is already gone; nothing left to answer.
+    }
+  });
+});
+
+async function handleWorkerRequest(
+  request: import("node:http").IncomingMessage,
+  response: import("node:http").ServerResponse,
+): Promise<void> {
   const requestId = randomUUID().slice(0, 8);
   const startedAt = Date.now();
   const origin = getHeaderValue(request.headers.origin);
   const corsHeaders = buildCorsHeaders(runtimeConfig.allowedOrigins, origin);
-  const requestUrl = new URL(request.url || "/", "http://127.0.0.1");
+  // BEAUDIT E1: the shared loopback Host guard. A DNS-rebound page reaches
+  // 127.0.0.1 with its own name in Host; only loopback names on this port and
+  // the configured tunnel hosts get through.
+  // Tunnel names extend loopback only. The guard applies to the local run mode
+  // (the loopback-bound worker on the user's machine); a hosted worker sits
+  // behind a reverse proxy that connects over 127.0.0.1 with its public Host,
+  // and the webhook secret gates it instead.
+  const hostCheck =
+    runtimeConfig.runMode === "local"
+      ? checkLoopbackRequestHost(request, {
+          tunnelHosts: runtimeConfig.allowedHosts || [],
+        })
+      : ({ ok: true } as const);
+  if (!hostCheck.ok) {
+    response.writeHead(hostCheck.status, { "Content-Type": "application/json" });
+    response.end(
+      JSON.stringify({ ok: false, code: hostCheck.code, message: hostCheck.error }),
+    );
+    return;
+  }
+  const requestUrl = parseWorkerRequestUrl(request.url);
+  if (!requestUrl) {
+    response.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
+    response.end(JSON.stringify({ ok: false, message: "Malformed request URL." }));
+    return;
+  }
   const requestPath = requestUrl.pathname;
   const method = (request.method || "GET").toUpperCase();
 
@@ -1640,7 +1705,7 @@ const server = createServer(async (request, response) => {
       corsHeaders,
     );
   }
-});
+}
 
 server.listen(runtimeConfig.port, runtimeConfig.host, () => {
   const host =
