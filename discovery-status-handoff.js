@@ -684,8 +684,13 @@ async function pollRunStatus(webhookUrl) {
       // matters more than which entry point carries it.
       if (typeof tracker.markStatusEndpointTerminal === "function") {
         tracker.markStatusEndpointTerminal(message);
-      } else {
+      } else if (typeof tracker.markStatusConnectionLost === "function") {
         tracker.markStatusConnectionLost(message);
+      } else if (typeof tracker.markPollError === "function") {
+        // Minimal/older tracker mounts may expose only the retryable poll
+        // error hook. Keep the poll result contract even when they cannot
+        // record this terminal distinction.
+        tracker.markPollError(message);
       }
       return null;
     }
