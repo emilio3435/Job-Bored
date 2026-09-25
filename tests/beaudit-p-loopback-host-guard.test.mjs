@@ -224,3 +224,101 @@ describe("BEAUDIT E1 repair — the scheme sets the default Host port", () => {
     assert.deepEqual(checkLoopbackRequestHost(req), { ok: true });
   });
 });
+
+describe("BEAUDIT E1 repair — hosted API behind a loopback reverse proxy", () => {
+  async function startApi(port, extraEnv) {
+    const home = mkdtempSync(join(tmpdir(), "beaudit-p-e1h-"));
+    const child = spawn(process.execPath, [join(REPO_ROOT, "server", "index.mjs")], {
+      env: { PATH: process.env.PATH, HOME: home, PORT: String(port), ...extraEnv },
+      stdio: ["ignore", "pipe", "pipe"],
+    });
+    let log = "";
+    child.stdout.on("data", (c) => (log += c));
+    child.stderr.on("data", (c) => (log += c));
+    let up = false;
+    for (let i = 0; i < 60 && !up; i += 1) {
+      try {
+        up = (await send(port, { path: "/health" })).status === 200;
+      } catch {
+        await new Promise((r) => setTimeout(r, 150));
+      }
+    }
+    const stop = () => {
+      child.kill();
+      rmSync(home, { recursive: true, force: true });
+    };
+    if (!up) {
+      stop();
+      throw new Error(`API did not start: ${log}`);
+    }
+    return stop;
+  }
+
+  it("LISTEN_HOST=0.0.0.0 serves an authenticated request whose Host is the public name", async () => {
+    const port = 19005;
+    const stop = await startApi(port, {
+      LISTEN_HOST: "0.0.0.0",
+      JOBBORED_API_TOKEN: "probe-hosted-token",
+      COMMAND_CENTER_ALLOWED_ORIGINS: "https://app.example.com",
+    });
+    try {
+      const authed = await send(port, {
+        path: "/api/llm-config",
+        headers: {
+          host: "api.example.com",
+          origin: "https://app.example.com",
+          "x-api-token": "probe-hosted-token",
+        },
+      });
+      assert.notEqual(authed.status, 403, `hosted request refused: ${authed.text}`);
+      assert.doesNotMatch(authed.text, /HOST_NOT_ALLOWED/);
+      const anon = await send(port, {
+        path: "/api/llm-config",
+        headers: { host: "api.example.com", origin: "https://app.example.com" },
+      });
+      assert.equal(anon.status, 401, "the token gate still holds");
+    } finally {
+      stop();
+    }
+  });
+
+  it("JOBBORED_API_ALLOWED_HOSTS narrows a hosted listener to its trusted names", async () => {
+    const port = 19006;
+    const stop = await startApi(port, {
+      LISTEN_HOST: "0.0.0.0",
+      JOBBORED_API_TOKEN: "probe-hosted-token",
+      JOBBORED_API_ALLOWED_HOSTS: "api.example.com",
+    });
+    try {
+      const trusted = await send(port, {
+        path: "/api/llm-config",
+        headers: { host: "api.example.com", "x-api-token": "probe-hosted-token" },
+      });
+      assert.notEqual(trusted.status, 403, trusted.text);
+      const other = await send(port, {
+        path: "/api/llm-config",
+        headers: { host: "rebind.attacker.test", "x-api-token": "probe-hosted-token" },
+      });
+      assert.equal(other.status, 403);
+      assert.match(other.text, /HOST_NOT_ALLOWED/);
+    } finally {
+      stop();
+    }
+  });
+
+  it("a loopback-only listener still refuses a foreign Host even when trusted hosts are set", async () => {
+    const port = 19007;
+    const stop = await startApi(port, {
+      LISTEN_HOST: "127.0.0.1",
+      JOBBORED_API_ALLOWED_HOSTS: "api.example.com",
+    });
+    try {
+      const evil = await send(port, { path: "/api/llm-config", headers: { host: `rebind.attacker.test:${port}` } });
+      assert.equal(evil.status, 403);
+      const trusted = await send(port, { path: "/api/llm-config", headers: { host: "api.example.com" } });
+      assert.notEqual(trusted.status, 403, trusted.text);
+    } finally {
+      stop();
+    }
+  });
+});

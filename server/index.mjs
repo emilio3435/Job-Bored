@@ -87,6 +87,11 @@ const app = express();
 // extra setup.
 const LOOPBACK_LISTEN_HOSTS = new Set(["", "127.0.0.1", "localhost", "::1"]);
 const REQUIRE_API_AUTH = !LOOPBACK_LISTEN_HOSTS.has(String(HOST).toLowerCase());
+/** Public names this API answers to besides loopback, e.g. api.example.com or *.example.com. */
+const API_TRUSTED_HOSTS = String(process.env.JOBBORED_API_ALLOWED_HOSTS || "")
+  .split(",")
+  .map((host) => host.trim().toLowerCase())
+  .filter(Boolean);
 const API_ACCESS_TOKEN = String(
   process.env.JOBBORED_API_TOKEN || process.env.API_ACCESS_TOKEN || "",
 ).trim();
@@ -177,9 +182,13 @@ function getAtsProviderErrorMetadata(error) {
 
 // BEAUDIT E1: a DNS-rebound page reaches this loopback listener with its own
 // name in Host. Refuse any Host outside {127.0.0.1, localhost, [::1]}:PORT
-// before CORS, auth or a route can see the request.
+// (plus JOBBORED_API_ALLOWED_HOSTS) before CORS, auth or a route can see it.
+// A hosted listener (LISTEN_HOST not loopback) sits behind a proxy that may
+// connect over 127.0.0.1 with the public Host; the token gate protects it, so
+// the Host check applies there only when trusted hosts are configured.
 app.use((req, res, next) => {
-  const hostCheck = checkLoopbackRequestHost(req);
+  if (REQUIRE_API_AUTH && API_TRUSTED_HOSTS.length === 0) return next();
+  const hostCheck = checkLoopbackRequestHost(req, { allowedHosts: API_TRUSTED_HOSTS });
   if (!hostCheck.ok) {
     return res.status(hostCheck.status).json({
       error: hostCheck.error,
