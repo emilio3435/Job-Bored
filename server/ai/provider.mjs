@@ -358,13 +358,19 @@ export function providerRequestError(provider, cause, callerSignal) {
   const label = providerDisplayName(provider);
   const callerAborted = Boolean(callerSignal && callerSignal.aborted) && !isTimeoutLike(callerSignal && callerSignal.reason);
   if (callerAborted) {
-    return new ProviderApiError(`${label} request cancelled`, {
+    const cancelled = new ProviderApiError(`${label} request cancelled`, {
       provider,
       providerCode: "aborted",
       classification: "cancelled",
       retryable: false,
       cause,
     });
+    // Callers across the worker boundary recognise cancellation only by
+    // name === "AbortError" (profile-to-companies, grounded-search,
+    // run-abort). Keep the taxonomy fields and instanceof, but carry the
+    // AbortError name so a cancelled run never enters a fallback path.
+    cancelled.name = "AbortError";
+    return cancelled;
   }
   const timedOut = isTimeoutLike(cause) || isAbortLike(cause);
   return new ProviderApiError(timedOut ? `${label} request timed out` : `${label} request failed`, {

@@ -116,8 +116,13 @@ describe("E15 server/ai/provider.mjs", () => {
         }),
     });
     request.abort();
+    const { ProviderApiError } = await import("../server/ai/provider.mjs");
     await assert.rejects(pending, (error) => {
-      assert.equal(error.name, "ProviderApiError");
+      // Cancellation keeps the AbortError name so worker callers that test
+      // name === "AbortError" propagate it; it is still a ProviderApiError.
+      assert.equal(error.name, "AbortError");
+      assert.ok(error instanceof ProviderApiError);
+      assert.equal(error.classification, "cancelled");
       assert.equal(error.providerCode, "aborted");
       assert.equal(error.retryable, false);
       return true;
