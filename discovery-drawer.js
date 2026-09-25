@@ -300,37 +300,243 @@ function targetSeniorityToHuman(seniority) {
   }
 }
 
+// UX01 FD-26: the drawer's work-mode and seniority selects. Values are the
+// strings the discovery payload already carries ("remote", "Senior", …).
+const REMOTE_CHOICES = [
+  { value: "", label: "Any" },
+  { value: "remote", label: "Remote only" },
+  { value: "hybrid", label: "Hybrid" },
+  { value: "onsite", label: "On-site" },
+];
+const SENIORITY_CHOICES = [
+  { value: "", label: "Any", enum: "any" },
+  { value: "Intern", label: "Intern", enum: "intern" },
+  { value: "Entry", label: "Entry", enum: "entry" },
+  { value: "Mid", label: "Mid", enum: "ic_mid" },
+  { value: "Senior", label: "Senior", enum: "ic_senior" },
+  { value: "Staff", label: "Staff", enum: "ic_staff" },
+  { value: "Principal", label: "Principal", enum: "ic_principal" },
+  { value: "Manager", label: "Manager", enum: "manager" },
+  { value: "Director", label: "Director", enum: "director" },
+  { value: "Head", label: "Head", enum: "head" },
+  { value: "VP", label: "VP", enum: "vp" },
+  { value: "C-level", label: "C-level", enum: "c_level" },
+];
+
+/** Free-text or enum work mode → a REMOTE_CHOICES value ("" when unknown). */
+function normalizeRemoteChoice(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  if (v === "remote_only" || /remote/.test(v)) return "remote";
+  if (v === "hybrid_ok" || /hybrid/.test(v)) return "hybrid";
+  if (v === "onsite_ok" || /on[-\s_]?site|in[-\s]?office/.test(v)) return "onsite";
+  return "";
+}
+
+/** Free-text label or profile enum → a SENIORITY_CHOICES value. */
+function normalizeSeniorityChoice(raw) {
+  const v = String(raw || "").trim().toLowerCase();
+  if (!v) return "";
+  const hit = SENIORITY_CHOICES.find(
+    (c) => c.value.toLowerCase() === v || c.enum === v || c.label.toLowerCase() === v,
+  );
+  return hit ? hit.value : "";
+}
+
+/** A seniority select value → the UserProfile.targetSeniority enum. */
+function humanToTargetSeniority(label) {
+  const v = String(label || "").trim().toLowerCase();
+  if (!v) return undefined;
+  const hit = SENIORITY_CHOICES.find(
+    (c) => c.value.toLowerCase() === v || c.enum === v,
+  );
+  return hit && hit.enum !== "any" ? hit.enum : undefined;
+}
+
 /**
- * Render the empty-state banner shown when no master Fit Profile exists.
- * Inserts (or removes) a banner inside the discovery drawer body.
+ * Put `raw` into a <select>. A value that is neither empty nor one of the
+ * choices (a legacy "senior, staff" list, say) keeps its own option so the
+ * drawer never silently drops what the user saved.
  */
-function renderFitProfileEmptyState(profile) {
+function setChoiceValue(id, raw, normalize) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const text = String(raw || "").trim();
+  const value = normalize(text);
+  if (el.tagName !== "SELECT" || value || !text) {
+    el.value = value || (el.tagName === "SELECT" ? "" : text);
+    return;
+  }
+  const isAny = /^any$/i.test(text);
+  if (isAny) {
+    el.value = "";
+    return;
+  }
+  let custom = el.querySelector("option[data-dp-custom]");
+  if (!custom) {
+    custom = document.createElement("option");
+    custom.setAttribute("data-dp-custom", "");
+    el.appendChild(custom);
+  }
+  custom.value = text;
+  custom.textContent = text;
+  el.value = text;
+}
+
+/** Merge comma lists case-insensitively, keeping the first spelling. */
+function mergeKeywordList(existing, extra) {
+  const out = [];
+  const seen = new Set();
+  const add = (value) => {
+    const t = String(value || "").trim();
+    if (!t) return;
+    const key = t.toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    out.push(t);
+  };
+  String(existing || "").split(",").forEach(add);
+  (Array.isArray(extra) ? extra : String(extra || "").split(",")).forEach(add);
+  return out.join(", ");
+}
+
+/**
+ * One plain line naming what the search will use:
+ * "Senior Product Designer, Design Engineer · Remote only · Senior · Austin".
+ * Empty when there are no roles (the fields show instead).
+ */
+function buildSearchProfileSummary(fields) {
+  const f = fields || {};
+  const roles = String(f.targetRoles || "").trim();
+  if (!roles) return "";
+  const parts = [roles];
+  const remote = REMOTE_CHOICES.find(
+    (c) => c.value && c.value === normalizeRemoteChoice(f.remotePolicy),
+  );
+  if (remote) parts.push(remote.label);
+  const seniority =
+    normalizeSeniorityChoice(f.seniority) ||
+    (/^any$/i.test(String(f.seniority || "").trim())
+      ? ""
+      : String(f.seniority || "").trim());
+  if (seniority) parts.push(seniority);
+  const locations = String(f.locations || "").trim();
+  if (locations) parts.push(locations);
+  return parts.join(" · ");
+}
+
+function hasProfileRoles(profile) {
+  if (!profile || typeof profile !== "object") return false;
+  const identity = profile.identity || {};
+  if (Array.isArray(identity.targetRoles) && identity.targetRoles.some((r) => String(r || "").trim())) {
+    return true;
+  }
+  const roles = profile.targetRoles;
+  if (Array.isArray(roles)) return roles.some((r) => String(r || "").trim());
+  return !!String(roles || "").trim();
+}
+
+/**
+ * UX01 FD-08: the banner is for someone with no search profile anywhere.
+ * `masterProfile` is GET /profile (null when the :3847 API is silent);
+ * `localProfile` is what onboarding saved through getDiscoveryProfile().
+ */
+function shouldShowFitProfileBanner(masterProfile, localProfile) {
+  if (masterProfile) return false;
+  return !hasProfileRoles(localProfile);
+}
+
+/** The banner's call to action: the one-flow fit step, not a second wizard. */
+function openFitProfileSetup() {
+  const flow = window.JobBoredOneFlow;
+  if (flow && typeof flow.open === "function") {
+    closeDiscoveryDrawer();
+    Promise.resolve(flow.open("fit")).catch((err) => {
+      console.warn("[JobBored] open fit step:", err);
+    });
+    return;
+  }
+  h("showToast", "Finish setup to add your roles, then search again.", "info");
+}
+
+/**
+ * Render the empty-state banner, shown only when neither GET /profile nor
+ * the onboarding-saved discovery profile has roles (FD-08). It never hides
+ * the search fields: a user with no profile types their roles right here.
+ */
+function renderFitProfileEmptyState(masterProfile, localProfile) {
   const drawer = discoveryDrawerEl();
   if (!drawer) return;
   const body = drawer.querySelector(".discovery-drawer__body");
   if (!body) return;
   let banner = body.querySelector(".fit-profile-empty-banner");
-  if (profile) {
+  body
+    .querySelectorAll("[data-fit-profile-input]")
+    .forEach((el) => (el.hidden = false));
+  if (!masterProfile) {
+    // Reset-to-profile rows from an earlier open have no profile to reset to.
+    body.querySelectorAll("[data-run-override-row]").forEach((el) => el.remove());
+  }
+  if (!shouldShowFitProfileBanner(masterProfile, localProfile)) {
     if (banner) banner.remove();
-    // Restore visibility of fit-profile-driven inputs
-    body
-      .querySelectorAll("[data-fit-profile-input]")
-      .forEach((el) => (el.hidden = false));
     return;
   }
   if (!banner) {
     banner = document.createElement("div");
     banner.className = "fit-profile-empty-banner";
     banner.setAttribute("role", "status");
-    banner.innerHTML =
-      '<span class="fit-profile-empty-banner__text">Set up your Fit Profile so JobBored can score jobs accurately.</span>' +
-      '<a class="fit-profile-empty-banner__cta" href="#/onboarding/fit-profile">Set up Fit Profile</a>';
+    const text = document.createElement("span");
+    text.className = "fit-profile-empty-banner__text";
+    text.textContent =
+      "Add the roles you want so JobBored can search and score for you.";
+    const cta = document.createElement("button");
+    cta.type = "button";
+    cta.className = "fit-profile-empty-banner__cta btn-modal-secondary";
+    cta.textContent = "Add your roles";
+    cta.addEventListener("click", openFitProfileSetup);
+    banner.appendChild(text);
+    banner.appendChild(cta);
     body.insertBefore(banner, body.firstChild);
   }
-  // When no profile, hide the fields the profile would have populated
-  body
-    .querySelectorAll("[data-fit-profile-input]")
-    .forEach((el) => (el.hidden = true));
+}
+
+function readProfileFieldValues() {
+  const val = (id) => {
+    const el = document.getElementById(id);
+    return el ? el.value : "";
+  };
+  return {
+    targetRoles: val("dpTargetRoles"),
+    locations: val("dpLocations"),
+    remotePolicy: val("dpRemotePolicy"),
+    seniority: val("dpSeniority"),
+  };
+}
+
+/**
+ * UX01 FD-26: show what onboarding captured as one line with "Edit for this
+ * run", instead of re-asking every field. `expand` opens the fields.
+ */
+function syncProfileSummary(opts) {
+  const o = opts || {};
+  const summary = document.getElementById("dpProfileSummary");
+  const fields = document.getElementById("dpProfileFields");
+  const text = document.getElementById("dpProfileSummaryText");
+  const edit = document.getElementById("dpProfileEditBtn");
+  if (!summary || !fields) return false;
+  const line = buildSearchProfileSummary(readProfileFieldValues());
+  const collapsed = !!line && !o.expand;
+  if (text) text.textContent = line;
+  summary.hidden = !collapsed;
+  fields.hidden = collapsed;
+  if (edit) edit.setAttribute("aria-expanded", collapsed ? "false" : "true");
+  return collapsed;
+}
+
+function expandProfileFields() {
+  syncProfileSummary({ expand: true });
+  const first = document.getElementById("dpTargetRoles");
+  if (first && typeof first.focus === "function") first.focus();
 }
 
 /**
@@ -350,8 +556,22 @@ function prefillDrawerFromFitProfile(profile) {
 
   setText("dpTargetRoles", (identity.targetRoles || []).join(", "));
   setText("dpLocations", (hc.acceptableLocations || []).join(", "));
-  setText("dpRemotePolicy", workModeToRemotePolicy(hc.workMode));
-  setText("dpSeniority", targetSeniorityToHuman(identity.targetSeniority));
+  setChoiceValue("dpRemotePolicy", workModeToRemotePolicy(hc.workMode), normalizeRemoteChoice);
+  setChoiceValue(
+    "dpSeniority",
+    targetSeniorityToHuman(identity.targetSeniority),
+    normalizeSeniorityChoice,
+  );
+  // FD-26: what the user said to avoid lands in "Keywords to exclude".
+  const exclude = document.getElementById("dpKeywordsExclude");
+  if (exclude) {
+    exclude.value = mergeKeywordList(
+      exclude.value,
+      (Array.isArray(profile.avoids) ? profile.avoids : []).concat(
+        Array.isArray(hc.skipTitles) ? hc.skipTitles : [],
+      ),
+    );
+  }
 
   attachRunOverrideAffordance("dpTargetRoles", "targetRoles", () =>
     (identity.targetRoles || []).join(", "),
@@ -390,16 +610,9 @@ function prefillDrawerFromFitProfile(profile) {
     setRunOverride("workMode", mode, hc.workMode);
   });
   bindOverrideChange("dpSeniority", (val) => {
-    // Free-text seniority — only treat exact case-insensitive matches as
-    // recognized enum overrides; otherwise leave the base value untouched.
-    const human = String(val || "").trim().toLowerCase();
-    const baseHuman = (targetSeniorityToHuman(identity.targetSeniority) || "")
-      .toLowerCase();
-    if (!human || human === baseHuman) {
-      setRunOverride("targetSeniority", undefined, identity.targetSeniority);
-      return;
-    }
-    setRunOverride("targetSeniority", val, identity.targetSeniority);
+    // FD-26: a select, so every choice maps onto the profile enum.
+    const next = humanToTargetSeniority(val) || "any";
+    setRunOverride("targetSeniority", next, identity.targetSeniority || "any");
   });
 }
 
@@ -456,8 +669,12 @@ function bindOverrideChange(inputId, handler) {
     input.removeEventListener("input", input.__fpOverrideHandler);
   }
   const fn = () => handler(input.value);
+  if (input.__fpOverrideHandler) {
+    input.removeEventListener("change", input.__fpOverrideHandler);
+  }
   input.__fpOverrideHandler = fn;
   input.addEventListener("input", fn);
+  input.addEventListener("change", fn);
 }
 
 /**
@@ -880,6 +1097,14 @@ function openDiscoveryDrawer() {
       : Promise.resolve({});
   prefilled.then(async (p) => {
     Object.entries(fieldMap).forEach(([key, id]) => {
+      if (key === "remotePolicy") {
+        setChoiceValue(id, p && p[key], normalizeRemoteChoice);
+        return;
+      }
+      if (key === "seniority") {
+        setChoiceValue(id, p && p[key], normalizeSeniorityChoice);
+        return;
+      }
       const el = document.getElementById(id);
       if (el) el.value = (p && p[key]) || "";
     });
@@ -909,7 +1134,7 @@ function openDiscoveryDrawer() {
     // shown so the user can complete onboarding.
     try {
       const masterProfile = await loadMasterFitProfile();
-      renderFitProfileEmptyState(masterProfile);
+      renderFitProfileEmptyState(masterProfile, p);
       if (masterProfile) {
         prefillDrawerFromFitProfile(masterProfile);
         renderTuningFromProfile(masterProfile);
@@ -921,7 +1146,10 @@ function openDiscoveryDrawer() {
     }
     // Surface AI provider availability when opening the drawer.
     checkDiscoveryAiAvailability();
-    const first = document.getElementById("dpTargetRoles");
+    const collapsed = syncProfileSummary();
+    const first = document.getElementById(
+      collapsed ? "dpProfileEditBtn" : "dpTargetRoles",
+    );
     const a11y = window.JobBoredA11y;
     if (a11y && a11y.drawer && typeof a11y.drawer.open === "function") {
       drawer._jobBoredA11yHandle = a11y.drawer.open(drawer, {
@@ -1547,6 +1775,9 @@ function initDiscoveryDrawer() {
   const addInstead = document.getElementById("discoveryDrawerAddInstead");
   if (addInstead) addInstead.addEventListener("click", openAddJobInstead);
 
+  const editProfile = document.getElementById("dpProfileEditBtn");
+  if (editProfile) editProfile.addEventListener("click", expandProfileFields);
+
   // Close on backdrop, close button, cancel button, or any data-action="close-discovery-drawer"
   drawer.addEventListener("click", (e) => {
     const target = e.target;
@@ -1944,13 +2175,15 @@ function applyStratumToDrawer(stratum) {
   };
   setVal("dpTargetRoles", stratum.targetRoles);
   setVal("dpLocations", stratum.locations);
-  setVal("dpRemotePolicy", stratum.remotePolicy);
-  setVal("dpSeniority", stratum.seniority);
+  setChoiceValue("dpRemotePolicy", stratum.remotePolicy, normalizeRemoteChoice);
+  setChoiceValue("dpSeniority", stratum.seniority, normalizeSeniorityChoice);
   setVal("dpKeywordsInclude", stratum.keywordsInclude);
   setVal("dpKeywordsExclude", stratum.keywordsExclude);
   if (stratum.sourcePreset) {
     syncSourcePresetUi(normalizeSourcePreset(stratum.sourcePreset));
   }
+  // The idea just rewrote the search: show the fields it changed.
+  syncProfileSummary({ expand: true });
   // Auto-include companies (replace allowlist with the stratum's selection).
   discoveryDrawerState.allow = sanitizeCompanyEntries(
     Array.isArray(stratum.companyAllowlist) ? stratum.companyAllowlist : [],
@@ -1982,6 +2215,13 @@ function initDiscoveryButton() {
     initDiscoveryButton,
     loadMasterFitProfile,
     getEffectiveFitProfileFields,
+    shouldShowFitProfileBanner,
+    buildSearchProfileSummary,
+    normalizeRemoteChoice,
+    normalizeSeniorityChoice,
+    humanToTargetSeniority,
+    mergeKeywordList,
+    syncProfileSummary,
     getDiscoveryRunProfileState() {
       return discoveryRunProfileState;
     },

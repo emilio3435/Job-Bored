@@ -198,7 +198,19 @@
         })
         .filter(Boolean)
         .join(", "),
-      keywordsExclude: strings(hard.skipTitles).join(", "),
+      // UX01 FD-26: the drawer's "Keywords to exclude" carries what the user
+      // said to avoid, not just the titles to skip, deduplicated.
+      keywordsExclude: strings(hard.skipTitles)
+        .concat(strings(model.avoids))
+        .filter(function (value, index, all) {
+          const key = value.toLowerCase();
+          return (
+            all.findIndex(function (other) {
+              return other.toLowerCase() === key;
+            }) === index
+          );
+        })
+        .join(", "),
     };
   }
 

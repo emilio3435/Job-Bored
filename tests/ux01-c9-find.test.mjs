@@ -152,3 +152,189 @@ describe("C9 · runs log settles and tells the truth (FD-15, FD-16)", () => {
     assert.ok(!read("runs-tab.js").includes('return "Retrying"'));
   });
 });
+
+/* ============================================================
+   UX01 C9 fix round 1 — FD-08, FD-26, FD-17.
+   ============================================================ */
+
+function loadDrawer() {
+  const window = {};
+  const ctx = {
+    window,
+    console: { log() {}, warn() {}, error() {} },
+    fetch: async () => ({ ok: false }),
+  };
+  vm.createContext(ctx);
+  vm.runInContext(read("discovery-drawer.js"), ctx, {
+    filename: "discovery-drawer.js",
+  });
+  return window.JobBoredDiscovery.drawer;
+}
+
+describe("C9 · the Fit-Profile banner believes onboarding (FD-08)", () => {
+  it("stays hidden when /profile is silent but onboarding saved roles", () => {
+    const drawer = loadDrawer();
+    assert.equal(
+      drawer.shouldShowFitProfileBanner(null, {
+        targetRoles: "Senior Product Designer",
+      }),
+      false,
+    );
+  });
+
+  it("stays hidden when the master profile loaded", () => {
+    const drawer = loadDrawer();
+    assert.equal(
+      drawer.shouldShowFitProfileBanner(
+        { identity: { targetRoles: ["Staff Engineer"] } },
+        {},
+      ),
+      false,
+    );
+  });
+
+  it("shows only when both sources are empty", () => {
+    const drawer = loadDrawer();
+    assert.equal(drawer.shouldShowFitProfileBanner(null, {}), true);
+    assert.equal(drawer.shouldShowFitProfileBanner(null, null), true);
+    assert.equal(
+      drawer.shouldShowFitProfileBanner(null, { targetRoles: "  " }),
+      true,
+    );
+  });
+
+  it("routes the call to action to the one-flow fit step, not the 7-step wizard", () => {
+    const src = read("discovery-drawer.js");
+    assert.doesNotMatch(src, /href="#\/onboarding\/fit-profile"/);
+    assert.match(src, /JobBoredOneFlow[\s\S]{0,400}\.open\(\s*"fit"\s*\)/);
+    assert.match(src, /renderFitProfileEmptyState\(\s*masterProfile\s*,\s*p\s*\)/);
+  });
+});
+
+describe("C9 · the drawer summarises what onboarding captured (FD-26)", () => {
+  const html = read("partials/discovery-drawer.html");
+
+  it("uses selects for work mode and seniority", () => {
+    assert.match(html, /<select[^>]*id="dpRemotePolicy"/);
+    assert.match(html, /<select[^>]*id="dpSeniority"/);
+  });
+
+  it("puts Max leads under Advanced", () => {
+    const advanced = html.match(/<details[^>]*id="dpAdvanced"[\s\S]*?<\/details>/);
+    assert.ok(advanced, "an Advanced disclosure exists");
+    assert.match(advanced[0], /id="dpMaxLeads"/);
+  });
+
+  it("shows a profile summary with Edit for this run", () => {
+    assert.match(html, /id="dpProfileSummary"/);
+    assert.match(html, /id="dpProfileEditBtn"[\s\S]{0,200}Edit for this run/);
+    assert.match(html, /id="dpProfileFields"/);
+  });
+
+  it("summarises the profile in one plain line", () => {
+    const drawer = loadDrawer();
+    const line = drawer.buildSearchProfileSummary({
+      targetRoles: "Senior Product Designer, Design Engineer",
+      locations: "Austin",
+      remotePolicy: "remote",
+      seniority: "Senior",
+    });
+    assert.match(line, /Senior Product Designer, Design Engineer/);
+    assert.match(line, /Remote only/);
+    assert.match(line, /Senior/);
+    assert.match(line, /Austin/);
+    assert.equal(drawer.buildSearchProfileSummary({ targetRoles: "" }), "");
+  });
+
+  it("maps free-text work mode and seniority onto the select options", () => {
+    const drawer = loadDrawer();
+    assert.equal(drawer.normalizeRemoteChoice("remote-first"), "remote");
+    assert.equal(drawer.normalizeRemoteChoice("Hybrid"), "hybrid");
+    assert.equal(drawer.normalizeRemoteChoice("on-site"), "onsite");
+    assert.equal(drawer.normalizeRemoteChoice(""), "");
+    assert.equal(drawer.normalizeSeniorityChoice("senior"), "Senior");
+    assert.equal(drawer.normalizeSeniorityChoice("ic_staff"), "Staff");
+    assert.equal(drawer.normalizeSeniorityChoice("Any"), "");
+  });
+
+  it("records a seniority edit as the profile enum, not the label", () => {
+    const drawer = loadDrawer();
+    assert.equal(drawer.humanToTargetSeniority("Senior"), "ic_senior");
+    assert.equal(drawer.humanToTargetSeniority("C-level"), "c_level");
+    assert.equal(drawer.humanToTargetSeniority(""), undefined);
+  });
+
+  it("copies avoids into Keywords to exclude without duplicates", () => {
+    const drawer = loadDrawer();
+    assert.equal(
+      drawer.mergeKeywordList("crypto", ["Crypto", "on-call"]),
+      "crypto, on-call",
+    );
+    assert.equal(drawer.mergeKeywordList("", []), "");
+  });
+});
+
+describe("C9 · the runs log fits a phone (FD-17)", () => {
+  const html = read("partials/discovery-runs-modal.html");
+
+  async function runsMod() {
+    const window = {};
+    const ctx = {
+      window,
+      document: {
+        readyState: "complete",
+        getElementById: () => null,
+        addEventListener() {},
+      },
+      console,
+      localStorage: { getItem: () => null, setItem() {}, removeItem() {} },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(read("runs-tab.js"), ctx, { filename: "runs-tab.js" });
+    return window.JobBoredRunsLog;
+  }
+
+  it("heads the table with four columns: Run at, Status, New roles, Why", () => {
+    const heads = (html.match(/<th\b[^>]*>[^<]*<\/th>/g) || []).map((th) =>
+      th.replace(/<[^>]+>/g, "").trim(),
+    );
+    assert.deepEqual(heads, ["Run at", "Status", "New roles", "Why"]);
+  });
+
+  it("offers Run discovery in the header", () => {
+    assert.match(html, /id="runsRunDiscoveryBtn"[\s\S]{0,200}Run discovery/);
+  });
+
+  it("renders four cells, a readable Why, and the rest behind a row disclosure", async () => {
+    const mod = await runsMod();
+    const tbody = { innerHTML: "" };
+    mod.__test.renderRunsTable(tbody, [
+      {
+        runAt: "2026-09-25T15:12:03Z",
+        trigger: "manual",
+        status: "failure",
+        durationS: 47,
+        companiesSeen: 12,
+        leadsWritten: 3,
+        leadsUpdated: 9,
+        source: "worker@v0.4.1",
+        variationKey: "gh-1234-abcd",
+        error: "SerpApi key rejected",
+      },
+    ]);
+    const out = tbody.innerHTML;
+    const rows = out.split(/<\/tr>/).filter((r) => /<tr\b/.test(r));
+    assert.equal(rows.length, 2, "a summary row and a detail row");
+    assert.equal((rows[0].match(/<td\b/g) || []).length, 4);
+    assert.match(rows[0], /class="runs-why-cell"[^>]*>SerpApi key rejected/);
+    assert.match(rows[0], /aria-expanded="false"/);
+    const controls = rows[0].match(/aria-controls="([^"]+)"/)[1];
+    assert.match(rows[1], new RegExp(`id="${controls}"`));
+    assert.match(rows[1], /\bhidden\b/);
+    assert.match(rows[1], /colspan="4"/);
+    assert.match(rows[1], /Duration/);
+    assert.match(rows[1], /worker@v0\.4\.1/);
+    assert.match(rows[1], /gh-1234-abcd/);
+    assert.match(rows[0], /data-runs-view-pipeline/);
+  });
+});
