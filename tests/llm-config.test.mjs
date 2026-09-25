@@ -9,12 +9,15 @@ import {
   migrateLlmConfigFromEnv,
   redactLlmConfig,
   resolveActivePin,
+  clearResolvedFlashCache,
 } from "../server/llm-config.mjs";
 
 let dir;
 let env;
 
 beforeEach(async () => {
+  // resolveActivePin caches the gemini-flash resolution per key (BEAUDIT E18).
+  clearResolvedFlashCache();
   dir = await mkdtemp(join(tmpdir(), "jb-llm-"));
   env = { JOBBORED_LLM_CONFIG_PATH: join(dir, "llm.json") };
 });
@@ -108,8 +111,8 @@ describe("resolveActivePin", () => {
     const pin = await resolveActivePin(
       { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
       {
-        fetchImpl: async (url) => {
-          calls.push(String(url));
+        fetchImpl: async (url, init = {}) => {
+          calls.push({ url: String(url), init });
           return {
             ok: true,
             json: async () => ({
@@ -125,8 +128,9 @@ describe("resolveActivePin", () => {
     );
     assert.equal(pin.resolvedModel, "gemini-3.8-flash");
     assert.equal(calls.length, 1);
-    assert.match(calls[0], /generativelanguage\.googleapis\.com\/v1beta\/models\?key=/);
-    assert.match(calls[0], /[?&]key=k(?:&|$)/);
+    // BEAUDIT E14/B17: the key travels in x-goog-api-key, never the URL.
+    assert.equal(calls[0].url, "https://generativelanguage.googleapis.com/v1beta/models");
+    assert.equal(calls[0].init.headers["x-goog-api-key"], "k");
   });
 
   it("falls back when the default Gemini list throws", async () => {

@@ -41,6 +41,7 @@ import {
   migrateLlmConfigFromEnv,
   resolveActivePin,
 } from "./llm-config.mjs";
+import { normalizeProvider as sharedNormalizeProvider } from "./ai/provider.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -392,9 +393,13 @@ export function getProfileProviderConfig() {
   // key can never stand in for a configured provider — seen 2026-09-02 as
   // "Missing Gemini API key" while PROFILE_PROVIDER said openrouter.
   const explicitProfileProvider = readFirstEnv(["PROFILE_PROVIDER", "PROFILE_LLM_PROVIDER"], "");
+  // A keyless pin is usable only for openai_compatible (Local/Ollama), in the
+  // shared enum's spelling: POST /api/llm-config stores "local" as
+  // openai_compatible (BEAUDIT E2).
   const pinUsable =
     loaded &&
-    (String(loaded.apiKey || "").trim() || normalizeProvider(loaded.provider) === "local");
+    (String(loaded.apiKey || "").trim() ||
+      sharedNormalizeProvider(loaded.provider) === "openai_compatible");
   if (loaded && pinUsable && !explicitProfileProvider) {
     return {
       provider: normalizeProvider(loaded.provider),
