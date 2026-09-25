@@ -292,6 +292,16 @@ describe("pinned transport body: decoding and deadline", () => {
         res.writeHead(200, { "content-type": "text/html" });
         res.write("<html><head>");
         // Never ends: headers arrive, the body stalls.
+      } else if (path === "/redirect-done") {
+        res.writeHead(301, { "content-type": "text/plain", location: "/next" });
+        res.end("moved");
+      } else if (path === "/stall-302") {
+        // A redirect status without Location is returned, not followed.
+        res.writeHead(302, { "content-type": "text/html" });
+        res.write("<html><head>");
+      } else if (path === "/stall-manual") {
+        res.writeHead(302, { "content-type": "text/html", location: "/elsewhere" });
+        res.write("<html><head>");
       } else {
         res.writeHead(200, { "content-type": "text/html" });
         res.end(PAGE);
@@ -364,5 +374,43 @@ describe("pinned transport body: decoding and deadline", () => {
     })();
     assert.ok(outcome.rejected, `safeFetch must reject at the deadline; got body outcome ${outcome.body}`);
     assert.equal(outcome.rejected.name, "AbortError");
+  });
+
+  // Repair round 2: a 3xx that safeFetch returns instead of following (no
+  // Location, or redirect: "manual") must go through the same deadline.
+  for (const [label, path, init] of [
+    ["a 302 without Location", "/stall-302", {}],
+    ["a manual-mode redirect", "/stall-manual", { redirect: "manual" }],
+  ]) {
+    it(`keeps the deadline active for ${label} whose body stalls`, async () => {
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), 150);
+      const outcome = await (async () => {
+        let response;
+        try {
+          response = await safeFetch(`https://jobs.example.com${path}`, { ...init, signal: controller.signal }, {
+            fetchImpl: loopbackTransport,
+          });
+        } catch (error) {
+          return { rejected: error };
+        } finally {
+          clearTimeout(timer);
+        }
+        const hung = new Promise((resolve) => setTimeout(() => resolve("hung"), 1500));
+        const read = response.text().then(() => "read", () => "read-error");
+        return { body: await Promise.race([read, hung]) };
+      })();
+      assert.ok(outcome.rejected, `safeFetch must reject at the deadline; got body outcome ${outcome.body}`);
+      assert.equal(outcome.rejected.name, "AbortError");
+    });
+  }
+
+  it("still returns a completed manual-mode redirect with its status and Location", async () => {
+    const response = await safeFetch("https://jobs.example.com/redirect-done", { redirect: "manual" }, {
+      fetchImpl: loopbackTransport,
+    });
+    assert.equal(response.status, 301);
+    assert.equal(response.headers.get("location"), "/next");
+    assert.equal(await response.text(), "moved");
   });
 });

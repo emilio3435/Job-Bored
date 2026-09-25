@@ -489,7 +489,11 @@ export async function safeFetch(
     const status = Number(response && response.status);
     if (status >= 300 && status < 400 && response.headers && typeof response.headers.get === "function") {
       const location = response.headers.get("location");
-      if (!location || redirectMode === "manual") return response;
+      // A redirect handed back to the caller is still read under the
+      // deadline and the cap, like any final response.
+      if (!location || redirectMode === "manual") {
+        return readCappedBody(response, maxBytes, target.url, signal);
+      }
       discardBody(response);
       if (redirectMode === "error") {
         throw new Error(`Unexpected redirect (HTTP ${status}) from ${target.url}`);
