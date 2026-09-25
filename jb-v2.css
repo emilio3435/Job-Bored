@@ -31,8 +31,8 @@ body.jb-v2 {
   -moz-osx-font-smoothing: grayscale;
 }
 
-body.jb-v2 h1,
-body.jb-v2 h2 {
+:where(body.jb-v2) h1,
+:where(body.jb-v2) h2 {
   font-family: var(--jb-font-display);
   line-height: 1.05;
   letter-spacing: 0;
@@ -40,10 +40,10 @@ body.jb-v2 h2 {
   color: var(--jb-ink);
 }
 
-body.jb-v2 h3,
-body.jb-v2 h4,
-body.jb-v2 h5,
-body.jb-v2 h6 {
+:where(body.jb-v2) h3,
+:where(body.jb-v2) h4,
+:where(body.jb-v2) h5,
+:where(body.jb-v2) h6 {
   font-family: var(--jb-font-body);
   font-weight: 600;
   color: var(--jb-ink);
