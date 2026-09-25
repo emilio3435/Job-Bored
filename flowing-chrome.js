@@ -70,6 +70,7 @@
     narrowMq: null,
     onNarrow: null,
     onKeydown: null,
+    onSearchHotkey: null,
     onRoleOpened: null,
     onRoleClosed: null,
     skip: null,
@@ -634,6 +635,25 @@
     setMenuOpen(false, { returnFocus: true });
   }
 
+  /* C18 + the global search hotkey: pipeline.js binds Cmd/Ctrl+K document-
+     wide and focuses its search input, which lives in the Pipeline view. On
+     Today or the Dossier that region is display:none, so focus would land
+     nowhere. Show the Pipeline view first, in the capture phase on window so
+     it runs before pipeline.js's bubble-phase handler. */
+  function isSearchHotkey(e) {
+    if (!e || e.defaultPrevented) return false;
+    if (!(e.metaKey || e.ctrlKey) || e.altKey) return false;
+    return String(e.key || "").toLowerCase() === "k";
+  }
+
+  function handleSearchHotkey(e) {
+    if (!isSearchHotkey(e)) return;
+    var pipe = root.JobBoredPipeline;
+    if (!pipe || typeof pipe.focusSearch !== "function") return;
+    if (!findRegion("pipeline")) return;
+    if (state.view !== "pipeline") showView("pipeline", { focus: false });
+  }
+
   function handleResize() {
     if (!state.top) return;
     if (root.innerWidth > 600) setMenuOpen(false);
@@ -676,10 +696,12 @@
     state.onDocClick = handleDocClick;
     state.onResize = handleResize;
     state.onKeydown = handleKeydown;
+    state.onSearchHotkey = handleSearchHotkey;
     state.onRoleOpened = onRoleOpened;
     state.onRoleClosed = onRoleClosed;
     document.addEventListener("click", state.onDocClick, true);
     document.addEventListener("keydown", state.onKeydown);
+    root.addEventListener("keydown", state.onSearchHotkey, true);
     root.addEventListener("resize", state.onResize);
     root.addEventListener("jb:role:opened", state.onRoleOpened);
     root.addEventListener("jb:role:closed", state.onRoleClosed);
@@ -692,6 +714,7 @@
     if (!state.mounted) return;
     if (state.onDocClick) document.removeEventListener("click", state.onDocClick, true);
     if (state.onKeydown) document.removeEventListener("keydown", state.onKeydown);
+    if (state.onSearchHotkey) root.removeEventListener("keydown", state.onSearchHotkey, true);
     if (state.onResize) root.removeEventListener("resize", state.onResize);
     if (state.onRoleOpened) root.removeEventListener("jb:role:opened", state.onRoleOpened);
     if (state.onRoleClosed) root.removeEventListener("jb:role:closed", state.onRoleClosed);
@@ -702,6 +725,7 @@
     state.onDocClick = null;
     state.onResize = null;
     state.onKeydown = null;
+    state.onSearchHotkey = null;
     state.onRoleOpened = null;
     state.onRoleClosed = null;
     state.narrowMq = null;

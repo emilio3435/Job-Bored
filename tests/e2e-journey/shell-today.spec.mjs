@@ -336,3 +336,26 @@ test("should move a snoozed reply with no Last contact out of You owe an answer"
   await expect.poll(() => writes.filter((w) => /Pipeline!P\d+/.test(w.url)).length).toBe(1);
   await expect(today.locator('[data-today-reason="reply"]', { hasText: "Tidewater" })).toHaveCount(0);
 });
+
+test("should focus the pipeline search on Cmd/Ctrl+K from the Today and Dossier views", async ({ page }) => {
+  await bootSignedIn(page);
+  const search = page.locator(`${PIPELINE} [data-pipeline-search]`);
+  const nav = page.getByRole("navigation", { name: "Views" });
+
+  /* From Today, where the dashboard opens. */
+  await expect(page.locator(TODAY)).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.locator(PIPELINE)).toBeVisible();
+  await expect(page.locator(TODAY)).toBeHidden();
+  await expect(nav.getByRole("button", { name: /Pipeline/ })).toHaveAttribute("aria-current", "page");
+  await expect(search).toBeFocused();
+
+  /* From the Dossier view. */
+  const card = await openPipelineCard(page, "2");
+  await card.click();
+  await expect(page.locator(ROLE)).toBeVisible();
+  await page.keyboard.press("ControlOrMeta+k");
+  await expect(page.locator(PIPELINE)).toBeVisible();
+  await expect(page.locator(ROLE)).toBeHidden();
+  await expect(search).toBeFocused();
+});
