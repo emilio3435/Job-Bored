@@ -72,9 +72,10 @@ credential to send.
    - `--sheet-id` is optional. With it the helper verifies the deploy by
      POSTing a discovery request with the relay token.
 
-3. The helper prints the Worker URL and stores the token in two local files
-   that git ignores: `.jobbored-relay/credential.json` (mode 0600, the durable
-   copy) and the `relay` block of `discovery-local-bootstrap.json`.
+3. The helper prints the Worker URL and stores the token in one git-ignored,
+   owner-only file: `.jobbored-relay/credential.json` (mode 0600). The `relay`
+   block of `discovery-local-bootstrap.json` gets the Worker URL and lock flag
+   but never the token, because that file is not owner-only.
 
 4. Start the dashboard with `npm run dev` and open it on `localhost`. It reads
    the token from the loopback-only route `GET /__proxy/discovery-relay-token`
