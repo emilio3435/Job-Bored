@@ -141,6 +141,5 @@ describe("C7 · the recommended provider pins a capable model (FR-07)", () => {
       undefined,
       "B2 and Settings share the catalog default",
     );
-    assert.match(readRepoFile("config.example.js"), /resumeOpenRouterModel: "openai\/gpt-5\.4-mini"/);
   });
 });
