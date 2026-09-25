@@ -124,3 +124,44 @@ test("agent-browser target check resolves DNS before open (rebinding name)", asy
     lookupImpl: async () => [{ address: "192.0.2.1", family: 4 }],
   });
 });
+
+test("agent-browser command opens a public IPv6 literal without a DNS lookup", async () => {
+  const mod = await import(pathToFileURL(BIN).href);
+  const noDns = async () => {
+    throw Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" });
+  };
+  assert.equal(
+    await mod.assertSafeBrowserTarget("https://[2606:4700:4700::1111]/jobs", { lookupImpl: noDns }),
+    "https://[2606:4700:4700::1111]/jobs",
+  );
+  const dir = await mkdtemp(join(tmpdir(), "jb-agent-browser-ssrf-"));
+  try {
+    const { fake, argvLog } = await makeFakeAgentBrowser(dir, null);
+    const result = await runBin(dir, fake, "https://[2606:4700:4700::1111]/jobs");
+    assert.equal(result.code, 0, result.stderr);
+    assert.match(result.stdout, /PROBE-PAGE-BODY/);
+    const argv = await readArgv(argvLog);
+    assert.deepEqual(argv[0].slice(3), ["open", "https://[2606:4700:4700::1111]/jobs"]);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+for (const url of [
+  "http://[::1]/jobs",
+  "http://[fc00::1]/jobs",
+  "http://[fe80::1]/jobs",
+  "http://[::ffff:127.0.0.1]/jobs",
+]) {
+  test(`agent-browser command still refuses private IPv6 literal ${url}`, async () => {
+    const mod = await import(pathToFileURL(BIN).href);
+    await assert.rejects(
+      () =>
+        mod.assertSafeBrowserTarget(url, {
+          lookupImpl: async () => [{ address: "8.8.8.8", family: 4 }],
+        }),
+      (error: { code?: string; message?: string }) =>
+        error.code === "SSRF_BLOCKED" && /private-network/.test(String(error.message)),
+    );
+  });
+}

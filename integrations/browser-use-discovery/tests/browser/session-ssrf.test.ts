@@ -259,3 +259,26 @@ test("session decodes a gzip page before reading its title", async () => {
     server.close();
   }
 });
+
+test("session visits a public IPv6 literal and still refuses a private one", async () => {
+  const calls: string[] = [];
+  const noDns = async () => {
+    throw Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" });
+  };
+  const session = createBrowserUseSessionManager(makeRuntimeConfig(), {
+    fetchImpl: (async (input: RequestInfo | URL) => {
+      calls.push(String(input));
+      return new Response("<html><head><title>IPv6 Role</title></head><body>Apply</body></html>", {
+        status: 200,
+        headers: { "content-type": "text/html" },
+      });
+    }) as typeof fetch,
+    lookupImpl: noDns,
+  });
+  await session.run({ url: "https://[2606:4700:4700::1111]/jobs", instruction: "x" });
+  assert.deepEqual(calls, ["https://[2606:4700:4700::1111]/jobs"]);
+  for (const url of ["http://[::1]/jobs", "http://[fd00::5]/jobs", "http://[::ffff:127.0.0.1]/jobs"]) {
+    await assert.rejects(() => session.run({ url, instruction: "x" }), PRIVATE_NETWORK);
+  }
+  assert.equal(calls.length, 1);
+});

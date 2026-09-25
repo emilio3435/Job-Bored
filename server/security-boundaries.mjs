@@ -2,7 +2,7 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { Readable, pipeline } from "node:stream";
+import { Readable, Transform, pipeline } from "node:stream";
 import * as zlib from "node:zlib";
 
 const MAX_SCRAPE_REDIRECTS = 5;
@@ -372,6 +372,13 @@ function isPrivateIpLiteral(value) {
   return null;
 }
 
+// URL.hostname keeps the brackets around an IPv6 literal ("[::1]"); isIP,
+// DNS and net.connect all want the bare address.
+/** @param {string} hostname */
+function unbracketHost(hostname) {
+  return String(hostname || "").replace(/^\[(.*)\]$/, "$1");
+}
+
 /** @param {unknown} value */
 function isPrivateNetworkHostname(value) {
   const hostname = cleanString(value)
@@ -398,10 +405,11 @@ function isPrivateNetworkHostname(value) {
 // Resolve a hostname and confirm every returned address is publicly routable.
 // Fails closed: resolution errors are treated as a blocked target.
 /**
- * @param {string} hostname
+ * @param {string} rawHostname
  * @param {{ lookupImpl?: LookupAll }} [options]
  */
-async function resolvedAddressesArePrivate(hostname, { lookupImpl = dnsLookup } = {}) {
+async function resolvedAddressesArePrivate(rawHostname, { lookupImpl = dnsLookup } = {}) {
+  const hostname = unbracketHost(rawHostname);
   if (isIP(hostname)) return isPrivateNetworkHostname(hostname);
   let addresses;
   try {
@@ -726,11 +734,12 @@ function headersToObject(headers) {
  */
 function createConnectLookup(lookupImpl, signal) {
   /**
-   * @param {string} hostname
+   * @param {string} rawHostname
    * @param {unknown} optionsOrCb
    * @param {((...args: any[]) => void) | undefined} [maybeCallback]
    */
-  return (hostname, optionsOrCb, maybeCallback) => {
+  return (rawHostname, optionsOrCb, maybeCallback) => {
+    const hostname = unbracketHost(rawHostname);
     /** @type {Record<string, unknown>} */
     let options = {};
     /** @type {(...args: any[]) => void} */
@@ -836,7 +845,7 @@ function contentDecoders(header) {
   const flush = { flush: zlib.constants.Z_SYNC_FLUSH, finishFlush: zlib.constants.Z_SYNC_FLUSH };
   for (const coding of codings.reverse()) {
     if (coding === "gzip" || coding === "x-gzip") decoders.push(zlib.createGunzip(flush));
-    else if (coding === "deflate") decoders.push(zlib.createInflate(flush));
+    else if (coding === "deflate") decoders.push(deflateDecoder(flush));
     else if (coding === "br") {
       decoders.push(zlib.createBrotliDecompress({
         flush: zlib.constants.BROTLI_OPERATION_FLUSH,
@@ -850,6 +859,62 @@ function contentDecoders(header) {
     }
   }
   return decoders;
+}
+
+// "deflate" is meant to be zlib-wrapped (RFC 9110), but some servers send raw
+// DEFLATE and platform fetch accepts both. Sniff the first two bytes: a zlib
+// header has CM=8 in the low nibble and (CMF*256 + FLG) % 31 === 0.
+/**
+ * @param {import("node:zlib").ZlibOptions} flush
+ * @returns {import("node:stream").Transform}
+ */
+function deflateDecoder(flush) {
+  /** @type {import("node:stream").Transform | null} */
+  let inner = null;
+  /** @type {Buffer} */
+  let head = Buffer.alloc(0);
+  /** @param {Transform} self */
+  const start = (self) => {
+    const wrapped = head.length >= 2 && (head[0] & 0x0f) === 8 && ((head[0] << 8) | head[1]) % 31 === 0;
+    const decoder = wrapped ? zlib.createInflate(flush) : zlib.createInflateRaw(flush);
+    decoder.on("data", (chunk) => self.push(chunk));
+    decoder.on("error", (error) => self.destroy(error));
+    inner = decoder;
+    const pending = head;
+    head = Buffer.alloc(0);
+    return new Promise((resolve) => {
+      if (pending.length === 0) resolve(undefined);
+      else decoder.write(pending, () => resolve(undefined));
+    });
+  };
+  const transform = new Transform({
+    transform(chunk, _encoding, callback) {
+      if (inner) {
+        inner.write(chunk, () => callback());
+        return;
+      }
+      head = Buffer.concat([head, chunk]);
+      if (head.length < 2) {
+        callback();
+        return;
+      }
+      start(transform).then(() => callback(), callback);
+    },
+    flush(callback) {
+      const finish = () => {
+        if (!inner) return callback();
+        inner.once("end", () => callback());
+        inner.end();
+      };
+      if (!inner) start(transform).then(finish, callback);
+      else finish();
+    },
+    destroy(error, callback) {
+      if (inner) inner.destroy();
+      callback(error);
+    },
+  });
+  return transform;
 }
 
 /**
@@ -883,7 +948,7 @@ function pinnedFetch(urlText, init, lookupImpl) {
     const req = requestFn(
       {
         protocol: parsed.protocol,
-        hostname: parsed.hostname,
+        hostname: unbracketHost(parsed.hostname),
         port: parsed.port || (parsed.protocol === "https:" ? 443 : 80),
         path: `${parsed.pathname}${parsed.search}`,
         method,

@@ -6,7 +6,7 @@
 import assert from "node:assert/strict";
 import http from "node:http";
 import { after, before, describe, it } from "node:test";
-import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
+import { brotliCompressSync, deflateRawSync, deflateSync, gzipSync } from "node:zlib";
 
 import {
   responseFromIncomingMessage,
@@ -280,6 +280,11 @@ describe("pinned transport body: decoding and deadline", () => {
       } else if (path === "/deflate") {
         res.writeHead(200, { "content-type": "text/html", "content-encoding": "deflate" });
         res.end(deflateSync(PAGE));
+      } else if (path === "/deflate-raw") {
+        // Content-Encoding: deflate sent as raw DEFLATE (no zlib wrapper), as
+        // some servers do; platform fetch accepts it.
+        res.writeHead(200, { "content-type": "text/html", "content-encoding": "deflate" });
+        res.end(deflateRawSync(PAGE));
       } else if (path === "/bomb") {
         const packed = gzipSync(Buffer.alloc(8 * 1024 * 1024, 0x61));
         res.writeHead(200, {
@@ -330,7 +335,7 @@ describe("pinned transport body: decoding and deadline", () => {
       req.on("error", reject);
     });
 
-  for (const encoding of ["gzip", "br", "deflate"]) {
+  for (const encoding of ["gzip", "br", "deflate", "deflate-raw"]) {
     it(`decodes a ${encoding} body before the caller parses it`, async () => {
       const response = await safeFetch(`https://jobs.example.com/${encoding}`, {}, {
         fetchImpl: loopbackTransport,
@@ -413,4 +418,52 @@ describe("pinned transport body: decoding and deadline", () => {
     assert.equal(response.headers.get("location"), "/next");
     assert.equal(await response.text(), "moved");
   });
+});
+
+describe("IPv6 literal targets keep their brackets out of IP classification", () => {
+  const noDns = async () => {
+    throw Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" });
+  };
+
+  it("allows a public IPv6 literal without a DNS lookup", async () => {
+    const result = await validateScrapeTargetWithDns("https://[2606:4700:4700::1111]/jobs", {
+      lookupImpl: noDns,
+    });
+    assert.equal(result.ok, true, result.error);
+    assert.equal(result.url, "https://[2606:4700:4700::1111]/jobs");
+  });
+
+  it("safeFetch reaches a public IPv6 literal through the transport", async () => {
+    const { fetchImpl, hops } = recordingFetch(() => new Response("ok", { status: 200 }));
+    const response = await safeFetch("https://[2606:4700:4700::1111]/jobs", {}, {
+      fetchImpl,
+      lookupImpl: noDns,
+    });
+    assert.equal(await response.text(), "ok");
+    assert.equal(hops.length, 1);
+  });
+
+  for (const url of [
+    "http://[::1]/",
+    "http://[fc00::1]/",
+    "http://[fd12:3456::1]/",
+    "http://[fe80::1]/",
+    "http://[::ffff:127.0.0.1]/",
+    "http://[::ffff:7f00:1]/",
+  ]) {
+    it(`still blocks private IPv6 literal ${url}`, async () => {
+      const result = await validateScrapeTargetWithDns(url, {
+        lookupImpl: async () => [{ address: "8.8.8.8", family: 4 }],
+      });
+      assert.equal(result.ok, false);
+      assert.match(result.error, PRIVATE_NETWORK);
+      await assert.rejects(
+        safeFetch(url, {}, {
+          fetchImpl: async () => new Response("leak"),
+          lookupImpl: async () => [{ address: "8.8.8.8", family: 4 }],
+        }),
+        (error) => error.code === "SSRF_BLOCKED",
+      );
+    });
+  }
 });

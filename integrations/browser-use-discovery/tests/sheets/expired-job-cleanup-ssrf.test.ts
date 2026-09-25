@@ -99,3 +99,24 @@ test("checkJobPostingUrl decodes a gzip posting before classifying it", async ()
     server.close();
   }
 });
+
+test("checkJobPostingUrl checks a public IPv6 literal Link and refuses a private one", async () => {
+  const calls: string[] = [];
+  const noDns = async () => {
+    throw Object.assign(new Error("getaddrinfo ENOTFOUND"), { code: "ENOTFOUND" });
+  };
+  const fetchImpl = (async (input: RequestInfo | URL) => {
+    calls.push(String(input));
+    return new Response("Senior Engineer. Apply now", { status: 200 });
+  }) as typeof fetch;
+  const open = await checkJobPostingUrl("https://[2606:4700:4700::1111]/role", {
+    fetchImpl,
+    lookupImpl: noDns,
+  });
+  assert.deepEqual(calls, ["https://[2606:4700:4700::1111]/role"]);
+  assert.doesNotMatch(open.reason, /private-network/);
+  const blocked = await checkJobPostingUrl("http://[fe80::1]/role", { fetchImpl, lookupImpl: noDns });
+  assert.equal(blocked.status, "unknown");
+  assert.match(blocked.reason, /private-network/);
+  assert.equal(calls.length, 1);
+});
