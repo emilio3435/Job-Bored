@@ -46,13 +46,21 @@ NOT_CONFIGURED = (
 
 
 def _load_bot_token() -> str:
-    """Bot token for Gate 2. JHOS_GATE2_BOT_TOKEN (a bot the Hermes gateway does
-    not poll) wins over the shared TELEGRAM_BOT_TOKEN."""
+    """Shared bot token (TELEGRAM_BOT_TOKEN) for every non-Gate-2 caller."""
+    return jhos_common.telegram_bot_token()
+
+
+def _load_gate2_bot_token() -> str:
+    """Bot token for Gate 2 only. JHOS_GATE2_BOT_TOKEN (a bot the Hermes gateway
+    does not poll) wins over the shared TELEGRAM_BOT_TOKEN. Scoped to the submit
+    request and its confirmation poll so the materials and notification traffic
+    that shares _api_call keeps using the shared bot."""
     return jhos_common.telegram_bot_token("JHOS_GATE2_BOT_TOKEN")
 
 
 def _api_call(method: str, payload: dict, token: str | None = None) -> dict:
-    """Make a Telegram Bot API call (also used by the materials scripts)."""
+    """Make a Telegram Bot API call (also used by the materials scripts).
+    Without an explicit token it uses the shared bot, never the Gate 2 bot."""
     if not token:
         token = _load_bot_token()
     return jhos_common.telegram_api_call(method, payload, token)
@@ -85,6 +93,8 @@ def send_approval_request(
         return {"ok": False, "error": "Refusing Gate 2 request: company is blank"}
     if CHAT_ID is None or THREAD_ID is None:
         return {"ok": False, "error": NOT_CONFIGURED}
+    if not token:
+        token = _load_gate2_bot_token()
     lines = [
         "🔒 *SUBMIT APPROVAL REQUEST*",
         "",
@@ -174,7 +184,7 @@ def poll_for_confirmation(
     if not APPROVER_USER_IDS:
         return False, "Cancelled: no approver user ids configured (gate2.approverUserIds)"
     if not token:
-        token = _load_bot_token()
+        token = _load_gate2_bot_token()
 
     expected = expected_confirmation(company)
     start = time.time()

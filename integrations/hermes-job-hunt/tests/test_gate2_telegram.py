@@ -149,3 +149,44 @@ def test_unused_notification_helpers_are_gone():
     # H19: send_cancellation / send_success had no callers.
     assert not hasattr(g2, "send_cancellation")
     assert not hasattr(g2, "send_success")
+
+
+# ─── Dedicated Gate 2 bot token stays scoped to Gate 2 (repair round) ──
+
+def _token_recorder(monkeypatch):
+    seen = []
+
+    def fake_call(method, payload, token):
+        seen.append((method, token))
+        if method == "getUpdates":
+            return {"ok": True, "result": []}
+        return {"ok": True, "result": {"message_id": REQUEST_ID}}
+
+    monkeypatch.setattr(g2.jhos_common, "telegram_api_call", fake_call)
+    monkeypatch.setenv("TELEGRAM_BOT_TOKEN", "shared-bot")
+    monkeypatch.setenv("JHOS_GATE2_BOT_TOKEN", "gate2-bot")
+    return seen
+
+
+def test_shared_api_call_keeps_the_shared_bot_when_gate2_bot_is_set(monkeypatch):
+    """materials_request, the materials notifier and research-interest pings call
+    g2._api_call without a token; they must stay on TELEGRAM_BOT_TOKEN."""
+    seen = _token_recorder(monkeypatch)
+    g2._api_call("sendMessage", {"chat_id": 1, "text": "materials ready"})
+    assert seen == [("sendMessage", "shared-bot")]
+
+
+def test_gate2_send_and_poll_use_the_dedicated_bot(monkeypatch):
+    seen = _token_recorder(monkeypatch)
+    sent = g2.send_approval_request("Engineer", "Meta")
+    assert sent["ok"]
+    g2.poll_for_confirmation("Meta", timeout=1, after_message_id=REQUEST_ID)
+    assert seen, "expected Telegram calls"
+    assert {token for _, token in seen} == {"gate2-bot"}
+
+
+def test_gate2_falls_back_to_the_shared_bot_without_a_dedicated_one(monkeypatch):
+    seen = _token_recorder(monkeypatch)
+    monkeypatch.delenv("JHOS_GATE2_BOT_TOKEN")
+    g2.send_approval_request("Engineer", "Meta")
+    assert {token for _, token in seen} == {"shared-bot"}
