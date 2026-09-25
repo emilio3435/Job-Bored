@@ -416,18 +416,23 @@ test("should carry completed discovery into the pipeline and ready dossier mater
   await expect(
     dossier.getByRole("button", { name: "Draft a cover letter for this role" }),
   ).toBeVisible();
+  /* UX01 C11: drafts come from the user's own resume, so the stranger adds
+     one first (Portfolio stores it in IndexedDB; this is the same call). */
+  await page.evaluate(() =>
+    globalThis.CommandCenterUserContent.setPrimaryResume({
+      source: "paste",
+      label: "stranger-resume.txt",
+      extractedText: "Platform engineer. Built reliable platforms and developer tooling.",
+    }),
+  );
+  /* UX01 C12 (TA-16): notes are an optional disclosure, and one click drafts. */
+  await dossier.getByText("Notes for the next draft").click();
+  await dossier
+    .getByRole("textbox", { name: "Notes for the next draft" })
+    .fill("Emphasize reliable platforms and developer experience.");
   await dossier
     .getByRole("button", { name: "Draft a cover letter for this role" })
     .click();
-
-  const notesForm = dossier.getByRole("form", {
-    name: "Notes for the cover letter",
-  });
-  await expect(notesForm).toBeVisible();
-  await notesForm
-    .getByRole("textbox")
-    .fill("Emphasize reliable platforms and developer experience.");
-  await notesForm.getByRole("button", { name: "Start draft" }).click();
 
   /* The row's eyebrow says what is happening AND for how long, in the meta
      line that owns the whole row (docs/redesign/dossier-2026-09/SPEC.md §3.4);
