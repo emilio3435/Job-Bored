@@ -17,28 +17,55 @@ function fencedBlocks(markdown) {
   return [...markdown.matchAll(/```[a-z]*\n([\s\S]*?)```/g)].map((m) => m[1]);
 }
 
-test("examples/README.md curl commands send the relay bearer", () => {
-  const curls = fencedBlocks(read("examples/README.md")).filter((b) =>
-    /\bcurl\b[\s\S]*-X POST/.test(b),
-  );
-  assert.ok(curls.length >= 2, "expected the two sample-body curl commands");
-  for (const block of curls) {
-    assert.match(
-      block,
-      /-H ['"]Authorization: Bearer \$RELAY_TOKEN['"]/,
-      `curl without relay bearer:\n${block}`,
-    );
+const BEARER = /Authorization: Bearer \$RELAY_TOKEN/;
+
+function postBlocks(markdown) {
+  return fencedBlocks(markdown).filter((b) => /\bcurl\b[\s\S]*-X POST/.test(b));
+}
+
+// Review P1 (repair): the bearer is a live credential for the relay. An
+// example that sends it to webhook.site, Apps Script or a local echo hands it
+// to whoever runs that receiver, who can then replay it against the relay.
+// Relay examples post only to $RELAY_URL; generic receiver examples carry no
+// Authorization header and never reference RELAY_TOKEN.
+test("examples/README.md relay curl commands send the bearer only to $RELAY_URL", () => {
+  const curls = postBlocks(read("examples/README.md"));
+  const relay = curls.filter((b) => BEARER.test(b));
+  assert.ok(relay.length >= 2, "expected the two sample-body curl commands for the relay");
+  for (const block of relay) {
+    assert.match(block, /curl[^\n]*"\$RELAY_URL"/, `bearer sent to a non-relay URL:\n${block}`);
+    assert.match(block, /-H ['"]Authorization: Bearer \$RELAY_TOKEN['"]/);
   }
 });
 
-test("examples/README.md verify-script command passes RELAY_TOKEN", () => {
+test("examples/README.md generic receiver commands carry no relay bearer", () => {
+  const md = read("examples/README.md");
+  const generic = postBlocks(md).filter((b) => !/\$RELAY_URL/.test(b));
+  assert.ok(generic.length >= 2, "expected sample-body curl commands for generic receivers");
+  for (const block of generic) {
+    assert.doesNotMatch(block, /Authorization|RELAY_TOKEN/, `generic receiver gets a bearer:\n${block}`);
+  }
+  // No fenced block sends RELAY_TOKEN anywhere but $RELAY_URL.
+  for (const block of fencedBlocks(md)) {
+    if (/RELAY_TOKEN/.test(block) && /(curl|test:discovery-webhook)/.test(block)) {
+      assert.match(block, /\$RELAY_URL/, `RELAY_TOKEN used with a non-relay URL:\n${block}`);
+    }
+  }
+  // The prose never pairs webhook.site (or any generic receiver) with the bearer.
+  assert.doesNotMatch(md, /webhook\.site[^\n]*RELAY_TOKEN|RELAY_TOKEN[^\n]*webhook\.site/);
+});
+
+test("examples/README.md verify-script commands: RELAY_TOKEN only for the relay", () => {
   const verify = fencedBlocks(read("examples/README.md")).filter((b) =>
     b.includes("npm run test:discovery-webhook"),
   );
-  assert.ok(verify.length >= 1, "expected the verify-script command");
   assert.ok(
-    verify.some((b) => /RELAY_TOKEN=/.test(b)),
-    "no verify-script command sets RELAY_TOKEN",
+    verify.some((b) => /RELAY_TOKEN=/.test(b) && /--url "\$RELAY_URL"/.test(b)),
+    "no relay verify-script command sets RELAY_TOKEN with --url \"$RELAY_URL\"",
+  );
+  assert.ok(
+    verify.some((b) => !/RELAY_TOKEN/.test(b)),
+    "no generic verify-script command without RELAY_TOKEN",
   );
 });
 
