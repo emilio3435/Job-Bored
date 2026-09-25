@@ -110,3 +110,31 @@ npm run test:e2e-visual    37 passed (1.0m)                                     
 ```
 
 As before, the `npm test` log ends with an expected-failure `ERR_ASSERTION` stderr block, and its summary shows 0 failures. No visual baseline was refreshed.
+
+## Verification · floor (cC-r2)
+
+An independent Opus verifier ran this in a fresh context on `3bcf9da1`, with fix commit `13767695` as its parent. It edited no product code or tests. Logs are in `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/cC-r2/`.
+
+| command | result | counts |
+|---|---|---|
+| `npm run lint:repo` | EXIT 0 | lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s) |
+| `npm run typecheck:repo` | EXIT 0 | browser-use-discovery and server tsc are clean |
+| `npm test` | EXIT 0 | tests 3073 · suites 737 · pass 3072 · fail 0 · cancelled 0 · skipped 0 · todo 1 |
+| `npm run test:contract:all` | EXIT 0 | contract, ATS, pipeline, pipeline-update and skills lint all OK |
+| `npm run test:e2e-smoke` | EXIT 0 | 17 passed (17.2s) |
+| `npm run test:e2e-journey` | EXIT 0 | 26 passed (28.3s) |
+| `npm run test:e2e-visual` | EXIT 0 | 37 passed (59.5s) |
+
+Verdict: **green**. Nothing failed, nothing was retried, and nothing was flaky. No `--grep`, `--shard` or `--update-snapshots` flag was used.
+
+The `npm test` log ends with an `ERR_ASSERTION` stderr block. It comes from the todo test `tests/submission-record-audit.test.mjs:17`, which the runner marks as blocked on the canonical-ownership gate, and it is not counted as a failure.
+
+Tails:
+
+```
+npm test:            ℹ tests 3073 ℹ pass 3072 ℹ fail 0 ℹ todo 1 ℹ duration_ms 13836
+test:contract:all:   OK integrations/openclaw-command-center/SKILL.md
+e2e-smoke:           ✓ 17 hermetic-fence.spec.mjs:70:1 … 17 passed (17.2s)
+e2e-journey:         ✓ 26 shell-today.spec.mjs:352:1 … 26 passed (28.3s)
+e2e-visual:          ✓ 37 shell-structure.spec.mjs:310:3 … 37 passed (59.5s)
+```
