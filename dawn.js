@@ -152,7 +152,41 @@
    *  A unified nav pill (‹ · "N of M" · ›) groups the chevrons + counter.
    *  Below the active card, an "Up next" queue lists the remaining ranked
    *  leads so the left column has body and users can jump directly. */
+  /* jb:data:* (lane F), the same contract Today reads. "unknown" until the
+     first signal, when the Brief behaves as it always did; after it, the
+     empty-leads card only says "no active roles" once the data loaded. */
+  var dataState = "unknown";
+
+  function pipelineSize() {
+    var api = root.JobBored;
+    if (!api || typeof api.getPipelineJobs !== "function") return null;
+    try {
+      var jobs = api.getPipelineJobs();
+      return Array.isArray(jobs) ? jobs.length : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function leadsStatusHtml(line, hint) {
+    return [
+      '<section class="brief-leads-section brief-leads-section--empty" aria-live="polite">',
+      '  <p class="brief-leads-empty">', escapeHtml(line), '</p>',
+      hint ? '  <p class="brief-leads-empty__hint">' + escapeHtml(hint) + '</p>' : '',
+      '</section>',
+    ].join("");
+  }
+
   function leadsStepperHtml(leads) {
+    if (!leads.length && dataState === "loading") {
+      return leadsStatusHtml("Loading your pipeline…", null);
+    }
+    if (!leads.length && dataState === "failed" && !pipelineSize()) {
+      return leadsStatusHtml(
+        "Your pipeline didn't load.",
+        "An empty Brief here is not a sign that nothing is waiting. Retry from the banner above."
+      );
+    }
     if (!leads.length) {
       return [
         '<section class="brief-leads-section brief-leads-section--empty">',
@@ -533,6 +567,17 @@
     observeLegacy();
     scheduleRender();
   }
+
+  function setDataState(next) {
+    dataState = next;
+    scheduleRender();
+  }
+
+  /* Bound once at load: the signal may arrive before body.jb-v2 is set, and
+     scheduleRender is a no-op until it is. */
+  document.addEventListener("jb:data:loading", function () { setDataState("loading"); });
+  document.addEventListener("jb:data:loaded", function () { setDataState("loaded"); });
+  document.addEventListener("jb:data:load-failed", function () { setDataState("failed"); });
 
   function observeBodyOnly() {
     if (root.JobBoredDawn && root.JobBoredDawn._bodyOnly) return;

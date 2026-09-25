@@ -539,10 +539,14 @@
      keyboard or screen-reader user lands on what they opened instead of
      <body>. Deferred a tick so the chrome has switched to the dossier view
      (a display:none heading cannot take focus). Closing hands focus back to
-     the opener; the chrome owns that half because it owns the views. */
+     the opener; the chrome owns that half because it owns the views.
+     A caller that already put focus inside the dossier (the card pencil
+     drops it in the title input) meant it: the heading never takes it back. */
   function focusHeading() {
     var region = getRegion();
     if (!region) return;
+    var active = document.activeElement;
+    if (active && active !== region && region.contains(active)) return;
     var heading = region.querySelector(".case__title-h") || region.querySelector(".jb-shelf__title");
     if (!heading || typeof heading.focus !== "function") return;
     heading.setAttribute("tabindex", "-1");

@@ -986,6 +986,12 @@ body.jb-v2 [data-region="dawn"] .brief-leads-queue__fit--empty {
 }
 
 /* C5 · MP-06: the empty Brief carries its way in. */
+body.jb-v2 [data-region="dawn"] .brief-leads-empty__hint {
+  margin: var(--space-2, 8px) 0 0;
+  text-align: center;
+  color: var(--jb-ink-3);
+}
+
 body.jb-v2 [data-region="dawn"] .brief-leads-empty__acts {
   display: flex;
   flex-wrap: wrap;

@@ -528,6 +528,31 @@
     showView("role", { focus: false });
   }
 
+  /* The dossier view follows jb:role:opened, which the store fires only when
+     the open key changes. Leaving the dossier by a pill keeps that key open,
+     so re-opening the same role (its card again, Today's "Open and reply",
+     the Brief's "Open dossier") changes nothing in the store and sends no
+     event. Every such caller goes through openRole.set, so the chrome, which
+     owns the views, answers a same-key set by showing the dossier. The
+     store's own contract (event on change only) is left as it is. */
+  function wrapOpenRole() {
+    var api = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+    if (!api || typeof api.set !== "function" || api.set.__jbChromeWrapped) return;
+    var inner = api.set;
+    var wrapped = function (jobKey) {
+      var key = jobKey == null ? null : String(jobKey);
+      var reopen = key != null && typeof api.get === "function" && api.get() === key;
+      var out = inner.apply(this, arguments);
+      if (reopen && state.mounted && state.view !== "role") {
+        captureOpener(key);
+        showView("role", { focus: true });
+      }
+      return out;
+    };
+    wrapped.__jbChromeWrapped = true;
+    api.set = wrapped;
+  }
+
   function onRoleClosed() {
     var back = state.returnTo || { view: "pipeline", selector: null };
     state.returnTo = null;
@@ -659,6 +684,7 @@
     root.addEventListener("jb:role:opened", state.onRoleOpened);
     root.addEventListener("jb:role:closed", state.onRoleClosed);
     state.mounted = true;
+    wrapOpenRole();
     showView(initialView(), { focus: false, scroll: false });
   }
 

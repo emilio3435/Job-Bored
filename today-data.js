@@ -228,17 +228,23 @@
    *  is recorded with columns that already exist: Mark answered stamps Last
    *  contact (R) and sets a Follow-up Date (P) after it. A follow-up date
    *  later than the last contact therefore means "I answered and scheduled
-   *  the next nudge", so the reply stops nagging. No schema change. */
-  function replyAnswered(job) {
+   *  the next nudge", so the reply stops nagging. No schema change.
+   *  With Last contact blank (a common way to fill the Sheet), the only
+   *  "after" we can know is today: a follow-up still ahead means the user
+   *  answered or snoozed it (Snooze writes P alone), so it stops nagging
+   *  too; a past one leaves the reply owed. */
+  function replyAnswered(job, nowMs) {
     var followUpMs = parseMs(job.followUpDate);
+    if (followUpMs == null) return false;
     var contactMs = parseMs(job.lastHeardFrom);
-    if (followUpMs == null || contactMs == null) return false;
-    return startOfLocalDay(followUpMs) > startOfLocalDay(contactMs);
+    var afterMs = contactMs == null ? nowMs : contactMs;
+    if (afterMs == null) return false;
+    return startOfLocalDay(followUpMs) > startOfLocalDay(afterMs);
   }
 
   function classify(job, stageKey, nowMs) {
     var rec = toFlagRecord(job, stageKey);
-    var answered = rec.replied && replyAnswered(job);
+    var answered = rec.replied && replyAnswered(job, nowMs);
     if (answered) rec.replied = false;
     var flag = computeFlag(rec, nowMs);
     var followUpMs = parseMs(job.followUpDate);

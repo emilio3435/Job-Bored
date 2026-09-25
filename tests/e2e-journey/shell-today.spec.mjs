@@ -258,3 +258,81 @@ test("should keep the bar usable at 375: views on screen, account whole, More me
   });
   expect(["none", "n/a"]).toContain(expiredDisplay);
 });
+
+/* ---- fix round 1: review findings ---- */
+
+async function openPipelineCard(page, key) {
+  await page.getByRole("navigation", { name: "Views" }).getByRole("button", { name: /Pipeline/ }).click();
+  const expand = page.getByRole("button", { name: "Expand Discovered" });
+  if (await expand.count()) await expand.click();
+  const card = page.locator(`.pipe-sticker[data-stable-key="${key}"]`);
+  await expect(card).toBeVisible();
+  return card;
+}
+
+test("should keep focus in the title input when the card pencil opens the dossier", async ({ page }) => {
+  await bootSignedIn(page);
+  const card = await openPipelineCard(page, "2");
+  await card.hover();
+  await card.locator('[data-card-action="edit-open"]').click();
+  await expect(page.locator(ROLE)).toBeVisible();
+  const title = page.locator(`${ROLE} [data-action="edit-field"][data-field="title"]`);
+  await expect(title).toBeFocused();
+  /* focusHeading used to run a tick later and steal focus; wait past it. */
+  await page.evaluate(() => new Promise((r) => setTimeout(r, 50)));
+  await expect(title).toBeFocused();
+});
+
+test("should show the dossier again when the role already open is opened from another view", async ({ page }) => {
+  await bootSignedIn(page);
+  const nav = page.getByRole("navigation", { name: "Views" });
+  const card = await openPipelineCard(page, "2");
+  await card.click();
+  await expect(page.locator(ROLE)).toBeVisible();
+
+  /* Leave by a pill (openRole stays "2"), then open card 2 again. */
+  await nav.getByRole("button", { name: /Pipeline/ }).click();
+  await expect(page.locator(ROLE)).toBeHidden();
+  await card.click();
+  await expect(page.locator(ROLE)).toBeVisible();
+  await expect(page.locator(PIPELINE)).toBeHidden();
+
+  /* Same through the Brief's and Today's own open paths. */
+  await nav.getByRole("button", { name: /Today/ }).click();
+  await expect(page.locator(ROLE)).toBeHidden();
+  await page.evaluate(() => window.JobBoredFlowing.openRole.set("2"));
+  await expect(page.locator(ROLE)).toBeVisible();
+  await expect(nav.getByRole("button", { name: /Dossier/ })).toHaveAttribute("aria-current", "page");
+});
+
+test("should not call a loading or failed pipeline empty in the Brief", async ({ page }) => {
+  await bootSignedIn(page, []);
+  const dawn = page.locator('[data-region="dawn"]');
+  await expect(dawn).toContainText("No active roles to lead with today.");
+
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("jb:data:loading")));
+  await expect(dawn).not.toContainText("No active roles to lead with today.");
+  await expect(dawn.locator("[data-brief-empty]")).toHaveCount(0);
+  await expect(dawn).toContainText("Loading your pipeline");
+
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("jb:data:load-failed")));
+  await expect(dawn).not.toContainText("No active roles to lead with today.");
+  await expect(dawn.locator("[data-brief-empty]")).toHaveCount(0);
+  await expect(dawn).toContainText("didn't load");
+
+  await page.evaluate(() => document.dispatchEvent(new CustomEvent("jb:data:loaded")));
+  await expect(dawn).toContainText("No active roles to lead with today.");
+});
+
+test("should move a snoozed reply with no Last contact out of You owe an answer", async ({ page }) => {
+  const { writes } = await bootSignedIn(page, [
+    row({ title: "Frontend Engineer", company: "Tidewater", status: "Applied", replied: "Yes" }),
+  ]);
+  const today = page.locator(TODAY);
+  const tidewater = today.locator('[data-today-reason="reply"]', { hasText: "Tidewater" });
+  await expect(tidewater).toBeVisible();
+  await tidewater.getByRole("button", { name: "Snooze" }).click();
+  await today.getByRole("button", { name: /In 2 days/ }).click();
+  await expect.poll(() => writes.filter((w) => /Pipeline!P\d+/.test(w.url)).length).toBe(1);
+  await expect(today.locator('[data-today-reason="reply"]', { hasText: "Tidewater" })).toHaveCount(0);
+});

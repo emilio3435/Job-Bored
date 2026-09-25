@@ -129,6 +129,24 @@ describe("C20 — rows can be cleared in place (TR-12, TR-13, MP-07)", () => {
     assert.equal(after.filter((i) => i.reason === "reply").length, 0, "no longer owed");
   });
 
+  it("should take a snoozed reply out of the reply band when Last contact is blank", () => {
+    const row = { title: "FE", company: "Tidewater", status: "Applied", responseFlag: "Yes" };
+    const item = queue([row]).items[0];
+    assert.equal(item.reason, "reply");
+    const snooze = item.more.find((a) => a.id === "snooze");
+    assert.ok(snooze, "a reply row offers Snooze");
+    // Snooze "In 2 days" writes Follow-up Date only.
+    row.followUpDate = localIso(2);
+    const after = queue([row]).items;
+    assert.equal(after.filter((i) => i.reason === "reply").length, 0, "snoozed reply leaves the band");
+  });
+
+  it("should keep a reply owed when Last contact is blank and the follow-up is past", () => {
+    const row = { title: "FE", company: "Tidewater", status: "Applied", responseFlag: "Yes",
+      followUpDate: localIso(-1) };
+    assert.equal(queue([row]).items[0].reason, "reply");
+  });
+
   it("should offer Snooze presets and a calendar file on a due row", () => {
     const item = queue([
       { title: "Due", company: "D", status: "Applied", appliedDate: localIso(-5), followUpDate: localIso(1) },
