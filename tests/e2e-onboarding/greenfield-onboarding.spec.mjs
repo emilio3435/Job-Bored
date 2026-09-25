@@ -569,7 +569,16 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   await beat(page, "discovery")
     .getByLabel("SerpApi API key")
     .fill(SERPAPI_KEY);
+  const fuelConsent = page.waitForEvent("dialog").then(async (dialog) => {
+    const message = dialog.message();
+    await dialog.accept();
+    return message;
+  });
   await page.getByRole("button", { name: "Save & verify" }).click();
+  const consentMessage = await fuelConsent;
+  expect(consentMessage).toContain("Save & verify");
+  expect(consentMessage).toContain("SERPAPI_API_KEY");
+  expect(consentMessage).toContain("restart your local discovery worker");
   const skipConnection = page.locator(
     '#oneFlowMount [data-action-id="oneflow_discovery_skip_connect"]',
   );
