@@ -317,3 +317,56 @@ EXIT=0
 ```
 
 The unit-test total is 3061 (it was 3075 before the merge): the merged lane C tree carries a different test set. The one `todo` is the existing submission-record-audit gate.
+
+## Verification · floor (conform-D)
+
+Independent Opus verifier, HEAD 3a620a2, 2026-09-25. Logs: `Job-Bored.worktrees/.ux01-run/conform-D-floor/<n>.log`. No retries, no flaky specs.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | npm run lint:repo | PASS (exit 0) | lint:tokens 34 sheets, 0 new findings |
+| 2 | npm run typecheck:repo | PASS (exit 0) | tsc clean |
+| 3 | npm test | PASS (exit 0) | 3061 tests, 3060 pass, 0 fail, 1 todo |
+| 4 | npm run test:contract:all | PASS (exit 0) | 12 OK checks, 0 errors |
+| 5 | npm run test:e2e-smoke | PASS (exit 0) | 17 passed |
+| 6 | npm run test:e2e-journey | PASS (exit 0) | 25 passed |
+| 7 | npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Note: npm test lists one entry under "failing tests": the todo test `tests/submission-record-audit.test.mjs:17` ("# blocked on the canonical-ownership gate"). Node counts it as todo, not fail.
+
+Tail 3:
+```
+    code: 'ERR_ASSERTION',
+    actual: [],
+    expected: [ { jobKey: '9', appliedDate: '2026-08-31', source: 'Company portal', receiptNote: 'Receipt R-17; checklist complete', followUpDate: '2026-09-07' } ],
+    operator: 'deepStrictEqual',
+    diff: 'simple'
+  }
+```
+Tail 5:
+```
+  ✓  14 tests/e2e-smoke/dossier-layout.spec.mjs:238:1 › the dossier holds every track at 1280 and 1440 (1.9s)
+  ✓  15 tests/e2e-smoke/dossier-layout.spec.mjs:293:1 › the dossier collapses to one honest column on a narrow frame (1.9s)
+  ✓  16 tests/e2e-smoke/hermetic-fence.spec.mjs:46:1 › should never let an unstubbed /__proxy/start-discovery-worker reach the server (255ms)
+  ✓  17 tests/e2e-smoke/hermetic-fence.spec.mjs:70:1 › should answer every host-mutating /__proxy and /profile path in the fence (277ms)
+
+  17 passed (18.7s)
+```
+Tail 6:
+```
+  ✓  22 tests/e2e-journey/shell-today.spec.mjs:286:1 › should show the dossier again when the role already open is opened from another view (824ms)
+  ✓  23 tests/e2e-journey/shell-today.spec.mjs:308:1 › should not call a loading or failed pipeline empty in the Brief (611ms)
+  ✓  24 tests/e2e-journey/shell-today.spec.mjs:327:1 › should move a snoozed reply with no Last contact out of You owe an answer (596ms)
+  ✓  25 tests/e2e-journey/shell-today.spec.mjs:340:1 › should focus the pipeline search on Cmd/Ctrl+K from the Today and Dossier views (734ms)
+
+  25 passed (27.5s)
+```
+Tail 7:
+```
+  ✓  34 tests/e2e-visual/shell-structure.spec.mjs:166:5 › the one shell at 390×844 › should never scroll sideways on any beat (390×844) (4.3s)
+  ✓  35 tests/e2e-visual/shell-structure.spec.mjs:201:5 › the one shell at 390×844 › should keep the shell inside the viewport it was given (390×844) (635ms)
+  ✓  36 tests/e2e-visual/shell-structure.spec.mjs:228:3 › the one shell on a phone — claim C7 › should keep every beat's actions reachable without scrolling (4.5s)
+  ✓  37 tests/e2e-visual/shell-structure.spec.mjs:310:3 › the one shell on a phone — claim C7 › should dock the footer at the bottom of the viewport, not the bottom of the card (981ms)
+
+  37 passed (59.1s)
+```
