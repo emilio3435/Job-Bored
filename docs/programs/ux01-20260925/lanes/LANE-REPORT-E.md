@@ -165,3 +165,34 @@ Logs are in `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/e-fix1-*.log
 - `npm run test:e2e-smoke`: `11 passed`.
 - `npm run test:e2e-journey`: `13 passed`.
 - `npm run test:e2e-visual`: `37 passed`.
+
+## Verification · floor (E-r2)
+
+Independent Opus verifier, fresh context, at HEAD `d15069c` on `feat/ux01-dossier-tailor`. All seven commands ran in order. Logs are in `../.ux01-run/E-r2-floor/<n>.log`. No retries, no flaky specs.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | n/a |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | n/a |
+| 3 | `npm test` | PASS (exit 0) | tests 3095 · pass 3094 · fail 0 · skipped 0 · todo 1 |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | all contract checks OK |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 13 passed |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed |
+
+Tails:
+
+```
+[3] ℹ tests 3095 / ℹ pass 3094 / ℹ fail 0 / ℹ skipped 0 / ℹ todo 1
+    todo (listed under "failing tests", not counted as a fail):
+    tests/submission-record-audit.test.mjs:17 "persists and can remove the canonical submission evidence record"
+    # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store
+[4] OK schemas/pipeline-row.v1.json ↔ README.md ↔ app-config-core.js ↔ pipeline-render.js
+    OK schema (pipeline-update request): examples/pipeline-update-request.v1.json
+    OK integrations/openclaw-command-center/SKILL.md
+[5] 11 passed (16.3s)
+[6] 13 passed (22.9s)
+[7] 37 passed (1.0m)
+```
+
+Verdict: GREEN.
