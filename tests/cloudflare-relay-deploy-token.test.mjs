@@ -135,8 +135,77 @@ describe("deploy verification authenticates to the locked relay", () => {
     });
   });
 
-  it("no longer hands verification to verify-discovery-webhook.mjs, which never sends RELAY_TOKEN", () => {
-    assert.doesNotMatch(source, /verify-discovery-webhook\.mjs"/);
+  // Behavior, not implementation: whichever code path verifies the deploy,
+  // it must authenticate, trust only a real discovery response, and give up
+  // at its deadline. (This replaced a check that forbade calling
+  // verify-discovery-webhook.mjs; that verifier now sends RELAY_TOKEN too.)
+  async function withRawServer(handler, fn) {
+    const seen = [];
+    const sockets = new Set();
+    const server = createServer((req, res) => {
+      seen.push({ method: req.method, headers: req.headers });
+      handler(req, res);
+    });
+    server.on("connection", (s) => {
+      sockets.add(s);
+      s.on("close", () => sockets.delete(s));
+    });
+    await new Promise((r) => server.listen(19013, "127.0.0.1", r));
+    try {
+      return await fn(seen);
+    } finally {
+      for (const s of sockets) s.destroy();
+      await new Promise((r) => server.close(r));
+    }
+  }
+
+  it("does not count a 200 without a discovery response as verified", async () => {
+    const mod = await import(scriptPath);
+    for (const [type, body] of [
+      ["text/html", "<html><body>Sign in</body></html>"],
+      ["application/json", '{"ok":false,"error":"sheet"}'],
+      ["application/json", ""],
+    ]) {
+      await withRawServer(
+        (_req, res) => {
+          res.writeHead(200, { "content-type": type });
+          res.end(body);
+        },
+        async (seen) => {
+          const ok = await mod.verifyRelayDeployment({
+            workerUrl: "http://127.0.0.1:19013/",
+            sheetId: "sheet-example",
+            relayToken: "verify-token-2",
+            retries: 0,
+          });
+          assert.equal(ok, false, `a 200 ${type} ${JSON.stringify(body)} is not verified`);
+          assert.equal(seen[0].headers.authorization, "Bearer verify-token-2");
+        },
+      );
+    }
+  });
+
+  it("gives up at its deadline on a relay that never answers", async () => {
+    const mod = await import(scriptPath);
+    await withRawServer(
+      () => {
+        /* never respond */
+      },
+      async (seen) => {
+        const started = Date.now();
+        const ok = await mod.verifyRelayDeployment({
+          workerUrl: "http://127.0.0.1:19013/",
+          sheetId: "sheet-example",
+          relayToken: "verify-token-3",
+          retries: 0,
+          timeoutMs: 150,
+        });
+        assert.equal(ok, false);
+        assert.ok(Date.now() - started < 2000, "settled near the 150ms deadline");
+        assert.equal(seen.length, 1);
+        assert.equal(seen[0].headers.authorization, "Bearer verify-token-3");
+      },
+    );
   });
 });
 
