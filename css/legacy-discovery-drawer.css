@@ -33,7 +33,7 @@
   color: var(--text, #111);
 }
 .discovery-subtab:focus-visible {
-  outline: 2px solid var(--accent, #59cb89);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
 }
 .discovery-subtab[aria-selected="true"] {

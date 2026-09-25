@@ -9,7 +9,7 @@
 .discovery-setup-wizard-root {
   position: fixed;
   inset: 0;
-  z-index: 3200;
+  z-index: var(--jb-z-wizard);
   display: flex;
   align-items: center;
   justify-content: center;
@@ -339,7 +339,7 @@
 }
 
 .discovery-setup-wizard__back-arrow:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 1px;
 }
 
@@ -438,7 +438,7 @@
 }
 
 .discovery-setup-wizard__option-col:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
 }
 
@@ -1093,14 +1093,14 @@
 }
 
 .discovery-setup-wizard__btn--primary {
-  color: var(--text-inverse);
+  color: var(--jb-on-accent);
   background: linear-gradient(180deg, var(--accent), var(--accent-hover));
   border-color: rgba(89, 203, 137, 0.35);
   box-shadow: 0 10px 18px rgba(89, 203, 137, 0.2);
 }
 
 .discovery-setup-wizard__btn--primary:hover {
-  background: linear-gradient(180deg, var(--accent-hover), #38a86e);
+  background: var(--jb-mint-hover);
 }
 
 .discovery-setup-wizard__btn--secondary {
@@ -1285,7 +1285,7 @@
 .discovery-setup-wizard__journey-step--done .discovery-setup-wizard__journey-dot {
   background: var(--jb-mint, var(--accent));
   border-color: var(--jb-mint, var(--accent));
-  color: var(--jb-ink-inverse, #fff);
+  color: var(--jb-on-accent);
 }
 
 .discovery-setup-wizard__journey-step--current {
