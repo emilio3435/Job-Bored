@@ -529,3 +529,33 @@ EXIT 0
   13 passed (19.9s)   # e2e-journey
   37 passed (1.0m)    # e2e-visual
 ```
+
+## Verification · floor (A-C4-r1)
+
+Verifier: fresh Opus context (floor only; no product code or tests edited). Worktree `feat/ux01-system`. Logs: `Job-Bored.worktrees/.ux01-run/A-C4-r1-floor/<n>.log`. No retries needed; no flaky specs.
+
+| # | Command | Exit | Result |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | 0 | PASS: `lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)` |
+| 2 | `npm run typecheck:repo` | 0 | PASS: all `tsc --noEmit` projects clean |
+| 3 | `npm test` | 0 | PASS: tests 3030, pass 3029, fail 0, cancelled 0, skipped 0, todo 1 |
+| 4 | `npm run test:contract:all` | 0 | PASS: every schema/contract check OK |
+| 5 | `npm run test:e2e-smoke` | 0 | PASS: 15 passed (19.1s) |
+| 6 | `npm run test:e2e-journey` | 0 | PASS: 13 passed (22.7s) |
+| 7 | `npm run test:e2e-visual` | 0 | PASS: 37 passed (1.1m) |
+
+Green: yes.
+
+Note: the node reporter lists one entry under "failing tests". That test is marked `todo` and does not count as a failure:
+`tests/submission-record-audit.test.mjs:17` "persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store" (deepStrictEqual: actual `[]`).
+
+Tail, `npm test`:
+```
+ℹ tests 3030
+ℹ suites 728
+ℹ pass 3029
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+```
