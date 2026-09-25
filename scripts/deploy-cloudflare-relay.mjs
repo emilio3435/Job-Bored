@@ -826,8 +826,9 @@ function readBootstrapFile(bootstrapPath) {
 
 /**
  * Verifies the deployed relay with its own bearer. This replaced a spawn of
- * scripts/verify-discovery-webhook.mjs, which never read RELAY_TOKEN, so every
- * verification of a locked relay was a 401.
+ * scripts/verify-discovery-webhook.mjs, which at the time never read
+ * RELAY_TOKEN, so every verification of a locked relay was a 401. That script
+ * now sends RELAY_TOKEN (or --relay-token) as a bearer for manual checks.
  */
 async function verifyRelayDeployment({
   workerUrl,
@@ -1197,7 +1198,7 @@ async function main() {
       if (args.sheetId) {
         console.log("");
         console.log(
-          "Verify: re-run this deploy. It verifies with the relay token; npm run test:discovery-webhook does not send RELAY_TOKEN, so it gets 401 from a locked relay.",
+          "Verify: re-run this deploy, or run npm run test:discovery-webhook with RELAY_TOKEN set (or --relay-token); without the token a locked relay answers 401.",
         );
       }
     }

@@ -128,8 +128,9 @@ local dashboard fetches the token from the loopback-guarded dev-server route
 Worker keeps the existing token so a dashboard's cached bearer stays valid; pass
 `--rotate-token` to mint a new one. When the relay answers 401 the dashboard
 re-reads the token once and retries. Deploy verification sends the bearer
-itself; `npm run test:discovery-webhook` does not, so it gets 401 from a locked
-relay.
+itself. To check a locked relay by hand, run `npm run test:discovery-webhook`
+with `RELAY_TOKEN` set (or pass `--relay-token`); without it the relay answers
+401.
 
 ## Hosted mode is unsupported
 
