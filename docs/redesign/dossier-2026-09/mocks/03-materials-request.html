@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier redesign · 03 materials request</title>
+<link rel="stylesheet" href="../../../../vendor/fonts/fonts.css">
+<link rel="stylesheet" href="mock-shell.css">
+<link rel="stylesheet" href="dossier-redesign.css">
+</head>
+<body>
+
+<main class="mock-page">
+  <div data-mock-nav></div>
+
+  <header class="mock-head">
+    <span class="mock-head__kicker">Role dossier redesign · mock 03 · the materials request path</span>
+    <h1 class="mock-head__title">Requesting materials, <em>end to end</em></h1>
+    <p class="mock-head__note">
+      This is the surface the dogfood report was actually using: open 3E, ask for a cover letter,
+      watch it. The shipped dossier renders this state in a 323px lane where the name track
+      collapses to 12px and the label shreds into nine lines, while the only live progress reading
+      is in a separate overlay. Here the run has two homes that agree: a live chip in the sticky
+      docket, and the authoritative row in the ledger.
+    </p>
+    <button type="button" class="mock-toggle" data-mock-toggle aria-pressed="false">
+      <span aria-hidden="true">◉</span><span>Annotations off</span>
+    </button>
+  </header>
+
+  <section class="mock-frame mock-frame--1440">
+    <p class="mock-frame__label">1 · in flight — “drafting in progress”, 1m 07s, message and indeterminate track</p>
+    <div class="mock-frame__body mock-crop" data-mount="drafting"></div>
+  </section>
+
+  <section class="mock-frame mock-frame--1440">
+    <p class="mock-frame__label">2 · it failed — one word in the pill, the reason in the row, both ways out</p>
+    <div class="mock-frame__body mock-crop" data-mount="failed"></div>
+  </section>
+
+  <h2 class="mock-frame__label" style="width:min(1440px,100%);margin:8px auto 14px;">
+    The ledger rows on their own, at the width they are designed for
+  </h2>
+  <section class="mock-frame mock-frame--390">
+    <p class="mock-frame__label">Materials rows at 352px — the real ledger track</p>
+    <div class="mock-frame__body">
+      <div class="dossier" style="padding:22px;">
+        <div class="dossier__ledger" style="max-width:352px;">
+          <section class="dossier__section dossier__section--materials" aria-labelledby="dsr-rows">
+            <div class="dossier__section-head">
+              <h3 class="dossier__section-title" id="dsr-rows">Materials · every state</h3>
+            </div>
+            <div class="dossier__docs" data-mount="rows"></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <div data-mock-legend></div>
+</main>
+
+<script src="dossier-mock-data.js"></script>
+<script src="dossier-mock.js"></script>
+<script src="mock-shell.js"></script>
+<script>
+  var Mock = window.JobBoredDossierMock;
+  var Data = window.JobBoredDossierMockData;
+
+  Mock.render(document.querySelector('[data-mount="drafting"]'), Data.model("materials-drafting"));
+  Mock.render(document.querySelector('[data-mount="failed"]'), Data.model("materials-failed"));
+
+  /* All five row states side by side, so the state machine is legible in
+     one screenshot: not drafted → queued → drafting → ready → failed. */
+  var rows = [
+    {
+      type: "cover_letter", label: "Cover letter", state: "missing", stateWord: "not drafted",
+      meta: "Never requested",
+      actions: [{ label: "Draft", action: "resume-cover", primary: true }],
+    },
+    {
+      type: "cover_letter", label: "Cover letter", state: "drafting", stateWord: "queued",
+      phase: "waiting in queue", elapsed: "0m 04s", attempt: 1,
+      message: "Behind one other role. Nothing to do — this page updates itself.",
+      actions: [{ label: "Cancel", action: "materials-dismiss", feature: "cover_letter" }],
+    },
+    {
+      type: "cover_letter", label: "Cover letter", state: "drafting", stateWord: "drafting",
+      phase: "drafting in progress", elapsed: "1m 07s", attempt: 1,
+      message: "Reading the posting and your work samples to find the opening line.",
+      actions: [{ label: "Cancel", action: "materials-dismiss", feature: "cover_letter" }],
+    },
+    {
+      type: "resume", label: "Tailored resume", state: "ready", stateWord: "ready",
+      meta: "Drafted 2026-09-16 · 2 files",
+      actions: [
+        { label: "Preview", action: "materials-preview", href: "#", primary: true },
+        { label: "Download PDF", action: "materials-download", href: "#" },
+      ],
+    },
+    {
+      type: "cover_letter", label: "Manual-apply checklist", state: "failed", stateWord: "failed",
+      meta: "Stopped after 1m 07s · attempt 2",
+      detail: "The drafting worker stopped responding before the letter was written. Nothing was saved.",
+      actions: [
+        { label: "Try again", action: "materials-retry", feature: "cover_letter", primary: true },
+        { label: "Dismiss", action: "materials-dismiss", feature: "cover_letter" },
+      ],
+    },
+  ];
+  document.querySelector('[data-mount="rows"]').innerHTML = rows.map(Mock.renderDocRow).join("");
+
+  window.JobBoredMockShell.boot({ current: "03-materials-request.html" });
+</script>
+</body>
+</html>

@@ -784,6 +784,7 @@
         browserWorkerUrl ? "relay_apply_worker_url" : "",
         state.savedWebhookUrl ? "relay_validate_external_endpoint" : "",
       ]),
+      relayLock: describeRelayLock(browserWorkerUrl),
     };
 
     if (
@@ -891,4 +892,356 @@
       return Promise.resolve(buildRelayActionResult(actionId, context));
     },
   });
+
+  // ====== Relay auth (G24) ======
+  // scripts/deploy-cloudflare-relay.mjs mints a per-dashboard bearer token and
+  // keeps it only in the owner-only .jobbored-relay/credential.json. The
+  // relay answers 401 without it. The dev server hands out only
+  // { workerUrl, relayToken, relayLocked } through the loopback-guarded
+  // RELAY_TOKEN_ROUTE. This store
+  // keeps the block in this browser and hands the bearer only to requests
+  // aimed at the relay origin.
+  const RELAY_AUTH_STORAGE_KEY = "jobbored.discoveryRelayAuth";
+  const RELAY_TOKEN_ROUTE = "/__proxy/discovery-relay-token";
+
+  function safeOrigin(raw) {
+    try {
+      const u = new URL(String(raw || "").trim());
+      return u.protocol === "https:" || u.protocol === "http:" ? u.origin : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function relayStorage() {
+    try {
+      return window.localStorage || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function readRelayAuth() {
+    const s = relayStorage();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s.getItem(RELAY_AUTH_STORAGE_KEY) || "null");
+      if (
+        parsed &&
+        typeof parsed.token === "string" &&
+        parsed.token &&
+        safeOrigin(parsed.workerUrl)
+      ) {
+        return parsed;
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    return null;
+  }
+
+  function hydrateRelayAuthFromBootstrap(data) {
+    const block = data && typeof data === "object" ? data.relay : null;
+    if (!block || typeof block !== "object") return false;
+    const token =
+      typeof block.relayToken === "string" ? block.relayToken.trim() : "";
+    const workerUrl =
+      typeof block.workerUrl === "string" ? block.workerUrl.trim() : "";
+    if (!token || !safeOrigin(workerUrl)) return false;
+    const s = relayStorage();
+    if (!s) return false;
+    try {
+      s.setItem(
+        RELAY_AUTH_STORAGE_KEY,
+        JSON.stringify({
+          workerUrl,
+          token,
+          locked: block.relayLocked !== false,
+        }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isLocalRelayDashboardOrigin() {
+    const h = String(
+      (window.location && window.location.hostname) || "",
+    ).toLowerCase();
+    return h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1";
+  }
+
+  // The token route is a loopback call to the dev server, but a wedged server
+  // must not hold a relay request past its own deadline, so hydration carries
+  // its own timeout and aborts the route request when it fires.
+  const RELAY_HYDRATION_TIMEOUT_MS = 2500;
+
+  function hydrationTimeoutFrom(options) {
+    const ms = Number(options && options.timeoutMs);
+    return Number.isFinite(ms) && ms > 0 ? ms : RELAY_HYDRATION_TIMEOUT_MS;
+  }
+
+  async function hydrateRelayAuth(options) {
+    if (!isLocalRelayDashboardOrigin()) return false;
+    const controller =
+      typeof AbortController === "function" ? new AbortController() : null;
+    let timer = null;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        if (controller) {
+          try {
+            controller.abort();
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        resolve(null);
+      }, hydrationTimeoutFrom(options));
+    });
+    try {
+      const res = await Promise.race([
+        Promise.resolve()
+          .then(() =>
+            window.fetch(RELAY_TOKEN_ROUTE, {
+              cache: "no-store",
+              ...(controller ? { signal: controller.signal } : {}),
+            }),
+          )
+          .catch(() => null),
+        deadline,
+      ]);
+      if (!res || !res.ok) return false;
+      const data = await Promise.race([
+        Promise.resolve()
+          .then(() => res.json())
+          .catch(() => null),
+        deadline,
+      ]);
+      return hydrateRelayAuthFromBootstrap(data);
+    } catch (_) {
+      return false;
+    } finally {
+      if (timer !== null && typeof clearTimeout === "function") clearTimeout(timer);
+    }
+  }
+
+  // G24: the setup status line. "Relay locked" only when this browser holds
+  // the per-dashboard token for the relay it is about to use; the token itself
+  // never enters the model.
+  function describeRelayLock(workerUrl) {
+    const auth = readRelayAuth();
+    const target = safeOrigin(workerUrl);
+    const matches =
+      !!auth && (!target || target === safeOrigin(auth.workerUrl));
+    if (matches && auth.locked !== false) {
+      return {
+        locked: true,
+        label: "Relay locked",
+        detail:
+          "Only this dashboard holds the relay token. Requests without it get 401.",
+      };
+    }
+    return {
+      locked: false,
+      label: "Relay not locked yet",
+      detail:
+        "Deploy the relay with the deploy script. It mints this dashboard's relay token, and the relay answers 401 to anyone without it.",
+    };
+  }
+
+  function relayAuthHeadersFor(url) {
+    const auth = readRelayAuth();
+    if (!auth) return {};
+    const target = safeOrigin(url);
+    if (!target || target !== safeOrigin(auth.workerUrl)) return {};
+    return { Authorization: `Bearer ${auth.token}` };
+  }
+
+  function isLocalTarget(url) {
+    try {
+      const h = new URL(String(url || "").trim()).hostname.toLowerCase();
+      return h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  let relayHydration = null;
+  // One in-flight hydration at a time. It always settles within its timeout,
+  // and a settled one (ok, failed or timed out) is dropped, so a later request
+  // asks the route again instead of reusing a stalled promise.
+  function startRelayHydration(options) {
+    if (!relayHydration) {
+      relayHydration = hydrateRelayAuth(options).then(
+        (ok) => {
+          relayHydration = null;
+          return ok;
+        },
+        () => {
+          relayHydration = null;
+          return false;
+        },
+      );
+    }
+    return relayHydration;
+  }
+
+  function signalFrom(options) {
+    const signal = options && options.signal;
+    return signal && typeof signal.aborted === "boolean" ? signal : null;
+  }
+
+  function abortErrorFor(signal) {
+    const reason = signal && signal.reason;
+    if (reason && typeof reason === "object" && reason.name === "AbortError") {
+      return reason;
+    }
+    if (typeof DOMException === "function") {
+      return new DOMException("The operation was aborted.", "AbortError");
+    }
+    const err = new Error("The operation was aborted.");
+    err.name = "AbortError";
+    return err;
+  }
+
+  // Waits for `promise`, but rejects with an AbortError as soon as the
+  // caller's signal fires, so hydration never outlasts the caller's deadline.
+  function untilAborted(promise, signal) {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(abortErrorFor(signal));
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(abortErrorFor(signal));
+      signal.addEventListener("abort", onAbort, { once: true });
+      promise.then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+        },
+        (err) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(err);
+        },
+      );
+    });
+  }
+
+  // Loads the token only when a request is about to leave for a remote origin
+  // with no token cached for it. Greenfield boot never calls the route.
+  // options: { signal, timeoutMs }. Rejects with AbortError when the signal
+  // fires first.
+  async function prepareRelayAuth(url, options) {
+    const signal = signalFrom(options);
+    if (signal && signal.aborted) throw abortErrorFor(signal);
+    if (!safeOrigin(url) || isLocalTarget(url)) return false;
+    const auth = readRelayAuth();
+    if (auth && safeOrigin(auth.workerUrl) === safeOrigin(url)) return true;
+    await untilAborted(startRelayHydration(options), signal);
+    const next = readRelayAuth();
+    return !!(next && safeOrigin(next.workerUrl) === safeOrigin(url));
+  }
+
+  // Re-reads the token after the relay answered 401 (a redeploy with a new
+  // token). True only when the cached token for this relay origin differs
+  // from the one the failed request sent. options.sentToken names that
+  // bearer ("" when none was sent); without it, the cache at the start of the
+  // refresh stands in. Comparing with the sent bearer matters when requests
+  // overlap: a concurrent request may already have refreshed the cache, and
+  // this request must still retry with the new token.
+  async function refreshRelayAuth(url, options) {
+    const signal = signalFrom(options);
+    if (signal && signal.aborted) throw abortErrorFor(signal);
+    if (!safeOrigin(url) || isLocalTarget(url)) return false;
+    const hasSent =
+      options && typeof options === "object" && typeof options.sentToken === "string";
+    const before = readRelayAuth();
+    const sent = hasSent ? options.sentToken : before ? before.token : "";
+    await untilAborted(startRelayHydration(options), signal);
+    const after = readRelayAuth();
+    return !!(
+      after &&
+      safeOrigin(after.workerUrl) === safeOrigin(url) &&
+      after.token &&
+      after.token !== sent
+    );
+  }
+
+  function bearerTokenOf(headers) {
+    const value = headers && headers.Authorization;
+    const match = /^Bearer (.+)$/.exec(typeof value === "string" ? value : "");
+    return match ? match[1] : "";
+  }
+
+  function isAbortError(err) {
+    return !!(err && err.name === "AbortError");
+  }
+
+  function withRelayAuthHeaders(init, url) {
+    const add = relayAuthHeadersFor(url);
+    const base = init && typeof init === "object" ? init : {};
+    if (!add.Authorization) return base;
+    const headers = base.headers;
+    if (typeof Headers !== "undefined" && headers instanceof Headers) {
+      const copy = new Headers(headers);
+      copy.set("Authorization", add.Authorization);
+      return { ...base, headers: copy };
+    }
+    return {
+      ...base,
+      headers: {
+        ...(headers && typeof headers === "object" ? headers : {}),
+        Authorization: add.Authorization,
+      },
+    };
+  }
+
+  function canReplayBody(init) {
+    const body = init && typeof init === "object" ? init.body : undefined;
+    return body == null || typeof body === "string";
+  }
+
+  // fetch() for relay call sites: attaches the bearer for the relay origin,
+  // and on a 401 refreshes the token and retries once. Non-relay URLs pass
+  // straight through.
+  async function relayAuthFetch(input, init) {
+    const url = typeof input === "string" ? input : String((input && input.url) || input || "");
+    if (typeof input !== "string" || !safeOrigin(url) || isLocalTarget(url)) {
+      return window.fetch(input, init);
+    }
+    // The caller's signal bounds token preparation and the 401 refresh as
+    // well as the request itself; any other preparation failure just sends
+    // the request without a token.
+    const signal = signalFrom(init);
+    await prepareRelayAuth(url, { signal }).catch((err) => {
+      if (isAbortError(err)) throw err;
+      return false;
+    });
+    // The bearer this request carries, so the 401 refresh compares against
+    // what was sent rather than a cache another request may have refreshed.
+    const sentToken = bearerTokenOf(relayAuthHeadersFor(url));
+    const res = await window.fetch(input, withRelayAuthHeaders(init, url));
+    if (!res || res.status !== 401 || !canReplayBody(init)) return res;
+    const refreshed = await refreshRelayAuth(url, { signal, sentToken }).catch((err) => {
+      if (isAbortError(err)) throw err;
+      return false;
+    });
+    if (!refreshed) return res;
+    return window.fetch(input, withRelayAuthHeaders(init, url));
+  }
+
+  const relayAuth = Object.freeze({
+    hydrate: hydrateRelayAuth,
+    prepare: prepareRelayAuth,
+    refresh: refreshRelayAuth,
+    fetch: relayAuthFetch,
+    HYDRATION_TIMEOUT_MS: RELAY_HYDRATION_TIMEOUT_MS,
+    hydrateFromBootstrap: hydrateRelayAuthFromBootstrap,
+    headersFor: relayAuthHeadersFor,
+    isLocked() {
+      const auth = readRelayAuth();
+      return !!(auth && auth.locked !== false);
+    },
+  });
+  relay.auth = relayAuth;
+  window.JobBoredRelayAuth = relayAuth;
 })();

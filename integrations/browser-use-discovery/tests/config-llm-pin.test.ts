@@ -60,11 +60,11 @@ test("non-Gemini pin leaves google_search key empty", async () => {
   }
 });
 
-test("empty env without llm.json defaults geminiModel to gemini-3.7-flash", () => {
+test("empty env without llm.json defaults geminiModel to gemini-flash", () => {
   const cfg = loadRuntimeConfig({
     JOBBORED_LLM_CONFIG_PATH: join(tmpdir(), "jb-missing-llm.json"),
   });
-  assert.equal(cfg.geminiModel, "gemini-3.7-flash");
+  assert.equal(cfg.geminiModel, "gemini-flash");
 });
 
 test("gemini-flash pin resolves to GEMINI_FLASH_FALLBACK without a live list", async () => {
