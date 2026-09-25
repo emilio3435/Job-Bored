@@ -129,11 +129,13 @@
   --jb-font-body:    "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
   --jb-font-mono:    "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
   --jb-font-serif:   "Lora", "Source Serif Pro", Georgia, serif;
-  /* Legacy faces, kept until C3/C4 retire DM Sans / Special Elite. */
-  --jb-font-legacy-body:  "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
+  /* Legacy face names, kept as aliases so sheets that still read them
+     resolve to the v2 faces. C4 retired the DM Sans and typewriter faces (DS-12,
+     DS-23); nothing vendors either one. */
+  --jb-font-legacy-body:  var(--jb-font-body);
   --jb-font-legacy-mono:  "JetBrains Mono", "Fira Code", monospace;
-  --jb-font-dossier-sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --jb-font-dossier-mono: "JetBrains Mono", "Special Elite", ui-monospace, monospace;
+  --jb-font-dossier-sans: var(--jb-font-body);
+  --jb-font-dossier-mono: var(--jb-font-mono);
 
   /* Named roles (fixed sizes) */
   --jb-type-display: 2.5rem;     /* 40 */

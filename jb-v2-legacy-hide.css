@@ -56,10 +56,13 @@ body.jb-v2 [data-region="welcome"]:not([data-mode]) {
    Solution: only show v2 regions when #dashboard is visible
    (i.e. app.js has run the post-auth path that sets
    #dashboard.style.display to "block" / "flex").
-   Default: hide all four regions.
+   Default: hide all four regions. Today is gated too (SS-08): above a
+   sheet-403 or expired-session gate it said "Nothing is waiting on you
+   today" while the app could not read anything.
    ──────────────────────────────────────────────────────────── */
 body.jb-v2 .page-top,
 body.jb-v2 [data-region="dawn"],
+body.jb-v2 [data-region="today"],
 body.jb-v2 [data-region="pipeline"],
 body.jb-v2 [data-region="role"],
 body.jb-v2 [data-region="letter"],
@@ -82,6 +85,7 @@ body.jb-v2:has(#dashboard:not([style*="display: none"])) .page-top {
   display: flex !important;
 }
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="dawn"],
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="today"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="pipeline"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="role"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="lattice"],
