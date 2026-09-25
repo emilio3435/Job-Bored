@@ -56,7 +56,8 @@ body.jb-v2 .page-top {
 body.jb-v2 .page-top > .page-top__brand,
 body.jb-v2 .page-top > .page-nav,
 body.jb-v2 .page-top > .page-top__actions,
-body.jb-v2 .page-top > .page-top__menu-btn {
+body.jb-v2 .page-top > .page-top__menu-btn,
+body.jb-v2 .page-top > .page-top__more {
   pointer-events: auto;
 }
 
@@ -433,35 +434,26 @@ body.jb-v2 .flow-section__inner {
     display: none;
   }
 
-  body.jb-v2 .page-top__menu-btn {
-    display: inline-flex;
+  /* C18 at phone and tablet widths: the three views stay on screen as a
+     second row of the bar instead of hiding behind a menu, because they
+     are how you move between Today, Pipeline and the dossier. */
+  body.jb-v2 .page-top {
+    flex-wrap: wrap;
+    row-gap: 8px;
   }
 
   body.jb-v2 .page-nav {
-    position: absolute;
-    top: 100%;
-    right: var(--jb-flow-gutter, 18px);
-    flex-direction: column;
-    align-items: stretch;
+    order: 3;
+    flex: 1 0 100%;
+    justify-content: stretch;
     gap: 4px;
-    padding: 8px;
-    background: var(--jb-paper);
-    border: 1px solid var(--jb-line-soft);
-    border-radius: var(--jb-radius-md);
-    box-shadow: var(--jb-shadow-card);
-    display: none;
-    min-width: 180px;
-  }
-
-  body.jb-v2 .page-top.is-menu-open .page-nav {
-    display: flex;
   }
 
   body.jb-v2 .page-nav__pill {
-    justify-content: flex-start;
-    width: 100%;
-    border-radius: var(--jb-radius-sm);
-    padding: 10px 14px;
+    flex: 1 1 0;
+    justify-content: center;
+    min-height: 44px;
+    padding: 0 10px;
   }
 
   body.jb-v2 .flow-section {
@@ -617,4 +609,197 @@ body.jb-v2 .page-nav__pill.is-active {
     box-shadow var(--jb-transition-base);
   box-shadow: 0 1px 0 rgba(14, 58, 78, 0.15),
     0 8px 24px -12px rgba(14, 58, 78, 0.35);
+}
+
+/* ════════════════════════════════════════════════════════
+   UX01 C18 — views, not one long scroll
+   ────────────────────────────────────────────────────────
+   body[data-jb-view] names the view the chrome is showing.
+   Each view's regions render; the other views' regions
+   are display:none. Regions stay in place in the DOM, so
+   every data-region anchor and contract is unchanged.
+   Without the attribute (chrome not mounted, legacy view)
+   nothing here applies and the page flows as before.
+   ════════════════════════════════════════════════════════ */
+html body.jb-v2[data-jb-view="today"]:has(#dashboard) [data-region="pipeline"],
+html body.jb-v2[data-jb-view="today"]:has(#dashboard) [data-region="lattice"],
+html body.jb-v2[data-jb-view="today"]:has(#dashboard) [data-region="role"],
+html body.jb-v2[data-jb-view="today"]:has(#dashboard) [data-region="scribe"],
+html body.jb-v2[data-jb-view="pipeline"]:has(#dashboard) [data-region="today"],
+html body.jb-v2[data-jb-view="pipeline"]:has(#dashboard) [data-region="dawn"],
+html body.jb-v2[data-jb-view="pipeline"]:has(#dashboard) [data-region="role"],
+html body.jb-v2[data-jb-view="pipeline"]:has(#dashboard) [data-region="scribe"],
+html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="today"],
+html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="dawn"],
+html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="pipeline"],
+html body.jb-v2[data-jb-view="role"]:has(#dashboard) [data-region="lattice"] {
+  /* !important and one extra type selector: jb-v2-legacy-hide.css forces
+     every region to display:block !important once #dashboard shows, with
+     an id inside :has(), so a plain rule here can never win. */
+  display: none !important;
+}
+
+/* A focused view heading or region is a landing spot, not a control:
+   no ring on the programmatic focus, but it stays in the a11y tree. */
+body.jb-v2 [data-region][tabindex="-1"]:focus,
+body.jb-v2 .today-head__title[tabindex="-1"]:focus,
+body.jb-v2 .case__title-h[tabindex="-1"]:focus,
+body.jb-v2 .jb-shelf__title[tabindex="-1"]:focus {
+  outline: none;
+}
+
+/* ---- Skip link: the first Tab stop on every view -------- */
+body.jb-v2 .jb-skip {
+  position: fixed;
+  top: 8px;
+  left: 8px;
+  z-index: 2100;
+  padding: 10px 16px;
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-navy);
+  color: var(--jb-ink-inverse);
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  font-weight: 600;
+  text-decoration: none;
+  transform: translateY(-200%);
+}
+
+body.jb-v2 .jb-skip:focus,
+body.jb-v2 .jb-skip:focus-visible {
+  transform: none;
+  outline: 2px solid var(--jb-navy);
+  outline-offset: 2px;
+  box-shadow: 0 0 0 2px var(--jb-paper);
+}
+
+body:not(.jb-v2) .jb-skip {
+  display: none;
+}
+
+/* ---- Add job (C5) --------------------------------------- */
+body.jb-v2 .page-top__actions .page-top__action--add {
+  padding: 0 14px;
+  color: var(--jb-ink-inverse);
+  background: var(--jb-navy);
+}
+
+body.jb-v2 .page-top__actions .page-top__action--add:hover {
+  color: var(--jb-ink-inverse);
+  background: color-mix(in srgb, var(--jb-navy) 90%, var(--jb-mint-deep));
+}
+
+body.jb-v2 .page-top__add-plus {
+  font-family: var(--jb-font-body);
+  font-size: 16px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+/* Run discovery sits beside Add job as the secondary action. */
+body.jb-v2 .page-top__actions .page-top__action--primary {
+  color: var(--jb-navy);
+  background: var(--jb-paper);
+  box-shadow: inset 0 0 0 1px var(--jb-line-strong);
+}
+
+body.jb-v2 .page-top__actions .page-top__action--primary:hover {
+  color: var(--jb-navy);
+  background: var(--jb-paper-2);
+}
+
+/* ---- TR-21: [hidden] wins over the action display rules - */
+body.jb-v2 .page-top__actions [hidden],
+body.jb-v2 .page-top__actions .page-top__action[hidden],
+body.jb-v2 .page-top__more [hidden],
+body.jb-v2 .page-top__more .page-top__action[hidden] {
+  display: none;
+}
+
+/* ---- More menu (phones, AX-15 · AX-16) ------------------ */
+body.jb-v2 .page-top__more {
+  display: none;
+}
+
+@media (max-width: 600px) {
+  body.jb-v2 .page-top__menu-btn {
+    display: inline-flex;
+    width: 44px;
+    height: 44px;
+    min-width: 44px;
+  }
+
+  body.jb-v2 .page-top__actions {
+    overflow: visible;
+  }
+
+  body.jb-v2 .page-top.is-menu-open .page-top__more {
+    display: flex;
+    flex-direction: column;
+    align-items: stretch;
+    gap: 4px;
+    position: absolute;
+    top: 100%;
+    right: var(--jb-flow-gutter, 18px);
+    z-index: 800;
+    min-width: 220px;
+    padding: 8px;
+    background: var(--jb-paper);
+    border: 1px solid var(--jb-line-soft);
+    border-radius: var(--jb-radius-md);
+    box-shadow: var(--jb-shadow-card);
+  }
+
+  body.jb-v2 .page-top__more .page-top__action {
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 10px;
+    width: 100%;
+    min-height: 44px;
+    padding: 0 12px;
+    border: 0;
+    border-radius: var(--jb-radius-sm);
+    background: transparent;
+    color: var(--jb-navy);
+    font-family: var(--jb-font-body);
+    font-size: var(--jb-text-sm);
+    text-decoration: none;
+    cursor: pointer;
+  }
+
+  body.jb-v2 .page-top__more .page-top__action:hover {
+    background: var(--jb-paper-2);
+  }
+
+  body.jb-v2 .page-top__more .page-top__action:focus-visible {
+    outline: 2px solid var(--jb-navy);
+    outline-offset: -2px;
+  }
+
+  body.jb-v2 .page-top__more .page-top__action::after {
+    content: attr(aria-label);
+  }
+
+  /* The bar keeps Add job, Run discovery, Settings and the account. */
+  body.jb-v2 .page-top__actions .page-top__action--add {
+    width: 44px;
+    min-height: 44px;
+    padding: 0;
+  }
+
+  body.jb-v2 .page-top__actions .page-top__action--add .page-top__add-label {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip: rect(0 0 0 0);
+    white-space: nowrap;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  body.jb-v2 .jb-skip {
+    transition: none;
+  }
 }

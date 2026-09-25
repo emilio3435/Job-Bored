@@ -144,7 +144,7 @@ describe("Today attention queue — ranking (UX-01)", () => {
 
   it("counts each band so the surface can say why it is short", () => {
     const model = queue();
-    assert.deepEqual({ ...model.counts }, { reply: 1, prep: 1, "follow-up": 1, stale: 1, fit: 1 });
+    assert.deepEqual({ ...model.counts }, { reply: 1, prep: 1, "follow-up": 1, due: 0, offer: 0, stale: 1, fit: 1 });
   });
 
   it("reuses the shared flag vocabulary rather than minting a second one", () => {
@@ -222,8 +222,13 @@ describe("Today attention queue — renderer", () => {
     const btn = region.querySelector('[data-today-action="log-follow-up"]');
     assert.ok(!!btn, "the overdue follow-up row should offer a log-follow-up action");
     btn.dispatchEvent({ type: "click", target: btn, preventDefault() {}, stopPropagation() {} });
-    assert.equal(seen.length, 1);
+    /* TR-12: logging a follow-up is two writes, each dispatched once —
+       Last contact today, then the next Follow-up Date — so the row leaves
+       the band. The key travels as a string ("0" resolves; 0 is dropped). */
+    assert.equal(seen.length, 2);
     assert.equal(seen[0].detail.field, "heardBack");
+    assert.equal(seen[1].detail.field, "followupAt");
+    assert.equal(typeof seen[0].detail.jobKey, "string");
   });
 
   it("leaves all three board position stores untouched when an action runs", () => {

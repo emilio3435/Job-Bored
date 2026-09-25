@@ -72,6 +72,11 @@ async function bootBoard(page, { width, height }) {
     const host = core.host;
     if (host && typeof host.revealDashboardShell === "function") host.revealDashboardShell();
     document.body.classList.add("jb-v2");
+    // C18 makes Today the default view; these specs exercise the board.
+    const flowing = window.JobBoredFlowing;
+    if (flowing && flowing.views && typeof flowing.views.show === "function") {
+      flowing.views.show("pipeline", { focus: false });
+    }
     if (window.JobBoredPipeline && typeof window.JobBoredPipeline.scheduleRender === "function") {
       window.JobBoredPipeline.scheduleRender();
     }

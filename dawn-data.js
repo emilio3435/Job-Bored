@@ -329,13 +329,15 @@
     return n + " min read";
   }
 
-  /** Short italic deck/subtitle. Pulls from real counts. */
-  function buildDeck(hero, funnel) {
-    var offers = (funnel.find(function (s) { return s.stage === "offer"; }) || {}).count || 0;
-    var inLoop = hero.inLoop || 0;
-    var found = hero.found || 0;
+  /** Short italic deck/subtitle. Reads the same tiles "By the numbers"
+   *  shows, so the headline and the card can never disagree (TR-18). */
+  function buildDeck(numbers) {
+    var rows = Array.isArray(numbers) ? numbers : [];
+    var surfaced = rows[0] ? rows[0].value : 0;
+    var inLoop = rows[2] ? rows[2].value : 0;
+    var offers = rows[3] ? rows[3].value : 0;
     var parts = [];
-    if (found > 0) parts.push(found + " fresh roles");
+    if (surfaced > 0) parts.push(surfaced + (surfaced === 1 ? " new role" : " new roles") + " in the last 30 days");
     if (inLoop > 0) parts.push(inLoop + " interview" + (inLoop === 1 ? "" : "s") + " in play");
     if (offers > 0) parts.push(offers + " offer" + (offers === 1 ? "" : "s") + " live");
     if (parts.length === 0) return "One big thing, three small things, and the numbers behind them.";
@@ -396,7 +398,38 @@
     return facts;
   }
 
-  /** Build the lead-story carousel — top-N active jobs by data-fit. */
+  /** The engine's answer for a card, read from the live pipeline row when
+   *  the app exposes it (data-index is the pipeline index), else from the
+   *  card's own attributes. Null when today-data.js is not in the page. */
+  function nextStepOf(job, nowDate) {
+    var todayData = root.JobBoredToday && root.JobBoredToday.data;
+    if (!todayData || typeof todayData.nextStepFor !== "function") return null;
+    var row = null;
+    var api = root.JobBored;
+    if (api && typeof api.getPipelineJobs === "function" && job.index >= 0) {
+      try { row = (api.getPipelineJobs() || [])[job.index] || null; } catch (_) { row = null; }
+    }
+    if (!row) {
+      row = {
+        title: job.title,
+        company: job.company,
+        status: STAGE_TO_STATUS_LEAD[job.stage] || job.stage,
+        appliedDate: job.appliedDate || "",
+        followUpDate: job.followUpDate || "",
+        responseFlag: job.responseFlag || "",
+        fitScore: job.fitScore,
+      };
+    }
+    try { return todayData.nextStepFor(row, { now: nowDate }); } catch (_) { return null; }
+  }
+
+  var STAGE_TO_STATUS_LEAD = (function () {
+    var out = {};
+    STAGE_ORDER.forEach(function (s) { out[s.key] = s.label; });
+    return out;
+  })();
+
+  /** Build the lead-story carousel — top-N active jobs, next step first. */
   function buildLeads(jobs, nowDate, maxLeads) {
     var max = Number.isFinite(maxLeads) && maxLeads > 0 ? Math.floor(maxLeads) : 5;
     if (!Array.isArray(jobs) || jobs.length === 0) return [];
@@ -404,7 +437,19 @@
       return ACTIVE_LEAD_STAGES[j.stage];
     });
     // Sort by fit desc; jobs without a fit score still appear but at the end.
+    /* TR-14: the lead follows the one next-step engine. A role Today says
+       you owe an answer on outranks a better-fit role nobody is waiting on;
+       fit only orders roles inside the same band. */
+    var steps = Object.create(null);
+    active.forEach(function (j) { steps[j.key] = nextStepOf(j, nowDate); });
+    function bandRank(j) {
+      var st = steps[j.key];
+      return st ? st.rank : Infinity;
+    }
     active.sort(function (a, b) {
+      var ar = bandRank(a);
+      var br = bandRank(b);
+      if (ar !== br) return ar - br;
       var af = Number.isFinite(a.fitScore) ? a.fitScore : -Infinity;
       var bf = Number.isFinite(b.fitScore) ? b.fitScore : -Infinity;
       if (af !== bf) return bf - af;
@@ -412,7 +457,11 @@
       return (b.index || 0) - (a.index || 0);
     });
     return active.slice(0, max).map(function (job) {
+      var step = steps[job.key];
+      var facts = buildLeadFacts(job, nowDate);
+      if (step && step.headline) facts.unshift({ label: "NEXT", value: step.headline, tone: step.rank <= 2 ? "amber" : null });
       return {
+        nextStep: step || null,
         key: job.key,
         index: job.index,
         title: job.title || "Untitled role",
@@ -420,7 +469,7 @@
         stage: job.stage,
         fitScore: job.fitScore,
         jobUrl: job.jobUrl || "",
-        facts: buildLeadFacts(job, nowDate),
+        facts: facts,
       };
     });
   }
@@ -429,17 +478,43 @@
     return ((rows || []).find(function (s) { return s.kind === kind; }) || {}).count || 0;
   }
 
-  /** "By the numbers" 2×2 stats card — same 30-day stage counts as the funnel. */
-  function buildByTheNumbers(funnel30d) {
-    var discovered = _funnelCount(funnel30d, "discovered");
-    var applied = _funnelCount(funnel30d, "applied");
+  /* TR-18: "last 30 days" has to mean last 30 days. The funnel counts where
+     roles sit NOW, so it is labelled "in stage now"; the two flow numbers
+     below are counted from the dates the Sheet records (Date Found, Applied
+     Date), and a row with no date is not guessed into the window. */
+  var WINDOW_DAYS = 30;
+
+  function withinDays(value, nowDate, days) {
+    var ago = daysAgoFromIso(value, nowDate);
+    if (ago == null) return false;
+    var parsed = new Date(String(value));
+    var refNow = nowDate instanceof Date ? nowDate : new Date();
+    if (parsed.getTime() > refNow.getTime() + 24 * 60 * 60 * 1000) return false;
+    return ago <= days;
+  }
+
+  function countWithin(jobs, field, nowDate) {
+    var n = 0;
+    (jobs || []).forEach(function (j) { if (withinDays(j[field], nowDate, WINDOW_DAYS)) n += 1; });
+    return n;
+  }
+
+  function plural(n, one, many) {
+    return n === 1 ? one : many;
+  }
+
+  /** "By the numbers": two flow counts over the last 30 days, two stock
+   *  counts of where things stand now. Each tile says which it is. */
+  function buildByTheNumbers(funnel30d, jobs, nowDate) {
+    var surfaced = countWithin(jobs, "foundAt", nowDate);
+    var applied = countWithin(jobs, "appliedDate", nowDate);
     var inLoop = _funnelCount(funnel30d, "phone_screen") + _funnelCount(funnel30d, "interview");
     var offers = _funnelCount(funnel30d, "offer");
     return [
-      { value: discovered, label: "roles surfaced", delta: "last 30 days", tone: discovered > 0 ? "mint" : null },
-      { value: applied,    label: "applications",   delta: "last 30 days", tone: applied > 0 ? "amber" : null },
-      { value: inLoop,     label: "interviews",     delta: "phone screens + loops", tone: inLoop > 0 ? "mint" : null },
-      { value: offers,     label: "offer" + (offers === 1 ? "" : "s") + " live", delta: "last 30 days", tone: offers > 0 ? "amber" : null },
+      { value: surfaced, label: plural(surfaced, "role surfaced", "roles surfaced"), delta: "last 30 days", tone: surfaced > 0 ? "mint" : null },
+      { value: applied,  label: plural(applied, "application", "applications"),       delta: "last 30 days", tone: applied > 0 ? "amber" : null },
+      { value: inLoop,   label: plural(inLoop, "interview", "interviews"),             delta: "in play now", tone: inLoop > 0 ? "mint" : null },
+      { value: offers,   label: plural(offers, "offer", "offers") + " live",          delta: "open now", tone: offers > 0 ? "amber" : null },
     ];
   }
 
@@ -524,7 +599,7 @@
     var nowDate = (opts && opts.now instanceof Date) ? opts.now : new Date();
     var funnel30d = buildFunnel30d(jobs);
     var leads = buildLeads(jobs, nowDate, 5);
-    var byTheNumbers = buildByTheNumbers(funnel30d);
+    var byTheNumbers = buildByTheNumbers(funnel30d, jobs, nowDate);
     var today = buildToday(jobs, nowDate);
 
     return {
@@ -546,7 +621,7 @@
       edition: buildEdition(nowDate),
       readTime: buildReadTime(jobs.length),
       title: "The Daily Brief",
-      deckCopy: buildDeck(hero, funnel),
+      deckCopy: buildDeck(byTheNumbers),
       leads: leads,
       byTheNumbers: byTheNumbers,
       funnel30d: funnel30d,
@@ -589,8 +664,8 @@
       byTheNumbers: [
         { value: 0, label: "roles surfaced", delta: "last 30 days", tone: null },
         { value: 0, label: "applications",   delta: "last 30 days", tone: null },
-        { value: 0, label: "interviews",     delta: "phone screens + loops", tone: null },
-        { value: 0, label: "offers live",    delta: "last 30 days", tone: null },
+        { value: 0, label: "interviews",     delta: "in play now", tone: null },
+        { value: 0, label: "offers live",    delta: "open now", tone: null },
       ],
       funnel30d: [
         { kind: "discovered",   label: "Discovered",   count: 0 },

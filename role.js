@@ -60,13 +60,25 @@
 
   /* -------------------- empty-state -------------------- */
 
+  /* AX-24: ⌘K only exists on Apple keyboards; the handler also takes Ctrl
+     (pipeline.js), so everyone else is told Ctrl K. */
+  function isApplePlatform() {
+    var nav = root.navigator || {};
+    var p = (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+    return /mac|iphone|ipad|ipod/i.test(String(p));
+  }
+
+  function searchShortcutLabel() {
+    return isApplePlatform() ? "⌘K" : "Ctrl K";
+  }
+
   function renderEmpty(region) {
     region.innerHTML = '' +
       '<div class="jb-shelf">' +
         '<div class="jb-shelf__rule"></div>' +
         '<div class="jb-shelf__num">PART <em>03</em> · WAITING</div>' +
         '<h2 class="jb-shelf__title">Open a role to <em>read</em>.</h2>' +
-        '<p class="jb-shelf__sub">Click any card in the pipeline above. The dossier and your tailored materials will unfold here.</p>' +
+        '<p class="jb-shelf__sub">Open any card in the pipeline. The dossier and your tailored materials will unfold here.</p>' +
         '<div class="jb-shelf__hints">' +
           '<div class="jb-hint">' +
             '<div class="jb-hint__eyebrow">THE DOSSIER</div>' +
@@ -80,8 +92,8 @@
           '</div>' +
         '</div>' +
         '<button type="button" class="jb-shelf__cta" data-shelf-cta="pipeline">' +
-          '<span>↑ Pick a role from the pipeline</span>' +
-          '<span class="jb-shelf__cta-key">⌘K</span>' +
+          '<span>Pick a role from the pipeline</span>' +
+          '<span class="jb-shelf__cta-key">' + searchShortcutLabel() + '</span>' +
           '<span>to search</span>' +
         '</button>' +
       '</div>';
@@ -90,8 +102,11 @@
     var cta = region.querySelector('[data-shelf-cta="pipeline"]');
     if (cta) {
       cta.addEventListener("click", function () {
+        var views = root.JobBoredFlowing && root.JobBoredFlowing.views;
         var pipeline = document.querySelector(PIPELINE_REGION_SELECTOR);
-        if (pipeline) {
+        if (views && typeof views.show === "function") {
+          views.show("pipeline", { focus: false });
+        } else if (pipeline) {
           var prefersReduced = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
           try {
             pipeline.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
@@ -520,9 +535,33 @@
     restoreFocus(region, focused);
   }
 
+  /* AX-05 · TA-17: opening a role moves focus to its heading, so a
+     keyboard or screen-reader user lands on what they opened instead of
+     <body>. Deferred a tick so the chrome has switched to the dossier view
+     (a display:none heading cannot take focus). Closing hands focus back to
+     the opener; the chrome owns that half because it owns the views.
+     A caller that already put focus inside the dossier (the card pencil
+     drops it in the title input) meant it: the heading never takes it back. */
+  function focusHeading() {
+    var region = getRegion();
+    if (!region) return;
+    var active = document.activeElement;
+    if (active && active !== region && region.contains(active)) return;
+    var heading = region.querySelector(".case__title-h") || region.querySelector(".jb-shelf__title");
+    if (!heading || typeof heading.focus !== "function") return;
+    heading.setAttribute("tabindex", "-1");
+    try { heading.focus({ preventScroll: true }); } catch (_) { heading.focus(); }
+    if (typeof region.scrollIntoView === "function") {
+      var reduce = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      try { region.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); }
+      catch (_) { region.scrollIntoView(); }
+    }
+  }
+
   function onOpened(e) {
     var key = e && e.detail && e.detail.jobKey;
     renderForKey(key);
+    root.setTimeout(focusHeading, 0);
   }
   function onClosed() {
     renderForKey(null);

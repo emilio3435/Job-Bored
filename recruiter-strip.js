@@ -72,6 +72,30 @@
     return "Set a follow-up date";
   }
 
+  /* TR-14: the card strip says the same next step Today does. When the
+     one engine (today-data.js nextStepFor) has an answer for this row it
+     wins; otherwise the four CRM sentences below still apply. The live row
+     is read by pipeline index, which is what the board's jobKey is. */
+  function engineStep(data) {
+    var today = root.JobBoredToday && root.JobBoredToday.data;
+    var api = root.JobBored;
+    if (!today || typeof today.nextStepFor !== "function") return null;
+    if (!api || typeof api.getPipelineJobs !== "function") return null;
+    var idx = Number(data.jobKey);
+    if (data.jobKey === "" || !Number.isInteger(idx) || idx < 0) return null;
+    try {
+      var row = (api.getPipelineJobs() || [])[idx];
+      var step = row ? today.nextStepFor(row) : null;
+      return step && step.reason !== "fit" ? step.headline : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function nextStepText(data) {
+    return engineStep(data) || nextAction(data);
+  }
+
   function factHtml(label, value, className) {
     return '<span class="jb-recruiter-strip__fact ' + escapeHtml(className) + '">' +
       '<span class="jb-recruiter-strip__label">' + escapeHtml(label) + '</span>' +
@@ -91,7 +115,7 @@
         factHtml("Follow-up", data.followUp, "pipe-sticker__recruiter-follow-up") +
       '</span>' +
       '<span class="jb-recruiter-strip__next"><span class="jb-recruiter-strip__label">Next action</span>' +
-        '<span class="jb-recruiter-strip__value">' + escapeHtml(nextAction(data)) + '</span></span>' +
+        '<span class="jb-recruiter-strip__value">' + escapeHtml(nextStepText(data)) + '</span></span>' +
       '</div>';
   }
 
@@ -107,4 +131,7 @@
   /* The Case's People block says the same next move the kanban card does, so
      the four branches live here once and both callers read them. */
   root.JobBoredRecruiterStrip.nextAction = nextAction;
+  /* The engine-first sentence for a row, for callers that hold a jobKey
+     (role-case-model.js's People "Next move" should read this; lane E). */
+  root.JobBoredRecruiterStrip.nextStep = nextStepText;
 })(typeof window !== "undefined" ? window : this);
