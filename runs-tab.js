@@ -352,6 +352,7 @@
 
   function triggerLabel(trigger) {
     if (trigger === "manual") return "Manual";
+    if (trigger === "scheduled") return "Scheduled";
     if (trigger === "scheduled-browser") return "Scheduled (browser)";
     if (trigger === "scheduled-local") return "Scheduled (local)";
     if (trigger === "scheduled-github") return "Scheduled (GitHub)";
@@ -472,6 +473,74 @@
     return !!(run && TERMINAL_JOB_DISCOVERY_STATUSES[run.status]);
   }
 
+  // UX01 C9 (FD-17): four visible columns — Run at · Status · New roles ·
+  // Why — so the log fits a 375 px phone and the reason a run failed is never
+  // the clipped last column. Trigger, duration, companies, updated, source
+  // and variation live in a per-row disclosure. The Sheet's 10-column
+  // DiscoveryRuns contract (parseDiscoveryRunsValues) is unchanged.
+  var VISIBLE_COLUMNS = 4;
+  var detailSeq = 0;
+
+  function whyText(status, error) {
+    var text = error ? String(error) : "";
+    if (text) return text;
+    if (status === "failure" || status === "partial") return "No reason logged";
+    return "";
+  }
+
+  function whyCellHtml(status, error) {
+    var text = whyText(status, error);
+    return (
+      '<td class="runs-why-cell">' +
+        (text ? escapeHtml(text) : '<span class="runs-dash">—</span>') +
+      "</td>"
+    );
+  }
+
+  function newRolesCellHtml(count, availability) {
+    var n = toInt(count);
+    if (availability !== "unavailable" && n > 0) {
+      var label = n === 1 ? "View 1 new role in Pipeline" : "View " + n + " new roles in Pipeline";
+      return (
+        '<td class="runs-new-cell">' +
+          '<button type="button" class="runs-view-pipeline" data-runs-view-pipeline="' + n + '"' +
+          ' aria-label="' + escapeHtml(label) + '">' + n + "</button>" +
+        "</td>"
+      );
+    }
+    return '<td class="runs-new-cell">' + formatMetricCell(count, availability) + "</td>";
+  }
+
+  function runAtToggleHtml(runAtIso, detailId) {
+    return (
+      '<td class="runs-at-cell">' +
+        '<button type="button" class="runs-row-toggle" aria-expanded="false"' +
+        ' aria-controls="' + detailId + '" title="' + escapeHtml(formatRunAt(runAtIso)) + '">' +
+          escapeHtml(formatRunAtShort(runAtIso)) +
+        "</button>" +
+      "</td>"
+    );
+  }
+
+  function detailRowHtml(detailId, items) {
+    var dl = "";
+    for (var i = 0; i < items.length; i++) {
+      dl +=
+        '<div class="runs-detail__item"><dt>' + escapeHtml(items[i][0]) + "</dt>" +
+        "<dd>" + items[i][1] + "</dd></div>";
+    }
+    return (
+      '<tr class="runs-detail-row" id="' + detailId + '" hidden>' +
+        '<td colspan="' + VISIBLE_COLUMNS + '"><dl class="runs-detail">' + dl + "</dl></td>" +
+      "</tr>"
+    );
+  }
+
+  function nextDetailId() {
+    detailSeq += 1;
+    return "runs-detail-" + detailSeq;
+  }
+
   function renderRunsTable(tbody, runs, options) {
     if (!tbody) return;
     var opts = options || {};
@@ -483,26 +552,22 @@
     if (runs && runs.length > 0) {
       for (var i = 0; i < runs.length; i++) {
         var r = runs[i];
-        var errorText = r.error ? String(r.error) : "";
+        var detailId = nextDetailId();
         parts.push(
           '<tr class="runs-row runs-row--' + escapeHtml(r.status) + '">' +
-            '<td title="' + escapeHtml(formatRunAt(r.runAt)) + '">' +
-              escapeHtml(formatRunAtShort(r.runAt)) +
-            "</td>" +
-            "<td>" + escapeHtml(triggerLabel(r.trigger)) + "</td>" +
+            runAtToggleHtml(r.runAt, detailId) +
             "<td>" + statusBadge(r.status) + "</td>" +
-            "<td>" + formatDuration(r.durationS, r.durationSAvailability) + "</td>" +
-            "<td>" + formatMetricCell(r.companiesSeen, r.companiesSeenAvailability) + "</td>" +
-            "<td>" + formatMetricCell(r.leadsWritten, r.leadsWrittenAvailability) + "</td>" +
-            "<td>" + formatMetricCell(r.leadsUpdated, r.leadsUpdatedAvailability) + "</td>" +
-            "<td>" + escapeHtml(r.source) + "</td>" +
-            "<td><code>" + escapeHtml(r.variationKey) + "</code></td>" +
-            '<td class="runs-error-cell"' +
-              (errorText ? ' title="' + escapeHtml(errorText) + '"' : "") +
-              ">" +
-              escapeHtml(errorText) +
-            "</td>" +
-          "</tr>"
+            newRolesCellHtml(r.leadsWritten, r.leadsWrittenAvailability) +
+            whyCellHtml(r.status, r.error) +
+          "</tr>" +
+          detailRowHtml(detailId, [
+            ["Trigger", escapeHtml(triggerLabel(r.trigger))],
+            ["Duration", formatDuration(r.durationS, r.durationSAvailability)],
+            ["Companies", formatMetricCell(r.companiesSeen, r.companiesSeenAvailability)],
+            ["Updated", formatMetricCell(r.leadsUpdated, r.leadsUpdatedAvailability)],
+            ["Source", escapeHtml(r.source)],
+            ["Variation", "<code>" + escapeHtml(r.variationKey) + "</code>"],
+          ])
         );
       }
     }
@@ -514,18 +579,13 @@
     var runAtIso = runAt.toISOString();
     return (
       '<tr class="runs-row runs-row--in-progress" data-runs-ghost="1">' +
-        '<td title="' + escapeHtml(runAtIso) + '">' +
+        '<td class="runs-at-cell" title="' + escapeHtml(runAtIso) + '">' +
           escapeHtml(formatRunAtShort(runAtIso)) +
+          '<span class="sr-only"> ' + escapeHtml(triggerLabel("manual")) + "</span>" +
         "</td>" +
-        "<td>" + escapeHtml(triggerLabel("manual")) + "</td>" +
         "<td>" + statusBadge("in_progress") + "</td>" +
-        '<td><span class="runs-dash">—</span></td>' +
-        '<td><span class="runs-dash">—</span></td>' +
-        '<td><span class="runs-dash">—</span></td>' +
-        '<td><span class="runs-dash">—</span></td>' +
-        '<td><span class="runs-dash">—</span></td>' +
-        '<td><span class="runs-dash">—</span></td>' +
-        '<td class="runs-error-cell"></td>' +
+        '<td class="runs-new-cell"><span class="runs-dash">—</span></td>' +
+        '<td class="runs-why-cell"><span class="runs-dash">—</span></td>' +
       "</tr>"
     );
   }
@@ -539,27 +599,26 @@
     var terminal = isTerminalJobDiscoveryRun(run);
     var errorText = run && run.error ? String(run.error) : "";
     var companiesSeen = run && run.companiesSeen > 0 ? String(run.companiesSeen) : "—";
-    var leadsWritten = run && run.leadsWritten > 0 ? String(run.leadsWritten) : "—";
+    var leadsWritten = run && run.leadsWritten > 0 ? run.leadsWritten : 0;
     var leadsUpdated = run && run.leadsUpdated > 0 ? String(run.leadsUpdated) : "—";
+    var detailId = nextDetailId();
     return (
       '<tr class="runs-row runs-row--' + escapeHtml(terminal ? status : "in-progress") + '" data-runs-live="job-discovery">' +
-        '<td title="' + escapeHtml(runAtIso) + '">' +
-          escapeHtml(formatRunAtShort(runAtIso)) +
-        "</td>" +
-        "<td>" + escapeHtml(triggerLabel((run && run.trigger) || "manual")) + "</td>" +
+        runAtToggleHtml(runAtIso, detailId) +
         "<td>" + statusBadge(terminal ? status : "in_progress", jobDiscoveryStatusLabel(status)) + "</td>" +
-        '<td><span class="runs-dash">' + (terminal ? "Local" : "Live") + "</span></td>" +
-        "<td>" + escapeHtml(companiesSeen) + "</td>" +
-        "<td>" + escapeHtml(leadsWritten) + "</td>" +
-        "<td>" + escapeHtml(leadsUpdated) + "</td>" +
-        "<td>Job discovery</td>" +
-        "<td><code>" + escapeHtml((run && run.variationKey) || "") + "</code></td>" +
-        '<td class="runs-error-cell"' +
-          (errorText ? ' title="' + escapeHtml(errorText) + '"' : "") +
-          ">" +
-          escapeHtml(errorText) +
-        "</td>" +
-      "</tr>"
+        (leadsWritten > 0
+          ? newRolesCellHtml(leadsWritten, "")
+          : '<td class="runs-new-cell"><span class="runs-dash">—</span></td>') +
+        whyCellHtml(terminal ? status : "", errorText) +
+      "</tr>" +
+      detailRowHtml(detailId, [
+        ["Trigger", escapeHtml(triggerLabel((run && run.trigger) || "manual"))],
+        ["Duration", '<span class="runs-dash">' + (terminal ? "Local" : "Live") + "</span>"],
+        ["Companies", escapeHtml(companiesSeen)],
+        ["Updated", escapeHtml(leadsUpdated)],
+        ["Source", "Job discovery"],
+        ["Variation", "<code>" + escapeHtml((run && run.variationKey) || "") + "</code>"],
+      ])
     );
   }
 
@@ -567,19 +626,10 @@
     if (!tbody) return;
     var n = count > 0 ? count : 5;
     var bar = '<span class="runs-skeleton-bar" aria-hidden="true"></span>';
+    var cells = "";
+    for (var c = 0; c < VISIBLE_COLUMNS; c++) cells += "<td>" + bar + "</td>";
     var row =
-      '<tr class="runs-row runs-row--skeleton" aria-hidden="true">' +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-        "<td>" + bar + "</td>" +
-      "</tr>";
+      '<tr class="runs-row runs-row--skeleton" aria-hidden="true">' + cells + "</tr>";
     var html = "";
     for (var i = 0; i < n; i++) html += row;
     tbody.innerHTML = html;
@@ -891,6 +941,15 @@
       });
     }
     if (refreshBtn) refreshBtn.addEventListener("click", function () { loadRuns(); });
+    var runDiscoveryBtn = document.getElementById("runsRunDiscoveryBtn");
+    if (runDiscoveryBtn) {
+      runDiscoveryBtn.addEventListener("click", function () {
+        closeModal();
+        if (typeof window.openDiscoveryDrawer === "function") {
+          window.openDiscoveryDrawer();
+        }
+      });
+    }
     modal.addEventListener("click", function (event) {
       if (event.target === modal) closeModal();
     });
@@ -944,6 +1003,29 @@
         rerender();
       }
       tableWrap.addEventListener("click", onSortHeaderEvent);
+      // FD-17: the Run-at button discloses the row's details; New roles
+      // hands off to the Pipeline view (lane C answers jb:view:request).
+      tableWrap.addEventListener("click", function (event) {
+        var target = event.target;
+        if (!(target instanceof Element)) return;
+        var toggle = target.closest(".runs-row-toggle");
+        if (toggle) {
+          var detail = document.getElementById(toggle.getAttribute("aria-controls") || "");
+          var open = toggle.getAttribute("aria-expanded") !== "true";
+          toggle.setAttribute("aria-expanded", open ? "true" : "false");
+          if (detail) detail.hidden = !open;
+          return;
+        }
+        var view = target.closest("[data-runs-view-pipeline]");
+        if (view) {
+          closeModal();
+          document.dispatchEvent(
+            new CustomEvent("jb:view:request", {
+              detail: { view: "pipeline", source: "runs_log" },
+            }),
+          );
+        }
+      });
       tableWrap.addEventListener("keydown", onSortHeaderEvent);
     }
 
@@ -1022,6 +1104,7 @@
       readStoredJobDiscoveryRun: readStoredJobDiscoveryRun,
       renderLiveJobRunRowHtml: renderLiveJobRunRowHtml,
       initRunsTab: initRunsTab,
+      whyText: whyText,
       triggerLabel: triggerLabel,
     },
   };

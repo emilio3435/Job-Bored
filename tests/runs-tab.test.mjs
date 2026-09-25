@@ -713,9 +713,9 @@ describe("renderSkeletonRows", () => {
     const matches = tbody.innerHTML.match(/runs-row--skeleton/g);
     assert.ok(matches, "skeleton rows should be present");
     assert.equal(matches.length, 4);
-    // Each row has 10 skeleton bars (one per column).
+    // Each row has 4 skeleton bars, one per visible column (UX01 FD-17).
     const bars = tbody.innerHTML.match(/runs-skeleton-bar/g);
-    assert.ok(bars && bars.length === 4 * 10);
+    assert.ok(bars && bars.length === 4 * 4);
   });
 });
 
@@ -897,11 +897,13 @@ describe("F4C-RUN04-UI: 10-column contract, loading, keyboard sort/filter", () =
     assert.equal(runs[0].source, "worker@v0.4.1");
   });
 
-  it("thead lists 10 contract columns and body rows render 10 cells", async () => {
+  it("thead and summary rows agree on the 4 visible columns; the rest sit in the detail row", async () => {
+    // UX01 FD-17: the Sheet keeps its 10 columns (parse tests above); the
+    // table shows Run at, Status, New roles, Why and discloses the rest.
     const html = await readFile(join(repoRoot, "partials/discovery-runs-modal.html"), "utf8");
     const headerTags = html.match(/<th\b[^>]*>/g) || [];
-    assert.equal(headerTags.length, 10, "9 headers vs 10 cells is the RUN-04 structural defect");
-    assert.match(html, /data-runs-sort="leadsUpdated"/);
+    assert.equal(headerTags.length, 4, "headers and summary cells must agree (RUN-04)");
+    assert.match(html, /data-runs-sort="leadsWritten"/);
 
     const mod = await loadRunsTab();
     const tbody = { innerHTML: "" };
@@ -919,13 +921,15 @@ describe("F4C-RUN04-UI: 10-column contract, loading, keyboard sort/filter", () =
         error: "",
       },
     ]);
-    const cells = tbody.innerHTML.match(/<td\b/g) || [];
-    assert.equal(cells.length, 10);
+    const summaryRow = tbody.innerHTML.split("</tr>")[0];
+    const cells = summaryRow.match(/<td\b/g) || [];
+    assert.equal(cells.length, 4);
     assert.doesNotMatch(
       tbody.innerHTML,
-      /runs-error-cell[^>]*>gh-1234-abcd/,
-      "success text / variation key must not land in the Error cell",
+      /runs-why-cell[^>]*>gh-1234-abcd/,
+      "success text / variation key must not land in the Why cell",
     );
+    assert.match(tbody.innerHTML, /<dt>Updated<\/dt><dd>9<\/dd>/);
   });
 
   it("sortable headers are keyboard-activatable with Enter/Space", async () => {
