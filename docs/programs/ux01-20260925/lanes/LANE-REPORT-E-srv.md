@@ -172,3 +172,44 @@ OK integrations/openclaw-command-center/SKILL.md
   37 passed (1.0m)
 ```
 
+
+## Verification · floor (E-srv-r1)
+
+Verifier: fresh Opus context (independent of the author). Run 2026-09-25 from the workspace root on `feat/ux01-sol-server`. Logs: `Job-Bored.worktrees/.ux01-run/E-srv-r1-floor/<n>.log`. No retries needed, no flaky specs.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | npm run lint:repo | PASS (exit 0) | eslint + skills lint clean |
+| 2 | npm run typecheck:repo | PASS (exit 0) | all tsc projects clean |
+| 3 | npm test | PASS (exit 0) | 3071 tests, 3070 pass, 0 fail, 0 skipped, 1 todo |
+| 4 | npm run test:contract:all | PASS (exit 0) | every contract check OK |
+| 5 | npm run test:e2e-smoke | PASS (exit 0) | 11 passed |
+| 6 | npm run test:e2e-journey | PASS (exit 0) | 13 passed |
+| 7 | npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Note: the single `todo` in npm test is `tests/submission-record-audit.test.mjs:17` ("persists and can remove the canonical submission evidence record", marked todo: blocked on the canonical-ownership gate). It asserts and fails inside the todo, and node:test does not count that toward `fail`.
+
+### Tails
+
+```
+--- 3.log
+ℹ tests 3071
+ℹ suites 744
+ℹ pass 3070
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 13555.40525
+--- 5.log
+
+  11 passed (14.8s)
+--- 6.log
+
+  13 passed (20.1s)
+--- 7.log
+
+  37 passed (1.0m)
+--- 4.log
+OK integrations/openclaw-command-center/SKILL.md
+```
