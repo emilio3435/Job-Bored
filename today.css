@@ -165,44 +165,54 @@ body.jb-v2 [data-region="today"] .today-item__acts {
 }
 
 /* Every action is a real target: 2.75rem clears the 44px minimum on
-   touch. Primary is the single navy fill; the rest are outlined or bare. */
+   touch. DS-05: the actions wear the C3 kit (jb-ui.css .jb-btn, JB-UI.md):
+   primary is the one navy fill (--jb-action), secondary is paper with a
+   --jb-line border, ghost is bare; same radius, type, hover and focus ring.
+   Only the touch height is Today's own. Today's markup (today.js) can add
+   the kit classes and these rules still agree with them. */
 body.jb-v2 [data-region="today"] .today-item__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jb-space-2);
+  box-sizing: border-box;
   min-height: 2.75rem;
-  padding: 0 var(--space-4, 16px);
-  background: var(--jb-navy);
-  color: var(--jb-paper);
-  border: 1px solid var(--jb-navy);
-  border-radius: var(--jb-radius-sm);
-  font-family: var(--jb-font-body);
-  font-size: var(--jb-text-sm);
-  font-weight: 600;
+  padding: 0 14px;
+  background: var(--jb-action);
+  color: var(--jb-on-action);
+  border: 1px solid var(--jb-action);
+  border-radius: var(--jb-radius-md);
+  font: 600 var(--jb-type-small)/1 var(--jb-font-body);
+  text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color var(--jb-transition-fast), border-color var(--jb-transition-fast), color var(--jb-transition-fast);
 }
 
-body.jb-v2 [data-region="today"] .today-item__action:hover { background: var(--jb-ink); }
+body.jb-v2 [data-region="today"] .today-item__action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--jb-action) 82%, var(--jb-ink));
+}
 
 body.jb-v2 [data-region="today"] .today-item__action--secondary {
   background: var(--jb-paper);
-  color: var(--jb-navy);
-  border-color: var(--jb-line-strong);
+  color: var(--jb-action);
+  border-color: var(--jb-line);
 }
 
 body.jb-v2 [data-region="today"] .today-item__action--ghost {
   background: transparent;
-  color: var(--jb-navy);
+  color: var(--jb-action);
   border-color: transparent;
 }
 
-body.jb-v2 [data-region="today"] .today-item__action--secondary:hover,
-body.jb-v2 [data-region="today"] .today-item__action--ghost:hover {
-  background: var(--jb-paper-2);
+body.jb-v2 [data-region="today"] .today-item__action--secondary:hover:not(:disabled),
+body.jb-v2 [data-region="today"] .today-item__action--ghost:hover:not(:disabled) {
+  background: var(--jb-paper-3);
 }
 
 body.jb-v2 [data-region="today"] .today-item__action:focus-visible {
-  outline: 2px solid var(--jb-navy);
-  outline-offset: 2px;
-  box-shadow: 0 0 0 2px var(--jb-paper);
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
 }
 
 body.jb-v2 [data-region="today"] .today-item[data-today-pending] .today-item__action {
