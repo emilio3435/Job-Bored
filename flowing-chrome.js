@@ -28,11 +28,24 @@
 
   var BODY_FLAG = "jb-v2";
   var TOP_CLASS = "page-top";
+  /* UX01 C18: the pills are views, not scroll targets. Each view shows
+     its own regions and hides the rest; the anchors (data-region ids) are
+     unchanged, so every region still lives where it did in the document. */
   var PILLS = [
-    { id: "dawn",     label: "Brief",    num: "01" },
+    { id: "today",    label: "Today",    num: "01" },
     { id: "pipeline", label: "Pipeline", num: "02" },
     { id: "role",     label: "Dossier",  num: "03" },
   ];
+  var VIEW_REGIONS = {
+    today: ["today", "dawn"],
+    pipeline: ["pipeline", "lattice"],
+    role: ["role", "scribe"],
+  };
+  var VIEW_ATTR = "data-jb-view";
+  /* Secondary actions that leave the bar for the "More" menu on a phone
+     (AX-15), so Run discovery, Settings and the account stay reachable. */
+  var SECONDARY_ACTIONS = { sheetLink: true, materialsBtn: true, runsBtn: true, expiredReviewBtn: true };
+  var NARROW_QUERY = "(max-width: 600px)";
   var ACTIONS = [
     { id: "discoveryBtn", label: "Run discovery", mode: "primary" },
     { id: "sheetLink", label: "Open Google Sheet", mode: "icon" },
@@ -48,12 +61,18 @@
     top: null,
     pillById: Object.create(null),
     adoptedActions: [],
-    observer: null,
-    visibility: Object.create(null),
     activeId: null,
     onResize: null,
     onDocClick: null,
     classObserver: null,
+    view: null,
+    returnTo: null,
+    narrowMq: null,
+    onNarrow: null,
+    onKeydown: null,
+    onRoleOpened: null,
+    onRoleClosed: null,
+    skip: null,
   };
 
   function isFlagOn() {
@@ -156,35 +175,34 @@
       + WORDMARK_SVG;
     brand.addEventListener("click", function (e) {
       e.preventDefault();
-      scrollToRegion("dawn");
+      showView("today", { focus: true });
     });
     return brand;
   }
 
   function buildNav() {
+    /* Plain buttons with aria-current, not role="tab": a tablist promises
+       arrow-key roving the page never had, and its aria-controls pointed at
+       ids that did not exist (AX-12). */
     var nav = el("nav", {
       class: "page-nav",
-      role: "tablist",
-      "aria-label": "Section navigation",
+      "aria-label": "Views",
     });
     PILLS.forEach(function (p) {
-      var num = el("span", { class: "page-nav__pill-num", text: p.num });
+      var num = el("span", { class: "page-nav__pill-num", "aria-hidden": "true", text: p.num });
       var label = document.createTextNode(p.label);
       var pill = el(
         "button",
         {
           class: "page-nav__pill",
           type: "button",
-          role: "tab",
           "data-region-target": p.id,
-          "aria-controls": 'region-' + p.id,
+          "aria-controls": "region-" + p.id,
         },
         [num, label]
       );
       pill.addEventListener("click", function () {
-        scrollToRegion(p.id);
-        // Close mobile menu if open.
-        if (state.top) state.top.classList.remove("is-menu-open");
+        showView(p.id, { focus: true });
       });
       state.pillById[p.id] = pill;
       nav.appendChild(pill);
@@ -199,15 +217,54 @@
       {
         class: "page-top__menu-btn",
         type: "button",
-        "aria-label": "Toggle section navigation",
+        "aria-label": "More actions",
         "aria-expanded": "false",
+        "aria-controls": "jb-page-top-more",
       },
       [bars]
     );
     btn.addEventListener("click", function () {
       if (!state.top) return;
-      var open = state.top.classList.toggle("is-menu-open");
-      btn.setAttribute("aria-expanded", open ? "true" : "false");
+      setMenuOpen(!state.top.classList.contains("is-menu-open"));
+    });
+    return btn;
+  }
+
+  function buildMorePanel() {
+    return el("div", {
+      class: "page-top__more",
+      id: "jb-page-top-more",
+      role: "group",
+      "aria-label": "More actions",
+    });
+  }
+
+  function setMenuOpen(open, opts) {
+    if (!state.top) return;
+    var btn = state.top.querySelector(".page-top__menu-btn");
+    if (open) state.top.classList.add("is-menu-open");
+    else state.top.classList.remove("is-menu-open");
+    if (btn) btn.setAttribute("aria-expanded", open ? "true" : "false");
+    if (!open && opts && opts.returnFocus && btn && typeof btn.focus === "function") btn.focus();
+  }
+
+  /* "Add job" (C5): the one intake that needs no search setup, in the bar
+     beside Run discovery on every view. */
+  function buildAddJobBtn() {
+    var plus = el("span", { class: "page-top__add-plus", "aria-hidden": "true", text: "+" });
+    var label = el("span", { class: "page-top__add-label", text: "Add job" });
+    var btn = el(
+      "button",
+      {
+        class: "page-top__action page-top__action--add",
+        type: "button",
+        "aria-label": "Add job",
+        "data-v2-action": "add-job",
+      },
+      [plus, label]
+    );
+    btn.addEventListener("click", function () {
+      openAddJobUrl();
     });
     return btn;
   }
@@ -223,8 +280,10 @@
     var brand = buildBrand();
     var nav = buildNav();
     var actions = buildActionsShell();
+    actions.appendChild(buildAddJobBtn());
     var menuBtn = buildMenuBtn();
-    var top = el("header", { class: TOP_CLASS, role: "banner" }, [brand, nav, actions, menuBtn]);
+    var more = buildMorePanel();
+    var top = el("header", { class: TOP_CLASS, role: "banner" }, [brand, nav, actions, menuBtn, more]);
     return top;
   }
 
@@ -285,6 +344,29 @@
     });
   }
 
+  /* On a phone the secondary actions move into the More panel, and back
+     into the bar when the viewport widens. Nodes are moved, never cloned,
+     so their legacy listeners and ids keep working. */
+  function placeSecondary() {
+    if (!state.top) return;
+    var narrow = !!(state.narrowMq && state.narrowMq.matches);
+    var shell = state.top.querySelector(".page-top__actions");
+    var more = state.top.querySelector(".page-top__more");
+    if (!shell || !more) return;
+    var settings = document.getElementById("settingsBtn");
+    Object.keys(SECONDARY_ACTIONS).forEach(function (id) {
+      var node = document.getElementById(id);
+      if (!node || !findAdopted(node)) return;
+      if (narrow) {
+        if (node.parentNode !== more) more.appendChild(node);
+      } else if (node.parentNode !== shell) {
+        if (settings && settings.parentNode === shell) shell.insertBefore(node, settings);
+        else shell.appendChild(node);
+      }
+    });
+    if (!narrow) setMenuOpen(false);
+  }
+
   function restoreActions() {
     for (var i = state.adoptedActions.length - 1; i >= 0; i--) {
       var saved = state.adoptedActions[i];
@@ -318,99 +400,218 @@
       if (!pill) return;
       if (p.id === id) {
         pill.classList.add("is-active");
-        pill.setAttribute("aria-selected", "true");
+        pill.setAttribute("aria-current", "page");
       } else {
         pill.classList.remove("is-active");
-        pill.setAttribute("aria-selected", "false");
+        pill.removeAttribute("aria-current");
       }
     });
   }
 
-  function pickMostVisible() {
-    var bestId = null;
-    var bestRatio = 0;
-    Object.keys(state.visibility).forEach(function (id) {
-      var ratio = state.visibility[id] || 0;
-      if (ratio > bestRatio) {
-        bestRatio = ratio;
-        bestId = id;
-      }
-    });
-    if (bestId) setActive(bestId);
+  function prefersReducedMotion() {
+    return !!(root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches);
   }
 
-  function startObserver() {
-    if (typeof root.IntersectionObserver !== "function") {
-      // Graceful no-op: keep first pill active.
-      setActive(PILLS[0].id);
-      return;
+  function viewOfRegion(regionId) {
+    for (var v in VIEW_REGIONS) {
+      if (VIEW_REGIONS[v].indexOf(regionId) !== -1) return v;
     }
-    var io = new root.IntersectionObserver(
-      function (entries) {
-        for (var i = 0; i < entries.length; i++) {
-          var entry = entries[i];
-          var id = entry.target.getAttribute("data-region");
-          if (!id) continue;
-          state.visibility[id] = entry.isIntersecting ? entry.intersectionRatio : 0;
-        }
-        pickMostVisible();
-      },
-      {
-        // Slightly bias toward the upper portion of the viewport so the
-        // active pill flips when the user actually starts reading the
-        // next region, not when its very bottom edge crosses in.
-        rootMargin: "-20% 0px -55% 0px",
-        threshold: [0, 0.1, 0.25, 0.5, 0.75, 1],
-      }
-    );
-    PILLS.forEach(function (p) {
-      var node = findRegion(p.id);
-      if (node) io.observe(node);
-    });
-    state.observer = io;
+    return null;
   }
 
-  function stopObserver() {
-    if (state.observer && typeof state.observer.disconnect === "function") {
-      state.observer.disconnect();
+  /* Where focus lands when a view opens: its heading when it has one, else
+     the region itself (made programmatically focusable, never a tab stop). */
+  function viewFocusTarget(id) {
+    var region = findRegion(id);
+    if (!region) return null;
+    var heading = null;
+    if (id === "today") heading = region.querySelector(".today-head__title");
+    else if (id === "role") heading = region.querySelector(".case__title-h, .jb-shelf__title");
+    var target = heading || region;
+    if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
+    return target;
+  }
+
+  function focusView(id) {
+    var target = viewFocusTarget(id);
+    if (!target || typeof target.focus !== "function") return;
+    try { target.focus({ preventScroll: true }); } catch (_) { target.focus(); }
+  }
+
+  /** Show one view and hide the others (C18). The regions stay in the DOM;
+   *  body[data-jb-view] drives which ones render. */
+  function showView(id, opts) {
+    if (!VIEW_REGIONS[id]) return;
+    var o = opts || {};
+    if (document.body) document.body.setAttribute(VIEW_ATTR, id);
+    var changed = state.view !== id;
+    state.view = id;
+    setActive(id);
+    setMenuOpen(false);
+    if (changed && o.scroll !== false && typeof root.scrollTo === "function") {
+      try { root.scrollTo({ top: 0, behavior: "auto" }); } catch (_) { root.scrollTo(0, 0); }
     }
-    state.observer = null;
-    state.visibility = Object.create(null);
+    if (o.focus) focusView(id);
+    dispatchViewChange(id);
   }
 
-  function scrollToRegion(id) {
-    var node = findRegion(id);
-    if (!node) return;
-    var prefersReduced = root.matchMedia
-      ? root.matchMedia("(prefers-reduced-motion: reduce)").matches
-      : false;
+  function dispatchViewChange(id) {
+    if (typeof root.CustomEvent !== "function") return;
     try {
-      node.scrollIntoView({
-        behavior: prefersReduced ? "auto" : "smooth",
-        block: "start",
-      });
+      document.dispatchEvent(new root.CustomEvent("jb:view:changed", { detail: { view: id }, bubbles: true }));
+    } catch (_) { /* */ }
+  }
+
+  function getView() {
+    return state.view;
+  }
+
+  /* Kept for callers that still ask for a region by name: a region now
+     lives in a view, so "scroll to it" means "show its view". */
+  function scrollToRegion(id) {
+    var view = viewOfRegion(id) || id;
+    showView(view, { focus: false });
+    var node = findRegion(id);
+    if (!node || view === id) return;
+    try {
+      node.scrollIntoView({ behavior: prefersReducedMotion() ? "auto" : "smooth", block: "start" });
     } catch (e) {
       node.scrollIntoView();
     }
-    setActive(id);
+  }
+
+  /* ---- dossier as a view: take focus in, give it back (AX-05, TA-17) ---- */
+
+  function cssEscape(value) {
+    if (root.CSS && typeof root.CSS.escape === "function") return root.CSS.escape(String(value));
+    return String(value).replace(/["\\]/g, "\\$&");
+  }
+
+  /** Remember what opened the dossier so closing it can return there. */
+  function captureOpener(jobKey) {
+    var ae = document.activeElement;
+    var fromView = state.view && state.view !== "role" ? state.view : null;
+    var selector = null;
+    if (ae && ae !== document.body && typeof ae.closest === "function") {
+      var sticker = ae.closest(".pipe-sticker[data-stable-key]");
+      var todayBtn = ae.closest("[data-today-key]");
+      var leadBtn = ae.closest("[data-lead-action]");
+      if (sticker) {
+        fromView = "pipeline";
+        selector = '.pipe-sticker[data-stable-key="' + cssEscape(sticker.getAttribute("data-stable-key")) + '"]';
+      } else if (todayBtn) {
+        fromView = "today";
+        selector = '[data-today-action][data-today-key="' + cssEscape(todayBtn.getAttribute("data-today-key")) + '"]';
+      } else if (leadBtn) {
+        fromView = "today";
+        selector = '[data-lead-action="open-dossier"][data-key="' + cssEscape(leadBtn.getAttribute("data-key")) + '"]';
+      }
+    }
+    if (!selector && jobKey != null && fromView === "pipeline") {
+      selector = '.pipe-sticker[data-stable-key="' + cssEscape(jobKey) + '"]';
+    }
+    state.returnTo = { view: fromView || "pipeline", selector: selector };
+  }
+
+  function focusable(node) {
+    if (!node) return null;
+    if (node.matches && node.matches("button, a[href], input, select, textarea, [tabindex]")) return node;
+    var inner = node.querySelector && node.querySelector("button, a[href], [tabindex]");
+    if (inner) return inner;
+    node.setAttribute("tabindex", "-1");
+    return node;
+  }
+
+  function onRoleOpened(e) {
+    var key = e && e.detail && e.detail.jobKey;
+    if (state.view !== "role") captureOpener(key);
+    showView("role", { focus: false });
+  }
+
+  function onRoleClosed() {
+    var back = state.returnTo || { view: "pipeline", selector: null };
+    state.returnTo = null;
+    showView(back.view, { focus: !back.selector });
+    if (!back.selector) return;
+    /* The board may re-render on close; look the opener up after it has. */
+    root.setTimeout(function () {
+      var node = document.querySelector(back.selector);
+      var target = focusable(node);
+      if (target && typeof target.focus === "function") target.focus();
+      else focusView(back.view);
+    }, 0);
+  }
+
+  /* ---- Add job (C5) ---- */
+
+  function ingestApi() {
+    var api = root.JobBoredIngest;
+    return api && typeof api === "object" ? api : null;
+  }
+
+  /** Paste-a-link intake: the pipeline's own URL modal (whose failure path
+   *  opens the prefilled manual entry). Without it, go straight to manual. */
+  function openAddJobUrl() {
+    var ingest = ingestApi();
+    if (ingest && typeof ingest.openAddJob === "function") return ingest.openAddJob();
+    showView("pipeline", { focus: false });
+    var btn = document.querySelector('[data-region="pipeline"] [data-action="add-job-url"]');
+    if (btn && typeof btn.click === "function") {
+      btn.click();
+      return;
+    }
+    openAddJobManual();
+  }
+
+  /** Type-it-in intake. Lane D's JobBoredIngest.openManual; until it lands,
+   *  the URL modal is the only v2 intake, so it opens that instead. */
+  function openAddJobManual(prefill) {
+    var ingest = ingestApi();
+    if (ingest && typeof ingest.openManual === "function") return ingest.openManual(prefill || {});
+    showView("pipeline", { focus: false });
+    var btn = document.querySelector('[data-region="pipeline"] [data-action="add-job-url"]');
+    if (btn && typeof btn.click === "function") btn.click();
+  }
+
+  function runDiscovery() {
+    var btn = document.getElementById("discoveryBtn");
+    if (btn && typeof btn.click === "function") btn.click();
+  }
+
+  /* ---- skip link (AX-12, TR-23) ---- */
+
+  function buildSkip() {
+    var link = el("a", { class: "jb-skip", href: "#region-pipeline", text: "Skip to Pipeline" });
+    link.addEventListener("click", function (e) {
+      e.preventDefault();
+      showView("pipeline", { focus: true });
+    });
+    return link;
+  }
+
+  function initialView() {
+    var hash = String((root.location && root.location.hash) || "");
+    if (/(^#|&)role=[^&]+/.test(hash)) return "role";
+    return "today";
   }
 
   function handleDocClick(e) {
     if (!state.top) return;
     if (!state.top.classList.contains("is-menu-open")) return;
     if (state.top.contains(e.target)) return;
-    state.top.classList.remove("is-menu-open");
-    var btn = state.top.querySelector(".page-top__menu-btn");
-    if (btn) btn.setAttribute("aria-expanded", "false");
+    setMenuOpen(false);
+  }
+
+  /* AX-16: Escape closes the menu and hands focus back to its button. */
+  function handleKeydown(e) {
+    if (e.key !== "Escape" || !state.top) return;
+    if (!state.top.classList.contains("is-menu-open")) return;
+    setMenuOpen(false, { returnFocus: true });
   }
 
   function handleResize() {
     if (!state.top) return;
-    if (root.innerWidth > 768) {
-      state.top.classList.remove("is-menu-open");
-      var btn = state.top.querySelector(".page-top__menu-btn");
-      if (btn) btn.setAttribute("aria-expanded", "false");
-    }
+    if (root.innerWidth > 600) setMenuOpen(false);
   }
 
   function mount() {
@@ -434,23 +635,57 @@
         if (id) state.pillById[id] = n;
       }
     }
+    if (!state.top.querySelector(".page-top__more")) state.top.appendChild(buildMorePanel());
     adoptActions();
-    startObserver();
+    if (!state.skip) {
+      state.skip = buildSkip();
+      document.body.insertBefore(state.skip, document.body.firstChild);
+    }
+    if (typeof root.matchMedia === "function") {
+      state.narrowMq = root.matchMedia(NARROW_QUERY);
+      state.onNarrow = placeSecondary;
+      if (typeof state.narrowMq.addEventListener === "function") state.narrowMq.addEventListener("change", state.onNarrow);
+      else if (typeof state.narrowMq.addListener === "function") state.narrowMq.addListener(state.onNarrow);
+    }
+    placeSecondary();
     state.onDocClick = handleDocClick;
     state.onResize = handleResize;
+    state.onKeydown = handleKeydown;
+    state.onRoleOpened = onRoleOpened;
+    state.onRoleClosed = onRoleClosed;
     document.addEventListener("click", state.onDocClick, true);
+    document.addEventListener("keydown", state.onKeydown);
     root.addEventListener("resize", state.onResize);
+    root.addEventListener("jb:role:opened", state.onRoleOpened);
+    root.addEventListener("jb:role:closed", state.onRoleClosed);
     state.mounted = true;
+    showView(initialView(), { focus: false, scroll: false });
   }
 
   function unmount() {
     if (!state.mounted) return;
-    stopObserver();
     if (state.onDocClick) document.removeEventListener("click", state.onDocClick, true);
+    if (state.onKeydown) document.removeEventListener("keydown", state.onKeydown);
     if (state.onResize) root.removeEventListener("resize", state.onResize);
+    if (state.onRoleOpened) root.removeEventListener("jb:role:opened", state.onRoleOpened);
+    if (state.onRoleClosed) root.removeEventListener("jb:role:closed", state.onRoleClosed);
+    if (state.narrowMq && state.onNarrow) {
+      if (typeof state.narrowMq.removeEventListener === "function") state.narrowMq.removeEventListener("change", state.onNarrow);
+      else if (typeof state.narrowMq.removeListener === "function") state.narrowMq.removeListener(state.onNarrow);
+    }
     state.onDocClick = null;
     state.onResize = null;
+    state.onKeydown = null;
+    state.onRoleOpened = null;
+    state.onRoleClosed = null;
+    state.narrowMq = null;
+    state.onNarrow = null;
     restoreActions();
+    if (state.skip && state.skip.parentNode) state.skip.parentNode.removeChild(state.skip);
+    state.skip = null;
+    if (document.body) document.body.removeAttribute(VIEW_ATTR);
+    state.view = null;
+    state.returnTo = null;
     if (state.top && state.top.parentNode) {
       state.top.parentNode.removeChild(state.top);
     }
@@ -499,5 +734,17 @@
     unmount: unmount,
     isMounted: isMounted,
     scrollToRegion: scrollToRegion,
+  };
+  /* C18: one view at a time. show(id, { focus }) with id today | pipeline | role. */
+  root.JobBoredFlowing.views = {
+    show: showView,
+    current: getView,
+    regionsOf: function (id) { return (VIEW_REGIONS[id] || []).slice(); },
+  };
+  /* C5: the three ways in, shared by the bar and every empty state. */
+  root.JobBoredFlowing.addJob = {
+    openUrl: openAddJobUrl,
+    openManual: openAddJobManual,
+    runDiscovery: runDiscovery,
   };
 })(typeof window !== "undefined" ? window : this);

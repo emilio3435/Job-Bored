@@ -297,6 +297,13 @@ test("should never show the one-flow to a user who already finished setup", asyn
   const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
   await bootSignedIn(page, fence);
 
+  /* UX01 C18: the dashboard opens on the Today view; the pipeline is one
+     view away, not one long scroll down. */
+  await expect(page.locator('[data-region="today"]')).toBeVisible();
+  await page
+    .getByRole("navigation", { name: "Views" })
+    .getByRole("button", { name: /Pipeline/ })
+    .click();
   await expect(page.locator('[data-region="pipeline"]')).toBeVisible();
   await expect(page.locator(DEMO_BOARD)).toHaveCount(0);
   await expect(page.locator(FLOW_MOUNT)).toBeHidden();
@@ -399,6 +406,11 @@ test("should carry completed discovery into the pipeline and ready dossier mater
     /Discovery complete/,
   );
 
+  /* UX01 C18: the board is its own view. */
+  await page
+    .getByRole("navigation", { name: "Views" })
+    .getByRole("button", { name: /Pipeline/ })
+    .click();
   const discoveredColumn = page.getByRole("region", {
     name: "Discovered column",
   });

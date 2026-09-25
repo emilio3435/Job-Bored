@@ -344,7 +344,7 @@
     <!-- Renders only when body.jb-v2 is set (see today.js / today.css). -->
     <!-- Ranks reply > interview prep > overdue follow-up > staleness >  -->
     <!-- fit; reads window.JobBored.getPipelineJobs(), never the DOM.    -->
-    <section data-region="today" aria-label="Today (v2)"></section>
+    <section data-region="today" id="region-today" aria-label="Today"></section>
     <!-- region:today:end -->
 
     <!-- region:dawn:start -->
@@ -353,7 +353,7 @@
     <!-- Legacy <section class="daily-brief-panel"> outside this region -->
     <!-- is the off-flag fallback and is unchanged. dawn-data.js reads   -->
     <!-- the legacy DOM read-only; no new fetches, no schema changes.   -->
-    <section data-region="dawn" aria-label="Daily Brief (v2)"></section>
+    <section data-region="dawn" id="region-dawn" aria-label="Daily Brief"></section>
     <!-- region:dawn:end -->
 
     <!-- region:materials-queue:start
@@ -449,11 +449,11 @@
     <!-- region:whats-next:end -->
 
     <!-- region:pipeline:start -->
-    <section data-region="pipeline" aria-label="Pipeline (v2)"></section>
+    <section data-region="pipeline" id="region-pipeline" aria-label="Pipeline" tabindex="-1"></section>
     <!-- region:pipeline:end -->
 
     <!-- region:role:start -->
-    <section data-region="role" aria-label="Role dossier (v2)"></section>
+    <section data-region="role" id="region-role" aria-label="Role dossier"></section>
     <!-- region:role:end -->
 
     <!-- region:letter:removed -->
@@ -471,7 +471,7 @@
     <!-- Renders only when body.jb-v2 is set (see lattice.js).      -->
     <!-- Legacy stacked list outside this region is the off-flag    -->
     <!-- fallback and is unchanged.                                 -->
-    <section data-region="lattice" aria-label="Pipeline kanban (v2)"></section>
+    <section data-region="lattice" id="region-lattice" aria-label="Pipeline board"></section>
     <!-- region:lattice:end -->
 
     <!-- region:scribe:start -->
