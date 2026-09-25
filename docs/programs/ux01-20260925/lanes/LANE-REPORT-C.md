@@ -336,3 +336,37 @@ EXIT=1
 [test:e2e-journey] 25 passed (27.9s)
 [test:e2e-visual]  37 passed (1.0m)
 ```
+
+## Verification · floor (C-post-fix)
+
+Verifier: fresh Opus context, independent of the author. HEAD 34ae351 on feat/ux01-shell-today, 2026-09-25 08:25 CDT. Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/C-post-fix-floor/<n>.log`. No retries, no flaky specs, nothing skipped.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | npm run lint:repo | PASS (exit 0) | eslint clean; lint:skills OK; lint:tokens 34 sheets, 0 new findings |
+| 2 | npm run typecheck:repo | PASS (exit 0) | tsc (browser-use-discovery, server) + node --check all clean |
+| 3 | npm test | PASS (exit 0) | 3049 tests, 733 suites, 3048 pass, 0 fail, 0 cancelled, 0 skipped, 1 todo |
+| 4 | npm run test:contract:all | PASS (exit 0) | all contract checks OK |
+| 5 | npm run test:e2e-smoke | PASS (exit 0) | 15 passed |
+| 6 | npm run test:e2e-journey | PASS (exit 0) | 25 passed |
+| 7 | npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Note: the one ✖ in `npm test` is the todo `tests/submission-record-audit.test.mjs:17` ("blocked on the canonical-ownership gate"), which is reported as todo and not counted as a failure.
+
+Tails:
+
+```
+ℹ tests 3049
+ℹ suites 733
+ℹ pass 3048
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 13995.790917
+---
+  15 passed (20.1s)
+5.log:  15 passed (20.1s)
+6.log:  25 passed (32.1s)
+7.log:  37 passed (1.0m)
+```
