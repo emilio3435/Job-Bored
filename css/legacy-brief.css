@@ -1084,7 +1084,7 @@ button.feed-item {
 .modal-overlay {
   position: fixed;
   inset: 0;
-  z-index: 2000;
+  z-index: var(--jb-z-modal);
   background: rgba(15, 23, 42, 0.45);
   display: flex;
   align-items: center;
@@ -1205,7 +1205,7 @@ button.feed-item {
   padding: var(--space-2) var(--space-4);
   font-size: var(--text-sm);
   font-weight: 600;
-  color: white;
+  color: var(--jb-on-accent);
   background: var(--accent);
   border: none;
   border-radius: var(--radius-md);
@@ -1636,7 +1636,7 @@ button.feed-item {
 /* Primary "Use this URL" — the auto-apply variant. Visually distinct from
    the legacy copy-only buttons. */
 .btn-copy-scraper--primary {
-  color: var(--text-inverse);
+  color: var(--jb-on-accent);
   background: var(--accent);
   border-color: var(--accent);
 }
@@ -1791,7 +1791,7 @@ button.feed-item {
   margin-bottom: var(--space-1);
   font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--text-faint);
+  color: var(--jb-ink-2);
   text-transform: uppercase;
   letter-spacing: 0.04em;
 }
@@ -1855,7 +1855,7 @@ button.feed-item {
   border: none;
   border-radius: var(--radius-md);
   background: var(--accent);
-  color: white;
+  color: var(--jb-on-accent);
   font-weight: 600;
   cursor: pointer;
   font-size: var(--text-sm);

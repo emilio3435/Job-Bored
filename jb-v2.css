@@ -62,12 +62,13 @@ body.jb-v2 a:hover {
 }
 
 body.jb-v2 ::selection {
-  background: rgba(95, 203, 142, 0.15);
+  background: var(--jb-mint-tint);
   color: var(--jb-ink);
 }
 
+/* Focus: 2px navy ring on a 2px paper gap, 12:1 (AX-11). */
 body.jb-v2 :focus-visible {
-  outline: 2px solid var(--jb-mint);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
   border-radius: var(--jb-radius-sm);
 }
@@ -97,18 +98,18 @@ body.jb-v2 .jb-mono {
 .jb-applied-age {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
+  font-size: var(--jb-type-label);
   font-weight: 600;
   line-height: 1.5;
   padding: 0 7px;
-  border-radius: 999px;
+  border-radius: var(--jb-radius-pill);
   white-space: nowrap;
   letter-spacing: 0.01em;
 }
-.jb-applied-age[data-age="fresh"] { color: var(--jb-ok); background: rgba(34, 197, 94, 0.13); }
-.jb-applied-age[data-age="aging"] { color: var(--jb-warn); background: rgba(234, 179, 8, 0.16); }
-.jb-applied-age[data-age="stale"] { color: var(--jb-stage-applied); background: rgba(249, 115, 22, 0.16); }
-.jb-applied-age[data-age="cold"]  { color: var(--jb-stage-rejected); background: rgba(239, 68, 68, 0.16); }
+.jb-applied-age[data-age="fresh"] { color: var(--jb-ok); background: var(--jb-ok-tint); }
+.jb-applied-age[data-age="aging"] { color: var(--jb-warn); background: var(--jb-warn-tint); }
+.jb-applied-age[data-age="stale"] { color: var(--jb-ink); background: var(--jb-amber-soft); }
+.jb-applied-age[data-age="cold"]  { color: var(--jb-err); background: var(--jb-err-tint); }
 
 /* Discovery run-status button states — renderDiscoveryRunStatus()
    (discovery-status-handoff.js) toggles run-<status> classes on

@@ -566,7 +566,7 @@ body.jb-v2 .expired-review-item__link {
 }
 
 .settings-theme-nav__link:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
 }
 
@@ -2196,7 +2196,7 @@ body.jb-v2 .expired-review-item__link {
 }
 
 .btn-doc-primary {
-  color: var(--text-inverse);
+  color: var(--jb-on-accent);
   background: var(--accent);
   border: 1px solid var(--accent);
 }

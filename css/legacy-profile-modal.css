@@ -286,7 +286,7 @@
 }
 
 .profile-dropzone__browse:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
 }
 
@@ -551,7 +551,7 @@
 }
 
 .profile-ai-copy-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
 }
 

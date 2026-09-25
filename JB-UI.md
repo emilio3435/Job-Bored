@@ -240,7 +240,7 @@ Stickers compose freely with the custom elements:
 ## Hard rules (Phase 2 contract)
 
 1. Every selector is scoped under `body.jb-v2`. Bare selectors are forbidden.
-2. No raw hex codes anywhere. CI lint (`tools/lint-tokens.mjs`) enforces.
+2. No raw colour literals anywhere; values live in `tokens-v2.css`. CI lint (`npm run lint:tokens`, inside `lint:repo`) enforces.
 3. Outside the v2 flag, every custom element collapses to `display: none`.
 4. No external deps, no fetch, no localStorage, no globals.
 5. No `Caveat` font on UI chips, buttons, or body. Caveat is reserved for `h1`, `h2`, and `.jb-handwritten`.
@@ -250,7 +250,7 @@ Stickers compose freely with the custom elements:
 
 | Script | Purpose |
 |---|---|
-| `node tools/lint-tokens.mjs --paths jb-ui.css jb-ui.demo.html` | Raw-hex linter; must exit 0. |
+| `npm run lint:tokens` | Token linter over every linked sheet against `tools/lint-tokens.baseline.json`; must exit 0. |
 | `node tools/check-jb-ui-budget.mjs` | Minified-byte budget check on jb-ui.{js,css}. |
 | `node tools/audit-jb-ui-a11y.mjs` | Static a11y attribute checker for jb-ui.demo.html. |
 
