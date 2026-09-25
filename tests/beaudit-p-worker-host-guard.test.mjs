@@ -117,3 +117,30 @@ describe("BEAUDIT E1 — worker refuses a rebound Host", () => {
     }
   });
 });
+
+describe("BEAUDIT E1 repair — the named-tunnel hostname is an allowed Host", () => {
+  it("adds BROWSER_USE_DISCOVERY_TUNNEL_HOSTNAME to allowedHosts, bare or as a URL", async () => {
+    const { loadRuntimeConfig } = await import(
+      "../integrations/browser-use-discovery/src/config.ts"
+    );
+    const home = mkdtempSync(join(tmpdir(), "beaudit-p-e1t-"));
+    const base = {
+      HOME: home,
+      BROWSER_USE_DISCOVERY_STATE_DIR: join(home, "state"),
+    };
+    try {
+      for (const value of ["discovery.example.com", "https://Discovery.Example.com/webhook", "discovery.example.com:443"]) {
+        const cfg = loadRuntimeConfig({ ...base, BROWSER_USE_DISCOVERY_TUNNEL_HOSTNAME: value });
+        assert.ok(
+          cfg.allowedHosts.includes("discovery.example.com"),
+          `${value} must admit discovery.example.com: ${JSON.stringify(cfg.allowedHosts)}`,
+        );
+        assert.equal(isAllowedTunnelHost("discovery.example.com", cfg.allowedHosts), true);
+      }
+      const none = loadRuntimeConfig(base);
+      assert.equal(isAllowedTunnelHost("discovery.example.com", none.allowedHosts), false);
+    } finally {
+      rmSync(home, { recursive: true, force: true });
+    }
+  });
+});

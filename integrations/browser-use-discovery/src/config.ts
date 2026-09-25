@@ -432,6 +432,11 @@ export function loadRuntimeConfig(
         "BROWSER_USE_DISCOVERY_ALLOWED_HOSTS",
         "DISCOVERY_ALLOWED_HOSTS",
       ]).map((host) => cleanString(host).toLowerCase()),
+      // A cloudflared named tunnel forwards its stable hostname as Host
+      // (SETUP.md, `cloudflare-named`), so the configured name is allowed.
+      tunnelHostnameForAllowlist(
+        readFirst(runtimeEnv, ["BROWSER_USE_DISCOVERY_TUNNEL_HOSTNAME"]),
+      ),
     ].filter(Boolean)),
     port: parsePositiveInt(
       readFirst(runtimeEnv, [
@@ -1566,6 +1571,21 @@ function dedupeStrings(values: string[]): string[] {
     out.push(normalized);
   }
   return out;
+}
+
+/**
+ * The bare lowercase hostname from BROWSER_USE_DISCOVERY_TUNNEL_HOSTNAME,
+ * which may be written as a name, name:port or a full URL.
+ */
+function tunnelHostnameForAllowlist(value: string): string {
+  const raw = cleanString(value);
+  if (!raw) return "";
+  try {
+    const url = new URL(/^[a-z][a-z0-9+.-]*:\/\//i.test(raw) ? raw : `https://${raw}`);
+    return url.hostname.toLowerCase();
+  } catch {
+    return "";
+  }
 }
 
 function cleanString(value: unknown): string {
