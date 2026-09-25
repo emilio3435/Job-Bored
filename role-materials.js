@@ -1282,6 +1282,11 @@
     } else if (lastPaint.kind === "resume-gate") {
       renderResumeGate(host);
     }
+    /* C14: a render replaced the Scribe slot too; put the workspace back. */
+    var scribe = root.JB_SCRIBE;
+    if (scribe && typeof scribe.remount === "function") {
+      try { scribe.remount(); } catch (e) { /* Scribe is optional */ }
+    }
   }
 
   function wireSection(briefEl) {
