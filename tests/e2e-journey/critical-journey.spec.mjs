@@ -630,6 +630,9 @@ test("should serve the dashboard's own /profile from the local API, never a stat
   // "is the real API up?" would make this test a weather report.
   const previousApiPort = process.env.JOBBORED_API_PORT;
   process.env.JOBBORED_API_PORT = "59997";
+  // UX01 C1: the harness server spy refuses host paths by default; this is
+  // the one test allowed to reach the real /profile proxy (closed port).
+  const disallowProfile = app.allowHostPath("/profile");
   try {
     const fence = await installHermeticNetworkFence(page, {
       baseUrl: app.baseUrl,
@@ -673,6 +676,7 @@ test("should serve the dashboard's own /profile from the local API, never a stat
 
     expect(fence.unexpectedExternal).toEqual([]);
   } finally {
+    disallowProfile();
     if (previousApiPort === undefined) delete process.env.JOBBORED_API_PORT;
     else process.env.JOBBORED_API_PORT = previousApiPort;
   }
