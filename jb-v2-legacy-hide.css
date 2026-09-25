@@ -3,8 +3,8 @@
    ------------------------------------------------------------
    Owner:    Conductor (Phase 4 close-out)
    Purpose:  Hide the legacy in-app chrome when body.jb-v2 is
-             set, so the four v2 region hosts (Dawn / Lattice /
-             Scribe / Welcome) own the viewport.
+             set, so the v2 region hosts (Today / Dawn / Pipeline /
+             Role / Scribe / Welcome) own the viewport.
 
    Scope:    All rules are scoped under `body.jb-v2`. With the
              flag OFF this file is a no-op and the legacy UI
@@ -19,7 +19,7 @@
 
    What hides:
      - .command-strip.daily-brief-panel — Dawn replaces it.
-     - main.main-content — Lattice + Scribe replace it.
+     - main.main-content — the Pipeline region replaces it.
 
    What stays:
      - #dashboard itself (its inline display: flex stays in
@@ -65,16 +65,10 @@ body.jb-v2 [data-region="dawn"],
 body.jb-v2 [data-region="today"],
 body.jb-v2 [data-region="pipeline"],
 body.jb-v2 [data-region="role"],
-body.jb-v2 [data-region="letter"],
 body.jb-v2 [data-region="scribe"],
 body.jb-v2 [data-region="welcome"] {
   display: none !important;
 }
-
-/* The letter region (PART 04 Workshop) was removed in the materials-first
-   pivot (2026-05-27). Keep it forced-hidden in case any cached HTML still
-   contains the <section data-region="letter"> element. */
-body.jb-v2 [data-region="letter"] { display: none !important; }
 
 /* Only when the legacy #dashboard is mounted (post-auth) do
    the v2 regions take over. Each region's own CSS owns its
