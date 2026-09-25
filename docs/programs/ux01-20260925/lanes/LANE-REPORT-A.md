@@ -241,3 +241,34 @@ Left unverified:
 - CI itself, because nothing was pushed.
 - The contrast figures are computed from the token values with the WCAG formula, not measured with axe. No axe run was made for C2.
 - The legacy view (`?jb-v2=0`) was not inspected by eye, only through the suites.
+
+## Verification · floor (A-C2-r1)
+
+Verifier: fresh Opus context, independent of the author. Run 2026-09-25 from the worktree root at HEAD 144e078, in order, no filters, no retries needed. Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/A-C2-r1-floor/<n>.log`. node_modules and server/node_modules confirmed as symlinks into /Users/emilionunezgarcia/Job-Bored.
+
+| # | Command | Exit | Result |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | 0 | pass. `lint:tokens ok: 35 sheet(s), 0 new finding(s), 0 brace error(s)` |
+| 2 | `npm run typecheck:repo` | 0 | pass. No tsc diagnostics |
+| 3 | `npm test` | 0 | pass. tests 3065, suites 740, pass 3064, fail 0, skipped 0, todo 1 |
+| 4 | `npm run test:contract:all` | 0 | pass. 12 OK lines, no errors |
+| 5 | `npm run test:e2e-smoke` | 0 | pass. 11 passed (14.8s) |
+| 6 | `npm run test:e2e-journey` | 0 | pass. 13 passed (20.6s) |
+| 7 | `npm run test:e2e-visual` | 0 | pass. 37 passed (1.0m) |
+
+Green: yes. Flaky: none.
+
+The one todo in `npm test` is `tests/submission-record-audit.test.mjs:17` ("persists and can remove the canonical submission evidence record", marked todo: blocked on the canonical-ownership gate). node reports it under "failing tests" with its assertion, but counts it as todo, not fail, and the run exits 0.
+
+Tail of 3.log:
+
+```
+ℹ tests 3065
+ℹ suites 740
+ℹ pass 3064
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 13720.824333
+```
