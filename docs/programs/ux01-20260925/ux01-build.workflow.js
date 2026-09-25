@@ -297,83 +297,81 @@ if (gate.liveWorkerFromUx01) log('Note: the live :8644 worker runs from ' + BASE
 if (A.dryRun) return { status: 'dry-run', gate, plan }
 
 // ---------------------------------------------------------------------------
-// Lane A: strictly ordered, lands before anything else
+// All lanes at once (Emilio, 2026-09-25 06:49: "start the lanes"). The C1 fence
+// is already on the base, so every lane can run e2e safely. Lane A keeps going
+// C2 → C3 → C4 and merges after each green step; C and D merge as they go green;
+// F, B, E and the C11 server sub-lane build on their unmerged upstream branches
+// and are verified but HELD from the base until that upstream lands.
 // ---------------------------------------------------------------------------
 const results = {}
 const laneA = LANES[0]
 const planA = plan[0]
-if (planA.state === 'ready') {
-  phase('Lane A')
-  for (const id of planA.changes) {
-    const extra = id === 'C1'
-      ? 'This step is C1 only. Extend installHermeticNetworkFence so same-origin /__proxy/* and /profile/* are answered by the fence (stubs, never the in-process server), except where a spec deliberately exercises the /profile proxy against its own stub API (critical-journey "should serve the dashboard\'s own /profile" test): keep that test green by routing it explicitly. Pattern: ' + PROG + '/audit/tools/audit-harness.mjs installHostIsolation. Add a regression test proving an unstubbed /__proxy/start-discovery-worker never reaches the server.\nHOST SAFETY: until your fence exists, any e2e run can restart the live :8644 worker and edit ~/.jobbored .env. So land the fence before running any e2e suite, and make the red run of the regression test observe reachability through a spy on the in-process server that records and refuses /__proxy/* and /profile/* (e.g. answers 599) so the real handler never executes. Check `lsof -nP -iTCP:8644 -sTCP:LISTEN` before and after your e2e runs and report both PIDs in the lane report.'
-      : 'This step is ' + id + ' only; earlier lane A steps are already committed on this branch.'
-    const r = await buildAndVerify(laneA, [id], 'A-' + id, extra)
-    results['A-' + id] = r
-    if (r.status !== 'green') {
-      log('Lane A stopped at ' + id + ': ' + r.status + ' — ' + (r.reason || ''))
-      return { status: 'lane-A-' + r.status, stoppedAt: id, gate, plan, results }
-    }
+const stateOf = (L) => plan.find((p) => p.lane === L.id).state
+const UPSTREAM_REF = { pr104: 'feat/greenfield-integration', pr102: 'feat/discovery-hardening', casefit: 'feat/casefit' }
+const C1_EXTRA = 'This step is C1 only. Extend installHermeticNetworkFence so same-origin /__proxy/* and /profile/* are answered by the fence (stubs, never the in-process server), except where a spec deliberately exercises the /profile proxy against its own stub API (critical-journey "should serve the dashboard\'s own /profile" test): keep that test green by routing it explicitly. Pattern: ' + PROG + '/audit/tools/audit-harness.mjs installHostIsolation. Add a regression test proving an unstubbed /__proxy/start-discovery-worker never reaches the server.'
+const PARALLEL_NOTE = 'Lane A is building C2 (tokens), C3 (component kit) and C4 (dead code, CSS renames) in parallel on its own branch and may land before or after you. Until it does: use the existing tokens-v2.css custom properties, do not depend on .jb-btn/.jb-chip/.jb-field/.jb-banner/.jb-toast (not built yet), and never edit a file lane A owns. The C1 hermetic fence is already on ' + BASE + ', so the e2e suites are safe to run.'
+const upstreamNote = (L) => !L.needs.length ? '' : 'Upstream: this lane depends on unmerged work (' + L.needs.join(', ') + '). Right after worktree setup, in your worktree run ' + L.needs.map((n) => 'git merge --no-edit ' + UPSTREAM_REF[n]).join(' then ') + ' so you build on that code. If a merge conflicts, git merge --abort it, note it in your report, and continue on what merged cleanly (never resolve upstream conflicts yourself). Your branch will NOT be merged into ' + BASE + ' until the upstream lands; build and verify it fully anyway.'
+
+async function mergeWithSync(L, why) {
+  let m = await integrate(L, why)
+  if (m && !m.merged && (m.conflicts || []).length) {
+    // Another lane landed first and touched a shared artifact. Sync once, re-verify, retry.
+    log('Lane ' + L.id + ' conflicts with ' + BASE + ' (' + m.conflicts.join(', ') + '); syncing once')
+    await agent([
+      'In ' + laneWT(L) + ' on ' + laneBranch(L) + ': git merge ' + BASE + '. Resolve conflicts only inside files this lane owns, lane reports, or e2e-visual baselines (regenerate a conflicting baseline with the visual suite rather than picking a side, and record it). If a conflict sits in a file another lane owns, git merge --abort and report it as a handoff.',
+      'Then run the floor, update the lane report, commit.', 'Lane notes: ' + L.brief, 'You own: ' + L.owns, RULES,
+    ].join('\n'), { ...OPUS, label: 'sync:' + L.id, phase: 'Integrate', schema: BUILD_SCHEMA })
+    const floor = await floorCheck(L.id + '-sync', laneWT(L), laneReport(L))
+    m = floor && floor.green ? await integrate(L, 'retry after sync') : { merged: false, smokeGreen: false, note: 'floor red after sync' }
   }
-  const mA = await integrate(laneA, 'lane A lands first')
-  results.mergeA = mA
-  if (!mA || !mA.merged) return { status: 'lane-A-merge-failed', gate, plan, results }
-} else if (planA.state !== 'already-merged' && planA.state !== 'not-in-cut') {
-  return { status: 'blocked', reason: 'lane A is ' + planA.state, gate, plan }
+  return m
 }
 
-// ---------------------------------------------------------------------------
-// Lanes B–F: build in parallel, verify, merge through the queue as each goes green
-// ---------------------------------------------------------------------------
-phase('Lanes')
-const ready = LANES.slice(1).filter((L) => plan.find((p) => p.lane === L.id).state === 'ready')
+async function runLaneA() {
+  if (planA.state !== 'ready') return
+  for (const id of planA.changes) {
+    if (id === 'C1' && A.fenceMerged) { results['A-C1'] = { status: 'green', reason: 'merged into ' + BASE + ' as ' + A.fenceMerged }; continue }
+    const extra = id === 'C1' ? C1_EXTRA
+      : 'This step is ' + id + ' only; earlier lane A steps are already committed on this branch. Lanes C, D, F, B and E are building in parallel and may merge into ' + BASE + ' before you: keep renames and token changes backward-compatible for their files (alias, never delete a class or token another lane\'s file still uses) and record any cross-lane follow-up as a handoff.' + (id === 'C2' ? ' An earlier C2 attempt was interrupted before it committed; if the worktree holds uncommitted work from it, review it and keep only what is correct.' : '')
+    const r = await buildAndVerify(laneA, [id], 'A-' + id, extra)
+    results['A-' + id] = r
+    if (r.status !== 'green') { log('Lane A stopped at ' + id + ': ' + r.status + ' — ' + (r.reason || '')); return }
+    // Bank each green step: the last step merges under lane id A (the idempotency marker), earlier ones as A-<id>.
+    const last = id === planA.changes[planA.changes.length - 1]
+    const m = await mergeWithSync(last ? laneA : { ...laneA, id: 'A-' + id }, 'lane A step ' + id + ' green')
+    results['mergeA-' + id] = m
+    if (m && m.merged) results.mergeA = m
+    else { log('Lane A merge after ' + id + ' failed: ' + ((m && m.note) || 'no result')); return }
+  }
+}
 
-const laneRuns = await pipeline(
-  ready,
-  async (L) => {
-    const ids = L.changes.filter((id) => CUT.has(id))
-    let extra = ''
-    if (L.id === 'E' && CUT.has('C11')) {
-      if (A.solLane === false) {
-        extra = 'The server sub-lane is off for this run: ship only the UI gate for C11 (TA-02 slice) and record the server half as a handoff.'
-      } else if (merged.has(laneBranch(SERVER_LANE))) {
-        extra = 'The server half of C11 is already merged into ' + BASE + '; read ' + laneReport(SERVER_LANE) + ' for the request/response contract.'
-      } else {
-        const srv = await buildAndVerify(SERVER_LANE, ['C11'], 'E-srv', '')
-        results[SERVER_LANE.id] = srv
-        const mSrv = srv.status === 'green' ? await integrate(SERVER_LANE, 'server half of C11 before lane E UI') : null
-        results['merge' + SERVER_LANE.id] = mSrv
-        extra = mSrv && mSrv.merged
-          ? 'The server sub-lane has merged the server half of C11 into ' + BASE + '; merge ' + BASE + ' into your branch first, then read ' + laneReport(SERVER_LANE) + ' for the contract.'
-          : 'The server sub-lane did not merge (' + srv.status + '); ship only the UI gate for C11 and record the server half as a handoff.'
-      }
-    }
-    return buildAndVerify(L, ids, L.id, extra)
-  },
-  async (r, L) => {
-    results[L.id] = r
-    if (!r || r.status !== 'green') { log('Lane ' + L.id + ' not merged: ' + (r ? r.status + ' — ' + (r.reason || '') : 'no result')); return r }
-    let m = await integrate(L, 'lane green')
-    if (m && !m.merged && (m.conflicts || []).length) {
-      // Another lane landed first and touched a shared artifact. Sync once, re-verify, retry.
-      log('Lane ' + L.id + ' conflicts with ' + BASE + ' (' + m.conflicts.join(', ') + '); syncing once')
-      await agent([
-        'In ' + laneWT(L) + ' on ' + laneBranch(L) + ': git merge ' + BASE + '. Resolve conflicts only inside files this lane owns, lane reports, or e2e-visual baselines (regenerate a conflicting baseline with the visual suite rather than picking a side, and record it). If a conflict sits in a file another lane owns, git merge --abort and report it as a handoff.',
-        'Then run the floor, update the lane report, commit.', 'Lane notes: ' + L.brief, 'You own: ' + L.owns, RULES,
-      ].join('\n'), { ...OPUS, label: 'sync:' + L.id, phase: 'Integrate', schema: BUILD_SCHEMA })
-      const floor = await floorCheck(L.id + '-sync', laneWT(L), laneReport(L))
-      m = floor && floor.green ? await integrate(L, 'retry after sync') : { merged: false, smokeGreen: false, note: 'floor red after sync' }
-    }
-    results['merge' + L.id] = m
-    return { ...r, merge: m }
-  },
-)
+async function runLane(L) {
+  const ids = L.changes.filter((id) => CUT.has(id))
+  let extra = PARALLEL_NOTE + '\n' + upstreamNote(L)
+  if (L.id === 'E' && CUT.has('C11')) {
+    extra += A.solLane === false
+      ? '\nThe server sub-lane is off for this run: ship only the UI gate for C11 (TA-02 slice) and record the server half as a handoff.'
+      : '\nA server sub-lane builds the server half of C11 in parallel on ' + laneBranch(SERVER_LANE) + ' with this contract: the materials request body gains resume: {source, filename, addedAt, text}; missing or empty → 422 {code: "resume_required", message: "Add your resume before drafting."}. Send the resume and handle the 422 in the dossier against that contract; feature-detect so today\'s server still works.'
+  }
+  const r = await buildAndVerify(L, ids, L.id, extra)
+  results[L.id] = r
+  if (!r || r.status !== 'green') { log('Lane ' + L.id + ' not merged: ' + (r ? r.status + ' — ' + (r.reason || '') : 'no result')); return }
+  if (L.needs.length) { results[L.id] = { ...r, status: 'green-held', reason: 'verified; waits on ' + L.needs.join(', ') + ' before merging into ' + BASE }; log('Lane ' + L.id + ' green, held until ' + L.needs.join(', ') + ' merges'); return }
+  results['merge' + L.id] = await mergeWithSync(L, 'lane green')
+}
+
+phase('Lanes')
+const runnable = LANES.slice(1).filter((L) => stateOf(L) === 'ready' || stateOf(L) === 'deferred')
+const serverRun = CUT.has('C11') && A.solLane !== false && runnable.some((L) => L.id === 'E') && !merged.has(laneBranch(SERVER_LANE)) ? [{ ...SERVER_LANE, needs: ['casefit'] }] : []
+log('Starting now in parallel: lane A (' + planA.changes.filter((id) => !(id === 'C1' && A.fenceMerged)).join(' → ') + ') and lanes ' + runnable.concat(serverRun).map((L) => L.id + (L.needs.length ? ' (held on ' + L.needs.join('+') + ')' : '')).join(', '))
+await parallel([() => runLaneA()].concat(runnable.concat(serverRun).map((L) => () => runLane(L))))
+const held = Object.entries(results).filter(([, v]) => v && v.status === 'green-held').map(([k]) => k)
 
 // ---------------------------------------------------------------------------
 // Conform: built app vs mockup, one fix round for must-fix gaps
 // ---------------------------------------------------------------------------
 phase('Conform')
-const mergedLanes = LANES.filter((L) => (results['merge' + L.id] || {}).merged || plan.find((p) => p.lane === L.id).state === 'already-merged')
+const mergedLanes = LANES.filter((L) => (results['merge' + L.id] || {}).merged || stateOf(L) === 'already-merged')
 const mergedIds = mergedLanes.map((L) => L.id)
 const SURFACES = [
   { key: 'first-run', tags: 'C5 C6 C7 C11', how: 'greenfield demo board and invite; signed-in-empty dashboard right after setup (receipt + three ways in); Add job with an unreadable link' },
@@ -422,12 +420,12 @@ const [finalFloor, finalReview, acceptance] = await parallel([
     '- Distinct colours and font sizes: design-system/measure-static.mjs and runtime.mjs. Before: 459 literals; 93 declared / 50 rendered. Target: ≤ 40 all in tokens-v2.css; 8 named / ≤ 9 rendered.',
     '- axe, 8 states × 2 widths: access-responsive/states.mjs both. Before: 16 critical · 25 serious. Target: 0 · 0.',
     '- Clicks to first tracked job: re-walk the first-run step table in ' + PROG + '/audit/first-run.md against the built flow (greenfield → Google step → Add job manual). Before: ~22 clicks, 3 signups (inferred). Target: ≤ 12 clicks, 1 outside task. Label inferred where the GIS stub blocks real sign-in.',
-    'Also report page height at 1440/375 and the 375 board card width. Lanes merged: ' + (mergedIds.join(', ') || 'none') + '; lanes deferred this run: ' + plan.filter((p) => p.state === 'deferred').map((p) => p.lane).join(', ') + ' — note which unmet targets depend on deferred lanes. Label each row confirmed, inferred or unknown.',
+    'Also report page height at 1440/375 and the 375 board card width. Lanes merged: ' + (mergedIds.join(', ') || 'none') + '; lanes built but held from the base until their upstream merges: ' + (held.join(', ') || 'none') + ' — note which unmet targets depend on unmerged lanes. Label each row confirmed, inferred or unknown.',
   ].join('\n'), { ...OPUS, label: 'acceptance', phase: 'Acceptance', schema: ACCEPT_SCHEMA }),
 ])
 const critic = await agent([
   'Completeness critic for UX01 Phase 3. Read ' + SPEC + ', every ' + PROG + '/lanes/*.md in ' + BASE_WT + ' and on the lane branches, and git log ' + BASE + '.',
-  'Which finding ids mapped to the cut (' + [...CUT].join(' ') + ') are not addressed by merged work? Separate those owned by deferred lanes (' + plan.filter((p) => p.state === 'deferred').map((p) => p.lane + ' waiting on ' + p.waitingOn.join('+')).join('; ') + ') from real gaps in merged lanes. Which handoffs were never picked up? What risk would a PR reviewer raise first? Give next actions in order.',
+  'Which finding ids mapped to the cut (' + [...CUT].join(' ') + ') are not addressed by merged work? Separate those owned by lanes that are built but held on upstream (' + (held.join(', ') || 'none') + '; upstream ' + JSON.stringify(gate.upstream) + ') from real gaps in merged lanes. Which handoffs were never picked up? What risk would a PR reviewer raise first? Give next actions in order.',
   'Lane outcomes: ' + JSON.stringify(Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v && (v.status || (v.merged ? 'merged' : 'not-merged'))]))),
   'Integration floor green: ' + (finalFloor ? finalFloor.green : 'unknown') + '. Integration review verdict: ' + (finalReview ? finalReview.verdict + ' with ' + (finalReview.blocking || []).length + ' blocking' : 'unknown') + '. Conformance must-fix: ' + mustFix.length + '.',
 ].join('\n'), { ...OPUS, label: 'critic', phase: 'Acceptance', schema: CRITIC_SCHEMA })
@@ -438,7 +436,7 @@ return {
   gate,
   plan,
   lanes: Object.fromEntries(Object.entries(results).map(([k, v]) => [k, v && { status: v.status || (v.merged !== undefined ? (v.merged ? 'merged' : 'not-merged') : 'unknown'), reason: v.reason || v.note, mergeSha: v.mergeSha || (v.merge && v.merge.mergeSha), baselines: v.build && v.build.baselines, handoffs: v.build && v.build.handoffs, flaky: v.floor && v.floor.flaky, nonBlocking: v.review && v.review.nonBlocking }])),
-  deferred: plan.filter((p) => p.state === 'deferred'),
+  held: held.map((id) => ({ lane: id, branch: id === SERVER_LANE.id ? laneBranch(SERVER_LANE) : laneBranch(LANES.find((L) => L.id === id)), note: 'verified on top of its upstream branch; merge into ' + BASE + ' after the upstream lands' })),
   conformance: { mustFix: mustFix.length, orphaned: orphaned.map((d) => d.lane + ':' + d.tag + ' ' + d.expected), fixes: conformFixes.filter(Boolean).map((f) => ({ lane: f.lane, status: f.status })) },
   integrationFloor: finalFloor,
   integrationReview: finalReview,
