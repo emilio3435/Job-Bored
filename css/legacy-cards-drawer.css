@@ -208,7 +208,7 @@
   font-family: var(--font-mono, monospace);
   font-size: 11px;
   letter-spacing: 0.04em;
-  color: var(--text-secondary, var(--ink-3));
+  color: var(--jb-ink-3);
   text-align: center;
   opacity: 0.7;
   cursor: help;
@@ -440,7 +440,7 @@
 }
 
 .card-action-btn:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 1px;
 }
 
@@ -486,7 +486,7 @@
 .detail-overlay {
   position: fixed;
   inset: 0;
-  z-index: 800;
+  z-index: var(--jb-z-drawer);
   display: flex;
   justify-content: flex-end;
 }
