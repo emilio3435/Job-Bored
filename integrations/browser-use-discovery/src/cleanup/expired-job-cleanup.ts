@@ -8,6 +8,7 @@ import {
 } from "../contracts.ts";
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 import { resolveAccessToken } from "../sheets/pipeline-writer.ts";
+import { safeFetch, type SafeFetchOptions } from "../net/safe-fetch.ts";
 
 type FetchLike = typeof fetch;
 
@@ -417,6 +418,7 @@ export async function checkJobPostingUrl(
   options: {
     fetchImpl?: FetchLike;
     timeoutMs?: number;
+    lookupImpl?: SafeFetchOptions["lookupImpl"];
   } = {},
 ): Promise<JobAvailabilityClassification> {
   const fetchImpl = options.fetchImpl || globalThis.fetch;
@@ -441,15 +443,24 @@ export async function checkJobPostingUrl(
   const timeoutMs = Math.max(1, options.timeoutMs || DEFAULT_TIMEOUT_MS);
   const timeout = setTimeout(() => controller.abort(), timeoutMs);
   try {
-    const response = await fetchImpl(url, {
-      method: "GET",
-      redirect: "follow",
-      signal: controller.signal,
-      headers: {
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-        "User-Agent": "JobBoredExpiredCleanup/1.0",
+    // Sheet Links are untrusted: safeFetch refuses private-network targets on
+    // every redirect hop, pins DNS at connect and caps the body.
+    const response = await safeFetch(
+      url.toString(),
+      {
+        method: "GET",
+        signal: controller.signal,
+        headers: {
+          Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+          "User-Agent": "JobBoredExpiredCleanup/1.0",
+        },
       },
-    });
+      {
+        fetchImpl: options.fetchImpl,
+        lookupImpl: options.lookupImpl,
+        maxBytes: MAX_POSTING_BODY_BYTES,
+      },
+    );
     const body = await response.text().catch(() => "");
     return classifyJobPostingAvailability({
       url: url.toString(),
@@ -458,6 +469,20 @@ export async function checkJobPostingUrl(
       finalUrl: response.url || url.toString(),
     });
   } catch (err) {
+    if (
+      err &&
+      typeof err === "object" &&
+      (err as { code?: unknown }).code === "SSRF_BLOCKED"
+    ) {
+      return {
+        status: "unknown",
+        reason: `Blocked unsafe job URL: ${err instanceof Error ? err.message : String(err)}`,
+        evidence: url.toString().slice(0, 180),
+        confidence: "none",
+        source: "invalid_url",
+        finalUrl: url.toString(),
+      };
+    }
     const isTimeout =
       err &&
       typeof err === "object" &&
@@ -477,6 +502,8 @@ export async function checkJobPostingUrl(
     clearTimeout(timeout);
   }
 }
+
+const MAX_POSTING_BODY_BYTES = 4 * 1024 * 1024;
 
 function statusKey(status: string): string {
   return String(status || "").trim().toLowerCase();

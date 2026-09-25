@@ -18,8 +18,9 @@ npm run cloudflare-relay:deploy -- --target-url "https://script.google.com/macro
 The helper deploys the Worker, uploads `TARGET_URL`, tries `wrangler login`
 automatically in an interactive terminal if auth is missing, and can reuse or
 create the account-level `workers.dev` subdomain when `CLOUDFLARE_API_TOKEN`
-is available. If you also pass `--sheet-id`, it runs the repo webhook verify
-step after deploy.
+is available. It also mints the per-dashboard relay token the Worker requires
+(see [Deployment](#deployment)). If you also pass `--sheet-id`, it verifies
+the deploy with that token.
 
 If your real discovery engine runs on your own machine, run:
 
@@ -33,54 +34,81 @@ Use the printed public tunnel URL as the downstream `TARGET_URL` for the relay.
 
 ## Dashboard rule
 
-In JobBored, save the **open `workers.dev` URL** as the discovery webhook.
-Do **not** save `/forward` in the dashboard path. Keep Cloudflare Access off the
-open Worker URL or the browser test path will fail.
+In JobBored, save the `workers.dev` Worker URL as the discovery webhook. Do
+**not** save `/forward`. Keep Cloudflare Access off that URL, because the
+browser cannot complete an Access login on a `fetch`. The Worker is still
+locked: it answers 401 to any caller without this dashboard's relay token (see
+[Caller authentication](#caller-authentication-beaudit-g1)).
 
 ## Deployment
 
-1. Install Wrangler and sign in:
+Deploy with the helper. It is the only path that mints the relay token,
+uploads it as the Worker's `RELAY_TOKEN` secret, and hands it to your local
+dashboard. A Worker set up by hand with `wrangler deploy` has no token, so it
+answers 401 to every request (it fails closed), and the dashboard has no
+credential to send.
+
+1. Sign in to Cloudflare (the helper also runs `wrangler login` for you in an
+   interactive terminal):
 
    ```bash
-   wrangler login
+   npx wrangler login
    ```
 
-2. Set the downstream target:
+2. Deploy from the repo root:
 
    ```bash
-   wrangler secret put TARGET_URL
+   npm run cloudflare-relay:deploy -- \
+     --target-url "https://your-tunnel.example/webhook" \
+     --discovery-secret "<the worker's x-discovery-secret>" \
+     --sheet-id "<your sheet id>"
    ```
 
-   Good targets include:
-   - an Apps Script `/exec` URL
-   - a public ngrok URL that forwards to your local webhook
+   - `--target-url` is the downstream webhook: an Apps Script `/exec` URL or
+     a public tunnel URL that forwards to your local worker.
+   - `--discovery-secret` is optional. Pass it when the downstream enforces
+     `x-discovery-secret` (the browser-use discovery worker does); the Worker
+     then injects it upstream and the browser never sees it.
+   - `--sheet-id` is optional. With it the helper verifies the deploy by
+     POSTing a discovery request with the relay token.
 
-3. If the downstream webhook enforces `x-discovery-secret` (e.g. the
-   browser-use discovery worker), upload the shared secret so the Worker can
-   inject it for you. The browser never sees this value:
+3. The helper prints the Worker URL and stores the token in one git-ignored,
+   owner-only file: `.jobbored-relay/credential.json` (mode 0600). The `relay`
+   block of `discovery-local-bootstrap.json` gets the Worker URL and lock flag
+   but never the token, because that file is not owner-only.
 
-   ```bash
-   wrangler secret put DISCOVERY_SECRET
-   ```
+4. Start the dashboard with `npm run dev` and open it on `localhost`. It reads
+   the token from the loopback-only route `GET /__proxy/discovery-relay-token`
+   and sends it as `Authorization: Bearer <token>` to the Worker origin only.
+   Setup shows **Relay locked** once it holds the token.
 
-   When set, the Worker attaches `x-discovery-secret: <DISCOVERY_SECRET>` to
-   the upstream request. When unset, the Worker still forwards an
-   `x-discovery-secret` header sent by the browser (back-compat).
+### Existing Workers deployed by hand
 
-4. Optional:
+If you deployed this Worker yourself before the relay was locked, keep its
+name and URL by passing that name to the helper:
 
-   ```bash
-   wrangler secret put FORWARD_SECRET
-   ```
+```bash
+npm run cloudflare-relay:deploy -- --worker-name "<your existing worker name>" \
+  --target-url "<the same TARGET_URL>"
+```
 
-   Use this only if you intentionally want to lock the Worker for manual
-   testing. The JobBored dashboard still expects the open Worker URL.
+The helper redeploys the same Worker, so the `workers.dev` URL saved in the
+dashboard does not change. It mints a `RELAY_TOKEN`, uploads it, and writes
+the local credential above. The dev server reads that credential on every
+request, so a running dashboard picks the token up on its next relay request
+without a restart. Secrets you already
+set (`DISCOVERY_SECRET`, `REFRESH_SHEET_ID`) stay on the Worker. If you had
+set `FORWARD_SECRET`, delete it with `npx wrangler secret delete
+FORWARD_SECRET --name "<your existing worker name>"`: the Worker accepts it as
+a legacy bearer only when `RELAY_TOKEN` is unset, and the dashboard never
+holds it.
 
-5. Deploy:
+Redeploying later keeps the same token, so the dashboard's cached bearer
+stays valid. Pass `--rotate-token` to mint a new one; the dashboard re-reads
+the token after the Worker's first 401 and retries once.
 
-   ```bash
-   wrangler deploy
-   ```
+The dashboard only picks up the token on the machine that ran the deploy
+(through `localhost`). Hosted dashboards are unsupported; see below.
 
 ## Behavior
 
@@ -98,7 +126,8 @@ open Worker URL or the browser test path will fail.
 | `TARGET_URL`       | Secret | HTTPS downstream webhook. Required.                                        |
 | `DISCOVERY_SECRET` | Secret | Optional. When set, injected as `x-discovery-secret` on the upstream POST. |
 | `REFRESH_SHEET_ID` | Secret | Required for Cloudflare Cron discovery. Used as the webhook `sheetId`.     |
-| `FORWARD_SECRET`   | Secret | Optional lock for `POST /forward` on private/manual tests.                 |
+| `RELAY_TOKEN`      | Secret | Required. Per-dashboard bearer minted by `deploy-cloudflare-relay.mjs`; callers send `Authorization: Bearer <token>` or `X-Relay-Token`. Without it the relay answers 401. |
+| `FORWARD_SECRET`   | Secret | Legacy name for the same bearer; accepted when `RELAY_TOKEN` is unset. |
 | `CORS_ORIGIN`      | Var    | Optional browser origin. Defaults to `*` when omitted.                     |
 
 ## Notes
@@ -107,3 +136,51 @@ open Worker URL or the browser test path will fail.
 - The downstream target is the real webhook behind the relay.
 - If the downstream is Apps Script, keep treating the Apps Script stub as
   stub-only until it actually writes Pipeline rows.
+
+## Caller authentication (BEAUDIT G1)
+
+The relay is locked. Every request must carry the per-dashboard `RELAY_TOKEN`
+as `Authorization: Bearer <token>` (or `X-Relay-Token`); anonymous calls get
+401 and never reach your worker, and a relay with no token configured fails
+closed. The relay forwards POST to `/` (TARGET_URL itself), `/webhook`,
+`/discovery`, `/discovery-profile`, `/ingest-url` and `/cleanup-expired`, and
+GET to `/runs` and `/runs/<id>`. Every other path is 404 (for example
+`/pipeline-update` and `/health`), and any other method on an allowed path is
+405. The `?target=` query override is gone.
+
+`deploy-cloudflare-relay.mjs` saves the token only in
+`.jobbored-relay/credential.json` (gitignored, mode 0600); the relay block of
+`discovery-local-bootstrap.json` carries the Worker URL without it. A local
+dashboard fetches the token from the loopback-guarded dev-server route
+`GET /__proxy/discovery-relay-token`, which returns only
+`{ ok, relay: { workerUrl, relayToken, relayLocked } }`. A redeploy of the same
+Worker keeps the existing token so a dashboard's cached bearer stays valid; pass
+`--rotate-token` to mint a new one. When the relay answers 401 the dashboard
+re-reads the token once and retries. Deploy verification sends the bearer
+itself. To check a locked relay by hand, run `npm run test:discovery-webhook`
+with `RELAY_TOKEN` set (or pass `--relay-token`); without it the relay answers
+401.
+
+## GitHub Actions and the Cloudflare relay
+
+The Cloudflare relay is not a supported GitHub Actions target. It answers 401
+to any caller without the per-dashboard `RELAY_TOKEN` bearer, and the GitHub
+Actions discovery workflow (the one Settings generates and the template) sends
+no bearer, so a scheduled GitHub POST to the relay gets 401 and never reaches
+your worker.
+
+If `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` in your repo secrets is a
+`workers.dev` relay URL, migrate one of two ways:
+
+- Keep the relay and schedule from it instead: re-run
+  `npm run cloudflare-relay:deploy -- --sheet-id <your Sheet ID>` so the relay's
+  own Cloudflare Cron posts discovery, then delete the GitHub workflow.
+- Keep GitHub Actions and point `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` at your
+  worker's public URL (for example its tunnel URL ending in `/webhook`) or an
+  Apps Script `/exec` URL, never the relay.
+
+## Hosted mode is unsupported
+
+Running the dashboard and discovery worker as a hosted, multi-user service is
+unsupported until the hosted-mode fixes (BEAUDIT E4-E6) land. Use the local
+worker with this relay.

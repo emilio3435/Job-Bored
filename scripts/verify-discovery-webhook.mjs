@@ -6,7 +6,7 @@
  * Usage:
  *   npm run test:discovery-webhook -- --url "https://…/exec" --sheet-id YOUR_SHEET_ID
  *
- * Env (optional): DISCOVERY_WEBHOOK_URL, SHEET_ID
+ * Env (optional): DISCOVERY_WEBHOOK_URL, SHEET_ID, RELAY_TOKEN
  *
  * Requires Node 18+ (global fetch).
  */
@@ -48,6 +48,7 @@ function parseArgs(argv) {
     url: null,
     sheetId: null,
     secret: null,
+    relayToken: null,
     retries: null,
     retryDelayMs: null,
     context: null,
@@ -64,6 +65,10 @@ function parseArgs(argv) {
     }
     if (argv[i] === "--secret" && argv[i + 1]) {
       out.secret = argv[++i];
+      continue;
+    }
+    if (argv[i] === "--relay-token" && argv[i + 1]) {
+      out.relayToken = argv[++i];
       continue;
     }
     if (argv[i] === "--retries" && argv[i + 1]) {
@@ -89,6 +94,8 @@ function parseArgs(argv) {
     process.env.DISCOVERY_WEBHOOK_SECRET ||
     process.env.BROWSER_USE_DISCOVERY_WEBHOOK_SECRET ||
     "";
+  // A locked Cloudflare relay answers 401 without its per-dashboard bearer.
+  out.relayToken = out.relayToken || process.env.RELAY_TOKEN || "";
   out.retries =
     out.retries ?? process.env.DISCOVERY_WEBHOOK_VERIFY_RETRIES ?? "6";
   out.retryDelayMs =
@@ -397,6 +404,10 @@ async function verifyDiscoveryEndpoint(endpoint, options) {
     options && typeof options === "object" && typeof options.secret === "string"
       ? options.secret.trim()
       : "";
+  const relayToken =
+    options && typeof options === "object" && typeof options.relayToken === "string"
+      ? options.relayToken.trim()
+      : "";
 
   try {
     const res = await fetch(endpointUrl, {
@@ -404,6 +415,7 @@ async function verifyDiscoveryEndpoint(endpoint, options) {
       headers: {
         "Content-Type": "application/json",
         ...(secret ? { "x-discovery-secret": secret } : {}),
+        ...(relayToken ? { Authorization: `Bearer ${relayToken}` } : {}),
         ...(options && typeof options === "object" && options.headers && typeof options.headers === "object"
           ? options.headers
           : {}),
@@ -459,6 +471,8 @@ Options:
   --url               Required HTTPS webhook URL.
   --sheet-id          Optional Sheet ID or URL. Used in the default payload.
   --secret            Optional shared secret; sent as the x-discovery-secret header.
+  --relay-token       Optional Cloudflare relay token; sent as Authorization: Bearer.
+                      Required by a relay deployed with npm run cloudflare-relay:deploy.
   --retries           Number of retry attempts for retryable failures. Default: 6.
   --retry-delay-ms    Base retry delay in milliseconds. Default: 5000.
   --context           Message context: test_webhook or run_discovery.
@@ -467,7 +481,7 @@ Options:
 
 Env (optional):
   DISCOVERY_WEBHOOK_URL, SHEET_ID, DISCOVERY_WEBHOOK_SECRET,
-  BROWSER_USE_DISCOVERY_WEBHOOK_SECRET, DISCOVERY_WEBHOOK_VERIFY_RETRIES,
+  BROWSER_USE_DISCOVERY_WEBHOOK_SECRET, RELAY_TOKEN, DISCOVERY_WEBHOOK_VERIFY_RETRIES,
   DISCOVERY_WEBHOOK_VERIFY_RETRY_DELAY_MS, DISCOVERY_WEBHOOK_VERIFY_CONTEXT
 `);
   process.exit(code);
@@ -532,7 +546,8 @@ async function main() {
     process.exit(1);
   }
 
-  const { url, sheetId, secret, retries, retryDelayMs, context, json } = parseArgs(process.argv);
+  const { url, sheetId, secret, relayToken, retries, retryDelayMs, context, json } =
+    parseArgs(process.argv);
   if (!url || !String(url).trim()) {
     printUsage(1);
   }
@@ -590,6 +605,7 @@ async function main() {
       sheetId,
       context,
       secret,
+      relayToken,
       timeoutMs: 15000,
     });
     return result;

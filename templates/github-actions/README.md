@@ -12,7 +12,7 @@ Use this when the dashboard **cannot** POST to your webhook from the browser (co
 
    | Secret                                      | Value                                                                                 |
    | ------------------------------------------- | ------------------------------------------------------------------------------------- |
-	   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL`      | Full HTTPS URL (e.g. Apps Script `/exec` URL, Cloudflare Worker relay, or worker URL) |
+	   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL`      | Full HTTPS URL (e.g. Apps Script `/exec` URL or your worker's public URL); not the Cloudflare relay |
 	   | `COMMAND_CENTER_SHEET_ID`                   | Same Sheet ID as in the dashboard config                                              |
 	   | `COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET`   | Optional; set only when posting directly to an endpoint that requires `x-discovery-secret` |
 	   | `COMMAND_CENTER_DISCOVERY_PROFILE_JSON`     | Optional current profile JSON for scheduled GitHub runs when the worker cannot load stored profile state |
@@ -22,7 +22,23 @@ Use this when the dashboard **cannot** POST to your webhook from the browser (co
 
 4. **Run workflow** manually (**workflow_dispatch**) or wait for the **schedule**. The default schedule is daily **6:00am America/Chicago**. GitHub cron runs in UTC, so the workflow fires at both `11:00 UTC` and `12:00 UTC`; a shell guard exits unless Chicago local time is exactly `06:00`.
 
-If you use the Cloudflare Worker relay, prefer keeping the worker-facing secret in Cloudflare as `DISCOVERY_SECRET`. Then GitHub only needs the public Worker URL and Sheet ID.
+## GitHub Actions and the Cloudflare relay
+
+The Cloudflare relay is not a supported GitHub Actions target. It answers 401
+to any caller without the per-dashboard `RELAY_TOKEN` bearer, and the GitHub
+Actions discovery workflow (the one Settings generates and the template) sends
+no bearer, so a scheduled GitHub POST to the relay gets 401 and never reaches
+your worker.
+
+If `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` in your repo secrets is a
+`workers.dev` relay URL, migrate one of two ways:
+
+- Keep the relay and schedule from it instead: re-run
+  `npm run cloudflare-relay:deploy -- --sheet-id <your Sheet ID>` so the relay's
+  own Cloudflare Cron posts discovery, then delete the GitHub workflow.
+- Keep GitHub Actions and point `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` at your
+  worker's public URL (for example its tunnel URL ending in `/webhook`) or an
+  Apps Script `/exec` URL, never the relay.
 
 ## What it sends
 

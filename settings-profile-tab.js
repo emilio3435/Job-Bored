@@ -1135,8 +1135,16 @@
         var headers = { "Content-Type": "application/json" };
         var secret = String(secretOverride || "").trim();
         if (secret) headers["x-discovery-secret"] = secret;
+        // Relay requests carry the per-dashboard bearer (G24) and retry
+        // once with a refreshed token on a relay 401.
+        var relayFetch =
+          typeof window !== "undefined" &&
+          window.JobBoredRelayAuth &&
+          typeof window.JobBoredRelayAuth.fetch === "function"
+            ? window.JobBoredRelayAuth.fetch
+            : fetch;
         console.info("[settings-profile-tab] POST", endpoint, "mode=" + (body.mode || "manual"));
-        var res = await fetch(endpoint, {
+        var res = await relayFetch(endpoint, {
           method: "POST",
           headers: headers,
           body: JSON.stringify(body),

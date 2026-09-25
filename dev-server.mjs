@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
@@ -34,7 +34,15 @@ import {
   isLoopbackPeer,
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
-import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
+import {
+  buildContentSecurityPolicy,
+  extractConfigConnectOrigins,
+} from "./scripts/lib/browser-csp-policy.mjs";
+import { checkLoopbackRequestHost } from "./server/security-boundaries.mjs";
+import {
+  buildDashboardRelayTokenResponse,
+  readRelayCredential,
+} from "./scripts/deploy-cloudflare-relay.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -692,6 +700,39 @@ const STATIC_SECURITY_HEADERS = {
   "referrer-policy": "no-referrer",
 };
 
+// BEAUDIT G10: the served policy admits the origins the local config.js
+// names (hosted jobBoredApiUrl, LAN Ollama, custom AI hosts). Re-read only
+// when config.js (path or mtime) changes.
+let dashboardCspCache = { key: "", policy: STATIC_SECURITY_HEADERS["content-security-policy"] };
+
+export function dashboardSecurityHeaders(configPath = join(ROOT, "config.js")) {
+  let mtimeMs = 0;
+  try {
+    mtimeMs = statSync(configPath).mtimeMs;
+  } catch {
+    mtimeMs = 0;
+  }
+  const key = `${configPath}\0${mtimeMs}`;
+  if (key !== dashboardCspCache.key) {
+    let extraConnectSrc = [];
+    if (mtimeMs) {
+      try {
+        extraConnectSrc = extractConfigConnectOrigins(readFileSync(configPath, "utf8"));
+      } catch {
+        extraConnectSrc = [];
+      }
+    }
+    dashboardCspCache = {
+      key,
+      policy: buildContentSecurityPolicy({ extraConnectSrc }),
+    };
+  }
+  return {
+    ...STATIC_SECURITY_HEADERS,
+    "content-security-policy": dashboardCspCache.policy,
+  };
+}
+
 function writeStaticGuardResponse(res, status) {
   const message =
     status === 400 ? "Bad request" : status === 403 ? "Forbidden" : "Not found";
@@ -729,11 +770,11 @@ export function acceptsGzip(acceptEncoding) {
     });
 }
 
-function sendStaticBody(req, res, contentType, body) {
+function sendStaticBody(req, res, contentType, body, dashboardConfigPath) {
   const headers = {
     "content-type": contentType,
     "cache-control": "no-cache",
-    ...STATIC_SECURITY_HEADERS,
+    ...dashboardSecurityHeaders(dashboardConfigPath),
   };
   let payload = body;
   if (isCompressibleContentType(contentType)) {
@@ -748,7 +789,7 @@ function sendStaticBody(req, res, contentType, body) {
   res.end(payload);
 }
 
-async function serveStatic(urlPath, res, req) {
+async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
   const resolved = await resolvePublicFile(urlPath, { root: ROOT });
   if (!resolved.ok) {
     writeStaticGuardResponse(res, resolved.status || 404);
@@ -769,11 +810,11 @@ async function serveStatic(urlPath, res, req) {
       if (/<!--\s*@include\s+/.test(data)) {
         data = expandIndexIncludes(data, ROOT);
       }
-      sendStaticBody(req, res, ct, data);
+      sendStaticBody(req, res, ct, data, dashboardConfigPath);
       return;
     }
     const data = await readFile(filePath);
-    sendStaticBody(req, res, ct, data);
+    sendStaticBody(req, res, ct, data, dashboardConfigPath);
   } catch {
     writeStaticGuardResponse(res, 404);
   }
@@ -1506,6 +1547,36 @@ function handleDiscoveryWebhookSecret(req, res) {
       }),
     );
   }
+}
+
+/**
+ * Localhost-only: hand the dashboard its Cloudflare relay bearer (G24). The
+ * body carries only the relay's Worker URL, token and lock flag; the
+ * bootstrap file itself stays denied by static-path-guard. The token comes
+ * from the relay credential file first, because a bootstrap refresh rewrites
+ * discovery-local-bootstrap.json without its relay block. Neither file is
+ * read for a request that fails the local-origin check.
+ */
+export function handleDiscoveryRelayToken(
+  req,
+  res,
+  {
+    readBootstrap = readBootstrapJson,
+    readCredential = () => readRelayCredential(ROOT),
+  } = {},
+) {
+  const corsHeaders = jsonCorsHeaders(req, { "cache-control": "no-store" });
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  res.writeHead(200, corsHeaders);
+  res.end(
+    JSON.stringify(
+      buildDashboardRelayTokenResponse(readBootstrap(), readCredential()),
+    ),
+  );
 }
 
 /**
@@ -2351,7 +2422,31 @@ function ensureLocalTlsMaterial() {
   };
 }
 
-function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
+/**
+ * Tailscale serve publishes the dashboard at https://<mac>.<tailnet>.ts.net
+ * (see /__proxy/tailscale-state) and forwards to this loopback listener with
+ * that Host. Tailscale owns DNS under ts.net, so a rebinding page cannot aim
+ * one of these names at 127.0.0.1.
+ */
+const DASHBOARD_TUNNEL_HOST_PATTERNS = Object.freeze(["*.ts.net"]);
+
+/**
+ * Operator-trusted dashboard names (exact or `*.suffix`), comma separated.
+ * When set they bind on every socket, like JOBBORED_API_ALLOWED_HOSTS.
+ */
+function readDashboardAllowedHosts(env = process.env) {
+  return String(env.JOBBORED_DASHBOARD_ALLOWED_HOSTS || "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+}
+
+function createRequestHandler({
+  currentPort,
+  logger,
+  discoveryWorkerStarter,
+  dashboardConfigPath,
+}) {
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
   const logError =
@@ -2359,7 +2454,23 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       ? logger.error.bind(logger)
       : () => {};
 
+  const dashboardAllowedHosts = readDashboardAllowedHosts();
   return (req, res) => {
+    // BEAUDIT E1/G2/G3: one Host gate for every route. A DNS-rebound page
+    // connects to loopback with its own name in Host; it gets nothing here,
+    // not the /profile proxy, not /__proxy/*, not a static file.
+    const hostCheck = checkLoopbackRequestHost(req, {
+      allowedHosts: dashboardAllowedHosts,
+      tunnelHosts: DASHBOARD_TUNNEL_HOST_PATTERNS,
+    });
+    if (!hostCheck.ok) {
+      res.writeHead(hostCheck.status, {
+        "content-type": "application/json",
+        ...STATIC_SECURITY_HEADERS,
+      });
+      res.end(JSON.stringify({ ok: false, code: hostCheck.code, error: hostCheck.error }));
+      return;
+    }
     const parsed = parseRequestUrl(
       req.url,
       `http://127.0.0.1:${currentPort}`,
@@ -2524,6 +2635,11 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       return;
     }
 
+    if (req.method === "GET" && pathname === "/__proxy/discovery-relay-token") {
+      handleDiscoveryRelayToken(req, res);
+      return;
+    }
+
     if (req.method === "GET" && pathname === "/__proxy/discovery-health") {
       handleDiscoveryHealth(req, res).catch((err) => {
         logError("  discovery-health error:", err);
@@ -2675,7 +2791,7 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
     const ts = new Date().toLocaleTimeString();
     log(`  HTTP  ${ts} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
 
-    serveStatic(pathname, res, req).then(() => {
+    serveStatic(pathname, res, { req, dashboardConfigPath }).then(() => {
       log(`  HTTP  ${ts} ${req.socket.remoteAddress} Returned ${res.statusCode} in ${0} ms`);
     });
   };
@@ -2686,6 +2802,7 @@ export function createDevServer({
   logger = console,
   tls = false,
   discoveryWorkerStarter,
+  dashboardConfigPath,
 } = {}) {
   const currentPort = normalizePort(port);
   const useTls = normalizeBooleanFlag(tls);
@@ -2693,6 +2810,7 @@ export function createDevServer({
     currentPort,
     logger,
     discoveryWorkerStarter,
+    dashboardConfigPath,
   });
 
   if (useTls) {
@@ -2715,6 +2833,7 @@ export function startDevServer({
   logger = console,
   tls = false,
   discoveryWorkerStarter,
+  dashboardConfigPath,
 } = {}) {
   const requestedPort = normalizePort(port);
   const listenHost = resolveListenHost({ host });
@@ -2728,6 +2847,7 @@ export function startDevServer({
       logger,
       tls: useTls,
       discoveryWorkerStarter,
+      dashboardConfigPath,
     });
     server.once("error", reject);
     server.listen(requestedPort, listenHost, () => {

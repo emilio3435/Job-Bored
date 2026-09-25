@@ -9,16 +9,15 @@
  */
 
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
-const deployScript = readFileSync(
-  join(repoRoot, "scripts", "deploy-cloudflare-relay.mjs"),
-  "utf8",
-);
+const deployScriptPath = join(repoRoot, "scripts", "deploy-cloudflare-relay.mjs");
+const deployScript = readFileSync(deployScriptPath, "utf8");
 const appCompatJs = readFileSync(join(repoRoot, "app-compat.js"), "utf8");
 const configOverridesJs = readFileSync(join(repoRoot, "config-overrides.js"), "utf8");
 const discoveryWizardUi = readFileSync(
@@ -36,7 +35,10 @@ describe("scripts/deploy-cloudflare-relay.mjs — bootstrap persistence", () => 
     );
   });
 
-  it("writes a `relay` block to discovery-local-bootstrap.json", () => {
+  // Repair round (review P1): the merge moved into writeRelayBootstrap, which
+  // drops relayToken, so these assert the written file rather than the
+  // inline source they used to slice.
+  it("writes a `relay` block to discovery-local-bootstrap.json", async () => {
     const fenceStart = deployScript.indexOf(
       "[discovery-autodetect lane: persist relay info",
     );
@@ -46,34 +48,44 @@ describe("scripts/deploy-cloudflare-relay.mjs — bootstrap persistence", () => 
     );
     assert.ok(fenceStart !== -1 && fenceEnd > fenceStart, "fence pair");
     const block = deployScript.slice(fenceStart, fenceEnd);
-    assert.ok(
-      block.includes("discovery-local-bootstrap.json"),
-      "must reference the bootstrap file by name",
-    );
-    assert.ok(/relay:\s*\{/.test(block), "must write a relay: { … } block");
-    assert.ok(block.includes("workerUrl"), "must include workerUrl");
-    assert.ok(block.includes("workerName"), "must include workerName");
-    assert.ok(block.includes("targetUrl"), "must include targetUrl");
-    assert.ok(block.includes("deployedAt"), "must include deployedAt");
+    assert.ok(block.includes("writeRelayBootstrap(relayRecord)"));
+    const mod = await import(deployScriptPath);
+    const root = mkdtempSync(join(tmpdir(), "relay-persist-"));
+    try {
+      const path = mod.writeRelayBootstrap(
+        {
+          workerName: "w",
+          workerUrl: "https://w.example.workers.dev/",
+          targetUrl: "https://t.example/webhook",
+          deployedAt: "2026-09-25T00:00:00.000Z",
+        },
+        root,
+      );
+      assert.ok(path.endsWith("discovery-local-bootstrap.json"));
+      const relay = JSON.parse(readFileSync(path, "utf8")).relay;
+      assert.equal(relay.workerUrl, "https://w.example.workers.dev/");
+      assert.equal(relay.workerName, "w");
+      assert.equal(relay.targetUrl, "https://t.example/webhook");
+      assert.equal(relay.deployedAt, "2026-09-25T00:00:00.000Z");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
-  it("merges with existing bootstrap content (does not clobber other fields)", () => {
-    const fenceStart = deployScript.indexOf(
-      "[discovery-autodetect lane: persist relay info",
-    );
-    const fenceEnd = deployScript.indexOf(
-      "[/discovery-autodetect lane]",
-      fenceStart,
-    );
-    const block = deployScript.slice(fenceStart, fenceEnd);
-    assert.ok(
-      block.includes("...existing"),
-      "must spread existing bootstrap content before adding relay",
-    );
-    assert.ok(
-      /JSON\.parse\(readFileSync/.test(block),
-      "must read existing JSON before merging",
-    );
+  it("merges with existing bootstrap content (does not clobber other fields)", async () => {
+    const mod = await import(deployScriptPath);
+    const root = mkdtempSync(join(tmpdir(), "relay-persist-"));
+    try {
+      const path = join(root, "discovery-local-bootstrap.json");
+      writeFileSync(path, JSON.stringify({ localPort: 8644, webhookSecret: "keep" }));
+      mod.writeRelayBootstrap({ workerUrl: "https://w.example.workers.dev/" }, root);
+      const body = JSON.parse(readFileSync(path, "utf8"));
+      assert.equal(body.localPort, 8644);
+      assert.equal(body.webhookSecret, "keep");
+      assert.equal(body.relay.workerUrl, "https://w.example.workers.dev/");
+    } finally {
+      rmSync(root, { recursive: true, force: true });
+    }
   });
 
   it("never fails the deploy on persist error (try/catch wraps the block)", () => {
