@@ -1977,14 +1977,17 @@
         /* Even without a folder, the request endpoint will create one
            and write pending.json, so we still expose the empty state
            which now includes a hint about the dossier CTAs above. */
-        renderEmpty(brief, {
+        /* The mount is resolved at paint time: a Case render while the
+           fetch was in flight (the resume read can trigger one) replaced the
+           element captured above. */
+        renderEmpty(findMount() || brief, {
           note: "No drafts on disk yet. Use Draft cover letter / Tailor resume above to request a tailored pass.",
         });
         return;
       }
       return fetchJson(base + "/api/applications/" + encodeURIComponent(picked.slug) + "/manifest")
         .then(function (manifest) {
-          commitManifest(brief, manifest, base, jobKey);
+          commitManifest(findMount() || brief, manifest, base, jobKey);
           if (manifest.pending) startPolling(manifest.slug, base);
           else stopPolling();
         });
@@ -1994,7 +1997,7 @@
         renderServerDown(findMount() || brief);
         return;
       }
-      renderError(brief, formatMaterialsFetchError(err, base));
+      renderError(findMount() || brief, formatMaterialsFetchError(err, base));
     });
   }
 

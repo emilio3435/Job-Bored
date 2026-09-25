@@ -97,7 +97,7 @@ function load({
   const winBus = makeBus();
   const fetchCalls = [];
   const toasts = [];
-  const mount = makeNode("div", { "data-mount": "materials" });
+  let mount = makeNode("div", { "data-mount": "materials" });
   const region = makeNode("section");
   region.querySelector = (sel) => (sel === '[data-mount="materials"]' ? mount : null);
   const body = makeNode("body");
@@ -162,7 +162,15 @@ function load({
   const lastHtml = () => (mount.childNodes.length ? mount.childNodes[mount.childNodes.length - 1].innerHTML : "");
   const requestPosts = () => fetchCalls.filter((c) => /\/request$/.test(c.url) && c.options.method === "POST");
   return {
-    api: windowEl.JobBoredRoleMaterials, windowEl, documentEl, mount, body, html, lastHtml, fetchCalls, requestPosts, toasts, store,
+    get mount() { return mount; },
+    /* What role.js does on jb:materials:manifest: a Case render replaces the
+       materials mount with a fresh element. */
+    replaceMountOnStateEvents() {
+      winBus.addEventListener("jb:materials:manifest", (e) => {
+        if (e.detail && e.detail.reason === "state") mount = makeNode("div", { "data-mount": "materials" });
+      });
+    },
+    api: windowEl.JobBoredRoleMaterials, windowEl, documentEl, body, html, lastHtml, fetchCalls, requestPosts, toasts, store,
     draft(action = "resume-cover") {
       documentEl.dispatchEvent(new TestCustomEvent("jb:role:action", { detail: { action, jobKey: "7" } }));
     },
@@ -235,6 +243,18 @@ describe("C11 · drafts come from the user's resume", () => {
     };
     h.api.renderManifest(h.mount, manifest, "http://127.0.0.1:3847");
     assert.match(h.lastHtml(), /Drafted from <b>alex-rivera-resume\.pdf<\/b>, added 2026-09-25/);
+  });
+});
+
+describe("C11 · a render during the load never loses the rows", () => {
+  it("should paint into the mount that exists when the fetch lands, not the one it started with", async () => {
+    const h = load({ resume: null });
+    h.replaceMountOnStateEvents();
+    const first = h.mount;
+    h.open();
+    await settle();
+    assert.notEqual(h.mount, first, "the resume read re-rendered the Case");
+    assert.ok(h.mount.childNodes.length > 0, "the fresh mount must carry the materials state");
   });
 });
 
