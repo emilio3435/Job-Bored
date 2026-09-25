@@ -201,13 +201,20 @@ FIELD_CLICK_KINDS = frozenset({
     "week", "time", "search", "password", "textarea", "select", "combobox",
     "listbox", "checkbox", "radio", "contenteditable", "file",
 })
+# ARIA roles of widgets that hold a value. Many ATS forms render these on a
+# `<button type="button">`, so the role is checked before the tag.
+FIELD_CLICK_ROLES = frozenset({"combobox", "listbox", "option", "checkbox", "radio", "switch"})
 _OPTION_SELECTOR = re.compile(r"""\[\s*role\s*=\s*["']?option["']?\s*\]|^option\b""", re.IGNORECASE)
 
 
 def is_field_interaction_click(action: dict[str, Any], element_meta: dict[str, Any] | None = None) -> bool:
     """A click that fills a field: opening a combobox/select, toggling a checkbox
     or radio, focusing a text input, or picking a `role=option` from an open list.
-    Buttons, links and `type=submit|button|image|reset` inputs never qualify."""
+
+    The role is read first: a `<button type="button" role="combobox">` is a
+    field. A `type=submit` element or one whose label reads as submit never
+    qualifies, whatever its role. Other buttons, links and
+    `type=button|image|reset` inputs never qualify."""
     if action.get("action") != "click":
         return False
     if element_meta:
@@ -215,11 +222,15 @@ def is_field_interaction_click(action: dict[str, Any], element_meta: dict[str, A
         typ = str(element_meta.get("type") or "").lower()
         kind = str(element_meta.get("kind") or "").lower()
         role = str(element_meta.get("role") or "").lower()
+        if typ in {"submit", "image"}:
+            return False
+        if role in FIELD_CLICK_ROLES:
+            return not _has_term(_click_label_blob(element_meta, action), SUBMIT_TERMS)
         if tag in {"button", "a"} or role in {"button", "link"}:
             return False
-        if typ in {"submit", "button", "image", "reset"}:
+        if typ in {"button", "reset"}:
             return False
-        return kind in FIELD_CLICK_KINDS or role in {"combobox", "listbox", "option", "checkbox", "radio"}
+        return kind in FIELD_CLICK_KINDS
     return bool(_OPTION_SELECTOR.search(str(action.get("selector") or "").strip()))
 
 
@@ -888,6 +899,11 @@ class UniversalFiller:
                             results["confirmation_screenshot"] = shot
                             results["confirmation_screenshot_sha256"] = hashlib.sha256(Path(shot).read_bytes()).hexdigest()
                             break
+                        # Unverified: the click may have gone through (an inline
+                        # banner on an unchanged form). Stop here and report
+                        # unknown_after_submit; never let the planner submit again.
+                        step_record["stop_reason"] = "Submit attempted but not verified; no second submit"
+                        break
 
                 results["submit_attempted"] = self.submit_attempted
                 if self.submit_attempted and not results["submitted"]:

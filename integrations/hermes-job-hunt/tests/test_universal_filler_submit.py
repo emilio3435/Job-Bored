@@ -276,6 +276,69 @@ def test_submit_after_a_field_click_is_still_gated_on_required_fields(app_dir):
     assert result["manual_review"] is True
 
 
+# Repair round 2: a button-based dropdown is a field, not a submit.
+
+
+def button_combobox(selector, label, value=""):
+    """`<button type="button" role="combobox">` as page_state_extractor.js reports it."""
+    return {"selector": selector, "label": label, "text": value or "Select...", "value": value,
+            "kind": "button", "tag": "button", "type": "button", "role": "combobox",
+            "visible": True, "required": True}
+
+
+def test_button_with_a_field_role_is_a_field_interaction():
+    for role in ["combobox", "listbox", "option", "checkbox", "radio", "switch"]:
+        meta = {**button_combobox("#w", "Country"), "role": role}
+        assert uf.is_field_interaction_click({"action": "click", "selector": "#w"}, meta) is True, role
+        assert uf.is_submit_like_action({"action": "click", "selector": "#w"}, meta) is False, role
+
+
+def test_field_role_does_not_hide_a_submit_button():
+    submit_typed = {**button_combobox("#w", "Country"), "type": "submit"}
+    assert uf.is_field_interaction_click({"action": "click", "selector": "#w"}, submit_typed) is False
+    submit_text = {**button_combobox("#w", "Submit application"), "text": "Submit application"}
+    assert uf.is_field_interaction_click({"action": "click", "selector": "#w"}, submit_text) is False
+    plain = button("#send", "Send")
+    assert uf.is_field_interaction_click({"action": "click", "selector": "#send"}, plain) is False
+
+
+def test_opening_a_button_combobox_is_allowed_while_another_required_field_is_empty(app_dir):
+    form = {**FILLED_FORM, "elements": [
+        field("#email", "Email", ""),
+        button_combobox("#country", "Country"),
+        button("#send", "Send"),
+    ]}
+    page = FakePage(form, form, submit_selector="#send", after_url=DONE_URL)
+    planner = ScriptedPlanner(
+        [{"action": "click", "selector": "#country", "reason": "Open Country"}],
+        [{"action": "click", "selector": "#send", "reason": "Send"}],
+    )
+    result = run_live(app_dir, page, planner)
+    assert page.clicked == ["#country"]
+    assert result["submit_attempted"] is False
+    assert result["manual_review"] is True
+
+
+# Repair round 2: an unverified submit stops the loop before any second submit.
+
+
+def test_unverified_submit_is_never_clicked_twice(app_dir):
+    # Inline success banner, form still on screen, URL unchanged: not verified.
+    after = {**FILLED_FORM, "text": FILLED_FORM["text"] + " Application submitted."}
+    page = FakePage(FILLED_FORM, after, submit_selector="#send", after_url=APPLY_URL)
+    planner = ScriptedPlanner(
+        [{"action": "click", "selector": "#send", "reason": "Send"}],
+        [{"action": "click", "selector": "#send", "reason": "Send again"}],
+        [{"action": "click", "selector": "#send", "reason": "Send again"}],
+    )
+    result = run_live(app_dir, page, planner)
+    assert page.clicked == ["#send"]
+    assert result["submit_attempted"] is True
+    assert result["submitted"] is False
+    assert result["submission_state"] == "unknown_after_submit"
+    assert result["manual_review"] is True
+
+
 # ─── H5: "Thank you" on the form is not a confirmation ───────────────
 
 
