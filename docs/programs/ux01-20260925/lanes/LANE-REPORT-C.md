@@ -95,3 +95,39 @@ npm run test:e2e-visual    37 passed (1.0m)                                     
 `npm test` ends by printing a `deepStrictEqual` diff from a test that reports expected output. It did the same on the untouched baseline, and the run exits 0 with 0 failures. The one `todo` is pre-existing.
 
 Not verified: a live signed-in run against a real Sheet. Everything above ran through the hermetic harness with fictional rows.
+
+## Verification · floor (C-r1)
+
+Verifier: fresh Opus context, independent of the lane author. Workspace `ux01-shell-today` at HEAD 5ab8a57 (branch feat/ux01-shell-today), 2026-09-25. Logs: `Job-Bored.worktrees/.ux01-run/C-r1-floor/<n>.log`. No retries needed; no flaky specs.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | eslint clean; lint:skills OK; lint:tokens 35 sheets, 0 new findings |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | tsc (browser-use-discovery, server) + all node --check clean |
+| 3 | `npm test` | PASS (exit 0) | 3082 tests: 3081 pass, 0 fail, 1 todo |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | 12 OK checks |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 20 passed |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed |
+
+Note on #3: the one todo is `persists and can remove the canonical submission evidence record` (tests/submission-record-audit.test.mjs:78), marked todo "blocked on the canonical-ownership gate"; its assertion trace prints but it does not count as a failure.
+
+### Tails
+
+```
+[1]  lint:tokens ok: 35 sheet(s), 0 new finding(s), 0 brace error(s) EXIT=0 
+[2] EXIT=0
+[3]
+ℹ tests 3082
+ℹ suites 745
+ℹ pass 3081
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+EXIT=0
+[4]  OK integrations/openclaw-command-center/SKILL.md EXIT=0 
+[5]   11 passed (13.9s) EXIT=0 
+[6]   20 passed (24.7s) EXIT=0 
+[7]   37 passed (1.0m) EXIT=0 
+```
