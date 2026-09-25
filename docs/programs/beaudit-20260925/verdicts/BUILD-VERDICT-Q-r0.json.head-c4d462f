@@ -1,0 +1,130 @@
+{
+  "claims": [
+    {
+      "command": "HOME=$(mktemp -d) node --input-type=module -e \"import('./server/ai/provider.mjs')...\" && grep -n \"ai/provider.mjs\" server/ats-scorecard.mjs server/llm-config.mjs integrations/browser-use-discovery/src/ai/chat-provider.ts # E15 has no probe file; \u00a72 table sites verified by import+grep",
+      "excerpt": "PROVIDERS:anthropic,gemini,openai,openai_compatible,openrouter\nlocal->openai_compatible\nollama->openai_compatible\nchat:function\nProviderApiError:function\nresolveProvider local pin: {\"provider\":\"openai_compatible\",\"alias\":\"local\",\"configured\":true,\"endpoint\":\"http://127.0.0.1:11434/v1/chat/completions\"}\nserver/ats-scorecard.mjs:11: from \"./ai/provider.mjs\"\nserver/llm-config.mjs:18: from \"./ai/provider.mjs\"\nchat-provider.ts:5: from \"../../../../server/ai/provider.mjs\"\nchat-provider.ts:7: export { chat, normalizeProvider, PROVIDERS, ProviderApiError, ... }",
+      "id": "E15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /tmp/verify-e2.sh # adapted probes/E/probe-e-local-pin.sh \u2192 bbuild-q server/index.mjs:19040 HOME=.lane-evidence/home JOBBORED_LLM_CONFIG_PATH=/tmp",
+      "excerpt": "## POST pin exactly as oneflow-beat-ai.js builds it for Local\n{\"provider\":\"openai_compatible\",\"alias\":\"local\",\"model\":\"gemma4:e2b\",\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"keyPresent\":false}\n## GET /health\n{\"ok\":true,\"atsProvider\":\"openai_compatible\",\"atsConfigured\":true}\n## POST /api/ats-scorecard\n{\"schemaVersion\":1,\"overallScore\":0,\"model\":\"gemma4:e2b\"}\n[HTTP 200]\n(before fix: atsProvider gemini, atsConfigured false, 503 Missing API key)",
+      "id": "E2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/verify-e9.mjs # hermetic: no probe file (\u00a75 needs paid Gemini); fixture tests/fixtures/gemini-url-context-camelcase.json + stubbed fetch",
+      "excerpt": "gemini lane ran: true\nmethod: gemini-url-context\ndescription contains Kafka pipelines: true\ncamelCase retrieval failure returns null: true\nbrowser reads urlContextMetadata: true\nbrowser reads urlRetrievalStatus: true",
+      "id": "E9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/verify-e10.mjs # adapted \u00a75: scrapeJobPosting/scrapeViaGeminiUrlContext with local pin + GEMINI_API_KEY=probe-g, stubbed fetch",
+      "excerpt": "local pin: googleCalls=0 outNull=true\nno pin: googleCalls=0 outNull=true\ngemini pin: googleCalls=1 url=https://generativelanguage.googleapis.com/v1beta/models/pin-model-9:generateContent hdr={\"x-goog-api-key\":\"pin-key-9\"}\ngemini pin uses pin key in header: true\nvia scrapeJobPosting local pin urls: ['https://jobs.acme.example/x']\ngoogle call appears: false (before fix: true)",
+      "id": "E10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /tmp/verify-e12.sh # adapted probes/E/probe-e-cors.sh hijack section \u2192 bbuild-q:19041 HOME=.lane-evidence/home",
+      "excerpt": "1 seed: {\"provider\":\"gemini\",\"keyPresent\":true}\n2 omit same endpoint: keyPresent true\n3 blank same endpoint: keyPresent true\n4 repoint attacker.test omitted key: keyPresent false\n5 evil provider: {\"code\":\"llm_invalid\"} [HTTP 400]\n6 ftp baseUrl: {\"code\":\"llm_invalid\"} [HTTP 400]\n7 reseed true then apiKey:null false\nfile mode: 600",
+      "id": "E12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/verify-e14.mjs # adapted \u00a75: writeLlmConfig mode + models.list/ATS header check, stubbed fetch",
+      "excerpt": "llm.json mode: 600\nmodels.list calls: 1 url: https://generativelanguage.googleapis.com/v1beta/models\nmodels.list URL has ?key=: false\nmodels.list header x-goog-api-key: AIza-list-key\nATS generateContent URL has ?key=: false\nATS header x-goog-api-key: AIza-ats-key\nuses 0o600 + renameSync: true",
+      "id": "E14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/verify-e18.mjs # adapted \u00a75: 2\u00d7 analyzeAtsScorecard with gemini-flash pin + worst-case prompt capture",
+      "excerpt": "two ATS calls gemini-flash: models.list=1 generateContent=2 total=3 (before 2+2=4)\nposting fixture chars: 36424\nprompt chars: 40173 (budget 42000)\nhas blurb rockets: false\nhas snacks: false\nposting section chars: 4050 (budget 4100)\nprofile excerpt marker chars: 9997 (budget 10000)",
+      "id": "E18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "git grep -l generativelanguage.googleapis.com -- '*.js' '*.mjs' '*.ts' | xargs grep -E '[?&]key=\\$\\{' ; grep -rn x-goog-api-key server/* discovery-drawer.js job-posting-insights.js model-catalog.js resume-generate.js # \u00a75 grep reproducer",
+      "excerpt": "---FILES NAMING HOST--- 12 files (server, browser, worker, tests, probes)\n---?key= OFFENDERS---\nscan done (none; tests excluded)\n---HEADER SITES---\nprofile-from-resume.mjs:968 x-goog-api-key\nrescore-worker.mjs:1090 geminiHeaders\nmaterials-writer.mjs:369 x-goog-api-key\nprovider.mjs:139 geminiHeaders\ndiscovery-drawer.js:1139, job-posting-insights.js:468+782, model-catalog.js:265, resume-generate.js:323+556",
+      "id": "B17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/verify-e11.mjs; node /tmp/verify-e11b.mjs # adapted \u00a75: never-resolving fetch + abort; route wiring grep",
+      "excerpt": "ATS fetch saw signal: true, aborted before: false, after client abort: true in 0ms (<<30000)\nGemini fetch signal aborted after caller abort: true in 0ms (<<25000)\nInfinity no deadline: true, aborts on res close: true\napp.post /api/scrape-job: true\napp.post /api/ats-scorecard: true\napp.post /profile/from-resume: true (180s, passes signal)\napp.post /profile/rescore: true, uses Infinity: true, req.on(close): false\nlive disconnect: tests/beaudit-q-route-abort 4/4 pass",
+      "id": "E11",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "HOME=/var/.../tmp.9jcHxQ3fI2\n> eslint .\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "HOME=/var/.../tmp.R7oOnl5iP2\n> tsc --noEmit -p integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit -p server/tsconfig.json\n> 70\u00d7 node --check \u2026\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "HOME=/var/.../tmp.PXlkHjVcFW\n\u2716 missing url: { error, code } envelope # todo lane L\n\u2716 non-http scheme: { error, code } envelope # todo lane L\n\u2716 private target: { error, code } envelope # todo lane L\n\u2716 unknown API route JSON 404 # todo lane L\n\u2716 submission-record-audit # todo canonical-ownership gate\nEXIT:0 (todos only; 0 fail)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "HOME=/var/.../tmp.DxaC6hRY7O\n\u2139 tests 767\n\u2139 pass 765\n\u2139 fail 2\n\u2716 session fetch fallback after a failed command is also guarded \u2014 Error: write EPIPE at session.ts:135\n\u2716 session passes request.abortSignal through to the fetch path \u2014 false !== true at session-ssrf.test.ts:225\nEXIT:1 (both in integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts; lane Q touched only ai/chat-provider.ts)",
+      "passed": false
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "HOME=/var/.../tmp.H5nQLKCq9u\nOK schema: discovery-webhook \u00d73 + payload/ readiness\nOK schema ATS request/response + builder \u00d72\nOK pipeline-row\nOK pipeline-update request\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "c4d462fbe0a4b20559e6e309f37ebcd06c834adb",
+  "lane": "Q",
+  "summary": "Lane Q at c4d462fb: floor 4/5 green (browser-use-discovery 765/767, 2 fail in session-ssrf.test.ts outside lane fence); all 8 listed test files pass (browser 4/4, route-abort 4/4, repair 4/4 incl E18 <42000, ai-provider 10/10, p-e17 13 pass/7 todo with E2+E9 hard, sixbeats2 12/12, llm-pin 12/12, model-catalog 22/22); all 9 claims FIXED by adapted audit reproducers on 127.0.0.1:19040-19041 with HOME=.lane-evidence/home. Tree left clean, no servers remain; 1 pre-existing user node left untouched.",
+  "tests": [
+    {
+      "excerpt": "\u2714 camelCase success returns extract\n\u2714 camelCase failure returns null\n\u2714 snake_case still works\n\u2714 key in x-goog-api-key not URL\n\u2139 tests 4 pass 4 fail 0\nEXIT:0",
+      "file": "tests/beaudit-q-browser-gemini.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 POST /api/ats-scorecard (upstream closed on disconnect)\n\u2714 POST /profile/from-resume\n\u2714 rescore takes signal from routeDeadlineSignal\n\u2714 Infinity: no deadline, aborts on res close\n\u2139 tests 4 pass 4 fail 0\nEXIT:0",
+      "file": "tests/beaudit-q-route-abort.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 keeps Requirements/Responsibilities, drops blurb/benefits/EEO\n\u2714 falls back to clipped description\n\u2714 writer sends x-goog-api-key, key-free URL\n\u2714 stays under 42000 with every input at cap\n\u2139 tests 4 pass 4 fail 0\nEXIT:0",
+      "file": "tests/beaudit-q-repair.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 E15 enum + local/ollama aliases\n\u2714 resolveProvider pin-only\n\u2714 chat Gemini header\n\u2714 chat aborts on request signal\n\u2714 ProviderApiError redacted\n\u2714 worker re-export + redaction\n\u2714 E2 local pin configured + calls baseUrl\n\u2714 E2 profile-from-resume keyless compat pin\n\u2714 B17 no ?key= in server+browser list\n\u2714 B17 every host-naming file scanned\n\u2139 tests 10 pass 10 fail 0\nEXIT:0",
+      "file": "tests/beaudit-q-ai-provider.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 E2 API accepts Local pin\n\u2714 E2 ATS reads local as openai_compatible, configured\n\u2714 E2 scorecard reaches local model\n\u2714 E9 fixture REST casing + snake control\n\u2714 E9 server accepts camelCase success\n\u2714 E9 browser reads urlContextMetadata too\n\u2716 E5 \u00d72 # todo lane O; E7 \u00d74 # todo lane L; E4 \u00d71 # todo lane B\n\u2139 tests 20 pass 13 fail 0 todo 7\nEXIT:0",
+      "file": "tests/beaudit-p-e17-claim-coverage.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 body carries verified provider \u00d74\n\u2714 drafting uses body config \u00d75 (incl Gemini body)\n\u2714 errors name provider \u00d73\n\u2139 tests 12 pass 12 fail 0 (B17 pin: header not URL)\nEXIT:0",
+      "file": "tests/sixbeats2-server-provider-config.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 ATS respects llm.json over env \u00d72\n\u2714 unconfigured/missing-key \u00d72\n\u2714 browser fallbacks gemini-flash \u00d74\n\u2714 analyze-time pin key \u00d72 (header)\n\u2714 thinking-model budget \u00d72\n\u2139 tests 12 pass 12 fail 0\nEXIT:0",
+      "file": "tests/llm-pin-consumers.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 module surface + fallbacks \u00d75\n\u2714 fetchProviderModels routing \u00d75 (gemini header)\n\u2714 pingProvider \u00d75\n\u2714 fallback \u00d73, caching \u00d73, index order \u00d71\n\u2139 tests 22 pass 22 fail 0\nEXIT:0",
+      "file": "tests/model-catalog.test.mjs",
+      "passed": true
+    }
+  ]
+}

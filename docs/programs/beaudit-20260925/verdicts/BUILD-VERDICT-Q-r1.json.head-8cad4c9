@@ -1,0 +1,95 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home node -e 'import(\"./server/ai/provider.mjs\")...' (LANE-REPORT-E \u00a72, no \u00a74 probe; read-only E15)",
+      "excerpt": "PROVIDERS=[\"gemini\",\"openai\",\"anthropic\",\"openrouter\",\"openai_compatible\"]\nlocal->openai_compatible\nollama->openai_compatible\nchat=function\nerrName=ProviderApiError msgHasBody=false\nresolveLocal=\"openai_compatible\"\nworker chat-provider.ts:5 imports + :7 re-exports server/ai/provider.mjs",
+      "id": "E15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .lane-evidence/probes/probe-e-local-pin.sh (adapted from beaudit-integration/probes/E/probe-e-local-pin.sh; port 19041, HOME=.lane-evidence/home)",
+      "excerpt": "[api :19041 up pid 4735]\nPOST {\"provider\":\"local\",...} -> {\"provider\":\"openai_compatible\",\"alias\":\"local\",\"model\":\"gemma4:e2b\",...}\nGET /health -> {\"atsProvider\":\"openai_compatible\",\"atsConfigured\":true}\nPOST /api/ats-scorecard -> HTTP 200 overallScore:0 (pre-fix: 503 Missing API key, gemini)\n[api :19041 stopped]",
+      "id": "E2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/probe-e9.mjs (scrapeViaGeminiUrlContext stub; audit \u00a75 real-Gemini proof unavailable) + node --test tests/beaudit-q-browser-gemini.test.mjs",
+      "excerpt": "camelCase SUCCESS -> non-null provider=gemini-url-context\nsnake_case SUCCESS -> non-null provider=gemini-url-context\ncamelCase FAILURE -> null\nbrowser test: tests 4 pass 4 fail 0 (camelCase success/failure, snake_case, B17 header)",
+      "id": "E9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/probe-e10.mjs + /tmp/probe-e10b.mjs (audit \u00a75: local pin + GEMINI_API_KEY=probe, count generativelanguage calls)",
+      "excerpt": "local pin + env key -> result=null googleCalls=0 totalCalls=0 calls=[] (pre-fix: 1 Google call)\ngemini pin -> result=non-null provider=gemini-url-context googleCalls=1 urlHasKey=false hdr=\"pin-key-canary\"",
+      "id": "E10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .lane-evidence/probes/probe-q-keep-key.sh (E12 half of audit probe-e-cors.sh hijack; port 19042)",
+      "excerpt": "save gemini+key -> keyPresent:true\nsave again apiKey omitted -> keyPresent:true (pre-fix: false)\nrepoint attacker baseUrl omitted -> keyPresent:false\nunknown provider evil -> {\"code\":\"llm_invalid\"} [HTTP 400]\nfile mode 600",
+      "id": "E12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep -rn \"?key=\" server/llm-config.mjs server/ats-scorecard.mjs server/ai/provider.mjs; grep -n \"0o600|renameSync|geminiHeaders\" server/llm-config.mjs (audit \u00a75 wrap-writeFileSync + ?key= check; mode from E12 probe)",
+      "excerpt": "?key= grep: no matches (GREP_EXIT:1)\nllm-config.mjs:285 headers: geminiHeaders(apiKey) -> x-goog-api-key\nllm-config.mjs:143 mode: 0o600, :144 flag: \"wx\", :146 renameSync(tmp, path)\nE12 probe file mode 600",
+      "id": "E14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/probe-e18b.mjs (resolveActivePin cache + trimPostingToRequirements) + node --test tests/beaudit-q-repair.test.mjs",
+      "excerpt": "trimLen=30 hasRockets=false hasSnacks=false hasGo=true\nresolved=gemini-3.9-flash callsAfter2Resolves=1 (pre-fix: 2)\nE18 worst-case test: stays under 42000 chars pass; tests 4 pass 4 fail 0",
+      "id": "E18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "git grep -n \"?key=\" -- '*.js' '*.mjs' '*.ts' | grep -v tests/ (audit B17 \u00a75 grep) + node --test tests/beaudit-q-ai-provider.test.mjs",
+      "excerpt": "?key= offenders in prod code: (none)\nB17 scan: no server or browser module builds a ?key= Gemini URL pass\nevery file that names the Gemini REST host is in the scan pass\ntests 10 pass 10 fail 0; all sites send x-goog-api-key",
+      "id": "B17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --test tests/beaudit-q-route-abort.test.mjs + HOME=.lane-evidence/home node /tmp/probe-e11.mjs (audit \u00a75: never-resolving fetch + abort after 200ms) + grep routeDeadlineSignal server/index.mjs",
+      "excerpt": "route-abort: tests 4 pass 4 fail 0 (ats-scorecard + from-resume disconnect abort, rescore wiring, Infinity)\nanalyzeAtsScorecard aborted in 200ms err=OpenAI-compatible request cancelled (pre-fix: 30s timeout)\nwiring: index.mjs:282,303,501,654,848 routeDeadlineSignal",
+      "id": "E11",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "> eslint .\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit browser-use-discovery + server + node --check x N\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "\u2716 an unknown API route answers a JSON 404 # target behavior lane L (todo)\n\u2716 persists canonical submission evidence # blocked on ownership gate (todo)\nEXIT:0 (fail 0; \u2716 lines are todo-marked other-lane targets)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 768\n\u2139 suites 2\n\u2139 pass 768\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "OK schema: discovery-webhook-request x3 + payload/readiness\nOK schema (ATS request/response) + builders\nOK pipeline-row + pipeline-update\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "8cad4c935ab9c3e578756e64579722d83823a6ca",
+  "lane": "Q",
+  "summary": "Floor 5/5 green with fresh HOME at 8cad4c93. session-stdin-epipe + session-ssrf 11/11 in 3/3 runs. All 9 claims FIXED: local pin normalizes to openai_compatible and scores 200; omitted key kept, evil rejected, mode 600; both Gemini casings accepted; local pin skips Google (0 calls); no ?key= anywhere with header transport; atomic 0600 write; flash cached (1 call/2 resolves) with posting trimmed and prompt <42000; disconnect aborts in ~200ms with route wiring. Tree left clean, no servers running.",
+  "tests": [
+    {
+      "excerpt": "RUN 1: \u2714 11 tests incl. fetch fallback guarded, abortSignal, EPIPE fallback; \u2139 tests 11 pass 11 fail 0\nRUN 2: \u2139 tests 11 pass 11 fail 0\nRUN 3: \u2139 tests 11 pass 11 fail 0\nEXIT:0 x3",
+      "file": "integrations/browser-use-discovery/tests/browser/session-stdin-epipe.test.ts",
+      "passed": true
+    }
+  ]
+}
