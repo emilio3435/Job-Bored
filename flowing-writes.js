@@ -373,6 +373,34 @@
       if (!label) {
         throw new Error("Unknown toStage: " + String(detail.toStage));
       }
+      /* UX01 C17 (TR-11): the dossier stepper and Today used to write Status
+         alone, so a role's applied and follow-up dates depended on which
+         button was pressed. Every move now goes through the one planner; the
+         Status-only PUT below is the fallback when the planner cannot resolve
+         a row (no adapter host in the page). */
+      var adapter = window.JobBoredPipelineTransitionAdapter;
+      if (adapter && typeof adapter.move === "function") {
+        var planned = await adapter.move({
+          jobKey: jobKey,
+          fromStage: detail.fromStage,
+          toStage: detail.toStage,
+          note: detail.note,
+          source: detail.source || "flowing-writes",
+          handOff: false,
+        });
+        if (planned && (planned.ok || planned.cancelled)) return;
+        var code = planned && planned.code;
+        if (code !== "missing_row" && code !== "missing_patch_api" && code !== "no_writer") {
+          // The adapter (or the Applied dialog) already reported the failure
+          // with jb:write:failed; name it once for the person.
+          if (planned && !planned.applied && code !== "applied_not_saved" &&
+              code !== "persist-failed" && code !== "confirmation-unavailable" &&
+              code !== "confirmation-failed") {
+            safeToast("Couldn't save stage change. It is still in its old stage.", "error");
+          }
+          return;
+        }
+      }
       if (String(detail.toStage).trim().toLowerCase() === "applied" &&
           window.JobBoredSubmission &&
           typeof window.JobBoredSubmission.confirmApplied === "function") {

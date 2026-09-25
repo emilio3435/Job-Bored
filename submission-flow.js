@@ -1,16 +1,19 @@
 /**
  * submission-flow.js — human confirmation seam for an Applied transition.
  *
- * Classic-global IIFE. The integration owner routes only the v2 Applied move
- * here; this module delegates persistence to sheets-writeback so its canonical
- * row mapping and M/N/P side-effect batch remain the single source of truth.
+ * Classic-global IIFE. Every Applied move lands here. UX01 C15: the write goes
+ * through the one transition planner (pipeline-transitions.js) with the typed
+ * date, follow-up and source + receipt note, immediately, with Undo. The
+ * sheets-writeback updateJobStatus path is kept only as the fallback when no
+ * planner row can be resolved.
+ *
+ * Lane-D API (C16): confirmApplied({dataIndex, prefill:{source, date}}).
  */
 (function (root) {
   "use strict";
 
   if (!root || typeof root !== "object") return;
 
-  var UNDO_GRACE_MS = 10 * 1000;
   var FIELD_IDS = Object.freeze({
     appliedDate: "jb-submission-applied-date",
     source: "jb-submission-source",
@@ -113,57 +116,153 @@
     }
   }
 
-  function waitForGracePeriod() {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, UNDO_GRACE_MS);
-    });
-  }
-
-  function showUndoToast(a11y, onUndo) {
+  function showToast(a11y, message, type, action) {
     if (a11y && typeof a11y.toast === "function") {
-      return a11y.toast(
-        "Application marked submitted. Saving in 10 seconds.",
-        "info",
-        {
-          persistent: true,
-          action: { label: "Undo", onClick: onUndo },
-        },
-      );
+      return a11y.toast(message, type || "success", action ? { action: action } : {});
     }
-
     var fallback = host().showToast;
     if (typeof fallback === "function") {
-      return fallback(
-        "Application marked submitted. Saving in 10 seconds.",
-        "info",
-        true,
-        { label: "Undo", onClick: onUndo },
-      );
+      return fallback(message, type || "success", false, action);
     }
     return null;
   }
 
+  function jobFor(jobKey) {
+    var api = root.JobBored;
+    try {
+      var jobs = api && typeof api.getPipelineJobs === "function" ? api.getPipelineJobs() : null;
+      return (jobs && jobs[Number(jobKey)]) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function roleName(job) {
+    if (!job) return "this role";
+    var title = text(job.title);
+    var company = text(job.company);
+    if (title && company) return title + " at " + company;
+    return title || company || "this role";
+  }
+
+  /** The row as the planner sees it, when the adapter host can resolve one. */
+  function plannerRow(jobKey) {
+    var adapter = root.JobBoredPipelineTransitionAdapter;
+    var h = adapter && adapter.host;
+    if (!h || typeof h.getRow !== "function") return null;
+    try {
+      return h.getRow(jobKey) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function noteFor(evidence) {
+    var parts = ["Applied via " + evidence.source];
+    if (evidence.receiptNote) parts.push("receipt: " + evidence.receiptNote);
+    return parts.join(" · ");
+  }
+
+  /* Accepts the lane-D API shape confirmApplied({dataIndex, prefill:{source,
+     date, followUpDate, receiptNote}, fromStage}) and the original
+     confirmApplied(jobKey, ctx) shape used by flowing-writes and tests. */
+  function normalizeArgs(first, second) {
+    if (first && typeof first === "object" && !Array.isArray(first) &&
+        (Object.prototype.hasOwnProperty.call(first, "dataIndex") ||
+         Object.prototype.hasOwnProperty.call(first, "jobKey"))) {
+      var prefill = first.prefill && typeof first.prefill === "object" ? first.prefill : {};
+      var key = first.dataIndex != null ? first.dataIndex : first.jobKey;
+      return {
+        jobKey: key == null ? "" : String(key),
+        ctx: {
+          fromStage: first.fromStage,
+          appliedDate: prefill.date || prefill.appliedDate,
+          source: prefill.source,
+          receiptNote: prefill.receiptNote,
+          followUpDate: prefill.followUpDate,
+        },
+      };
+    }
+    return { jobKey: first, ctx: second || {} };
+  }
+
+  /** Write Applied through the one planner; the legacy writer is the fallback
+   *  only when no planner row can be resolved (no adapter host in the page). */
+  async function persistApplied(jobKey, fromStage, evidence) {
+    var adapter = root.JobBoredPipelineTransitionAdapter;
+    if (adapter && typeof adapter.move === "function") {
+      var res = await adapter.move({
+        jobKey: jobKey,
+        fromStage: fromStage,
+        toStage: "applied",
+        confirmation: {
+          submitted: true,
+          date: evidence.appliedDate,
+          source: evidence.source,
+          followUpDate: evidence.followUpDate,
+        },
+        note: noteFor(evidence),
+        source: "submission",
+        announce: false,
+        announceUndo: true,
+        handOff: false,
+      });
+      if (res && res.ok) return { ok: true, result: res };
+      var code = res && res.code;
+      if (code !== "missing_row" && code !== "missing_patch_api" && code !== "no_writer") {
+        // The adapter already dispatched jb:write:failed for this move.
+        return { ok: false, code: code || "persist-failed", reported: true };
+      }
+    }
+
+    var writer = host().sheetsWrite;
+    if (typeof writer.updateJobStatus !== "function") {
+      return { ok: false, code: "writer-unavailable" };
+    }
+    var succeeded = await writer.updateJobStatus(jobKey, "Applied", fromStage);
+    return succeeded ? { ok: true, result: null } : { ok: false, code: "persist-failed" };
+  }
+
   /**
-   * Ask for explicit submission confirmation, offer Undo, then persist Applied.
-   * @param {string|number} jobKey pipeline data index / stable key
+   * Ask for explicit submission confirmation, write Applied with what the
+   * person typed (date, follow-up, source + receipt to Notes), then offer Undo.
+   *
+   * @param {string|number|{dataIndex:(string|number), fromStage?:string,
+   *   prefill?:{source?:string, date?:string, followUpDate?:string,
+   *   receiptNote?:string}}} first  pipeline data index, or the prefill shape
    * @param {{fromStage?:string, appliedDate?:string, source?:string,
-   *   receiptNote?:string, checklistNote?:string, followUpDate?:string}} ctx
-   * @returns {Promise<{confirmed:boolean, evidence:object|null}>}
+   *   receiptNote?:string, checklistNote?:string, followUpDate?:string}} [second]
+   * @returns {Promise<{confirmed:boolean, cancelled?:boolean,
+   *   evidence:object|null, result?:object|null, code?:string}>}
    */
-  async function confirmApplied(jobKey, ctx) {
+  async function confirmApplied(first, second) {
+    var args = normalizeArgs(first, second);
+    var jobKey = args.jobKey;
+    var ctx = args.ctx || {};
     var a11y = root.JobBoredA11y;
     var confirm = a11y && a11y.dialog && a11y.dialog.confirm;
     if (typeof confirm !== "function") {
       dispatchWriteFailure(jobKey, "confirmation-unavailable", "Submission confirmation is unavailable");
-      return { confirmed: false, evidence: null };
+      return { confirmed: false, evidence: null, code: "confirmation-unavailable" };
     }
 
-    var defaults = defaultsFor(ctx || {});
+    var job = jobFor(jobKey);
+    var row = plannerRow(jobKey);
+    var seeded = {
+      fromStage: ctx.fromStage,
+      appliedDate: ctx.appliedDate || (row && row.appliedDate),
+      source: ctx.source,
+      receiptNote: ctx.receiptNote || ctx.checklistNote,
+      followUpDate: ctx.followUpDate || (row && row.followUpDate),
+    };
+    var defaults = defaultsFor(seeded);
+    var company = job && text(job.company);
     var decision;
     try {
       decision = await confirm({
-        title: "Mark application submitted?",
-        body: "Confirm the submission details before Applied is written to your Sheet.",
+        title: company ? "Did you apply to " + company + "?" : "Mark application submitted?",
+        body: "Confirm the details for " + roleName(job) +
+          ". They are written to your Sheet as you enter them.",
         confirmLabel: "Mark submitted",
         cancelLabel: "Cancel",
         fields: confirmationFields(defaults),
@@ -174,51 +273,52 @@
         "confirmation-failed",
         err && err.message ? err.message : String(err),
       );
-      return { confirmed: false, evidence: null };
+      return { confirmed: false, evidence: null, code: "confirmation-failed" };
     }
 
     if (!decision || decision.confirmed !== true) {
       dispatchWriteFailure(jobKey, "cancelled");
-      return { confirmed: false, evidence: null };
+      return { confirmed: false, cancelled: true, evidence: null };
     }
 
     var evidence = evidenceFrom(decision.values, defaults);
-    var undone = false;
-    var dismissToast = showUndoToast(a11y, function () {
-      if (undone) return;
-      undone = true;
-      dispatchWriteFailure(jobKey, "undone");
-    });
-
-    await waitForGracePeriod();
-    if (typeof dismissToast === "function") dismissToast();
-    if (undone) return { confirmed: false, evidence: evidence };
-
-    var writer = host().sheetsWrite;
-    if (typeof writer.updateJobStatus !== "function") {
-      dispatchWriteFailure(jobKey, "writer-unavailable", "Applied writer is unavailable");
-      return { confirmed: false, evidence: evidence };
-    }
-
+    var outcome;
     try {
-      var succeeded = await writer.updateJobStatus(
-        jobKey,
-        "Applied",
-        ctx && ctx.fromStage,
-      );
-      if (!succeeded) {
-        dispatchWriteFailure(jobKey, "persist-failed", "Applied write failed");
-        return { confirmed: false, evidence: evidence };
-      }
-      return { confirmed: true, evidence: evidence };
+      outcome = await persistApplied(jobKey, ctx.fromStage, evidence);
     } catch (err) {
-      dispatchWriteFailure(
-        jobKey,
-        "persist-failed",
-        err && err.message ? err.message : String(err),
-      );
-      return { confirmed: false, evidence: evidence };
+      outcome = { ok: false, code: "persist-failed", error: err && err.message ? err.message : String(err) };
     }
+
+    if (!outcome.ok) {
+      if (!outcome.reported) {
+        dispatchWriteFailure(jobKey, outcome.code || "persist-failed", outcome.error || "Applied write failed");
+      }
+      showToast(a11y, "Couldn't save Applied for " + roleName(job) + ". Nothing was written.", "error", {
+        label: "Retry",
+        onClick: function () {
+          confirmApplied({ dataIndex: jobKey, fromStage: ctx.fromStage, prefill: {
+            source: evidence.source,
+            date: evidence.appliedDate,
+            followUpDate: evidence.followUpDate,
+            receiptNote: evidence.receiptNote,
+          } });
+        },
+      });
+      return { confirmed: false, evidence: evidence, code: outcome.code || "persist-failed" };
+    }
+
+    var written = outcome.result;
+    var message = "Applied: " + roleName(job) + " on " + evidence.appliedDate +
+      (evidence.followUpDate ? ". Follow up " + evidence.followUpDate + "." : ".");
+    showToast(
+      a11y,
+      message,
+      "success",
+      written && typeof written.undo === "function"
+        ? { label: "Undo", onClick: function () { return written.undo(); } }
+        : null,
+    );
+    return { confirmed: true, evidence: evidence, result: written };
   }
 
   root.JobBoredSubmission = root.JobBoredSubmission || {};

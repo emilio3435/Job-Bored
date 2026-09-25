@@ -117,11 +117,153 @@
     return input;
   }
 
+  /* ---------------------------------------------------------------------
+     UX01 C17: one planner for every move. A planned write that lands now
+     (TR-01) syncs the local row, emits jb:write:succeeded so the board, Today
+     and Dawn re-render, and (TR-10) offers Undo through the planner's own
+     rollback snapshot. An Applied move (AX-03) opens the submission dialog
+     here and resolves cancelled when the person cancels.
+     --------------------------------------------------------------------- */
+
+  var SUCCEEDED_EVENT = "jb:write:succeeded";
+
+  function stageLabelFor(key) {
+    var writer = root.JobBoredPipelineTransitions;
+    var label = writer && typeof writer.statusFor === "function" ? writer.statusFor(key) : null;
+    if (String(key) === "new") return "Discovered";
+    return label || String(key || "");
+  }
+
+  function describeJob(jobKey) {
+    var api = root.JobBored;
+    try {
+      var jobs = api && typeof api.getPipelineJobs === "function" ? api.getPipelineJobs() : null;
+      var job = jobs && jobs[Number(jobKey)];
+      if (!job) return "";
+      var title = job.title ? String(job.title) : "";
+      var company = job.company ? String(job.company) : "";
+      if (title && company) return title + " at " + company;
+      return title || company;
+    } catch (_) {
+      return "";
+    }
+  }
+
+  /** Apply written cells to pipelineData so every surface reads the truth. */
+  function syncLocal(jobKey, patches) {
+    var host = hostOf();
+    try {
+      if (host && typeof host.applyLocal === "function") {
+        host.applyLocal(jobKey, patches);
+        return;
+      }
+      var app = root.JobBoredApp;
+      var ctrl = app && app.pipelineController;
+      if (ctrl && typeof ctrl.applyPipelineCellPatches === "function") {
+        ctrl.applyPipelineCellPatches(jobKey, patches);
+      }
+    } catch (err) {
+      try { console.warn("[JobBoredPipelineTransitionAdapter] local sync failed", err); } catch (_) {}
+    }
+  }
+
+  function toast(message, type, action) {
+    var a11y = root.JobBoredA11y;
+    if (a11y && typeof a11y.toast === "function") {
+      return a11y.toast(message, type || "success", action ? { action: action } : {});
+    }
+    return null;
+  }
+
+  function undo(payload, planned) {
+    var writer = root.JobBoredPipelineTransitions;
+    var patchApi = resolvePatchApi(payload, hostOf());
+    if (!writer || typeof writer.applyUndo !== "function" || !planned || !planned.rollback) {
+      return Promise.resolve({ ok: false, code: "no_rollback" });
+    }
+    return Promise.resolve()
+      .then(function () { return writer.applyUndo(planned.rollback, patchApi); })
+      .then(function (res) {
+        if (res && res.ok) {
+          syncLocal(payload.jobKey, planned.rollback.patches);
+          dispatch(SUCCEEDED_EVENT, {
+            jobKey: payload.jobKey,
+            kind: MOVE_KIND,
+            fromStage: payload.toStage,
+            toStage: payload.fromStage,
+            undo: true,
+          });
+          if (payload.announce !== false || payload.announceUndo) {
+            toast("Undone. " + (describeJob(payload.jobKey) || "The role") + " is back in " + stageLabelFor(payload.fromStage) + ".", "info");
+          }
+          return res;
+        }
+        toast("Couldn't undo. The Sheet did not accept the change.", "error");
+        return res || { ok: false, code: "undo_failed" };
+      })
+      .catch(function (err) {
+        toast("Couldn't undo. The Sheet did not accept the change.", "error");
+        return { ok: false, code: "undo_failed", message: (err && err.message) || String(err) };
+      });
+  }
+
+  function settleSuccess(payload, planned) {
+    syncLocal(payload.jobKey, planned.patches || []);
+    dispatch(SUCCEEDED_EVENT, {
+      jobKey: payload.jobKey,
+      kind: MOVE_KIND,
+      fromStage: payload.fromStage,
+      toStage: payload.toStage,
+      status: stageLabelFor(payload.toStage),
+      source: payload.source || "",
+    });
+    planned.undo = function () { return undo(payload, planned); };
+    if (payload.announce !== false && payload.fromStage && payload.fromStage !== payload.toStage) {
+      var who = describeJob(payload.jobKey);
+      toast(
+        "Moved " + (who || "the role") + " to " + stageLabelFor(payload.toStage) + ".",
+        "success",
+        { label: "Undo", onClick: planned.undo },
+      );
+    }
+    return planned;
+  }
+
+  /** AX-03 / C15: an Applied move needs the person to confirm what they sent. */
+  function confirmAppliedMove(payload) {
+    var sub = root.JobBoredSubmission;
+    return Promise.resolve()
+      .then(function () {
+        return sub.confirmApplied({
+          dataIndex: payload.jobKey,
+          fromStage: payload.fromStage,
+        });
+      })
+      .then(function (res) {
+        if (res && res.confirmed) {
+          var inner = res.result && typeof res.result === "object" ? res.result : {};
+          inner.ok = true;
+          inner.handled = true;
+          inner.applied = true;
+          return inner;
+        }
+        if (res && res.cancelled) {
+          return { ok: false, handled: true, cancelled: true, code: "cancelled", payload: payload };
+        }
+        return { ok: false, handled: true, code: (res && res.code) || "applied_not_saved", payload: payload };
+      }, function (err) {
+        return reportFailure(payload, "write_failed", (err && err.message) || String(err));
+      });
+  }
+
   function move(payload) {
     payload = payload || {};
     var writer = root.JobBoredPipelineTransitions;
     if (!writer || typeof writer.applyTransition !== "function") {
       // No planner in the page: the event channel is the only writer there is.
+      if (payload.handOff === false) {
+        return Promise.resolve({ ok: false, handled: false, code: "no_writer", payload: payload });
+      }
       return Promise.resolve(handOff(payload, "no_writer"));
     }
 
@@ -140,10 +282,25 @@
         }
         if (result.ok) {
           result.handled = true;
-          return result;
+          return settleSuccess(payload, result);
         }
         var code = result.code || "transition_failed";
-        if (FALLBACK_CODES[code]) return handOff(payload, code);
+        if (
+          code === "confirmation_required" &&
+          !payload.confirmation &&
+          root.JobBoredSubmission &&
+          typeof root.JobBoredSubmission.confirmApplied === "function"
+        ) {
+          return confirmAppliedMove(payload);
+        }
+        if (FALLBACK_CODES[code]) {
+          // A caller that is itself the fallback writer (flowing-writes, the
+          // submission dialog) must not be handed its own move back.
+          if (payload.handOff === false) {
+            return { ok: false, handled: false, code: code, payload: payload };
+          }
+          return handOff(payload, code);
+        }
         // unknown_stage and anything else the planner refuses: writing it
         // through another channel would just write the same bad value.
         return reportFailure(payload, code, result.message);
