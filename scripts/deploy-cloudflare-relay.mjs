@@ -838,6 +838,16 @@ function resolveRelayToken({
 }
 
 /**
+ * The deploy summary's lock line (G24). It names the lock state and never
+ * prints the token.
+ */
+function formatRelayLockSummary(locked) {
+  return locked
+    ? "Relay: locked. Only this dashboard holds the relay token; requests without it get 401."
+    : "Relay: NOT locked. Redeploy with this script so the relay requires a token.";
+}
+
+/**
  * The body of the dashboard's protected relay-token route. It hands out only
  * the relay's Worker URL, token and lock flag, never the rest of the
  * bootstrap file (webhook secret, ports), which static-path-guard keeps denied.
@@ -1291,6 +1301,7 @@ async function main() {
       console.log(`Target URL: ${targetUrl}`);
       console.log(`Target classification: ${targetClassification.kind}`);
       console.log(`CORS origin: ${corsOrigin || "*"}`);
+      console.log(formatRelayLockSummary(payload.relayLocked === true));
       console.log(`Daily discovery cron: ${args.cron}`);
       if (args.sheetId) {
         console.log(`REFRESH_SHEET_ID secret: uploaded (${args.sheetId})`);
@@ -1346,6 +1357,7 @@ export {
   relayCredentialPath,
   writeRelayCredential,
   extractWranglerJson,
+  formatRelayLockSummary,
   mintRelayToken,
   resolveRelayToken,
   verifyRelayDeployment,

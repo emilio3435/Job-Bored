@@ -784,6 +784,7 @@
         browserWorkerUrl ? "relay_apply_worker_url" : "",
         state.savedWebhookUrl ? "relay_validate_external_endpoint" : "",
       ]),
+      relayLock: describeRelayLock(browserWorkerUrl),
     };
 
     if (
@@ -983,6 +984,30 @@
     } catch (_) {
       return false;
     }
+  }
+
+  // G24: the setup status line. "Relay locked" only when this browser holds
+  // the per-dashboard token for the relay it is about to use; the token itself
+  // never enters the model.
+  function describeRelayLock(workerUrl) {
+    const auth = readRelayAuth();
+    const target = safeOrigin(workerUrl);
+    const matches =
+      !!auth && (!target || target === safeOrigin(auth.workerUrl));
+    if (matches && auth.locked !== false) {
+      return {
+        locked: true,
+        label: "Relay locked",
+        detail:
+          "Only this dashboard holds the relay token. Requests without it get 401.",
+      };
+    }
+    return {
+      locked: false,
+      label: "Relay not locked yet",
+      detail:
+        "Deploy the relay with the deploy script. It mints this dashboard's relay token, and the relay answers 401 to anyone without it.",
+    };
   }
 
   function relayAuthHeadersFor(url) {
