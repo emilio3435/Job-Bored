@@ -22,6 +22,9 @@ const ROUTE = "/__proxy/discovery-relay-token";
 const REPO_BOOTSTRAP = fileURLToPath(
   new URL("../discovery-local-bootstrap.json", import.meta.url),
 );
+const REPO_CREDENTIAL = fileURLToPath(
+  new URL("../.jobbored-relay/credential.json", import.meta.url),
+);
 
 async function withDevServer(fn) {
   const server = await startDevServer({
@@ -89,7 +92,7 @@ describe("GET /__proxy/discovery-relay-token", () => {
       for (const key of Object.keys(body)) {
         assert.ok(["ok", "relay", "reason"].includes(key), `unexpected key ${key}`);
       }
-      if (!existsSync(REPO_BOOTSTRAP)) {
+      if (!existsSync(REPO_BOOTSTRAP) && !existsSync(REPO_CREDENTIAL)) {
         assert.deepEqual(body, { ok: false, reason: "relay_not_deployed" });
       }
     });
@@ -118,6 +121,7 @@ describe("GET /__proxy/discovery-relay-token", () => {
     const res = fakeRes();
     handleDiscoveryRelayToken(fakeReq({ origin: "http://127.0.0.1:19011" }), res, {
       readBootstrap: () => DEPLOYED,
+      readCredential: () => null,
     });
     assert.equal(res.status, 200);
     const body = JSON.parse(res.body);
@@ -133,7 +137,7 @@ describe("GET /__proxy/discovery-relay-token", () => {
     assert.ok(!res.body.includes("upstream.example"));
   });
 
-  it("does not read the bootstrap for a non-loopback peer", () => {
+  it("does not read the bootstrap or the credential for a non-loopback peer", () => {
     const res = fakeRes();
     let read = false;
     handleDiscoveryRelayToken(
@@ -143,6 +147,10 @@ describe("GET /__proxy/discovery-relay-token", () => {
         readBootstrap: () => {
           read = true;
           return DEPLOYED;
+        },
+        readCredential: () => {
+          read = true;
+          return DEPLOYED.relay;
         },
       },
     );

@@ -13,8 +13,10 @@
 import { spawnSync } from "child_process";
 import { randomBytes } from "crypto";
 import {
+  chmodSync,
   copyFileSync,
   existsSync,
+  mkdirSync,
   mkdtempSync,
   readFileSync,
   rmSync,
@@ -66,7 +68,7 @@ Options:
   --no-auto-login  Do not launch \`wrangler login\` automatically when auth is missing.
   --no-verify      Do not run the webhook verification step automatically after deploy.
   --rotate-token   Mint a new RELAY_TOKEN even when this Worker already has one in
-                   discovery-local-bootstrap.json. By default a redeploy keeps the
+                   .jobbored-relay/credential.json. By default a redeploy keeps the
                    existing token so the dashboard's cached bearer stays valid.
   --json           Print machine-readable JSON on success.
   --help           Show this message.
@@ -760,20 +762,67 @@ function mintRelayToken() {
   return randomBytes(32).toString("base64url");
 }
 
+const RELAY_CREDENTIAL_DIR = ".jobbored-relay";
+const RELAY_CREDENTIAL_FILE = "credential.json";
+
+/**
+ * Where the deployed relay's credential lives. It is its own file because
+ * scripts/bootstrap-local-discovery.mjs rewrites discovery-local-bootstrap.json
+ * without the `relay` block on every refresh, and Fix setup skips the relay
+ * redeploy when the tunnel is unchanged; a token kept only in that block
+ * would vanish and the dashboard would get 401 from the locked relay. The
+ * dot-directory is denied by static-path-guard (dot segments are never
+ * served) and ignores itself through its own .gitignore.
+ */
+function relayCredentialPath(root = repoRoot) {
+  return join(root, RELAY_CREDENTIAL_DIR, RELAY_CREDENTIAL_FILE);
+}
+
+function pickRelayBlock(value) {
+  if (!value || typeof value !== "object") return null;
+  const token = typeof value.relayToken === "string" ? value.relayToken.trim() : "";
+  return token ? value : null;
+}
+
+function readRelayCredential(root = repoRoot) {
+  const file = relayCredentialPath(root);
+  if (!existsSync(file)) return null;
+  try {
+    return pickRelayBlock(JSON.parse(readFileSync(file, "utf8")));
+  } catch (_) {
+    return null;
+  }
+}
+
+function writeRelayCredential(relay, root = repoRoot) {
+  const file = relayCredentialPath(root);
+  const dir = dirname(file);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  writeFileSync(join(dir, ".gitignore"), "*\n");
+  writeFileSync(file, JSON.stringify(relay, null, 2) + "\n", { mode: 0o600 });
+  chmodSync(file, 0o600);
+  return file;
+}
+
 /**
  * The token a deploy uploads. A redeploy of the same Worker keeps the token
- * already in the bootstrap relay block, so a dashboard that cached it keeps
- * working (fix-setup redeploys the relay every time the tunnel URL rotates).
- * A different Worker, a missing block, or --rotate-token mints a new one.
+ * already in the relay credential file (or, for a relay deployed before that
+ * file existed, the bootstrap relay block), so a dashboard that cached it
+ * keeps working (fix-setup redeploys the relay every time the tunnel URL
+ * rotates). A different Worker, no stored token, or --rotate-token mints a
+ * new one.
  */
-function resolveRelayToken({ existingBootstrap, workerName, rotate = false } = {}) {
+function resolveRelayToken({
+  existingCredential,
+  existingBootstrap,
+  workerName,
+  rotate = false,
+} = {}) {
   const relay =
-    existingBootstrap &&
-    typeof existingBootstrap === "object" &&
-    existingBootstrap.relay &&
-    typeof existingBootstrap.relay === "object"
-      ? existingBootstrap.relay
-      : null;
+    pickRelayBlock(existingCredential) ||
+    (existingBootstrap && typeof existingBootstrap === "object"
+      ? pickRelayBlock(existingBootstrap.relay)
+      : null);
   const kept =
     relay && typeof relay.relayToken === "string" ? relay.relayToken.trim() : "";
   if (
@@ -790,17 +839,19 @@ function resolveRelayToken({ existingBootstrap, workerName, rotate = false } = {
 
 /**
  * The body of the dashboard's protected relay-token route. It hands out only
- * the relay block's Worker URL, token and lock flag, never the rest of the
+ * the relay's Worker URL, token and lock flag, never the rest of the
  * bootstrap file (webhook secret, ports), which static-path-guard keeps denied.
- * The route itself must be loopback-origin guarded like
+ * The credential file wins over the bootstrap relay block, which a bootstrap
+ * refresh drops. The route itself must be loopback-origin guarded like
  * /__proxy/discovery-webhook-secret.
  */
-function buildDashboardRelayTokenResponse(bootstrap) {
+function buildDashboardRelayTokenResponse(bootstrap, credential = null) {
   const relay =
-    bootstrap && typeof bootstrap === "object" && bootstrap.relay &&
+    pickRelayBlock(credential) ||
+    (bootstrap && typeof bootstrap === "object" && bootstrap.relay &&
     typeof bootstrap.relay === "object"
       ? bootstrap.relay
-      : null;
+      : null);
   const relayToken =
     relay && typeof relay.relayToken === "string" ? relay.relayToken.trim() : "";
   const workerUrl =
@@ -825,10 +876,42 @@ function readBootstrapFile(bootstrapPath) {
 }
 
 /**
+ * Classifies a verification response the way scripts/verify-discovery-webhook.mjs
+ * (summarizeResult) does: a 2xx only counts when its body is JSON ok:true or
+ * an accepted async discovery response. HTML (a login or Cloudflare Access
+ * page), JSON ok:false and an empty body are failures. Returns "ok", "retry"
+ * (5xx or 429, which may be propagation) or "fail".
+ */
+function classifyRelayVerifyResponse(status, responseText) {
+  const code = Number(status) || 0;
+  if (code >= 500 || code === 429) return "retry";
+  if (code < 200 || code >= 300) return "fail";
+  let data = null;
+  try {
+    data = responseText ? JSON.parse(responseText) : null;
+  } catch (_) {
+    data = null;
+  }
+  if (!data || typeof data !== "object" || Array.isArray(data)) return "fail";
+  if (data.ok === true) return "ok";
+  if (data.ok === false) return "fail";
+  const accepted =
+    (code === 200 || code === 202) &&
+    (String(data.status || "").toLowerCase() === "accepted" ||
+      data.accepted === true ||
+      String(data.event || "").toLowerCase() === "command-center.discovery" ||
+      Object.prototype.hasOwnProperty.call(data, "delivery_id"));
+  return accepted ? "ok" : "fail";
+}
+
+/**
  * Verifies the deployed relay with its own bearer. This replaced a spawn of
  * scripts/verify-discovery-webhook.mjs, which at the time never read
  * RELAY_TOKEN, so every verification of a locked relay was a 401. That script
  * now sends RELAY_TOKEN (or --relay-token) as a bearer for manual checks.
+ * Each attempt keeps that verifier's 15s deadline, covering the fetch and the
+ * body read, so a stalled upstream cannot hang the deploy before the token is
+ * persisted.
  */
 async function verifyRelayDeployment({
   workerUrl,
@@ -836,6 +919,7 @@ async function verifyRelayDeployment({
   relayToken,
   retries = 6,
   retryDelayMs = 5000,
+  timeoutMs = 15000,
   fetchImpl = globalThis.fetch,
   log = () => {},
 } = {}) {
@@ -854,27 +938,46 @@ async function verifyRelayDeployment({
   body.sheetId = String(sheetId).trim();
   body.variationKey = `verify-${Date.now().toString(36)}`;
   body.requestedAt = new Date().toISOString();
+  const deadlineMs = Math.max(1, Number(timeoutMs) || 15000);
   for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const controller = new AbortController();
+    let timer = null;
+    const deadline = new Promise((_, reject) => {
+      timer = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`timed out after ${deadlineMs}ms`));
+      }, deadlineMs);
+    });
     try {
-      const res = await fetchImpl(workerUrl, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${relayToken}`,
-        },
-        body: JSON.stringify(body),
-      });
-      await res.text().catch(() => "");
-      log(`cloudflare-relay: verify HTTP ${res.status}`);
-      if (res.ok) return true;
-      // 401/403/404 will not change on retry; 5xx and 429 may be propagation.
-      if (res.status < 500 && res.status !== 429) return false;
+      const { status, responseText } = await Promise.race([
+        (async () => {
+          const res = await fetchImpl(workerUrl, {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${relayToken}`,
+            },
+            body: JSON.stringify(body),
+            signal: controller.signal,
+          });
+          return { status: res.status, responseText: await res.text() };
+        })(),
+        deadline,
+      ]);
+      log(`cloudflare-relay: verify HTTP ${status}`);
+      const verdict = classifyRelayVerifyResponse(status, responseText);
+      if (verdict === "ok") return true;
+      // 401/403/404 and invalid 2xx bodies will not change on retry.
+      if (verdict === "fail") return false;
     } catch (err) {
       log(
         `cloudflare-relay: verify attempt ${attempt + 1} failed: ${
           err && err.message ? err.message : String(err)
         }`,
       );
+    } finally {
+      clearTimeout(timer);
+      controller.abort();
     }
     if (attempt < retries) {
       await new Promise((r) => setTimeout(r, retryDelayMs * (attempt + 1)));
@@ -1016,9 +1119,10 @@ async function main() {
     // BEAUDIT G1 / spec §0.7: a per-dashboard bearer token. The relay
     // answers 401 without it, so an anonymous caller can no longer reach the
     // worker with DISCOVERY_SECRET injected. The token is written to the
-    // bootstrap file below so the dashboard can fetch it. A redeploy of the
+    // relay credential file below so the dashboard can fetch it. A redeploy of the
     // same Worker keeps the existing token (resolveRelayToken).
     const relayToken = resolveRelayToken({
+      existingCredential: readRelayCredential(),
       existingBootstrap: readBootstrapFile(
         join(repoRoot, "discovery-local-bootstrap.json"),
       ),
@@ -1129,6 +1233,24 @@ async function main() {
     //
     // Failure here MUST NOT fail the deploy — the user still has the URL on
     // stdout, and the next poll cycle is a no-op for them.
+    const relayRecord = {
+      workerName,
+      workerUrl,
+      targetUrl,
+      corsOrigin: corsOrigin || "*",
+      relayToken,
+      relayLocked: true,
+      deployedAt: new Date().toISOString(),
+    };
+    try {
+      // The durable home of the token: a bootstrap refresh never touches it.
+      const credentialPath = writeRelayCredential(relayRecord);
+      console.log(`cloudflare-relay: stored the relay token in ${credentialPath}.`);
+    } catch (err) {
+      console.warn(
+        `cloudflare-relay: could not store the relay token (${err && err.message ? err.message : String(err)}). Re-run the deploy so the dashboard can authenticate to the relay.`,
+      );
+    }
     try {
       const bootstrapPath = join(repoRoot, "discovery-local-bootstrap.json");
       let existing = {};
@@ -1143,13 +1265,9 @@ async function main() {
       const merged = {
         ...existing,
         relay: {
-          workerName,
-          workerUrl,
-          targetUrl,
-          corsOrigin: corsOrigin || "*",
+          ...relayRecord,
           relayToken,
           relayLocked: true,
-          deployedAt: new Date().toISOString(),
         },
       };
       writeFileSync(bootstrapPath, JSON.stringify(merged, null, 2) + "\n");
@@ -1223,6 +1341,10 @@ if (__invokedAsCli) {
 // running the full deploy pipeline.
 export {
   buildDashboardRelayTokenResponse,
+  classifyRelayVerifyResponse,
+  readRelayCredential,
+  relayCredentialPath,
+  writeRelayCredential,
   extractWranglerJson,
   mintRelayToken,
   resolveRelayToken,

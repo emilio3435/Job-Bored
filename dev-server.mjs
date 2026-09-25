@@ -34,7 +34,10 @@ import {
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
 import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
-import { buildDashboardRelayTokenResponse } from "./scripts/deploy-cloudflare-relay.mjs";
+import {
+  buildDashboardRelayTokenResponse,
+  readRelayCredential,
+} from "./scripts/deploy-cloudflare-relay.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -1474,14 +1477,19 @@ function handleDiscoveryWebhookSecret(req, res) {
 
 /**
  * Localhost-only: hand the dashboard its Cloudflare relay bearer (G24). The
- * body carries only the relay block's Worker URL, token and lock flag; the
- * bootstrap file itself stays denied by static-path-guard. The bootstrap is
- * never read for a request that fails the local-origin check.
+ * body carries only the relay's Worker URL, token and lock flag; the
+ * bootstrap file itself stays denied by static-path-guard. The token comes
+ * from the relay credential file first, because a bootstrap refresh rewrites
+ * discovery-local-bootstrap.json without its relay block. Neither file is
+ * read for a request that fails the local-origin check.
  */
 export function handleDiscoveryRelayToken(
   req,
   res,
-  { readBootstrap = readBootstrapJson } = {},
+  {
+    readBootstrap = readBootstrapJson,
+    readCredential = () => readRelayCredential(ROOT),
+  } = {},
 ) {
   const corsHeaders = jsonCorsHeaders(req, { "cache-control": "no-store" });
   if (!isLocalOrigin(req)) {
@@ -1490,7 +1498,11 @@ export function handleDiscoveryRelayToken(
     return;
   }
   res.writeHead(200, corsHeaders);
-  res.end(JSON.stringify(buildDashboardRelayTokenResponse(readBootstrap())));
+  res.end(
+    JSON.stringify(
+      buildDashboardRelayTokenResponse(readBootstrap(), readCredential()),
+    ),
+  );
 }
 
 /**
