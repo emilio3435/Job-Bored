@@ -33,6 +33,7 @@ import {
 const PASTE = "#oneFlowResumePaste";
 const PAUSE_TOAST = "Setup paused — pick up right here anytime.";
 const MIRROR_KEY = "jb_oneflow_draft_resumeText";
+const RESUME_PRIMARY = "Resume setup — Resume";
 
 /** 400+ chars, the length the walkthrough actually lost. */
 const RESUME_TEXT = [
@@ -140,7 +141,7 @@ for (const entry of [
       await page.reload({ waitUntil: "load" });
       await page.waitForSelector(".oneflow-demo__invite");
       await settleLayout(page);
-      await openFlow(page);
+      await openFlow(page, RESUME_PRIMARY);
 
       expect(await openBeatId(page), "reopening lands on the saved beat").toBe(
         "resume",
@@ -179,7 +180,7 @@ test.describe("the Beat 3 resume under prefers-reduced-motion", () => {
 
     await page.reload({ waitUntil: "load" });
     await page.waitForSelector(".oneflow-demo__invite");
-    await openFlow(page);
+    await openFlow(page, RESUME_PRIMARY);
     expect(await openBeatId(page)).toBe("resume");
     await expect(page.locator(PASTE)).toHaveValue(RESUME_TEXT);
   });

@@ -73,9 +73,11 @@ export async function bootColdStart(page, baseUrl) {
   await settleLayout(page);
 }
 
-/** Accept the invitation and wait for the shell to paint its first beat. */
-export async function openFlow(page) {
-  await page.getByRole("button", { name: INVITE_PRIMARY, exact: true }).click();
+/** Accept the fresh or C6-resumed invitation and wait for the first beat. */
+export async function openFlow(page, primaryLabel = INVITE_PRIMARY) {
+  await page
+    .getByRole("button", { name: primaryLabel, exact: true })
+    .click();
   await page.waitForSelector(`${FLOW_MOUNT} .oneflow-beat`);
   await settleLayout(page);
 }

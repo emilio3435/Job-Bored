@@ -466,7 +466,13 @@ async function bootGreenfield(page) {
   const setupCard = page.getByRole("region", { name: "Set up JobBored" });
   await expect(setupCard).toBeVisible();
   await expect(
-    setupCard.getByRole("button", { name: "Make it mine — 15 min, once" }),
+    setupCard.getByText(
+      "Set it up once. It takes about 20–25 minutes, and you'll need:",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    setupCard.getByRole("button", { name: "Make it mine", exact: true }),
   ).toBeVisible();
 
   return { calls, errors, setupCard };
@@ -521,7 +527,7 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   const state = await bootGreenfield(page);
 
   await state.setupCard
-    .getByRole("button", { name: "Make it mine — 15 min, once" })
+    .getByRole("button", { name: "Make it mine", exact: true })
     .click();
   await expect(beat(page, "google")).toBeVisible();
 
