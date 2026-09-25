@@ -79,15 +79,60 @@
     return { ok: true, mocked: true, handled: true, fellBack: true, code: code, payload: payload };
   }
 
-  /** Outcome 3: nothing written, roll the optimistic card move back. */
+  /** Outcome 3: nothing written, roll the optimistic card move back.
+   *  C17 / SS-07: unless the caller owns its own copy (announce:false), the
+   *  person sees which role did not move, the stage it stayed in, and Retry.
+   *  `announced` on the event tells the board not to stack a second toast. */
   function reportFailure(payload, code, message) {
+    var announced = payload.announce !== false && code !== "cancelled";
     dispatch(FAILED_EVENT, {
       jobKey: payload.jobKey,
       kind: MOVE_KIND,
       reason: code,
       error: message || code,
+      announced: announced,
     });
+    if (announced) announceFailure(payload);
     return { ok: false, handled: true, code: code, message: message || "", payload: payload };
+  }
+
+  /* sheets-writeback.js (lane F) paints its own "Update failed: <raw server
+     text>" toast for every refused batch. For a move this adapter names, that
+     toast says less than ours and sits on top of it, so it is retired here.
+     Matching on its copy is deliberate: when lane F drops that toast for
+     planner writes this becomes a no-op. */
+  function supersedeGenericFailureToast() {
+    var doc = root.document;
+    if (!doc || typeof doc.querySelectorAll !== "function") return;
+    try {
+      var nodes = doc.querySelectorAll("#toastContainer .toast-error .toast-message");
+      for (var i = 0; i < nodes.length; i++) {
+        var textValue = String(nodes[i].textContent || "");
+        if (/^Update failed/.test(textValue)) {
+          var toastEl = nodes[i].closest ? nodes[i].closest(".toast") : null;
+          if (toastEl && toastEl.parentNode) toastEl.parentNode.removeChild(toastEl);
+        }
+      }
+    } catch (_) {
+      /* cosmetic only */
+    }
+  }
+
+  function announceFailure(payload) {
+    supersedeGenericFailureToast();
+    var who = describeJob(payload.jobKey) || "The role";
+    var stayed = payload.fromStage ? stageLabelFor(payload.fromStage) : "";
+    var target = payload.toStage ? " to " + stageLabelFor(payload.toStage) : "";
+    var retryPayload = {};
+    for (var k in payload) {
+      if (Object.prototype.hasOwnProperty.call(payload, k)) retryPayload[k] = payload[k];
+    }
+    toast(
+      "Couldn't move " + who + target + ". The Sheet didn't accept it" +
+        (stayed ? ", so it is still in " + stayed + "." : "."),
+      "error",
+      { label: "Retry", onClick: function () { return move(retryPayload); } },
+    );
   }
 
   /** Resolve the planner input: an explicit row on the payload wins, then the
