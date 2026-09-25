@@ -150,12 +150,16 @@ describe("GREENFIELD C4 · the primary adapts to readiness (spec §4.3)", () => 
     }
   });
 
-  it("leaves the skipped-connect variant alone", async () => {
+  it("keeps the skipped-connect primary and escape, with manual tracking", async () => {
     const env = loadPayoff();
     const state = await resolve(env, {
       flowState: { skipped: { discoveryConnect: true } },
     });
-    assert.deepEqual(ids(state), ["payoff_dashboard", "payoff_connect_discovery"]);
+    assert.deepEqual(ids(state), [
+      "payoff_dashboard",
+      "payoff_track_job",
+      "payoff_connect_discovery",
+    ]);
   });
 });
 
@@ -193,8 +197,10 @@ describe("GREENFIELD C4 · 'What happens now' stops claiming armed", () => {
     }
   });
 
-  it("still says 'Discovery armed' when it truly is", async () => {
-    const { container } = await render(loadPayoff(), {});
+  it("says 'Discovery armed' when readiness and B5 verification are both earned", async () => {
+    const { container } = await render(loadPayoff(), {
+      flowState: { completedBeats: ["google", "ai", "resume", "fit", "discovery"] },
+    });
     assert.ok(textOf(container).includes("✓ Discovery armed — 3 sources watching"));
     assert.ok(!textOf(container).includes(NOT_ARMED_LINE));
   });
@@ -258,6 +264,7 @@ describe("GREENFIELD C4 · the shell footer follows the resolved readiness", () 
     const env = loadPayoff();
     assert.deepEqual(plain(await footerIds(env)), [
       "payoff_run_now",
+      "payoff_track_job",
       "payoff_dashboard",
     ]);
   });

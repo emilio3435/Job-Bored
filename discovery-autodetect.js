@@ -180,7 +180,25 @@
     let verdict = classify(state);
     if (verdict.ready) return verdict;
 
-    if (verdict.recommendation === "auto_recoverable" && allowRecover) {
+    // UX01 C8 (FD-19): a repair restarts the worker and may rewrite .env,
+    // so it runs only on an explicit yes.
+    const helpers = window.JobBoredDiscoveryHelpers;
+    const consented =
+      allowRecover &&
+      (typeof opts.confirmRecover === "function"
+        ? !!opts.confirmRecover()
+        : helpers && typeof helpers.confirmHostChange === "function"
+          ? helpers.confirmHostChange({
+              action: "Repair discovery",
+              writesEnv: true,
+              restartsWorker: true,
+            })
+          : typeof window.confirm === "function"
+            ? !!window.confirm(
+                "JobBored will restart your local discovery worker on this computer. Continue?",
+              )
+            : true);
+    if (verdict.recommendation === "auto_recoverable" && consented) {
       const bootResult = await runFullBoot();
       // Successful or not, re-probe so we report the truth.
       clearCache();

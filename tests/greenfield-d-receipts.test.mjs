@@ -39,7 +39,7 @@ const modalHtml = readFileSync(
 const plain = (v) => JSON.parse(JSON.stringify(v));
 
 const EXPECTED_DEFAULTS = {
-  openrouter: "openai/gpt-oss-120b:free",
+  openrouter: "openai/gpt-5.4-mini",
   gemini: "gemini-flash",
   openai: "gpt-5.6-terra",
   anthropic: "claude-sonnet-5",

@@ -30,6 +30,11 @@ import {
   stageSignedInDisposableAuth,
   startHermeticApp,
 } from "../e2e-fixtures/hermetic-harness.mjs";
+import {
+  SCRAPE_COMPANY_INDEX_URL,
+  SCRAPE_POSTING_URL,
+  buildScrapeJobFixtures,
+} from "../e2e-fixtures/scrape-job-fixtures.mjs";
 
 const RUN_ID = HERMETIC_RUN_ID;
 
@@ -38,17 +43,19 @@ const DEMO_BOARD = "#oneFlowDemoBoard";
 /** The single shell mount every beat renders into (spec §3.5). */
 const FLOW_MOUNT = "#oneFlowMount";
 
-/** Spec §4 — the invitation card, verbatim. */
+/** Spec §4 — the invitation card, verbatim (UX01 C7: honest 20–25 min). */
 const INVITE = {
   headline: "This is your job hunt on autopilot.",
-  body:
-    "Set it up once — about fifteen focused minutes — and roles scored against your fit land here every morning.",
+  body: "Set it up once. It takes about 20–25 minutes, and you'll need:",
   privacy:
-    "Your resume and pipeline stay in your Google Sheet and on this machine.",
-  primary: "Make it mine — 15 min, once",
+    "Your resume and pipeline stay in your Google Sheet and on this computer.",
+  primary: "Make it mine",
   secondary: "Poke around first",
-  pill: "Set up JobBored — 15 min ▸",
+  pill: "Set up JobBored — 20–25 min ▸",
 };
+
+/** UX01 C6 (FR-19): a paused flow's S0 primary names the saved beat. */
+const RESUME_FIT = "Resume setup — Your fit";
 
 /** Spec §5 B1 — the first beat's headline and sub, verbatim. */
 const BEAT_ONE = {
@@ -115,13 +122,48 @@ async function bootSignedIn(page, fence) {
   ).toEqual([]);
 }
 
-async function openDiscoveryAndRun(page) {
+async function openDiscoveryDrawer(page) {
   await page.locator("#discoveryBtn").click();
   const drawer = page.locator("#discoveryDrawer");
   await expect(drawer).toBeVisible();
+  return drawer;
+}
+
+async function openDiscoveryAndRun(page) {
+  const drawer = await openDiscoveryDrawer(page);
   await drawer.locator("#dpTargetRoles").fill("Platform Engineer");
   await drawer.locator("#discoveryPrefsRun").click();
   await expect(drawer).toBeHidden();
+}
+
+/**
+ * SCRAPE-E2E-1 — drive the drawer's real Scrape button and hand back the
+ * status line once it has settled off "Fetching job listing...". The scrape
+ * controls live in the drawer's default `search` subtab
+ * (partials/discovery-drawer.html), so no subtab click is needed.
+ */
+async function scrapeInDrawer(page, jobUrl) {
+  const drawer = await openDiscoveryDrawer(page);
+  await drawer.locator("#dpJobUrl").fill(jobUrl);
+  await drawer.locator("#dpScrapeBtn").click();
+  const status = drawer.locator("#dpScrapeStatus");
+  await expect(status).toBeVisible();
+  await expect(status).not.toHaveText("Fetching job listing...");
+  return status;
+}
+
+/** Record every `POST /api/scrape-job` the page actually issues. */
+function recordScrapeRequests(page) {
+  const sent = [];
+  page.on("request", (request) => {
+    if (!new URL(request.url()).pathname.endsWith("/api/scrape-job")) return;
+    sent.push({
+      method: request.method(),
+      contentType: request.headers()["content-type"] || "",
+      body: request.postDataJSON(),
+    });
+  });
+  return sent;
 }
 
 /** The beat currently rendered in the shell, or "" when it is closed. */
@@ -229,7 +271,7 @@ test("should enter the one shell at beat 1 with the six-beat spine when the visi
     spine.locator(".discovery-setup-wizard__spine-step--current"),
   ).toHaveAttribute("data-beat-id", "google");
   await expect(mount.locator(".discovery-setup-wizard__spine-time")).toHaveText(
-    "about 15 min left",
+    "about 20–25 min left",
   );
 
   // The board stays mounted behind the shell: closing must land somewhere.
@@ -275,7 +317,7 @@ test("should treat closing the flow as pausing — Esc returns to the board and 
   // visitor does mid-flow, and §3.4 says it resumes.
   await page.goto(`${app.baseUrl}/`, { waitUntil: "load" });
   await expect(page.locator(DEMO_BOARD)).toBeVisible();
-  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await page.getByRole("button", { name: RESUME_FIT, exact: true }).click();
 
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
     "data-beat-id",
@@ -342,7 +384,7 @@ test("should show queued, running, and partial discovery outcomes", async ({
   const discoveryButton = page.locator("#discoveryBtn");
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /accepted — checking status/,
+    /Discovery started — searching for new roles/,
   );
 
   await page.getByRole("button", { name: "Open discovery run history" }).click();
@@ -358,7 +400,7 @@ test("should show queued, running, and partial discovery outcomes", async ({
   fence.releaseStatus(1);
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /Discovery finished with partial results.*One source timed out/,
+    /Discovery finished, but some sources didn't answer.*One source timed out/,
   );
   expect(fence.unexpectedExternal).toEqual([]);
 });
@@ -396,14 +438,15 @@ test("should carry completed discovery into the pipeline and ready dossier mater
   const discoveryButton = page.locator("#discoveryBtn");
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /accepted — checking status/,
+    /Discovery started — searching for new roles/,
   );
 
   fence.releaseStatus(0);
   fence.releaseStatus(1);
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /Discovery complete/,
+    // UX01 C9 (FD-11/FD-12): a count when the run reports one.
+    /Found 1 new role\.|new roles are in your Pipeline/,
   );
 
   /* UX01 C18: the board is its own view. */
@@ -470,6 +513,99 @@ test("should carry completed discovery into the pipeline and ready dossier mater
   await expect(materialsSection.getByRole("link", { name: "Preview" })).toBeVisible();
   await expect(materialsSection.locator(".brief-materials__progress")).toHaveCount(0);
 
+  expect(fence.unexpectedExternal).toEqual([]);
+});
+
+/**
+ * SCRAPE-E2E-1 — the drawer → `POST /api/scrape-job` path.
+ *
+ * Both fixture bodies are generated by the PRODUCTION scraper module (see
+ * tests/e2e-fixtures/scrape-job-fixtures.mjs), so these tests cannot pass
+ * against an invented response shape: change what the server really returns
+ * and the assertions below move with it. What is pinned by hand is the
+ * user-visible copy the drawer composes out of that body.
+ */
+const SCRAPE_422_RENDERED =
+  "Choose a specific job posting first. " +
+  "Why: This URL opens a company jobs page, not one job description. " +
+  "Next: Open one role from that page and paste the role's direct URL. " +
+  "Details: wellfound.com. " +
+  "Fallback: A job title and company were not supplied, so JobBored could " +
+  "not safely match an alternate result.";
+
+/** Nothing internal may reach the status line the user reads. */
+const INTERNALS_LEAK =
+  /127\.0\.0\.1|localhost|Bearer|authorization|x-discovery-secret|node:internal|at Object\.|\.mjs:\d+|\/private\/tmp/i;
+
+test("SCRAPE-E2E-1: should show the scraped title and company for a real posting", async ({
+  page,
+}) => {
+  // The claim is about the REAL request path, not a stubbed drawer helper:
+  // the click has to produce the production `{ url }` JSON POST, and the
+  // production success body has to reach the user as a spoken result. The
+  // failure this guards against is the harness's old materials catch-all,
+  // which answered any POST with `{ok:true}` and let the drawer report a
+  // confident "Scraped: Untitled" for a scrape that never happened.
+  const fixtures = await buildScrapeJobFixtures();
+  const success = fixtures.get(SCRAPE_POSTING_URL);
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  const sent = recordScrapeRequests(page);
+  await bootSignedIn(page, fence);
+
+  const status = await scrapeInDrawer(page, SCRAPE_POSTING_URL);
+
+  expect(sent, "the click must issue exactly one scrape request").toHaveLength(1);
+  expect(sent[0].method).toBe("POST");
+  expect(sent[0].contentType).toContain("application/json");
+  expect(sent[0].body).toEqual({ url: SCRAPE_POSTING_URL });
+
+  await expect(status).toHaveText(
+    `Scraped: ${success.body.title} at ${success.body.company}`,
+  );
+  await expect(status).toHaveText("Scraped: Platform Engineer at Acme");
+  await expect(status).toHaveAttribute("role", "status");
+  expect(fence.unexpectedExternal).toEqual([]);
+});
+
+test("SCRAPE-E2E-1: should speak the structured 422 for a company jobs index url", async ({
+  page,
+}) => {
+  // A company-jobs INDEX url is rejected by `isKnownCompanyJobsIndex` before
+  // any fetch, with HTTP 422 `job_detail_url_required`. What the user is owed
+  // is not "scrape failed": it is a plain summary, a reason, an action they
+  // can take, and the source host — announced assertively (`role=alert`) and
+  // carrying nothing internal. Each of the four parts is checked against the
+  // server's own structured field, so a server that stops sending `nextStep`
+  // fails here rather than degrading quietly in the UI.
+  const fixtures = await buildScrapeJobFixtures();
+  const failure = fixtures.get(SCRAPE_COMPANY_INDEX_URL);
+  expect(failure.status).toBe(422);
+  expect(failure.body.code).toBe("job_detail_url_required");
+
+  const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
+  const sent = recordScrapeRequests(page);
+  const statuses = [];
+  page.on("response", (response) => {
+    if (new URL(response.url()).pathname.endsWith("/api/scrape-job")) {
+      statuses.push(response.status());
+    }
+  });
+  await bootSignedIn(page, fence);
+
+  const status = await scrapeInDrawer(page, SCRAPE_COMPANY_INDEX_URL);
+
+  expect(sent[0].body).toEqual({ url: SCRAPE_COMPANY_INDEX_URL });
+  expect(statuses, "the drawer must have seen the real 422").toEqual([422]);
+
+  await expect(status).toHaveAttribute("role", "alert");
+  const text = (await status.textContent()) || "";
+  expect(text, "summary").toContain(failure.body.error);
+  expect(text, "reason").toContain(`Why: ${failure.body.detail}`);
+  expect(text, "action").toContain(`Next: ${failure.body.nextStep}`);
+  expect(text, "source host").toContain(`Details: ${failure.body.sourceHost}`);
+  expect(text).toBe(SCRAPE_422_RENDERED);
+  expect(text).not.toMatch(INTERNALS_LEAK);
+  expect(text).not.toContain(failure.body.code);
   expect(fence.unexpectedExternal).toEqual([]);
 });
 
@@ -565,7 +701,7 @@ test("should spend the greenfield param once, so a mid-setup refresh resumes ins
   expect(new URL(page.url()).searchParams.get("greenfield")).toBeNull();
 
   await expect(page.locator(DEMO_BOARD)).toBeVisible();
-  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await page.getByRole("button", { name: RESUME_FIT, exact: true }).click();
   await expect(
     page.locator(`${FLOW_MOUNT} .oneflow-beat`),
     "a refresh must resume the saved beat, not restart the flow",
@@ -602,7 +738,7 @@ test("should say on screen that closing the flow paused it", async ({ page }) =>
   // collapsed); a visitor who poked around first has the pill. Both are
   // asserted, because "pick up anytime" has to hold on both routes.
   await expect(page.locator(DEMO_BOARD)).toBeVisible();
-  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await page.getByRole("button", { name: RESUME_FIT, exact: true }).click();
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
     "data-beat-id",
     "fit",

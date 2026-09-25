@@ -30,7 +30,7 @@ export const FLOW_MOUNT = "#oneFlowMount";
 export const SHELL = ".discovery-setup-wizard--spine";
 
 /** Spec §4 — the invitation's two actions, verbatim. */
-export const INVITE_PRIMARY = "Make it mine — 15 min, once";
+export const INVITE_PRIMARY = "Make it mine";
 export const INVITE_SECONDARY = "Poke around first";
 
 /**
@@ -73,9 +73,11 @@ export async function bootColdStart(page, baseUrl) {
   await settleLayout(page);
 }
 
-/** Accept the invitation and wait for the shell to paint its first beat. */
-export async function openFlow(page) {
-  await page.getByRole("button", { name: INVITE_PRIMARY, exact: true }).click();
+/** Accept the fresh or C6-resumed invitation and wait for the first beat. */
+export async function openFlow(page, primaryLabel = INVITE_PRIMARY) {
+  await page
+    .getByRole("button", { name: primaryLabel, exact: true })
+    .click();
   await page.waitForSelector(`${FLOW_MOUNT} .oneflow-beat`);
   await settleLayout(page);
 }

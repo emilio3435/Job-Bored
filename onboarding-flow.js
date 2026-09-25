@@ -251,8 +251,8 @@
     return runtime;
   }
 
-  async function hydrate() {
-    if (hydrated) return state;
+  async function hydrate(force = false) {
+    if (hydrated && !force) return state;
     const s = store();
     if (s && typeof s.getOnboardingFlowState === "function") {
       try {
@@ -461,6 +461,17 @@
       typeof document.getElementById === "function" &&
       document.getElementById(DEMO_BOARD_ID)
     );
+  }
+
+  /** Repaint S0's card so its primary names the beat just paused (FR-19). */
+  function refreshDemoInvite() {
+    const board = window.JobBoredOneFlowDemoBoard;
+    if (!board || typeof board.refresh !== "function") return;
+    try {
+      board.refresh();
+    } catch (e) {
+      console.warn("[JobBored] one-flow: could not refresh the S0 card:", e);
+    }
   }
 
   function hideResumePill() {
@@ -810,7 +821,11 @@
    * a refresh or a re-entry from the S0 card never restarts the deal.
    */
   async function open(beatId, options) {
-    await hydrate();
+    // S0 reads once to label its invitation, but state may have changed in
+    // storage since that paint (for example, another entry point saved a
+    // beat). Re-read on entry so the saved target and its gate use current
+    // persisted progress instead of the old in-memory snapshot.
+    await hydrate(true);
     // Entering re-checks the sheet, not just booting does. maybeStart() runs
     // only inside the post-sign-in bootstrap, which a user with no sheet never
     // reaches — while the S0 invitation card calls open() directly. Without
@@ -985,6 +1000,12 @@
     await flushDrafts();
     if (PAUSE_REASONS.has(why)) {
       toast(PAUSE_TOAST, "info");
+      // UX01 C6 (FR-02/FR-19): once B1 has a Sheet, pausing lands on the
+      // user's REAL board, not back on sample data. The demo board only
+      // unmounted on real rows, which a just-created Sheet never has, so
+      // closing mid-flow used to strand the stranger on the fixture.
+      if (sheetConfigured() === true) revealRealDashboard();
+      else refreshDemoInvite();
       showResumePill(beat);
     }
     emit(steps().BEAT_ABANDONED, { beat, reason: why });
@@ -1003,6 +1024,33 @@
 
   function isOpen() {
     return !!openBeatId;
+  }
+
+  /** True only when the host answers with a configured Sheet (C6). */
+  function hasSheet() {
+    return sheetConfigured() === true;
+  }
+
+  /**
+   * UX01 C6: the S0 "Poke around first" exit once a Sheet exists. The
+   * real board replaces the sample one, and the resume pill is the way
+   * back into setup. No Sheet yet → false, and S0 keeps its own pill.
+   */
+  function revealRealBoard() {
+    if (!hasSheet()) return false;
+    revealRealDashboard();
+    showResumePill(state.beat);
+    return true;
+  }
+
+  /**
+   * UX01 C6 (FR-19): the S0 primary names the saved beat instead of
+   * restarting the deal. "" when nothing is saved or the flow is done.
+   */
+  function resumeLabel() {
+    if (state.completed) return "";
+    const beat = getBeat(state.beat);
+    return beat ? `Resume setup — ${beat.label}` : "";
   }
 
   Object.assign(root, {
@@ -1025,5 +1073,9 @@
     skipBeat,
     close,
     isOpen,
+    hasSheet,
+    loadState: hydrate,
+    revealRealBoard,
+    resumeLabel,
   });
 })();

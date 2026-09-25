@@ -1,12 +1,19 @@
 <template id="discoveryRunPreviewTemplate">
+  <!-- UX01 C9 (FD-10): plain lines first; IDs behind a disclosure. The
+       title is a paragraph, not a level-3 heading, so the body.jb-v2 heading
+       rule (22 px) cannot restyle it — the cascade trap. -->
   <section
     class="discovery-run-preview"
     aria-labelledby="discoveryRunPreviewTitle"
     aria-live="polite"
   >
-    <h3 class="discovery-run-preview__title" id="discoveryRunPreviewTitle">
-      Effective run preview
-    </h3>
+    <p class="discovery-run-preview__title" id="discoveryRunPreviewTitle">
+      What this search will do
+    </p>
     <pre class="discovery-run-preview__summary" data-discovery-run-preview-summary></pre>
+    <details class="discovery-run-preview__details">
+      <summary>Technical details</summary>
+      <pre class="discovery-run-preview__summary" data-discovery-run-preview-details></pre>
+    </details>
   </section>
 </template>

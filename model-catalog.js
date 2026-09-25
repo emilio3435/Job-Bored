@@ -88,7 +88,7 @@
    * the flow had just verified (GREENFIELD D5).
    */
   const DEFAULT_MODEL_BY_PROVIDER = Object.freeze({
-    openrouter: "openai/gpt-oss-120b:free",
+    openrouter: "openai/gpt-5.4-mini",
     gemini: "gemini-flash",
     openai: "gpt-5.6-terra",
     anthropic: "claude-sonnet-5",
@@ -120,6 +120,12 @@
       { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
     ],
     openrouter: [
+      {
+        // UX01 C7 (FR-07): the onboarding default — strong enough for letters.
+        value: "openai/gpt-5.4-mini",
+        label: "GPT-5.4 mini",
+        description: "Recommended — strong enough for tailored letters. Pay-as-you-go.",
+      },
       {
         value: "openai/gpt-oss-120b:free",
         label: "GPT-OSS 120B · free",

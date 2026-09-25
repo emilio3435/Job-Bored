@@ -466,7 +466,13 @@ async function bootGreenfield(page) {
   const setupCard = page.getByRole("region", { name: "Set up JobBored" });
   await expect(setupCard).toBeVisible();
   await expect(
-    setupCard.getByRole("button", { name: "Make it mine — 15 min, once" }),
+    setupCard.getByText(
+      "Set it up once. It takes about 20–25 minutes, and you'll need:",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  await expect(
+    setupCard.getByRole("button", { name: "Make it mine", exact: true }),
   ).toBeVisible();
 
   return { calls, errors, setupCard };
@@ -484,7 +490,8 @@ async function stageHarnessAuth(page) {
   // Lane C's Beat 1 detour is the ONLY visible route to a Client ID on a
   // fresh install, and lane F made saving one run the first-time GIS init.
   const detour = page.locator("#oneFlowMount details.oneflow-google__detour");
-  await detour.locator("summary").click();
+  // The detour nests C7's "Having trouble?" details; open the detour itself.
+  await detour.locator("summary.oneflow-google__detour-summary").click();
   await page.locator("#oneFlowOauthClientIdInput").fill(CLIENT_ID);
   await page.getByRole("button", { name: "Save Client ID" }).click();
   await expect(
@@ -521,7 +528,7 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   const state = await bootGreenfield(page);
 
   await state.setupCard
-    .getByRole("button", { name: "Make it mine — 15 min, once" })
+    .getByRole("button", { name: "Make it mine", exact: true })
     .click();
   await expect(beat(page, "google")).toBeVisible();
 
@@ -541,7 +548,7 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   const openrouter = beat(page, "ai").locator('[data-provider="openrouter"]');
   await expect(openrouter).toHaveAttribute("aria-pressed", "true");
   await beat(page, "ai")
-    .getByLabel("OpenRouter — free API key")
+    .getByLabel("OpenRouter API key")
     .fill(OPENROUTER_KEY);
   await page.getByRole("button", { name: "Check & continue" }).click();
   await expect(beat(page, "resume")).toBeVisible();
@@ -562,7 +569,16 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   await beat(page, "discovery")
     .getByLabel("SerpApi API key")
     .fill(SERPAPI_KEY);
+  const fuelConsent = page.waitForEvent("dialog").then(async (dialog) => {
+    const message = dialog.message();
+    await dialog.accept();
+    return message;
+  });
   await page.getByRole("button", { name: "Save & verify" }).click();
+  const consentMessage = await fuelConsent;
+  expect(consentMessage).toContain("Save & verify");
+  expect(consentMessage).toContain("SERPAPI_API_KEY");
+  expect(consentMessage).toContain("restart your local discovery worker");
   const skipConnection = page.locator(
     '#oneFlowMount [data-action-id="oneflow_discovery_skip_connect"]',
   );

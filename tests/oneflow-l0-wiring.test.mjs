@@ -181,7 +181,7 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
     );
     assert.equal(
       mount.querySelector(".discovery-setup-wizard__spine-time").textContent,
-      "about 8 min left",
+      "about 10 min left",
       "the spine shows the CURRENT beat's remaining-time label",
     );
   });

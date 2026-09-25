@@ -2,7 +2,7 @@
  * SIXBEATS-2 — Beat 2's provider defaults and Beat 3's drafting call.
  *
  * NEW-11: Beat 2 pre-selected Gemini and called it "Recommended"; spec §5 B2
- *         says `OpenRouter — free` is pre-selected and recommended.
+ *         places OpenRouter first. UX01 C7 names its paid default honestly.
  * NEW-8:  Beat 2 pinned the alias `gemini-flash`, which Google answers with
  *         404 "models/gemini-flash is not found for API version v1beta".
  * NEW-2:  Beat 3 posted `{resumeText}` alone, so the server drafted on its
@@ -118,7 +118,7 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
     }
   });
 
-  it("ships the spec §5 B2 sub-line, which names OpenRouter as the free path", async () => {
+  it("names OpenRouter's paid default in the B2 sub-line", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
     assert.ok(
@@ -126,7 +126,8 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
-          "letters. OpenRouter is free and takes about two minutes.",
+          "letters. An OpenRouter account takes about two minutes; the " +
+          "recommended model uses paid credit.",
       ),
     );
   });

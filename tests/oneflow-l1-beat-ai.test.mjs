@@ -55,18 +55,18 @@ async function pickAndCheck(env, provider, value) {
 }
 
 describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
-  it("renders the normative headline and sub verbatim", async () => {
+  it("renders the headline and the paid-model sub honestly", async () => {
     const env = await openBeat();
     const text = renderedText(env.mount());
     assert.ok(text.includes("Now give it a brain."));
     assert.ok(
       text.includes(
-        // Spec §5 B2, restored verbatim by SIXBEATS-2 NEW-11: the sub-line
-        // names whichever card is pre-selected, and that is OpenRouter.
+        // The sub-line names the pre-selected OpenRouter card and its paid default.
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
-          "letters. OpenRouter is free and takes about two minutes.",
+          "letters. An OpenRouter account takes about two minutes; the " +
+          "recommended model uses paid credit.",
       ),
     );
   });
@@ -87,7 +87,7 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
       "local",
     ]);
     assert.equal(card(env, "openrouter").dataset.selected, "true");
-    assert.match(renderedText(env.mount()), /OpenRouter — free/);
+    assert.match(renderedText(env.mount()), /OpenRouter/);
   });
 
   it("does NOT offer the webhook provider — it moved to Settings (spec §5 B2)", async () => {
@@ -101,7 +101,7 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
     for (const provider of ["openai", "anthropic"]) {
       assert.match(
         card(env, provider).textContent,
-        /runs through the local server — keep npm start running/,
+        /runs through the local server — keep npm run dev running/,
         `${provider} is CORS-blocked from a browser; the card says so before the ask`,
       );
     }
