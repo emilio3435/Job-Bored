@@ -238,7 +238,9 @@ describe("SIXBEATS-2 NEW-2 — drafting uses the body config, never the Gemini e
       }),
     });
     assert.match(calls[0].url, /models\/gemini-3\.5-flash:generateContent/);
-    assert.match(calls[0].url, /key=AIza-body-key/);
+    // BEAUDIT B17: the key moved from the ?key= URL to the x-goog-api-key header.
+    assert.doesNotMatch(calls[0].url, /[?&]key=/);
+    assert.equal(new Headers(calls[0].options.headers).get("x-goog-api-key"), "AIza-body-key");
   });
 });
 

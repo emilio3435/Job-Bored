@@ -1111,7 +1111,8 @@ function resolveGeminiModel(explicit) {
 
 async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   const resolvedModel = resolveGeminiModel(model);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;
   // Detect thinking models (gemini-flash family alias and 2.5+/3.x snapshots).
   // Those models burn "thinking tokens" against the output budget, so a
   // 2048-cap on a long-system-prompt JSON response can silently produce
@@ -1135,7 +1136,7 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   };
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
     body: JSON.stringify(body),
   });
   const data = await resp.json().catch(() => ({}));

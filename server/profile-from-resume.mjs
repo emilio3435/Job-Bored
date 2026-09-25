@@ -947,7 +947,8 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   const cfg = opts.config || getProfileProviderConfig();
   assertProfileProviderConfigured(cfg);
   const model = opts.model || cfg.model;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+  // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(resumeText) }] }],
@@ -962,7 +963,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   try {
     resp = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": String(cfg.apiKey) },
       body: JSON.stringify(body),
     });
   } catch (cause) {

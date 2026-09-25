@@ -292,7 +292,9 @@ describe("analyze-time pin resolution uses resolvedModel and pin key", () => {
         "Frontend engineer with eight years of React and TypeScript product work.",
       );
       assert.match(call.url, /models\/gemini-3\.7-flash:generateContent/);
-      assert.match(call.url, /[?&]key=pin-key(?:&|$)/);
+      // BEAUDIT B17: the key moved from the ?key= URL to the x-goog-api-key header.
+      assert.doesNotMatch(call.url, /[?&]key=/);
+      assert.equal(new Headers(call.init.headers).get("x-goog-api-key"), "pin-key");
       assert.doesNotMatch(call.url, /gemini-2\.5-flash/);
       assert.doesNotMatch(call.url, /env-key/);
     } finally {

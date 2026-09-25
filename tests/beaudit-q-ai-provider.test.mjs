@@ -6,7 +6,7 @@
  *      and the ProviderApiError taxonomy with redacted upstream bodies. The
  *      worker chat-provider re-exports it.
  * E2:  a "local" (Ollama) pin normalizes to openai_compatible, so ATS works.
- * B17: no server site puts the Gemini key in the `?key=` URL.
+ * B17: no server or browser site puts the Gemini key in the `?key=` URL.
  */
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
@@ -293,8 +293,8 @@ describe("E2 every pin consumer accepts the normalized Local pin", () => {
   });
 });
 
-describe("B17 no server Gemini call puts the key in the URL", () => {
-  it("no server module builds a ?key= Gemini URL", async () => {
+describe("B17 no Gemini call puts the key in the URL", () => {
+  it("no server or browser module builds a ?key= Gemini URL", async () => {
     const files = [
       "server/llm-config.mjs",
       "server/ats-scorecard.mjs",
@@ -303,17 +303,33 @@ describe("B17 no server Gemini call puts the key in the URL", () => {
       "server/materials-writer.mjs",
       "server/materials-drafter.mjs",
       "server/shared/gemini-url-context-scrape.mjs",
+      // Browser files that call Gemini directly.
+      "discovery-drawer.js",
+      "job-posting-insights.js",
+      "model-catalog.js",
+      "resume-generate.js",
     ];
     const aiDir = join(ROOT, "server/ai");
     const aiFiles = await readdir(aiDir).catch(() => []);
     for (const f of aiFiles) if (f.endsWith(".mjs")) files.push(`server/ai/${f}`);
-    // Deferred: profile-from-resume keeps the key in the URL because a test
-    // outside lane Q's fence pins it (tests/sixbeats2-server-provider-config.test.mjs:241).
-    // See BUILD-REPORT-Q.md.
-    const DEFERRED = new Set(["server/profile-from-resume.mjs"]);
     const offenders = [];
     for (const rel of files) {
-      if (DEFERRED.has(rel)) continue;
+      const src = await readFile(join(ROOT, rel), "utf8");
+      if (/[?&]key=\$\{/.test(src)) offenders.push(rel);
+    }
+    assert.deepEqual(offenders, []);
+  });
+
+  it("every file that names the Gemini REST host is in the scan", async () => {
+    const { execFileSync } = await import("node:child_process");
+    const out = execFileSync(
+      "git",
+      ["grep", "-l", "generativelanguage.googleapis.com", "--", "*.js", "*.mjs", "*.ts"],
+      { cwd: ROOT, encoding: "utf8" },
+    );
+    const offenders = [];
+    for (const rel of out.split("\n").filter(Boolean)) {
+      if (rel.startsWith("tests/") || rel.includes("/tests/")) continue;
       const src = await readFile(join(ROOT, rel), "utf8");
       if (/[?&]key=\$\{/.test(src)) offenders.push(rel);
     }

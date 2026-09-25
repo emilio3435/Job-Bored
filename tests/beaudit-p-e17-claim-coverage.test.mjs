@@ -14,8 +14,9 @@
  *   E9  Gemini's REST JSON is lowerCamelCase (urlContextMetadata).
  *
  * The fixes for E2, E4, E5, E7 and E9 belong to other lanes (Q, B, O, L; spec
- * §3), outside lane P's fence, so E17 is deferred to them. Each target
- * assertion for E2, E5, E7 and E9 therefore runs now as a
+ * §3), outside lane P's fence, so E17 is deferred to them. Lane Q has
+ * landed E2 and E9, so their assertions are hard tests. Each target
+ * assertion for E5 and E7 still runs as a
  * node:test `todo`: it executes, reports its failure, and does not fail the
  * floor. The harness assertions around it are hard. Set BEAUDIT_E17_STRICT=1
  * to turn every todo into a hard test; the integration runner does that once
@@ -201,7 +202,6 @@ describe("BEAUDIT E17/E2 a local pin reaches ATS", () => {
 
   it(
     "ATS reads the local pin as openai_compatible and is configured",
-    target("wave-1 lane Q (E2: shared provider normalizer)"),
     async () => {
       const { body } = await readJson(await fetch(`${api.baseUrl}/health`));
       assert.equal(body.atsProvider, "openai_compatible", JSON.stringify(body));
@@ -211,7 +211,6 @@ describe("BEAUDIT E17/E2 a local pin reaches ATS", () => {
 
   it(
     "an ATS scorecard request reaches the local model",
-    target("wave-1 lane Q (E2: shared provider normalizer)"),
     async () => {
       const example = JSON.parse(
         readFileSync(join(REPO_ROOT, "examples", "ats-scorecard-request.v1.json"), "utf8"),
@@ -438,7 +437,6 @@ describe("BEAUDIT E17/E9 Gemini URL Context in REST lowerCamelCase", () => {
 
   it(
     "the server scraper accepts a camelCase success response",
-    target("wave-1 lane Q (E9: accept both casings)"),
     async () => {
       /** @type {string[]} */
       const calls = [];
@@ -458,7 +456,6 @@ describe("BEAUDIT E17/E9 Gemini URL Context in REST lowerCamelCase", () => {
 
   it(
     "the browser copy reads urlContextMetadata too",
-    target("wave-1 lane Q (E9: accept both casings)"),
     () => {
       const browser = readFileSync(join(REPO_ROOT, "job-posting-insights.js"), "utf8");
       assert.ok(/urlContextMetadata/.test(browser), "job-posting-insights.js never reads urlContextMetadata");
