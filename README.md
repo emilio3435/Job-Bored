@@ -405,7 +405,7 @@ When the daily schedule runs in `--write` mode it auto-flips Status to `Expired`
 
 **Apps Script (visual walkthrough):** **[integrations/apps-script/WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md)** — deploy the repo stub for webhook verification only (`npm run apps-script:push`, `npm run test:discovery-webhook`).
 
-**Built-in real worker path:** use **[`integrations/browser-use-discovery/`](integrations/browser-use-discovery/)** for the repo’s Browser Use-backed discovery worker. It keeps the v1 webhook contract stable, supports local and hosted deployment, writes directly to the user’s Sheet, and covers Greenhouse / Lever / Ashby as the first-layer sources.
+**Built-in real worker path:** use **[`integrations/browser-use-discovery/`](integrations/browser-use-discovery/)** for the repo’s Browser Use-backed discovery worker. It keeps the v1 webhook contract stable, runs locally (hosted mode is unsupported for now), writes directly to the user’s Sheet, and covers Greenhouse / Lever / Ashby as the first-layer sources.
 
 When the worker accepts an async run, it may return `statusPath` for `/runs/:runId` polling. Hosted workers include a per-run `statusToken` query parameter in that path; browser clients and relays must preserve the returned `statusPath` exactly, including the query string, instead of rebuilding it from `runId`.
 
