@@ -895,10 +895,10 @@
 
   // ====== Relay auth (G24) ======
   // scripts/deploy-cloudflare-relay.mjs mints a per-dashboard bearer token and
-  // writes { relay: { workerUrl, relayToken, relayLocked } } into
-  // discovery-local-bootstrap.json. The relay answers 401 without it. The
-  // static-path guard denies that file, so the dev server hands out only the
-  // relay block through the loopback-guarded RELAY_TOKEN_ROUTE. This store
+  // keeps it only in the owner-only .jobbored-relay/credential.json. The
+  // relay answers 401 without it. The dev server hands out only
+  // { workerUrl, relayToken, relayLocked } through the loopback-guarded
+  // RELAY_TOKEN_ROUTE. This store
   // keeps the block in this browser and hands the bearer only to requests
   // aimed at the relay origin.
   const RELAY_AUTH_STORAGE_KEY = "jobbored.discoveryRelayAuth";
@@ -1142,19 +1142,34 @@
   }
 
   // Re-reads the token after the relay answered 401 (a redeploy with a new
-  // token). True only when a different token for this relay origin arrived.
+  // token). True only when the cached token for this relay origin differs
+  // from the one the failed request sent. options.sentToken names that
+  // bearer ("" when none was sent); without it, the cache at the start of the
+  // refresh stands in. Comparing with the sent bearer matters when requests
+  // overlap: a concurrent request may already have refreshed the cache, and
+  // this request must still retry with the new token.
   async function refreshRelayAuth(url, options) {
     const signal = signalFrom(options);
     if (signal && signal.aborted) throw abortErrorFor(signal);
     if (!safeOrigin(url) || isLocalTarget(url)) return false;
+    const hasSent =
+      options && typeof options === "object" && typeof options.sentToken === "string";
     const before = readRelayAuth();
+    const sent = hasSent ? options.sentToken : before ? before.token : "";
     await untilAborted(startRelayHydration(options), signal);
     const after = readRelayAuth();
     return !!(
       after &&
       safeOrigin(after.workerUrl) === safeOrigin(url) &&
-      (!before || before.token !== after.token)
+      after.token &&
+      after.token !== sent
     );
+  }
+
+  function bearerTokenOf(headers) {
+    const value = headers && headers.Authorization;
+    const match = /^Bearer (.+)$/.exec(typeof value === "string" ? value : "");
+    return match ? match[1] : "";
   }
 
   function isAbortError(err) {
@@ -1201,9 +1216,12 @@
       if (isAbortError(err)) throw err;
       return false;
     });
+    // The bearer this request carries, so the 401 refresh compares against
+    // what was sent rather than a cache another request may have refreshed.
+    const sentToken = bearerTokenOf(relayAuthHeadersFor(url));
     const res = await window.fetch(input, withRelayAuthHeaders(init, url));
     if (!res || res.status !== 401 || !canReplayBody(init)) return res;
-    const refreshed = await refreshRelayAuth(url, { signal }).catch((err) => {
+    const refreshed = await refreshRelayAuth(url, { signal, sentToken }).catch((err) => {
       if (isAbortError(err)) throw err;
       return false;
     });

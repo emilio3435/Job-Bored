@@ -1,5 +1,5 @@
 // G24: the dashboard picks up the per-dashboard relay token that
-// scripts/deploy-cloudflare-relay.mjs writes into discovery-local-bootstrap.json,
+// scripts/deploy-cloudflare-relay.mjs stores in its relay credential file,
 // reports the relay as locked, and every browser call site that talks to the
 // relay attaches `Authorization: Bearer <token>` for the relay origin only.
 //
@@ -172,6 +172,50 @@ test("a relay 401 after a redeploy refreshes the cached token and retries once",
   assert.equal(relayCalls[0].init.headers.Authorization, "Bearer tok_old");
   assert.equal(relayCalls[1].init.headers.Authorization, "Bearer tok_new");
   assert.equal(relayCalls[1].init.headers["Content-Type"], "application/json");
+});
+
+// Repair round (review P2): the retry decision compares the refreshed token
+// with the bearer the failed request actually sent, not with the cache at the
+// start of the refresh. Two stale-token POSTs whose 401s arrive apart: the
+// first refreshes the cache to tok_new; the second 401 then sees an unchanged
+// cache, yet it sent tok_old, so it must still retry with tok_new.
+test("concurrent stale-token requests both retry after one refresh", async () => {
+  let current = "tok_old";
+  let releaseSecond;
+  const secondGate = new Promise((resolve) => {
+    releaseSecond = resolve;
+  });
+  let staleSeen = 0;
+  const { window, requests } = loadRelayModule({
+    respond: async (url, init) => {
+      if (url === "/__proxy/discovery-relay-token") {
+        return jsonResponse(200, {
+          ok: true,
+          relay: { workerUrl: WORKER, relayToken: current, relayLocked: true },
+        });
+      }
+      const sent = init && init.headers && init.headers.Authorization;
+      if (sent === "Bearer tok_new") {
+        releaseSecond();
+        return jsonResponse(202, {});
+      }
+      staleSeen += 1;
+      if (staleSeen === 2) await secondGate;
+      return jsonResponse(401, {});
+    },
+  });
+  const auth = window.JobBoredRelayAuth;
+  await auth.prepare(`${WORKER}/webhook`);
+  current = "tok_new";
+  const post = () =>
+    auth.fetch(`${WORKER}/webhook`, { method: "POST", body: "{}" });
+  const statuses = (await Promise.all([post(), post()])).map((r) => r.status);
+  assert.deepEqual(statuses, [202, 202]);
+  const relayCalls = requests.filter((r) => r.url.startsWith(WORKER));
+  assert.deepEqual(
+    relayCalls.map((r) => r.init.headers.Authorization),
+    ["Bearer tok_old", "Bearer tok_old", "Bearer tok_new", "Bearer tok_new"],
+  );
 });
 
 test("a 401 whose refresh yields the same token is returned without a retry", async () => {
