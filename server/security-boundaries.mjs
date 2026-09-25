@@ -176,7 +176,9 @@ export function checkLoopbackRequestHost(req, { allowedHosts = [], tunnelHosts =
 
 /**
  * @param {unknown} requestOrigin
- * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown, loopbackPort?: unknown }} [options]
+ * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown, loopbackPort?: unknown, trustedHosts?: unknown }} [options]
+ *   `trustedHosts`: operator-trusted Host patterns (e.g. JOBBORED_API_ALLOWED_HOSTS)
+ *   that the Host gate already admitted on this loopback listener.
  */
 export function resolveAllowedBrowserOrigin(
   requestOrigin,
@@ -185,6 +187,7 @@ export function resolveAllowedBrowserOrigin(
     requestHost = "",
     requestProtocol = "http",
     loopbackPort = undefined,
+    trustedHosts = [],
   } = {},
 ) {
   const origin = cleanString(requestOrigin);
@@ -192,8 +195,14 @@ export function resolveAllowedBrowserOrigin(
   if (allowedOrigins.includes("*")) return "*";
   if (allowedOrigins.includes(origin)) return origin;
   // On a loopback listener a Host outside the loopback allowlist is a
-  // rebinding attempt, never a same-origin page (E1).
-  if (loopbackPort !== undefined && !isAllowedLoopbackHost(requestHost, loopbackPort, requestProtocol)) {
+  // rebinding attempt, never a same-origin page (E1). A Host the operator
+  // trusts explicitly (the same list the Host gate admitted it with) keeps
+  // its exact same-origin match below, scheme and port included.
+  if (
+    loopbackPort !== undefined &&
+    !isAllowedLoopbackHost(requestHost, loopbackPort, requestProtocol) &&
+    !isAllowedTunnelHost(requestHost, trustedHosts)
+  ) {
     return "";
   }
   const sameOrigin = buildRequestOrigin(requestHost, requestProtocol);

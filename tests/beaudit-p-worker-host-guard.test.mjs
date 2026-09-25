@@ -77,6 +77,9 @@ describe("BEAUDIT E1 — worker refuses a rebound Host", () => {
           HOME: home,
           BROWSER_USE_DISCOVERY_PORT: String(PORT),
           BROWSER_USE_DISCOVERY_HOST: "127.0.0.1",
+          // The Host guard belongs to the local run mode (the loopback worker
+          // on the user's machine); hosted mode is gated by the secret.
+          BROWSER_USE_DISCOVERY_RUN_MODE: "local",
           BROWSER_USE_DISCOVERY_WEBHOOK_SECRET: "probe-secret",
           BROWSER_USE_DISCOVERY_STATE_DIR: join(home, "state"),
           BROWSER_USE_DISCOVERY_ALLOWED_HOSTS: "relay.example.org",

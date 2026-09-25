@@ -206,6 +206,7 @@ app.use((req, res, next) => {
     requestHost,
     requestProtocol,
     loopbackPort: REQUIRE_API_AUTH ? undefined : req.socket.localPort,
+    trustedHosts: API_TRUSTED_HOSTS,
   });
 
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");

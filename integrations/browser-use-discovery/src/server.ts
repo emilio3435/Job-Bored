@@ -1061,11 +1061,16 @@ async function handleWorkerRequest(
   // BEAUDIT E1: the shared loopback Host guard. A DNS-rebound page reaches
   // 127.0.0.1 with its own name in Host; only loopback names on this port and
   // the configured tunnel hosts get through.
-  // Tunnel names extend loopback only; a hosted worker keeps answering its own
-  // public name (the webhook secret gates it).
-  const hostCheck = checkLoopbackRequestHost(request, {
-    tunnelHosts: runtimeConfig.allowedHosts || [],
-  });
+  // Tunnel names extend loopback only. The guard applies to the local run mode
+  // (the loopback-bound worker on the user's machine); a hosted worker sits
+  // behind a reverse proxy that connects over 127.0.0.1 with its public Host,
+  // and the webhook secret gates it instead.
+  const hostCheck =
+    runtimeConfig.runMode === "local"
+      ? checkLoopbackRequestHost(request, {
+          tunnelHosts: runtimeConfig.allowedHosts || [],
+        })
+      : ({ ok: true } as const);
   if (!hostCheck.ok) {
     response.writeHead(hostCheck.status, { "Content-Type": "application/json" });
     response.end(

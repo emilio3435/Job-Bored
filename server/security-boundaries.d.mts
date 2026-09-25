@@ -32,6 +32,7 @@ export function resolveAllowedBrowserOrigin(
     requestHost?: unknown;
     requestProtocol?: unknown;
     loopbackPort?: unknown;
+    trustedHosts?: unknown;
   },
 ): string;
 
