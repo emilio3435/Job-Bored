@@ -132,6 +132,9 @@ async function runCommandSession(
         }
         resolve({ stdout, stderr });
       });
+      // A command that exits before reading stdin closes the pipe (EPIPE);
+      // the exit code is reported by 'close', so the write error is not fatal.
+      child.stdin.on("error", () => {});
       child.stdin.end(`${payload}\n`);
     },
   );
