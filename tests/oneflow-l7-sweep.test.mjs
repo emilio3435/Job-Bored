@@ -138,7 +138,9 @@ describe("§7 · Settings → Upgrades carries what the wizard used to list", ()
     // exists. The wizard's own pointers had rotted (there is no Settings →
     // General tab, and no Browser Use Cloud switch in Settings at all), so
     // the cards carry the real switches, not the fossil route (§7 fossils).
-    assert.match(html, /Turn on: Settings → ATS Scoring\./);
+    // UX01 C22 (SS-16): the pointer is now a button that jumps to the tab.
+    assert.match(html, /data-settings-goto-tab="ats_scoring"/);
+    assert.match(html, /Turn on ATS scoring/);
     assert.match(html, /logoDevToken/);
     assert.match(html, /BROWSER_USE_API_KEY/);
     assert.equal(/Settings → General/.test(html), false);
@@ -154,7 +156,8 @@ describe("§7 · Settings → Upgrades carries what the wizard used to list", ()
     assert.match(html, /Grounded web search/i);
     assert.match(html, /Other devices/i);
     // Both Gemini-powered ones point at the key that unlocks them.
-    assert.match(html, /Settings → AI Providers → Gemini API key/);
+    // UX01 C22 (SS-16): a button that jumps straight to the Gemini key field.
+    assert.match(html, /data-settings-goto-field="settingsResumeGeminiApiKey"/);
     assert.match(read("oneflow-beat-payoff.js"), /Settings → Upgrades/);
   });
 

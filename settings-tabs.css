@@ -278,8 +278,235 @@
     padding: var(--space-1) var(--space-3);
   }
 
+  /* UX01 C22 (SS-04, AX-18): at phone width every tab is reachable.
+     The desktop rail's width:100% made each pill as wide as the list, so
+     1 of 7 showed and the hidden scrollbar gave no cue. Wrap instead:
+     all tabs visible, each a 44px touch target. */
+  #settingsModal .settings-tablist {
+    flex-wrap: wrap;
+    overflow-x: visible;
+  }
+
+  #settingsModal .settings-tablist .settings-tablist__btn {
+    width: auto;
+    min-height: 44px;
+  }
+
   .settings-tab-panels {
     padding: var(--space-3) 0 0;
     overflow-y: auto;
   }
+}
+
+/* ── UX01 C21: sync bar — "Synced 2 min ago", Refresh, failure banner ──
+   Built by sheets-read-load.js (#jbSyncBar) above the Today region.
+   Lives here until lane A's CSS renames give states a sheet of their own.
+   Scoped under .jb-sync so body.jb-v2 type rules cannot reach in. */
+.jb-sync {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 1200px;
+  margin: 8px auto 0;
+  padding: 0 16px;
+  font-family: var(--jb-font-body, inherit);
+}
+
+.jb-sync[hidden] {
+  display: none;
+}
+
+.jb-sync .jb-sync__row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 12px;
+}
+
+.jb-sync .jb-sync__label {
+  margin: 0;
+  font-size: 13px;
+  color: var(--jb-ink-2, currentColor);
+}
+
+.jb-sync .jb-sync__refresh,
+.jb-sync .jb-sync__btn {
+  display: inline-flex;
+  align-items: center;
+  min-height: 36px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--jb-navy, currentColor);
+  text-decoration: none;
+  background: var(--jb-paper, transparent);
+  border: 1px solid var(--jb-line-strong, currentColor);
+  border-radius: var(--jb-radius-pill, 999px);
+  cursor: pointer;
+}
+
+.jb-sync .jb-sync__refresh[disabled] {
+  cursor: progress;
+  opacity: 0.7;
+}
+
+.jb-sync .jb-sync__refresh:focus-visible,
+.jb-sync .jb-sync__btn:focus-visible {
+  outline: 2px solid var(--jb-navy, currentColor);
+  outline-offset: 2px;
+}
+
+.jb-sync .jb-sync__btn--primary {
+  color: var(--jb-ink-inverse, Canvas);
+  background: var(--jb-navy, CanvasText);
+  border-color: var(--jb-navy, CanvasText);
+}
+
+.jb-sync .jb-sync__banner {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 12px 16px;
+  color: var(--jb-ink, CanvasText);
+  background: var(--jb-err-bg, Canvas);
+  border: 1px solid var(--jb-err, currentColor);
+  border-radius: var(--jb-radius-md, 10px);
+}
+
+.jb-sync .jb-sync__banner[hidden] {
+  display: none;
+}
+
+.jb-sync[data-state="offline"] .jb-sync__banner {
+  background: var(--jb-warn-bg, Canvas);
+  border-color: var(--jb-warn, currentColor);
+}
+
+.jb-sync .jb-sync__banner-text {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+  flex: 1 1 240px;
+}
+
+.jb-sync .jb-sync__banner-title {
+  font-size: 15px;
+  font-weight: 600;
+}
+
+.jb-sync .jb-sync__banner-detail {
+  font-size: 13px;
+  color: var(--jb-ink-2, currentColor);
+}
+
+.jb-sync .jb-sync__banner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+
+@media (max-width: 600px) {
+  .jb-sync .jb-sync__row {
+    justify-content: space-between;
+  }
+  .jb-sync .jb-sync__refresh,
+  .jb-sync .jb-sync__btn {
+    min-height: 44px;
+  }
+}
+
+/* ── UX01 C22 (SS-14): one save per tab ─────────────────────────────
+   Fit Profile has its own "Save profile"; Upgrades has nothing to save.
+   The footer Save beside them read as a second, competing save. */
+#settingsModal[data-active-tab="fit_profile"] .settings-modal-actions,
+#settingsModal[data-active-tab="upgrades"] .settings-modal-actions {
+  display: none;
+}
+
+/* SS-17: file names and ports live behind a "Details" disclosure. */
+#settingsModal .settings-field-details {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+#settingsModal .settings-field-details > summary {
+  cursor: pointer;
+  color: var(--jb-ink-2, currentColor);
+}
+
+/* SS-13: the raw provider error sits behind "Details". */
+#settingsModal .settings-check-status__details {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+#settingsModal .settings-check-status__details > summary {
+  cursor: pointer;
+}
+
+/* ── UX01 C22 (SS-21): setup check dialog, over the dashboard ──────── */
+.jb-doctor-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  color: var(--jb-ink, CanvasText);
+  background: var(--jb-paper, Canvas);
+  border: 1px solid var(--jb-line-strong, currentColor);
+  border-radius: var(--jb-radius-lg, 14px);
+  box-shadow: var(--jb-shadow-card, none);
+}
+
+.jb-doctor-dialog::backdrop {
+  background: color-mix(in srgb, var(--jb-ink, CanvasText) 40%, transparent);
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--jb-line, currentColor);
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__close {
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  color: var(--jb-navy, currentColor);
+  background: transparent;
+  border: 1px solid var(--jb-line-strong, currentColor);
+  border-radius: var(--jb-radius-pill, 999px);
+  cursor: pointer;
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__body {
+  padding: 16px 20px 20px;
+  overflow: auto;
+}
+
+.jb-doctor-dialog .doctor-panel__list,
+#sheetAccessGateDoctorPanel .doctor-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-size: 15px;
+}
+
+.jb-doctor-dialog .doctor-panel__writes,
+#sheetAccessGateDoctorPanel .doctor-panel__writes {
+  color: var(--jb-ink-2, currentColor);
+  font-size: 13px;
 }
