@@ -22,13 +22,13 @@
 
   const HEADLINE = "Now give it a brain.";
 
-  /** Normative, spec §5 B2 — it names the pre-selected card, so it moved
-   *  with the recommendation (SIXBEATS-2 NEW-11). */
+  /** Names the pre-selected card and its actual paid model (UX01 C7). */
   const SUB =
     "One AI key powers everything personal here: it drafts your fit " +
     "profile from your resume on the next screen, scores every job " +
     "discovery finds, and writes your tailored resumes and cover " +
-    "letters. OpenRouter is free and takes about two minutes.";
+    "letters. An OpenRouter account takes about two minutes; the " +
+    "recommended model uses paid credit.";
 
   const WEAK_MATERIALS_MODEL_WARNING =
     "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
@@ -47,7 +47,7 @@
     "no extra step.";
 
   /** Inline note on the two providers a browser cannot call directly. */
-  const CORS_NOTE = "runs through the local server — keep npm start running";
+  const CORS_NOTE = "runs through the local server — keep npm run dev running";
 
   /**
    * The clock on a slow check. A free tier under throttle takes seconds,
@@ -98,8 +98,15 @@
   const PROVIDERS = [
     {
       id: "openrouter",
-      label: "OpenRouter — free",
-      note: "Recommended. Free tier, no card, works straight from the browser.",
+      // UX01 C7 (FR-07): the recommended card used to pin a `:free` model
+      // the app itself flags as too weak for tailored letters, so everyone
+      // who followed the recommendation got weak drafts. The default is now
+      // a capable model; free models stay one Settings pick away.
+      label: "OpenRouter",
+      note:
+        "Recommended. One key for many models, works straight from the " +
+        "browser. The default writes letters well; it's pay-as-you-go, so " +
+        "add a few dollars of credit.",
       keyField: "resumeOpenRouterApiKey",
       modelField: "resumeOpenRouterModel",
       keyPlaceholder: "sk-or-…",
@@ -161,7 +168,7 @@
   // ---------------------------------------------------------------
 
   const state = {
-    // Spec §5 B2: `OpenRouter — free` is the pre-selected card (NEW-11).
+    // OpenRouter is the pre-selected card (SIXBEATS-2 NEW-11).
     provider: "openrouter",
     keyDraft: "",
     baseUrlDraft: "",
@@ -563,7 +570,42 @@
     }
   }
 
+
+  /**
+   * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+   * JobBoredDiscoveryHelpers.confirmHostChange (names the change, logs it).
+   */
+  function askHostChange(opts) {
+    const helpers = window.JobBoredDiscoveryHelpers;
+    if (helpers && typeof helpers.confirmHostChange === "function") {
+      return helpers.confirmHostChange(opts);
+    }
+    if (typeof window.confirm === "function") {
+      return !!window.confirm(
+        "JobBored will " +
+          [
+            opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+            opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+          ]
+            .filter(Boolean)
+            .join(", and ") +
+          " on this computer. Continue?",
+      );
+    }
+    return true;
+  }
+
   async function writeGeminiKeyThrough(key) {
+    // UX01 C8 (FD-19): the bonus writes into the discovery .env — ask.
+    if (
+      !askHostChange({
+        action: "Share your Gemini key with discovery",
+        writesEnv: true,
+        envKeys: [GEMINI_ENV_KEY],
+      })
+    ) {
+      return false;
+    }
     try {
       const res = await fetch(DISCOVERY_ENV_ENDPOINT, {
         method: "POST",
@@ -716,7 +758,7 @@
     id: "ai",
     order: 2,
     label: "AI",
-    timeLabel: "about 10 min left",
+    timeLabel: "about 12 min left",
     headline: HEADLINE,
     sub: SUB,
     actions: ACTIONS,

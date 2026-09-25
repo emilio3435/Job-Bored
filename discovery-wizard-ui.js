@@ -811,8 +811,8 @@ function getDiscoveryWizardOptionDetails(flow) {
     ],
     cons: [
       "You run and keep the worker alive yourself",
-      "To reach it from the dashboard you need a public tunnel (ngrok) AND a Cloudflare relay — extra moving parts that break when the tunnel rotates or the machine sleeps",
-      "The most to set up and maintain — prefer Tailscale above for a simpler, durable URL",
+      "Reaching it from other devices needs Tailscale (or a tunnel and relay you maintain)",
+      "Stops when this computer sleeps — prefer the Tailscale option for a durable link",
     ],
   };
 }
@@ -1801,7 +1801,7 @@ function buildDiscoveryWizardSteps(runtime) {
     runtime.snapshot.localRecoveryState !== "ok";
   steps.push({
     id: "detect",
-    label: "Status",
+    label: "Your setup",
     title: detectRecovery
       ? "Local setup needs recovery"
       : "Current setup status",
@@ -1852,7 +1852,7 @@ function buildDiscoveryWizardSteps(runtime) {
   });
   steps.push({
     id: "path_select",
-    label: "Path",
+    label: "Choose how",
     title: "How do you want to connect discovery?",
     description: "Click a card to choose your setup path.",
     body: () => buildDiscoveryPathSelectBody(host().getDiscoveryWizardRuntime()),
@@ -1863,7 +1863,7 @@ function buildDiscoveryWizardSteps(runtime) {
   if (flow === "external_endpoint") {
     steps.push({
       id: "existing_endpoint",
-      label: "Endpoint",
+      label: "Connect",
       title: "Connect a stable URL (Tailscale).",
       description:
         "One click sets everything up over Tailscale — or paste any HTTPS endpoint you already control.",
@@ -1885,7 +1885,7 @@ function buildDiscoveryWizardSteps(runtime) {
   } else if (flow === "no_webhook") {
     steps.push({
       id: "no_webhook",
-      label: "Manual",
+      label: "Connect",
       title: "Keep discovery manual.",
       description:
         "You can still add jobs to Pipeline manually or via automation — just no on-demand button.",
@@ -1901,7 +1901,7 @@ function buildDiscoveryWizardSteps(runtime) {
   } else if (flow === "stub_only") {
     steps.push({
       id: "stub_only",
-      label: "Stub",
+      label: "Connect",
       title: "Test-only mode.",
       description:
         "The stub confirms wiring works but won't produce real job results.",
@@ -1917,12 +1917,12 @@ function buildDiscoveryWizardSteps(runtime) {
   } else {
     steps.push({
       id: "bootstrap",
-      label: "Config",
+      label: "Connect",
       title: detectRecovery ? "Fix local setup" : "Load local config.",
       description: detectRecovery
         ? "Fix setup restarts what is down and redeploys the relay if ngrok changed."
         : host().isLocalDashboardOrigin()
-          ? "Generates or loads your local discovery config with no terminal step."
+          ? "Generates or loads your local discovery config for you."
           : "Reads your saved local setup so the wizard knows your ports, URLs, and tunnel info.",
       body: () => buildDiscoveryBootstrapBody(host().getDiscoveryWizardRuntime()),
       actions: [
@@ -1951,7 +1951,7 @@ function buildDiscoveryWizardSteps(runtime) {
     });
     steps.push({
       id: "local_health",
-      label: "Server",
+      label: "Start search",
       title: "Check local server.",
       description:
         "Makes sure your local discovery server is running and accepting requests.",
@@ -1966,7 +1966,7 @@ function buildDiscoveryWizardSteps(runtime) {
     });
     steps.push({
       id: "tunnel",
-      label: "Tunnel",
+      label: "Reach it",
       title: "Connect ngrok tunnel.",
       description: "ngrok makes your local server reachable, but its free URL rotates on restart — the Tailscale (stable URL) option avoids that.",
       body: () => buildDiscoveryTunnelBody(host().getDiscoveryWizardRuntime()),
@@ -1980,7 +1980,7 @@ function buildDiscoveryWizardSteps(runtime) {
     });
     steps.push({
       id: "relay_deploy",
-      label: "Relay",
+      label: "Link it",
       title: "Deploy the Cloudflare relay.",
       description:
         "The relay gives you a permanent URL that forwards to your ngrok tunnel.",
@@ -2003,7 +2003,7 @@ function buildDiscoveryWizardSteps(runtime) {
         : "Sends a test request through the relay → tunnel → server chain to confirm the full loop works.";
   steps.push({
     id: "verify",
-    label: "Test",
+    label: "Check",
     title: detectRecovery
       ? "Local setup needs recovery"
       : "Test the connection.",
@@ -2291,12 +2291,23 @@ function resolveDiscoveryWizardEntry({
   const needsRecovery = !!(
     snapshot.localRecoveryState && snapshot.localRecoveryState !== "ok"
   );
+  // UX01 C8 (FD-05): a saved flow wins only once the user has moved past
+  // choosing it. Before that, the Recommended card is the preselected one —
+  // a stale default must not preselect a path the wizard calls second-best.
+  const savedFlowChosen = !!(
+    savedState &&
+    savedState.flow &&
+    savedState.currentStep &&
+    savedState.currentStep !== "detect" &&
+    savedState.currentStep !== "path_select"
+  );
   const flow = mapFlow(
     needsRecovery
       ? "local_agent"
       : flowOption ||
-          (savedState && savedState.flow) ||
-          snapshot.recommendedFlow,
+          (savedFlowChosen ? savedState.flow : "") ||
+          snapshot.recommendedFlow ||
+          (savedState && savedState.flow),
   );
   const step = needsRecovery
     ? "bootstrap"
@@ -2402,8 +2413,53 @@ function renderTailscaleStagesInWizard({ state, stages }) {
  *
  * deps are injectable for tests; production uses the module defaults.
  */
+
+/**
+ * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+ * JobBoredDiscoveryHelpers.confirmHostChange, which names what changes and
+ * logs the answer.
+ */
+function askHostChange(opts) {
+  const helpers = typeof window !== "undefined" ? window.JobBoredDiscoveryHelpers : null;
+  if (helpers && typeof helpers.confirmHostChange === "function") {
+    return helpers.confirmHostChange(opts);
+  }
+  if (typeof window !== "undefined" && typeof window.confirm === "function") {
+    return !!window.confirm(
+      "JobBored will " +
+        [
+          opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+          opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+        ]
+          .filter(Boolean)
+          .join(", and ") +
+        " on this computer. Continue?",
+    );
+  }
+  return true;
+}
+
 async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
+  // UX01 C8 (FD-19): this path may write the worker's secret into the
+  // discovery .env and force-restart the worker. Ask first (tests inject
+  // deps.confirmHostChange; the browser gets a named confirm).
+  const consent =
+    typeof deps.confirmHostChange === "function" ? deps.confirmHostChange : askHostChange;
+  if (
+    !consent({
+      action: "Set it up for me",
+      writesEnv: true,
+      envKeys: ["BROWSER_USE_DISCOVERY_WEBHOOK_SECRET"],
+      restartsWorker: true,
+    })
+  ) {
+    setDiscoveryWizardMessage(
+      "Setup left unchanged — nothing on this computer was touched.",
+      "info",
+    );
+    return { ok: false, reason: "declined" };
+  }
   const verify = deps.verify || handleDiscoveryWizardVerification;
   const render = deps.render || renderDiscoverySetupWizard;
   // No onStage → the standalone wizard renders the stages itself.
@@ -2725,8 +2781,12 @@ async function openDiscoverySetupWizard(options = {}) {
     typeof window.JobBoredDiscoveryAutodetect.recoverIfPossible === "function"
   ) {
     try {
+      // UX01 C8 (FD-19): opening setup only LOOKS. Repairs (a worker
+      // restart, a .env rewrite) wait for a click that asks first.
       const verdict =
-        await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
+        await window.JobBoredDiscoveryAutodetect.recoverIfPossible({
+          allowRecover: false,
+        });
       // Recovery may bring the stack up, but opening setup must still
       // render review state and never silently install keep-alive.
       autodetectNote =
@@ -3604,7 +3664,15 @@ async function handleDiscoveryWizardAction(actionId) {
         window.location.hostname === "[::1]" ||
         window.location.hostname === "::1");
 
-    if (isLocal) {
+    if (
+      isLocal &&
+      askHostChange({
+        action: "Fix tunnel & relay",
+        writesEnv: true,
+        restartsWorker: true,
+        redeploysRelay: true,
+      })
+    ) {
       setDiscoveryWizardMessage(
         "Auto-healing tunnel & relay… (no terminal needed)",
         "info",

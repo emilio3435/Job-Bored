@@ -74,8 +74,9 @@ window.COMMAND_CENTER_CONFIG = {
   // For "Draft cover letter" and "Tailor resume" on job cards you must configure ONE of:
   // - Gemini (recommended default): resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/
   //   Model alias "gemini-flash" resolves at call time to the newest stable Flash.
-  // - OpenRouter (free tier): resumeProvider "openrouter" + a FREE resumeOpenRouterApiKey
-  //   from https://openrouter.ai/keys — no paid plan needed. CORS-friendly from the browser.
+  // - OpenRouter: resumeProvider "openrouter" + resumeOpenRouterApiKey
+  //   from https://openrouter.ai/keys. The recommended model uses paid credit.
+  //   Free models remain available in Settings. CORS-friendly from the browser.
   // - Local: resumeProvider "local" + resumeLocalBaseUrl (e.g. Ollama on http://127.0.0.1:11434/v1)
   //   + resumeLocalModel (e.g. gemma4:e2b) — fully offline, no key required.
   // - OpenAI: resumeProvider "openai" + resumeOpenAIApiKey (CORS may block on some hosts)
@@ -84,11 +85,11 @@ window.COMMAND_CENTER_CONFIG = {
   //
   // Provider: "gemini" (default), "openrouter", "local", "openai", "anthropic", or "webhook"
   resumeProvider: "gemini",
-  // OpenRouter free-tier key (browser-safe; paste a FREE key, do not commit real keys to public repos).
-  // Get one at https://openrouter.ai/keys. Free models work without any paid plan.
+  // OpenRouter key (browser-safe; do not commit real keys to public repos).
+  // Get one at https://openrouter.ai/keys. The default model uses paid credit.
   resumeOpenRouterApiKey: "",
-  // Default free model. Pick another ":free" model id in Settings if this one is retired.
-  resumeOpenRouterModel: "openai/gpt-oss-120b:free",
+  // Capable default for tailored letters; free models remain selectable in Settings.
+  resumeOpenRouterModel: "openai/gpt-5.4-mini",
   // OpenRouter OpenAI-compatible base URL (no trailing slash). Rarely changed.
   resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
   // Local OpenAI-compatible server (e.g. Ollama). resumeProvider "local" runs

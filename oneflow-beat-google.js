@@ -54,10 +54,10 @@
     mode: "signin", // "signin" | "existing"
     sheetUrlDraft: "",
     clientIdDraft: "",
-    // The first-timer detour is collapsed until the beat needs it — which
-    // is the moment Continue with Google has nothing to continue with.
-    detourOpen: false,
     stages: [],
+    // Collapsed at first, but a repaint must preserve a user's choice or
+    // keep it open after an invalid Client ID or a missing Client ID.
+    detourOpen: false,
   };
 
   // Live field references, refreshed on every render. The draft mirrors
@@ -176,7 +176,10 @@
       ACTIONS.push(
         {
           id: ACTION_CONNECT_SHEET,
-          label: "Connect this sheet",
+          // UX01 C7 (FR-13): signed out, the one button signs in AND
+          // connects the pasted sheet — it never detours through the
+          // starter-sheet path that would leave their sheet unconnected.
+          label: signedIn() ? "Connect this sheet" : "Sign in & connect this sheet",
           variant: "primary",
         },
         {
@@ -235,8 +238,9 @@
       "picker → New project).",
     "Configure the OAuth consent screen (APIs & Services → OAuth consent " +
       "screen). Pick External, fill in an app name and your email, save. Add " +
-      "yourself as a test user under Audience so Google stops calling it an " +
-      "unverified app.",
+      "yourself as a test user under Audience. When you sign in you'll still " +
+      "see \"Google hasn't verified this app\" — it's your own app; click " +
+      "Advanced → Go to JobBored.",
     "Enable the Google Sheets API for the project (APIs & Services → Library " +
       "→ search → Enable).",
     "Open Credentials → Create credentials → OAuth client ID → application " +
@@ -249,12 +253,15 @@
   function renderDetour(ctx) {
     const details = el("details", "oneflow-google__detour");
     if (state.detourOpen) details.open = true;
+    details.addEventListener("toggle", () => {
+      state.detourOpen = !!details.open;
+    });
     details.appendChild(
       el(
         "summary",
         "oneflow-google__detour-summary",
         {},
-        "First time? You'll need a free Client ID",
+        "First time? You'll need a free Google app key",
       ),
     );
     details.appendChild(
@@ -262,9 +269,9 @@
         "p",
         "oneflow-google__detour-lede",
         {},
-        "Google makes you mint your own key before it will let an app touch " +
-          "your Sheets. It takes about 10 minutes and it is genuinely tedious. " +
-          "You only ever do this once.",
+        "Google needs a free \"app key\" (it calls it a Client ID) that " +
+          "proves this copy of JobBored is yours. Making one takes about 10 " +
+          "minutes and it is genuinely tedious. You only ever do this once.",
       ),
     );
     const originValue = origin();
@@ -311,7 +318,7 @@
       spellcheck: false,
       placeholder: "xxxx.apps.googleusercontent.com",
       value: state.clientIdDraft,
-      "aria-label": "Google OAuth Client ID",
+      "aria-label": "Your Google app key (Client ID)",
     });
     input.addEventListener("input", () => {
       state.clientIdDraft = String(input.value || "");
@@ -325,6 +332,7 @@
       "Save Client ID",
     );
     save.addEventListener("click", () => {
+      state.detourOpen = true;
       saveClientId(ctx);
     });
     details.appendChild(save);
@@ -333,11 +341,22 @@
         "p",
         "oneflow-google__detour-foot",
         {},
-        "A Client ID always ends in .apps.googleusercontent.com. If you hit " +
-          "redirect_uri_mismatch later, the app type was wrong — recreate it " +
-          "as a Web application.",
+        "A Client ID always ends in .apps.googleusercontent.com.",
       ),
     );
+    // UX01 C7 (FR-14): the error-code footnote sits behind "Having trouble?".
+    const trouble = el("details", "oneflow-google__detour-trouble");
+    trouble.appendChild(el("summary", "", {}, "Having trouble?"));
+    trouble.appendChild(
+      el(
+        "p",
+        "oneflow-google__detour-foot",
+        {},
+        "If Google shows redirect_uri_mismatch, the app type was wrong — " +
+          "recreate the Client ID as a Web application.",
+      ),
+    );
+    details.appendChild(trouble);
     return details;
   }
 
@@ -358,6 +377,7 @@
   }
 
   function saveClientId(ctx) {
+    state.detourOpen = true;
     const raw = String(readField("clientId", "clientIdDraft") || "").trim();
     if (!/\.apps\.googleusercontent\.com$/i.test(raw)) {
       repaint(
@@ -418,6 +438,21 @@
     fields.clientId = null;
     if (state.mode === "existing") {
       body.appendChild(renderExistingSheetPanel());
+    } else if (signedIn() && currentSheetId()) {
+      // UX01 C7 (FR-20): a signed-in user whose Sheet is configured is not
+      // told "we'll create it for you" — Continue finishes the beat without
+      // making a second sheet (continueWithGoogle's own exit condition).
+      const email = userEmail();
+      body.appendChild(
+        el(
+          "p",
+          "oneflow-google__connected",
+          {},
+          email
+            ? `Signed in as ${email} · Sheet connected ✓`
+            : "Signed in · Sheet connected ✓",
+        ),
+      );
     } else {
       body.appendChild(
         el(
@@ -572,12 +607,24 @@
     }
 
     if (!signedIn()) {
-      repaint(
-        ctx,
-        "Sign in with Google first — we need your permission to read that sheet.",
-        "error",
-      );
-      return;
+      // UX01 C7 (FR-13): sign in here, then connect THIS sheet. Sending
+      // them "back to sign-in" created a starter sheet instead.
+      setStages(ctx, [
+        { label: "Waiting for Google sign-in…", state: "active" },
+        { label: "Checking that sheet…", state: "todo" },
+      ]);
+      call("signIn");
+      const ok = await waitForSignIn();
+      if (!ok) {
+        clearStages(ctx);
+        repaint(
+          ctx,
+          "Google sign-in didn't finish. If the popup was blocked, allow " +
+            "popups for this page and press Sign in & connect this sheet again.",
+          "error",
+        );
+        return;
+      }
     }
 
     const access = sheetAccess();
@@ -666,7 +713,7 @@
     id: "google",
     order: 1,
     label: "Google",
-    timeLabel: "about 15 min left",
+    timeLabel: "about 20–25 min left",
     headline: HEADLINE,
     sub: SUB,
     actions: ACTIONS,

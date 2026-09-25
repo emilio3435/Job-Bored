@@ -221,15 +221,19 @@ describe("S0 invitation card — normative copy (spec §4)", () => {
     assert.ok(card, "the invitation card renders over the board");
     const text = textOf(card);
     assert.ok(text.includes("This is your job hunt on autopilot."));
+    // UX01 C7 (FR-11): the measured happy path is ~22 min, so the deal
+    // says 20–25 and names what setup needs before the stranger commits.
     assert.ok(
-      text.includes(
-        "Set it up once — about fifteen focused minutes — and roles scored against your fit land here every morning.",
-      ),
-      "the time promise is verbatim, em-dashes included",
+      text.includes("Set it up once. It takes about 20–25 minutes, and you'll need:"),
+      "the time promise is honest (FR-11)",
     );
+    assert.ok(text.includes("a free Google app key, so the Sheet is yours (about 10 min, guided)"));
+    assert.ok(text.includes("an AI key from OpenRouter or Gemini (2 min)"));
+    assert.ok(text.includes("your resume, so drafts sound like you"));
+    assert.ok(!/fifteen|15 min/.test(text), "no 15-minute promise survives");
     assert.ok(
       text.includes(
-        "Your resume and pipeline stay in your Google Sheet and on this machine.",
+        "Your resume and pipeline stay in your Google Sheet and on this computer.",
       ),
       "spec §8.3 — every data ask carries its privacy sentence",
     );
@@ -241,7 +245,7 @@ describe("S0 invitation card — normative copy (spec §4)", () => {
     const labels = root
       .querySelectorAll(".oneflow-demo__invite-action")
       .map((el) => textOf(el));
-    assert.deepEqual(labels, ["Make it mine — 15 min, once", "Poke around first"]);
+    assert.deepEqual(labels, ["Make it mine", "Poke around first"]);
   });
 });
 
@@ -255,12 +259,12 @@ describe("S0 invitation ↔ corner pill round-trip (spec §4 Interactions)", () 
     return el;
   }
 
-  it("'Make it mine — 15 min, once' opens the flow", async () => {
+  it("'Make it mine' opens the flow", async () => {
     const env = loadDemoBoard();
     const opened = [];
     env.window.JobBoredOneFlow = { open: (id) => opened.push(id) };
     const root = await env.board.mount();
-    clickByLabel(root, "Make it mine — 15 min, once");
+    clickByLabel(root, "Make it mine");
     assert.equal(opened.length, 1, "the primary hands straight to the flow");
   });
 
@@ -275,7 +279,7 @@ describe("S0 invitation ↔ corner pill round-trip (spec §4 Interactions)", () 
     );
     const pill = root.querySelector(".oneflow-demo__pill");
     assert.ok(pill, "the corner pill takes its place");
-    assert.equal(textOf(pill), "Set up JobBored — 15 min ▸");
+    assert.equal(textOf(pill), "Set up JobBored — 20–25 min ▸");
   });
 
   it("the collapse lasts the visit, not the browser session", async () => {
@@ -309,7 +313,7 @@ describe("S0 invitation ↔ corner pill round-trip (spec §4 Interactions)", () 
     env.window.JobBoredOneFlow = { open: (id) => opened.push(id) };
     const root = await env.board.mount();
     clickByLabel(root, "Poke around first");
-    clickByLabel(root, "Set up JobBored — 15 min ▸");
+    clickByLabel(root, "Set up JobBored — 20–25 min ▸");
     assert.equal(opened.length, 1, "the pill is a real re-entry, not decoration");
   });
 

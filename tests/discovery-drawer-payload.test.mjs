@@ -560,7 +560,7 @@ describe("Run guard: blank intent without AI strata still blocks the run", () =>
     // The handler is inside initDiscoveryDrawer.
     const initStart = drawerJs.indexOf("function initDiscoveryDrawer(");
     assert.ok(initStart !== -1);
-    const slice = drawerJs.slice(initStart, initStart + 8000);
+    const slice = drawerJs.slice(initStart, initStart + 10000);
     assert.match(
       slice,
       /Add target roles or keywords, or pick an AI idea above/,

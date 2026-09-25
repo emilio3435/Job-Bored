@@ -44,7 +44,7 @@
       subtab: "connection",
       targetId: "settingsDiscoveryGuideBtn",
       title: "Connection",
-      body: "Wire up the discovery webhook. Use the guide to spin up a local worker or paste a Cloudflare URL.",
+      body: "Check how job search connects. If anything is off, Fix setup walks you through it.",
       requires: "webhook",
     },
     {
@@ -268,5 +268,7 @@
     _buildSteps: buildSteps,
     _isDone: isDone,
     _isActive: function () { return state.active; },
+    // UX01 C8 (FD-20): the drawer asks this before Esc closes the drawer.
+    isActive: function () { return state.active; },
   };
 })(typeof window !== "undefined" ? window : globalThis);

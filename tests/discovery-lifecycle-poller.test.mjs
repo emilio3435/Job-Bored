@@ -268,6 +268,7 @@ describe("LIFECYCLE-1 — the user-visible message stops claiming the run contin
     assert.doesNotMatch(toast.message, /may still be running/i);
     assert.match(toast.message, /no record of this run/i);
     assert.equal(toast.sticky, true);
+    assert.equal(toast.action.label, "Open runs");
   });
 
   it("LIFECYCLE-1: an exhausted retryable failure keeps the existing 'may still be running' copy", () => {

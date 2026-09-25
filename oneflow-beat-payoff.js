@@ -42,6 +42,21 @@
   const NOT_ARMED_LINE =
     "Not armed yet — finish the step above and it runs on its own.";
   const SHEET_LINK_LABEL = "open it ↗";
+  /**
+   * UX01 C7 (FR-09): a ✓ is earned by a check this flow recorded — B2
+   * completes only after its live key check, B5 only after its fuel is
+   * verified. Stored config alone is a claim, so it renders as ○.
+   */
+  const AI_UNVERIFIED_LINE =
+    "○ AI isn't checked yet — go back to the AI step to connect it";
+  const DISCOVERY_UNVERIFIED_LINE =
+    "○ Job search isn't set up — you can track jobs without it";
+  /** UX01 C6 (FR-10): once a Sheet exists, manual tracking can start here. */
+  const TRACK_JOB_ACTION = Object.freeze({
+    id: "payoff_track_job",
+    label: "Track a job you already found",
+    variant: "ghost",
+  });
 
   /** Provider display names — the same caps Settings shows. */
   const PROVIDER_LABELS = Object.freeze({
@@ -280,6 +295,7 @@
     if (skipped) {
       return [
         { id: "payoff_dashboard", label: "Go to my dashboard", variant: "primary" },
+        { ...TRACK_JOB_ACTION },
         {
           id: "payoff_connect_discovery",
           label: "Actually — connect discovery",
@@ -312,11 +328,13 @@
           label: "Tell it what to look for",
           variant: "primary",
         },
+        { ...TRACK_JOB_ACTION },
         dashboard,
       ];
     }
     return [
       { id: "payoff_run_now", label: "Run discovery now", variant: "primary" },
+      { ...TRACK_JOB_ACTION },
       dashboard,
     ];
   }
@@ -340,8 +358,13 @@
           ? true
           : resolvedRoles,
     };
+    const earned = Array.isArray(flowState.completedBeats)
+      ? flowState.completedBeats
+      : [];
     return {
       firstName,
+      aiVerified: earned.includes("ai"),
+      discoveryVerified: earned.includes("discovery"),
       headline: buildHeadline(firstName),
       sub: SUB,
       skippedConnect: !!(flowState.skipped && flowState.skipped.discoveryConnect),
@@ -434,19 +457,25 @@
     // claims B6 could not keep (GREENFIELD-SPEC §1 F5, §4.3).
     if (!armed) addRow(list, "oneflow-payoff__row--off", NOT_ARMED_LINE);
 
-    if (state.provider) {
+    if (state.provider && state.aiVerified) {
       addRow(list, "oneflow-payoff__row--ok", `✓ AI connected — ${state.provider}`);
+    } else {
+      addRow(list, "oneflow-payoff__row--off", AI_UNVERIFIED_LINE);
     }
 
     if (state.skippedConnect) {
       addRow(list, "oneflow-payoff__row--off", SKIPPED_LINE);
     } else if (armed) {
-      const noun = state.sourceCount === 1 ? "source" : "sources";
-      addRow(
-        list,
-        "oneflow-payoff__row--ok",
-        `✓ Discovery armed — ${state.sourceCount} ${noun} watching, including Google's job index`,
-      );
+      if (state.discoveryVerified) {
+        const noun = state.sourceCount === 1 ? "source" : "sources";
+        addRow(
+          list,
+          "oneflow-payoff__row--ok",
+          `✓ Discovery armed — ${state.sourceCount} ${noun} watching, including Google's job index`,
+        );
+      } else {
+        addRow(list, "oneflow-payoff__row--off", DISCOVERY_UNVERIFIED_LINE);
+      }
     }
 
     if (state.sheetUrl) {
@@ -659,9 +688,40 @@
     return result;
   }
 
+  /**
+   * UX01 C6 (FR-10): finish the flow, then open manual add on the real
+   * board so the payoff ends on a tracked row even with no discovery run.
+   * `JobBoredIngest.openManual` is lane D's entry; the legacy manual
+   * fallback covers a build where it has not landed yet.
+   */
+  function openManualAdd() {
+    const ingest = window.JobBoredIngest;
+    if (ingest && typeof ingest.openManual === "function") {
+      ingest.openManual({ source: "onboarding_payoff" });
+      return true;
+    }
+    const legacy = window.JobBored;
+    if (legacy && typeof legacy.openIngestManualFallback === "function") {
+      legacy.openIngestManualFallback("", {});
+      return true;
+    }
+    return false;
+  }
+
+  async function trackJob(ctx) {
+    const result = await ctx.completeBeat({ beat: "payoff", ran: false, trackJob: true });
+    try {
+      openManualAdd();
+    } catch (e) {
+      console.warn("[JobBored] B6: could not open manual add:", e);
+    }
+    return result;
+  }
+
   async function onAction(actionId, ctx) {
     const id = asString(actionId);
     if (id === "payoff_run_now") return runNow(ctx);
+    if (id === "payoff_track_job") return trackJob(ctx);
     if (id === "payoff_dashboard") {
       return ctx.completeBeat({ beat: "payoff", ran: false });
     }
@@ -746,6 +806,9 @@
     FOOTER_LINE,
     SKIPPED_LINE,
     NOT_ARMED_LINE,
+    AI_UNVERIFIED_LINE,
+    DISCOVERY_UNVERIFIED_LINE,
+    TRACK_JOB_ACTION,
     PROVIDER_LABELS,
     buildActions,
     resolvePayoffState,

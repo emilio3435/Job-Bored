@@ -224,7 +224,7 @@ describe("B1 Connect Google — the first-timer detour (spec §5 B1, §10 Phase 
     assert.ok(details, "the Cloud Console walkthrough is a collapsed details, never a screen");
     assert.equal(details.tagName, "DETAILS");
     const text = renderedText(env.mount());
-    assert.ok(text.includes("First time? You'll need a free Client ID"));
+    assert.ok(text.includes("First time? You'll need a free Google app key"));
     assert.ok(
       /about 10 minutes/i.test(text),
       "voice rule §8.2: a 10-minute detour says 10 minutes",
