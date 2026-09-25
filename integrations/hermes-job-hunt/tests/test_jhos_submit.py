@@ -219,3 +219,33 @@ def test_local_timezone_can_be_configured(monkeypatch):
     monkeypatch.setenv("JHOS_TIMEZONE", "America/Los_Angeles")
     t = jhos_common.local_now(datetime(2026, 1, 15, 7, 30, tzinfo=timezone.utc))
     assert t.utcoffset().total_seconds() == -8 * 3600
+
+
+@pytest.fixture
+def no_tz_database(monkeypatch):
+    """A host with no IANA tz database: no system zoneinfo, no tzdata package (fresh Windows)."""
+    import sys
+    import zoneinfo
+
+    monkeypatch.setitem(sys.modules, "tzdata", None)
+    zoneinfo.reset_tzpath([])
+    zoneinfo.ZoneInfo.clear_cache()
+    yield
+    zoneinfo.reset_tzpath()
+    zoneinfo.ZoneInfo.clear_cache()
+
+
+def test_local_now_survives_a_host_without_a_tz_database(no_tz_database, monkeypatch):
+    import jhos_common
+
+    monkeypatch.delenv("JHOS_TIMEZONE", raising=False)
+    t = jhos_common.local_now(datetime(2026, 1, 15, 7, 30, tzinfo=timezone.utc))
+    assert t.tzinfo is not None
+    assert t.utcoffset() is not None
+
+
+def test_runtime_requirements_install_the_tz_database():
+    import jhos_common
+
+    req = (Path(jhos_common.__file__).resolve().parents[1] / "requirements.txt").read_text()
+    assert any(line.strip().startswith("tzdata") for line in req.splitlines())

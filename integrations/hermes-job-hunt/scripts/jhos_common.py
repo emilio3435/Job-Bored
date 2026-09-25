@@ -77,7 +77,9 @@ def env_value(name: str, *files: Path) -> str:
 
 
 def local_timezone():
-    """The user's zone: $JHOS_TIMEZONE, else worker-config timezone, else Chicago."""
+    """The user's zone: $JHOS_TIMEZONE, else worker-config timezone, else Chicago.
+
+    Falls back to the host's current UTC offset when no tz database exists."""
     from zoneinfo import ZoneInfo
 
     name = os.environ.get("JHOS_TIMEZONE", "").strip()
@@ -86,10 +88,14 @@ def local_timezone():
             name = str(json.loads(worker_config_path().read_text()).get("timezone") or "").strip()
         except Exception:
             name = ""
-    try:
-        return ZoneInfo(name or DEFAULT_TIMEZONE)
-    except Exception:
-        return ZoneInfo(DEFAULT_TIMEZONE)
+    for key in (name or DEFAULT_TIMEZONE, DEFAULT_TIMEZONE):
+        try:
+            return ZoneInfo(key)
+        except Exception:
+            continue
+    # No IANA tz database on this host (requirements.txt installs tzdata for
+    # this case): use the host clock's current offset rather than crash.
+    return datetime.now().astimezone().tzinfo or timezone.utc
 
 
 def local_now(now: datetime | None = None) -> datetime:
