@@ -69,9 +69,9 @@ Each lane gets its own worktree off `feat/ux-zero-to-one`, and no two lanes own 
 | lane | changes | owns | starts |
 |---|---|---|---|
 | A System | C1–C4 | tokens, base, fonts, `css/legacy-*`, `index.html` head, `app.js` legacy, harness | now |
-| B Find | C5–C10 | `onboarding-flow`, `oneflow-*`, `ingest-url-flow`, `discovery-*`, `runs-tab` | #104, #102 |
+| B Find | C6–C10 | `onboarding-flow`, `oneflow-*`, `discovery-*`, `runs-tab` | #104, #102 |
 | C Today | C5, C18, C20 | `index.html` body, `flowing-chrome`, `today*`, `dawn*`, `recruiter-strip` | A |
-| D Board | C15–C17, C19 | `pipeline*`, `flowing-writes`, `submission-flow`, `jb-a11y` | A |
+| D Board | C5, C15–C17, C19 | `pipeline*`, `flowing-writes`, `submission-flow`, `ingest-url-flow`, `jb-a11y` | A |
 | E Tailor | C11–C14 | `role-case*`, `materials-*`, `role-materials`, `scribe*`, plus a sol lane for `server/` | casefit |
 | F States | C21, C22 | `sheets-*`, `app-bootstrap`, `auth-session`, `setup-doctor`, `settings-*` | #104 |
 

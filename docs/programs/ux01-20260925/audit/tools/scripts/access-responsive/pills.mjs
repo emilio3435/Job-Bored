@@ -1,0 +1,12 @@
+import { openApp } from "/Users/emilionunezgarcia/Job-Bored.worktrees/ux01/docs/programs/ux01-20260925/audit/tools/audit-harness.mjs";
+const app = await openApp({ mode: "signed-in", viewport: "desktop" }); const page = app.page;
+await page.focus('.page-nav__pill[data-region-target="pipeline"]'); await page.keyboard.press("Enter"); await page.waitForTimeout(1200);
+console.log("after Enter on 02 Pipeline:", await page.evaluate(() => ({ active: document.activeElement.textContent.trim().slice(0, 30), scrollY })));
+await page.keyboard.press("Tab"); console.log("next Tab lands on:", await page.evaluate(() => (document.activeElement.getAttribute("aria-label") || document.activeElement.textContent).trim().slice(0, 40)));
+await app.close();
+const m = await openApp({ mode: "signed-in", viewport: "phone" }); const p = m.page;
+await p.focus(".page-top__menu-btn"); await p.keyboard.press("Enter"); await p.waitForTimeout(500);
+const open1 = await p.evaluate(() => document.querySelector(".page-top").classList.contains("is-menu-open"));
+await p.keyboard.press("Escape"); await p.waitForTimeout(400);
+console.log("375 menu open:", open1, "after Esc still open:", await p.evaluate(() => document.querySelector(".page-top").classList.contains("is-menu-open")), "focus:", await p.evaluate(() => document.activeElement.className.toString().slice(0, 30)));
+await m.close();
