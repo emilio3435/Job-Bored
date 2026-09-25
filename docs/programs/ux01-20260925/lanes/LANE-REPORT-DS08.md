@@ -121,3 +121,47 @@ The one `todo` predates this lane: `tests/submission-record-audit.test.mjs` "per
 | Brief owner | Gate `daily-brief.js renderBrief` under `body.jb-v2`. Dawn's hero no longer needs `#briefStats`, but `dawn.js observeLegacy` still uses `#briefStats` and `#briefHeadline` as its repaint trigger. Switch it to `jb:pipeline:rendered` first. After that, the `.command-strip` hide rule can go. |
 | Board owner | Decide whether v2 keeps the legacy per-company cap inside `getBoardCardModels()`. The v2 board applies its own cap on top of it. |
 | Verifier | Run an independent floor, per the program's rules. |
+
+## Verification · floor (DS08-r1)
+
+Independent verifier (fresh Opus context, not the author). HEAD `f6ec8507b334a0cf0e80ecd00958a62ad8220fd2`, 2026-09-25. Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/DS08-r1/`. Clean tree before the run; node_modules symlinks were already present.
+
+**Green: all 8 commands exited 0.** No retries, no flaky specs.
+
+| Command | Exit | Counts |
+|---|---|---|
+| npm run lint:repo | 0 | lint:tokens 34 sheets, 0 new findings, 0 brace errors; skills lint OK |
+| npm run typecheck:repo | 0 | tsc --noEmit clean (browser-use-discovery, server) |
+| npm test | 0 | 3098 tests: 3097 pass, 0 fail, 0 skipped, 1 todo |
+| npm run test:contract:all | 0 | 12 OK lines, 0 failures |
+| npm run test:e2e-smoke | 0 | 21 passed (18.6s) |
+| npm run test:e2e-journey | 0 | 26 passed (28.8s) |
+| npm run test:e2e-visual | 0 | 37 passed (59.3s) |
+| npm run test:browser-use-discovery | 0 | 741 pass, 0 fail |
+
+Note: the one `todo` in npm test is `tests/submission-record-audit.test.mjs:17` ("persists and can remove the canonical submission evidence record"). It is marked todo ("blocked on the canonical-ownership gate"), its body asserts and fails (deepStrictEqual actual [] vs expected record), and the runner lists it under "failing tests" but does not count it in fail. So the gate passes, but one behavior is still unproven.
+
+Tails:
+
+```
+--- npm test
+✔ extractWranglerJson returns null when there is no JSON (0.044667ms)
+✔ runKeepAliveCheck falls back to `npx wrangler` when bare wrangler is ENOENT (11.398875ms)
+ℹ tests 3098
+ℹ suites 747
+ℹ pass 3097
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+--- e2e-smoke
+  21 passed (18.6s)
+--- e2e-journey
+  26 passed (28.8s)
+--- e2e-visual
+  37 passed (59.3s)
+--- browser-use-discovery
+ℹ tests 741
+ℹ suites 2
+ℹ pass 741
+```
