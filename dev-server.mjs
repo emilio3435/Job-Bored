@@ -38,6 +38,10 @@ import {
   extractConfigConnectOrigins,
 } from "./scripts/lib/browser-csp-policy.mjs";
 import { checkLoopbackRequestHost } from "./server/security-boundaries.mjs";
+import {
+  buildDashboardRelayTokenResponse,
+  readRelayCredential,
+} from "./scripts/deploy-cloudflare-relay.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -1509,6 +1513,36 @@ function handleDiscoveryWebhookSecret(req, res) {
 }
 
 /**
+ * Localhost-only: hand the dashboard its Cloudflare relay bearer (G24). The
+ * body carries only the relay's Worker URL, token and lock flag; the
+ * bootstrap file itself stays denied by static-path-guard. The token comes
+ * from the relay credential file first, because a bootstrap refresh rewrites
+ * discovery-local-bootstrap.json without its relay block. Neither file is
+ * read for a request that fails the local-origin check.
+ */
+export function handleDiscoveryRelayToken(
+  req,
+  res,
+  {
+    readBootstrap = readBootstrapJson,
+    readCredential = () => readRelayCredential(ROOT),
+  } = {},
+) {
+  const corsHeaders = jsonCorsHeaders(req, { "cache-control": "no-store" });
+  if (!isLocalOrigin(req)) {
+    res.writeHead(403, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  res.writeHead(200, corsHeaders);
+  res.end(
+    JSON.stringify(
+      buildDashboardRelayTokenResponse(readBootstrap(), readCredential()),
+    ),
+  );
+}
+
+/**
  * Localhost-only: write ONE allowlisted enhancement key into the discovery
  * worker's env file (the wizard's in-place key entry — no terminal, no file
  * editing). Strictly a closed set: anything outside the allowlist is a 400.
@@ -2561,6 +2595,11 @@ function createRequestHandler({
       pathname === "/__proxy/discovery-webhook-secret"
     ) {
       handleDiscoveryWebhookSecret(req, res);
+      return;
+    }
+
+    if (req.method === "GET" && pathname === "/__proxy/discovery-relay-token") {
+      handleDiscoveryRelayToken(req, res);
       return;
     }
 

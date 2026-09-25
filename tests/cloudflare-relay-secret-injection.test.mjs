@@ -27,8 +27,10 @@ async function loadWorker() {
 }
 
 function createRequest({ method, url, headers = {}, body = "" }) {
+  // BEAUDIT G1: the relay now requires the per-dashboard RELAY_TOKEN.
+  const withAuth = { Authorization: "Bearer dash-token", ...headers };
   const headerMap = new Map(
-    Object.entries(headers).map(([k, v]) => [k.toLowerCase(), String(v)]),
+    Object.entries(withAuth).map(([k, v]) => [k.toLowerCase(), String(v)]),
   );
   return {
     method,
@@ -67,6 +69,7 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
     const worker = await loadWorker();
     const env = {
       TARGET_URL: "https://upstream.example/webhook",
+      RELAY_TOKEN: "dash-token",
       CORS_ORIGIN: "http://localhost:8080",
     };
     const req = createRequest({
@@ -75,8 +78,7 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
       headers: {
         Origin: "http://localhost:8080",
         "Access-Control-Request-Method": "POST",
-        "Access-Control-Request-Headers":
-          "content-type,x-discovery-auth-probe",
+        "Access-Control-Request-Headers": "content-type,x-discovery-auth-probe",
       },
     });
 
@@ -93,7 +95,10 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
 
   it("forwards the setup auth-probe header to the discovery worker", async () => {
     const worker = await loadWorker();
-    const env = { TARGET_URL: "https://upstream.example/webhook" };
+    const env = {
+      TARGET_URL: "https://upstream.example/webhook",
+      RELAY_TOKEN: "dash-token",
+    };
     const req = createRequest({
       method: "POST",
       url: "https://relay.example.workers.dev/webhook",
@@ -117,6 +122,7 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
     const worker = await loadWorker();
     const env = {
       TARGET_URL: "https://upstream.example/webhook",
+      RELAY_TOKEN: "dash-token",
       DISCOVERY_SECRET: "relay-injected-secret-abc",
     };
     const req = createRequest({
@@ -139,6 +145,7 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
     const worker = await loadWorker();
     const env = {
       TARGET_URL: "https://upstream.example/webhook",
+      RELAY_TOKEN: "dash-token",
       DISCOVERY_SECRET: "should-stay-server-side",
     };
     const req = createRequest({
@@ -164,7 +171,10 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
 
   it("forwards a browser-supplied x-discovery-secret when DISCOVERY_SECRET is unset", async () => {
     const worker = await loadWorker();
-    const env = { TARGET_URL: "https://upstream.example/webhook" };
+    const env = {
+      TARGET_URL: "https://upstream.example/webhook",
+      RELAY_TOKEN: "dash-token",
+    };
     const req = createRequest({
       method: "POST",
       url: "https://relay.example.workers.dev/",
@@ -183,7 +193,10 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
 
   it("omits x-discovery-secret entirely when neither side provides one", async () => {
     const worker = await loadWorker();
-    const env = { TARGET_URL: "https://upstream.example/webhook" };
+    const env = {
+      TARGET_URL: "https://upstream.example/webhook",
+      RELAY_TOKEN: "dash-token",
+    };
     const req = createRequest({
       method: "POST",
       url: "https://relay.example.workers.dev/",
@@ -207,6 +220,7 @@ describe("Cloudflare worker DISCOVERY_SECRET injection", () => {
     const worker = await loadWorker();
     const env = {
       TARGET_URL: "https://upstream.example/webhook",
+      RELAY_TOKEN: "dash-token",
       DISCOVERY_SECRET: "secret",
     };
     const req = createRequest({
