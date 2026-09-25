@@ -379,3 +379,35 @@ All seven commands exited 0. Unit: 3086 tests, 3085 pass, 0 fail, 1 todo.
       37 passed (1.0m)
     EXIT 0
 ```
+
+## Verification · floor (A-C3-r1)
+
+Independent Opus verifier, 2026-09-25, branch `feat/ux01-system` at `bb71664`. Every command ran in order from the worktree root; nothing was retried, filtered, or skipped. Logs: `~/Job-Bored.worktrees/.ux01-run/A-C3-r1-floor/<n>.log`.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | lint:tokens 35 sheets, 0 new findings, 0 brace errors |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | tsc --noEmit clean |
+| 3 | `npm test` | PASS (exit 0) | 3086 tests, 3085 pass, 0 fail, 0 skipped, 1 todo |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | 12 OK checks, 0 failures |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 13 passed |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed |
+
+Green: yes. Flaky: none.
+
+Worth noting: the one `todo` in `npm test` is `tests/submission-record-audit.test.mjs:17` ("persists and can remove the canonical submission evidence record", marked `# blocked on the canonical-ownership gate`). The test asserts at line 78 and fails; node lists it under "failing tests" but does not count todos, so it reports `fail 0`.
+
+```
+ℹ tests 3086
+ℹ pass 3085
+ℹ fail 0
+ℹ skipped 0
+ℹ todo 1
+EXIT 0
+```
+```
+  11 passed (15.6s)   # e2e-smoke
+  13 passed (23.2s)   # e2e-journey
+  37 passed (1.0m)    # e2e-visual
+```
