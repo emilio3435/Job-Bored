@@ -104,6 +104,25 @@ describe("GREENFIELD A1 — the flow refuses to skip past an unmet prerequisite"
     assert.equal(gateNote(env, "ai"), null);
   });
 
+  it("A1-RESUME-SAVED-ENTRY: open() reloads the saved beat after S0 hydrated", async () => {
+    const env = loadArrival();
+    // S0 loads state to label its invitation before a visitor can click it.
+    await env.flow.loadState();
+    // The journey can persist a saved beat after that initial read. Beat 1 is
+    // deliberately incomplete (there is no Sheet); Beat 2 alone admits B3.
+    await env.store.saveOnboardingFlowState({
+      beat: "resume",
+      completedBeats: ["ai"],
+      completed: false,
+    });
+
+    await env.flow.open();
+
+    assert.equal(openBeat(env), "resume", "re-entry must use the current saved beat");
+    assert.deepEqual([...env.flow.getState().completedBeats], ["ai"]);
+    assert.equal(env.flow.getState().completed, false);
+  });
+
   it("A1-S0-FRESH: reconcileStaleCompletion still runs before the gate", async () => {
     // The S0 invitation card calls open() with no argument on an install
     // whose saved beat is "payoff" but whose sheet is gone. The reconcile

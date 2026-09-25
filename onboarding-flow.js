@@ -251,8 +251,8 @@
     return runtime;
   }
 
-  async function hydrate() {
-    if (hydrated) return state;
+  async function hydrate(force = false) {
+    if (hydrated && !force) return state;
     const s = store();
     if (s && typeof s.getOnboardingFlowState === "function") {
       try {
@@ -821,7 +821,11 @@
    * a refresh or a re-entry from the S0 card never restarts the deal.
    */
   async function open(beatId, options) {
-    await hydrate();
+    // S0 reads once to label its invitation, but state may have changed in
+    // storage since that paint (for example, another entry point saved a
+    // beat). Re-read on entry so the saved target and its gate use current
+    // persisted progress instead of the old in-memory snapshot.
+    await hydrate(true);
     // Entering re-checks the sheet, not just booting does. maybeStart() runs
     // only inside the post-sign-in bootstrap, which a user with no sheet never
     // reaches — while the S0 invitation card calls open() directly. Without
