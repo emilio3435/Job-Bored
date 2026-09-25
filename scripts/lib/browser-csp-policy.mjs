@@ -44,7 +44,12 @@ export const REQUIRED_CONNECT_SRC = Object.freeze([
   "https://*.ngrok.io",
 ]);
 
-export const REQUIRED_STYLE_SRC = Object.freeze(["'self'", "'unsafe-inline'"]);
+export const REQUIRED_STYLE_SRC = Object.freeze([
+  "'self'",
+  "'unsafe-inline'",
+  // BEAUDIT G10: the Google Identity Services button loads its stylesheet.
+  "https://accounts.google.com/gsi/style",
+]);
 export const REQUIRED_IMG_SRC = Object.freeze(["'self'", "data:", "https:"]);
 export const REQUIRED_FONT_SRC = Object.freeze([
   "'self'",
@@ -100,4 +105,25 @@ export function buildContentSecurityPolicy(options = {}) {
     `frame-src ${REQUIRED_FRAME_SRC.join(" ")}`,
     "frame-ancestors 'none'",
   ].join("; ");
+}
+
+/**
+ * BEAUDIT G10: origins the local config.js points the browser at
+ * (jobBoredApiUrl, resumeLocalBaseUrl, custom AI base URLs, ...). Reads
+ * string literals assigned to keys ending in "Url" and keeps only http(s)
+ * origins, in order, without duplicates.
+ *
+ * @param {unknown} configText
+ * @returns {string[]}
+ */
+export function extractConfigConnectOrigins(configText) {
+  const text = String(configText || "");
+  const origins = [];
+  const pattern = /\b[A-Za-z0-9_]*Url\s*:\s*(["'`])([^"'`\n]*)\1/g;
+  let match;
+  while ((match = pattern.exec(text))) {
+    const origin = originForConnectSrc(match[2]);
+    if (origin && !origins.includes(origin)) origins.push(origin);
+  }
+  return origins;
 }
