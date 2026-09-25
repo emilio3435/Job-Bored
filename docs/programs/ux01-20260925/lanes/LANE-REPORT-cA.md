@@ -135,3 +135,40 @@ npm run test:e2e-smoke     exit 0  20 passed (18.3s)  (19 before, plus the expec
 npm run test:e2e-journey   exit 0  25 passed (27.6s)
 npm run test:e2e-visual    exit 0  37 passed (59.2s)  (no baseline refreshed)
 ```
+
+## Verification · floor (cA-r2)
+
+Independent verifier (fresh Opus context, not the author). HEAD `01d938ca`. Logs: `~/Job-Bored.worktrees/.ux01-run/cA-r2/`. All 7 commands ran in order with no filter, shard, grep, baseline update or retry. **Verdict: green.**
+
+| Command | Exit | Result |
+|---|---|---|
+| `npm run lint:repo` | 0 | eslint clean; skills OK; `lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)` |
+| `npm run typecheck:repo` | 0 | both tsc projects clean; every `node --check` passed |
+| `npm test` | 0 | tests 3065 · pass 3064 · fail 0 · cancelled 0 · skipped 0 · todo 1 |
+| `npm run test:contract:all` | 0 | 6 contract scripts, 12 OK lines, 0 FAIL |
+| `npm run test:e2e-smoke` | 0 | 20 passed (18.9s); test 20 (DS-08 gate) is `test.fail` and failed as expected |
+| `npm run test:e2e-journey` | 0 | 25 passed (29.5s) |
+| `npm run test:e2e-visual` | 0 | 37 passed (59.9s) |
+
+Notes:
+- The single `npm test` todo is `tests/submission-record-audit.test.mjs:78`, "persists and can remove the canonical submission evidence record" (`# blocked on the canonical-ownership gate`). It prints `✖` and an `AssertionError` in the log but is counted as todo, not a failure. It predates this lane.
+- Smoke test 20, `pipeline-rendered-event.spec.mjs:128` "v2: the boot builds no legacy pipeline nodes (DS-08 gate)", shows `✘` and counts as passed because it is pinned `test.fail(true, …)`. The DS-08 gate itself is still unlanded (blocked outside lane cA, see Fix round 1).
+- Flaky: none. No spec needed a re-run.
+
+Tails:
+
+```
+[npm test]
+ℹ tests 3065
+ℹ suites 739
+ℹ pass 3064
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+[test:contract:all]  OK integrations/openclaw-command-center/SKILL.md  EXIT=0
+[test:e2e-smoke]     ✘ 20 pipeline-rendered-event.spec.mjs:128 (expected-fail) · 20 passed (18.9s)
+[test:e2e-journey]   25 passed (29.5s)
+[test:e2e-visual]    37 passed (59.9s)
+[lint:repo]          lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)
+```
