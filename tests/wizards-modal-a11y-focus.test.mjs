@@ -90,7 +90,7 @@ describe("settings modal — focus + inert + Escape", () => {
 });
 
 describe("accessible names — Beat 1's OAuth Client ID input", () => {
-  it("carries aria-label='Google OAuth Client ID'", () => {
+  it("carries aria-label='Your Google app key (Client ID)'", () => {
     // The login gate used to ship TWO of these inputs, in its own
     // create-a-Client-ID sub-wizard. §7 deleted that surface; Beat 1 owns
     // the step, and it builds its input in JS rather than markup.
@@ -98,7 +98,7 @@ describe("accessible names — Beat 1's OAuth Client ID input", () => {
       join(repoRoot, "oneflow-beat-google.js"),
       "utf8",
     );
-    assert.match(beat, /"aria-label": "Google OAuth Client ID"/);
+    assert.match(beat, /"aria-label": "Your Google app key \(Client ID\)"/);
   });
 });
 

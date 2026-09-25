@@ -634,6 +634,56 @@ function setDiscoveryReadinessChip(state, label) {
   chip.textContent = label || "";
 }
 
+/**
+ * UX01 C8 (FD-04): with no search set up, the drawer used to let a
+ * stranger fill every field and press a green Run discovery — and only
+ * then show an 8-step wizard. The footer now says what the click costs
+ * ("Set up (~3 min)") and offers adding a job from a link instead.
+ */
+const DRAWER_SETUP_REASONS = new Set([
+  "not_configured",
+  "setup_incomplete",
+  "webhook_cleared",
+]);
+const DRAWER_RUN_LABEL = "Run discovery";
+const DRAWER_SETUP_LABEL = "Set up (~3 min)";
+
+function drawerNeedsSetup(classified) {
+  return !!(classified && DRAWER_SETUP_REASONS.has(classified.reason));
+}
+
+function syncDiscoveryDrawerFooter(classified) {
+  const needsSetup = drawerNeedsSetup(classified);
+  const btn = document.getElementById("discoveryPrefsRun");
+  if (btn) {
+    btn.dataset.mode = needsSetup ? "setup" : "run";
+    btn.textContent = needsSetup ? DRAWER_SETUP_LABEL : DRAWER_RUN_LABEL;
+  }
+  const hint = document.getElementById("discoveryDrawerSetupHint");
+  if (hint) hint.hidden = !needsSetup;
+}
+
+function openSetupFromDrawer() {
+  const viaHost = host().openDiscoverySetupWizard;
+  const wizard = window.JobBoredDiscoveryWizard;
+  const viaUi = wizard && wizard.ui && wizard.ui.openSetupWizard;
+  const open = typeof viaHost === "function" ? viaHost : viaUi;
+  if (typeof open === "function") open({ entryPoint: "discovery_drawer" });
+}
+
+function openAddJobInstead() {
+  closeDiscoveryDrawer();
+  const ingest = window.JobBoredIngest;
+  if (ingest && typeof ingest.openManual === "function") {
+    ingest.openManual({ source: "discovery_drawer" });
+    return;
+  }
+  const legacy = window.JobBored;
+  if (legacy && typeof legacy.openIngestManualFallback === "function") {
+    legacy.openIngestManualFallback("", {});
+  }
+}
+
 function refreshDiscoveryDrawerStatusChip() {
   try {
     const snap = h("getDiscoveryReadinessSnapshot", ) || {};
@@ -657,6 +707,7 @@ function refreshDiscoveryDrawerStatusChip() {
       savedEngineState && savedEngineState.lastCheckedAt,
     );
     setDiscoveryReadinessChip(classified.level, classified.label);
+    syncDiscoveryDrawerFooter(classified);
   } catch (_) {
     setDiscoveryReadinessChip("unknown", "Checking setup…");
   }
@@ -1484,6 +1535,9 @@ function initDiscoveryDrawer() {
   const runBtn = document.getElementById("discoveryPrefsRun");
   if (!drawer) return;
 
+  const addInstead = document.getElementById("discoveryDrawerAddInstead");
+  if (addInstead) addInstead.addEventListener("click", openAddJobInstead);
+
   // Close on backdrop, close button, cancel button, or any data-action="close-discovery-drawer"
   drawer.addEventListener("click", (e) => {
     const target = e.target;
@@ -1497,7 +1551,14 @@ function initDiscoveryDrawer() {
   });
 
   document.addEventListener("keydown", (e) => {
-    if (e.key === "Escape" && isDiscoveryDrawerOpen()) closeDiscoveryDrawer();
+    if (e.key !== "Escape" || !isDiscoveryDrawerOpen()) return;
+    // UX01 C8 (FD-20): Esc closes the coachmark first, not the whole drawer.
+    const coach = window.JobBoredDiscoveryCoach;
+    if (coach && typeof coach.isActive === "function" && coach.isActive()) {
+      coach.dismiss();
+      return;
+    }
+    closeDiscoveryDrawer();
   });
 
   /* ---- First-run coach: "?" button restarts the walkthrough ---- */
@@ -1688,6 +1749,11 @@ function initDiscoveryDrawer() {
   /* ---- Run discovery (saves drawer fields, dispatches webhook) ---- */
   if (runBtn) {
     runBtn.addEventListener("click", async () => {
+      if (runBtn.dataset.mode === "setup") {
+        closeDiscoveryDrawer();
+        openSetupFromDrawer();
+        return;
+      }
       const UC = window.CommandCenterUserContent;
       const val = (id) => {
         const el = document.getElementById(id);
@@ -1892,6 +1958,7 @@ function initDiscoveryButton() {
 }
 
   Object.assign(drawer, {
+    syncDiscoveryDrawerFooter,
     openDiscoveryDrawer,
     closeDiscoveryDrawer,
     isDiscoveryDrawerOpen,

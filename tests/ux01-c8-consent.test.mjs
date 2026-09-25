@@ -142,3 +142,121 @@ describe("C8 · every owned host-mutation site asks first (source pins)", () => 
     assert.match(src, /recoverIfPossible\(\{\s*allowRecover: false,\s*\}\)/);
   });
 });
+
+function loadWizardUiBare() {
+  const window = {};
+  const ctx = {
+    window,
+    document: {
+      createElement: () => ({ appendChild() {}, setAttribute() {}, style: {} }),
+      body: { appendChild() {}, removeChild() {} },
+    },
+    console,
+    setTimeout,
+    clearTimeout,
+    URL,
+  };
+  vm.createContext(ctx);
+  vm.runInContext(readRepoFile("discovery-wizard-ui.js"), ctx, {
+    filename: "discovery-wizard-ui.js",
+  });
+  return window.JobBoredDiscoveryWizard.ui;
+}
+
+describe("C8 · the wizard preselects the Recommended path (FD-05)", () => {
+  const base = {
+    entryPoint: "manual",
+    flowOption: null,
+    startStepOption: null,
+    mapFlow: (f) => f,
+    getStepIds: () => ["detect", "path_select", "existing_endpoint", "verify", "ready"],
+  };
+
+  it("a stale saved flow on the choose step yields to the recommendation", () => {
+    const ui = loadWizardUiBare();
+    const entry = ui._internal.resolveDiscoveryWizardEntry({
+      ...base,
+      savedState: { flow: "local_agent", currentStep: "path_select" },
+      snapshot: { localRecoveryState: "ok", recommendedFlow: "external_endpoint" },
+    });
+    assert.equal(entry.flow, "external_endpoint");
+  });
+
+  it("a flow the user chose and moved past still resumes", () => {
+    const ui = loadWizardUiBare();
+    const entry = ui._internal.resolveDiscoveryWizardEntry({
+      ...base,
+      savedState: { flow: "local_agent", currentStep: "bootstrap" },
+      snapshot: { localRecoveryState: "ok", recommendedFlow: "external_endpoint" },
+    });
+    assert.equal(entry.flow, "local_agent");
+  });
+});
+
+describe("C8 · the wizard rail names outcomes, not infrastructure (FD-06)", () => {
+  it("drops STATUS/PATH/CONFIG/SERVER/TUNNEL/RELAY/TEST from the rail", () => {
+    const src = readRepoFile("discovery-wizard-ui.js");
+    for (const word of ["Status", "Path", "Config", "Server", "Tunnel", "Relay", "Test"]) {
+      assert.ok(
+        !new RegExp(`^\\s{4,6}label: "${word}",$`, "m").test(src),
+        `rail label "${word}" should be an outcome word`,
+      );
+    }
+    assert.ok(!src.includes("with no terminal step"), "no false 'no terminal' claim");
+  });
+});
+
+describe("C8 · the drawer footer names the setup cost (FD-04)", () => {
+  function loadDrawer() {
+    const els = new Map();
+    const make = (id) => {
+      const el = { id, dataset: {}, hidden: true, textContent: "Run discovery" };
+      els.set(id, el);
+      return el;
+    };
+    make("discoveryPrefsRun");
+    make("discoveryDrawerSetupHint");
+    const ctx = {
+      window: {},
+      document: { getElementById: (id) => els.get(id) || null },
+      console: { log() {}, warn() {}, error() {} },
+    };
+    vm.createContext(ctx);
+    vm.runInContext(readRepoFile("discovery-drawer.js"), ctx, {
+      filename: "discovery-drawer.js",
+    });
+    return { drawer: ctx.window.JobBoredDiscovery.drawer, els };
+  }
+
+  it("says 'Set up (~3 min)' and shows the add-a-link escape when not set up", () => {
+    const { drawer, els } = loadDrawer();
+    drawer.syncDiscoveryDrawerFooter({ level: "blocked", reason: "not_configured" });
+    assert.equal(els.get("discoveryPrefsRun").textContent, "Set up (~3 min)");
+    assert.equal(els.get("discoveryPrefsRun").dataset.mode, "setup");
+    assert.equal(els.get("discoveryDrawerSetupHint").hidden, false);
+  });
+
+  it("keeps 'Run discovery' once search is set up", () => {
+    const { drawer, els } = loadDrawer();
+    drawer.syncDiscoveryDrawerFooter({ level: "verified", reason: "endpoint_verified" });
+    assert.equal(els.get("discoveryPrefsRun").textContent, "Run discovery");
+    assert.equal(els.get("discoveryDrawerSetupHint").hidden, true);
+  });
+
+  it("ships the hint with an 'Add a job from a link instead' action", () => {
+    const html = readRepoFile("partials/discovery-drawer.html");
+    assert.match(html, /id="discoveryDrawerSetupHint"/);
+    assert.match(html, /Add a job from a link instead/);
+  });
+});
+
+describe("C8 · the coach stops giving transport advice (FD-20)", () => {
+  it("drops the Cloudflare recommendation", () => {
+    assert.ok(!readRepoFile("discovery-coach.js").includes("Cloudflare"));
+  });
+
+  it("Esc dismisses the coachmark before it closes the drawer", () => {
+    const src = readRepoFile("discovery-drawer.js");
+    assert.match(src, /coach\.isActive\(\)\) \{\s*coach\.dismiss\(\);\s*return;/);
+  });
+});
