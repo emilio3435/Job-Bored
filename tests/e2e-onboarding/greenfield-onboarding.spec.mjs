@@ -490,7 +490,8 @@ async function stageHarnessAuth(page) {
   // Lane C's Beat 1 detour is the ONLY visible route to a Client ID on a
   // fresh install, and lane F made saving one run the first-time GIS init.
   const detour = page.locator("#oneFlowMount details.oneflow-google__detour");
-  await detour.locator("summary").click();
+  // The detour nests C7's "Having trouble?" details; open the detour itself.
+  await detour.locator("summary.oneflow-google__detour-summary").click();
   await page.locator("#oneFlowOauthClientIdInput").fill(CLIENT_ID);
   await page.getByRole("button", { name: "Save Client ID" }).click();
   await expect(
@@ -547,7 +548,7 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   const openrouter = beat(page, "ai").locator('[data-provider="openrouter"]');
   await expect(openrouter).toHaveAttribute("aria-pressed", "true");
   await beat(page, "ai")
-    .getByLabel("OpenRouter — free API key")
+    .getByLabel("OpenRouter API key")
     .fill(OPENROUTER_KEY);
   await page.getByRole("button", { name: "Check & continue" }).click();
   await expect(beat(page, "resume")).toBeVisible();
