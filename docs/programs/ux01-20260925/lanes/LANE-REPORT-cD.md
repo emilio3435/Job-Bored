@@ -76,3 +76,43 @@ journey=0
   37 passed (1.0m)
 visual=0
 ```
+
+## Verification · floor (cD-r1)
+
+Verifier: fresh Opus context, independent of the author. HEAD `2791eae8` on `feat/ux01-cleanup-board`, clean tree. Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/cD-r1/`. No retries needed, no flaky specs, nothing skipped or filtered.
+
+| Command | Result | Counts |
+|---|---|---|
+| `npm run lint:repo` | pass (exit 0) | lint:tokens 34 sheets, 0 new findings, 0 brace errors |
+| `npm run typecheck:repo` | pass (exit 0) | tsc --noEmit clean |
+| `npm test` | pass (exit 0) | 3069 tests / 739 suites: 3068 pass, 0 fail, 0 cancelled, 0 skipped, 1 todo |
+| `npm run test:contract:all` | pass (exit 0) | 12 OK lines, 0 FAIL |
+| `npm run test:e2e-smoke` | pass (exit 0) | 17 passed |
+| `npm run test:e2e-journey` | pass (exit 0) | 25 passed |
+| `npm run test:e2e-visual` | pass (exit 0) | 37 passed |
+
+Note: the one todo is `tests/submission-record-audit.test.mjs:17` ("persists and can remove the canonical submission evidence record"), which is marked todo as "blocked on the canonical-ownership gate". The runner prints it under "failing tests" but it does not count toward fail.
+
+### Tails
+
+```
+# npm test
+ℹ tests 3069
+ℹ suites 739
+ℹ pass 3068
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 14389.674459
+# contract
+
+OK integrations/openclaw-command-center/SKILL.md
+exit 0
+# smoke
+  17 passed (17.9s)
+# journey
+  25 passed (29.7s)
+# visual
+  37 passed (1.0m)
+```
