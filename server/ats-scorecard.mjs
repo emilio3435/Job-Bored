@@ -140,6 +140,25 @@ const POSTING_KEEP_HEADING =
   /^(?:#+\s*)?(?:\*\*)?\s*(?:(?:basic|minimum|preferred|key|core|required)\s+)?(?:requirements?|qualifications?|responsibilities|about (?:the|this) (?:role|position|team|job|opportunity)|what you(?:'|\u2019)?ll (?:do|need|bring)|what we(?:'|\u2019)?re looking for|who you are|about you|you (?:have|bring|will)|must[- ]haves?|nice[- ]to[- ]haves?|skills|experience|the role|your role|duties|tech(?:nical)? stack|tools)\b[^\n]{0,40}$/i;
 const POSTING_DROP_HEADING =
   /^(?:#+\s*)?(?:\*\*)?\s*(?:about (?:us|(?:the|our) company|(?!(?:the|this|our|your|you|a|an)\b)[A-Z][\w&.-]*)|benefits|perks|compensation|salary|pay (?:range|transparency)|what we offer|why (?:join|work)|equal (?:employment )?opportunity|eeo|our (?:values|mission|culture)|life at|how to apply|privacy)\b[^\n]{0,40}$/i;
+// A line shaped like a heading that neither list recognises ("Job Summary",
+// "## Eligibility", "**Security Clearance**", "Eligibility:"). It ends a
+// boilerplate section, so the text under it is not dropped with the
+// boilerplate. Sentences, bullets and punctuated lines never match.
+const POSTING_MARKDOWN_HEADING = /^(?:#{1,6}\s+\S|\*\*[^*\n]+\*\*:?$)/;
+const POSTING_COLON_HEADING = /^[A-Za-z][^.!?;:\n]{0,58}:$/;
+const POSTING_TITLE_MINOR_WORDS = new Set([
+  "a", "an", "and", "at", "for", "in", "of", "on", "or", "the", "to", "with", "&", "/", "-",
+]);
+/** @param {string} line */
+function isGenericPostingHeading(line) {
+  if (line.length > 60) return false;
+  if (POSTING_MARKDOWN_HEADING.test(line)) return true;
+  if (POSTING_COLON_HEADING.test(line)) return line.split(/\s+/).length <= 8;
+  if (/[.!?,;]$/.test(line) || !/^[A-Z]/.test(line)) return false;
+  const words = line.split(/\s+/);
+  if (words.length > 6) return false;
+  return words.every((w) => /^[A-Z0-9]/.test(w) || POSTING_TITLE_MINOR_WORDS.has(w.toLowerCase()));
+}
 const POSTING_TRIMMED_MAX = 4000;
 const POSTING_FALLBACK_MAX = 3000;
 /** E18: one budget for every optional profile excerpt in the ATS prompt. */
@@ -157,7 +176,7 @@ export function trimPostingToRequirements(description) {
   // "keep": under a requirements-like heading. "neutral": before the first
   // heading or under a heading neither list recognises (e.g. "Job Summary"),
   // which often carries clearance or citizenship requirements. "drop":
-  // under a boilerplate heading.
+  // under a boilerplate heading, until the next heading of any kind.
   /** @type {"keep" | "neutral" | "drop"} */
   let section = "neutral";
   let sawHeading = false;
@@ -169,6 +188,10 @@ export function trimPostingToRequirements(description) {
       sawHeading = true;
     } else if (short && POSTING_DROP_HEADING.test(line)) {
       section = "drop";
+    } else if (section === "drop" && short && isGenericPostingHeading(line)) {
+      // A boilerplate section ends at the next heading, recognised or not.
+      // Unrecognised sub-headings under a requirement section stay "keep".
+      section = "neutral";
     }
     if (section !== "drop" && line) lines.push({ line, keep: section === "keep" });
   }
