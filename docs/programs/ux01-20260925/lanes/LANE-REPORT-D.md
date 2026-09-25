@@ -135,3 +135,43 @@ exit 0
 ```
 
 The one `todo` is the existing `tests/submission-record-audit.test.mjs` gate ("blocked on the canonical-ownership gate"), unchanged by this lane.
+
+## Verification · floor (D-r1)
+
+Verifier: fresh Opus context (independent of the lane author), 2026-09-25, HEAD 27f46ca. Logs: `Job-Bored.worktrees/.ux01-run/D-r1-floor/<n>.log`. No retries, no flaky specs. **Green: 7/7.**
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | npm run lint:repo | PASS (exit 0) | eslint clean; skills lint OK |
+| 2 | npm run typecheck:repo | PASS (exit 0) | tsc browser-use-discovery + server clean; all node --check OK |
+| 3 | npm test | PASS (exit 0) | 3075 tests: 3074 pass, 0 fail, 0 skipped, 1 todo |
+| 4 | npm run test:contract:all | PASS (exit 0) | 12 OK lines, 0 FAIL |
+| 5 | npm run test:e2e-smoke | PASS (exit 0) | 15 passed |
+| 6 | npm run test:e2e-journey | PASS (exit 0) | 13 passed |
+| 7 | npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Note: the only ✖ in `npm test` is the `todo` test `tests/submission-record-audit.test.mjs:17` ("blocked on the canonical-ownership gate"). It dates from #75 on main, not this branch, and node does not count it as a failure.
+
+Tails:
+
+```
+ℹ tests 3075
+ℹ suites 746
+ℹ pass 3074
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 14101.216583
+
+---
+
+  15 passed (17.8s)
+EXIT=0
+
+  13 passed (20.7s)
+EXIT=0
+
+  37 passed (1.0m)
+EXIT=0
+```
