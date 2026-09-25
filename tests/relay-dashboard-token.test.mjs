@@ -191,13 +191,14 @@ test("relay fetch passes non-relay requests through untouched", async () => {
   assert.equal(requests[0].init.headers.Authorization, undefined);
 });
 
-// Browser call sites that POST to the relay. discovery-status-handoff.js
-// (run-status GET poll headers) is outside lane R's fence; see the report.
+// Browser call sites that call the relay, including the run-status GET poll
+// in discovery-status-handoff.js (behavior pinned in relay-status-poll-auth).
 const CALL_SITES = [
   "discovery-wizard-verify.js",
   "settings-profile-tab.js",
   "ingest-url-flow.js",
   "expired-review-ui.js",
+  "discovery-status-handoff.js",
 ];
 for (const file of CALL_SITES) {
   test(`${file} sends its relay requests through JobBoredRelayAuth.fetch`, () => {
