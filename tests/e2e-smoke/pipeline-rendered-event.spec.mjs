@@ -117,3 +117,25 @@ test("?jb-v2=0 still renders the legacy board and announces it", async ({ page }
 
   expect(fence.unexpectedExternal).toEqual([]);
 });
+
+// DS-08 gate proof. Expected to fail until the legacy renderer stops building
+// #jobCards under body.jb-v2. That gate is blocked outside lane cA: dawn-data.js
+// (jobsFromCards, getPipelineViewModel), flowing-store.js lookupJobMeta and
+// pipeline.js still read the legacy .kanban-card nodes, so gating today blanks
+// the v2 views. Whoever lands the gate removes `test.fail` and this goes green;
+// until then Playwright reports "expected to fail", and it turns red the moment
+// the gate lands without the marker being removed.
+test("v2: the boot builds no legacy pipeline nodes (DS-08 gate)", async ({ page }) => {
+  test.fail(true, "DS-08 gate blocked on dawn-data.js moving to getPipelineJobs() (lane cA handoff)");
+  const fence = await boot(page, "/?greenfield=1");
+  expect(await page.evaluate(() => document.body.classList.contains("jb-v2"))).toBe(true);
+
+  await seed(page, THREE);
+  // The v2 board must still show every row once the gate lands.
+  await expect(page.locator('[data-region="pipeline"] .pipe-sticker[data-stable-key]')).toHaveCount(3);
+  expect(await page.evaluate(() => window.__jbRendered)).toEqual([3]);
+  expect(fence.unexpectedExternal).toEqual([]);
+
+  // The gate itself: no legacy card nodes under v2.
+  expect(await page.locator("#jobCards .kanban-card").count()).toBe(0);
+});
