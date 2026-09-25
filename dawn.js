@@ -156,7 +156,11 @@
     if (!leads.length) {
       return [
         '<section class="brief-leads-section brief-leads-section--empty">',
-        '  <p class="brief-leads-empty">No active roles to lead with today. Run discovery, or add a role manually.</p>',
+        '  <p class="brief-leads-empty">No active roles to lead with today.</p>',
+        '  <div class="brief-leads-empty__acts">',
+        '    <button type="button" class="brief-btn brief-btn--primary" data-brief-empty="url">Add a job from a link</button>',
+        '    <button type="button" class="brief-btn" data-brief-empty="discovery">Run discovery</button>',
+        '  </div>',
         '</section>',
       ].join("");
     }
@@ -190,7 +194,7 @@
     return [
       '<section class="brief-leads-section" data-leads-stepper aria-roledescription="carousel" aria-label="Daily Brief leads" tabindex="0">',
       '  <div class="brief-leads-head">',
-      '    <h2 class="brief-leads-title">Lead with these <span class="brief-leads-title__after">— ranked by fit</span></h2>',
+      '    <h2 class="brief-leads-title">Lead with these <span class="brief-leads-title__after">— next step first, then fit</span></h2>',
       '    <div class="brief-leads-nav" role="group" aria-label="Step through leads">',
       '      <button type="button" class="brief-leads-nav__btn brief-leads-nav__btn--prev" data-leads-step="prev" aria-label="Previous lead">‹</button>',
       '      <span class="brief-leads-nav__counter" data-leads-counter aria-live="polite">', counterLabel, '</span>',
@@ -240,7 +244,7 @@
 
   function funnelRowBriefHtml(row) {
     var stageAttr = row.kind === "phone_screen" ? "phone-screen" : (row.kind === "interview" ? "interviewing" : row.kind);
-    var ariaLabel = (row.label || "") + " " + (row.count || 0) + " in the last 30 days";
+    var ariaLabel = (row.label || "") + " " + (row.count || 0) + " in stage now";
     return [
       '<button type="button" class="brief-funnel__row" data-stage="', escapeHtml(stageAttr), '" data-kind="', escapeHtml(row.kind), '" aria-label="', escapeHtml(ariaLabel), '">',
       '  <div class="brief-funnel__label">', escapeHtml(row.label || ""), '</div>',
@@ -279,13 +283,13 @@
       '  </div>',
       '  <aside class="brief-main__right">',
       '    <div class="brief-card brief-stats-card">',
-      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS · LAST 30 DAYS</div>',
+      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS</div>',
       '      <div class="brief-stats-grid">',
       stats.map(statHtml).join(""),
       '      </div>',
       '    </div>',
       '    <div class="brief-card brief-funnel-card">',
-      '      <div class="brief-funnel-card__title">FUNNEL · LAST 30 DAYS</div>',
+      '      <div class="brief-funnel-card__title">PIPELINE · IN STAGE NOW</div>',
       funnel30.map(funnelRowBriefHtml).join(""),
       '    </div>',
       '  </aside>',
@@ -380,6 +384,24 @@
     region.__dawnBound = true;
 
     region.addEventListener("click", function (e) {
+      // Empty-state actions (C5 · MP-06): the Brief's empty card carries
+      // the way in instead of telling the user to find one.
+      var emptyBtn = e.target.closest('[data-brief-empty]');
+      if (emptyBtn) {
+        e.preventDefault();
+        var which = emptyBtn.getAttribute('data-brief-empty');
+        var add = root.JobBoredFlowing && root.JobBoredFlowing.addJob;
+        if (which === "discovery") {
+          if (add && typeof add.runDiscovery === "function") add.runDiscovery();
+          else {
+            var disc = document.getElementById("discoveryBtn");
+            if (disc) disc.click();
+          }
+        } else if (add && typeof add.openUrl === "function") {
+          add.openUrl();
+        }
+        return;
+      }
       // Stepper chevrons.
       var stepBtn = e.target.closest('[data-leads-step]');
       if (stepBtn) {

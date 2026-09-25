@@ -42,3 +42,15 @@ it("renders the compact card variant with Unknown preserved", () => {
   assert.doesNotMatch(mount.innerHTML, /undefined|null/);
   assert.match(mount.innerHTML, /Find a recruiter contact/);
 });
+
+it("should say the one engine's next step when Today has one for the row (TR-14)", () => {
+  const win = {
+    JobBored: { getPipelineJobs: () => [{ title: "FE", company: "Orbital", status: "Interviewing", responseFlag: "Yes" }] },
+  };
+  const ctx = { window: win, Date, Number, Object, String, Array, Math, isFinite, console };
+  vm.runInNewContext(readFileSync(join(repoRoot, "today-data.js"), "utf8"), ctx);
+  vm.runInNewContext(readFileSync(sourcePath, "utf8"), ctx);
+  const mount = { innerHTML: "" };
+  win.JobBoredRecruiterStrip.renderCompact(mount, { jobKey: "0", contact: "Dev", followUpDate: "2026-09-27", replied: "Yes" });
+  assert.match(mount.innerHTML, /Next action<\/span><span class="jb-recruiter-strip__value">They replied — you owe an answer</);
+});
