@@ -183,6 +183,71 @@
     return null;
   }
 
+  /* UX01 C20 / MP-07: the follow-up date only reaches a person who closed
+     the tab if it is in their own calendar. Today's engine owns the RFC 5545
+     builder; this flow feature-detects it and hands the file over as a
+     download, so any OS calendar can open it. */
+  function icsBuilder() {
+    var today = root.JobBoredToday;
+    var data = today && today.data;
+    return data && typeof data.buildIcs === "function" ? data.buildIcs : null;
+  }
+
+  function isIsoDate(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(text(value));
+  }
+
+  function slug(value) {
+    return String(value || "role").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "role";
+  }
+
+  function downloadFollowUpIcs(jobKey, job, evidence) {
+    var build = icsBuilder();
+    if (!build) return false;
+    var ics = build({
+      date: evidence.followUpDate,
+      title: job && text(job.title),
+      company: job && text(job.company),
+      jobKey: jobKey == null ? "" : String(jobKey),
+      summary: "Follow up",
+      description: "Applied " + evidence.appliedDate + " via " + evidence.source + ".",
+      url: job && text(job.link || job.url),
+    });
+    var URLApi = root.URL;
+    if (!ics || typeof Blob !== "function" || !URLApi || typeof URLApi.createObjectURL !== "function" ||
+        typeof document === "undefined" || !document.createElement || !document.body) {
+      return false;
+    }
+    var href = URLApi.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    var a = document.createElement("a");
+    a.href = href;
+    a.download = "jobbored-" + slug(job && job.company) + "-follow-up.ics";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      if (typeof URLApi.revokeObjectURL === "function") URLApi.revokeObjectURL(href);
+    }, 0);
+    return true;
+  }
+
+  function offerCalendar(a11y, jobKey, job, evidence) {
+    if (!icsBuilder() || !isIsoDate(evidence.followUpDate)) return;
+    var message = "Follow up with " + ((job && text(job.company)) || roleName(job)) +
+      " on " + evidence.followUpDate + ".";
+    var action = {
+      label: "Add to calendar",
+      onClick: function () { return downloadFollowUpIcs(jobKey, job, evidence); },
+    };
+    if (a11y && typeof a11y.toast === "function") {
+      a11y.toast(message, "info", { action: action, persistent: true });
+      return;
+    }
+    var fallback = host().showToast;
+    if (typeof fallback === "function") fallback(message, "info", true, action);
+  }
+
   function jobFor(jobKey) {
     var api = root.JobBored;
     try {
@@ -383,6 +448,7 @@
         ? { label: "Undo", onClick: function () { return written.undo(); } }
         : null,
     );
+    offerCalendar(a11y, jobKey, job, evidence);
     return { confirmed: true, evidence: evidence, result: written };
   }
 

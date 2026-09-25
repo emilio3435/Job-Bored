@@ -123,7 +123,7 @@ body.jb-v2 [data-region="pipeline"] .pipe-tool__chip:hover {
 body.jb-v2 [data-region="pipeline"] .pipe-tool__chip[aria-pressed="true"] {
   background: var(--jb-mint);
   border-color: var(--jb-mint-deep);
-  color: var(--jb-ink-inverse);
+  color: var(--jb-on-accent);
 }
 
 body.jb-v2 [data-region="pipeline"] .pipe-tool__chip--filter[aria-pressed="true"] {

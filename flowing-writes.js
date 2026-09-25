@@ -106,6 +106,15 @@
     return u.trim().toLowerCase();
   }
 
+  /**
+   * UX01 C20: a jobKey / dataIndex of numeric 0 is a real key (the first
+   * pipelineData row). Only null, undefined and "" count as missing.
+   * @param {any} key
+   */
+  function isMissingKey(key) {
+    return key == null || key === "";
+  }
+
   function toSheetRowNumber(value) {
     if (typeof value === "number" && Number.isFinite(value) && value >= 2) {
       return Math.floor(value);
@@ -230,7 +239,7 @@
   }
 
   function findCardsForJobKey(jobKey) {
-    if (!jobKey || typeof document === "undefined" || !document.querySelector) return [];
+    if (isMissingKey(jobKey) || typeof document === "undefined" || !document.querySelector) return [];
     var sel = "[data-stable-key=\"" + String(jobKey).replace(/"/g, "\\\"") + "\"]";
     try {
       if (document.querySelectorAll) return document.querySelectorAll(sel) || [];
@@ -316,7 +325,7 @@
    * @returns {Promise<number>} sheet row (>= 2), throws on miss.
    */
   async function resolveSheetRow(jobKey) {
-    if (jobKey == null || jobKey === "") {
+    if (isMissingKey(jobKey)) {
       throw new Error("Missing jobKey");
     }
     // 1) URL match against column E.
@@ -570,7 +579,7 @@
     var jobKey = detail.jobKey;
     var field = detail.field;
     var value = detail.value;
-    if (!jobKey || !field) return;
+    if (isMissingKey(jobKey) || !field) return;
     switch (field) {
       case "stage": return writeStage(jobKey, value);
       case "heardBack": return writeHeardBack(jobKey, value);
