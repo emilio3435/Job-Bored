@@ -60,6 +60,8 @@ For local development also add `http://localhost:8080` and any HTTPS local origi
 
 ## Discovery and relay CORS
 
+> **Hosted mode is unsupported for now.** Running discovery from a Pages-hosted dashboard is not a supported path. The Cloudflare relay rejects anonymous calls with 401: deploy mints a per-dashboard `RELAY_TOKEN`, and only a local dashboard reads it (from `discovery-local-bootstrap.json`) and sends it as `Authorization: Bearer`. The relay forwards only the webhook (`/` or `/webhook`) and `/runs/*`. A Pages origin cannot obtain that token, so a Pages dashboard gets 401 from the relay. Use a local dashboard for discovery until hosted mode ships.
+
 Browser **Run discovery** requires the receiver to allow the Pages origin with CORS and answer preflight `OPTIONS`. If your target cannot do that, put `templates/cloudflare-worker/` in front of it and set `CORS_ORIGIN` to your Pages origin.
 
 Async status polling uses the `statusPath` returned by the discovery response. Preserve that path exactly through browser state and relays, including query parameters. Hosted Browser Use workers put a per-run `statusToken` in `statusPath` so `GET /runs/:runId` can be read by the browser without exposing the full webhook secret.
