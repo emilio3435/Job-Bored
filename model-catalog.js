@@ -89,7 +89,7 @@
    */
   const DEFAULT_MODEL_BY_PROVIDER = Object.freeze({
     openrouter: "openai/gpt-oss-120b:free",
-    gemini: "gemini-3.5-flash",
+    gemini: "gemini-flash",
     openai: "gpt-5.6-terra",
     anthropic: "claude-sonnet-5",
     local: "gemma4:e2b",
@@ -98,26 +98,8 @@
   const STATIC_FALLBACK = {
     gemini: [
       GEMINI_FLASH_OPTION,
-      {
-        value: "gemini-3.5-flash",
-        label: "Gemini 3.5 Flash · Stable",
-        description: "Most intelligent everyday model — recommended default.",
-      },
-      {
-        value: "gemini-3.1-pro-preview",
-        label: "Gemini 3.1 Pro · Preview",
-        description: "Strongest reasoning, higher latency/cost.",
-      },
-      {
-        value: "gemini-3-flash-preview",
-        label: "Gemini 3 Flash · Preview",
-        description: "Fast, economical preview.",
-      },
-      {
-        value: "gemini-3.1-flash-lite-preview",
-        label: "Gemini 3.1 Flash-Lite · Preview",
-        description: "Cheapest/fastest option.",
-      },
+      { value: "gemini-pro", label: "Gemini Pro (latest)", description: "Advanced reasoning family." },
+      { value: "gemini-flash-lite", label: "Gemini Flash Lite (latest)", description: "Cheapest/fastest option." },
     ],
     openai: [
       { value: "gpt-5.4", label: "GPT-5.4" },

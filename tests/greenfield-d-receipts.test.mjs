@@ -40,7 +40,7 @@ const plain = (v) => JSON.parse(JSON.stringify(v));
 
 const EXPECTED_DEFAULTS = {
   openrouter: "openai/gpt-oss-120b:free",
-  gemini: "gemini-3.5-flash",
+  gemini: "gemini-flash",
   openai: "gpt-5.6-terra",
   anthropic: "claude-sonnet-5",
   local: "gemma4:e2b",

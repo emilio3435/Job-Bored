@@ -30,7 +30,12 @@ import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import type { BudgetTracker } from "../run/budget-tracker.ts";
 import { applyRetryBroadeningGate } from "../run/retry-broadening.ts";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
-import { GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
+import { GEMINI_FLASH_FAMILY, GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
+
+function httpGeminiModel(model: string | undefined | null): string {
+  const id = String(model || "").trim();
+  return !id || id === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_FALLBACK : id;
+}
 
 const SEARCH_SYSTEM_PROMPT = [
   "You are a job-discovery agent. Your output feeds an automated pipeline that fetches and parses each URL you return, so stale, gated, or invalid URLs waste the entire run's budget.",
@@ -711,7 +716,7 @@ export function createGroundedSearchClient(
       }
       throwIfAborted(options?.signal);
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || GEMINI_FLASH_FALLBACK)}:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(httpGeminiModel(runtimeConfig.geminiModel))}:generateContent`;
       const tuning = run.config.groundedSearchTuning;
       const ultraPlanTuning = run.config.ultraPlanTuning;
       const multiQueryEnabled = ultraPlanTuning?.multiQueryEnabled ?? false;
@@ -962,7 +967,7 @@ export function createGroundedSearchClient(
       }
       throwIfAborted(signal);
 
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || GEMINI_FLASH_FALLBACK)}:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(httpGeminiModel(runtimeConfig.geminiModel))}:generateContent`;
       const maxResultsPerCompany =
         maxResults ??
         run.config.groundedSearchTuning?.maxResultsPerCompany ??
@@ -1051,7 +1056,7 @@ export function createGroundedSearchClient(
         return [];
       }
       throwIfAborted(signal);
-      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(runtimeConfig.geminiModel || GEMINI_FLASH_FALLBACK)}:generateContent`;
+      const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(httpGeminiModel(runtimeConfig.geminiModel))}:generateContent`;
       const result = await executeGroundedSearchRequest({
         prompt: buildHintResolutionPrompt(candidate, company, run, maxResults ?? DEFAULT_HINT_RESOLUTION_LIMIT),
         company,
@@ -1188,7 +1193,7 @@ export async function collectGroundedWebListings(input: {
     (searchResult.rawText || "").trim().length > 0 &&
     geminiApiKey
   ) {
-    const proseEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || GEMINI_FLASH_FALLBACK)}:generateContent`;
+    const proseEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(httpGeminiModel(input.runtimeConfig.geminiModel))}:generateContent`;
     const proseMaxResults =
       input.run.config.groundedSearchTuning?.maxResultsPerCompany ??
       input.runtimeConfig.groundedSearchMaxResultsPerCompany ??
@@ -1250,7 +1255,7 @@ export async function collectGroundedWebListings(input: {
     effectiveCandidates.length > 0 &&
     geminiApiKey
   ) {
-    const structuringEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(input.runtimeConfig.geminiModel || GEMINI_FLASH_FALLBACK)}:generateContent`;
+    const structuringEndpoint = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(httpGeminiModel(input.runtimeConfig.geminiModel))}:generateContent`;
     const structuringMaxResults =
       input.run.config.groundedSearchTuning?.maxResultsPerCompany ??
       input.runtimeConfig.groundedSearchMaxResultsPerCompany ??

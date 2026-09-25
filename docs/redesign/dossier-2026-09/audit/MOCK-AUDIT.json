@@ -1,0 +1,195 @@
+{
+  "generatedAt": "2026-09-17T18:57:27.491Z",
+  "runs": [
+    {
+      "page": "01-default.html",
+      "mount": "wide",
+      "viewport": 1560,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        212.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "01-default.html",
+      "mount": "wide",
+      "viewport": 1400,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        212.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "drafting",
+      "viewport": 1560,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        236.8,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "drafting",
+      "viewport": 1400,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        236.8,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "failed",
+      "viewport": 1560,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        251.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "03-materials-request.html",
+      "mount": "failed",
+      "viewport": 1400,
+      "frameWidth": 1220,
+      "columns": "736px 352px",
+      "canvasWidth": 736,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        251.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w1024",
+      "viewport": 1100,
+      "frameWidth": 1024,
+      "columns": "586.219px 352px",
+      "canvasWidth": 586.2,
+      "ledgerWidth": 352,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        259,
+        212.6,
+        212.6,
+        212.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w900",
+      "viewport": 1000,
+      "frameWidth": 900,
+      "columns": "851.312px",
+      "canvasWidth": 851.3,
+      "ledgerWidth": 851.3,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        758.3,
+        711.9,
+        711.9,
+        711.9
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w720",
+      "viewport": 800,
+      "frameWidth": 720,
+      "columns": "678px",
+      "canvasWidth": 678,
+      "ledgerWidth": 678,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        585,
+        538.6,
+        538.6,
+        538.6
+      ],
+      "overflow": [],
+      "shredded": []
+    },
+    {
+      "page": "04-narrow.html",
+      "mount": "w390",
+      "viewport": 470,
+      "frameWidth": 390,
+      "columns": "348px",
+      "canvasWidth": 348,
+      "ledgerWidth": 348,
+      "docketPosition": "sticky",
+      "frameOverflowX": "visible",
+      "docNameCols": [
+        255,
+        208.6,
+        208.6,
+        208.6
+      ],
+      "overflow": [],
+      "shredded": []
+    }
+  ]
+}

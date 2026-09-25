@@ -429,8 +429,14 @@ test("should carry completed discovery into the pipeline and ready dossier mater
     .fill("Emphasize reliable platforms and developer experience.");
   await notesForm.getByRole("button", { name: "Start draft" }).click();
 
-  await expect(dossier.getByText("WAITING IN QUEUE", { exact: true })).toBeVisible();
+  /* The row's eyebrow says what is happening AND for how long, in the meta
+     line that owns the whole row (docs/redesign/dossier-2026-09/SPEC.md §3.4);
+     it is uppercased by CSS, not in the DOM. */
+  await expect(dossier.getByText(/^waiting in queue · /)).toBeVisible();
   await expect(dossier.getByText("Queued for the drafting worker.")).toBeVisible();
+  /* And the docket mirrors the same run, so the reader never has to find the
+     ledger to see that their request is alive. */
+  await expect(dossier.locator(".case__inflight")).toBeVisible();
 
   fence.releaseMaterialsReady();
   const materialsSection = dossier.locator(".brief-materials");

@@ -172,6 +172,15 @@ function makeField(attrs, doc, tagName) {
 /* Parse edit-field <input> tags out of an assembled HTML string into
    live node objects so the real wiring (querySelectorAll + blur/keydown)
    operates on the same nodes the test drives. */
+function decodeEntities(s) {
+  return String(s)
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&");
+}
+
 function parseAttrs(attrText) {
   const attrs = {};
   const attrRe = /([a-zA-Z_][\w:-]*)="([^"]*)"/g;
@@ -185,6 +194,15 @@ function parseEditFields(html, doc) {
   const re = /<input\b([^>]*\bdata-action="edit-field"[^>]*)>/g;
   let m;
   while ((m = re.exec(html)) !== null) out.push(makeField(parseAttrs(m[1]), doc, "INPUT"));
+  /* The masthead title is a wrapping <textarea> so a long posting title is
+     readable in full (SPEC §5.2) — same edit-field contract, and role.js's
+     keydown wiring already accepts TEXTAREA. Its value is its text content. */
+  const areaRe = /<textarea\b([^>]*\bdata-action="edit-field"[^>]*)>([\s\S]*?)<\/textarea>/g;
+  while ((m = areaRe.exec(html)) !== null) {
+    const attrs = parseAttrs(m[1]);
+    attrs.value = decodeEntities(m[2]);
+    out.push(makeField(attrs, doc, "TEXTAREA"));
+  }
   return out;
 }
 

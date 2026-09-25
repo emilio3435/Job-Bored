@@ -250,12 +250,12 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
   const rail = page.locator(`${ROLE_REGION} .case__rail`);
   const nowStep = page.locator(`${ROLE_REGION} .case__stepper .case__step--now`);
   const fit = page.locator(`${ROLE_REGION} .case__numbers [data-num="fit"]`);
-  const theyWant = page.locator(`${ROLE_REGION} .case__lane--they li[data-status]`);
+  const theyWant = page.locator(`${ROLE_REGION} .case__section--they li[data-status]`);
   const materials = page.locator(
-    `${ROLE_REGION} .case__lane--moves [data-mount="materials"]`,
+    `${ROLE_REGION} .case__ledger [data-mount="materials"]`,
   );
   const notes = page.locator(`${ROLE_REGION} .case__notes textarea`);
-  const record = page.locator(`${ROLE_REGION} .case__chron .case__ev`);
+  const record = page.locator(`${ROLE_REGION} .case__section--record .case__ev`);
 
   await expectClickableBox(rail, "status rail");
   await expectClickableBox(nowStep, "current stepper step");

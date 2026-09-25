@@ -929,7 +929,7 @@ describe("the Case's in-lane enrichment skeleton — visual contract", () => {
     const mount = { innerHTML: "" };
     Case.render(mount, model);
 
-    assert.match(mount.innerHTML, /case__lane--they[\s\S]*?case__skeleton/, "the They-want lane shows the skeleton");
+    assert.match(mount.innerHTML, /case__section--they[\s\S]*?case__skeleton/, "the They-want section shows the skeleton");
     /* Everything the sheet can already fill keeps rendering (resilience D3). */
     assert.match(mount.innerHTML, /class="case__rail"[\s\S]*?Meridian Labs/, "the rail keeps its sheet facts");
     assert.match(mount.innerHTML, /data-action="stage-step"/, "the stepper stays mounted");

@@ -1,0 +1,52 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier redesign · 01 default filled role</title>
+<link rel="stylesheet" href="../../../../vendor/fonts/fonts.css">
+<link rel="stylesheet" href="mock-shell.css">
+<link rel="stylesheet" href="dossier-redesign.css">
+</head>
+<body>
+
+<main class="mock-page">
+  <div data-mock-nav></div>
+
+  <header class="mock-head">
+    <span class="mock-head__kicker">Role dossier redesign · mock 01 · 1440 &amp; 1280</span>
+    <h1 class="mock-head__title">Default filled role, <em>top of the page</em></h1>
+    <p class="mock-head__note">
+      3E · AI &amp; Marketing Analytics Manager, the role from the 2026-09-17 dogfood report,
+      with a ready resume and an undrafted cover letter. The canvas holds everything you read;
+      the ledger holds everything you check. Turn annotations on to see the eleven decisions.
+    </p>
+    <button type="button" class="mock-toggle" data-mock-toggle aria-pressed="false">
+      <span aria-hidden="true">◉</span><span>Annotations off</span>
+    </button>
+  </header>
+
+  <section class="mock-frame mock-frame--1440">
+    <p class="mock-frame__label">1440 × dogfood width · two columns, tracks centred</p>
+    <div class="mock-frame__body" data-mount="wide"></div>
+  </section>
+
+  <section class="mock-frame mock-frame--1280">
+    <p class="mock-frame__label">1280 × the narrowest laptop in the brief · still two columns</p>
+    <div class="mock-frame__body" data-mount="narrow-laptop"></div>
+  </section>
+
+  <div data-mock-legend></div>
+</main>
+
+<script src="dossier-mock-data.js"></script>
+<script src="dossier-mock.js"></script>
+<script src="mock-shell.js"></script>
+<script>
+  var model = window.JobBoredDossierMockData.model("filled");
+  window.JobBoredDossierMock.render(document.querySelector('[data-mount="wide"]'), model);
+  window.JobBoredDossierMock.render(document.querySelector('[data-mount="narrow-laptop"]'), model);
+  window.JobBoredMockShell.boot({ current: "01-default.html" });
+</script>
+</body>
+</html>
