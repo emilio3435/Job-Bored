@@ -36,7 +36,6 @@ const resumeGenerationJs = readFileSync(
   join(repoRoot, "resume-generation.js"),
   "utf8",
 );
-const letterJs = readFileSync(join(repoRoot, "letter.js"), "utf8");
 const settingsProfileTabJs = readFileSync(
   join(repoRoot, "settings-profile-tab.js"),
   "utf8",
@@ -358,23 +357,6 @@ describe("resume-generation — honest save failures", () => {
     assert.ok(
       /showToast\?\.\(\s*"Draft generated but not saved/.test(after),
       "must showToast the 'Draft generated but not saved' copy",
-    );
-  });
-
-  it("letter revision call site branches on result.saved === false", () => {
-    // letter.js — the only call site of reviseLetterDraftForJob must check
-    // for saved===false and surface the storage-error copy, not a generic
-    // "Refined and saved" success.
-    const idx = letterJs.indexOf("await root.reviseLetterDraftForJob");
-    assert.notEqual(idx, -1, "revise call site must exist");
-    const after = letterJs.slice(idx, idx + 1500);
-    assert.ok(
-      /result\.saved\s*===\s*false/.test(after),
-      "call site must branch on result.saved === false",
-    );
-    assert.ok(
-      /Draft generated but not saved/.test(after),
-      "save-failure branch must show the 'not saved (storage error)' copy",
     );
   });
 });

@@ -458,27 +458,8 @@ describe("§7 · welcome.js keeps its empty state, loses its onboarding", () => 
     assert.match(source, /discoveryBtn/);
   });
 
-  it("welcome.css keeps only what the card renders", () => {
-    const css = read("welcome.css");
-    for (const dead of [
-      "jbw-progress",
-      "jbw-step",
-      "jbw-dialog",
-      "jbw-opt",
-      "jbw-slider",
-      "jbw-say",
-      "jbw-sheet-actions",
-      'data-mode="onboarding"',
-    ]) {
-      assert.equal(
-        css.includes(dead),
-        false,
-        `welcome.css must not style the deleted flow (${dead})`,
-      );
-    }
-    for (const kept of [".jbw-empty", ".jbw-sample", ".jbw-btn", ".jbw-mascot"]) {
-      assert.ok(css.includes(kept), `${kept} still renders`);
-    }
+  it("welcome.css is gone: the v2 hide list never reveals the empty card (UX01 C4, DS-09)", () => {
+    assert.equal(existsSync(join(root, "welcome.css")), false);
   });
 
   it("WELCOME.md documents only what ships", () => {

@@ -231,7 +231,26 @@
   box-shadow: var(--jb-shadow-card);
 }
 
+/* TR-07 / AX-02: shown as a popover, the list lives in the top layer and is
+   positioned (fixed) from the trigger's rect by jb-a11y.js. Reset the UA
+   popover box so it keeps the card-list look above. */
+.jb-a11y-stage-menu__list[popover] {
+  position: fixed;
+  inset: auto;
+  z-index: 2000;
+  margin: 0;
+  color: var(--jb-ink);
+  overflow: auto;
+  max-height: min(60vh, 28rem);
+}
+
+.jb-a11y-stage-menu__list[popover]:not(:popover-open) {
+  display: none;
+}
+
 .jb-a11y-stage-menu__item {
+  display: flex;
+  align-items: center;
   width: 100%;
   justify-content: flex-start;
   padding: 0 0.625rem;

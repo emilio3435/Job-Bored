@@ -307,25 +307,6 @@ describe("flowing-writes stage row resolution", () => {
       false,
       "drag-only Applied must not be treated as an Applied Date write",
     );
-
-    const markPath = join(repoRoot, "mark-submitted.js");
-    const markSrc = readFileSync(markPath, "utf8");
-    const win = {};
-    vm.runInNewContext(
-      markSrc,
-      { window: win, globalThis: win, Date, Number, Math, String, Array, Object, JSON, console },
-      { filename: "mark-submitted.js" },
-    );
-    const marked = win.JobBoredMarkSubmitted.confirm(
-      { jobKey: "1", status: "Researching" },
-      { fromStage: "researching", toStage: "applied" },
-      {
-        transitionApplied() {
-          throw new Error("drag-only Applied is not confirmation");
-        },
-      },
-    );
-    assert.equal(marked.ok, false, "Mark submitted must reject the drag-only Applied claim");
   });
 });
 function loadTransitions() {

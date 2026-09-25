@@ -260,7 +260,47 @@
     return true;
   }
 
+  /* UX01 C17 (TR-01): the planner writes several Pipeline cells at once
+     (schemas/pipeline-row.v1.json columns M/N/O/P/R/W). Mirror exactly those
+     cells into pipelineData so the board, Today and Dawn read what the Sheet
+     now holds, the same local sync updateJobStatus does for its batch. */
+  const CELL_FIELDS = {
+    M: "status",
+    N: "appliedDate",
+    O: "notes",
+    P: "followUpDate",
+    R: "lastHeardFrom",
+    W: "dismissedAt",
+  };
+
+  function applyPipelineCellPatches(jobKey, patches) {
+    const idx = Number(jobKey);
+    if (!Number.isInteger(idx) || idx < 0 || !pipelineData[idx]) return false;
+    if (!Array.isArray(patches) || patches.length === 0) return false;
+    const job = pipelineData[idx];
+    let changed = false;
+    patches.forEach((patch) => {
+      if (!patch) return;
+      const column =
+        patch.column ||
+        (String(patch.range || "").match(/!([A-Z]+)\d+$/) || [])[1] ||
+        "";
+      const field = CELL_FIELDS[column];
+      if (!field) return;
+      const value = patch.value == null ? "" : String(patch.value);
+      job[field] = value === "" && field !== "notes" && field !== "status" ? null : value;
+      changed = true;
+    });
+    if (!changed) return false;
+    callHost("renderPipeline");
+    callHost("renderStats");
+    callHost("renderBrief");
+    callHost("refreshDrawerIfOpen", idx);
+    return true;
+  }
+
   Object.assign(pipelineController, {
+    applyPipelineCellPatches,
     getPipelineData,
     setPipelineData,
     getPipelineRawRows,
