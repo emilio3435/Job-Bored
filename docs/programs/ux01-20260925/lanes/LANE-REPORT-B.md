@@ -147,3 +147,30 @@ EXIT 0
 ```
 
 Not verified: the mockup was not opened in a browser in this lane (time). No manual pass was driven through the hermetic harness beyond the e2e suites.
+
+## Verification · floor (B-r1)
+
+Independent Opus verifier, fresh context, run 2026-09-25 against HEAD `1f4680d` with a clean tree. Logs: `Job-Bored.worktrees/.ux01-run/B-r1-floor/<n>.log`. No retries were needed, no flaky specs.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | eslint clean; lint:skills OK |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | tsc browser-use-discovery + server clean; all `node --check` OK |
+| 3 | `npm test` | PASS (exit 0) | 3121 tests · 3120 pass · 0 fail · 0 skipped · 1 todo |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | 12 OK schema/skill lines |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed (15.1s) |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 13 passed (21.4s) |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed (1.0m) |
+
+The one todo in `npm test` is "persists and can remove the canonical submission evidence record" (`# blocked on the canonical-ownership gate`); it prints an AssertionError but is counted as todo, not fail.
+
+Tails:
+
+```
+[3] ℹ tests 3121 / ℹ pass 3120 / ℹ fail 0 / ℹ cancelled 0 / ℹ skipped 0 / ℹ todo 1
+[5]   11 passed (15.1s)
+[6]   13 passed (21.4s)
+[7]   37 passed (1.0m)
+```
+
+Verdict: floor green, 7/7.
