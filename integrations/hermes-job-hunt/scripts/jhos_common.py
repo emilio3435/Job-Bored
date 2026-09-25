@@ -1,7 +1,8 @@
 """Shared plumbing for the Hermes job-hunt scripts (H15, H20, H23).
 
 One place for: `.env` parsing, the local timezone, the discovery worker config
-lookup, the shared Google OAuth token, and Telegram Bot API calls. Scripts
+lookup, the shared Google OAuth token, Telegram Bot API calls, and the
+follow-up thresholds shared with the browser (followup-thresholds.v1.json). Scripts
 import this module instead of re-implementing each concern.
 """
 
@@ -108,6 +109,33 @@ def tz_label(moment: datetime) -> str:
 
 
 # ─── Discovery worker config (sheetId) ───────────────────────────────
+
+
+FOLLOWUP_THRESHOLDS_FILE = Path(__file__).resolve().parent.parent / "followup-thresholds.v1.json"
+FOLLOWUP_THRESHOLD_KEYS = ("waitingReplyMinDays", "staleAppliedDays", "likelyClosedDays")
+
+
+def followup_thresholds(path: Path | None = None) -> dict[str, int]:
+    """Follow-up day thresholds from the shared file (H20).
+
+    The browser's daily-brief.js / today-data.js constants are pinned to the
+    same file by tests/hermes-followup-thresholds.test.mjs. A missing or
+    malformed file raises: there is no second copy of the numbers to fall
+    back to.
+    """
+    path = Path(path) if path else FOLLOWUP_THRESHOLDS_FILE
+    data = json.loads(path.read_text())
+    if data.get("schemaVersion") != 1:
+        raise ValueError(f"{path}: unsupported schemaVersion {data.get('schemaVersion')!r}")
+    out: dict[str, int] = {}
+    for key in FOLLOWUP_THRESHOLD_KEYS:
+        value = data.get(key)
+        if not isinstance(value, int) or isinstance(value, bool) or value < 1:
+            raise ValueError(f"{path}: {key} must be a positive integer")
+        out[key] = value
+    if not (out["waitingReplyMinDays"] < out["staleAppliedDays"] < out["likelyClosedDays"]):
+        raise ValueError(f"{path}: thresholds must increase: {out}")
+    return out
 
 
 def jobbored_repo() -> Path:

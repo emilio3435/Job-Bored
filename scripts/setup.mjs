@@ -273,6 +273,8 @@ const HERMES_CODE_PATHS = [
   "tests",
   "approval-contract.v1.json",
   "approval-contract.local.example.json",
+  "followup-thresholds.v1.json",
+  "followup-thresholds.schema.json",
   "approval-guard-spec.md",
   "kanban-task-conventions.md",
   "requirements.txt",

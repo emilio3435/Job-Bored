@@ -2,10 +2,11 @@
 """
 JHOS Phase 6 — Follow-up Monitor
 
-Checks Pipeline for Applied roles needing follow-up:
-  - Applied > 7 days ago with no reply → suggest follow-up
-  - Applied > 14 days ago with no reply → flag as stale
-  - Applied > 21 days ago with no reply → recommend closing
+Checks Pipeline for Applied roles needing follow-up. The day thresholds come
+from ../followup-thresholds.v1.json (shared with the browser's daily brief):
+  - waitingReplyMinDays with no reply → suggest follow-up
+  - staleAppliedDays with no reply → flag as stale
+  - likelyClosedDays with no reply → recommend closing
 
 Output is designed for Telegram delivery (no_agent cron script).
 Silent when no action items (watchdog pattern).
@@ -113,22 +114,26 @@ def main(argv=None, service=None):
         # Silent — no Applied roles need attention
         return
 
-    # Categorize
-    needs_followup = []      # 7-14 days
-    stale = []               # 14-21 days
-    likely_closed = []       # 21+ days
+    # Categorize against the shared thresholds (H20)
+    limits = jhos_common.followup_thresholds()
+    follow_days = limits["waitingReplyMinDays"]
+    stale_days = limits["staleAppliedDays"]
+    closed_days = limits["likelyClosedDays"]
+    needs_followup = []      # follow_days .. stale_days
+    stale = []               # stale_days .. closed_days
+    likely_closed = []       # closed_days+
     no_date = []             # Applied but no date
 
     for role in applied_roles:
         if role["days_since"] is None:
             no_date.append(role)
-        elif role["days_since"] >= 21:
+        elif role["days_since"] >= closed_days:
             likely_closed.append(role)
-        elif role["days_since"] >= 14:
+        elif role["days_since"] >= stale_days:
             stale.append(role)
-        elif role["days_since"] >= 7:
+        elif role["days_since"] >= follow_days:
             needs_followup.append(role)
-        # < 7 days: too early, skip
+        # below follow_days: too early, skip
 
     # If nothing needs attention, stay silent
     if not (needs_followup or stale or likely_closed or no_date):
@@ -138,19 +143,19 @@ def main(argv=None, service=None):
     lines = ["📋 **Follow-up Monitor**", f"Date: {TODAY.isoformat()}", ""]
 
     if likely_closed:
-        lines.append("🔴 **21+ days — likely closed (consider marking Passed)**")
+        lines.append(f"🔴 **{closed_days}+ days — likely closed (consider marking Passed)**")
         for r in likely_closed:
             lines.append(f"  • {r['title']} @ {r['company']} — applied {r['applied_date']} ({r['days_since']}d ago)")
         lines.append("")
 
     if stale:
-        lines.append("🟡 **14-21 days — follow-up overdue**")
+        lines.append(f"🟡 **{stale_days}-{closed_days} days — follow-up overdue**")
         for r in stale:
             lines.append(f"  • {r['title']} @ {r['company']} — applied {r['applied_date']} ({r['days_since']}d ago)")
         lines.append("")
 
     if needs_followup:
-        lines.append("🟢 **7-14 days — follow-up suggested**")
+        lines.append(f"🟢 **{follow_days}-{stale_days} days — follow-up suggested**")
         for r in needs_followup:
             lines.append(f"  • {r['title']} @ {r['company']} — applied {r['applied_date']} ({r['days_since']}d ago)")
         lines.append("")

@@ -341,3 +341,60 @@ def test_no_fixed_utc_minus_five_clock():
     for path in lane_h_scripts():
         text = path.read_text()
         assert "timedelta(hours=-5)" not in text, path.name
+
+
+# ─── H20: follow-up thresholds live in one shared file ───────────────
+
+
+THRESHOLDS_FILE = HERMES_DIR / "followup-thresholds.v1.json"
+
+
+def test_followup_thresholds_load_from_the_shared_file():
+    import jhos_common
+
+    shared = json.loads(THRESHOLDS_FILE.read_text())
+    loaded = jhos_common.followup_thresholds()
+    assert loaded == {
+        "waitingReplyMinDays": shared["waitingReplyMinDays"],
+        "staleAppliedDays": shared["staleAppliedDays"],
+        "likelyClosedDays": shared["likelyClosedDays"],
+    }
+
+
+def test_followup_thresholds_file_that_is_out_of_order_is_refused(tmp_path):
+    import jhos_common
+
+    bad = tmp_path / "followup-thresholds.v1.json"
+    bad.write_text(json.dumps({"schemaVersion": 1, "waitingReplyMinDays": 14,
+                               "staleAppliedDays": 7, "likelyClosedDays": 21}))
+    with pytest.raises(ValueError):
+        jhos_common.followup_thresholds(bad)
+
+
+def test_followup_categories_follow_the_shared_thresholds(worker_config, monkeypatch, capsys):
+    import followup_monitor as fm
+
+    monkeypatch.setattr(fm.jhos_common, "followup_thresholds",
+                        lambda path=None: {"waitingReplyMinDays": 3, "staleAppliedDays": 5,
+                                           "likelyClosedDays": 9})
+    today = fm.today()
+    rows = [HEADERS,
+            row(Title="Four Day Role", Company="A", Status="Applied",
+                **{"Applied Date": (today - timedelta(days=4)).isoformat()}),
+            row(Title="Six Day Role", Company="B", Status="Applied",
+                **{"Applied Date": (today - timedelta(days=6)).isoformat()}),
+            row(Title="Ten Day Role", Company="C", Status="Applied",
+                **{"Applied Date": (today - timedelta(days=10)).isoformat()})]
+    fm.main([], service=FakeService(rows))
+    out = capsys.readouterr().out
+    assert "3-5 days" in out and "5-9 days" in out and "9+ days" in out
+    sections = out.split("\n\n")
+    assert any("9+ days" in s and "Ten Day Role" in s for s in sections)
+    assert any("5-9 days" in s and "Six Day Role" in s for s in sections)
+    assert any("3-5 days" in s and "Four Day Role" in s for s in sections)
+
+
+def test_followup_monitor_has_no_hardcoded_day_thresholds():
+    text = (SCRIPTS / "followup_monitor.py").read_text()
+    for literal in (">= 21", ">= 14", ">= 7", "21+ days", "14-21 days", "7-14 days"):
+        assert literal not in text, f"followup_monitor.py hardcodes {literal!r}"
