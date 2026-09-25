@@ -2069,6 +2069,98 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
   );
 });
 
+test("runDiscovery scouts dashboard allowlist names when the local catalog is empty", async () => {
+  const searchedCompanies: string[] = [];
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "browser-use",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 3,
+      groundedSearchMaxPagesPerCompany: 1,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "local" as const,
+      asyncAckByDefault: true,
+      useStructuredExtraction: false,
+    },
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    groundedSearchClient: {
+      search: async (company: { name?: string }) => {
+        searchedCompanies.push(String(company.name || ""));
+        return { searchQueries: [], candidates: [], warnings: [] };
+      },
+    },
+    browserSessionManager: {
+      run: async () => {
+        throw new Error("exploit should not run when scout returns no candidates");
+      },
+    },
+    pipelineWriter: {
+      write: async () => {
+        throw new Error("pipelineWriter.write should not run with zero leads");
+      },
+    },
+    loadStoredWorkerConfig: async (sheetId: string) => ({
+      sheetId,
+      mode: "local" as const,
+      timezone: "America/Chicago",
+      companies: [],
+      atsCompanies: [],
+      includeKeywords: ["programmatic"],
+      excludeKeywords: [],
+      targetRoles: ["Director of Integrated Marketing"],
+      locations: ["Remote"],
+      remotePolicy: "remote",
+      seniority: "director",
+      maxLeadsPerRun: 5,
+      enabledSources: ["grounded_web"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig,
+    now: () => new Date("2026-09-16T17:00:00.000Z"),
+    randomId: (prefix: string) => `${prefix}_allowlist_seed`,
+  };
+
+  const result = await runDiscovery(
+    {
+      ...makeRequest(),
+      companyAllowlist: ["The Trade Desk", "LiveRamp", "HubSpot"],
+      allowUnrestrictedFallback: true,
+      discoveryProfile: {
+        targetRoles: "Director of Integrated Marketing",
+        keywordsInclude: "programmatic",
+        locations: "Remote",
+        remotePolicy: "remote",
+        maxLeadsPerRun: "5",
+        sourcePreset: "browser_only",
+      },
+    },
+    "manual",
+    dependencies as any,
+  );
+
+  assert.deepEqual(searchedCompanies, ["The Trade Desk", "LiveRamp", "HubSpot"]);
+  assert.equal(result.lifecycle.companyCount, 3);
+  assert.ok(
+    !searchedCompanies.includes(""),
+    "empty-catalog fallback must not scout unrestricted blank-company scope when the dashboard sent names",
+  );
+});
+
 test("runDiscovery treats missing optional Google Search as advisory when another lane writes leads", async () => {
   const writtenLeads: Array<Record<string, unknown>> = [];
   const dependencies = {
