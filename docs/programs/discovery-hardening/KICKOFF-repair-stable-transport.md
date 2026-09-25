@@ -1,0 +1,11 @@
+# Repair lane D — MAJOR-1 from the integrated QA review (LIFECYCLE-1 poller)
+
+Read `docs/programs/discovery-hardening/GROUND-RULES.md`, then `docs/programs/discovery-hardening/reports/qa.md` §MAJOR-1 (copied to `.lane-evidence/qa-report.md` in this worktree). You are a FRESH lane on branch `feat/discovery-hardening-stable-transport` (HEAD `dfbad73`, your predecessor's commit). Same fence as Lane D: `discovery-status-handoff.js`, `discovery-run-tracker.js`, `tests/discovery-lifecycle-poller.test.mjs`, `tests/discovery-stable-transport.test.mjs`.
+
+**Goal:** Close the coverage hole QA proved by mutation: deleting the `statusEndpointTerminal` early-return in `startDiscoveryStatusPolling` (`discovery-status-handoff.js:~844-849`) and the sibling in `resumeDiscoveryStatusPollingIfNeeded` (`~:987-989`) currently turns no test red, and restores the exact "may still be running" falsehood LD-4 forbids.
+
+**Success means:** `LIFECYCLE-1:`-prefixed tests in `tests/discovery-lifecycle-poller.test.mjs` drive the REAL `startDiscoveryStatusPolling` loop through the REAL tracker (vm-mount harness already in that file) with an injected `setTimeout` queue against a 404 (and a 401), and assert: the rendered/toasted message never contains "may still be running", `errorMessage` is the honest terminal copy, no further poll is scheduled, and `resumeDiscoveryStatusPollingIfNeeded` does not restart polling. Then PROVE the test is load-bearing: temporarily delete the early-return (in memory or via a scratch copy — restore byte-identical), run the test, paste the RED; restore, paste the GREEN. QA's probe `.lane-evidence/qa/qa-mutation-poller.probe.mjs` is a working template — lift it, don't rewrite it.
+
+**First action:** create `LANE-REPORT-repair-stable-transport.md` (five PENDING headings per ground rules). No production change is expected; if you find you need one, say why in the report.
+
+**Gate:** `npm test -- tests/discovery-lifecycle-poller.test.mjs tests/discovery-stable-transport.test.mjs tests/run-status-honesty.test.mjs tests/discovery-run-status-polling.test.mjs` then the full floor (typecheck:repo, lint:repo, test:repo, git diff --check). ONE local commit `test(discovery-hardening/stable-transport): …`, SHA in the report. Never push.
