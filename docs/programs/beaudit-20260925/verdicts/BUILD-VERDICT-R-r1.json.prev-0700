@@ -1,0 +1,68 @@
+{
+  "claims": [
+    {
+      "command": "HOME=/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-r/.lane-evidence/home node /tmp/g1-reprobe.mjs \u2014 faithful copy of docs/programs/beaudit-20260925/probes/G/g-relay-open-proxy.mjs (LANE-REPORT-G.md \u00a74: `node .lane-evidence/probes/g-relay-open-proxy.mjs`) with absolute bbuild-r worker import and capture port 19011",
+      "excerpt": "anon POST / -> relay 401\nanon POST /webhook -> relay 401\nanon POST /anything/else -> relay 401\nupstream saw: []\nEXIT:0\n(audit baseline g-relay-open-proxy.out: 202/202/202 with 3 upstream secret injections)",
+      "id": "G1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "none \u2014 LANE-REPORT-G.md \u00a74 names no G24 reproducer; probes/G/ contains no G24/handshake probe (G24 appears only as a PROPOSED table row)",
+      "excerpt": "deploy side done: mintRelayToken + `wrangler secret put RELAY_TOKEN` + relayToken/relayLocked into bootstrap (scripts/deploy-cloudflare-relay.mjs:913-915,974,1029-1030); dashboard side absent: grep relayToken|relayLocked over config-overrides.js, app-config-core.js, discovery-wizard-verify.js, discovery-wizard-relay.js, settings-profile-tab.js, ingest-url-flow.js, expired-review-ui.js, discovery-status-handoff.js, scripts/verify-discovery-webhook.mjs \u2192 no matches. No \u00a74 reproducer exists to re-run; BUILD-REPORT-R defers the dashboard half as out-of-fence.",
+      "id": "G24",
+      "verdict": "UNCLEAR"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "> eslint .\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\n(all node --check files ok)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "clean-HOME re-run: only the known executable TODO remains red-in-detail:\n\u2716 persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store (todo, expected)\nEXIT:0\n(as-found HOME held a stale .env from prior runs \u2192 first run EXIT:1 at tests/discovery-worker-env-parity.test.mjs:74, the documented environmental quirk; stale file moved aside unread, code untouched)",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 741\n\u2139 suites 2\n\u2139 pass 741\n\u2139 fail 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "OK discovery-payload.js covers schema properties\nOK ats-scorecard.js request builder matches schema (full + sparse)\nOK schemas/pipeline-row.v1.json \u2194 README \u2194 app-config-core \u2194 pipeline-render\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-smoke",
+      "excerpt": "Running 9 tests using 1 worker\n9 passed (13.9s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-journey",
+      "excerpt": "Running 13 tests using 1 worker\n13 passed (20.4s)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "f9456fedea74078b737bac13b940209bc4cdda5a",
+  "lane": "R",
+  "summary": "Lane R at f9456fe: floor 7/7 green (npm test green only with clean lane HOME; as-found HOME had a stale .env leftover that trips the known out-of-fence parity quirk, moved aside unread to /tmp). Regression tests 9/9 (auth) and 3/3 (deploy-token). G1 FIXED: anonymous relay POSTs now 401 with zero upstream forwarding (was 202 + secret injection). G24 UNCLEAR: no \u00a74 reproducer exists; deploy mints/stores the token but no dashboard file reads it. Tracked tree left clean (git status empty); no servers left running; no secret file contents read.",
+  "tests": [
+    {
+      "excerpt": "\u2714 answers 401 to an anonymous POST /|/webhook|/anything/else and never injects DISCOVERY_SECRET (\u00d73)\n\u2714 fail-closed with no token; 401 on wrong bearer; forwards authed /webhook; X-Relay-Token GET /runs/<id>; 404 off-allowlist; CORS preflight\n\u2139 tests 9\n\u2139 pass 9\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/cloudflare-relay-auth.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 mintRelayToken returns a distinct high-entropy token per call\n\u2714 uploads RELAY_TOKEN as a Worker secret\n\u2714 writes the token and relayLocked into the bootstrap relay block\n\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/cloudflare-relay-deploy-token.test.mjs",
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "blocking": [],
+  "nonBlocking": [
+    {
+      "file": "integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs",
+      "line": 116,
+      "issue": "Incomplete browser SSRF protection: `assertSafeLandingUrl(landingUrl)` runs after `open` completes. A public page can already have redirected to a private endpoint; subsequent navigation and subresource requests are also unguarded. DNS preflight does not pin the browser connection. Enforce restrictions before browser network requests. Non-blocking because these gaps exist in the base."
+    },
+    {
+      "file": "integrations/browser-use-discovery/src/browser/session.ts",
+      "line": 41,
+      "issue": "Custom browser commands receive only `validateScrapeTarget(request.url)`, which does not resolve DNS. A hostname resolving to loopback therefore reaches the command; only the bundled launcher adds DNS validation. An in-memory base/candidate probe confirmed both execute the custom command with zero DNS checks. Non-blocking: unchanged exposure for custom commands."
+    },
+    {
+      "file": "integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts",
+      "line": 134,
+      "issue": "The 'before spawning' test uses `browserUseCommand: \"exit 3\"` and observes only fetch calls. Removing the pre-spawn guard in memory still passes its assertions: the command spawns, fails, and the guarded fetch fallback rejects. Confirmed mutation result: assertions PASS, spawns=1, fetches=0. Assert command invocation directly so this security guard cannot silently regress."
+    }
+  ],
+  "confidence": "High for these findings. Focused tests: 97 passed; filtered CLI checks: 5 passed. Contract checks, worker/server type checks, selected ESLint checks, and diff whitespace checks passed. Five CLI tests requiring temporary files, full suites, and real-browser verification were not run. No fence violations or contract-invariant breaks found. Working tree remains clean; no files changed."
+}

@@ -1,0 +1,68 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/g1-verify.mjs # faithful re-run of probes/G/g-relay-open-proxy.mjs (LANE-REPORT-G \u00a74: node .lane-evidence/probes/g-relay-open-proxy.mjs), worker import -> bbuild-r/templates/cloudflare-worker/worker.js, capture 127.0.0.1:19010",
+      "excerpt": "EXIT:0\nanon POST / -> relay 401\nanon POST /webhook -> relay 401\nanon POST /anything/else -> relay 401\nupstream saw: []\nanon POST / (token configured) -> relay 401\nanon POST /webhook (token configured) -> relay 401\nupstream saw (token configured): []\nAudit defect was 202/202/202 with DISCOVERY_SECRET injected; now 401 and upstream sees nothing.",
+      "id": "G1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node --test tests/relay-g24-handshake.test.mjs",
+      "excerpt": "EXIT:0\n\u2714 1. deploy mints a fresh per-dashboard token, kept across a same-Worker redeploy\n\u2714 2. the token is stored in config, owner-only, and served by the guarded route\n\u2714 3-4. the dashboard sends the bearer and the relay admits only it\n\u2714 5a. the setup wizard model says \"Relay locked\" once the dashboard holds the token\n\u2714 5b. the deploy summary tells the user the relay is locked\n\u2139 tests 5\n\u2139 pass 5\n\u2139 fail 0",
+      "id": "G24",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "EXIT:0\n> eslint . (no errors)\nOK integrations/openclaw-command-center/SKILL.md",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "EXIT:0\n> tsc --noEmit (browser-use-discovery + server) + node --check x80 \u2014 no errors",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "EXIT:0\n\u2139 tests 3154\n\u2139 suites 752\n\u2139 pass 3153\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 1\n\u2139 duration_ms 13519.696042",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "EXIT:0\n\u2139 tests 741\n\u2139 suites 2\n\u2139 pass 741\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "EXIT:0\nOK schema: examples/discovery-webhook-request.v1.json\nOK schema: examples/discovery-webhook-request.v1-with-profile.json\nOK schema: examples/discovery-webhook-request.v1-preview-parity.json\nOK discovery-payload.js covers schema properties\nOK discovery-readiness.js delegates\nOK schema (ATS request)\nOK schema (ATS response)\nOK ats-scorecard.js full bundle\nOK ats-scorecard.js sparse payload\nOK schemas/pipeline-row.v1.json \u2194 README \u2194 app-config-core \u2194 pipeline-render\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md (12 OK, 0 FAIL)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=~/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "EXIT:0\nRunning 9 tests using 1 worker\n9 passed (14.0s)\nNote: bare HOME=$(mktemp -d) without PLAYWRIGHT_BROWSERS_PATH fails 9/9 with \"Executable doesn't exist at $FRESH_HOME/Library/Caches/ms-playwright/chromium_headless_shell-1228/...\" as lane documented; reran with cache path as lane floor did.",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=~/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "EXIT:0\nRunning 13 tests using 1 worker\n13 passed (19.5s)",
+      "passed": true
+    }
+  ],
+  "head": "36256a016b049458f39abfa57c6ab6b03777b53a",
+  "lane": "R",
+  "summary": "Lane R HEAD 36256a01 verified read-only; git status clean (fix/beaudit-w0-r). Floor 7/7 green with fresh HOME (e2e required PLAYWRIGHT_BROWSERS_PATH as lane documented; bare fresh HOME fails smoke 9/9 with missing browser). Both relay tests green (3/0 fatal, 6/0 companions). G1 FIXED (anon 401, upstream [] vs audit 202 with secret). G24 FIXED (5/5 handshake exercises mint/store/send/admit/locked). No code changed; servers only on 127.0.0.1:19010/19012.",
+  "tests": [
+    {
+      "excerpt": "EXIT:0\n\u2714 a successful deploy stores exactly the token it uploaded, with the Worker URL\n\u2714 an unwritable credential is fatal and RELAY_TOKEN is never uploaded\n\u2714 a failed RELAY_TOKEN upload during rotation restores the previous credential\n\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0",
+      "file": "tests/relay-deploy-credential-fatal.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "EXIT:0\n\u2714 relay curl commands send bearer to $RELAY_URL\n\u2714 generic receiver commands carry no relay bearer\n\u2714 verify-script commands: RELAY_TOKEN only for the relay\n\u2714 says where the relay token lives\n\u2714 schema notes relay bearer in $comment\n\u2714 CONTRACT-CHANGELOG and AGENT_CONTRACT name companions\n\u2139 tests 6\n\u2139 pass 6\n\u2139 fail 0",
+      "file": "tests/relay-contract-companions.test.mjs",
+      "passed": true
+    }
+  ]
+}

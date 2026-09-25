@@ -1,0 +1,98 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home node --experimental-strip-types /tmp/vx/C-ssrf-session.mjs  # port of probes/C/C-ssrf-session.mjs, 18130->19021, per-call outcome report",
+      "excerpt": "session(no command) loopback -> {\"outcome\":\"BLOCKED\",\"code\":\"SSRF_BLOCKED\",\"message\":\"Local and private-network scrape targets are not allowed\"} | session(no command) redirect -> {\"outcome\":\"BLOCKED\",\"code\":\"SSRF_BLOCKED\",...} | session(command fails -> fetch_fallback) -> {\"outcome\":\"BLOCKED\",\"code\":\"SSRF_BLOCKED\",...} | loopback server hits -> 0 (was: all three returned PROBE-INTERNAL-SECRET). Residual: policy(127.0.0.1.nip.io) still \"extractable\" (label only; every fetch refused at connect, as lane report notes).",
+      "id": "C1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "echo '{\"url\":\"http://169.254.169.254/latest/meta-data/\",...}' | HOME=.lane-evidence/home AGENT_BROWSER_PATH=/tmp/vx/fake-agent-browser.sh BROWSER_USE_DISCOVERY_AGENT_BROWSER_SOCKET_DIR=/tmp/vx/sock node integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs  # port of probes/C/C-ssrf-browser-command.sh",
+      "excerpt": "browser-use-agent-browser: refused http://169.254.169.254/latest/meta-data/: Local and private-network scrape targets are not allowed | exit=1 | argv file absent (agent-browser never spawned). Was: exit=0 with argv `--json --session ... open http://169.254.169.254/latest/meta-data/`.",
+      "id": "C2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node --experimental-strip-types /tmp/vx/p14-cleanup-loopback-fetch.mjs  # port of probes/D/p14-cleanup-loopback-fetch.mjs, 18140->19022",
+      "excerpt": "loopback hits: [] classification: unknown invalid_url | blocked (was: hits [\"/internal-only\"], classification open open_marker, DEFECT CONFIRMED).",
+      "id": "D15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/vx/C-safefetch-redirect-headers.mjs  # probes/C/C-safefetch-redirect-headers.mjs with absolute import",
+      "excerpt": "{\"url\":\"https://generativelanguage...\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true} | {\"url\":\"https://attacker.example/collect\",\"method\":\"GET\",\"apiKeyHeader\":null,\"bodySent\":false} (was: second hop POST with canary key + body).",
+      "id": "C8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/vx/C9-maxbytes-check.mjs  # no audit probe existed (C9 INFERRED, \u00a75 needs external net); hermetic endless-stream equivalent",
+      "excerpt": "{\"outcome\":\"CAPPED\",\"error\":\"Response body exceeds 262144 bytes\",\"pulls\":6,\"cancelled\":true} | {\"upfront\":\"REJECTED\",\"error\":\"Response body exceeds 1024 bytes\"} (was: pinnedFetch buffered the whole body before the 4MB check).",
+      "id": "C9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/vx/probe-e-ssrf.mjs  # probes/E/probe-e-ssrf.mjs with absolute import",
+      "excerpt": "blocked literal 127.0.0.1 / 2130706433 / 0x7f.0.0.1 / ::ffff:127.0.0.1 / 169.254.169.254 / fd00::1 / localhost. / [64:ff9b::7f00:1] / [64:ff9b::a9fe:a9fe] / [2002:7f00:1::] / 198.18.0.1 / [fec0::1]; blocked dns->64:ff9b::7f00:1, dns->2002:a9fe:a9fe::1, dns->10.0.0.5 (was: 5 ALLOWED literals + 2 ALLOWED dns).",
+      "id": "E8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep -n \"test(\" integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts integrations/browser-use-discovery/tests/browser/agent-browser-bin-ssrf.test.ts  # C16 had no probe; gap was 'no test sends a private URL through sessionManager.run or the bin script'",
+      "excerpt": "session-ssrf.test.ts: 8 tests (loopback real-transport, loopback pre-fetch, redirect-to-metadata, nip.io rebinding, pre-spawn command gate, guarded fetch fallback, body cap, abortSignal) + agent-browser-bin-ssrf.test.ts: 4 tests (metadata refusal, public open, private-landing withhold, DNS pre-check); all pass (see tests \u00a7). Gap closed.",
+      "id": "C16",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "exit 0; eslint . clean; OK integrations/openclaw-command-center/SKILL.md",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "exit 0; tsc --noEmit clean for browser-use-discovery + server projects; all node --check files clean",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "exit 0; \u2139 tests 3142 \u2139 pass 3130 \u2139 fail 0 \u2139 todo 12 (the 12 \u2716 lines are todo-pinned target behaviors owned by other lanes, fail count 0)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "exit 0; \u2139 tests 757 \u2139 pass 757 \u2139 fail 0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "exit 0; 12 OK lines (discovery-webhook x5, ats x4, pipeline-row, pipeline-update, skills), 0 FAIL",
+      "passed": true
+    }
+  ],
+  "head": "0f85ba8c88a23f55f997f9ebdbabb1f92ee34ff4",
+  "lane": "X",
+  "summary": "All 5 floor gates pass with fresh empty HOME (lint 0, typecheck 0, npm test 3142/0 fail, worker 757/757, contracts 12 OK). All 4 added test files green (30/30, 8/8, 4/4, 4/4), matching claimed counts. All 7 claims FIXED via /tmp probe ports (absolute imports into bbuild-x, ports 19021-19022, hermetic stubs; no network beyond 127.0.0.1, no POSTs, no secrets). Known residuals: nip.io policy label still 'extractable' (fetch refused at connect); C9/C16 had no audit probe so hermetic equivalent / gap-closure listing used. Tree left clean: git status empty, HEAD unchanged.",
+  "tests": [
+    {
+      "excerpt": "\u2139 tests 30 \u2139 pass 30 \u2139 fail 0 (C8 redirect stripping, C9 streaming cap, E8 classifier suites)",
+      "file": "/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 8 \u2139 pass 8 \u2139 fail 0 (loopback x2, metadata redirect, nip.io rebinding, pre-spawn gate, guarded fallback, body cap, abortSignal)",
+      "file": "/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 4 \u2139 pass 4 \u2139 fail 0 (loopback never fetched + review flag, metadata redirect refused, private DNS refused, public redirect followed)",
+      "file": "/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/integrations/browser-use-discovery/tests/sheets/expired-job-cleanup-ssrf.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 4 \u2139 pass 4 \u2139 fail 0 (metadata refused pre-spawn, public open, private landing withheld, DNS pre-check); no import hang",
+      "file": "/Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-x/integrations/browser-use-discovery/tests/browser/agent-browser-bin-ssrf.test.ts",
+      "passed": true
+    }
+  ]
+}

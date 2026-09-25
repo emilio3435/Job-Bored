@@ -1,0 +1,118 @@
+{
+  "claims": [
+    {
+      "command": "API 19000 (HOME=.lane-evidence/home): curl -H 'Host: rebind.attacker.test:19000' -H 'Origin: http://rebind.attacker.test:19000' GET+POST /api/llm-config [probes/E/probe-e-cors.sh rebinding section, P=18150\u219219000]; worker 19003: curl -H 'Host: rebind.attacker.test:19003' /health",
+      "excerpt": "GET /api/llm-config rebound \u2192 HTTP/1.1 403 {\"error\":\"Host not allowed for this local server.\",\"code\":\"HOST_NOT_ALLOWED\"} (audit: 200 + pin leak)\nPOST hijack rebound \u2192 HTTP/1.1 403 HOST_NOT_ALLOWED (audit: 200 exfil)\npin on disk: {provider:'gemini',model:'probe-model',baseUrl:'',keyPresent:true} (untouched; audit: openai_compatible/exfil/attacker.test)\nGET /health: {\"atsProvider\":\"gemini\",\"atsConfigured\":true} [200] (audit: attacker baseUrl)\nworker: rebound=403 loopback=200 tunnel(foo.trycloudflare.com)=200",
+      "id": "E1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "B=http://127.0.0.1:19001 bash /tmp/g-profile-rebind-19001.sh [cp probes/G/g-profile-rebind.sh, sed 18170\u219219001; dev 19001 + API 19000, HOME=.lane-evidence/home]",
+      "excerpt": "GET /profile rebound \u2192 {\"ok\":false,\"code\":\"HOST_NOT_ALLOWED\"} [403] (audit: 200 no_profile)\nPOST /profile rebound \u2192 HOST_NOT_ALLOWED [403] (audit: 400 validation, reached API)\nfull write chain: template fetch 403 \u2192 node TypeError reading 'identity' (no .template), POST \u2192 HOST_NOT_ALLOWED [403] (audit: 200 write)\nreadback: empty, no PROBE-REBIND-WRITE (audit: PROBE-REBIND-WRITE)",
+      "id": "G2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "B=http://127.0.0.1:19001 bash /tmp/g-static-19001.sh [cp probes/G/g-static-traversal.sh, sed 18170\u219219001; dev 19001] + node isServableRelativePath check",
+      "excerpt": "404 /tmp/jobbored-dev.log (audit 200 CANARY) | 404 /docs/redesign/logs/fe-dashboard.log (audit 200) | 404 /uploads/resume.txt (audit 200) | 404 /integrations/.../export.zip (audit 200) | 404 /package.json (audit 200)\nrebinding: 403 Host:evil.example /tmp/jobbored-dev.log {\"code\":\"HOST_NOT_ALLOWED\"} (audit 200 + body)\nunit: tmp/jobbored-dev.log false, docs/redesign/logs false, uploads false, export.zip false, package.json false, index.html true, AGENT_CONTRACT.md true",
+      "id": "G3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "worker 19003 (HOME=.lane-evidence/home): node probes/A/sec05-raw-paths.mjs 19003 + curl --path-as-is http://127.0.0.1:19003// [LANE-REPORT-A \u00a74 repro-a1-crash.sh/sec05, PORT 18111\u219219003]",
+      "excerpt": "curl GET // \u2192 400; health \u2192 200; worker ALIVE (audit: after health=DOWN, EXITED, TypeError server.ts:1021)\nsec05 raw (Host without port \u2192 Host guard first): \"//\" \u2192 403 HOST_NOT_ALLOWED ; health=200, \"//x\" \u2192 403 ; health=200 (audit: empty/SOCKET_ERROR ; health=DOWN)",
+      "id": "A1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/g-autodetect-p.mjs [cp probes/G/g-autodetect-fullboot.mjs, load /bbuild-p/discovery-autodetect.js instead of ../../discovery-autodetect.js]",
+      "excerpt": "[{\"url\":\"/__proxy/discovery-state\"},{\"url\":\"/__proxy/full-boot?skip_tunnel=1\",\"method\":\"POST\"},{\"url\":\"/__proxy/discovery-state\"}]\nfull-boot URL carries skip_tunnel? true (audit: \"/__proxy/full-boot\", false)",
+      "id": "G4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "curl -s -D - -o /dev/null http://127.0.0.1:19001/ [LANE-REPORT-G \u00a74 G10] + node extractConfigConnectOrigins/buildContentSecurityPolicy demo + grep buildContentSecurityPolicy",
+      "excerpt": "served: style-src 'self' 'unsafe-inline' https://accounts.google.com/gsi/style (audit: GSI missing)\nextras: [\"https://api-test.run.app\",\"http://192.168.1.10:11434\"] \u2192 connect-src admits run.app? true, LAN? true, GSI? true (audit: never passed, blocked)\ngrep: dev-server.mjs:722 buildContentSecurityPolicy({ extraConnectSrc }), :765/:774 ...dashboardSecurityHeaders() in serveStatic (audit: :688 buildContentSecurityPolicy() no args)",
+      "id": "G10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep -n 'E17' tests/beaudit-p-loopback-host-guard.test.mjs + node resolveAllowedBrowserOrigin with/without loopbackPort [E17 rebinding gap; LANE-REPORT-E \u00a73 E17 + \u00a74 focused floor]",
+      "excerpt": "tests/beaudit-p-loopback-host-guard.test.mjs:71 it(\"E17: never derives same-origin from a non-loopback Host on a loopback listener\")\nwithout loopbackPort (old pin): \"http://rebind.attacker.test:19000\" \u2192 with loopbackPort 19000 (fixed): \"\"\nnew suites: loopback-host-guard 7/7 pass, worker-host-guard 3/3 pass",
+      "id": "E17",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "> eslint . (clean)\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit -p integrations/browser-use-discovery (clean)\n> tsc --noEmit -p server (clean)\n> node --check \u00d7 ~70 files (clean)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "\u2139 tests 3078\n\u2139 suites 752\n\u2139 pass 3077\n\u2139 fail 0\n\u2139 todo 1 (known 'canonical submission evidence record', same as base)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 741\n\u2139 suites 2\n\u2139 pass 741\n\u2139 fail 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "OK schema \u00d73 discovery + payload/readiness delegation\nOK ATS request/response + builders\nOK pipeline-row \u2194 README \u2194 app-config-core \u2194 pipeline-render\nOK pipeline-update request\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=$REALHOME/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "Running 9 tests using 1 worker\n\u2713 9/9 (boot-smoke \u00d76, case-dossier \u00d71, dossier-layout \u00d72)\n9 passed (14.3s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=$REALHOME/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "Running 13 tests using 1 worker\n\u2713 13/13 (case-people-writeback \u00d71, critical-journey \u00d712)\n13 passed (20.6s)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "32ccf1553551ee1a304edbe04bca68693f943eae",
+  "lane": "P",
+  "summary": "Lane P @32ccf15: 7/7 floor pass (fresh HOME each; e2e needed PLAYWRIGHT_BROWSERS_PATH; first e2e-smoke attempt with wrong expanded path failed 9 on missing browser, correct rerun 9 passed), 6/6 changed tests pass (7/1/3/5/3/17), 7/7 claims FIXED on ports 19000-19003 with HOME=.lane-evidence/home. E17 FIXED is the lane-P rebinding scope (new E17 test + loopbackPort); broader E17 sub-gaps (local-pin ATS, docker-sim, caller-coverage) were outside lane P's fence and untested. No source edits; git clean; servers stopped; canary llm.json removed.",
+  "tests": [
+    {
+      "excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0\n(E1/G2/E17 incl. 'never derives same-origin from a non-loopback Host', scheme-port repair)",
+      "file": "tests/beaudit-p-loopback-host-guard.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 1\n\u2139 pass 1\n\u2139 fail 0\n('answers 400 to // and //x and keeps serving /health')",
+      "file": "tests/beaudit-p-worker-raw-path.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0\n(allowlist + resolvePublicFile + AGENT_CONTRACT.md repair)",
+      "file": "tests/beaudit-p-static-allowlist.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 5\n\u2139 pass 5\n\u2139 fail 0\n(policy from origins + GSI style + dashboardSecurityHeaders served-header \u00d72)",
+      "file": "tests/beaudit-p-csp-config-origins.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0\n(isAllowedTunnelHost + checkLoopbackRequestHost + worker 403/200 behavior)",
+      "file": "tests/beaudit-p-worker-host-guard.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 17\n\u2139 pass 17\n\u2139 fail 0\n(G4 describe: 'POSTs full-boot with skip_tunnel=1'; exact-URL\u2192prefix matches)",
+      "file": "tests/discovery-autodetect.test.mjs",
+      "passed": true
+    }
+  ]
+}

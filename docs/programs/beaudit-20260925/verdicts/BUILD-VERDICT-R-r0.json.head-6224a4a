@@ -1,0 +1,88 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/g1-relay-open-proxy.mjs \u2014 replica of /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/G/g-relay-open-proxy.mjs (LANE-REPORT-G \u00a74: node .lane-evidence/probes/g-relay-open-proxy.mjs); import\u2192bbuild-r/templates/cloudflare-worker/worker.js, capture 127.0.0.1:18176\u219219010",
+      "excerpt": "anon POST / -> relay 401\nanon POST /webhook -> relay 401\nanon POST /anything/else -> relay 401\nupstream saw: []\nEXIT:0\n(audit g-relay-open-proxy.out was 202x3 with probe-secret injected)",
+      "id": "G1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/g24-relay-handshake.mjs \u2014 same worker+capture shape as probes/G/g-relay-open-proxy.mjs (LANE-REPORT-G \u00a74) with RELAY_TOKEN configured; capture 127.0.0.1:19011",
+      "excerpt": "anon POST /webhook -> relay 401\nwrong-token POST /webhook -> relay 401\nauthed POST /webhook -> relay 202\nauthed POST /anything/else -> relay 404\nupstream saw: [{\"path\":\"/webhook\",\"secret\":\"probe-secret\",\"body\":\"{\\\"event\\\":\\\"command-center.discovery\\\"...}\"}]\nEXIT:0",
+      "id": "G24",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) npm run lint:repo",
+      "excerpt": "> eslint .\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\n+ node --check x80\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm test",
+      "excerpt": "\u2139 tests 3111\n\u2139 pass 3110\n\u2139 fail 0\n\u2139 todo 1\n\u2139 duration_ms 13660.082917\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 741\n\u2139 suites 2\n\u2139 pass 741\n\u2139 fail 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) npm run test:contract:all",
+      "excerpt": "OK schema: examples/discovery-webhook-request.v1.json\nOK schema: examples/ats-scorecard-request.v1.json\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request): examples/pipeline-update-request.v1.json\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "Running 9 tests using 1 worker\n9 passed (13.9s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "Running 13 tests using 1 worker\n13 passed (20.0s)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "6224a4af479e38a796484af3f670d3b1076c4144",
+  "lane": "R",
+  "summary": "Lane R at 6224a4a: all 7 floor suites pass with fresh mktemp HOME; all 6 relay tests pass; G1 open proxy closed (anon 401, upstream empty); G24 handshake works (locked without token, Bearer forwards with secret, non-allowlisted 404). Tree left clean.",
+  "tests": [
+    {
+      "excerpt": "\u2714 is registered on the dev server and answers a trusted local origin\n\u2714 refuses a foreign browser origin with 403 and no token\n\u2714 refuses a bare client that sends no origin\n\u2714 returns only the relay block, never the webhook secret\n\u2714 does not read the bootstrap for a non-loopback peer\n\u2139 tests 5\n\u2139 pass 5\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/relay-dev-server-token-route.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 run-status poll through a locked relay sends the relay bearer\n\u2714 run-status poll retries once with a rotated relay token after a 401\n\u2714 run-status poll to a local worker carries no relay bearer\n\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/relay-status-poll-auth.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 RELAY_TOKEN from the env is sent as a bearer\n\u2714 --relay-token is sent as a bearer\n\u2714 no relay token means no Authorization header\n\u2714 the usage text documents RELAY_TOKEN\n\u2139 tests 4\n\u2139 pass 4\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/relay-verify-webhook-token.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2714 exposes a relay auth API ... 15/15 incl. discovery-status-handoff.js via JobBoredRelayAuth.fetch\n\u2139 tests 15\n\u2139 pass 15\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/relay-dashboard-token.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u25b6 Cloudflare relay caller authentication (G1)\n\u2714 answers 401 to an anonymous POST /,/webhook,/anything/else\n\u2714 forwards an authenticated POST /webhook with the secret injected\n\u2139 tests 14\n\u2139 pass 14\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/cloudflare-relay-auth.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u25b6 deploy-cloudflare-relay mints a relay token (3/3)\n\u25b6 keeps the dashboard token across redeploys (4/4)\n\u25b6 deploy verification authenticates to the locked relay (3/3)\n\u25b6 protected dashboard token delivery (2/2)\n\u2139 tests 12\n\u2139 pass 12\n\u2139 fail 0\nEXIT:0",
+      "file": "tests/cloudflare-relay-deploy-token.test.mjs",
+      "passed": true
+    }
+  ]
+}

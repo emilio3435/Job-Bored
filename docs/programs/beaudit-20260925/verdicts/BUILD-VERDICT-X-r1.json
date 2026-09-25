@@ -1,0 +1,83 @@
+{
+  "claims": [
+    {
+      "command": "HOME=.lane-evidence/home node --experimental-strip-types /tmp/probe-C1-19020.mjs (adapted C-ssrf-session.mjs, port 19020; original: node --experimental-strip-types .lane-evidence/probes/C-ssrf-session.mjs port 18130)",
+      "excerpt": "session(no command) loopback -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nsession(no command) redirect -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nsession(command fails -> fetch_fallback) -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\nsafeFetch loopback -> \"BLOCKED: Local and private-network scrape targets are not allowed\"\n(vs audit: all three returned PROBE-INTERNAL-SECRET; nip.io policy still extractable but fetch path now DNS-pinned/blocked)",
+      "id": "C1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "echo '{\"url\":\"http://169.254.169.254/latest/meta-data/\",...}' | HOME=.lane-evidence/home AGENT_BROWSER_PATH=/tmp/fake-agent-browser-c2.sh BROWSER_USE_DISCOVERY_AGENT_BROWSER_SOCKET_DIR=/tmp/c2-sock node integrations/browser-use-discovery/bin/browser-use-agent-browser.mjs (adapted C-ssrf-browser-command.sh)",
+      "excerpt": "browser-use-agent-browser: refused http://169.254.169.254/latest/meta-data/: Local and private-network scrape targets are not allowed\nexit=1\n(no argv log - agent-browser never spawned)\n(vs audit: exit=0, argv '--json --session ... open http://169.254.169.254/latest/meta-data/')",
+      "id": "C2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node --experimental-strip-types /tmp/probe-D15-19021.mjs (adapted p14-cleanup-loopback-fetch.mjs, port 19021; original port 18140)",
+      "excerpt": "loopback hits: [] classification: unknown invalid_url\nblocked\n(vs audit: hits [\"/internal-only\"] classification open open_marker, DEFECT CONFIRMED)",
+      "id": "D15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/probe-C8.mjs (adapted C-safefetch-redirect-headers.mjs, hermetic fetchImpl)",
+      "excerpt": "{\"url\":\"https://generativelanguage.googleapis.com/v1beta/models/x:generateContent\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}\n{\"url\":\"https://attacker.example/collect\",\"method\":\"GET\",\"apiKeyHeader\":null,\"bodySent\":false}\n(vs audit: second hop POST apiKeyHeader probe-canary-key bodySent true)",
+      "id": "C8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/probe-C9.mjs (hermetic maxBytes streaming-cap; original LANE-REPORT-C \u00a75 needs external https://speed.hetzner.de/100MB.bin, forbidden by 127.0.0.1-only rule)",
+      "excerpt": "capped: Response body exceeds 262144 bytes code=BODY_TOO_LARGE pulls=6 cancelled=true\ncontent-length upfront reject: Response body exceeds 1024 bytes code=BODY_TOO_LARGE\n(vs audit INFERRED unbounded buffer before 4MB check; endless stream now stops near cap and cancels upstream)",
+      "id": "C9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=.lane-evidence/home node /tmp/probe-E8.mjs (adapted probe-e-ssrf.mjs, hermetic literals+stubbed DNS)",
+      "excerpt": "blocked literal http://[64:ff9b::7f00:1]/\nblocked literal http://[64:ff9b::a9fe:a9fe]/\nblocked literal http://[2002:7f00:1::]/\nblocked literal http://198.18.0.1/\nblocked literal http://[fec0::1]/\nblocked dns->64:ff9b::7f00:1\nblocked dns->2002:a9fe:a9fe::1\nblocked dns->10.0.0.5\n(vs audit: 5 ALLOWED literals + 2 ALLOWED dns)",
+      "id": "E8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/session-ssrf.test.ts integrations/browser-use-discovery/tests/browser/agent-browser-bin-ssrf.test.ts integrations/browser-use-discovery/tests/browser/session.test.ts (C16 TEST-GAP has no \u00a74 probe; gap was no private-URL test through run/bin)",
+      "excerpt": "session-ssrf: refuses loopback / redirect-to-metadata / 127.0.0.1.nip.io / pre-spawn + fallback guarded\nagent-browser-bin: refuses metadata before spawn, withholds private landing, DNS rebinding check\n\u2714 21 tests, \u2139 pass 21 \u2139 fail 0 EXIT:0\n(vs audit: session.test.ts:27 pinned fallback with no SSRF assertion, no private-URL test)",
+      "id": "C16",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "> eslint . (no errors)\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json (ok)\n> tsc --noEmit --project server/tsconfig.json (ok)\nnode --check ... all ok\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "\u2716 an unknown API route answers a JSON 404, not HTML # target behavior; fix owned by wave-1 lane L (E7)\n\u2716 the server scraper accepts a camelCase success response # target behavior; fix owned by wave-1 lane Q (E9)\n\u2716 persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate; ...\nEXIT:0 (all \u2716 are it.todo markers; beaudit-p-e17 uses { todo } when STRICT off, run-tests.mjs exits node --test status; node:test summary precedes failure dump per repair3-floor-test.txt:4771)",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 766\n\u2139 suites 2\n\u2139 pass 766\n\u2139 fail 0\n\u2139 todo 0\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "OK schema: examples/discovery-webhook-request.v1.json\nOK schema (ATS request): examples/ats-scorecard-request.v1.json\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request): examples/pipeline-update-request.v1.json\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "fbe6c68d4862a288eaef05e114651ef2cf0b346a",
+  "lane": "X",
+  "summary": "Lane X at fbe6c68d: all 5 floors pass with fresh HOME (lint, typecheck, npm test exit 0 with only it.todo failures, bud 766/766, contracts all OK); tests/safe-fetch-egress.test.mjs 48/48 including bodyless HEAD/304 case; all 7 reproducers FIXED (C1/C2/D15 block loopback/metadata with no fetch/spawn, C8 strips creds and downgrades to bodiless GET, C9 streams with BODY_TOO_LARGE cap+cancel, E8 blocks all NAT64/6to4/benchmark/site-local literals+DNS, C16 new SSRF tests 21/21). Tree untouched, ports 19020-19029 free, lane home empty.",
+  "tests": [
+    {
+      "excerpt": "\u2714 ignores content-length over maxBytes on bodyless HEAD and 304 responses (0.11ms)\n\u2139 tests 48\n\u2139 suites 5\n\u2139 pass 48\n\u2139 fail 0\n\u2139 todo 0\nEXIT:0",
+      "file": "tests/safe-fetch-egress.test.mjs",
+      "passed": true
+    }
+  ]
+}
