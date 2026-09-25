@@ -129,87 +129,8 @@ function clipText(text, max) {
   return s.length > max ? `${s.slice(0, max)}\n… [truncated]` : s;
 }
 
-// E18: a posting description is mostly company blurb, benefits and EEO
-// boilerplate. Drop the sections under a boilerplate heading; requirement
-// sections always stay and text under other headings fills the rest of the
-// budget. When the posting has no requirement heading, fall back to a
-// shorter clip.
-// "About" drops only company boilerplate (About us / the company / <Employer>);
-// About the role/position/team/job is kept, since it carries requirements.
-const POSTING_KEEP_HEADING =
-  /^(?:#+\s*)?(?:\*\*)?\s*(?:(?:basic|minimum|preferred|key|core|required)\s+)?(?:requirements?|qualifications?|responsibilities|about (?:the|this) (?:role|position|team|job|opportunity)|what you(?:'|\u2019)?ll (?:do|need|bring)|what we(?:'|\u2019)?re looking for|who you are|about you|you (?:have|bring|will)|must[- ]haves?|nice[- ]to[- ]haves?|skills|experience|the role|your role|duties|tech(?:nical)? stack|tools)\b[^\n]{0,40}$/i;
-const POSTING_DROP_HEADING =
-  /^(?:#+\s*)?(?:\*\*)?\s*(?:about (?:us|(?:the|our) company|(?!(?:the|this|our|your|you|a|an)\b)[A-Z][\w&.-]*)|benefits|perks|compensation|salary|pay (?:range|transparency)|what we offer|why (?:join|work)|equal (?:employment )?opportunity|eeo|our (?:values|mission|culture)|life at|how to apply|privacy)\b[^\n]{0,40}$/i;
-// A line shaped like a heading that neither list recognises ("Job Summary",
-// "## Eligibility", "**Security Clearance**", "Eligibility:"). It ends a
-// boilerplate section, so the text under it is not dropped with the
-// boilerplate. Sentences, bullets and punctuated lines never match.
-const POSTING_MARKDOWN_HEADING = /^(?:#{1,6}\s+\S|\*\*[^*\n]+\*\*:?$)/;
-const POSTING_COLON_HEADING = /^[A-Za-z][^.!?;:\n]{0,58}:$/;
-const POSTING_TITLE_MINOR_WORDS = new Set([
-  "a", "an", "and", "at", "for", "in", "of", "on", "or", "the", "to", "with", "&", "/", "-",
-]);
-/** @param {string} line */
-function isGenericPostingHeading(line) {
-  if (line.length > 60) return false;
-  if (POSTING_MARKDOWN_HEADING.test(line)) return true;
-  if (POSTING_COLON_HEADING.test(line)) return line.split(/\s+/).length <= 8;
-  if (/[.!?,;]$/.test(line) || !/^[A-Z]/.test(line)) return false;
-  const words = line.split(/\s+/);
-  if (words.length > 6) return false;
-  return words.every((w) => /^[A-Z0-9]/.test(w) || POSTING_TITLE_MINOR_WORDS.has(w.toLowerCase()));
-}
-const POSTING_TRIMMED_MAX = 4000;
-const POSTING_FALLBACK_MAX = 3000;
 /** E18: one budget for every optional profile excerpt in the ATS prompt. */
 const PROFILE_EXCERPTS_MAX = 10000;
-
-/**
- * @param {unknown} description
- * @returns {string}
- */
-export function trimPostingToRequirements(description) {
-  const text = normalizeSpace(description);
-  if (!text) return "";
-  /** @type {Array<{ line: string, keep: boolean }>} */
-  const lines = [];
-  // "keep": under a requirements-like heading. "neutral": before the first
-  // heading or under a heading neither list recognises (e.g. "Job Summary"),
-  // which often carries clearance or citizenship requirements. "drop":
-  // under a boilerplate heading, until the next heading of any kind.
-  /** @type {"keep" | "neutral" | "drop"} */
-  let section = "neutral";
-  let sawHeading = false;
-  for (const raw of text.split("\n")) {
-    const line = raw.trim();
-    const short = line.length > 0 && line.length <= 80;
-    if (short && POSTING_KEEP_HEADING.test(line)) {
-      section = "keep";
-      sawHeading = true;
-    } else if (short && POSTING_DROP_HEADING.test(line)) {
-      section = "drop";
-    } else if (section === "drop" && short && isGenericPostingHeading(line)) {
-      // A boilerplate section ends at the next heading, recognised or not.
-      // Unrecognised sub-headings under a requirement section stay "keep".
-      section = "neutral";
-    }
-    if (section !== "drop" && line) lines.push({ line, keep: section === "keep" });
-  }
-  if (!sawHeading || lines.length === 0) return clipText(text, POSTING_FALLBACK_MAX);
-  const keepText = lines.filter((l) => l.keep).map((l) => l.line).join("\n");
-  if (keepText.length >= POSTING_TRIMMED_MAX) return clipText(keepText, POSTING_TRIMMED_MAX);
-  // Requirement sections always fit; unrecognised-section lines fill the
-  // remaining budget in posting order. Output keeps the posting's order.
-  let remaining = POSTING_TRIMMED_MAX - keepText.length;
-  const included = lines.map((l) => {
-    if (l.keep) return true;
-    const cost = l.line.length + 1;
-    if (cost > remaining) return false;
-    remaining -= cost;
-    return true;
-  });
-  return lines.filter((_, i) => included[i]).map((l) => l.line).join("\n");
-}
 
 // Scan for the first balanced {…} / […] embedded in surrounding text and parse
 // it. Lets a valid scorecard be recovered when the provider wraps its JSON in
@@ -482,7 +403,7 @@ function buildUserPrompt(payload) {
     `Notes: ${clipText(job.notes || "", 1800) || "(none)"}`,
     "",
     "--- Posting enrichment ---",
-    posting.description ? `Description (requirement sections):\n${trimPostingToRequirements(posting.description)}` : "Description: (none)",
+    posting.description ? `Description:\n${clipText(posting.description, 7000)}` : "Description: (none)",
     `Requirements: ${(Array.isArray(posting.requirements) ? posting.requirements.slice(0, 35) : []).join("; ") || "(none)"}`,
     `Must-haves: ${(Array.isArray(posting.mustHaves) ? posting.mustHaves.slice(0, 20) : []).join("; ") || "(none)"}`,
     `Responsibilities: ${(Array.isArray(posting.responsibilities) ? posting.responsibilities.slice(0, 20) : []).join("; ") || "(none)"}`,

@@ -1,8 +1,8 @@
 /**
  * BEAUDIT lane Q repair round.
  *
- * E18: the ATS prompt sends the posting's requirement sections, not the whole
- *      description (company blurb, benefits and EEO boilerplate are dropped).
+ * E18: the ATS prompt stays bounded (the posting trim was descoped by the
+ *      orchestrator; the posting keeps the base 7000-character clip).
  * B17: the materials writer sends the Gemini key in x-goog-api-key, never in
  *      the URL.
  */
@@ -23,67 +23,6 @@ afterEach(async () => {
   if (savedPath === undefined) delete process.env.JOBBORED_LLM_CONFIG_PATH;
   else process.env.JOBBORED_LLM_CONFIG_PATH = savedPath;
   await rm(dir, { recursive: true, force: true });
-});
-
-const BLURB = "Acme was founded in 1999 and builds rockets for coyotes worldwide. ".repeat(80);
-const PERKS = "Unlimited snacks, a pet-friendly office and quarterly offsites. ".repeat(40);
-const EEO = "Acme is an equal opportunity employer and values diversity. ".repeat(20);
-const DESCRIPTION = [
-  "About Acme",
-  BLURB,
-  "Requirements",
-  "- 5+ years of Go in production",
-  "- Kafka and PostgreSQL operations",
-  "Responsibilities",
-  "- Own the payments ledger service",
-  "Benefits",
-  PERKS,
-  "Equal Opportunity",
-  EEO,
-].join("\n");
-
-async function capturePrompt(description) {
-  await writeFile(
-    process.env.JOBBORED_LLM_CONFIG_PATH,
-    JSON.stringify({ provider: "openai_compatible", model: "m", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" }),
-  );
-  const { analyzeAtsScorecard } = await import("../server/ats-scorecard.mjs");
-  const original = globalThis.fetch;
-  let prompt = "";
-  globalThis.fetch = async (_url, init) => {
-    const body = JSON.parse(String(init.body));
-    prompt = body.messages.map((m) => String(m.content)).join("\n");
-    throw new Error("stop after capture");
-  };
-  try {
-    await analyzeAtsScorecard({
-      feature: "cover_letter",
-      docText: "Dear hiring manager, I build payments systems in Go.",
-      job: { title: "Engineer", company: "Acme", postingEnrichment: { description } },
-    }).catch(() => {});
-  } finally {
-    globalThis.fetch = original;
-  }
-  return prompt;
-}
-
-describe("E18 the ATS prompt trims the posting to its requirement sections", () => {
-  it("keeps Requirements and Responsibilities and drops the blurb, benefits and EEO text", async () => {
-    const prompt = await capturePrompt(DESCRIPTION);
-    assert.match(prompt, /5\+ years of Go in production/);
-    assert.match(prompt, /Kafka and PostgreSQL operations/);
-    assert.match(prompt, /Own the payments ledger service/);
-    assert.doesNotMatch(prompt, /rockets for coyotes/);
-    assert.doesNotMatch(prompt, /Unlimited snacks/);
-    assert.doesNotMatch(prompt, /equal opportunity employer/);
-    assert.ok(prompt.length < 3000, `prompt is ${prompt.length} chars`);
-  });
-
-  it("falls back to a clipped description when the posting has no requirement heading", async () => {
-    const prompt = await capturePrompt(`We need a Go engineer for payments. ${"x ".repeat(6000)}`);
-    assert.match(prompt, /We need a Go engineer for payments/);
-    assert.ok(prompt.length < 6000, `prompt is ${prompt.length} chars`);
-  });
 });
 
 describe("B17 the materials writer keeps the Gemini key out of the URL", () => {
@@ -111,11 +50,12 @@ describe("B17 the materials writer keeps the Gemini key out of the URL", () => {
 /**
  * E18 worst case: every input at its cap. The audit measured ~50k docText +
  * 25k posting + profile text, about 20k tokens per ATS call. The prompt now
- * clips docText at 18000, trims the posting to its requirement sections
- * (<= 4000) and shares one 10000-character budget across the optional
- * profile excerpts, so the whole prompt stays under 42000 characters.
+ * clips docText at 18000, keeps the base 7000-character posting clip (the
+ * requirement-section trim was descoped) and shares one 10000-character
+ * budget across the optional profile excerpts, so the whole prompt stays
+ * under 45000 characters.
  */
-const PROMPT_BUDGET = 42_000;
+const PROMPT_BUDGET = 45_000;
 
 async function captureWorstCasePrompt() {
   await writeFile(
@@ -169,13 +109,8 @@ describe("E18 worst-case ATS prompt size", () => {
     const { prompt, posting } = await captureWorstCasePrompt();
     assert.ok(prompt.length > 0, "no prompt captured");
     assert.ok(posting.length > 20_000, "fixture posting must be large");
-    assert.doesNotMatch(prompt, /rockets for coyotes/);
-    assert.doesNotMatch(prompt, /Unlimited snacks/);
-    const postingPart = prompt.slice(
-      prompt.indexOf("Description (requirement sections):"),
-      prompt.indexOf("\nRequirements:"),
-    );
-    assert.ok(postingPart.length <= 4_100, `posting section is ${postingPart.length} chars`);
+    const postingPart = prompt.slice(prompt.indexOf("Description:"), prompt.indexOf("\nRequirements:"));
+    assert.ok(postingPart.length <= 7_100, `posting section is ${postingPart.length} chars`);
     const profilePart = prompt.slice(prompt.indexOf("--- Candidate profile excerpts"));
     const excerptChars = (profilePart.match(/CANDIDATE |RESUME |LINKEDIN |EXTRA /g) || []).join("").length;
     assert.ok(excerptChars <= 10_000, `profile excerpts are ${excerptChars} chars`);
