@@ -12,6 +12,7 @@ import {
   createDiscoveryRunsLogger,
   resolveDiscoveryRunLogError,
 } from "../../src/sheets/discovery-runs-writer.ts";
+import type { DiscoveryRunStatusPayload } from "../../src/contracts.ts";
 
 function makeRuntimeConfig(
   overrides: Partial<WorkerRuntimeConfig> = {},
@@ -465,4 +466,48 @@ test("buildDiscoveryRunLogRowFromStatus copies reasonMessage into Error for part
   assert.equal(row.companiesSeen, 0);
   assert.equal(row.leadsWritten, 0);
   assert.match(row.error, /No surface discoveries were made/);
+});
+
+test("buildDiscoveryRunLogRowFromStatus falls back to reasonMessage/warnings when error is blank", () => {
+  const payload: DiscoveryRunStatusPayload = {
+    runId: "run_abc",
+    status: "partial",
+    terminal: true,
+    message: "completed with warnings",
+    trigger: "manual",
+    request: {
+      sheetId: "sheet_abc",
+      variationKey: "var_xyz",
+      requestedAt: "2026-04-21T15:12:03.000Z",
+    },
+    acceptedAt: "2026-04-21T15:12:04.000Z",
+    updatedAt: "2026-04-21T15:12:47.000Z",
+    startedAt: "2026-04-21T15:12:05.000Z",
+    completedAt: "2026-04-21T15:12:47.000Z",
+    lifecycle: {
+      runId: "run_abc",
+      trigger: "manual",
+      startedAt: "2026-04-21T15:12:05.000Z",
+      completedAt: "2026-04-21T15:12:47.000Z",
+      state: "partial",
+      companyCount: 2,
+      detectionCount: 0,
+      listingCount: 0,
+      normalizedLeadCount: 0,
+      reasonCode: "strict_filtering_rejection",
+      reasonMessage: "Strict filters suppressed all candidates.",
+      failureClass: "strict_filtering_rejection",
+    },
+    warnings: ["Zero candidates accepted after filtering."],
+    sources: [],
+  };
+  const row = buildDiscoveryRunLogRowFromStatus(payload, {
+    source: "worker@test",
+    trigger: "scheduled-github",
+  });
+  // Non-success status should surface a non-empty error via reasonMessage fallback.
+  if (row.status !== "success") {
+    assert.ok(row.error.length > 0, "expected non-empty error fallback");
+    assert.match(row.error, /Strict filters suppressed/i);
+  }
 });

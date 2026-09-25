@@ -490,6 +490,9 @@ body.jb-v2 [data-region="pipeline"] .pipe-board {
   --pipe-col-phone-screen: var(--pipe-col-open);
   --pipe-col-interviewing: var(--pipe-col-open);
   --pipe-col-offer: var(--pipe-col-open);
+  /* Include all terminal stages so the grid never wraps to a new row. */
+  --pipe-col-rejected: var(--pipe-col-open);
+  --pipe-col-passed: var(--pipe-col-open);
   --pipe-col-expired: var(--pipe-col-open);
   display: grid;
   grid-template-columns:
@@ -499,6 +502,9 @@ body.jb-v2 [data-region="pipeline"] .pipe-board {
     var(--pipe-col-phone-screen)
     var(--pipe-col-interviewing)
     var(--pipe-col-offer)
+    /* Keep the full ordered set on one horizontal row */
+    var(--pipe-col-rejected)
+    var(--pipe-col-passed)
     var(--pipe-col-expired);
   gap: 12px;
   width: max-content;
@@ -548,6 +554,9 @@ body.jb-v2 [data-region="pipeline"] .pipe-col[data-stage="phone-screen"]  { --pi
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-stage="interviewing"]  { --pipe-stage: var(--jb-stage-interviewing); }
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-stage="offer"]         { --pipe-stage: var(--jb-stage-offer); }
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-stage="expired"]       { --pipe-stage: var(--jb-stage-expired); }
+/* Previously-missing terminal stages so their rails render with the right color. */
+body.jb-v2 [data-region="pipeline"] .pipe-col[data-stage="rejected"]      { --pipe-stage: var(--jb-stage-rejected); }
+body.jb-v2 [data-region="pipeline"] .pipe-col[data-stage="passed"]        { --pipe-stage: var(--jb-stage-passed); }
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-stage="new"]           { --pipe-stage: var(--jb-yellow-tape); }
 
 body.jb-v2 [data-region="pipeline"] .pipe-col[data-drop-active="true"] {

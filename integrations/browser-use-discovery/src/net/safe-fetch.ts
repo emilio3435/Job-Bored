@@ -16,12 +16,15 @@ export interface SafeFetchOptions {
   lookupImpl?: LookupAll;
   resolveDns?: boolean;
   maxRedirects?: number;
+  /** Cap on the streamed response body; `text()` rejects past it. */
+  maxBytes?: number;
 }
 
 /**
  * Worker-facing wrapper around the shared SSRF fetch primitive.
  * Platform fetch is fail-closed (DNS pin at connect). Injected `fetchImpl`
  * stays hermetic unless the caller passes `lookupImpl` or `resolveDns: true`.
+ * Blocked targets throw with `code: "SSRF_BLOCKED"`.
  */
 export async function safeFetch(
   url: string,

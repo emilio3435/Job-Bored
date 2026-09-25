@@ -29,7 +29,11 @@
   /** @typedef {{ ready: boolean, recommendation: string, hint?: string, state?: object }} Verdict */
 
   const STATE_ENDPOINT = "/__proxy/discovery-state";
-  const FULL_BOOT_ENDPOINT = "/__proxy/full-boot";
+  // BEAUDIT G4: silent recovery may only start the local worker. Without
+  // skip_tunnel=1 full-boot runs bootstrap, which can open a public tunnel
+  // and redeploy the relay with no consent. Tunnel start and relay deploy
+  // stay behind the wizard's explicit buttons.
+  const FULL_BOOT_ENDPOINT = "/__proxy/full-boot?skip_tunnel=1";
   const PROBE_TIMEOUT_MS = 4000;
   const RECOVERY_TIMEOUT_MS = 90_000;
 

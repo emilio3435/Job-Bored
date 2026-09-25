@@ -4,6 +4,10 @@
  * url_context cannot be combined with responseSchema.
  */
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
+import {
+  GEMINI_FLASH_FAMILY,
+  GEMINI_FLASH_FALLBACK,
+} from "../model-family.mjs";
 import { normalizeInlineField, normalizeJobText } from "./text-normalize.mjs";
 
 const GEMINI_TIMEOUT_MS = 25000;
@@ -84,11 +88,14 @@ function getGeminiApiKey(options = {}) {
 
 /** @param {string | undefined} raw */
 function resolveGeminiModel(raw) {
-  const model =
+  const configured =
     String(raw || process.env.ATS_GEMINI_MODEL || process.env.GEMINI_MODEL || "").trim() ||
-    "gemini-3.5-flash";
-  if (/^gemini-1\.|^models\/gemini-1\./i.test(model)) return "gemini-3.5-flash";
-  return model;
+    GEMINI_FLASH_FALLBACK;
+  // Upgrade legacy 1.x to a modern Flash snapshot
+  if (/^gemini-1\.|^models\/gemini-1\./i.test(configured)) return GEMINI_FLASH_FALLBACK;
+  // Family alias is fine for config, but HTTP should use a pinned snapshot
+  if (configured === GEMINI_FLASH_FAMILY) return GEMINI_FLASH_FALLBACK;
+  return configured;
 }
 
 /**

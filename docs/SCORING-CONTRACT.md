@@ -23,7 +23,7 @@ Replace the hard-coded keyword scorer in `integrations/browser-use-discovery/src
    ┌──────────────────────────┼──────────────────────────┐
    ▼                          ▼                          ▼
 Pre-filter             Query-builder               LLM Scorer
-(keyword/regex)        (existing path:             (gemini-3.5-flash,
+(keyword/regex)        (existing path:             (gemini-flash,
 hardConstraints        DiscoveryProfile)            structured output)
    │                          │                          │
    │ pass                     │                          │
@@ -92,7 +92,7 @@ async function scoreListingWithLlm(
 ): Promise<LlmFitScoreResult>
 ```
 
-- Model: `gemini-3.5-flash` (no fallback; the model-swap agent standardized this).
+- Model: `gemini-flash` (family; resolved to the latest stable at call time).
 - Mode: structured output, JSON Schema = `LlmFitScoreResult` (see TS file).
 - System prompt embeds `profile.identity.primaryNarrative`, then enumerates strengths (rank-ordered, with evidence + keywords if present), wants, avoids, and tieBreakers.
 - User prompt is the listing: title, company, location, compensationText, descriptionText (truncated to 6k chars).

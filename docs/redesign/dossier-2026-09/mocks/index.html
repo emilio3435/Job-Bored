@@ -1,0 +1,99 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier redesign · mocks</title>
+<link rel="stylesheet" href="../../../../vendor/fonts/fonts.css">
+<link rel="stylesheet" href="mock-shell.css">
+<link rel="stylesheet" href="dossier-redesign.css">
+<style>
+  .mock-index { display: grid; gap: 1px; background: var(--mock-border); border: 1px solid var(--mock-border); border-radius: 12px; overflow: hidden; }
+  .mock-index a {
+    display: grid; grid-template-columns: 3.5rem minmax(0, 1fr) auto; gap: 18px; align-items: baseline;
+    padding: 20px 24px; background: var(--mock-parchment); text-decoration: none; color: inherit;
+  }
+  .mock-index a:hover { background: #f5efdc; }
+  .mock-index b { font-family: var(--mock-mono); font-size: 11px; letter-spacing: 0.18em; color: var(--mock-crimson); }
+  .mock-index h2 { margin: 0 0 4px; font-family: var(--mock-serif); font-size: 21px; font-weight: 500; color: var(--mock-navy); }
+  .mock-index p { margin: 0; font-family: var(--mock-serif); font-size: 14.5px; line-height: 1.5; color: #4a4a4a; max-width: 64ch; }
+  .mock-index span { font-family: var(--mock-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase; color: var(--mock-mute); white-space: nowrap; }
+  .mock-docs { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 28px; }
+  .mock-docs a {
+    padding: 10px 16px; border: 1px solid var(--mock-navy); border-radius: 999px; background: var(--mock-navy);
+    color: var(--mock-parchment); text-decoration: none;
+    font-family: var(--mock-mono); font-size: 10px; letter-spacing: 0.14em; text-transform: uppercase;
+  }
+  .mock-docs a:hover { background: var(--mock-crimson); border-color: var(--mock-crimson); }
+</style>
+</head>
+<body>
+
+<main class="mock-page">
+  <div data-mock-nav></div>
+
+  <header class="mock-head">
+    <span class="mock-head__kicker">JobBored · Role dossier · redesign package · 2026-09-17</span>
+    <h1 class="mock-head__title">The dossier, <em>rebuilt</em></h1>
+    <p class="mock-head__note">
+      High-fidelity mocks for the Role Dossier redesign. The three-column board is replaced by a
+      reading canvas, a bounded ledger and a sticky docket. Open any mock and toggle annotations to
+      see the reasoning inline; the argument and the rules live in the two documents below.
+    </p>
+  </header>
+
+  <nav class="mock-index">
+    <a href="01-default.html">
+      <b>01</b>
+      <div>
+        <h2>Default filled role</h2>
+        <p>3E · AI &amp; Marketing Analytics Manager at 1440 and 1280. Canvas plus ledger, tracks centred, verdict line at the top.</p>
+      </div>
+      <span>1440 · 1280</span>
+    </a>
+    <a href="02-scrolled.html">
+      <b>02</b>
+      <div>
+        <h2>Scrolled, docket engaged</h2>
+        <p>Deep in the gaps and the scorecard, with stage and the drafting actions still parked under the app chrome.</p>
+      </div>
+      <span>1440 · scrolled</span>
+    </a>
+    <a href="03-materials-request.html">
+      <b>03</b>
+      <div>
+        <h2>Materials request</h2>
+        <p>In flight and failed, plus all five row states at the 352px ledger width. The surface the dogfood report was using.</p>
+      </div>
+      <span>1440 · 390</span>
+    </a>
+    <a href="04-narrow.html">
+      <b>04</b>
+      <div>
+        <h2>Narrow widths</h2>
+        <p>1024, 900, 720 and 390. Container queries, one column below the floor, source order unchanged.</p>
+      </div>
+      <span>1024 → 390</span>
+    </a>
+    <a href="05-states.html">
+      <b>05</b>
+      <div>
+        <h2>Empty, loading, error, review, closed</h2>
+        <p>Six states: no role open, reading the posting, no resume, scrape failed, recovered parse, rejected.</p>
+      </div>
+      <span>states</span>
+    </a>
+  </nav>
+
+  <div class="mock-docs">
+    <a href="../TEARDOWN.md">Teardown · why three columns fail</a>
+    <a href="../SPEC.md">Spec · IA, layout, states, a11y</a>
+    <a href="../IMPLEMENTATION-PLAN.md">Plan · component inventory &amp; migration</a>
+    <a href="../audit/">Audit · the measurements</a>
+  </div>
+</main>
+
+<script src="mock-shell.js"></script>
+<script>window.JobBoredMockShell.boot({ current: "index.html", legend: false });</script>
+</body>
+</html>

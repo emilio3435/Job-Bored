@@ -83,12 +83,28 @@ This tier uses **GitHub Actions** — free for public repos, no CORS issues, run
 5. The **"Advisory"** badge stays on this tier — the worker cannot verify GitHub remotely, so check your fork's Actions tab to confirm the workflow is running.
 
 **Works on:** any OS (schedule runs on GitHub's servers).
-**Requires:** the webhook URL in the secrets must be **publicly reachable** (ngrok tunnel for local workers, a Cloudflare Worker relay, or an Apps Script URL). See `templates/cloudflare-worker/README.md` for the relay pattern.
+**Requires:** the webhook URL in the secrets must be **publicly reachable** (a tunnel URL for a local worker, or an Apps Script URL). The Cloudflare Worker relay is not a GitHub Actions target; see GitHub Actions and the Cloudflare relay below.
 **Downside:** your worker endpoint must be internet-accessible — not just localhost.
 
 The workflow is DST-safe for America/Chicago: its cron line fires at both possible UTC offsets, `0 11,12 * * *` for the default 06:00 run, and the job exits unless `TZ=America/Chicago date +"%H:%M"` matches the selected local time. Manual **Run workflow** dispatches are not blocked by that guard.
 
-If you use the Cloudflare Worker relay, prefer storing the worker-facing secret as Cloudflare `DISCOVERY_SECRET`; GitHub can then keep only the public Worker URL and Sheet ID.
+### GitHub Actions and the Cloudflare relay
+
+The Cloudflare relay is not a supported GitHub Actions target. It answers 401
+to any caller without the per-dashboard `RELAY_TOKEN` bearer, and the GitHub
+Actions discovery workflow (the one Settings generates and the template) sends
+no bearer, so a scheduled GitHub POST to the relay gets 401 and never reaches
+your worker.
+
+If `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` in your repo secrets is a
+`workers.dev` relay URL, migrate one of two ways:
+
+- Keep the relay and schedule from it instead: re-run
+  `npm run cloudflare-relay:deploy -- --sheet-id <your Sheet ID>` so the relay's
+  own Cloudflare Cron posts discovery, then delete the GitHub workflow.
+- Keep GitHub Actions and point `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` at your
+  worker's public URL (for example its tunnel URL ending in `/webhook`) or an
+  Apps Script `/exec` URL, never the relay.
 
 ---
 

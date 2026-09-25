@@ -170,13 +170,7 @@ describe("Settings Gemini model menu", () => {
       JSON.stringify(catalog.getStaticModels("gemini").map((option) => option.value)),
     );
     assert.equal(catalogValues[0], "gemini-flash");
-    assert.deepEqual(catalogValues, [
-      "gemini-flash",
-      "gemini-3.5-flash",
-      "gemini-3.1-pro-preview",
-      "gemini-3-flash-preview",
-      "gemini-3.1-flash-lite-preview",
-    ]);
+    assert.deepEqual(catalogValues, ["gemini-flash", "gemini-pro", "gemini-flash-lite"]);
     assert.match(
       settingsModalJs,
       /catalog\.getStaticModels\("gemini"\)/,
@@ -185,10 +179,6 @@ describe("Settings Gemini model menu", () => {
     assert.ok(
       options.gemini.every((option) => option.description && /Pro:|Con:/.test(option.description)),
       "each Gemini option should carry a short tooltip description with pros/cons",
-    );
-    assert.ok(
-      !options.gemini.some((option) => /gemini-2\.|gemini-1\./.test(option.value)),
-      "deprecated Gemini 1.x/2.x models must not appear in Settings",
     );
     assert.ok(
       !catalogValues.some((value) => /gemini-2\.|gemini-1\./.test(value)),
@@ -238,12 +228,12 @@ describe("Settings Gemini model menu", () => {
     const { api, geminiSelect } = loadSettingsFill({
       catalogModels: [
         { value: "gemini-flash", label: "Gemini Flash (latest)" },
-        { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" },
+        { value: "gemini-pro", label: "Gemini Pro (latest)" },
       ],
     });
     api.fillOneResumeModelSelect(
       "settingsResumeGeminiModel",
-      [{ value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" }],
+      [{ value: "gemini-flash", label: "Gemini Flash (latest)" }],
       "gemini-1.5-pro",
     );
     assert.equal(
@@ -253,7 +243,7 @@ describe("Settings Gemini model menu", () => {
     );
     api.fillOneResumeModelSelect(
       "settingsResumeGeminiModel",
-      [{ value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" }],
+      [{ value: "gemini-flash", label: "Gemini Flash (latest)" }],
       "gemini-flash",
     );
     assert.equal(

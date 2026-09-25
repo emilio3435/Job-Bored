@@ -275,7 +275,7 @@ describe("materials manifest ownership", () => {
     /* The Case mount gets compact rows (plan Task 9), not the panel's cards. */
     assert.match(
       renderedHtml(mountEls.get("materials")),
-      /class="case__doc" data-doc="resume"/,
+      /class="case__doc case__doc--[a-z]+" data-doc="resume"/,
       "the rendered document rows must land in the materials mount",
     );
     assert.equal(
@@ -295,7 +295,7 @@ describe("materials manifest ownership", () => {
     mount.childNodes.length = 0;
     assert.equal(renderedHtml(mount), "");
     api.rehydrateOpenRole();
-    assert.match(renderedHtml(mount), /class="case__doc" data-doc="resume"/, "rows must be repainted");
+    assert.match(renderedHtml(mount), /class="case__doc case__doc--[a-z]+" data-doc="resume"/, "rows must be repainted");
     assert.equal(announced(), before, "rehydrate must not re-dispatch jb:materials:manifest");
   });
 
@@ -307,7 +307,7 @@ describe("materials manifest ownership", () => {
     const { api, win, mountEls, openRole } = bootMaterials({ mounts: ["materials", "brief"] });
     await openRole("job-1");
     const mount = mountEls.get("materials");
-    assert.match(renderedHtml(mount), /class="case__doc" data-doc="resume"/, "role A painted its rows");
+    assert.match(renderedHtml(mount), /class="case__doc case__doc--[a-z]+" data-doc="resume"/, "role A painted its rows");
 
     /* Role B opens directly: no jb:role:closed, and its own load has not
        landed yet when the Case rebuilds the mount. */
@@ -319,7 +319,7 @@ describe("materials manifest ownership", () => {
     /* And the guard is not a blanket refusal: A's own repaint still works. */
     win.JobBoredFlowing.openRole.get = () => "job-1";
     api.rehydrateOpenRole();
-    assert.match(renderedHtml(mount), /class="case__doc" data-doc="resume"/);
+    assert.match(renderedHtml(mount), /class="case__doc case__doc--[a-z]+" data-doc="resume"/);
   });
 
   it("still renders into the legacy brief mount when no materials mount exists", async () => {

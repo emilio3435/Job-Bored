@@ -12,8 +12,10 @@ compatibility_date = "2024-01-01"
 # Secrets — set in your account, never commit real values:
 #   wrangler secret put TARGET_URL
 #     → paste your Apps Script Web app /exec URL (or other HTTPS POST endpoint)
-#   wrangler secret put FORWARD_SECRET
-#     → optional; if set, only POST https://<worker>/forward works and requires Bearer token
+#   RELAY_TOKEN
+#     → required; the per-dashboard bearer. Set it with
+#       `npm run cloudflare-relay:deploy`, which also hands it to the local
+#       dashboard. Without it the Worker answers 401 to every request.
 #   wrangler secret put DISCOVERY_SECRET
 #     → worker's x-discovery-secret; injected on both /webhook and /discovery-profile
 #       forwards AND on scheduled-cron discovery POSTs

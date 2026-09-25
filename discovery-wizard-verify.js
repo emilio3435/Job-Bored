@@ -699,8 +699,16 @@
       typeof options.secret === "string"
         ? options.secret.trim()
         : "";
+    // Relay requests carry the per-dashboard bearer (G24) and retry once
+    // with a refreshed token on a relay 401.
+    const relayFetch =
+      typeof window !== "undefined" &&
+      window.JobBoredRelayAuth &&
+      typeof window.JobBoredRelayAuth.fetch === "function"
+        ? window.JobBoredRelayAuth.fetch
+        : fetch;
     try {
-      const res = await fetch(endpointUrl, {
+      const res = await relayFetch(endpointUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
