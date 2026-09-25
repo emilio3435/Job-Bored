@@ -972,17 +972,57 @@
     return h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1";
   }
 
-  async function hydrateRelayAuth() {
+  // The token route is a loopback call to the dev server, but a wedged server
+  // must not hold a relay request past its own deadline, so hydration carries
+  // its own timeout and aborts the route request when it fires.
+  const RELAY_HYDRATION_TIMEOUT_MS = 2500;
+
+  function hydrationTimeoutFrom(options) {
+    const ms = Number(options && options.timeoutMs);
+    return Number.isFinite(ms) && ms > 0 ? ms : RELAY_HYDRATION_TIMEOUT_MS;
+  }
+
+  async function hydrateRelayAuth(options) {
     if (!isLocalRelayDashboardOrigin()) return false;
+    const controller =
+      typeof AbortController === "function" ? new AbortController() : null;
+    let timer = null;
+    const deadline = new Promise((resolve) => {
+      timer = setTimeout(() => {
+        if (controller) {
+          try {
+            controller.abort();
+          } catch (_) {
+            /* ignore */
+          }
+        }
+        resolve(null);
+      }, hydrationTimeoutFrom(options));
+    });
     try {
-      const res = await window.fetch(RELAY_TOKEN_ROUTE, {
-        cache: "no-store",
-      });
+      const res = await Promise.race([
+        Promise.resolve()
+          .then(() =>
+            window.fetch(RELAY_TOKEN_ROUTE, {
+              cache: "no-store",
+              ...(controller ? { signal: controller.signal } : {}),
+            }),
+          )
+          .catch(() => null),
+        deadline,
+      ]);
       if (!res || !res.ok) return false;
-      const data = await res.json().catch(() => null);
+      const data = await Promise.race([
+        Promise.resolve()
+          .then(() => res.json())
+          .catch(() => null),
+        deadline,
+      ]);
       return hydrateRelayAuthFromBootstrap(data);
     } catch (_) {
       return false;
+    } finally {
+      if (timer !== null && typeof clearTimeout === "function") clearTimeout(timer);
     }
   }
 
@@ -1028,11 +1068,12 @@
   }
 
   let relayHydration = null;
-  // One in-flight hydration at a time. A failed one is dropped, so a later
-  // request retries once the relay is deployed.
-  function startRelayHydration() {
+  // One in-flight hydration at a time. It always settles within its timeout,
+  // and a settled one (ok, failed or timed out) is dropped, so a later request
+  // asks the route again instead of reusing a stalled promise.
+  function startRelayHydration(options) {
     if (!relayHydration) {
-      relayHydration = hydrateRelayAuth().then(
+      relayHydration = hydrateRelayAuth(options).then(
         (ok) => {
           relayHydration = null;
           return ok;
@@ -1046,29 +1087,78 @@
     return relayHydration;
   }
 
+  function signalFrom(options) {
+    const signal = options && options.signal;
+    return signal && typeof signal.aborted === "boolean" ? signal : null;
+  }
+
+  function abortErrorFor(signal) {
+    const reason = signal && signal.reason;
+    if (reason && typeof reason === "object" && reason.name === "AbortError") {
+      return reason;
+    }
+    if (typeof DOMException === "function") {
+      return new DOMException("The operation was aborted.", "AbortError");
+    }
+    const err = new Error("The operation was aborted.");
+    err.name = "AbortError";
+    return err;
+  }
+
+  // Waits for `promise`, but rejects with an AbortError as soon as the
+  // caller's signal fires, so hydration never outlasts the caller's deadline.
+  function untilAborted(promise, signal) {
+    if (!signal) return promise;
+    if (signal.aborted) return Promise.reject(abortErrorFor(signal));
+    return new Promise((resolve, reject) => {
+      const onAbort = () => reject(abortErrorFor(signal));
+      signal.addEventListener("abort", onAbort, { once: true });
+      promise.then(
+        (value) => {
+          signal.removeEventListener("abort", onAbort);
+          resolve(value);
+        },
+        (err) => {
+          signal.removeEventListener("abort", onAbort);
+          reject(err);
+        },
+      );
+    });
+  }
+
   // Loads the token only when a request is about to leave for a remote origin
   // with no token cached for it. Greenfield boot never calls the route.
-  async function prepareRelayAuth(url) {
+  // options: { signal, timeoutMs }. Rejects with AbortError when the signal
+  // fires first.
+  async function prepareRelayAuth(url, options) {
+    const signal = signalFrom(options);
+    if (signal && signal.aborted) throw abortErrorFor(signal);
     if (!safeOrigin(url) || isLocalTarget(url)) return false;
     const auth = readRelayAuth();
     if (auth && safeOrigin(auth.workerUrl) === safeOrigin(url)) return true;
-    await startRelayHydration();
+    await untilAborted(startRelayHydration(options), signal);
     const next = readRelayAuth();
     return !!(next && safeOrigin(next.workerUrl) === safeOrigin(url));
   }
 
   // Re-reads the token after the relay answered 401 (a redeploy with a new
   // token). True only when a different token for this relay origin arrived.
-  async function refreshRelayAuth(url) {
+  async function refreshRelayAuth(url, options) {
+    const signal = signalFrom(options);
+    if (signal && signal.aborted) throw abortErrorFor(signal);
     if (!safeOrigin(url) || isLocalTarget(url)) return false;
     const before = readRelayAuth();
-    await startRelayHydration();
+    await untilAborted(startRelayHydration(options), signal);
     const after = readRelayAuth();
     return !!(
       after &&
       safeOrigin(after.workerUrl) === safeOrigin(url) &&
       (!before || before.token !== after.token)
     );
+  }
+
+  function isAbortError(err) {
+    return !!(err && err.name === "AbortError");
   }
 
   function withRelayAuthHeaders(init, url) {
@@ -1103,10 +1193,20 @@
     if (typeof input !== "string" || !safeOrigin(url) || isLocalTarget(url)) {
       return window.fetch(input, init);
     }
-    await prepareRelayAuth(url).catch(() => false);
+    // The caller's signal bounds token preparation and the 401 refresh as
+    // well as the request itself; any other preparation failure just sends
+    // the request without a token.
+    const signal = signalFrom(init);
+    await prepareRelayAuth(url, { signal }).catch((err) => {
+      if (isAbortError(err)) throw err;
+      return false;
+    });
     const res = await window.fetch(input, withRelayAuthHeaders(init, url));
     if (!res || res.status !== 401 || !canReplayBody(init)) return res;
-    const refreshed = await refreshRelayAuth(url).catch(() => false);
+    const refreshed = await refreshRelayAuth(url, { signal }).catch((err) => {
+      if (isAbortError(err)) throw err;
+      return false;
+    });
     if (!refreshed) return res;
     return window.fetch(input, withRelayAuthHeaders(init, url));
   }
@@ -1116,6 +1216,7 @@
     prepare: prepareRelayAuth,
     refresh: refreshRelayAuth,
     fetch: relayAuthFetch,
+    HYDRATION_TIMEOUT_MS: RELAY_HYDRATION_TIMEOUT_MS,
     hydrateFromBootstrap: hydrateRelayAuthFromBootstrap,
     headersFor: relayAuthHeadersFor,
     isLocked() {

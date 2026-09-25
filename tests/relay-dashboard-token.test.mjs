@@ -40,7 +40,16 @@ function loadRelayModule({
       return { ok: true, status: 200, json: async () => ({ ok: true, ...bootstrap }) };
     },
   };
-  const ctx = { window, URL, console, setTimeout, Promise };
+  const ctx = {
+    window,
+    URL,
+    console,
+    setTimeout,
+    clearTimeout,
+    Promise,
+    AbortController,
+    DOMException,
+  };
   ctx.fetch = window.fetch;
   ctx.localStorage = window.localStorage;
   vm.createContext(ctx);
@@ -191,18 +200,131 @@ test("relay fetch passes non-relay requests through untouched", async () => {
   assert.equal(requests[0].init.headers.Authorization, undefined);
 });
 
-// Browser call sites that call the relay, including the run-status GET poll
-// in discovery-status-handoff.js (behavior pinned in relay-status-poll-auth).
-const CALL_SITES = [
-  "discovery-wizard-verify.js",
-  "settings-profile-tab.js",
-  "ingest-url-flow.js",
-  "expired-review-ui.js",
-  "discovery-status-handoff.js",
-];
-for (const file of CALL_SITES) {
-  test(`${file} sends its relay requests through JobBoredRelayAuth.fetch`, () => {
-    const src = readFileSync(join(ROOT, file), "utf8");
-    assert.match(src, /JobBoredRelayAuth\.fetch/);
+// The browser call sites that talk to the relay are exercised end to end in
+// tests/relay-call-sites.test.mjs (emitted headers, cancellation, and no
+// bearer for any other destination).
+
+// Repair round 7: token hydration must not defeat a caller's request deadline.
+// The token route can stall (a wedged dev server); the caller's AbortSignal
+// still settles the request, hydration carries its own timeout, and a stalled
+// or failed hydration is never reused by the next call.
+const NEVER = () => new Promise(() => {});
+
+function within(ms, promise) {
+  let timer;
+  const sentinel = new Promise((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`still pending after ${ms}ms`)), ms);
   });
+  return Promise.race([promise, sentinel]).finally(() => clearTimeout(timer));
 }
+
+test("a stalled token route cannot outlast the caller's abort signal", async () => {
+  const { window, requests } = loadRelayModule({
+    respond: (url) =>
+      url === "/__proxy/discovery-relay-token" ? NEVER() : jsonResponse(202, {}),
+  });
+  const controller = new AbortController();
+  setTimeout(() => controller.abort(), 50);
+  const started = Date.now();
+  await assert.rejects(
+    within(
+      1500,
+      window.JobBoredRelayAuth.fetch(`${WORKER}/webhook`, {
+        method: "POST",
+        body: "{}",
+        signal: controller.signal,
+      }),
+    ),
+    (err) => err && err.name === "AbortError",
+  );
+  assert.ok(Date.now() - started < 1000, "the caller's 50ms deadline settled the request");
+  assert.equal(requests.filter((r) => r.url.startsWith(WORKER)).length, 0);
+});
+
+test("an already aborted signal settles before any network call", async () => {
+  const { window, requests } = loadRelayModule({ bootstrap: BOOTSTRAP });
+  const controller = new AbortController();
+  controller.abort();
+  await assert.rejects(
+    within(
+      500,
+      window.JobBoredRelayAuth.fetch(`${WORKER}/webhook`, {
+        method: "POST",
+        body: "{}",
+        signal: controller.signal,
+      }),
+    ),
+    (err) => err && err.name === "AbortError",
+  );
+  assert.equal(requests.length, 0);
+});
+
+test("a stalled hydration times out on its own and is not cached", async () => {
+  let stall = true;
+  const { window, requests } = loadRelayModule({
+    respond: (url) => {
+      if (url !== "/__proxy/discovery-relay-token") return jsonResponse(202, {});
+      return stall ? NEVER() : jsonResponse(200, { ok: true, ...BOOTSTRAP });
+    },
+  });
+  const auth = window.JobBoredRelayAuth;
+  const started = Date.now();
+  assert.equal(
+    await within(1500, auth.prepare(`${WORKER}/webhook`, { timeoutMs: 50 })),
+    false,
+  );
+  assert.ok(Date.now() - started < 1000);
+  const first = requests.find((r) => r.url === "/__proxy/discovery-relay-token");
+  assert.ok(first.init.signal, "the token route request carries a signal");
+  assert.equal(first.init.signal.aborted, true, "the stalled route request was aborted");
+  stall = false;
+  assert.equal(await within(1500, auth.prepare(`${WORKER}/webhook`)), true);
+  assert.equal(
+    requests.filter((r) => r.url === "/__proxy/discovery-relay-token").length,
+    2,
+    "the second call re-asked the route instead of reusing the stalled promise",
+  );
+});
+
+test("the default hydration timeout bounds a request with no caller signal", async () => {
+  const { window, requests } = loadRelayModule({
+    respond: (url, init) => {
+      if (url === "/__proxy/discovery-relay-token") return NEVER();
+      return jsonResponse(init && init.headers && init.headers.Authorization ? 202 : 401, {});
+    },
+  });
+  const auth = window.JobBoredRelayAuth;
+  assert.ok(
+    Number.isFinite(auth.HYDRATION_TIMEOUT_MS) && auth.HYDRATION_TIMEOUT_MS <= 5000,
+    "hydration has a finite default timeout",
+  );
+  const res = await within(
+    auth.HYDRATION_TIMEOUT_MS * 2 + 1000,
+    auth.fetch(`${WORKER}/webhook`, { method: "POST", body: "{}" }),
+  );
+  assert.equal(res.status, 401, "the request went out without a token and settled");
+  assert.equal(requests.filter((r) => r.url.startsWith(WORKER)).length, 1);
+});
+
+test("the caller's abort signal settles a stalled 401 refresh", async () => {
+  let tokenCalls = 0;
+  const { window, requests } = loadRelayModule({
+    respond: (url) => {
+      if (url === "/__proxy/discovery-relay-token") {
+        tokenCalls += 1;
+        return tokenCalls === 1 ? jsonResponse(200, { ok: true, ...BOOTSTRAP }) : NEVER();
+      }
+      return jsonResponse(401, {});
+    },
+  });
+  const controller = new AbortController();
+  const pending = window.JobBoredRelayAuth.fetch(`${WORKER}/webhook`, {
+    method: "POST",
+    body: "{}",
+    signal: controller.signal,
+  });
+  setTimeout(() => controller.abort(), 50);
+  await assert.rejects(within(1500, pending), (err) => err && err.name === "AbortError");
+  assert.equal(tokenCalls, 2, "the 401 started a refresh");
+  assert.equal(requests.filter((r) => r.url.startsWith(WORKER)).length, 1);
+});
