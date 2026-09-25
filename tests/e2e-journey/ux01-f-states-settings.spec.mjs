@@ -49,7 +49,7 @@ test("C21: a refresh that gets 403 keeps the board and offers Retry", async ({ p
   await page.evaluate(() => {
     globalThis.__jbEvents = [];
     for (const t of ["jb:data:loaded", "jb:data:load-failed"]) {
-      window.addEventListener(t, (e) => globalThis.__jbEvents.push({ t, detail: e.detail && { status: e.detail.status, lastSyncedAt: e.detail.lastSyncedAt } }));
+      globalThis.addEventListener(t, (e) => globalThis.__jbEvents.push({ t, detail: e.detail && { status: e.detail.status, lastSyncedAt: e.detail.lastSyncedAt } }));
     }
   });
 
@@ -64,7 +64,7 @@ test("C21: a refresh that gets 403 keeps the board and offers Retry", async ({ p
   await page.route("https://sheets.googleapis.com/**", forbid);
   await page.route("https://docs.google.com/**", (route) => route.fulfill({ status: 404, body: "" }));
 
-  const ok = await page.evaluate(() => window.JobBoredApp.sheetsRead.loadAllData());
+  const ok = await page.evaluate(() => globalThis.JobBoredApp.sheetsRead.loadAllData());
   expect(ok).toBe(false);
 
   const banner = page.locator("#jbSyncBanner");
@@ -88,7 +88,7 @@ test("C21: a refresh that gets 403 keeps the board and offers Retry", async ({ p
 test("C22: every Settings tab is reachable at 375 px", async ({ page }) => {
   await page.setViewportSize({ width: 375, height: 812 });
   await bootSignedIn(page);
-  await page.evaluate(() => window.openCommandCenterSettingsModal());
+  await page.evaluate(() => globalThis.openCommandCenterSettingsModal());
   const modal = page.locator("#settingsModal");
   await expect(modal).toBeVisible();
   const tabs = modal.getByRole("tab");
@@ -111,15 +111,15 @@ test("C22: every Settings tab is reachable at 375 px", async ({ page }) => {
 
 test("C22: Scraper setup opened from Settings is on top and usable", async ({ page }) => {
   await bootSignedIn(page);
-  await page.evaluate(() => window.openCommandCenterSettingsModal({ tab: "scraping" }));
+  await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "scraping" }));
   await page.locator("#openScraperSetupFromSettings").click();
   const scraper = page.locator("#scraperSetupModal");
   await expect(scraper).toBeVisible();
   const done = page.locator("#scraperSetupDoneBtn");
   const hit = await done.evaluate((btn) => {
     const r = btn.getBoundingClientRect();
-    const el = document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
-    return { onTop: !!el && btn.contains(el), inert: document.getElementById("scraperSetupModal").inert };
+    const el = globalThis.document.elementFromPoint(r.x + r.width / 2, r.y + r.height / 2);
+    return { onTop: !!el && btn.contains(el), inert: globalThis.document.getElementById("scraperSetupModal").inert };
   });
   expect(hit.inert).toBe(false);
   expect(hit.onTop).toBe(true);
@@ -131,7 +131,7 @@ test("C22: Scraper setup opened from Settings is on top and usable", async ({ pa
 
 test("C22: closing Settings with unsaved edits asks first", async ({ page }) => {
   await bootSignedIn(page);
-  await page.evaluate(() => window.openCommandCenterSettingsModal({ tab: "setup" }));
+  await page.evaluate(() => globalThis.openCommandCenterSettingsModal({ tab: "setup" }));
   const modal = page.locator("#settingsModal");
   await expect(modal).toBeVisible();
   const field = modal.locator('input[id^="settings"]:visible').first();
