@@ -630,12 +630,22 @@ async function openCommandCenterSettingsModal(opts) {
   // - Focusing #settingsModalClose lands the user inside the trap with a
   //   discoverable exit affordance.
   if (typeof document !== "undefined" && !settingsEscapeHandler) {
+    // Capture phase + stopImmediatePropagation: materials-feature.js has a
+    // global Escape that closes Settings raw, which skipped the unsaved-
+    // changes question (UX01 SS-27). Settings owns its own Escape now.
     settingsEscapeHandler = (e) => {
-      if (e.key === "Escape" && isSettingsModalOpen()) {
-        requestCloseCommandCenterSettingsModal();
+      if (e.key !== "Escape" || !isSettingsModalOpen()) return;
+      const scraper = document.getElementById("scraperSetupModal");
+      if (scraper && scraper.style.display === "flex") return;
+      e.stopImmediatePropagation();
+      const clearBar = document.getElementById("settingsClearConfirmBar");
+      if (clearBar && !clearBar.hidden) {
+        hideSettingsClearConfirmBar();
+        return;
       }
+      requestCloseCommandCenterSettingsModal();
     };
-    document.addEventListener("keydown", settingsEscapeHandler);
+    document.addEventListener("keydown", settingsEscapeHandler, true);
   }
   if (typeof requestAnimationFrame === "function") {
     requestAnimationFrame(() => {
@@ -786,7 +796,7 @@ function closeCommandCenterSettingsModal() {
     typeof document !== "undefined" &&
     typeof document.removeEventListener === "function"
   ) {
-    document.removeEventListener("keydown", settingsEscapeHandler);
+    document.removeEventListener("keydown", settingsEscapeHandler, true);
     settingsEscapeHandler = null;
   }
   if (
