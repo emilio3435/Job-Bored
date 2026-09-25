@@ -246,7 +246,8 @@ describe("The Case renders every block from the model", () => {
     assert.doesNotMatch(html, /case__pill--due/);
     assert.doesNotMatch(html, /data-num="keywords"/);
     assert.doesNotMatch(html, /case__section--you/);
-    assert.match(html, /Add a resume to see what matches/);
+    /* UX01 C11 (TA-15): the hint is also the way to fix it. */
+    assert.match(html, /data-action="open-resume"[^>]*>Add your resume<\/button> to see what matches/);
   });
   it("escapes exactly once", () => {
     const html = renderHtml(model({ vmPatch: { role: 'Eng <b>"x"</b> & co', location: 'Austin & "TX" <b>' } }));
