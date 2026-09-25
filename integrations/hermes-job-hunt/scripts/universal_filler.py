@@ -195,9 +195,10 @@ def is_navigation_click(action: dict[str, Any], element_meta: dict[str, Any] | N
 
 
 # Element kinds from page_state_extractor.js that hold a value. Clicking one
-# opens or toggles the field; it cannot submit the form.
+# opens or toggles the field; it cannot submit the form. "input" is an
+# `<input>` with no type attribute, which browsers render as a text field.
 FIELD_CLICK_KINDS = frozenset({
-    "text", "email", "tel", "url", "number", "date", "datetime-local", "month",
+    "input", "text", "email", "tel", "url", "number", "date", "datetime-local", "month",
     "week", "time", "search", "password", "textarea", "select", "combobox",
     "listbox", "checkbox", "radio", "contenteditable", "file",
 })

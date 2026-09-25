@@ -404,3 +404,31 @@ def test_requirements_list_the_filler_dependencies():
 
 def test_extractor_is_read_from_the_scripts_directory():
     assert uf.EXTRACTOR_PATH == Path(uf.__file__).resolve().parent / "page_state_extractor.js"
+
+
+# Repair round 3: an `<input>` with no type attribute is a text field.
+
+
+def untyped_input(selector, label, value=""):
+    """`<input name=...>` with no type, as page_state_extractor.js reports it (kind='input')."""
+    return {"selector": selector, "label": label, "value": value, "required": True,
+            "visible": True, "kind": "input", "tag": "input", "type": ""}
+
+
+def test_untyped_input_is_a_field_interaction():
+    meta = untyped_input("#name", "Full name")
+    assert uf.is_field_interaction_click({"action": "click", "selector": "#name"}, meta) is True
+    assert uf.is_submit_like_action({"action": "click", "selector": "#name"}, meta) is False
+
+
+def test_focusing_an_empty_untyped_input_then_filling_it_is_allowed(app_dir):
+    form = {**FILLED_FORM, "elements": [untyped_input("#name", "Full name"), button("#send", "Send")]}
+    page = FakePage(form, form, submit_selector="#send", after_url=DONE_URL)
+    planner = ScriptedPlanner(
+        [{"action": "click", "selector": "#name", "reason": "Focus Full name"}],
+        [{"action": "fill", "selector": "#name", "value": "Ada Example", "reason": "Full name"}],
+    )
+    result = run_live(app_dir, page, planner)
+    assert page.clicked == ["#name"]
+    assert page.filled == {"#name": "Ada Example"}
+    assert result["submit_attempted"] is False
