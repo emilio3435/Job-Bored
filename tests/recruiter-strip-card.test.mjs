@@ -89,6 +89,48 @@ it("should read the stage from the card's data-stage once the strip is mounted (
   assert.equal(attrs.hidden, undefined);
 });
 
+function stripWithCard(win, dataStage) {
+  const strip = loadStrip(win);
+  const attrs = {};
+  const dot = { setAttribute(k, v) { attrs[k] = v; }, removeAttribute(k) { delete attrs[k]; }, remove() { attrs.removed = true; } };
+  const card = { getAttribute: (k) => (k === "data-stage" ? dataStage : null) };
+  const mount = {
+    innerHTML: "",
+    querySelector: (sel) => (sel === "jb-stage-dot" ? dot : null),
+    closest: (sel) => (sel === "[data-stage]" ? card : null),
+  };
+  return { strip, attrs, mount };
+}
+
+it("should map a Phone Screen card's canonical data-stage to the phone dot without the registry (TR-17)", async () => {
+  const { strip, attrs, mount } = stripWithCard({}, "phone-screen");
+  strip.renderCompact(mount, { jobKey: "3", contact: "Dev", now: NOW });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(attrs.removed, undefined, "the phone-screen card must keep its stage dot");
+  assert.equal(attrs.stage, "phone");
+});
+
+it("should normalise the card's data-stage through JobBoredStages.toDotKey when present (TR-17)", async () => {
+  const registrySrc = readFileSync(join(repoRoot, "stage-registry.js"), "utf8");
+  const win = {};
+  vm.runInNewContext(registrySrc, { Object, String, Number, Math, Array, window: win, globalThis: win, self: win });
+  assert.equal(typeof win.JobBoredStages?.toDotKey, "function");
+  const { strip, attrs, mount } = stripWithCard(win, "phone-screen");
+  strip.renderCompact(mount, { jobKey: "3", contact: "Dev", now: NOW });
+  await Promise.resolve();
+  await Promise.resolve();
+  assert.equal(attrs.stage, "phone");
+});
+
+it("should render the phone dot for a vm stage carrying the Sheet label Phone Screen (TR-17)", () => {
+  for (const stage of ["Phone Screen", "phone-screen"]) {
+    const mount = { innerHTML: "" };
+    loadStrip().renderCompact(mount, { jobKey: "3", contact: "Dev", stage, now: NOW });
+    assert.match(mount.innerHTML, /<jb-stage-dot stage="phone"/, stage);
+  }
+});
+
 it("should say follow-up dates relative, and flag an overdue one (TR-16)", () => {
   const strip = loadStrip();
   const late = { innerHTML: "" };

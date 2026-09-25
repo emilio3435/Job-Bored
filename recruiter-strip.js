@@ -57,9 +57,24 @@
     interviewing: true, offer: true, rejected: true, passed: true, expired: true,
   };
 
+  /* Local fallback for the one canonical key whose dot token differs:
+     pipeline.js writes data-stage="phone-screen" and the Sheet says
+     "Phone Screen", but <jb-stage-dot> only knows "phone". */
+  var DOT_ALIASES = { "phone-screen": "phone", phonescreen: "phone" };
+
+  /* A stage key, Sheet label or alias as a <jb-stage-dot> token, or "".
+     stage-registry.js owns the mapping; it is read lazily at call time
+     because script order is not guaranteed. */
   function stageKey(value) {
-    var key = value == null ? "" : String(value).trim().toLowerCase();
-    return STAGES[key] ? key : "";
+    if (value == null) return "";
+    var reg = root.JobBoredStages;
+    if (reg && typeof reg.toDotKey === "function") {
+      var dotKey = reg.toDotKey(value);
+      if (dotKey && STAGES[dotKey]) return dotKey;
+    }
+    var key = String(value).trim().toLowerCase().replace(/[\s_]+/g, "-");
+    if (Object.prototype.hasOwnProperty.call(DOT_ALIASES, key)) key = DOT_ALIASES[key];
+    return Object.prototype.hasOwnProperty.call(STAGES, key) ? key : "";
   }
 
   var DAY_MS = 86400000;
