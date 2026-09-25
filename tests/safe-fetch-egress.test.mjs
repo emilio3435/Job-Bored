@@ -189,6 +189,16 @@ describe("C9 safeFetch streaming body cap", () => {
     );
   });
 
+  it("ignores content-length over maxBytes on bodyless HEAD and 304 responses", async () => {
+    for (const [status, method] of [[200, "HEAD"], [304, "GET"]]) {
+      const fetchImpl = async () =>
+        new Response(null, { status, headers: { "content-length": "33554433" } });
+      const response = await safeFetch("https://jobs.example.com/big", { method }, { fetchImpl });
+      assert.equal(response.status, status, `${method} ${status} must pass through`);
+      assert.equal(response.headers.get("content-length"), "33554433");
+    }
+  });
+
   it("passes bodies under the cap through untouched and keeps the final URL", async () => {
     const fetchImpl = async (url) =>
       url.endsWith("/a")

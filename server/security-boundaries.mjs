@@ -609,7 +609,8 @@ async function readCappedBody(response, maxBytes, finalUrl, signal) {
   const limit = Number(maxBytes);
   const capped = Number.isFinite(limit) && limit > 0;
   const declared = Number(response.headers.get("content-length"));
-  if (capped && Number.isFinite(declared) && declared > limit) {
+  // HEAD and 304 carry a Content-Length for a representation they never send.
+  if (capped && response.body && Number.isFinite(declared) && declared > limit) {
     discardBody(response);
     throw bodyTooLargeError(limit);
   }
