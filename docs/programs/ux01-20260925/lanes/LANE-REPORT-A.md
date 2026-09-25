@@ -272,3 +272,110 @@ Tail of 3.log:
 ℹ todo 1
 ℹ duration_ms 13720.824333
 ```
+
+---
+
+# Step C3: component kit and :where() type rules (commit ffb133f)
+
+## What changed for the user
+
+- (Inferred from the audit's cascade-trap evidence; not re-measured in a browser this step.) Titles that were flattened to body weight or blown up by the global type ramp now render at the size and weight their own rule sets: the Settings setup-block titles, the materials-modal dropzone title and the discovery drawer title (DS-10). The fix is one edit: the element rules in `jb-type.css` and the heading rules in `jb-v2.css` are scoped with `:where(body.jb-v2)` (0,0,1) instead of `body.jb-v2` (0,1,1).
+- Every lane now has one button, one chip, one field, one banner and one toast to build with (`.jb-btn`, `.jb-chip[data-tone]`, `.jb-field` + `.jb-input`/`.jb-select`, `.jb-banner[data-tone]`, `.jb-toast`), matching the mockup's C3 kit. Nothing on screen uses the kit yet; each lane migrates the surfaces it owns (handoffs below).
+
+## Changes
+
+| id | status | note |
+|---|---|---|
+| DS-10 | done | `:where(body.jb-v2)` on every h1–h6, p, small, blockquote, kbd, code, pre, ul, ol rule in `jb-type.css` and the h1–h6 rules in `jb-v2.css`. `body.jb-v2 a`, `:focus-visible` and `::selection` were left at (0,1,1) on purpose (colour and focus, not type). |
+| DS-05 | partial | `.jb-btn` primary/accent/secondary/ghost/icon/danger, sm/md, disabled, focus ring, with recipes in JB-UI.md. Migrating the 10 primary treatments lives in files lanes B–F own (today.css, pipeline.css, dawn.css, scribe.css, role-case.css, css/oneflow.css); handed off. |
+| DS-18 | partial | `.jb-field`, `.jb-input`, `.jb-select`, `__hint`, `__error`, `aria-invalid`. Migrating `.modal-input` needs the markup in `index.html` body (lane C) and `.fp-input`/`.settings-select` live in fit-profile.css / settings-tabs.css; handed off. |
+| DS-19 | partial | `.jb-chip[data-tone="ok|warn|err|info|miss"]` and `.jb-chip[data-stage=…]` from the status and stage tokens. Folding the five badge families is in lanes B/E files; handed off. |
+| SS-23 | partial | `.jb-toast` (navy slip, `data-tone="err|warn"` edge, action button) and the rule "every error toast carries an action" in JB-UI.md. `showToast` lives in `auth-session.js` (lane F): switching it to `.jb-toast` and requiring `action` for errors is handed off. |
+| TA-20 | partial | `.jb-btn--primary` is full navy action styling (test-locked). Applying it to the "Mark submitted" confirm and titling the dialog is in `submission-flow.js` (lane D); handed off. |
+
+Test first: `tests/ux01-c3-component-kit.test.mjs` was written and run red before any CSS changed. After the CSS edits and before JB-UI.md was updated it still failed 14 of 21 (the documentation cases); it passes 21 of 21 now. It locks the `:where()` scope, every kit class in both jb-ui.css and JB-UI.md, the four tones, full primary styling, token-only values and single-class specificity.
+
+## Files touched (C3)
+
+`jb-type.css`, `jb-v2.css`, `jb-ui.css`, `JB-UI.md`, `tests/ux01-c3-component-kit.test.mjs` (new).
+
+## Contracts touched (C3)
+
+None. No `data-action`, `data-stable-key`, `expandedJobKeys`, `updateJobStatus`, PIPELINE-CARDS-HANDOFF.md selector or `schemas/pipeline-row.v1.json` field was touched. The kit docs tell migrating lanes to keep `data-action`, `data-stable-key` and `id` unchanged.
+
+## APIs added (C3)
+
+CSS classes only: `.jb-btn` (+ `--primary`, `--accent`, `--secondary`, `--ghost`, `--icon`, `--danger`, `--sm`), `.jb-chip[data-tone|data-stage]`, `.jb-field` (+ `__hint`, `__error`), `.jb-input`, `.jb-select`, `.jb-banner[data-tone]` (+ `__acts`, `__body`), `.jb-toast[data-tone]` (+ `__message`). All single-class and not gated on `body.jb-v2`, so they also work under `?jb-v2=0`. No JS API.
+
+## Baselines refreshed (C3)
+
+None. The visual suite (`tests/e2e-visual`, 37 tests) is structural and passed unchanged; no snapshot moved.
+
+## Handoffs (C3)
+
+- **Lane F** · `auth-session.js` `showToast`: render `.jb-toast` (+ `data-tone`) instead of `.toast`, require `action` when `type === "error"`, and lint out "console", "build", "modules" in toast copy (SS-23). `settings-tabs.css` `.settings-select` → `.jb-select` (DS-18).
+- **Lane D** · `submission-flow.js`: title the dialog "{title} at {company}" and give the confirm `.jb-btn jb-btn--primary` (TA-20); `pipeline.css` primary buttons and `.pipe-tool__search-input` → kit (DS-05, DS-18).
+- **Lane C** · `index.html` body `.modal-input` fields → `.jb-field`/`.jb-input`; today.css, dawn.css primary buttons → `.jb-btn--primary` (DS-05, DS-18).
+- **Lane B** · css/oneflow.css primary (`:1769`) → `.jb-btn`; `.oneflow-demo__score`, discovery drawer and runs badges → `.jb-chip[data-tone]` (DS-05, DS-19). The `.oneflow-demo` ancestor that tests/sixbeats-v1-s0-visual.test.mjs requires is no longer needed to beat the type ramp but stays harmless.
+- **Lane E** · scribe.css `:169`, role-case.css `:132` buttons, `.case__chip`, role-case.css `:367` input → kit (DS-05, DS-18, DS-19).
+- **Unowned** · `tools/check-jb-ui-budget.mjs`: `DEFAULT_CSS_BUDGET` is 6000 minified; jb-ui.css is now 12138 minified / 2664 gzipped (the check is not in CI). Raise it to 14000, or let C4's retirement of `jb-spark`/`jb-kbd` claw some back. `fit-profile.css` `.fp-input` → `.jb-input`.
+
+## Floor (C3, run from the worktree root; logs in `~/Job-Bored.worktrees/.ux01-run/A-C3-*.log`)
+
+All seven commands exited 0. Unit: 3086 tests, 3085 pass, 0 fail, 1 todo.
+
+`npm run lint:repo`
+
+```
+    
+    lint:tokens ok: 35 sheet(s), 0 new finding(s), 0 brace error(s)
+    EXIT 0
+```
+`npm run typecheck:repo`
+
+```
+    > tsc --noEmit --project server/tsconfig.json
+    
+    EXIT 0
+```
+`npm test`
+
+```
+    ℹ tests 3086
+    ℹ suites 742
+    ℹ pass 3085
+    ℹ fail 0
+    ℹ cancelled 0
+    ℹ skipped 0
+    ℹ todo 1
+    ℹ duration_ms 13655.365416
+    EXIT 0
+```
+`npm run test:contract:all`
+
+```
+    
+    OK integrations/openclaw-command-center/SKILL.md
+    EXIT 0
+```
+`npm run test:e2e-smoke`
+
+```
+    
+      11 passed (14.6s)
+    EXIT 0
+```
+`npm run test:e2e-journey`
+
+```
+    
+      13 passed (20.5s)
+    EXIT 0
+```
+`npm run test:e2e-visual`
+
+```
+    
+      37 passed (1.0m)
+    EXIT 0
+```
