@@ -25,6 +25,7 @@
 | `<jb-ai-chip>` | Forge-2b | Pill chip with leading glyph + slotted text | `note` |
 | `<jb-kbd>` | Forge-2b | Inline keycap chips with `·` separators | `group` |
 | `.jb-sticker` | Forge-2c | Paper card primitive (CSS class only) | none (semantic via host) |
+| `.jb-btn` · `.jb-chip` · `.jb-field` · `.jb-banner` · `.jb-toast` | UX01 C3 | The component kit (CSS classes only) | native (`button`, `label`, `role="alert"`/`"status"`) |
 
 ---
 
@@ -237,14 +238,96 @@ Stickers compose freely with the custom elements:
 
 ---
 
+## Component kit (UX01 C3)
+
+One button, one chip, one field, one banner and one toast replace the 72 button styles, 28 pill families and 11 input looks the design-system audit counted (DS-05, DS-18, DS-19). Every class is a single class (specificity 0,1,0) and is not scoped under `body.jb-v2`, so the kit works in both views and a surface can adjust it with a rule scoped under its own root (`.pipe-tool .jb-btn`, 0,2,0). Values come from `tokens-v2.css` only.
+
+Migrating a surface: add the kit class next to the old one, delete the old class's colour, border, radius and type declarations, and keep every `data-action`, `data-stable-key` and `id` exactly as it was. Each lane migrates the surfaces it owns.
+
+### `.jb-btn`
+
+| class | use |
+|---|---|
+| `.jb-btn.jb-btn--primary` | The one main action on a view or dialog. Navy fill (`--jb-action`), paper text (`--jb-on-action`). |
+| `.jb-btn.jb-btn--accent` | A positive side action such as "Run search". Mint fill, navy text (`--jb-on-accent`, 6.0:1). |
+| `.jb-btn.jb-btn--secondary` | Cancel, Back, Retry. Paper fill, navy text, `--jb-line` border. |
+| `.jb-btn.jb-btn--ghost` | Low-weight actions such as Snooze. |
+| `.jb-btn.jb-btn--icon` | Square icon button; always give it an `aria-label`. |
+| `.jb-btn.jb-btn--danger` | Destructive actions. Red text, never a red fill. |
+| `.jb-btn--sm` | 32 px tall instead of 36 px. |
+
+```html
+<button class="jb-btn jb-btn--primary" type="button" data-action="save-job">Save to Pipeline</button>
+<button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Cancel</button>
+<button class="jb-btn jb-btn--icon" type="button" aria-label="Settings"><svg aria-hidden="true">…</svg></button>
+```
+
+`:disabled` and `aria-disabled="true"` fade to 50%. Focus is the shared ring (`--jb-shadow-focus`, 12:1). A dialog's confirm button is always `--primary`, never a pale mint (TA-20).
+
+### `.jb-chip[data-tone]`
+
+Status is carried by `data-tone`, not by a colour class: `ok`, `warn`, `err`, `info`, `miss` (outlined, for "missing"). A stage chip takes `data-stage="researching|applied|phone|interviewing|offer|rejected|passed|expired"` and draws the stage dot from the stage tokens.
+
+```html
+<span class="jb-chip" data-tone="ok">Ready</span>
+<span class="jb-chip" data-tone="warn">Review · 1 flag</span>
+<span class="jb-chip" data-stage="researching">Researching</span>
+```
+
+Chips are labels: 11 px mono caps is allowed here because a chip is never a sentence.
+
+### `.jb-field`, `.jb-input`, `.jb-select`
+
+```html
+<label class="jb-field">
+  <span>Company <small>optional</small></span>
+  <input class="jb-input" type="text" name="company" />
+</label>
+<p class="jb-field__hint">Shown on the card.</p>
+<p class="jb-field__error" id="company-error">Add a company name.</p>
+```
+
+Warm paper, `--jb-line` border, 10 px radius, and the focus ring on `:focus-visible`. Set `aria-invalid="true"` (plus `aria-describedby` to the error) to turn the border red.
+
+### `.jb-banner[data-tone]`
+
+An inline state that stays on the page until it is resolved, with its own actions.
+
+```html
+<div class="jb-banner" data-tone="err" role="alert">
+  <svg aria-hidden="true">…</svg>
+  <p>Couldn't refresh from your Sheet. Showing what we had at 9:41.</p>
+  <div class="jb-banner__acts"><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Retry</button></div>
+</div>
+```
+
+### `.jb-toast`
+
+A navy slip for a short confirmation. **Every error toast carries an action** (Sign in, Retry, Open Settings → tab), and toast copy never points at "the console", "this build" or "modules" (SS-23). `data-tone="err"` or `"warn"` adds a coloured edge.
+
+```html
+<div class="jb-toast" role="status">
+  <span class="jb-toast__message">Moved Canopy to Applied</span>
+  <button type="button">Undo</button>
+</div>
+```
+
+`showToast()` in `auth-session.js` still renders the legacy `.toast` markup; moving it onto `.jb-toast` and making `action` required for `type: "error"` is lane F's handoff.
+
+### Type rules no longer trap classes (DS-10)
+
+`jb-type.css` and the heading rules in `jb-v2.css` are scoped with `:where(body.jb-v2) h3` (specificity 0,0,1), so any class rule, such as `.settings-setup-block__title`, now sets its own size and weight. Surface CSS no longer needs an extra ancestor just to out-rank the type ramp.
+
+---
+
 ## Hard rules (Phase 2 contract)
 
-1. Every selector is scoped under `body.jb-v2`. Bare selectors are forbidden.
+1. Every custom-element and `.jb-sticker` selector is scoped under `body.jb-v2`. The C3 kit classes (`.jb-btn`, `.jb-chip`, `.jb-field`, `.jb-input`, `.jb-select`, `.jb-banner`, `.jb-toast`) are the one exception: single-class, both views.
 2. No raw colour literals anywhere; values live in `tokens-v2.css`. CI lint (`npm run lint:tokens`, inside `lint:repo`) enforces.
 3. Outside the v2 flag, every custom element collapses to `display: none`.
 4. No external deps, no fetch, no localStorage, no globals.
 5. No `Caveat` font on UI chips, buttons, or body. Caveat is reserved for `h1`, `h2`, and `.jb-handwritten`.
-6. Bundle budget: `jb-ui.js` ≤ 12000 bytes minified, `jb-ui.css` ≤ 6000 bytes minified. Verified by `tools/check-jb-ui-budget.mjs`.
+6. Bundle budget: `jb-ui.js` ≤ 12000 bytes minified, `jb-ui.css` ≤ 6000 bytes minified. Verified by `tools/check-jb-ui-budget.mjs`. The C3 kit takes `jb-ui.css` to about 12 KB minified (2.7 KB gzipped); the budget in the tool has not been raised yet, and C4 retiring `jb-spark` and `jb-kbd` gives back about 1 KB.
 
 ## Tooling
 
