@@ -805,6 +805,41 @@ function writeRelayCredential(relay, root = repoRoot) {
 }
 
 /**
+ * Merges the deployed relay's public details into discovery-local-bootstrap.json
+ * so the dashboard auto-fills the Worker URL. It spreads the existing bootstrap
+ * content (JSON.parse(readFileSync(...)) then ...existing) so other fields survive.
+ *
+ * The relay bearer is never written here. This file is created with the
+ * process umask (0644 under umask 022) and keeps any loose mode it already
+ * had, so other local users could read it. The token lives only in the
+ * owner-only credential file (writeRelayCredential), which the dashboard's
+ * token route reads first. A relayToken left by an earlier deploy is dropped.
+ */
+function writeRelayBootstrap(relayRecord, root = repoRoot) {
+  const bootstrapPath = join(root, "discovery-local-bootstrap.json");
+  let existing = {};
+  if (existsSync(bootstrapPath)) {
+    try {
+      existing = JSON.parse(readFileSync(bootstrapPath, "utf8")) || {};
+      if (typeof existing !== "object") existing = {};
+    } catch (_) {
+      existing = {};
+    }
+  }
+  const { relayToken: _omitToken, ...publicRelay } =
+    relayRecord && typeof relayRecord === "object" ? relayRecord : {};
+  const merged = {
+    ...existing,
+    relay: {
+      ...publicRelay,
+      relayLocked: true,
+    },
+  };
+  writeFileSync(bootstrapPath, JSON.stringify(merged, null, 2) + "\n");
+  return bootstrapPath;
+}
+
+/**
  * The token a deploy uploads. A redeploy of the same Worker keeps the token
  * already in the relay credential file (or, for a relay deployed before that
  * file existed, the bootstrap relay block), so a dashboard that cached it
@@ -1262,25 +1297,7 @@ async function main() {
       );
     }
     try {
-      const bootstrapPath = join(repoRoot, "discovery-local-bootstrap.json");
-      let existing = {};
-      if (existsSync(bootstrapPath)) {
-        try {
-          existing = JSON.parse(readFileSync(bootstrapPath, "utf8")) || {};
-          if (typeof existing !== "object") existing = {};
-        } catch (_) {
-          existing = {};
-        }
-      }
-      const merged = {
-        ...existing,
-        relay: {
-          ...relayRecord,
-          relayToken,
-          relayLocked: true,
-        },
-      };
-      writeFileSync(bootstrapPath, JSON.stringify(merged, null, 2) + "\n");
+      const bootstrapPath = writeRelayBootstrap(relayRecord);
       console.log(
         `cloudflare-relay: wrote relay info to ${bootstrapPath} so the dashboard auto-fills the Worker URL.`,
       );
@@ -1356,6 +1373,7 @@ export {
   readRelayCredential,
   relayCredentialPath,
   writeRelayCredential,
+  writeRelayBootstrap,
   extractWranglerJson,
   formatRelayLockSummary,
   mintRelayToken,

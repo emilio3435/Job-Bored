@@ -25,10 +25,14 @@ describe("deploy-cloudflare-relay mints a relay token", () => {
     assert.match(source, /\["secret", "put", "RELAY_TOKEN"/);
   });
 
-  it("writes the token and relayLocked into the bootstrap relay block", () => {
-    const block = source.slice(source.lastIndexOf("relay: {"));
+  // Repair round (review P1): the token goes into the owner-only credential
+  // record only; the bootstrap relay block no longer carries it (see
+  // tests/relay-bootstrap-no-token.test.mjs).
+  it("writes the token and relayLocked into the relay credential record", () => {
+    const block = source.slice(source.indexOf("const relayRecord = {"));
     assert.match(block.slice(0, 400), /relayToken,/);
     assert.match(block.slice(0, 400), /relayLocked: true/);
+    assert.match(block, /writeRelayCredential\(relayRecord\)/);
   });
 });
 

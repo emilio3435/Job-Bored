@@ -129,6 +129,8 @@ describe("relay credential survives a bootstrap refresh", () => {
     const block = source.slice(start, source.indexOf("[/discovery-autodetect lane]", start));
     const credAt = block.indexOf("writeRelayCredential(");
     assert.ok(credAt !== -1, "persist block must write the credential file");
-    assert.ok(credAt < block.indexOf("writeFileSync(bootstrapPath"));
+    const bootAt = block.indexOf("writeRelayBootstrap(");
+    assert.ok(bootAt !== -1, "persist block must write the bootstrap relay block");
+    assert.ok(credAt < bootAt);
   });
 });
