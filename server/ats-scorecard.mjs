@@ -129,6 +129,41 @@ function clipText(text, max) {
   return s.length > max ? `${s.slice(0, max)}\n… [truncated]` : s;
 }
 
+// E18: a posting description is mostly company blurb, benefits and EEO
+// boilerplate. Keep only the sections under a requirements-like heading;
+// when the posting has no such heading, fall back to a shorter clip.
+const POSTING_KEEP_HEADING =
+  /^(?:#+\s*)?(?:\*\*)?\s*(?:(?:basic|minimum|preferred|key|core|required)\s+)?(?:requirements?|qualifications?|responsibilities|what you(?:'|\u2019)?ll (?:do|need|bring)|what we(?:'|\u2019)?re looking for|who you are|about you|you (?:have|bring|will)|must[- ]haves?|nice[- ]to[- ]haves?|skills|experience|the role|your role|duties|tech(?:nical)? stack|tools)\b[^\n]{0,40}$/i;
+const POSTING_DROP_HEADING =
+  /^(?:#+\s*)?(?:\*\*)?\s*(?:about (?:us|the company|[A-Z][\w&.-]*)|benefits|perks|compensation|salary|pay (?:range|transparency)|what we offer|why (?:join|work)|equal (?:employment )?opportunity|eeo|our (?:values|mission|culture)|life at|how to apply|privacy)\b[^\n]{0,40}$/i;
+const POSTING_TRIMMED_MAX = 4000;
+const POSTING_FALLBACK_MAX = 3000;
+
+/**
+ * @param {unknown} description
+ * @returns {string}
+ */
+export function trimPostingToRequirements(description) {
+  const text = normalizeSpace(description);
+  if (!text) return "";
+  const kept = [];
+  let keeping = false;
+  let sawHeading = false;
+  for (const raw of text.split("\n")) {
+    const line = raw.trim();
+    const short = line.length > 0 && line.length <= 80;
+    if (short && POSTING_KEEP_HEADING.test(line)) {
+      keeping = true;
+      sawHeading = true;
+    } else if (short && POSTING_DROP_HEADING.test(line)) {
+      keeping = false;
+    }
+    if (keeping && line) kept.push(line);
+  }
+  if (!sawHeading || kept.length === 0) return clipText(text, POSTING_FALLBACK_MAX);
+  return clipText(kept.join("\n"), POSTING_TRIMMED_MAX);
+}
+
 // Scan for the first balanced {…} / […] embedded in surrounding text and parse
 // it. Lets a valid scorecard be recovered when the provider wraps its JSON in
 // conversational prose (no code fence). Returns undefined if nothing parses.
@@ -372,7 +407,7 @@ function buildUserPrompt(payload) {
     `Notes: ${clipText(job.notes || "", 1800) || "(none)"}`,
     "",
     "--- Posting enrichment ---",
-    posting.description ? `Description:\n${clipText(posting.description, 7000)}` : "Description: (none)",
+    posting.description ? `Description (requirement sections):\n${trimPostingToRequirements(posting.description)}` : "Description: (none)",
     `Requirements: ${(Array.isArray(posting.requirements) ? posting.requirements.slice(0, 35) : []).join("; ") || "(none)"}`,
     `Must-haves: ${(Array.isArray(posting.mustHaves) ? posting.mustHaves.slice(0, 20) : []).join("; ") || "(none)"}`,
     `Responsibilities: ${(Array.isArray(posting.responsibilities) ? posting.responsibilities.slice(0, 20) : []).join("; ") || "(none)"}`,

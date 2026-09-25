@@ -307,10 +307,10 @@ describe("B17 no server Gemini call puts the key in the URL", () => {
     const aiDir = join(ROOT, "server/ai");
     const aiFiles = await readdir(aiDir).catch(() => []);
     for (const f of aiFiles) if (f.endsWith(".mjs")) files.push(`server/ai/${f}`);
-    // Deferred: these two Gemini calls keep the key in the URL because tests
-    // outside lane Q's fence pin it (tests/sixbeats2-server-provider-config.test.mjs:241,
-    // tests/materials-writer.test.mjs:51). See BUILD-REPORT-Q.md.
-    const DEFERRED = new Set(["server/profile-from-resume.mjs", "server/materials-writer.mjs"]);
+    // Deferred: profile-from-resume keeps the key in the URL because a test
+    // outside lane Q's fence pins it (tests/sixbeats2-server-provider-config.test.mjs:241).
+    // See BUILD-REPORT-Q.md.
+    const DEFERRED = new Set(["server/profile-from-resume.mjs"]);
     const offenders = [];
     for (const rel of files) {
       if (DEFERRED.has(rel)) continue;
