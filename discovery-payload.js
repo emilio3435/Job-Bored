@@ -326,7 +326,11 @@
     var companyType = pick(companyTypes, index + 6);
     var lane = pick(lanes, index + 7);
     var query = {
-      targetRoles: joinList([role, adjacent].filter(Boolean)) || profile.targetRoles,
+      // UX01 C9 (FD-09): every role the user typed stays in the query; the
+      // rotation only ADDS one adjacent title as "also trying". It used to
+      // pick one of the user's roles and drop the rest.
+      targetRoles:
+        joinList(roles.concat([adjacent]).filter(Boolean)) || profile.targetRoles,
       locations: location || profile.locations,
       seniority: level || profile.seniority,
       remotePolicy: profile.remotePolicy || "",
@@ -352,6 +356,7 @@
         seniority: level,
         companyType: companyType,
         sourceLane: lane,
+        alsoTrying: adjacent && roles.indexOf(adjacent) === -1 ? [adjacent] : [],
       },
       facets: {
         roles: roles,

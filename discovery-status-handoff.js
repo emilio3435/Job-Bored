@@ -954,7 +954,7 @@ function looksLikeExpiredSearchKey(rawText) {
 
 const EXPIRED_SEARCH_KEY_MESSAGE =
   "Discovery is set up, but your grounded-search key looks expired or invalid. " +
-  "Refresh it in Settings → Discovery to start getting results.";
+  "Refresh it in Settings → AI Providers to start getting results.";
 
 // Every class renderDiscoveryRunStatus() may put on #discoveryBtn — kept in
 // one list so stale states are always cleared before the next one applies.
@@ -999,26 +999,34 @@ function renderDiscoveryRunStatus() {
   let statusMessage = "";
   let statusTone = "info";
 
+  // UX01 C9 (FD-11, SS-24): plain words — no run IDs, no "worker logs",
+  // Pipeline rather than "sheet", and a count when the run reports one.
+  const foundCount =
+    (Number(state.leadsWritten) || 0) + (Number(state.leadsUpdated) || 0);
+  const why = String(state.errorMessage || "").trim().replace(/[.\s]+$/, "");
   switch (state.status) {
     case "pending":
       statusMessage = state.statusUnavailable
-        ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted, but this worker did not return a status URL. Check Pipeline or Runs for the final result.`
-        : `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted — checking status…`;
+        ? "Discovery started. This setup can't send live updates — new roles will land in your Pipeline; check Runs in a few minutes."
+        : "Discovery started — searching for new roles…";
       statusTone = "info";
       break;
     case "running":
-      statusMessage = `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} in progress…`;
+      statusMessage = "Searching for new roles…";
       statusTone = "info";
       break;
     case "polling_error":
       statusMessage =
         state.pollErrorCount >= MAX_POLL_ERRORS
-          ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted, but JobBored lost the status connection. The worker may still be running.`
-          : `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} — retrying status connection…`;
+          ? "Discovery started — we stopped getting updates. New roles will still land in your Pipeline; check Runs in a few minutes."
+          : "Reconnecting to the search…";
       statusTone = "warning";
       break;
     case "completed":
-      statusMessage = "Discovery complete — new roles will appear in your sheet.";
+      statusMessage =
+        foundCount > 0
+          ? `Found ${foundCount} new ${foundCount === 1 ? "role" : "roles"}.`
+          : "Discovery finished — new roles are in your Pipeline.";
       statusTone = "success";
       break;
     case "empty":
@@ -1027,17 +1035,18 @@ function renderDiscoveryRunStatus() {
       break;
     case "partial":
       statusMessage =
-        "Discovery finished with partial results. " +
-        (state.errorMessage ? state.errorMessage + ". " : "") +
-        "Check the worker logs for details.";
+        "Discovery finished, but some sources didn't answer. " +
+        (why ? why + ". " : "") +
+        "Open Runs to see which.";
       statusTone = "warning";
       break;
     case "failed":
       statusMessage =
-        "Discovery run failed. " +
-        (state.errorMessage ? state.errorMessage : "Check the worker logs.");
+        "Discovery didn't finish. " +
+        (why ? why + ". " : "") +
+        "Open Runs to see why.";
       statusTone = "error";
-      break;
+      break
     default:
       statusMessage = "";
   }
@@ -1071,13 +1080,17 @@ function renderDiscoveryRunStatus() {
             state.statusPath &&
             state.pollErrorCount >= MAX_POLL_ERRORS
           ? { label: "Retry status", onClick: retryDiscoveryStatusConnection }
-          : state.status === "pending" && state.statusUnavailable
+          : (state.status === "pending" && state.statusUnavailable) ||
+              state.status === "partial" ||
+              state.status === "failed"
             ? {
                 label: "Open runs",
                 onClick: () => {
                   document.getElementById("runsBtn")?.click();
                 },
               }
+          : state.status === "completed"
+            ? { label: "View", onClick: viewFoundRoles }
           : undefined;
       const sticky =
         expiredSearchKey ||
@@ -1086,6 +1099,24 @@ function renderDiscoveryRunStatus() {
         (state.status === "pending" && state.statusUnavailable);
       host().showToast(statusMessage, statusTone, sticky, retryAction);
     }
+  }
+}
+
+/**
+ * UX01 C9 (FD-12): "Found N new · View" lands on the Pipeline. Lane C owns
+ * the views; until it publishes a view API this scrolls the board in.
+ */
+function viewFoundRoles() {
+  try {
+    document.dispatchEvent(
+      new CustomEvent("jb:view:request", { detail: { view: "pipeline", from: "discovery_run" } }),
+    );
+  } catch (_) {
+    /* no CustomEvent: fall through to the scroll */
+  }
+  const board = document.querySelector('[data-region="pipeline"]');
+  if (board && typeof board.scrollIntoView === "function") {
+    board.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
