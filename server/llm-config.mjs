@@ -373,9 +373,10 @@ export async function handleGetLlmConfig(req, res, env = process.env) {
  * POST /api/llm-config (E12).
  * - `provider` must be one of the shared enum or an alias of it.
  * - `baseUrl`, when given, must be http(s).
- * - An omitted or blank `apiKey` keeps the stored key, but only while the
- *   provider and base URL are unchanged, so a key never follows the pin to a
- *   different endpoint. `apiKey: null` clears it.
+ * - An omitted `apiKey` keeps the stored key, but only while the provider
+ *   and base URL are unchanged, so a key never follows the pin to a different
+ *   endpoint. A present `apiKey` replaces it: `""` (Settings' emptied field)
+ *   and `null` both clear it.
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  * @param {NodeJS.ProcessEnv} [env]
@@ -410,10 +411,11 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
     res.status(400).json({ error: "model or baseUrl is too long.", code: "llm_invalid" });
     return;
   }
+  // Omitted apiKey keeps the stored key (same provider and base URL). A
+  // present apiKey is the caller's answer: Settings sends "" when the user
+  // empties the key box, and null also clears.
   let apiKey = "";
-  if (body.apiKey === null) {
-    apiKey = "";
-  } else if (asString(body.apiKey)) {
+  if (body.apiKey !== undefined) {
     apiKey = asString(body.apiKey);
   } else {
     const existing = loadLlmConfig(env);

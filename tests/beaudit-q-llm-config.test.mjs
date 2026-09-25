@@ -68,7 +68,17 @@ describe("POST /api/llm-config", () => {
     assert.equal(loadLlmConfig(env).model, "gemini-3.7-flash");
   });
 
-  it("E12 clears the key only on explicit apiKey:null", async () => {
+  it("E12 clears the key when Settings sends an emptied apiKey field", async () => {
+    // settings-modal.js posts apiKey:"" when the user empties the key box;
+    // only an omitted apiKey keeps the stored key.
+    await post({ provider: "gemini", model: "gemini-flash", apiKey: "stored-secret" }, env);
+    const res = await post({ provider: "gemini", model: "gemini-flash", apiKey: "" }, env);
+    assert.equal(res.statusCode, 200);
+    assert.equal(res.body.keyPresent, false);
+    assert.equal(loadLlmConfig(env).apiKey, "");
+  });
+
+  it("E12 clears the key on explicit apiKey:null", async () => {
     await post({ provider: "gemini", model: "gemini-flash", apiKey: "stored-secret" }, env);
     const res = await post({ provider: "gemini", model: "gemini-flash", apiKey: null }, env);
     assert.equal(res.statusCode, 200);
