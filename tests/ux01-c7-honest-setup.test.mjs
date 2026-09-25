@@ -129,3 +129,14 @@ describe("C7 · one start command and honest arithmetic (FR-15, FR-17)", () => {
     assert.match(src, /about 20 runs a month/);
   });
 });
+
+describe("C7 · the recommended provider pins a capable model (FR-07)", () => {
+  it("B2's OpenRouter default is not a :free model the app calls weak", () => {
+    const src = readRepoFile("oneflow-beat-ai.js");
+    const block = src.slice(src.indexOf('id: "openrouter"'), src.indexOf('id: "gemini"'));
+    const m = block.match(/defaultModel: "([^"]+)"/);
+    assert.ok(m, "the OpenRouter card declares a default model");
+    assert.ok(!m[1].endsWith(":free"), `default ${m[1]} is flagged weak for letters`);
+    assert.match(readRepoFile("model-catalog.js"), new RegExp(`value: "${m[1]}"`));
+  });
+});

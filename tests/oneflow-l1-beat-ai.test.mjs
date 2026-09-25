@@ -87,7 +87,7 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
       "local",
     ]);
     assert.equal(card(env, "openrouter").dataset.selected, "true");
-    assert.match(renderedText(env.mount()), /OpenRouter — free/);
+    assert.match(renderedText(env.mount()), /OpenRouter/);
   });
 
   it("does NOT offer the webhook provider — it moved to Settings (spec §5 B2)", async () => {

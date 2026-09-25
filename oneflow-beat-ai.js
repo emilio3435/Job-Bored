@@ -98,11 +98,18 @@
   const PROVIDERS = [
     {
       id: "openrouter",
-      label: "OpenRouter — free",
-      note: "Recommended. Free tier, no card, works straight from the browser.",
+      // UX01 C7 (FR-07): the recommended card used to pin a `:free` model
+      // the app itself flags as too weak for tailored letters, so everyone
+      // who followed the recommendation got weak drafts. The default is now
+      // a capable model; free models stay one Settings pick away.
+      label: "OpenRouter",
+      note:
+        "Recommended. One key for many models, works straight from the " +
+        "browser. The default writes letters well; it's pay-as-you-go, so " +
+        "add a few dollars of credit.",
       keyField: "resumeOpenRouterApiKey",
       modelField: "resumeOpenRouterModel",
-      defaultModel: "openai/gpt-oss-120b:free",
+      defaultModel: "openai/gpt-5.4-mini",
       keyPlaceholder: "sk-or-…",
       signupUrl: "https://openrouter.ai/keys",
       signupLabel: "Create a free OpenRouter account ↗",

@@ -105,6 +105,12 @@
     ],
     openrouter: [
       {
+        // UX01 C7 (FR-07): the onboarding default — strong enough for letters.
+        value: "openai/gpt-5.4-mini",
+        label: "GPT-5.4 mini",
+        description: "Recommended — strong enough for tailored letters. Pay-as-you-go.",
+      },
+      {
         value: "openai/gpt-oss-120b:free",
         label: "GPT-OSS 120B · free",
         description: "Strong general quality on OpenRouter's free tier.",
