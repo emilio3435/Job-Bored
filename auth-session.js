@@ -1057,20 +1057,21 @@ function initAuthUserMenu() {
     doctorBtn.addEventListener("click", async () => {
       closeAuthUserMenu();
       if (!window.SetupDoctor) {
-        showToast("Setup doctor unavailable in this build.", "warning");
+        showToast("The setup check couldn’t load. Reload the page and try again.", "warning");
         return;
       }
-      showToast("Running setup doctor…", "info");
+      showToast("Checking your setup…", "info");
       const ctx = { lastError: host().getLastSheetAccessError() || "" };
       const report = await window.SetupDoctor.diagnose(ctx);
       if (!report.issues.length) {
         showToast("Setup looks healthy.", "success");
         return;
       }
-      // Render into the login gate panel slot so the user has a
-      // consistent place to act on findings, even if they're already
-      // signed in.
-      host().showSheetAccessGate("error");
+      report._ctx = ctx;
+      // UX01 C22 (SS-21): show findings in a dialog OVER the dashboard.
+      // The error gate replaced the whole board with "Couldn't load this
+      // sheet" even when the Sheet loaded fine.
+      openSetupDoctorDialog(report);
     });
   }
 
@@ -1454,6 +1455,42 @@ function updateAuthUI() {
     signInBtn.style.display = "flex";
     authUser.style.display = "none";
     setAuthAvatarDisplay();
+  }
+}
+
+function openSetupDoctorDialog(report) {
+  let dialog = document.getElementById("jbDoctorDialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "jbDoctorDialog";
+    dialog.className = "jb-doctor-dialog";
+    dialog.setAttribute("aria-labelledby", "jbDoctorDialogTitle");
+    const head = document.createElement("div");
+    head.className = "jb-doctor-dialog__head";
+    const h = document.createElement("h2");
+    h.id = "jbDoctorDialogTitle";
+    h.className = "jb-doctor-dialog__title";
+    h.textContent = "Setup check";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "jb-doctor-dialog__close";
+    close.textContent = "Close";
+    close.addEventListener("click", () => dialog.close());
+    head.appendChild(h);
+    head.appendChild(close);
+    const body = document.createElement("div");
+    body.id = "jbDoctorDialogBody";
+    body.className = "jb-doctor-dialog__body";
+    dialog.appendChild(head);
+    dialog.appendChild(body);
+    document.body.appendChild(dialog);
+  }
+  const body = document.getElementById("jbDoctorDialogBody");
+  window.SetupDoctor.renderInline(body, report);
+  if (typeof dialog.showModal === "function") {
+    if (!dialog.open) dialog.showModal();
+  } else {
+    dialog.setAttribute("open", "");
   }
 }
 

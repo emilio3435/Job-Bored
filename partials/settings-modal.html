@@ -32,8 +32,8 @@
           </button>
         </div>
         <p class="modal-lede settings-modal-lede settings-modal__full">
-          Saved only in this browser; overrides
-          <code class="modal-code">config.js</code>.
+          Saved in this browser only. Fill in what you use — everything
+          else can stay blank.
         </p>
         <p class="modal-lede settings-modal-lede settings-modal__oauth-only">
           Add your Google OAuth Web Client ID and save. After you sign in with
@@ -168,7 +168,8 @@
                 spellcheck="false"
               />
               <p class="settings-field-hint settings-field-hint--compact">
-                For Sheets access and Apps Script deploy from here.
+                Lets JobBored sign in to Google and open your Sheet. You can
+                leave this alone if sign-in already works.
               </p>
 
               <div class="settings-setup-block">
@@ -270,8 +271,8 @@
                   <p
                     class="settings-field-hint settings-setup-wizard-row__hint"
                   >
-                    Connect or change the worker that finds new roles
-                    (Tailscale or any public HTTPS webhook).
+                    Connect the helper that finds new roles for you. Skip it
+                    if you add roles yourself.
                   </p>
                 </div>
               </div>
@@ -425,10 +426,16 @@
               />
               <p class="settings-field-hint settings-field-hint--row">
                 <span
-                  ><code class="modal-code">localhost</code>: blank uses
-                  <code class="modal-code">http://127.0.0.1:3847</code> with
-                  <code class="modal-code">npm start</code>. GitHub Pages needs
-                  a deployed HTTPS URL. No trailing slash.</span
+                  >Reads job postings when you paste a link. Leave it blank if
+                  you run JobBored on your own computer.
+                  <details class="settings-field-details">
+                    <summary>Details</summary>
+                    On <code class="modal-code">localhost</code>, blank uses
+                    <code class="modal-code">http://127.0.0.1:3847</code> with
+                    <code class="modal-code">npm start</code>. A hosted copy
+                    (for example GitHub Pages) needs a deployed HTTPS URL. No
+                    trailing slash.
+                  </details></span
                 >
                 <button
                   type="button"
@@ -786,8 +793,8 @@
             >
               <h4 class="settings-tab-panel__title">Upgrades</h4>
               <p class="settings-tab-panel__lede">
-                Power-ups, each one click, none required. Onboarding never
-                asks for these — turn any of them on whenever you want.
+                Optional extras. None are required, and onboarding never asks
+                for them — turn any on whenever you want.
               </p>
 
               <div class="settings-setup-block">
@@ -797,9 +804,13 @@
                   applicant-tracking systems do, so you know what to fix
                   before applying.
                 </p>
-                <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: Settings → ATS Scoring.
-                </p>
+                <button
+                  type="button"
+                  class="btn-setup-scraper-link"
+                  data-settings-goto-tab="ats_scoring"
+                >
+                  Turn on ATS scoring
+                </button>
               </div>
 
               <div class="settings-setup-block">
@@ -810,8 +821,8 @@
                   part.
                 </p>
                 <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: set <code>logoDevToken</code> in your
-                  <code>config.js</code>.
+                  Needs a one-line file edit: add <code>logoDevToken</code>
+                  to <code>config.js</code> (see SETUP.md).
                 </p>
               </div>
 
@@ -822,8 +833,9 @@
                   your laptop is off or asleep.
                 </p>
                 <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: set <code>BROWSER_USE_API_KEY</code> in the
-                  discovery worker's <code>.env</code>.
+                  Needs a one-line file edit: add
+                  <code>BROWSER_USE_API_KEY</code> to the discovery helper's
+                  <code>.env</code> (see SETUP.md).
                 </p>
               </div>
 
@@ -834,9 +846,13 @@
                   your pipeline instead of you retyping it. A Gemini key
                   from onboarding already unlocked this.
                 </p>
-                <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: Settings → AI Providers → Gemini API key.
-                </p>
+                <button
+                  type="button"
+                  class="btn-setup-scraper-link"
+                  data-settings-goto-field="settingsResumeGeminiApiKey"
+                >
+                  Add a Gemini key
+                </button>
               </div>
 
               <div class="settings-setup-block">
@@ -847,9 +863,13 @@
                   Lets discovery search the open web with Google's
                   grounding, on top of the boards it already reads.
                 </p>
-                <p class="settings-field-hint settings-field-hint--compact">
-                  Turn on: Settings → AI Providers → Gemini API key.
-                </p>
+                <button
+                  type="button"
+                  class="btn-setup-scraper-link"
+                  data-settings-goto-field="settingsResumeGeminiApiKey"
+                >
+                  Add a Gemini key
+                </button>
               </div>
 
               <div class="settings-setup-block">
@@ -880,7 +900,7 @@
 
         <div class="modal-actions settings-modal-actions">
           <button type="button" class="btn-modal-primary" id="settingsSaveBtn">
-            Save &amp; reload
+            Save
           </button>
         </div>
       </div>

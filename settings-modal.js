@@ -363,6 +363,51 @@ async function refreshSettingsModelSelectsViaCatalog(cfg) {
  * the shared catalog using the key currently TYPED in the field (so users
  * can verify before saving) and renders ✓/✗ inline.
  */
+const SETTINGS_PROVIDER_NAMES = {
+  openrouter: "OpenRouter",
+  gemini: "Google Gemini",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  local: "your local model",
+};
+
+/** UX01 C22 (SS-13): plain words for a failed "Check connection", with the
+ *  raw reason tucked behind a disclosure instead of leading with it. */
+function describeProviderCheckFailure(provider, rawMessage) {
+  const name = SETTINGS_PROVIDER_NAMES[provider] || "that provider";
+  const raw = String(rawMessage || "");
+  if (/network|fetch|cors|connect|timed? ?out|abort/i.test(raw)) {
+    return provider === "openrouter" || provider === "local"
+      ? `Couldn’t reach ${name} from this browser. Check the address and your connection.`
+      : `Couldn’t reach ${name} from this browser. Check the key and your connection, or switch to OpenRouter (works from any browser).`;
+  }
+  if (/401|403|unauthori[sz]ed|invalid|api key|forbidden/i.test(raw)) {
+    return `${name} didn’t accept that key. Copy it again from ${name} and paste it here.`;
+  }
+  return `Couldn’t connect to ${name}. Check the key and try again.`;
+}
+
+function renderPlainCheckFailure(status, provider, result) {
+  const raw = (result && result.message) || "";
+  const plain = describeProviderCheckFailure(provider, raw);
+  if (typeof status.replaceChildren === "function") status.replaceChildren();
+  else status.textContent = "";
+  const lead = document.createElement("span");
+  lead.textContent = plain;
+  status.appendChild(lead);
+  if (raw) {
+    const details = document.createElement("details");
+    details.className = "settings-check-status__details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Details";
+    const body = document.createElement("span");
+    body.textContent = raw;
+    details.appendChild(summary);
+    details.appendChild(body);
+    status.appendChild(details);
+  }
+}
+
 async function settingsVerifyProvider(provider) {
   const def = SETTINGS_PROVIDER_DEFS[provider];
   if (!def) return { ok: false, message: "Unknown provider." };
@@ -403,9 +448,7 @@ async function settingsVerifyProvider(provider) {
         (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {},
       );
     } else {
-      status.textContent = `Couldn't connect — ${
-        (result && result.message) || "check the key and try again."
-      }`;
+      renderPlainCheckFailure(status, provider, result);
       status.classList.add("settings-check-status--error");
     }
   }
@@ -581,6 +624,7 @@ async function openCommandCenterSettingsModal(opts) {
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "flex";
   if (modal) applySettingsInertBackground(modal);
+  snapshotSettingsForm();
   // Escape-to-close + auto-focus the close button. The brief asks for both:
   // - Escape lets keyboard users dismiss without hunting for the X.
   // - Focusing #settingsModalClose lands the user inside the trap with a
@@ -588,7 +632,7 @@ async function openCommandCenterSettingsModal(opts) {
   if (typeof document !== "undefined" && !settingsEscapeHandler) {
     settingsEscapeHandler = (e) => {
       if (e.key === "Escape" && isSettingsModalOpen()) {
-        closeCommandCenterSettingsModal();
+        requestCloseCommandCenterSettingsModal();
       }
     };
     document.addEventListener("keydown", settingsEscapeHandler);
@@ -630,7 +674,93 @@ async function openCommandCenterSettingsModal(opts) {
     } catch (e) {
       console.warn("[JobBored] settings modal hydration failed:", e);
     }
+    // Async hydration filled fields after open; that is not a user edit.
+    snapshotSettingsForm();
   }
+}
+
+/* UX01 C22 (SS-27): snapshot the form on open; Escape, X and the overlay
+   ask before throwing away a pasted key or Sheet link. Save and the
+   programmatic closes skip the question. */
+let settingsFormSnapshot = null;
+
+function readSettingsFormState() {
+  const modal = document.getElementById("settingsModal");
+  if (!modal || typeof modal.querySelectorAll !== "function") return {};
+  const out = {};
+  modal
+    .querySelectorAll(
+      'input[id^="settings"], select[id^="settings"], textarea[id^="settings"]',
+    )
+    .forEach((el) => {
+      if (!el.id || el.type === "file" || el.type === "button") return;
+      out[el.id] =
+        el.type === "checkbox" || el.type === "radio" ? !!el.checked : String(el.value || "");
+    });
+  return out;
+}
+
+function snapshotSettingsForm() {
+  settingsFormSnapshot = readSettingsFormState();
+}
+
+function settingsFormIsDirty() {
+  if (!settingsFormSnapshot) return false;
+  const now = readSettingsFormState();
+  for (const k of Object.keys(now)) {
+    if (!(k in settingsFormSnapshot)) continue;
+    if (now[k] !== settingsFormSnapshot[k]) return true;
+  }
+  return false;
+}
+
+function requestCloseCommandCenterSettingsModal() {
+  if (settingsFormIsDirty()) {
+    const ok =
+      typeof window.confirm === "function"
+        ? window.confirm("Discard your unsaved Settings changes?")
+        : true;
+    if (!ok) return false;
+  }
+  closeCommandCenterSettingsModal();
+  return true;
+}
+
+/* UX01 C22 (SS-14): only a new Sheet or a new Google client needs a
+   reload; everything else is read live from config, so apply in place. */
+function settingsSaveNeedsReload(before, payload, sheetId) {
+  const b = before || {};
+  if (String(sheetId || "") !== String(b.sheetId || "")) return true;
+  if (payload && Object.prototype.hasOwnProperty.call(payload, "oauthClientId")) {
+    if (String(payload.oauthClientId || "") !== String(b.oauthClientId || "")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function finishSettingsSave(before, payload, sheetId) {
+  if (settingsSaveNeedsReload(before, payload, sheetId)) {
+    showToast("Settings saved — reloading…", "success");
+    setTimeout(() => window.location.reload(), 400);
+    return;
+  }
+  if (payload && typeof payload.title === "string" && payload.title) {
+    const titleEl = document.getElementById("dashboardTitle");
+    const logoEl = document.getElementById("logoHorizontal");
+    document.title = payload.title + " — Job Search Dashboard";
+    if (payload.title === "JobBored") {
+      logoEl?.removeAttribute("hidden");
+      titleEl?.setAttribute("hidden", "");
+    } else if (titleEl) {
+      logoEl?.setAttribute("hidden", "");
+      titleEl.removeAttribute("hidden");
+      titleEl.textContent = payload.title;
+    }
+  }
+  showToast("Saved", "success");
+  snapshotSettingsForm();
+  closeCommandCenterSettingsModal();
 }
 
 function hideSettingsClearConfirmBar() {
@@ -646,6 +776,7 @@ function showSettingsClearConfirmBar() {
 }
 
 function closeCommandCenterSettingsModal() {
+  settingsFormSnapshot = null;
   hideSettingsClearConfirmBar();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "none";
@@ -764,6 +895,11 @@ async function saveCommandCenterSettingsFromForm() {
     return;
   }
   if (sheetEl) sheetEl.value = sheetId;
+  const beforeSave = {
+    sheetId: (typeof host().getSheetId === "function" && host().getSheetId()) || "",
+    oauthClientId:
+      (typeof host().getOAuthClientId === "function" && host().getOAuthClientId()) || "",
+  };
   const settingsRoot = document.getElementById("settingsModal");
   const readOwnedField = (id) => {
     const el = document.getElementById(id);
@@ -942,8 +1078,7 @@ async function saveCommandCenterSettingsFromForm() {
   host().setDashboardSheetLinks();
   if (!Object.prototype.hasOwnProperty.call(payload, "discoveryWebhookUrl")) {
     host().syncDiscoveryButtonState();
-    showToast("Settings saved — reloading…", "success");
-    setTimeout(() => window.location.reload(), 400);
+    finishSettingsSave(beforeSave, payload, sheetId);
     return;
   }
   const savedWebhookUrl = host().normalizeDiscoveryWebhookIdentity(
@@ -969,8 +1104,7 @@ async function saveCommandCenterSettingsFromForm() {
     );
   }
   host().syncDiscoveryButtonState();
-  showToast("Settings saved — reloading…", "success");
-  setTimeout(() => window.location.reload(), 400);
+  finishSettingsSave(beforeSave, payload, sheetId);
 }
 
 /**
@@ -1130,11 +1264,11 @@ function initCommandCenterSettings() {
   document
     .getElementById("settingsModalClose")
     ?.addEventListener("click", () => {
-      closeCommandCenterSettingsModal();
+      requestCloseCommandCenterSettingsModal();
     });
   if (modal) {
     modal.addEventListener("click", (e) => {
-      if (e.target === modal) closeCommandCenterSettingsModal();
+      if (e.target === modal) requestCloseCommandCenterSettingsModal();
     });
   }
   document
@@ -1239,6 +1373,10 @@ function initCommandCenterSettings() {
     hideSettingsClearConfirmBar,
     showSettingsClearConfirmBar,
     closeCommandCenterSettingsModal,
+    requestCloseCommandCenterSettingsModal,
+    settingsFormIsDirty,
+    settingsSaveNeedsReload,
+    describeProviderCheckFailure,
     saveCommandCenterSettingsFromForm,
     performSettingsClearOverrides,
     initCommandCenterSettings,

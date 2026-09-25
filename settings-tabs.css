@@ -382,3 +382,95 @@
     min-height: 44px;
   }
 }
+
+/* ── UX01 C22 (SS-14): one save per tab ─────────────────────────────
+   Fit Profile has its own "Save profile"; Upgrades has nothing to save.
+   The footer Save beside them read as a second, competing save. */
+#settingsModal[data-active-tab="fit_profile"] .settings-modal-actions,
+#settingsModal[data-active-tab="upgrades"] .settings-modal-actions {
+  display: none;
+}
+
+/* SS-17: file names and ports live behind a "Details" disclosure. */
+#settingsModal .settings-field-details {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+#settingsModal .settings-field-details > summary {
+  cursor: pointer;
+  color: var(--jb-ink-2, currentColor);
+}
+
+/* SS-13: the raw provider error sits behind "Details". */
+#settingsModal .settings-check-status__details {
+  margin-top: 4px;
+  font-size: 13px;
+}
+
+#settingsModal .settings-check-status__details > summary {
+  cursor: pointer;
+}
+
+/* ── UX01 C22 (SS-21): setup check dialog, over the dashboard ──────── */
+.jb-doctor-dialog {
+  width: min(560px, calc(100vw - 32px));
+  max-height: calc(100vh - 64px);
+  padding: 0;
+  color: var(--jb-ink, CanvasText);
+  background: var(--jb-paper, Canvas);
+  border: 1px solid var(--jb-line-strong, currentColor);
+  border-radius: var(--jb-radius-lg, 14px);
+  box-shadow: var(--jb-shadow-card, none);
+}
+
+.jb-doctor-dialog::backdrop {
+  background: color-mix(in srgb, var(--jb-ink, CanvasText) 40%, transparent);
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 16px 20px;
+  border-bottom: 1px solid var(--jb-line, currentColor);
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__close {
+  min-height: 44px;
+  padding: 0 12px;
+  font: inherit;
+  color: var(--jb-navy, currentColor);
+  background: transparent;
+  border: 1px solid var(--jb-line-strong, currentColor);
+  border-radius: var(--jb-radius-pill, 999px);
+  cursor: pointer;
+}
+
+.jb-doctor-dialog .jb-doctor-dialog__body {
+  padding: 16px 20px 20px;
+  overflow: auto;
+}
+
+.jb-doctor-dialog .doctor-panel__list,
+#sheetAccessGateDoctorPanel .doctor-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 0 0 12px;
+  padding-left: 20px;
+  font-size: 15px;
+}
+
+.jb-doctor-dialog .doctor-panel__writes,
+#sheetAccessGateDoctorPanel .doctor-panel__writes {
+  color: var(--jb-ink-2, currentColor);
+  font-size: 13px;
+}
