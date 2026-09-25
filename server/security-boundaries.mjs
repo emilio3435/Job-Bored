@@ -75,9 +75,110 @@ export function redactSecrets(value) {
   return text;
 }
 
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/**
+ * BEAUDIT E1/G2: the one loopback Host guard shared by the dev-server, the API
+ * and the worker. A DNS-rebound page reaches 127.0.0.1 but sends its own name
+ * in Host, so a loopback listener accepts only 127.0.0.1, localhost or [::1]
+ * with the listener's own port.
+ *
+ * A Host without a port means the scheme's default port (browsers omit
+ * :443 on https and :80 on http), so the scheme decides it.
+ *
+ * @param {unknown} hostHeader
+ * @param {unknown} port
+ * @param {unknown} [scheme] "https" or "http" (default "http")
+ */
+export function isAllowedLoopbackHost(hostHeader, port, scheme = "http") {
+  const host = cleanString(hostHeader).toLowerCase();
+  if (!host) return false;
+  const match = /^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(host);
+  if (!match) return false;
+  if (!LOOPBACK_HOSTNAMES.has(match[1])) return false;
+  const expected = Number(port);
+  if (!Number.isInteger(expected) || expected <= 0) return true;
+  const defaultPort = cleanString(scheme).toLowerCase().replace(/:$/, "") === "https" ? 443 : 80;
+  const actual = match[2] ? Number(match[2]) : defaultPort;
+  return actual === expected;
+}
+
+/** @param {unknown} address */
+export function isLoopbackAddress(address) {
+  const value = cleanString(address).toLowerCase().replace(/^::ffff:/, "");
+  return value === "::1" || /^127\./.test(value);
+}
+
+/**
+ * A tunnel (Tailscale funnel, ngrok, cloudflared) forwards to loopback with its
+ * public Host. Only a listener that is a tunnel target passes these patterns:
+ * an exact hostname, or `*.suffix` for any name strictly under the suffix.
+ * The port is ignored; the tunnel provider owns the DNS for these names, so a
+ * rebinding page cannot point them at 127.0.0.1.
+ *
+ * @param {unknown} hostHeader
+ * @param {unknown} allowedHosts
+ */
+export function isAllowedTunnelHost(hostHeader, allowedHosts) {
+  const host = cleanString(hostHeader).toLowerCase();
+  if (!host || !Array.isArray(allowedHosts) || !allowedHosts.length) return false;
+  const match = /^([a-z0-9.-]+)(?::\d+)?$/.exec(host);
+  if (!match) return false;
+  const hostname = match[1].replace(/\.$/, "");
+  return allowedHosts.some((raw) => {
+    const pattern = cleanString(raw).toLowerCase();
+    if (!pattern) return false;
+    if (pattern.startsWith("*.")) {
+      const suffix = pattern.slice(1);
+      return suffix.length > 1 && hostname.endsWith(suffix) && hostname.length > suffix.length;
+    }
+    return hostname === pattern;
+  });
+}
+
+const HOST_NOT_ALLOWED = /** @type {const} */ ({
+  ok: false,
+  status: 403,
+  code: "HOST_NOT_ALLOWED",
+  error: "Host not allowed for this local server.",
+});
+
+/**
+ * The shared Host gate (BEAUDIT E1/G2).
+ *
+ * - `allowedHosts`: an operator-configured allowlist (e.g.
+ *   JOBBORED_API_ALLOWED_HOSTS). When non-empty it binds on EVERY socket: a
+ *   non-loopback listener answers only these names, and a loopback listener
+ *   answers these plus the loopback names.
+ * - `tunnelHosts`: names a tunnel (Tailscale serve/funnel, ngrok, cloudflared)
+ *   forwards to loopback with. They extend the loopback allowlist only and
+ *   never restrict a non-loopback socket.
+ *
+ * On a loopback socket anything else is a DNS-rebinding attempt.
+ *
+ * @param {{ headers?: Record<string, unknown>, socket?: { localAddress?: unknown, localPort?: unknown } | null }} req
+ * @param {{ allowedHosts?: unknown, tunnelHosts?: unknown }} [options] host patterns (see isAllowedTunnelHost)
+ * @returns {{ ok: true } | { ok: false, status: 403, code: "HOST_NOT_ALLOWED", error: string }}
+ */
+export function checkLoopbackRequestHost(req, { allowedHosts = [], tunnelHosts = [] } = {}) {
+  const socket = req && req.socket ? req.socket : null;
+  const headers = (req && req.headers) || {};
+  const hasAllowlist = Array.isArray(allowedHosts) && allowedHosts.length > 0;
+  if (hasAllowlist && isAllowedTunnelHost(headers.host, allowedHosts)) return { ok: true };
+  if (!socket || !isLoopbackAddress(socket.localAddress)) {
+    return hasAllowlist ? { ...HOST_NOT_ALLOWED } : { ok: true };
+  }
+  const scheme = /** @type {{ encrypted?: unknown }} */ (socket).encrypted ? "https" : "http";
+  if (isAllowedLoopbackHost(headers.host, socket.localPort, scheme)) return { ok: true };
+  if (isAllowedTunnelHost(headers.host, tunnelHosts)) return { ok: true };
+  return { ...HOST_NOT_ALLOWED };
+}
+
 /**
  * @param {unknown} requestOrigin
- * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown }} [options]
+ * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown, loopbackPort?: unknown, trustedHosts?: unknown }} [options]
+ *   `trustedHosts`: operator-trusted Host patterns (e.g. JOBBORED_API_ALLOWED_HOSTS)
+ *   that the Host gate already admitted on this loopback listener.
  */
 export function resolveAllowedBrowserOrigin(
   requestOrigin,
@@ -85,12 +186,25 @@ export function resolveAllowedBrowserOrigin(
     allowedOrigins = [],
     requestHost = "",
     requestProtocol = "http",
+    loopbackPort = undefined,
+    trustedHosts = [],
   } = {},
 ) {
   const origin = cleanString(requestOrigin);
   if (!origin) return "";
   if (allowedOrigins.includes("*")) return "*";
   if (allowedOrigins.includes(origin)) return origin;
+  // On a loopback listener a Host outside the loopback allowlist is a
+  // rebinding attempt, never a same-origin page (E1). A Host the operator
+  // trusts explicitly (the same list the Host gate admitted it with) keeps
+  // its exact same-origin match below, scheme and port included.
+  if (
+    loopbackPort !== undefined &&
+    !isAllowedLoopbackHost(requestHost, loopbackPort, requestProtocol) &&
+    !isAllowedTunnelHost(requestHost, trustedHosts)
+  ) {
+    return "";
+  }
   const sameOrigin = buildRequestOrigin(requestHost, requestProtocol);
   return sameOrigin && origin === sameOrigin ? origin : "";
 }
