@@ -71,6 +71,5 @@ export function safeFetch(
     lookupImpl?: LookupAll;
     resolveDns?: boolean;
     maxRedirects?: number;
-    maxBytes?: number;
   },
 ): Promise<Response>;

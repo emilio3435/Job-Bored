@@ -4,9 +4,12 @@
 // E8  — NAT64 / 6to4 / Teredo / site-local / benchmark ranges are private.
 // Hermetic: injected fetchImpl and stubbed DNS, no sockets.
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import http from "node:http";
+import { after, before, describe, it } from "node:test";
+import { brotliCompressSync, deflateSync, gzipSync } from "node:zlib";
 
 import {
+  responseFromIncomingMessage,
   safeFetch,
   validateScrapeTarget,
   validateScrapeTargetWithDns,
@@ -169,8 +172,10 @@ describe("C9 safeFetch streaming body cap", () => {
     const source = endlessBody();
     const fetchImpl = async () =>
       new Response(source.stream, { status: 200, headers: { "content-type": "text/html" } });
-    const response = await safeFetch("https://jobs.example.com/huge", {}, { fetchImpl, maxBytes: 256 * 1024 });
-    await assert.rejects(() => response.text(), /exceeds/i);
+    await assert.rejects(async () => {
+      const response = await safeFetch("https://jobs.example.com/huge", {}, { fetchImpl, maxBytes: 256 * 1024 });
+      await response.text();
+    }, /exceeds/i);
     assert.ok(source.pulls < 20, `source must stop near the cap; pulled ${source.pulls} chunks`);
     assert.equal(source.cancelled, true, "the upstream body must be cancelled");
   });
@@ -251,4 +256,113 @@ describe("E8 SSRF classifier covers embedded-IPv4 and reserved ranges (promoted 
       assert.equal(result.ok, false);
     });
   }
+});
+
+// Repair round: the pinned transport hands safeFetch a Response built from a
+// raw IncomingMessage. These drive that same builder against a loopback
+// server (the pinned transport itself refuses loopback) through an injected
+// fetchImpl, so safeFetch's decode, cap and deadline run end to end.
+describe("pinned transport body: decoding and deadline", () => {
+  const PAGE = "<html><head><title>Senior Engineer</title></head><body>Apply now</body></html>";
+  let server;
+  let port;
+  const sockets = new Set();
+
+  before(async () => {
+    server = http.createServer((req, res) => {
+      const path = String(req.url);
+      if (path === "/gzip") {
+        res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+        res.end(gzipSync(PAGE));
+      } else if (path === "/br") {
+        res.writeHead(200, { "content-type": "text/html", "content-encoding": "br" });
+        res.end(brotliCompressSync(PAGE));
+      } else if (path === "/deflate") {
+        res.writeHead(200, { "content-type": "text/html", "content-encoding": "deflate" });
+        res.end(deflateSync(PAGE));
+      } else if (path === "/bomb") {
+        const packed = gzipSync(Buffer.alloc(8 * 1024 * 1024, 0x61));
+        res.writeHead(200, {
+          "content-type": "text/html",
+          "content-encoding": "gzip",
+          "content-length": String(packed.length),
+        });
+        res.end(packed);
+      } else if (path === "/stall") {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.write("<html><head>");
+        // Never ends: headers arrive, the body stalls.
+      } else {
+        res.writeHead(200, { "content-type": "text/html" });
+        res.end(PAGE);
+      }
+    });
+    server.on("connection", (socket) => {
+      sockets.add(socket);
+      socket.on("close", () => sockets.delete(socket));
+    });
+    await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+    port = server.address().port;
+  });
+
+  after(async () => {
+    for (const socket of sockets) socket.destroy();
+    await new Promise((resolve) => server.close(resolve));
+  });
+
+  const loopbackTransport = (url, init = {}) =>
+    new Promise((resolve, reject) => {
+      const { pathname } = new URL(url);
+      const req = http.get(
+        { host: "127.0.0.1", port, path: pathname, signal: init.signal },
+        (res) => resolve(responseFromIncomingMessage(res, { url })),
+      );
+      req.on("error", reject);
+    });
+
+  for (const encoding of ["gzip", "br", "deflate"]) {
+    it(`decodes a ${encoding} body before the caller parses it`, async () => {
+      const response = await safeFetch(`https://jobs.example.com/${encoding}`, {}, {
+        fetchImpl: loopbackTransport,
+        maxBytes: 1024 * 1024,
+      });
+      const text = await response.text();
+      assert.equal(text, PAGE);
+      assert.equal(response.headers.get("content-encoding"), null);
+    });
+  }
+
+  it("caps the decoded bytes, not the compressed ones", async () => {
+    await assert.rejects(async () => {
+      const response = await safeFetch("https://jobs.example.com/bomb", {}, {
+        fetchImpl: loopbackTransport,
+        maxBytes: 1024 * 1024,
+      });
+      await response.text();
+    }, /exceeds/i);
+  });
+
+  it("keeps the caller's deadline active until the body is consumed", async () => {
+    // Mirrors providers/shared.ts fetchWithTimeout: the timer is cleared as
+    // soon as safeFetch settles, so the deadline must cover the body read.
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 150);
+    const outcome = await (async () => {
+      let response;
+      try {
+        response = await safeFetch("https://jobs.example.com/stall", { signal: controller.signal }, {
+          fetchImpl: loopbackTransport,
+        });
+      } catch (error) {
+        return { rejected: error };
+      } finally {
+        clearTimeout(timer);
+      }
+      const hung = new Promise((resolve) => setTimeout(() => resolve("hung"), 1500));
+      const read = response.text().then(() => "read", () => "read-error");
+      return { body: await Promise.race([read, hung]) };
+    })();
+    assert.ok(outcome.rejected, `safeFetch must reject at the deadline; got body outcome ${outcome.body}`);
+    assert.equal(outcome.rejected.name, "AbortError");
+  });
 });

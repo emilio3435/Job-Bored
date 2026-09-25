@@ -2,7 +2,8 @@ import { request as httpRequest } from "node:http";
 import { request as httpsRequest } from "node:https";
 import { isIP } from "node:net";
 import { lookup as dnsLookup } from "node:dns/promises";
-import { Readable } from "node:stream";
+import { Readable, pipeline } from "node:stream";
+import * as zlib from "node:zlib";
 
 const MAX_SCRAPE_REDIRECTS = 5;
 const PLATFORM_FETCH = globalThis.fetch;
@@ -498,7 +499,7 @@ export async function safeFetch(
       currentUrl = nextUrl;
       continue;
     }
-    return capResponseBody(response, maxBytes, target.url);
+    return readCappedBody(response, maxBytes, target.url, signal);
   }
   throw new Error("Too many redirects");
 }
@@ -580,15 +581,18 @@ function bodyTooLargeError(maxBytes) {
   return error;
 }
 
-// Re-wrap the body so it errors, and cancels the upstream (destroying the
-// socket on the pinned transport), as soon as it passes `maxBytes`. The final
-// hop's URL is kept on the returned Response. Non-Response stubs pass through.
+// Read the whole body, under `signal`, before handing the Response back. It
+// fails, and cancels the upstream (destroying the socket on the pinned
+// transport), as soon as it passes `maxBytes`. The final hop's URL is kept on
+// the returned Response. Non-Response stubs pass through.
 /**
  * @param {any} response
  * @param {number} maxBytes
  * @param {string} finalUrl
+ * @param {AbortSignal | undefined} signal
+ * @returns {Promise<any>}
  */
-function capResponseBody(response, maxBytes, finalUrl) {
+async function readCappedBody(response, maxBytes, finalUrl, signal) {
   if (typeof Response !== "function" || !(response instanceof Response)) return response;
   const limit = Number(maxBytes);
   const capped = Number.isFinite(limit) && limit > 0;
@@ -597,31 +601,34 @@ function capResponseBody(response, maxBytes, finalUrl) {
     discardBody(response);
     throw bodyTooLargeError(limit);
   }
-  let body = response.body;
-  if (body && capped) {
-    const reader = body.getReader();
+  /** @type {Uint8Array<ArrayBuffer> | null} */
+  let bytes = null;
+  if (response.body) {
+    const reader = response.body.getReader();
+    /** @type {Uint8Array[]} */
+    const chunks = [];
     let seen = 0;
-    body = new ReadableStream({
-      async pull(controller) {
-        const { done, value } = await reader.read();
-        if (done) {
-          controller.close();
-          return;
-        }
+    try {
+      for (;;) {
+        const { done, value } = await abortable(reader.read(), signal);
+        if (done) break;
         seen += value.byteLength;
-        if (seen > limit) {
-          reader.cancel().catch(() => {});
-          controller.error(bodyTooLargeError(limit));
-          return;
-        }
-        controller.enqueue(value);
-      },
-      cancel(reason) {
-        return reader.cancel(reason);
-      },
-    });
+        if (capped && seen > limit) throw bodyTooLargeError(limit);
+        chunks.push(value);
+      }
+    } catch (error) {
+      reader.cancel().catch(() => {});
+      throw error;
+    }
+    bytes = new Uint8Array(seen);
+    let offset = 0;
+    for (const chunk of chunks) {
+      bytes.set(chunk, offset);
+      offset += chunk.byteLength;
+    }
   }
-  const wrapped = new Response(body, {
+  const nullBody = [101, 204, 205, 304].includes(response.status);
+  const wrapped = new Response(nullBody ? null : bytes, {
     status: response.status,
     statusText: response.statusText,
     headers: response.headers,
@@ -763,6 +770,84 @@ function createConnectLookup(lookupImpl, signal) {
   };
 }
 
+// Build a fetch Response from a Node IncomingMessage, decoding the
+// Content-Encoding the way platform fetch does (gzip, deflate, br, zstd where
+// Node has it). The decoded stream is what safeFetch caps, so a compression
+// bomb stops at maxBytes of output. An unknown coding passes through raw, as
+// in platform fetch. Exported so tests can drive it against a loopback
+// server, which the pinned transport refuses.
+/**
+ * @param {import("node:http").IncomingMessage} res
+ * @param {{ method?: string, url: string }} options
+ * @returns {Response}
+ */
+export function responseFromIncomingMessage(res, { method = "GET", url }) {
+  const status = res.statusCode || 0;
+  const nullBody = String(method).toUpperCase() === "HEAD" || [101, 204, 205, 304].includes(status);
+  const decoders = nullBody ? [] : contentDecoders(res.headers["content-encoding"]);
+  /** @type {Array<[string, string]>} */
+  const headerInit = [];
+  for (const [key, value] of Object.entries(res.headers)) {
+    if (value == null) continue;
+    // Once decoded, the coding and the wire length no longer describe the body.
+    if (decoders && decoders.length > 0 && (key === "content-encoding" || key === "content-length")) continue;
+    headerInit.push([key, Array.isArray(value) ? value.join(", ") : String(value)]);
+  }
+  if (nullBody) res.resume();
+  /** @type {import("node:stream").Readable} */
+  let bodyStream = res;
+  if (decoders && decoders.length > 0) {
+    const last = decoders[decoders.length - 1];
+    pipeline(/** @type {any} */ ([res, ...decoders]), (error) => {
+      if (error) last.destroy(error);
+    });
+    bodyStream = last;
+  }
+  const response = new Response(
+    nullBody ? null : /** @type {ReadableStream} */ (/** @type {unknown} */ (Readable.toWeb(bodyStream))),
+    {
+      status,
+      statusText: res.statusMessage || "",
+      headers: headerInit,
+    },
+  );
+  Object.defineProperty(response, "url", { value: url });
+  return response;
+}
+
+// Decoders for a Content-Encoding header, applied in reverse of the order the
+// server listed them. Returns null when any coding is unknown, so the raw
+// bytes pass through untouched.
+/**
+ * @param {string | string[] | undefined} header
+ * @returns {import("node:stream").Transform[] | null}
+ */
+function contentDecoders(header) {
+  const codings = String(Array.isArray(header) ? header.join(",") : header || "")
+    .split(",")
+    .map((coding) => coding.trim().toLowerCase())
+    .filter((coding) => coding && coding !== "identity");
+  /** @type {import("node:stream").Transform[]} */
+  const decoders = [];
+  const flush = { flush: zlib.constants.Z_SYNC_FLUSH, finishFlush: zlib.constants.Z_SYNC_FLUSH };
+  for (const coding of codings.reverse()) {
+    if (coding === "gzip" || coding === "x-gzip") decoders.push(zlib.createGunzip(flush));
+    else if (coding === "deflate") decoders.push(zlib.createInflate(flush));
+    else if (coding === "br") {
+      decoders.push(zlib.createBrotliDecompress({
+        flush: zlib.constants.BROTLI_OPERATION_FLUSH,
+        finishFlush: zlib.constants.BROTLI_OPERATION_FLUSH,
+      }));
+    } else if (coding === "zstd" && typeof (/** @type {any} */ (zlib)).createZstdDecompress === "function") {
+      decoders.push((/** @type {any} */ (zlib)).createZstdDecompress());
+    } else {
+      for (const decoder of decoders) decoder.destroy();
+      return null;
+    }
+  }
+  return decoders;
+}
+
 /**
  * @param {string} urlText
  * @param {RequestInit} init
@@ -775,6 +860,11 @@ function pinnedFetch(urlText, init, lookupImpl) {
   const signal = init && init.signal ? init.signal : undefined;
   throwIfAborted(signal);
   const headers = headersToObject(init.headers);
+  // Platform fetch advertises the codings it decodes; responseFromIncomingMessage
+  // decodes the same set.
+  if (!Object.keys(headers).some((name) => name.toLowerCase() === "accept-encoding")) {
+    headers["accept-encoding"] = "gzip, deflate, br";
+  }
   const method = String(init.method || "GET").toUpperCase();
 
   return new Promise((resolve, reject) => {
@@ -798,33 +888,14 @@ function pinnedFetch(urlText, init, lookupImpl) {
         signal,
       },
       (res) => {
-        // Stream the body; capResponseBody enforces the byte cap and cancelling
-        // the web stream destroys the socket.
-        /** @type {Array<[string, string]>} */
-        const headerInit = [];
-        for (const [key, value] of Object.entries(res.headers)) {
-          if (value == null) continue;
-          headerInit.push([key, Array.isArray(value) ? value.join(", ") : String(value)]);
-        }
-        const status = res.statusCode || 0;
-        const nullBody = method === "HEAD" || [101, 204, 205, 304].includes(status);
-        if (nullBody) res.resume();
         let response;
         try {
-          response = new Response(
-            nullBody ? null : /** @type {ReadableStream} */ (/** @type {unknown} */ (Readable.toWeb(res))),
-            {
-              status,
-              statusText: res.statusMessage || "",
-              headers: headerInit,
-            },
-          );
+          response = responseFromIncomingMessage(res, { method, url: parsed.href });
         } catch (error) {
           res.destroy();
           finish(reject, error);
           return;
         }
-        Object.defineProperty(response, "url", { value: parsed.href });
         finish(resolve, response);
       },
     );

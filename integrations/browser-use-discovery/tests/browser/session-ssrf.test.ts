@@ -5,7 +5,9 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
+import { responseFromIncomingMessage } from "../../../../server/security-boundaries.mjs";
 import { createBrowserUseSessionManager } from "../../src/browser/session.ts";
 
 const PRIVATE_NETWORK = /private-network/;
@@ -223,4 +225,37 @@ test("session passes request.abortSignal through to the fetch path", async () =>
       assert.equal(sawSignal, true);
     },
   );
+});
+
+// Repair round: the pinned transport returns raw bytes, so a gzip page must be
+// decoded before session.run reads its text and title. The Response is built
+// by the same helper the pinned transport uses, against a loopback server.
+test("session decodes a gzip page before reading its title", async () => {
+  const page = "<html><head><title>Staff Engineer</title></head><body>Apply</body></html>";
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+    res.end(gzipSync(page));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    await withPatchedFetch(
+      (url) =>
+        new Promise<Response>((resolve, reject) => {
+          http
+            .get({ host: "127.0.0.1", port, path: "/" }, (res) =>
+              resolve(responseFromIncomingMessage(res, { url })),
+            )
+            .on("error", reject);
+        }),
+      async () => {
+        const session = createBrowserUseSessionManager(makeRuntimeConfig());
+        const result = await session.run({ url: "https://careers.example.com/role", instruction: "x" });
+        assert.equal(result.text, page);
+        assert.equal(result.metadata.title, "Staff Engineer");
+      },
+    );
+  } finally {
+    server.close();
+  }
 });

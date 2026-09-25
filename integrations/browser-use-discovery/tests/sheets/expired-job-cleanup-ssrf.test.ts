@@ -4,7 +4,9 @@ import assert from "node:assert/strict";
 import http from "node:http";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
+import { gzipSync } from "node:zlib";
 
+import { responseFromIncomingMessage } from "../../../../server/security-boundaries.mjs";
 import { checkJobPostingUrl } from "../../src/cleanup/expired-job-cleanup.ts";
 
 test("checkJobPostingUrl never fetches a loopback Link and flags it for review", async () => {
@@ -70,4 +72,30 @@ test("checkJobPostingUrl follows a public redirect and reports the final URL", a
   });
   assert.equal(result.status, "open");
   assert.equal(result.finalUrl, "https://jobs.example.com/new");
+});
+
+// Repair round: a gzip posting must be decoded before classification, or the
+// "no longer accepting" copy is never seen and the row stays unknown.
+test("checkJobPostingUrl decodes a gzip posting before classifying it", async () => {
+  const server = http.createServer((_req, res) => {
+    res.writeHead(200, { "content-type": "text/html", "content-encoding": "gzip" });
+    res.end(gzipSync("<html><body><h1>Engineer</h1><button>Apply now</button></body></html>"));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  const { port } = server.address() as AddressInfo;
+  try {
+    const result = await checkJobPostingUrl("https://jobs.example.com/role", {
+      fetchImpl: ((input: RequestInfo | URL, init?: RequestInit) =>
+        new Promise<Response>((resolve, reject) => {
+          http
+            .get({ host: "127.0.0.1", port, path: "/", signal: init?.signal ?? undefined }, (res) =>
+              resolve(responseFromIncomingMessage(res, { url: String(input) })),
+            )
+            .on("error", reject);
+        })) as typeof fetch,
+    });
+    assert.equal(result.status, "open");
+  } finally {
+    server.close();
+  }
 });
