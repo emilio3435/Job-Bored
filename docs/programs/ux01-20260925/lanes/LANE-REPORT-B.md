@@ -227,3 +227,46 @@ Browser check, done in the audit harness (not the host):
 No baselines were refreshed, because the visual suites assert structure.
 
 **Not verified:** clicking "Add your roles" end to end into the fit beat. Unit tests and a source check cover it.
+
+## Verification · floor (B-r2)
+
+Fresh Opus verifier, 2026-09-25, HEAD 0044b10. Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/B-r2-floor/<n>.log`. Every command ran in order; no retries needed; no flaky specs.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | eslint + skills lint clean |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | tsc clean on all projects |
+| 3 | `npm test` | PASS (exit 0) | 3136 tests, 3135 pass, 0 fail, 0 skipped, 1 todo |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | 12 OK lines, 0 errors |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 13 passed |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed |
+
+Note: the one "failing tests" entry in `npm test` output is the declared todo `tests/submission-record-audit.test.mjs:17` ("blocked on the canonical-ownership gate"); node counts it as todo, not fail.
+
+### Tails
+
+```
+
+OK integrations/openclaw-command-center/SKILL.md
+---
+> command-center@0.1.0 typecheck:server
+> tsc --noEmit --project server/tsconfig.json
+
+---
+ℹ tests 3136
+ℹ suites 769
+ℹ pass 3135
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 14219.368709
+---
+
+OK integrations/openclaw-command-center/SKILL.md
+---
+  11 passed (16.0s)
+  13 passed (23.5s)
+  37 passed (1.1m)
+```
