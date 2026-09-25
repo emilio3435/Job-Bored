@@ -101,7 +101,7 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
     for (const provider of ["openai", "anthropic"]) {
       assert.match(
         card(env, provider).textContent,
-        /runs through the local server — keep npm start running/,
+        /runs through the local server — keep npm run dev running/,
         `${provider} is CORS-blocked from a browser; the card says so before the ask`,
       );
     }

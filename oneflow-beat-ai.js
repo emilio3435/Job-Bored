@@ -47,7 +47,7 @@
     "no extra step.";
 
   /** Inline note on the two providers a browser cannot call directly. */
-  const CORS_NOTE = "runs through the local server — keep npm start running";
+  const CORS_NOTE = "runs through the local server — keep npm run dev running";
 
   /**
    * The clock on a slow check. A free tier under throttle takes seconds,
@@ -550,7 +550,42 @@
     }
   }
 
+
+  /**
+   * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+   * JobBoredDiscoveryHelpers.confirmHostChange (names the change, logs it).
+   */
+  function askHostChange(opts) {
+    const helpers = window.JobBoredDiscoveryHelpers;
+    if (helpers && typeof helpers.confirmHostChange === "function") {
+      return helpers.confirmHostChange(opts);
+    }
+    if (typeof window.confirm === "function") {
+      return !!window.confirm(
+        "JobBored will " +
+          [
+            opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+            opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+          ]
+            .filter(Boolean)
+            .join(", and ") +
+          " on this computer. Continue?",
+      );
+    }
+    return true;
+  }
+
   async function writeGeminiKeyThrough(key) {
+    // UX01 C8 (FD-19): the bonus writes into the discovery .env — ask.
+    if (
+      !askHostChange({
+        action: "Share your Gemini key with discovery",
+        writesEnv: true,
+        envKeys: [GEMINI_ENV_KEY],
+      })
+    ) {
+      return false;
+    }
     try {
       const res = await fetch(DISCOVERY_ENV_ENDPOINT, {
         method: "POST",
@@ -703,7 +738,7 @@
     id: "ai",
     order: 2,
     label: "AI",
-    timeLabel: "about 10 min left",
+    timeLabel: "about 12 min left",
     headline: HEADLINE,
     sub: SUB,
     actions: ACTIONS,

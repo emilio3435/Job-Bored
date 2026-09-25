@@ -2402,8 +2402,53 @@ function renderTailscaleStagesInWizard({ state, stages }) {
  *
  * deps are injectable for tests; production uses the module defaults.
  */
+
+/**
+ * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+ * JobBoredDiscoveryHelpers.confirmHostChange, which names what changes and
+ * logs the answer.
+ */
+function askHostChange(opts) {
+  const helpers = typeof window !== "undefined" ? window.JobBoredDiscoveryHelpers : null;
+  if (helpers && typeof helpers.confirmHostChange === "function") {
+    return helpers.confirmHostChange(opts);
+  }
+  if (typeof window !== "undefined" && typeof window.confirm === "function") {
+    return !!window.confirm(
+      "JobBored will " +
+        [
+          opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+          opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+        ]
+          .filter(Boolean)
+          .join(", and ") +
+        " on this computer. Continue?",
+    );
+  }
+  return true;
+}
+
 async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
+  // UX01 C8 (FD-19): this path may write the worker's secret into the
+  // discovery .env and force-restart the worker. Ask first (tests inject
+  // deps.confirmHostChange; the browser gets a named confirm).
+  const consent =
+    typeof deps.confirmHostChange === "function" ? deps.confirmHostChange : askHostChange;
+  if (
+    !consent({
+      action: "Set it up for me",
+      writesEnv: true,
+      envKeys: ["BROWSER_USE_DISCOVERY_WEBHOOK_SECRET"],
+      restartsWorker: true,
+    })
+  ) {
+    setDiscoveryWizardMessage(
+      "Setup left unchanged — nothing on this computer was touched.",
+      "info",
+    );
+    return { ok: false, reason: "declined" };
+  }
   const verify = deps.verify || handleDiscoveryWizardVerification;
   const render = deps.render || renderDiscoverySetupWizard;
   // No onStage → the standalone wizard renders the stages itself.
@@ -2725,8 +2770,12 @@ async function openDiscoverySetupWizard(options = {}) {
     typeof window.JobBoredDiscoveryAutodetect.recoverIfPossible === "function"
   ) {
     try {
+      // UX01 C8 (FD-19): opening setup only LOOKS. Repairs (a worker
+      // restart, a .env rewrite) wait for a click that asks first.
       const verdict =
-        await window.JobBoredDiscoveryAutodetect.recoverIfPossible();
+        await window.JobBoredDiscoveryAutodetect.recoverIfPossible({
+          allowRecover: false,
+        });
       // Recovery may bring the stack up, but opening setup must still
       // render review state and never silently install keep-alive.
       autodetectNote =
@@ -3604,7 +3653,15 @@ async function handleDiscoveryWizardAction(actionId) {
         window.location.hostname === "[::1]" ||
         window.location.hostname === "::1");
 
-    if (isLocal) {
+    if (
+      isLocal &&
+      askHostChange({
+        action: "Fix tunnel & relay",
+        writesEnv: true,
+        restartsWorker: true,
+        redeploysRelay: true,
+      })
+    ) {
       setDiscoveryWizardMessage(
         "Auto-healing tunnel & relay… (no terminal needed)",
         "info",
