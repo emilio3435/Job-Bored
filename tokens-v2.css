@@ -206,6 +206,11 @@
   --jb-shadow-hover:   0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.04);
   --jb-shadow-soft:    0 1px 2px rgba(27, 42, 78, 0.06), 0 8px 24px rgba(27, 42, 78, 0.08);
   --jb-shadow-strong:  0 2px 4px rgba(27, 42, 78, 0.10), 0 18px 40px rgba(27, 42, 78, 0.14);
+  /* Overlay chassis (css/overlay.css, UX01 C4): the modal and drawer scrims
+     and the drawer edge shadow, at the values they already rendered with. */
+  --jb-scrim-modal:    rgba(15, 23, 42, 0.45);
+  --jb-scrim-drawer:   rgba(15, 23, 42, 0.32);
+  --jb-shadow-drawer:  -4px 0 32px rgba(15, 23, 42, 0.14);
   --jb-focus-color:    var(--jb-navy);
   --jb-focus-gap:      var(--jb-paper);
   --jb-shadow-focus:   0 0 0 2px var(--jb-focus-gap), 0 0 0 4px var(--jb-focus-color);

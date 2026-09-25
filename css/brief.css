@@ -1,3 +1,7 @@
+/* css/brief.css (was css/legacy-brief.css; renamed in UX01 C4, DS-07).
+   The .brief-*, .command-strip and feed/widget rules style the ?jb-v2=0
+   view only; v2 hides those hosts. The shared modal chassis moved to
+   css/overlay.css. Delete the rest when ?jb-v2=0 retires (DS-24). */
 /* ============================================
    COMMAND STRIP (Daily Brief overview)
    ============================================ */
@@ -1081,17 +1085,6 @@ button.feed-item {
 }
 
 /* Manual discovery modal */
-.modal-overlay {
-  position: fixed;
-  inset: 0;
-  z-index: var(--jb-z-modal);
-  background: rgba(15, 23, 42, 0.45);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  padding: var(--space-4);
-}
-
 .scraper-setup-overlay {
   z-index: 2600;
 }
@@ -1838,31 +1831,6 @@ button.feed-item {
   margin-top: 0;
   font-size: var(--text-sm);
   color: var(--text-muted);
-}
-
-.btn-modal-secondary {
-  padding: var(--space-2) var(--space-4);
-  border: 1px solid var(--border);
-  border-radius: var(--radius-md);
-  background: transparent;
-  cursor: pointer;
-  font-size: var(--text-sm);
-  color: var(--text-muted);
-}
-
-.btn-modal-primary {
-  padding: var(--space-2) var(--space-4);
-  border: none;
-  border-radius: var(--radius-md);
-  background: var(--accent);
-  color: var(--jb-on-accent);
-  font-weight: 600;
-  cursor: pointer;
-  font-size: var(--text-sm);
-}
-
-.btn-modal-primary:hover {
-  opacity: 0.92;
 }
 
 /* Pre-run discovery preferences modal */
