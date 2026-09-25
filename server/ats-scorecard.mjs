@@ -130,8 +130,10 @@ function clipText(text, max) {
 }
 
 // E18: a posting description is mostly company blurb, benefits and EEO
-// boilerplate. Keep only the sections under a requirements-like heading;
-// when the posting has no such heading, fall back to a shorter clip.
+// boilerplate. Drop the sections under a boilerplate heading; requirement
+// sections always stay and text under other headings fills the rest of the
+// budget. When the posting has no requirement heading, fall back to a
+// shorter clip.
 // "About" drops only company boilerplate (About us / the company / <Employer>);
 // About the role/position/team/job is kept, since it carries requirements.
 const POSTING_KEEP_HEADING =
@@ -150,22 +152,40 @@ const PROFILE_EXCERPTS_MAX = 10000;
 export function trimPostingToRequirements(description) {
   const text = normalizeSpace(description);
   if (!text) return "";
-  const kept = [];
-  let keeping = false;
+  /** @type {Array<{ line: string, keep: boolean }>} */
+  const lines = [];
+  // "keep": under a requirements-like heading. "neutral": before the first
+  // heading or under a heading neither list recognises (e.g. "Job Summary"),
+  // which often carries clearance or citizenship requirements. "drop":
+  // under a boilerplate heading.
+  /** @type {"keep" | "neutral" | "drop"} */
+  let section = "neutral";
   let sawHeading = false;
   for (const raw of text.split("\n")) {
     const line = raw.trim();
     const short = line.length > 0 && line.length <= 80;
     if (short && POSTING_KEEP_HEADING.test(line)) {
-      keeping = true;
+      section = "keep";
       sawHeading = true;
     } else if (short && POSTING_DROP_HEADING.test(line)) {
-      keeping = false;
+      section = "drop";
     }
-    if (keeping && line) kept.push(line);
+    if (section !== "drop" && line) lines.push({ line, keep: section === "keep" });
   }
-  if (!sawHeading || kept.length === 0) return clipText(text, POSTING_FALLBACK_MAX);
-  return clipText(kept.join("\n"), POSTING_TRIMMED_MAX);
+  if (!sawHeading || lines.length === 0) return clipText(text, POSTING_FALLBACK_MAX);
+  const keepText = lines.filter((l) => l.keep).map((l) => l.line).join("\n");
+  if (keepText.length >= POSTING_TRIMMED_MAX) return clipText(keepText, POSTING_TRIMMED_MAX);
+  // Requirement sections always fit; unrecognised-section lines fill the
+  // remaining budget in posting order. Output keeps the posting's order.
+  let remaining = POSTING_TRIMMED_MAX - keepText.length;
+  const included = lines.map((l) => {
+    if (l.keep) return true;
+    const cost = l.line.length + 1;
+    if (cost > remaining) return false;
+    remaining -= cost;
+    return true;
+  });
+  return lines.filter((_, i) => included[i]).map((l) => l.line).join("\n");
 }
 
 // Scan for the first balanced {…} / […] embedded in surrounding text and parse
