@@ -94,3 +94,28 @@ test:e2e-visual exit=0    37 passed (1.0m)
 ```
 
 Left unverified: CI itself, because nothing was pushed. The one `todo` in `npm test` already existed and was not skipped by this lane.
+
+## Verification · floor (A-C1-r1)
+
+Verifier: a fresh Opus context, separate from the lane author, run against HEAD 9f72ad7 on 2026-09-25. Each command ran once from the workspace root, in order. No command was retried, and none was run with a filter, shard or snapshot update. Logs are in `../.ux01-run/A-C1-r1-floor/<n>.log`.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | PASS (exit 0) | eslint clean; lint:skills OK |
+| 2 | `npm run typecheck:repo` | PASS (exit 0) | both tsc projects plus every node --check clean |
+| 3 | `npm test` | PASS (exit 0) | tests 3058, pass 3057, fail 0, skipped 0, todo 1 |
+| 4 | `npm run test:contract:all` | PASS (exit 0) | all contract checks OK |
+| 5 | `npm run test:e2e-smoke` | PASS (exit 0) | 11 passed (15.6s) |
+| 6 | `npm run test:e2e-journey` | PASS (exit 0) | 13 passed (22.0s) |
+| 7 | `npm run test:e2e-visual` | PASS (exit 0) | 37 passed (1.0m) |
+
+Flaky: none. Green: yes.
+
+The one `todo` is `tests/submission-record-audit.test.mjs:17` ("persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate"). Node prints it under "failing tests" because its assertion fails, but it is marked todo, so it does not count as a failure.
+
+```
+npm test         ℹ tests 3058 · pass 3057 · fail 0 · cancelled 0 · skipped 0 · todo 1 · EXIT=0
+e2e-smoke        11 passed (15.6s)  EXIT=0
+e2e-journey      13 passed (22.0s)  EXIT=0
+e2e-visual       37 passed (1.0m)   EXIT=0
+```
