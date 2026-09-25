@@ -851,6 +851,15 @@ async function warnDiscoverySourceReadinessBeforeRun() {
 function openDiscoveryDrawer() {
   const drawer = discoveryDrawerEl();
   if (!drawer) return;
+  // UX01 C10: the capture button's href is per-install; set it on open.
+  const capture = window.JobBoredCapture;
+  if (capture && typeof capture.installBookmarkletLinks === "function") {
+    try {
+      capture.installBookmarkletLinks();
+    } catch (err) {
+      console.warn("[JobBored] capture bookmarklet link:", err);
+    }
+  }
   const opener = document.activeElement;
   const UC = window.CommandCenterUserContent;
   const fieldMap = {
