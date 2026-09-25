@@ -141,3 +141,38 @@ After the fix, a targeted rerun of those six files plus the lane F unit tests ga
 - lint:repo: exit 0
 - typecheck:repo: exit 0
 - npm test, contract, smoke, journey and visual: results pending. Read `F2-*.log`. Each file ends with an `EXIT <suite> <code>` line.
+
+## Verification · floor (F-r1)
+
+Independent Opus verifier, run at commit 955e67b on 2026-09-25. Logs are in `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/F-r1-floor/<n>.log`. No Playwright retries were needed and nothing was skipped.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | npm run lint:repo | PASS (exit 0) | n/a |
+| 2 | npm run typecheck:repo | PASS (exit 0) | n/a |
+| 3 | npm test | PASS (exit 0) | 3065 tests: 3064 pass, 0 fail, 0 skipped, 1 todo |
+| 4 | npm run test:contract:all | PASS (exit 0) | 11 contract checks OK |
+| 5 | npm run test:e2e-smoke | PASS (exit 0) | 11 passed |
+| 6 | npm run test:e2e-journey | PASS (exit 0) | 18 passed |
+| 7 | npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Note: the one todo in `npm test` is `tests/submission-record-audit.test.mjs:78`, "persists and can remove the canonical submission evidence record", marked `# blocked on the canonical-ownership gate`. Node prints its AssertionError under "failing tests", but it does not count toward fail. It is a known todo, not a failure.
+
+Tails:
+
+```
+--- 3
+  ✔ falls back to job.status when no override is passed (legacy dropdown) (0.54625ms)
+  ✔ stays due when nobody was contacted after the date passed (1.069875ms)
+ℹ fail 0
+ℹ pass 3064
+ℹ skipped 0
+ℹ tests 3065
+ℹ todo 1
+--- 5
+  11 passed (16.8s)
+--- 6
+  18 passed (32.5s)
+--- 7
+  37 passed (59.9s)
+```
