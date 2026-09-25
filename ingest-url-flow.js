@@ -537,6 +537,11 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
     if (activeDiscoverySecret) {
       headers["x-discovery-secret"] = activeDiscoverySecret;
     }
+    const relayAuth =
+      typeof window !== "undefined" ? window.JobBoredRelayAuth : null;
+    if (relayAuth && typeof relayAuth.headersFor === "function") {
+      Object.assign(headers, relayAuth.headersFor(endpoint));
+    }
     return headers;
   }
 
@@ -578,6 +583,13 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
       () => controller.abort(),
       INGEST_URL_TIMEOUT_MS,
     );
+    if (
+      typeof window !== "undefined" &&
+      window.JobBoredRelayAuth &&
+      typeof window.JobBoredRelayAuth.prepare === "function"
+    ) {
+      await window.JobBoredRelayAuth.prepare(endpoint).catch(() => false);
+    }
     try {
       const res = await fetch(endpoint, {
         method: "POST",

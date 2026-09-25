@@ -255,11 +255,23 @@ async function callCleanupExpiredWebhook({ dryRun }) {
     throw new Error("Discovery worker is not configured (baseUrl/secret/sheetId).");
   }
   const url = baseUrl.replace(/\/+$/, "") + "/cleanup-expired";
+  if (
+    typeof window !== "undefined" &&
+    window.JobBoredRelayAuth &&
+    typeof window.JobBoredRelayAuth.prepare === "function"
+  ) {
+    await window.JobBoredRelayAuth.prepare(url).catch(() => false);
+  }
   const res = await fetch(url, {
     method: "POST",
     headers: {
       "content-type": "application/json",
       "x-discovery-secret": secret,
+      ...(typeof window !== "undefined" &&
+      window.JobBoredRelayAuth &&
+      typeof window.JobBoredRelayAuth.headersFor === "function"
+        ? window.JobBoredRelayAuth.headersFor(url)
+        : {}),
     },
     body: JSON.stringify({
       sheetId,

@@ -891,4 +891,136 @@
       return Promise.resolve(buildRelayActionResult(actionId, context));
     },
   });
+
+  // ====== Relay auth (G24) ======
+  // scripts/deploy-cloudflare-relay.mjs mints a per-dashboard bearer token and
+  // writes { relay: { workerUrl, relayToken, relayLocked } } into
+  // discovery-local-bootstrap.json. The relay answers 401 without it. This
+  // store reads that block on a local dashboard origin, keeps it in this
+  // browser, and hands the bearer only to requests aimed at the relay origin.
+  const RELAY_AUTH_STORAGE_KEY = "jobbored.discoveryRelayAuth";
+  const RELAY_BOOTSTRAP_PATH = "discovery-local-bootstrap.json";
+
+  function safeOrigin(raw) {
+    try {
+      const u = new URL(String(raw || "").trim());
+      return u.protocol === "https:" || u.protocol === "http:" ? u.origin : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function relayStorage() {
+    try {
+      return window.localStorage || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function readRelayAuth() {
+    const s = relayStorage();
+    if (!s) return null;
+    try {
+      const parsed = JSON.parse(s.getItem(RELAY_AUTH_STORAGE_KEY) || "null");
+      if (
+        parsed &&
+        typeof parsed.token === "string" &&
+        parsed.token &&
+        safeOrigin(parsed.workerUrl)
+      ) {
+        return parsed;
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    return null;
+  }
+
+  function hydrateRelayAuthFromBootstrap(data) {
+    const block = data && typeof data === "object" ? data.relay : null;
+    if (!block || typeof block !== "object") return false;
+    const token =
+      typeof block.relayToken === "string" ? block.relayToken.trim() : "";
+    const workerUrl =
+      typeof block.workerUrl === "string" ? block.workerUrl.trim() : "";
+    if (!token || !safeOrigin(workerUrl)) return false;
+    const s = relayStorage();
+    if (!s) return false;
+    try {
+      s.setItem(
+        RELAY_AUTH_STORAGE_KEY,
+        JSON.stringify({
+          workerUrl,
+          token,
+          locked: block.relayLocked !== false,
+        }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function isLocalRelayDashboardOrigin() {
+    const h = String(
+      (window.location && window.location.hostname) || "",
+    ).toLowerCase();
+    return h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1";
+  }
+
+  async function hydrateRelayAuth() {
+    if (!isLocalRelayDashboardOrigin()) return false;
+    try {
+      const res = await window.fetch(RELAY_BOOTSTRAP_PATH, {
+        cache: "no-store",
+      });
+      if (!res || !res.ok) return false;
+      const data = await res.json().catch(() => null);
+      return hydrateRelayAuthFromBootstrap(data);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  function relayAuthHeadersFor(url) {
+    const auth = readRelayAuth();
+    if (!auth) return {};
+    const target = safeOrigin(url);
+    if (!target || target !== safeOrigin(auth.workerUrl)) return {};
+    return { Authorization: `Bearer ${auth.token}` };
+  }
+
+  function isLocalTarget(url) {
+    try {
+      const h = new URL(String(url || "").trim()).hostname.toLowerCase();
+      return h === "localhost" || h === "127.0.0.1" || h === "[::1]" || h === "::1";
+    } catch (_) {
+      return true;
+    }
+  }
+
+  let relayHydration = null;
+  // Loads the bootstrap token once per page, and only when a request is about
+  // to leave for a remote origin. Greenfield boot never fetches the file.
+  async function prepareRelayAuth(url) {
+    if (!safeOrigin(url) || isLocalTarget(url)) return false;
+    const auth = readRelayAuth();
+    if (auth && safeOrigin(auth.workerUrl) === safeOrigin(url)) return true;
+    if (!relayHydration) relayHydration = hydrateRelayAuth();
+    return relayHydration;
+  }
+
+  const relayAuth = Object.freeze({
+    hydrate: hydrateRelayAuth,
+    prepare: prepareRelayAuth,
+    hydrateFromBootstrap: hydrateRelayAuthFromBootstrap,
+    headersFor: relayAuthHeadersFor,
+    isLocked() {
+      const auth = readRelayAuth();
+      return !!(auth && auth.locked !== false);
+    },
+  });
+  relay.auth = relayAuth;
+  window.JobBoredRelayAuth = relayAuth;
 })();

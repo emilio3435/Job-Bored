@@ -1126,6 +1126,16 @@
         var headers = { "Content-Type": "application/json" };
         var secret = String(secretOverride || "").trim();
         if (secret) headers["x-discovery-secret"] = secret;
+        var relayAuth =
+          typeof window !== "undefined" ? window.JobBoredRelayAuth : null;
+        if (relayAuth && typeof relayAuth.prepare === "function") {
+          await relayAuth.prepare(endpoint).catch(function () {
+            return false;
+          });
+        }
+        if (relayAuth && typeof relayAuth.headersFor === "function") {
+          Object.assign(headers, relayAuth.headersFor(endpoint));
+        }
         console.info("[settings-profile-tab] POST", endpoint, "mode=" + (body.mode || "manual"));
         var res = await fetch(endpoint, {
           method: "POST",

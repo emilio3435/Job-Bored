@@ -699,12 +699,24 @@
       typeof options.secret === "string"
         ? options.secret.trim()
         : "";
+    if (
+      typeof window !== "undefined" &&
+      window.JobBoredRelayAuth &&
+      typeof window.JobBoredRelayAuth.prepare === "function"
+    ) {
+      await window.JobBoredRelayAuth.prepare(endpointUrl).catch(() => false);
+    }
     try {
       const res = await fetch(endpointUrl, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(secret ? { "x-discovery-secret": secret } : {}),
+          ...(typeof window !== "undefined" &&
+          window.JobBoredRelayAuth &&
+          typeof window.JobBoredRelayAuth.headersFor === "function"
+            ? window.JobBoredRelayAuth.headersFor(endpointUrl)
+            : {}),
           ...(options &&
           typeof options === "object" &&
           options.headers &&
