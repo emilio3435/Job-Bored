@@ -30,6 +30,23 @@
   var ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
   var CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
   var BULLET_RE = /^(?:[-*•·‣▪–—]|\d{1,2}[.)])\s+/;
+  var FRAGMENT_STOP_WORDS = {
+    a: 1, an: 1, and: 1, are: 1, as: 1, at: 1, be: 1, by: 1,
+    for: 1, from: 1, in: 1, into: 1, of: 1, on: 1, or: 1, the: 1,
+    to: 1, with: 1, using: 1, your: 1, our: 1, their: 1, you: 1, we: 1,
+    will: 1, have: 1, has: 1, had: 1, this: 1, that: 1, these: 1,
+    those: 1, years: 1, year: 1, plus: 1, strong: 1, ability: 1,
+    abilities: 1, experience: 1, experienced: 1, knowledge: 1,
+    understanding: 1, background: 1, preferred: 1, required: 1,
+    requirement: 1, requirements: 1,
+  };
+  var FALLBACK_KNOWN_TOOLS = {
+    ai: 1, api: 1, apis: 1, crm: 1, cdp: 1, sms: 1, js: 1, ts: 1,
+    ml: 1, aws: 1, gcp: 1, k8s: 1, figma: 1, openai: 1, gemini: 1,
+    grok: 1, llama: 1, react: 1, reactjs: 1, javascript: 1,
+    typescript: 1, node: 1, nodejs: 1, python: 1, kubernetes: 1,
+    postgresql: 1, postgres: 1, statsig: 1,
+  };
 
   /* Single pass ⇒ single-level: "&amp;lt;" → "&lt;", never "<". (Spec D2.) */
   function decodeEntities(s) {
@@ -93,6 +110,69 @@
       return stripMarkdownInline(line).replace(/[ \t]+/g, " ").replace(/[ \t]+$/, "");
     }).join("\n");
     return t.replace(/\n{3,}/g, "\n\n").trim();
+  }
+
+  function stripControlTokens(s) {
+    return String(s == null ? "" : s)
+      .replace(/\[?<\|[^\r\n]*?\|>/g, " ")
+      .replace(/\[?<\|/g, " ")
+      .replace(/\|>/g, " ")
+      .replace(/\[</g, " ")
+      .replace(/>\]/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function fragmentKey(s) {
+    return String(s == null ? "" : s).toLowerCase()
+      .replace(/\bnode\.js\b/g, "nodejs")
+      .replace(/\breact\.js\b/g, "reactjs")
+      .replace(/[^a-z0-9+#]+/g, " ")
+      .replace(/\s+/g, " ")
+      .trim();
+  }
+
+  function knownTool(s) {
+    var key = fragmentKey(s);
+    if (FALLBACK_KNOWN_TOOLS[key]) return true;
+    var aliases = root.JobBoredApp && root.JobBoredApp.keywordMatch && root.JobBoredApp.keywordMatch.KNOWN_TOOL_ALIASES;
+    return Array.isArray(aliases) && aliases.some(function (alias) { return fragmentKey(alias) === key; });
+  }
+
+  function significantTokens(s) {
+    return fragmentKey(s).split(" ").filter(function (token) {
+      return token && (token.length > 1 || /\d/.test(token)) && !FRAGMENT_STOP_WORDS[token];
+    });
+  }
+
+  /* One fragment rule: broken delimiters; short lowercase continuations;
+     dangling conjunction/punctuation; or fewer than two meaningful tokens
+     unless the whole value is a known analyzer tool alias. */
+  function isFragment(s) {
+    var text = stripControlTokens(s);
+    if (!text) return true;
+    var opens = (text.match(/\(/g) || []).length;
+    var closes = (text.match(/\)/g) || []).length;
+    var straightQuotes = (text.match(/"/g) || []).length;
+    var curlyOpens = (text.match(/“/g) || []).length;
+    var curlyCloses = (text.match(/”/g) || []).length;
+    if (opens !== closes || straightQuotes % 2 || curlyOpens !== curlyCloses) return true;
+    var tokens = significantTokens(text);
+    if (knownTool(text)) return false;
+    if (/^[a-z]/.test(text) && tokens.length < 3) return true;
+    if (/(?:[,;]|\b(?:and|or))\s*$/i.test(text)) return true;
+    return tokens.length < 2;
+  }
+
+  function splitHeadingTail(s) {
+    var text = String(s == null ? "" : s).trim();
+    var match = /^([\s\S]*[.!?])\s+([^.!?]+)$/.exec(text);
+    if (!match) return { body: text, heading: "" };
+    var words = match[2].match(/[A-Za-z0-9][A-Za-z0-9/+.-]*/g) || [];
+    if (!words.length || words.length > 6) return { body: text, heading: "" };
+    var titleWords = words.filter(function (word) { return /^[A-Z]/.test(word); }).length;
+    if (titleWords / words.length < 0.6) return { body: text, heading: "" };
+    return { body: match[1].trim(), heading: match[2].trim() };
   }
 
   function _isAllCapsHeading(line) {
@@ -179,6 +259,9 @@
     itemText: itemText,
     normalizeInline: normalizeInline,
     normalizeMultiline: normalizeMultiline,
+    stripControlTokens: stripControlTokens,
+    isFragment: isFragment,
+    splitHeadingTail: splitHeadingTail,
     toBlocks: toBlocks,
     clip: clip,
     escapeHtml: escapeHtml,

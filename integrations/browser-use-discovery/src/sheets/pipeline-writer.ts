@@ -224,10 +224,20 @@ function clampScore(score: number | null): string {
   return String(Math.min(10, Math.max(1, Math.round(score))));
 }
 
+function localCalendarDay(value: string | Date): string {
+  const parts = new Intl.DateTimeFormat("en-CA", {
+    timeZone: process.env.TZ || undefined,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(value instanceof Date ? value : new Date(value));
+  const part = (type: Intl.DateTimeFormatPartTypes) =>
+    parts.find((entry) => entry.type === type)?.value || "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
+
 function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
-  const dateFound = lead.discoveredAt
-    ? String(lead.discoveredAt).slice(0, 10)
-    : now.toISOString().slice(0, 10);
+  const dateFound = localCalendarDay(lead.discoveredAt || now);
   // Match Score is already 0–10 from finalizeMatchDecision; clampScore treats
   // it the same way as fitScore.
   const matchScore =

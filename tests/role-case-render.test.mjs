@@ -67,7 +67,7 @@ function baseDeps(over = {}) {
     keywords: { percentage: 74, foundCount: 12, partialCount: 4, missingTerms: [{ label: "Kubernetes" }],
       byLabel: new Map([["5+ years design systems", "found"], ["wcag 2.2", "found"], ["react", "found"], ["storybook", "partial"], ["mentoring", "missing"]]) },
     scorecard: { result: { overallScore: 82, topStrengths: ["Led a11y guild"], evidence: [{ claim: "Token pipeline", sourceSnippet: "Built a token pipeline", sourceType: "resume" }],
-      criticalGaps: [{ gap: "Experimentation", whyItMatters: "Named twice", severity: "high" }],
+      criticalGaps: [{ gap: "Experimentation measurement gap", whyItMatters: "Named twice", severity: "high" }],
       dimensionScores: { requirementsCoverage: 84, experienceRelevance: 88, impactClarity: 72, atsParseability: 90, toneFit: 78 } }, storedAt: "2026-08-30T00:00:00Z" },
     manifest: { documents: [
       { type: "resume", label: "Tailored resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] },
@@ -235,6 +235,18 @@ describe("The Case renders every block from the model", () => {
     assert.match(ledger[1], /<span class="case__seg"[^>]*role="group"[^>]*aria-label="Replied"/);
     assert.match(ledger[1], /class="case__section case__section--record"/);
   });
+  /* Spec §3.1 (casefit) asked the three-lane board to follow its lanes so
+     an empty third column could not recur. The dossier redesign (#119)
+     retired the board for a stacked canvas + ledger, so the intent now reads:
+     a section with nothing to show is not emitted at all. */
+  it("a section with nothing to show is never emitted as an empty column", () => {
+    const full = renderHtml(model());
+    assert.match(full, /case__section--you/, "precondition: the scorecard model renders You have");
+    assert.doesNotMatch(full, /case__board|data-lanes=/, "the three-lane board is retired");
+    const two = renderHtml(model({ keywords: null, scorecard: null }));
+    assert.doesNotMatch(two, /case__section--you/);
+    assert.equal((two.match(/<section class="case__section case__section--they"/g) || []).length, 1);
+  });
   it("record with hollow future step and configured provider", () => {
     const html = renderHtml(model());
     assert.match(html, /class="case__ev case__ev--future"[\s\S]*?Applied[\s\S]*?Not yet/);
@@ -247,6 +259,22 @@ describe("The Case renders every block from the model", () => {
     assert.doesNotMatch(html, /data-num="keywords"/);
     assert.doesNotMatch(html, /case__section--you/);
     assert.match(html, /Add a resume to see what matches/);
+  });
+  /* Spec §3.3 decision §9-2: the keyword-fallback lane is gone — keywords
+     with no scorecard yield source "none", and the renderer hides on it. */
+  it("a keyword-only model renders no You-have lane", () => {
+    const out = renderHtml(model({ scorecard: null }));
+    assert.doesNotMatch(out, /case__section--you/);
+    assert.doesNotMatch(out, />You have</);
+    assert.match(renderHtml(model()), /case__section--you/, "precondition: the scorecard model still renders the section");
+  });
+  /* Spec §3.7: the follow-up date keeps type="date" but never reads its raw
+     placeholder as content — a Not-set sibling shows only while empty. */
+  it("the follow-up date carries a Not-set sibling inside a date wrap", () => {
+    const empty = renderHtml(model({ vmPatch: { followUpDate: "" } }));
+    assert.match(empty, /<span class="case__date"><input[^>]*data-field="followupAt"[^>]*type="date"[^>]* value=""[^>]*><span class="case__date-empty">Not set<\/span><\/span>/);
+    const set = renderHtml(model());
+    assert.match(set, /<span class="case__date"><input[^>]*data-field="followupAt"[^>]* value="2026-09-04"[^>]*><span class="case__date-empty">Not set<\/span><\/span>/);
   });
   it("escapes exactly once", () => {
     const html = renderHtml(model({ vmPatch: { role: 'Eng <b>"x"</b> & co', location: 'Austin & "TX" <b>' } }));
@@ -356,6 +384,201 @@ describe("The Case renders every block from the model", () => {
 });
 
 /* ------------------------------------------------------------
+   Spec §3.2: They want is ranked, capped, and disclosable. M2
+   delivers ranked requirements + visibleCount 8; the renderer
+   shows the first eight and discloses the rest behind a
+   client-state toggle — no event, no writeback, role.js untouched.
+   ------------------------------------------------------------ */
+/* Fake-DOM harness for the client-state toggles: the bound handler only
+   touches addEventListener/querySelector on the mount and attributes +
+   textContent on the button/panel, so these fakes exercise the real path. */
+function fakeMount() {
+  const listeners = {};
+  const byId = {};
+  return {
+    innerHTML: "",
+    addEventListener(type, fn) { (listeners[type] = listeners[type] || []).push(fn); },
+    querySelector(sel) { return sel[0] === "#" ? (byId[sel.slice(1)] || null) : null; },
+    dispatchEvent() { throw new Error("the toggle must not dispatch events"); },
+    __fire(type, event) { (listeners[type] || []).forEach((fn) => fn(event)); },
+    __register(id, el) { byId[id] = el; },
+  };
+}
+function fakeToggleButton(label, controls, action) {
+  const attrs = { "data-action": action, "aria-controls": controls, "aria-expanded": "false", "data-collapsed-label": label };
+  return {
+    textContent: label,
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    closest(sel) { return sel.indexOf(action) !== -1 ? this : null; },
+  };
+}
+function fakePanel() {
+  const attrs = { hidden: "" };
+  return {
+    getAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k) ? attrs[k] : null; },
+    setAttribute(k, v) { attrs[k] = String(v); },
+    removeAttribute(k) { delete attrs[k]; },
+    hasAttribute(k) { return Object.prototype.hasOwnProperty.call(attrs, k); },
+  };
+}
+
+describe("They want disclosure", () => {
+  function reqModel(n) {
+    const reqs = Array.from({ length: n }, (_, i) => "Requirement " + (i + 1) + " ownership");
+    return model({ vmPatch: {
+      requirements: reqs, skills: [], tags: [],
+      enrichment: {
+        roleInOneLine: "Design infrastructure that ships.", mustHaves: [], niceToHaves: ["Mentoring"],
+        toolsAndStack: [], talkingPoints: [], status: "ready",
+      },
+    } });
+  }
+  it("renders the first eight and discloses the rest", () => {
+    const out = renderHtml(reqModel(10));
+    const moreAt = out.indexOf('<div class="case__more"');
+    assert.ok(moreAt !== -1, "the overflow renders inside .case__more");
+    assert.match(out, /<div class="case__more" id="case-more-job-1" hidden>/);
+    assert.match(out, /<button type="button" class="case__more-btn" data-action="toggle-requirements" aria-expanded="false" aria-controls="case-more-job-1"[^>]*>Show all 10<\/button>/);
+    const visible = out.slice(0, moreAt);
+    for (let i = 1; i <= 8; i++) assert.match(visible, new RegExp("Requirement " + i + " ownership"), "R" + i + " visible");
+    assert.doesNotMatch(visible, /Requirement 9 ownership/);
+    assert.doesNotMatch(visible, /Requirement 10 ownership/);
+    const hidden = out.slice(moreAt);
+    assert.match(hidden, /Requirement 9 ownership/);
+    assert.match(hidden, /Requirement 10 ownership/);
+  });
+  it("renders all eight with no disclosure at the boundary", () => {
+    const out = renderHtml(reqModel(8));
+    assert.match(out, /Requirement 8 ownership/);
+    assert.doesNotMatch(out, /case__more/);
+    assert.doesNotMatch(out, /toggle-requirements/);
+  });
+  it("nests nice-to-haves inside the disclosure when collapsed", () => {
+    const collapsed = renderHtml(reqModel(10));
+    assert.ok(collapsed.indexOf("Mentoring") > collapsed.indexOf('<div class="case__more"'), "nice-to-haves sit inside .case__more when collapsed");
+    const open = renderHtml(reqModel(3));
+    assert.match(open, /Nice to have/);
+    assert.doesNotMatch(open, /case__more/);
+  });
+  it("the toggle flips hidden + aria-expanded + label, and nothing else", () => {
+    const mount = fakeMount();
+    Case.render(mount, reqModel(10));
+    assert.match(mount.innerHTML, /data-action="toggle-requirements"/, "precondition: the button rendered");
+    const panel = fakePanel();
+    mount.__register("case-more-job-1", panel);
+    const button = fakeToggleButton("Show all 10", "case-more-job-1", "toggle-requirements");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), false);
+    assert.equal(button.getAttribute("aria-expanded"), "true");
+    assert.equal(button.textContent, "Show fewer");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), true);
+    assert.equal(button.getAttribute("aria-expanded"), "false");
+    assert.equal(button.textContent, "Show all 10");
+    assert.doesNotThrow(() => mount.__fire("click", { target: { closest() { return null; } } }), "clicks elsewhere are ignored");
+  });
+});
+
+/* ------------------------------------------------------------
+   Spec §3.2: stack chips — 12 visible, then one quiet +N more
+   chip that expands in place under the same client-state pattern.
+   ------------------------------------------------------------ */
+describe("Stack disclosure", () => {
+  function stackModel(count) {
+    const tools = Array.from({ length: count }, (_, i) => "Platform tool " + (i + 1));
+    return model({ vmPatch: {
+      requirements: ["5+ years design systems"], skills: [], tags: [],
+      enrichment: {
+        roleInOneLine: "Design infrastructure that ships.", mustHaves: ["5+ years design systems"], niceToHaves: [],
+        toolsAndStack: tools, talkingPoints: [], status: "ready",
+      },
+    } });
+  }
+
+  it("shows twelve chips and discloses the rest behind +N more", () => {
+    const out = renderHtml(stackModel(15));
+    const moreAt = out.indexOf('<span class="case__chips-more"');
+    assert.ok(moreAt !== -1, "the overflow chips render inside .case__chips-more");
+    assert.match(out, /<span class="case__chips-more" id="case-stack-job-1" hidden>/);
+    assert.match(out, /<button type="button" class="case__chip case__chip--more" data-action="toggle-stack" aria-expanded="false" aria-controls="case-stack-job-1"[^>]*>\+3 more<\/button>/);
+    assert.equal((out.slice(0, moreAt).match(/<span class="case__chip"/g) || []).length, 12, "twelve chips before the disclosure");
+    assert.equal((out.slice(moreAt).match(/<span class="case__chip"/g) || []).length, 3, "three chips inside the disclosure");
+  });
+  it("renders every chip with no disclosure at the boundary", () => {
+    const out = renderHtml(stackModel(12));
+    assert.equal((out.match(/<span class="case__chip"/g) || []).length, 12);
+    assert.doesNotMatch(out, /case__chips-more/);
+    assert.doesNotMatch(out, /toggle-stack/);
+  });
+  it("the stack toggle flips the same client state", () => {
+    const mount = fakeMount();
+    Case.render(mount, stackModel(15));
+    assert.match(mount.innerHTML, /data-action="toggle-stack"/, "precondition: the +N more chip rendered");
+    const panel = fakePanel();
+    mount.__register("case-stack-job-1", panel);
+    const button = fakeToggleButton("+3 more", "case-stack-job-1", "toggle-stack");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), false);
+    assert.equal(button.getAttribute("aria-expanded"), "true");
+    assert.equal(button.textContent, "Show fewer");
+    mount.__fire("click", { target: button });
+    assert.equal(panel.hasAttribute("hidden"), true);
+    assert.equal(button.textContent, "+3 more");
+  });
+});
+
+/* ------------------------------------------------------------
+   Spec §3.3: each found/partial requirement carries the profile
+   sentence that answers it, printed under the requirement. None
+   on missing/unknown.
+   ------------------------------------------------------------ */
+describe("Requirement evidence", () => {
+  function evModel() {
+    return model({
+      keywords: {
+        percentage: 74, foundCount: 1, partialCount: 1, missingTerms: [{ label: "Kubernetes" }],
+        uniqueTerms: [
+          { label: "5+ years design systems", status: "found", evidence: { snippet: "Led design systems & shipped tokens for five years", source: "resume" } },
+          { label: "Storybook", status: "partial", evidence: { snippet: "Shipped a Storybook pilot last quarter", source: "profile" } },
+        ],
+      },
+      vmPatch: {
+        requirements: ["5+ years design systems", "Storybook component coverage", "Unmatched requirement prose"],
+        skills: [], tags: [],
+        enrichment: {
+          roleInOneLine: "Design infrastructure that ships.", mustHaves: [], niceToHaves: ["Mentoring"],
+          toolsAndStack: [], talkingPoints: [], status: "ready",
+        },
+      },
+    });
+  }
+
+  it("prints the answering sentence under found and partial requirements", () => {
+    const out = renderHtml(evModel());
+    assert.equal((out.match(/class="case__req-ev"/g) || []).length, 2, "one line per marked requirement, none elsewhere");
+    assert.match(out, /<span class="case__req-ev">&ldquo;Shipped a Storybook pilot last quarter&rdquo; <i>from your resume<\/i><\/span>/);
+    assert.ok(out.indexOf("Shipped a Storybook pilot") > out.indexOf("Storybook component coverage"), "the line sits under its requirement");
+    assert.ok(out.indexOf("Shipped a Storybook pilot") < out.indexOf("5+ years design systems"), "ranking still orders partial before found");
+  });
+  it("escapes the snippet exactly once and never labels missing work as matched", () => {
+    const out = renderHtml(evModel());
+    assert.match(out, /Led design systems &amp; shipped tokens for five years/);
+    assert.doesNotMatch(out, /&amp;amp;/);
+    const niceUl = /Nice to have<\/div><ul class="case__req">([\s\S]*?)<\/ul>/.exec(out);
+    assert.ok(niceUl && /Mentoring/.test(niceUl[1]), "the missing nice-to-have renders");
+    assert.doesNotMatch(niceUl[1], /case__req-ev/);
+  });
+  it("styles the evidence line serif, muted, and indented to the text column", () => {
+    const rule = /body\.jb-v2 \[data-region="role"\] \.case \.case__req-ev \{([^}]*)\}/.exec(caseCssSource);
+    assert.ok(rule, "the evidence rule must be scoped under the Case");
+    assert.match(rule[1], /font-size: 12\.5px/);
+    assert.match(rule[1], /color: var\(--ink-soft\)/);
+    assert.match(rule[1], /grid-column: 2/);
+  });
+});
+
+/* ------------------------------------------------------------
    The Brief is retired (plan Task 10, LD3). Its renderer, its
    styles and its script tag are gone; only CHANGELOG history may
    still name it. This guard is what keeps a revert from quietly
@@ -428,7 +651,7 @@ describe("the People block", () => {
   it("uses placeholders, not hint paragraphs, for the empty contact row", () => {
     const html = renderHtml(model({ vmPatch: { contacts: [] } }));
     assert.match(html, /data-field="contact"[^>]*value=""[^>]*aria-label="Contact" placeholder="Add a contact"/);
-    assert.match(html, /data-field="heardBack"[^>]*placeholder="Aug 30"/);
+    assert.match(html, /data-field="heardBack"[^>]*placeholder="Add a date"/);
   });
 
   it("no longer mounts the recruiter strip's dossier card under People", () => {
@@ -487,7 +710,7 @@ describe("posting dates and salary on the rail", () => {
 
   it("never overwrites the sheet's own salary with the posting's", () => {
     const meta = railMeta(renderHtml(model({ vmPatch: { postingSalary: "$185,000–$230,000 USD/yr" } })));
-    assert.match(meta, /data-field="salary"[^>]*value="\$185–230k"[^>]*placeholder="Salary"/);
+    assert.match(meta, /data-field="salary"[^>]*value="\$185–230k"[^>]*placeholder="Add salary"/);
     assert.doesNotMatch(meta, /case__src--scrape/, "a sheet salary needs no scrape tag");
   });
 });

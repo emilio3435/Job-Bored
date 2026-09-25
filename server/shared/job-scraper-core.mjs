@@ -11,6 +11,7 @@ import {
   decodeHtmlEntities,
   normalizeInlineField,
   normalizeJobText,
+  splitHeadingTail,
 } from "./text-normalize.mjs";
 
 /** @typedef {import("./job-scraper-core.d.mts").ScrapeJobPostingOptions} ScrapeJobPostingOptions */
@@ -1289,7 +1290,16 @@ function filterJunkBullets(bullets) {
 /** @param {string} text */
 function guessRequirementsFromText(text) {
   const lines = text.split(/\n/).map((l) => l.trim()).filter(Boolean);
+  /** @type {string[]} */
   const req = [];
+  /** @param {string} line */
+  const pushRequirement = (line) => {
+    const { body } = splitHeadingTail(line);
+    if (body && !JUNK_BULLET_LINE.test(body)) req.push(body);
+  };
+  /** @param {string} line */
+  const isHeadingShapedLine = (line) =>
+    splitHeadingTail(`Requirement sentence. ${line}`).heading === line;
   const lower = text.toLowerCase();
   const sectionIdx = lines.findIndex((l) =>
     /^(requirements|qualifications|what you|what we|you have|must have|minimum|required skills|preferred skills)/i.test(
@@ -1303,9 +1313,11 @@ function guessRequirementsFromText(text) {
       if (/^(benefits|about|company|apply)/i.test(l)) break;
       if (/^[•\-\*]\s/.test(l) || /^\d+\.\s/.test(l)) {
         const cleaned = l.replace(/^[•\-\*]\s*/, "").replace(/^\d+\.\s*/, "").trim();
-        if (!JUNK_BULLET_LINE.test(cleaned)) req.push(cleaned);
+        pushRequirement(cleaned);
+      } else if (isHeadingShapedLine(l)) {
+        break;
       } else if (l.length < 200 && l.length > 8 && !JUNK_BULLET_LINE.test(l)) {
-        req.push(l);
+        pushRequirement(l);
       }
     }
   }
@@ -1316,7 +1328,7 @@ function guessRequirementsFromText(text) {
         l.length < 400 &&
         !JUNK_BULLET_LINE.test(l)
       ) {
-        req.push(l.replace(/^[•\-\*]\s*/, "").trim());
+        pushRequirement(l.replace(/^[•\-\*]\s*/, "").trim());
       }
     }
   }

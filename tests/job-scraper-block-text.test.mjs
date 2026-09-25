@@ -1,7 +1,13 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 
 import { scrapeJobPosting } from "../server/shared/job-scraper-core.mjs";
+import * as textNormalize from "../server/shared/text-normalize.mjs";
+
+const textNormalizeVectors = JSON.parse(
+  readFileSync(new URL("./fixtures/text-normalize-vectors.json", import.meta.url), "utf8"),
+);
 
 function htmlResponse(html, { ok = true, status = 200 } = {}) {
   return {
@@ -12,6 +18,18 @@ function htmlResponse(html, { ok = true, status = 200 } = {}) {
     arrayBuffer: async () => new TextEncoder().encode(html).buffer,
   };
 }
+
+describe("case-fit shared text normalization", () => {
+  it('runs "[<|\"|>AI (Claude" and glued heading tails through all shared vectors', () => {
+    for (const [helperName, vectors] of Object.entries(textNormalizeVectors)) {
+      const helper = textNormalize[helperName];
+      assert.equal(typeof helper, "function", `${helperName} must be exported`);
+      for (const [input, expected] of vectors) {
+        assert.deepEqual(helper(input), expected, `${helperName}: ${input}`);
+      }
+    }
+  });
+});
 
 describe("DOM description extraction keeps block structure", () => {
   it("adjacent divs do not merge words", async () => {
@@ -41,6 +59,34 @@ describe("DOM description extraction keeps block structure", () => {
     });
     assert.match(out.description, /roadmap & the on-call/);
     assert.match(out.description, /Health – dental/);
+  });
+});
+
+describe("requirement inference stops at posting section headings", () => {
+  it("drops …performance narrative. Automation & Technology and stops at a heading-shaped line", async () => {
+    const description = [
+      "Requirements",
+      "- Translate lifecycle results into a performance narrative. Automation & Technology",
+      "- Build experiments that improve acquisition and retention outcomes.",
+      "Customer Intelligence & CDP",
+      "- Define audience strategy for the customer data platform.",
+      "This role works closely with analytics and creative partners. ".repeat(4),
+    ].join("\n");
+    const html = `<!doctype html><html><head><script type="application/ld+json">${JSON.stringify({
+      "@context": "https://schema.org",
+      "@type": "JobPosting",
+      title: "Lifecycle Director",
+      description,
+    })}</script></head><body><p>shell</p></body></html>`;
+
+    const out = await scrapeJobPosting("https://example.com/jobs/requirements-headings", {
+      fetchImpl: async () => htmlResponse(html),
+    });
+
+    assert.deepEqual(out.requirements, [
+      "Translate lifecycle results into a performance narrative.",
+      "Build experiments that improve acquisition and retention outcomes.",
+    ]);
   });
 });
 
