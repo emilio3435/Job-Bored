@@ -222,8 +222,13 @@ describe("Today attention queue — renderer", () => {
     const btn = region.querySelector('[data-today-action="log-follow-up"]');
     assert.ok(!!btn, "the overdue follow-up row should offer a log-follow-up action");
     btn.dispatchEvent({ type: "click", target: btn, preventDefault() {}, stopPropagation() {} });
-    assert.equal(seen.length, 1);
+    /* TR-12: logging a follow-up is two writes, each dispatched once —
+       Last contact today, then the next Follow-up Date — so the row leaves
+       the band. The key travels as a string ("0" resolves; 0 is dropped). */
+    assert.equal(seen.length, 2);
     assert.equal(seen[0].detail.field, "heardBack");
+    assert.equal(seen[1].detail.field, "followupAt");
+    assert.equal(typeof seen[0].detail.jobKey, "string");
   });
 
   it("leaves all three board position stores untouched when an action runs", () => {
