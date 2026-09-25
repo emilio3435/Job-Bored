@@ -1099,6 +1099,22 @@ function filterAndSortJobs(jobs, search, sort) {
   return data;
 }
 
+/* TR-20 / DS-08: every legacy render ends by announcing itself. The v2 board,
+   Dawn, Today, the dossier and the demo board repaint off this event instead of
+   watching the hidden #jobCards board mutate. detail.count is the number of
+   rows this render drew (after search), detail.total the whole pipeline. */
+function emitPipelineRendered(count) {
+  try {
+    if (typeof document === "undefined" || typeof CustomEvent !== "function") return;
+    const total = (core().getPipelineData() || []).length;
+    document.dispatchEvent(
+      new CustomEvent("jb:pipeline:rendered", { detail: { count, total } }),
+    );
+  } catch (_) {
+    /* Render notifications are best-effort for optional v2 surfaces. */
+  }
+}
+
 function renderPipeline() {
   const container = document.getElementById("jobCards");
   const emptyState = document.getElementById("emptyState");
@@ -1144,15 +1160,19 @@ function renderPipeline() {
         }
       }
     }
+    emitPipelineRendered(0);
     return;
   }
 
   emptyState.style.display = "none";
-  if (data.length === 0) return;
+  if (data.length === 0) {
+    emitPipelineRendered(0);
+    return;
+  }
 
   container.innerHTML = renderPipelineBoard(data);
   attachBoardListeners();
-  host().notifyPipelineRendered();
+  emitPipelineRendered(data.length);
 }
 
 function renderCardActions(job, indexForNotesId) {

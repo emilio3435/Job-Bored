@@ -527,17 +527,21 @@
   function observeLegacy() {
     var briefStats = document.getElementById("briefStats");
     var briefHeadline = document.getElementById("briefHeadline");
-    // #kanbanPipeline does not exist; the real legacy board is #jobCards. Never
-    // fall back to document.body — observing the whole body subtree turns each
-    // render's own DOM writes into a self-retriggering render loop.
-    var pipelineRoot = document.getElementById("kanbanPipeline") || document.getElementById("jobCards");
+
+    // TR-20: pipeline changes arrive as jb:pipeline:rendered (pipeline-render.js
+    // dispatches it at the end of every render), not as mutations of the
+    // hidden legacy #jobCards board. Never observe document.body — this
+    // region's own writes would retrigger a render loop.
+    if (!root.JobBoredDawn._pipelineListener) {
+      root.JobBoredDawn._pipelineListener = function () { scheduleRender(); };
+      document.addEventListener("jb:pipeline:rendered", root.JobBoredDawn._pipelineListener);
+    }
 
     var mo = new MutationObserver(function () {
       scheduleRender();
     });
     if (briefStats) mo.observe(briefStats, { childList: true, subtree: true, characterData: true });
     if (briefHeadline) mo.observe(briefHeadline, { childList: true, characterData: true, subtree: true });
-    if (pipelineRoot) mo.observe(pipelineRoot, { childList: true, subtree: true });
 
     // Also observe body class changes (jb-v2 flag toggled at runtime).
     var bodyMo = new MutationObserver(function () {

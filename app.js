@@ -237,6 +237,19 @@ if (typeof window !== "undefined") {
   window.JobBored.ingestJobUrl = ingestJobUrl;
   window.JobBored.openIngestManualFallback = openIngestManualFallback;
   window.JobBored.isParseableJobUrl = isParseableUrl;
+
+  // TR-20 / DS-08: the v2 board repaints when the pipeline render announces
+  // itself, not because a MutationObserver saw the hidden #jobCards change.
+  // scheduleRender coalesces, so the observer pipeline.js still keeps is a
+  // harmless duplicate until it is removed.
+  if (typeof document !== "undefined" && document.addEventListener) {
+    document.addEventListener("jb:pipeline:rendered", function () {
+      const board = window.JobBoredPipeline;
+      if (board && typeof board.scheduleRender === "function") {
+        board.scheduleRender();
+      }
+    });
+  }
 }
 
 
