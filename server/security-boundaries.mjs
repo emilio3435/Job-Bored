@@ -110,15 +110,44 @@ export function isLoopbackAddress(address) {
 }
 
 /**
+ * A tunnel (Tailscale funnel, ngrok, cloudflared) forwards to loopback with its
+ * public Host. Only a listener that is a tunnel target passes these patterns:
+ * an exact hostname, or `*.suffix` for any name strictly under the suffix.
+ * The port is ignored; the tunnel provider owns the DNS for these names, so a
+ * rebinding page cannot point them at 127.0.0.1.
+ *
+ * @param {unknown} hostHeader
+ * @param {unknown} allowedHosts
+ */
+export function isAllowedTunnelHost(hostHeader, allowedHosts) {
+  const host = cleanString(hostHeader).toLowerCase();
+  if (!host || !Array.isArray(allowedHosts) || !allowedHosts.length) return false;
+  const match = /^([a-z0-9.-]+)(?::\d+)?$/.exec(host);
+  if (!match) return false;
+  const hostname = match[1].replace(/\.$/, "");
+  return allowedHosts.some((raw) => {
+    const pattern = cleanString(raw).toLowerCase();
+    if (!pattern) return false;
+    if (pattern.startsWith("*.")) {
+      const suffix = pattern.slice(1);
+      return suffix.length > 1 && hostname.endsWith(suffix) && hostname.length > suffix.length;
+    }
+    return hostname === pattern;
+  });
+}
+
+/**
  * @param {{ headers?: Record<string, unknown>, socket?: { localAddress?: unknown, localPort?: unknown } | null }} req
+ * @param {{ allowedHosts?: unknown }} [options] tunnel host patterns (see isAllowedTunnelHost)
  * @returns {{ ok: true } | { ok: false, status: 403, code: "HOST_NOT_ALLOWED", error: string }}
  */
-export function checkLoopbackRequestHost(req) {
+export function checkLoopbackRequestHost(req, { allowedHosts = [] } = {}) {
   const socket = req && req.socket ? req.socket : null;
   if (!socket || !isLoopbackAddress(socket.localAddress)) return { ok: true };
   const headers = (req && req.headers) || {};
   const scheme = /** @type {{ encrypted?: unknown }} */ (socket).encrypted ? "https" : "http";
   if (isAllowedLoopbackHost(headers.host, socket.localPort, scheme)) return { ok: true };
+  if (isAllowedTunnelHost(headers.host, allowedHosts)) return { ok: true };
   return {
     ok: false,
     status: 403,

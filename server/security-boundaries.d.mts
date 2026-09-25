@@ -35,14 +35,23 @@ export function resolveAllowedBrowserOrigin(
   },
 ): string;
 
-export function isAllowedLoopbackHost(hostHeader: unknown, port: unknown): boolean;
+export function isAllowedLoopbackHost(
+  hostHeader: unknown,
+  port: unknown,
+  scheme?: unknown,
+): boolean;
 
 export function isLoopbackAddress(address: unknown): boolean;
 
-export function checkLoopbackRequestHost(req: {
-  headers?: Record<string, unknown>;
-  socket?: { localAddress?: unknown; localPort?: unknown } | null;
-}):
+export function isAllowedTunnelHost(hostHeader: unknown, allowedHosts: unknown): boolean;
+
+export function checkLoopbackRequestHost(
+  req: {
+    headers?: Record<string, unknown>;
+    socket?: { localAddress?: unknown; localPort?: unknown; encrypted?: unknown } | null;
+  },
+  options?: { allowedHosts?: unknown },
+):
   | { ok: true }
   | { ok: false; status: 403; code: "HOST_NOT_ALLOWED"; error: string };
 

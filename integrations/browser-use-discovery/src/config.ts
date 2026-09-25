@@ -63,6 +63,10 @@ export type WorkerRuntimeConfig = {
   googleOAuthTokenFile: string;
   webhookSecret: string;
   allowedOrigins: string[];
+  // BEAUDIT E1: Host names the loopback listener also accepts, because a
+  // tunnel forwards to 127.0.0.1 with its public Host. Exact names or
+  // `*.suffix`. Defaults to the tunnel providers' domains.
+  allowedHosts?: string[];
   port: number;
   host: string;
   runMode: "local" | "hosted";
@@ -116,6 +120,17 @@ const defaultHermesGoogleTokenPath = join(
 );
 const defaultTimezone =
   Intl.DateTimeFormat().resolvedOptions().timeZone || "America/Chicago";
+// Tunnel providers own DNS for these names, so a rebinding page cannot point
+// one at 127.0.0.1; the worker accepts them as Host alongside loopback.
+export const DEFAULT_TUNNEL_HOST_PATTERNS: readonly string[] = [
+  "*.ts.net",
+  "*.ngrok-free.app",
+  "*.ngrok-free.dev",
+  "*.ngrok.app",
+  "*.ngrok.io",
+  "*.trycloudflare.com",
+];
+
 const defaultAllowedOrigins = [
   "http://localhost:8080",
   "http://127.0.0.1:8080",
@@ -411,6 +426,13 @@ export function loadRuntimeConfig(
       "WEBHOOK_SECRET",
     ]),
     allowedOrigins,
+    allowedHosts: dedupeStrings([
+      ...DEFAULT_TUNNEL_HOST_PATTERNS,
+      ...readList(runtimeEnv, [
+        "BROWSER_USE_DISCOVERY_ALLOWED_HOSTS",
+        "DISCOVERY_ALLOWED_HOSTS",
+      ]).map((host) => cleanString(host).toLowerCase()),
+    ].filter(Boolean)),
     port: parsePositiveInt(
       readFirst(runtimeEnv, [
         "BROWSER_USE_DISCOVERY_PORT",

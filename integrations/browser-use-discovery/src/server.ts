@@ -34,6 +34,7 @@ import {
 import type { RankedPlannedCompany } from "./discovery/company-planner.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
 import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
+import { checkLoopbackRequestHost } from "../../../server/security-boundaries.mjs";
 import { createWorkerChatMatchClient } from "./match/job-matcher.ts";
 import {
   runDiscovery,
@@ -1057,6 +1058,19 @@ async function handleWorkerRequest(
   const startedAt = Date.now();
   const origin = getHeaderValue(request.headers.origin);
   const corsHeaders = buildCorsHeaders(runtimeConfig.allowedOrigins, origin);
+  // BEAUDIT E1: the shared loopback Host guard. A DNS-rebound page reaches
+  // 127.0.0.1 with its own name in Host; only loopback names on this port and
+  // the configured tunnel hosts get through.
+  const hostCheck = checkLoopbackRequestHost(request, {
+    allowedHosts: runtimeConfig.allowedHosts || [],
+  });
+  if (!hostCheck.ok) {
+    response.writeHead(hostCheck.status, { "Content-Type": "application/json" });
+    response.end(
+      JSON.stringify({ ok: false, code: hostCheck.code, message: hostCheck.error }),
+    );
+    return;
+  }
   const requestUrl = parseWorkerRequestUrl(request.url);
   if (!requestUrl) {
     response.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
