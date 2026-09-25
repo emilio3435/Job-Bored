@@ -185,7 +185,8 @@ function getAtsProviderErrorMetadata(error) {
 // (plus JOBBORED_API_ALLOWED_HOSTS) before CORS, auth or a route can see it.
 // A hosted listener (LISTEN_HOST not loopback) sits behind a proxy that may
 // connect over 127.0.0.1 with the public Host; the token gate protects it, so
-// the Host check applies there only when trusted hosts are configured.
+// the Host check applies there only when trusted hosts are configured. Once
+// configured, the allowlist binds on every socket, loopback or not.
 app.use((req, res, next) => {
   if (REQUIRE_API_AUTH && API_TRUSTED_HOSTS.length === 0) return next();
   const hostCheck = checkLoopbackRequestHost(req, { allowedHosts: API_TRUSTED_HOSTS });

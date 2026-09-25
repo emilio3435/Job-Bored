@@ -2351,6 +2351,25 @@ function ensureLocalTlsMaterial() {
   };
 }
 
+/**
+ * Tailscale serve publishes the dashboard at https://<mac>.<tailnet>.ts.net
+ * (see /__proxy/tailscale-state) and forwards to this loopback listener with
+ * that Host. Tailscale owns DNS under ts.net, so a rebinding page cannot aim
+ * one of these names at 127.0.0.1.
+ */
+const DASHBOARD_TUNNEL_HOST_PATTERNS = Object.freeze(["*.ts.net"]);
+
+/**
+ * Operator-trusted dashboard names (exact or `*.suffix`), comma separated.
+ * When set they bind on every socket, like JOBBORED_API_ALLOWED_HOSTS.
+ */
+function readDashboardAllowedHosts(env = process.env) {
+  return String(env.JOBBORED_DASHBOARD_ALLOWED_HOSTS || "")
+    .split(",")
+    .map((host) => host.trim().toLowerCase())
+    .filter(Boolean);
+}
+
 function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
@@ -2359,11 +2378,15 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       ? logger.error.bind(logger)
       : () => {};
 
+  const dashboardAllowedHosts = readDashboardAllowedHosts();
   return (req, res) => {
     // BEAUDIT E1/G2/G3: one Host gate for every route. A DNS-rebound page
     // connects to loopback with its own name in Host; it gets nothing here,
     // not the /profile proxy, not /__proxy/*, not a static file.
-    const hostCheck = checkLoopbackRequestHost(req);
+    const hostCheck = checkLoopbackRequestHost(req, {
+      allowedHosts: dashboardAllowedHosts,
+      tunnelHosts: DASHBOARD_TUNNEL_HOST_PATTERNS,
+    });
     if (!hostCheck.ok) {
       res.writeHead(hostCheck.status, {
         "content-type": "application/json",

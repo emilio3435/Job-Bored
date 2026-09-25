@@ -50,7 +50,7 @@ export function checkLoopbackRequestHost(
     headers?: Record<string, unknown>;
     socket?: { localAddress?: unknown; localPort?: unknown; encrypted?: unknown } | null;
   },
-  options?: { allowedHosts?: unknown },
+  options?: { allowedHosts?: unknown; tunnelHosts?: unknown },
 ):
   | { ok: true }
   | { ok: false; status: 403; code: "HOST_NOT_ALLOWED"; error: string };

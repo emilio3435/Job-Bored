@@ -1061,8 +1061,10 @@ async function handleWorkerRequest(
   // BEAUDIT E1: the shared loopback Host guard. A DNS-rebound page reaches
   // 127.0.0.1 with its own name in Host; only loopback names on this port and
   // the configured tunnel hosts get through.
+  // Tunnel names extend loopback only; a hosted worker keeps answering its own
+  // public name (the webhook secret gates it).
   const hostCheck = checkLoopbackRequestHost(request, {
-    allowedHosts: runtimeConfig.allowedHosts || [],
+    tunnelHosts: runtimeConfig.allowedHosts || [],
   });
   if (!hostCheck.ok) {
     response.writeHead(hostCheck.status, { "Content-Type": "application/json" });

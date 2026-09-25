@@ -136,24 +136,42 @@ export function isAllowedTunnelHost(hostHeader, allowedHosts) {
   });
 }
 
+const HOST_NOT_ALLOWED = /** @type {const} */ ({
+  ok: false,
+  status: 403,
+  code: "HOST_NOT_ALLOWED",
+  error: "Host not allowed for this local server.",
+});
+
 /**
+ * The shared Host gate (BEAUDIT E1/G2).
+ *
+ * - `allowedHosts`: an operator-configured allowlist (e.g.
+ *   JOBBORED_API_ALLOWED_HOSTS). When non-empty it binds on EVERY socket: a
+ *   non-loopback listener answers only these names, and a loopback listener
+ *   answers these plus the loopback names.
+ * - `tunnelHosts`: names a tunnel (Tailscale serve/funnel, ngrok, cloudflared)
+ *   forwards to loopback with. They extend the loopback allowlist only and
+ *   never restrict a non-loopback socket.
+ *
+ * On a loopback socket anything else is a DNS-rebinding attempt.
+ *
  * @param {{ headers?: Record<string, unknown>, socket?: { localAddress?: unknown, localPort?: unknown } | null }} req
- * @param {{ allowedHosts?: unknown }} [options] tunnel host patterns (see isAllowedTunnelHost)
+ * @param {{ allowedHosts?: unknown, tunnelHosts?: unknown }} [options] host patterns (see isAllowedTunnelHost)
  * @returns {{ ok: true } | { ok: false, status: 403, code: "HOST_NOT_ALLOWED", error: string }}
  */
-export function checkLoopbackRequestHost(req, { allowedHosts = [] } = {}) {
+export function checkLoopbackRequestHost(req, { allowedHosts = [], tunnelHosts = [] } = {}) {
   const socket = req && req.socket ? req.socket : null;
-  if (!socket || !isLoopbackAddress(socket.localAddress)) return { ok: true };
   const headers = (req && req.headers) || {};
+  const hasAllowlist = Array.isArray(allowedHosts) && allowedHosts.length > 0;
+  if (hasAllowlist && isAllowedTunnelHost(headers.host, allowedHosts)) return { ok: true };
+  if (!socket || !isLoopbackAddress(socket.localAddress)) {
+    return hasAllowlist ? { ...HOST_NOT_ALLOWED } : { ok: true };
+  }
   const scheme = /** @type {{ encrypted?: unknown }} */ (socket).encrypted ? "https" : "http";
   if (isAllowedLoopbackHost(headers.host, socket.localPort, scheme)) return { ok: true };
-  if (isAllowedTunnelHost(headers.host, allowedHosts)) return { ok: true };
-  return {
-    ok: false,
-    status: 403,
-    code: "HOST_NOT_ALLOWED",
-    error: "Host not allowed for this local server.",
-  };
+  if (isAllowedTunnelHost(headers.host, tunnelHosts)) return { ok: true };
+  return { ...HOST_NOT_ALLOWED };
 }
 
 /**
