@@ -25,6 +25,13 @@
     "https://www.googleapis.com/auth/userinfo.profile",
   ].join(" ");
   const GIS_INIT_STUCK_MS = 8000;
+  // UX01 C21 (SS-25): a silent restore that never answers must not leave a
+  // blank page. After this long, open the sign-in gate and say why.
+  const SILENT_RESTORE_TIMEOUT_MS = 8000;
+  const SESSION_ENDED_GATE = {
+    title: "Your Google session ended",
+    detail: "Sign in again to pick up where you left off.",
+  };
   const FORCE_CONSENT_PROMPT_KEY = "command_center_force_consent_prompt";
 
 let accessToken = null;
@@ -522,6 +529,15 @@ function restoreOAuthSession() {
   }
 
   oauthPendingOp = { kind: "silent-restore" };
+  const restoreOp = oauthPendingOp;
+  setTimeout(() => {
+    if (oauthPendingOp !== restoreOp || accessToken) return;
+    oauthPendingOp = null;
+    console.warn("[JobBored] silent restore timed out after", SILENT_RESTORE_TIMEOUT_MS, "ms");
+    if (host().getOAuthClientId()) {
+      host().showSheetAccessGate("signin", SESSION_ENDED_GATE);
+    }
+  }, SILENT_RESTORE_TIMEOUT_MS);
   try {
     tokenClient.requestAccessToken({ prompt: "none" });
   } catch (e) {
@@ -700,7 +716,7 @@ function initAuth() {
             // revoked. Open the sign-in gate instead of letting the dashboard render
             // and then throw toasts on the first click.
             if (host().getOAuthClientId() && !accessToken) {
-              host().showSheetAccessGate("signin");
+              host().showSheetAccessGate("signin", SESSION_ENDED_GATE);
             }
             return;
           }
@@ -751,7 +767,7 @@ function handleTokenResponse(tokenResponse) {
       oauthPendingOp = null;
     }
     if (silentOp && host().getOAuthClientId() && !accessToken) {
-      host().showSheetAccessGate("signin");
+      host().showSheetAccessGate("signin", SESSION_ENDED_GATE);
     }
     if (!silentOp) {
       showToast(

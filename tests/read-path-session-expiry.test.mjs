@@ -187,7 +187,7 @@ describe("read-path 401 after failed refresh", () => {
     assert.equal(calls.clearSessionAuthState, 1);
     assert.deepEqual(calls.showToast, [
       {
-        message: "Session expired — please sign in again",
+        message: "Your Google session ended — sign in again",
         type: "error",
         persistent: true,
       },
@@ -244,7 +244,8 @@ describe("read-path 401 after failed refresh", () => {
   });
 });
 describe("read-path non-401 API errors mid-session", () => {
-  it("renders the recorded Sheets API error in #errorStateHint instead of the static guess", async () => {
+  // UX01 C21 (SS-10): plain copy replaces Google's raw sentence.
+  it("renders plain 403 copy in #errorStateHint instead of Google's raw sentence", async () => {
     const { calls, elements, sheetsRead } = createHarness({
       initialAccessResolved: true,
       fetchImpl: (url) => {
@@ -267,10 +268,11 @@ describe("read-path non-401 API errors mid-session", () => {
 
     assert.equal(ok, false);
     assert.equal(elements.errorState.style.display, "block");
-    assert.equal(
+    assert.match(
       elements.errorStateHint.textContent,
-      "The caller does not have permission",
+      /can’t open this Sheet/,
     );
+    assert.doesNotMatch(elements.errorStateHint.textContent, /caller/);
     // No session-expiry theatre for a permission problem.
     assert.equal(calls.clearSessionAuthState, 0);
     assert.deepEqual(calls.showSheetAccessGate, []);

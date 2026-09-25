@@ -49,7 +49,10 @@ async function updateSheetCell(range, value, isRetry) {
       }
       host().clearSessionAuthState();
       host().renderPipeline();
-      host().showToast("Session expired — please sign in again", "error");
+      host().showToast("Your Google session ended — sign in again", "error", true, {
+        label: "Sign in",
+        onClick: () => host().showSheetAccessGate("signin"),
+      });
       return false;
     }
 
@@ -68,7 +71,10 @@ async function updateSheetCell(range, value, isRetry) {
     return false;
   }
 }
-async function updateMultipleCells(updates, isRetry) {
+async function updateMultipleCells(updates, isRetry, opts) {
+  // opts.silent: the caller shows its own single message (UX01 SS-06), so
+  // do not also toast here. Session-expired still toasts — it needs Sign in.
+  const silent = !!(opts && opts.silent);
   // updates: Array of { range, value }
   if (!host().getAccessToken()) {
     host().showSheetAccessGate("signin");
@@ -97,24 +103,27 @@ async function updateMultipleCells(updates, isRetry) {
     if (resp.status === 401) {
       if (!isRetry) {
         const refreshed = await host().refreshAccessTokenSilently();
-        if (refreshed) return updateMultipleCells(updates, true);
+        if (refreshed) return updateMultipleCells(updates, true, opts);
       }
       host().clearSessionAuthState();
       host().renderPipeline();
-      host().showToast("Session expired — please sign in again", "error");
+      host().showToast("Your Google session ended — sign in again", "error", true, {
+        label: "Sign in",
+        onClick: () => host().showSheetAccessGate("signin"),
+      });
       return false;
     }
 
     if (!resp.ok) {
       const errData = await resp.json().catch(() => ({}));
       const errMsg = errData.error?.message || `HTTP ${resp.status}`;
-      host().showToast("Update failed: " + errMsg, "error");
+      if (!silent) host().showToast("Update failed: " + errMsg, "error");
       return false;
     }
 
     return true;
   } catch (err) {
-    host().showToast("Update failed — check your connection", "error");
+    if (!silent) host().showToast("Update failed — check your connection", "error");
     return false;
   }
 }
@@ -363,9 +372,11 @@ async function toggleFavorite(stableKey) {
     // intent persists in the cache; nothing to write.
     return true;
   }
-  const ok = await updateMultipleCells([
-    { range: `Pipeline!V${sheetRow}`, value: next ? "★" : "" },
-  ]);
+  const ok = await updateMultipleCells(
+    [{ range: `Pipeline!V${sheetRow}`, value: next ? "★" : "" }],
+    false,
+    { silent: true },
+  );
   if (ok) {
     // Sheet now matches local intent — drop the cache entry.
     if (cacheKey) read.clearPendingFavorite(cacheKey);
@@ -376,8 +387,56 @@ async function toggleFavorite(stableKey) {
   // still shows the user's pick. Surface a soft error. Return true so the
   // optimistic UI does NOT roll back — the favorite is durably captured
   // locally and the next successful CSV refresh will reconcile.
-  host().showToast("Saved locally — retry when reconnected", "error");
+  // UX01 SS-06: ONE warning, with a Retry, instead of two red toasts. The
+  // pending-favorites cache is flushed automatically when the browser
+  // comes back online (sheets-read-load.js "online" hook).
+  const offline =
+    typeof navigator !== "undefined" && navigator && navigator.onLine === false;
+  host().showToast(
+    offline
+      ? `Starred "${job.title || "this role"}" here — it will reach your Sheet when you’re back online`
+      : `Couldn’t save the star on "${job.title || "this role"}" to your Sheet yet`,
+    "warning",
+    true,
+    { label: "Retry", onClick: () => void flushPendingFavorites() },
+  );
   return true;
+}
+
+/** Write every pending favorite whose Sheet cell disagrees with the
+ *  user's pick. Called on "online" and from the Retry action. Quiet on
+ *  success per row; one summary toast at the end. */
+async function flushPendingFavorites() {
+  const read = sheetsRead();
+  if (!read || !host().getAccessToken()) return 0;
+  let map = {};
+  try {
+    map = JSON.parse(localStorage.getItem("jobbored.favorites.pending") || "{}") || {};
+  } catch (_) {
+    map = {};
+  }
+  const keys = Object.keys(map);
+  if (!keys.length) return 0;
+  const data = host().getPipelineData() || [];
+  const updates = [];
+  const flushed = [];
+  data.forEach((job, idx) => {
+    const key = read.favoriteCacheKeyForJob(job);
+    if (!key || !(key in map)) return;
+    const row = getSheetRow(idx);
+    if (!row) return;
+    updates.push({ range: `Pipeline!V${row}`, value: map[key] ? "★" : "" });
+    flushed.push(key);
+  });
+  if (!updates.length) return 0;
+  const ok = await updateMultipleCells(updates, false, { silent: true });
+  if (!ok) return 0;
+  for (const key of flushed) read.clearPendingFavorite(key);
+  host().showToast(
+    flushed.length === 1 ? "Star saved to your Sheet" : `${flushed.length} stars saved to your Sheet`,
+    "success",
+  );
+  return flushed.length;
 }
 
 async function dismissJob(stableKey) {
@@ -817,6 +876,7 @@ async function updateJobResponseFlag(dataIndex, value) {
     appendBlacklistRow,
     deleteBlacklistRowByUrl,
     toggleFavorite,
+    flushPendingFavorites,
     dismissJob,
     restoreJob,
     markStatusExpired,
