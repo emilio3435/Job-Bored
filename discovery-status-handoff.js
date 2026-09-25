@@ -611,9 +611,18 @@ async function pollRunStatus(webhookUrl) {
   const statusUrl = buildRunStatusUrl(state.statusPath, webhookUrl);
   if (!statusUrl) return null;
 
+  // A run polled through a locked Cloudflare relay needs the per-dashboard
+  // bearer (G24); JobBoredRelayAuth.fetch adds it for the relay origin only
+  // and retries once after a token rotation. Local worker polls pass through.
+  const relayFetch =
+    window.JobBoredRelayAuth &&
+    typeof window.JobBoredRelayAuth.fetch === "function"
+      ? window.JobBoredRelayAuth.fetch
+      : fetch;
+
   let response;
   try {
-    response = await fetch(statusUrl, {
+    response = await relayFetch(statusUrl, {
       method: "GET",
       mode: "cors",
       headers: buildDiscoveryStatusPollHeaders(statusUrl),

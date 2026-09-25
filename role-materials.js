@@ -720,27 +720,49 @@
             ? (String(doc.status || "").toLowerCase() === "ready" ? "ready" : "failed")
             : "missing"));
       var attempt = Number(pendingProgress && pendingProgress.attempt) || 1;
-      var sub = isPending
-        ? phaseWords(phase) + " · " + (pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—")
-          /* A retry count only above 1: "attempt 1" on every row reads as
-             "something already went wrong" (the legacy panel showed it only
-             once a run had actually been retried). */
-          + (attempt > 1 ? " · retry " + attempt : "")
-        : (doc && doc.lastModifiedAt
-          ? String(doc.lastModifiedAt).slice(0, 10)
-          : (status === "missing" ? "not drafted" : ""));
-      /* The legacy panel's queue state, carried into the row: the eyebrow
-         (WAITING IN QUEUE / DRAFTING IN PROGRESS) and the worker's message.
-         Spans, not divs, so the row stays a three-cell grid. */
+      var elapsed = pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—";
+      var isQueued = /^queued$/i.test(phase);
+      /* The meta line, which owns the whole row's width (SPEC §3.4). Every
+         sentence the row has to say lands here rather than beside the label:
+         the pill carries one word, so it can never claim the name column's
+         width again. */
+      var meta = "";
+      if (status === "failed") {
+        meta = "stopped after " + elapsed + (attempt > 1 ? " · attempt " + attempt : "");
+      } else if (status === "ready") {
+        var files = doc && Array.isArray(doc.files) ? doc.files.length : 0;
+        meta = (doc && doc.lastModifiedAt ? "drafted " + String(doc.lastModifiedAt).slice(0, 10) : "drafted")
+          + (files ? " · " + files + " file" + (files === 1 ? "" : "s") : "");
+      } else if (status === "missing") {
+        /* A deliverable nothing can draft on its own says what produces it,
+           instead of offering a button that does nothing (SPEC §6 state 7). */
+        meta = def.draftAction ? "never requested" : "written with the resume";
+      }
+      /* The queue state, carried into the row: the eyebrow says what is
+         happening and for how long, the worker's own message says what it is
+         doing, and the indeterminate track says it is still alive. */
       var progressHtml = "";
       if (isPending) {
         var prog = pendingProgress;
-        var eyebrow = /^queued$/i.test(phase) ? "WAITING IN QUEUE" : "DRAFTING IN PROGRESS";
+        var eyebrow = (isQueued ? "waiting in queue" : (/^drafting$/i.test(phase) ? "drafting in progress" : phaseWords(phase)))
+          + " · " + elapsed
+          /* A retry count only above 1: "attempt 1" on every row reads as
+             "something already went wrong" (the legacy panel showed it only
+             once a run had actually been retried). */
+          + (attempt > 1 ? " · retry " + attempt : "");
         var msg = prog && prog.message ? String(prog.message) : defaultPhaseMessage(phase, pending.feature);
         progressHtml = '<span class="case__doc-progress" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
-          + '<span class="case__doc-eyebrow">' + eyebrow + '</span>'
+          + '<span class="case__doc-eyebrow">' + escapeHtml(eyebrow) + '</span>'
           + '<span class="case__doc-msg">' + escapeHtml(msg) + '</span>'
+          + '<span class="case__doc-track" aria-hidden="true"><i></i></span>'
         + '</span>';
+      } else if (status === "failed") {
+        /* Same words the pill used to carry in 15 nowrap characters, in the
+           place that has room for them. */
+        var reason = pendingProgress && pendingProgress.message
+          ? String(pendingProgress.message)
+          : "The drafting worker stopped before the " + featureLabel(pendingFeature || def.type) + " was written. Nothing was saved.";
+        progressHtml = '<span class="case__doc-msg">' + escapeHtml(reason) + '</span>';
       }
       var quality = qualityDocs[def.type];
       var issue = quality && Array.isArray(quality.issues) ? quality.issues[0] : null;
@@ -760,14 +782,22 @@
               '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-retry"'
               + ' data-feature="' + escapeHtml(pendingFeature) + '">Try again</button>']
             : []));
-      return '<div class="case__doc" data-doc="' + escapeHtml(def.type) + '">'
-        + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span>'
-          + (sub ? "<small>" + escapeHtml(sub) + "</small>" : "")
-          + progressHtml
-        + '</div>'
-        + '<span class="case__docst case__docst--' + status + '">'
-          + escapeHtml(status === "failed" ? "couldn't finish" : status) + '</span>'
-        + '<div class="case__doc-actions">' + actions.join("") + '</div>'
+      /* Three areas, never one line (SPEC §3.4). The shipped row was
+         `minmax(0, 1fr) auto auto` — name, pill, buttons — and both `auto`
+         tracks were nowrap, so at a 323px lane they took 309px and the name
+         track rendered at 12.3px with "Cover letter" shredded over nine
+         lines (TEARDOWN §2). Here the buttons and the label never share a
+         line, so no content-sized track can take the label's width. */
+      var stateWord = status === "missing"
+        ? "not drafted"
+        : (isPending && isQueued ? "queued" : status);
+      var stateClass = isPending && isQueued ? "queued" : status;
+      return '<div class="case__doc case__doc--' + status + '" data-doc="' + escapeHtml(def.type) + '">'
+        + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
+        + '<span class="case__docst case__docst--' + stateClass + '" data-status="' + escapeHtml(status) + '">'
+          + escapeHtml(stateWord) + '</span>'
+        + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + '</div>'
+        + (actions.length ? '<div class="case__doc-actions">' + actions.join("") + '</div>' : "")
       + '</div>';
     }).join("");
 

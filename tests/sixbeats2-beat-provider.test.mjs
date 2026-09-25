@@ -45,7 +45,7 @@ const VERIFIED_OPENROUTER = {
   resumeOpenAIApiKey: "",
   resumeAnthropicApiKey: "",
   resumeOpenRouterApiKey: "sk-or-verified-key",
-  resumeGeminiModel: "gemini-3.5-flash",
+  resumeGeminiModel: "gemini-flash",
   resumeOpenAIModel: "gpt-5.6-terra",
   resumeAnthropicModel: "claude-sonnet-4-6",
   resumeOpenRouterModel: "openai/gpt-oss-120b:free",
@@ -129,17 +129,17 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
   });
 });
 
-describe("SIXBEATS-2 NEW-8 — Beat 2 pins a Gemini model Google actually serves", () => {
-  it("defaults Gemini to gemini-3.5-flash, not the 404-ing `gemini-flash` alias", async () => {
+describe("SIXBEATS-2 NEW-8 — Beat 2 defaults Gemini to the Flash family", () => {
+  it("defaults Gemini to gemini-flash (family alias)", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
     const gemini = env.beats.ai.PROVIDERS.find((p) => p.id === "gemini");
-    assert.equal(gemini.defaultModel, "gemini-3.5-flash");
+    assert.equal(gemini.defaultModel, "gemini-flash");
   });
 
   it("pins that model on the server when Gemini passes its check", async () => {
     const env = loadArrival({
-      verifyProvider: async () => ({ ok: true, provider: "gemini", model: "gemini-3.5-flash", ms: 8 }),
+      verifyProvider: async () => ({ ok: true, provider: "gemini", model: "gemini-flash", ms: 8 }),
     });
     await env.flow.open("ai");
     env.mount().querySelector('[data-provider="gemini"]').dispatch("click");
@@ -147,7 +147,7 @@ describe("SIXBEATS-2 NEW-8 — Beat 2 pins a Gemini model Google actually serves
     await env.beats.ai.handleAction("ai_check");
     const pin = env.fetchImpl.calls.find((c) => c.url.includes("/api/llm-config"));
     assert.ok(pin, "the beat pins the verified provider server-side");
-    assert.equal(pin.body.model, "gemini-3.5-flash");
+    assert.equal(pin.body.model, "gemini-flash");
   });
 });
 
@@ -175,7 +175,7 @@ describe("SIXBEATS-2 NEW-2 — Beat 3 drafts through the provider Beat 2 verifie
     const call = env.fetchImpl.calls.find((c) => c.url.includes("/profile/from-resume"));
     assert.equal(call.body.provider, "gemini");
     assert.equal(call.body.apiKey, "AIza-verified-key");
-    assert.equal(call.body.model, "gemini-3.5-flash");
+    assert.equal(call.body.model, "gemini-flash");
   });
 
   it("sends the local server's base URL and no key for the Local provider", async () => {

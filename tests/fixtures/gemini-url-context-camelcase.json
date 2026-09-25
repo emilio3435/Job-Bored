@@ -1,0 +1,31 @@
+{
+  "_comment": "BEAUDIT E9/E17: a Gemini generateContent REST response with the url_context tool, in the lowerCamelCase field names the REST JSON API emits (urlContextMetadata.urlMetadata[].urlRetrievalStatus). Synthetic: shaped after the public REST reference, not recorded from a live call (the lane runs with no network). Replace with a recorded response when one is captured.",
+  "candidates": [
+    {
+      "content": {
+        "role": "model",
+        "parts": [
+          {
+            "text": "## About the role\nAcme is hiring a Staff Backend Engineer to own payments services, Kafka pipelines, and PostgreSQL reliability. You will mentor engineers, lead incident response, and ship production APIs used by millions of customers.\n\n## Requirements\n* 8+ years building distributed systems\n* Deep PostgreSQL experience"
+          }
+        ]
+      },
+      "finishReason": "STOP",
+      "index": 0,
+      "urlContextMetadata": {
+        "urlMetadata": [
+          {
+            "retrievedUrl": "https://jobs.example.com/roles/staff-backend",
+            "urlRetrievalStatus": "URL_RETRIEVAL_STATUS_SUCCESS"
+          }
+        ]
+      }
+    }
+  ],
+  "usageMetadata": {
+    "promptTokenCount": 180,
+    "candidatesTokenCount": 96,
+    "totalTokenCount": 276
+  },
+  "modelVersion": "gemini-flash-latest"
+}

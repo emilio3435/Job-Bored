@@ -832,7 +832,8 @@ describe("writeJobDescription", () => {
 
   it("creates the application dir if missing and writes job-description.md", async () => {
     const { writeJobDescription } = await import("../server/application-materials.mjs");
-    const result = await writeJobDescription("brand-new-slug", "Body of the JD here. " + "X".repeat(60), {
+    const longPosting = Array(90).fill("responsibility").join(" ");
+    const result = await writeJobDescription("brand-new-slug", longPosting, {
       source: "user-paste",
       jobUrl: "https://example.com/job/123",
     });
@@ -864,6 +865,27 @@ describe("writeJobDescription", () => {
     await assert.rejects(
       () => writeJobDescription("../../etc/passwd", "valid text " + "X".repeat(60), {}),
       (e) => e.statusCode === 400,
+    );
+  });
+
+  it("rejects a fit blurb with 422 so cache is not poisoned", async () => {
+    const { writeJobDescription } = await import("../server/application-materials.mjs");
+    await assert.rejects(
+      () =>
+        writeJobDescription(
+          "brand-new-slug",
+          "Low fit for AI & Marketing Analytics Manager at 3E (score: 6.4/10). Fit rationale: …",
+          { source: "browser-cache" },
+        ),
+      (e) => e && e.statusCode === 422,
+    );
+  });
+
+  it("rejects too-short non-empty text with 422", async () => {
+    const { writeJobDescription } = await import("../server/application-materials.mjs");
+    await assert.rejects(
+      () => writeJobDescription("brand-new-slug", "A short note.", { source: "user-paste" }),
+      (e) => e && e.statusCode === 422,
     );
   });
 });

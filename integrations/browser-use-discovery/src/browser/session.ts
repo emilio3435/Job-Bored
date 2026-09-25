@@ -5,24 +5,45 @@ import type {
   BrowserUseSessionResult,
 } from "../contracts.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
+import {
+  safeFetch,
+  validateScrapeTarget,
+  type SafeFetchOptions,
+} from "../net/safe-fetch.ts";
 
 export type BrowserUseSessionManager = {
+  /**
+   * Visit one page. `request.abortSignal` cancels both the browser command
+   * and the fetch path. Private-network targets are refused (SSRF guard).
+   */
   run(request: BrowserUseSessionRequest): Promise<BrowserUseSessionResult>;
 };
 
+/** Test seams: the fetch and DNS lookup the fetch path hands to safeFetch. */
+export type BrowserUseSessionDeps = {
+  fetchImpl?: typeof fetch;
+  lookupImpl?: SafeFetchOptions["lookupImpl"];
+};
+
 const DEFAULT_BROWSER_COMMAND_TIMEOUT_MS = 30_000;
+const MAX_PAGE_BODY_BYTES = 4 * 1024 * 1024;
 
 export function createBrowserUseSessionManager(
   runtimeConfig: WorkerRuntimeConfig,
+  deps: BrowserUseSessionDeps = {},
 ): BrowserUseSessionManager {
   return {
     async run(request) {
       const command = String(runtimeConfig.browserUseCommand || "").trim();
       if (command) {
+        // Refuse private literals before spawning anything; the bundled
+        // agent-browser command also resolves DNS before it opens the page.
+        const target = validateScrapeTarget(request.url);
+        if (!target.ok) throw blockedTargetError(target.error);
         try {
           return await runCommandSession(command, request);
         } catch (error) {
-          const fallback = await runFetchSession(request);
+          const fallback = await runFetchSession(request, deps);
           return {
             ...fallback,
             metadata: {
@@ -34,7 +55,7 @@ export function createBrowserUseSessionManager(
           };
         }
       }
-      return runFetchSession(request);
+      return runFetchSession(request, deps);
     },
   };
 }
@@ -101,6 +122,14 @@ async function runCommandSession(
         settled = true;
         reject(error);
       });
+      const onStdinError = (error: Error) => {
+        cleanup();
+        if (settled) return;
+        settled = true;
+        child.kill("SIGKILL");
+        reject(error);
+      };
+      child.stdin.once("error", onStdinError);
       child.once("close", (code) => {
         cleanup();
         if (settled) return;
@@ -111,7 +140,11 @@ async function runCommandSession(
         }
         resolve({ stdout, stderr });
       });
-      child.stdin.end(`${payload}\n`);
+      try {
+        child.stdin.end(`${payload}\n`);
+      } catch (error) {
+        onStdinError(error as Error);
+      }
     },
   );
 
@@ -147,13 +180,22 @@ async function runCommandSession(
 
 async function runFetchSession(
   request: BrowserUseSessionRequest,
+  deps: BrowserUseSessionDeps,
 ): Promise<BrowserUseSessionResult> {
-  const response = await fetch(request.url, {
-    headers: {
-      accept: "application/json,text/html;q=0.9,text/plain;q=0.8,*/*;q=0.7",
+  const response = await safeFetch(
+    request.url,
+    {
+      headers: {
+        accept: "application/json,text/html;q=0.9,text/plain;q=0.8,*/*;q=0.7",
+      },
+      signal: request.abortSignal,
     },
-    signal: request.abortSignal,
-  });
+    {
+      fetchImpl: deps.fetchImpl,
+      lookupImpl: deps.lookupImpl,
+      maxBytes: MAX_PAGE_BODY_BYTES,
+    },
+  );
   const text = await response.text();
   return {
     url: request.url,
@@ -193,6 +235,12 @@ function normalizeBrowserCommandTimeoutMs(value: number | undefined): number {
     return DEFAULT_BROWSER_COMMAND_TIMEOUT_MS;
   }
   return Math.max(1_000, Math.floor(value));
+}
+
+function blockedTargetError(message: string): Error {
+  const error = new Error(message) as Error & { code?: string };
+  error.code = "SSRF_BLOCKED";
+  return error;
 }
 
 function createAbortError(): Error {

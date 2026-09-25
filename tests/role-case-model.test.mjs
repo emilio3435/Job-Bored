@@ -337,3 +337,100 @@ describe("failures are loud, and never upgrade a guess (P0-E)", () => {
     assert.equal(m.provenance.inferredIdentity, true, "an inferred title must still be flagged");
   });
 });
+
+/* ------------------------------------------------------------
+   The verdict line (docs/redesign/dossier-2026-09/SPEC.md §4).
+
+   Derived prose is exactly where a UI starts asserting things nobody
+   measured, and this codebase has been burned by that twice: `Number(null)
+   === 0` rendering as a score of 0, and a MED severity pill no engine
+   assigned. So every clause here must be traceable to a non-null model field,
+   an absent input must DROP its clause rather than guess it, and the
+   all-null case must still produce a line that says nothing false.
+   ------------------------------------------------------------ */
+describe("the verdict", () => {
+  it("reads standing from the fit, the requirement match and the keyword miss", () => {
+    const v = build(baseDeps()).verdict;
+    assert.equal(v.standing, "Strong fit — 2 of 2 requirements matched, 1 keyword missing");
+  });
+
+  it("grades the fit bands off the score alone", () => {
+    const standing = (fitScore) => {
+      const d = baseDeps();
+      d.vm.job.fitScore = fitScore;
+      return build(d).verdict.standing;
+    };
+    assert.match(standing(8), /^Strong fit/);
+    assert.match(standing(6), /^Solid fit/);
+    assert.match(standing(4), /^Mixed fit/);
+    assert.match(standing(1), /^Weak fit/);
+  });
+
+  it("says the raw fit when there is no resume to match against, and invites one", () => {
+    const v = build(baseDeps({ keywords: null, scorecard: null })).verdict;
+    assert.equal(v.standing, "Fit 8 of 10");
+    assert.equal(v.note, "Add a resume to see which of the 2 requirements you actually answer.");
+  });
+
+  it("reads the gap off the same manifest the ledger rows render from", () => {
+    const gapFor = (documents, pending) => build(baseDeps({ manifest: { documents, pending } })).verdict.gap;
+    const resumeReady = { type: "resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] };
+    assert.equal(gapFor([], null), "Nothing drafted yet.");
+    assert.equal(gapFor([resumeReady], null), "Resume is ready; the cover letter has not been drafted.");
+    assert.equal(
+      gapFor([resumeReady], { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 9, attempt: 1 } }),
+      "The cover letter is being written now.",
+    );
+    assert.equal(
+      gapFor([resumeReady], { feature: "cover_letter", progress: { phase: "failed", elapsedSeconds: 67, attempt: 2 } }),
+      "The cover letter failed after 2 attempts; the resume is ready.",
+    );
+    assert.equal(
+      gapFor([resumeReady, { type: "cover_letter", status: "ready", lastModifiedAt: "2026-08-31T09:00:00Z", files: [] }], null),
+      "The resume and the cover letter are both ready.",
+    );
+  });
+
+  it("prints one urgent clause, most urgent first", () => {
+    const closing = baseDeps();
+    closing.vm.job.closesAt = "2026-09-10";
+    assert.equal(build(closing).verdict.next, "Closes in 9 days");
+    /* A follow-up already past is the clause once no deadline is in range. */
+    const overdue = baseDeps();
+    overdue.vm.job.followUpDate = "2026-08-28";
+    assert.equal(build(overdue).verdict.next, "Follow-up overdue by 4 days");
+    /* And with neither, the stage is the only dated fact left. */
+    const idle = baseDeps();
+    idle.vm.job.followUpDate = "";
+    assert.equal(build(idle).verdict.next, "Day 2 in researching");
+  });
+
+  it("says it is still reading while the enrichment runs, and claims nothing else", () => {
+    const d = baseDeps();
+    d.vm.job.enrichment = { status: "loading" };
+    const v = build(d).verdict;
+    assert.equal(v.standing, "Reading the posting");
+    assert.equal(v.note, "The fit read and the requirement list land in a few seconds.");
+    assert.equal(v.gap, "");
+    assert.equal(v.next, "");
+  });
+
+  it("a closed role says what happened and what is still on file, with no next move", () => {
+    const d = baseDeps();
+    d.vm.job.stage = "rejected";
+    d.vm.job.appliedAt = "2026-08-20";
+    const v = build(d).verdict;
+    assert.equal(v.standing, "rejected, applied 2026-08-20");
+    assert.equal(v.next, "");
+  });
+
+  it("says nothing at all rather than something false when every input is null", () => {
+    const empty = {
+      vm: { job: { jobKey: "job-1", role: "", company: "", stage: "", requirements: [], skills: [], tags: [], enrichment: {} } },
+      keywords: null, scorecard: null, manifest: null, health: null, stages,
+      nowMs: NOW, parseDate: () => null,
+    };
+    const v = build(empty).verdict;
+    assert.deepEqual(v, { standing: "", gap: "", next: "", note: "" });
+  });
+});

@@ -23,6 +23,17 @@
     return '<input type="text" class="' + cls + '" data-action="edit-field" data-field="' + field + '"' +
       ' data-original="' + attr(value) + '" value="' + attr(value) + '" aria-label="' + attr(label) + '"' + (extra || "") + GUARDS + ">";
   }
+  /* The title WRAPS. TEARDOWN §7 measured 81px of a real 57-character posting
+     title unreachable inside an `<input width: 100%>` — no ellipsis, no wrap,
+     no way to read it, and the deficit grows as the frame narrows. SPEC §5.2
+     sanctions a `<textarea rows="1">` as the lower-risk form of
+     display-then-edit: role.js's keydown and commit wiring already accept
+     TEXTAREA, so the frozen edit-field contract is untouched — including
+     data-original as the no-op baseline — and the text simply wraps. */
+  function editText(field, value, cls, label) {
+    return '<textarea class="' + cls + '" rows="1" data-action="edit-field" data-field="' + field + '"' +
+      ' data-original="' + attr(value) + '" aria-label="' + attr(label) + '"' + GUARDS + ">" + esc(value) + "</textarea>";
+  }
 
   function renderRail(m) {
     var id = m.identity;
@@ -82,27 +93,107 @@
         esc(m.health.label) + (m.health.checkedAt ? " · checked " + esc(m.health.checkedAt.slice(0, 10)) : "") + "</span>";
     }
     var link = safeHref(id.link);
+    /* `View posting` stays here and NOT in the docket: it is navigation, and
+       it belongs with "via Ashby · found · posted" rather than with the
+       controls that change this role. Keeping it out of the docket is also
+       what makes six stage labels fit — it is ~125px, the difference between
+       the whole funnel being visible at a 1220px frame and the last stage
+       scrolling out of view (SPEC §5.1). */
     var view = link ? '<a class="case__cta" data-action="brief-view-posting" href="' + attr(link) + '" target="_blank" rel="noopener">View posting</a>' : "";
-    /* The two Workshop entry points the Brief carried (frozen data-action
-       contract): request a fresh cover letter / tailored resume pass.
-       role.js routes both to jb:role:action → role-materials.js. */
-    var draft = '<div class="case__cta-row">' +
-      '<button type="button" class="case__cta case__cta--btn" data-action="resume-cover" aria-label="Draft a cover letter for this role">Draft cover letter</button>' +
-      '<button type="button" class="case__cta case__cta--btn" data-action="resume-tailor" aria-label="Tailor your resume for this role">Tailor resume</button>' +
-    "</div>";
     /* P1-1: the dossier had no headings at all — lane titles were spans and
        the role's own name existed only as "Role title, edit text", so H-key
-       navigation and the rotor returned an empty list. The identity heading is
-       visually hidden so the navy rail's typography is untouched. */
-    var heading = '<h2 class="case__vh">' + esc((id.title || "Role") + (id.company ? " at " + id.company : "")) + "</h2>";
-    return '<header class="case__rail">' + heading + logo +
-      '<div class="case__rail-id">' +
-        editInput("title", id.title, "case__title", "Role title") +
+       navigation and the rotor returned an empty list. The heading is the
+       masthead's own identity block, so H-key navigation lands on the title
+       the eye is already reading; the spoken name is the visually-hidden span
+       inside it, because the ink itself is an edit surface. */
+    var heading = '<h2 class="case__title-h">' +
+      '<span class="case__vh">' + esc((id.title || "Role") + (id.company ? " at " + id.company : "")) + "</span>" +
+      editText("title", id.title, "case__title", "Role title") +
+    "</h2>";
+    return '<header class="case__rail">' + logo +
+      '<div class="case__rail-id">' + heading +
         editInput("company", id.company, "case__company", "Company") +
         '<div class="case__meta">' + meta.map(function (x) { return "<span>" + x + "</span>"; }).join("") + "</div>" +
       "</div>" +
-      '<div class="case__rail-right">' + pills + view + draft + "</div>" +
+      '<div class="case__rail-right">' + pills + view + "</div>" +
     "</header>";
+  }
+
+  /* ---------------- the docket (SPEC §5.1) ----------------
+     Sticky. Stage on the left, the controls that change this role on the
+     right, and the live materials run in between. It is the surface that
+     makes the reading layout work: the reader can be anywhere in the dossier
+     and still act, where before the drafting buttons sat in the masthead and
+     scrolled away after ~200px of a 1,956px-tall frame (TEARDOWN §5). */
+  function elapsedWords(seconds) {
+    var n = Number(seconds);
+    if (!Number.isFinite(n) || n < 0) n = 0;
+    var m = Math.floor(n / 60), s = Math.floor(n % 60);
+    if (m === 0) return s + "s";
+    return m + "m " + (s < 10 ? "0" + s : s) + "s";
+  }
+  var DOC_WORDS = { resume: "resume", cover_letter: "cover letter" };
+  function docWords(type) { return DOC_WORDS[type] || "materials"; }
+  /* The docket mirror and the ledger row render from the SAME manifest in the
+     same render pass — two renderings of one run is how the overlay and the
+     row came to disagree. This never polls. */
+  function inflightChip(doc) {
+    if (doc.status === "failed") {
+      return '<button type="button" class="case__inflight case__inflight--failed" data-action="materials-retry"' +
+        ' data-feature="' + attr(doc.type) + '" data-doc="' + attr(doc.type) + '"' +
+        ' aria-label="' + attr("Retry the " + docWords(doc.type)) + '">' +
+        esc(docWords(doc.type).charAt(0).toUpperCase() + docWords(doc.type).slice(1)) + " failed · retry</button>";
+    }
+    var word = /^queued$/i.test(doc.phase) ? "Queued" : "Drafting";
+    return '<span class="case__inflight" role="status" aria-live="polite" data-doc="' + attr(doc.type) + '"' +
+      ' data-phase="' + attr(doc.phase || "drafting") + '">' +
+      '<span class="case__inflight-spin" aria-hidden="true"></span>' +
+      esc(word + " " + docWords(doc.type) + " · " + elapsedWords(doc.elapsedSeconds)) + "</span>";
+  }
+  function docketAction(m, type, action, label, aria, primary) {
+    var doc = (m.moves.materials || []).filter(function (d) { return d && d.type === type; })[0] || null;
+    /* The same request cannot be issued twice from the same surface: while a
+       run is in flight its button IS the chip. */
+    if (doc && (doc.status === "pending" || doc.status === "failed")) return inflightChip(doc);
+    return '<button type="button" class="case__btn' + (primary ? " case__btn--primary" : "") + '" data-action="' + action + '"' +
+      ' aria-label="' + attr(aria) + '">' + esc(label) + "</button>";
+  }
+  function renderDocket(m, stages) {
+    var actions = "";
+    /* On a closed role the drafting actions are removed entirely — there is
+       nothing to draft for a role that is over. */
+    if (!m.stage.terminal) {
+      actions += docketAction(m, "cover_letter", "resume-cover", "Draft cover letter", "Draft a cover letter for this role", true);
+      actions += docketAction(m, "resume", "resume-tailor", "Tailor resume", "Tailor your resume for this role", false);
+    }
+    /* `close-role` has been wired in role.js since the cutover and nothing
+       ever rendered it, so the dossier had no close control at all. */
+    actions += '<button type="button" class="case__btn case__btn--icon" data-action="close-role" aria-label="Close this role">&times;</button>';
+    return '<div class="case__docket" role="group" aria-label="Role docket">' +
+      renderStepper(m, stages) +
+      '<div class="case__docket-actions">' + actions + "</div>" +
+    "</div>";
+  }
+
+  /* ---------------- the verdict (SPEC §4) ----------------
+     One derived sentence, assembled in role-case-model.js from fields the
+     model already carries, then the numbers. The gap clause is the only
+     emphasis in the line, and it is always the thing the reader can do
+     something about. */
+  function renderVerdict(m) {
+    var v = m.verdict || {};
+    var parts = [];
+    if (v.standing) parts.push("<b>" + esc(v.standing) + ".</b>");
+    if (v.gap) parts.push("<em>" + esc(v.gap) + "</em>");
+    if (v.next) parts.push(esc(v.next) + ".");
+    if (v.note) parts.push(esc(v.note));
+    var numbers = renderNumbers(m);
+    if (!parts.length && !numbers) return "";
+    return '<section class="case__verdict" aria-labelledby="case-verdict-h">' +
+      '<h3 class="case__vh" id="case-verdict-h">Where this stands</h3>' +
+      (parts.length ? '<p class="case__verdict-line">' + parts.join(" ") + "</p>" : "") +
+      numbers +
+    "</section>";
   }
 
   function renderStepper(m, stages) {
@@ -140,9 +231,9 @@
         (atsLow ? '<span class="case__num-v--crimson">' : "<span>") + esc(String(n.ats.value)) + "</span><small>/100</small>",
         "How well your draft answers this posting", "ai"));
     }
-    if (n.keywords) tiles.push('<button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
+    if (n.keywords) tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
       '<div class="case__num-k">Keywords ' + src("derived") + '</div><div class="case__num-v">' + esc(String(n.keywords.percentage)) + "<small>%</small></div>" +
-      '<div class="case__num-sub">' + esc(n.keywords.found + " found · " + n.keywords.partial + " partial · " + n.keywords.missing + " missing") + "</div></button>");
+      '<div class="case__num-sub">' + esc(n.keywords.found + " found · " + n.keywords.partial + " partial · " + n.keywords.missing + " missing") + "</div></button></li>");
     /* P0-6 (spec §3, "each tile hides when its input is absent"): a role with
        nothing recorded was showing a tile whose entire value was the word
        "Unknown". Nothing recorded is not a number. */
@@ -159,13 +250,17 @@
         : (mTotal > 0 && mReady >= mTotal ? "All ready" : esc(mReady + " of " + mTotal + " ready"));
       tiles.push(tile("materials", "Materials", src("files"), esc(String(n.materials.ready)) + "<small>/" + n.materials.total + "</small>", mCaption, "files"));
     }
-    return tiles.length >= 2 ? '<div class="case__numbers" data-count="' + tiles.length + '">' + tiles.join("") + "</div>" : "";
+    /* `repeat(auto-fit, minmax(10rem, 1fr))` in the stylesheet, and the <li>
+       is the grid cell: the shipped `repeat(var(--case-num-cols), minmax(0,
+       1fr))` made every tile narrower each time one was added, which is the
+       same no-floor pattern that crushed the materials row (SPEC §3.3). */
+    return tiles.length >= 2 ? '<ul class="case__numbers" data-count="' + tiles.length + '">' + tiles.join("") + "</ul>" : "";
   }
   function tile(key, k, s, v, sub, srcKind) {
     /* P1-4: the aria-hidden source chip's meaning is folded back in here, so
        the tile is still announced with where its number came from. */
     var label = srcKind ? ' aria-label="' + attr(k + ", " + srcWords(srcKind)) + '"' : "";
-    return '<div class="case__num" data-num="' + key + '"' + label + '><div class="case__num-k">' + esc(k) + " " + s + '</div><div class="case__num-v">' + v + "</div>" + (sub ? '<div class="case__num-sub">' + sub + "</div>" : "") + "</div>";
+    return '<li><div class="case__num" data-num="' + key + '"' + label + '><div class="case__num-k">' + esc(k) + " " + s + '</div><div class="case__num-v">' + v + "</div>" + (sub ? '<div class="case__num-sub">' + sub + "</div>" : "") + "</div></li>";
   }
 
   function marked(list, cls, hasMatch) {
@@ -175,17 +270,25 @@
         (hasMatch && st !== "unknown" ? '<span class="case__st">' + esc(st) + "</span>" : "") + "</li>";
     }).join("");
   }
+  /* Section furniture, shared by the canvas and the ledger. The board's three
+     lanes had identical weight — same 11px mono title, same 2px rule, nothing
+     primary — and the eye picked the leftmost, which was the reference
+     material rather than the task (TEARDOWN §6). Sections are now stacked in
+     one reading order, so weight comes from position. */
+  function sectionHead(title, marks) {
+    return '<div class="case__section-head"><h3 class="case__section-title">' + esc(title) + "</h3>" + (marks || "") + "</div>";
+  }
   function renderTheyWant(m) {
     var w = m.theyWant;
-    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__lane case__lane--they"><div class="case__lane-head"><h3 class="case__lane-title">They want</h3></div>' + skeletonRows(4, "Reading the posting…") + "</section>";
+    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__section case__section--they">' + sectionHead("They want") + skeletonRows(4, "Reading the posting…") + "</section>";
     if (!w.requirements.length && !w.niceToHaves.length && !w.stack.length) return "";
     var h = w.hasMatchData;
     /* DOSSIER-02: a payload the pipeline had to recover, or one the validator
-       sent to review, is not evidence yet. The lane says so at its head and
+       sent to review, is not evidence yet. The section says so at its head and
        again over the requirements, because that list is what a hunter acts on. */
     var review = !!(m.provenance && m.provenance.needsReview);
-    var html = '<section class="case__lane case__lane--they"><div class="case__lane-head"><h3 class="case__lane-title">They want</h3>' +
-      src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "unverified") : "") + "</div>";
+    var html = '<section class="case__section case__section--they">' +
+      sectionHead("They want", src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "unverified") : ""));
     if (!h) html += '<p class="case__hint">Add a resume to see what matches.</p>';
     var reqSub = review ? "Requirements · unverified — read these against the posting before you rely on them" : ("Requirements" + (h ? " · vs. your resume" : ""));
     if (w.requirements.length) html += '<div class="case__sub">' + reqSub + '</div><ul class="case__req">' + marked(w.requirements, "", h) + "</ul>";
@@ -212,7 +315,12 @@
        no gaps — the lane emitted a header and closed. */
     if (y.source === "none") return "";
     if (!y.strengths.length && !y.evidence.length && !y.gaps.length && !y.dimensions.length) return "";
-    var html = '<section class="case__lane case__lane--you"><div class="case__lane-head"><h3 class="case__lane-title">You have</h3>' + (y.source === "scorecard" ? src("ai", "ai · scorecard") : src("derived", "keyword match")) + "</div>";
+    /* Stacked directly under "They want", at the same measure: a requirement
+       and whether you answer it are a pair, and splitting them into adjacent
+       columns separated by a rule made the reader saccade horizontally between
+       two lists whose vertical positions never corresponded (TEARDOWN §6). */
+    var html = '<section class="case__section case__section--you">' +
+      sectionHead("You have", y.source === "scorecard" ? src("ai", "ai · scorecard") : src("derived", "keyword match"));
     if (y.strengths.length) html += '<div class="case__sub">Strengths</div>' + y.strengths.map(function (s) { return '<div class="case__strength">' + esc(s) + "</div>"; }).join("");
     if (y.evidence.length) html += y.evidence.map(function (e) { return '<div class="case__evidence"><span class="case__from">Evidence' + (e.sourceType ? " · from your " + esc(e.sourceType) : "") + "</span>&ldquo;" + esc(e.sourceSnippet || e.claim) + "&rdquo;</div>"; }).join("");
     if (y.gaps.length) html += '<div class="case__sub">Gaps</div>' + y.gaps.map(function (g) { return '<div class="case__gap"><span class="case__sev case__sev--' + esc(g.severity) + '">' + esc(g.severity === "medium" ? "med" : g.severity) + "</span><span>" + esc(g.gap) + (g.whyItMatters ? '<span class="case__why">' + esc(g.whyItMatters) + "</span>" : "") + "</span></div>"; }).join("");
@@ -243,50 +351,87 @@
     return '<span class="case__saved" data-saved="' + attr(field) + '" role="status" aria-live="polite"></span>';
   }
 
-  function renderMoves(m) {
-    var v = m.moves, p = v.people;
-    var html = '<section class="case__lane case__lane--moves"><div class="case__lane-head"><h3 class="case__lane-title">Your moves</h3>' + src("ai") + src("sheet") + src("files") + "</div>";
-    if (v.talkingPoints.length) html += '<div class="case__sub">Say this</div><ul class="case__tp">' + v.talkingPoints.map(function (t, i) { return '<li><span class="case__idx">' + (i < 9 ? "0" : "") + (i + 1) + "</span><span>" + esc(t) + "</span></li>"; }).join("") + "</ul>";
-    html += '<div class="case__sub">Materials</div><div class="case__materials" data-mount="materials"></div>';
-    /* People (spec §5) is the human side of the application, and it opens with
-       a sentence rather than a form: the one move that follows from the four
-       facts below it. The sentence is the block's only signature — everything
-       under it is a quiet ledger row in the shared .case__kv idiom. */
-    html += '<div class="case__sub">People</div>' +
+  /* Canvas: what the reader says back. Prose, so it belongs at the reading
+     measure rather than in a 320px widget column. */
+  function renderSayThis(m) {
+    var points = m.moves.talkingPoints;
+    if (!points.length) return "";
+    return '<section class="case__section case__section--say">' + sectionHead("Say this", src("ai")) +
+      '<ul class="case__tp">' + points.map(function (t, i) { return '<li><span class="case__idx">' + (i < 9 ? "0" : "") + (i + 1) + "</span><span>" + esc(t) + "</span></li>"; }).join("") + "</ul>" +
+    "</section>";
+  }
+
+  /* Ledger: bounded widgets, every one designed and audited at 320px. The
+     materials mount is a frozen contract — role-materials.js renders its rows
+     into it — so this section renders whether or not there is a manifest. */
+  function renderMaterialsSection() {
+    return '<section class="case__section case__section--materials">' + sectionHead("Materials", src("files")) +
+      '<div class="case__materials" data-mount="materials"></div>' +
+    "</section>";
+  }
+
+  /* A ledger row puts its label ABOVE its value, so the value gets the row's
+     full width: a nowrap mono label beside a `width: 60%` input is what
+     truncated "Dana Whitfield (Talent Partner)" to "Dana Whitfield (Talent
+     Partn" in the shipped dossier (TEARDOWN §7). */
+  function ledgerRow(label, control, saved) {
+    return '<div class="case__row"><dt class="case__k">' + esc(label) + (saved || "") + "</dt><dd>" + control + "</dd></div>";
+  }
+  function renderPeople(m) {
+    var p = m.moves.people;
+    /* People opens with a sentence rather than a form: the one move that
+       follows from the four facts below it. */
+    return '<section class="case__section case__section--people">' + sectionHead("People", src("sheet")) +
       '<p class="case__move"><span class="case__move-k">Next move</span>' +
       '<span class="case__move-v">' + esc(p.nextMove) + "</span></p>" +
-      '<ul class="case__kv case__kv--people">' +
-      '<li><span class="case__k">Contact</span>' + editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"') + savedMark("contact") + "</li>" +
-      '<li><span class="case__k">Last contact</span>' + editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Aug 30"') + savedMark("heardBack") + "</li>" +
-      '<li><span class="case__k">Replied</span>' + replySegment(p.replied) + savedMark("reply") + "</li>" +
-      '<li><span class="case__k">Follow-up</span><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date">' + savedMark("followupAt") + "</li>" +
-    "</ul>";
-    return html + "</section>";
+      '<dl class="case__rows case__rows--people">' +
+      ledgerRow("Contact", editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"'), savedMark("contact")) +
+      ledgerRow("Last contact", editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Aug 30"'), savedMark("heardBack")) +
+      ledgerRow("Replied", replySegment(p.replied), savedMark("reply")) +
+      ledgerRow("Follow-up", '<input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date">', savedMark("followupAt")) +
+    "</dl></section>";
   }
 
   function renderNotes(m) {
     var body = m.notes ? m.notes.body : "";
-    return '<div class="case__notes"><textarea data-action="notes" placeholder="Interview prep, recruiter name, links you’ve gathered, next steps…">' + esc(body) + "</textarea></div>";
+    return '<section class="case__section case__section--notes"><h3 class="case__vh">Notes</h3>' +
+      '<div class="case__notes"><textarea data-action="notes" placeholder="Interview prep, recruiter name, links you’ve gathered, next steps…">' + esc(body) + "</textarea></div>" +
+    "</section>";
   }
 
   function renderRecord(m) {
     if (!m.record.length) return "";
-    return '<div class="case__chron"><div class="case__chron-head"><h3 class="case__chron-title">The record</h3><span class="case__chron-rule"></span>' + src("sheet") + src("files") + "</div>" +
+    return '<section class="case__section case__section--record">' + sectionHead("The record", src("sheet") + src("files")) +
       '<div class="case__events" data-count="' + m.record.length + '">' + m.record.map(function (e) {
         return '<div class="case__ev case__ev--' + esc(e.state) + '"><div class="case__ev-dot"></div><div class="case__ev-d">' + esc(e.at || "—") + '</div><div class="case__ev-t">' + esc(e.label) + (e.detail ? "<small>" + esc(e.detail) + "</small>" : "") + "</div></div>";
-      }).join("") + "</div></div>";
+      }).join("") + "</div>" +
+      (m.provenance && m.provenance.freshness ? '<div class="case__stamp case__stamp--fresh">' + esc(m.provenance.freshness) + "</div>" : "") +
+    "</section>";
   }
 
   function render(mount, model) {
     if (!mount || !model) return;
     var stages = root.JobBoredStages;
-    var lanes = renderTheyWant(model) + renderYouHave(model) + renderMoves(model);
+    /* The canvas holds prose and the ledger holds bounded widgets (SPEC §2).
+       Three rules decide what goes where, and they are the reason a 320px
+       ledger does not repeat the shipped bug: anything that is sentences gets
+       a reading measure, anything that is a row or a pill or a field is
+       designed for 320px, and anything the reader might want while looking at
+       something else is in the docket. */
+    var canvas = '<div class="case__canvas">' +
+      (model.oneLine ? '<blockquote class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</blockquote>" : "") +
+      renderTheyWant(model) + renderYouHave(model) + renderSayThis(model) + renderNotes(model) +
+    "</div>";
+    var ledger = '<aside class="case__ledger" aria-label="Role ledger">' +
+      renderMaterialsSection() + renderPeople(model) + renderRecord(model) +
+    "</aside>";
+    /* Source order is reading order, tab order and the single-column order
+       (SPEC §2): masthead, verdict, docket, then the read. The ledger follows
+       the canvas in source order and is never reordered visually, so tab order
+       and reading order agree at every width (WCAG 1.3.2, 2.4.3). */
     mount.innerHTML = '<div class="case">' +
-      renderRail(model) + renderStepper(model, stages) + renderNumbers(model) +
-      (model.oneLine ? '<div class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</div>" : "") +
-      (model.provenance && model.provenance.freshness ? '<div class="case__stamp case__stamp--fresh">' + esc(model.provenance.freshness) + "</div>" : "") +
-      '<div class="case__board">' + lanes + "</div>" +
-      renderNotes(model) + renderRecord(model) +
+      renderRail(model) + renderVerdict(model) + renderDocket(model, stages) +
+      '<div class="case__body">' + canvas + ledger + "</div>" +
     "</div>";
   }
 

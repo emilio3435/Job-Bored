@@ -53,12 +53,12 @@ const json = (status, body) => ({
 });
 
 describe("Gemini model fallback — a not-found model id self-heals", () => {
-  it("retries once with gemini-3.5-flash and repairs the stored model", async () => {
+  it("retries once with gemini-3.7-flash and repairs the stored model", async () => {
     const { rg, calls, patches } = load({
       model: "gemini-flash",
       fetchImpl: async (url) => {
         if (url.includes("models/gemini-flash:")) return json(404, { error: { message: NOT_FOUND } });
-        if (url.includes("models/gemini-3.5-flash:")) {
+        if (url.includes("models/gemini-3.7-flash:")) {
           return json(200, { candidates: [{ content: { parts: [{ text: "ok" }] } }] });
         }
         throw new Error("unexpected url " + url);
@@ -67,8 +67,8 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
     const reply = await rg.callConfiguredAi("sys", "user", {});
     assert.equal(reply, "ok");
     assert.equal(calls.length, 2, "exactly one retry");
-    assert.ok(calls[1].url.includes("models/gemini-3.5-flash:"));
-    assert.deepEqual(JSON.parse(JSON.stringify(patches)), [{ resumeGeminiModel: "gemini-3.5-flash" }]);
+    assert.ok(calls[1].url.includes("models/gemini-3.7-flash:"));
+    assert.deepEqual(JSON.parse(JSON.stringify(patches)), [{ resumeGeminiModel: "gemini-3.7-flash" }]);
   });
 
   it("does not retry on a non-model error such as an invalid key", async () => {
@@ -82,8 +82,8 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
 
   it("does not loop when the default itself is what was configured", async () => {
     const { rg, calls } = load({
-      model: "gemini-3.5-flash",
-      fetchImpl: async () => json(404, { error: { message: NOT_FOUND.replace("gemini-flash", "gemini-3.5-flash") } }),
+      model: "gemini-3.7-flash",
+      fetchImpl: async () => json(404, { error: { message: NOT_FOUND.replace("gemini-flash", "gemini-3.7-flash") } }),
     });
     await assert.rejects(() => rg.callConfiguredAi("sys", "user", {}));
     assert.equal(calls.length, 1);
@@ -99,6 +99,6 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
     });
     const result = await rg.verifyResumeProviderLive();
     assert.equal(result.ok, true);
-    assert.equal(result.model, "gemini-3.5-flash");
+    assert.equal(result.model, "gemini-3.7-flash");
   });
 });

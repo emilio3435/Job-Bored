@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Dossier redesign · 02 scrolled, docket engaged</title>
+<link rel="stylesheet" href="../../../../vendor/fonts/fonts.css">
+<link rel="stylesheet" href="mock-shell.css">
+<link rel="stylesheet" href="dossier-redesign.css">
+</head>
+<body>
+
+<main class="mock-page">
+  <div data-mock-nav></div>
+
+  <header class="mock-head">
+    <span class="mock-head__kicker">Role dossier redesign · mock 02 · 1440, scrolled ~640px</span>
+    <h1 class="mock-head__title">Scrolled, with the docket <em>still in reach</em></h1>
+    <p class="mock-head__note">
+      The reader is deep in the gaps and the scorecard. The masthead and the verdict have gone,
+      but the docket has not: stage, the drafting actions and the in-flight run stay parked under
+      the app chrome. This is the thing the shipped layout cannot do at all — its frame sets
+      <code>overflow: hidden</code>, which makes the frame a scroll container and forecloses
+      <code>position: sticky</code> for everything inside it.
+    </p>
+    <button type="button" class="mock-toggle" data-mock-toggle aria-pressed="false">
+      <span aria-hidden="true">◉</span><span>Annotations off</span>
+    </button>
+  </header>
+
+  <section class="mock-frame mock-frame--1440">
+    <p class="mock-frame__label">1440 × scrolled · docket sticky, ledger still aligned</p>
+    <div class="mock-frame__body" data-mount="scrolled"></div>
+  </section>
+
+  <div data-mock-legend></div>
+</main>
+
+<script src="dossier-mock-data.js"></script>
+<script src="dossier-mock.js"></script>
+<script src="mock-shell.js"></script>
+<script>
+  window.JobBoredDossierMock.render(
+    document.querySelector('[data-mount="scrolled"]'),
+    window.JobBoredDossierMockData.model("filled"),
+  );
+  window.JobBoredMockShell.boot({ current: "02-scrolled.html" });
+
+  /* Land the page mid-dossier so the sticky docket reads correctly the
+     moment the file is opened. ?y= overrides for screenshot runs. */
+  var m = /[?&]y=(\d+)/.exec(location.search);
+  requestAnimationFrame(function () {
+    window.scrollTo({ top: m ? Number(m[1]) : 900, behavior: "auto" });
+  });
+</script>
+</body>
+</html>
