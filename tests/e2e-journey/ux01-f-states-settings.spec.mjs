@@ -93,7 +93,11 @@ test("C22: every Settings tab is reachable at 375 px", async ({ page }) => {
   await expect(modal).toBeVisible();
   const tabs = modal.getByRole("tab");
   const n = await tabs.count();
-  expect(n).toBeGreaterThanOrEqual(7);
+  // #104 settled Settings on six tabs (the drawer owns discovery connection);
+  // count against the rendered panels rather than a fixed number.
+  const panels = await modal.locator('[role="tabpanel"]').count();
+  expect(n).toBeGreaterThanOrEqual(6);
+  expect(n).toBe(panels);
   for (let i = 0; i < n; i += 1) {
     const tab = tabs.nth(i);
     await expect(tab).toBeVisible();
