@@ -175,3 +175,145 @@ EXIT=0
   37 passed (1.0m)
 EXIT=0
 ```
+
+---
+
+# Conformance pass (2026-09-25, after merging `feat/ux-zero-to-one`)
+
+The branch fast-merged `feat/ux-zero-to-one` (lane C) cleanly at 15cc958. This pass closes the six must-fix gaps the conformance check found against the mockup.
+
+## What changed for the user
+
+- **An unreadable link reads like the mockup.** When a link can't be fetched (no worker, a timeout, a blocked site or a scrape failure), the manual form opens with a warn banner: "We couldn't read that page from here. Fill in the rest and it goes straight to your Sheet." Strangers no longer see CORS, Cloudflare, tunnel or endpoint-URL text. The transport detail goes to the console.
+- **A failed move says which role and where it stayed.** If the Sheet refuses a move from any surface, a toast reads "Couldn't move <role> at <company> to <Stage>. The Sheet didn't accept it, so it is still in <Stage>." It has a **Retry** button that re-runs the same move through the planner. The generic "Update failed: <raw server text>" toast that covered it is removed for these moves.
+- **The whole active pipeline fits at 1440.** Discovered, Researching, Applied, Phone screen, Interviewing and Offer share the width (193 px each at 1440; measured page scrollWidth 1440). Rejected, Passed and Expired rest as chips in a **Closed** row under the board ("Rejected 1"). A chip opens its roles in place, and it is still a drop target.
+- **Resting cards are readable.** A resting card shows the company, the fit ring, the title, one "place · pay" line ("Brooklyn · $160–200k") and at most one status chip. Measured card height is 101 px (124 px with the Applied chip) at 1440 and 81 px at 375, down from 182–198 px. The source and tag chips, the salary chip and the note appear on the selected card. On a mouse or trackpad, Edit, Favorite and a compact **Move** control appear on hover or keyboard focus, and a favourited star stays visible. On touch they stay visible at 44 px.
+- **Applied looks like the main action.** The confirm button is the kit's filled navy `.jb-btn--primary` (measured rgb(14,58,78) with paper text), labelled **Mark applied**, next to a secondary Cancel. The dialog has a **Sent with it** group: the role's tailored resume and cover letter, preselected. Checked files are written to Notes with the application ("Applied via Greenhouse · sent: Tailored resume (Sep 24), Cover letter (Sep 24)"). A note under it says what is written to the Sheet.
+
+## Change status (this pass)
+
+| id | finding | status | notes |
+|---|---|---|---|
+| C5 (lane D part) | FD-01, FR-04: manual fallback message | done | `pipeline.js` URL-modal failure path and every `ingest-url-flow.js` fallback use the mockup copy, `tone:"warn"`. `partials/ingest-manual-modal.html` gains `#ingestManualModalBanner.jb-banner[data-tone=warn]`. The network-failure detail (`classifyIngestNetworkFailure`) is now plain words, and the endpoint is logged to the console. |
+| C17 | SS-07: failed move toast | done | `pipeline-transition-adapter.js` `reportFailure` toasts the role, target stage, stayed-in stage and Retry, unless the caller passes `announce:false` (the submission dialog does, and has its own Retry). `jb:write:failed` now carries `announced:true`, so the board's drag listener doesn't add a second toast; its own toast (for failures the adapter did not announce) now names the role too. The adapter removes `#toastContainer .toast-error` toasts whose text starts "Update failed" (see handoff to lane F). |
+| C19 | TR-09: 6 columns + Closed row | done | `CLOSED_STAGES = {rejected, passed, expired}` render in `.pipe-closed` after `.pipe-shell`. The grid has six tracks: `--pipe-col-open: minmax(164px, 1fr)`, with the shell scrolling below that floor. |
+| C19 | TR-16: resting card | done | New `.pipe-sticker__meta` line. `.pipe-sticker__detail` and `.pipe-sticker__salary` are hidden at rest. A `data-flag` card hides the Applied-age chip at rest. |
+| C15 | TR-06/TA-04: primary button | done | `jb-a11y.js` confirm dialog: confirm = `jb-btn jb-btn--primary`, cancel = `jb-btn jb-btn--secondary`. The `jb-a11y.css` fallback is navy, not mint. Label: "Mark applied". |
+| C15 | TA-21: Sent with it | done (board-side data) | `dialog.confirm` takes `checks:{label, items:[{id,label,checked}]}` and `note`. `submission-flow.js` fills it from `prefill.materials`, else from `JobBoredPipeline.materialsFor(dataIndex)` (the board's cached `/api/applications` index: ready resume and cover letter, labelled with the file date). Showing the sent files on the dossier's Applied record event is lane E's (handoff). |
+| C16 (lane D part) | prefill API | done (unchanged, extended) | `prefill.materials` added. |
+
+## APIs (consumed by other lanes)
+
+```js
+// ingest-url-flow.js — lane C (top-bar Add job, empty states), lane B (capture)
+window.JobBoredIngest.openManual({ url, title, company, location, message?, direct?, tone? }) // -> boolean
+//   tone:"warn" shows the message in the modal's warn banner; with no message it uses
+//   "We couldn't read that page from here. Fill in the rest and it goes straight to your Sheet."
+
+// submission-flow.js — lane E (C16 "Did you apply?" prompt)
+window.JobBoredSubmission.confirmApplied({
+  dataIndex, fromStage?,
+  prefill: { source?, date?, followUpDate?, receiptNote?, materials?: [{ id, label, checked? }] },
+}) // -> Promise<{ confirmed, cancelled?, evidence: {appliedDate, source, receiptNote, followUpDate, sent?}, result?, code? }>
+
+// pipeline.js — new
+window.JobBoredPipeline.materialsFor(dataIndex) // -> [{ id: "resume"|"cover_letter", label, checked: true }] from the cached index; [] when none
+
+// jb-a11y.js — dialog.confirm spec additions
+JobBoredA11y.dialog.confirm({ ..., checks: { label, items: [{ id, label, checked }] }, note })
+//   each checkbox value reads back as "true"/"false" under its id
+```
+
+## Contracts touched
+
+- **`data-action`:** unchanged (`move-to-stage`, `add-job-url`, `stage-step`).
+- **`data-stable-key`:** unchanged, still on `.pipe-sticker`.
+- **PIPELINE-CARDS-HANDOFF selectors:** `.pipe-col[data-stage]`, `.pipe-col__toggle` and `.pipe-sticker` are kept. The three closed stages are still `.pipe-col[data-stage]` sections (class `pipe-col--closed`), but they now live inside `.pipe-closed`, not `.pipe-board`. Their `.pipe-col__toggle` is the chip (`.pipe-closed__chip.jb-chip`). A consumer that assumed all nine columns are children of `.pipe-board` will now find six.
+- **`jb:write:failed`:** detail gains `announced: boolean`. Existing reasons are unchanged.
+- **`updateJobStatus(dataIndex, stage)`:** not touched.
+- **`expandedJobKeys`:** not touched.
+- **`schemas/pipeline-row.v1.json`:** unchanged. Sent files go into the existing Notes cell (O), in the same planner batch.
+- **localStorage `jb_pipelineColumns.v2`:** closed stages default to closed. An explicit "open" is remembered as before.
+
+## Files touched (this pass)
+
+`pipeline.js`, `pipeline.css`, `pipeline-transition-adapter.js`, `submission-flow.js`, `jb-a11y.js`, `jb-a11y.css`, `ingest-url-flow.js`, `partials/ingest-manual-modal.html` (all owned).
+
+Tests: `tests/ux01-board-apply.test.mjs` (+13 probes; 12 were red on 15cc958, and the 13th is a guard that a cancel is not an error toast). `tests/e2e-smoke/board-apply.spec.mjs` (+2 browser checks, both red on 15cc958). Updated to the new behaviour: `tests/expired-status-contract.test.mjs`, `tests/ingest-url-endpoint-resolution.test.mjs`, `tests/pipeline-collapse-scroll.test.mjs`, `tests/pipeline-discovered-column.test.mjs`.
+
+## Baselines refreshed
+
+None. The visual suite asserts geometry, not screenshots.
+
+## Handoffs
+
+| to | file | change |
+|---|---|---|
+| Lane F | `sheets-writeback.js` | `updateMultipleCells` still paints "Update failed: <raw text>" for planner writes. The adapter removes it by matching that copy. Please suppress it when the caller is `applyCells` (or return the error to the caller), and then the match can go. |
+| Lane E | `role-case.js` | Pass exact manifest versions as `prefill.materials` when calling `confirmApplied` from the dossier. Show the "sent: …" files on the Applied record event (they are in Notes after "sent: "). |
+| Lane C | top bar | Use `JobBoredIngest.openManual({url, tone:"warn"})` when a top-bar link fails. |
+| Lane A | `index.html` head | Bump `?v=` for `pipeline.js`, `pipeline.css`, `pipeline-transition-adapter.js`, `submission-flow.js`, `jb-a11y.js`, `jb-a11y.css`, `ingest-url-flow.js`. |
+
+## Residual (not must-fix, left as is)
+
+- At 1440 the company name is uppercase mono and truncates on long names ("JUNIPER BA…"). The mockup sets it in regular body type. This was left for the kit migration.
+- "Phone screen" wraps to two lines in its 193 px header.
+- **Unverified:** the failed-move toast was proved by the unit probe with a real planner and adapter, not in a browser. Reproducing it in the hermetic harness needs a signed-in adapter host (`move` returned `missing_row` there).
+
+Shots: `Job-Bored.worktrees/.ux01-run/D-conform/{board,board-hover,closed-open,manual,applied}-{1440,375}.png`.
+
+## Floor (conformance pass, HEAD 25beca5; logs `Job-Bored.worktrees/.ux01-run/D-conf-floor/`)
+
+```text
+$ npm run lint:repo
+> command-center@0.1.0 lint:tokens
+> node tools/lint-tokens.mjs
+lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)
+EXIT=0
+
+$ npm run typecheck:repo
+> command-center@0.1.0 typecheck:server
+> tsc --noEmit --project server/tsconfig.json
+EXIT=0
+
+$ npm run test
+ℹ tests 3061
+ℹ suites 737
+ℹ pass 3060
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+ℹ duration_ms 13585.560208
+EXIT=0
+
+$ npm run test:contract:all
+> command-center@0.1.0 lint:skills
+> node scripts/lint-integration-skills.mjs
+OK integrations/openclaw-command-center/SKILL.md
+EXIT=0
+
+$ npm run test:e2e-smoke
+  ✓  15 tests/e2e-smoke/dossier-layout.spec.mjs:293:1 › the dossier collapses to one honest column on a narrow frame (1.9s)
+  ✓  16 tests/e2e-smoke/hermetic-fence.spec.mjs:46:1 › should never let an unstubbed /__proxy/start-discovery-worker reach the server (255ms)
+  ✓  17 tests/e2e-smoke/hermetic-fence.spec.mjs:70:1 › should answer every host-mutating /__proxy and /profile path in the fence (280ms)
+  17 passed (17.4s)
+EXIT=0
+
+$ npm run test:e2e-journey
+  ✓  23 tests/e2e-journey/shell-today.spec.mjs:308:1 › should not call a loading or failed pipeline empty in the Brief (561ms)
+  ✓  24 tests/e2e-journey/shell-today.spec.mjs:327:1 › should move a snoozed reply with no Last contact out of You owe an answer (589ms)
+  ✓  25 tests/e2e-journey/shell-today.spec.mjs:340:1 › should focus the pipeline search on Cmd/Ctrl+K from the Today and Dossier views (741ms)
+  25 passed (28.0s)
+EXIT=0
+
+$ npm run test:e2e-visual
+  ✓  35 tests/e2e-visual/shell-structure.spec.mjs:201:5 › the one shell at 390×844 › should keep the shell inside the viewport it was given (390×844) (637ms)
+  ✓  36 tests/e2e-visual/shell-structure.spec.mjs:228:3 › the one shell on a phone — claim C7 › should keep every beat's actions reachable without scrolling (4.5s)
+  ✓  37 tests/e2e-visual/shell-structure.spec.mjs:310:3 › the one shell on a phone — claim C7 › should dock the footer at the bottom of the viewport, not the bottom of the card (1.0s)
+  37 passed (1.0m)
+EXIT=0
+
+```
+
+The unit-test total is 3061 (it was 3075 before the merge): the merged lane C tree carries a different test set. The one `todo` is the existing submission-record-audit gate.
