@@ -148,7 +148,11 @@ export async function callWorkerChatProvider(input: {
     },
     endpoint: input.provider.endpoint,
     messages: input.messages,
-    schema: input.responseSchema,
+    // The worker's schemas are Gemini responseSchema shapes (optional fields,
+    // no additionalProperties:false). OpenAI strict json_schema and Anthropic
+    // output_config reject them, so other providers keep the pre-E15 mode:
+    // JSON described in the prompt, no provider-side schema.
+    schema: provider === "gemini" ? input.responseSchema : undefined,
     signal: input.signal,
     // Worker calls were bounded only by the caller's signal; keep the shared
     // ceiling so a slow local model is not cut off at the 30 s default.
