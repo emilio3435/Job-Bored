@@ -1,3 +1,4 @@
+/* global module, Buffer */
 /* ============================================
    Capture bookmarklet — UX01 C10 (MP-02).
 
