@@ -1271,8 +1271,13 @@ function attachCardListeners() {
       sel.disabled = false;
     });
   });
-  // Stage stepper clicks (drawer)
-  document.querySelectorAll('[data-action="stage-step"]').forEach((btn) => {
+  // Stage stepper clicks (drawer). TR-25: only the legacy steppers, which
+  // carry data-index. The v2 dossier stepper shares data-action="stage-step"
+  // (PIPELINE-CARDS-HANDOFF name kept) but has no data-index, and binding it
+  // here fired updateJobStatus(NaN, ...).
+  document
+    .querySelectorAll('[data-action="stage-step"][data-index]')
+    .forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (btn.disabled) return;
       const dataIndex = parseInt(btn.dataset.index, 10);
