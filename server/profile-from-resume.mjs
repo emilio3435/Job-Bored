@@ -74,7 +74,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * user has never seen an env var in their life (SIXBEATS-2 NEW-2).
  * @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string, origin?: "server" | "request" }} ProfileProviderConfig
  */
-/** @typedef {{ model?: string, config?: ProfileProviderConfig }} ProfileCallOptions */
+/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal }} ProfileCallOptions */
 /** @typedef {Error & { code: string, provider?: ProfileProvider, upstreamStatus?: number, rawSample?: string, cause?: unknown }} ProfileProviderError */
 /** @typedef {{ name: string, rank: number, evidence?: string, keywords?: string[] }} ProfileStrength */
 /**
@@ -802,6 +802,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal: opts.signal,
     });
   } catch (cause) {
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
@@ -885,6 +886,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: buildUserPrompt(resumeText) }],
       }),
+      signal: opts.signal,
     });
   } catch (cause) {
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
@@ -965,6 +967,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-goog-api-key": String(cfg.apiKey) },
       body: JSON.stringify(body),
+      signal: opts.signal,
     });
   } catch (cause) {
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);

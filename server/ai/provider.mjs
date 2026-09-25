@@ -218,7 +218,8 @@ export function composeSignal(signal, timeoutMs) {
 
 /**
  * A route-scoped signal: aborts when the client goes away before the response
- * finishes, or when the route deadline passes (E11).
+ * finishes, or when the route deadline passes (E11). Pass `Infinity` for a
+ * long-running stream (the rescore SSE) that ends only when the client leaves.
  * @param {{ once?: Function } | null | undefined} req
  * @param {{ once?: Function, writableFinished?: boolean } | null | undefined} res
  * @param {number} [deadlineMs]
@@ -236,6 +237,7 @@ export function routeDeadlineSignal(req, res, deadlineMs = DEFAULT_ROUTE_DEADLIN
   if (res && typeof res.once === "function") res.once("close", onClose);
   else if (req && typeof req.once === "function") req.once("close", onClose);
   const ms = Number(deadlineMs);
+  if (ms === Infinity) return controller.signal;
   const deadline = AbortSignal.timeout(Number.isFinite(ms) && ms > 0 ? ms : DEFAULT_ROUTE_DEADLINE_MS);
   return AbortSignal.any([controller.signal, deadline]);
 }
