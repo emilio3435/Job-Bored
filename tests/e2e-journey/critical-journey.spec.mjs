@@ -38,17 +38,19 @@ const DEMO_BOARD = "#oneFlowDemoBoard";
 /** The single shell mount every beat renders into (spec §3.5). */
 const FLOW_MOUNT = "#oneFlowMount";
 
-/** Spec §4 — the invitation card, verbatim. */
+/** Spec §4 — the invitation card, verbatim (UX01 C7: honest 20–25 min). */
 const INVITE = {
   headline: "This is your job hunt on autopilot.",
-  body:
-    "Set it up once — about fifteen focused minutes — and roles scored against your fit land here every morning.",
+  body: "Set it up once. It takes about 20–25 minutes, and you'll need:",
   privacy:
-    "Your resume and pipeline stay in your Google Sheet and on this machine.",
-  primary: "Make it mine — 15 min, once",
+    "Your resume and pipeline stay in your Google Sheet and on this computer.",
+  primary: "Make it mine",
   secondary: "Poke around first",
-  pill: "Set up JobBored — 15 min ▸",
+  pill: "Set up JobBored — 20–25 min ▸",
 };
+
+/** UX01 C6 (FR-19): a paused flow's S0 primary names the saved beat. */
+const RESUME_FIT = "Resume setup — Your fit";
 
 /** Spec §5 B1 — the first beat's headline and sub, verbatim. */
 const BEAT_ONE = {
@@ -229,7 +231,7 @@ test("should enter the one shell at beat 1 with the six-beat spine when the visi
     spine.locator(".discovery-setup-wizard__spine-step--current"),
   ).toHaveAttribute("data-beat-id", "google");
   await expect(mount.locator(".discovery-setup-wizard__spine-time")).toHaveText(
-    "about 15 min left",
+    "about 20–25 min left",
   );
 
   // The board stays mounted behind the shell: closing must land somewhere.
@@ -275,7 +277,7 @@ test("should treat closing the flow as pausing — Esc returns to the board and 
   // visitor does mid-flow, and §3.4 says it resumes.
   await page.goto(`${app.baseUrl}/`, { waitUntil: "load" });
   await expect(page.locator(DEMO_BOARD)).toBeVisible();
-  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await page.getByRole("button", { name: RESUME_FIT, exact: true }).click();
 
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
     "data-beat-id",
@@ -534,7 +536,7 @@ test("should spend the greenfield param once, so a mid-setup refresh resumes ins
   expect(new URL(page.url()).searchParams.get("greenfield")).toBeNull();
 
   await expect(page.locator(DEMO_BOARD)).toBeVisible();
-  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await page.getByRole("button", { name: RESUME_FIT, exact: true }).click();
   await expect(
     page.locator(`${FLOW_MOUNT} .oneflow-beat`),
     "a refresh must resume the saved beat, not restart the flow",
@@ -571,7 +573,7 @@ test("should say on screen that closing the flow paused it", async ({ page }) =>
   // collapsed); a visitor who poked around first has the pill. Both are
   // asserted, because "pick up anytime" has to hold on both routes.
   await expect(page.locator(DEMO_BOARD)).toBeVisible();
-  await page.getByRole("button", { name: INVITE.primary, exact: true }).click();
+  await page.getByRole("button", { name: RESUME_FIT, exact: true }).click();
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
     "data-beat-id",
     "fit",

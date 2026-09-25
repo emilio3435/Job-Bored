@@ -786,7 +786,7 @@
     id: "fit",
     order: 4,
     label: "Your fit",
-    timeLabel: "about 7 min left",
+    timeLabel: "about 9 min left",
     headline: HEADLINE,
     sub: SUB,
     actions: [

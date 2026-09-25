@@ -668,7 +668,7 @@
     id: "resume",
     order: 3,
     label: "Resume",
-    timeLabel: "about 8 min left",
+    timeLabel: "about 10 min left",
     headline: HEADLINE,
     sub: SUB,
     actions: ACTIONS,

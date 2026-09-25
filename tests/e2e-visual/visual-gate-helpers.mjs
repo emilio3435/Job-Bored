@@ -30,7 +30,7 @@ export const FLOW_MOUNT = "#oneFlowMount";
 export const SHELL = ".discovery-setup-wizard--spine";
 
 /** Spec §4 — the invitation's two actions, verbatim. */
-export const INVITE_PRIMARY = "Make it mine — 15 min, once";
+export const INVITE_PRIMARY = "Make it mine";
 export const INVITE_SECONDARY = "Poke around first";
 
 /**
