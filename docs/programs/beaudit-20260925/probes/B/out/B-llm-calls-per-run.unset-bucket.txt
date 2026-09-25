@@ -1,0 +1,3 @@
+rejections: [["greenhouse",25,0,{"excluded_keyword":25},"Profile requires remote_only; listing remoteBucket=unknown."],["grounded_web",0,0,null,null]]
+run 1: listings=25 chatCalls=12 requestBodyChars=15866 (~3967 input tokens) written=0 state=partial profileUsed=true
+run 2: listings=25 chatCalls=12 requestBodyChars=15866 (~3967 input tokens) written=0 state=partial profileUsed=true

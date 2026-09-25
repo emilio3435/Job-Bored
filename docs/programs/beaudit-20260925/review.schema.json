@@ -1,0 +1,10 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["blocking", "nonBlocking", "confidence"],
+  "properties": {
+    "blocking": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["file", "line", "issue"], "properties": { "file": { "type": "string" }, "line": { "type": "integer" }, "issue": { "type": "string" } } } },
+    "nonBlocking": { "type": "array", "items": { "type": "object", "additionalProperties": false, "required": ["file", "line", "issue"], "properties": { "file": { "type": "string" }, "line": { "type": "integer" }, "issue": { "type": "string" } } } },
+    "confidence": { "type": "string" }
+  }
+}

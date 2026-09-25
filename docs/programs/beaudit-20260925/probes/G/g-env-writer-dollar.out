@@ -1,0 +1,7 @@
+newline value: ENV_VALUE_CONTROL_CHARS
+after value "probe$'":
+SERPAPI_API_KEY=probe
+BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=probe-secret
+
+BROWSER_USE_DISCOVERY_WEBHOOK_SECRET=probe-secret
+

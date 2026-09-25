@@ -1,0 +1,24 @@
+(node:92830) [MODULE_TYPELESS_PACKAGE_JSON] Warning: Module type of file:///Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-G/templates/cloudflare-worker/worker.js is not specified and it doesn't parse as CommonJS.
+Reparsing as ES module because module syntax was detected. This incurs a performance overhead.
+To eliminate this warning, add "type": "module" to /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-G/package.json.
+(Use `node --trace-warnings ...` to show where the warning was created)
+anon POST / -> relay 202
+anon POST /webhook -> relay 202
+anon POST /anything/else -> relay 202
+upstream saw: [
+ {
+  "path": "/webhook",
+  "secret": "probe-secret",
+  "body": "{\"event\":\"command-center.discovery\",\"sheetId\":\"attacker\"}"
+ },
+ {
+  "path": "/webhook",
+  "secret": "probe-secret",
+  "body": "{\"event\":\"command-center.discovery\",\"sheetId\":\"attacker\"}"
+ },
+ {
+  "path": "/anything/else",
+  "secret": "probe-secret",
+  "body": "{\"event\":\"command-center.discovery\",\"sheetId\":\"attacker\"}"
+ }
+]

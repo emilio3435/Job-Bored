@@ -1,0 +1,15 @@
+== GET /profile (rebound, same-origin fetch shape)
+{"ok":false,"reason":"no_profile"}  [200]
+== POST /profile (rebound; browsers send Origin on POST -> Origin: http://evil.example:18170)
+{"ok":false,"reason":"invalid_profile","errors":[{"instancePath":"","schemaPath":"#/required","keyword":"required","message":"must have required property 'version'","params":{"missingProperty":"version"}},{"instancePath":"","schemaPath":"#/required","keyword":"required","message":"must have required property 'strengths'","params":{"missingProperty":"strengths"}},{"instancePath":"","schemaPath":"#/required","keyword":"required","message":"must have required property 'hardConstraints'","params":{"missingProperty":"hardConstraints"}},{"instancePath":"","schemaPath":"#/additionalProperties","keyword":"additionalProperties","message":"must NOT have additional properties","params":{"additionalProperty":"schemaVersion"}},{"instancePath":"","schemaPath":"#/additionalProperties","keyword":"additionalProperties","message":"must NOT have additional properties","params":{"additionalProperty":"targetRoles"}},{"instancePath":"/identity","schemaPath":"#/properties/identity/required","keyword":"required","message":"must have required property 'targetRoles'","params":{"missingProperty":"targetRoles"}},{"instancePath":"/identity","schemaPath":"#/properties/identity/required","keyword":"required","message":"must have required property 'targetSeniority'","params":{"missingProperty":"targetSeniority"}},{"instancePath":"/identity","schemaPath":"#/properties/identity/required","keyword":"required","message":"must have required property 'primaryNarrative'","params":{"missingProperty":"primaryNarrative"}},{"instancePath":"/identity","schemaPath":"#/properties/identity/additionalProperties","keyword":"additionalProperties","message":"must NOT have additional properties","params":{"additionalProperty":"name"}}]}  [400]
+== GET /profile again (did the foreign write land?)
+{"ok":false,"reason":"no_profile"}
+== control: same headers against /__proxy/discovery-webhook-secret
+{"ok":false,"reason":"forbidden"}  [403]
+== control: /profile with Sec-Fetch-Site: cross-site + foreign Origin
+{"ok":false,"reason":"forbidden"}  [403]
+== full write chain: fetch a starter template, rename it, POST it back, all with the rebound Host
+{"ok":true,"updatedAt":"2026-09-25T10:40:13.585Z","logoRefresh":{"ok":true}}  [200]
+
+== readback through the rebound Host
+PROBE-REBIND-WRITE

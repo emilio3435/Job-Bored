@@ -1,0 +1,220 @@
+{
+ "could_not_run": [
+  {
+   "id": "A10",
+   "reason": "Confirming command `gh api repos/emilio3435/Job-Bored/pulls/{107,108,109}/files` requires network beyond 127.0.0.1, forbidden by hard boundaries; the orchestrator's local PR-diff copies (docs/programs/beaudit-20260925/prs/) are absent from this checkout (`ls` -> No such file or directory), so the three-PR `error`-field conflict claim cannot be verified offline."
+  }
+ ],
+ "lane": "A",
+ "sha": "f227fbb",
+ "summary": "REPRODUCED 23 (13 findings + 10 test files), NOT-REPRODUCED 0, UNCLEAR 0; 1 finding (A10) could not be run. The P0 unauthenticated `GET //` crash (A1) killed a sandbox worker exactly as claimed, and all 10 focused worker test files re-ran green with counts matching \u00a74 (206/206 pass). A10's confirming command needs forbidden non-loopback network and its local PR-diff copies are absent. No tracked file was modified and only our own sandbox-worker pids were started (both EXITED/cleaned, none lingering).",
+ "verdicts": [
+  {
+   "command": "sh .lane-evidence/probes/repro-a1-crash.sh 2>&1; echo \"EXIT:$?\"",
+   "id": "A1",
+   "note": "server.ts:1021 `const requestUrl = new URL(request.url || \"/\", \"http://127.0.0.1\");` runs in the async createServer callback with no try, before the origin guard (:1047) and secret pre-auth (:1184). The sec05 matrix also matched \u00a74 line-for-line: six 400/404-then-healthy cases, then `//` -> DOWN and `//x` -> ECONNREFUSED with worker EXITED.",
+   "output_excerpt": "worker up on 18111 pid 22308\nbefore: health=200\nafter: health=DOWN\nworker process: EXITED\n12:TypeError: Invalid URL\n14:    at Server.<anonymous> (file:///Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-A/integrations/browser-use-discovery/src/server.ts:1021:22)",
+   "sev": "P0",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/lifecycle.mts 2>&1; echo \"EXIT:$?\"",
+   "id": "A2",
+   "note": "Code agrees: handle-discovery-webhook.ts:429-431 runs `safety.markTerminal(); safety.clear();` before `runStatusStore?.put(...)`, so a throwing terminal put lands in `.catch` with terminal already written -> `late_failure_ignored`; the store sets `statuses.set` (:210) before `writeRunStatusSnapshot` (:212). Probe waited 600ms (3x maxRunDurationMs=200ms) with the timer cleared.",
+   "output_excerpt": "[stuck] runId=run_440c1c4f status=running terminal=false events=discovery.run.late_failure_ignored",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/ingest-order.mts 2>&1; echo \"EXIT:$?\"",
+   "id": "A3",
+   "note": "Order violation confirmed: ATS then paid Gemini URL-context extraction each ran once before the handler failed on the missing Sheets credential at the final write (handle-ingest-url.ts:1003); no `validateSheetsCredentialReadiness` preflight exists on this route.",
+   "output_excerpt": "status=-1 body=HANDLER THREW (server.ts maps to generic 500): No Google Sheets credential available. Set googleAccessToken, service-account JSON/file, or Google OAuth token JSON/file.\nextraction calls before failing: {\"greenhouse\":1,\"gemini\":1,\"browserUse\":0,\"scrape\":0}; outbound fetch attempts=0",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/ingest-order.mts 2>&1; echo \"EXIT:$?\"",
+   "id": "A4",
+   "note": "Confirmed: `return writeLeadAndRespond({...})` without await inside try (handle-ingest-url.ts:455; second site :273) lets the write rejection escape to the router's generic 500 (server.ts:1464-1472), so the client sees no `reason` for `ingest-url-flow.js:1160` to switch on.",
+   "output_excerpt": "status=-1 body=HANDLER THREW (server.ts maps to generic 500): No Google Sheets credential available. Set googleAccessToken, service-account JSON/file, or Google OAuth token JSON/file.\nextraction calls before failing: {\"greenhouse\":1,\"gemini\":1,\"browserUse\":0,\"scrape\":0}; outbound fetch attempts=0",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/lifecycle.mts 2>&1; echo \"EXIT:$?\"",
+   "id": "A5",
+   "note": "server.ts:283-290 calls `markNonTerminalRunsAbandoned` at boot with no history-row write; the simulated restart flipped running->failed with historyRowsWritten=0, matching the RUN-05 residual claim.",
+   "output_excerpt": "[restart] before restart: running\n[restart] abandoned=1 status=failed terminal=true historyRowsWritten=0",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types .lane-evidence/probes/schema-drift.mts 2>&1; echo \"EXIT:$?\"",
+   "id": "A7",
+   "note": "8 of 13 discovery payloads drift (schema rejects 5 the parser accepts; schema accepts 3 the parser rejects) plus pipeline `sheetId short` drift; field/stage/reply enums match and all 4 examples validate, exactly as \u00a74 prints.",
+   "output_excerpt": "DRIFT | sheetId empty | schema=reject | parser=accept\nDRIFT | sheetId short (5) | schema=reject | parser=accept\nDRIFT | variationKey 1 char | schema=reject | parser=accept\nDRIFT | schemaVersion string '1' | schema=reject | parser=accept\nDRIFT | requestedAt non-ISO 'Sep 25 2026' | schema=reject | parser=accept\nDRIFT | ultraPlanTuning unknown key | schema=accept | parser=reject(400: discoveryProfile.ultraPlanTuning contains unknown field \"foo\". Known fields: multiQueryEnabled, retryBroadeningEnabled, parallelCompanyProcessingEnabled.)\nDRIFT | groundedSearchTuning unknown key | schema=accept | parser=reject(400: discoveryProfile.groundedSearchTuning contains unknown field \"foo\". Known fields: maxResultsPerCompany, maxPagesPerCompany, maxRuntimeMs, maxTokensPerQuery.)\nDRIFT | discoveryProfile blank intent | schema=accept | parser=reject(400: discoveryProfile.targetRoles and discoveryProfile.keywordsInclude cannot both be blank or missing.)\nDRIFT | sheetId short | schema=reject | parser=accept",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -n \"readBody\\|readJson\\|bodyText\\|flatten\\|x-discovery-secret\\|getHeader\" integrations/browser-use-discovery/src/server.ts | head -50; echo \"===\"; sed -n '1214,1240p' integrations/browser-use-discovery/src/server.ts",
+   "id": "A11",
+   "note": "Five near-identical blocks (`const bodyText = await readBody(request);` + `logEvent(\"http.request.body\", {bytes, contentType})` + header flatten + 413/500 catch) at server.ts:1216,1303,1387,1479,1560; file is 1651 lines per `wc -l`.",
+   "output_excerpt": "1212:  // same x-discovery-secret auth as the main webhook; never persists raw\n1216:      const bodyText = await readBody(request);\n1221:        bytes: Buffer.byteLength(bodyText, \"utf8\"),\n1223:          getHeaderValue(request.headers[\"content-type\"]) || undefined,\n1234:          bodyText,\n1303:      const bodyText = await readBody(request);\n1308:        bytes: Buffer.byteLength(bodyText, \"utf8\"),\n1310:          getHeaderValue(request.headers[\"content-type\"]) || undefined,\n1322:          bodyText,\n1387:      const bodyText = await readBody(request);\n1392:        bytes: Buffer.byteLength(bodyText, \"utf8\"),\n1394:          getHeaderValue(request.headers[\"content-type\"]) || undefined,\n1405:          bodyText,\n1479:      const bodyText = await readBody(request);\n1484:        bytes: Buffer.byteLength(bodyText, \"utf8\"),\n1486:          getHeaderValue(request.headers[\"content-type\"]) || undefined,\n1497:          bodyText,\n1560:    const bodyText = await readBody(request);\n1565:      bytes: Buffer.byteLength(bodyText, \"utf8\"),\n1566:      contentType: getHeaderValue(request.headers[\"content-type\"]) || undefined,\n1577:        bodyText,",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "sed -n '380,470p' integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts; echo \"=====INGEST=====\"; sed -n '490,565p' integrations/browser-use-discovery/src/webhook/handle-ingest-url.ts",
+   "id": "A12",
+   "note": "Both async paths share the markTerminal/clear-before-put pattern (discovery :429-436, ingest with comment `Mirrors handle-discovery-webhook.ts`); the :404 comment `(there is no run-wide AbortSignal yet)` is stale next to `createRunAbortController` (run-abort.ts:128) armed in run-discovery.ts:297 at the same `maxRunDurationMs`.",
+   "output_excerpt": "  // Safety backstop for the run STATUS. The run itself is bounded by the\n  // in-loop budget tracker (also keyed to maxRunDurationMs) and per-source\n  // timeouts; this timer only guarantees the status row becomes terminal so\n  // pollers never hang if a late `.then`/`.catch` is delayed. It does not\n  // cancel in-flight work (there is no run-wide AbortSignal yet), so the\n  // message intentionally avoids claiming a forcible cancellation.\n[...]\n      safety.markTerminal();\n      safety.clear();\n      dependencies.runStatusStore?.put(\n        buildCompletedRunStatus(result, {\n[...]\n=====INGEST=====\n[...]\n  // Mirrors handle-discovery-webhook.ts: guarantee the /ingest-url run STATUS\n  // becomes terminal even if the inner sync handler never resolves/rejects.\n[...]\n      safety.markTerminal();\n      safety.clear();\n      const completedAt = input.now().toISOString();",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "sed -n '105,120p' integrations/browser-use-discovery/src/webhook/handle-pipeline-update.ts; echo \"===INGEST211===\"; sed -n '200,215p' integrations/browser-use-discovery/src/webhook/handle-ingest-url.ts; echo \"===SERVER1047===\"; sed -n '1047,1072p' integrations/browser-use-discovery/src/server.ts; echo \"===SERVER1184===\"; sed -n '1184,1212p' integrations/browser-use-discovery/src/server.ts",
+   "id": "A13",
+   "note": "pipeline-update 401 returns only `{ok:false,message}` (handle-pipeline-update.ts:113) while the router's 401 includes `auth:{category,...}` (server.ts:~1199-1208); ingest-url returns HTTP 200 with `ok:false,reason:worker_error` (:211); a grep for `retryable`/`\"code\"`/`code:` across all four handlers returned zero matches.",
+   "output_excerpt": "  const auth = hasValidWebhookSecret(dependencies.runtimeConfig.webhookSecret, request.headers);\n  if (!auth.valid) {\n    return jsonResponse(401, { ok: false, message: \"Unauthorized pipeline-update request.\" });\n  }\n===INGEST211===\n    if (!resolvedSheetId) {\n      return jsonResponse(200, {\n        ok: false,\n        reason: \"worker_error\",\n        message: \"No sheetId was provided and no default sheetId is configured.\",\n      } satisfies IngestUrlResponseV1);\n===SERVER1184===\n    finishJson(\n      401,\n      {\n        ok: false,\n        message: preAuth.detail || \"Unauthorized\",\n        auth: {\n          category: preAuth.category,\n          detail: preAuth.detail,",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -rn \"server\\.ts\\|from.*server\\|createServer\\|requestListener\" integrations/browser-use-discovery/tests/ 2>&1 | head -20; echo \"===TSCONFIG===\"; cat integrations/browser-use-discovery/tsconfig.json; echo \"===GREPLATE===\"; grep -rn \"late_failure_ignored\\|markNonTerminalRunsAbandoned.*history\\|schema.*parser\\|parser.*schema\" integrations/browser-use-discovery/tests/ 2>&1 | head -10 || echo \"no lifecycle-parity tests\"",
+   "id": "A14",
+   "note": "Only `server.ts` mention in tests is a comment (handle-discovery-webhook.test.ts:3889); the only related imports are `http/body-limit.ts` and `webhook/run-status-auth.ts`; tsconfig `include` is `src/**/*.ts` only; no test references `late_failure_ignored`, abandon-history, or schema/parser parity (empty GREPLATE).",
+   "output_excerpt": "integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts:3889:  // the 413 response in server.ts. We feed a stream one byte larger than\n===TSCONFIG===\n{\n  \"compilerOptions\": {\n    \"allowImportingTsExtensions\": true,\n    \"forceConsistentCasingInFileNames\": true,\n    \"lib\": [\"ES2024\", \"DOM\"],\n    \"module\": \"NodeNext\",\n    \"moduleResolution\": \"NodeNext\",\n    \"noEmit\": true,\n    \"strict\": true,\n    \"target\": \"ES2024\",\n    \"types\": [\"node\"]\n  },\n  \"include\": [\"src/**/*.ts\"]\n}\n===GREPLATE===",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "sed -n '1005,1025p' integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts",
+   "id": "A15",
+   "note": "`sanitizeMergedUserProfile` (handle-discovery-webhook.ts:1016-1024) loops `Object.entries(raw)` with a top-level `MERGED_PROFILE_SECRET_KEYS.has(key)` skip and copies everything else by reference, so nested `identity.apiKey` / `resume.text` survive into the run.",
+   "output_excerpt": "const MERGED_PROFILE_SECRET_KEYS = new Set([\n  \"resumeText\",\n  \"extractedText\",\n  \"text\",\n  \"rawResume\",\n  \"googleAccessToken\",\n  \"apiKey\",\n  \"password\",\n  \"secret\",\n]);\nfunction sanitizeMergedUserProfile(\n  raw: Record<string, unknown>,\n): NonNullable<DiscoveryWebhookRequestV1[\"mergedUserProfile\"]> {\n  const out: Record<string, unknown> = {};\n  for (const [key, value] of Object.entries(raw)) {\n    if (MERGED_PROFILE_SECRET_KEYS.has(key)) continue;\n    out[key] = value;\n  }",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -n \"prune\\|retain\\|expire\\|delete\\|unlink\\|rmSync\\|maxRuns\\|keep.*200\\|older than\" integrations/browser-use-discovery/src/state/run-status-store.ts || echo \"no pruning logic\"; echo \"===\"; ls \"$HOME/.jobbored/browser-use-discovery/run-state\" 2>&1 | wc -l; du -sh \"$HOME/.jobbored/browser-use-discovery/run-state\" 2>&1",
+   "id": "A17",
+   "note": "put() adds a Map entry + snapshot file per run (:210-212) and boot loads every snapshot (:252-293); the only deletions are tmp-file sweeps (:309, :345, confirmed tmp-only by `sweepTemporaryRunStatusSnapshots`); live dir holds 17 files / 148K, matching \u00a74 (metadata only, no file contents read).",
+   "output_excerpt": "10:  unlinkSync,\n309:      unlinkSync(join(snapshotDirectory, filename));\n345:    if (existsSync(temporaryPathname)) unlinkSync(temporaryPathname);\n===\n      17\n148K\t/Users/emilionunezgarcia/.jobbored/browser-use-discovery/run-state",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "sed -n '1205,1220p' integrations/browser-use-discovery/src/contracts.ts; echo \"===CALLERS===\"; grep -rn \"\\.normalize(\" integrations/browser-use-discovery/src/ 2>&1 | head -10; echo \"===SCHEMAS===\"; ls schemas/ 2>&1; echo \"===CONTRACT===\"; grep -n \"^#\\|^##\" AGENT_CONTRACT.md 2>&1 | head -20",
+   "id": "A18",
+   "note": "`normalize(raw, run)` declared at contracts.ts:1216 and implemented at source-adapters.ts:231 with zero callers (only those two plus unrelated `String.normalize(\"NFKD\")`); schemas/ has no ingest-url/cleanup-expired/run-status schema and AGENT_CONTRACT.md has no section for them (only a one-line `GET /runs/:runId` auth mention at :86).",
+   "output_excerpt": "export type SourceAdapter = {\n  sourceId: AtsSourceId;\n  sourceLabel: string;\n  detect(companyContext: CompanyContext): Promise<DetectionResult | null>;\n  listJobs(boardContext: BoardContext): Promise<RawListing[]>;\n  normalize(raw: RawListing, run: DiscoveryRun): Promise<NormalizedLead | null>;\n};\n===CALLERS===\nintegrations/browser-use-discovery/src/discovery/listing-fingerprint.ts:242:    .normalize(\"NFKD\")\nintegrations/browser-use-discovery/src/normalize/lead-normalizer.ts:532:    .normalize(\"NFKD\")\n===SCHEMAS===\nnats-scorecard-request.v1.schema.json\nats-scorecard-response.v1.schema.json\ndiscovery-webhook-request.v1.schema.json\npipeline-row.v1.json\npipeline-update-request.v1.schema.json\n===CONTRACT===\n1:# Agent\u2013dashboard contract\n5:## How to read this (two interfaces)\n22:## Pipeline tab (integration surface)\n29:### Recommended values (agents)\n43:### Expired job cleanup agents\n53:## Manual \"Run discovery\" (browser \u2192 your webhook)\n64:### Webhook receiver checklist (copy-paste)\n79:## Discovery webhook JSON\n81:### Minimum response\n88:### Request body (v1)\n130:### Evolving this contract\n138:## Pipeline update (`POST /pipeline-update`, schemaVersion 1)\n152:## v2 kanban-card data-attributes (Dossier wiring)\n193:## Product health: empty states (copy matrix)\n207:## Dossier event family (Direction F build \u2014 internal contract)\n255:## Related docs",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-discovery-webhook.test.ts 2>&1 | tail -12",
+   "id": "TEST:tests/webhook/handle-discovery-webhook.test.ts",
+   "note": "Re-ran green; 73/73 matches \u00a74.",
+   "output_excerpt": "\u2714 F1B-RUN01-IMMUT: webhook store keeps the first terminal status against a late running write (3.813666ms)\n\u2714 F1B-RUN02-PERSIST: async work must not begin before running-status persistence succeeds (0.214625ms)\n\u2714 F1B-RUN05-FINAL: catastrophic async failure writes one durable history row (0.247375ms)\n\u2714 F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays idempotent (0.3575ms)\n\u2139 tests 73\n\u2139 suites 0\n\u2139 pass 73\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 239.69575",
+   "sev": "N/A",
+   "status_in_report": "GREEN 73/73 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/state/run-status-store.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/state/run-status-store.test.ts",
+   "note": "Re-ran green; 13/13 matches \u00a74.",
+   "output_excerpt": "\u2714 terminal snapshots remain queryable without recovery mutation (17.3365ms)\n\u2139 tests 13\n\u2139 suites 0\n\u2139 pass 13\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 264.063875",
+   "sev": "N/A",
+   "status_in_report": "GREEN 13/13 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/origin-guard.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/origin-guard.test.ts",
+   "note": "Re-ran green; 7/7 matches \u00a74.",
+   "output_excerpt": "\u2714 F1B-P2-CORS: nested run IDs are rejected in the documented { ok:false, message } shape (0.329791ms)\n\u2139 tests 7\n\u2139 suites 0\n\u2139 pass 7\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 60.414584",
+   "sev": "N/A",
+   "status_in_report": "GREEN 7/7 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-ingest-url.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/handle-ingest-url.test.ts",
+   "note": "Re-ran green; 35/35 matches \u00a74.",
+   "output_excerpt": "\u2714 terminalizes a stuck async /ingest-url run after maxRunDurationMs (11.728417ms)\n\u2139 tests 35\n\u2139 suites 0\n\u2139 pass 35\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 163.154375",
+   "sev": "N/A",
+   "status_in_report": "GREEN 35/35 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-pipeline-update.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/handle-pipeline-update.test.ts",
+   "note": "Re-ran green; 12/12 matches \u00a74.",
+   "output_excerpt": "\u2714 F1A-P2-VALIDATE: unknown fields fail closed before mutation (0.082375ms)\n\u2139 tests 12\n\u2139 suites 0\n\u2139 pass 12\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 93.377875",
+   "sev": "N/A",
+   "status_in_report": "GREEN 12/12 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-cleanup-webhook.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/handle-cleanup-webhook.test.ts",
+   "note": "Re-ran green; 7/7 matches \u00a74.",
+   "output_excerpt": "\u2714 cleanup-expired defaults to dry-run when dryRun is omitted (0.080583ms)\n\u2139 tests 7\n\u2139 suites 0\n\u2139 pass 7\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 99.150375",
+   "sev": "N/A",
+   "status_in_report": "GREEN 7/7 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/run/run-abort.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/run/run-abort.test.ts",
+   "note": "Re-ran green; 2/2 matches \u00a74.",
+   "output_excerpt": "\u2714 F4B-RUN11-CANCEL: parent AbortSignal cancels underlying work (0.257667ms)\n\u2139 tests 2\n\u2139 suites 0\n\u2139 pass 2\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 262.968833",
+   "sev": "N/A",
+   "status_in_report": "GREEN 2/2 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/preflight-credential-order.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/preflight-credential-order.test.ts",
+   "note": "Re-ran green; 5/5 matches \u00a74.",
+   "output_excerpt": "\u2714 an explicit placeholder in the payload is refused, not treated as a Sheet (0.110125ms)\n\u2139 tests 5\n\u2139 suites 0\n\u2139 pass 5\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 85.418709",
+   "sev": "N/A",
+   "status_in_report": "GREEN 5/5 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-discovery-profile.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/handle-discovery-profile.test.ts",
+   "note": "Re-ran green; 31/31 matches \u00a74.",
+   "output_excerpt": "\u2714 POST /discovery-profile mode:unskip_company rejects empty key array (0.037083ms)\n\u2139 tests 31\n\u2139 suites 0\n\u2139 pass 31\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 110.838458",
+   "sev": "N/A",
+   "status_in_report": "GREEN 31/31 per \u00a74",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/routing-enforcement.test.ts 2>&1 | tail -9",
+   "id": "TEST:tests/webhook/routing-enforcement.test.ts",
+   "note": "Re-ran green; 21/21 matches \u00a74.",
+   "output_excerpt": "\u2714 VAL-ROUTE-016: company failure emits explicit company-attributed failure evidence (241.137583ms)\n\u2139 tests 21\n\u2139 suites 0\n\u2139 pass 21\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 1006.119542",
+   "sev": "N/A",
+   "status_in_report": "GREEN 21/21 per \u00a74",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}

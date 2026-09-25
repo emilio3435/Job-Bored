@@ -1,0 +1,83 @@
+## H-PII: personal identity hardcoded in a PUBLIC repo and used as the filler's answers
+integrations/hermes-job-hunt/scripts/filler_profile.py:18:    "email": "<redacted-real-value>",
+integrations/hermes-job-hunt/scripts/filler_profile.py:19:    "phone": "<redacted-real-value>",
+integrations/hermes-job-hunt/scripts/filler_profile.py:23:    "zip": "<redacted-real-value>",
+integrations/hermes-job-hunt/scripts/greenhouse_filler.py:35:    "email": "<redacted-real-value>",
+integrations/hermes-job-hunt/scripts/greenhouse_filler.py:36:    "phone": "<redacted-real-value>",
+395:            value = filler_profile.CANDIDATE["first_name"]
+397:            value = filler_profile.CANDIDATE["last_name"]
+399:            value = filler_profile.CANDIDATE["full_name"]
+## H-IDS: real Pipeline sheet ID and Telegram chat ID committed
+integrations/hermes-job-hunt/scripts/followup_monitor.py:25:SHEET_ID = "<redacted-sheet-id>"
+integrations/hermes-job-hunt/scripts/followup-monitor.py:25:SHEET_ID = "<redacted-sheet-id>"
+integrations/hermes-job-hunt/scripts/gate2-status-watcher.py:22:SHEET_ID = "<redacted-sheet-id>"
+integrations/hermes-job-hunt/scripts/triage_pipeline.py:12:SHEET_ID = '<redacted-sheet-id>'
+20:    "chatId": <redacted-chat-id>,
+## H-GATES: submit paths and their gates
+90:def wait_for_gate2_confirmation(company: str, timeout: int = js.GATE2_TIMEOUT_SECONDS, after_message_id: int | None = None) -> tuple[bool, str]:
+186:        g1 = js.gate1_check(job_url, sheet_id, access_token)
+201:        lock_ok, lock_msg = js.lock_acquire(job_url, task_id)
+231:            confirmed, confirm_reason = wait_for_gate2_confirmation(company, after_message_id=send_result.get("message_id"))
+12:  - Direct CLI live submit requires JHOS_GATE2_CONFIRMED=1; orchestrator sets it
+560:    gate2_confirmed: bool = False
+609:        if not self.dry_run and not self.gate2_confirmed:
+762:    parser.add_argument("--submit", action="store_true", help="Allow live actions; requires JHOS_GATE2_CONFIRMED=1")
+774:    gate2_confirmed = os.environ.get("JHOS_GATE2_CONFIRMED") == "1"
+783:        gate2_confirmed=gate2_confirmed,
+15:    python3 greenhouse_filler.py --url <greenhouse_url> --app-dir <path> [--dry-run] [--headless]
+324:                        submit_btn.click()
+327:                        results["submitted"] = True
+360:    parser.add_argument("--dry-run", action="store_true", help="Fill form but don't submit")
+377:        dry_run=args.dry_run,
+213:                # Navigate to application page
+(greenhouse_filler: no gate/approval references above = none)
+## H-ARGV: secrets placed in process argv
+188:tok = '$ACCESS_TOKEN'
+201:    -H "x-discovery-secret: $WEBHOOK_SECRET" \
+## H-DEPS: requirements.txt vs imports
+google-api-python-client>=2,<3
+google-auth>=2,<3
+google-auth-oauthlib>=1,<2
+34:import httpx
+35:from playwright.sync_api import Page, sync_playwright
+## H-RUNTIME: runtime copy on this machine (cron targets ~/.hermes/job-hunt/scripts)
+runtime scripts ABSENT at /Users/emilionunezgarcia/.hermes/job-hunt/scripts
+google_token.json absent
+283:  await cp(HERMES_SOURCE_DIR, paths.hermesJobHuntHome, {
+284-    recursive: true,
+285-    force,
+286-    errorOnExist: false,
+287-    filter: shouldCopyHermesEntry,
+## H-DUP: follow-up monitor twin files
+followup_monitor.py == followup-monitor.py (byte-identical)
+## H-TRIAGE: frozen date + import-time bulk write
+16:TODAY = datetime(2026, 5, 27)
+120:    resp = sheets.values().batchUpdate(
+## H-TELEGRAM: getUpdates consumer + shared bot token
+integrations/hermes-job-hunt/scripts/gate2_telegram.py:165:    """Poll getUpdates for a YES SUBMIT <COMPANY> reply in the contract thread.
+integrations/hermes-job-hunt/scripts/gate2_telegram.py:184:    flush = _api_call("getUpdates", {"timeout": 0, "limit": 1, "offset": -1}, token)
+integrations/hermes-job-hunt/scripts/gate2_telegram.py:202:        result = _api_call("getUpdates", params, token)
+integrations/hermes-job-hunt/scripts/gate2_telegram.py:234:        # No explicit sleep needed when using getUpdates long polling
+integrations/hermes-job-hunt/scripts/apply-orchestrator.py:93:    Uses Telegram Bot API getUpdates with long polling.
+45:    token = os.environ.get("TELEGRAM_BOT_TOKEN", "")
+49:    env_path = Path.home() / ".hermes" / ".env"
+57:                if key.strip() == "TELEGRAM_BOT_TOKEN":
+59:    raise RuntimeError("TELEGRAM_BOT_TOKEN not found in environment or ~/.hermes/.env")
+## H-TOKENWRITE: shared token file rewritten non-atomically by N scripts
+integrations/hermes-job-hunt/scripts/followup_monitor.py:52:        with open(TOKEN_PATH, "w") as f:
+integrations/hermes-job-hunt/scripts/followup-monitor.py:52:        with open(TOKEN_PATH, "w") as f:
+integrations/hermes-job-hunt/scripts/gate1-approve.py:86:        TOKEN_PATH.write_text(creds.to_json())
+integrations/hermes-job-hunt/scripts/gate2-status-watcher.py:40:        TOKEN_PATH.write_text(creds.to_json())
+integrations/hermes-job-hunt/scripts/pipeline-status.py:83:        TOKEN_PATH.write_text(creds.to_json())
+integrations/hermes-job-hunt/scripts/triage_pipeline.py:25:    with open(TOKEN_PATH, 'w') as f:
+integrations/hermes-job-hunt/scripts/discovery-trigger.sh:157:    with open('$HERMES_HOME/google_token.json', 'w') as f:
+## H-EVIDENCE: orchestrator never passes a screenshot to write_evidence
+294:                evidence_dir = js.write_evidence(job_url, company, title, task_id)
+## H-TZ: fixed UTC-5 offsets
+integrations/hermes-job-hunt/scripts/apply-orchestrator.py:2
+integrations/hermes-job-hunt/scripts/followup_monitor.py:1
+integrations/hermes-job-hunt/scripts/followup-monitor.py:1
+integrations/hermes-job-hunt/scripts/gate2-status-watcher.py:1
+integrations/hermes-job-hunt/scripts/greenhouse_filler.py:2
+integrations/hermes-job-hunt/scripts/jhos_submit.py:2
+integrations/hermes-job-hunt/scripts/universal_filler.py:2

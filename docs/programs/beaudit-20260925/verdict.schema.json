@@ -1,0 +1,36 @@
+{
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["lane", "sha", "verdicts", "could_not_run", "summary"],
+  "properties": {
+    "lane": { "type": "string" },
+    "sha": { "type": "string" },
+    "verdicts": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "sev", "status_in_report", "command", "output_excerpt", "verdict", "note"],
+        "properties": {
+          "id": { "type": "string" },
+          "sev": { "type": "string" },
+          "status_in_report": { "type": "string" },
+          "command": { "type": "string" },
+          "output_excerpt": { "type": "string" },
+          "verdict": { "type": "string", "enum": ["REPRODUCED", "NOT-REPRODUCED", "UNCLEAR"] },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "could_not_run": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": ["id", "reason"],
+        "properties": { "id": { "type": "string" }, "reason": { "type": "string" } }
+      }
+    },
+    "summary": { "type": "string" }
+  }
+}

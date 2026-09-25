@@ -1,0 +1,9 @@
+starter log:
+[start:discovery-worker] browser-use discovery worker already running at http://127.0.0.1:18173; reusing existing process.
+killed reused worker pid=45803; waiting 12s
+/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-G/.lane-evidence/probes/g-respawn-hold.sh: line 8: 45803 Terminated: 15          node $W/.lane-evidence/probes/g-fake-worker.mjs $P > $W/.lane-evidence/fake-worker.log 2>&1
+starter subshell alive: yes
+listener on 18173: (empty = nothing)
+health on 18173 -> 000
+starter log after kill:
+[start:discovery-worker] browser-use discovery worker already running at http://127.0.0.1:18173; reusing existing process.

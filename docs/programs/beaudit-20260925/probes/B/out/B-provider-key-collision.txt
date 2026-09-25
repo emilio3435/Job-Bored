@@ -1,0 +1,4 @@
+greenhouse       keyA= provider:greenhouse:1 keyB= provider:greenhouse:1 | unique after dedupe: 1 COLLAPSED (distinct employers)
+workday          keyA= provider:workday:r-100 keyB= provider:workday:r-100 | unique after dedupe: 1 COLLAPSED (distinct employers)
+smartrecruiters  keyA= provider:smartrecruiters:100-backend-engineer keyB= provider:smartrecruiters:100-backend-engineer | unique after dedupe: 1 COLLAPSED (distinct employers)
+workable         keyA= provider:workable:abc123 keyB= provider:workable:abc123 | unique after dedupe: 1 COLLAPSED (distinct employers)

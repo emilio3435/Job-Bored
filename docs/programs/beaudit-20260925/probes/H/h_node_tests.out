@@ -1,0 +1,20 @@
+
+> command-center@0.1.0 test
+> node scripts/run-tests.mjs tests/approval-contract.test.mjs tests/hermes-discovery-trigger.test.mjs
+
+▶ F3C-APPLY02-CONTRACT — one versioned Gate 1 / send / poll contract
+  ✔ docs, runtime, send, and poll agree on Gate 2 thread id (no 48 vs 314 split) (2.187666ms)
+  ✔ Gate 1 is the schema Approval Status marker, not a second competing rule (0.317833ms)
+✔ F3C-APPLY02-CONTRACT — one versioned Gate 1 / send / poll contract (2.837708ms)
+✔ Hermes discovery trigger remains valid bash (5.894208ms)
+✔ Hermes discovery trigger self-heals stale webhook secrets once (0.213875ms)
+✔ Hermes discovery trigger stays under Dobby's script watchdog (0.095416ms)
+✔ Hermes discovery trigger supports Dobby's GitHub checkout path (0.048084ms)
+ℹ tests 6
+ℹ suites 1
+ℹ pass 6
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 48.827292

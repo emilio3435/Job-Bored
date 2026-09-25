@@ -1,0 +1,5 @@
+A state: partial | reasonCode: weak_ats_seed_quality | leads: 0
+A warnings: ["Source grounded_web was excluded by preset 'ats_only' and did not execute."]
+A DiscoveryRuns row: {"status":"partial","companiesSeen":1,"error":""}
+B effectiveSources: ["greenhouse"] | grounded search() calls: 0 | searchAtsHosts() Gemini calls: 1
+B state: partial | DiscoveryRuns: {"status":"partial","companiesSeen":0,"error":""}

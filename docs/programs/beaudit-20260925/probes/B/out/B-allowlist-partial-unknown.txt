@@ -1,0 +1,3 @@
+allowlist=["Acme","Globexx"] -> mode=restricted unknown=["Globexx"] companies=["Acme"] effectiveSources=["greenhouse"]
+   run warnings/logs mentioning the dropped entry: 0 (warnings=["Source grounded_web was excluded by preset 'ats_only' and did not execute."])
+allowlist=["Globexx"] -> mode=blocked_unresolved unknown=["Globexx"] companies=[] effectiveSources=[]

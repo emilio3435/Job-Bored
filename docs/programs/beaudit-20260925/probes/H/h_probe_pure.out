@@ -1,0 +1,30 @@
+--- gate1_approve_fuzzy
+gate1-approve target='Meta' -> rows [(2, 'Metabase'), (3, ''), (4, 'Meta')]
+gate1-approve target='Acme' -> rows [(3, '')]
+gate1-approve target='a' -> rows [(2, 'Metabase'), (3, ''), (4, 'Meta')]
+--- gate2_fuzzy
+gate2 [company='Meta', reply for another company] -> confirmed=True reason="Confirmed (fuzzy): received 'YES SUBMIT METABASE'"
+gate2 [company='' (blank Sheet cell), any YES SUBMIT] -> confirmed=True reason="Confirmed (fuzzy): received 'YES SUBMIT ACME'"
+gate2 [reply NO then YES (spec: any other reply cancels)] -> confirmed=True reason="Confirmed: received 'YES SUBMIT ACME' from user Emilio"
+gate2 [any group member can approve (no sender check)] -> confirmed=True reason="Confirmed: received 'YES SUBMIT ACME' from user SomeoneElse"
+--- notes_wipe
+update_pipeline_applied success: True
+  write Pipeline!M7 = [['Applied']]
+  write Pipeline!N7 = [['2026-09-25']]
+  write Pipeline!O7 = [['Submitted via Hermes']]
+  valueInputOption: USER_ENTERED
+--- normalize_collision
+normalize https://jobs.example.com/posting?sid=111 | https://jobs.example.com/posting?sid=222 -> same_key=True key=https://jobs.example.com/posting
+normalize https://jobs.example.com/view?ref=REQ-1 | https://jobs.example.com/view?ref=REQ-2 -> same_key=True key=https://jobs.example.com/view
+normalize https://careers.example.com/Job/AbC123 | https://careers.example.com/job/abc123 -> same_key=True key=https://careers.example.com/job/abc123
+gate1_check(target sid=222, NOT approved) -> {'approved': True, 'row_number': 2, 'title': 'Other Job', 'approvalStatus': 'Approved'}
+--- submit_classifier
+is_submit_like_action(button text='Submit application') -> True
+is_submit_like_action(button text='Send') -> False
+is_submit_like_action(button text='Done') -> False
+is_submit_like_action(button text='Confirm') -> False
+is_submit_like_action(button text='Send my application') -> False
+is_submit_like_action(button text='Finish') -> True
+confirmation-term hit on pre-submit form text: True
+--- stale_gate1_text
+fail_gate1 reason: Pipeline Status is '' — needs to be beyond 'New' (e.g. 'Researching') to proceed

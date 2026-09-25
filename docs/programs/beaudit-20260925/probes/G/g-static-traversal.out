@@ -1,0 +1,28 @@
+403 /.env :: Forbidden
+403 /%2eenv :: Forbidden
+404 /%2e%2e/%2e%2e/etc/hosts :: Not found
+403 /..%2f..%2fetc/hosts :: Forbidden
+403 /..%5c..%5cetc%5chosts :: Forbidden
+403 /config.js :: Forbidden
+403 /CONFIG.JS :: Forbidden
+403 /Config.js :: Forbidden
+403 /discovery-local-bootstrap.json :: Forbidden
+403 /DISCOVERY-LOCAL-BOOTSTRAP.JSON :: Forbidden
+403 /linked-hosts.txt :: Forbidden
+400 /%E0%A4%A :: Bad request
+400 /%ff :: Bad request
+403 /%00 :: Forbidden
+403 /integrations/hermes-job-hunt/profile/profile.md :: Forbidden
+403 /integrations/hermes-job-hunt/profile/PROFILE.MD :: Forbidden
+200 /tmp/jobbored-dev.log :: CANARY-probe-tmp-log 
+200 /docs/redesign/logs/fe-dashboard.log :: CANARY-probe-swarm-log 
+200 /uploads/resume.txt :: CANARY-probe-upload 
+200 /integrations/hermes-job-hunt/profile/export.zip :: CANARY-probe-zip 
+403 /server/.env :: Forbidden
+403 /server/%2eenv :: Forbidden
+403 /.git/config :: Forbidden
+200 /package.json :: {   "name": "command-center",   "version": "0.1.0",   "priva
+--- DNS-rebinding shape (foreign Host header, loopback peer) ---
+200 Host:evil.example /tmp/jobbored-dev.log
+CANARY-probe-tmp-log
+ <- body  (Host: evil.example)

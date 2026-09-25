@@ -1,0 +1,242 @@
+{
+ "could_not_run": [],
+ "lane": "E",
+ "sha": "f227fbb",
+ "summary": "All 13 finding rows in scope (E1-E8, E12-E13, E15-E17) REPRODUCED: every probe output matches the report's pasted output, including the DNS-rebinding pin hijack, local-pin ATS failure, SerpApi sibling-posting swap, hosted 401/503 behaviour, docker-sim ENOENT with absolute-path leak, SSRF NAT64/6to4 gaps, and divergent error shapes. All 13 focused test files REPRODUCED the green floor (91 pass, 0 fail). Zero NOT-REPRODUCED, zero UNCLEAR, zero could-not-run; no listeners remain on 18150-18159.",
+ "verdicts": [
+  {
+   "command": "bash .lane-evidence/probes/probe-e-cors.sh",
+   "id": "E1",
+   "note": "server/security-boundaries.mjs:94-95 derives same-origin from Host; output shows rebinding read+rewrite of llm.json and ATS re-pointed at attacker baseUrl",
+   "output_excerpt": "## GET /api/llm-config with Host=rebind.attacker.test:18150, Origin=http://rebind.attacker.test:18150\nHTTP/1.1 200 OK\nAccess-Control-Allow-Origin: http://rebind.attacker.test:18150\n{\"provider\":\"gemini\",\"model\":\"probe-model\",\"baseUrl\":\"\",\"keyPresent\":true,\"updatedAt\":\"\"}\n## POST /api/llm-config hijack pin via rebinding\nHTTP/1.1 200 OK\n{\"provider\":\"openai_compatible\",\"model\":\"exfil\",\"baseUrl\":\"https://attacker.test/v1\",\"keyPresent\":false,\"updatedAt\":\"2026-09-25T11:01:42.512Z\"}\n## pin on disk after hijack (key field presence only):\n{ provider: 'openai_compatible', model: 'exfil', baseUrl: 'https://attacker.test/v1', keyPresent: false }\n## GET /health reports ATS now configured against attacker baseUrl\n{\"ok\":true,\"service\":\"command-center-job-scraper\",\"atsProvider\":\"openai_compatible\",\"atsConfigured\":true}",
+   "sev": "P0",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/probe-e-local-pin.sh",
+   "id": "E2",
+   "note": "server/ats-scorecard.mjs:826-840 normalizes unknown provider to gemini; output shows local pin stored but ATS reports Missing API key + 503",
+   "output_excerpt": "## POST pin exactly as oneflow-beat-ai.js builds it for Local\n{\"provider\":\"local\",\"model\":\"gemma4:e2b\",\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"keyPresent\":false,\"updatedAt\":\"2026-09-25T11:01:50.170Z\"}\n## GET /health (ATS view of the same pin)\n{\"ok\":true,\"service\":\"command-center-job-scraper\",\"atsProvider\":\"gemini\",\"atsConfigured\":false,\"atsConfigError\":\"Missing API key. Save a key in Settings.\"}\n## POST /api/ats-scorecard minimal valid payload\n{\"error\":\"Missing API key. Save a key in Settings.\",\"requestId\":\"ats_mugupcku_6laalg\"}\n[HTTP 503]\n## other consumers of the same pin accept 'local':\nserver/materials-drafter.mjs:123:  if (provider === \"webhook\" || provider === \"local\" || provider === \"openai_compatible\") {",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "env -i PATH=\"$PATH\" HOME=\"$PWD/.lane-evidence/home\" node .lane-evidence/probes/probe-e-serp-sibling.mjs",
+   "id": "E3",
+   "note": "server/shared/job-scraper-core.mjs:618-654 accepts title+company match; output shows requested AUSTIN-123 but returned SIBLING-999 in Berlin, hardcoded linkedin-direct lineage, no matchKind",
+   "output_excerpt": "{\n  \"requested\": \"https://jobs.acme.example/posting/AUSTIN-123\",\n  \"returnedUrl\": \"https://careers.acme.example/jobs/SIBLING-999\",\n  \"matchedUrl\": \"https://careers.acme.example/jobs/SIBLING-999\",\n  \"location\": \"Berlin, Germany\",\n  \"method\": \"serpapi-google-jobs\",\n  \"lineage\": { \"primary\": \"linkedin-direct\", \"used\": \"serpapi-google-jobs\", \"fallbackFrom\": \"linkedin-direct\", \"reason\": \"linkedin_serpapi_fallback\" },\n  \"warnings\": [\"Direct scrape was replaced with a Google Jobs structured fallback.\"],\n  \"matchKindField\": false\n}",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/probe-e-hosted.sh",
+   "id": "E4",
+   "note": "Packaged browser call shape (content-type only) gets 401; same call with token gets 200; helper has 0 call sites and 18 fetch sites send no token",
+   "output_excerpt": "## packaged browser call shape (settings-modal.js:301 postLlmConfigPin: content-type only, no token)\n{\"error\":\"Unauthorized\"}\n[HTTP 401]\n## same call with Authorization: Bearer [REDACTED]\n{\"provider\":\"gemini\",\"model\":\"m\",\"baseUrl\":\"\",\"keyPresent\":false,\"updatedAt\":\"2026-09-25T11:01:47.910Z\"}\n[HTTP 200]\n## wrong token\n{\"error\":\"Unauthorized\"}\n[HTTP 401]\n### C: browser callers that attach the hosted token (definitions excluded)\nhelper call sites: 0\nfetch sites to the API that send no token:\n      18",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/probe-e-docker-sim.sh",
+   "id": "E5",
+   "note": "server/Dockerfile context server/ omits ../integrations; output shows 3 MISSING runtime files, /profile 500 write_failed leaking absolute path, node:20-alpine base",
+   "output_excerpt": "## image layout: files outside server/ that server code resolves at runtime\nMISSING  ../integrations/browser-use-discovery/src/contracts/user-profile.schema.json\nMISSING  ../integrations/hermes-job-hunt/scripts/logo_resolver.py\nMISSING  ../integrations/hermes-job-hunt/resume-template\n## .env files in simulated context: 0\n## POST /profile with starter template body (needs schema from ../integrations)\n{\"ok\":false,\"reason\":\"write_failed\",\"detail\":\"ENOENT: no such file or directory, open '/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-E/.lane-evidence/docker-sim-1790334112/integrations/browser-use-discovery/src/contracts/user-profile.schema.json'\"}\n[HTTP 500]\n## Dockerfile base image python3? node:20-alpine ships no python3 (brand-logo resolver spawns python3):\n1:FROM node:20-alpine",
+   "sev": "P1",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/probe-e-hosted.sh",
+   "id": "E6",
+   "note": "render.yaml default (no token, no origins): non-health route returns 503 and foreign origin gets 403, matching \u00a74 section A",
+   "output_excerpt": "### A: hosted, no JOBBORED_API_TOKEN set (render.yaml default)\n## GET /health\n{\"ok\":true,\"service\":\"command-center-job-scraper\",\"atsProvider\":\"gemini\",\"atsConfigured\":false,\"atsConfigError\":\"No LLM pin configured. Save an AI provider in Settings.\"}\n[HTTP 200]\n## GET /api/llm-config\n{\"error\":\"This endpoint requires JOBBORED_API_TOKEN to be set when the server is bound to a non-loopback host.\"}\n[HTTP 503]\n## OPTIONS from https://user.github.io (no COMMAND_CENTER_ALLOWED_ORIGINS)\n{\"error\":\"Origin not allowed for this server.\"}\n[HTTP 403]",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/probe-e-errshape.sh; bash .lane-evidence/probes/probe-e-cors.sh",
+   "id": "E7",
+   "note": "server/index.mjs:243/:247/:266/:130/:139/:197/:865: scrape 400s lack code, ATS 503 lacks code, llm codes lowercase, HTML 404, 413 names ATS endpoint (413 line from cors probe; errshape 2.2MB arg hits curl ARG_MAX exactly as report shows)",
+   "output_excerpt": "## POST /api/scrape-job missing url\n{\"error\":\"Body must include { url: string }\"}\n[HTTP 400 application/json; charset=utf-8]\n## POST /api/ats-scorecard no pin\n{\"error\":\"No LLM pin configured. Save an AI provider in Settings.\",\"requestId\":\"ats_mugup8o9_8hfqpr\"}\n[HTTP 503 application/json; charset=utf-8]\n## GET /api/llm-config no pin\n{\"error\":\"No LLM pin configured.\",\"code\":\"llm_unconfigured\"}\n## POST /api/llm-config missing fields\n{\"error\":\"provider and model are required.\",\"code\":\"llm_invalid\"}\n## POST /api/brand-logos/x not multipart\n{\"error\":\"Expected multipart/form-data\"}\n## GET /nope unknown route\n<pre>Cannot GET /nope</pre>\n[HTTP 404 text/html; charset=utf-8]\n## 2.2 MB JSON body to /api/llm-config (cors probe)\n{\"error\":\"Request body too large for ATS endpoint. Reduce payload size or raise server JSON limit.\",\"code\":\"PAYLOAD_TOO_LARGE\"}\n[HTTP 413]",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "node .lane-evidence/probes/probe-e-ssrf.mjs",
+   "id": "E8",
+   "note": "server/security-boundaries.mjs:154-224 classifier: NAT64 64:ff9b::/96, 6to4 2002::/16, 198.18/15 and fec0::/10 all ALLOWED as literals and DNS answers",
+   "output_excerpt": "blocked  literal  http://127.0.0.1/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://[::ffff:127.0.0.1]/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://169.254.169.254/  (Local and private-network scrape targets are not allowed)\nblocked  literal  http://localhost./  (Local and private-network scrape targets are not allowed)\nALLOWED  literal  http://[64:ff9b::7f00:1]/\nALLOWED  literal  http://[64:ff9b::a9fe:a9fe]/\nALLOWED  literal  http://[2002:7f00:1::]/\nALLOWED  literal  http://198.18.0.1/\nALLOWED  literal  http://[fec0::1]/\nALLOWED  dns->64:ff9b::7f00:1  https://a.example/job\nALLOWED  dns->2002:a9fe:a9fe::1  https://b.example/job\nblocked  dns->10.0.0.5  https://c.example/job",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/probe-e-cors.sh",
+   "id": "E12",
+   "note": "server/llm-config.mjs:305-316 full replace: arbitrary provider/baseUrl accepted and blank apiKey flipped stored keyPresent true\u2192false",
+   "output_excerpt": "## GET /api/llm-config with Host=rebind.attacker.test:18150, Origin=http://rebind.attacker.test:18150\n{\"provider\":\"gemini\",\"model\":\"probe-model\",\"baseUrl\":\"\",\"keyPresent\":true,\"updatedAt\":\"\"}\n## POST /api/llm-config hijack pin via rebinding\n{\"provider\":\"openai_compatible\",\"model\":\"exfil\",\"baseUrl\":\"https://attacker.test/v1\",\"keyPresent\":false,\"updatedAt\":\"2026-09-25T11:01:42.512Z\"}\n## pin on disk after hijack (key field presence only):\n{ provider: 'openai_compatible', model: 'exfil', baseUrl: 'https://attacker.test/v1', keyPresent: false }",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "bash .lane-evidence/probes/probe-e-errshape.sh",
+   "id": "E13",
+   "note": "server/brand-logos.mjs:424-460/:462-499: SVG upload stored as logo-acme.png and GET returns absolute templateRoot; mkdir/force-resolver sub-claims are code-reads, not shown in output",
+   "output_excerpt": "## GET /api/brand-logos empty template\n{\"ok\":true,\"templateRoot\":\"/Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-E/.lane-evidence/home/tpl-18150-1790334104\",\"logos\":[]}\n[HTTP 200 application/json; charset=utf-8]\n## POST /api/brand-logos/acme svg upload (advertised as allowed)\n{\"ok\":true,\"slug\":\"acme\",\"upload\":\"uploads/logo-acme.png\",\"resolved\":[{\"slug\":\"acme\",\"source\":\"upload\",\"detail\":\"uploads/logo-acme.png\"}]}\n[HTTP 200 application/json; charset=utf-8]",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "rg -n 'readProviderConfigFromEnv|url_context' server/ats-scorecard.mjs server/shared/gemini-url-context-scrape.mjs | head -8",
+   "id": "E15",
+   "note": "Status in report is CONFIRMED (read); cited divergent provider clients exist at the quoted paths",
+   "output_excerpt": "server/ats-scorecard.mjs:866:function readProviderConfigFromEnv() {\nserver/ats-scorecard.mjs:960:  const cfg = readProviderConfigFromEnv();\nserver/shared/gemini-url-context-scrape.mjs:4: * url_context cannot be combined with responseSchema.\nserver/shared/gemini-url-context-scrape.mjs:49:          tools: [{ url_context: {} }],\nserver/shared/gemini-url-context-scrape.mjs:128:  const metaRaw = candidate ? candidate.url_context_metadata : null;",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (read)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "rg -n '\"cors\"' server/package.json; rg -n \"from 'cors'|require\\('cors'\\)|from \\\"cors\\\"\" server/ | head -3",
+   "id": "E16",
+   "note": "Status in report is CONFIRMED (read); cors dep declared but never imported",
+   "output_excerpt": "13:    \"cors\": \"^2.8.5\",\n(no import hits above = unused)",
+   "sev": "P3",
+   "status_in_report": "CONFIRMED (read)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "sed -n '25,40p' tests/server-security-boundaries.test.mjs",
+   "id": "E17",
+   "note": "Status in report is CONFIRMED (read); test pins Host-derived same-origin allow without extra configuration (the E1 vector)",
+   "output_excerpt": "it(\"allows same-origin browser requests without extra configuration\", () => {\n    assert.equal(\n      resolveAllowedBrowserOrigin(\"https://app.example.com\", {\n        allowedOrigins: [],\n        requestHost: \"app.example.com\",\n        requestProtocol: \"https\",\n      }),\n      \"https://app.example.com\",",
+   "sev": "P2",
+   "status_in_report": "CONFIRMED (read)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/ats-request-transport-alignment.test.mjs",
+   "id": "TEST:tests/ats-request-transport-alignment.test.mjs",
+   "note": "Floor reproduced: report claims 3 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 3\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/ats-scorecard-provider.test.mjs",
+   "id": "TEST:tests/ats-scorecard-provider.test.mjs",
+   "note": "Floor reproduced: report claims 15 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 15\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/brand-logos-endpoint.test.mjs",
+   "id": "TEST:tests/brand-logos-endpoint.test.mjs",
+   "note": "Floor reproduced: report claims 9 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 9\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/llm-config-endpoint.test.mjs",
+   "id": "TEST:tests/llm-config-endpoint.test.mjs",
+   "note": "Floor reproduced: report claims 3 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 3\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/llm-config.test.mjs",
+   "id": "TEST:tests/llm-config.test.mjs",
+   "note": "Floor reproduced: report claims 9 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 9\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/llm-pin-consumers.test.mjs",
+   "id": "TEST:tests/llm-pin-consumers.test.mjs",
+   "note": "Floor reproduced: report claims 12 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 12\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/model-family.test.mjs",
+   "id": "TEST:tests/model-family.test.mjs",
+   "note": "Floor reproduced: report claims 4 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 4\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/safe-fetch-dns-pin.test.mjs",
+   "id": "TEST:tests/safe-fetch-dns-pin.test.mjs",
+   "note": "Floor reproduced: report claims 6 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 6\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/server-dockerignore.test.mjs",
+   "id": "TEST:tests/server-dockerignore.test.mjs",
+   "note": "Floor reproduced: report claims 1 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 1\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/server-error-schema.test.mjs",
+   "id": "TEST:tests/server-error-schema.test.mjs",
+   "note": "Floor reproduced: report claims 2 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 2\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/server-provider-env-isolation.test.mjs",
+   "id": "TEST:tests/server-provider-env-isolation.test.mjs",
+   "note": "Floor reproduced: report claims 5 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 5\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/server-security-boundaries.test.mjs",
+   "id": "TEST:tests/server-security-boundaries.test.mjs",
+   "note": "Floor reproduced: report claims 17 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 17\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  },
+  {
+   "command": "HOME=\"$PWD/.lane-evidence/home\" npm test -- tests/server-hosted-auth-boundary.test.mjs",
+   "id": "TEST:tests/server-hosted-auth-boundary.test.mjs",
+   "note": "Floor reproduced: report claims 5 pass / 0 fail",
+   "output_excerpt": "\u2139 pass 5\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+   "sev": "N/A",
+   "status_in_report": "FLOOR-PASS (\u00a74)",
+   "verdict": "REPRODUCED"
+  }
+ ]
+}
