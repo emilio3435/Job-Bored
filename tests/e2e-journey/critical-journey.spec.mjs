@@ -337,7 +337,7 @@ test("should show queued, running, and partial discovery outcomes", async ({
   const discoveryButton = page.locator("#discoveryBtn");
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /accepted — checking status/,
+    /Discovery started — searching for new roles/,
   );
 
   await page.getByRole("button", { name: "Open discovery run history" }).click();
@@ -353,7 +353,7 @@ test("should show queued, running, and partial discovery outcomes", async ({
   fence.releaseStatus(1);
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /Discovery finished with partial results.*One source timed out/,
+    /Discovery finished, but some sources didn't answer.*One source timed out/,
   );
   expect(fence.unexpectedExternal).toEqual([]);
 });
@@ -391,14 +391,15 @@ test("should carry completed discovery into the pipeline and ready dossier mater
   const discoveryButton = page.locator("#discoveryBtn");
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /accepted — checking status/,
+    /Discovery started — searching for new roles/,
   );
 
   fence.releaseStatus(0);
   fence.releaseStatus(1);
   await expect(discoveryButton).toHaveAttribute(
     "aria-label",
-    /Discovery complete/,
+    // UX01 C9 (FD-11/FD-12): a count when the run reports one.
+    /Found 1 new role\.|new roles are in your Pipeline/,
   );
 
   const discoveredColumn = page.getByRole("region", {
