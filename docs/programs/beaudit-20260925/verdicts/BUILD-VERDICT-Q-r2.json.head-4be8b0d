@@ -1,0 +1,100 @@
+{
+  "claims": [
+    {
+      "command": "node /tmp/vq-e15.mjs && node /tmp/vq-e15b.mjs ; node --test tests/beaudit-q-ai-provider.test.mjs (no runnable audit probe; E15 was read-only, verified against \u00a72 table sites + regression tests)",
+      "excerpt": "exports resolveProvider/chat/ProviderApiError: resolveProvider=function chat=function ProviderApiError=function | normalizeProvider: local-> openai_compatible | ollama-> openai_compatible | chat 400 error name: ProviderApiError | message: \"OpenAI HTTP 400\" | message leaks upstream body: false | taxonomy fields: {\"provider\":\"openai\",\"upstreamStatus\":400,\"retryable\":false} | provider tests: tests 10 pass 10 fail 0",
+      "id": "E15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .lane-evidence/probes/probe-e-local-pin.sh (audit probe-e-local-pin.sh, port 19041, lane HOME)",
+      "excerpt": "POST pin as oneflow-beat-ai builds Local -> {\"provider\":\"openai_compatible\",\"alias\":\"local\",\"model\":\"gemma4:e2b\",\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"keyPresent\":false} | GET /health -> {\"atsProvider\":\"openai_compatible\",\"atsConfigured\":true} (audit: false + \"Missing API key\") | POST /api/ats-scorecard -> [HTTP 200] with model gemma4:e2b (audit: 503 \"Missing API key\")",
+      "id": "E2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/vq-e9.mjs (adapted \u00a75; audit had no runnable probe \u2014 paid call needed \u2014 so REST camelCase fixture fed to the lane directly) ; node --test tests/beaudit-q-scrape-gemini.test.mjs tests/beaudit-q-browser-gemini.test.mjs",
+      "excerpt": "camelCase REST: HIT provider=gemini-url-context descChars=323 | snake_case  : HIT provider=gemini-url-context descChars=323 (audit: camelCase always null) | lane tests: tests 11 pass 11 fail 0 (server + browser casing, failure-not-guess)",
+      "id": "E9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/vq-e10.mjs (adapted audit \u00a75 proving command: pin provider local + env GEMINI_API_KEY, full scrapeJobPosting with stubbed fetch, list outbound URLs)",
+      "excerpt": "total fetch calls: 1 | google calls: 0 (lane skipped: FIXED) (audit: generativelanguage.googleapis.com call appears) | lane file also green: pin-not-Gemini skips, no-pin skips, Gemini pin uses pin key+model",
+      "id": "E10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /tmp/vq-e12/probe-e-cors.sh (verbatim audit probe-e-cors.sh, only port 18150->19040 and ROOT->bbuild-q) + keep-key / emptied-key / evil-provider / ftp-baseUrl follow-ups on 19042-19043",
+      "excerpt": "rebind GET+POST -> 403 {\"code\":\"HOST_NOT_ALLOWED\"}; pin on disk unchanged {provider:'gemini',keyPresent:true} (audit: 200 hijack, key true->false) | omitted apiKey same endpoint -> keyPresent:true | emptied \"\" -> keyPresent:false | evil -> 400 llm_invalid | ftp baseUrl -> 400 llm_invalid | file mode 600",
+      "id": "E12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/vq-e14.mjs (adapted \u00a75: write pin + stat mode; capture models.list URL+headers via resolveActivePin with stub fetch)",
+      "excerpt": "llm.json mode: 600 (audit: 100644 window before chmod) | dir entries: [\"llm.json\"] (rename, no torn tmp) | models.list url has ?key=: false | header x-goog-api-key present: true (audit: key in ?key= query)",
+      "id": "E14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/vq-e18.mjs (adapted audit \u00a75: stub fetch, pin model gemini-flash, analyzeAtsScorecard twice, count calls + measure prompt)",
+      "excerpt": "scorecards: 70 70 | models.list calls: 1 (pre-fix 2) | generateContent calls: 2 | genContent ?key=: false, header key: true | posting chars in: 5830 | prompt chars sent: 642 | blurb in prompt: false (audit: 4 fetches, ~20k tokens/call, full posting sent)",
+      "id": "E18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "audit \u00a75 grep + repo-wide scan: git grep -n '?key=' -- '*.mjs' '*.js' '*.ts' ':!*test*' ':!tests/*' ; git grep -ln 'x-goog-api-key' (same paths)",
+      "excerpt": "repo-wide ?key= in tracked source (tests excluded): (empty = none) (audit: server+browser sites in URL) | x-goog-api-key senders: provider.mjs, materials-writer, profile-from-resume, profile-rescore-worker, discovery-drawer, job-posting-insights, resume-generate, model-catalog, chat-provider(via shared), grounded-search, profile-to-companies, gemini-url-context-extractor | worker chat-provider.ts re-exports ../../../../server/ai/provider.mjs; old body-in-Error path gone; B17 scan tests green",
+      "id": "B17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/vq-e11.mjs (adapted \u00a75: analyzeAtsScorecard, never-resolving stub fetch, abort after 200ms) ; grep routeDeadlineSignal server/index.mjs ; node --test tests/beaudit-q-route-abort.test.mjs",
+      "excerpt": "rejected after 204ms (pre-fix ~30000ms): OpenAI-compatible request cancelled | upstream fetch got a signal: present | index.mjs wiring: ats-scorecard:303, scrape-job:282+848, from-resume:501, rescore:654(Infinity) | live disconnect tests (19046/19047): tests 4 pass 4 fail 0",
+      "id": "E11",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "EXIT:0 | eslint clean | OK integrations/openclaw-command-center/SKILL.md",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "EXIT:0 | browser-use-discovery tsc + all node --check files + server tsc, 0 errors",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "EXIT:0 | tests 3302 pass 3294 fail 0 cancelled 0 skipped 0 todo 8",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "EXIT:0 | tests 771 pass 771 fail 0 cancelled 0 skipped 0 todo 0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "EXIT:0 | OK discovery-webhook x3 + payload/readiness delegation, OK ATS request+response + builders, OK pipeline-row, OK pipeline-update, OK SKILL.md",
+      "passed": true
+    }
+  ],
+  "head": "4be8b0d010da585f9ee0de23d35c1ee3bb75c86e",
+  "lane": "Q",
+  "summary": "Lane Q at 4be8b0d0 verified: all 5 floor gates green with fresh HOME (lint 0, typecheck 0, npm test 3302/3294/0, bud 771/771, contract all OK); both repair-round-4 test files green (response-mode 3/3, llm-config 8/8 incl. emptied-key); all 9 claims FIXED via adapted audit reproducers (E2 local pin scores HTTP 200; E12 omitted-keeps/empty-clears/evil-400 + cors hijack now 403 HOST_NOT_ALLOWED; E9 both casings hit; E10 zero Google calls under local pin; E14 mode-600 rename + header key; E18 1 list + 2 gen with trimmed prompt; B17 zero ?key= repo-wide; E11 abort at ~200ms with route wiring + 4/4 live disconnect tests; E15 single redacting provider module). No servers left running, no network beyond 127.0.0.1, probe artifacts cleaned, git tree clean.",
+  "tests": [
+    {
+      "excerpt": "EXIT:0 | 3/3: OpenAI sends no strict response_format, Anthropic sends no output_config, Gemini still sends responseSchema (no invalid_json_schema from stub)",
+      "file": "integrations/browser-use-discovery/tests/discovery/chat-provider-response-mode.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "EXIT:0 | 8/8 incl. 'E12 clears the key when Settings sends an emptied apiKey field' (was red: keyPresent true; now green), plus omitted-keeps, null-clears, no-carry, enum/baseUrl rejection, atomic-0600, header+cached flash list",
+      "file": "tests/beaudit-q-llm-config.test.mjs",
+      "passed": true
+    }
+  ]
+}

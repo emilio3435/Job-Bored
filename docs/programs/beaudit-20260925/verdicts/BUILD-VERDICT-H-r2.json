@@ -1,0 +1,201 @@
+{
+  "claims": [
+    {
+      "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py gate2_fuzzy (identical to audit probe, diff exit 0); interest-approve exact-match check",
+      "excerpt": "gate2 [company='Meta', reply for another company] -> confirmed=False; gate2 [company='' blank] -> confirmed=False reason='Cancelled: company is blank'; gate2 [NO then YES] -> confirmed=False; gate2 [SomeoneElse] -> confirmed=False. interest: target='Meta' -> [(4,'Meta')]; target='Acme' -> []; target='a' -> []. No fuzzy/blank/group approval.",
+      "id": "H1",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py normalize_collision",
+      "excerpt": "normalize sid=111|sid=222 -> same_key=False; careers /Job/AbC123 vs /job/abc123 -> same_key=False; gate1_check(target sid=222, NOT approved) -> {'approved': False, 'row_number': 3}. sid/case collisions gone; gate1 no longer inherits another row's Approved.",
+      "id": "H2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py notes_wipe",
+      "excerpt": "update_pipeline_applied success: False; KeyError: 'body' (no POST sent). Notes GET TimeoutError -> abort with zero writes, no Notes wipe. Code re-resolves row by Link and writes RAW.",
+      "id": "H3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py submit_classifier",
+      "excerpt": "is_submit_like_action Send->True Done->True Confirm->True Send my application->True; is_field_interaction_click excludes combobox/option/checkbox/radio/input; submit_attempted + unknown_after_submit, never 'retry'. pytest 18 passed incl. field-click gating.",
+      "id": "H4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py submit_classifier; grep CONFIRMATION_TERMS/verify_submission",
+      "excerpt": "confirmation-term hit on pre-submit form text: False; CONFIRMATION_TERMS has 'thank you for applying' (bare thank-you removed); verified = new_markers AND (url_changed OR form_gone) AND not blocked.",
+      "id": "H5",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-GATES); ls scripts/greenhouse_filler.py",
+      "excerpt": "H-GATES: greenhouse_filler.py: No such file or directory (deleted); setup HERMES_RETIRED_PATHS removes runtime copies. No live-by-default submit path remains.",
+      "id": "H6",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-GATES); grep JHOS_GATE2_CONFIRMED universal_filler.py .env.example",
+      "excerpt": "H-GATES: no JHOS_GATE2_CONFIRMED in universal_filler.py (grep-exit 1); no --submit flag; .env.example has no JHOS_GATE2_CONFIRMED (grep-exit 1). CLI is dry-run only; live runs require orchestrator gate2_confirmed.",
+      "id": "H7",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-PII, H-IDS)",
+      "excerpt": "H-PII: no email/phone/zip literals (only greenhouse-missing notice); filler_profile.py loads gitignored profile, fails closed; H-IDS: chatId null (tracked contract holds no owner IDs); test_phase7 uses example values.",
+      "id": "H8",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-TELEGRAM); grep 409/offset/JHOS_GATE2_BOT_TOKEN gate2_telegram.py",
+      "excerpt": "offset = None # never flush with offset=-1; 409 -> 'Cancelled: Telegram getUpdates returned 409 Conflict' + stderr log; JHOS_GATE2_BOT_TOKEN dedicated bot scoped to send/poll only (6 gate2/bot pytest pass). No live Telegram run (forbidden); stubbed 409 proven.",
+      "id": "H9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "pytest equivalent of h_pytest_shim.py (shim ROOT points at audit tree, so run repo test directly); ls .github/workflows/hermes-pytest.yml",
+      "excerpt": "test_phase7 SCRIPTS_DIR = Path(__file__).parents[1]/scripts (repo, not HOME); full suite 127 passed in 0.24s with isolated HOME + socket guard; .github/workflows/hermes-pytest.yml exists (py 3.9+3.12).",
+      "id": "H10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-DEPS); grep httpx/playwright universal_filler.py",
+      "excerpt": "requirements.txt: httpx>=0.27,<1 + playwright>=1.45,<2; no top-level import (lazy: from playwright.sync_api inside functions, import httpx in client); preflight_runtime() runs before Gate 2 send.",
+      "id": "H11",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_setup_cp_force.mjs; sed scripts/setup.mjs refreshHermesCode",
+      "excerpt": "canary still shows stale with force:false (old pattern); repo setup now cp scripts/tests/contract with force:true + removes HERMES_RETIRED_PATHS; user profile/local-override keep force:false. hermes-setup-refresh 3 pass.",
+      "id": "H12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "python3 /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_argv_canary.py; bash h_static.sh H-ARGV; grep discovery-trigger.sh",
+      "excerpt": "canary True (argv visible in general); H-ARGV: no output (no tok='$ACCESS_TOKEN'/x-discovery-secret in argv); trigger uses JB_ACCESS_TOKEN env + -H @HEADER_FILE + --data-binary @PAYLOAD_FILE (mode 600, umask 077). argv test passes.",
+      "id": "H13",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-TOKENWRITE); grep jhos_common load_google_credentials",
+      "excerpt": "H-TOKENWRITE: no output (no direct token writes); jhos_common.load_google_credentials: no scope override, write via temp + os.replace under lock file; used by followup/interest/watcher/pipeline-status/trigger.",
+      "id": "H15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep -rn 'A1:M500|A1:X500|Pipeline!A' integrations/hermes-job-hunt/scripts/",
+      "excerpt": "No A1:M500/A1:X500 hits; PIPELINE_RANGE = Pipeline!A:X / A:M open-ended in followup_monitor, watcher, interest-approve, pipeline-status; jhos_submit reads A2:X; trigger gviz range A:M. Row-500 cap gone.",
+      "id": "H16",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-EVIDENCE); sed apply-orchestrator write_evidence",
+      "excerpt": "write_evidence(job_url, company, title, task_id, screenshot_path=confirmation, extra={platform, submission_state, filler_results_path, filler_screenshot_sha256}); jhos_submit copies screenshot + records screenshot_sha256; Gate 2 platform derived from host.",
+      "id": "H18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-DUP, H-TRIAGE); ls retired paths",
+      "excerpt": "H-DUP: followup files differ (shim, not copy); H-TRIAGE: triage file deleted; ls: greenhouse_filler/triage/ats_adapters/install-rotated-keys all missing; gate2 send_cancellation/send_success gone; watcher keys by normalized link, marks reported only after send.",
+      "id": "H19",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cat followup-thresholds.v1.json; grep followup_thresholds/jhos_common; node --test tests/hermes-followup-thresholds.test.mjs",
+      "excerpt": "shared file {7,14,21} + schema; followup_monitor has no >=21/14/7 literals, reads jhos_common.followup_thresholds(); jhos_common owns env/token/Telegram/config/time; browser BRIEF_STALE=14/BRIEF_WAITING=7 pinned equal by test (3 pass). Residual: browser still literal, drift fails CI.",
+      "id": "H20",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=\"$PWD/.lane-evidence/home\" HERMES_SKIP_VENV_REEXEC=1 python3 .lane-evidence/probes/h_probe_pure.py stale_gate1_text; grep watcher interest thread",
+      "excerpt": "fail_gate1 reason: Gate 1 not satisfied: Pipeline Approval Status is '' \u2014 requires 'Approved'; watcher posts to INTEREST_THREAD_ID, refuses when unset, no TELEGRAM_HOME_CHANNEL; gate1-approve.py is a shim over interest-approve.py; spec names interest != Gate 1.",
+      "id": "H22",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash /Users/emilionunezgarcia/Job-Bored.worktrees/beaudit-integration/docs/programs/beaudit-20260925/probes/H/h_static.sh (H-TZ); grep ZoneInfo/JHOS_TIMEZONE",
+      "excerpt": "H-TZ: no output (no timedelta(hours=-5) in any script); jhos_common.local_timezone: $JHOS_TIMEZONE else worker-config timezone else America/Chicago via zoneinfo. DST-safe.",
+      "id": "H23",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=... npm run lint:repo -> eslint . clean; OK integrations/openclaw-command-center/SKILL.md; EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "HOME=$(mktemp -d) ... npm run typecheck:repo -> tsc worker + server + node --check (all files): no errors; EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "HOME=$(mktemp -d) ... npm test -> \u2139 tests 3276 \u2139 suites 783 \u2139 pass 3264 \u2139 fail 0 \u2139 todo 12; EXIT:0 (13 \u2716 lines = 1 header + 12 todo target-behavior)",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "HOME=$(mktemp -d) ... -> \u2139 tests 767 \u2139 suites 2 \u2139 pass 767 \u2139 fail 0 \u2139 todo 0; EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "HOME=$(mktemp -d) ... -> OK schema x3, OK discovery x2, OK ATS x4, OK pipeline-row, OK pipeline-update, OK SKILL.md; EXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "e8dd586663da6fb1579bf43f5be87afb50462518",
+  "lane": "H",
+  "summary": "At e8dd5866 all 5 floor commands pass with fresh HOME (lint, typecheck, npm test 3276/3264/0/12todo, worker 767/767, contract all OK). All 6 repair-round-2 pytest targets pass, full Hermes suite 127 passed, Node approval+hermes 20 passed. All 20 audit claims H1-H23 (minus H14/H17/H21 out of verify set) re-run via \u00a74 reproducers: each defect no longer appears (gate2 exact+reply+allowlist, normalize parity, notes abort, classifier+verify, deletions, dry-run CLI, profile/contract nulls, 409 fail-fast, repo-tested suite+CI, lazy deps, setup force-refresh, argv-free trigger, atomic token, open ranges, evidence hash, shim/link-keyed watcher, shared thresholds, Gate1 text/thread, zoneinfo). Working tree left clean.",
+  "tests": [
+    {
+      "excerpt": "test_shared_api_call_keeps_the_shared_bot_when_gate2_bot_is_set PASSED (shared _api_call stays on shared-bot, not gate2-bot)",
+      "file": "integrations/hermes-job-hunt/tests/test_gate2_telegram.py::test_shared_api_call_keeps_the_shared_bot_when_gate2_bot_is_set",
+      "passed": true
+    },
+    {
+      "excerpt": "test_gate2_send_and_poll_use_the_dedicated_bot PASSED",
+      "file": "integrations/hermes-job-hunt/tests/test_gate2_telegram.py::test_gate2_send_and_poll_use_the_dedicated_bot",
+      "passed": true
+    },
+    {
+      "excerpt": "test_gate2_falls_back_to_the_shared_bot_without_a_dedicated_one PASSED",
+      "file": "integrations/hermes-job-hunt/tests/test_gate2_telegram.py::test_gate2_falls_back_to_the_shared_bot_without_a_dedicated_one",
+      "passed": true
+    },
+    {
+      "excerpt": "test_clicking_an_empty_required_combobox_to_fill_it_is_allowed PASSED (clicked ['#country', option, '#send'])",
+      "file": "integrations/hermes-job-hunt/tests/test_universal_filler_submit.py::test_clicking_an_empty_required_combobox_to_fill_it_is_allowed",
+      "passed": true
+    },
+    {
+      "excerpt": "test_field_clicks_do_not_count_as_submit_attempts PASSED (combobox click not classified as submit)",
+      "file": "integrations/hermes-job-hunt/tests/test_universal_filler_submit.py::test_field_clicks_do_not_count_as_submit_attempts",
+      "passed": true
+    },
+    {
+      "excerpt": "test_submit_after_a_field_click_is_still_gated_on_required_fields PASSED",
+      "file": "integrations/hermes-job-hunt/tests/test_universal_filler_submit.py::test_submit_after_a_field_click_is_still_gated_on_required_fields",
+      "passed": true
+    },
+    {
+      "excerpt": "127 passed in 0.24s (full integrations/hermes-job-hunt/tests, isolated HOME, socket guard)",
+      "file": "integrations/hermes-job-hunt/tests",
+      "passed": true
+    },
+    {
+      "excerpt": "\u2139 tests 20 \u2139 pass 20 \u2139 fail 0: apply-safety, discovery-trigger-argv, discovery-trigger, followup-thresholds (3), setup-refresh (3), approval-contract",
+      "file": "tests/hermes-*.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "F3C-APPLY02-CONTRACT pass (docs/runtime/send/poll agree; Gate 1 = Approval Status; local-override shape)",
+      "file": "tests/approval-contract.test.mjs",
+      "passed": true
+    }
+  ]
+}

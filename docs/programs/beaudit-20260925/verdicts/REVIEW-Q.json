@@ -1,0 +1,21 @@
+{
+  "blocking": [],
+  "nonBlocking": [
+    {
+      "file": "server/ai/provider.mjs",
+      "line": 87,
+      "issue": "Confirmed: `return ALIASES[canonicalToken(raw)] || \"\"` accepts inherited keys. `normalizeProvider(\"__proto__\")` returns an object and `normalizeProvider(\"constructor\")` returns a function, bypassing POST's unsupported-provider check. Use an own-property lookup. Non-blocking because the base also accepted invalid providers."
+    },
+    {
+      "file": "server/ai/provider.mjs",
+      "line": 622,
+      "issue": "Confirmed: `catch { payload = null; }` swallows cancellation during response-body reading. A stub that aborts and throws from json() makes chat() fulfill with empty text, allowing worker fallback instead of propagating cancellation. Preserve AbortError here. Non-blocking because the base worker swallowed these errors too."
+    },
+    {
+      "file": "tests/beaudit-q-route-abort.test.mjs",
+      "line": 181,
+      "issue": "Confirmed implementation-pinning test: `/routeDeadlineSignal\\(req, res/` checks source spelling without proving signal forwarding. An in-memory mutation replacing the rescore call's `signal` with `signal: undefined` still passes both assertions. Test cancellation through a stubbed rescore dependency."
+    }
+  ],
+  "confidence": "High for these findings. Diff check, lint, typecheck, contracts, and 59 selected read-only tests passed. No unlisted fence edits or contract-invariant breaks found. Full suites, live providers, and browser execution remain unverified. No files changed."
+}

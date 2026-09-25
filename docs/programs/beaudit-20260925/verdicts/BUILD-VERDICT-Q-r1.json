@@ -1,0 +1,105 @@
+{
+  "claims": [
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/e15-check.mjs && grep -n \"provider.mjs\\|ProviderApiError\\|normalizeProvider\" integrations/browser-use-discovery/src/ai/chat-provider.ts",
+      "excerpt": "normalize local->openai_compatible ollama->openai_compatible gemini->gemini\nchat=function resolveProvider=function ProviderApiError=function routeDeadlineSignal=function\ntaxonomy: name=ProviderApiError classification=upstream bodyEchoed=false\nresolve local: configured=true provider=openai_compatible\n--- worker re-export ---\n5:import { chat as sharedChat, MAX_PROVIDER_TIMEOUT_MS, normalizeProvider } from \"../../../../server/ai/provider.mjs\";\n7:export { chat, normalizeProvider, PROVIDERS, ProviderApiError, providerHttpError, providerRequestError, resolveProvider } from \"../../../../server/ai/provider.mjs\";",
+      "id": "E15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .lane-evidence/probes/probe-e-local-pin.sh",
+      "excerpt": "[api :19041 up pid 12714]\n## POST pin exactly as oneflow-beat-ai.js builds it for Local\n{\"provider\":\"openai_compatible\",\"alias\":\"local\",\"model\":\"gemma4:e2b\",\"baseUrl\":\"http://127.0.0.1:11434/v1\",\"keyPresent\":false,\"updatedAt\":\"2026-09-25T18:33:27.691Z\"}\n## GET /health (ATS view of the same pin)\n{\"ok\":true,\"service\":\"command-center-job-scraper\",\"atsProvider\":\"openai_compatible\",\"atsConfigured\":true}\n## POST /api/ats-scorecard minimal valid payload\n{\"schemaVersion\":1,\"overallScore\":0,\"dimensionScores\":{\"requirementsCoverage\":0,\"experienceRelevance\":0,\"impactClarity\":0,\"atsParseability\":0,\"toneFit\":0},\"topStrengths\":[],\"criticalGaps\":[],\"evidence\":[],\"rewriteSuggestions\":[],\"confidence\":0.5,\"model\":\"gemma4:e2b\"}\n[HTTP 200]\n[api :19041 stopped pid 12714]",
+      "id": "E2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/e9-check.mjs",
+      "excerpt": "camelCase: HIT len=168\nsnake_case: HIT len=168",
+      "id": "E9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/e10-check.mjs",
+      "excerpt": "local-pin: calls=0 hit=null\nno-pin: calls=0 hit=null\ngemini-pin: calls=1 keyHdr=pin-key-canary modelInUrl=true",
+      "id": "E10",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "bash .lane-evidence/probes/probe-q-keep-key.sh",
+      "excerpt": "[api :19042 up pid 13186]\n## save gemini with key\n{\"provider\":\"gemini\",\"alias\":\"\",\"model\":\"gemini-flash\",\"baseUrl\":\"\",\"keyPresent\":true,\"updatedAt\":\"2026-09-25T18:33:38.967Z\"}\n## save again, apiKey omitted\n{\"provider\":\"gemini\",\"alias\":\"\",\"model\":\"gemini-3.7-flash\",\"baseUrl\":\"\",\"keyPresent\":true,\"updatedAt\":\"2026-09-25T18:33:38.976Z\"}\n## repoint to attacker baseUrl, apiKey omitted\n{\"provider\":\"openai_compatible\",\"alias\":\"\",\"model\":\"exfil\",\"baseUrl\":\"https://attacker.test/v1\",\"keyPresent\":false,\"updatedAt\":\"2026-09-25T18:33:38.984Z\"}\n## unknown provider\n{\"error\":\"Unsupported provider. Use gemini, openai, anthropic, openrouter, openai_compatible or local.\",\"code\":\"llm_invalid\"} [HTTP 400]\n## file mode 600\n[api :19042 stopped pid 13186]",
+      "id": "E12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/e14-check.mjs && grep -c \"?key=\" server/llm-config.mjs server/ats-scorecard.mjs server/ai/provider.mjs && grep -n \"geminiHeaders(apiKey)\\|geminiHeaders(resolved.apiKey)\" server/llm-config.mjs server/ai/provider.mjs",
+      "excerpt": "mode=600\nserver/llm-config.mjs:0\nserver/ats-scorecard.mjs:0\nserver/ai/provider.mjs:0\n---\nserver/llm-config.mjs:285:    headers: geminiHeaders(apiKey),\nserver/ai/provider.mjs:138:export function geminiHeaders(apiKey) {\nserver/ai/provider.mjs:550:    headers = geminiHeaders(resolved.apiKey);",
+      "id": "E14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) node /tmp/e18-check.mjs",
+      "excerpt": "flash: a=gemini-3.9-flash b=gemini-3.9-flash listCalls=1 (was 2, want 1)\npostingIn=11075\npostingOut=55 keepsGo=true keepsClearance=true dropsBlurb=true dropsSnacks=true",
+      "id": "E18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep -rn \"generativelanguage.googleapis.com\" server/*.mjs server/shared/*.mjs *.js integrations/browser-use-discovery/src; echo \"=== ?key= scan ===\"; grep -rn \"?key=\" server/*.mjs server/shared/*.mjs *.js integrations/browser-use-discovery/src | grep -i \"gemini\\|generativelanguage\\|AIza\"",
+      "excerpt": "server/materials-writer.mjs:2: \"https://generativelanguage.googleapis.com/v1beta/models\";\nserver/profile-from-resume.mjs:953: const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;\ndiscovery-drawer.js:1115: const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;\njob-posting-insights.js:453,754: :generateContent URLs (2 sites)\nmodel-catalog.js:264: url: \"https://generativelanguage.googleapis.com/v1beta/models\",\nresume-generate.js:308,551: :generateContent URLs (2 sites)\nintegrations/.../grounded-search.ts:719,970,1059,1196,1258 + profile-to-companies.ts:1464 + chat-provider.ts:194 + gemini-url-context-extractor.ts:91 + config.ts:609\n=== ?key= scan ===\n(empty \u2014 0 hits; every site above sends x-goog-api-key header)",
+      "id": "B17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "HOME=$(mktemp -d) timeout 60 node /tmp/e11-check.mjs && grep -n \"routeDeadlineSignal(req, res\" server/index.mjs",
+      "excerpt": "ATS: rejected in 102ms name=AbortError class=cancelled code=aborted\n--- route wiring ---\n282:      signal: routeDeadlineSignal(req, res),\n303:    const scorecard = await analyzeAtsScorecard(payload, { signal: routeDeadlineSignal(req, res) });\n501:    const signal = routeDeadlineSignal(req, res, PROFILE_ROUTE_DEADLINE_MS);\n654:  const signal = routeDeadlineSignal(req, res, Infinity);\n848:      signal: routeDeadlineSignal(req, res),",
+      "id": "E11",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "> command-center@0.1.0 lint:js\n> eslint .\n\n> command-center@0.1.0 lint:skills\n> node scripts/lint-integration-skills.mjs\n\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "> command-center@0.1.0 typecheck:browser-use-discovery\n> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n\n> command-center@0.1.0 typecheck:server\n> tsc --noEmit --project server/tsconfig.json\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "test at tests/beaudit-p-e17-claim-coverage.test.mjs:371:3\n\u2716 an unknown API route answers a JSON 404, not HTML (1.85ms) # target behavior; fix owned by wave-1 lane L (E7: JSON 404)\ntest at tests/submission-record-audit.test.mjs:17:1\n\u2716 persists and can remove the canonical submission evidence record (1.76ms) # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store\nEXIT:0\n(tail-60 window; node:test prints the \u2139 summary before the todo list \u2014 exit 0 is decisive and both \u2716 are todo-marked other-lane targets)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "EXIT:0\n\u2139 tests 772\n\u2139 suites 2\n\u2139 pass 772\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "OK schema: examples/discovery-webhook-request.v1.json\nOK schema: examples/discovery-webhook-request.v1-with-profile.json\nOK schema: examples/discovery-webhook-request.v1-preview-parity.json\nOK discovery-payload.js covers schema properties schemas/discovery-webhook-request.v1.schema.json\nOK discovery-readiness.js delegates to discovery-payload.js\nOK schema (ATS request): examples/ats-scorecard-request.v1.json\nOK schema (ATS response): examples/ats-scorecard-response.v1.json\nOK ats-scorecard.js request builder matches schema for full bundle payload\nOK ats-scorecard.js request builder matches schema for sparse payload\nOK schemas/pipeline-row.v1.json \u2194 README.md \u2194 app-config-core.js \u2194 pipeline-render.js\nOK schema (pipeline-update request): examples/pipeline-update-request.v1.json\nOK integrations/openclaw-command-center/SKILL.md\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "79fa2e746f2f8cf964185d2e225db433861ed3bd",
+  "lane": "Q",
+  "summary": "Lane Q at 79fa2e74: floor 5/5 green (lint, typecheck, npm test exit 0 with only todo-marked other-lane failures, bud 772/772, contract 12 OK lines); target tests 3/3 green (profile-to-companies 14/14 incl. cancellation-abort, repair3 3/3, ai-provider 10/10 incl. AbortError abort case); all 9 claims FIXED. E2/E12 re-ran the \u00a74 probes on allowed ports 19041/19042 (local pin now openai_compatible+configured+HTTP 200; omitted key kept, repoint dropped, evil 400, mode 600). E9/E10/E11/E14/E18 re-ran the \u00a75 proving commands as /tmp scripts (dual casing HIT; 0 Google calls under local/no pin, pin key+model when Gemini; ATS abort in ~100ms + 5 route wiring sites; llm.json mode 600 + 0 ?key=; 1 models.list per 2 resolves + 11k\u219255 trim). E15/B17 re-ran the cited grep+import checks (one enum/chat/taxonomy with worker re-export; 0 ?key= Gemini URLs, all header). Tree left clean (git status empty), no servers left running, loopback-only.",
+  "tests": [
+    {
+      "excerpt": "\u2714 aborting during company ranking propagates cancellation instead of falling back (0.54ms)\n\u2139 tests 14\n\u2139 suites 0\n\u2139 pass 14\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0",
+      "file": "integrations/browser-use-discovery/tests/discovery/profile-to-companies.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "\u25b6 E18 posting trim keeps text under unrecognised headings\n  \u2714 a TS/SCI line under 'Job Summary' survives when a Requirements heading follows (7.19ms)\n  \u2714 text before the first heading survives (0.12ms)\n  \u2714 under a tight budget the requirement sections win and the whole stays bounded (0.45ms)\n\u2139 tests 3\n\u2139 suites 1\n\u2139 pass 3\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0",
+      "file": "tests/beaudit-q-repair3.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "\u25b6 E15 server/ai/provider.mjs\n  \u2714 chat aborts the fetch when the request signal aborts (AbortSignal.any with the timeout) (0.53ms)\n\u25b6 B17 no Gemini call puts the key in the URL\n  \u2714 no server or browser module builds a ?key= Gemini URL\n  \u2714 every file that names the Gemini REST host is in the scan\n\u2139 tests 10\n\u2139 suites 5\n\u2139 pass 10\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0",
+      "file": "tests/beaudit-q-ai-provider.test.mjs",
+      "passed": true
+    }
+  ]
+}
