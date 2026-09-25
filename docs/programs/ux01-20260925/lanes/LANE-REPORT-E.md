@@ -76,6 +76,7 @@ Tests:
   - `getResumeSummary()` returns `undefined`, `null` or `{filename, addedAt}`.
   - `isAutoDraftEnabled()` and `AUTO_DRAFT_STORAGE_KEY` (`"jobBored:autoDraft:v1"`, value `"on"`); `COMMAND_CENTER_CONFIG.autoDraftOnResearching === true` also opts in.
   - `noteViewPosting(jobKey)` and `answerReturnPrompt(yes)`.
+  - `retryServer()`: the Retry action, exported so tests can drive it (fix round 1).
 - `JobBoredPostingEnrichment.getProviderNotice()` returns the inline notice, or `""` once a provider is configured.
 - `JB_SCRIBE.openDocument({jobKey, feature, company, title, filename, text, terms?})`, plus `closeDocument()` and `remount()`.
 - `JobBoredScribeState.bindDocument(doc)` and `clearDocument()`.
@@ -141,3 +142,26 @@ Flaky: none. One note: the node runner prints a "failing tests" block for one **
   13 passed (20.2s)   # e2e-journey
   37 passed (60.0s)   # e2e-visual
 ```
+
+## Fix round 1 (head 7b1df22)
+
+Both blocking review findings were right. Commit `7b1df22` fixes the cause of each and adds a test that failed first. Both new tests were run against the pre-fix `role-materials.js` (HEAD `241a492`) and failed there.
+
+**TA-05: the optimistic row now holds (C12).** The hold is now set before the optimistic commit and shares its `pending` object with it. `holdOptimistic` counts only a *server-written* `pending` (any other object) or a document newer than the click as caught up. Before this, `renderOptimisticPending`'s own commit carried `pending` and cleared the hold before the POST returned. The manifest fetched after a 2xx, which had no `pending`, then repainted the row as `not drafted · never requested` with a Draft button. `commitManifest` now returns the manifest it committed. Both the post-2xx path and the poller poll on the held manifest, so the row keeps polling until the server's `pending` or a document arrives, or until the 90 s hold runs out. What the user sees: after one click, the cover letter row stays `queued` and never invites a second request.
+- Test: `C12 · should keep the row pending after a 2xx /request whose manifest has no pending yet (TA-05)`, plus `should let a server-written pending replace the optimistic one`.
+
+**TA-06: Retry re-enables Draft (C12).** `retryServer()` no longer assigns `serverState = ""`. It leaves `"down"` in place, so the load's own `setServerState("up")` is a down → up change that dispatches `jb:materials:manifest {reason: "state"}` and re-renders the Case docket. The first-draft case (no folder, so `renderEmpty` with no manifest event) now gets that re-render too. What the user sees: after `npm start` and Retry, the docket's Draft cover letter / Tailor resume buttons turn on without reopening the role.
+- Test: `C12 · should re-enable Draft after Retry finds the server up, even with no folder yet (TA-06)`.
+
+Contracts touched: none. The `data-action` values (`materials-server-retry`, `resume-cover`, `resume-tailor`) are unchanged. Baselines refreshed: none. Handoffs: none new. The harness in `tests/ux01-e-materials.test.mjs` now unrefs its timers, so a polling test cannot keep the process alive. It also takes a mutable `net.serverDown` and an `applications` option.
+
+### Floor (fix round 1, worktree root, head 7b1df22)
+
+Logs are in `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/e-fix1-*.log`.
+
+- `npm run lint:repo && npm run typecheck:repo`: exit 0 (tail: `tsc --noEmit --project server/tsconfig.json`, no errors).
+- `npm test`: `tests 3095 · pass 3094 · fail 0 · skipped 0 · todo 1`. The todo is the existing `submission-record-audit.test.mjs` "blocked on the canonical-ownership gate" test.
+- `npm run test:contract:all`: exit 0.
+- `npm run test:e2e-smoke`: `11 passed`.
+- `npm run test:e2e-journey`: `13 passed`.
+- `npm run test:e2e-visual`: `37 passed`.
