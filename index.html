@@ -211,7 +211,6 @@
     <link rel="stylesheet" href="jb-deco.css" />
     <link rel="stylesheet" href="jb-ui.css" />
     <link rel="stylesheet" href="jb-a11y.css" />
-    <link rel="stylesheet" href="lattice.css" />
     <link rel="stylesheet" href="dawn.css" />
     <link rel="stylesheet" href="today.css" />
     <link rel="stylesheet" href="flowing-chrome.css" />
@@ -220,13 +219,7 @@
     <link rel="stylesheet" href="role-case.css" />
     <link rel="stylesheet" href="recruiter-strip.css">
     <link rel="stylesheet" href="materials-queue.css" />
-    <!-- letter.css removed from critical path 2026-06-11 — letter.js is no   -->
-    <!-- longer included (see comment at ~line 231-233); the file remains on  -->
-    <!-- disk because tests/letter-*.test.mjs assert its surface and          -->
-    <!-- letter.js still ships unused. Saves ~47 KB / 1 render-blocking link  -->
-    <!-- on every cold load. Re-add this link if letter.js ever rejoins.      -->
     <link rel="stylesheet" href="scribe.css" />
-    <link rel="stylesheet" href="welcome.css" />
     <link rel="stylesheet" href="fit-profile.css" />
     <!-- One-flow onboarding (docs/ONE-FLOW-ONBOARDING-SPEC.md). Loads after
          the legacy wizard sheets so it extends the shared shell chassis
@@ -239,7 +232,6 @@
     <script src="welcome.js" defer></script>
     <script src="stage-registry.js" defer></script>
     <script src="company-cap.js" defer></script>
-    <script src="lattice.js" defer></script>
     <script src="metrics-date-window.js" defer></script>
     <script src="dawn-data.js" defer></script>
     <script src="dawn.js" defer></script>
@@ -257,12 +249,6 @@
     <script src="dossier-field-provenance.js" defer></script>
     <script src="role-materials.js" defer></script>
     <script src="materials-queue.js" defer></script>
-    <!-- role-workshop.js + letter.js removed in materials-first pivot -->
-    <!-- (2026-05-27). The dossier owns the canonical CTAs and the     -->
-    <!-- materials panel; PART 04 is gone.                             -->
-    <!-- <script src="role-workshop.js" defer></script>                -->
-    <!-- <script src="letter.js" defer></script>                       -->
-    <script src="mark-submitted.js" defer></script>
     <script src="submission-flow.js" defer></script>
     <script src="recruiter-strip.js" defer></script>
     <script src="flowing-writes.js" defer></script>
@@ -467,13 +453,6 @@
       are no longer loaded by index.html.
     -->
 
-    <!-- region:lattice:start -->
-    <!-- LATTICE owns this block: Pipeline kanban (replacement). -->
-    <!-- Renders only when body.jb-v2 is set (see lattice.js).      -->
-    <!-- Legacy stacked list outside this region is the off-flag    -->
-    <!-- fallback and is unchanged.                                 -->
-    <section data-region="lattice" aria-label="Pipeline kanban (v2)"></section>
-    <!-- region:lattice:end -->
 
     <!-- region:scribe:start -->
     <!-- SCRIBE owns this block: ATS scorecard + cover letter draft modal. -->
@@ -495,10 +474,9 @@
 
     <!-- region:welcome:start -->
     <!-- WELCOME owns this block: Onboarding step + first-run empty state. -->
-    <!-- Region body is mounted by welcome.js into the host below. The host
-         element carries data-region="welcome" so welcome.css selectors
-         (`body.jb-v2 [data-region="welcome"] ...`) reach it. Without
-         body.jb-v2, the host is empty and dormant. -->
+    <!-- Region body is mounted by welcome.js into the host below.
+         jb-v2-legacy-hide.css keeps the host hidden unless it is in
+         onboarding mode; welcome.css was deleted in UX01 C4 (DS-09). -->
     <div data-region="welcome"></div>
     <!-- region:welcome:end -->
 

@@ -18,7 +18,6 @@ import vm from "node:vm";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const adapterPath = join(repoRoot, "pipeline-transition-adapter.js");
 const pipelineJs = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
-const latticeJs = readFileSync(join(repoRoot, "lattice.js"), "utf8");
 
 function loadAdapter({ transitions, events } = {}) {
   assert.equal(
@@ -68,16 +67,6 @@ describe("F2A-MOVE: board movement calls F1-A adapter", () => {
       pipelineJs,
       /(?:adapter|JobBoredPipelineTransitionAdapter)[\s\S]{0,180}\.move\s*\(/,
       "F2A-MOVE: pipeline.js must call adapter.move(...) on a board move",
-    );
-  });
-
-  it("lattice.js, if it still writes stages, also routes through the adapter", () => {
-    // Lattice is the losing renderer; any leftover setStage path still
-    // must not bypass F1-A once the adapter exists.
-    assert.match(
-      latticeJs,
-      /JobBoredPipelineTransitionAdapter/,
-      "F2A-MOVE: lattice.js leftover writes must call the same adapter, not only window.updateJobStatus",
     );
   });
 
