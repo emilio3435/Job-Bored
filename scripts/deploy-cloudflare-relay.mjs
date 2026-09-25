@@ -754,6 +754,7 @@ function runWrangler(args, options = {}) {
   if (typeof result.status === "number" && result.status === 0) {
     return result;
   }
+  if (typeof options.onFailure === "function") options.onFailure();
   fail(options.failureMessage || `wrangler ${args.join(" ")} failed`);
 }
 
@@ -802,6 +803,25 @@ function writeRelayCredential(relay, root = repoRoot) {
   writeFileSync(file, JSON.stringify(relay, null, 2) + "\n", { mode: 0o600 });
   chmodSync(file, 0o600);
   return file;
+}
+
+/**
+ * Puts back the credential file as it was before a deploy that could not make
+ * its new token live: the prior content, or no file when there was none.
+ */
+function restoreRelayCredential(file, previousContent) {
+  try {
+    if (previousContent == null) {
+      rmSync(file, { force: true });
+    } else {
+      writeFileSync(file, previousContent, { mode: 0o600 });
+      chmodSync(file, 0o600);
+    }
+  } catch (err) {
+    console.error(
+      `cloudflare-relay: could not restore ${file} (${err && err.message ? err.message : String(err)}). Re-run the deploy to resync the relay token.`,
+    );
+  }
 }
 
 /**
@@ -1164,8 +1184,9 @@ async function main() {
     // BEAUDIT G1 / spec §0.7: a per-dashboard bearer token. The relay
     // answers 401 without it, so an anonymous caller can no longer reach the
     // worker with DISCOVERY_SECRET injected. The token is written to the
-    // relay credential file below so the dashboard can fetch it. A redeploy of the
-    // same Worker keeps the existing token (resolveRelayToken).
+    // relay credential file below, before the RELAY_TOKEN secret goes live, so
+    // the dashboard can fetch it. A redeploy of the same Worker keeps the
+    // existing token (resolveRelayToken).
     const relayToken = resolveRelayToken({
       existingCredential: readRelayCredential(),
       existingBootstrap: readBootstrapFile(
@@ -1174,15 +1195,6 @@ async function main() {
       workerName,
       rotate: args.rotateToken,
     });
-    console.log("cloudflare-relay: setting RELAY_TOKEN secret...");
-    runWrangler(["secret", "put", "RELAY_TOKEN", "--config", configPath], {
-      cwd: tempDir,
-      input: `${relayToken}\n`,
-      outputFile: secretOutputPath,
-      failureMessage:
-        "wrangler secret put RELAY_TOKEN failed. Check your Cloudflare auth and account permissions.",
-    });
-
     if (args.discoverySecret) {
       console.log("cloudflare-relay: setting DISCOVERY_SECRET secret...");
       runWrangler(
@@ -1287,15 +1299,33 @@ async function main() {
       relayLocked: true,
       deployedAt: new Date().toISOString(),
     };
+    // The durable home of the token: a bootstrap refresh never touches it.
+    // It is saved BEFORE the RELAY_TOKEN secret goes live, and a failed save
+    // is fatal: a relay locked with a token the dashboard never received
+    // answers 401 to every Run discovery (first deploy) or strands a stale
+    // token (rotation). If the upload then fails, the previous credential is
+    // put back so it keeps matching the token the live relay still holds.
+    const credentialFile = relayCredentialPath();
+    const previousCredential = existsSync(credentialFile)
+      ? readFileSync(credentialFile, "utf8")
+      : null;
     try {
-      // The durable home of the token: a bootstrap refresh never touches it.
-      const credentialPath = writeRelayCredential(relayRecord);
-      console.log(`cloudflare-relay: stored the relay token in ${credentialPath}.`);
+      writeRelayCredential(relayRecord);
     } catch (err) {
-      console.warn(
-        `cloudflare-relay: could not store the relay token (${err && err.message ? err.message : String(err)}). Re-run the deploy so the dashboard can authenticate to the relay.`,
+      fail(
+        `could not save the relay token to ${credentialFile} (${err && err.message ? err.message : String(err)}). RELAY_TOKEN was not uploaded; fix the file permissions and re-run the deploy.`,
       );
     }
+    console.log(`cloudflare-relay: stored the relay token in ${credentialFile}.`);
+    console.log("cloudflare-relay: setting RELAY_TOKEN secret...");
+    runWrangler(["secret", "put", "RELAY_TOKEN", "--config", configPath], {
+      cwd: tempDir,
+      input: `${relayToken}\n`,
+      outputFile: secretOutputPath,
+      onFailure: () => restoreRelayCredential(credentialFile, previousCredential),
+      failureMessage:
+        "wrangler secret put RELAY_TOKEN failed. Check your Cloudflare auth and account permissions. The previous relay credential was kept.",
+    });
     try {
       const bootstrapPath = writeRelayBootstrap(relayRecord);
       console.log(
