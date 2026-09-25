@@ -75,9 +75,55 @@ export function redactSecrets(value) {
   return text;
 }
 
+const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
+
+/**
+ * BEAUDIT E1/G2: the one loopback Host guard shared by the dev-server, the API
+ * and the worker. A DNS-rebound page reaches 127.0.0.1 but sends its own name
+ * in Host, so a loopback listener accepts only 127.0.0.1, localhost or [::1]
+ * with the listener's own port.
+ *
+ * @param {unknown} hostHeader
+ * @param {unknown} port
+ */
+export function isAllowedLoopbackHost(hostHeader, port) {
+  const host = cleanString(hostHeader).toLowerCase();
+  if (!host) return false;
+  const match = /^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(host);
+  if (!match) return false;
+  if (!LOOPBACK_HOSTNAMES.has(match[1])) return false;
+  const expected = Number(port);
+  if (!Number.isInteger(expected) || expected <= 0) return true;
+  const actual = match[2] ? Number(match[2]) : 80;
+  return actual === expected;
+}
+
+/** @param {unknown} address */
+export function isLoopbackAddress(address) {
+  const value = cleanString(address).toLowerCase().replace(/^::ffff:/, "");
+  return value === "::1" || /^127\./.test(value);
+}
+
+/**
+ * @param {{ headers?: Record<string, unknown>, socket?: { localAddress?: unknown, localPort?: unknown } | null }} req
+ * @returns {{ ok: true } | { ok: false, status: 403, code: "HOST_NOT_ALLOWED", error: string }}
+ */
+export function checkLoopbackRequestHost(req) {
+  const socket = req && req.socket ? req.socket : null;
+  if (!socket || !isLoopbackAddress(socket.localAddress)) return { ok: true };
+  const headers = (req && req.headers) || {};
+  if (isAllowedLoopbackHost(headers.host, socket.localPort)) return { ok: true };
+  return {
+    ok: false,
+    status: 403,
+    code: "HOST_NOT_ALLOWED",
+    error: "Host not allowed for this local server.",
+  };
+}
+
 /**
  * @param {unknown} requestOrigin
- * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown }} [options]
+ * @param {{ allowedOrigins?: string[], requestHost?: unknown, requestProtocol?: unknown, loopbackPort?: unknown }} [options]
  */
 export function resolveAllowedBrowserOrigin(
   requestOrigin,
@@ -85,12 +131,18 @@ export function resolveAllowedBrowserOrigin(
     allowedOrigins = [],
     requestHost = "",
     requestProtocol = "http",
+    loopbackPort = undefined,
   } = {},
 ) {
   const origin = cleanString(requestOrigin);
   if (!origin) return "";
   if (allowedOrigins.includes("*")) return "*";
   if (allowedOrigins.includes(origin)) return origin;
+  // On a loopback listener a Host outside the loopback allowlist is a
+  // rebinding attempt, never a same-origin page (E1).
+  if (loopbackPort !== undefined && !isAllowedLoopbackHost(requestHost, loopbackPort)) {
+    return "";
+  }
   const sameOrigin = buildRequestOrigin(requestHost, requestProtocol);
   return sameOrigin && origin === sameOrigin ? origin : "";
 }

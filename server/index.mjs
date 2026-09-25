@@ -19,6 +19,7 @@ import {
   resolveAllowedBrowserOrigin,
   trustedRequestOriginParts,
   validateScrapeTargetWithDns,
+  checkLoopbackRequestHost,
 } from "./security-boundaries.mjs";
 import {
   buildManifest,
@@ -174,12 +175,27 @@ function getAtsProviderErrorMetadata(error) {
   };
 }
 
+// BEAUDIT E1: a DNS-rebound page reaches this loopback listener with its own
+// name in Host. Refuse any Host outside {127.0.0.1, localhost, [::1]}:PORT
+// before CORS, auth or a route can see the request.
+app.use((req, res, next) => {
+  const hostCheck = checkLoopbackRequestHost(req);
+  if (!hostCheck.ok) {
+    return res.status(hostCheck.status).json({
+      error: hostCheck.error,
+      code: hostCheck.code,
+    });
+  }
+  return next();
+});
+
 app.use((req, res, next) => {
   const { requestOrigin, requestHost, requestProtocol } = trustedRequestOriginParts(req);
   const allowOrigin = resolveAllowedBrowserOrigin(requestOrigin, {
     allowedOrigins: ALLOWED_BROWSER_ORIGINS,
     requestHost,
     requestProtocol,
+    loopbackPort: REQUIRE_API_AUTH ? undefined : req.socket.localPort,
   });
 
   res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");

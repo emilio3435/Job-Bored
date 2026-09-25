@@ -34,6 +34,7 @@ import {
   localControlPreflightHeaders,
 } from "./scripts/lib/local-control-auth.mjs";
 import { buildContentSecurityPolicy } from "./scripts/lib/browser-csp-policy.mjs";
+import { checkLoopbackRequestHost } from "./server/security-boundaries.mjs";
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
@@ -2323,6 +2324,18 @@ function createRequestHandler({ currentPort, logger, discoveryWorkerStarter }) {
       : () => {};
 
   return (req, res) => {
+    // BEAUDIT E1/G2/G3: one Host gate for every route. A DNS-rebound page
+    // connects to loopback with its own name in Host; it gets nothing here,
+    // not the /profile proxy, not /__proxy/*, not a static file.
+    const hostCheck = checkLoopbackRequestHost(req);
+    if (!hostCheck.ok) {
+      res.writeHead(hostCheck.status, {
+        "content-type": "application/json",
+        ...STATIC_SECURITY_HEADERS,
+      });
+      res.end(JSON.stringify({ ok: false, code: hostCheck.code, error: hostCheck.error }));
+      return;
+    }
     const parsed = parseRequestUrl(
       req.url,
       `http://127.0.0.1:${currentPort}`,
