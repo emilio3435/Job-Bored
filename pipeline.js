@@ -1233,7 +1233,7 @@
     var cols = STAGES.map(function (s) {
       var bodyId = "pipe-col-body-" + s.key;
       return [
-        '<section class="pipe-col" role="listitem" data-stage="' + s.key + '" aria-label="' + escapeHtml(s.label) + ' column">',
+        '<section class="pipe-col" data-stage="' + s.key + '" aria-label="' + escapeHtml(s.label) + ' column">',
         '  <header class="pipe-col__head">',
         '    <span class="pipe-col__dot" aria-hidden="true"></span>',
         '    <span class="pipe-col__title">' + escapeHtml(s.label) + '</span>',
@@ -1250,8 +1250,11 @@
       ].join("");
     }).join("");
 
+    /* AX-14: role="list" with region children failed aria-required-children.
+       Each column stays a named region ("Discovered column"), so the board
+       itself carries no list role. */
     return [
-      '<div class="pipe-board" role="list" aria-label="Pipeline stages">',
+      '<div class="pipe-board">',
       cols,
       '</div>',
     ].join("");

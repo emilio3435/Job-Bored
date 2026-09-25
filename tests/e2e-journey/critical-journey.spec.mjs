@@ -403,7 +403,10 @@ test("should carry completed discovery into the pipeline and ready dossier mater
     name: "Discovered column",
   });
   await expect(discoveredColumn).toContainText("Discovered 1");
-  await discoveredColumn.getByRole("button", { name: "Expand Discovered" }).click();
+  /* UX01 C19 (TR-09): a stage that holds a role opens by itself, so the
+     Expand chevron is only there when the column is still a rail. */
+  const expandDiscovered = discoveredColumn.getByRole("button", { name: "Expand Discovered" });
+  if (await expandDiscovered.count()) await expandDiscovered.click();
 
   const discoveredJob = page.locator(".pipe-sticker", {
     hasText: "Platform Engineer",

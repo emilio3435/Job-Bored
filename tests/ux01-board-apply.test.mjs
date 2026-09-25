@@ -293,8 +293,9 @@ describe("C17/C19 card and board semantics", () => {
     assert.match(src, /Open dossier: /);
     assert.doesNotMatch(src, / — open letter/);
   });
-  it("AX-14: board columns are list items", () => {
-    assert.match(src, /class="pipe-col" role="listitem"/);
+  it("AX-14: the board is not an empty list; columns stay named regions", () => {
+    assert.doesNotMatch(src, /class="pipe-board" role="list"/);
+    assert.match(src, /'<section class="pipe-col" data-stage="/);
   });
   it("TR-03: a drag marks the card before the tap handler can open the dossier", () => {
     assert.match(src, /drag\.moved = true;\s*\n\s*drag\.card\.__pipeJustDragged = true;/);
