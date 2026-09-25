@@ -138,6 +138,8 @@ const POSTING_DROP_HEADING =
   /^(?:#+\s*)?(?:\*\*)?\s*(?:about (?:us|the company|[A-Z][\w&.-]*)|benefits|perks|compensation|salary|pay (?:range|transparency)|what we offer|why (?:join|work)|equal (?:employment )?opportunity|eeo|our (?:values|mission|culture)|life at|how to apply|privacy)\b[^\n]{0,40}$/i;
 const POSTING_TRIMMED_MAX = 4000;
 const POSTING_FALLBACK_MAX = 3000;
+/** E18: one budget for every optional profile excerpt in the ATS prompt. */
+const PROFILE_EXCERPTS_MAX = 10000;
 
 /**
  * @param {unknown} description
@@ -384,6 +386,34 @@ function normalizeScorecard(parsed, model) {
   };
 }
 
+/**
+ * E18: the optional profile excerpts share one character budget, in priority
+ * order, instead of up to 30000 characters on top of the draft and posting.
+ * @param {UnknownRecord} profile
+ * @returns {string[]}
+ */
+function profileExcerptLines(profile) {
+  /** @type {[string, unknown, number][]} */
+  const fields = [
+    ["Candidate profile", profile.candidateProfileText, 6000],
+    ["Resume source", profile.resumeSourceText, 6000],
+    ["LinkedIn source", profile.linkedinProfileText, 3000],
+    ["Additional context", profile.additionalContextText, 3000],
+  ];
+  let remaining = PROFILE_EXCERPTS_MAX;
+  /** @type {string[]} */
+  const lines = [];
+  for (const [label, value, cap] of fields) {
+    const text = normalizeSpace(value);
+    if (!text || remaining <= 0) continue;
+    const clipped = clipText(text, Math.min(cap, remaining));
+    remaining -= Math.min(text.length, cap, remaining);
+    lines.push(`${label}:\n${clipped}`);
+  }
+  if (!normalizeSpace(profile.candidateProfileText)) lines.unshift("Candidate profile: (none)");
+  return lines;
+}
+
 /** @param {AtsPayload} payload */
 function buildUserPrompt(payload) {
   const featureLabel =
@@ -414,18 +444,7 @@ function buildUserPrompt(payload) {
     `Tools and stack: ${(Array.isArray(posting.toolsAndStack) ? posting.toolsAndStack.slice(0, 24) : []).join("; ") || "(none)"}`,
     "",
     "--- Candidate profile excerpts (optional) ---",
-    profile.candidateProfileText
-      ? `Candidate profile:\n${clipText(profile.candidateProfileText, 10000)}`
-      : "Candidate profile: (none)",
-    profile.resumeSourceText
-      ? `Resume source:\n${clipText(profile.resumeSourceText, 8000)}`
-      : "",
-    profile.linkedinProfileText
-      ? `LinkedIn source:\n${clipText(profile.linkedinProfileText, 6000)}`
-      : "",
-    profile.additionalContextText
-      ? `Additional context:\n${clipText(profile.additionalContextText, 6000)}`
-      : "",
+    ...profileExcerptLines(profile),
     "",
     instructions.userNotes
       ? `User notes: ${clipText(instructions.userNotes, 1200)}`
