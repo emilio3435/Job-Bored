@@ -110,10 +110,10 @@ describe("v2 pipeline column collapse and scrolling", () => {
         pipelineCss.includes("overflow-x: auto;") &&
         pipelineCss.includes("overscroll-behavior-inline: contain;") &&
         pipelineCss.includes("scroll-snap-type: x proximity;") &&
-        pipelineCss.includes("--pipe-col-open: clamp(236px, 22vw, 280px);") &&
-        pipelineCss.includes("width: max-content;") &&
-        pipelineCss.includes("min-width: 100%;"),
-      "the kanban should scroll horizontally in its shell instead of compressing across the viewport",
+        // UX01 C19: the six active stages share the width at desktop, and a
+        // track never drops below 164 px; past that the shell scrolls.
+        pipelineCss.includes("--pipe-col-open: minmax(164px, 1fr);"),
+      "the kanban should scroll horizontally in its shell instead of compressing below a readable column",
     );
   });
 

@@ -829,13 +829,14 @@ const UNREADABLE_LINK_COPY =
    "couldn't read that page" state); anything else is the plain lede. */
 function setIngestManualModalLead(els, message, tone) {
   const warn = tone === "warn";
-  if (els.banner) {
-    els.banner.style.display = warn ? "" : "none";
-    if (els.bannerText) els.bannerText.textContent = warn ? message : "";
+  const useBanner = warn && !!(els.banner && els.banner.style);
+  if (els.banner && els.banner.style) {
+    els.banner.style.display = useBanner ? "" : "none";
+    if (els.bannerText) els.bannerText.textContent = useBanner ? message : "";
   }
   if (els.explain) {
-    els.explain.style.display = warn && els.banner ? "none" : "";
-    els.explain.textContent = warn && els.banner ? "" : message;
+    if (els.explain.style) els.explain.style.display = useBanner ? "none" : "";
+    els.explain.textContent = useBanner ? "" : message;
   }
 }
 

@@ -139,13 +139,15 @@
   }
 
   function evidenceFrom(values, defaults, materials) {
-    return {
+    var evidence = {
       appliedDate: fieldValue(values, "appliedDate") || defaults.appliedDate,
       source: fieldValue(values, "source") || "Unknown",
       receiptNote: fieldValue(values, "receiptNote"),
       followUpDate: fieldValue(values, "followUpDate") || defaults.followUpDate,
-      sent: sentFrom(values, materials || []),
     };
+    // Only when the dialog offered files; the evidence shape is unchanged otherwise.
+    if (materials && materials.length) evidence.sent = sentFrom(values, materials);
+    return evidence;
   }
 
   function dispatchWriteFailure(jobKey, reason, error) {
@@ -362,7 +364,7 @@
             followUpDate: evidence.followUpDate,
             receiptNote: evidence.receiptNote,
             materials: materials.map(function (m) {
-              return { id: m.id, label: m.label, checked: evidence.sent.indexOf(m.label) !== -1 };
+              return { id: m.id, label: m.label, checked: (evidence.sent || []).indexOf(m.label) !== -1 };
             }),
           } });
         },
