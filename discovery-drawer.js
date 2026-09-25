@@ -1868,6 +1868,12 @@ function initDiscoveryDrawer() {
             throw new Error("Discovery run preview output is unavailable.");
           }
           summary.textContent = preview.summaryLines.join("\n");
+          const details = content.querySelector(
+            "[data-discovery-run-preview-details]",
+          );
+          if (details) {
+            details.textContent = (preview.detailLines || []).join("\n");
+          }
           previewMount.replaceChildren(content);
           previewMount.hidden = false;
         } catch (err) {

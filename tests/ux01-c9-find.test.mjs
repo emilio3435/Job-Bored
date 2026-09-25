@@ -129,3 +129,26 @@ describe("C9 · run status in plain words (FD-11, FD-12, SS-24, FD-25)", () => {
     assert.ok(!read("discovery-status-handoff.js").includes("Settings → Discovery"));
   });
 });
+
+describe("C9 · the run preview reads as plain lines (FD-10)", () => {
+  it("keeps hashes, keys and credential kinds out of the summary", () => {
+    const src = read("discovery-run-preview.js");
+    const summary = src.slice(src.indexOf("preview.summaryLines = ["), src.indexOf("preview.detailLines = ["));
+    for (const word of ["Profile hash", "Variation key", "Sheets credential", "Source lanes"]) {
+      assert.ok(!summary.includes(word), `${word} belongs in the details disclosure`);
+    }
+    assert.match(read("partials/discovery-run-preview.html"), /data-discovery-run-preview-details/);
+    assert.doesNotMatch(read("partials/discovery-run-preview.html"), /<h3/);
+  });
+});
+
+describe("C9 · runs log settles and tells the truth (FD-15, FD-16)", () => {
+  it("clears loading before the final paint", () => {
+    const src = read("runs-tab.js");
+    assert.match(src, /state\.loading = false;\s*rerender\(\);\s*\} finally \{/);
+  });
+
+  it("labels stopped polling 'Status unknown', not 'Retrying'", () => {
+    assert.ok(!read("runs-tab.js").includes('return "Retrying"'));
+  });
+});

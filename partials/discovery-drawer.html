@@ -643,9 +643,13 @@
                   />
                   Enable — generate a GitHub Actions workflow for this schedule
                 </label>
+                <!-- UX01 C9 (FD-18): lane F sets this to the viewer's zone when
+                     the generated workflow's TZ guard follows it. -->
                 <label
                   class="field-label"
                   for="settingsProfileScheduleCloudTime"
+                  id="settingsProfileScheduleCloudTzLabel"
+                  data-tz="America/Chicago"
                 >
                   America/Chicago time
                 </label>

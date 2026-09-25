@@ -462,7 +462,9 @@
     if (status === "empty") return "Empty";
     if (status === "partial") return "Partial";
     if (status === "failed") return "Failed";
-    if (status === "polling_error") return "Retrying";
+    // UX01 C9 (FD-16): polling stopped for good — no retry is coming, so
+    // "Retrying" was a promise. The row says what is known.
+    if (status === "polling_error") return "Status unknown";
     return "Running";
   }
 
@@ -837,6 +839,9 @@
         }
         // Keep unmatched local terminal outcomes visible. Only
         // hasTerminalSheetMatchForLiveRun() may drop them.
+        // UX01 C9 (FD-15): the load is done BEFORE the final paint, or the
+        // status line stays on "Loading runs…" under rows that already landed.
+        state.loading = false;
         rerender();
       } finally {
         state.loading = false;
