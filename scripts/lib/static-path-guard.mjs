@@ -8,6 +8,7 @@ const DENIED_BASENAMES = new Set([
   "config.js",
   "discovery-local-bootstrap.json",
   "service-account-key.json",
+  "brief-mockup.html",
 ]);
 
 const DENIED_PATHS = new Set([
@@ -28,6 +29,62 @@ const DENIED_PATH_PREFIXES = [
   "integrations/hermes-job-hunt/evidence",
   "integrations/hermes-job-hunt/profile/sources",
 ];
+
+// BEAUDIT G3: the dev-server serves an allowlist. A denylist over the whole
+// repo leaked gitignored local artifacts (tmp/*.log, docs/redesign/logs,
+// uploads/, profile zips) and server source.
+const ROOT_FILE_EXTENSIONS = new Set([
+  ".html", ".js", ".css", ".svg", ".png", ".ico", ".webp", ".jpg", ".jpeg",
+  ".gif", ".woff", ".woff2", ".webmanifest", ".txt",
+]);
+
+const PUBLIC_DIRECTORIES = [
+  "assets",
+  "css",
+  "partials",
+  "vendor",
+  "lib",
+  "fixtures",
+  "schemas",
+  "examples",
+  "integrations/apps-script",
+];
+
+const PUBLIC_DOC_EXTENSIONS = new Set([
+  ".md", ".png", ".svg", ".webp", ".jpg", ".jpeg", ".gif",
+]);
+
+const DENIED_ANYWHERE_EXTENSIONS = new Set([
+  ".log", ".zip", ".env", ".pem", ".key", ".sqlite", ".db",
+]);
+
+function extensionOf(segment) {
+  const index = segment.lastIndexOf(".");
+  return index > 0 ? segment.slice(index).toLowerCase() : "";
+}
+
+/**
+ * True only for the dashboard's public files: root web assets, the public
+ * asset directories, markdown docs, and the integration READMEs the wizard
+ * links to. Everything else under the repo root is refused.
+ */
+export function isServableRelativePath(relativePath) {
+  const segments = posixSegments(relativePath);
+  if (segments.length === 0) return false;
+  if (isDeniedRelativePath(relativePath)) return false;
+  const joined = segments.join("/");
+  const lower = joined.toLowerCase();
+  const ext = extensionOf(segments[segments.length - 1]);
+  if (DENIED_ANYWHERE_EXTENSIONS.has(ext)) return false;
+  if (segments.some((segment) => segment.toLowerCase() === "uploads")) return false;
+  if (segments.length === 1) return ROOT_FILE_EXTENSIONS.has(ext);
+  if (PUBLIC_DIRECTORIES.some((dir) => lower.startsWith(`${dir}/`))) return true;
+  if (segments[0] === "docs") {
+    return PUBLIC_DOC_EXTENSIONS.has(ext) && !lower.startsWith("docs/redesign/logs/");
+  }
+  if (segments[0] === "integrations") return ext === ".md";
+  return false;
+}
 
 /**
  * Loopback by default. Remote bind only when `host` or COMMAND_CENTER_LISTEN_HOST
@@ -125,6 +182,12 @@ export async function resolvePublicFile(urlPath, { root } = {}) {
   if (isDeniedRelativePath(split.relativePath)) {
     return { ok: false, status: 403, reason: "denied_artifact" };
   }
+  const directoryRequest = !extensionOf(
+    posixSegments(split.relativePath).slice(-1)[0] || "",
+  );
+  if (!directoryRequest && !isServableRelativePath(split.relativePath)) {
+    return { ok: false, status: 404, reason: "not_public" };
+  }
 
   const rootResolved = resolve(root);
   const candidate = resolve(rootResolved, split.relativePath);
@@ -177,6 +240,9 @@ export async function resolvePublicFile(urlPath, { root } = {}) {
   const servedRelative = relative(rootReal, realFile).replaceAll("\\", "/");
   if (isDeniedRelativePath(servedRelative)) {
     return { ok: false, status: 403, reason: "denied_artifact" };
+  }
+  if (!isServableRelativePath(servedRelative)) {
+    return { ok: false, status: 404, reason: "not_public" };
   }
 
   return { ok: true, status: 200, filePath: realFile };
