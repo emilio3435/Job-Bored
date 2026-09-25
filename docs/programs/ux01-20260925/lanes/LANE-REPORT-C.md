@@ -301,3 +301,38 @@ EXIT 1
 [test:e2e-journey]  25 passed (28.9s)
 [test:e2e-visual]   37 passed (1.0m)
 ```
+
+## Verification · floor (C-sync)
+
+Independent Opus verifier, fresh context, run on 2026-09-25 against HEAD 7e9c2f6 (branch feat/ux01-shell-today). Logs: `Job-Bored.worktrees/.ux01-run/C-sync-floor/<n>.log`. Nothing was edited or skipped, and no --grep/--shard/--update-snapshots flags were used. node_modules and server/node_modules are confirmed symlinks into /Users/emilionunezgarcia/Job-Bored.
+
+| # | Command | Result | Counts |
+|---|---|---|---|
+| 1 | npm run lint:repo | PASS (exit 0) | lint:tokens ok: 34 sheets, 0 new findings |
+| 2 | npm run typecheck:repo | PASS (exit 0) | tsc clean |
+| 3 | npm test | PASS (exit 0) | 3049 tests, 3048 pass, 0 fail, 1 todo |
+| 4 | npm run test:contract:all | PASS (exit 0) | all OK |
+| 5 | npm run test:e2e-smoke | **FAIL (exit 1)** | 11 passed, 4 failed; rerun of board-apply.spec.mjs by itself: 4 failed |
+| 6 | npm run test:e2e-journey | PASS (exit 0) | 25 passed |
+| 7 | npm run test:e2e-visual | PASS (exit 0) | 37 passed |
+
+Floor is **not green**. The failures are the same 4 in `tests/e2e-smoke/board-apply.spec.mjs` that the previous section reported. All 4 fail in `bootBoard()` at line 82, `page.locator(REGION).scrollIntoViewIfNeeded()`: three time out with "element is not visible" and one fails with "Element is not attached to the DOM". The one allowed rerun of the spec by itself also failed, so these are not flaky. The lane-D handoff above is still open.
+
+```
+[test:e2e-smoke]
+  ✘ tests/e2e-smoke/board-apply.spec.mjs:86:1  › should open every stage that holds a role at 1440 (TR-09)
+  ✘ tests/e2e-smoke/board-apply.spec.mjs:96:1  › should show a readable list under 760 px with a Board toggle (TR-08, MP-09)
+  ✘ tests/e2e-smoke/board-apply.spec.mjs:110:1 › should paint the stage menu above the next card (TR-07, AX-02)
+  ✘ tests/e2e-smoke/board-apply.spec.mjs:131:1 › should give a keyboard-focused card a ring and a real Open dossier button (AX-04, AX-13)
+    Error: locator.scrollIntoViewIfNeeded: Test timeout of 90000ms exceeded.
+      - element is not visible
+    > 82 |   await page.locator(REGION).scrollIntoViewIfNeeded();
+        at bootBoard (tests/e2e-smoke/board-apply.spec.mjs:82:30)
+  4 failed
+  11 passed (6.3m)
+EXIT=1
+[rerun alone] 4 failed, EXIT=1
+[test] ℹ tests 3049 ℹ pass 3048 ℹ fail 0 ℹ todo 1
+[test:e2e-journey] 25 passed (27.9s)
+[test:e2e-visual]  37 passed (1.0m)
+```
