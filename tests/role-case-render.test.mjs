@@ -258,7 +258,8 @@ describe("The Case renders every block from the model", () => {
     assert.doesNotMatch(html, /case__pill--due/);
     assert.doesNotMatch(html, /data-num="keywords"/);
     assert.doesNotMatch(html, /case__section--you/);
-    assert.match(html, /Add a resume to see what matches/);
+    /* UX01 C11 (TA-15): the hint is also the way to fix it. */
+    assert.match(html, /data-action="open-resume"[^>]*>Add your resume<\/button> to see what matches/);
   });
   /* Spec §3.3 decision §9-2: the keyword-fallback lane is gone — keywords
      with no scorecard yield source "none", and the renderer hides on it. */

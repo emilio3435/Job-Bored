@@ -318,7 +318,9 @@
       } else {
         // No percent attribute at all: 0 would read as a measured zero.
         ring.removeAttribute("percent");
-        ring.setAttribute("label", "Overall ATS match not available");
+        /* UX01 C14 (TA-23, AX-21): a sentence spilled out of the 64px
+           ring; the ring draws an em dash and the note says the rest. */
+        ring.setAttribute("label", "—");
         ring.setAttribute("data-unscored", "true");
         // jb-fit-ring is a role="meter" and always publishes an
         // aria-valuenow (0 with no percent). Hide the empty meter from the
@@ -475,7 +477,30 @@
     };
   }
 
+  /* UX01 C14 (MP-03): the free, deterministic half of scoring. Which of the
+     posting's named terms the draft already uses — whole-word, case-folded,
+     no network call, so it can recompute on every keystroke. The paid AI
+     scorecard stays behind Rescore. */
+  function normTerm(s) {
+    return String(s == null ? "" : s).toLowerCase().replace(/[^a-z0-9+#]+/g, " ").trim();
+  }
+  function keywordCoverage(text, terms) {
+    const hay = ` ${normTerm(text)} `;
+    const seen = new Set();
+    const matched = [];
+    const missing = [];
+    for (const raw of Array.isArray(terms) ? terms : []) {
+      const label = String(raw == null ? "" : raw).trim();
+      const key = normTerm(label);
+      if (!key || seen.has(key)) continue;
+      seen.add(key);
+      (hay.includes(` ${key} `) ? matched : missing).push(label);
+    }
+    return { matched, missing, total: matched.length + missing.length };
+  }
+
   window.JobBoredScribeScore = Object.freeze({
+    keywordCoverage,
     DIMENSIONS,
     mount,
     render,

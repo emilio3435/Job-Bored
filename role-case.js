@@ -155,8 +155,13 @@
     /* The same request cannot be issued twice from the same surface: while a
        run is in flight its button IS the chip. */
     if (doc && (doc.status === "pending" || doc.status === "failed")) return inflightChip(doc);
+    /* C12 (TA-06): with the materials server down the button is off, not a
+       promise of a queue nothing will ever read. The Materials section says
+       why and how to start it; the disabled control names the reason too. */
+    var down = m.moves.materialsServer === "down";
     return '<button type="button" class="case__btn' + (primary ? " case__btn--primary" : "") + '" data-action="' + action + '"' +
-      ' aria-label="' + attr(aria) + '">' + esc(label) + "</button>";
+      ' aria-label="' + attr(down ? aria + " (the drafting server isn't running)" : aria) + '"' +
+      (down ? ' disabled aria-describedby="case-materials-server"' : "") + ">" + esc(label) + "</button>";
   }
   function renderDocket(m, stages) {
     var actions = "";
@@ -227,9 +232,14 @@
        score gets the alarm color. */
     if (n.ats) {
       var atsLow = Number(n.ats.value) < 70;
-      tiles.push(tile("ats", "Resume score", src("ai"),
+      /* C13 (TA-13): the score names the document it rates, and which
+         version on which day, so it can never pass for the PDF you send. */
+      var atsDoc = n.ats.doc || "draft";
+      var atsKey = atsDoc.charAt(0).toUpperCase() + atsDoc.slice(1) + " score";
+      var atsSub = "scored " + atsDoc + (n.ats.version ? " v" + n.ats.version : "") + (n.ats.scoredAt ? " · " + n.ats.scoredAt : "");
+      tiles.push(tile("ats", atsKey, src("ai"),
         (atsLow ? '<span class="case__num-v--crimson">' : "<span>") + esc(String(n.ats.value)) + "</span><small>/100</small>",
-        "How well your draft answers this posting", "ai"));
+        esc(atsSub), "ai"));
     }
     if (n.keywords) tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
       '<div class="case__num-k">Keywords ' + src("derived") + '</div><div class="case__num-v">' + esc(String(n.keywords.percentage)) + "<small>%</small></div>" +
@@ -296,7 +306,13 @@
     var review = !!(m.provenance && m.provenance.needsReview);
     var html = '<section class="case__section case__section--they">' +
       sectionHead("They want", src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "unverified") : ""));
-    if (!h) html += '<p class="case__hint">Add a resume to see what matches.</p>';
+    /* C11 (TA-15): the sentence that says what is missing is also the way to
+       fix it. Once a resume is on file the hint says matching is on its way. */
+    if (!h) {
+      html += m.moves.resume
+        ? '<p class="case__hint">Matching against your resume…</p>'
+        : '<p class="case__hint"><button type="button" class="case__link" data-action="open-resume">Add your resume</button> to see what matches.</p>';
+    }
     var reqSub = review ? "Requirements · unverified — read these against the posting before you rely on them" : ("Requirements" + (h ? " · vs. your resume" : ""));
     /* Spec §3.2: the first visibleCount requirements render; the rest sit in
        .case__more behind a client-state toggle. Nice-to-haves keep their own
@@ -486,7 +502,12 @@
        something else is in the docket. */
     var canvas = '<div class="case__canvas">' +
       (model.oneLine ? '<blockquote class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</blockquote>" : "") +
-      renderTheyWant(model) + renderYouHave(model) + renderSayThis(model) + renderNotes(model) +
+      renderTheyWant(model) + renderYouHave(model) +
+      /* C14 (TA-09): Scribe parks here, bound to one of this role's
+         documents, when the reader chooses Edit on it; scribe.js moves its
+         workspace in and out (role-materials.js asks after every render). */
+      '<section class="case__section case__section--scribe" data-mount="scribe" aria-label="Edit this role\u2019s document" hidden></section>' +
+      renderSayThis(model) + renderNotes(model) +
     "</div>";
     var ledger = '<aside class="case__ledger" aria-label="Role ledger">' +
       renderMaterialsSection() + renderPeople(model) + renderRecord(model) +
@@ -495,11 +516,16 @@
        (SPEC §2): masthead, verdict, docket, then the read. The ledger follows
        the canvas in source order and is never reordered visually, so tab order
        and reading order agree at every width (WCAG 1.3.2, 2.4.3). */
+    /* C12 (TA-18): one inline line for a missing AI provider, in place of the
+       stacked red toasts that covered the docket on every open. */
+    var notice = model.notice
+      ? '<p class="case__notice" role="status">' + esc(model.notice) + "</p>"
+      : "";
     /* Spec §4 (casefit): the They-want disclosures are client-state only;
        the Case binds its own single delegated listener on the mount. */
     bindBoardToggles(mount);
     mount.innerHTML = '<div class="case">' +
-      renderRail(model) + renderVerdict(model) + renderDocket(model, stages) +
+      renderRail(model) + notice + renderVerdict(model) + renderDocket(model, stages) +
       '<div class="case__body">' + canvas + ledger + "</div>" +
     "</div>";
   }

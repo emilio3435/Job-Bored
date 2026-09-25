@@ -57,6 +57,19 @@
     manual_apply_checklist: { label: "Apply Checklist", role: "support" },
   };
 
+  /* UX01 lane E. C11: the server refuses to draft without the user's own
+     resume and says so with this code (server sub-lane contract). */
+  var RESUME_REQUIRED_CODE = "resume_required";
+  /* C12 (TA-26): a run past this is "taking longer than usual" — about twice
+     the median local run, instead of silence for 30 minutes. */
+  var STALL_NOTICE_SECONDS = 180;
+  /* C12 (TA-03): auto-draft on a move to Researching is opt-in. */
+  var AUTO_DRAFT_STORAGE_KEY = "jobBored:autoDraft:v1";
+  /* C12 (TA-05): how long an optimistic "queued" row outlives a manifest
+     that has not caught up with the request yet. */
+  var OPTIMISTIC_HOLD_MS = 90 * 1000;
+  var START_COMMAND = "npm start";
+
   function shouldRun() {
     return !!(typeof document !== "undefined"
       && document.body
@@ -439,6 +452,213 @@
       + '</article>';
   }
 
+  /* -------------------- C11: the user's resume --------------------
+     Drafts are written from the resume the user added in Portfolio (IndexedDB,
+     via CommandCenterUserContent). A page without that store cannot know, so
+     it drafts as before and lets the server decide (feature detection). */
+  var resumeSummary; /* undefined = not read yet; null = none on file */
+
+  function userContentApi() {
+    var uc = root.CommandCenterUserContent;
+    return uc && typeof uc.getActiveResume === "function" ? uc : null;
+  }
+
+  function resumePayload(rec) {
+    if (!rec) return null;
+    var text = String(rec.extractedText || rec.text || "").trim();
+    if (!text) return null;
+    return {
+      source: String(rec.source || "file"),
+      filename: String(rec.label || rec.filename || "My resume"),
+      addedAt: String(rec.createdAt || rec.addedAt || ""),
+      text: text,
+    };
+  }
+
+  function setResumeSummary(payload) {
+    var next = payload ? { filename: payload.filename, addedAt: payload.addedAt } : null;
+    var before = resumeSummary === undefined ? "?" : JSON.stringify(resumeSummary);
+    resumeSummary = next;
+    if (before !== JSON.stringify(next)) notifyCaseRerender();
+  }
+
+  /* Resolves { available, resume }: available is false when the page has no
+     resume store at all, never when the store is merely empty. */
+  function readResume() {
+    var uc = userContentApi();
+    if (!uc) return Promise.resolve({ available: false, resume: null });
+    return Promise.resolve()
+      .then(function () { return uc.getActiveResume(); })
+      .then(function (rec) {
+        var payload = resumePayload(rec);
+        setResumeSummary(payload);
+        return { available: true, resume: payload };
+      })
+      .catch(function () { return { available: false, resume: null }; });
+  }
+
+  function getResumeSummary() {
+    return resumeSummary;
+  }
+
+  function isResumeRequiredError(err) {
+    if (!err) return false;
+    var body = err.body || null;
+    return (err.status === 422 && body && body.code === RESUME_REQUIRED_CODE)
+      || err.code === RESUME_REQUIRED_CODE;
+  }
+
+  /* Opens Portfolio on its Resume section (TA-15). profile-materials owns
+     the modal; this only asks it to open and scrolls to the resume. */
+  function openResume() {
+    var app = root.JobBoredApp;
+    var pm = app && app.profileMaterials;
+    var open = (pm && pm.openMaterialsModal) || root.openMaterialsModal;
+    if (typeof open !== "function") return false;
+    try { open(); } catch (e) { return false; }
+    var heading = typeof document !== "undefined" && document.getElementById
+      ? document.getElementById("profileResumeHeading")
+      : null;
+    if (heading && typeof heading.scrollIntoView === "function") {
+      try { heading.scrollIntoView({ block: "start" }); } catch (e) { /* ignored */ }
+    }
+    return true;
+  }
+
+  /* -------------------- C12: is the drafting server there? -------------------- */
+  var serverState = ""; /* "" unknown, "up", "down" */
+
+  function getServerState() {
+    return serverState;
+  }
+
+  function setServerState(next) {
+    if (serverState === next) return;
+    var prev = serverState;
+    serverState = next;
+    /* The docket only differs for "down", so "" → "up" is not news. */
+    if (prev === "down" || next === "down") notifyCaseRerender();
+  }
+
+  /* The Case re-reads getServerState/getResumeSummary on its next render;
+     role.js re-renders the open role on jb:materials:manifest. */
+  function notifyCaseRerender() {
+    var key = openRoleKey();
+    if (!key) return;
+    dispatch("jb:materials:manifest", {
+      jobKey: key,
+      manifest: currentManifest && String(currentManifest.jobKey) === key ? currentManifest.manifest : null,
+      reason: "state",
+    });
+  }
+
+  function gateSection(kind, inner) {
+    return '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows ' + SECTION_CLASS + '--' + kind + '"'
+      + ' aria-label="Application materials">' + inner + '</section>';
+  }
+
+  /* One honest state when nothing is listening on the materials port: no
+     optimistic "queued", no paste-the-JD form (TA-06). */
+  function renderServerDown(hostEl) {
+    if (!hostEl) return;
+    lastPaint = { kind: "server-down" };
+    lastPaintKey = paintedRoleKey();
+    removeExisting(hostEl);
+    appendSection(hostEl, gateSection("server-down",
+      '<div class="case__gate case__gate--server" id="case-materials-server" role="status">'
+        + '<p class="case__gate-title">Drafting server not running</p>'
+        + '<p class="case__gate-body">Drafting is paused. In your JobBored folder run <code>' + escapeHtml(START_COMMAND) + '</code>, then try again.</p>'
+        + '<div class="case__gate-actions">'
+          + '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-server-retry">Retry</button>'
+          + '<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-copy-command">Copy command</button>'
+        + '</div>'
+      + '</div>'));
+    wireSection(hostEl);
+  }
+
+  /* C11 (TA-02): no draft starts without the user's own resume. */
+  function renderResumeGate(hostEl) {
+    if (!hostEl) return;
+    lastPaint = { kind: "resume-gate" };
+    lastPaintKey = paintedRoleKey();
+    removeExisting(hostEl);
+    appendSection(hostEl, gateSection("resume-gate",
+      '<div class="case__gate case__gate--resume" role="status">'
+        + '<p class="case__gate-kicker">No resume yet</p>'
+        + '<p class="case__gate-title">Add your resume first</p>'
+        + '<p class="case__gate-body">Drafts are written from it, so they sound like you and list only what you\u2019ve done. It stays on this computer.</p>'
+        + '<div class="case__gate-actions">'
+          + '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="open-resume">Add your resume</button>'
+        + '</div>'
+      + '</div>'));
+    wireSection(hostEl);
+  }
+
+  /* Retry keeps "down" until the load answers: the load's own
+     setServerState("up") is then a down → up change, which re-renders the
+     Case docket and re-enables Draft (TA-06). Resetting to "" here would
+     turn it into an unannounced "" → up. */
+  function retryServer() {
+    clearCache();
+    var key = openRoleKey() || (currentContext && currentContext.jobKey);
+    if (key != null && key !== "") loadForOpenRole(key);
+  }
+
+  function copyStartCommand(btn) {
+    var nav = root.navigator;
+    var done = function () { if (btn) btn.textContent = "Copied"; };
+    if (nav && nav.clipboard && typeof nav.clipboard.writeText === "function") {
+      nav.clipboard.writeText(START_COMMAND).then(done, function () { /* the command is on screen */ });
+    }
+  }
+
+  /* -------------------- C12: auto-draft is opt-in -------------------- */
+  function isAutoDraftEnabled() {
+    var cfg = root.COMMAND_CENTER_CONFIG;
+    if (cfg && cfg.autoDraftOnResearching === true) return true;
+    try {
+      return !!(root.localStorage && root.localStorage.getItem(AUTO_DRAFT_STORAGE_KEY) === "on");
+    } catch (e) {
+      return false;
+    }
+  }
+
+  function toast(message, tone) {
+    if (typeof root.showToast !== "function") return;
+    try { root.showToast(message, tone || "info"); } catch (e) { /* a toast is never load-bearing */ }
+  }
+
+  /* -------------------- C12 (TA-05): the optimistic row holds --------------------
+     A 2xx /request whose manifest has not caught up yet used to revert the row
+     to "not drafted" and invite a second request. The optimistic pending block
+     survives until the manifest shows a server-written pending, a document,
+     or the hold lapses. The run's own optimistic pending block (the same
+     object, committed by renderOptimisticPending) is not "caught up". */
+  var optimisticRun = null;
+
+  function holdOptimistic(manifest) {
+    if (!optimisticRun || !manifest || manifest.slug !== optimisticRun.slug) return manifest;
+    var docs = Array.isArray(manifest.documents) ? manifest.documents : [];
+    var serverPending = !!manifest.pending && manifest.pending !== optimisticRun.pending;
+    var caughtUp = serverPending || docs.some(function (d) {
+      return d && (d.type === optimisticRun.feature || optimisticRun.feature === "both") && d.lastModifiedAt
+        && Date.parse(d.lastModifiedAt) >= optimisticRun.at;
+    });
+    if (caughtUp || Date.now() - optimisticRun.at > OPTIMISTIC_HOLD_MS) {
+      optimisticRun = null;
+      return manifest;
+    }
+    var held = {};
+    for (var k in manifest) if (Object.prototype.hasOwnProperty.call(manifest, k)) held[k] = manifest[k];
+    held.pending = optimisticRun.pending;
+    return held;
+  }
+
+  function secondsSince(iso) {
+    var t = Date.parse(String(iso || ""));
+    return Number.isFinite(t) ? Math.max(0, Math.floor((Date.now() - t) / 1000)) : 0;
+  }
+
   /* Inside the Case a status line replaces the whole panel — the lane
      heading already says "Materials". */
   function renderCaseHint(hostEl, message, extraClass, hintClass) {
@@ -694,6 +914,53 @@
     return isCaseMount(hostEl) ? caseDocTypes() : null;
   }
 
+  /* C11 (TA-01): which resume the drafts came from. The manifest's own
+     record wins ("Drafted from"); before the server records one, the line
+     names the resume the next draft will use ("Drafts use"). */
+  function provenanceHtml(manifest) {
+    var recorded = manifest && manifest.resume && manifest.resume.filename ? manifest.resume : null;
+    var r = recorded || resumeSummary;
+    if (!r || !r.filename) return "";
+    var added = r.addedAt ? ", added " + escapeHtml(String(r.addedAt).slice(0, 10)) : "";
+    return '<p class="case__provenance">' + (recorded ? "Drafted from " : "Drafts use ")
+      + "<b>" + escapeHtml(r.filename) + "</b>" + added
+      + ' <button type="button" class="case__link" data-action="open-resume">Change</button></p>';
+  }
+
+  /* C12 (TA-16): one click drafts; notes are an optional disclosure the next
+     draft picks up, not a mandatory second form. */
+  var draftNotes = "";
+  function draftNotesHtml() {
+    return '<details class="case__draft-notes"' + (draftNotes ? " open" : "") + '>'
+      + '<summary>Notes for the next draft</summary>'
+      + '<textarea class="case__draft-notes-input" data-materials-notes rows="3"'
+      + ' aria-label="Notes for the next draft" placeholder="What angle should we emphasise? Tone? Must-shows?">'
+      + escapeHtml(draftNotes) + '</textarea>'
+      + '</details>';
+  }
+
+  /* C13 (TA-11): the QA report and the checklist open inline. C14 (TA-10):
+     a written resume or letter opens in Scribe for refining. */
+  function extraDocActions(type, doc) {
+    var files = doc && Array.isArray(doc.files) ? doc.files : [];
+    var out = [];
+    if (type === "qa_report" || type === "manual_apply_checklist") {
+      var md = files.filter(function (f) { return f && /\.md$/i.test(String(f.filename || "")); })[0];
+      if (md && ALLOWED_FILES[md.filename]) {
+        out.push('<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-open-md"'
+          + ' data-filename="' + escapeHtml(md.filename) + '" aria-expanded="false">Open</button>');
+      }
+    }
+    if (type === "resume" || type === "cover_letter") {
+      var html = files.filter(function (f) { return f && /\.html$/i.test(String(f.filename || "")); })[0];
+      if (html && ALLOWED_FILES[html.filename]) {
+        out.push('<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-edit"'
+          + ' data-feature="' + escapeHtml(type) + '" data-filename="' + escapeHtml(html.filename) + '">Edit</button>');
+      }
+    }
+    return out;
+  }
+
   /* One row per CASE_DOC_TYPES entry — every deliverable is always listed,
      so "not drafted yet" is as visible as "ready". */
   function renderCaseRows(hostEl, manifest, base, defs) {
@@ -719,6 +986,12 @@
           : (doc
             ? (String(doc.status || "").toLowerCase() === "ready" ? "ready" : "failed")
             : "missing"));
+      /* C13 (TA-12): QA flagged it, so it is "review", never "ready". */
+      var qualityForRow = qualityDocs[def.type];
+      var flags = qualityForRow && Array.isArray(qualityForRow.issues)
+        ? qualityForRow.issues.filter(function (i) { return i && (i.message || i.code); })
+        : [];
+      if (status === "ready" && flags.length) status = "review";
       var attempt = Number(pendingProgress && pendingProgress.attempt) || 1;
       var elapsed = pendingProgress ? formatElapsed(liveElapsedSeconds(pendingProgress)) : "—";
       var isQueued = /^queued$/i.test(phase);
@@ -729,6 +1002,9 @@
       var meta = "";
       if (status === "failed") {
         meta = "stopped after " + elapsed + (attempt > 1 ? " · attempt " + attempt : "");
+      } else if (status === "review") {
+        meta = String(flags[0].message || flags[0].code)
+          + (flags.length > 1 ? " +" + (flags.length - 1) + " more" : "");
       } else if (status === "ready") {
         var files = doc && Array.isArray(doc.files) ? doc.files.length : 0;
         meta = (doc && doc.lastModifiedAt ? "drafted " + String(doc.lastModifiedAt).slice(0, 10) : "drafted")
@@ -751,9 +1027,16 @@
              once a run had actually been retried). */
           + (attempt > 1 ? " · retry " + attempt : "");
         var msg = prog && prog.message ? String(prog.message) : defaultPhaseMessage(phase, pending.feature);
+        /* C12 (TA-26): past ~2x the median run, say so instead of letting
+           the clock climb for 30 minutes. */
+        var runSeconds = prog ? liveElapsedSeconds(prog) : secondsSince(pending.requestedAt);
+        var stall = runSeconds >= STALL_NOTICE_SECONDS
+          ? '<span class="case__doc-stall">Taking longer than usual \u00b7 check that the drafting server is still running.</span>'
+          : "";
         progressHtml = '<span class="case__doc-progress" data-phase="' + escapeHtml(phase) + '" aria-live="polite">'
           + '<span class="case__doc-eyebrow">' + escapeHtml(eyebrow) + '</span>'
           + '<span class="case__doc-msg">' + escapeHtml(msg) + '</span>'
+          + stall
           + '<span class="case__doc-track" aria-hidden="true"><i></i></span>'
         + '</span>';
       } else if (status === "failed") {
@@ -764,12 +1047,11 @@
           : "The drafting worker stopped before the " + featureLabel(pendingFeature || def.type) + " was written. Nothing was saved.";
         progressHtml = '<span class="case__doc-msg">' + escapeHtml(reason) + '</span>';
       }
-      var quality = qualityDocs[def.type];
-      var issue = quality && Array.isArray(quality.issues) ? quality.issues[0] : null;
-      var actions = status === "ready"
+      var issue = flags[0] || null;
+      var actions = status === "ready" || status === "review"
         ? docActionButtons(manifest.slug, doc, base, issue, function (kind) {
           return "case__doc-btn case__doc-btn--" + kind;
-        })
+        }).concat(extraDocActions(def.type, doc))
         : (status === "missing" && def.draftAction
           ? ['<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="'
             + escapeHtml(def.draftAction) + '">Draft</button>']
@@ -790,7 +1072,9 @@
          line, so no content-sized track can take the label's width. */
       var stateWord = status === "missing"
         ? "not drafted"
-        : (isPending && isQueued ? "queued" : status);
+        : (status === "review"
+          ? "review \u00b7 " + flags.length + " flag" + (flags.length === 1 ? "" : "s")
+          : (isPending && isQueued ? "queued" : status));
       var stateClass = isPending && isQueued ? "queued" : status;
       return '<div class="case__doc case__doc--' + status + '" data-doc="' + escapeHtml(def.type) + '">'
         + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
@@ -803,7 +1087,9 @@
 
     appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows"'
       + ' aria-label="Application materials" data-slug="' + escapeHtml(manifest.slug) + '">'
+      + provenanceHtml(manifest)
       + rows
+      + draftNotesHtml()
       + '</section>');
     wireSection(hostEl);
     /* No per-second ticker here: the row's elapsed value is recomputed from
@@ -963,6 +1249,7 @@
   }
 
   function commitManifest(hostEl, manifest, base, jobKey) {
+    manifest = holdOptimistic(manifest);
     renderManifest(hostEl, manifest, base);
     lastPaint = { kind: "manifest" };
     lastPaintKey = paintedRoleKey();
@@ -977,6 +1264,7 @@
       jobKey: currentManifest.jobKey,
       manifest: manifest,
     });
+    return manifest;
   }
 
   function getCurrentManifest() {
@@ -996,6 +1284,15 @@
       renderEmpty(host, lastPaint.options);
     } else if (lastPaint.kind === "error") {
       renderError(host, lastPaint.message);
+    } else if (lastPaint.kind === "server-down") {
+      renderServerDown(host);
+    } else if (lastPaint.kind === "resume-gate") {
+      renderResumeGate(host);
+    }
+    /* C14: a render replaced the Scribe slot too; put the workspace back. */
+    var scribe = root.JB_SCRIBE;
+    if (scribe && typeof scribe.remount === "function") {
+      try { scribe.remount(); } catch (e) { /* Scribe is optional */ }
     }
   }
 
@@ -1004,6 +1301,12 @@
     var section = briefEl.querySelector("." + SECTION_CLASS);
     if (!section || section.__wired) return;
     section.__wired = true;
+    section.addEventListener("input", function (e) {
+      var t = e && e.target;
+      if (t && t.getAttribute && t.getAttribute("data-materials-notes") != null) {
+        draftNotes = String(t.value || "");
+      }
+    });
     section.addEventListener("click", function (e) {
       var t = e.target;
       while (t && t !== section) {
@@ -1034,6 +1337,26 @@
             );
             return;
           }
+          if (action === "materials-server-retry") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            retryServer();
+            return;
+          }
+          if (action === "materials-copy-command") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            copyStartCommand(t);
+            return;
+          }
+          if (action === "materials-open-md") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            toggleMarkdown(t, section);
+            return;
+          }
+          if (action === "materials-edit") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            editInScribe(t, section);
+            return;
+          }
           if (action === "materials-repair") {
             if (typeof e.preventDefault === "function") e.preventDefault();
             handleRepair(
@@ -1045,6 +1368,97 @@
         }
         t = t.parentNode;
       }
+    });
+  }
+
+  function rowOf(node) {
+    var t = node;
+    while (t && t.getAttribute) {
+      if (t.getAttribute("data-doc") != null) return t;
+      t = t.parentNode;
+    }
+    return null;
+  }
+
+  function fetchText(url) {
+    if (typeof fetch !== "function") return Promise.reject(new Error("fetch unavailable"));
+    return fetch(url, { credentials: "omit", cache: "no-store" }).then(function (res) {
+      if (!res.ok) throw new Error("Materials server returned " + res.status);
+      return res.text();
+    });
+  }
+
+  function materialsBase() {
+    return (currentManifest && currentManifest.base) || getBaseUrl();
+  }
+
+  /* C13 (TA-11): read the QA report or checklist inline, under its row. The
+     text is plain text in a <pre>, never parsed as HTML. */
+  function toggleMarkdown(btn, section) {
+    var row = rowOf(btn);
+    if (!row) return;
+    var open = row.querySelector(".case__doc-read");
+    if (open) {
+      if (open.parentNode) open.parentNode.removeChild(open);
+      btn.setAttribute("aria-expanded", "false");
+      btn.textContent = "Open";
+      return;
+    }
+    var slug = section.getAttribute("data-slug") || "";
+    var filename = btn.getAttribute("data-filename") || "";
+    if (!slug || !ALLOWED_FILES[filename]) return;
+    var panel = document.createElement("div");
+    panel.className = "case__doc-read";
+    var pre = document.createElement("pre");
+    pre.className = "case__doc-read-text";
+    pre.textContent = "Loading\u2026";
+    panel.appendChild(pre);
+    row.appendChild(panel);
+    btn.setAttribute("aria-expanded", "true");
+    btn.textContent = "Close";
+    fetchText(fileUrl(materialsBase(), slug, filename)).then(function (text) {
+      pre.textContent = text;
+    }).catch(function (err) {
+      pre.textContent = "Couldn\u2019t open " + filename + ": " + ((err && err.message) || "unknown error");
+    });
+  }
+
+  function htmlToText(html) {
+    var raw = String(html || "");
+    if (typeof root.DOMParser === "function") {
+      try {
+        var parsed = new root.DOMParser().parseFromString(raw, "text/html");
+        var scrub = parsed.querySelectorAll("script, style, head");
+        for (var i = 0; i < scrub.length; i++) scrub[i].parentNode.removeChild(scrub[i]);
+        var blocks = parsed.querySelectorAll("p, li, h1, h2, h3, h4, div, br");
+        for (var j = 0; j < blocks.length; j++) blocks[j].appendChild(parsed.createTextNode("\n"));
+        return String(parsed.body ? parsed.body.textContent : "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
+      } catch (e) { /* fall through */ }
+    }
+    return raw.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  }
+
+  /* C14 (TA-08/10): a written document opens in Scribe, bound to this role. */
+  function editInScribe(btn, section) {
+    var scribe = root.JB_SCRIBE;
+    if (!scribe || typeof scribe.openDocument !== "function") return;
+    var slug = section.getAttribute("data-slug") || "";
+    var filename = btn.getAttribute("data-filename") || "";
+    var feature = btn.getAttribute("data-feature") || "";
+    if (!slug || !ALLOWED_FILES[filename]) return;
+    var jobKey = openRoleKey() || (currentContext && currentContext.jobKey) || "";
+    var job = getMaterialsJob(jobKey) || {};
+    fetchText(fileUrl(materialsBase(), slug, filename)).then(function (html) {
+      scribe.openDocument({
+        jobKey: String(jobKey),
+        feature: feature,
+        company: String(job.company || ""),
+        title: String(job.role || job.title || ""),
+        filename: filename,
+        text: htmlToText(html),
+      });
+    }).catch(function (err) {
+      toast("Couldn\u2019t open the " + featureLabel(feature) + " for editing: " + ((err && err.message) || "unknown error"), "error");
     });
   }
 
@@ -1088,7 +1502,11 @@
        cache → server scrape → user paste), then re-submits. */
     postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/dismiss", {})
       .catch(function () { /* dismiss may 404 if Dobby already cleared it — that's fine */ })
-      .then(function () { return submitDraftRequest(ctx, feature, prevNotes); });
+      .then(function () { return readResume(); })
+      .then(function (r) {
+        if (r.available && !r.resume) { renderResumeGate(findMount()); return null; }
+        return submitDraftRequest(ctx, feature, prevNotes, r.resume);
+      });
   }
 
   function handleRepair(slug, feature) {
@@ -1097,9 +1515,11 @@
     var repairNote = "Repairing Review issues for the " + featureLabel(feature) + ".";
 
     function sendRepairRequest() {
-      return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/repair", {
-        feature: feature,
-        jobUrl: ctx.jobUrl,
+      /* C11: a repair re-drafts too, so it carries the same resume. */
+      return readResume().then(function (r) {
+        var body = { feature: feature, jobUrl: ctx.jobUrl };
+        if (r.resume) body.resume = r.resume;
+        return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/repair", body);
       });
     }
 
@@ -1374,8 +1794,8 @@
         .then(function (manifest) {
           var brief = findMount();
           if (!brief) return;
-          commitManifest(brief, manifest, base);
-          if (manifest.pending) {
+          var committed = commitManifest(brief, manifest, base);
+          if (committed && committed.pending) {
             var delay = Math.min(maxDelay, minDelay + attempts * 500);
             poller = { timeoutId: setTimeout(tick, delay) };
           } else {
@@ -1467,6 +1887,10 @@
       jdSnippet: firstText(primary.jdSnippet, fallback.jdSnippet),
       jdSections: firstArray(primary.jdSections, fallback.jdSections),
       fitAssessment: firstText(primary.fitAssessment, fallback.fitAssessment),
+      /* C16: where the role came from prefills the Applied source, and its
+         stage decides whether "Did you apply?" is still a question. */
+      source: firstText(primary.source, fallback.source),
+      stage: firstText(primary.stage, primary.status, fallback.stage, fallback.status),
     };
   }
 
@@ -1527,13 +1951,17 @@
     var base = getBaseUrl();
     if (!base) {
       currentContext = null;
-      renderError(brief, "Run npm start so the local materials server is available.");
+      setServerState("down");
+      renderServerDown(brief);
       return;
     }
 
     currentContext = buildMaterialsContext(jobKey);
+    /* C11: know the resume before the reader reaches Draft. Never blocks. */
+    readResume();
 
     getApplications(base).then(function (apps) {
+      setServerState("up");
       return pickApplicationWithRefresh(base, job, apps);
     }).then(function (resolved) {
       var apps = resolved.applications || [];
@@ -1556,23 +1984,39 @@
         /* Even without a folder, the request endpoint will create one
            and write pending.json, so we still expose the empty state
            which now includes a hint about the dossier CTAs above. */
-        renderEmpty(brief, {
+        /* The mount is resolved at paint time: a Case render while the
+           fetch was in flight (the resume read can trigger one) replaced the
+           element captured above. */
+        renderEmpty(findMount() || brief, {
           note: "No drafts on disk yet. Use Draft cover letter / Tailor resume above to request a tailored pass.",
         });
         return;
       }
       return fetchJson(base + "/api/applications/" + encodeURIComponent(picked.slug) + "/manifest")
         .then(function (manifest) {
-          commitManifest(brief, manifest, base, jobKey);
+          commitManifest(findMount() || brief, manifest, base, jobKey);
           if (manifest.pending) startPolling(manifest.slug, base);
           else stopPolling();
         });
     }).catch(function (err) {
-      var msg = err && err.status === 0
-        ? formatMaterialsFetchError(err, base)
-        : formatMaterialsFetchError(err, base);
-      renderError(brief, msg);
+      if (isServerDownError(err, base)) {
+        setServerState("down");
+        renderServerDown(findMount() || brief);
+        return;
+      }
+      renderError(findMount() || brief, formatMaterialsFetchError(err, base));
     });
+  }
+
+  /* A network failure against a plain local server is "not running"; a
+     mixed-content block keeps its own, more specific message. */
+  function isServerDownError(err, base) {
+    if (!err || err.status !== 0) return false;
+    var blocked = root.isScraperUrlBlockedOnThisPage;
+    if (typeof blocked === "function" && base) {
+      try { if (blocked(base)) return false; } catch (e) { /* fall through */ }
+    }
+    return true;
   }
 
   /* -------------------- kanban auto-draft trigger --------------------
@@ -1764,6 +2208,11 @@
 
   function requestAutoDraftForMove(detail) {
     if (!shouldRun() || !isAutoDraftMove(detail)) return;
+    /* C12 (TA-03): a stage move no longer spends AI quota on its own. */
+    if (!isAutoDraftEnabled()) {
+      emitAutoDraftSkipped(detail, "opt-in-off", "");
+      return;
+    }
 
     var jobKey = detail.jobKey;
     var job = getJobForAutoDraft(jobKey);
@@ -1830,9 +2279,19 @@
           emitAutoDraftSkipped(detail, reason, slug);
           return null;
         }
-        return ensureJobDescription(ctx)
+        var resumeForRun = null;
+        return readResume()
+          .then(function (r) {
+            if (r.available && !r.resume) {
+              var noResume = new Error("Auto-draft skipped for " + (ctx.title || ctx.company) + ": add your resume first.");
+              noResume.code = RESUME_REQUIRED_CODE;
+              throw noResume;
+            }
+            resumeForRun = r.resume;
+            return ensureJobDescription(ctx);
+          })
           .then(function (jdResult) {
-            return postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/request", {
+            var body = {
               slug: slug,
               company: ctx.company,
               title: ctx.title,
@@ -1840,7 +2299,11 @@
               jobUrl: ctx.jobUrl,
               notes: "",
               jdSource: jdResult && jdResult.source,
-            });
+            };
+            if (resumeForRun) body.resume = resumeForRun;
+            /* The opt-in run says what it is spending, as it happens. */
+            toast("Drafting resume + letter for " + (ctx.title || "this role") + (ctx.company ? " at " + ctx.company : ""), "info");
+            return postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/request", body);
           })
           .then(function (result) {
             getApplications(base, { refresh: true });
@@ -1862,6 +2325,8 @@
         if (root.console && root.console.warn) {
           root.console.warn("[role-materials] auto materials request failed", message);
         }
+        /* TA-03: failures used to reach only the console. */
+        toast(isResumeRequiredError(err) && !(err && err.status) ? message : "Auto-draft failed: " + message, "error");
         dispatch("jb:materials:auto-request-failed", {
           jobKey: jobKey,
           slug: slug,
@@ -1871,6 +2336,118 @@
       .then(function () {
         delete autoDraftInFlight[lockKey];
       });
+  }
+
+  /* -------------------- C16 (MP-04): back from the posting --------------------
+     Leaving through View posting and coming back is the moment the user most
+     likely applied. Ask once, in one tap, and route a yes through
+     JobBoredSubmission.confirmApplied (lane D) so the Applied confirmation
+     contract — its dialog, grace period and write — is untouched. */
+  var AFTER_APPLY_STAGES = /^(applied|phone-screen|interviewing|offer|rejected|passed|expired)$/;
+  var returnWatch = null;
+  var returnPrompt = null;
+
+  function localToday() {
+    var d = new Date();
+    var mm = d.getMonth() + 1, dd = d.getDate();
+    return d.getFullYear() + "-" + (mm < 10 ? "0" : "") + mm + "-" + (dd < 10 ? "0" : "") + dd;
+  }
+
+  function noteViewPosting(jobKey) {
+    if (jobKey == null || jobKey === "") return;
+    var job = getMaterialsJob(jobKey) || {};
+    var stage = normalizeStageKey(job.stage || job.status || "");
+    if (AFTER_APPLY_STAGES.test(stage)) return;
+    returnWatch = {
+      jobKey: String(jobKey),
+      company: String(job.company || ""),
+      title: String(job.role || job.title || ""),
+      source: String(job.source || ""),
+      fromStage: stage,
+      left: false,
+    };
+  }
+
+  function onVisibilityChange() {
+    if (!returnWatch || typeof document === "undefined") return;
+    if (document.visibilityState === "hidden") {
+      returnWatch.left = true;
+      return;
+    }
+    if (document.visibilityState === "visible" && returnWatch.left) {
+      var w = returnWatch;
+      returnWatch = null;
+      showReturnPrompt(w);
+    }
+  }
+
+  function closeReturnPrompt() {
+    if (returnPrompt && returnPrompt.el && returnPrompt.el.parentNode) {
+      returnPrompt.el.parentNode.removeChild(returnPrompt.el);
+    }
+    returnPrompt = null;
+  }
+
+  function showReturnPrompt(w) {
+    if (!document.body) return;
+    closeReturnPrompt();
+    var who = w.company || w.title || "this role";
+    var el = document.createElement("div");
+    el.className = "case-return";
+    el.setAttribute("role", "region");
+    el.setAttribute("aria-label", "Did you apply?");
+    el.innerHTML = '<p class="case-return__q" aria-live="polite">Back from ' + escapeHtml(who)
+      + '\u2019s posting. <b>Did you apply to ' + escapeHtml(who) + '?</b></p>'
+      + '<div class="case-return__actions">'
+        + '<button type="button" class="case-return__btn case-return__btn--primary" data-return="yes">Yes, mark applied</button>'
+        + '<button type="button" class="case-return__btn" data-return="no">Not yet</button>'
+      + '</div>';
+    el.addEventListener("click", function (e) {
+      var t = e && e.target;
+      while (t && t !== el) {
+        var answer = t.getAttribute && t.getAttribute("data-return");
+        if (answer) { answerReturnPrompt(answer === "yes"); return; }
+        t = t.parentNode;
+      }
+    });
+    document.body.appendChild(el);
+    returnPrompt = { el: el, watch: w };
+  }
+
+  function answerReturnPrompt(yes) {
+    var w = returnPrompt && returnPrompt.watch;
+    closeReturnPrompt();
+    if (!yes || !w) return Promise.resolve(null);
+    var prefill = { source: w.source, date: localToday() };
+    var sub = root.JobBoredSubmission;
+    if (sub && typeof sub.confirmApplied === "function") {
+      /* Positional form flowing-writes already uses, plus lane D's prefill. */
+      return Promise.resolve(sub.confirmApplied(w.jobKey, {
+        fromStage: w.fromStage,
+        source: prefill.source,
+        appliedDate: prefill.date,
+        prefill: prefill,
+      }));
+    }
+    /* No submission module: the stage move itself still asks for confirmation. */
+    dispatch("jb:pipeline:move", { jobKey: w.jobKey, fromStage: w.fromStage, toStage: "applied", prefill: prefill });
+    return Promise.resolve(null);
+  }
+
+  function onDocumentClick(e) {
+    var t = e && e.target;
+    while (t && t.getAttribute) {
+      var action = t.getAttribute("data-action");
+      if (action === "brief-view-posting") {
+        noteViewPosting(openRoleKey() || (currentContext && currentContext.jobKey));
+        return;
+      }
+      if (action === "open-resume") {
+        if (openResume() && typeof e.preventDefault === "function") e.preventDefault();
+        return;
+      }
+      t = t.parentNode;
+    }
   }
 
   function onWriteSucceeded(e) {
@@ -1943,144 +2520,9 @@
     return out.join("\n").trim();
   }
 
-  /* -------------------- inline notes form --------------------
-     Replaces the legacy `window.prompt()` capture. Renders a small
-     non-modal form just above the materials section so the user can
-     type notes for Hermes without leaving the page or fighting a
-     browser-level prompt dialog. */
-
-  function notesFormHtml(feature) {
-    var heading = feature === "cover_letter"
-      ? "Notes for the cover letter"
-      : "Notes for the resume tailoring";
-    var placeholder = "What angle should we emphasise? Tone? Must-shows?";
-    return '<form class="brief-materials__notes-form" aria-label="' + escapeHtml(heading) + '">'
-      + '<header class="brief-materials__notes-head">'
-        + '<span class="brief-materials__notes-title">' + escapeHtml(heading) + '</span>'
-        + '<span class="brief-materials__notes-eyebrow">NOTES FOR THE DRAFT</span>'
-      + '</header>'
-      + '<textarea class="brief-materials__notes-textarea" rows="4" placeholder="' + escapeHtml(placeholder) + '"></textarea>'
-      + '<footer class="brief-materials__notes-actions">'
-        + '<button type="button" class="brief-materials__btn brief-materials__btn--ghost" data-action="notes-cancel">Cancel</button>'
-        + '<button type="submit" class="brief-materials__btn brief-materials__btn--primary" data-action="notes-send">Start draft</button>'
-      + '</footer>'
-      + '</form>';
-  }
-
-  function showNotesForm(feature, onSubmit) {
-    if (!shouldRun()) return;
-    var region = document.querySelector(REGION_SELECTOR);
-    var brief = findMount();
-    if (!brief) return;
-
-    /* Remove any prior open form so a second click replaces it cleanly. */
-    var prior = brief.querySelector(".brief-materials__notes-form");
-    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
-
-    var triggerAction = feature === "cover_letter" ? "resume-cover" : "resume-tailor";
-    var trigger = region.querySelector('[data-action="' + triggerAction + '"]');
-
-    var tmp = document.createElement("div");
-    tmp.innerHTML = notesFormHtml(feature);
-    var formNode = tmp.firstElementChild;
-    if (!formNode) return;
-
-    /* Place the form as a sibling immediately above .brief-materials
-       so that re-renders of the section don't blow it away. If the
-       section isn't mounted yet, fall back to appending to brief. */
-    var section = brief.querySelector("." + SECTION_CLASS);
-    if (section && section.parentNode) {
-      section.parentNode.insertBefore(formNode, section);
-    } else {
-      brief.appendChild(formNode);
-    }
-
-    var textarea = formNode.querySelector(".brief-materials__notes-textarea");
-    var cancelBtn = formNode.querySelector('[data-action="notes-cancel"]');
-
-    var closed = false;
-    /* `submitted` flips true when the user clicks Send. Close() uses
-       this to decide whether to refocus the trigger (Cancel/Esc — no
-       state change) or scroll to the new progress card (Send — the
-       interesting content moved down, not up). */
-    var submitted = false;
-    function close() {
-      if (closed) return;
-      closed = true;
-      if (formNode && formNode.parentNode) formNode.parentNode.removeChild(formNode);
-      if (typeof document !== "undefined" && document.removeEventListener) {
-        document.removeEventListener("keydown", onKey, true);
-      }
-      if (submitted) {
-        /* On submit, the action moved down to the new progress card.
-           Smoothly scroll it into view so the user's eye follows the
-           work instead of being yanked back up to the CTA. */
-        var progressEl = document.querySelector("." + SECTION_CLASS + " .brief-materials__progress");
-        if (progressEl && typeof progressEl.scrollIntoView === "function") {
-          try {
-            progressEl.scrollIntoView({ behavior: "smooth", block: "center" });
-          } catch (e) {
-            try { progressEl.scrollIntoView(); } catch (e2) { /* ignored */ }
-          }
-        }
-      } else if (trigger && typeof trigger.focus === "function") {
-        /* On cancel/escape, return focus to the trigger button. Use
-           preventScroll so the trigger doesn't yank the viewport. */
-        try { trigger.focus({ preventScroll: true }); }
-        catch (e) {
-          try { trigger.focus(); } catch (e2) { /* ignored */ }
-        }
-      }
-    }
-
-    function onKey(e) {
-      var key = e && (e.key || e.keyCode);
-      if (key === "Escape" || key === "Esc" || key === 27) {
-        if (typeof e.preventDefault === "function") e.preventDefault();
-        close();
-      }
-    }
-
-    formNode.addEventListener("submit", function (e) {
-      if (typeof e.preventDefault === "function") e.preventDefault();
-      submitted = true;
-      var notes = (textarea && textarea.value) ? String(textarea.value).trim() : "";
-      /* Whimsy beat: briefly show an "On it!" state before tearing
-         the form down. Keeps the click feeling deliberate and gives
-         the optimistic UI underneath time to render the progress
-         card. ~900ms is short enough not to feel like a hang. */
-      formNode.classList.add("brief-materials__notes-form--sent");
-      var sendBtn = formNode.querySelector('[data-action="notes-send"]');
-      if (sendBtn) {
-        sendBtn.setAttribute("disabled", "disabled");
-        sendBtn.innerHTML = ''
-          + '<span class="brief-materials__notes-sent-icon" aria-hidden="true">'
-            + '<svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">'
-              + '<polyline points="20 6 9 17 4 12"></polyline></svg>'
-          + '</span>'
-          + 'On it!';
-      }
-      if (cancelBtn) cancelBtn.setAttribute("disabled", "disabled");
-      if (textarea) textarea.setAttribute("disabled", "disabled");
-      /* Fire the request immediately — don't make the user wait the
-         celebration delay. The celebration is purely visual. */
-      if (typeof onSubmit === "function") onSubmit(notes);
-      setTimeout(close, 900);
-    });
-    if (cancelBtn) {
-      cancelBtn.addEventListener("click", function (e) {
-        if (typeof e.preventDefault === "function") e.preventDefault();
-        close();
-      });
-    }
-    if (typeof document !== "undefined" && document.addEventListener) {
-      document.addEventListener("keydown", onKey, true);
-    }
-
-    if (textarea && typeof textarea.focus === "function") {
-      try { textarea.focus(); } catch (e) { /* ignored */ }
-    }
-  }
+  /* C12 (TA-16): the mandatory notes form is gone. One click drafts; notes
+     live in the optional "Notes for the next draft" disclosure in the
+     Materials section (draftNotesHtml). */
 
   /* Handle a dossier CTA action by POSTing to the request endpoint.
      If the request fires successfully, swap the materials section to
@@ -2106,13 +2548,25 @@
     }
     currentContext = ctx;
     if (!brief) return;
-
-    showNotesForm(feature, function (notes) {
-      submitDraftRequest(ctx, feature, notes);
+    /* C12 (TA-06): no optimistic "queued" while nothing is listening. */
+    if (serverState === "down") {
+      renderServerDown(brief);
+      return;
+    }
+    /* C11 (TA-02) + C12 (TA-16): one click drafts — from the user's resume,
+       or not at all. */
+    readResume().then(function (r) {
+      if (r.available && !r.resume) {
+        renderResumeGate(findMount());
+        return;
+      }
+      var notes = String(draftNotes || "").trim();
+      draftNotes = "";
+      submitDraftRequest(ctx, feature, notes, r.resume);
     });
   }
 
-  function renderOptimisticPending(ctx, feature, notes, source) {
+  function renderOptimisticPending(ctx, feature, notes, source, pending) {
     var brief = findMount();
     if (!brief) return;
 
@@ -2122,7 +2576,7 @@
       title: ctx.title,
       derived: true,
       documents: [],
-      pending: {
+      pending: pending || {
         feature: feature,
         company: ctx.company,
         title: ctx.title,
@@ -2145,9 +2599,29 @@
       });
   }
 
-  function submitDraftRequest(ctx, feature, notes) {
+  /* Is anything answering on the materials port? An HTTP error still means
+     a server is there; only a network failure means it is not. */
+  function probeServer(base) {
+    return fetchJson(base + "/api/applications").then(function () { return true; }, function (err) {
+      return !isServerDownError(err, base);
+    });
+  }
+
+  function submitDraftRequest(ctx, feature, notes, resume) {
     var brief = findMount();
     if (!brief) return;
+    return probeServer(ctx.base).then(function (up) {
+      if (!up) {
+        setServerState("down");
+        renderServerDown(findMount());
+        return;
+      }
+      setServerState("up");
+      return sendDraftRequest(ctx, feature, notes, resume);
+    });
+  }
+
+  function sendDraftRequest(ctx, feature, notes, resume) {
 
     /* Optimistic UI: stamp a fresh "pending" banner immediately so the
        click visibly registers, even before the server responds. */
@@ -2158,14 +2632,23 @@
     refreshContextApplication(ctx).then(function () {
       return refreshContextFromLocalMaterials(ctx);
     }).then(function () {
-      renderOptimisticPending(ctx, feature, notes, "jobbored-dossier");
+      /* The hold is set first and shares its pending object with the
+         optimistic commit, so holdOptimistic can tell the run's own block
+         from a server-written one (TA-05). */
+      optimisticRun = {
+        slug: ctx.slug,
+        feature: feature,
+        at: Date.now(),
+        pending: { feature: feature, company: ctx.company, title: ctx.title, jobUrl: ctx.jobUrl, requestedAt: new Date().toISOString(), notes: notes, source: "jobbored-dossier" },
+      };
+      renderOptimisticPending(ctx, feature, notes, "jobbored-dossier", optimisticRun.pending);
       /* Run the JD fallback chain BEFORE asking Hermes to draft. The
          contract is: pending.json should not get written unless the
          slug folder has a job-description.md, otherwise Dobby's
          refusal-on-missing-JD path triggers. */
       return ensureJobDescription(ctx);
     }).then(function (jdResult) {
-      return postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", {
+      var body = {
         slug: ctx.slug,
         company: ctx.company,
         title: ctx.title,
@@ -2173,7 +2656,10 @@
         jobUrl: ctx.jobUrl,
         notes: notes,
         jdSource: jdResult && jdResult.source,
-      });
+      };
+      /* C11: the server drafts from this, and 422s without it. */
+      if (resume) body.resume = resume;
+      return postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", body);
     }).then(function () {
       /* Fire the queue-changed event immediately so the global strip
          updates without waiting for the manifest re-fetch round-trip.
@@ -2188,8 +2674,10 @@
       /* Force the applications cache to refresh so the next role open
          sees the new folder (Hermes creates it when none existed). */
       getApplications(ctx.base, { refresh: true });
-      commitManifest(brief2, manifest, ctx.base, ctx.jobKey);
-      if (manifest.pending) startPolling(manifest.slug, ctx.base);
+      /* A held manifest still shows pending, so poll until the server's
+         own pending or a document lands (or the hold lapses). */
+      var committed = commitManifest(brief2, manifest, ctx.base, ctx.jobKey);
+      if (committed && committed.pending) startPolling(committed.slug || ctx.slug, ctx.base);
       /* Nudge the global queue strip so it shows the new request
          without waiting for its next poll. */
       dispatch("jb:materials:changed", { slug: ctx.slug });
@@ -2198,6 +2686,16 @@
       if (!brief3) return;
       /* The "needs paste" path is a structured error — show a paste
          form instead of a generic error string. */
+      optimisticRun = null;
+      if (isResumeRequiredError(err)) {
+        renderResumeGate(brief3);
+        return;
+      }
+      if (isServerDownError(err, ctx.base)) {
+        setServerState("down");
+        renderServerDown(brief3);
+        return;
+      }
       if (err && err.code === "JD_PASTE_REQUIRED") {
         renderJdPasteForm(brief3, ctx, feature, notes);
         return;
@@ -2342,7 +2840,9 @@
              disk. submitDraftRequest will re-run the JD chain, but
              step 1 will short-circuit (JD now exists) and we go
              straight to /request. */
-          return submitDraftRequest(ctx, feature, notes);
+          return readResume().then(function (r) {
+            return submitDraftRequest(ctx, feature, notes, r.resume);
+          });
         })
         .catch(function (err) {
           var hint = holder.querySelector(".brief-materials__jd-hint");
@@ -2423,6 +2923,8 @@
     if (typeof document !== "undefined" && document.addEventListener) {
       document.addEventListener("jb:role:action", onRoleAction);
       document.addEventListener("jb:write:succeeded", onWriteSucceeded);
+      document.addEventListener("click", onDocumentClick);
+      document.addEventListener("visibilitychange", onVisibilityChange);
     }
     /* On a hard reload the role can already be open when init() runs,
        which means jb:role:opened never fires. app.js dispatches
@@ -2470,6 +2972,15 @@
     rehydrateOpenRole: rehydrateOpenRole,
     renderEmpty: renderEmpty,
     renderError: renderError,
+    /* UX01 lane E: read by role-case-model.js collectDeps (C11, C12). */
+    getServerState: getServerState,
+    retryServer: retryServer,
+    getResumeSummary: getResumeSummary,
+    isAutoDraftEnabled: isAutoDraftEnabled,
+    AUTO_DRAFT_STORAGE_KEY: AUTO_DRAFT_STORAGE_KEY,
+    /* C16: the return prompt, callable directly in tests. */
+    noteViewPosting: noteViewPosting,
+    answerReturnPrompt: answerReturnPrompt,
     /** Test-only hook to inject a fresh applications list. */
     _resetCache: clearCache,
     _refreshContextApplication: refreshContextApplication,

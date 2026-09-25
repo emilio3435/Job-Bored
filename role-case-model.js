@@ -287,6 +287,15 @@
     return daysFromNow(closesAt, deps);
   }
 
+  /* C13 (TA-12): the QA flags the server already wrote for a document. A
+     ready document with any flag is "review", never "ready" — the verdict
+     used to say "both ready" over a flag the dossier never showed. */
+  function qualityIssues(manifest, type) {
+    var q = manifest && manifest.quality && manifest.quality.documents && manifest.quality.documents[type];
+    var list = q && Array.isArray(q.issues) ? q.issues : [];
+    return list.map(function (i) { return inline(i && (i.message || i.code)); }).filter(Boolean);
+  }
+
   function buildMaterials(manifest) {
     if (!manifest || !Array.isArray(manifest.documents)) return null;
     var pending = manifest.pending && manifest.pending.progress ? manifest.pending : null;
@@ -300,8 +309,10 @@
          its attempt count are what the docket chip and the verdict's gap
          clause read, so they survive the pending→failed transition. */
       var isRun = !!(pendingFeature && pendingFeature === def.type);
+      var issues = status === "ready" ? qualityIssues(manifest, def.type) : [];
+      if (issues.length) status = "review";
       return {
-        type: def.type, label: def.label, draftAction: def.draftAction, status: status,
+        type: def.type, label: def.label, draftAction: def.draftAction, status: status, issues: issues,
         phase: isRun ? inline(pending.progress.phase) : "", elapsedSeconds: isRun ? Number(pending.progress.elapsedSeconds) || 0 : 0,
         attempt: isRun ? Number(pending.progress.attempt) || 0 : 0,
         updatedAt: doc ? inline(doc.lastModifiedAt) : "", files: doc && Array.isArray(doc.files) ? doc.files : [],
@@ -339,8 +350,8 @@
     var resume = docByType(materials, "resume");
     var letter = docByType(materials, "cover_letter");
     if (!resume && !letter) return "";
-    var readyResume = !!(resume && resume.status === "ready");
-    var readyLetter = !!(letter && letter.status === "ready");
+    var readyResume = !!(resume && (resume.status === "ready" || resume.status === "review"));
+    var readyLetter = !!(letter && (letter.status === "ready" || letter.status === "review"));
     if (letter && letter.status === "pending") return "The cover letter is being written now.";
     if (resume && resume.status === "pending") return "The resume is being tailored now.";
     if (letter && letter.status === "failed") {
@@ -349,6 +360,14 @@
     }
     if (resume && resume.status === "failed") {
       return "The resume draft failed" + (readyLetter ? "; the cover letter is ready." : ".");
+    }
+    /* C13: a flag outranks "ready". Count every flag on the two drafts so
+       the sentence never calls a flagged document ready to send. */
+    var flags = (resume && resume.status === "review" ? resume.issues.length : 0)
+      + (letter && letter.status === "review" ? letter.issues.length : 0);
+    if (flags) {
+      var which = readyResume && readyLetter ? "Both drafts are written" : (readyResume ? "The resume is written" : "The cover letter is written");
+      return which + " · " + plural(flags, "flag") + " to check before you send.";
     }
     if (readyResume && readyLetter) return "The resume and the cover letter are both ready.";
     if (readyResume) return "Resume is ready; the cover letter has not been drafted.";
@@ -410,6 +429,23 @@
       v.note = "Add a resume to see which of the " + plural(requirements.length, "requirement") + " you actually answer.";
     }
     return v;
+  }
+
+  /* C13 (TA-13): the score names the document it rates, its version when the
+     store recorded one, and the day it was scored. A score stored before the
+     feature was recorded is a "draft" score — it is never guessed to be the
+     resume. */
+  var SCORE_DOC = { resume: "resume", resume_update: "resume", cover_letter: "cover letter" };
+  function atsNumber(scorecard) {
+    var feature = String(scorecard.feature || "").trim();
+    var doc = SCORE_DOC[feature] || "draft";
+    var version = Number(scorecard.version);
+    return {
+      value: scoreOf(scorecard.result.overallScore),
+      doc: doc,
+      version: Number.isFinite(version) && version > 0 ? Math.floor(version) : null,
+      scoredAt: String(scorecard.storedAt || "").slice(0, 10),
+    };
   }
 
   function buildYouHave(scorecard) {
@@ -518,7 +554,7 @@
     var enr = job.enrichment || {};
     var keywords = deps.keywords || null;
     var materials = buildMaterials(deps.manifest);
-    var ready = materials ? materials.filter(function (d) { return d.status === "ready"; }).length : 0;
+    var ready = materials ? materials.filter(function (d) { return d.status === "ready" || d.status === "review"; }).length : 0;
     var drafting = materials ? materials.filter(function (d) { return d.status === "pending"; }).length : 0;
     var terms = termList(keywords);
     var requirements = rankRequirements(markAll(dedupe(dropHeadingTails(items(job.requirements).concat(items(enr.mustHaves)))), terms));
@@ -558,7 +594,7 @@
       health: deps.health || { state: "unknown", label: "", detail: "", checkedAt: "" },
       numbers: {
         fit: fit,
-        ats: deps.scorecard && deps.scorecard.result && scoreOf(deps.scorecard.result.overallScore) != null ? { value: scoreOf(deps.scorecard.result.overallScore) } : null,
+        ats: deps.scorecard && deps.scorecard.result && scoreOf(deps.scorecard.result.overallScore) != null ? atsNumber(deps.scorecard) : null,
         keywords: keywordNumbers,
         reply: { value: job.replied || "Unknown" },
         materials: materials ? { ready: ready, total: CASE_DOC_TYPES.length, drafting: drafting } : null,
@@ -587,6 +623,12 @@
         talkingPoints: aiPoints.length ? aiPoints.slice(0, 6) : sheetPoints.slice(0, 6),
         materials: materials,
         materialsError: deps.materialsError || "",
+        /* C12: "down" when the materials server did not answer; the docket
+           turns its drafting controls off rather than promising a queue. */
+        materialsServer: deps.materialsServer === "down" ? "down" : (deps.materialsServer === "up" ? "up" : ""),
+        /* C11: the resume drafts are written from. undefined = not read yet,
+           null = none on file, else { filename, addedAt }. */
+        resume: deps.resume === undefined ? undefined : (deps.resume ? { filename: inline(deps.resume.filename), addedAt: inline(deps.resume.addedAt) } : null),
         people: people,
       },
       notes: job.notes ? { body: String(job.notes.body || ""), editedAt: String(job.notes.editedAt || "") } : null,
@@ -594,6 +636,9 @@
       provenance: buildProvenance(enr, deps),
       loading: { enrichment: enr.status === "loading", keywords: !keywords && !!(deps.keywordsPending), materials: !!deps.materialsPending },
       meta: { providerLabel: deps.providerLabel || "" },
+      /* C12 (TA-18, TR-24, AX-22): the missing-AI-provider notice, said once
+         inline in the dossier instead of two red toasts per open. */
+      notice: inline(deps.providerNotice || ""),
     };
   }
 
@@ -607,7 +652,9 @@
     try { keywords = rawJob && app.keywordMatch && app.keywordMatch.analyzeJob ? app.keywordMatch.analyzeJob(rawJob) : null; } catch (e) { keywords = null; warn("analyzeJob failed", e); }
     var scorecard = null;
     try { scorecard = rawJob && app.materialsState && app.materialsState.getScorecardForJob ? app.materialsState.getScorecardForJob(rawJob) : null; } catch (e) { scorecard = null; warn("getScorecardForJob failed", e); }
-    var mat = root.JobBoredRoleMaterials && root.JobBoredRoleMaterials.getCurrentManifest ? root.JobBoredRoleMaterials.getCurrentManifest() : null;
+    var rm = root.JobBoredRoleMaterials || null;
+    var pe = root.JobBoredPostingEnrichment || null;
+    var mat = rm && rm.getCurrentManifest ? rm.getCurrentManifest() : null;
     var health = rawJob && root.JobBoredExpiredReview && root.JobBoredExpiredReview.getPostingHealth ? root.JobBoredExpiredReview.getPostingHealth(rawJob) : null;
     var cfg = null;
     try { cfg = root.CommandCenterResumeGenerate && root.CommandCenterResumeGenerate.getResumeGenerationConfig ? root.CommandCenterResumeGenerate.getResumeGenerationConfig() : null; } catch (e) { cfg = null; warn("getResumeGenerationConfig failed", e); }
@@ -624,6 +671,9 @@
       parseDate: function (s) { var t = Date.parse(String(s || "")); return Number.isFinite(t) ? t : null; },
       keywordsPending: !keywords && !!(app.keywordMatch && app.keywordMatch.getCandidateProfileMatchCache && !app.keywordMatch.getCandidateProfileMatchCache().loaded),
       materialsPending: false,
+      materialsServer: rm && typeof rm.getServerState === "function" ? rm.getServerState() : "",
+      resume: rm && typeof rm.getResumeSummary === "function" ? rm.getResumeSummary() : undefined,
+      providerNotice: pe && typeof pe.getProviderNotice === "function" ? pe.getProviderNotice() : "",
     };
   }
 

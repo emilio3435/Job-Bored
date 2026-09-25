@@ -874,3 +874,42 @@ body.jb-v2 [data-region="scribe"] .scribe-evidence__source {
     transition: none;
   }
 }
+
+/* ============================================================
+   UX01 lane E — C14 (TA-09, TA-23, AX-17, AX-20, AX-21)
+   ============================================================ */
+
+/* TA-09: nothing to edit, nothing on the page. The dossier's Edit action
+   opens the workspace inside the role; until then it stays out of the tab
+   order. */
+body.jb-v2 [data-region="scribe"][hidden] { display: none; }
+
+/* AX-17 (WCAG 1.4.10): at 320 px the topbar kept a 344 px floor and the
+   whole app panned sideways. Let the bar, the role name and the actions
+   wrap instead. */
+body.jb-v2 [data-region="scribe"] .scribe-topbar { min-width: 0; }
+body.jb-v2 [data-region="scribe"] .scribe-topbar__role-target { white-space: normal; overflow-wrap: anywhere; }
+body.jb-v2 [data-region="scribe"] .scribe-topbar__actions { flex-wrap: wrap; min-width: 0; }
+
+/* AX-20 (WCAG 2.4.11): the sticky refine strip hid the caret of a keyboard
+   user typing in the editor. While the editor has focus the strip stops
+   sticking, so what they type is always in view. */
+body.jb-v2 [data-region="scribe"] .scribe-workspace:has(#scribeEditor:focus) .scribe-strip { position: static; }
+
+/* MP-03: the free keyword meter under the editor. */
+body.jb-v2 [data-region="scribe"] .scribe-coverage {
+  margin: 8px 2px 0;
+  font-family: var(--jb-font-body);
+  font-size: var(--jb-text-sm);
+  line-height: 1.45;
+  color: var(--jb-ink-2);
+}
+body.jb-v2 [data-region="scribe"] .scribe-coverage[hidden] { display: none; }
+body.jb-v2 [data-region="scribe"] .scribe-strip__chips-missing { display: contents; }
+
+/* Inside the dossier the reading canvas is one measure wide, so the
+   workspace stacks: editor, then the scorecard. */
+body.jb-v2 [data-region="role"] [data-mount="scribe"] { margin-top: 16px; }
+body.jb-v2 [data-region="role"] [data-mount="scribe"][hidden] { display: none; }
+body.jb-v2 [data-region="role"] [data-mount="scribe"] [data-region="scribe"] .scribe-split { grid-template-columns: minmax(0, 1fr); }
+body.jb-v2 [data-region="role"] [data-mount="scribe"] [data-region="scribe"] .scribe-strip { position: static; }

@@ -319,10 +319,13 @@ describe("P2 — the copy says what it means", () => {
   });
 
   /* P2-3: the acronym is never expanded, and crimson is the alarm color. */
-  it("the ATS tile is 'Resume score', and only a low score is crimson", () => {
+  /* UX01 C13 (TA-13): the tile names the document it rates. This fixture's
+     scorecard records no feature, so it is a "Draft score", never guessed to
+     be the resume. */
+  it("the ATS tile names its document, and only a low score is crimson", () => {
     const good = html({ scorecard: { result: { overallScore: 94, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
-    assert.match(good, /data-num="ats"[\s\S]*?Resume score/);
-    assert.match(good, /How well your draft answers this posting/);
+    assert.match(good, /data-num="ats"[\s\S]*?Draft score/);
+    assert.match(good, /scored draft · 2026-08-30/);
     assert.doesNotMatch(good, /data-num="ats"[\s\S]*?case__num-v--crimson/, "a 94 is not bad news");
     const bad = html({ scorecard: { result: { overallScore: 41, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
     assert.match(bad, /data-num="ats"[\s\S]*?case__num-v--crimson/);
