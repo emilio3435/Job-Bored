@@ -73,3 +73,38 @@ npm run test:e2e-visual    exit 0  37 passed (1.1m)   (no baseline refreshed)
 ```
 
 The one `todo` is already there on the base: "persists and can remove the canonical submission evidence record", which is blocked on the canonical-ownership gate. The runner prints it under a `✖` in the failing-tests list, but it counts as a todo, not a failure.
+
+## Verification · floor (cA-r1)
+
+Verifier: independent Opus context, not the author. HEAD `ecaa11f6`, worktree clean before the run. Run date: 2026-09-25. Logs: `/Users/emilionunezgarcia/Job-Bored.worktrees/.ux01-run/cA-r1/`.
+
+**Green: yes.** All seven commands ran in order and each exited 0. Nothing was skipped, filtered, sharded, or re-run. No flaky specs.
+
+| Command | Exit code | Counts | Time |
+|---|---|---|---|
+| `npm run lint:repo` | 0 | eslint clean; lint:skills OK; lint:tokens 34 sheets, 0 new findings | 3s |
+| `npm run typecheck:repo` | 0 | tsc (browser-use-discovery, server) clean; every `node --check` passed | 3s |
+| `npm test` | 0 | 3065 tests / 739 suites: 3064 pass, 0 fail, 0 cancelled, 0 skipped, 1 todo | 14s |
+| `npm run test:contract:all` | 0 | 12 OK contract/schema checks | 1s |
+| `npm run test:e2e-smoke` | 0 | 19 passed | 21s |
+| `npm run test:e2e-journey` | 0 | 25 passed | 28s |
+| `npm run test:e2e-visual` | 0 | 37 passed | 61s |
+
+Note: `npm test` prints a "failing tests" block for one test, `tests/submission-record-audit.test.mjs:17` ("persists and can remove the canonical submission evidence record"). That test is marked `# TODO` ("blocked on the canonical-ownership gate"), so its assertion error is expected and counts under todo, not fail.
+
+### Tails
+
+```
+[npm test]
+ℹ tests 3065
+ℹ suites 739
+ℹ pass 3064
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+[test:e2e-smoke]    19 passed (20.3s)
+[test:e2e-journey]  25 passed (27.9s)
+[test:e2e-visual]   37 passed (1.0m)
+[lint:repo]         lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)
+```
