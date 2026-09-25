@@ -760,6 +760,19 @@ describe("materials rows in the case mount", () => {
     assert.match(rowFor(host, "qa_report"), /case__doc-meta">written with the resume</);
   });
 
+  /* Spec §3.7: a missing document gets ONE label. Since the dossier
+     redesign (#119) that label is the one-word state pill; the meta line
+     says something else (why it is missing), never "missing" again. The
+     Draft button stays. */
+  it("a missing document says not-drafted exactly once", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, { ...CASE_MANIFEST, documents: [], pending: null }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.equal((row.match(/not drafted/g) || []).length, 1, "one label, not two");
+    assert.doesNotMatch(row, />missing</, "the raw status word never prints");
+    assert.match(row, /data-action="resume-tailor"[^>]*>Draft</, "the Draft button stays");
+  });
+
   it("a document with a quality issue offers Repair in its row", () => {
     const host = makeCaseMount();
     api.renderManifest(host, {

@@ -494,6 +494,9 @@
     var ae = document.activeElement;
     if (!ae || !ae.getAttribute || !region || typeof region.contains !== "function") return null;
     if (!region.contains(ae) || ae === region) return null;
+    /* The view heading has no action, but async materials/enrichment renders
+       replace it after the opening focus hand-off just like any control. */
+    if (ae.matches && ae.matches(".case__title-h")) return ".case__title-h";
     var action = ae.getAttribute("data-action");
     if (!action) return null;
     var selector = "";
@@ -508,7 +511,10 @@
   function restoreFocus(region, selector) {
     if (!region || !selector || typeof region.querySelector !== "function") return;
     var next = region.querySelector(selector);
-    if (next && typeof next.focus === "function") next.focus();
+    if (next && typeof next.focus === "function") {
+      if (selector === ".case__title-h") next.setAttribute("tabindex", "-1");
+      try { next.focus({ preventScroll: true }); } catch (_) { next.focus(); }
+    }
   }
 
   function renderForKey(jobKey) {

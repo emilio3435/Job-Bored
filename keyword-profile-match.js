@@ -119,6 +119,11 @@
     ["google cloud platform", "gcp", "google cloud"],
     ["microsoft azure", "azure"],
   ];
+  const KNOWN_TOOL_ALIASES = [...new Set([
+    ...KEYWORD_ALIAS_GROUPS.flat(),
+    "api", "apis", "crm", "cdp", "sms", "node", "python", "figma",
+    "statsig", "openai", "gemini", "grok", "llama",
+  ])];
 
   function normalizeKeywordSearchText(text) {
     let s = String(text || "").toLowerCase();
@@ -295,6 +300,69 @@
     return groups;
   }
 
+  function profileSectionLabel(line) {
+    const text = String(line || "").replace(/:\s*$/, "").trim();
+    const words = text.match(/[A-Za-z0-9][A-Za-z0-9&/+.-]*/g) || [];
+    if (!words.length || words.length > 6 || /[.!?]$/.test(text)) return "";
+    const allCaps = /[A-Z]/.test(text) && text === text.toUpperCase();
+    const titleCount = words.filter((word) => /^[A-Z]/.test(word)).length;
+    if (!/:\s*$/.test(String(line || "")) && !allCaps && titleCount / words.length < 0.6) return "";
+    return allCaps
+      ? text.toLowerCase().replace(/\b\w/g, (letter) => letter.toUpperCase())
+      : text;
+  }
+
+  function profileSentences(rawText) {
+    const out = [];
+    let source = "profile";
+    String(rawText || "").split(/\r?\n/).forEach((rawLine) => {
+      const line = rawLine.trim();
+      if (!line) return;
+      const heading = profileSectionLabel(line);
+      if (heading) {
+        source = heading;
+        return;
+      }
+      const prose = line.replace(/^[•*\-]\s*/, "");
+      const sentences = prose.split(/(?<=[.!?])\s+/);
+      sentences.forEach((sentence) => {
+        const snippet = sentence.trim();
+        if (snippet) out.push({ snippet, source });
+      });
+    });
+    return out;
+  }
+
+  function findProfileEvidence(term, searchIndex) {
+    const rawText = searchIndex && typeof searchIndex.rawText === "string"
+      ? searchIndex.rawText
+      : "";
+    if (!rawText) return null;
+    const variants = term && Array.isArray(term.variants) && term.variants.length
+      ? term.variants.map(normalizeKeywordSearchText).filter(Boolean)
+      : [normalizeKeywordSearchText(term && (term.normalized || term.label || term.fullLabel))].filter(Boolean);
+    const tokens = term && Array.isArray(term.tokens) && term.tokens.length
+      ? term.tokens
+      : getSignificantKeywordTokens(term && (term.fullLabel || term.label || term.normalized));
+    const sentences = profileSentences(rawText);
+    for (const sentence of sentences) {
+      const sentenceIndex = buildKeywordSearchIndex(sentence.snippet);
+      const variantMatch = variants.some((variant) =>
+        keywordTextContainsPhrase(sentenceIndex.normalizedText, variant),
+      );
+      const tokenMatches = tokens.filter((token) =>
+        searchIndexHasToken(sentenceIndex, token),
+      ).length;
+      const tokenMatch = tokens.length > 0 && tokenMatches >= Math.ceil(tokens.length / 2);
+      if (!variantMatch && !tokenMatch) continue;
+      const text = window.JobBoredText && typeof window.JobBoredText.clip === "function"
+        ? window.JobBoredText.clip(sentence.snippet, 140)
+        : sentence.snippet.slice(0, 140);
+      return { snippet: text, source: sentence.source || "profile" };
+    }
+    return null;
+  }
+
   function evaluateKeywordTerm(term, searchIndex) {
     const normalizedText =
       searchIndex && typeof searchIndex.normalizedText === "string"
@@ -326,6 +394,9 @@
     return {
       ...term,
       status,
+      evidence: status === "found" || status === "partial"
+        ? findProfileEvidence(term, searchIndex)
+        : null,
     };
   }
 
@@ -646,6 +717,8 @@
     buildKeywordSearchIndex,
     normalizeKeywordSearchText,
     getSignificantKeywordTokens,
+    findProfileEvidence,
+    KNOWN_TOOL_ALIASES,
     // cache accessors (delegated to from core bridge)
     getCandidateProfileMatchCache,
     setCandidateProfileMatchCache,
