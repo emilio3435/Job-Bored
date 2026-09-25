@@ -9,7 +9,7 @@
  * fallback. Each check inspects on-disk artifacts only:
  *   - index.html composition (region hosts, script load order,
  *     toggle UI markup, JB_V2 plumbing).
- *   - {dawn,lattice,scribe,welcome}.{css,js} existence and that
+ *   - {dawn,scribe}.{css,js} existence and that
  *     CSS rules are scoped under `body.jb-v2`.
  *   - tokens-v2.css and jb-v2.css present.
  *   - Legacy canonical functions (updateJobStatus,
@@ -47,7 +47,8 @@ function fileExists(rel) {
   return existsSync(p) && statSync(p).isFile();
 }
 
-const REGIONS = ["dawn", "lattice", "scribe", "welcome"];
+// UX01 C4 deleted lattice.{css,js} and welcome.css (DS-09, TR-20).
+const REGIONS = ["dawn", "scribe"];
 
 // ---------------------------------------------------------------------------
 // Check 1 — index.html declares all four region hosts with data-region attrs.

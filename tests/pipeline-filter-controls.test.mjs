@@ -12,8 +12,6 @@ const pipelineControllerJs = readFileSync(
   join(repoRoot, "pipeline-controller.js"),
   "utf8",
 );
-const latticeJs = readFileSync(join(repoRoot, "lattice.js"), "utf8");
-const latticeCss = readFileSync(join(repoRoot, "lattice.css"), "utf8");
 const pipelineJs = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
 const pipelineCss = readFileSync(join(repoRoot, "pipeline.css"), "utf8");
 const roleJs = readFileSync(join(repoRoot, "role.js"), "utf8");
@@ -31,12 +29,6 @@ describe("v2 pipeline filter controls", () => {
         pipelineJs.includes('aria-label="Pipeline filters"'),
       "visible v2 pipeline toolbar should render favorites and dismissed filter chips",
     );
-    assert.ok(
-      latticeJs.includes('aria-label": "Pipeline filters"') &&
-        latticeJs.includes('"★ Favorites"') &&
-        latticeJs.includes('"Dismissed"'),
-      "lattice pipeline toolbar should expose the same filters when that surface is active",
-    );
   });
 
   it("wires v2 filter chips to the app's existing pipeline filter state", () => {
@@ -53,12 +45,6 @@ describe("v2 pipeline filter controls", () => {
         pipelineJs.includes("jb:pipeline:filters-changed"),
       "pipeline.js should read, write, and sync against the app filter API",
     );
-    assert.ok(
-      latticeJs.includes("window.JobBored.getPipelineViewFilters") &&
-        latticeJs.includes("window.JobBored.setPipelineViewFilters") &&
-        latticeJs.includes("window.JobBored.getPipelineJobs"),
-      "lattice.js should use the same app filter API instead of private globals",
-    );
   });
 
   it("matches the v2 pipeline toolbar visual language", () => {
@@ -68,12 +54,6 @@ describe("v2 pipeline filter controls", () => {
         pipelineCss.includes("var(--jb-amber-soft)") &&
         pipelineCss.includes("border-block-start: 1px dashed var(--jb-line);"),
       "filter chips should use the existing v2 toolbar chip pattern and responsive separators",
-    );
-    assert.ok(
-      latticeCss.includes(".jb-lat__filters") &&
-        latticeCss.includes(".jb-lat__filters .jb-lat__pill[aria-pressed=\"true\"]") &&
-        latticeCss.includes("var(--jb-amber-soft)"),
-      "lattice filters should match the existing pill language",
     );
   });
 
@@ -86,13 +66,6 @@ describe("v2 pipeline filter controls", () => {
         pipelineJs.includes("pipe-sticker__favorite"),
       "pipeline.js should render a visible star button on each v2 card, update immediately, and call the existing favorite writer",
     );
-    assert.ok(
-      latticeJs.includes("setCardFavoriteState(dataIndex, nextFavorite)") &&
-        latticeJs.includes("togglePipelineFavorite(dataIndex)") &&
-        latticeJs.includes('class: "jb-lat__fav"') &&
-        latticeCss.includes(".jb-lat__fav[aria-pressed=\"true\"]"),
-      "lattice cards should expose the same favorite action, immediate feedback, and active state",
-    );
   });
 
   it("focuses the selected kanban column and keeps every other open stage open (UX01 C19)", () => {
@@ -104,14 +77,6 @@ describe("v2 pipeline filter controls", () => {
         pipelineCss.includes('.pipe-col[data-focused="true"]') &&
         pipelineCss.includes('.pipe-sticker:not([data-selected="true"])'),
       "opening a v2 pipeline card should focus that card's column and expand only that card, without collapsing the rest",
-    );
-    assert.ok(
-      latticeJs.includes("function openCard(dataIndex, stage)") &&
-        latticeJs.includes("state.focusStage = normalizeStage(stage);") &&
-        latticeCss.includes(".jb-lat__board[data-focus-stage]") &&
-        latticeCss.includes(".jb-lat__col--collapsed") &&
-        latticeCss.includes('.jb-lat__col--focused .jb-lat__card:not([data-selected="true"])'),
-      "lattice should mirror the single-selected-card focused-column layout",
     );
   });
 
@@ -238,11 +203,6 @@ describe("v2 pipeline filter controls", () => {
       /"expired":\s*"Dismissed"/.test(pipelineJs),
       false,
       "the Expired column must not be relabelled Dismissed",
-    );
-    assert.ok(
-      latticeJs.includes('["expired", "Expired"]') &&
-        latticeJs.includes('reg.CLOSED_KEYS : ["rejected", "passed"]'),
-      "lattice.js should render Expired as a visible stage, not hide it behind closed-stage state",
     );
   });
 });

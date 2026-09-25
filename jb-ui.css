@@ -1,10 +1,8 @@
 /* jb-ui.css — Forge / Phase 2. Components scoped under body.jb-v2. */
 
 body:not(.jb-v2) jb-fit-ring,
-body:not(.jb-v2) jb-spark,
 body:not(.jb-v2) jb-stage-dot,
-body:not(.jb-v2) jb-ai-chip,
-body:not(.jb-v2) jb-kbd { display: none; }
+body:not(.jb-v2) jb-ai-chip { display: none; }
 
 /* <jb-fit-ring> */
 body.jb-v2 jb-fit-ring {
@@ -57,16 +55,6 @@ body.jb-v2 jb-fit-ring[data-size="lg"] .jb-fit-ring__text { font-size: calc(var(
     transition: none;
   }
 }
-
-/* <jb-spark> */
-body.jb-v2 jb-spark {
-  display: inline-block;
-  vertical-align: middle;
-  line-height: 0;
-}
-
-body.jb-v2 jb-spark .jb-spark__svg { display: block; overflow: visible; }
-body.jb-v2 jb-spark .jb-spark__line { fill: none; vector-effect: non-scaling-stroke; }
 
 /* <jb-stage-dot> */
 body.jb-v2 jb-stage-dot {
@@ -132,32 +120,6 @@ body.jb-v2 jb-ai-chip {
 body.jb-v2 jb-ai-chip .jb-ai-chip__icon { font-size: 11px; flex: 0 0 auto; }
 body.jb-v2 jb-ai-chip[data-variant="summary"] { background: color-mix(in srgb, var(--jb-violet-soft) 80%, var(--jb-paper-2) 20%); }
 body.jb-v2 jb-ai-chip[data-variant="warn"] { background: var(--jb-amber-soft); color: var(--jb-warn); }
-
-/* <jb-kbd> */
-body.jb-v2 jb-kbd {
-  display: inline-flex;
-  align-items: center;
-  vertical-align: middle;
-  line-height: 1;
-}
-
-body.jb-v2 jb-kbd .jb-kbd__key {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: var(--jb-paper);
-  border: 1px solid var(--jb-line-soft);
-  border-radius: var(--jb-radius-xs);
-  font-family: var(--jb-font-mono);
-  font-size: 11px;
-  font-weight: 500;
-  line-height: 1;
-  padding: 2px 6px;
-  color: var(--jb-ink-2);
-  white-space: nowrap;
-}
-
-body.jb-v2 jb-kbd .jb-kbd__sep { margin: 0 6px; color: var(--jb-ink-3); font-size: 11px; }
 
 /* .jb-sticker — signature CSS-only primitive */
 body.jb-v2 .jb-sticker {

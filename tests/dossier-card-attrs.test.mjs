@@ -26,7 +26,6 @@ const caseSources = ["jb-text.js", "role-case-model.js", "role-case.js"].map((f)
   filename: f,
   code: readFileSync(join(repoRoot, f), "utf8"),
 }));
-const workshopSource = readFileSync(join(repoRoot, "role-workshop.js"), "utf8");
 const roleSource = readFileSync(join(repoRoot, "role.js"), "utf8");
 
 class TestCustomEvent {
@@ -253,7 +252,6 @@ function loadAllThree({ vm: roleVm }) {
   });
 
   for (const { filename, code } of caseSources) vm.runInContext(code, context, { filename });
-  vm.runInContext(workshopSource, context, { filename: "role-workshop.js" });
   vm.runInContext(roleSource, context, { filename: "role.js" });
   return { context, windowEl, documentEl, region };
 }

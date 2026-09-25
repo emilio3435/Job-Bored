@@ -102,7 +102,7 @@ test("SETUP-03 chip styling: every level the classifier can emit is styled", () 
     "utf8",
   );
   const chipCss = readFileSync(
-    join(repoRoot, "css/legacy-discovery-drawer.css"),
+    join(repoRoot, "css/discovery-drawer.css"),
     "utf8",
   );
 

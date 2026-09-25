@@ -20,10 +20,8 @@
 | Element / class | Owner | Renders | A11y role |
 |---|---|---|---|
 | `<jb-fit-ring>` | Forge-2a | Conic-gradient ring with center number | `meter` |
-| `<jb-spark>` | Forge-2a | SVG sparkline with last-point dot | decorative; `img` if labeled |
 | `<jb-stage-dot>` | Forge-2b | 8px circle + halo, optional label | `status` if labeled, else `img` |
 | `<jb-ai-chip>` | Forge-2b | Pill chip with leading glyph + slotted text | `note` |
-| `<jb-kbd>` | Forge-2b | Inline keycap chips with `·` separators | `group` |
 | `.jb-sticker` | Forge-2c | Paper card primitive (CSS class only) | none (semantic via host) |
 | `.jb-btn` · `.jb-chip` · `.jb-field` · `.jb-banner` · `.jb-toast` | UX01 C3 | The component kit (CSS classes only) | native (`button`, `label`, `role="alert"`/`"status"`) |
 
@@ -59,40 +57,6 @@ None. No events.
 ```html
 <jb-fit-ring percent="78" size="md"></jb-fit-ring>
 <jb-fit-ring percent="92" size="lg" label="A+"></jb-fit-ring>
-```
-
----
-
-## `<jb-spark>`
-
-SVG sparkline with translucent area fill and a filled dot at the last point.
-
-### Attributes
-
-| Attr | Type | Default | Notes |
-|---|---|---|---|
-| `data` | csv or JSON array | required | `"1,2,3,5"` or `"[1,2,3,5]"`. Non-numeric values dropped. |
-| `width` | px | `60` | |
-| `height` | px | `16` | |
-| `color` | token name | `mint` | Resolves to `var(--jb-{name})`. e.g. `mint`, `amber`, `navy`, `ink-3`, `mint-deep`. |
-| `fill` | `true \| false` | `true` | Translucent area path under the line. |
-| `label` | string | (none) | Sets `aria-label` and removes `aria-hidden="true"`. |
-
-### A11y
-
-Decorative by default (`aria-hidden="true"`). When `label` is set, host gets `role="img"` + `aria-label`.
-
-### Edge cases
-
-- Empty / missing data → flat baseline polyline (does not crash).
-- Single point → centered dot only (does not crash).
-- All zeros → flat midline (no division by zero).
-
-### Example
-
-```html
-<jb-spark data="1,2,1,5,3,7,8" color="mint"></jb-spark>
-<jb-spark data="[3,5,4,6,7,9,8,10]" width="120" height="28" color="mint" fill="false"></jb-spark>
 ```
 
 ---
@@ -151,32 +115,6 @@ The chip's children become the body text. Children are wrapped once (on connect)
 <jb-ai-chip variant="default">Strong fit on backend systems</jb-ai-chip>
 <jb-ai-chip variant="warn">Posting older than 30 days</jb-ai-chip>
 <jb-ai-chip variant="tip" icon="★">Tailor your resume to ICs</jb-ai-chip>
-```
-
----
-
-## `<jb-kbd>`
-
-Inline keyboard hint. Splits `keys` on `+`, renders each token as a small mono chip joined by `·`.
-
-### Attributes
-
-| Attr | Type | Default | Notes |
-|---|---|---|---|
-| `keys` | string | required | `"cmd+shift+p"`, `"ctrl+enter"`, `"esc"`, `"?"`. |
-
-Pretty-printing: `cmd → ⌘`, `shift → ⇧`, `alt/option → ⌥`, `ctrl → ⌃`, `esc → Esc`, `enter/return → Enter`, `tab → Tab`, `space → Space`, arrow names → `↑↓←→`. Single letters uppercase (`k → K`).
-
-### A11y
-
-`role="group"`, `aria-label="cmd plus shift plus p"`.
-
-### Example
-
-```html
-<jb-kbd keys="cmd+k"></jb-kbd>
-<jb-kbd keys="cmd+shift+p"></jb-kbd>
-<jb-kbd keys="esc"></jb-kbd>
 ```
 
 ---
@@ -327,7 +265,7 @@ A navy slip for a short confirmation. **Every error toast carries an action** (S
 3. Outside the v2 flag, every custom element collapses to `display: none`.
 4. No external deps, no fetch, no localStorage, no globals.
 5. No `Caveat` font on UI chips, buttons, or body. Caveat is reserved for `h1`, `h2`, and `.jb-handwritten`.
-6. Bundle budget: `jb-ui.js` ≤ 12000 bytes minified, `jb-ui.css` ≤ 6000 bytes minified. Verified by `tools/check-jb-ui-budget.mjs`. The C3 kit takes `jb-ui.css` to about 12 KB minified (2.7 KB gzipped); the budget in the tool has not been raised yet, and C4 retiring `jb-spark` and `jb-kbd` gives back about 1 KB.
+6. Bundle budget: `jb-ui.js` ≤ 12000 bytes minified, `jb-ui.css` ≤ 6000 bytes minified. Verified by `tools/check-jb-ui-budget.mjs`. The C3 kit takes `jb-ui.css` to about 12 KB minified (2.7 KB gzipped); the budget in the tool has not been raised yet, and C4 retired `jb-spark` and `jb-kbd` (DS-20), which gave back about 1 KB. They had no caller; the real primitives are the ones listed above.
 
 ## Tooling
 
@@ -342,8 +280,6 @@ A navy slip for a short confirmation. **Every error toast carries an action** (S
 For each component, manually verify in a real browser before signing off a Phase-3 consumer:
 
 - **`<jb-fit-ring>`** — host carries `role="meter"`, `aria-valuenow` updates on attr change, screen reader announces "Fit {n}%". Visible focus ring when reachable via tab from a parent button.
-- **`<jb-spark>`** — decorative by default; with `label`, screen reader announces the label.
 - **`<jb-stage-dot>`** — when label is present, `role="status"` + announce stage.
 - **`<jb-ai-chip>`** — `role="note"`, `aria-label` includes "AI:" prefix and slot text.
-- **`<jb-kbd>`** — `aria-label` reads keys as "cmd plus shift plus p". Color contrast on chip border vs paper passes AA.
 - **`.jb-sticker`** — focus-within triggers visible elevation; `--selected` outline AA-contrasts against paper. Skeleton shimmer pauses under `prefers-reduced-motion`.

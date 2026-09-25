@@ -73,11 +73,6 @@ body.jb-v2 :focus-visible {
   border-radius: var(--jb-radius-sm);
 }
 
-body.jb-v2 .jb-handwritten {
-  font-family: var(--jb-font-display);
-  line-height: 1.05;
-}
-
 body.jb-v2 .jb-mono {
   font-family: var(--jb-font-mono);
   font-feature-settings: "ss01", "cv11";

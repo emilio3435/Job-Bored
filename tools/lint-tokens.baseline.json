@@ -36,7 +36,7 @@
         "rgba(47,138,90,0.4)": 1
       }
     },
-    "css/legacy-login-gate.css": {
+    "css/login-gate.css": {
       "color": {
         "#0a2740": 1,
         "#0a7a8c": 2,
@@ -60,7 +60,7 @@
         "rgba(89,203,137,0.45)": 1
       }
     },
-    "css/legacy-brief.css": {
+    "css/brief.css": {
       "color": {
         "#047857": 1,
         "#166534": 1,
@@ -79,7 +79,6 @@
         "rgba(148,163,184,0.18)": 1,
         "rgba(148,163,184,0.24)": 1,
         "rgba(148,163,184,0.28)": 1,
-        "rgba(15,23,42,0.45)": 1,
         "rgba(16,185,129,0.08)": 1,
         "rgba(16,185,129,0.1)": 1,
         "rgba(16,185,129,0.32)": 2,
@@ -115,7 +114,7 @@
         "rgba(89,203,137,0.35)": 2
       }
     },
-    "css/legacy-cards-drawer.css": {
+    "css/cards-drawer.css": {
       "color": {
         "#047857": 1,
         "#059669": 1,
@@ -129,8 +128,6 @@
         "rgba(0,0,0,0.04)": 1,
         "rgba(15,23,42,0.06)": 3,
         "rgba(15,23,42,0.08)": 1,
-        "rgba(15,23,42,0.14)": 1,
-        "rgba(15,23,42,0.32)": 1,
         "rgba(180,83,9,0.18)": 1,
         "rgba(180,83,9,0.28)": 1,
         "rgba(180,83,9,0.32)": 1,
@@ -154,7 +151,7 @@
         "rgba(89,203,137,0.45)": 1
       }
     },
-    "css/legacy-materials.css": {
+    "css/materials.css": {
       "color": {
         "#006482": 1,
         "#0a0a0a": 1,
@@ -227,7 +224,7 @@
         "rgba(89,203,137,0.4)": 2
       }
     },
-    "css/legacy-discovery-setup-wizard.css": {
+    "css/discovery-setup-wizard.css": {
       "color": {
         "#15803d": 2,
         "#166534": 2,
@@ -321,7 +318,7 @@
         "rgba(95,203,142,0.55)": 1
       }
     },
-    "css/legacy-profile-modal.css": {
+    "css/materials-modal.css": {
       "color": {
         "#004d66": 1,
         "#6d28d9": 1,
@@ -341,7 +338,7 @@
         "rgba(89,203,137,0.45)": 1
       }
     },
-    "css/legacy-settings-profile.css": {
+    "css/settings-profile.css": {
       "color": {
         "#047857": 3,
         "#57606a": 1,
@@ -356,7 +353,7 @@
         "rgba(234,179,8,0.3)": 1
       }
     },
-    "css/legacy-discovery-runs.css": {
+    "css/runs-log.css": {
       "color": {
         "rgba(0,100,130,0.06)": 1,
         "rgba(220,38,38,0.06)": 1,
@@ -365,7 +362,7 @@
         "rgba(89,203,137,0.18)": 1
       }
     },
-    "css/legacy-discovery-drawer.css": {
+    "css/discovery-drawer.css": {
       "color": {
         "#047857": 4,
         "#111": 2,
@@ -394,7 +391,7 @@
         "rgba(89,203,137,0.3)": 1
       }
     },
-    "css/legacy-fit-profile-overlay.css": {
+    "css/fit-profile-overlay.css": {
       "color": {
         "#2a2a2a": 3,
         "#888": 4,

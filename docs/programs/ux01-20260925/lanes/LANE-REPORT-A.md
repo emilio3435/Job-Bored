@@ -411,3 +411,151 @@ EXIT 0
   13 passed (23.2s)   # e2e-journey
   37 passed (1.0m)    # e2e-visual
 ```
+
+# Step C4: dead code out, legacy CSS renamed, gzip (commits 51068da, d8f4c87, 7765ff8, 1b2e949, d4dcb32)
+
+Branch `feat/ux01-system`, fast-forwarded to `feat/ux-zero-to-one` at 7f684f5 before this step. Not pushed.
+
+## What changed for the user
+
+- **Today no longer reassures you when the app can't read anything (SS-08).** Above "Couldn't load this sheet" and after an expired session, Today used to say "Nothing is waiting on you today". It now hides with the other v2 regions until the dashboard is really up.
+- **Every page load is lighter.** The dev server gzips HTML, CSS, JS, JSON and SVG when the browser accepts it (AX-26). Fonts and images stay as they are because they are already compressed. About 8,800 lines of CSS and JS that no view ever showed are gone: Lattice, the letter workshop, Mark submitted, the Companies tab, welcome.css, `<jb-spark>`, `<jb-kbd>` and four unused decoration classes. fonts.css drops 55 `@font-face` blocks, and 21 font files are deleted.
+- **One body face.** DM Sans is retired. Every `--font-body`, `--sans` and dossier stack now resolves to Geist, and the unvendored "Special Elite" leaves the dossier mono stack, so the same screen looks the same on every machine (DS-12, DS-23).
+- **Contributors can tell live CSS from dead CSS.** No sheet is named `legacy-*` any more. Each is named for the surface it styles, and the modal and drawer chassis sit in one `css/overlay.css` (DS-07).
+
+The visual suite passed on the existing baselines (37 of 37), so the renames, the chassis move and the font swap caused no visible change in the captured states.
+
+## Changes
+
+| Id | Status | Note |
+|---|---|---|
+| SS-08 | done | `[data-region="today"]` is now in both the auth-gated hide list and the `:has(#dashboard…)` reveal list in `jb-v2-legacy-hide.css`. |
+| AX-26 | partial | gzip is done. `isCompressibleContentType`, `acceptsGzip` and `sendStaticBody` in `dev-server.mjs` add `Content-Encoding: gzip` and `Vary: Accept-Encoding` for text types of 1 KB or more. The finding's second half, lazy-loading the wizard, drawer, Settings and materials bundles, is not done: those modules belong to lanes B, C and E. |
+| DS-04 | done in C2 | role.css no longer has the stray brace, and `lint:tokens` fails on any unbalanced brace. A brace scan of all 34 linked sheets is clean. |
+| DS-07 | partial | All 11 live `css/legacy-*.css` sheets are renamed 1:1, in the same link order: login-gate, brief, cards-drawer, materials, discovery-setup-wizard, materials-modal (was profile-modal), settings-profile, runs-log (was discovery-runs), discovery-drawer, fit-profile-overlay, discovery-coachmark. `css/overlay.css` holds `.modal-overlay`, `.btn-modal-primary`, `.btn-modal-primary:hover`, `.btn-modal-secondary`, `.detail-overlay`, `.detail-overlay__backdrop`, `body.detail-open`, `.detail-drawer` and `@keyframes drawerSlideIn`. It is linked where legacy-brief used to load. I checked every class that sits on those elements: none is styled between the old and new positions, so the cascade does not change. **Not done:** folding sheets into sheets I don't own (settings parts into `settings-tabs.css`, the wizard chassis into `css/oneflow.css`, `.btn-materials` into `flowing-chrome.css`). Folding would also reorder the cascade, and 1:1 renames were the zero-diff route. See Handoffs. |
+| DS-08 | skipped | This finding would gate app.js's legacy brief and board renderers on `!body.jb-v2`. It is not safe yet: `pipeline.js` repaints on `#jobCards` mutations and `dawn-data.js:110` scrapes `.kanban-card`, so gating the legacy renderer would blank the v2 board and Dawn. Neither file is a lane A file. The trigger has to move to `jb:pipeline:rendered` and `getPipelineJobs()` first (TR-20's second half). See Handoffs. |
+| DS-09 | partial | lattice.css and welcome.css are deleted, along with lattice.js. welcome.js stays because it still owns the onboarding-mode host and the oneflow tests load it. role.css stays: its 16 live `.jb-shelf`/`.jb-hint` rules have to move into `role-case.css` or `scribe.css`, which are not lane A files. |
+| DS-12 | done | DM Sans is gone from fonts.css and from every token stack (`--jb-font-legacy-body` and `--jb-font-dossier-sans` alias `--jb-font-body`). Caveat, Lora and Source Sans 3 keep only their latin and latin-ext subsets. Source Sans 3 stays because `--doc-resume-font-family` in css/materials.css sets the résumé preview in it. |
+| DS-13 | partial | The duplicate `.jb-handwritten` block in jb-v2.css is removed; `jb-type.css` now holds the only one. Caveat is one variable-font file per subset, so "one weight" saves no bytes and the 500/600/700 faces stay. Swapping the sub-14px Caveat labels to mono touches lane B, C and E sheets (see Handoffs). |
+| DS-17 | done in C2 | `--surface`, `--surface-2`, `--border` and `--bg-raised` alias the warm `--jb-*` palette. |
+| DS-20 | done | `<jb-spark>` and `<jb-kbd>` are removed from jb-ui.js, jb-ui.css and JB-UI.md. `.jb-underline-squiggle`, `.jb-underline-flat`, `.jb-tape`, `.jb-mark` and `.jb-shadow-pencil`/`.jb-shadow-sticker` are removed from jb-deco.css. `.jb-stamp` and `.jb-divider-dashed` stay because scribe.js renders them. `jb-fit-ring` adoption belongs to the board lanes. |
+| DS-23 | partial | "Special Elite" is gone from tokens-v2.css and style.css. It is still hard-coded at `role-case.css:367` (see Handoffs). |
+| DS-24 | skipped (decision) | Emilio has not approved retiring `?jb-v2=0`, so the legacy view still works. `css/brief.css` and `css/cards-drawer.css` carry a header that names what dies with the flag. |
+| TR-20 | partial | lattice.js/.css and mark-submitted.js are deleted. Moving the Pipeline and Dawn render triggers off the legacy DOM is not done; it belongs to the board lanes (see DS-08). |
+| TA-25 | partial | letter.js, letter.css and role-workshop.js are deleted, as are the index.html comments that kept them alive. The SCRIBE.md update and the `href="#"` audit link in scribe.js are lane C files (see Handoffs). |
+| FD-24 | done | companies-tab.js and its test are deleted. |
+| FR-25 | skipped (ownership) | The stale headers are in `onboarding-flow.js:15-18` and `oneflow-demo-board.js:25-26`, which are lane B files (see Handoffs). |
+
+## Red, then green
+
+`tests/ux01-c4-system.test.mjs` (24 tests) was written first. Before any change it failed 22 of 24; the two identity-encoding gzip checks passed from the start.
+
+```
+✖ should hide [data-region="today"] by default under body.jb-v2
+✖ should delete lattice.js and never include it from index.html
+✖ should link no css/legacy-*.css from index.html
+✖ should drop DM Sans from fonts.css and every font stack
+✖ should gzip a stylesheet when the client accepts gzip
+…
+```
+
+After the change all 24 pass.
+
+## Tests removed with their modules
+
+`tests/lattice-rich-card`, `lattice-move-source-stage`, `lattice-canonical-off`, `letter-compose-panel`, `letter-draft-folder`, `dossier-workshop-events`, `mark-submitted` and `companies-tab`. The Lattice-only or letter-only assertions are also removed from `pipeline-filter-controls`, `pipeline-fit-units`, `pipeline-transition-adapter`, `stage-registry-canonical`, `v2-flow-width`, `dossier-card-attrs`, `data-integrity-resume-and-saves`, `flowing-writes-stage-resolve` and `oneflow-l7-sweep`. Their Pipeline assertions are unchanged. Three tests (`discovery-wizard-shell`, `discovery-readiness-truth` and `go-live-wizard`) now read the renamed sheet paths. That is why `npm test` dropped from 3,086 tests to 3,030.
+
+## Files touched
+
+- Owned: `dev-server.mjs`, `jb-v2-legacy-hide.css`, `jb-v2.css`, `tokens-v2.css`, `vendor/fonts/fonts.css` plus 21 deleted woff2 files, `jb-ui.js`, `jb-ui.css`, `jb-deco.css`, `JB-UI.md`, `index.html` (head list, dead region and comments, and the legacy logo `font-family`), `package.json` (typecheck:repo), `css/*` renames and the new `css/overlay.css`, `tools/lint-tokens.baseline.json` (lowered by `--update-baseline`).
+- Deleted modules: `lattice.js`, `lattice.css`, `letter.js`, `letter.css`, `role-workshop.js`, `mark-submitted.js`, `companies-tab.js`, `welcome.css`.
+- Tests of the deleted or renamed modules: the files listed above, `tools/smoke-jb-v2.mjs` (REGIONS), and the new `tests/ux01-c4-system.test.mjs`.
+
+## Contracts touched
+
+None. `data-action`, `data-stable-key`, `expandedJobKeys`, `updateJobStatus(dataIndex, stage)`, the PIPELINE-CARDS-HANDOFF selectors and `schemas/pipeline-row.v1.json` are all unchanged. `.modal-overlay`, `.btn-modal-*`, `.detail-overlay` and `.detail-drawer` keep their names; only the file they live in changed. No class or token was deleted that another lane's file uses. `--jb-font-legacy-body` and `--jb-font-dossier-*` stay as aliases.
+
+## APIs added
+
+- `dev-server.mjs`: `isCompressibleContentType(contentType)` and `acceptsGzip(acceptEncoding)`, both exported.
+- Tokens: `--jb-scrim-modal`, `--jb-scrim-drawer` and `--jb-shadow-drawer`, with the same values the chassis already rendered.
+
+## Baselines refreshed
+
+None. The visual suite passed 37 of 37 on the existing snapshots.
+
+## Handoffs
+
+| To | File | Change |
+|---|---|---|
+| Lane B | `onboarding-flow.js:15-18`, `oneflow-demo-board.js:25-26` | FR-25: update the headers to name their real callers (`discovery-status-handoff.js:1270`, `app-bootstrap.js:55`). |
+| Lane B | `css/oneflow.css:528`, `:1452` | Two comments still name `css/legacy-discovery-setup-wizard.css` and `css/legacy-cards-drawer.css`. They are now `css/discovery-setup-wizard.css` and `css/cards-drawer.css`. Folding the wizard chassis into oneflow.css (DS-07 step 2) is yours if you want it. |
+| Lane C | `role-case.css:367` | DS-23: drop `"Special Elite",` from the notes textarea stack. `var(--mono)` already resolves to JetBrains Mono. |
+| Lane C | `role-case.css` / `scribe.css`, `role.css` | DS-09: take the 16 live `.jb-shelf`/`.jb-hint` rules from role.css, then lane A can delete role.css. |
+| Lane C | `SCRIBE.md:67-70,217-221`, `scribe.js:232` | TA-25: remove the "demo-scorecard-v1" description and wire or remove the `href="#"` audit link. |
+| Board lanes (D/E) | `pipeline.js:1913`, `dawn-data.js:110`, `app.js` | TR-20 / DS-08: trigger Pipeline and Dawn renders from `jb:pipeline:rendered` + `getPipelineJobs()` instead of `#jobCards` mutations and `.kanban-card` scraping. After that, lane A can gate the legacy renderers on `!body.jb-v2` and drop the `#pipelineSection`/`.pipeline-board`/`main.main-content` hide rules. |
+| Lanes B, C, E | sheets that set sub-14px text in `--jb-font-display` | DS-13: swap Caveat labels under 14px (step timers, "Recruiter CRM") to `--jb-font-mono`. |
+| Settings owner | `settings-tabs.css` | DS-07: optionally fold `css/settings-profile.css` and the settings parts of `css/materials.css` into settings-tabs.css. |
+| Lane D (reply) | `index.html` head | The `?v=` cache busters you asked for are not added. The dev server sends `Cache-Control: no-cache` on every static file, so browsers revalidate on each load, and index.html has no `?v=` convention to bump. mark-submitted.js is deleted as you asked. |
+
+## Not in the floor, noted
+
+- `node --test tools/smoke-jb-v2.mjs` (the `smoke:jb-v2` script, not part of CI) fails check 13/13 because it expects zero total token findings and ignores the baseline. It failed the same way before this step, and it is not a CI gate.
+- `jb-ui.demo.html` and `jb-type.demo.html` still show the removed primitives as unstyled markup. They are demo pages that index.html does not load.
+- `jb-v2-boot-contract.js` still carries the "lattice" adapter slot. With `window.JB_LATTICE` gone it does nothing, and its test pins the unmount behaviour. Removing it is a small follow-up.
+
+## Floor (C4)
+
+Run from the worktree root. Logs are in `~/Job-Bored.worktrees/.ux01-run/A-C4-*.log`. The live :8644 worker kept PID 18106 before and after.
+
+| # | Command | Result |
+|---|---|---|
+| 1 | `npm run lint:repo` | PASS: `lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)` |
+| 2 | `npm run typecheck:repo` | PASS: exit 0 (tsc clean) |
+| 3 | `npm test` | PASS: 3030 tests, 3029 pass, 0 fail, 1 todo (the known submission-record-audit todo) |
+| 4 | `npm run test:contract:all` | PASS: exit 0 |
+| 5 | `npm run test:e2e-smoke` | PASS: 15 passed |
+| 6 | `npm run test:e2e-journey` | PASS: 13 passed |
+| 7 | `npm run test:e2e-visual` | PASS: 37 passed |
+
+```
+ℹ tests 3030
+ℹ pass 3029
+ℹ fail 0
+ℹ skipped 0
+ℹ todo 1
+EXIT 0
+  15 passed (17.2s)   # e2e-smoke
+  13 passed (19.9s)   # e2e-journey
+  37 passed (1.0m)    # e2e-visual
+```
+
+## Verification · floor (A-C4-r1)
+
+Verifier: fresh Opus context (floor only; no product code or tests edited). Worktree `feat/ux01-system`. Logs: `Job-Bored.worktrees/.ux01-run/A-C4-r1-floor/<n>.log`. No retries needed; no flaky specs.
+
+| # | Command | Exit | Result |
+|---|---|---|---|
+| 1 | `npm run lint:repo` | 0 | PASS: `lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)` |
+| 2 | `npm run typecheck:repo` | 0 | PASS: all `tsc --noEmit` projects clean |
+| 3 | `npm test` | 0 | PASS: tests 3030, pass 3029, fail 0, cancelled 0, skipped 0, todo 1 |
+| 4 | `npm run test:contract:all` | 0 | PASS: every schema/contract check OK |
+| 5 | `npm run test:e2e-smoke` | 0 | PASS: 15 passed (19.1s) |
+| 6 | `npm run test:e2e-journey` | 0 | PASS: 13 passed (22.7s) |
+| 7 | `npm run test:e2e-visual` | 0 | PASS: 37 passed (1.1m) |
+
+Green: yes.
+
+Note: the node reporter lists one entry under "failing tests". That test is marked `todo` and does not count as a failure:
+`tests/submission-record-audit.test.mjs:17` "persists and can remove the canonical submission evidence record # blocked on the canonical-ownership gate; no legal Sheet column or IndexedDB store" (deepStrictEqual: actual `[]`).
+
+Tail, `npm test`:
+```
+ℹ tests 3030
+ℹ suites 728
+ℹ pass 3029
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 1
+```
