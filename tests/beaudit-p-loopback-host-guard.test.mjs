@@ -21,6 +21,7 @@ import { fileURLToPath } from "node:url";
 
 import { startDevServer } from "../dev-server.mjs";
 import {
+  checkLoopbackRequestHost,
   isAllowedLoopbackHost,
   isLoopbackAddress,
   resolveAllowedBrowserOrigin,
@@ -202,5 +203,24 @@ describe("BEAUDIT E1 — API refuses a rebound Host", () => {
       child.kill();
       rmSync(home, { recursive: true, force: true });
     }
+  });
+});
+
+describe("BEAUDIT E1 repair — the scheme sets the default Host port", () => {
+  it("accepts a portless Host on https:443 and http:80, never across schemes", () => {
+    assert.equal(isAllowedLoopbackHost("localhost", 443, "https"), true);
+    assert.equal(isAllowedLoopbackHost("127.0.0.1", 443, "https"), true);
+    assert.equal(isAllowedLoopbackHost("localhost", 80, "http"), true);
+    assert.equal(isAllowedLoopbackHost("localhost", 80), true);
+    assert.equal(isAllowedLoopbackHost("localhost", 443, "http"), false);
+    assert.equal(isAllowedLoopbackHost("localhost", 80, "https"), false);
+  });
+
+  it("a TLS socket on 443 with a portless loopback Host passes the request gate", () => {
+    const req = {
+      headers: { host: "localhost" },
+      socket: { localAddress: "127.0.0.1", localPort: 443, encrypted: true },
+    };
+    assert.deepEqual(checkLoopbackRequestHost(req), { ok: true });
   });
 });

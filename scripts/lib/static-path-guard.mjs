@@ -58,6 +58,10 @@ const DENIED_ANYWHERE_EXTENSIONS = new Set([
   ".log", ".zip", ".env", ".pem", ".key", ".sqlite", ".db",
 ]);
 
+// Root documents the dashboard links to (the discovery drawer links the
+// public webhook contract). Named one by one, not every root .md.
+const PUBLIC_ROOT_DOCUMENTS = new Set(["AGENT_CONTRACT.md"]);
+
 function extensionOf(segment) {
   const index = segment.lastIndexOf(".");
   return index > 0 ? segment.slice(index).toLowerCase() : "";
@@ -77,7 +81,9 @@ export function isServableRelativePath(relativePath) {
   const ext = extensionOf(segments[segments.length - 1]);
   if (DENIED_ANYWHERE_EXTENSIONS.has(ext)) return false;
   if (segments.some((segment) => segment.toLowerCase() === "uploads")) return false;
-  if (segments.length === 1) return ROOT_FILE_EXTENSIONS.has(ext);
+  if (segments.length === 1) {
+    return ROOT_FILE_EXTENSIONS.has(ext) || PUBLIC_ROOT_DOCUMENTS.has(joined);
+  }
   if (PUBLIC_DIRECTORIES.some((dir) => lower.startsWith(`${dir}/`))) return true;
   if (segments[0] === "docs") {
     return PUBLIC_DOC_EXTENSIONS.has(ext) && !lower.startsWith("docs/redesign/logs/");

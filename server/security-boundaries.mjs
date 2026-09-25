@@ -83,10 +83,14 @@ const LOOPBACK_HOSTNAMES = new Set(["127.0.0.1", "localhost", "[::1]"]);
  * in Host, so a loopback listener accepts only 127.0.0.1, localhost or [::1]
  * with the listener's own port.
  *
+ * A Host without a port means the scheme's default port (browsers omit
+ * :443 on https and :80 on http), so the scheme decides it.
+ *
  * @param {unknown} hostHeader
  * @param {unknown} port
+ * @param {unknown} [scheme] "https" or "http" (default "http")
  */
-export function isAllowedLoopbackHost(hostHeader, port) {
+export function isAllowedLoopbackHost(hostHeader, port, scheme = "http") {
   const host = cleanString(hostHeader).toLowerCase();
   if (!host) return false;
   const match = /^(\[[^\]]+\]|[^:]+)(?::(\d+))?$/.exec(host);
@@ -94,7 +98,8 @@ export function isAllowedLoopbackHost(hostHeader, port) {
   if (!LOOPBACK_HOSTNAMES.has(match[1])) return false;
   const expected = Number(port);
   if (!Number.isInteger(expected) || expected <= 0) return true;
-  const actual = match[2] ? Number(match[2]) : 80;
+  const defaultPort = cleanString(scheme).toLowerCase().replace(/:$/, "") === "https" ? 443 : 80;
+  const actual = match[2] ? Number(match[2]) : defaultPort;
   return actual === expected;
 }
 
@@ -112,7 +117,8 @@ export function checkLoopbackRequestHost(req) {
   const socket = req && req.socket ? req.socket : null;
   if (!socket || !isLoopbackAddress(socket.localAddress)) return { ok: true };
   const headers = (req && req.headers) || {};
-  if (isAllowedLoopbackHost(headers.host, socket.localPort)) return { ok: true };
+  const scheme = /** @type {{ encrypted?: unknown }} */ (socket).encrypted ? "https" : "http";
+  if (isAllowedLoopbackHost(headers.host, socket.localPort, scheme)) return { ok: true };
   return {
     ok: false,
     status: 403,
@@ -140,7 +146,7 @@ export function resolveAllowedBrowserOrigin(
   if (allowedOrigins.includes(origin)) return origin;
   // On a loopback listener a Host outside the loopback allowlist is a
   // rebinding attempt, never a same-origin page (E1).
-  if (loopbackPort !== undefined && !isAllowedLoopbackHost(requestHost, loopbackPort)) {
+  if (loopbackPort !== undefined && !isAllowedLoopbackHost(requestHost, loopbackPort, requestProtocol)) {
     return "";
   }
   const sameOrigin = buildRequestOrigin(requestHost, requestProtocol);

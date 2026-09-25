@@ -73,3 +73,11 @@ describe("BEAUDIT G3 — static allowlist", () => {
     }
   });
 });
+
+describe("BEAUDIT G3 repair — the public contract document stays servable", () => {
+  it("serves AGENT_CONTRACT.md (the discovery drawer links it) and no other root .md", () => {
+    assert.equal(isServableRelativePath("AGENT_CONTRACT.md"), true);
+    assert.equal(isServableRelativePath("AGENTS.md"), false);
+    assert.equal(isServableRelativePath("CLAUDE.md"), false);
+  });
+});
