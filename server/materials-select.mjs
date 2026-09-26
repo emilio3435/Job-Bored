@@ -89,7 +89,7 @@ const SELECT_SYSTEM_PROMPT = [
  * @param {Array<{ claimId: string, score?: { total?: number }, mapsTo?: string[] }>} input.shortlist
  * @param {{ ledgerHash?: unknown, employers?: Array<{ id?: unknown }>, claims?: Array<{ id?: unknown, employerId?: unknown, text?: unknown }> }} input.ledger
  * @param {number[]} [input.letterWords]
- * @param {import("./materials-writer.mjs").WriterPin} input.pin
+ * @param {import("./materials-writer.mjs").WriterPin | null} input.pin
  * @param {(input: string | URL, init?: RequestInit) => Promise<import("./materials-writer.mjs").HttpResponseLike>} input.fetchImpl
  */
 export async function selectClaims({ extract, shortlist, ledger, letterWords = [180, 260], pin, fetchImpl }) {
@@ -127,7 +127,7 @@ export async function selectClaims({ extract, shortlist, ledger, letterWords = [
     return { selection: deterministicSelection({ extract, shortlist, ledger, letterWords }), degraded: true };
   }
 
-  const selection = enforceRules({ extract, shortlist, ledger, letterWords, picked, shortIds, claims, employerOf });
+  const selection = enforceRules({ extract, shortlist, ledger, letterWords, picked, shortIds, employerOf });
   const validation = validateSelection(selection);
   if (!validation.ok) {
     return { selection: deterministicSelection({ extract, shortlist, ledger, letterWords }), degraded: true };
@@ -138,8 +138,16 @@ export async function selectClaims({ extract, shortlist, ledger, letterWords = [
 /**
  * Post-call hard rules: unknown ids out, budgets enforced, proofs from
  * kept, every omission recorded.
+ * @param {object} input
+ * @param {{ jdHash?: unknown }} input.extract
+ * @param {Array<{ claimId: string, score?: { total?: number }, mapsTo?: string[] }>} input.shortlist
+ * @param {{ ledgerHash?: unknown, employers?: Array<{ id?: unknown }>, claims?: Array<{ id?: unknown, employerId?: unknown, text?: unknown }> }} input.ledger
+ * @param {number[]} input.letterWords
+ * @param {Record<string, unknown>} input.picked
+ * @param {Set<string>} input.shortIds
+ * @param {(id: string) => string} input.employerOf
  */
-function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortIds, claims, employerOf }) {
+function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortIds, employerOf }) {
   const rankOf = new Map(shortlist.map((s, i) => [s.claimId, i]));
   /** @type {Array<{ claimId: string, slot: string, reason: string }>} */
   const wanted = Array.isArray(picked.kept) ? picked.kept : [];
@@ -162,6 +170,7 @@ function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortId
   kept.sort((a, b) => a.rank - b.rank);
 
   /* Cap employers at 3: drop the lowest-ranked employer's claims. */
+  /** @type {string[]} */
   const employersInOrder = [];
   for (const k of kept) {
     const employer = employerOf(k.claimId);
@@ -221,7 +230,9 @@ function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortId
   }
 
   /* Letter proofs must be kept ids; repair with the top kept. */
-  const letter = picked.letter && typeof picked.letter === "object" ? picked.letter : {};
+  const letter = /** @type {Record<string, unknown>} */ (
+    picked.letter && typeof picked.letter === "object" ? picked.letter : {}
+  );
   const proofOr = (/** @type {unknown} */ id, /** @type {number} */ fallback) =>
     typeof id === "string" && keptIds.has(id) ? id : (finalKept[fallback]?.claimId || finalKept[0]?.claimId || "");
   const letterOut = {
@@ -229,17 +240,18 @@ function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortId
     aiOpsProof: proofOr(letter.aiOpsProof, 1),
   };
 
-  const transfers = Array.isArray(picked.transfers)
-    ? picked.transfers
-        .filter((t) => t && typeof t === "object" && typeof t.to === "string" && t.to)
-        .map((t, i) => ({
-          id: typeof t.id === "string" && t.id ? t.id : `t${i + 1}`,
-          from: Array.isArray(t.from) ? t.from.filter((f) => typeof f === "string") : [],
-          to: String(t.to).slice(0, 120),
-          allowed: "prose-only",
-          ...(typeof t.note === "string" && t.note ? { note: t.note.slice(0, 300) } : {}),
-        }))
-    : [];
+  const rawTransfers = /** @type {Array<Record<string, unknown>>} */ (
+    Array.isArray(picked.transfers) ? picked.transfers : []
+  );
+  const transfers = rawTransfers
+    .filter((t) => t && typeof t === "object" && typeof t.to === "string" && t.to)
+    .map((t, i) => ({
+      id: typeof t.id === "string" && t.id ? t.id : `t${i + 1}`,
+      from: Array.isArray(t.from) ? t.from.filter((/** @type {unknown} */ f) => typeof f === "string") : [],
+      to: String(t.to).slice(0, 120),
+      allowed: "prose-only",
+      ...(typeof t.note === "string" && t.note ? { note: t.note.slice(0, 300) } : {}),
+    }));
 
   return {
     contract: SELECTION_CONTRACT,
@@ -267,6 +279,10 @@ function enforceRules({ extract, shortlist, ledger, letterWords, picked, shortId
 /**
  * Employers with ledger claims that this run does not feature. Every one
  * is recorded with a reason, which is what makes omission legal.
+ * @param {object} input
+ * @param {{ employers?: Array<{ id?: unknown }> }} input.ledger
+ * @param {Array<{ claimId: string }>} input.finalKept
+ * @param {(id: string) => string} input.employerOf
  */
 function omittedEmployers({ ledger, finalKept, employerOf }) {
   const featured = new Set(finalKept.map((k) => employerOf(k.claimId)).filter(Boolean));
@@ -281,6 +297,11 @@ function omittedEmployers({ ledger, finalKept, employerOf }) {
 
 /**
  * Deterministic fallback: top shortlist ranks with recorded reasons.
+ * @param {object} input
+ * @param {{ jdHash?: unknown }} input.extract
+ * @param {Array<{ claimId: string, score?: { total?: number }, mapsTo?: string[] }>} input.shortlist
+ * @param {{ ledgerHash?: unknown, claims?: Array<{ id?: unknown, employerId?: unknown }> }} input.ledger
+ * @param {number[]} input.letterWords
  */
 function deterministicSelection({ extract, shortlist, ledger, letterWords }) {
   const picked = {
@@ -302,5 +323,5 @@ function deterministicSelection({ extract, shortlist, ledger, letterWords }) {
     const claim = claims.get(id);
     return claim && typeof claim.employerId === "string" ? claim.employerId : "";
   };
-  return enforceRules({ extract, shortlist, ledger, letterWords, picked, shortIds, claims, employerOf });
+  return enforceRules({ extract, shortlist, ledger, letterWords, picked, shortIds, employerOf });
 }

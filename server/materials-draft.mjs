@@ -67,11 +67,11 @@ const DRAFT_SYSTEM_PROMPT = [
  * @param {object} input
  * @param {{ featured?: Array<{ employerId?: unknown, claimIds?: unknown[] }>, earlier?: unknown[], letterBeats?: { thesis?: unknown, analyticsProof?: unknown, aiOpsProof?: unknown } | null }} input.outline
  * @param {{ jdHash?: unknown }} input.extract
- * @param {{ ledgerHash?: unknown, claims?: Array<{ id?: unknown }> }} input.ledger
+ * @param {{ ledgerHash?: unknown, claims?: Array<{ id?: unknown, text?: unknown }> }} input.ledger
  * @param {string} input.feature
  * @param {string[]} [input.voice]
  * @param {string[]} [input.echoBans]
- * @param {import("./materials-writer.mjs").WriterPin} input.pin
+ * @param {import("./materials-writer.mjs").WriterPin | null} input.pin
  * @param {(input: string | URL, init?: RequestInit) => Promise<import("./materials-writer.mjs").HttpResponseLike>} input.fetchImpl
  * @param {{ statement?: unknown }} [input.current] repair mode: the prior draft to edit
  * @param {string} [input.repairInstructions] repair mode: editor instructions
@@ -104,7 +104,7 @@ export async function draftSlots({
   };
 
   const lines = [
-    `Role context: ${outline.featured.length} featured employer(s).`,
+    `Role context: ${(outline.featured || []).length} featured employer(s).`,
     "",
     "Featured claims (one bullet each, same ids):",
     ...featuredIds.map((id) => `- ${id}: ${claimText(id).slice(0, 400)}`),
@@ -159,9 +159,17 @@ function stripMarkup(text) {
 /**
  * Post-call rules: unknown ids out, missing bullets backfilled with
  * claim text, markup stripped, letter beats defaulted to empty strings.
+ * @param {object} input
+ * @param {Record<string, unknown>} input.raw
+ * @param {{ jdHash?: unknown }} input.extract
+ * @param {{ ledgerHash?: unknown, claims?: Array<{ id?: unknown, text?: unknown }> }} input.ledger
+ * @param {string[]} input.featuredIds
+ * @param {string[]} input.earlierIds
+ * @param {string} input.feature
  */
 function repairDraft({ raw, extract, ledger, featuredIds, earlierIds, feature }) {
-  const pick = (/** @type {unknown} */ value) => (value && typeof value === "object" ? value : {});
+  const pick = (/** @type {unknown} */ value) =>
+    /** @type {Record<string, unknown>} */ (value && typeof value === "object" ? value : {});
   const bullets = [];
   /** @type {Map<string, string>} */
   const offered = new Map();
@@ -223,6 +231,11 @@ function repairDraft({ raw, extract, ledger, featuredIds, earlierIds, feature })
 /**
  * Deterministic fallback: claim text verbatim, letter empty (QA will
  * REVIEW the letter band honestly rather than ship invented prose).
+ * @param {object} input
+ * @param {{ jdHash?: unknown }} input.extract
+ * @param {{ ledgerHash?: unknown, claims?: Array<{ id?: unknown, text?: unknown }> }} input.ledger
+ * @param {string[]} input.featuredIds
+ * @param {string[]} input.earlierIds
  */
 function degradedDraft({ extract, ledger, featuredIds, earlierIds }) {
   const textOf = (/** @type {string} */ id) => {

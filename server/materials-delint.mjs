@@ -334,11 +334,14 @@ const DELINT_REWRITE_SYSTEM_PROMPT = [
  * @param {Record<string, string>} input.fields
  * @param {DelintSpan[]} input.spans
  * @param {string[]} [input.voice]
- * @param {import("./materials-writer.mjs").WriterPin} input.pin
+ * @param {import("./materials-writer.mjs").WriterPin | null} input.pin
  * @param {(input: string | URL, init?: RequestInit) => Promise<import("./materials-writer.mjs").HttpResponseLike>} input.fetchImpl
  * @returns {Promise<{ fields: Record<string, string> }>}
  */
 export async function rewriteFlagged({ fields, spans, voice = [], pin, fetchImpl }) {
+  /* No pin, no rewrite — the prepass spans stand (the pipeline only calls
+   * this half when a model is available). */
+  if (!pin) return { fields: { ...fields } };
   const flagged = [...new Set(spans.map((s) => s.field).filter((f) => typeof fields[f] === "string"))];
   const lines = [];
   for (const field of flagged) {

@@ -363,7 +363,7 @@ function sentences(text) {
 
 /**
  * @param {Record<string, unknown>} letter
- * @param {{ company?: string, title?: string }} request
+ * @param {{ company?: unknown, title?: unknown }} request
  * @param {Readout[]} resumeReadouts
  * @param {string} nowIso
  */
@@ -515,7 +515,7 @@ export function buildRenderModelFromDraft({ draft, outline, ledger, resumeText =
   if (readouts.length >= 3) sections.push({ kind: "readouts", label: "Verified figures", readouts });
   if (featured.length) sections.push({ kind: "experience", label: "Experience", entries: featured });
   if (earlier.length) sections.push({ kind: "earlier", label: "Earlier", entries: earlier });
-  const tools = (outline.toolsLine || []).filter((t) => typeof t === "string" && t);
+  const tools = (outline.toolsLine || []).flatMap((t) => (typeof t === "string" && t ? [t] : []));
   if (tools.length) {
     sections.push({ kind: "tokens", label: "Skills", tokens: tools.slice(0, MATERIALS_BUDGETS.resume.tokens[1]) });
   }
@@ -596,7 +596,7 @@ export function buildRenderModelFromWriter({ writerJson, resumeText, request = {
 
   return {
     contract: "materials.render-model.v1",
-    note: "Adapted from the v2 writer JSON by server/materials-render-model-adapter.mjs until the claim-ledger pipeline lands; claim ids are synthetic and metric runs are traced to the user's resume text.",
+    note: "Adapted from v2 writer JSON for the sample/visual harness; production drafts flow through the claim-ledger pipeline (buildRenderModelFromDraft) with real claim ids.",
     template: { family: family.id, version: family.version, pageBudget: MATERIALS_BUDGETS.resume.pages },
     provenance: { source: "writer-adapter" },
     identity: { name, target, contact: contactFrom(strList(header.contact), source) },

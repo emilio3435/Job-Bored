@@ -467,6 +467,7 @@ app.post("/profile", async (req, res) => {
     /* F21: rebuild the claim ledger from the saved profile + the stored
      * resume. Best-effort like the logo refresh: a ledger failure must
      * never fail the save (claims.load rebuilds on demand anyway). */
+    /** @type {{ ok: boolean, claims?: number, ledgerHash?: string, error?: string }} */
     let ledger = { ok: false };
     try {
       const stored = await getStoredResumeText().catch(() => null);

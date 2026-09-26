@@ -53,8 +53,12 @@ export function buildOutline({ selection, ledger, feature }) {
       const claim = claimById(ledger, id);
       const employer = claim && typeof claim.employerId === "string" ? claim.employerId : "";
       if (employer) {
-        if (!byEmployer.has(employer)) byEmployer.set(employer, []);
-        byEmployer.get(employer).push(id);
+        let list = byEmployer.get(employer);
+        if (!list) {
+          list = [];
+          byEmployer.set(employer, list);
+        }
+        list.push(id);
       } else {
         unattributed.push(id);
       }
@@ -74,7 +78,7 @@ export function buildOutline({ selection, ledger, feature }) {
     const evidence = new Map(
       (ledger.toolInventory || [])
         .filter((t) => t && typeof t.tool === "string")
-        .map((t) => [t.tool.toLowerCase(), t.level]),
+        .map((t) => [typeof t.tool === "string" ? t.tool.toLowerCase() : "", t.level]),
     );
     const seen = new Set();
     /** @type {string[]} */

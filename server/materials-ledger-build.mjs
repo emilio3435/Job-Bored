@@ -90,7 +90,10 @@ function sha(text) {
   return `sha256:${createHash("sha256").update(text).digest("hex")}`;
 }
 
-/** @param {unknown} value */
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
 function isRecord(value) {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -113,10 +116,11 @@ function slugify(name) {
 
 /**
  * @param {string} text
- * @returns {Array<{ token: string, unit: string }>}
+ * @returns {Array<{ token: string, unit?: string }>}
  */
 function extractMetrics(text) {
   /** @type {Array<{ token: string, unit: string }>} */
+  /** @type {Array<{ token: string, unit?: string }>} */
   const out = [];
   const seen = new Set();
   for (const match of text.matchAll(METRIC_RE)) {
@@ -234,7 +238,7 @@ function collectEmployers(profile, resumeText) {
  * @param {string} [input.resumeSource] portfolio | profile | upload | …
  * @param {string} [input.nowIso]
  */
-export function buildLedger({ profile, resumeText = "", resumeSource = "upload", nowIso }) {
+export function buildLedger({ profile, resumeText = "", resumeSource: _resumeSource = "upload", nowIso }) {
   const resume = String(resumeText || "").trim().slice(0, 60_000);
   const builtAt = nowIso || new Date().toISOString();
   const { employers, byName } = collectEmployers(profile, resume);
@@ -366,7 +370,9 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
   const profileText = isRecord(profile) ? JSON.stringify(profile) : "";
   const stored = await readLedger();
   if (stored.ok) {
-    const sources = Array.isArray(stored.ledger.sources) ? stored.ledger.sources : [];
+    const sources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (
+      Array.isArray(stored.ledger.sources) ? stored.ledger.sources : []
+    );
     const resumeSourceEntry = sources.find((s) => s && s.kind === "resume");
     const profileSourceEntry = sources.find((s) => s && s.kind === "profile");
     const resumeFresh =

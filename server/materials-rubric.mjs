@@ -54,7 +54,6 @@ export function scoreRubric({ extract, selection, ledger, draft, delintSpans = [
   /** @type {RubricRow[]} */
   const rows = [];
   const kept = selection.kept || [];
-  const keptIds = new Set(kept.map((k) => k.claimId));
   const mapped = new Set(kept.flatMap((k) => (Array.isArray(k.mapsTo) ? k.mapsTo : [])));
   const text = draftText(draft);
   const words = new Set(tokens(text));

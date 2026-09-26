@@ -152,6 +152,12 @@ function detectWorkMode(text) {
 /**
  * Deterministic half: schema-valid on its own, so it doubles as the
  * degrade path.
+ * @param {object} input
+ * @param {string} input.jdText
+ * @param {string} input.company
+ * @param {string} input.title
+ * @param {{ verdict: string, confidence: number, signals?: Record<string, unknown> }} input.gate
+ * @param {string} [input.source]
  */
 export function deterministicExtract({ jdText, company, title, gate, source = "paste" }) {
   const text = String(jdText || "").slice(0, MAX_JD_CHARS);
@@ -198,7 +204,7 @@ const EXTRACT_SYSTEM_PROMPT = [
  * @param {string} input.title
  * @param {{ verdict: string, confidence: number, signals?: Record<string, unknown> }} input.gate
  * @param {string} [input.source]
- * @param {import("./materials-writer.mjs").WriterPin} input.pin
+ * @param {import("./materials-writer.mjs").WriterPin | null} input.pin
  * @param {(input: string | URL, init?: RequestInit) => Promise<import("./materials-writer.mjs").HttpResponseLike>} input.fetchImpl
  */
 export async function extractJd({ jdText, company, title, gate, source, pin, fetchImpl }) {
@@ -235,18 +241,19 @@ export async function extractJd({ jdText, company, title, gate, source, pin, fet
  * @param {Record<string, unknown>} fill
  */
 function mergeFill(base, fill) {
-  const pick = (/** @type {unknown} */ value, fallback) => (value !== undefined ? value : fallback);
+  const pick = (/** @type {unknown} */ value, /** @type {unknown} */ fallback) =>
+    (value !== undefined ? value : fallback);
   /** @type {Record<string, unknown>} */
   const out = { ...base };
   if (Array.isArray(fill.outcomes) && fill.outcomes.length) {
-    out.outcomes = fill.outcomes
+    const merged = fill.outcomes
       .filter((o) => o && typeof o === "object" && typeof o.text === "string" && o.text.trim())
       .map((o, i) => ({
         id: typeof o.id === "string" && o.id ? o.id : `o${i + 1}`,
         text: String(o.text).slice(0, 300),
         weight: typeof o.weight === "number" ? Math.min(1, Math.max(0, o.weight)) : 0.5,
       }));
-    if (!out.outcomes.length) out.outcomes = base.outcomes;
+    out.outcomes = merged.length ? merged : base.outcomes;
   }
   if (Array.isArray(fill.differentiators)) {
     out.differentiators = fill.differentiators
@@ -277,8 +284,11 @@ function mergeFill(base, fill) {
   }
   if (fill.nounWeights && typeof fill.nounWeights === "object") {
     const weights = /** @type {Record<string, unknown>} */ (fill.nounWeights);
-    out.nouns = base.nouns.map((n) => {
-      const w = weights[n.term];
+    const baseNouns = /** @type {Array<{ term?: unknown }>} */ (
+      Array.isArray(base.nouns) ? base.nouns : []
+    );
+    out.nouns = baseNouns.map((n) => {
+      const w = typeof n.term === "string" ? weights[n.term] : undefined;
       return typeof w === "number" ? { ...n, weight: Math.min(1, Math.max(0, w)) } : n;
     });
   }

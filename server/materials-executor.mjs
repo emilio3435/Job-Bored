@@ -8,6 +8,7 @@
  * invents output, it only runs the stage it is given.
  */
 
+/** @type {Record<string, { name: string, supported: boolean }>} */
 const EXECUTORS = {
   "local-inprocess": { name: "local-inprocess", supported: true },
   "hermes-cli": { name: "hermes-cli", supported: false },

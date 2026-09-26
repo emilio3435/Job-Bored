@@ -73,6 +73,14 @@ async function readVoiceOverride() {
 }
 
 /**
+ * @param {unknown} value
+ * @returns {unknown[]}
+ */
+function asArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+/**
  * @param {{ statement?: unknown, bullets?: Array<{ claimId?: unknown, text?: unknown }>, earlier?: Array<{ text?: unknown }>, letter?: Record<string, unknown> }} draft
  */
 function draftFields(draft) {
@@ -122,7 +130,7 @@ function applyDelintFields(draft, fields) {
 /**
  * @param {object} input
  * @param {string} input.dir the slug directory (staging + package live here)
- * @param {import("./materials-request.mjs").MaterialsRequestPayload} input.payload
+ * @param {Omit<import("./materials-request.mjs").MaterialsRequestPayload, "resume"> & { resume?: import("./materials-resume-source.mjs").ResumeSource | null }} input.payload
  * @param {import("./materials-writer.mjs").WriterPin | null} input.pin resolved pin, or null for the degraded path
  * @param {(input: string | URL, init?: RequestInit) => Promise<import("./materials-writer.mjs").HttpResponseLike>} input.fetchImpl
  * @param {string} input.jdText resolved posting text
@@ -131,10 +139,10 @@ function applyDelintFields(draft, fields) {
  * @param {{ ledgerHash?: unknown, employers?: Array<{ id?: unknown, name?: unknown }>, claims?: Array<{ id?: unknown, employerId?: unknown, text?: unknown, metrics?: Array<{ token?: unknown }> }>, toolInventory?: Array<{ tool?: unknown, level?: unknown }> }} input.ledger
  * @param {string} input.resumeText the user's resume, for identity + contact
  * @param {string[]} [input.voice] profile writing samples
- * @param {Date | string} [input.now]
+ * @param {Date | string | number} [input.now]
  * @param {string} [input.runId]
- * @param {() => Promise<{ measure?: Function, rasterize?: Function, pdf?: Function, close?: Function } | null>} [input.openSession]
- * @param {() => Promise<Array<{ slug?: string, label?: string }>>} [input.readMarks]
+ * @param {(() => Promise<import("./materials-pdf.mjs").PdfSession | null>) | null} [input.openSession]
+ * @param {() => Promise<import("./materials-render-model-adapter.mjs").ResolvedMark[]>} [input.readMarks]
  * @param {(stage: string, status: string) => void} [input.onStage]
  * @param {Record<string, unknown>} [input.current] F8 repair: the prior draft to edit
  * @param {string} [input.repairInstructions] F8 repair: editor instructions
@@ -169,8 +177,6 @@ export async function runPipeline({
     stages.push(entry);
     onStage(entry.stage, entry.status);
   };
-  const started = Date.now();
-
   /* intake: family, budgets, prompt versions. */
   const { family, source: templateSource } = resolveRunFamily({
     template: payload.template,
@@ -251,7 +257,7 @@ export async function runPipeline({
     ms: Date.now() - extractStarted,
     llm: llmAvailable,
     out: ["jd-extract.json"],
-    detail: extractDegraded ? "model fill unavailable; deterministic half" : `${(extract.outcomes || []).length} outcomes, ${(extract.nouns || []).length} nouns`,
+    detail: extractDegraded ? "model fill unavailable; deterministic half" : `${asArray(extract.outcomes).length} outcomes, ${asArray(extract.nouns).length} nouns`,
   });
 
   /* claims.score (deterministic) */
@@ -278,7 +284,7 @@ export async function runPipeline({
     ms: Date.now() - selectStarted,
     llm: llmAvailable,
     out: ["selection.json"],
-    detail: `${(selection.kept || []).length} kept, ${(selection.dropped || []).length} dropped`,
+    detail: `${asArray(selection.kept).length} kept, ${asArray(selection.dropped).length} dropped`,
   });
 
   /* outline (deterministic) */
@@ -292,7 +298,6 @@ export async function runPipeline({
     await withExecutor("draft", () =>
       draftSlots({
         outline,
-        selection,
         ledger,
         extract,
         feature: payload.feature,
@@ -313,7 +318,7 @@ export async function runPipeline({
     ms: Date.now() - draftStarted,
     llm: llmAvailable,
     out: ["draft.json"],
-    detail: current ? "repair re-entry with editor instructions" : `${(draft.bullets || []).length} bullets + letter`,
+    detail: current ? "repair re-entry with editor instructions" : `${asArray(draft.bullets).length} bullets + letter`,
   });
 
   /* delint: prepass, conditional rewrite, re-prepass. */
@@ -419,7 +424,8 @@ export async function runPipeline({
   const letterHtml = rendered.letterHtml || "";
 
   /* qa: critic + tag issues + rubric + pipeline checks. */
-  const keptEmployers = (selection.kept || [])
+  const keptSel = /** @type {Array<{ claimId?: unknown }>} */ (asArray(selection.kept));
+  const keptEmployers = keptSel
     .map((k) => (ledger.claims || []).find((c) => c && c.id === k.claimId)?.employerId)
     .filter((id) => typeof id === "string")
     .map((id) => (ledger.employers || []).find((e) => e && e.id === id)?.name)
@@ -437,8 +443,14 @@ export async function runPipeline({
     writerJson: {
       letter: draft.letter,
       resume: {
-        bullets: (draft.bullets || []).map((b) => (b && typeof b.text === "string" ? b.text : "")),
-        earlier: (draft.earlier || []).map((l) => (l && typeof l.text === "string" ? l.text : "")),
+        bullets: asArray(draft.bullets).map((b) => {
+          const text = /** @type {{ text?: unknown }} */ (b)?.text;
+          return typeof text === "string" ? text : "";
+        }),
+        earlier: asArray(draft.earlier).map((l) => {
+          const text = /** @type {{ text?: unknown }} */ (l)?.text;
+          return typeof text === "string" ? text : "";
+        }),
       },
     },
     keptEmployers,
@@ -511,7 +523,10 @@ export async function runPipeline({
   });
 
   /* publish: HTML + PDFs are in hand; records follow. */
-  const notes = [formatProvenanceLine(payload.resume), ...degraded.map((d) => `degraded: ${d}`)];
+  const notes = [
+    ...(payload.resume ? [formatProvenanceLine(payload.resume)] : []),
+    ...degraded.map((d) => `degraded: ${d}`),
+  ];
   if (payload.feature !== "cover_letter" && resumeHtml) {
     await writeFile(join(dir, "resume.html"), resumeHtml, "utf8");
   }

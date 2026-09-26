@@ -19,6 +19,7 @@ const YEAR_RANGE_RE = /^(?:19|20)\d\d[–-](?:19|20)\d\d$/;
  * @returns {string[]}
  */
 function numerals(text) {
+  /** @type {string[]} */
   const out = [];
   for (const match of String(text || "").matchAll(NUMERAL_RE)) {
     const token = match[1];

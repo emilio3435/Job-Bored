@@ -154,7 +154,7 @@ export async function writeLedgerAtomic(ledger) {
 /* ─── Queries ─────────────────────────────────────────────────────────── */
 
 /**
- * @param {{ claims?: Array<{ id?: unknown }> }} ledger
+ * @param {{ claims?: Array<{ id?: unknown, text?: unknown, employerId?: unknown, tools?: unknown }> }} ledger
  * @param {unknown} id
  */
 export function claimById(ledger, id) {
@@ -176,7 +176,7 @@ export function employerById(ledger, id) {
  * @returns {string[]}
  */
 export function metricsForClaim(ledger, claimId) {
-  const claim = claimById(ledger, claimId);
+  const claim = (ledger.claims || []).find((c) => c && c.id === claimId);
   if (!claim || !Array.isArray(claim.metrics)) return [];
   return claim.metrics.map((m) => String(m.token || "")).filter(Boolean);
 }
