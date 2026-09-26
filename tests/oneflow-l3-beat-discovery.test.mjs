@@ -15,7 +15,10 @@
    ============================================================ */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { loadDiscoveryBeat } from "./oneflow-l3-harness.mjs";
+import {
+  loadDiscoveryBeat,
+  makeFakeSessionStorage,
+} from "./oneflow-l3-harness.mjs";
 
 /** vm-realm arrays are not deepStrictEqual to host arrays — re-home them. */
 const plain = (list) => [...list];
@@ -33,6 +36,9 @@ const SKIP_ACTION = "oneflow_discovery_skip_connect";
  */
 function makeFuelFetch({ checkOk = true, envOk = true, bootOk = true } = {}) {
   return async (url) => {
+    if (String(url).includes("__proxy/ping")) {
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
     if (String(url).includes("serpapi-check")) {
       return {
         ok: true,
@@ -232,6 +238,9 @@ describe("ONEFLOW L3 · B5 Save & verify renders its result (spec §10 Phase 0 �
         fetchImpl: async (url) => {
           const busy = env.mount.querySelector(".discovery-setup-wizard__busy");
           if (busy) stages.push(busy.textContent);
+          if (String(url).includes("__proxy/ping")) {
+            return { ok: true, json: async () => ({ ok: true }) };
+          }
           if (String(url).includes("serpapi-check")) {
             return {
               ok: true,
@@ -500,5 +509,192 @@ describe("ONEFLOW L3 · B5 skip (spec §5 B5 — connect only, never the fuel)",
       undefined,
       "a keyless install is the ledger this spec exists to prevent",
     );
+  });
+});
+
+// ---------------------------------------------------------------
+// Pending fuel — the typed key survives the server gap (Option 3)
+// ---------------------------------------------------------------
+
+/**
+ * Every draft below is an obvious fake, compared in memory only — never
+ * logged, never snapshotted (B5 spec §4.2).
+ */
+const GAP_DRAFT = "pending-gap-key-1";
+const RESTORE_DRAFT = "pending-restore-key-2";
+
+function typeKey(env, value) {
+  env.mount
+    .querySelector("#oneFlowSerpApiKeyInput")
+    .dispatch("input", { target: { value } });
+}
+
+function failingFuelFetch() {
+  return async (url) => {
+    if (String(url).includes("__proxy/ping")) {
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
+    if (String(url).includes("serpapi-check")) {
+      throw new TypeError("Failed to fetch");
+    }
+    return { ok: false, json: async () => ({}) };
+  };
+}
+
+describe("ONEFLOW L3 · B5 pending fuel survives the server gap (Option 3 — the user never retypes)", () => {
+  it("typing holds the draft in the pending slot, unverified", async () => {
+    const sessionStorage = makeFakeSessionStorage();
+    const env = await openBeat(loadDiscoveryBeat({ sessionStorage }));
+    typeKey(env, GAP_DRAFT);
+    const pending = env.store.loadPendingFuel();
+    assert.ok(pending, "the keystroke is durably held past a re-render");
+    assert.equal(pending.keyDraft, GAP_DRAFT);
+    assert.equal(env.beat._internal.state.fuelPendingSaved, true);
+    assert.equal(
+      env.beat._internal.state.fuelPassed,
+      false,
+      "held is not verified — the gate stays shut",
+    );
+  });
+
+  it("clearing the field clears the slot", async () => {
+    const sessionStorage = makeFakeSessionStorage();
+    const env = await openBeat(loadDiscoveryBeat({ sessionStorage }));
+    typeKey(env, GAP_DRAFT);
+    assert.ok(env.store.loadPendingFuel());
+    typeKey(env, "");
+    assert.equal(env.store.loadPendingFuel(), null);
+    assert.equal(env.beat._internal.state.fuelPendingSaved, false);
+  });
+
+  it("a no-local-server failure keeps the draft pending and the gate honest", async () => {
+    const sessionStorage = makeFakeSessionStorage();
+    const env = await openBeat(
+      loadDiscoveryBeat({ fetchImpl: failingFuelFetch(), sessionStorage }),
+    );
+    typeKey(env, GAP_DRAFT);
+    await env.act(FUEL_ACTION);
+    const message = env.mount.querySelector(".discovery-setup-wizard__message");
+    assert.ok(message, "the outcome must reach the screen");
+    assert.match(message.textContent, /Couldn't reach the local server \(ping failed\)/);
+    assert.match(message.textContent, /Save & verify/, "every error names the next action (§8.4)");
+    assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
+    const pending = env.store.loadPendingFuel();
+    assert.ok(
+      pending,
+      'the skip label says "your keys are saved" — on this path it is literally true',
+    );
+    assert.equal(pending.keyDraft, GAP_DRAFT);
+    assert.equal(env.beat._internal.state.keyDraft, GAP_DRAFT);
+    assert.equal(env.beat._internal.state.fuelPassed, false);
+    assert.equal(env.button(CONNECT_ACTION).disabled, true);
+    assert.equal(env.button(SKIP_ACTION).disabled, true);
+  });
+
+  it("mount restores the draft into the field without phoning home", async () => {
+    const sessionStorage = makeFakeSessionStorage();
+    // A draft held by the tab before this load — the server gap, mid-way.
+    loadDiscoveryBeat({ sessionStorage }).store.savePendingFuel({
+      keyDraft: RESTORE_DRAFT,
+      savedAt: 1,
+    });
+    const env = await openBeat(loadDiscoveryBeat({ sessionStorage }));
+    assert.equal(
+      env.mount.querySelector("#oneFlowSerpApiKeyInput").value,
+      RESTORE_DRAFT,
+      "the field is prefilled — no retype",
+    );
+    assert.equal(env.beat._internal.state.keyDraft, RESTORE_DRAFT);
+    assert.equal(env.beat._internal.state.fuelRestored, true);
+    assert.equal(
+      env.beat._internal.state.fuelPassed,
+      false,
+      "fuelPassed is NEVER restored — the draft must be re-proven",
+    );
+    assert.deepEqual(
+      env.fetchCalls,
+      [],
+      "a restore verifies nothing on its own — no auto-POST of the key",
+    );
+  });
+
+  it("crosses the whole gap: fail, return, verify, cleared", async () => {
+    const sessionStorage = makeFakeSessionStorage();
+    const down = await openBeat(
+      loadDiscoveryBeat({ fetchImpl: failingFuelFetch(), sessionStorage }),
+    );
+    typeKey(down, GAP_DRAFT);
+    await down.act(FUEL_ACTION);
+    assert.ok(down.store.loadPendingFuel(), "the failed save is still held");
+
+    // The user starts the server out-of-band and returns to the beat.
+    const up = await openBeat(
+      loadDiscoveryBeat({ fetchImpl: makeFuelFetch(), sessionStorage }),
+    );
+    assert.equal(
+      up.mount.querySelector("#oneFlowSerpApiKeyInput").value,
+      GAP_DRAFT,
+      "the returned-to beat already holds the typed key",
+    );
+    await up.act(FUEL_ACTION);
+    const message = up.mount.querySelector(".discovery-setup-wizard__message");
+    assert.match(
+      message.textContent,
+      /Google Jobs index connected — Free plan, 97 searches left this month\./,
+    );
+    assert.ok(
+      message.classList.contains("discovery-setup-wizard__message--success"),
+    );
+    assert.equal(
+      up.store.loadPendingFuel(),
+      null,
+      "a verified key leaves nothing pending behind",
+    );
+    assert.equal(up.beat._internal.state.keyDraft, "");
+    assert.equal(up.beat._internal.state.fuelPendingSaved, false);
+    assert.equal(up.beat._internal.state.fuelPassed, true);
+    assert.equal(up.button(CONNECT_ACTION).disabled, false);
+  });
+
+  it("blocked storage degrades to the in-memory draft — failures still keep it", async () => {
+    const sessionStorage = makeFakeSessionStorage({ throwing: true });
+    const env = await openBeat(
+      loadDiscoveryBeat({ fetchImpl: failingFuelFetch(), sessionStorage }),
+    );
+    typeKey(env, GAP_DRAFT);
+    await env.act(FUEL_ACTION);
+    const message = env.mount.querySelector(".discovery-setup-wizard__message");
+    assert.match(message.textContent, /Couldn't reach the local server \(ping failed\)/);
+    assert.equal(
+      env.beat._internal.state.keyDraft,
+      GAP_DRAFT,
+      "the in-memory draft is the fallback that always works",
+    );
+    assert.equal(env.beat._internal.state.fuelPendingSaved, false);
+  });
+
+  it("blocked storage still verifies — the pass never depends on the slot", async () => {
+    const sessionStorage = makeFakeSessionStorage({ throwing: true });
+    const env = await openBeat(
+      loadDiscoveryBeat({ fetchImpl: makeFuelFetch(), sessionStorage }),
+    );
+    typeKey(env, GAP_DRAFT);
+    await env.act(FUEL_ACTION);
+    const message = env.mount.querySelector(".discovery-setup-wizard__message");
+    assert.match(message.textContent, /Google Jobs index connected/);
+    assert.equal(env.beat._internal.state.fuelPassed, true);
+  });
+
+  it("Save & verify on an empty field keeps the slot empty", async () => {
+    const sessionStorage = makeFakeSessionStorage();
+    const env = await openBeat(
+      loadDiscoveryBeat({ fetchImpl: makeFuelFetch(), sessionStorage }),
+    );
+    typeKey(env, GAP_DRAFT);
+    typeKey(env, "");
+    await env.act(FUEL_ACTION);
+    const message = env.mount.querySelector(".discovery-setup-wizard__message");
+    assert.match(message.textContent, /Paste your SerpApi key first\./);
+    assert.equal(env.store.loadPendingFuel(), null);
   });
 });

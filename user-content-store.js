@@ -743,6 +743,95 @@
     return { ...fresh };
   }
 
+  /* ---------- B5 pending fuel (B5 spec C3, Option 3) ----------
+     The SerpApi key draft, held across the no-local-server gap in
+     sessionStorage ONLY: tab-scoped, gone when the tab closes, never
+     written to IndexedDB/localStorage/cookies/URL, never emitted in
+     events. Deliberately NOT part of onboardingFlowState.drafts (the
+     closed list above): an unverified provider key is a secret and must
+     not touch disk-backed stores. The beat clears this slot the moment
+     a live check verifies the key; fuelPassed is NEVER persisted — a
+     restored draft must be re-proven by Save & verify. All three APIs
+     tolerate missing/blocked storage by returning null/false or no-op:
+     they never throw. */
+
+  const PENDING_FUEL_KEY = "oneflow.pendingFuel.v1";
+
+  function pendingFuelStorage() {
+    try {
+      const win = typeof window !== "undefined" ? window : null;
+      const storage = win ? win.sessionStorage : null;
+      if (storage && typeof storage.getItem === "function") return storage;
+    } catch (_) {
+      // A storage that throws on access is a storage we do not have.
+    }
+    return null;
+  }
+
+  /**
+   * Hold the typed-but-unverified key draft. An empty draft clears the
+   * slot instead of storing an empty string. Returns true only when a
+   * non-empty draft was actually persisted.
+   */
+  function savePendingFuel(entry) {
+    try {
+      const storage = pendingFuelStorage();
+      const draft =
+        entry && typeof entry === "object" ? String(entry.keyDraft || "") : "";
+      if (!draft) {
+        if (storage && typeof storage.removeItem === "function") {
+          storage.removeItem(PENDING_FUEL_KEY);
+        }
+        return false;
+      }
+      if (!storage || typeof storage.setItem !== "function") return false;
+      const savedAt =
+        entry && Number.isFinite(entry.savedAt) ? entry.savedAt : Date.now();
+      storage.setItem(
+        PENDING_FUEL_KEY,
+        JSON.stringify({ keyDraft: draft, savedAt }),
+      );
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Read the pending draft back: `{ keyDraft, savedAt }`, or null when
+   * nothing is pending, the slot is corrupt, or storage is unavailable.
+   */
+  function loadPendingFuel() {
+    try {
+      const storage = pendingFuelStorage();
+      if (!storage || typeof storage.getItem !== "function") return null;
+      const raw = storage.getItem(PENDING_FUEL_KEY);
+      if (!raw) return null;
+      const parsed = JSON.parse(raw);
+      const draft =
+        parsed && typeof parsed === "object"
+          ? String(parsed.keyDraft || "")
+          : "";
+      if (!draft) return null;
+      const savedAt =
+        parsed && Number.isFinite(parsed.savedAt) ? parsed.savedAt : 0;
+      return { keyDraft: draft, savedAt };
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function clearPendingFuel() {
+    try {
+      const storage = pendingFuelStorage();
+      if (storage && typeof storage.removeItem === "function") {
+        storage.removeItem(PENDING_FUEL_KEY);
+      }
+    } catch (_) {
+      // Nothing pending that we can reach; the in-memory draft still rules.
+    }
+  }
+
   function normalizeAppsScriptDeployState(raw) {
     const o = raw && typeof raw === "object" ? raw : {};
     const trim = (k, maxLen) => {
@@ -1492,6 +1581,10 @@
     getOnboardingFlowState,
     saveOnboardingFlowState,
     clearOnboardingFlowState,
+    PENDING_FUEL_KEY,
+    savePendingFuel,
+    loadPendingFuel,
+    clearPendingFuel,
     DEFAULT_ONBOARDING_FLOW_STATE,
     ONBOARDING_FLOW_BEATS,
     ONBOARDING_FLOW_DRAFT_KEYS,
@@ -1501,5 +1594,14 @@
     getWhatsNextDismissed,
     setWhatsNextDismissed,
     isAllMandatorySetupComplete,
+  };
+
+  // B5 pending fuel under its spec (C3) surface too, so the beat reads one
+  // contract whether it goes through the store or the standalone handle.
+  window.JobBoredPendingFuel = {
+    PENDING_FUEL_KEY,
+    savePendingFuel,
+    loadPendingFuel,
+    clearPendingFuel,
   };
 })();

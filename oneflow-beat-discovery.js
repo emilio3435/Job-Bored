@@ -147,13 +147,43 @@
       "SerpApi answered, but not with your account. Wait a moment, then " +
       "press Save & verify again.",
     no_local_server:
-      "Couldn't reach JobBored's local server to check your key — " +
-      "double-click start.command in the JobBored folder to start it, " +
-      "then press Save & verify.",
+      "Couldn't reach the local server (ping failed). Start it with the start " +
+      "command, then press Save & verify.",
+    static_host:
+      "This hosted page can't check your key — checking runs in the " +
+      "JobBored app on your computer. Copy your key, open your local " +
+      "setup, then press Save & verify there.",
   });
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
   const SELF_HOSTING_DOC = "docs/SELF-HOSTING.md";
+  /**
+   * The static-host handoff (B5 truthful handoff). The deep link is the C1
+   * full form (?beat=discovery&returnTo=close) against the local dashboard;
+   * the app link is the repo the README's clone instructions point at. Both
+   * carry beat/returnTo only — the key travels via the clipboard, never the
+   * URL (§4.1).
+   */
+  const LOCAL_SETUP_DEEP_LINK =
+    "http://localhost:8080/?beat=discovery&returnTo=close";
+  const GET_APP_URL = "https://github.com/emilio3435/Job-Bored";
+  /**
+   * Presence polling (Option 2, client half): while the handoff is on
+   * screen, the hosted page asks the machine's own dashboard — same origin
+   * as the deep link above, keyless, loopback-only, bounded. The dev server
+   * answers cross-origin only for the exact Pages origin over loopback, so
+   * a foreign page learns nothing and a foreign machine is unreachable.
+   * An affordance, not a dependency: when the app appears the handoff flips
+   * to the found variant; when it never does, the handoff simply stays.
+   * Mutable so tests exercise the real timer wiring in milliseconds.
+   */
+  const LOCAL_PING_URL = "http://localhost:8080/__proxy/ping";
+  const LOCAL_POLL_TIMINGS = { intervalMs: 3000, maxPolls: 60 };
+  let localPollTimer = null;
+  let localPolls = 0;
+  // A tick in flight when a new check starts must die quietly instead of
+  // announcing against the newer attempt's screen.
+  let localPollGen = 0;
 
   /**
    * Beat-local state. The shell re-renders the whole step on every
@@ -173,7 +203,54 @@
     fuelStalled: false,
     // What SerpApi said, so the panel and the message agree on one truth.
     fuelQuotaLine: "",
+    // B5 pending fuel (Option 3, C3): true once the typed draft is durably
+    // held in the pending slot while the server is still down — the
+    // save-unverified status. Never implies fuelPassed.
+    fuelPendingSaved: false,
+    // True when keyDraft came back from the pending slot at mount rather
+    // than from typing in this session.
+    fuelRestored: false,
+    // True once the presence poll has seen the local dashboard answer.
+    // Flips the handoff to the found variant; never implies fuelPassed.
+    localServerFound: false,
   };
+
+  /**
+   * The pending-fuel slot (user-content-store.js, C3 key
+   * `oneflow.pendingFuel.v1`). Looked up lazily: the store loads before
+   * this beat in index.html, but a harness may load the beat alone, and
+   * blocked storage degrades to the in-memory draft above, never an
+   * exception. Part of the state block — its only readers are state init,
+   * the key field's onInput, and saveAndVerifyFuel.
+   */
+  function pendingFuelStore() {
+    try {
+      const store = window.CommandCenterUserContent;
+      if (store && typeof store.loadPendingFuel === "function") return store;
+      const standalone = window.JobBoredPendingFuel;
+      if (standalone && typeof standalone.loadPendingFuel === "function") {
+        return standalone;
+      }
+    } catch (_) {
+      // No store bridge — the in-memory keyDraft is the whole draft.
+    }
+    return null;
+  }
+
+  // Mount restore (Option 3): a draft typed before the server gap comes
+  // back into the field, so the user never retypes. fuelPassed is NEVER
+  // restored — the draft must be re-proven by a live Save & verify.
+  try {
+    const pendingApi = pendingFuelStore();
+    const pending = pendingApi ? pendingApi.loadPendingFuel() : null;
+    if (!state.keyDraft && pending && pending.keyDraft) {
+      state.keyDraft = pending.keyDraft;
+      state.fuelPendingSaved = true;
+      state.fuelRestored = true;
+    }
+  } catch (_) {
+    // Blocked storage at mount — the field simply starts empty.
+  }
 
   /**
    * The footer action descriptors. Mutated in place rather than rebuilt:
@@ -194,6 +271,17 @@
    * the seam tests await instead of guessing at microtask counts.
    */
   let lastContext = null;
+
+  /**
+   * What the last fuel check answered ("" before the first check and after
+   * a pass). checkFuelKey owns this: it records every outcome, and the fuel
+   * panel reads it to decide whether the static-host handoff earns a place
+   * on screen. A reason, never key material.
+   */
+  let lastFuelReason = "";
+
+  /** The live key field, for the clipboard fallback's focus + select. */
+  let keyInput = null;
 
   function dispatch(actionId, ctx) {
     lastContext = ctx;
@@ -338,7 +426,7 @@
     }
     panel.appendChild(list);
 
-    field(panel, {
+    keyInput = field(panel, {
       id: "oneFlowSerpApiKeyInput",
       label: "SerpApi API key",
       // Masked: a pasted credential is never rendered in clear text.
@@ -347,6 +435,22 @@
       placeholder: "Paste your SerpApi key",
       onInput(value) {
         state.keyDraft = value;
+        // B5 pending fuel (Option 3, C3): every keystroke is held in the
+        // pending slot, so a dead server — or a reload past it — never
+        // eats the typed key. Blocked storage degrades to the in-memory
+        // draft; the content below is now typed, not restored.
+        state.fuelRestored = false;
+        try {
+          const pendingApi = pendingFuelStore();
+          state.fuelPendingSaved = pendingApi
+            ? pendingApi.savePendingFuel({
+                keyDraft: value,
+                savedAt: Date.now(),
+              })
+            : false;
+        } catch (_) {
+          state.fuelPendingSaved = false;
+        }
       },
     });
 
@@ -358,6 +462,9 @@
           `✓ ${state.fuelQuotaLine || quotaLine(null)}`,
         ),
       );
+    }
+    if (lastFuelReason === "static_host") {
+      renderStaticHostHandoff(panel);
     }
     container.appendChild(panel);
   }
@@ -500,39 +607,339 @@
     container.appendChild(panel);
   }
 
+  /**
+   * The static-host handoff: Save & verify can never pass on the hosted
+   * page (there is no /__proxy/* there to answer it), so the next actions
+   * are carrying the typed key over, not retrying here. Rendered only while
+   * the last check answered static_host; the draft survives in the field
+   * above because the fail path never clears it.
+   */
+  function renderStaticHostHandoff(panel) {
+    const handoff = el("div", "oneflow-fuel__handoff");
+    handoff.dataset.handoff = "static-host";
+    handoff.dataset.found = state.localServerFound ? "true" : "false";
+    handoff.appendChild(
+      el(
+        "p",
+        "oneflow-panel__copy",
+        state.localServerFound
+          ? "Your local app is running — carry your key over:"
+          : "Your typed key is still in the field above — carry it over:",
+      ),
+    );
+    const row = el("div", "oneflow-fuel__handoff-row");
+    const copyBtn = el(
+      "button",
+      "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary",
+      "Copy my key",
+    );
+    copyBtn.type = "button";
+    copyBtn.dataset.handoffAction = "copy-key";
+    copyBtn.addEventListener("click", () => {
+      void copyKeyDraft(copyBtn);
+    });
+    row.appendChild(copyBtn);
+    link(row, LOCAL_SETUP_DEEP_LINK, "Open local setup ↗");
+    link(row, GET_APP_URL, "Get the app ↗");
+    handoff.appendChild(row);
+    panel.appendChild(handoff);
+  }
+
+  function clipboard() {
+    try {
+      const winNav = window.navigator;
+      if (winNav && winNav.clipboard) return winNav.clipboard;
+    } catch (_) {
+      // A missing navigator falls through to the bare global.
+    }
+    try {
+      if (
+        typeof navigator !== "undefined" &&
+        navigator &&
+        navigator.clipboard
+      ) {
+        return navigator.clipboard;
+      }
+    } catch (_) {
+      // No clipboard anywhere: the caller falls back to select.
+    }
+    return null;
+  }
+
+  /**
+   * Copy the typed draft to the clipboard. Local-only by construction: the
+   * key goes to the clipboard, never into a URL or a log. Without a
+   * clipboard (permissions, non-secure context) the field is focused and
+   * selected instead, so one keypress still carries the key over.
+   */
+  async function copyKeyDraft(button) {
+    if (!state.keyDraft.trim()) {
+      button.textContent = "Paste your key first";
+      return;
+    }
+    const clip = clipboard();
+    if (clip && typeof clip.writeText === "function") {
+      try {
+        await clip.writeText(state.keyDraft);
+        button.textContent = "Copied ✓";
+        return;
+      } catch (_) {
+        // A refusing clipboard falls through to select below.
+      }
+    }
+    if (keyInput) {
+      if (typeof keyInput.focus === "function") keyInput.focus();
+      if (typeof keyInput.select === "function") keyInput.select();
+    }
+    button.textContent = "Key selected — copy it";
+  }
+
+  function stopLocalServerPoll() {
+    localPollGen += 1;
+    if (localPollTimer != null) {
+      try {
+        clearTimeout(localPollTimer);
+      } catch (_) {
+        // A missing clearer leaves a bounded, self-stopping tick.
+      }
+      localPollTimer = null;
+    }
+  }
+
+  async function pollLocalServerOnce() {
+    try {
+      const res = await fetch(LOCAL_PING_URL);
+      const body = res ? await res.json().catch(() => null) : null;
+      return !!(
+        res &&
+        res.ok &&
+        body &&
+        typeof body === "object" &&
+        body.ok
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Watch for the local dashboard while the handoff is on screen. Keyless
+   * by construction — the probe carries no body at all. Stops on found, on
+   * a new check (the generation moves on), when the handoff leaves the
+   * screen, or after maxPolls unanswered ticks: never a forever timer.
+   */
+  function scheduleLocalServerPoll(ctx) {
+    stopLocalServerPoll();
+    localPolls = 0;
+    state.localServerFound = false;
+    const gen = localPollGen;
+    const tickPoll = async () => {
+      localPollTimer = null;
+      if (gen !== localPollGen) return;
+      if (lastFuelReason !== "static_host" || state.localServerFound) return;
+      localPolls += 1;
+      let found = false;
+      try {
+        found = await pollLocalServerOnce();
+      } catch (_) {
+        found = false;
+      }
+      if (gen !== localPollGen) return;
+      if (found) {
+        state.localServerFound = true;
+        // Re-render through the message slot: the handoff below reads
+        // localServerFound and flips to the found variant. The key still
+        // travels via the clipboard — the link never carries it.
+        try {
+          ctx.setMessage(
+            "Your local app is running — copy your key above, then press Open " +
+              "local setup to continue there.",
+            "info",
+          );
+        } catch (_) {
+          // The panel still flips on the next render; this was a nudge.
+        }
+        return;
+      }
+      if (localPolls >= LOCAL_POLL_TIMINGS.maxPolls) return;
+      try {
+        localPollTimer = setTimeout(tickPoll, LOCAL_POLL_TIMINGS.intervalMs);
+      } catch (_) {
+        localPollTimer = null;
+      }
+    };
+    try {
+      localPollTimer = setTimeout(tickPoll, LOCAL_POLL_TIMINGS.intervalMs);
+    } catch (_) {
+      localPollTimer = null;
+    }
+  }
+
   // ---------------------------------------------------------------
   // Fuel — save the key, restart the worker, RENDER the result
   // ---------------------------------------------------------------
+
+  /**
+   * True when the answer carries an HTML page instead of the proxy's JSON —
+   * the other static-host tell beside a 404/405 status. Guarded for
+   * responses without headers (stubs, opaque answers): no content-type
+   * means "not proven HTML", never an exception.
+   */
+  function isHtmlAnswer(response) {
+    try {
+      const headers = response && response.headers;
+      const contentType =
+        headers && typeof headers.get === "function"
+          ? headers.get("content-type")
+          : "";
+      return /text\/html/i.test(String(contentType || ""));
+    } catch (_) {
+      return false;
+    }
+  }
 
   /**
    * Ask the dev-server to ask SerpApi (locked decision 5). Answers the
    * server's `{ok, plan, searchesLeft}` on success, and `{ok:false, reason}`
    * otherwise — including when the local server itself is the thing that
    * cannot be reached, which is a different problem with a different fix.
+   *
+   * The /__proxy/* routes exist only on the local dev server, so a
+   * 404/405/HTML answer is the static host's signature (wrong page: open
+   * the local setup), while a fetch throw is a dead local server
+   * (double-click start.command). The two keep distinct reasons so each
+   * names its own fix; every outcome is recorded on lastFuelReason for the
+   * handoff gate.
+   *
+   * B5 C2: a keyless `GET /__proxy/ping` goes first, so "the server is down"
+   * is known before the key leaves the browser. Any ping failure
+   * short-circuits without sending the key anywhere — and the ping carries
+   * the same static-host signature as the check, so a 404/405/HTML ping
+   * keeps the `static_host` reason and only a throw (or an unproven answer)
+   * falls back to `no_local_server`. Without this the ping-first
+   * short-circuit would shadow the handoff on every page the dev server
+   * doesn't serve.
    */
   async function checkFuelKey(key) {
+    try {
+      const PING_TIMEOUT_MS = 3000;
+      let pingSignal;
+      let pingTimer = null;
+      if (typeof AbortController !== "undefined") {
+        const pingCtrl = new AbortController();
+        pingSignal = pingCtrl.signal;
+        pingTimer = setTimeout(() => {
+          try {
+            pingCtrl.abort();
+          } catch (_) {
+            /* the ping below treats the abort as a failed ping */
+          }
+        }, PING_TIMEOUT_MS);
+      }
+      let pinged = false;
+      let pingStatic = false;
+      try {
+        const ping = await fetch(
+          "/__proxy/ping",
+          pingSignal ? { signal: pingSignal } : undefined,
+        );
+        if (ping && (ping.status === 404 || ping.status === 405)) {
+          pingStatic = true;
+        } else if (isHtmlAnswer(ping)) {
+          pingStatic = true;
+        }
+        const pingBody = ping ? await ping.json().catch(() => null) : null;
+        pinged = !!(
+          ping &&
+          ping.ok &&
+          pingBody &&
+          typeof pingBody === "object" &&
+          pingBody.ok
+        );
+      } finally {
+        if (pingTimer != null && typeof clearTimeout === "function") {
+          clearTimeout(pingTimer);
+        }
+      }
+      if (!pinged) {
+        lastFuelReason = pingStatic ? "static_host" : "no_local_server";
+        return { ok: false, reason: lastFuelReason };
+      }
+    } catch (e) {
+      console.warn("[JobBored] B5 local server ping:", e && e.name ? e.name : e);
+      lastFuelReason = "no_local_server";
+      return { ok: false, reason: "no_local_server" };
+    }
     try {
       const response = await fetch("/__proxy/serpapi-check", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ key }),
       });
+      if (response && (response.status === 404 || response.status === 405)) {
+        lastFuelReason = "static_host";
+        return { ok: false, reason: "static_host" };
+      }
       const body = response ? await response.json().catch(() => null) : null;
       if (!body || typeof body !== "object") {
-        return { ok: false, reason: "no_local_server" };
+        const reason = isHtmlAnswer(response)
+          ? "static_host"
+          : "no_local_server";
+        lastFuelReason = reason;
+        return { ok: false, reason };
       }
-      if (body.ok) return body;
-      return { ok: false, reason: String(body.reason || "upstream_error") };
+      if (body.ok) {
+        lastFuelReason = "";
+        return body;
+      }
+      const reason = String(body.reason || "upstream_error");
+      lastFuelReason = reason;
+      return { ok: false, reason };
     } catch (e) {
       console.warn("[JobBored] B5 SerpApi check:", e && e.name ? e.name : e);
+      lastFuelReason = "no_local_server";
       return { ok: false, reason: "no_local_server" };
     }
   }
 
   async function saveAndVerifyFuel(ctx) {
+    // A new attempt owns the screen: any presence poll from an older
+    // static_host answer dies with its generation.
+    stopLocalServerPoll();
+    state.localServerFound = false;
     const key = state.keyDraft.trim();
+    // B5 pending fuel (Option 3, C3): every exit but the verified pass
+    // keeps the verbatim draft in the pending slot, so the server gap
+    // never costs a retype. The pass drops it. Both never throw and never
+    // touch the message slot — the outcome copy below is unchanged.
+    function keepPendingDraft() {
+      try {
+        const pendingApi = pendingFuelStore();
+        if (pendingApi && key) {
+          const kept = pendingApi.savePendingFuel({
+            keyDraft: state.keyDraft,
+            savedAt: Date.now(),
+          });
+          if (kept) state.fuelPendingSaved = true;
+        }
+      } catch (_) {
+        // state.keyDraft is the fallback that always works.
+      }
+    }
+    function dropPendingDraft() {
+      try {
+        const pendingApi = pendingFuelStore();
+        if (pendingApi) pendingApi.clearPendingFuel();
+      } catch (_) {
+        // The slot was already empty or unreachable.
+      }
+      state.fuelPendingSaved = false;
+      state.fuelRestored = false;
+    }
     if (!key) {
       ctx.setMessage("Paste your SerpApi key first.", "error");
+      // An empty field means no draft to keep.
+      dropPendingDraft();
       return;
     }
     const startedAt = Date.now();
@@ -567,6 +974,13 @@
         ok: false,
         ms: Date.now() - startedAt,
       });
+      // The failure above names the next action; the draft itself stays
+      // kept — in state AND in the pending slot — so fixing the server
+      // never means retyping the key. This is what makes the skip label's
+      // "your keys are saved" literally true on the no-local-server path.
+      // fuelPassed stays false: kept is not verified.
+      keepPendingDraft();
+      if (checked.reason === "static_host") scheduleLocalServerPoll(ctx);
       return;
     }
     stages[0].state = "done";
@@ -590,6 +1004,8 @@
         "Your key checks out, but it isn't saved — nothing on this computer changed. Press Save & verify when you're ready.",
         "info",
       );
+      // Declined, not abandoned: the draft stays kept for the next press.
+      keepPendingDraft();
       return;
     }
 
@@ -626,6 +1042,8 @@
         ok: false,
         ms: Date.now() - startedAt,
       });
+      // The worker write failed, but the draft stays kept for the retry.
+      keepPendingDraft();
       return;
     }
 
@@ -649,6 +1067,10 @@
     state.fuelPassed = true;
     state.fuelStalled = false;
     state.keyDraft = "";
+    // Verified live — the pending copy has served its purpose and must not
+    // linger past the check that proved it.
+    dropPendingDraft();
+    stopLocalServerPoll();
     state.fuelQuotaLine = quotaLine(checked);
     syncActions();
     for (const stage of stages) stage.state = "done";
@@ -844,9 +1266,13 @@
         state.keyDraft = String(value == null ? "" : value);
       },
       whenIdle: () => pending,
+      fuelReason: () => lastFuelReason,
+      localFound: () => state.localServerFound,
+      stopLocalServerPoll,
       CONNECT_STAGE_LABELS,
       // The C6 thresholds, so a probe need not wait fifteen real seconds.
       timings: CHECK_TIMINGS,
+      pollTimings: LOCAL_POLL_TIMINGS,
     },
   };
 })();
