@@ -8,7 +8,10 @@
  *
  * Schema:
  *   integrations/browser-use-discovery/src/contracts/user-profile.schema.json
- *   (single source of truth; do NOT duplicate the shape here)
+ *   (single source of truth; do NOT duplicate the shape here), with a
+ *   byte-identical vendored fallback at server/contracts/ for server-only
+ *   contexts (Docker image, Render rootDir) where the integrations sibling
+ *   does not exist. tests/server-docker-context pins the parity.
  *
  * Env override:
  *   JOBBORED_PROFILE_PATH — absolute path to a profile.json. When set, both
@@ -26,22 +29,33 @@ import addFormats from "ajv-formats";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
-const SCHEMA_PATH = resolvePath(
-  __dirname,
-  "..",
-  "integrations",
-  "browser-use-discovery",
-  "src",
-  "contracts",
-  "user-profile.schema.json",
-);
+const SCHEMA_PATHS = [
+  resolvePath(
+    __dirname,
+    "..",
+    "integrations",
+    "browser-use-discovery",
+    "src",
+    "contracts",
+    "user-profile.schema.json",
+  ),
+  // BEAUDIT E5: vendored fallback for server-only contexts (Docker image,
+  // Render rootDir). Checked in byte-identical; parity is tested.
+  resolvePath(__dirname, "contracts", "user-profile.schema.json"),
+];
 
 /** @type {ProfileValidator | null} */
 let cachedValidator = null;
 
 function loadValidator() {
   if (cachedValidator) return cachedValidator;
-  const schema = JSON.parse(readFileSync(SCHEMA_PATH, "utf8"));
+  const schemaPath = SCHEMA_PATHS.find((candidate) => existsSync(candidate));
+  if (!schemaPath) {
+    throw new Error(
+      "user-profile schema not found (checked the integrations contracts dir and server/contracts).",
+    );
+  }
+  const schema = JSON.parse(readFileSync(schemaPath, "utf8"));
   // The schema declares draft-2020-12; use the Ajv2020 entrypoint so the
   // metaschema resolves without a network fetch.
   const Ajv2020Constructor = /** @type {typeof import("ajv/dist/2020.js").default} */ (

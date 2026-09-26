@@ -1,9 +1,17 @@
 import assert from "node:assert/strict";
 import childProcess from "node:child_process";
 import { EventEmitter } from "node:events";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { afterEach, describe, it, mock } from "node:test";
 
-import { createDevServer, startDevServer } from "../dev-server.mjs";
+import {
+  buildTailscaleTransportState,
+  createDevServer,
+  startDevServer,
+  writeBootstrapTransport,
+} from "../dev-server.mjs";
 
 const SILENT_LOGGER = {
   log() {},
@@ -277,5 +285,66 @@ describe("dev-server Tailscale endpoints", () => {
     });
     assert.equal(serve.status, 403);
     assert.deepEqual(serve.body, { ok: false, reason: "forbidden" });
+  });
+});
+
+describe("G9: the Tailscale path writes transport.kind", () => {
+  it("builds a stable tailscale transport block only for a worker-port serve", () => {
+    assert.deepEqual(
+      buildTailscaleTransportState({
+        serveUrl: "https://mac.tail1234.ts.net",
+        servedPort: 8644,
+        workerPort: 8644,
+      }),
+      {
+        kind: "tailscale",
+        publicUrl: "https://mac.tail1234.ts.net",
+        stable: true,
+      },
+    );
+    // A dashboard (8080) serve says nothing about the worker's transport.
+    assert.equal(
+      buildTailscaleTransportState({ serveUrl: "https://mac.tail1234.ts.net", servedPort: 8080, workerPort: 8644 }),
+      null,
+    );
+    assert.equal(
+      buildTailscaleTransportState({ serveUrl: "", servedPort: 8644, workerPort: 8644 }),
+      null,
+    );
+  });
+
+  it("writeBootstrapTransport annotates the bootstrap file and preserves the rest", () => {
+    const dir = mkdtempSync(join(tmpdir(), "jobbored-g9-bootstrap-"));
+    const filePath = join(dir, "discovery-local-bootstrap.json");
+    try {
+      writeFileSync(
+        filePath,
+        JSON.stringify({ localPort: 8644, webhookSecret: "s" }),
+        "utf8",
+      );
+      assert.equal(
+        writeBootstrapTransport(filePath, {
+          kind: "tailscale",
+          publicUrl: "https://mac.tail1234.ts.net",
+          stable: true,
+        }),
+        true,
+      );
+      assert.deepEqual(JSON.parse(readFileSync(filePath, "utf8")), {
+        localPort: 8644,
+        webhookSecret: "s",
+        transport: {
+          kind: "tailscale",
+          publicUrl: "https://mac.tail1234.ts.net",
+          stable: true,
+        },
+      });
+      // Missing or unparseable state is a no-op, never a crash.
+      assert.equal(writeBootstrapTransport(join(dir, "missing.json"), { kind: "tailscale" }), false);
+      writeFileSync(filePath, "not json", "utf8");
+      assert.equal(writeBootstrapTransport(filePath, { kind: "tailscale" }), false);
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });

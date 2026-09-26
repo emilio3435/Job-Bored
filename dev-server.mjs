@@ -4,10 +4,11 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
-import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
+import { expandIndexIncludes, listIncludeTargets } from "./scripts/lib/expand-index-includes.mjs";
 import {
   decodeRequestPathname,
   parseRequestUrl,
@@ -18,6 +19,7 @@ import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
 import {
   mergeEnvFileValues,
   parseEnvFileText,
+  resolveLayeredEnvSources,
 } from "./scripts/lib/env-file-merge.mjs";
 import {
   detectTailscale,
@@ -413,6 +415,23 @@ function classifyDiscoveryWorkerHealthResponse(response, port) {
   };
 
   if (isExpectedDiscoveryWorkerPayload(payload) && response.ok) {
+    // BEAUDIT G7: healthy, but is it OURS? A worker from another checkout
+    // must be reported, never reused or killed from here. Legacy workers
+    // without repoRoot keep the old reuse behavior.
+    const repoRoot =
+      payload && typeof payload.repoRoot === "string" ? payload.repoRoot.trim() : "";
+    if (repoRoot && normalizeCheckoutRoot(repoRoot) !== normalizeCheckoutRoot(ROOT)) {
+      return {
+        ok: false,
+        ...base,
+        reason: "foreign_checkout",
+        repoRoot,
+        workerVersion: payload && typeof payload.version === "string" ? payload.version : "",
+        message: `Port ${base.port} is served by a discovery worker from another checkout (${repoRoot}).`,
+        payload,
+        response,
+      };
+    }
     return {
       ok: true,
       ...base,
@@ -487,7 +506,7 @@ async function probeDiscoveryWorkerHealth(port) {
  * `npm run dev` gives it — a credential declared only in the repo's env file
  * was simply absent, and the worker refused every run (2026-09-02).
  */
-export function readDiscoveryWorkerEnvFileLayers() {
+export function readDiscoveryWorkerEnvFileLayersWithPaths() {
   const paths = [
     join(ROOT, "integrations", "browser-use-discovery", ".env"),
     join(ROOT, "server", ".env"),
@@ -497,7 +516,7 @@ export function readDiscoveryWorkerEnvFileLayers() {
   for (const path of paths) {
     if (!existsSync(path)) continue;
     try {
-      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
+      layers.push({ path, values: parseEnvFileText(readFileSync(path, "utf8")) });
     } catch (err) {
       console.warn(
         `[dev-server] could not read ${path}: ${(err && err.message) || err}`,
@@ -505,6 +524,22 @@ export function readDiscoveryWorkerEnvFileLayers() {
     }
   }
   return layers;
+}
+
+export function readDiscoveryWorkerEnvFileLayers() {
+  return readDiscoveryWorkerEnvFileLayersWithPaths().map((layer) => layer.values);
+}
+
+/**
+ * BEAUDIT G11: the same key-to-file map the starter logs, served to the
+ * dashboard. Paths and the word "process" — never values.
+ */
+export function resolveDiscoveryWorkerEnvSources() {
+  const layers = readDiscoveryWorkerEnvFileLayersWithPaths();
+  return resolveLayeredEnvSources(
+    layers.map((layer) => layer.values),
+    { paths: layers.map((layer) => layer.path), processEnv: process.env },
+  ).sources;
 }
 
 export function buildDiscoveryWorkerEnv(port, baseEnv = process.env, options = {}) {
@@ -626,6 +661,7 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
       statusCode: before.statusCode,
       service: before.service,
       workerStatus: before.workerStatus,
+      ...(before.repoRoot ? { repoRoot: before.repoRoot } : {}),
       message:
         before.message ||
         `Port ${resolvedPort} is occupied by a process that is not the discovery worker.`,
@@ -789,6 +825,78 @@ function sendStaticBody(req, res, contentType, body, dashboardConfigPath) {
   res.end(payload);
 }
 
+// BEAUDIT G19: assembled-HTML cache. Entries are keyed by file and stay
+// valid while the index AND every transitive partial keep their mtime+size,
+// so an edit to any include invalidates. A hit stats files but reads none.
+const staticHtmlCache = new Map();
+
+function statFingerprint(path, statImpl) {
+  try {
+    const st = statImpl(path);
+    if (!st || typeof st.mtimeMs !== "number") return null;
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null;
+  }
+}
+
+async function collectTransitivePartials(source, baseDir, readFileImpl) {
+  const partials = [];
+  const seen = new Set();
+  const visit = async (text, fromDir, depth) => {
+    if (depth > 8) return;
+    for (const target of listIncludeTargets(text)) {
+      const resolved = resolvePath(fromDir, target);
+      if (seen.has(resolved)) continue;
+      seen.add(resolved);
+      partials.push(resolved);
+      try {
+        await visit(await readFileImpl(resolved, "utf8"), dirname(resolved), depth + 1);
+      } catch {
+        // The expansion itself reports unreadable partials; the cache only
+        // fingerprints what exists.
+      }
+    }
+  };
+  await visit(String(source || ""), baseDir, 0);
+  return partials;
+}
+
+function htmlCacheEntryFresh(key, entry, statImpl) {
+  const self = statFingerprint(key, statImpl);
+  if (!self || !entry.self) return false;
+  if (self.mtimeMs !== entry.self.mtimeMs || self.size !== entry.self.size) {
+    return false;
+  }
+  for (const part of entry.partials || []) {
+    const fp = statFingerprint(part.path, statImpl);
+    if (!fp || fp.mtimeMs !== part.mtimeMs || fp.size !== part.size) return false;
+  }
+  return true;
+}
+
+export async function loadStaticHtml(
+  filePath,
+  { readFileImpl = readFile, statImpl = statSync, cache = staticHtmlCache, baseDir = ROOT } = {},
+) {
+  const key = String(filePath);
+  const entry = cache.get(key);
+  if (entry && htmlCacheEntryFresh(key, entry, statImpl)) {
+    return entry.data;
+  }
+  const source = await readFileImpl(key, "utf8");
+  const data = /<!--\s*@include\s+/.test(source)
+    ? expandIndexIncludes(source, baseDir)
+    : source;
+  const partials = [];
+  for (const partialPath of await collectTransitivePartials(source, baseDir, readFileImpl)) {
+    const fp = statFingerprint(partialPath, statImpl);
+    if (fp) partials.push({ path: partialPath, ...fp });
+  }
+  cache.set(key, { self: statFingerprint(key, statImpl), partials, data });
+  return data;
+}
+
 async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
   const resolved = await resolvePublicFile(urlPath, { root: ROOT });
   if (!resolved.ok) {
@@ -806,10 +914,8 @@ async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
     // breaks .webp/.png/.ico/.woff* assets even though they exist on disk.
     // Expand includes only AFTER realpath/deny (F4-D owns expander semantics).
     if (ext === ".html") {
-      let data = await readFile(filePath, "utf8");
-      if (/<!--\s*@include\s+/.test(data)) {
-        data = expandIndexIncludes(data, ROOT);
-      }
+      // BEAUDIT G19: assembled HTML is cached by mtime (index + partials).
+      const data = await loadStaticHtml(filePath);
       sendStaticBody(req, res, ct, data, dashboardConfigPath);
       return;
     }
@@ -1161,6 +1267,38 @@ function isKnownJobBoredWorkerCommand(command) {
   );
 }
 
+// BEAUDIT G7: ROOT carries a trailing slash (it is a dir URL); the worker's
+// repoRoot does not. Compare normalized so our own worker is never foreign.
+function normalizeCheckoutRoot(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+/**
+ * BEAUDIT G7: which checkout does this process command belong to? Compares
+ * the absolute <checkout>/integrations/browser-use-discovery/ path named in
+ * the command against this ROOT. Null means "unknown" (no path, or a
+ * relative one the starter legitimately spawns) — then the /health repoRoot
+ * decides, and legacy workers without one keep the old behavior.
+ */
+export function commandBelongsToForeignCheckout(command, root = ROOT) {
+  const text = String(command || "");
+  const marker = "integrations/browser-use-discovery/";
+  const at = text.indexOf(marker);
+  if (at < 0) return null;
+  const token = text
+    .slice(0, at)
+    .split(/\s+/)
+    .filter(Boolean)
+    .pop();
+  if (!token) return null;
+  // A relative token ("integrations/...") is what our own starter spawns —
+  // it proves nothing either way.
+  if (!token.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(token)) return null;
+  const checkout = normalizeCheckoutRoot(token);
+  if (!checkout) return null;
+  return checkout !== normalizeCheckoutRoot(root);
+}
+
 function isKnownNgrokCommandForPort(command, workerPort) {
   const text = String(command || "").toLowerCase();
   if (!text.includes("ngrok")) return false;
@@ -1179,6 +1317,30 @@ function isKnownManagedListener(processInfo, port, workerPort) {
   return false;
 }
 
+/**
+ * BEAUDIT G7: who owns the worker on this port — us or another checkout?
+ * Probes /health once and compares its repoRoot to this ROOT. { foreign,
+ * repoRoot }; repoRoot "" means unknown (nothing answering, or a legacy
+ * worker without identity), and unknown keeps the legacy kill behavior.
+ */
+async function defaultWorkerPortOwnership(port) {
+  try {
+    const health = await probeDiscoveryWorkerHealth(port);
+    const payload = health && health.payload ? health.payload : null;
+    const repoRoot =
+      payload && typeof payload.repoRoot === "string" ? payload.repoRoot.trim() : "";
+    if (repoRoot) {
+      return {
+        foreign: normalizeCheckoutRoot(repoRoot) !== normalizeCheckoutRoot(ROOT),
+        repoRoot,
+      };
+    }
+  } catch {
+    // fall through to unknown
+  }
+  return { foreign: false, repoRoot: "" };
+}
+
 async function terminateKnownStaleListeners({
   ports = [DEFAULT_DISCOVERY_WORKER_PORT, 4040],
   workerPort = DEFAULT_DISCOVERY_WORKER_PORT,
@@ -1187,11 +1349,19 @@ async function terminateKnownStaleListeners({
   findProcesses = listListeningProcesses,
   killPid = (pid) => process.kill(pid, "SIGTERM"),
   waitAfterKillMs = 600,
+  resolveWorkerOwnership = defaultWorkerPortOwnership,
 } = {}) {
   const killedProcesses = [];
   const blocked = [];
   const warnings = [];
   let skippedHealthyWorker = false;
+  const ownershipByPort = new Map();
+  const ownershipFor = async (port) => {
+    if (!ownershipByPort.has(port)) {
+      ownershipByPort.set(port, await resolveWorkerOwnership(port));
+    }
+    return ownershipByPort.get(port);
+  };
 
   for (const port of ports) {
     if (port === healthyDiscoveryWorkerPort) {
@@ -1227,6 +1397,28 @@ async function terminateKnownStaleListeners({
         });
         continue;
       }
+      if (port === workerPort) {
+        // BEAUDIT G7: a worker-command match is not enough — verify the
+        // listener belongs to THIS checkout before killing. /health repoRoot
+        // decides; when it is unknown (legacy worker), a checkout path in
+        // the command is the fallback signal.
+        const ownership = await ownershipFor(port);
+        const foreignByIdentity = !!(ownership && ownership.foreign);
+        const foreignByCommand =
+          !(ownership && ownership.repoRoot) &&
+          commandBelongsToForeignCheckout(command) === true;
+        if (foreignByIdentity || foreignByCommand) {
+          const where =
+            ownership && ownership.repoRoot ? ` (${ownership.repoRoot})` : "";
+          blocked.push({
+            port,
+            pid,
+            command,
+            action: `Worker belongs to another checkout${where}; stop it there instead of killing it from here.`,
+          });
+          continue;
+        }
+      }
       try {
         killPid(pid);
         killedProcesses.push({ port, pid, command });
@@ -1256,6 +1448,7 @@ export async function killFullBootStalePorts({
   findProcesses = listListeningProcesses,
   killPid = (pid) => process.kill(pid, "SIGTERM"),
   waitAfterKillMs = 600,
+  resolveWorkerOwnership,
 } = {}) {
   return terminateKnownStaleListeners({
     ports,
@@ -1265,6 +1458,7 @@ export async function killFullBootStalePorts({
     findProcesses,
     killPid,
     waitAfterKillMs,
+    ...(resolveWorkerOwnership ? { resolveWorkerOwnership } : {}),
   });
 }
 
@@ -1909,6 +2103,40 @@ async function handleTailscaleState(req, res) {
   res.end(JSON.stringify(body));
 }
 
+/**
+ * BEAUDIT G9: the transport block a successful `tailscale serve` writes.
+ * Only a serve of the WORKER port describes the worker's public transport;
+ * a dashboard serve (or a missing URL) yields null and writes nothing.
+ */
+export function buildTailscaleTransportState({ serveUrl, servedPort, workerPort }) {
+  const url = String(serveUrl || "").trim();
+  if (!url) return null;
+  if (Number(servedPort) !== Number(workerPort)) return null;
+  return { kind: "tailscale", publicUrl: url, stable: true };
+}
+
+/**
+ * BEAUDIT G9: annotate discovery-local-bootstrap.json with the transport
+ * block, preserving every other field. A missing or unparseable file is a
+ * no-op (false) — the serve handler annotates bootstrap state, it never
+ * creates it.
+ */
+export function writeBootstrapTransport(filePath, transport) {
+  try {
+    const raw = readFileSync(String(filePath), "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    writeFileSync(
+      String(filePath),
+      `${JSON.stringify({ ...parsed, transport }, null, 2)}\n`,
+      "utf8",
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function handleTailscaleServe(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, jsonCorsHeaders(req));
@@ -1931,6 +2159,20 @@ async function handleTailscaleServe(req, res) {
     port,
     spawnSync: childProcess.spawnSync,
   });
+  // BEAUDIT G9: a worker-port serve records the Tailscale transport so the
+  // keep-alive (and discovery-state) stop treating the tailnet target as an
+  // unknown/ngrok URL.
+  if (result && result.ok) {
+    const workerPort = resolveDiscoveryWorkerPort("");
+    const transport = buildTailscaleTransportState({
+      serveUrl: result.url,
+      servedPort: Number.parseInt(String(port), 10),
+      workerPort,
+    });
+    if (transport) {
+      writeBootstrapTransport(join(ROOT, "discovery-local-bootstrap.json"), transport);
+    }
+  }
   res.writeHead(200, corsHeaders);
   res.end(JSON.stringify(result));
 }
@@ -2097,13 +2339,18 @@ async function handleWorkerAutostartStatus(req, res) {
     return;
   }
   try {
-    const { getDiscoveryWorkerAutostartStatus } = await import(
+    const { getDiscoveryWorkerAutostartStatusAsync } = await import(
       "./scripts/install-discovery-worker-autostart.mjs"
     );
-    const status = getDiscoveryWorkerAutostartStatus();
+    const status = await getDiscoveryWorkerAutostartStatusAsync();
     const response = { installed: !!status.installed };
     if (status.jobLabel) response.jobLabel = status.jobLabel;
     if (status.port) response.port = status.port;
+    // BEAUDIT G8: backend truth (not "plist exists") plus the job's liveness.
+    response.artifactPresent = !!status.artifactPresent;
+    response.active = !!status.active;
+    response.workerUp = !!status.workerUp;
+    if (status.lastHealthyAt) response.lastHealthyAt = status.lastHealthyAt;
     res.writeHead(200, corsHeaders);
     res.end(JSON.stringify(response));
   } catch (_) {
@@ -2292,7 +2539,8 @@ async function handleDiscoveryState(req, res, options = {}) {
     workerHealth &&
     (workerHealth.reason === "wrong_service" ||
       workerHealth.reason === "invalid_health_response" ||
-      workerHealth.reason === "worker_unhealthy")
+      workerHealth.reason === "worker_unhealthy" ||
+      workerHealth.reason === "foreign_checkout")
   ) {
     recommendation = "needs_human";
     recoverableHint = workerHealth.reason;
@@ -2301,8 +2549,16 @@ async function handleDiscoveryState(req, res, options = {}) {
     recoverableHint = "worker_down";
   }
 
+  let envSources = {};
+  try {
+    envSources = resolveDiscoveryWorkerEnvSources();
+  } catch {
+    envSources = {};
+  }
+
   const body = {
     ok: true,
+    envSources,
     worker: {
       up: workerUp,
       port: workerPort,
@@ -2321,6 +2577,10 @@ async function handleDiscoveryState(req, res, options = {}) {
             workerStatus: workerHealth.workerStatus,
             message: workerHealth.message,
             listeners: workerHealth.listeners || [],
+            ...(workerHealth.repoRoot ? { repoRoot: workerHealth.repoRoot } : {}),
+            ...(workerHealth.workerVersion
+              ? { workerVersion: workerHealth.workerVersion }
+              : {}),
           }
         : {}),
     },
@@ -2496,13 +2756,70 @@ async function probeNgrokTunnel(timeoutMs, workerPort) {
  * doesn't exist yet. Mirrors the same import pattern used in
  * handleKeepAliveStatus.
  */
-async function safeKeepAliveStatus() {
+// BEAUDIT G19: keep-alive status cache. discovery-state is polled every few
+// seconds and the status shells out to launchd; a 30s TTL keeps the
+// dashboard fresh without a subprocess per poll.
+export const KEEP_ALIVE_STATUS_CACHE_TTL_MS = 30_000;
+const keepAliveStatusCache = { at: 0, value: null, filled: false };
+
+async function loadKeepAliveStatus() {
   try {
     const { getKeepAliveStatus } = await import("./scripts/install-keep-alive.mjs");
     return getKeepAliveStatus();
   } catch (_) {
     return null;
   }
+}
+
+/**
+ * Fingerprint for the keep-alive status cache: the home dir plus the state
+ * file's content. A hit still requires the TTL, but a rewritten state file
+ * (or a new HOME) invalidates immediately — the cache never serves a status
+ * older than the file it was read from. Content, not mtime: two writes in
+ * the same millisecond must still invalidate. The read is cheap; the
+ * launchd spawn it guards is what the cache saves.
+ */
+function keepAliveStateFingerprint() {
+  try {
+    const home = homedir();
+    let marker = "missing";
+    try {
+      marker = readFileSync(join(home, ".jobbored", "keep-alive-state.json"), "utf8");
+    } catch {
+      marker = "missing";
+    }
+    return `${home}|${marker}`;
+  } catch {
+    return "";
+  }
+}
+
+export async function cachedKeepAliveStatus(
+  {
+    nowMs = Date.now(),
+    cache = keepAliveStatusCache,
+    loadImpl = loadKeepAliveStatus,
+    fingerprintImpl = keepAliveStateFingerprint,
+  } = {},
+) {
+  const fingerprint = fingerprintImpl();
+  if (
+    cache.filled &&
+    nowMs - cache.at < KEEP_ALIVE_STATUS_CACHE_TTL_MS &&
+    cache.fingerprint === fingerprint
+  ) {
+    return cache.value;
+  }
+  const value = await loadImpl();
+  cache.at = nowMs;
+  cache.value = value;
+  cache.filled = true;
+  cache.fingerprint = fingerprint;
+  return value;
+}
+
+async function safeKeepAliveStatus() {
+  return cachedKeepAliveStatus();
 }
 
 async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {

@@ -37,7 +37,9 @@ import {
   TRANSPORT_CLOUDFLARE_NAMED,
   TRANSPORT_CLOUDFLARE_QUICK,
   TRANSPORT_NGROK,
+  TRANSPORT_TAILSCALE,
 } from "./lib/discovery-transport.mjs";
+import { detectTailscale } from "./lib/tailscale.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
@@ -99,7 +101,7 @@ Options:
   --sheet-id           Optional. Included in the suggested Cloudflare relay deploy command.
   --ngrok-authtoken    Optional. Saves ngrok auth if config is missing.
   --ngrok-public-url   Optional. Skip ngrok startup and use this https:// public URL instead.
-  --tunnel             Public-URL transport: auto (default), cloudflare-named, cloudflare-quick, or ngrok.
+  --tunnel             Public-URL transport: auto (default), cloudflare-named, cloudflare-quick, ngrok, or tailscale.
                        auto picks cloudflare-named (if configured) > cloudflare-quick (if cloudflared installed) > ngrok.
   --state-file         Where to write the local bootstrap JSON. Default: ${defaultStateFile}
   --no-start-gateway   Do not auto-start a local discovery server if /health is down.
@@ -217,10 +219,10 @@ function normalizeEnginePreference(raw) {
   fail("--engine must be one of: auto, browser_use_worker, hermes");
 }
 
-function ensureNode18() {
+function ensureNode24() {
   const major = Number.parseInt(String(process.versions.node || "").split(".")[0], 10);
-  if (!Number.isFinite(major) || major < 18) {
-    fail("Node 18+ required.");
+  if (!Number.isFinite(major) || major < 24) {
+    fail("Node 24 required (see engines in package.json).");
   }
 }
 
@@ -645,7 +647,9 @@ function upsertBrowserUseDiscoveryEnvValue(
   const hadKey = re.test(existing);
   let next;
   if (hadKey) {
-    next = existing.replace(re, line.trimEnd());
+    // BEAUDIT G14: replacement is a function so `$'`/`$&` in the value stay
+    // literal instead of expanding to the match context.
+    next = existing.replace(re, () => line.trimEnd());
   } else {
     next = existing.endsWith("\n") ? `${existing}${line}` : `${existing}\n${line}`;
   }
@@ -1581,7 +1585,7 @@ function writeBootstrapState(stateFile, payload) {
 }
 
 async function main() {
-  ensureNode18();
+  ensureNode24();
   const args = parseArgs(process.argv.slice(2));
   const enginePreference = normalizeEnginePreference(args.engine);
   ensureCommand("ngrok", ["version"]);
@@ -1716,6 +1720,17 @@ async function main() {
     }
     const quick = await ensureCloudflareQuickTunnel(port);
     ngrok = { ngrokPublicUrl: quick.publicUrl, startedNgrok: false };
+  } else if (transportKind === TRANSPORT_TAILSCALE) {
+    // BEAUDIT G9: the tailnet hostname is the stable public URL — read, never
+    // created, here. `tailscale serve` for the worker port is the dashboard's
+    // job (POST /__proxy/tailscale-serve), like the named tunnel's ingress.
+    const tailnet = detectTailscale();
+    if (!tailnet.installed || !tailnet.loggedIn || !tailnet.dnsName) {
+      fail(
+        "--tunnel tailscale requires Tailscale installed and logged in (no tailnet DNS name found). Install it (https://tailscale.com/download) and run `tailscale up`, or rerun with `--tunnel auto`.",
+      );
+    }
+    ngrok = { ngrokPublicUrl: `https://${tailnet.dnsName}`, startedNgrok: false };
   } else if (args.ngrokPublicUrl) {
     ngrok = await ensureNgrokPublicUrl(port, args.ngrokPublicUrl, false);
   } else {
@@ -1734,8 +1749,13 @@ async function main() {
   // verifying public /health for it is still valid (it proxies to the same
   // local port), but we skip the hard fail for named tunnels since edge config
   // is the user's responsibility and a transient edge delay should not abort
-  // the bootstrap that already verified local health.
-  if (engineKind === "browser_use_worker" && transportKind !== TRANSPORT_CLOUDFLARE_NAMED) {
+  // the bootstrap that already verified local health. Same for Tailscale:
+  // `tailscale serve` for the worker port is configured from the dashboard.
+  if (
+    engineKind === "browser_use_worker" &&
+    transportKind !== TRANSPORT_CLOUDFLARE_NAMED &&
+    transportKind !== TRANSPORT_TAILSCALE
+  ) {
     publicHealth = await verifyPublicWorkerIdentity(ngrok.ngrokPublicUrl);
     if (!publicHealth.ok) {
       const detail = [

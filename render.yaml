@@ -4,8 +4,14 @@ services:
     name: command-center-job-scraper
     runtime: node
     rootDir: server
-    buildCommand: npm install
+    buildCommand: npm ci --omit=dev
     startCommand: node index.mjs
     envVars:
       - key: LISTEN_HOST
         value: "0.0.0.0"
+      # BEAUDIT E6: without a minted token and an explicit dashboard origin
+      # allowlist, the hosted API boots with no auth and no CORS.
+      - key: JOBBORED_API_TOKEN
+        generateValue: true
+      - key: COMMAND_CENTER_ALLOWED_ORIGINS
+        sync: false

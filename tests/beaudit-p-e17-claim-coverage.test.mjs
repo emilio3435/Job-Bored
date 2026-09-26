@@ -332,12 +332,16 @@ describe("BEAUDIT E17/E5 the server/ image layout boots", () => {
       const templateRes = await fetch(`${api.baseUrl}/profile/template/engineer`, {
         method: "POST",
       });
-      const template = await templateRes.text();
-      assert.equal(templateRes.status, 200, template.slice(0, 300));
+      const templateText = await templateRes.text();
+      assert.equal(templateRes.status, 200, templateText.slice(0, 300));
+      // POST /profile takes the profile object, not the {ok, template}
+      // transport envelope — the wizard unwraps data.template before saving,
+      // and the schema requires top-level version/identity/strengths.
+      const { template } = JSON.parse(templateText);
       const res = await fetch(`${api.baseUrl}/profile`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: template,
+        body: JSON.stringify(template),
       });
       const { text } = await readJson(res);
       assert.doesNotMatch(text, new RegExp(ctx.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -348,7 +352,7 @@ describe("BEAUDIT E17/E5 the server/ image layout boots", () => {
 
   it(
     "the logo routes answer without a 500 when the resolver is absent",
-    target("wave-2 lane O (E5: 501 LOGOS_UNAVAILABLE or ship python3)"),
+    target("wave-2 lane O (E5: 501 logos_unavailable or ship python3)"),
     async () => {
       const res = await fetch(`${api.baseUrl}/api/brand-logos`);
       const { text } = await readJson(res);
