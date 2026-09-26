@@ -367,12 +367,12 @@ describe("ONEFLOW L3 · B5 connect drives the Tailscale auto path (spec §5 B5 p
     assert.equal(state.skipped.discoveryConnect, undefined);
   });
 
-  it("a blocked Tailscale keeps its honest copy and its Download/Re-check next action", async () => {
+  it("a blocked Tailscale keeps its honest copy and its Download/Check again next action", async () => {
     const bridge = makeConnectBridge(
       {
         ok: false,
         state: "needs_install",
-        message: "Tailscale isn't installed yet — grab it below, then Re-check.",
+        message: "Tailscale isn't installed yet — grab it below, then press Check again.",
       },
       ["machine"],
     );
@@ -383,14 +383,14 @@ describe("ONEFLOW L3 · B5 connect drives the Tailscale auto path (spec §5 B5 p
     await env.act(CONNECT_ACTION);
     const message = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(message, "a blocked state must reach the message slot, not a toast");
-    assert.match(message.textContent, /Tailscale isn't installed yet — grab it below, then Re-check\./);
+    assert.match(message.textContent, /Tailscale isn't installed yet — grab it below, then press Check again\./);
     const links = plain(env.mount.querySelectorAll("[href]")).map((el) =>
       el.getAttribute("href"),
     );
     assert.ok(links.includes("https://tailscale.com/download"), "name the download");
     assert.equal(
       env.button(CONNECT_ACTION).textContent,
-      "Re-check",
+      "Check again",
       "the blocked state's retry is the same control, renamed",
     );
     assert.ok(

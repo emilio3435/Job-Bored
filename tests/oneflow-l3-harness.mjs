@@ -210,6 +210,9 @@ export function loadWizardUi() {
     URL,
   };
   vm.createContext(ctx);
+  // index.html loads the local-server substrate before the wizard; its
+  // localServerHint is the wizard's start sentence too (GFX-S10).
+  vm.runInContext(readRepoFile("local-server.js"), ctx, { filename: "local-server.js" });
   vm.runInContext(readRepoFile("discovery-wizard-ui.js"), ctx, {
     filename: "discovery-wizard-ui.js",
   });

@@ -41,10 +41,11 @@ const NO_SERVER_MESSAGE =
   "./start.sh in the JobBored folder, then press Save & verify.";
 
 
+// GFX FE-B5: D2 keeps hosted pages out of setup, so the hosted-page fork is
+// gone; the start sentence is localServerHint (S10); the retry is Check again.
 const WIZARD_NEEDS_SERVER =
-  "Couldn't reach JobBored's local server — on the hosted page, open " +
-  "your local setup instead; otherwise double-click start.command in " +
-  "the JobBored folder to start it, then Re-check.";
+  "Couldn't reach JobBored on this computer. To start it, run " +
+  "./start.sh in the JobBored folder, then press Check again.";
 
 function makeCheckFetch(checkImpl) {
   return async (url) => {
@@ -484,16 +485,14 @@ describe("B5 handoff · the wizard twins the truthful needs_server copy", () => 
     };
   }
 
-  it("names the hosted-page fork, the launcher, and Re-check — same code", async () => {
+  it("names the launcher and Check again — same code", async () => {
     const env = needsServerEnv();
     const outcome = await env.ui.runTailscaleAutoSetup(env.deps);
     assert.equal(outcome.ok, false);
     assert.equal(outcome.state, "needs_server", "no new stop codes");
     assert.equal(outcome.message, WIZARD_NEEDS_SERVER);
-    assert.match(outcome.message, /hosted page/);
-    assert.match(outcome.message, /local setup/);
-    assert.match(outcome.message, /start\.command/);
-    assert.match(outcome.message, /Re-check/);
+    assert.match(outcome.message, /start\.sh/);
+    assert.match(outcome.message, /Check again/);
     assert.doesNotMatch(outcome.message, /npm run dev/);
   });
 });
