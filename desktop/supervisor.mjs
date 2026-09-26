@@ -334,12 +334,14 @@ export function createSupervisor({
     child.stdout?.on("data", forward);
     child.stderr?.on("data", forward);
     let exited = false;
+    /** @type {Promise<void> | null} */
+    let exitHandled = null;
     /** @type {(code: number | null, signal: string | null) => void} */
     const onExit = (code, signal) => {
       if (exited) return;
       exited = true;
       if (s.child === child) s.child = null;
-      void handleExit(s, code, signal, /** @type {any} */ (child).__jbStopRequested === true);
+      exitHandled = handleExit(s, code, signal, /** @type {any} */ (child).__jbStopRequested === true);
     };
     child.once("exit", onExit);
     child.once("error", (/** @type {Error} */ err) => {
@@ -349,7 +351,12 @@ export function createSupervisor({
 
     const deadline = Date.now() + timing.healthTimeoutMs;
     while (Date.now() < deadline) {
-      if (stopping || s.child !== child) return;
+      if (stopping) return;
+      if (s.child !== child) {
+        // It died while booting: report where that left the service.
+        await exitHandled;
+        return;
+      }
       if ((await probe(s)).healthy) {
         if (s.child === child) setState(s, "running", `pid ${child.pid}`);
         return;

@@ -325,3 +325,11 @@ test("parseLsofFields reads -F pc / -F n output", () => {
   assert.deepEqual(parseLsofFields(""), []);
   assert.deepEqual(parseLsofFields("pNaN\ncx\n"), []);
 });
+
+test("F4: start() resolves only after a boot-time crash is handled (no stale 'starting')", async () => {
+  const w = world({ crashOnSpawn: (service) => service === "worker" });
+  const sup = supervisorFor(w, { restartBudget: { max: 0, windowMs: 1 } });
+  await sup.start();
+  assert.equal(sup.snapshot().worker.state, "failed");
+  await sup.stop();
+});
