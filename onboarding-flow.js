@@ -55,6 +55,9 @@
    */
   const BEAT_PREREQS = Object.freeze({
     resume: ["ai"],
+    // GFX R4: discovery scores every job against the fit profile, so a cold
+    // ?beat=discovery (or jobbored://open?beat=discovery) lands on Beat 4.
+    discovery: ["fit"],
     payoff: ["google"],
   });
 
@@ -62,6 +65,7 @@
   const GATE_NOTES = Object.freeze({
     ai: "Connect an AI provider first \u2014 your resume is drafted with it.",
     google: "Connect Google first \u2014 your board lives in that Sheet.",
+    fit: "Set your fit profile first \u2014 discovery scores every job against it.",
   });
 
   /** Spoken when a deep link (§4.1 returnTo) closes where it opened. */
