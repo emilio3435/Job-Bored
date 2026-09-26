@@ -146,9 +146,25 @@
     upstream_error:
       "SerpApi answered, but not with your account. Wait a moment, then " +
       "press Save & verify again.",
-    no_local_server:
-      "Couldn't reach the local server (ping failed). Start it with the start " +
-      "command, then press Save & verify.",
+    // GFX-N3: names the launcher this machine actually has. A getter, so
+    // the platform is read when the message is shown, not at load.
+    get no_local_server() {
+      return (
+        "Couldn't reach the JobBored server on this computer. To start it, " +
+        localServerHint() +
+        ", then press Save & verify."
+      );
+    },
+    // GFX-N3: the server is up and answered the check with a JSON 403 —
+    // its origin gate refused this page's address (a tailnet or LAN name,
+    // a webview), which is not a dead server and not a bad key.
+    wrong_origin:
+      "JobBored is running, but this page's address isn't allowed to use " +
+      "it — open http://localhost:8080 and press Save & verify there.",
+    internal_error:
+      "The JobBored server on this computer hit an error while checking " +
+      "your key. Press Save & verify again; if it keeps happening, quit " +
+      "JobBored and start it again.",
     static_host:
       "This hosted page can't check your key — checking runs in the " +
       "JobBored app on your computer. Copy your key, open your local " +
@@ -160,6 +176,34 @@
       "The JobBored server on this computer is out of date or isn't " +
       "JobBored — quit it and start JobBored again, then press Save & verify.",
   });
+
+  /**
+   * How to start the local server on this machine, as a clause that fits
+   * "To start it, …". macOS gets the double-clickable start.command; every
+   * other platform gets npm start. Exported so other beats can name the
+   * same launcher. Never throws — no navigator reads as "not a Mac".
+   */
+  function localServerHint() {
+    let platform = "";
+    try {
+      const nav =
+        window.navigator ||
+        (typeof navigator !== "undefined" ? navigator : null);
+      if (nav) {
+        platform = String(
+          (nav.userAgentData && nav.userAgentData.platform) ||
+            nav.platform ||
+            "",
+        );
+      }
+    } catch (_) {
+      platform = "";
+    }
+    return /mac/i.test(platform)
+      ? "double-click start.command in the JobBored folder"
+      : "run npm start in the JobBored folder";
+  }
+
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
   const SELF_HOSTING_DOC = "docs/SELF-HOSTING.md";
@@ -879,20 +923,26 @@
           pingSignal ? { signal: pingSignal } : undefined,
         );
         const pingBody = ping ? await ping.json().catch(() => null) : null;
-        if (ping && (ping.status === 404 || ping.status === 405)) {
+        // GFX-N3: the ping's own origin gate leans on Sec-Fetch-Site, which
+        // Safari <16.4 and some webviews never send — so a running server can
+        // answer a JSON 403. Any JobBored-shaped JSON answer ({ok: boolean},
+        // whatever the status) proves the server is up; the POST, which
+        // carries Origin, decides whether this page may use it.
+        const serverAnswered = !!(
+          pingBody &&
+          typeof pingBody === "object" &&
+          typeof pingBody.ok === "boolean"
+        );
+        if (serverAnswered) {
+          pingStatic = false;
+        } else if (ping && (ping.status === 404 || ping.status === 405)) {
           pingStatic = true;
         } else if (isHtmlAnswer(ping)) {
           pingStatic = true;
         } else if (loopback && ping && (!pingBody || typeof pingBody !== "object")) {
           pingStatic = true;
         }
-        pinged = !!(
-          ping &&
-          ping.ok &&
-          pingBody &&
-          typeof pingBody === "object" &&
-          pingBody.ok
-        );
+        pinged = serverAnswered;
       } finally {
         if (pingTimer != null && typeof clearTimeout === "function") {
           clearTimeout(pingTimer);
@@ -930,7 +980,10 @@
         lastFuelReason = "";
         return body;
       }
-      const reason = String(body.reason || "upstream_error");
+      let reason = String(body.reason || "upstream_error");
+      // The server's origin gate speaks "forbidden"; the user needs to hear
+      // which address to open instead (GFX-N3).
+      if (reason === "forbidden") reason = "wrong_origin";
       lastFuelReason = reason;
       return { ok: false, reason };
     } catch (e) {
@@ -1298,6 +1351,7 @@
   // Test seam (read in tests; never relied on from app code) — mirrors
   // discovery-wizard-ui.js's ui._internal.
   window.JobBoredOneFlowBeatDiscovery = {
+    localServerHint,
     _internal: {
       state,
       setKeyDraft(value) {

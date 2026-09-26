@@ -34,8 +34,8 @@ const STATIC_HOST_MESSAGE =
   "setup, then press Save & verify there.";
 
 const NO_SERVER_MESSAGE =
-  "Couldn't reach the local server (ping failed). Start it with the start " +
-  "command, then press Save & verify.";
+  "Couldn't reach the JobBored server on this computer. To start it, run " +
+  "npm start in the JobBored folder, then press Save & verify.";
 
 const LOCAL_SETUP_HREF = "http://localhost:8080/?beat=discovery&returnTo=close";
 const GET_APP_HREF = "https://github.com/emilio3435/Job-Bored";
@@ -851,5 +851,124 @@ describe("GFX-N2 · a 404/405/HTML answer on a loopback page is a stale server",
     await env.flow.open("discovery");
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "no_local_server");
+  });
+});
+
+// ---------------------------------------------------------------
+// GFX-N3: a JSON ping answer proves the server is up
+// ---------------------------------------------------------------
+
+const WRONG_ORIGIN_MESSAGE =
+  "JobBored is running, but this page's address isn't allowed to use it " +
+  "— open http://localhost:8080 and press Save & verify there.";
+
+describe("GFX-N3 · any JSON ping answer proves the server; the POST decides", () => {
+  function forbiddenPingFetch(checkImpl) {
+    return async (url) => {
+      const u = String(url);
+      if (u.includes("__proxy/ping")) {
+        return {
+          ok: false,
+          status: 403,
+          json: async () => ({ ok: false, reason: "forbidden" }),
+        };
+      }
+      if (u.includes("serpapi-check")) return checkImpl();
+      if (u.includes("discovery-env-key")) return { ok: true, json: async () => ({ ok: true }) };
+      if (u.includes("full-boot")) {
+        return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      }
+      return { ok: false, json: async () => ({}) };
+    };
+  }
+
+  it("GFX-N3: a JSON 403 ping (no Sec-Fetch-Site) still reaches the check and passes", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: forbiddenPingFetch(async () => ({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }),
+      })),
+    });
+    onPage(env, "localhost");
+    await env.flow.open("discovery");
+    await failFuel(env);
+    assert.equal(
+      env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
+      1,
+      "a running server earns the keyed check",
+    );
+    assert.equal(env.beat._internal.fuelReason(), "");
+    assert.equal(env.beat._internal.state.fuelPassed, true);
+  });
+
+  it("GFX-N3: a JSON 403 forbidden from the check names the page address, not a dead server", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: forbiddenPingFetch(async () => ({
+        ok: false,
+        status: 403,
+        json: async () => ({ ok: false, reason: "forbidden" }),
+      })),
+    });
+    onPage(env, "my-mac.tailnet.ts.net");
+    await env.flow.open("discovery");
+    await failFuel(env);
+    assert.equal(env.beat._internal.fuelReason(), "wrong_origin");
+    assert.equal(messageSlot(env).textContent, WRONG_ORIGIN_MESSAGE);
+    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+  });
+
+  it("GFX-N3: a 500 internal_error has its own copy, not the SerpApi upstream line", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: makeCheckFetch(async () => ({
+        ok: false,
+        status: 500,
+        json: async () => ({ ok: false, reason: "internal_error" }),
+      })),
+    });
+    await env.flow.open("discovery");
+    await failFuel(env);
+    assert.equal(env.beat._internal.fuelReason(), "internal_error");
+    const text = messageSlot(env).textContent;
+    assert.doesNotMatch(text, /SerpApi answered, but not with your account/);
+    assert.match(text, /JobBored server on this computer/);
+    assert.match(text, /Save & verify/);
+  });
+
+  it("GFX-N3: localServerHint names start.command on a Mac", () => {
+    const env = loadDiscoveryBeat();
+    env.window.navigator = { platform: "MacIntel" };
+    assert.equal(
+      env.beat.localServerHint(),
+      "double-click start.command in the JobBored folder",
+    );
+    env.window.navigator = { userAgentData: { platform: "macOS" }, platform: "" };
+    assert.match(env.beat.localServerHint(), /start\.command/);
+  });
+
+  it("GFX-N3: localServerHint names npm start everywhere else", () => {
+    const env = loadDiscoveryBeat();
+    env.window.navigator = { platform: "Linux x86_64" };
+    assert.equal(env.beat.localServerHint(), "run npm start in the JobBored folder");
+    env.window.navigator = { userAgentData: { platform: "Windows" }, platform: "Win32" };
+    assert.equal(env.beat.localServerHint(), "run npm start in the JobBored folder");
+  });
+
+  it("GFX-N3: the no_local_server copy is platform-aware and drops '(ping failed)'", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: makeCheckFetch(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    });
+    env.window.navigator = { platform: "MacIntel" };
+    await env.flow.open("discovery");
+    await failFuel(env);
+    const text = messageSlot(env).textContent;
+    assert.equal(
+      text,
+      "Couldn't reach the JobBored server on this computer. To start it, " +
+        "double-click start.command in the JobBored folder, then press Save & verify.",
+    );
+    assert.doesNotMatch(text, /ping failed/);
   });
 });

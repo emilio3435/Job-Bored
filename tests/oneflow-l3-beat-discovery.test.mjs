@@ -576,7 +576,7 @@ describe("ONEFLOW L3 · B5 pending fuel survives the server gap (Option 3 — th
     await env.act(FUEL_ACTION);
     const message = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(message, "the outcome must reach the screen");
-    assert.match(message.textContent, /Couldn't reach the local server \(ping failed\)/);
+    assert.match(message.textContent, /Couldn't reach the JobBored server on this computer/);
     assert.match(message.textContent, /Save & verify/, "every error names the next action (§8.4)");
     assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
     const pending = env.store.loadPendingFuel();
@@ -664,7 +664,7 @@ describe("ONEFLOW L3 · B5 pending fuel survives the server gap (Option 3 — th
     typeKey(env, GAP_DRAFT);
     await env.act(FUEL_ACTION);
     const message = env.mount.querySelector(".discovery-setup-wizard__message");
-    assert.match(message.textContent, /Couldn't reach the local server \(ping failed\)/);
+    assert.match(message.textContent, /Couldn't reach the JobBored server on this computer/);
     assert.equal(
       env.beat._internal.state.keyDraft,
       GAP_DRAFT,
