@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 
 import type {
+  ScrapeJobPostingOptions,
   ScrapeJobPostingResult as ScrapeResult,
 } from "../../../../server/shared/job-scraper-core.mjs";
 import type {
@@ -34,6 +35,7 @@ import {
   type GeminiUrlContextExtractor,
 } from "../sources/gemini-url-context-extractor.ts";
 import { classifyIngestUrl } from "../sources/ingest-url-router.ts";
+import { SERPAPI_GOOGLE_JOBS_SOURCE_LABEL } from "../sources/serpapi-google-jobs.ts";
 import {
   validateSheetsCredentialReadiness,
   type SheetsCredentialReadiness,
@@ -101,7 +103,10 @@ export type HandleIngestUrlDependencies = {
   fetchGreenhouseJob?: typeof fetchGreenhouseJob;
   fetchLeverJob?: typeof fetchLeverJob;
   fetchAshbyJob?: typeof fetchAshbyJob;
-  scrapeJobPosting?: (url: string) => Promise<ScrapeResult>;
+  scrapeJobPosting?: (
+    url: string,
+    options?: ScrapeJobPostingOptions,
+  ) => Promise<ScrapeResult>;
   extractWithBrowserUseCloud?: BrowserUseCloudExtractor;
   extractWithGeminiUrlContext?: GeminiUrlContextExtractor;
   runStatusPathForRun?(runId: string): string;
@@ -974,7 +979,11 @@ async function scrapeToRawListing(
 > {
   const scrape = dependencies.scrapeJobPosting || defaultScrapeJobPosting;
   try {
-    const scraped = (await scrape(url)) as ScrapeResult;
+    // C6: hand the runtime SerpApi key to the shared scraper so its Google
+    // Jobs fallback lane can fire (it needs options.serpApiKey).
+    const scraped = (await scrape(url, {
+      serpApiKey: dependencies.runtimeConfig.serpApiKey,
+    })) as ScrapeResult;
     const resolvedUrl = String(scraped.url || url).trim();
     const host = safeHost(resolvedUrl);
     const sourceMethod = String(scraped.method || scraped.source || "").toLowerCase();
@@ -984,6 +993,15 @@ async function scrapeToRawListing(
     const rawTitle = String(scraped.title || "").trim();
     const parsedTitle = parseScrapedJobApplicationTitle(rawTitle);
     const title = parsedTitle?.title || rawTitle;
+    // C6 (INGEST-01/04): prefer the scraper's structured company — through
+    // the shared placeholder sanitizer — over host inference, so a
+    // careers-subdomain host no longer writes "Careers" as the company.
+    const company =
+      parsedTitle?.company ||
+      (await sanitizeScrapedCompany(scraped.company, resolvedUrl)) ||
+      (await inferCompanyFromHost(host, resolvedUrl)) ||
+      "Unknown company";
+    const location = String(scraped.location || "").trim() || undefined;
     const scrapedTags = [
       ...deriveIngestTitleTags(title),
       ...((Array.isArray(scraped.skills) ? scraped.skills : []) as string[]),
@@ -997,11 +1015,11 @@ async function scrapeToRawListing(
       strategy,
       rawListing: {
         sourceId: "ingest_url_scrape" as RawListing["sourceId"],
-        sourceLabel: host.endsWith("linkedin.com") ? "LinkedIn" : "Company page",
+        sourceLabel: resolveScrapeSourceLabel(scraped, host),
         sourceLane: "grounded_web",
         title,
-        company: parsedTitle?.company || inferCompanyFromHost(host),
-        location: undefined,
+        company,
+        location,
         url: resolvedUrl,
         canonicalUrl: resolvedUrl,
         finalUrl: resolvedUrl,
@@ -1293,16 +1311,28 @@ function getLinkedInCurrentJobId(parsed: URL): string {
   return hashMatch?.[1] || "";
 }
 
-function inferCompanyFromHost(host: string): string {
-  const primary = String(host || "")
+// C6 (INGEST-04): infer from the registrable domain, skipping the TLD and
+// placeholder leading labels ("careers", "jobs", "linkedin") via the shared
+// sanitizer, so a careers-subdomain host yields "Acme" instead of "Careers".
+// Returns "" when nothing survives, letting the caller fall back.
+async function inferCompanyFromHost(host: string, url: string): Promise<string> {
+  const labels = String(host || "")
     .replace(/^www\./i, "")
     .split(".")
-    .filter(Boolean)[0] || "Unknown company";
-  return primary
-    .split(/[-_]+/)
-    .filter(Boolean)
-    .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
-    .join(" ");
+    .map((label) => label.trim())
+    .filter(Boolean);
+  const candidates = labels.length > 1 ? labels.slice(0, -1) : labels;
+  for (const label of candidates) {
+    const display = label
+      .split(/[-_]+/)
+      .filter(Boolean)
+      .map((token) => token.charAt(0).toUpperCase() + token.slice(1))
+      .join(" ");
+    if (!display) continue;
+    const clean = await sanitizeScrapedCompany(display, url);
+    if (clean) return clean;
+  }
+  return "";
 }
 
 function parseScrapedJobApplicationTitle(
@@ -1364,10 +1394,42 @@ function extractHttpStatus(message: string): number | undefined {
   return Number.isFinite(status) ? status : undefined;
 }
 
-async function defaultScrapeJobPosting(url: string): Promise<ScrapeResult> {
+async function defaultScrapeJobPosting(
+  url: string,
+  options?: ScrapeJobPostingOptions,
+): Promise<ScrapeResult> {
   const module = await import("../../../../server/shared/job-scraper-core.mjs");
   if (!module || typeof module.scrapeJobPosting !== "function") {
     throw new Error("Shared job scraper module is unavailable.");
   }
-  return module.scrapeJobPosting(url);
+  return module.scrapeJobPosting(url, options);
+}
+
+// C6: the shared placeholder sanitizer (same one the server path uses).
+// Falls back to a plain trim when the shared module is unavailable so a
+// missing export can never blank a good company name.
+async function sanitizeScrapedCompany(
+  name: unknown,
+  url: string,
+): Promise<string> {
+  // The shared types (.d.mts, owned outside this lane's fence) do not
+  // declare sanitizeInferredEmployer, so type the dynamic import structurally.
+  const module = (await import(
+    "../../../../server/shared/job-scraper-core.mjs"
+  )) as {
+    sanitizeInferredEmployer?: (name: unknown, url?: string) => unknown;
+  };
+  if (module && typeof module.sanitizeInferredEmployer === "function") {
+    return String(module.sanitizeInferredEmployer(name, url) || "");
+  }
+  return String(name || "").trim();
+}
+
+// C6: label the written lead by the scrape method that produced it, so a
+// SerpApi-method result is not mislabeled "Company page".
+function resolveScrapeSourceLabel(scraped: ScrapeResult, host: string): string {
+  const method = `${String(scraped.method || "")} ${String(scraped.source || "")}`.toLowerCase();
+  if (method.includes("serpapi")) return SERPAPI_GOOGLE_JOBS_SOURCE_LABEL;
+  if (host.endsWith("linkedin.com")) return "LinkedIn";
+  return "Company page";
 }

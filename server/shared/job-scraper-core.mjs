@@ -5,7 +5,11 @@
  */
 import * as cheerio from "cheerio";
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
-import { fetchAtsJobPosting } from "./ats-job-fetchers.mjs";
+import {
+  fetchAtsJobPosting,
+  fetchGenericCareerFeed,
+  looksLikeSpaShellHtml,
+} from "./ats-job-fetchers.mjs";
 import { scrapeViaGeminiUrlContext } from "./gemini-url-context-scrape.mjs";
 import {
   decodeHtmlEntities,
@@ -585,13 +589,15 @@ export function toScrapeFailureResponse(error, url) {
  * @param {UnknownRecord} raw
  * @param {{ title: string, company: string }} context
  * @param {string} originalUrl
+ * @returns {{ score: number, idMatch: boolean, urlMatch: boolean }}
  */
-function scoreSerpApiJob(raw, context, originalUrl) {
+function describeSerpApiMatch(raw, context, originalUrl) {
+  const none = { score: -Infinity, idMatch: false, urlMatch: false };
   const title = typeof raw.title === "string" ? raw.title.trim() : "";
   const company = typeof raw.company_name === "string" ? raw.company_name.trim() : "";
   const description =
     typeof raw.description === "string" ? raw.description.trim() : "";
-  if (!title || !company || description.length < 80) return -Infinity;
+  if (!title || !company || description.length < 80) return none;
 
   const originalId = linkedInJobId(originalUrl);
   const originalHost = hostnameOf(originalUrl);
@@ -617,8 +623,8 @@ function scoreSerpApiJob(raw, context, originalUrl) {
   // title like "Engineer" plus a dummy company like "Test" must not pick a
   // random Google Jobs listing from another employer.
   if (!idMatch && !urlMatch) {
-    if (context.company && companyOverlap < 0.4) return -Infinity;
-    if (context.title && titleOverlap < 0.3) return -Infinity;
+    if (context.company && companyOverlap < 0.4) return none;
+    if (context.title && titleOverlap < 0.3) return none;
   }
 
   let score = 0;
@@ -628,31 +634,39 @@ function scoreSerpApiJob(raw, context, originalUrl) {
   if (context.title) score += titleOverlap * 120;
   if (context.company) score += companyOverlap * 90;
   if (description.length > 400) score += 20;
-  return score;
+  return { score, idMatch, urlMatch };
 }
 
 /**
  * @param {unknown[]} jobs
  * @param {{ title: string, company: string }} context
  * @param {string} originalUrl
- * @returns {UnknownRecord | null}
+ * @returns {{ job: UnknownRecord, score: number, idMatch: boolean, urlMatch: boolean } | null}
  */
 function pickSerpApiJob(jobs, context, originalUrl) {
   let best = null;
   let bestScore = -Infinity;
+  let bestSignals = { idMatch: false, urlMatch: false };
   for (const raw of jobs) {
     if (!raw || typeof raw !== "object") continue;
-    const score = scoreSerpApiJob(
+    const described = describeSerpApiMatch(
       /** @type {UnknownRecord} */ (raw),
       context,
       originalUrl,
     );
-    if (score > bestScore) {
+    if (described.score > bestScore) {
       best = /** @type {UnknownRecord} */ (raw);
-      bestScore = score;
+      bestScore = described.score;
+      bestSignals = described;
     }
   }
-  return bestScore >= 70 ? best : null;
+  if (!best || bestScore < 70) return null;
+  return {
+    job: best,
+    score: bestScore,
+    idMatch: bestSignals.idMatch,
+    urlMatch: bestSignals.urlMatch,
+  };
 }
 
 /**
@@ -706,14 +720,24 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
 
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const jobs = await fetchSerpApiJobs(query, apiKey, fetchImpl);
-  const matched = pickSerpApiJob(jobs, context, originalUrl);
-  if (!matched) return null;
+  const pick = pickSerpApiJob(jobs, context, originalUrl);
+  if (!pick) return null;
+  const matched = pick.job;
 
+  // E3: only an id or URL match is the requested posting. A
+  // title+company-only pick is a sibling: return it labeled so the UI can
+  // say "similar posting" instead of silently swapping the job.
+  const exact = pick.idMatch || pick.urlMatch;
+  const matchKind = exact ? "exact" : "title_company";
+  const confidence =
+    Math.round(Math.max(0, Math.min(1, pick.score / 200)) * 100) / 100;
+  const matchedUrl = pickSerpApiUrl(matched, originalUrl);
+  const sourceHost = hostnameOf(originalUrl) || "direct";
   const description = normalizeSpace(matched.description || "").slice(0, 25000);
   const requirements = filterJunkBullets(guessRequirementsFromText(description));
   const skills = extractSkillsFromText(description, requirements);
   return {
-    url: pickSerpApiUrl(matched, originalUrl),
+    url: matchedUrl,
     sourceUrl: originalUrl,
     title: normalizeSpace(matched.title || context.title) || null,
     company: normalizeSpace(matched.company_name || context.company),
@@ -726,20 +750,27 @@ async function scrapeViaSerpApiGoogleJobs(originalUrl, options = {}) {
     skills,
     source: "serpapi-google-jobs",
     method: "serpapi-google-jobs",
+    matchKind,
+    confidence,
+    fetchedAt: new Date().toISOString(),
     scraping: {
       provider: "serpapi_google_jobs",
       query,
       originalUrl,
-      matchedUrl: pickSerpApiUrl(matched, originalUrl),
+      matchedUrl,
+      matchKind,
       lineage: {
-        primary: "linkedin-direct",
+        primary: sourceHost,
         used: "serpapi-google-jobs",
-        fallbackFrom: "linkedin-direct",
-        reason: "linkedin_serpapi_fallback",
+        fallbackFrom: sourceHost,
+        matchedHost: hostnameOf(matchedUrl),
+        reason: exact ? "serpapi_exact_match" : "serpapi_title_company_sibling",
       },
     },
     warnings: [
-      "Direct scrape was replaced with a Google Jobs structured fallback.",
+      exact
+        ? "Direct scrape was replaced with a Google Jobs structured fallback."
+        : "Google Jobs returned a similar posting (title/company match), not the exact requested URL.",
     ],
   };
 }
@@ -762,9 +793,11 @@ async function trySerpFallback(originalUrl, options = {}) {
       result,
       fallback: {
         attempted: true,
-        reason: result
-          ? "An exact Google Jobs match was used."
-          : "Google Jobs was checked, but no exact matching posting was found.",
+        reason: !result
+          ? "Google Jobs was checked, but no exact matching posting was found."
+          : result.matchKind === "exact"
+            ? "An exact Google Jobs match was used."
+            : "Google Jobs returned a similar posting (title/company match).",
       },
     };
   } catch (error) {
@@ -1465,20 +1498,23 @@ export async function scrapeJobPosting(url, options = {}) {
   }
 
   const atsHit = await fetchAtsJobPosting(target.url, { fetchImpl }).catch(() => null);
-  if (atsHit && String(atsHit.description || "").trim().length >= 80) {
-    return finalizeTextScrape(target.url, {
-      title: atsHit.title,
-      company: String(options.company || "").trim() || atsHit.company,
-      location: atsHit.location,
-      description: atsHit.description,
+  /** @param {{ title: string, company: string, location: string, description: string, provider: string, apiUrl: string }} hit */
+  const toAtsResult = (hit) =>
+    finalizeTextScrape(target.url, {
+      title: hit.title,
+      company: String(options.company || "").trim() || hit.company,
+      location: hit.location,
+      description: hit.description,
       method: "ats-api",
       scraping: {
-        provider: atsHit.provider,
-        apiUrl: atsHit.apiUrl,
+        provider: hit.provider,
+        apiUrl: hit.apiUrl,
         originalUrl: target.url,
       },
       warnings: [],
     });
+  if (atsHit && String(atsHit.description || "").trim().length >= 80) {
+    return toAtsResult(atsHit);
   }
 
   const controller = new AbortController();
@@ -1516,6 +1552,16 @@ export async function scrapeJobPosting(url, options = {}) {
     throw classifyScrapeFailure(error, target.url, recovery.fallback);
   } finally {
     clearTimeout(t);
+  }
+
+  // C18: the page is fetched first; generic same-origin feeds are probed
+  // only when the HTML looks like an SPA shell (no more 4x speculative
+  // GETs for every non-ATS career URL).
+  if (looksLikeSpaShellHtml(html)) {
+    const feedHit = await fetchGenericCareerFeed(target.url, fetchImpl).catch(() => null);
+    if (feedHit && String(feedHit.description || "").trim().length >= 80) {
+      return toAtsResult(feedHit);
+    }
   }
 
   const $ = cheerio.load(html);

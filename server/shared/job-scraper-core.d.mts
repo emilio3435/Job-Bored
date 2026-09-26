@@ -25,6 +25,12 @@ export type ScrapeJobPostingResult = {
   method: string;
   scraping: Record<string, unknown>;
   warnings: string[];
+  /** E3: "exact" (id/URL match) or "title_company" (sibling). SerpApi lane only. */
+  matchKind?: "exact" | "title_company";
+  /** E3: 0-1 text-match confidence for the SerpApi pick. */
+  confidence?: number;
+  /** E3: ISO timestamp of the SerpApi fetch. */
+  fetchedAt?: string;
 };
 
 export type ScrapeFallbackDiagnostics = {

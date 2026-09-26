@@ -1227,8 +1227,11 @@ export type RawListing = {
 export type SourceAdapter = {
   sourceId: AtsSourceId;
   sourceLabel: string;
-  detect(companyContext: CompanyContext): Promise<DetectionResult | null>;
-  listJobs(boardContext: BoardContext): Promise<RawListing[]>;
+  detect(
+    companyContext: CompanyContext,
+    signal?: AbortSignal,
+  ): Promise<DetectionResult | null>;
+  listJobs(boardContext: BoardContext, signal?: AbortSignal): Promise<RawListing[]>;
   // BEAUDIT A18 (TD-008): `normalize` was declared here but no caller ever
   // used it; leads are normalized by normalize/lead-normalizer.ts.
 };

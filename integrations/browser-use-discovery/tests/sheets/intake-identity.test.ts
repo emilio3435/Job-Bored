@@ -24,7 +24,8 @@ test("F1D-PIPE07-ID serializes canonical/provider/semantic identity for Sheet re
     identity.canonicalUrl,
     "https://boards.greenhouse.io/acme/jobs/12345",
   );
-  assert.match(identity.providerJobKey, /greenhouse:12345/);
+  // B10/C15: provider keys carry the board tenant slug.
+  assert.match(identity.providerJobKey, /greenhouse:acme:12345/);
   assert.match(identity.semanticKey, /acme/);
   assert.match(identity.semanticKey, /staff platform engineer/);
   assert.match(identity.semanticKey, /austin/);

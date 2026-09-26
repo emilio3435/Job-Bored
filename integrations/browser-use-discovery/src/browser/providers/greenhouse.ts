@@ -39,7 +39,8 @@ const GREENHOUSE_BOARD_HOSTS = new Set([
 export const greenhouseProvider: AtsProvider = {
   id: "greenhouse",
   label: "Greenhouse",
-  async detectSurfaces(company, hints, memory) {
+  async detectSurfaces(company, hints, memory, signal) {
+    signal?.throwIfAborted?.();
     const surfaces: ProviderSurface[] = [];
 
     for (const url of collectMemoryUrls("greenhouse", memory)) {
@@ -67,8 +68,9 @@ export const greenhouseProvider: AtsProvider = {
     }
 
     for (const token of uniqueProbeTokens(hints)) {
+      signal?.throwIfAborted?.();
       const endpoint = buildGreenhouseBoardInfoUrl(token);
-      const payload = await fetchJson(endpoint);
+      const payload = await fetchJson(endpoint, { signal });
       if (payload.ok) {
         const boardUrl = buildGreenhouseBoardUrl(token);
         surfaces.push(
@@ -89,7 +91,7 @@ export const greenhouseProvider: AtsProvider = {
       }
 
       const boardUrl = buildGreenhouseBoardUrl(token);
-      const html = await fetchText(boardUrl);
+      const html = await fetchText(boardUrl, { signal });
       if (
         html.ok &&
         (/greenhouse/i.test(html.text) || /\/jobs\/\d+/i.test(html.text))
@@ -116,11 +118,12 @@ export const greenhouseProvider: AtsProvider = {
 
     return dedupeSurfaces(surfaces, greenhouseProvider.scoreSurface);
   },
-  async enumerateListings(surface, sessionManager) {
+  async enumerateListings(surface, sessionManager, signal) {
+    signal?.throwIfAborted?.();
     const boardToken = surface.boardToken || extractGreenhouseBoardToken(surface.canonicalUrl);
     if (!boardToken) return [];
     const endpoint = buildGreenhouseJobsUrl(boardToken);
-    const payload = await fetchJson(endpoint);
+    const payload = await fetchJson(endpoint, { signal });
     if (payload.ok) {
       const listings = extractGreenhouseListings(payload.data, surface);
       if (listings.length) return maybeFilterToDirectSurface(surface, listings);
@@ -130,6 +133,7 @@ export const greenhouseProvider: AtsProvider = {
       url: endpoint,
       instruction: GREENHOUSE_BROWSER_INSTRUCTION,
       timeoutMs: 20_000,
+      abortSignal: signal,
     });
     const structured = extractGreenhouseListings(sessionResult.text, surface);
     if (structured.length) return maybeFilterToDirectSurface(surface, structured);

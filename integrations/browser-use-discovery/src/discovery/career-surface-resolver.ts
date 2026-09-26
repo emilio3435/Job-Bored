@@ -6,6 +6,7 @@ import type {
   CompanyTarget,
   DiscoverySourceLane,
 } from "../contracts.ts";
+import { AGGREGATOR_HOST_SIGNATURES } from "../sources/host-signatures.ts";
 
 type HostnameRule = string | RegExp;
 
@@ -54,50 +55,9 @@ const BLOCKED_HOSTS: HostnameRule[] = [
   "licdn.com",
 ];
 
-const THIRD_PARTY_JOB_BOARD_HOSTS: HostnameRule[] = [
-  "linkedin.com",
-  "glassdoor.com",
-  "indeed.com",
-  "monster.com",
-  "ziprecruiter.com",
-  "careerbuilder.com",
-  "simplyhired.com",
-  "simplyhired.co.uk",
-  "builtin.com",
-  "wellfound.com",
-  "otta.com",
-  "workingnomads.com",
-  "remoteok.com",
-  "remote.co",
-  "weworkremotely.com",
-  "remotive.io",
-  "dynamitejobs.com",
-  "jobspresso.co",
-  "jobgether.com",
-  "himalayas.app",
-  "flexjobs.com",
-  "powertofly.com",
-  "jooble.org",
-  "talent.com",
-  "dice.com",
-  "snagajob.com",
-  "jobtoday.com",
-  "jobisjob.com",
-  "careerjet.com",
-  "jobrapido.com",
-  "adzuna.com",
-  "angel.co",
-  // Layer 3 additions — aggregators Gemini cited that reliably 404 or mask
-  // first-party URLs behind interstitials. Treating as hint_only forces
-  // canonical resolution before extraction.
-  "jobtarget.com",
-  "hireology.com",
-  "jobot.com",
-  "jobleads.com",
-  "lensa.com",
-  "workfromhome.ng",
-  "instituteofdata.jobs",
-];
+// C7: the write policy derives third-party detection from the shared
+// aggregator table in sources/host-signatures.ts (same table the ingest
+// router and SerpApi ranking use). No local board list lives here anymore.
 
 const FIRST_PARTY_PATH_PATTERN =
   /\/(?:careers?|jobs?|join-us|work-with-us|join-our-team|work-with|open-roles?)(?:[/?#]|$)/i;
@@ -416,7 +376,13 @@ export function isThirdPartyJobBoardHost(url: string): boolean {
   try {
     const parsed = new URL(url);
     const hostname = parsed.hostname.toLowerCase();
-    return THIRD_PARTY_JOB_BOARD_HOSTS.some((rule) => matchesHostnameRule(hostname, rule));
+    return AGGREGATOR_HOST_SIGNATURES.some(
+      (signature) =>
+        // Google Jobs share links are hint_only via isGoogleJobsLikeSurface
+        // above; first-party Google hosts (careers.google.com) stay
+        // extractable, so the search-engine entry does not apply here.
+        signature.provider !== "google" && signature.match.test(hostname),
+    );
   } catch {
     return false;
   }
