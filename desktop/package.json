@@ -16,13 +16,15 @@
     "smoke": "JOBBORED_DESKTOP_SMOKE=1 electron .",
     "test": "node --test test/*.test.mjs",
     "stage": "node scripts/stage.mjs",
-    "dist:unsigned": "node scripts/stage.mjs && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --universal --publish never"
+    "dist:unsigned": "node scripts/stage.mjs && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --universal --publish never",
+    "typecheck": "tsc -p tsconfig.json"
   },
   "dependencies": {
     "electron-updater": "6.8.9"
   },
   "devDependencies": {
     "electron": "44.4.5",
-    "electron-builder": "26.15.3"
+    "electron-builder": "26.15.3",
+    "typescript": "7.0.2"
   }
 }

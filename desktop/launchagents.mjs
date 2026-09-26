@@ -110,7 +110,7 @@ export async function migrateLaunchAgents({ consent, home, uid, launchctl = syst
         movedTo = freeBackupPath(disabledDir, agent.label);
         renameSync(agent.plistPath, movedTo);
       } catch (err) {
-        failed.push({ label: agent.label, reason: `move failed: ${/** @type {Error} */ (err).code ?? "error"}` });
+        failed.push({ label: agent.label, reason: `move failed: ${/** @type {NodeJS.ErrnoException} */ (err).code ?? "error"}` });
         continue;
       }
     }
