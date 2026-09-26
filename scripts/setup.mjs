@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
-import { cp, mkdir, readdir, readFile, writeFile } from "node:fs/promises";
+import { cp, mkdir, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -264,6 +264,60 @@ function shouldCopyHermesEntry(source) {
   );
 }
 
+// Hermes code and contract files are code, not user state: every setup
+// refreshes them in the runtime copy (cron runs the runtime copy, so a repo fix
+// must reach it without --force). User files — profile/*.md, the local
+// approval-contract override, state, evidence, applications — keep force:false.
+const HERMES_CODE_PATHS = [
+  "scripts",
+  "tests",
+  "approval-contract.v1.json",
+  "approval-contract.local.example.json",
+  "followup-thresholds.v1.json",
+  "followup-thresholds.schema.json",
+  "approval-guard-spec.md",
+  "kanban-task-conventions.md",
+  "requirements.txt",
+  "requirements-dev.txt",
+  ".env.example",
+  ".gitignore",
+  "README.md",
+  "patches",
+];
+
+// Scripts removed from the repo that must not linger in a runtime copy
+// (BEAUDIT H6/H19: live-submit and bulk-write paths with no gates).
+const HERMES_RETIRED_PATHS = [
+  "scripts/greenhouse_filler.py",
+  "scripts/triage_pipeline.py",
+  "scripts/ats_adapters",
+  "scripts/install-rotated-worker-keys.sh",
+];
+
+async function refreshHermesCode(runtimeHome) {
+  let refreshed = 0;
+  for (const rel of HERMES_CODE_PATHS) {
+    const source = join(HERMES_SOURCE_DIR, rel);
+    if (!existsSync(source)) continue;
+    await cp(source, join(runtimeHome, rel), {
+      recursive: true,
+      force: true,
+      errorOnExist: false,
+      filter: shouldCopyHermesEntry,
+    });
+    refreshed += 1;
+  }
+  let removed = 0;
+  for (const rel of HERMES_RETIRED_PATHS) {
+    const target = join(runtimeHome, rel);
+    if (existsSync(target)) {
+      await rm(target, { recursive: true, force: true });
+      removed += 1;
+    }
+  }
+  return { refreshed, removed };
+}
+
 async function setupHermes({
   repoRoot = REPO_ROOT,
   env = process.env,
@@ -286,11 +340,14 @@ async function setupHermes({
     errorOnExist: false,
     filter: shouldCopyHermesEntry,
   });
+  const code = await refreshHermesCode(paths.hermesJobHuntHome);
   steps.push(
     step(
       "ok",
       "hermes home",
-      `Hermes job-hunt runtime is ${displayPath(paths.hermesJobHuntHome)}.`,
+      `Hermes job-hunt runtime is ${displayPath(paths.hermesJobHuntHome)}; refreshed scripts and contract from the repo${
+        code.removed ? ` and removed ${code.removed} retired script path(s)` : ""
+      }.`,
     ),
   );
   for (const dir of [

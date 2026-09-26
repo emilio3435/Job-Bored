@@ -21,6 +21,7 @@ import type {
   TriggerKind,
 } from "../contracts.ts";
 import type { RunDiscoveryResult } from "../run/run-discovery.ts";
+import { resolveDiscoveryRunLogError } from "../sheets/discovery-runs-writer.ts";
 import {
   RUN_PROGRESS_PHASES,
   type DiscoveryRunProgress,
@@ -119,6 +120,12 @@ export function buildCompletedRunStatus(
   const requestSheetId = String(
     result.run.config.sheetId || result.run.request.sheetId || "",
   ).trim();
+  const error = resolveDiscoveryRunLogError({
+    status: result.lifecycle.state,
+    writeError: result.writeResult.writeError,
+    reasonMessage: result.lifecycle.reasonMessage,
+    warnings: result.warnings,
+  });
   return {
     runId: result.run.runId,
     status: result.lifecycle.state,
@@ -140,6 +147,7 @@ export function buildCompletedRunStatus(
     },
     writeResult: result.writeResult,
     warnings: [...result.warnings],
+    ...(error ? { error } : {}),
     sources: result.sourceSummary.map(cloneSourceSummary),
     // Expose resolved control-plane snapshot for VAL-API-001..005 validation.
     // These fields are only present at terminal state after config resolution.

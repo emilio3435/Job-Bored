@@ -2,6 +2,7 @@
   "version": "1",
   "id": "jobbored.approval.v1",
   "title": "JHOS two-gate human approval contract",
+  "localOverride": "approval-contract.local.json",
   "gate1": {
     "id": "gate1",
     "purpose": "permit-submit",
@@ -17,11 +18,21 @@
     "id": "gate2",
     "purpose": "final-human-submit-confirmation",
     "channel": "telegram",
-    "chatId": -1003800236296,
-    "threadId": 48,
-    "target": "telegram:-1003800236296:48",
+    "chatId": null,
+    "threadId": null,
+    "approverUserIds": [],
+    "requireReplyToRequest": true,
+    "cancelOnOtherReply": true,
     "confirmationPrefix": "YES SUBMIT",
     "timeoutSeconds": 600,
     "pollIntervalSeconds": 10
+  },
+  "interest": {
+    "id": "interest",
+    "purpose": "research-interest-prompt",
+    "channel": "telegram",
+    "chatId": null,
+    "threadId": null,
+    "setsStatus": "Researching"
   }
 }

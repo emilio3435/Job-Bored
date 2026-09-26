@@ -9,6 +9,7 @@ import { createReadStream } from "node:fs";
 import { timingSafeEqual } from "node:crypto";
 import { normalizeAtsRequestPayload } from "./ats-request-payload.mjs";
 import { analyzeAtsScorecard, getAtsConfigStatus } from "./ats-scorecard.mjs";
+import { routeDeadlineSignal } from "./ai/provider.mjs";
 import {
   scrapeJobPosting,
   toScrapeFailureResponse,
@@ -277,6 +278,8 @@ app.post("/api/scrape-job", async (req, res) => {
     const result = await scrapeJobPosting(target.url, {
       title: typeof body.title === "string" ? body.title : "",
       company: typeof body.company === "string" ? body.company : "",
+      // E11: a closed tab aborts the Gemini URL Context call.
+      signal: routeDeadlineSignal(req, res),
     });
     res.json(result);
   } catch (e) {
@@ -296,7 +299,8 @@ app.post("/api/ats-scorecard", async (req, res) => {
       });
     }
     const payload = normalizeAtsRequestPayload(req.body);
-    const scorecard = await analyzeAtsScorecard(payload);
+    // E11: a closed tab aborts the provider call instead of running to its timeout.
+    const scorecard = await analyzeAtsScorecard(payload, { signal: routeDeadlineSignal(req, res) });
     res.json(scorecard);
     console.log(
       `[ats-scorecard] requestId=${requestId} ok model=${scorecard.model} overallScore=${scorecard.overallScore}`,
@@ -453,6 +457,9 @@ app.post("/profile/template/:id", (req, res) => {
   return res.json({ ok: true, template });
 });
 
+/** E11: route deadline for drafting a profile (local models can be slow). */
+const PROFILE_ROUTE_DEADLINE_MS = 180_000;
+
 /**
  * POST /profile/from-resume
  *
@@ -489,9 +496,12 @@ app.post("/profile/from-resume", async (req, res) => {
   // connected OpenRouter was answered "Missing Gemini API key" — NEW-2.
   const requestedConfig = parseProfileProviderConfigFromBody(req.body);
   try {
+    // E11: a closed tab aborts the provider call. Drafting a profile from a
+    // long resume on a local model can take minutes, hence the long deadline.
+    const signal = routeDeadlineSignal(req, res, PROFILE_ROUTE_DEADLINE_MS);
     const profile = await analyzeResumeToProfile(
       stored.text,
-      requestedConfig ? { config: requestedConfig } : {},
+      requestedConfig ? { config: requestedConfig, signal } : { signal },
     );
     return res.json({ ok: true, profile, source: stored.source });
   } catch (err) {
@@ -637,8 +647,11 @@ app.post("/profile/rescore", async (req, res) => {
     res.write(`data: ${JSON.stringify(payload)}\n\n`);
   };
 
-  const ac = new AbortController();
-  req.on("close", () => ac.abort());
+  // E11: the stream ends when the client leaves (response close), with no
+  // route deadline; each provider call keeps its own timeout. req "close"
+  // fires once the request body is consumed (Node 16+), so it cannot mean
+  // "client left".
+  const signal = routeDeadlineSignal(req, res, Infinity);
 
   try {
     const summary = await rescoreAllPipelineRows({
@@ -646,7 +659,7 @@ app.post("/profile/rescore", async (req, res) => {
       sheetId,
       providerConfig,
       onProgress: sendEvent,
-      signal: ac.signal,
+      signal,
       maxRows,
     });
     sendEvent({ kind: "done", ...summary });
@@ -832,6 +845,7 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
     const scraped = await scrapeJobPosting(target.url, {
       title: typeof body.title === "string" ? body.title : "",
       company: typeof body.company === "string" ? body.company : "",
+      signal: routeDeadlineSignal(req, res),
     });
     const scrapeOutput = /** @type {typeof scraped & { bodyText?: unknown }} */ (scraped);
     const text = (scraped && (scraped.description || scrapeOutput.bodyText || ""))

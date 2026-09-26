@@ -787,3 +787,72 @@ test("dedup holds across retry merges", async () => {
   assert.equal(companies.filter((company) => company.name === "Ramp").length, 1);
   assert.equal(new Set(companies.map((company) => company.companyKey)).size, companies.length);
 });
+
+test("aborting during company ranking propagates cancellation instead of falling back", async () => {
+  const logs = logSink();
+  const controller = new AbortController();
+  const fetchImpl: typeof globalThis.fetch = async (input, init) => {
+    const url = String(input || "");
+    if (url.includes("serpapi.com")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          jobs_results: [
+            {
+              title: "Senior Growth Marketing Manager",
+              company_name: "Klaviyo",
+              location: "Remote",
+              apply_options: [{ link: "https://www.klaviyo.com/careers/job-1" }],
+            },
+            {
+              title: "Product Marketing Manager",
+              company_name: "HubSpot",
+              location: "United States",
+              apply_options: [{ link: "https://www.hubspot.com/careers/job-2" }],
+            },
+          ],
+        }),
+        text: async () => "",
+      } as Response;
+    }
+    // The ranking call: the run is cancelled while it is in flight.
+    return new Promise<Response>((_, reject) => {
+      const signal = init?.signal;
+      signal?.addEventListener("abort", () => {
+        const error = new Error("aborted");
+        error.name = "AbortError";
+        reject(error);
+      });
+      controller.abort();
+    });
+  };
+
+  await assert.rejects(
+    discoverCompaniesForProfile(PROFILE, {
+      runtimeConfig: {
+        ...makeRuntimeConfig(),
+        geminiApiKey: "",
+        serpApiKey: "test-serpapi-key",
+        llmProvider: "openrouter",
+        openRouterApiKey: "or-test-key",
+        openRouterModel: "openai/gpt-4.1-mini",
+      } as WorkerRuntimeConfig,
+      fetchImpl,
+      signal: controller.signal,
+      log: logs.log,
+    }),
+    (error: unknown) => {
+      assert.equal((error as { name?: unknown }).name, "AbortError");
+      return true;
+    },
+  );
+  assert.equal(
+    logs.events.some(([event]) => event === "discovery.profile.company_scoring_failed"),
+    false,
+  );
+  assert.equal(
+    logs.events.some(([event]) => event === "discovery.profile.companies_completed"),
+    false,
+  );
+});

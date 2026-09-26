@@ -16,7 +16,7 @@ import vm from "node:vm";
        whenever a live fetch fails or no key is available.
      - Live model-list fetch per provider using the documented
        browser-compatible endpoints:
-         * gemini    GET https://generativelanguage.googleapis.com/v1beta/models?key=KEY
+         * gemini    GET https://generativelanguage.googleapis.com/v1beta/models  Header: x-goog-api-key
          * openai    GET https://api.openai.com/v1/models  (Authorization: Bearer KEY)
          * anthropic GET https://api.anthropic.com/v1/models
                        (x-api-key, anthropic-version: 2023-06-01,
@@ -198,9 +198,11 @@ describe("JobBoredModelCatalog — fetchProviderModels routes per provider", () 
           },
         ],
       },
-      expectedUrlIncludes:
-        "generativelanguage.googleapis.com/v1beta/models?key=AIza-test-key",
+      // BEAUDIT B17: the key travels in x-goog-api-key, never the URL.
+      expectedUrlIncludes: "generativelanguage.googleapis.com/v1beta/models",
+      expectedUrlExcludes: "key=",
       expectAuthHeader: false,
+      expectedHeaders: { "x-goog-api-key": "AIza-test-key" },
       expectedValuesInclude: ["gemini-3.5-flash", "gemini-3.1-pro-preview"],
       excludedValues: ["text-embedding-004"],
     },
@@ -284,6 +286,12 @@ describe("JobBoredModelCatalog — fetchProviderModels routes per provider", () 
         call.url.includes(p.expectedUrlIncludes),
         `${p.name} url should include "${p.expectedUrlIncludes}" — got "${call.url}"`,
       );
+      if (p.expectedUrlExcludes) {
+        assert.ok(
+          !call.url.includes(p.expectedUrlExcludes),
+          `${p.name} url must not include "${p.expectedUrlExcludes}" — got "${call.url}"`,
+        );
+      }
       const headers =
         call.init && call.init.headers ? call.init.headers : {};
       const method =

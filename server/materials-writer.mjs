@@ -366,7 +366,9 @@ async function generateGemini(input, extraUserText) {
   if (!resolvedModel) {
     throw new Error("pin.resolvedModel is required");
   }
-  const url = `${GEMINI_GENERATE_URL}/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+  // B17: the key travels in x-goog-api-key, never in the URL, where proxies
+  // and access logs would record it.
+  const url = `${GEMINI_GENERATE_URL}/${encodeURIComponent(resolvedModel)}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: WRITER_SYSTEM_PROMPT }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(input, extraUserText) }] }],
@@ -377,7 +379,7 @@ async function generateGemini(input, extraUserText) {
   };
   const resp = await input.fetchImpl(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: new Headers({ "Content-Type": "application/json", "x-goog-api-key": apiKey }),
     body: JSON.stringify(body),
     signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
   });

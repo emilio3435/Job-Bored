@@ -211,7 +211,7 @@ describe("analyzeAtsScorecard provider routing", () => {
       const scorecard = await analyzeAtsScorecard(buildPayload());
       const body = JSON.parse(call.init.body);
       assert.equal(call.url, "https://openrouter.ai/api/v1/chat/completions");
-      assert.equal(call.init.headers.Authorization, "Bearer or-test-key");
+      assert.equal(new Headers(call.init.headers).get("authorization"), "Bearer or-test-key");
       assert.equal(body.model, "openai/gpt-oss-120b:free");
       assert.equal(body.response_format, undefined);
       assert.equal(scorecard.overallScore, 78);
@@ -243,7 +243,7 @@ describe("analyzeAtsScorecard provider routing", () => {
       const scorecard = await analyzeAtsScorecard(buildPayload());
       const body = JSON.parse(call.init.body);
       assert.equal(call.url, "http://127.0.0.1:11434/v1/chat/completions");
-      assert.equal(call.init.headers.Authorization, undefined);
+      assert.equal(new Headers(call.init.headers).get("authorization"), null);
       assert.equal(body.model, "local/ats-json");
       assert.equal(scorecard.model, "local/ats-json");
     } finally {
@@ -269,7 +269,7 @@ describe("analyzeAtsScorecard provider routing", () => {
       const scorecard = await analyzeAtsScorecard(buildPayload());
       const body = JSON.parse(call.init.body);
       assert.equal(call.url, "https://api.openai.com/v1/chat/completions");
-      assert.equal(call.init.headers.Authorization, "Bearer openai-test-key");
+      assert.equal(new Headers(call.init.headers).get("authorization"), "Bearer openai-test-key");
       assert.equal(body.model, "gpt-4o-mini");
       assert.equal(body.response_format.type, "json_schema");
       assert.equal(body.response_format.json_schema.name, "ats_scorecard");

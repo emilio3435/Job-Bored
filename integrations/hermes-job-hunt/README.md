@@ -66,7 +66,27 @@ findable logo. Full backend/UI plan: `HANDOFF-brand-logos.md` (repo root).
 
 **Materials-first:** Discovery → Researching → Hermes drafts dossier + resume + cover letter → JobBored dashboard review/download → manual apply.
 
-Automated form submit (Phase 7 universal filler) is shelved. Treat it as an assisted-apply tool only when Emilio explicitly requests `ASSIST APPLY <company>`. See `HANDOFF-2026-05-27-materials-first-jobbored-ux.md`.
+Automated form submit (Phase 7 universal filler) is shelved. Treat it as an assisted-apply tool only when the user explicitly requests `ASSIST APPLY <company>`. See `HANDOFF-2026-05-27-materials-first-jobbored-ux.md`. The only live path is `scripts/apply-orchestrator.py` (Gate 1 + submit lock + Telegram Gate 2); the `universal_filler.py` CLI is dry-run only.
+
+### Local, per-user files (gitignored)
+
+No personal identity or routing IDs ship in this folder. Create these locally:
+
+| File | Template | Used by |
+| --- | --- | --- |
+| `approval-contract.local.json` | `approval-contract.local.example.json` | Gate 2 chat/thread + approver user ids; interest-prompt thread |
+| `profile/filler-profile.json` (or the Contact section of `profile/profile.md`) | `profile/filler-profile.example.json` | the assisted-apply filler's answers |
+
+The Pipeline Sheet ID always comes from the discovery `worker-config.json`. Timestamps use `JHOS_TIMEZONE`, else the worker-config `timezone`, else America/Chicago.
+
+### Tests
+
+```bash
+python -m pip install -r requirements-dev.txt
+python -m pytest integrations/hermes-job-hunt/tests -q
+```
+
+The suite tests this folder's `scripts/` (not the runtime copy), stubs Google, Telegram, httpx and Playwright, and blocks non-loopback sockets. CI runs it in `.github/workflows/hermes-pytest.yml`.
 
 ## Related commits
 
