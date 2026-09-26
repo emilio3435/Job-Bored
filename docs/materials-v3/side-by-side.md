@@ -1,9 +1,29 @@
-# Side by side — why the #117 mocks read archival, and what changed
+# Side by side — why the #117 mocks read archival, and what changed (twice)
 
 Paired with the [visual system spec](../superpowers/specs/2026-09-17-materials-v3-volt-design.md) and the [operating mechanism spec](../superpowers/specs/2026-09-17-materials-v3-mechanism-design.md).
 
 - **Before:** `docs/materials-v2/mocks/3e-ai-marketing-analytics-manager/` on PR #117 (branch `cursor/materials-v2-design-8878`) — the "Readout" system.
-- **After:** [`mocks/3e-ai-marketing-analytics-manager/`](mocks/3e-ai-marketing-analytics-manager/) — Volt.
+- **After, 2026-09-17:** [`mocks/3e-ai-marketing-analytics-manager/volt-v1/`](mocks/3e-ai-marketing-analytics-manager/volt-v1/) — Volt 1.0, one look. Sections 1–5 below compare #117 with it, and "Volt" in them means Volt 1.0.
+- **After, 2026-09-25:** [`signal/`](mocks/3e-ai-marketing-analytics-manager/signal/) (default), [`dossier/`](mocks/3e-ai-marketing-analytics-manager/dossier/) and [`editorial/`](mocks/3e-ai-marketing-analytics-manager/editorial/) — a template registry. Section 0 explains the change.
+
+## 0. From one look to a registry (2026-09-25)
+
+Emilio's verdict on Volt 1.0 was short: "resume still needs work. more density and unique design. include official logos from companies you've worked for. Cover letter also needs a little more flair stylistically." A three-way bake-off followed on the same 3E facts. Each take was built to one bet and judged blind.
+
+| | Volt 1.0 | `signal` (take C) | `dossier` (take A) | `editorial` (take B) |
+| --- | --- | --- | --- | --- |
+| The bet | whitespace as the material | the page as a measurement instrument | every proof point at once | people remember a story |
+| Resume visible words | 376 | 483 | 497 | 492 |
+| Claims used | 10 of 13 | 13 | 13 | 13 |
+| Official logos | none | beside each employer name, plus CC | in the rail beside each employer, plus CC | on the timeline spine, plus CC |
+| Proof device | mono figures in prose | a readout strip of six figures under employer brackets | a hung gutter of figures | the statement as a pull quote beside the name |
+| Letter flair | index strip and rail | matching band, Volt-ruled lede, Caveat signature, footer readouts | shared rail and gutter, 16pt lede, tilted Caveat signature | 33pt Bodoni headline, standfirst, raised initial, margin pull quote |
+| Type | Geist, JetBrains Mono | Archivo, Martian Mono, Caveat | Source Sans 3, JetBrains Mono, Caveat | Bodoni Moda, Source Sans 3 |
+| Blind judge, weighted | — | **70** | 61 | 58 |
+
+Emilio picked signal, then asked for templates to be a choice: "I like Take C best but I want to eventually have many templates to choose from. Can you make it an optional config setting?" So all three ship as registry families, with signal as the default. Volt 1.0's rules that still hold (one accent, white paper, facts only, no chips or skill bars, one page, ATS-first) became the shared design language. Its single-look rules (no serif, no logos, no pull quotes) became per-family choices. The registry rules that came out of the bake-off are in the [visual spec §9.2](../superpowers/specs/2026-09-17-materials-v3-volt-design.md#92-registry-rules): logos come from the resolver and render unaltered; fit is measured on the layout, not by page count; fonts are vendored; the name comes first in DOM and paint order; and initials never split a word.
+
+---
 
 The v2 mocks were not badly made. They were made for the wrong year. Every surface decision pointed at *document* and *archive*, which is exactly the note that came back: archaic, document-y, not sleek, not *llamativo*.
 
@@ -99,9 +119,13 @@ The first is a well-written positioning statement in italic serif. The second an
 ## 5. How to check this yourself
 
 ```bash
-# Volt (this branch)
-open docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/resume.html
-open docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/cover-letter.html
+# Registry families (this branch): signal is the default
+open docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/signal/resume.html
+open docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/dossier/resume.html
+open docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/editorial/resume.html
+
+# Volt 1.0 (history)
+open docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/volt-v1/resume.html
 
 # Readout (#117)
 git fetch origin cursor/materials-v2-design-8878

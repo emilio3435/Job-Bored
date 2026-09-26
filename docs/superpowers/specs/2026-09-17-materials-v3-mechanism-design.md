@@ -57,7 +57,7 @@ Fifteen stages, each with a status, a duration, and named outputs, appended to `
 
 | # | Stage | LLM | Reads | Writes |
 | --- | --- | --- | --- | --- |
-| 1 | `intake` | — | request | `request.json`, cache key |
+| 1 | `intake` | — | request | `request.json`, resolved template family, cache key |
 | 2 | `jd.resolve` | — | payload JD, cached JD, scrape | `job-description.md` |
 | 3 | `jd.gate` | — | JD text | gate verdict in `run.json` |
 | 4 | `jd.extract` | yes | JD text | `jd-extract.json` |
@@ -68,8 +68,8 @@ Fifteen stages, each with a status, a duration, and named outputs, appended to `
 | 9 | `draft` | yes | outline + selected claim text + voice | `draft.json` |
 | 10 | `delint` | conditional | draft + voice pack | `draft.json` (revised) |
 | 11 | `tag-metrics` | — | draft + ledger metrics | metric runs |
-| 12 | `fit` | — | draft + template metrics | `render-model.json` |
-| 13 | `render` | — | render model + template | `.html`, `.pdf`, `.txt` ×2 |
+| 12 | `fit` | — | draft + the family's metrics | `render-model.json` |
+| 13 | `render` | — | render model + the family's templates | `.html`, `.pdf`, `.txt` ×2 |
 | 14 | `qa` | — | artifacts + extract + selection | `qa.json`, `qa-report.md` |
 | 15 | `publish` | — | staged artifacts | slug dir, `manifest.json`, `provenance.json` |
 
@@ -83,7 +83,7 @@ Seven versioned JSON contracts. Each has a schema in `schemas/` and a golden fix
 
 | Contract | Schema | Fixture | Owns |
 | --- | --- | --- | --- |
-| `materials.request.v1` | `schemas/materials-request.v1.schema.json` | — | slug, company, title, feature, jobUrl, notes, jdText |
+| `materials.request.v1` | `schemas/materials-request.v1.schema.json` | — | slug, company, title, feature, jobUrl, notes, jdText, optional `template` (a registry family id) |
 | `materials.jd-extract.v1` | `schemas/materials-jd-extract.v1.schema.json` | [`jd-extract.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/jd-extract.json) | role, split, outcomes, weighted nouns, stack, differentiators, bars, constraints, echo bans |
 | `materials.claim-ledger.v1` | `schemas/materials-claim-ledger.v1.schema.json` | [`claim-ledger.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/claim-ledger.json) | employers, claims, metric tokens, tool inventory with ownership levels |
 | `materials.selection.v1` | `schemas/materials-selection.v1.schema.json` | [`selection.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/selection.json) | budget, kept + scores + reasons, dropped + codes, transfers, letter beat assignment |
@@ -91,7 +91,9 @@ Seven versioned JSON contracts. Each has a schema in `schemas/` and a golden fix
 | `materials.render-model.v1` | `schemas/materials-render-model.v1.schema.json` | [`render-model.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/render-model.json) | the only input a template reads |
 | `materials.qa.v1` | `schemas/materials-qa.v1.schema.json` | [`qa.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/qa.json) | measurements, rubric rows, checks, cache info |
 
-Plus `materials.run.v1` ([`run.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/run.json)) for the stage ledger.
+Plus `materials.run.v1` ([`run.json`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/run.json)) for the stage ledger. It records the package's template (`family`, `version`, `templateIds`, `source`, and `regeneratedFrom` for a re-render), so a package can be regenerated in another family later.
+
+**Template family (amended 2026-09-25).** `intake` resolves the family in this order: the request's `template` field, then the user's saved `materialsTemplate` preference, then the registry default (`signal`). An unknown id in the request is rejected with the list of valid ids. The family is fixed for the run and written into the render model's `template` block. Everything up to and including `tag-metrics` is family-independent. `fit`, `render` and `qa` read the family's `family.json`. The registry and its rules are in the [visual spec §9](2026-09-17-materials-v3-volt-design.md#9-template-registry).
 
 Contract rules: additive-only within a major version; a stage may not read a field it does not declare; every contract carries the hashes of its inputs so a stale artifact is detectable.
 
@@ -167,8 +169,8 @@ Dropping is the expected outcome, not an exception. The 3E fixture drops Bucketz
 
 The layout solver, not the model, guarantees one page.
 
-1. Estimate: for each block, compute wrapped line count from character count, the measure in the template's units, and the font's average advance width, then multiply by leading and add block margins. Template metrics are a table in the template package, not magic numbers in the solver.
-2. Compare against usable height less a safety band — 711.4pt usable for the Volt sheet (11in less 0.62in and 0.5in padding), minus 14.4pt. The band exists because the estimate can be a line off in either direction: a borderline plan should be trimmed, not clipped by the sheet's `overflow: hidden`.
+1. Estimate: for each block, compute wrapped line count from character count, the measure in the template's units, and the font's average advance width, then multiply by leading and add block margins. Template metrics are a table in the family's `family.json`, not magic numbers in the solver.
+2. Compare against usable height less a safety band. For the Volt 1.0 sheet that was 711.4pt usable (11in less 0.62in and 0.5in padding), minus 14.4pt; each family declares its own usable height in `family.json`. The band exists because the estimate can be a line off in either direction: a borderline plan should be trimmed, not clipped by the sheet's `overflow: hidden`.
 3. Over budget → walk the **trim ladder** in order and re-estimate after each step:
    1. drop the earlier-block description lines (keep dates and org)
    2. drop the lowest-ranked featured bullet, if its employer keeps ≥ 2
@@ -177,7 +179,7 @@ The layout solver, not the model, guarantees one page.
    5. drop the lowest-ranked featured employer entirely
    6. escalate to `pageBudget: 2` — only if the request or profile authorized two pages with a reason
 4. Under budget by more than ~1.2in → one optional grow step (restore the next shortlisted bullet) so a one-page resume is not a half-empty page.
-5. Verification is the real page count from the rendered PDF, never the estimate. The estimate exists to avoid render loops; the PDF decides.
+5. Verification is a layout measurement of the rendered page, never the estimate: the sheet does not overflow (`scrollHeight` equals `clientHeight`) and the last text box ends inside the bottom padding. The PDF page count is recorded too, but the sheet is `overflow: hidden`, so a count of 1 alone cannot prove nothing was clipped. The estimate exists to avoid render loops; the measurement decides. After the shared ladder above, the family's own trim-ladder tail from `family.json` runs.
 
 The solver never changes type size, leading, or margins. `resume_page_count` over budget after the ladder is exhausted is a hard fail and REVIEW, not a demotion.
 
@@ -185,7 +187,7 @@ The solver never changes type size, leading, or margins. `resume_page_count` ove
 
 The render model drives all three surfaces so they cannot drift:
 
-- HTML via the Volt templates (no JS, no CDN, vendored fonts)
+- HTML via the resolved family's templates (no JS, no CDN, vendored fonts)
 - PDF via the existing Playwright path, `printBackground: true`, page count captured
 - `.txt` from the **render model**, not by scraping HTML, so chrome can never leak into the ATS twin and the letter rail cannot silently add or drop content
 
@@ -283,7 +285,9 @@ The app is bring-your-own-key and the dogfood pin is `gemini-flash`. The mechani
 
 ## 10. Caching and idempotency
 
-Cache key: `jdHash | ledgerHash | templateVersion | promptVersion | budgetVersion`.
+Cache key: `jdHash | ledgerHash | templateVersion | promptVersion | budgetVersion`, where `templateVersion` is `<family>@<version>`, so switching template families is a cache miss.
+
+A **regenerate in another template** skips the cache and the LLM stages entirely. It re-runs `fit` → `render` → `qa` on the stored `render-model.json` with the new family, publishes a new package whose `run.json` records `source: "regenerate"` and `regeneratedFrom`, and never overwrites the original.
 
 A repeat request with an unchanged key returns the published package without an LLM call. Changing the JD, the profile, the template, or the prompts invalidates it — which is exactly when a regenerate is warranted. The key is recorded in `qa.json`, so "why did this not change?" is answerable.
 

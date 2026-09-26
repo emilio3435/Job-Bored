@@ -1,10 +1,12 @@
-# Implementation plan — Materials v3 (Volt + staged mechanism)
+# Implementation plan — Materials v3 (Volt template registry + staged mechanism)
 
 > Specs: [visual system](../specs/2026-09-17-materials-v3-volt-design.md) · [operating mechanism](../specs/2026-09-17-materials-v3-mechanism-design.md)
 > Fixtures: [`docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/`](../../materials-v3/mocks/3e-ai-marketing-analytics-manager/)
 > Dogfood role: AI & Marketing Analytics Manager @ 3E
 
 **Goal:** replace the materials generation path end to end — the visual language, the fact store, the pipeline, and the QA contract — without breaking the dossier UI or the existing published packages.
+
+**Amended 2026-09-25:** the single Volt look becomes a template registry ([visual spec §9](../specs/2026-09-17-materials-v3-volt-design.md#9-template-registry)). There are three families, `signal` (the default), `dossier` and `editorial`, and a user can choose one as an optional setting. Slice 3 builds the registry, the new slice 3b builds the setting and regeneration, and slice 7 folds the browser's preview themes into the registry. The other slices are unchanged.
 
 **Non-goals:** Discovery wizard, CDLE, kanban CSS, Pipeline sheet contract, a second LLM pin, migrating old artifacts.
 
@@ -14,12 +16,13 @@
 
 ## Slice 0 — contract and fixtures (this PR)
 
-- Volt visual spec, mechanism spec, this plan, and the [side-by-side](../../materials-v3/side-by-side.md)
-- 3E mocks: `resume.html`, `cover-letter.html`, `volt.css`, both PDFs, both `.txt` twins
+- Visual spec (Volt design language plus the template registry), mechanism spec, this plan, and the [side-by-side](../../materials-v3/side-by-side.md)
+- Registry reference fixtures, one per family: `mocks/3e-ai-marketing-analytics-manager/{signal,dossier,editorial}/` with `resume.html`, `resume.pdf`, `cover-letter.html`, `cover-letter.pdf` and `DESIGN.md`, taken from the 2026-09-25 bake-off (takes C, A and B, polished r2), with logos in `mocks/assets/logos/`
+- The Volt 1.0 mocks kept as history under `volt-v1/`: both documents, both PDFs, both `.txt` twins and `volt.css`
 - Mechanism fixtures: `jd-extract.json`, `claim-ledger.json`, `selection.json`, `render-model.json`, `qa.json`, `qa-report.md`, `run.json`
 - Two demonstration stubs with tests: `server/materials-fit-budget.mjs` (budget table + deterministic estimator and trim ladder) and `server/materials-delint.mjs` + `server/materials-voice.json` (banned-span detector)
 
-No production path changes. Acceptance: reviewers open both mocks, print-preview one page each, and can read the budget table and the delint corpus as executable rather than aspirational.
+No production path changes. Acceptance: reviewers open each family's two mocks and print-preview one page each; `tests/materials-v3-mocks.test.mjs` passes the registry checks for all three families; and the budget table and the delint corpus read as executable rather than aspirational.
 
 ---
 
@@ -61,25 +64,51 @@ Acceptance: a 200-word letter passes; a 340-word letter fails as padded; a packa
 
 ---
 
-## Slice 3 — Volt templates, render model, renderer, ATS twin
+## Slice 3 — template registry, render model, renderer, ATS twin
 
 | File | Change |
 | --- | --- |
-| `templates/materials/volt/volt.css` | new: promoted from the mock, unchanged tokens |
-| `templates/materials/volt/resume.html` | new: slot-only template, no facts |
-| `templates/materials/volt/cover-letter.html` | new |
-| `templates/materials/volt/metrics.json` | new: per-block type metrics the fit solver reads |
-| `server/materials-render.mjs` | new: render model → HTML (replaces Cheerio slot surgery for the v3 path) |
-| `server/materials-ats-text.mjs` | new: render model → `.txt`, never scraped from HTML |
-| `server/materials-fit.mjs` | new: estimator + trim ladder over `materials-fit-budget.mjs` |
-| `server/materials-pdf.mjs` | capture and return page count; stop letting a skipped PDF demote a page-count fail |
-| `server/materials-drafter.mjs` | `DEFAULT_*_TEMPLATE` point at Volt; keep the old path behind a flag for one release |
-| `tests/materials-render.test.mjs`, `tests/materials-ats-text.test.mjs`, `tests/materials-fit.test.mjs` | new |
-| `tests/e2e-visual/materials-volt.spec.mjs` | new: print-to-PDF page count 1 for both documents; forbidden-token scan |
+| `templates/materials/signal/{resume.html, cover-letter.html, signal.css, family.json}` | new: the default family, promoted from the `signal/` reference fixture as slot-only templates with no facts |
+| `templates/materials/dossier/{resume.html, cover-letter.html, dossier.css, family.json}` | new: from the `dossier/` fixture |
+| `templates/materials/editorial/{resume.html, cover-letter.html, editorial.css, family.json}` | new: from the `editorial/` fixture |
+| `templates/materials/family.schema.json` | new: shape of `family.json` (id, label, version, documents, fonts, accents, densities, logo optical sizes per `shape`, fit metrics, soft-budget overrides, trim-ladder tail, optional render-model fields read, signature moves) |
+| `server/materials-templates.mjs` | new: the registry — `listFamilies()`, `resolveFamily(id)` (throws `unknown_template` with the valid ids), `validateFamily(json)`, `DEFAULT_FAMILY = "signal"`; loads `templates/materials/*/family.json` once and validates each against the schema and against the hard limits in `MATERIALS_BUDGETS` |
+| `vendor/fonts/` + `vendor/fonts/fonts.css` | vendor Archivo (width axis), Martian Mono and Bodoni Moda (opsz + italic) as self-hosted woff2, so no family touches Google Fonts at render time |
+| `server/materials-render.mjs` | new: render model + family → HTML (replaces Cheerio slot surgery for the v3 path); emits `article.page[data-page]`, `h2.company-name`, `data-claim`, `data-section`; header first in DOM and paint order |
+| `server/materials-ats-text.mjs` | new: render model → `.txt`, never scraped from HTML, identical for every family |
+| `server/materials-fit.mjs` | new: estimator + shared trim ladder over `materials-fit-budget.mjs`, reading each family's metrics and ladder tail from `family.json` (`VOLT_RESUME_METRICS` becomes the Volt 1.0 entry in history only) |
+| `server/materials-pdf.mjs` | measure fit on the laid-out page (sheet `scrollHeight` vs `clientHeight`, last text box inside the padding) and capture the PDF page count; stop letting a skipped PDF demote a page-count fail |
+| `server/materials-drafter.mjs` | `DEFAULT_*_TEMPLATE` resolve through the registry; keep the old path behind a flag for one release |
+| `server/brand-logos.mjs` | expose resolved marks with a `shape` class (`mark`, `wordmark`, `lockup`) so render-model `logo` fields carry it |
+| `tests/materials-templates.test.mjs` | new: every `family.json` validates; `resolveFamily` rejects unknown ids; default is `signal`; enums in both schemas equal the registry list; soft-budget overrides stay inside the hard limits |
+| `tests/materials-render.test.mjs`, `tests/materials-ats-text.test.mjs`, `tests/materials-fit.test.mjs` | new; the render test runs once per family |
+| `tests/e2e-visual/materials-templates.spec.mjs` | new, per family and document: layout-measured fit, PDF page count 1, PDF text starts with the name, no request leaves the machine during render, shared forbidden-token scan, and the `ink` accent renders |
 
-Acceptance: rendering the fixture `render-model.json` reproduces the mock HTML structurally; both PDFs are one page; `.txt` twins contain the statement and all six featured bullets; the forbidden-token scan is clean.
+Acceptance: rendering the fixture `render-model.json` in each family matches that family's reference fixture structurally; both documents fit one page in every family by layout measurement; the `.txt` twins are byte-identical across families; the no-Google-Fonts test in `tests/materials-v3-mocks.test.mjs` drops its TODO for signal and editorial because the templates no longer need the network.
 
 Note: `tests/materials-composer.test.mjs` asserts the old Cheerio behavior. Keep it green while the legacy flag exists; delete it with the flag in slice 8.
+
+---
+
+## Slice 3b — template setting, per-request family, regenerate in another template
+
+**Why here:** the registry exists after slice 3, and the pipeline in slice 4 must know which family a run renders in. The setting is small and user-facing, so it lands before the pipeline grows.
+
+| File | Change |
+| --- | --- |
+| `user-content-store.js` | `DEFAULT_PREFERENCES.materialsTemplate: "signal"` next to `visualThemeId`; normalize an unknown stored id back to the default on read, like `profileMergePreference` |
+| `partials/profile-materials-modal.html` | a "Template" select beside the existing template selects, with one option per registry family (label + one-line description), default `signal` |
+| `profile-materials.js`, `materials-feature.js` | fill the select from the registry list and save it with the other materials preferences |
+| `server/materials-templates.mjs` + the materials router | `GET` the family list (id, label, description, version, default) for the select; the browser falls back to the bundled list offline |
+| `server/materials-request.mjs` | payload gains an optional `template` (family id); validated with `resolveFamily()`; unknown → 400 `unknown_template` listing the valid ids; missing → preference, then default |
+| `server/materials-drafter.mjs` / `server/materials-run-ledger.mjs` | write the `template` block into `run.json` (`family`, `version`, `templateIds`, `source`) and `manifest.json`; the cache key's template segment is `<family>@<version>` |
+| `server/materials-regenerate.mjs` | new: re-render a published package in another family from its stored `render-model.json` — `fit` → `render` → `qa` only, zero LLM calls, new package with `source: "regenerate"` and `regeneratedFrom`, original untouched |
+| `role-materials.js` | a "Regenerate in…" menu on a published package listing the other families; reads the package's recorded family to mark the current one |
+| `tests/materials-request-no-hermes.test.mjs`, `tests/materials-request-endpoint.test.mjs` | extend: `template` passes through; an unknown id is a 400 with the list; omitted means the default |
+| `tests/materials-regenerate.test.mjs` | new: regenerating the 3E fixture in `editorial` makes no LLM call, records `regeneratedFrom`, and leaves the original package byte-identical |
+| `tests/materials-template-preference.test.mjs` | new: the default is `signal`; an unknown stored id normalizes to the default |
+
+Acceptance: choosing `dossier` in the modal and requesting materials produces a package whose `run.json` says `family: "dossier"`, `source: "preference"`; the same request with `template: "editorial"` says `source: "request"`; "Regenerate in → signal" publishes a second package with `source: "regenerate"` and no LLM call; an unknown `template` is a 400.
 
 ---
 
@@ -114,7 +143,7 @@ Acceptance: the stubbed pipeline produces one-page HTML for both documents, a le
 | `tests/materials-delint.test.mjs` | extend with the 3E "before" corpus (`I am excited`, `distinctive opportunity`, `transform how`) |
 | `tests/materials-critic.test.mjs` | update: omitting Hormiga/Bucketz must not fail; Power BI in a token line must fail |
 
-Acceptance: the v2-era 3E letter fails `banned_filler` and `ai_cadence`; the Volt mock letter passes both; a fabricated metric fails `invented_fact`.
+Acceptance: the v2-era 3E letter fails `banned_filler` and `ai_cadence`; the Volt 1.0 mock letter (`volt-v1/`) passes both; a fabricated metric fails `invented_fact`.
 
 ---
 
@@ -139,13 +168,14 @@ Acceptance: a request with no configured pin returns a publishable REVIEW packag
 
 | File | Change |
 | --- | --- |
-| `document-templates.js` | replace the six prompt-instruction templates with Volt-aligned defaults (`volt_resume_one_page`, `volt_letter_four_beats`) carrying the same budgets |
-| `visual-themes.js` | collapse the five preview themes onto the §9 knob table (`accent`, `density`, `caret`, `rail`) |
+| `document-templates.js` | replace the six prompt-instruction templates with v3-aligned defaults (`v3_resume_one_page`, `v3_letter_four_beats`) carrying the same budgets; these are prompt instructions, independent of the visual family |
+| `visual-themes.js` | fold into the template registry instead of keeping a second theme system: the BYOK preview renders the same families from `server/materials-templates.mjs` (or its bundled list), and the five preview themes (`classic`, `compact`, `serif_emphasis`, `muted`, `high_contrast`) are retired |
+| `user-content-store.js`, `resume-generation.js`, `profile-materials.js`, `materials-feature.js` | `visualThemeId` stops being written; for one release a stored `visualThemeId` is ignored in favour of `materialsTemplate`, then the key is removed; `#resumeGenerateVisualTheme` / `#prefVisualTheme` become the one template select |
 | `resume-generate.js` / `resume-generation.js` | statement requirement, letter band, banned list from the voice pack |
 | `prompts/resume-tailorer-system-prompt.md` | final pass so the BYOK prompt and the server prompts are the same contract |
 | `tests/resume-generate-system-prompt.test.mjs`, `tests/materials-feature.test.mjs` (if present) | update pins |
 
-Acceptance: the dashboard BYOK path and the Materials Queue produce documents with the same budgets, the same banned list, and the same visual system.
+Acceptance: the dashboard BYOK path and the Materials Queue produce documents with the same budgets, the same banned list, and the same template family, chosen by the one `materialsTemplate` preference. No code path reads `visualThemeId`.
 
 ---
 
@@ -168,6 +198,9 @@ These currently encode the behavior v3 removes. They are expected to fail until 
 - `tests/materials-critic.test.mjs` — expects `frozen_fact_broken` when an employer disappears (slice 5)
 - `tests/materials-composer.test.mjs` — asserts Cheerio slot surgery on the three-page master (slice 8)
 - `tests/materials-drafter.test.mjs` — asserts the single-writer-call loop and the skipped-PDF demotion (slices 3 and 4)
+- `tests/materials-v3-mocks.test.mjs` — the no-Google-Fonts check is a TODO for `signal` and `editorial` until their faces are vendored (slice 3); remove them from `GOOGLE_FONTS_GAP` then
+- `tests/fixtures/scribe/scribe-dom.mjs` — stubs the `#resumeGenerateVisualTheme` select; it follows the select's rename (slice 7). No test pins the five preview themes or `visualThemeId` today, so slice 7 adds `tests/materials-template-preference.test.mjs` rather than editing one
+- `tests/materials-request-endpoint.test.mjs` / `tests/materials-request-no-hermes.test.mjs` — the payload gains `template` (slice 3b)
 
 ---
 
@@ -178,6 +211,9 @@ These currently encode the behavior v3 removes. They are expected to fail until 
 | Ledger ingest produces weak claims | `verified: false` claims are never featured; REVIEW rather than silent mush |
 | Fit estimator disagrees with the renderer | The PDF page count is authoritative; the estimator only avoids render loops |
 | Flash returns invalid JSON | Structured-output request, one retry, then deterministic degrade for that stage |
-| A user's saved package looks different after upgrade | Old artifacts are never rewritten; new runs use Volt |
+| A user's saved package looks different after upgrade | Old artifacts are never rewritten; new runs use the chosen family (default `signal`) |
+| A family's display face is missing at render time | Fonts are vendored (slice 3); the e2e render test fails if a request leaves the machine |
+| Families drift apart on facts or QA | Every family renders the same render model, keeps the same QA markers, and is checked by the same per-family tests |
+| The registry grows faster than it is maintained | Adding a family requires a reference fixture that passes the registry tests and a contract-changelog entry; the default changes only on Emilio's call |
 | Hermes machines run an older watcher | Executor returns `unsupported`; JobBored runs the stage locally |
 | Scope creep into dossier/Discovery UI | Out of scope in every slice; `role-materials.js` changes are limited to reading `run.json` |
