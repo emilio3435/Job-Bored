@@ -1,7 +1,7 @@
 {
   "contract": "materials.render-model.v1",
-  "note": "The only input the Volt templates read. Templates carry no facts, and the writer never emits markup: `n` runs are produced by the deterministic metric tagger from ledger-verified tokens, so an invented number cannot be typeset as data.",
-  "template": { "family": "volt", "version": "1.0", "pageBudget": 1 },
+  "note": "The only input a registry template reads. Templates carry no facts, and the writer never emits markup: `n` runs are produced by the deterministic metric tagger from ledger-verified tokens, so an invented number cannot be typeset as data. This fixture is the 3E run's selection and draft; it was first rendered in Volt 1.0 (kept under volt-v1/), and its template block now names the default family so it validates against the registry schema.",
+  "template": { "family": "signal", "version": "1.0", "pageBudget": 1 },
   "provenance": {
     "jdHash": "sha256:9f1c0b7a4e2d5831",
     "ledgerHash": "sha256:4be71d90c5a2f6e8",
@@ -22,7 +22,7 @@
   },
   "documents": {
     "resume": {
-      "templateId": "volt.resume",
+      "templateId": "signal.resume",
       "statement": {
         "runs": [
           { "t": "Sixty percent of this role is " },
@@ -158,7 +158,7 @@
       "foot": { "left": "Tailored for 3E · AI & Marketing Analytics Manager", "right": "1 / 1" }
     },
     "coverLetter": {
-      "templateId": "volt.letter",
+      "templateId": "signal.letter",
       "index": ["Emilio Nunez-Garcia", "Cover letter", "3E", "2026.09.17"],
       "rail": [
         { "label": "To", "lines": ["Hiring team", "3E", "Bethesda, MD", "Eastern remote"] },

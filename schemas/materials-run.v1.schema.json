@@ -4,7 +4,7 @@
   "title": "materials.run.v1",
   "description": "Append-only stage ledger for one materials run. The dossier polls this for stage-level progress; pending.json is written beside it as a UI compatibility shim. Never contains credentials.",
   "type": "object",
-  "required": ["contract", "runId", "slug", "feature", "requestedAt", "executor", "stages"],
+  "required": ["contract", "runId", "slug", "feature", "requestedAt", "executor", "template", "stages"],
   "additionalProperties": false,
   "properties": {
     "contract": { "const": "materials.run.v1" },
@@ -14,6 +14,32 @@
     "requestedAt": { "type": "string", "format": "date-time" },
     "finishedAt": { "type": "string", "format": "date-time" },
     "executor": { "enum": ["local-inprocess", "hermes-cli", "webhook"] },
+    "template": {
+      "description": "The template family this package was rendered in, so the package can be regenerated in another family later. Copied from the render model's template block; source says where the choice came from.",
+      "type": "object",
+      "required": ["family", "version", "templateIds", "source"],
+      "additionalProperties": false,
+      "properties": {
+        "family": { "enum": ["signal", "dossier", "editorial"] },
+        "version": { "type": "string", "minLength": 1 },
+        "templateIds": {
+          "type": "object",
+          "minProperties": 1,
+          "additionalProperties": false,
+          "properties": {
+            "resume": { "type": "string", "pattern": "^(signal|dossier|editorial)\\.resume$" },
+            "coverLetter": { "type": "string", "pattern": "^(signal|dossier|editorial)\\.letter$" }
+          }
+        },
+        "source": {
+          "description": "default: no preference was set; preference: the saved materialsTemplate; request: the request named a family; regenerate: a re-render of an existing package in another family.",
+          "enum": ["default", "preference", "request", "regenerate"]
+        },
+        "regeneratedFrom": { "description": "runId of the package this one re-rendered. Required when source is regenerate.", "type": "string", "minLength": 1 }
+      },
+      "if": { "properties": { "source": { "const": "regenerate" } } },
+      "then": { "required": ["regeneratedFrom"] }
+    },
     "pin": {
       "type": "object",
       "additionalProperties": false,

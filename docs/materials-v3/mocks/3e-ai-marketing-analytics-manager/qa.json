@@ -54,7 +54,7 @@
     }
   ],
   "cache": {
-    "key": "sha256:9f1c0b7a4e2d5831|sha256:4be71d90c5a2f6e8|volt@1.0|materials.prompts.v3.0",
+    "key": "sha256:9f1c0b7a4e2d5831|sha256:4be71d90c5a2f6e8|signal@1.0|materials.prompts.v3.0",
     "hit": false
   }
 }

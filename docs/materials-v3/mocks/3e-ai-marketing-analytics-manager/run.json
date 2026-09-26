@@ -6,6 +6,7 @@
   "requestedAt": "2026-09-17T18:41:02Z",
   "finishedAt": "2026-09-17T18:41:47Z",
   "executor": "local-inprocess",
+  "template": { "family": "signal", "version": "1.0", "templateIds": { "resume": "signal.resume", "coverLetter": "signal.letter" }, "source": "default" },
   "pin": { "provider": "gemini", "requestedModel": "gemini-flash", "resolvedModel": "gemini-3.7-flash" },
   "note": "Append-only stage ledger. The dossier polls this for stage-level progress; pending.json is still written beside it as a compatibility shim for the current UI.",
   "budget": { "llmCalls": { "max": 4, "used": 3 }, "outputTokens": { "max": 6144, "used": 3310 } },
@@ -22,7 +23,7 @@
     { "stage": "delint", "status": "ok", "ms": 60, "llm": false, "out": ["draft.json"], "detail": "deterministic prepass found 0 banned spans; LLM rewrite not needed, call skipped" },
     { "stage": "tag-metrics", "status": "ok", "ms": 8, "llm": false, "detail": "11 metric runs matched to ledger tokens; 0 untraced numerals" },
     { "stage": "fit", "status": "ok", "ms": 26, "llm": false, "out": ["render-model.json"], "detail": "first estimate 698.1pt against 697.0pt of banded capacity (711.4pt usable less a 14.4pt safety band); trim ladder step drop_earlier_description removed the prmi line, re-estimate 684.6pt" },
-    { "stage": "render", "status": "ok", "ms": 21440, "llm": false, "out": ["resume.html", "resume.pdf", "resume.txt", "cover-letter.html", "cover-letter.pdf", "cover-letter.txt"], "detail": "Volt 1.0; PDF page counts 1 and 1" },
+    { "stage": "render", "status": "ok", "ms": 21440, "llm": false, "out": ["resume.html", "resume.pdf", "resume.txt", "cover-letter.html", "cover-letter.pdf", "cover-letter.txt"], "detail": "signal 1.0 (default family); fixture measurements are from the Volt 1.0 reference render kept in volt-v1/; PDF page counts 1 and 1" },
     { "stage": "qa", "status": "review", "ms": 74, "llm": false, "out": ["qa.json", "qa-report.md"], "detail": "13 checks; 12 pass, 1 review (constraint_conflict); rubric 11/12" },
     { "stage": "publish", "status": "ok", "ms": 31, "llm": false, "out": ["manifest.json", "provenance.json"], "detail": "atomic move from staging; pending.json removed" }
   ],

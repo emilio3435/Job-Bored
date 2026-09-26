@@ -1,6 +1,6 @@
 # QA report — 3E · AI & Marketing Analytics Manager
 
-Run `mr_2026091718_3e_7f21` · Volt 1.0 · gemini-flash → gemini-3.7-flash
+Run `mr_2026091718_3e_7f21` · signal 1.0 (measured on the Volt 1.0 reference render in `volt-v1/`) · gemini-flash → gemini-3.7-flash
 Machine-readable twin: [`qa.json`](qa.json) · stage ledger: [`run.json`](run.json)
 
 **Disposition: REVIEW** — one review-severity check. Nothing failed.
