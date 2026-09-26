@@ -37,7 +37,7 @@
     "discovery:worker:start-local": "npm run start:discovery-worker",
     "discovery:worker:autostart:install": "node scripts/install-discovery-worker-autostart.mjs",
     "discovery:worker:autostart:uninstall": "node scripts/uninstall-discovery-worker-autostart.mjs",
-    "discovery:worker:autostart:status": "node -e \"import('./scripts/install-discovery-worker-autostart.mjs').then(m => console.log(JSON.stringify(m.getDiscoveryWorkerAutostartStatus(), null, 2)))\"",
+    "discovery:worker:autostart:status": "node -e \"import('./scripts/install-discovery-worker-autostart.mjs').then(async m => console.log(JSON.stringify(await m.getDiscoveryWorkerAutostartStatusAsync(), null, 2)))\"",
     "discovery:tunnel:autostart:install": "node scripts/install-discovery-tunnel-autostart.mjs",
     "discovery:tunnel:autostart:uninstall": "node scripts/uninstall-discovery-tunnel-autostart.mjs",
     "discovery:tunnel:autostart:status": "node -e \"import('./scripts/install-discovery-tunnel-autostart.mjs').then(m => console.log(JSON.stringify(m.getDiscoveryTunnelAutostartStatus(), null, 2)))\"",

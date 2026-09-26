@@ -2220,13 +2220,18 @@ async function handleWorkerAutostartStatus(req, res) {
     return;
   }
   try {
-    const { getDiscoveryWorkerAutostartStatus } = await import(
+    const { getDiscoveryWorkerAutostartStatusAsync } = await import(
       "./scripts/install-discovery-worker-autostart.mjs"
     );
-    const status = getDiscoveryWorkerAutostartStatus();
+    const status = await getDiscoveryWorkerAutostartStatusAsync();
     const response = { installed: !!status.installed };
     if (status.jobLabel) response.jobLabel = status.jobLabel;
     if (status.port) response.port = status.port;
+    // BEAUDIT G8: backend truth (not "plist exists") plus the job's liveness.
+    response.artifactPresent = !!status.artifactPresent;
+    response.active = !!status.active;
+    response.workerUp = !!status.workerUp;
+    if (status.lastHealthyAt) response.lastHealthyAt = status.lastHealthyAt;
     res.writeHead(200, corsHeaders);
     res.end(JSON.stringify(response));
   } catch (_) {
