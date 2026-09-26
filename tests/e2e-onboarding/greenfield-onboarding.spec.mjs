@@ -246,7 +246,14 @@ async function installHermeticBoundaries(page) {
     }
 
     if (url.origin === baseUrl && url.pathname === "/__proxy/ping") {
-      await fulfillJson(route, { ok: true });
+      // GFX §R3: a current build's ping names its version and routes;
+      // a bare { ok: true } now reads as a stale server.
+      await fulfillJson(route, {
+        ok: true,
+        version: "0.1.0",
+        runtime: "source",
+        routes: ["ping", "serpapi-check"],
+      });
       return;
     }
 
