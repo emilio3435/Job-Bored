@@ -81,7 +81,8 @@ describe("B3 Hand us your resume — the screen (spec §5 B3)", () => {
   it("renders the normative headline and sub verbatim", async () => {
     const env = await openBeat();
     const text = renderedText(env.mount());
-    assert.ok(text.includes("Drop in your resume. We'll do the typing."));
+    // GFX B3-8.
+    assert.ok(text.includes("Drop in your resume. AI drafts your profile from it."));
     assert.ok(
       text.includes(
         "From this one file we'll draft your whole fit profile — target " +
@@ -140,17 +141,14 @@ describe("B3 Hand us your resume — the dual write (spec §5 B3, the keystone b
     );
   });
 
-  it("renders the four normative stages", async () => {
+  // GFX N-B3-2 / B3-9: the two stages that really happen; ✓ comes from
+  // state "done", never from the label.
+  it("renders the two real stages, both done", async () => {
     const env = await openBeat();
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     assert.deepEqual(
-      [...env.beats.resume.getRenderedStages().map((s) => s.label)],
-      [
-        "Reading your resume ✓",
-        "Drafting target roles & strengths…",
-        "Writing your first-person narrative…",
-        "Draft ready ✓",
-      ],
+      [...env.beats.resume.getRenderedStages().map((s) => `${s.label}:${s.state}`)],
+      ["Reading your resume:done", "Drafting your profile:done"],
       "the 20–120s silent wait is the teardown's flagship defect",
     );
   });
@@ -273,13 +271,16 @@ describe("B3 — a 405 names the template escape, never the terminal", () => {
     );
   });
 
-  it("an unreachable server names the double-click launcher, never a command", async () => {
+  // GFX X1: the start sentence is localServerHint()'s, for this platform.
+  it("an unreachable server names the platform's launcher, never a command", async () => {
     const env = await ingestWith({
       fromResume: () => new Error("socket hang up"),
     });
     const text = failedMessage(env);
-    assert.match(text, /double-click start\.command/);
-    assert.doesNotMatch(text, NO_TERMINAL);
+    assert.ok(text.includes(env.window.JobBoredLocalServer.localServerHint()));
+    assert.doesNotMatch(text, /socket hang up/, "the raw error sits behind Technical detail");
+    // §0 D11: ./start.sh is the locked non-Mac sentence; npm and node stay out.
+    assert.doesNotMatch(text, /npm\s|\bnode\s/);
     assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
   });
 });
@@ -363,7 +364,8 @@ describe("B3 — serverless direct drafting (hosted site, down server)", () => {
     assert.equal(env.flow.getState().beat, "fit");
   });
 
-  it("a failed direct draft keeps the template message", async () => {
+  // GFX N-B3-1: the provider's own words beat a guess about the server.
+  it("a failed direct draft shows the provider's own words", async () => {
     const { env } = await openBeatWithDirect({
       serverImpl: () => ({ ok: false, status: 405, json: {} }),
       directImpl: async () => {
@@ -373,7 +375,7 @@ describe("B3 — serverless direct drafting (hosted site, down server)", () => {
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
     const message = env.mount().querySelector(".discovery-setup-wizard__message");
     assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
-    assert.match(message.textContent, /I'd rather start from a template/);
+    assert.equal(message.textContent, "CORS blocked");
     assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
   });
 

@@ -61,32 +61,31 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
     assert.ok(text.includes("Now give it a brain."));
     assert.ok(
       text.includes(
-        // The sub-line names the pre-selected OpenRouter card and its paid default.
+        // GFX D3: the sub-line names the pre-selected free Gemini card.
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
-          "letters. An OpenRouter account takes about two minutes; the " +
-          "recommended model uses paid credit.",
+          "letters. A free Gemini key takes about two minutes.",
       ),
     );
   });
 
-  // SIXBEATS-2 NEW-11: this used to pin Gemini first and pre-selected,
-  // which is what the rerun caught contradicting spec §5 B2's card order.
-  it("offers exactly the five spec'd providers with OpenRouter pre-selected", async () => {
+  // GFX §0 D3 (locked): Gemini is first and pre-selected again — free with
+  // no card, and the key discovery search reuses.
+  it("offers exactly the five spec'd providers with Gemini pre-selected", async () => {
     const env = await openBeat();
     const providers = env
       .mount()
       .querySelectorAll("[data-provider]")
       .map((el) => el.dataset.provider);
     assert.deepEqual(providers, [
-      "openrouter",
       "gemini",
+      "openrouter",
       "openai",
       "anthropic",
       "local",
     ]);
-    assert.equal(card(env, "openrouter").dataset.selected, "true");
+    assert.equal(card(env, "gemini").dataset.selected, "true");
     assert.match(renderedText(env.mount()), /OpenRouter/);
   });
 
@@ -96,20 +95,17 @@ describe("B2 Give it a brain — the provider cards (spec §5 B2)", () => {
     assert.equal(/webhook/i.test(renderedText(env.mount())), false);
   });
 
-  it("carries the browser-CORS note on OpenAI and Anthropic (§10 Phase 0)", async () => {
+  // GFX B2-7: the old note was false — OpenAI and Anthropic are called
+  // browser-direct (resume-generate.js), so no card sends anyone to npm.
+  it("carries no server note on any card — every provider is browser-direct", async () => {
     const env = await openBeat();
-    for (const provider of ["openai", "anthropic"]) {
-      assert.match(
-        card(env, provider).textContent,
-        /runs through the local server — keep npm run dev running/,
-        `${provider} is CORS-blocked from a browser; the card says so before the ask`,
+    for (const provider of ["gemini", "openrouter", "openai", "anthropic"]) {
+      assert.equal(
+        /local server|npm run dev/.test(card(env, provider).textContent),
+        false,
+        `${provider}'s card makes no false server claim`,
       );
     }
-    assert.equal(
-      /runs through the local server/.test(card(env, "openrouter").textContent),
-      false,
-      "OpenRouter is browser-callable — no scare copy",
-    );
   });
 
   it("names the primary action `Check & continue`", async () => {
@@ -139,6 +135,8 @@ describe("B2 Give it a brain — the check is the gate (spec §5 B2 exit)", () =
     const env = await openBeat();
     await pickAndCheck(env, "openrouter", "sk-or-abcdefgh12345678");
     assert.equal(env.verifyCalls.length, 1, "a real round-trip, every time");
+    // GFX B2-4: the harness's ping answers, so the save question comes first.
+    await env.beats.ai.handleAction("ai_consent_skip");
     const completed = stepEvents(env.events, "beat_completed").filter(
       (d) => d.beat === BEAT_ID,
     );
@@ -183,7 +181,8 @@ describe("B2 Give it a brain — the check is the gate (spec §5 B2 exit)", () =
     await pickAndCheck(env, "openrouter", "sk-or-abcdefgh12345678");
     assert.deepEqual(
       [...env.beats.ai.getRenderedStages().map((s) => s.label)],
-      ["Checking your key…", "✓ Connected — openai/gpt-oss-120b:free responded"],
+      // The shell draws ✓ from state "done"; the label carries none.
+      ["Checking your key…", "Connected — openai/gpt-oss-120b:free responded"],
     );
   });
 
@@ -248,7 +247,7 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
     assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
   });
 
-  it("opens a Having trouble? block naming the wrong-key, rate-limit and CORS fixes", async () => {
+  it("opens a Having trouble? block naming the wrong-key, rate-limit and network fixes", async () => {
     const env = await openBeat({
       verifyProvider: async () => ({ ok: false, provider: "openai", ms: 9, message: "401" }),
     });
@@ -259,11 +258,9 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
     assert.match(help.textContent, /Having trouble\?/);
     assert.match(help.textContent, /rate limit/i);
     assert.match(help.textContent, /wrong key|key is wrong|copied the wrong/i);
-    assert.match(
-      help.textContent,
-      /keep JobBored running on this computer \(npm run dev\)/,
-      "the browser-block fix names the one start command in user words",
-    );
+    // GFX B2-7: the third case is a network block, not a server to run.
+    assert.match(help.textContent, /Blocked by your network/);
+    assert.equal(/npm run dev/.test(help.textContent), false);
     assert.equal(
       /terminal|\(CORS\)/.test(help.textContent),
       false,
@@ -274,14 +271,14 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
   it("clears the pasted key when the provider changes", async () => {
     const env = await openBeat();
     const field = env.mount().querySelector("#oneFlowAiKeyInput");
-    field.value = "sk-or-abcdefgh12345678";
+    field.value = "AIzaSyTestKeyValue1234567";
     field.dispatch("input", { target: field });
-    // Away from the pre-selected card (OpenRouter, spec §5 B2), not toward it.
-    card(env, "gemini").dispatch("click");
+    // Away from the pre-selected card (Gemini, GFX D3), not toward it.
+    card(env, "openrouter").dispatch("click");
     assert.equal(
       env.mount().querySelector("#oneFlowAiKeyInput").value,
       "",
-      "an OpenRouter key checked against Gemini fails for a reason no copy can explain",
+      "a Gemini key checked against OpenRouter fails for a reason no copy can explain",
     );
   });
 
@@ -304,12 +301,15 @@ describe("B2 Give it a brain — the Gemini write-through (spec §5 B2 bonus)", 
       }),
     });
     card(env, "gemini").dispatch("click");
+    // GFX B2-3: the line announces the ask instead of promising "no extra step".
     assert.match(
       renderedText(env.mount()),
-      /Your Gemini key also unlocks URL import and grounded search — done, no extra step\./,
-      "the line is normative, and it promises the bonus BEFORE the ask",
+      /Discovery search can use this key too\. After the check, JobBored asks before saving it on this computer\./,
     );
     await pickAndCheck(env, null, "AIzaSyTestKeyValue1234567");
+    // GFX B2-4: nothing is written until "Save it".
+    assert.equal(fetchImpl.calls.some((c) => c.url.includes(ENV_ENDPOINT)), false);
+    await env.beats.ai.handleAction("ai_consent_save");
     const envCall = fetchImpl.calls.find((c) => c.url.includes(ENV_ENDPOINT));
     assert.ok(envCall, "spec §5 B2: the Gemini key unlocks the worker with zero extra asks");
     assert.equal(envCall.options.method, "POST");
@@ -338,6 +338,7 @@ describe("B2 Give it a brain — the Gemini write-through (spec §5 B2 bonus)", 
       }),
     });
     await pickAndCheck(env, "gemini", "AIzaSyTestKeyValue1234567");
+    await env.beats.ai.handleAction("ai_consent_save");
     assert.equal(env.beats.ai.didWriteGeminiKeyThrough(), true);
   });
 

@@ -458,7 +458,7 @@ describe("oneflow-beat-ai — provider-key save honesty", () => {
     const fnIdx = oneFlowBeatAiJs.indexOf("async function writeGeminiKeyThrough(");
     assert.notEqual(fnIdx, -1);
     const body = oneFlowBeatAiJs.slice(fnIdx, fnIdx + 1200);
-    assert.match(body, /catch \(err\)/);
+    assert.match(body, /catch \(\w+\)/);
     assert.match(body, /return false/, "a failed bonus reports false, never throws");
   });
 });

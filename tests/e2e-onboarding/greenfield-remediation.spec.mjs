@@ -243,7 +243,8 @@ test("E1 Beat 3 is gated on Beat 2", async ({ page }) => {
     "Staff platform engineer with twelve years building reliable distributed " +
       "systems, developer platforms, observability, and incident response. ".repeat(4),
   );
-  await page.getByRole("button", { name: "Draft from this text" }).click();
+  // GFX B3-11: the button names what it builds.
+  await page.getByRole("button", { name: "Build my profile from this text" }).click();
 
   await expect(page.getByText(CONNECT_AI_MESSAGE, { exact: true })).toBeVisible();
   expect(profilePosts).toEqual([]);
