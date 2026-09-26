@@ -142,7 +142,8 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
     const expected = {
       google: "Your pipeline lives in a Google Sheet you own.",
       ai: "Now give it a brain.",
-      resume: "Drop in your resume. We'll do the typing.",
+      // GFX B3-8.
+      resume: "Drop in your resume. AI drafts your profile from it.",
       fit: "Here's how we'll match jobs to you.",
       discovery: "Now the engine: jobs come to you.",
       payoff: "You're live, {firstName}.",
