@@ -237,6 +237,53 @@ describe("B3 Hand us your resume — the honest failure split (spec §5 B3 fallb
   });
 });
 
+describe("B3 — a 405 names the template escape, never the terminal", () => {
+  const NO_TERMINAL = /npm\s|`{3}|start\.sh|\bnode\s/;
+  async function ingestWith(fetchImpl) {
+    const env = await openBeat({ fetchImpl: draftingFetch(fetchImpl) });
+    await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+    return env;
+  }
+  function failedMessage(env) {
+    const message = env.mount().querySelector(".discovery-setup-wizard__message");
+    assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
+    return message.textContent;
+  }
+
+  it("a 405 (static host, no drafting endpoint) points at the template button", async () => {
+    const env = await ingestWith({
+      fromResume: () => ({ ok: false, status: 405, json: {} }),
+    });
+    const text = failedMessage(env);
+    assert.match(text, /can't draft your resume by itself/);
+    assert.match(
+      text,
+      /I'd rather start from a template/,
+      "the escape hatch is named by its exact button label",
+    );
+    assert.doesNotMatch(text, NO_TERMINAL);
+    assert.ok(actionButton(env.mount(), "resume_retry"));
+    assert.ok(actionButton(env.mount(), "resume_template"));
+    assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
+    const stored = await env.store.getActiveResume();
+    assert.equal(
+      stored.extractedText,
+      RESUME_TEXT,
+      "the upload survives the missing server too",
+    );
+  });
+
+  it("an unreachable server names the double-click launcher, never a command", async () => {
+    const env = await ingestWith({
+      fromResume: () => new Error("socket hang up"),
+    });
+    const text = failedMessage(env);
+    assert.match(text, /double-click start\.command/);
+    assert.doesNotMatch(text, NO_TERMINAL);
+    assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
+  });
+});
+
 describe("B3 Hand us your resume — the template path (spec §5 B3)", () => {
   it("offers the four starter templates", async () => {
     const env = await openBeat();

@@ -549,8 +549,9 @@
         ok: false,
         missing: false,
         message:
-          "Couldn't reach the local server. Make sure JobBored is still " +
-          `running on this computer (npm run dev), then try again. (${String((err && err.message) || err || "")})`,
+          "Couldn't reach the JobBored app on this computer — double-click " +
+          "start.command in the JobBored folder to start it, then try again. " +
+          `(${String((err && err.message) || err || "")})`,
       };
     }
     const data = res ? await res.json().catch(() => null) : null;
@@ -563,6 +564,22 @@
         message:
           "The server couldn't read your resume — nothing came through. Try " +
           "the upload again, or paste the text instead.",
+      };
+    }
+    // A 405 means the page answering us has no drafting endpoint at all —
+    // the signature of the static hosted site, where /profile/from-resume
+    // hits the file host instead of the local API server. That is a
+    // missing-server situation, not a broken resume: name the template
+    // escape hatch (always on screen) instead of a retry that cannot help.
+    if (res && res.status === 405) {
+      return {
+        ok: false,
+        missing: false,
+        message:
+          "This page can't draft your resume by itself — drafting runs in " +
+          "the JobBored app on your computer. Press 'I'd rather start from " +
+          "a template' below (everything stays editable on the next " +
+          "screen), or open your local JobBored and try again.",
       };
     }
     if (!res || !res.ok || !data || data.ok !== true) {
