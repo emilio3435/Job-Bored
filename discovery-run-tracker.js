@@ -303,9 +303,14 @@
   function runHeadline(progress) {
     const current = progress.current;
     if (current) {
-      if (current.kind === "company") return `Checking ${current.label}`;
-      if (current.kind === "source") return `Reading ${runSourceLabel(current.label)}`;
-      if (current.kind === "query") return `Searching for ${current.label}`;
+      // UXD-BE sends ordinals ("Company 2 of 3", "Query 1 of 5") rather than
+      // names; lower-case those so the headline reads as one sentence.
+      const label = /^(Company|Query) \d+ of \d+$/.test(current.label)
+        ? current.label.charAt(0).toLowerCase() + current.label.slice(1)
+        : current.label;
+      if (current.kind === "company") return `Checking ${label}`;
+      if (current.kind === "source") return `Reading ${runSourceLabel(label)}`;
+      if (current.kind === "query") return `Running search ${label}`;
     }
     return RUN_PROGRESS_PHASE_HEADLINES[progress.phase] || "Working";
   }

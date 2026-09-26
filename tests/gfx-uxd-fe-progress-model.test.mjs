@@ -300,6 +300,25 @@ describe("UXD-FE progress model: deriveLiveRunView", () => {
     assert.match(view.health.text, /Reconnecting/);
   });
 
+  it("UXD-FE-42 UXD-BE's ordinal labels read as plain sentences", () => {
+    const at = { observedAt: "2026-09-26T21:00:00.000Z", now: "2026-09-26T21:00:05.000Z" };
+    const company = viewFor({
+      ...at,
+      progress: { ...CONTRACT_EXAMPLE, current: { kind: "company", label: "Company 2 of 3" } },
+    }).view;
+    assert.equal(company.headline, "Checking company 2 of 3");
+    const query = viewFor({
+      ...at,
+      progress: { ...CONTRACT_EXAMPLE, current: { kind: "query", label: "Query 1 of 5" } },
+    }).view;
+    assert.equal(query.headline, "Running search query 1 of 5");
+    const source = viewFor({
+      ...at,
+      progress: { ...CONTRACT_EXAMPLE, current: { kind: "source", label: "greenhouse" } },
+    }).view;
+    assert.equal(source.headline, "Reading Greenhouse");
+  });
+
   it("UXD-FE-16 summary is one plain sentence for the button label", () => {
     const { view } = viewFor({
       progress: CONTRACT_EXAMPLE,
