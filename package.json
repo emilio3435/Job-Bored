@@ -17,7 +17,7 @@
     "install:repo": "node scripts/install-repo.mjs",
     "postinstall": "npm install --prefix ./server && node scripts/install-repo.mjs --stamp-only",
     "prestart": "node scripts/install-repo.mjs",
-    "start": "concurrently -k -n web,scrape -c blue,magenta \"npm run start:web\" \"npm run start:scraper\"",
+    "start": "concurrently -n web,scrape,discovery -c blue,magenta,green \"npm run start:web\" \"npm run start:scraper\" \"node scripts/start-discovery-worker-local.mjs\"",
     "start:web": "node dev-server.mjs",
     "start:scraper": "node scripts/start-scraper-local.mjs",
     "start:discovery-worker": "node scripts/start-discovery-worker-local.mjs --restart-existing",
