@@ -38,6 +38,14 @@ function issue(code, message, severity = "review") {
   return { code, message, severity };
 }
 
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
 /** @param {CriticIssue[]} issues */
 function statusFor(issues) {
   if (issues.some((item) => item.severity === "fail")) return "fail";
@@ -216,7 +224,18 @@ export async function critiqueMaterials({
     }
   }
 
-  if (BANNED_FILLER_RE.test(letterSource)) {
+  /* F2: scan the writer's letter strings — never the composed HTML, whose
+   * template guidance comments list the banned phrases verbatim. Without a
+   * writer letter, fall back to visible text (comments stripped). */
+  /** @type {string[]} */
+  const letterStrings = [];
+  if (isRecord(writerJson) && writerJson.letter !== undefined) {
+    collectStrings(writerJson.letter, letterStrings);
+  }
+  const fillerHaystack = letterStrings.length
+    ? letterStrings.join("\n")
+    : visibleText(letterSource);
+  if (BANNED_FILLER_RE.test(fillerHaystack)) {
     issues.push(issue(
       "banned_filler",
       "Cover letter uses banned filler phrasing.",
