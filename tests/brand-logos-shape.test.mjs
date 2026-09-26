@@ -5,13 +5,20 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { homedir, tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
 import { fileURLToPath } from "node:url";
-import { imageDimensions, logoShape, readResolvedMarks } from "../server/brand-logos.mjs";
+import {
+  getBrandLogosTemplateRoot,
+  getRepoSampleTemplateRoot,
+  imageDimensions,
+  logoShape,
+  readResolvedMarks,
+  saveUpload,
+} from "../server/brand-logos.mjs";
 
 const logoDir = join(dirname(fileURLToPath(import.meta.url)), "..", "docs/materials-v3/mocks/assets/logos");
 
@@ -56,5 +63,58 @@ describe("readResolvedMarks", () => {
     } finally {
       await rm(root, { recursive: true, force: true });
     }
+  });
+});
+
+describe("logo storage root", () => {
+  const ENV_KEYS = ["JOBBORED_LOGOS_DIR", "HERMES_RESUME_TEMPLATE_DIR", "HERMES_JOB_HUNT_ROOT", "HERMES_ROOT", "JOBBORED_HOME", "HERMES_LOGO_RESOLVER_SCRIPT"];
+
+  /** @param {Record<string, string>} env @param {() => Promise<void>} fn */
+  async function withEnv(env, fn) {
+    const saved = Object.fromEntries(ENV_KEYS.map((k) => [k, process.env[k]]));
+    for (const k of ENV_KEYS) delete process.env[k];
+    Object.assign(process.env, env);
+    try {
+      await fn();
+    } finally {
+      for (const k of ENV_KEYS) {
+        if (saved[k] === undefined) delete process.env[k];
+        else process.env[k] = saved[k];
+      }
+    }
+  }
+
+  it("should keep uploads and resolved marks under <JOBBORED_HOME>/logos and never write into the repo sample", async () => {
+    const home = await mkdtemp(join(tmpdir(), "jb-logo-home-"));
+    const sample = getRepoSampleTemplateRoot();
+    /** @param {string} dir */
+    const snapshot = (dir) => (existsSync(dir) ? readdirSync(dir, { recursive: true }).map(String).sort().join("|") : "");
+    const before = snapshot(sample);
+    try {
+      const stub = join(home, "resolver-stub.py");
+      await writeFile(stub, "print('0 marks:')\n");
+      await withEnv({ JOBBORED_HOME: home, HERMES_LOGO_RESOLVER_SCRIPT: stub }, async () => {
+        assert.equal(getBrandLogosTemplateRoot(), join(home, "logos"));
+        const result = await saveUpload("northwind", readFileSync(join(logoDir, "elio.png")));
+        assert.equal(result.upload, "uploads/logo-northwind.png");
+        assert.ok(existsSync(join(home, "logos", "uploads", "logo-northwind.png")));
+        assert.ok(existsSync(join(home, "logos", "logos.json")));
+      });
+      assert.equal(snapshot(sample), before, "the repo's sample template folder is untouched");
+    } finally {
+      await rm(home, { recursive: true, force: true });
+    }
+  });
+
+  it("should refuse to use the repo sample as a writable logo root", async () => {
+    await withEnv({ JOBBORED_LOGOS_DIR: getRepoSampleTemplateRoot() }, async () => {
+      await assert.rejects(() => saveUpload("northwind", readFileSync(join(logoDir, "elio.png"))), /never write into the repo/);
+    });
+  });
+
+  it("should default to ~/.jobbored/logos with no overrides", async () => {
+    await withEnv({}, async () => {
+      assert.equal(getBrandLogosTemplateRoot(), join(homedir(), ".jobbored", "logos"));
+    });
   });
 });

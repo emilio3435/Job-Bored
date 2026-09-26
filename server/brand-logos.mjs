@@ -1,5 +1,9 @@
 /**
- * Brand logo bridge for resume-template logo marks.
+ * Brand logo bridge for resume and letter logo marks.
+ *
+ * The user's logos live under ~/.jobbored/logos (see
+ * getBrandLogosTemplateRoot); the repo's resume-template folder is only a
+ * read-only sample.
  *
  * The Python resolver owns the actual upload/favicon/monogram resolution.
  * This module keeps the Express surface small: validate uploads, write the
@@ -49,7 +53,12 @@ function defaultIntegrationRoot() {
   return resolvePath(__dirname, "..", "integrations", "hermes-job-hunt");
 }
 
-function defaultTemplateRoot() {
+/**
+ * The repo's integrations/hermes-job-hunt/resume-template/ is a read-only
+ * sample (its logos are the maintainer's). Uploads and resolved marks never
+ * go there.
+ */
+export function getRepoSampleTemplateRoot() {
   return join(defaultIntegrationRoot(), "resume-template");
 }
 
@@ -66,7 +75,25 @@ function requireAbsoluteEnvPath(name, value) {
   return trimmed;
 }
 
+/** @param {string} raw */
+function expandHome(raw) {
+  if (raw === "~") return homedir();
+  if (raw.startsWith("~/")) return join(homedir(), raw.slice(2));
+  return resolvePath(raw);
+}
+
+/**
+ * Where the user's logo uploads, logos.json and resolved marks live:
+ *   1. JOBBORED_LOGOS_DIR (absolute)
+ *   2. an explicit Hermes template root (HERMES_RESUME_TEMPLATE_DIR,
+ *      HERMES_JOB_HUNT_ROOT, HERMES_ROOT), for the Hermes integration
+ *   3. <JOBBORED_HOME>/logos, default ~/.jobbored/logos
+ * Never the repo: getRepoSampleTemplateRoot() is a read-only sample.
+ */
 export function getBrandLogosTemplateRoot() {
+  const logosDir = requireAbsoluteEnvPath("JOBBORED_LOGOS_DIR", process.env.JOBBORED_LOGOS_DIR);
+  if (logosDir) return logosDir;
+
   const direct = requireAbsoluteEnvPath(
     "HERMES_RESUME_TEMPLATE_DIR",
     process.env.HERMES_RESUME_TEMPLATE_DIR,
@@ -82,10 +109,20 @@ export function getBrandLogosTemplateRoot() {
   const hermesRoot = requireAbsoluteEnvPath("HERMES_ROOT", process.env.HERMES_ROOT);
   if (hermesRoot) return join(hermesRoot, "job-hunt", "resume-template");
 
-  const liveTemplateRoot = join(homedir(), ".hermes", "job-hunt", "resume-template");
-  if (existsSync(liveTemplateRoot)) return liveTemplateRoot;
+  const home = String(process.env.JOBBORED_HOME || "").trim();
+  return join(home ? expandHome(home) : join(homedir(), ".jobbored"), "logos");
+}
 
-  return defaultTemplateRoot();
+/**
+ * Refuse to write logo state into the repo's sample folder.
+ * @param {string} root
+ */
+function assertNotRepoSample(root) {
+  const sample = resolvePath(getRepoSampleTemplateRoot());
+  const target = resolvePath(root);
+  if (target === sample || target.startsWith(`${sample}/`)) {
+    throw makeError("Logo uploads never write into the repo's sample template; set JOBBORED_LOGOS_DIR or JOBBORED_HOME.", 500);
+  }
 }
 
 export function getLogoResolverScript() {
@@ -121,6 +158,7 @@ function isWithinResolvedRoot(root, target) {
 
 /** @param {string} [templateRoot] */
 async function resolveTemplateRoot(templateRoot = getBrandLogosTemplateRoot()) {
+  assertNotRepoSample(templateRoot);
   await mkdir(templateRoot, { recursive: true });
   return realpath(templateRoot);
 }
