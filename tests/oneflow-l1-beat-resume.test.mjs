@@ -284,6 +284,112 @@ describe("B3 — a 405 names the template escape, never the terminal", () => {
   });
 });
 
+describe("B3 — serverless direct drafting (hosted site, down server)", () => {
+  async function sharedApi() {
+    await import("../server/profile-draft-shared.js");
+    return globalThis.JobBoredProfileDraft;
+  }
+
+  // A provider reply as raw text: fenced, with a bogus seniority the
+  // shared clamp must repair — proving the real parse+clamp run in-beat.
+  const DIRECT_REPLY = [
+    "```json",
+    JSON.stringify({
+      version: 1,
+      identity: {
+        targetRoles: ["Staff Engineer"],
+        targetSeniority: "bogus",
+        primaryNarrative:
+          "I build the systems other teams build on top of, and I want more of that.",
+      },
+      strengths: [{ name: "Distributed systems", rank: 1 }],
+      hardConstraints: { workMode: "any" },
+    }),
+    "```",
+  ].join("\n");
+
+  async function openBeatWithDirect({ serverImpl, directImpl }) {
+    const env = await openBeat({
+      fetchImpl: draftingFetch({ fromResume: serverImpl }),
+    });
+    const directCalls = [];
+    env.window.CommandCenterResumeGenerate.callConfiguredAi = async (
+      ...args
+    ) => {
+      directCalls.push(args);
+      if (directImpl) return directImpl(...args);
+      return DIRECT_REPLY;
+    };
+    env.window.JobBoredProfileDraft = await sharedApi();
+    return { env, directCalls };
+  }
+
+  it("a 405 falls back to a direct draft and completes with a clamped profile", async () => {
+    const { env, directCalls } = await openBeatWithDirect({
+      serverImpl: () => ({ ok: false, status: 405, json: {} }),
+    });
+    await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+    assert.equal(directCalls.length, 1, "one direct attempt after the 405");
+    const shared = await sharedApi();
+    assert.equal(
+      directCalls[0][0],
+      shared.SYSTEM_PROMPT,
+      "the direct draft uses the shared prompt — the single source",
+    );
+    assert.ok(directCalls[0][1].includes(RESUME_TEXT));
+    // Field-wise: the opts object crosses the vm boundary, so its
+    // prototype differs from this realm's Object.
+    assert.equal(directCalls[0][2].json, true);
+    assert.equal(directCalls[0][2].maxOutputTokens, 8192);
+    const draft = env.beats.resume.getDraft();
+    assert.equal(draft.profile.identity.targetRoles[0], "Staff Engineer");
+    assert.equal(
+      draft.profile.identity.targetSeniority,
+      "any",
+      "the shared clamp repaired the bogus seniority",
+    );
+    assert.equal(env.flow.getState().beat, "fit", "B3 auto-advances to B4");
+    const completed = stepEvents(env.events, "beat_completed").filter(
+      (d) => d.beat === BEAT_ID,
+    );
+    assert.equal(completed[0].source, "paste");
+  });
+
+  it("a down server plus a working provider still completes", async () => {
+    const { env } = await openBeatWithDirect({
+      serverImpl: () => new Error("socket hang up"),
+    });
+    await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+    assert.equal(env.flow.getState().beat, "fit");
+  });
+
+  it("a failed direct draft keeps the template message", async () => {
+    const { env } = await openBeatWithDirect({
+      serverImpl: () => ({ ok: false, status: 405, json: {} }),
+      directImpl: async () => {
+        throw new Error("CORS blocked");
+      },
+    });
+    await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+    const message = env.mount().querySelector(".discovery-setup-wizard__message");
+    assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
+    assert.match(message.textContent, /I'd rather start from a template/);
+    assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
+  });
+
+  it("provider errors never trigger a direct draft", async () => {
+    for (const serverImpl of [
+      () => ({ ok: false, status: 500, json: { ok: false, message: "Rate limit reached" } }),
+      () => ({ ok: false, status: 404, json: {} }),
+    ]) {
+      const { env, directCalls } = await openBeatWithDirect({ serverImpl });
+      await env.beats.resume.ingestText(RESUME_TEXT, "paste");
+      assert.deepEqual(directCalls, [], "the server answered — its verdict stands");
+      assert.equal(env.flow.getState().completedBeats.includes(BEAT_ID), false);
+    }
+  });
+});
+
 describe("B3 Hand us your resume — the template path (spec §5 B3)", () => {
   it("offers the four starter templates", async () => {
     const env = await openBeat();

@@ -368,6 +368,17 @@
     return !!(opts && (opts.json || wantsParsedJson(opts)));
   }
 
+  // opts.maxOutputTokens lets a caller with a big JSON shape (B3's Fit
+  // Profile drafts run past 3,500 tokens) raise the ceiling; anything
+  // else falls back to the per-call default. Additive — existing callers
+  // that never pass it behave exactly as before.
+  function jsonLimit(opts, fallback) {
+    const override = opts && opts.maxOutputTokens;
+    return Number.isFinite(override) && override > 0
+      ? Math.floor(override)
+      : fallback;
+  }
+
   function parseConfiguredAiJson(raw) {
     const s = String(raw || "").trim();
     const fenceMatch = s.match(/```(?:json)?\s*([\s\S]*?)```/);
@@ -405,7 +416,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.5,
-      max_tokens: wantJson ? 4096 : 2048,
+      max_tokens: jsonLimit(opts, wantJson ? 4096 : 2048),
     };
     const headers = { "Content-Type": "application/json" };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -454,7 +465,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.5,
-      [limitKey]: wantsJsonResponse(opts) ? 4096 : 2048,
+      [limitKey]: jsonLimit(opts, wantsJsonResponse(opts) ? 4096 : 2048),
     };
     let resp;
     try {
@@ -490,7 +501,7 @@
         },
         body: JSON.stringify({
           model: model || "claude-sonnet-4-6",
-          max_tokens: wantsJsonResponse(opts) ? 4096 : 2048,
+          max_tokens: jsonLimit(opts, wantsJsonResponse(opts) ? 4096 : 2048),
           system,
           messages: [{ role: "user", content: user }],
         }),
@@ -544,7 +555,7 @@
       resolvedModel === GEMINI_FLASH_FAMILY ||
       /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
     const generationConfig = {
-      maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
+      maxOutputTokens: jsonLimit(opts, isThinkingModel || wantJson ? 8192 : 2048),
       temperature: 0.5,
     };
     if (wantJson) generationConfig.responseMimeType = "application/json";
