@@ -646,10 +646,11 @@ export async function buildManifest(slug, { root } = {}) {
   } catch {
     /* Quality metadata is advisory; manifest reads should stay resilient. */
   }
-  /* pending.json is written by the Hermes materials_request.py script
-   * when the user clicks "Draft cover letter" / "Tailor resume". The
-   * Hermes side deletes it once the drafts ship; until then we expose
-   * it so the UI shows a "Generating…" status on the affected cards. */
+  /* pending.json is written by the in-process materials drafter
+   * (server/materials-drafter.mjs) when the user clicks "Draft cover
+   * letter" / "Tailor resume". The drafter deletes it once the drafts
+   * ship; until then we expose it so the UI shows a "Generating…"
+   * status on the affected cards. */
   const pendingPath = join(dir, "pending.json");
   const failure = await readPendingError(dir);
   const nowMs = Date.now();
