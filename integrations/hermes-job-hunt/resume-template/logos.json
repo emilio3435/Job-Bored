@@ -1,27 +1,15 @@
 {
-  "$comment": "Logo manifest for the resume template. Resolved by scripts/logo_resolver.py into assets/logo-<slug>.png. Priority per entry: upload (a file in uploads/) > favicon (fetched from domain) > monogram (generated initials, never fails). Resolution is non-destructive: an existing assets/logo-<slug>.png is left alone unless --force. The <slug> must match the resume.html <img src=\"assets/logo-<slug>.png\"> marks.",
+  "$comment": "NEUTRAL EXAMPLE logo manifest for the sample resume template. Copy this pattern into your own template root (never commit real employers here). Resolved by scripts/logo_resolver.py into assets/logo-<slug>.png. Priority per entry: upload (a file in uploads/) > favicon (fetched from domain) > monogram (generated initials, never fails). The <slug> must match the resume.html <img src=\"assets/logo-<slug>.png\"> marks.",
   "logos": [
     {
-      "slug": "audacy",
-      "label": "Audacy",
-      "domain": "audacy.com"
+      "slug": "northwind",
+      "label": "Northwind",
+      "domain": "northwind.example.com"
     },
     {
-      "slug": "elio",
-      "label": "Elio",
-      "domain": "elioai.app",
-      "upload": "uploads/logo-elio.png"
-    },
-    {
-      "slug": "hormiga",
-      "label": "Hormiga Dormida",
-      "domain": "hormigadormida.com",
-      "upload": "uploads/logo-hormiga.png"
-    },
-    {
-      "slug": "jobbored",
-      "label": "JobBored",
-      "upload": "uploads/logo-jobbored.png"
+      "slug": "sample-co",
+      "label": "Sample Co",
+      "upload": "uploads/logo-sample-co.png"
     }
   ]
 }

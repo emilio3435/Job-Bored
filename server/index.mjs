@@ -49,6 +49,7 @@ import {
   runResolver,
   saveUpload,
 } from "./brand-logos.mjs";
+import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import { regeneratePackage } from "./materials-regenerate.mjs";
 import { listFamilies } from "./materials-templates.mjs";
@@ -59,16 +60,21 @@ import {
   writeProfileAtomic,
 } from "./user-profile.mjs";
 import { migrateLegacyProfileIfPresent } from "./legacy-profile-migrator.mjs";
+import { readLedger, resolveLedgerPath } from "./materials-ledger.mjs";
+import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
   analyzeResumeToProfile,
+  getStoredResumeText,
   parseProfileProviderConfigFromBody,
   resolveResumeTextForAnalysis,
 } from "./profile-from-resume.mjs";
 import {
+  endRouteRescore,
   getProfileRescoreProviderConfigFromEnv,
   getProfileRescoreProviderStatus,
   loadWorkerConfig,
   rescoreAllPipelineRows,
+  tryBeginRouteRescore,
 } from "./profile-rescore-worker.mjs";
 import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
@@ -438,7 +444,14 @@ app.get("/profile", async (_req, res) => {
     if (!result.ok) {
       // 200 with ok:false so the wizard can branch cleanly without try/catch
       // on 404s. The "missing profile" state is the expected first-run case.
-      return res.status(200).json({ ok: false, reason: result.reason });
+      // F17: a schema-invalid file reports invalid_profile with the errors.
+      return res.status(200).json({
+        ok: false,
+        reason: result.reason,
+        ...(result.reason === "invalid_profile" && result.errors
+          ? { errors: result.errors }
+          : {}),
+      });
     }
     return res.json({ ok: true, profile: result.profile });
   } catch (err) {
@@ -461,6 +474,26 @@ app.post("/profile", async (req, res) => {
   }
   try {
     const { updatedAt } = await writeProfileAtomic(candidate);
+    /* F21: rebuild the claim ledger from the saved profile + the stored
+     * resume. Best-effort like the logo refresh: a ledger failure must
+     * never fail the save (claims.load rebuilds on demand anyway). */
+    /** @type {{ ok: boolean, claims?: number, ledgerHash?: string, error?: string }} */
+    let ledger = { ok: false };
+    try {
+      const stored = await getStoredResumeText().catch(() => null);
+      const built = await ensureLedger({
+        profile: candidate,
+        resumeText: stored ? stored.text : "",
+        resumeSource: stored ? stored.source : "upload",
+      });
+      ledger = { ok: true, claims: built.claims.length, ledgerHash: built.ledgerHash };
+    } catch (ledgerErr) {
+      const code = /** @type {{ code?: unknown }} */ (ledgerErr)?.code;
+      ledger = {
+        ok: false,
+        error: typeof code === "string" && code ? code : "ledger_build_failed",
+      };
+    }
     try {
       await refreshLogosFromProfile(candidate);
     } catch (logoErr) {
@@ -472,13 +505,14 @@ app.post("/profile", async (req, res) => {
       return res.json({
         ok: true,
         updatedAt,
+        ledger,
         logoRefresh: {
           ok: false,
           error: redactFsPaths(errorMessage(logoErr, "logo refresh failed")),
         },
       });
     }
-    return res.json({ ok: true, updatedAt, logoRefresh: { ok: true } });
+    return res.json({ ok: true, updatedAt, ledger, logoRefresh: { ok: true } });
   } catch (err) {
     const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
     if (error && error.code === "invalid_profile") {
@@ -523,6 +557,31 @@ app.post("/api/brand-logos/:slug", async (req, res) => {
     res.json(result);
   } catch (e) {
     sendAppError(res, e);
+  }
+});
+
+/* F21: the claim ledger, built from resume.txt + profile.json on each
+ * profile save (see POST /profile) and read by the materials pipeline.
+ * Saved in: the ledger path. Used by: materials drafts today; rescore
+ * and interview prep are future consumers of the same store. */
+app.get("/profile/ledger", async (_req, res) => {
+  try {
+    const result = await readLedger();
+    if (!result.ok) {
+      return res.status(404).json({ ok: false, reason: result.reason });
+    }
+    return res.json({
+      ok: true,
+      ledger: result.ledger,
+      savedIn: result.path || resolveLedgerPath(),
+      usedBy: ["materials"],
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      reason: "read_failed",
+      detail: errorMessage(err, "read failed"),
+    });
   }
 });
 
@@ -718,6 +777,17 @@ app.post("/profile/rescore", async (req, res) => {
     }
   }
 
+  // F4: one live rescore at a time; a second click gets 409, not a
+  // second run whose stale writes would win. Dry runs bypass the lock.
+  if (!tryBeginRouteRescore()) {
+    return res.status(409).json({
+      ok: false,
+      reason: "rescore_in_progress",
+      detail: "A rescore is already running; wait for it to finish.",
+      retryable: true,
+    });
+  }
+
   // Live path: open SSE.
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -743,6 +813,7 @@ app.post("/profile/rescore", async (req, res) => {
       onProgress: sendEvent,
       signal,
       maxRows,
+      profileUpdatedAt: profileResult.profile?.updatedAt,
     });
     sendEvent({ kind: "done", ...summary });
   } catch (err) {
@@ -751,6 +822,7 @@ app.post("/profile/rescore", async (req, res) => {
       message: errorMessage(err, err),
     });
   } finally {
+    endRouteRescore();
     res.end();
   }
 });
@@ -1071,4 +1143,11 @@ app.listen(PORT, HOST, () => {
     console.warn(`[ats-scorecard] not configured: ${ats.reason}`);
   }
   void migrateHermesApplicationsIfNeeded();
+  /* F14: pre-restart queued/drafting pending belongs to a dead FIFO. */
+  void reconcileOrphanedPending().then(
+    (out) => {
+      if (out.reconciled) console.log(`[materials] reconciled ${out.reconciled} orphaned pending`);
+    },
+    (err) => console.warn("[materials] orphan reconcile failed:", err),
+  );
 });

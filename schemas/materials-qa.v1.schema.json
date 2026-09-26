@@ -53,7 +53,13 @@
                   "outcome-ladder",
                   "noun-coverage",
                   "reporting-line",
-                  "constraints"
+                  "constraints",
+                  "outcome_coverage",
+                  "noun_fidelity",
+                  "proof_density",
+                  "transfer_honesty",
+                  "omission_record",
+                  "delint_clean"
                 ]
               },
               "score": { "type": "integer", "minimum": 0, "maximum": 2 },

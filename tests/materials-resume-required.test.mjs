@@ -18,6 +18,7 @@ import {
   spawnMaterialsRequest,
 } from "../server/materials-request.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
+import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
 import { buildRepairRequestPayload } from "../server/materials-repair.mjs";
 import { critiqueMaterials } from "../server/materials-critic.mjs";
 import {
@@ -155,51 +156,41 @@ describe("C11 repair path redrafts from the resume snapshot", () => {
     });
     assert.equal(seen.resume.text, USER_RESUME_TEXT);
     assert.equal(seen.resume.filename, "jordan-rivera.pdf");
+    assert.equal(seen.resumeFrom, "snapshot", "F8: the repair signal must reach the drafter");
   });
 });
 
-const letterJson = {
-  hook: "I rebuild carrier scorecards until shipments land on time.",
-  whyThem: "Acme runs the network I have spent four years tuning.",
-  whyMe: "At Northwind I cut late shipments 18%.",
-  whyNow: "I want to bring that to Acme's growth year.",
-  closing: "Happy to walk through the scorecard.",
-  company: "Acme",
-  role: "Ops Analyst",
-};
-const resumeJson = {
-  header: { name: "Jordan Rivera", headline: "Operations analyst", contact: ["Austin, TX", "jordan@example.com"] },
-  summary: { opener: "Operations analyst.", body: "Carrier performance and network planning." },
-  roles: [
-    {
-      id: "northwind",
-      company: "Northwind Logistics",
-      title: "Operations Analyst",
-      dates: "2021–2025",
-      bullets: ["Cut late shipments 18% by rebuilding the carrier scorecard."],
-    },
-  ],
-  education: ["B.S. Industrial Engineering, Example State University"],
-  skills: ["SQL", "Carrier analytics"],
-};
-
 describe("C11 drafter drafts from the user's resume", () => {
   let dir;
+  let priorHome;
+  let priorProfile;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "jb-c11-draft-"));
+    /* Hermetic: the ledger must come from this request's resume only,
+     * never the host's saved profile. */
+    priorHome = process.env.HOME;
+    priorProfile = process.env.JOBBORED_PROFILE_PATH;
+    process.env.HOME = dir;
+    process.env.USERPROFILE = dir;
+    process.env.JOBBORED_PROFILE_PATH = join(dir, "profile.json");
   });
   afterEach(async () => {
+    process.env.HOME = priorHome;
+    process.env.USERPROFILE = priorHome;
+    if (priorProfile === undefined) delete process.env.JOBBORED_PROFILE_PATH;
+    else process.env.JOBBORED_PROFILE_PATH = priorProfile;
     await rm(dir, { recursive: true, force: true });
   });
 
   function productionDeps(extra = {}) {
+    const stub = scriptedPipelineFetch();
     return {
       applicationsRoot: dir,
       loadPin: () => ({ provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "" }),
       resolvePin: async (pin) => ({ ...pin, resolvedModel: "gemini-flash" }),
       scrapeJob: async () => ({ description: "carrier network operations analyst scorecard ".repeat(40) }),
-      critic: async () => ({ status: "pass", issues: [] }),
-      pdfRenderer: async () => ({ skipped: true, note: "pdf_skipped" }),
+      fetchImpl: stub.fetchImpl,
+      openSession: null,
       /* Hermetic: never read the host's resolved brand logos. */
       logoLoader: async () => [],
       now: () => new Date("2026-09-25T12:00:00.000Z"),
@@ -208,27 +199,25 @@ describe("C11 drafter drafts from the user's resume", () => {
   }
 
   it("should refuse to enqueue without a resume and write no pending.json", async () => {
-    const drafter = createMaterialsDrafter(productionDeps({ writer: async () => ({}) }));
+    const drafter = createMaterialsDrafter(productionDeps());
     const { resume: _omit, ...noResume } = validBody;
     await assert.rejects(() => drafter.enqueue(noResume), isResumeRequired);
     await assert.rejects(readFile(join(dir, "acme-ops-analyst", "pending.json")));
   });
 
-  it("should send the user's resume text to the writer, never the repo template", async () => {
-    /** @type {Record<string, unknown> | null} */
-    let writerInput = null;
-    const drafter = createMaterialsDrafter(productionDeps({
-      writer: async (input) => {
-        writerInput = input;
-        return { letter: letterJson, resume: resumeJson };
-      },
-    }));
+  it("should send the user's resume claims to the model, never the repo template", async () => {
+    const stub = scriptedPipelineFetch();
+    const drafter = createMaterialsDrafter(productionDeps({ fetchImpl: stub.fetchImpl }));
     await drafter.enqueue(normalizeRequestBody(validBody));
     await drafter.runUntilIdle();
 
-    assert.ok(writerInput, "writer should run");
-    assert.equal(writerInput.resumeText, USER_RESUME_TEXT);
-    assert.doesNotMatch(String(writerInput.masterResumeHtml || ""), /Emilio|Audacy/);
+    assert.ok(stub.calls.length > 0, "model stages should run");
+    const selectCall = stub.calls.find((c) => c.system.includes("select resume claims"));
+    assert.ok(selectCall, "select call issued");
+    assert.match(selectCall.user, /carrier scorecard/);
+    for (const call of stub.calls) {
+      assert.doesNotMatch(call.user, /Emilio|Audacy/);
+    }
 
     const resumeHtml = await readFile(join(dir, "acme-ops-analyst", "resume.html"), "utf8");
     const letterHtml = await readFile(join(dir, "acme-ops-analyst", "cover-letter.html"), "utf8");
@@ -243,11 +232,14 @@ describe("C11 drafter drafts from the user's resume", () => {
   });
 
   it("should record provenance: snapshot on disk, pending.json and the QA report", async () => {
+    const stub = scriptedPipelineFetch();
     let pendingSeen = null;
     const drafter = createMaterialsDrafter(productionDeps({
-      writer: async () => {
-        pendingSeen = JSON.parse(await readFile(join(dir, "acme-ops-analyst", "pending.json"), "utf8"));
-        return { letter: letterJson, resume: resumeJson };
+      fetchImpl: async (url, init) => {
+        if (!pendingSeen) {
+          pendingSeen = JSON.parse(await readFile(join(dir, "acme-ops-analyst", "pending.json"), "utf8"));
+        }
+        return stub.fetchImpl(url, init);
       },
     }));
     await drafter.enqueue(normalizeRequestBody(validBody));

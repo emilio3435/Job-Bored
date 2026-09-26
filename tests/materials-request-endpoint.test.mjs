@@ -74,6 +74,18 @@ describe("normalizeRequestBody", () => {
     });
     assert.equal(out.notes, "line one\nline two");
   });
+
+  it("F9: passes a request-body jobDescription through to the drafter", () => {
+    const jd = `Senior Engineer\n${"Build reliable systems with a senior team. ".repeat(40)}`;
+    const out = normalizeRequestBody({ ...valid, jobDescription: jd });
+    assert.equal(out.jobDescription, jd.trim());
+  });
+
+  it("F9: accepts jdText as an alias and caps the length", () => {
+    const out = normalizeRequestBody({ ...valid, jdText: `  pasted posting ${"x".repeat(100_000)}` });
+    assert.ok(out.jobDescription.startsWith("pasted posting"));
+    assert.ok(out.jobDescription.length <= 60_000, "JD should be capped");
+  });
 });
 
 describe("spawnMaterialsRequest", () => {

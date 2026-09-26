@@ -2,16 +2,16 @@
 
 Canonical cover-letter template extracted from:
 
-`/Users/emiliong/Downloads/Cover Letter PDF Tempalte.zip`
+`~/Downloads/Cover Letter PDF Tempalte.zip`
 
 Installed at:
 
-`/Users/emiliong/.hermes/job-hunt/cover-letter-template/`
+`~/.hermes/job-hunt/cover-letter-template/`
 
 Primary files:
 
 - `cover-letter.html` — canonical cover-letter HTML design source.
-- `resume.html` — bundled matching resume template from the zip; current job-hunt resume canonical remains `/Users/emiliong/.hermes/job-hunt/resume-template/resume.html` unless Emilio changes it.
+- `resume.html` — bundled matching resume template from the zip; current job-hunt resume canonical remains `~/.hermes/job-hunt/resume-template/resume.html` unless the owner changes it.
 - `build.py` — Playwright-based renderer included with the template bundle.
 - `assets/` and `uploads/` — required logos/wordmark assets.
 
@@ -20,7 +20,7 @@ Cover-letter customization rules:
 - Preserve CSS, fonts, palette, logos, masthead, meta block, page shell, footer, and ornamental system.
 - Edit only content slots tagged with `data-slot` or equivalent content-bearing nodes.
 - Do not treat Markdown cover-letter drafts as final deliverables; final Phase 3 cover letters should be HTML and PDF.
-- Pair with `/Users/emiliong/.hermes/job-hunt/phase3-document-quality-gate.md` for QA.
+- Pair with `~/.hermes/job-hunt/phase3-document-quality-gate.md` for QA.
 
 Important slots:
 

@@ -363,7 +363,7 @@ function sentences(text) {
 
 /**
  * @param {Record<string, unknown>} letter
- * @param {{ company?: string, title?: string }} request
+ * @param {{ company?: unknown, title?: unknown }} request
  * @param {Readout[]} resumeReadouts
  * @param {string} nowIso
  */
@@ -420,6 +420,144 @@ function letterDoc(letter, request, resumeReadouts, nowIso) {
  * ------------------------------------------------------------------ */
 
 /**
+ * Build the render model from the v3 pipeline: draft slots, outline,
+ * selection and ledger. Claim ids are the ledger's own; metric runs
+ * trace to ledger claim text (never the resume at large); identity comes
+ * from the user's resume text.
+ *
+ * @param {object} input
+ * @param {Record<string, unknown>} input.draft materials.draft.v1
+ * @param {{ featured?: Array<{ employerId?: unknown, claimIds?: unknown[] }>, earlier?: unknown[], toolsLine?: unknown[] }} input.outline
+ * @param {{ employers?: Array<{ id?: unknown, name?: unknown, title?: unknown, location?: unknown }>, claims?: Array<{ id?: unknown, employerId?: unknown, text?: unknown }> }} input.ledger
+ * @param {string} [input.resumeText] the user's own resume, for identity + contact
+ * @param {{ company?: unknown, title?: unknown }} [input.request]
+ * @param {import("./materials-templates.mjs").TemplateFamily} input.family
+ * @param {ResolvedMark[]} [input.marks]
+ * @param {string} [input.nowIso]
+ * @returns {RenderModel}
+ */
+export function buildRenderModelFromDraft({ draft, outline, ledger, resumeText = "", request = {}, family, marks = [], nowIso }) {
+  const source = String(resumeText || "");
+  const claims = new Map(
+    (ledger.claims || []).filter(isRecord).map((c) => [c.id, c]),
+  );
+  const employers = new Map(
+    (ledger.employers || []).filter(isRecord).map((e) => [e.id, e]),
+  );
+  /* Metric membership corpus: the ledger's own claim texts. */
+  const corpus = [...claims.values()].map((c) => str(c.text)).join("\n");
+  const name = candidateNameFromText(source) || "Candidate";
+  const target = str(request.title) || "Candidate";
+  const ids = templateIdsFor(family);
+
+  const bulletsById = new Map();
+  for (const bullet of Array.isArray(draft.bullets) ? draft.bullets : []) {
+    if (isRecord(bullet) && typeof bullet.claimId === "string") bulletsById.set(bullet.claimId, str(bullet.text));
+  }
+  const earlierById = new Map();
+  for (const line of Array.isArray(draft.earlier) ? draft.earlier : []) {
+    if (isRecord(line) && typeof line.claimId === "string") earlierById.set(line.claimId, str(line.text));
+  }
+
+  /** @type {Entry[]} */
+  const featured = [];
+  for (const group of outline.featured || []) {
+    const employerId = str(group.employerId);
+    const employer = employers.get(employerId);
+    const org = str(employer?.name) || employerId || "Experience";
+    /** @type {Entry} */
+    const entry = { employerId: employerId || slugify(org), meta: [], org };
+    const seat = str(employer?.title);
+    if (seat && seat !== org) entry.seat = tagMetrics(seat, corpus);
+    const location = str(employer?.location);
+    if (location) entry.meta.push(location);
+    const logo = matchMark(marks, { employerId: entry.employerId, org });
+    if (logo) entry.logo = logo;
+    const claimIds = (group.claimIds || []).filter((id) => typeof id === "string");
+    const texts = claimIds.map((id) => bulletsById.get(id) || str(claims.get(id)?.text)).filter(Boolean);
+    if (texts.length >= 2) {
+      entry.bullets = claimIds
+        .filter((id) => bulletsById.get(id) || str(claims.get(id)?.text))
+        .map((id) => ({ claimId: id, runs: tagMetrics(bulletsById.get(id) || str(claims.get(id)?.text), corpus) }));
+    } else if (texts.length === 1) {
+      entry.line = texts[0];
+      entry.claimId = claimIds[0];
+    }
+    featured.push(entry);
+  }
+
+  /** @type {Entry[]} */
+  const earlier = [];
+  for (const id of outline.earlier || []) {
+    if (typeof id !== "string") continue;
+    const claim = claims.get(id);
+    const employerId = str(claim?.employerId);
+    const employer = employers.get(employerId);
+    const org = str(employer?.name) || "Earlier";
+    const text = earlierById.get(id) || str(claim?.text);
+    if (!text) continue;
+    /** @type {Entry} */
+    const entry = {
+      employerId: employerId || slugify(org),
+      meta: [],
+      org,
+      line: text,
+      claimId: id,
+    };
+    const logo = matchMark(marks, { employerId: entry.employerId, org });
+    if (logo) entry.logo = logo;
+    earlier.push(entry);
+  }
+
+  /** @type {Section[]} */
+  const sections = [];
+  const readouts = pickReadouts(featured, MATERIALS_BUDGETS.resume.featuredEmployersMax * 2);
+  if (readouts.length >= 3) sections.push({ kind: "readouts", label: "Verified figures", readouts });
+  if (featured.length) sections.push({ kind: "experience", label: "Experience", entries: featured });
+  if (earlier.length) sections.push({ kind: "earlier", label: "Earlier", entries: earlier });
+  const tools = (outline.toolsLine || []).flatMap((t) => (typeof t === "string" && t ? [t] : []));
+  if (tools.length) {
+    sections.push({ kind: "tokens", label: "Skills", tokens: tools.slice(0, MATERIALS_BUDGETS.resume.tokens[1]) });
+  }
+  if (!sections.some((s) => s.kind === "experience" || s.kind === "earlier" || s.kind === "tokens" || s.kind === "credentials")) {
+    sections.push({ kind: "experience", label: "Experience", entries: [] });
+  }
+
+  const statementRuns = str(draft.statement)
+    ? tagMetrics(str(draft.statement), corpus)
+    : [{ t: target }];
+
+  const letter = isRecord(draft.letter) ? draft.letter : {};
+  const coverLetter = letterDoc(
+    {
+      hook: str(letter.thesis),
+      whyThem: str(letter.analyticsProof),
+      whyMe: str(letter.aiOpsProof),
+      whyNow: str(letter.nextStep),
+      company: str(request.company),
+      role: str(request.title),
+    },
+    request,
+    readouts,
+    nowIso || new Date().toISOString(),
+  );
+  coverLetter.templateId = ids.coverLetter;
+
+  return {
+    contract: "materials.render-model.v1",
+    note: "Built from the claim-ledger pipeline (draft + outline + selection + ledger); claim ids are the ledger's own and metric runs trace to ledger claim text.",
+    template: { family: family.id, version: family.version, pageBudget: MATERIALS_BUDGETS.resume.pages },
+    provenance: { source: "claim-ledger-pipeline" },
+    identity: { name, target, contact: contactFrom([], source) },
+    documents: {
+      resume: { templateId: ids.resume, statement: { runs: statementRuns }, sections },
+      coverLetter,
+    },
+    atsText: { wrap: 78, bulletMarker: "- ", headings: "upper" },
+  };
+}
+
+/**
  * @param {AdapterInput} input
  * @returns {RenderModel}
  */
@@ -458,7 +596,7 @@ export function buildRenderModelFromWriter({ writerJson, resumeText, request = {
 
   return {
     contract: "materials.render-model.v1",
-    note: "Adapted from the v2 writer JSON by server/materials-render-model-adapter.mjs until the claim-ledger pipeline lands; claim ids are synthetic and metric runs are traced to the user's resume text.",
+    note: "Adapted from v2 writer JSON for the sample/visual harness; production drafts flow through the claim-ledger pipeline (buildRenderModelFromDraft) with real claim ids.",
     template: { family: family.id, version: family.version, pageBudget: MATERIALS_BUDGETS.resume.pages },
     provenance: { source: "writer-adapter" },
     identity: { name, target, contact: contactFrom(strList(header.contact), source) },

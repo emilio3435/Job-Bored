@@ -107,6 +107,51 @@ describe("buildRepairRequestPayload", () => {
     assert.match(result.payload.notes, /Additional user notes:\nKeep the first client win\./);
   });
 
+  it("turns a short cover letter into an expand request toward 180 body words", () => {
+    const result = buildRepairRequestPayload({
+      ...baseManifest,
+      quality: {
+        documents: {
+          cover_letter: {
+            status: "review",
+            pageCount: 1,
+            words: 140,
+            pageWords: [140],
+            issues: [
+              { code: "cover_letter_too_short", message: "Cover letter has 140 body words (target 180–260)." },
+            ],
+          },
+        },
+      },
+    }, { feature: "cover_letter" });
+
+    assert.equal(result.payload.feature, "cover_letter");
+    assert.equal(result.repair.strategy, "expand");
+    assert.match(result.payload.notes, /toward 180 body words/);
+  });
+
+  it("collapses by default when no issue names a strategy", () => {
+    for (const feature of ["resume", "cover_letter"]) {
+      const result = buildRepairRequestPayload({
+        ...baseManifest,
+        quality: {
+          documents: {
+            [feature]: {
+              status: "review",
+              pageCount: 1,
+              words: 300,
+              pageWords: [300],
+              issues: [{ code: "some_future_code", message: "Something new." }],
+            },
+          },
+        },
+      }, { feature });
+
+      assert.equal(result.repair.strategy, "collapse");
+      assert.match(result.payload.notes, feature === "resume" ? /Collapse the resume/ : /Tighten the cover letter/);
+    }
+  });
+
   it("rejects unsupported features and artifacts without review issues", () => {
     assert.throws(
       () => buildRepairRequestPayload({

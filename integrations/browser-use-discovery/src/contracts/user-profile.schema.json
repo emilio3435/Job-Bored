@@ -78,6 +78,12 @@
       "maxItems": 12,
       "description": "Soft 'please skip' signals. Free-form English (e.g., 'pure people management', 'enterprise sales')."
     },
+    "writingSamples": {
+      "type": "array",
+      "items": { "type": "string", "minLength": 1, "maxLength": 2000 },
+      "maxItems": 8,
+      "description": "Short excerpts in the user's own voice. Read by the materials drafter as voice samples; never sent to discovery scoring."
+    },
     "experiences": {
       "type": "array",
       "maxItems": 24,
