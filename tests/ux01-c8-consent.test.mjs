@@ -60,13 +60,14 @@ function fuelFetch() {
     if (String(url).includes("__proxy/ping")) {
       return {
         ok: true,
+        status: 200,
         json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }),
       };
     }
     if (String(url).includes("serpapi-check")) {
-      return { ok: true, json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }) };
     }
-    return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+    return { ok: true, status: 200, json: async () => ({ ok: true, phases: [] }) };
   };
 }
 

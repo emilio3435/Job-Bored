@@ -117,26 +117,26 @@ function healingWizardEnv({
     });
     if (String(url).includes("tailscale-state")) {
       if (typeof tailscaleProbe === "function") return tailscaleProbe();
-      return { ok: true, json: async () => tailscale };
+      return { ok: true, status: 200, json: async () => tailscale };
     }
     if (String(url).includes("discovery-webhook-secret")) {
       return secret
-        ? { ok: true, json: async () => secret }
+        ? { ok: true, status: 200, json: async () => secret }
         : { ok: false, json: async () => ({}) };
     }
     if (String(url).includes("discovery-state")) {
-      return { ok: true, json: async () => ({ ok: true, worker: workerState }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, worker: workerState }) };
     }
     if (String(url).includes("discovery-env-key")) {
       if (typeof envKeyImpl === "function") return envKeyImpl(url, opts);
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
     if (String(url).includes("full-boot")) {
       if (typeof bootImpl === "function") return bootImpl(url, opts);
-      return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, phases: [] }) };
     }
     if (String(url).includes("tailscale-serve")) {
-      return { ok: true, json: async () => serve };
+      return { ok: true, status: 200, json: async () => serve };
     }
     return { ok: false, json: async () => ({}) };
   };
@@ -343,20 +343,21 @@ function makeFuelFetch({ checkImpl, pingImpl } = {}) {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
       if (typeof pingImpl === "function") return pingImpl();
-      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) {
       if (typeof checkImpl === "function") return checkImpl();
       return {
         ok: true,
+        status: 200,
         json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }),
       };
     }
     if (String(url).includes("discovery-env-key")) {
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
     if (String(url).includes("full-boot")) {
-      return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, phases: [] }) };
     }
     return { ok: false, json: async () => ({}) };
   };
@@ -490,7 +491,7 @@ describe("B5 C2 · the keyless ping gates the keyed check", () => {
   it("a ping with a non-object body short-circuits without POSTing the key", async () => {
     const env = await saveAndVerify(
       makeFuelFetch({
-        pingImpl: async () => ({ ok: true, json: async () => null }),
+        pingImpl: async () => ({ ok: true, status: 200, json: async () => null }),
       }),
     );
     assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
@@ -500,7 +501,7 @@ describe("B5 C2 · the keyless ping gates the keyed check", () => {
   it("a ping 200 without ok fails closed without POSTing the key", async () => {
     const env = await saveAndVerify(
       makeFuelFetch({
-        pingImpl: async () => ({ ok: true, json: async () => ({}) }),
+        pingImpl: async () => ({ ok: true, status: 200, json: async () => ({}) }),
       }),
     );
     assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
@@ -512,6 +513,7 @@ describe("B5 C2 · the keyless ping gates the keyed check", () => {
       makeFuelFetch({
         checkImpl: async () => ({
           ok: true,
+          status: 200,
           json: async () => ({ ok: false, reason: "invalid_key" }),
         }),
       }),
@@ -530,6 +532,7 @@ describe("B5 C2 · the keyless ping gates the keyed check", () => {
       makeFuelFetch({
         checkImpl: async () => ({
           ok: true,
+          status: 200,
           json: async () => ({ ok: false, reason: "unreachable" }),
         }),
       }),

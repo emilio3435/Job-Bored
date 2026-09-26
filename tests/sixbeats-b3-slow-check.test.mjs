@@ -55,7 +55,7 @@ function messageText(mount) {
 
 async function openAiBeat(verifyProvider) {
   const env = loadArrival({
-    fetchImpl: makeFetchDouble(() => ({ ok: true, json: { ok: true } })),
+    fetchImpl: makeFetchDouble(() => ({ ok: true, status: 200, json: { ok: true } })),
     verifyProvider,
   });
   await env.flow.open("ai");
@@ -194,7 +194,7 @@ describe("C6 · B5 Save & verify — the clock on the fuel write (spec §5 B5)",
     const retry = env.button("oneflow_discovery_fuel_retry");
     assert.ok(retry, "the offer needs a button behind it");
     assert.equal(retry.textContent, "Try again");
-    hang.resolve({ ok: true, json: async () => ({ ok: true }) });
+    hang.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     await running;
   });
 
@@ -206,14 +206,15 @@ describe("C6 · B5 Save & verify — the clock on the fuel write (spec §5 B5)",
       if (String(url).includes("__proxy/ping")) {
         return Promise.resolve({
           ok: true,
+          status: 200,
           json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }),
         });
       }
-      return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     });
     const running = env.act("oneflow_discovery_save_verify");
     await sleep(FAST.stalledAfterMs + FAST.tickMs * 3);
-    hang.resolve({ ok: true, json: async () => ({ ok: true }) });
+    hang.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     await running;
     assert.equal(
       env.beat._internal.state.fuelPassed,
