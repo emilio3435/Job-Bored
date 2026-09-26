@@ -1,0 +1,97 @@
+/* ============================================================
+   css/overlay.css — the shared modal and drawer chassis
+   ------------------------------------------------------------
+   UX01 C4 (DS-07). Every setup overlay (.modal-overlay) and the
+   right-hand detail drawer (.detail-overlay / .detail-drawer)
+   builds on these rules. They used to live in legacy-brief.css
+   and legacy-cards-drawer.css, which is why nobody could tell the
+   live chassis from the dead brief. Linked before css/brief.css
+   and css/cards-drawer.css, where the rules used to sit, so the
+   cascade order is unchanged: every sheet that refines these
+   selectors still loads after them.
+   ============================================================ */
+
+/* --- Modal overlay ---------------------------------------- */
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--jb-z-modal);
+  background: var(--jb-scrim-modal);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: var(--space-4);
+}
+
+/* --- Modal buttons ---------------------------------------- */
+.btn-modal-secondary {
+  padding: var(--space-2) var(--space-4);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: transparent;
+  cursor: pointer;
+  font-size: var(--text-sm);
+  color: var(--text-muted);
+}
+
+.btn-modal-primary {
+  padding: var(--space-2) var(--space-4);
+  border: none;
+  border-radius: var(--radius-md);
+  background: var(--accent);
+  color: var(--jb-on-accent);
+  font-weight: 600;
+  cursor: pointer;
+  font-size: var(--text-sm);
+}
+
+.btn-modal-primary:hover {
+  opacity: 0.92;
+}
+
+/* --- Detail drawer ---------------------------------------- */
+.detail-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: var(--jb-z-drawer);
+  display: flex;
+  justify-content: flex-end;
+}
+
+.detail-overlay__backdrop {
+  position: absolute;
+  inset: 0;
+  background: var(--jb-scrim-drawer);
+  backdrop-filter: blur(2px);
+  -webkit-backdrop-filter: blur(2px);
+  border: none;
+  cursor: pointer;
+  width: 100%;
+  height: 100%;
+}
+
+body.detail-open {
+  overflow: hidden;
+}
+
+.detail-drawer {
+  position: relative;
+  z-index: 1;
+  width: min(780px, 96vw);
+  height: 100%;
+  background: var(--bg);
+  overflow-y: auto;
+  box-shadow: var(--jb-shadow-drawer);
+  animation: drawerSlideIn 240ms var(--ease) both;
+  display: flex;
+  flex-direction: column;
+}
+
+@keyframes drawerSlideIn {
+  from {
+    transform: translateX(100%);
+  }
+  to {
+    transform: translateX(0);
+  }
+}

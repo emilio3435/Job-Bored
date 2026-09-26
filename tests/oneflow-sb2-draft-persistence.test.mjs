@@ -299,6 +299,9 @@ describe("SB2 NEW-6 — a paused flow can always be resumed", () => {
     await env.flow.open("fit");
     await settle();
     env.flow.close("escape");
+    // The close path awaits flushDrafts() before it speaks (GREENFIELD §4.2),
+    // so the pill lands a turn after the call rather than inside it.
+    await settle();
     const resumePill = pill(env);
     assert.ok(
       resumePill,
@@ -318,6 +321,7 @@ describe("SB2 NEW-6 — a paused flow can always be resumed", () => {
     await env.flow.open("fit");
     await settle();
     env.flow.close("escape");
+    await settle();
     pill(env).dispatch("click", {});
     await settle();
     assert.equal(env.openBeat(), "fit");
@@ -335,6 +339,7 @@ describe("SB2 NEW-6 — a paused flow can always be resumed", () => {
     await env.flow.open("fit");
     await settle();
     env.flow.close("escape");
+    await settle();
     assert.equal(
       pill(env),
       null,
@@ -348,6 +353,7 @@ describe("SB2 NEW-6 — a paused flow can always be resumed", () => {
     await env.flow.open("fit");
     await settle();
     env.flow.close("escape");
+    await settle();
     assert.ok(pill(env));
     await env.flow.open("payoff");
     await settle();

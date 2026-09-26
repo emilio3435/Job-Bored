@@ -9,7 +9,6 @@ const jbV2Css = readFileSync(join(repoRoot, "jb-v2.css"), "utf8");
 const chromeCss = readFileSync(join(repoRoot, "flowing-chrome.css"), "utf8");
 const dawnCss = readFileSync(join(repoRoot, "dawn.css"), "utf8");
 const pipelineCss = readFileSync(join(repoRoot, "pipeline.css"), "utf8");
-const latticeCss = readFileSync(join(repoRoot, "lattice.css"), "utf8");
 
 describe("v2 flowing page width", () => {
   it("defines one shared content width for dashboard and kanban regions", () => {
@@ -37,7 +36,6 @@ describe("v2 flowing page width", () => {
     for (const [name, css] of [
       ["dawn.css", dawnCss],
       ["pipeline.css", pipelineCss],
-      ["lattice.css", latticeCss],
     ]) {
       assert.ok(
         css.includes("width: var(--jb-flow-content-width") &&

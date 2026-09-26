@@ -106,13 +106,13 @@ describe("ONEFLOW L3 · B5 copy — the three missing sentences ship verbatim (s
     assert.match(text, /Now the engine: jobs come to you\./);
     assert.match(
       text,
-      /Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline\. Only your search terms leave this machine\. Set up once; it runs itself\./,
+      /Discovery runs on this computer, searches the job boards overnight, scores each role against your fit, and drops the matches into your pipeline\. Only your search terms leave this computer\. Leave this computer on and JobBored running for overnight runs\./,
       "the three missing sentences are normative — the beat exists to say them",
     );
     assert.match(text, /First, the fuel: Google's job index\./);
     assert.match(
       text,
-      /Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100\+ boards at once\. Free key, 100 searches a month — plenty for daily runs\. Three steps, about 60 seconds\./,
+      /Discovery reads job boards directly, but Google's index is the single biggest source — it watches 100\+ boards at once\. The free key covers about 20 runs a month\. Three steps, about 60 seconds\./,
       "the fuel ask opens with what the key buys (voice rule §8.3)",
     );
   });
@@ -329,7 +329,7 @@ describe("ONEFLOW L3 · B5 connect drives the Tailscale auto path (spec §5 B5 p
     assert.deepEqual(rendered[rendered.length - 1], [
       "Checked your machine",
       "Started the discovery worker",
-      "Publishing a private URL on your tailnet",
+      "Making a private link between your devices",
       "Verifying the connection",
     ]);
     assert.deepEqual(

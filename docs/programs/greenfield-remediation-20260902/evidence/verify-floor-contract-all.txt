@@ -1,0 +1,42 @@
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> command-center@0.1.0 test:contract:all
+> npm run test:contract && npm run test:ats-contract && npm run test:pipeline-contract && npm run test:pipeline-update-contract && npm run lint:skills
+
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> command-center@0.1.0 test:contract
+> node scripts/test-contract.mjs
+
+OK schema: examples/discovery-webhook-request.v1.json
+OK schema: examples/discovery-webhook-request.v1-with-profile.json
+OK schema: examples/discovery-webhook-request.v1-preview-parity.json
+OK discovery-payload.js covers schema properties schemas/discovery-webhook-request.v1.schema.json
+OK discovery-readiness.js delegates to discovery-payload.js
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> command-center@0.1.0 test:ats-contract
+> node scripts/test-ats-scorecard-contract.mjs
+
+OK schema (ATS request): examples/ats-scorecard-request.v1.json
+OK schema (ATS response): examples/ats-scorecard-response.v1.json
+OK ats-scorecard.js request builder matches schema for full bundle payload
+OK ats-scorecard.js request builder matches schema for sparse payload
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> command-center@0.1.0 test:pipeline-contract
+> node scripts/test-pipeline-contract.mjs
+
+OK schemas/pipeline-row.v1.json ↔ README.md ↔ app-config-core.js ↔ pipeline-render.js
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> command-center@0.1.0 test:pipeline-update-contract
+> node scripts/test-pipeline-update-contract.mjs
+
+OK schema (pipeline-update request): examples/pipeline-update-request.v1.json
+npm warn Unknown env config "http-proxy". This will stop working in the next major version of npm. See `npm help npmrc` for supported config options.
+
+> command-center@0.1.0 lint:skills
+> node scripts/lint-integration-skills.mjs
+
+OK integrations/openclaw-command-center/SKILL.md

@@ -303,6 +303,10 @@ export function loadArrival(options = {}) {
 
   vm.createContext(ctx);
   const files = [
+    // index.html loads the model catalog before the beats; oneflow-beat-ai.js
+    // resolves a provider's default model from its DEFAULT_MODEL_BY_PROVIDER
+    // table at call time (GREENFIELD D5), so the arrival sandbox needs it.
+    "model-catalog.js",
     "user-content-store.js",
     "onboarding-telemetry.js",
     "discovery-wizard-shell.js",

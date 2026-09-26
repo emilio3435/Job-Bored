@@ -305,7 +305,7 @@
   }
 
   async function callGemini(bundle, apiKey, model) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const body = {
@@ -320,7 +320,7 @@
     try {
       resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify(body),
       });
     } catch (e) {
@@ -548,12 +548,12 @@
       temperature: 0.5,
     };
     if (wantJson) generationConfig.responseMimeType = "application/json";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;
     let resp;
     try {
       resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: "user", parts: [{ text: user }] }],

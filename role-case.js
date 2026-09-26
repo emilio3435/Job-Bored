@@ -60,7 +60,7 @@
     /* The posting's own salary is a scrape, not the user's data: it stands in
        as the placeholder so the empty input reads as a fact the sheet has yet
        to confirm, and the `scrape` tag says where the number came from. */
-    var salaryHint = !id.salary && id.postingSalary ? id.postingSalary : "Salary";
+    var salaryHint = !id.salary && id.postingSalary ? id.postingSalary : "Add salary";
     meta.push(editInput("salary", id.salary, "case__fact-input", "Salary", ' placeholder="' + attr(salaryHint) + '"'));
     if (!id.salary && id.postingSalary) meta.push(src("scrape"));
     if (id.source) meta.push("via " + esc(id.source));
@@ -155,8 +155,13 @@
     /* The same request cannot be issued twice from the same surface: while a
        run is in flight its button IS the chip. */
     if (doc && (doc.status === "pending" || doc.status === "failed")) return inflightChip(doc);
+    /* C12 (TA-06): with the materials server down the button is off, not a
+       promise of a queue nothing will ever read. The Materials section says
+       why and how to start it; the disabled control names the reason too. */
+    var down = m.moves.materialsServer === "down";
     return '<button type="button" class="case__btn' + (primary ? " case__btn--primary" : "") + '" data-action="' + action + '"' +
-      ' aria-label="' + attr(aria) + '">' + esc(label) + "</button>";
+      ' aria-label="' + attr(down ? aria + " (the drafting server isn't running)" : aria) + '"' +
+      (down ? ' disabled aria-describedby="case-materials-server"' : "") + ">" + esc(label) + "</button>";
   }
   function renderDocket(m, stages) {
     var actions = "";
@@ -227,9 +232,14 @@
        score gets the alarm color. */
     if (n.ats) {
       var atsLow = Number(n.ats.value) < 70;
-      tiles.push(tile("ats", "Resume score", src("ai"),
+      /* C13 (TA-13): the score names the document it rates, and which
+         version on which day, so it can never pass for the PDF you send. */
+      var atsDoc = n.ats.doc || "draft";
+      var atsKey = atsDoc.charAt(0).toUpperCase() + atsDoc.slice(1) + " score";
+      var atsSub = "scored " + atsDoc + (n.ats.version ? " v" + n.ats.version : "") + (n.ats.scoredAt ? " · " + n.ats.scoredAt : "");
+      tiles.push(tile("ats", atsKey, src("ai"),
         (atsLow ? '<span class="case__num-v--crimson">' : "<span>") + esc(String(n.ats.value)) + "</span><small>/100</small>",
-        "How well your draft answers this posting", "ai"));
+        esc(atsSub), "ai"));
     }
     if (n.keywords) tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
       '<div class="case__num-k">Keywords ' + src("derived") + '</div><div class="case__num-v">' + esc(String(n.keywords.percentage)) + "<small>%</small></div>" +
@@ -266,10 +276,17 @@
   function marked(list, cls, hasMatch) {
     return list.map(function (it) {
       var st = hasMatch ? it.status : "unknown";
+      /* Spec §3.3: under a found/partial requirement, the profile sentence
+         that answers it. Never on missing/unknown — the model already nulls
+         evidence there, and the renderer re-checks the status. */
+      var ev = hasMatch && (st === "found" || st === "partial") && it.evidence && it.evidence.snippet
+        ? '<span class="case__req-ev">&ldquo;' + esc(it.evidence.snippet) + "&rdquo; <i>from your resume</i></span>" : "";
       return "<li" + (cls ? ' class="' + cls + '"' : "") + ' data-status="' + st + '"><span class="case__m case__m--' + st + '"></span><span>' + esc(it.text) + "</span>" +
-        (hasMatch && st !== "unknown" ? '<span class="case__st">' + esc(st) + "</span>" : "") + "</li>";
+        (hasMatch && st !== "unknown" ? '<span class="case__st">' + esc(st) + "</span>" : "") + ev + "</li>";
     }).join("");
   }
+  function safeId(s) { var v = String(s == null ? "" : s).replace(/[^a-zA-Z0-9_-]+/g, "-"); return v || "case"; }
+  function niceList(list, h) { return '<div class="case__sub">Nice to have</div><ul class="case__req">' + marked(list, "", h) + "</ul>"; }
   /* Section furniture, shared by the canvas and the ledger. The board's three
      lanes had identical weight — same 11px mono title, same 2px rule, nothing
      primary — and the eye picked the leftmost, which was the reference
@@ -289,12 +306,74 @@
     var review = !!(m.provenance && m.provenance.needsReview);
     var html = '<section class="case__section case__section--they">' +
       sectionHead("They want", src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "unverified") : ""));
-    if (!h) html += '<p class="case__hint">Add a resume to see what matches.</p>';
+    /* C11 (TA-15): the sentence that says what is missing is also the way to
+       fix it. Once a resume is on file the hint says matching is on its way. */
+    if (!h) {
+      html += m.moves.resume
+        ? '<p class="case__hint">Matching against your resume…</p>'
+        : '<p class="case__hint"><button type="button" class="case__link" data-action="open-resume">Add your resume</button> to see what matches.</p>';
+    }
     var reqSub = review ? "Requirements · unverified — read these against the posting before you rely on them" : ("Requirements" + (h ? " · vs. your resume" : ""));
-    if (w.requirements.length) html += '<div class="case__sub">' + reqSub + '</div><ul class="case__req">' + marked(w.requirements, "", h) + "</ul>";
-    if (w.stack.length) html += '<div class="case__sub">Stack they name</div><div class="case__chips">' + w.stack.map(function (s) { var st = h ? s.status : "unknown"; return '<span class="case__chip" data-status="' + st + '"><span class="case__m case__m--' + st + '"></span>' + esc(s.text) + (h && st !== "unknown" ? '<span class="case__st case__st--vh">' + esc(st) + "</span>" : "") + "</span>"; }).join("") + "</div>";
-    if (w.niceToHaves.length) html += '<div class="case__sub">Nice to have</div><ul class="case__req">' + marked(w.niceToHaves, "", h) + "</ul>";
+    /* Spec §3.2: the first visibleCount requirements render; the rest sit in
+       .case__more behind a client-state toggle. Nice-to-haves keep their own
+       list but move inside .case__more when collapsed, so the visible lane
+       height stays bounded. At or under the cap there is no disclosure. */
+    var total = w.requirements.length;
+    var visibleCount = typeof w.visibleCount === "number" && w.visibleCount > 0 ? w.visibleCount : 8;
+    var collapsed = total > visibleCount;
+    var moreId = "case-more-" + safeId(m.jobKey);
+    if (total) html += '<div class="case__sub">' + reqSub + '</div><ul class="case__req">' + marked(collapsed ? w.requirements.slice(0, visibleCount) : w.requirements, "", h) + "</ul>";
+    if (collapsed) html += '<div class="case__more" id="' + attr(moreId) + '" hidden><ul class="case__req">' + marked(w.requirements.slice(visibleCount), "", h) + "</ul>";
+    if (w.niceToHaves.length && collapsed) html += niceList(w.niceToHaves, h);
+    if (collapsed) html += "</div>";
+    /* Spec §3.2: twelve chips, then one quiet +N more chip that expands in
+       place — the overflow sits in .case__chips-more under the same
+       client-state pattern as the requirements disclosure. */
+    function chip(s) { var st = h ? s.status : "unknown"; return '<span class="case__chip" data-status="' + st + '"><span class="case__m case__m--' + st + '"></span>' + esc(s.text) + (h && st !== "unknown" ? '<span class="case__st case__st--vh">' + esc(st) + "</span>" : "") + "</span>"; }
+    if (w.stack.length) {
+      html += '<div class="case__sub">Stack they name</div><div class="case__chips">' + w.stack.map(chip).join("");
+      var hiddenCount = w.stackHidden && w.stackHidden.length ? w.stackHidden.length : 0;
+      if (hiddenCount) {
+        var stackId = "case-stack-" + safeId(m.jobKey);
+        html += '<span class="case__chips-more" id="' + attr(stackId) + '" hidden>' + w.stackHidden.map(chip).join("") + "</span>" +
+          '<button type="button" class="case__chip case__chip--more" data-action="toggle-stack" aria-expanded="false" aria-controls="' + attr(stackId) + '" data-collapsed-label="+' + hiddenCount + ' more">+' + hiddenCount + " more</button>";
+      }
+      html += "</div>";
+    }
+    if (w.niceToHaves.length && !collapsed) html += niceList(w.niceToHaves, h);
+    if (collapsed) html += '<button type="button" class="case__more-btn" data-action="toggle-requirements" aria-expanded="false" aria-controls="' + attr(moreId) + '" data-collapsed-label="Show all ' + total + '">Show all ' + total + "</button>";
     return html + "</section>";
+  }
+  /* Spec §4: toggle-requirements and toggle-stack are client-state only — no
+     event, no writeback. role.js is frozen, so the Case binds its own
+     single delegated listener on the mount at render time. */
+  function toggleDisclosure(button, panel) {
+    var expanded = button.getAttribute("aria-expanded") === "true";
+    if (expanded) {
+      panel.setAttribute("hidden", "");
+      button.setAttribute("aria-expanded", "false");
+      button.textContent = button.getAttribute("data-collapsed-label") || button.textContent;
+    } else {
+      panel.removeAttribute("hidden");
+      button.setAttribute("aria-expanded", "true");
+      button.textContent = "Show fewer";
+    }
+  }
+  function onBoardClick(root, event) {
+    var target = event && event.target;
+    var button = target && typeof target.closest === "function"
+      ? target.closest('[data-action="toggle-requirements"], [data-action="toggle-stack"]')
+      : null;
+    if (!button) return;
+    var id = typeof button.getAttribute === "function" ? button.getAttribute("aria-controls") : null;
+    var panel = id && root && typeof root.querySelector === "function" ? root.querySelector("#" + id) : null;
+    if (!panel || typeof panel.removeAttribute !== "function") return;
+    toggleDisclosure(button, panel);
+  }
+  function bindBoardToggles(mountEl) {
+    if (!mountEl || typeof mountEl.addEventListener !== "function" || mountEl.__caseBoardBound) return;
+    mountEl.__caseBoardBound = true;
+    mountEl.addEventListener("click", function (event) { onBoardClick(mountEl, event); });
   }
   /* aria-busy alone is silent: a screen reader announces nothing while the
      enrichment runs. role="status" + aria-live="polite" make the region a
@@ -386,9 +465,12 @@
       '<span class="case__move-v">' + esc(p.nextMove) + "</span></p>" +
       '<dl class="case__rows case__rows--people">' +
       ledgerRow("Contact", editInput("contact", p.contact, "case__v case__v--edit", "Contact", ' placeholder="Add a contact"'), savedMark("contact")) +
-      ledgerRow("Last contact", editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Aug 30"'), savedMark("heardBack")) +
+      ledgerRow("Last contact", editInput("heardBack", p.lastContactAt, "case__v case__v--edit", "Last contact", ' placeholder="Add a date"'), savedMark("heardBack")) +
       ledgerRow("Replied", replySegment(p.replied), savedMark("reply")) +
-      ledgerRow("Follow-up", '<input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date">', savedMark("followupAt")) +
+      /* Spec §3.7: the native date control stays, but its raw mm/dd/yyyy
+         never reads as content — a Not-set sibling shows only while the
+         input's value is empty (see the .case__date CSS rule). */
+      ledgerRow("Follow-up", '<span class="case__date"><input class="case__v case__v--edit" data-action="edit-field" data-field="followupAt" type="date" data-original="' + attr(p.followUpAt) + '" value="' + attr(p.followUpAt) + '" aria-label="Follow-up date"><span class="case__date-empty">Not set</span></span>', savedMark("followupAt")) +
     "</dl></section>";
   }
 
@@ -420,7 +502,8 @@
        something else is in the docket. */
     var canvas = '<div class="case__canvas">' +
       (model.oneLine ? '<blockquote class="case__quote"><span class="case__k">In their words</span>' + esc(model.oneLine) + "</blockquote>" : "") +
-      renderTheyWant(model) + renderYouHave(model) + renderSayThis(model) + renderNotes(model) +
+      renderTheyWant(model) + renderYouHave(model) +
+      renderSayThis(model) + renderNotes(model) +
     "</div>";
     var ledger = '<aside class="case__ledger" aria-label="Role ledger">' +
       renderMaterialsSection() + renderPeople(model) + renderRecord(model) +
@@ -429,8 +512,16 @@
        (SPEC §2): masthead, verdict, docket, then the read. The ledger follows
        the canvas in source order and is never reordered visually, so tab order
        and reading order agree at every width (WCAG 1.3.2, 2.4.3). */
+    /* C12 (TA-18): one inline line for a missing AI provider, in place of the
+       stacked red toasts that covered the docket on every open. */
+    var notice = model.notice
+      ? '<p class="case__notice" role="status">' + esc(model.notice) + "</p>"
+      : "";
+    /* Spec §4 (casefit): the They-want disclosures are client-state only;
+       the Case binds its own single delegated listener on the mount. */
+    bindBoardToggles(mount);
     mount.innerHTML = '<div class="case">' +
-      renderRail(model) + renderVerdict(model) + renderDocket(model, stages) +
+      renderRail(model) + notice + renderVerdict(model) + renderDocket(model, stages) +
       '<div class="case__body">' + canvas + ledger + "</div>" +
     "</div>";
   }

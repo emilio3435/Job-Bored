@@ -46,19 +46,28 @@
    * the session they are looking at.
    */
 
-  /** Normative copy — spec §4. Ship these strings verbatim (§8). */
+  /**
+   * Normative copy — spec §4, revised by UX01 C7 (FR-11). The old deal
+   * promised "about fifteen focused minutes"; the measured happy path is
+   * about 22, and the Google step alone takes 10. The invitation now says
+   * 20–25 minutes and names what the stranger will need before they
+   * commit, so no step later in the flow contradicts it.
+   */
   const INVITATION = Object.freeze({
     headline: "This is your job hunt on autopilot.",
-    // Rendered as three runs so *your* can be emphasized without the
-    // emphasis leaking into the string the spec pins.
-    bodyLead: "Set it up once — about fifteen focused minutes — and roles scored against ",
-    bodyEmphasis: "your",
-    bodyTail: " fit land here every morning.",
+    bodyLead: "Set it up once. It takes ",
+    bodyEmphasis: "about 20–25 minutes",
+    bodyTail: ", and you'll need:",
+    needs: Object.freeze([
+      "a free Google app key, so the Sheet is yours (about 10 min, guided)",
+      "an AI key from OpenRouter or Gemini (2 min)",
+      "your resume, so drafts sound like you",
+    ]),
     privacy:
-      "Your resume and pipeline stay in your Google Sheet and on this machine.",
-    primary: "Make it mine — 15 min, once",
+      "Your resume and pipeline stay in your Google Sheet and on this computer.",
+    primary: "Make it mine",
     secondary: "Poke around first",
-    pill: "Set up JobBored — 15 min ▸",
+    pill: "Set up JobBored — 20–25 min ▸",
   });
 
   /**
@@ -417,6 +426,11 @@
       createEl("span", "", INVITATION.bodyTail),
     );
     card.appendChild(body);
+    const needs = createEl("ul", "oneflow-demo__invite-needs");
+    for (const need of INVITATION.needs) {
+      needs.appendChild(createEl("li", "oneflow-demo__invite-need", need));
+    }
+    card.appendChild(needs);
     card.appendChild(
       createEl("p", "oneflow-demo__invite-privacy", INVITATION.privacy),
     );
@@ -424,7 +438,7 @@
     actions.appendChild(
       buildAction(
         "oneflow-demo__invite-action oneflow-demo__invite-action--primary",
-        INVITATION.primary,
+        primaryLabel(),
         openFlow,
       ),
     );
@@ -432,7 +446,7 @@
       buildAction(
         "oneflow-demo__invite-action oneflow-demo__invite-action--ghost",
         INVITATION.secondary,
-        collapseToPill,
+        pokeAround,
       ),
     );
     card.appendChild(actions);
@@ -477,6 +491,41 @@
     renderAsk();
   }
 
+  /**
+   * UX01 C6 (FR-19): a saved beat turns the primary into "Resume setup —
+   * {beat}", so a paused stranger is not offered the whole deal again.
+   */
+  function primaryLabel() {
+    const ns = window.JobBoredOneFlow;
+    if (ns && typeof ns.resumeLabel === "function") {
+      try {
+        const label = ns.resumeLabel();
+        if (label) return label;
+      } catch (_) {
+        /* fall back to the invitation's own primary */
+      }
+    }
+    return INVITATION.primary;
+  }
+
+  /**
+   * UX01 C6 (FR-02): "Poke around first" once a Sheet exists opens the
+   * user's REAL board — the flow unmounts this overlay and leaves its
+   * resume pill. With no Sheet there is no real board to show, so the
+   * card collapses to the corner pill over the sample, as before.
+   */
+  function pokeAround() {
+    const ns = window.JobBoredOneFlow;
+    if (ns && typeof ns.revealRealBoard === "function") {
+      try {
+        if (ns.revealRealBoard()) return;
+      } catch (e) {
+        console.warn("[JobBored] S0: could not reveal the real board:", e);
+      }
+    }
+    collapseToPill();
+  }
+
   // ---------------------------------------------------------------
   // Exit (spec §4): the first real Sheet row replaces the fixture.
   // ---------------------------------------------------------------
@@ -517,6 +566,16 @@
   async function mount() {
     if (mountEl) return mountEl;
     rows = await loadFixture();
+    // The primary's label reads the saved beat, so the flow state has to
+    // be loaded before the card paints (UX01 C6, FR-19).
+    const ns = window.JobBoredOneFlow;
+    if (ns && typeof ns.loadState === "function") {
+      try {
+        await ns.loadState();
+      } catch (_) {
+        /* no saved state: the invitation's own primary */
+      }
+    }
     // Always open on the invitation: a remembered collapse is what made
     // the founder's cold start a corner pill over an empty page (U1).
     collapsed = false;
@@ -565,6 +624,8 @@
     BOARD,
     STAGE_ORDER,
     loadFixture,
+    primaryLabel,
+    refresh: renderAsk,
     mount,
     unmount,
     isActive,

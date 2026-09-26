@@ -55,6 +55,46 @@ describe("normalizeInline", () => {
   });
 });
 
+describe("Case content validation helpers", () => {
+  it("stripControlTokens removes the live [<|\"|>AI token shapes and trims the result", () => {
+    assert.equal(T.stripControlTokens('[<|"|>AI (Claude'), "AI (Claude");
+    assert.equal(T.stripControlTokens("<|im_start|> user |>"), "user");
+    assert.equal(T.stripControlTokens("[< residue >]"), "residue");
+  });
+
+  it("isFragment applies the one fragment rule to the live strength and gap strings", () => {
+    for (const value of [
+      "P&L management)",
+      "AI (Claude",
+      "Proven omni-channel acumen (eCommerce",
+      "experiential)",
+      "building;",
+      "strategy and",
+    ]) {
+      assert.equal(T.isFragment(value), true, `${JSON.stringify(value)} must be recognized as a fragment`);
+    }
+    for (const value of ["AI", "API", "CRM", "CDP", "SMS", "OpenAI", "Gemini", "Grok", "Llama"]) {
+      assert.equal(T.isFragment(value), false, `${JSON.stringify(value)} is a known tool, not a fragment`);
+    }
+    assert.equal(T.isFragment("Lead cross-functional launch strategy"), false);
+  });
+
+  it("splitHeadingTail separates every live glued posting header from its requirement", () => {
+    assert.deepEqual(T.splitHeadingTail("…performance narrative. Automation & Technology"), {
+      body: "…performance narrative.", heading: "Automation & Technology",
+    });
+    assert.deepEqual(T.splitHeadingTail("…capability edge. Customer Intelligence & CDP"), {
+      body: "…capability edge.", heading: "Customer Intelligence & CDP",
+    });
+    assert.deepEqual(T.splitHeadingTail("…for leadership. Loyalty Program"), {
+      body: "…for leadership.", heading: "Loyalty Program",
+    });
+    assert.deepEqual(T.splitHeadingTail("Build measurable systems. This is an ordinary sentence"), {
+      body: "Build measurable systems. This is an ordinary sentence", heading: "",
+    });
+  });
+});
+
 describe("stripListGlyph", () => {
   it("strips one leading marker of any flavor", () => {
     for (const g of ["- ", "* ", "• ", "· ", "‣ ", "▪ ", "1. ", "12) ", "– ", "— "]) {

@@ -1,0 +1,21 @@
+PRIYA NAIR
+Senior Product Designer, Design Systems
+Denver, CO · Remote or hybrid · priya.nair@example.com
+
+SUMMARY
+Eight years designing and shipping product at B2B SaaS companies. Built and led the design system used by 40+ engineers across three product lines. Comfortable in Figma, React component APIs, and the accessibility review loop.
+
+EXPERIENCE
+Acme Cloud — Senior Product Designer, Design Systems (2022–present)
+- Founded the company design system; reduced UI defect tickets by 38% in the first year.
+- Ran the component API review with frontend leads; every token change ships with a migration note.
+
+Northwind Analytics — Product Designer (2018–2022)
+- Owned onboarding and billing flows; lifted trial-to-paid conversion from 6.1% to 9.4%.
+- Partnered with research on 60+ customer interviews.
+
+SKILLS
+Figma, design tokens, React, Storybook, WCAG 2.2, usability testing, cross-functional facilitation
+
+TARGET
+Senior or Staff Product Designer roles on design systems or platform teams. Remote-first preferred; Denver hybrid acceptable. Salary floor $180,000.

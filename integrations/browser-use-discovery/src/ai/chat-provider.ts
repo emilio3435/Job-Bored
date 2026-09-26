@@ -1,4 +1,10 @@
 import type { WorkerRuntimeConfig } from "../config.ts";
+// The worker speaks the server's one provider module (BEAUDIT E15): one enum,
+// one transport, one ProviderApiError taxonomy with redacted upstream bodies.
+// @ts-expect-error JS provider module has JSDoc, no sibling .d.mts (server typecheck covers it)
+import { chat as sharedChat, MAX_PROVIDER_TIMEOUT_MS, normalizeProvider } from "../../../../server/ai/provider.mjs";
+// @ts-expect-error JS provider module has JSDoc, no sibling .d.mts (server typecheck covers it)
+export { chat, normalizeProvider, PROVIDERS, ProviderApiError, providerHttpError, providerRequestError, resolveProvider } from "../../../../server/ai/provider.mjs";
 
 export type WorkerChatProviderName =
   | "gemini"
@@ -51,30 +57,14 @@ export function readRuntimeConfigString(
   return "";
 }
 
+/**
+ * Shared enum: "local", "ollama" and the other historical spellings are
+ * openai_compatible. Returns "" for anything the worker cannot call.
+ */
 export function normalizeWorkerChatProviderName(
   raw: string,
 ): WorkerChatProviderName | "" {
-  const value = raw.trim().toLowerCase();
-  if (value === "gemini") return "gemini";
-  if (value === "openai" || value === "open_ai" || value === "open-ai") {
-    return "openai";
-  }
-  if (value === "anthropic") return "anthropic";
-  if (value === "openrouter" || value === "open_router" || value === "open-router") {
-    return "openrouter";
-  }
-  if (
-    value === "openai_compatible" ||
-    value === "openai-compatible" ||
-    value === "openai compatible" ||
-    value === "compatible"
-  ) {
-    return "openai_compatible";
-  }
-  if (value === "local" || value === "local_openai" || value === "local-openai") {
-    return "local";
-  }
-  return "";
+  return normalizeProvider(raw) as WorkerChatProviderName | "";
 }
 
 export function resolveWorkerChatProvider(
@@ -133,29 +123,6 @@ export function resolveWorkerChatProvider(
   return null;
 }
 
-async function fetchJson(input: {
-  fetchImpl: FetchImpl;
-  endpoint: string;
-  headers: Record<string, string>;
-  body: Record<string, unknown>;
-  signal?: AbortSignal;
-  providerLabel: string;
-}): Promise<unknown> {
-  const response = await input.fetchImpl(input.endpoint, {
-    method: "POST",
-    headers: input.headers,
-    signal: input.signal,
-    body: JSON.stringify(input.body),
-  });
-  if (!response.ok) {
-    const errorText = await response.text().catch(() => "");
-    throw new Error(
-      `${input.providerLabel} HTTP ${response.status}${errorText ? `: ${errorText.slice(0, 200)}` : ""}`,
-    );
-  }
-  return response.json().catch(() => null);
-}
-
 export async function callWorkerChatProvider(input: {
   provider: WorkerChatProviderConfig;
   messages: WorkerChatMessage[];
@@ -164,93 +131,37 @@ export async function callWorkerChatProvider(input: {
   temperature?: number;
   maxTokens?: number;
   responseSchema?: Record<string, unknown>;
+  timeoutMs?: number;
 }): Promise<WorkerChatCallResult> {
-  const fetchImpl = input.fetchImpl || globalThis.fetch;
-  const temperature = input.temperature ?? 0.1;
-  const maxTokens = input.maxTokens ?? 1024;
-
-  if (input.provider.provider === "gemini") {
-    const payload = await fetchJson({
-      fetchImpl,
-      endpoint: input.provider.endpoint,
-      providerLabel: "Gemini",
-      headers: {
-        "content-type": "application/json",
-        "x-goog-api-key": input.provider.apiKey,
-      },
-      signal: input.signal,
-      body: {
-        systemInstruction: {
-          parts: [{ text: joinSystemMessages(input.messages) }],
-        },
-        contents: input.messages
-          .filter((message) => message.role !== "system")
-          .map((message) => ({
-            role: message.role === "assistant" ? "model" : "user",
-            parts: [{ text: message.content }],
-          })),
-        generationConfig: {
-          temperature,
-          maxOutputTokens: maxTokens,
-          ...(input.responseSchema
-            ? {
-                responseMimeType: "application/json",
-                responseSchema: input.responseSchema,
-              }
-            : {}),
-        },
-      },
-    });
-    return { payload, text: extractGeminiText(payload) };
-  }
-
-  if (input.provider.provider === "anthropic") {
-    const payload = await fetchJson({
-      fetchImpl,
-      endpoint: input.provider.endpoint,
-      providerLabel: "Anthropic",
-      headers: {
-        "content-type": "application/json",
-        "x-api-key": input.provider.apiKey,
-        "anthropic-version": "2023-06-01",
-      },
-      signal: input.signal,
-      body: {
-        model: input.provider.model,
-        max_tokens: maxTokens,
-        temperature,
-        system: joinSystemMessages(input.messages),
-        messages: input.messages
-          .filter((message) => message.role !== "system")
-          .map((message) => ({
-            role: message.role === "assistant" ? "assistant" : "user",
-            content: message.content,
-          })),
-      },
-    });
-    return { payload, text: extractAnthropicText(payload) };
-  }
-
-  const headers: Record<string, string> = {
-    "content-type": "application/json",
-  };
-  if (input.provider.apiKey) {
-    headers.authorization = `Bearer ${input.provider.apiKey}`;
-  }
-  const payload = await fetchJson({
-    fetchImpl,
-    endpoint: input.provider.endpoint,
-    providerLabel: providerLabel(input.provider.provider),
-    headers,
-    signal: input.signal,
-    body: {
+  const provider =
+    normalizeWorkerChatProviderName(input.provider.provider) || "openai_compatible";
+  const result = await sharedChat({
+    pin: {
+      provider,
+      alias: "",
       model: input.provider.model,
-      messages: input.messages,
-      temperature,
-      max_tokens: maxTokens,
+      apiKey: input.provider.apiKey,
+      baseUrl: "",
+      endpoint: input.provider.endpoint,
+      configured: true,
+      reason: "",
     },
+    endpoint: input.provider.endpoint,
+    messages: input.messages,
+    // The worker's schemas are Gemini responseSchema shapes (optional fields,
+    // no additionalProperties:false). OpenAI strict json_schema and Anthropic
+    // output_config reject them, so other providers keep the pre-E15 mode:
+    // JSON described in the prompt, no provider-side schema.
+    schema: provider === "gemini" ? input.responseSchema : undefined,
+    signal: input.signal,
+    // Worker calls were bounded only by the caller's signal; keep the shared
+    // ceiling so a slow local model is not cut off at the 30 s default.
+    timeoutMs: input.timeoutMs ?? MAX_PROVIDER_TIMEOUT_MS,
+    temperature: input.temperature ?? 0.1,
+    maxTokens: input.maxTokens ?? 1024,
+    fetchImpl: input.fetchImpl,
   });
-  return { payload, text: extractOpenAiCompatibleText(payload) };
+  return { payload: result.payload, text: String(result.text || "").trim() };
 }
 
 function buildProvider(
@@ -444,80 +355,4 @@ function chatCompletionsEndpoint(baseUrl: string): string {
   if (!normalized) return "";
   if (/\/chat\/completions$/i.test(normalized)) return normalized;
   return `${normalized}/chat/completions`;
-}
-
-function joinSystemMessages(messages: WorkerChatMessage[]): string {
-  return messages
-    .filter((message) => message.role === "system")
-    .map((message) => message.content.trim())
-    .filter(Boolean)
-    .join("\n\n");
-}
-
-function providerLabel(provider: WorkerChatProviderName): string {
-  if (provider === "openrouter") return "OpenRouter";
-  if (provider === "openai_compatible") return "OpenAI-compatible";
-  if (provider === "local") return "Local OpenAI-compatible";
-  if (provider === "openai") return "OpenAI";
-  if (provider === "anthropic") return "Anthropic";
-  return "Gemini";
-}
-
-function isPlainRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-function extractGeminiText(payload: unknown): string {
-  if (!isPlainRecord(payload)) return "";
-  const candidates = Array.isArray(payload.candidates) ? payload.candidates : [];
-  for (const candidate of candidates) {
-    if (!isPlainRecord(candidate)) continue;
-    const content = isPlainRecord(candidate.content) ? candidate.content : null;
-    const parts = content && Array.isArray(content.parts) ? content.parts : [];
-    const text = parts
-      .map((part) =>
-        isPlainRecord(part) && typeof part.text === "string" ? part.text : "",
-      )
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    if (text) return text;
-  }
-  return "";
-}
-
-function extractOpenAiCompatibleText(payload: unknown): string {
-  if (!isPlainRecord(payload)) return "";
-  const choices = Array.isArray(payload.choices) ? payload.choices : [];
-  for (const choice of choices) {
-    if (!isPlainRecord(choice)) continue;
-    const message = isPlainRecord(choice.message) ? choice.message : null;
-    const content = message?.content;
-    if (typeof content === "string" && content.trim()) return content.trim();
-    if (Array.isArray(content)) {
-      const text = content
-        .map((part) => {
-          if (typeof part === "string") return part;
-          if (isPlainRecord(part) && typeof part.text === "string") return part.text;
-          return "";
-        })
-        .filter(Boolean)
-        .join("\n")
-        .trim();
-      if (text) return text;
-    }
-  }
-  return "";
-}
-
-function extractAnthropicText(payload: unknown): string {
-  if (!isPlainRecord(payload)) return "";
-  const content = Array.isArray(payload.content) ? payload.content : [];
-  return content
-    .map((part) =>
-      isPlainRecord(part) && typeof part.text === "string" ? part.text : "",
-    )
-    .filter(Boolean)
-    .join("\n")
-    .trim();
 }

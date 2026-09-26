@@ -5,6 +5,8 @@ export type ScrapeJobPostingOptions = {
   geminiModel?: string;
   title?: string;
   company?: string;
+  /** Route signal (E11): aborts the Gemini URL Context lane when the client leaves. */
+  signal?: AbortSignal;
 };
 
 export type ScrapeJobPostingResult = {

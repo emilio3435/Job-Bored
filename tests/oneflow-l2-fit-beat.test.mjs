@@ -143,4 +143,28 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     assert.equal(env.completions.length, 1);
     assert.equal(env.completions[0].edited, false);
   });
+
+  it("UX01 FD-26: the drawer's exclude keywords carry the avoids as well as skip titles", async () => {
+    const env = renderBeat();
+    const discoveryWrites = [];
+    env.window.CommandCenterUserContent.saveDiscoveryProfile = async (payload) => {
+      discoveryWrites.push(payload);
+      return payload;
+    };
+    env.window.COMMAND_CENTER_CONFIG = { jobBoredApiUrl: "https://api.example.test/" };
+    env.window.fetch = async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { ok: true };
+      },
+    });
+
+    await env.beat.onAction("confirm-fit", env.ctx);
+
+    assert.equal(discoveryWrites.length, 1);
+    const excludes = discoveryWrites[0].keywordsExclude.split(",").map((s) => s.trim());
+    assert.ok(excludes.includes("intern"), "skip titles stay excluded");
+    assert.ok(excludes.includes("quota sales"), "avoids reach Keywords to exclude");
+  });
 });

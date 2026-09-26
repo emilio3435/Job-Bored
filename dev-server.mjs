@@ -5,6 +5,7 @@ import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
+import { gzipSync } from "node:zlib";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 import {
@@ -742,7 +743,53 @@ function writeStaticGuardResponse(res, status) {
   res.end(message);
 }
 
-async function serveStatic(urlPath, res, { dashboardConfigPath } = {}) {
+// AX-26: text assets go out gzipped when the client accepts it. Fonts and
+// images are already compressed, so they stay identity. Tiny bodies skip it
+// because the gzip header outweighs the saving.
+const GZIP_MIN_BYTES = 1024;
+
+export function isCompressibleContentType(contentType) {
+  const ct = String(contentType || "").toLowerCase();
+  return (
+    ct.startsWith("text/") ||
+    ct.includes("javascript") ||
+    ct.includes("json") ||
+    ct.includes("svg") ||
+    ct.includes("xml")
+  );
+}
+
+export function acceptsGzip(acceptEncoding) {
+  return String(acceptEncoding || "")
+    .split(",")
+    .some((part) => {
+      const [name, ...params] = part.trim().toLowerCase().split(";");
+      if (name !== "gzip" && name !== "*") return false;
+      const q = params.map((p) => p.trim()).find((p) => p.startsWith("q="));
+      return !q || Number(q.slice(2)) > 0;
+    });
+}
+
+function sendStaticBody(req, res, contentType, body, dashboardConfigPath) {
+  const headers = {
+    "content-type": contentType,
+    "cache-control": "no-cache",
+    ...dashboardSecurityHeaders(dashboardConfigPath),
+  };
+  let payload = body;
+  if (isCompressibleContentType(contentType)) {
+    headers.vary = "Accept-Encoding";
+    const bytes = Buffer.isBuffer(body) ? body : Buffer.from(body, "utf8");
+    if (bytes.length >= GZIP_MIN_BYTES && acceptsGzip(req && req.headers && req.headers["accept-encoding"])) {
+      payload = gzipSync(bytes);
+      headers["content-encoding"] = "gzip";
+    }
+  }
+  res.writeHead(200, headers);
+  res.end(payload);
+}
+
+async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
   const resolved = await resolvePublicFile(urlPath, { root: ROOT });
   if (!resolved.ok) {
     writeStaticGuardResponse(res, resolved.status || 404);
@@ -763,21 +810,11 @@ async function serveStatic(urlPath, res, { dashboardConfigPath } = {}) {
       if (/<!--\s*@include\s+/.test(data)) {
         data = expandIndexIncludes(data, ROOT);
       }
-      res.writeHead(200, {
-        "content-type": ct,
-        "cache-control": "no-cache",
-        ...dashboardSecurityHeaders(dashboardConfigPath),
-      });
-      res.end(data);
+      sendStaticBody(req, res, ct, data, dashboardConfigPath);
       return;
     }
     const data = await readFile(filePath);
-    res.writeHead(200, {
-      "content-type": ct,
-      "cache-control": "no-cache",
-      ...dashboardSecurityHeaders(dashboardConfigPath),
-    });
-    res.end(data);
+    sendStaticBody(req, res, ct, data, dashboardConfigPath);
   } catch {
     writeStaticGuardResponse(res, 404);
   }
@@ -2754,7 +2791,7 @@ function createRequestHandler({
     const ts = new Date().toLocaleTimeString();
     log(`  HTTP  ${ts} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
 
-    serveStatic(pathname, res, { dashboardConfigPath }).then(() => {
+    serveStatic(pathname, res, { req, dashboardConfigPath }).then(() => {
       log(`  HTTP  ${ts} ${req.socket.remoteAddress} Returned ${res.statusCode} in ${0} ms`);
     });
   };

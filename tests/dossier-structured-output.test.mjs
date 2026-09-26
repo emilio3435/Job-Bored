@@ -49,6 +49,8 @@ function loadValidator() {
   });
   ctx.globalThis = ctx;
   ctx.window = ctx;
+  vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
+  assert.equal(typeof ctx.window.JobBoredText.stripControlTokens, "function", "jb-text must load before the validator");
   vm.runInContext(src, ctx, { filename: "structured-output-validator.js" });
   const api = ctx.JobBoredStructuredOutput || ctx.window.JobBoredStructuredOutput;
   assert.ok(api, "structured-output-validator.js must expose JobBoredStructuredOutput");
@@ -93,8 +95,9 @@ function loadInsightsWithValidator() {
   };
   vm.createContext(ctx);
   ctx.globalThis = ctx;
-  vm.runInContext(validatorSrc, ctx, { filename: "structured-output-validator.js" });
   vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
+  assert.equal(typeof ctx.window.JobBoredText.stripControlTokens, "function", "jb-text must load before the validator");
+  vm.runInContext(validatorSrc, ctx, { filename: "structured-output-validator.js" });
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
   return ctx.window.CommandCenterJobPostingInsights;
 }
@@ -111,6 +114,10 @@ function renderCase(enrichment, { withValidator = true } = {}) {
     isClosed: (v) => v === "rejected",
   };
   const sandbox = { window: {} };
+  vm.runInNewContext(readFileSync(join(repoRoot, "jb-text.js"), "utf8"), sandbox, {
+    filename: "jb-text.js",
+  });
+  assert.equal(typeof sandbox.window.JobBoredText.stripControlTokens, "function", "jb-text must load before the Case model");
   if (withValidator) {
     try {
       vm.runInNewContext(readFileSync(validatorPath, "utf8"), sandbox, {
@@ -121,7 +128,7 @@ function renderCase(enrichment, { withValidator = true } = {}) {
     }
   }
   /* Trap 2: jb-text.js before the model and the renderer. */
-  for (const file of ["jb-text.js", "role-case-model.js", "role-case.js"]) {
+  for (const file of ["role-case-model.js", "role-case.js"]) {
     vm.runInNewContext(readFileSync(join(repoRoot, file), "utf8"), sandbox, { filename: file });
   }
   const Case = sandbox.window.JobBoredCase;
@@ -141,6 +148,19 @@ function renderCase(enrichment, { withValidator = true } = {}) {
 }
 
 describe("F3A-DOSSIER02-STRUCT — validator strips delimiter pollution", () => {
+  it("drops the live control-token fragments and marks the list polluted", () => {
+    const api = loadValidator();
+    const cleaned = api.cleanList([
+      '[<|"|>AI (Claude',
+      "P&L management)",
+      "Proven omni-channel acumen (eCommerce",
+      "experiential)",
+      '[<|"|>Lead campaign strategy across channels',
+    ]);
+    assert.deepEqual(Array.from(cleaned.items), ["Lead campaign strategy across channels"]);
+    assert.equal(cleaned.polluted, true, "stripped tokens and dropped fragments must remain visible in provenance");
+  });
+
   it("does not treat fence, XML, chat, and field-name tokens as requirements", () => {
     const api = loadValidator();
     const cleaned = api.validateEnrichment(fixture.parsedPolluted);
@@ -201,7 +221,7 @@ describe("F3A-DOSSIER02-STRUCT — validator strips delimiter pollution", () => 
       atsFitRationale: "Strong evidence.",
       fitAngle: "Activation maps.",
       talkingPoints: ["Show the lift."],
-      extraKeywords: ["growth"],
+      extraKeywords: ["Growth strategy"],
     };
     const out = api.validateEnrichment(clean);
     assert.equal(out.reviewState.status, "ok");

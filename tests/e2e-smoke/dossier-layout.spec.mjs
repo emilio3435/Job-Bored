@@ -186,8 +186,13 @@ const measure = () => {
     }
   }
 
-  /* What a sibling flow region resolves to at this viewport. */
-  const pipeline = document.querySelector('[data-region="pipeline"]');
+  /* What the flow column resolves to at this viewport. UX01 C18 made the
+     dossier its own view, so the pipeline region is display:none while a
+     role is open; the dossier's own region is the same flow column. */
+  const pipeline = document.createElement("div");
+  pipeline.style.width = "var(--jb-flow-content-width)";
+  pipeline.style.height = "0";
+  document.body.appendChild(pipeline);
   const docket = frame.querySelector(".case__docket");
   const canvas = frame.querySelector(".case__canvas");
   const ledger = frame.querySelector(".case__ledger");
@@ -197,7 +202,7 @@ const measure = () => {
     viewport: window.innerWidth,
     frameWidth: round(frame.getBoundingClientRect().width),
     frameOverflowX: frameStyle.overflowX,
-    pipelineWidth: rect(pipeline),
+    pipelineWidth: (() => { const w = rect(pipeline); pipeline.remove(); return w; })(),
     docketPosition: docket ? getComputedStyle(docket).position : "",
     docketTopPx: docket ? round(parseFloat(getComputedStyle(docket).top)) : null,
     canvasWidth: rect(canvas),
@@ -246,7 +251,7 @@ test("the dossier holds every track at 1280 and 1440", async ({ page }) => {
     expect(at.selfOverflow, `nothing may overflow its own box at ${width}`).toEqual([]);
     expect(at.shredded, `no label may be shredded mid-word at ${width}`).toEqual([]);
 
-    /* TEARDOWN §4: the frame was 104px narrower than the pipeline above it. */
+    /* TEARDOWN §4: the frame was 104px narrower than the flow column. */
     expect(
       Math.abs(at.frameWidth - at.pipelineWidth),
       `the dossier frame must match the pipeline region at ${width} (frame ${at.frameWidth}, pipeline ${at.pipelineWidth})`,

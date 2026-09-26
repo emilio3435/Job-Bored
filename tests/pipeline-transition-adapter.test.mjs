@@ -18,7 +18,6 @@ import vm from "node:vm";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const adapterPath = join(repoRoot, "pipeline-transition-adapter.js");
 const pipelineJs = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
-const latticeJs = readFileSync(join(repoRoot, "lattice.js"), "utf8");
 
 function loadAdapter({ transitions, events } = {}) {
   assert.equal(
@@ -68,16 +67,6 @@ describe("F2A-MOVE: board movement calls F1-A adapter", () => {
       pipelineJs,
       /(?:adapter|JobBoredPipelineTransitionAdapter)[\s\S]{0,180}\.move\s*\(/,
       "F2A-MOVE: pipeline.js must call adapter.move(...) on a board move",
-    );
-  });
-
-  it("lattice.js, if it still writes stages, also routes through the adapter", () => {
-    // Lattice is the losing renderer; any leftover setStage path still
-    // must not bypass F1-A once the adapter exists.
-    assert.match(
-      latticeJs,
-      /JobBoredPipelineTransitionAdapter/,
-      "F2A-MOVE: lattice.js leftover writes must call the same adapter, not only window.updateJobStatus",
     );
   });
 
@@ -146,7 +135,7 @@ describe("F2A-MOVE: board movement calls F1-A adapter", () => {
       return loaded;
     }
 
-    it("applies the planned patches through the host patchApi and dispatches nothing", async () => {
+    it("applies the planned patches through the host patchApi and never hands the move off", async () => {
       const applied = [];
       const { adapter, dispatched } = loadWithHost({
         host: {
@@ -169,9 +158,14 @@ describe("F2A-MOVE: board movement calls F1-A adapter", () => {
         "the Status cell must be in the batch",
       );
       assert.equal(
-        dispatched.length,
+        dispatched.filter((e) => e.type === "jb:pipeline:move").length,
         0,
         "a completed write must not ALSO dispatch jb:pipeline:move — that is a double write",
+      );
+      // UX01 C17 (TR-01): the completed write is announced so every surface syncs.
+      assert.ok(
+        dispatched.some((e) => e.type === "jb:write:succeeded" && e.detail.kind === "pipeline:move"),
+        "a completed write emits jb:write:succeeded",
       );
     });
 

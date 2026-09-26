@@ -20,6 +20,15 @@ function load() {
   return sandbox.window.JobBoredCase.model;
 }
 
+function loadForCollect(seed) {
+  const sandbox = { window: seed };
+  vm.runInNewContext(readFileSync(join(repoRoot, "jb-text.js"), "utf8"), sandbox, { filename: "jb-text.js" });
+  assert.equal(typeof sandbox.window.JobBoredText.normalizeInline, "function", "jb-text must load first");
+  vm.runInNewContext(readFileSync(join(repoRoot, "recruiter-strip.js"), "utf8"), sandbox, { filename: "recruiter-strip.js" });
+  vm.runInNewContext(readFileSync(join(repoRoot, "role-case-model.js"), "utf8"), sandbox, { filename: "role-case-model.js" });
+  return sandbox.window.JobBoredCase.model;
+}
+
 /* The model is assembled inside the vm realm, so its arrays/objects are not
    reference-equal to this realm's intrinsics. Round-trip through JSON so
    assert.deepEqual compares values, not prototypes (same idiom as
@@ -54,7 +63,7 @@ function baseDeps(over = {}) {
     keywords: { percentage: 74, foundCount: 12, partialCount: 4, missingTerms: [{ label: "Kubernetes" }],
       byLabel: new Map([["5+ years design systems", "found"], ["wcag 2.2", "found"], ["react", "found"], ["storybook", "partial"], ["mentoring", "missing"]]) },
     scorecard: { result: { overallScore: 82, topStrengths: ["Led a11y guild"], evidence: [{ claim: "Token pipeline", sourceSnippet: "Built a token pipeline", sourceType: "resume" }],
-      criticalGaps: [{ gap: "Experimentation", whyItMatters: "Named twice", severity: "high" }],
+      criticalGaps: [{ gap: "Experimentation measurement gap", whyItMatters: "Named twice", severity: "high" }],
       dimensionScores: { requirementsCoverage: 84, experienceRelevance: 88, impactClarity: 72, atsParseability: 90, toneFit: 78 } }, storedAt: "2026-08-30T00:00:00Z" },
     manifest: { documents: [
       { type: "resume", label: "Tailored resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] },
@@ -86,21 +95,20 @@ describe("buildCaseModel", () => {
   it("demotes markdown in the one-liner and marks requirements from keyword analysis", () => {
     const m = build(baseDeps());
     assert.equal(m.oneLine, "Design infrastructure that ships.");
-    assert.deepEqual(m.theyWant.requirements, [{ text: "5+ years design systems", status: "found" }, { text: "WCAG 2.2", status: "found" }]);
+    assert.deepEqual(m.theyWant.requirements, [{ text: "5+ years design systems", status: "found", evidence: null }, { text: "WCAG 2.2", status: "found", evidence: null }]);
     /* P0-0 changed this line: the "Design Systems" tag is covered by the
        analyzer's "5+ years design systems" term, which the resume matched.
        `unknown` here was the exact-lookup bug, not the intended answer. */
     assert.deepEqual(m.theyWant.stack.map((s) => s.status), ["found", "partial", "found"]); // React, Storybook, Design Systems(tag)
     assert.equal(m.theyWant.hasMatchData, true);
   });
-  it("uses the scorecard for YOU HAVE and falls back to keywords without one", () => {
+  it("uses the scorecard for YOU HAVE and returns none without one", () => {
     const with_ = build(baseDeps());
     assert.equal(with_.youHave.source, "scorecard");
     assert.equal(with_.youHave.gaps[0].severity, "high");
     assert.equal(with_.youHave.dimensions.length, 5);
     const without = build(baseDeps({ scorecard: null }));
-    assert.equal(without.youHave.source, "keywords");
-    assert.deepEqual(without.youHave.gaps.map((g) => g.gap), ["Kubernetes"]);
+    assert.deepEqual(without.youHave, { source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [] });
   });
   it("builds a dated record with future steps hollow", () => {
     const m = build(baseDeps());
@@ -121,6 +129,120 @@ describe("buildCaseModel", () => {
   it("collapses terminal stages", () => {
     const m = build(baseDeps({ vm: { job: { ...baseDeps().vm.job, stage: "rejected" } } }));
     assert.equal(m.stage.terminal, true);
+  });
+});
+
+describe("They-want schema delta", () => {
+  it("ranks requirements missing → partial → found → unknown, stably", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 1,
+      partialCount: 1,
+      missingTerms: [{ label: "automation" }, { label: "loyalty" }],
+      uniqueTerms: [
+        { label: "performance narrative", status: "found" },
+        { label: "capability edge", status: "partial" },
+        { label: "automation", status: "missing" },
+        { label: "loyalty", status: "missing" },
+      ],
+    } });
+    d.vm.job.requirements = [
+      "Own the performance narrative",
+      "Build a capability edge",
+      "Lead an unknown workstream",
+      "Build automation systems",
+      "Grow the loyalty program",
+    ];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+
+    const m = build(d);
+    assert.deepEqual(m.theyWant.requirements.map((item) => item.status), ["missing", "missing", "partial", "found", "unknown"]);
+    assert.deepEqual(m.theyWant.requirements.map((item) => item.text), [
+      "Build automation systems",
+      "Grow the loyalty program",
+      "Build a capability edge",
+      "Own the performance narrative",
+      "Lead an unknown workstream",
+    ]);
+    assert.ok(m.theyWant.requirements.every((item) => item.evidence === null));
+    assert.equal(m.theyWant.visibleCount, 8);
+  });
+
+  it("drops Automation & Technology, Customer Intelligence & CDP, and Loyalty Program header tails", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 1,
+      partialCount: 1,
+      missingTerms: [{ label: "leadership" }],
+      uniqueTerms: [
+        { label: "performance narrative", status: "found" },
+        { label: "capability edge", status: "partial" },
+        { label: "leadership", status: "missing" },
+      ],
+    } });
+    d.vm.job.requirements = [
+      "…performance narrative. Automation & Technology",
+      "…capability edge. Customer Intelligence & CDP",
+      "…for leadership. Loyalty Program",
+    ];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+
+    assert.deepEqual(build(d).theyWant.requirements, [
+      { text: "…for leadership.", status: "missing", evidence: null },
+      { text: "…capability edge.", status: "partial", evidence: null },
+      { text: "…performance narrative.", status: "found", evidence: null },
+    ]);
+  });
+
+  it("dedupes the live API/APIs and AI/AI integrations chips before the 12-chip cap", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 2,
+      partialCount: 0,
+      missingTerms: [{ label: "apis" }, { label: "ai integrations" }],
+      uniqueTerms: [
+        { label: "API", status: "found" },
+        { label: "APIs", status: "missing" },
+        { label: "AI", status: "found" },
+        { label: "AI integrations", status: "missing" },
+      ],
+    } });
+    d.vm.job.skills = [];
+    d.vm.job.tags = [];
+    d.vm.job.enrichment = {
+      mustHaves: [], niceToHaves: [],
+      toolsAndStack: ["API", "APIs", "AI", "AI integrations", "CRM", "CDP", "SMS", "Figma", "OpenAI", "Gemini", "Grok", "Llama", "React", "Storybook", "Node.js"],
+    };
+
+    const stack = build(d).theyWant;
+    assert.equal(stack.stack.length, 12);
+    assert.deepEqual(stack.stackHidden.map((item) => item.text), ["Node.js"]);
+    assert.equal(stack.stack.filter((item) => /^apis?$/i.test(item.text)).length, 1);
+    assert.equal(stack.stack.find((item) => item.text === "API").status, "found", "the strongest API/APIs status survives");
+    assert.equal(stack.stack.some((item) => item.text === "AI"), false);
+    assert.equal(stack.stack.find((item) => item.text === "AI integrations").status, "found", "the strongest nested-chip status survives");
+    assert.equal(stack.stack.some((item) => item.text === "CRM"), true);
+  });
+
+  it("attaches the resume sentence only to found and partial requirements", () => {
+    const foundEvidence = { snippet: "Built multi-model AI integrations in production.", source: "Experience" };
+    const partialEvidence = { snippet: "Led lifecycle automation for a national retailer.", source: "profile" };
+    const d = baseDeps({ keywords: {
+      percentage: 50, foundCount: 1, partialCount: 1, missingTerms: [{ label: "CDP" }],
+      uniqueTerms: [
+        { label: "AI integrations", status: "found", evidence: foundEvidence },
+        { label: "lifecycle automation", status: "partial", evidence: partialEvidence },
+        { label: "CDP", status: "missing", evidence: null },
+      ],
+    } });
+    d.vm.job.requirements = ["Own AI integrations", "Lead lifecycle automation", "Operate a CDP", "Manage vendor strategy"];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+
+    const byText = new Map(build(d).theyWant.requirements.map((item) => [item.text, item]));
+    assert.deepEqual(byText.get("Own AI integrations").evidence, foundEvidence);
+    assert.deepEqual(byText.get("Lead lifecycle automation").evidence, partialEvidence);
+    assert.equal(byText.get("Operate a CDP").evidence, null);
+    assert.equal(byText.get("Manage vendor strategy").evidence, null);
   });
 });
 
@@ -278,7 +400,7 @@ describe("day counts are local calendar days (P0-0d)", () => {
   });
 });
 
-describe("the keyword fallback claims nothing it was not told (P0-7, P0-10)", () => {
+describe("the keyword analyzer never becomes a claims lane (P0-7, P0-10)", () => {
   function fallbackDeps() {
     const d = baseDeps({ scorecard: null, keywords: {
       percentage: 50, foundCount: 2, partialCount: 0,
@@ -288,16 +410,87 @@ describe("the keyword fallback claims nothing it was not told (P0-7, P0-10)", ()
     } });
     return d;
   }
-  it("emits no severity for a gap no engine graded (P0-7)", () => {
-    const g = build(fallbackDeps()).youHave.gaps[0];
-    assert.equal(g.gap, "Kubernetes");
-    assert.ok(!g.severity, `the fallback must not invent a severity, got ${JSON.stringify(g.severity)}`);
-  });
-  it("renders the term's own casing, not the lowercased map key (P0-10)", () => {
-    assert.deepEqual(build(fallbackDeps()).youHave.strengths, ["WCAG 2.2", "Figma design systems"]);
+  it("returns source none and no display claims when no scorecard exists", () => {
+    assert.deepEqual(build(fallbackDeps()).youHave, {
+      source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [],
+    });
   });
   it("keeps the scorecard's own severity untouched", () => {
     assert.equal(build(baseDeps()).youHave.gaps[0].severity, "high");
+  });
+});
+
+describe("scorecard claim quality", () => {
+  it("drops the live noun/fragment strengths and collapses prefix-duplicate gaps to the longest claim", () => {
+    const d = baseDeps();
+    d.scorecard.result.topStrengths = [
+      "P&L management)", "CRM", "AI", "API", "APIs", "AI integrations",
+      '[<|"|>AI (Claude',
+      "Led global lifecycle automation",
+      "Built AI routing systems",
+    ];
+    d.scorecard.result.criticalGaps = [
+      { gap: "Proven omni-channel acumen (eCommerce, physical retail, and experient…", whyItMatters: "Long fragment", severity: "high" },
+      { gap: "Proven omni-channel acumen (eCommerce", whyItMatters: "Mid fragment", severity: "medium" },
+      { gap: "experiential)", whyItMatters: "Tail fragment", severity: "low" },
+      { gap: "Limited lifecycle automation", whyItMatters: "Short duplicate", severity: "low" },
+      { gap: "Limited lifecycle automation across global brands", whyItMatters: "Actionable gap", severity: "high" },
+      { gap: "Missing enterprise experimentation evidence", whyItMatters: "Actionable gap", severity: "medium" },
+    ];
+
+    const have = build(d).youHave;
+    assert.deepEqual(have.strengths, ["Led global lifecycle automation", "Built AI routing systems"]);
+    assert.deepEqual(have.gaps.map((item) => item.gap), [
+      "Limited lifecycle automation across global brands",
+      "Missing enterprise experimentation evidence",
+    ]);
+    assert.equal(have.gaps[0].severity, "high", "the longest gap retains its own scorecard metadata");
+  });
+});
+
+describe("sheet talking-point uniqueness", () => {
+  const boilerplate = "Lead with AI systems experience — multi-model routing, RAG, GCP deploy";
+
+  it("collectDeps counts normalized column-Q points by row and reads the sheet once", () => {
+    let reads = 0;
+    const row = (points) => {
+      const cells = Array(17).fill("");
+      cells[16] = points;
+      return cells;
+    };
+    const seed = {
+      JobBoredApp: {
+        core: {
+          getJobByStableKey: () => ({ jobKey: "job-1" }),
+          getPipelineRawRows: () => {
+            reads += 1;
+            return [
+              row(`${boilerplate}\nAsk about roadmap ownership; quantify scope`),
+              row(`${boilerplate}; Show customer proof`),
+              row("Show customer proof · Show customer proof"),
+            ];
+          },
+        },
+      },
+      JobBoredDawn: { data: { getRoleViewModel: () => ({ job: {} }) } },
+      JobBoredStages: stages,
+    };
+
+    const deps = loadForCollect(seed).collectDeps("job-1");
+    assert.equal(reads, 1);
+    assert.equal(deps.sheetPointCounts.get(boilerplate.toLowerCase()), 2);
+    assert.equal(deps.sheetPointCounts.get("ask about roadmap ownership; quantify scope"), 1, "newlines make semicolons content");
+    assert.equal(deps.sheetPointCounts.get("show customer proof"), 2, "duplicates inside one row count once");
+  });
+
+  it("drops repeated sheet boilerplate but never filters enrichment points", () => {
+    const d = baseDeps({ sheetPointCounts: new Map([[boilerplate.toLowerCase(), 3]]) });
+    d.vm.job.enrichment = { ...d.vm.job.enrichment, talkingPoints: [] };
+    d.vm.job.talkingPoints = [boilerplate, "Ask about this role's lifecycle roadmap"];
+    assert.deepEqual(build(d).moves.talkingPoints, ["Ask about this role's lifecycle roadmap"]);
+
+    d.vm.job.enrichment.talkingPoints = [boilerplate];
+    assert.deepEqual(build(d).moves.talkingPoints, [boilerplate], "enrichment prose is role-specific and bypasses sheet filtering");
   });
 });
 

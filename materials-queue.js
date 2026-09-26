@@ -255,8 +255,29 @@
     });
   }
 
+  /* UX01 C12 (TA-22): the fixed dock covered the Download PDF the user was
+     waiting for. While a dossier is open the docket's in-flight chip already
+     carries the run, so the dock steps aside; it comes back on close. */
+  function setDossierOpen(open) {
+    var region = doc.querySelector(REGION_SELECTOR);
+    if (!region) return;
+    if (open) region.setAttribute("data-dossier-open", "true");
+    else region.removeAttribute("data-dossier-open");
+  }
+
+  function openRoleKey() {
+    var flow = root.JobBoredFlowing && root.JobBoredFlowing.openRole;
+    var key = flow && typeof flow.get === "function" ? flow.get() : null;
+    return key == null ? "" : String(key);
+  }
+
   function start() {
     wireDelegate();
+    setDossierOpen(!!openRoleKey());
+    if (typeof root.addEventListener === "function") {
+      root.addEventListener("jb:role:opened", function () { setDossierOpen(true); });
+      root.addEventListener("jb:role:closed", function () { setDossierOpen(false); });
+    }
     refresh();
     schedule();
     /* Local elapsed ticker — independent of the network poll so the

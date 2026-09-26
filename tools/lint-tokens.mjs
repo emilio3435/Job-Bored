@@ -1,85 +1,41 @@
 #!/usr/bin/env node
-// tools/lint-tokens.mjs
-// Zero-dependency CSS token-drift linter for the JobBored swarm refactor.
-// Flags raw hex literals in v2 CSS files and tells authors to use --jb-* tokens.
+// tools/lint-tokens.mjs — `npm run lint:tokens` (UX01 C2, DS-15).
+//
+// Zero-dependency CSS token linter. tokens-v2.css is the one place design
+// values live; this keeps it that way. For every stylesheet index.html links
+// (tokens-v2.css excepted) it reports:
+//   color          a colour literal (hex, rgb(), rgba(), hsl(), hsla()) in a
+//                  declaration value, other than a var(--jb-*, <fallback>)
+//   undefined-var  var(--name) with no fallback where --name is defined in no
+//                  CSS file and set by no JS/HTML in the repo
+//   braces         an unbalanced { } (always fatal, never baselined)
+//
+// Existing debt is frozen in tools/lint-tokens.baseline.json as per-file
+// counts, so only NEW literals fail. Burn debt down, then run
+// `npm run lint:tokens -- --update-baseline` to lower the counts.
 
-import { readFileSync, readdirSync } from 'node:fs';
+import { readFileSync, readdirSync, writeFileSync, existsSync } from 'node:fs';
 import { join, relative, basename, resolve } from 'node:path';
 import process from 'node:process';
 
 /**
  * @typedef {{ path: string, line: number, col: number, hex: string }} Finding
+ * @typedef {{ path: string, line: number, literal: string }} ColorFinding
+ * @typedef {{ path: string, line: number, name: string }} VarFinding
+ * @typedef {Record<string, Record<string, Record<string, number>>>} Counts
+ * @typedef {{ file: string, kind: string, key: string, count: number, allowed: number }} FreshFinding
  */
 
-const SKIP_DIRS = new Set(['node_modules', '.git', 'uploads', 'evidence']);
-const ALLOW_LIST = new Set([
-  'style.css',
-  'settings-tabs.css',
-  'tokens.css',
-  'tokens-v2.css',
-]);
+const SKIP_DIRS = new Set(['node_modules', '.git', 'uploads', 'evidence', '.worktrees', 'docs', 'test-results', 'playwright-report', 'coverage']);
+const SOURCE_FILES = new Set(['tokens-v2.css']);
+export const DEFAULT_BASELINE = 'tools/lint-tokens.baseline.json';
 const HEX_RE = /#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b/gi;
-const JB_TOKEN_HEX_FALLBACK_RE =
-  /var\(\s*--jb-[a-z0-9-]+\s*,\s*(#(?:[0-9a-f]{8}|[0-9a-f]{6}|[0-9a-f]{4}|[0-9a-f]{3})\b)\s*\)/gi;
-const V2_MARKER = 'body.jb-v2';
-const V2_HEAD_LINES = 200;
-
-/**
- * Recursively collect all .css files under root, skipping SKIP_DIRS.
- * @param {string} root
- * @returns {string[]}
- */
-function walkCss(root) {
-  /** @type {string[]} */
-  const out = [];
-  /** @param {string} dir */
-  const visit = (dir) => {
-    let entries;
-    try {
-      entries = readdirSync(dir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-    for (const ent of entries) {
-      if (ent.isDirectory()) {
-        if (SKIP_DIRS.has(ent.name)) continue;
-        visit(join(dir, ent.name));
-      } else if (ent.isFile() && ent.name.endsWith('.css')) {
-        out.push(join(dir, ent.name));
-      }
-    }
-  };
-  visit(root);
-  return out;
-}
-
-/**
- * True if a CSS file should be scanned.
- * Matches jb-*.css, pipeline-cards.css, scorecard.css, empty-states.css,
- * or any *.css whose first 200 lines mention `body.jb-v2`.
- * @param {string} filePath
- * @returns {boolean}
- */
-export function shouldScan(filePath) {
-  const name = basename(filePath);
-  if (ALLOW_LIST.has(name)) return false;
-  if (!name.endsWith('.css')) return false;
-  if (/^jb-.*\.css$/i.test(name)) return true;
-  if (
-    name === 'pipeline-cards.css' ||
-    name === 'scorecard.css' ||
-    name === 'empty-states.css'
-  ) {
-    return true;
-  }
-  let head = '';
-  try {
-    head = readFileSync(filePath, 'utf8').split('\n').slice(0, V2_HEAD_LINES).join('\n');
-  } catch {
-    return false;
-  }
-  return head.includes(V2_MARKER);
-}
+const FUNC_RE = /\b(?:rgba?|hsla?)\(\s*[^()]*\)/gi;
+const COLOR_RE = new RegExp(`${HEX_RE.source}|${FUNC_RE.source}`, 'gi');
+const JB_FALLBACK_RE = /var\(\s*--jb-[a-z0-9-]+\s*,\s*((?:#[0-9a-f]{3,8}\b)|(?:(?:rgba?|hsla?)\([^()]*\)))\s*\)/gi;
+const VAR_RE = /var\(\s*(--[a-z0-9_-]+)\s*([,)])/gi;
+const DEF_RE = /(--[a-z0-9_-]+)\s*:/gi;
+const JS_DEF_RE = /['"`](--[a-z0-9_-]+)['"`]|(--[a-z0-9_-]+)\s*:/gi;
 
 /**
  * Replace every character inside /* ... *​/ comments with spaces, preserving
@@ -95,9 +51,7 @@ export function stripComments(src) {
     if (i + 1 < n && src[i] === '/' && src[i + 1] === '*') {
       const end = src.indexOf('*/', i + 2);
       const stop = end === -1 ? n : end + 2;
-      for (let j = i; j < stop; j++) {
-        out += src[j] === '\n' ? '\n' : ' ';
-      }
+      for (let j = i; j < stop; j++) out += src[j] === '\n' ? '\n' : ' ';
       i = stop;
     } else {
       out += src[i];
@@ -107,57 +61,265 @@ export function stripComments(src) {
   return out;
 }
 
+/** @param {string} src */
+function blankStrings(src) {
+  return src.replace(/(["'])(?:\\.|(?!\1)[^\\\n])*\1/g, (m) => m[0] + ' '.repeat(m.length - 2) + m[0]);
+}
+
+/** @param {string} src @param {number} index */
+function lineOf(src, index) {
+  let line = 1;
+  for (let i = 0; i < index; i++) if (src.charCodeAt(i) === 10) line++;
+  return line;
+}
+
+/** True when the match at `index` sits in a selector (a `{` comes before any `;` or `}`). */
+function inSelector(src, index) {
+  for (let i = index; i < src.length; i++) {
+    const c = src[i];
+    if (c === '{') return true;
+    if (c === ';' || c === '}') return false;
+  }
+  return false;
+}
+
+/** @param {string} src */
+function fallbackOffsets(src) {
+  const set = new Set();
+  JB_FALLBACK_RE.lastIndex = 0;
+  let m;
+  while ((m = JB_FALLBACK_RE.exec(src)) !== null) set.add(m.index + m[0].indexOf(m[1]));
+  return set;
+}
+
+/** @param {string} literal */
+export function normalizeLiteral(literal) {
+  return literal
+    .toLowerCase()
+    .replace(/\s*,\s*/g, ',')
+    .replace(/\(\s+/g, '(')
+    .replace(/\s+\)/g, ')')
+    .replace(/\s+/g, ' ');
+}
+
 /**
- * Find raw hex color literals in source (with comments already stripped).
- * @param {string} src
+ * Raw hex literals (kept for the R6-TOKEN-01 contract).
+ * @param {string} src comments already stripped
  * @param {string} relPath
  * @returns {Finding[]}
  */
 export function findHexInSource(src, relPath) {
-  /** @type {Finding[]} */
-  const findings = [];
-  const tokenFallbackOffsets = new Set();
-  JB_TOKEN_HEX_FALLBACK_RE.lastIndex = 0;
-  let fallbackMatch;
-  while ((fallbackMatch = JB_TOKEN_HEX_FALLBACK_RE.exec(src)) !== null) {
-    tokenFallbackOffsets.add(
-      fallbackMatch.index + fallbackMatch[0].indexOf(fallbackMatch[1]),
-    );
-  }
-  const lines = src.split('\n');
-  let lineOffset = 0;
-  for (let li = 0; li < lines.length; li++) {
-    const line = lines[li];
-    HEX_RE.lastIndex = 0;
-    let m;
-    while ((m = HEX_RE.exec(line)) !== null) {
-      if (tokenFallbackOffsets.has(lineOffset + m.index)) continue;
-      findings.push({
-        path: relPath,
-        line: li + 1,
-        col: m.index + 1,
-        hex: m[0],
-      });
-    }
-    lineOffset += line.length + 1;
-  }
-  return findings;
+  return findColorLiterals(src, relPath)
+    .filter((f) => f.literal.startsWith('#'))
+    .map((f) => ({ path: f.path, line: f.line, col: f.col, hex: f.raw }));
 }
 
-/** Linter that scans CSS files for raw hex literals outside comments. */
+/**
+ * Colour literals in declaration values.
+ * @param {string} src comments already stripped
+ * @param {string} relPath
+ * @returns {(ColorFinding & { col: number, raw: string })[]}
+ */
+export function findColorLiterals(src, relPath) {
+  const skip = fallbackOffsets(src);
+  const out = [];
+  COLOR_RE.lastIndex = 0;
+  let m;
+  while ((m = COLOR_RE.exec(src)) !== null) {
+    if (skip.has(m.index)) continue;
+    if (m[0].startsWith('#') && inSelector(src, m.index)) continue;
+    const line = lineOf(src, m.index);
+    const col = m.index - src.lastIndexOf('\n', m.index - 1);
+    out.push({ path: relPath, line, col, raw: m[0], literal: normalizeLiteral(m[0]) });
+  }
+  return out;
+}
+
+/**
+ * Custom properties defined in CSS sources.
+ * @param {string[]} sources
+ * @returns {Set<string>}
+ */
+export function collectDefinedProps(sources) {
+  const set = new Set();
+  for (const s of sources) {
+    DEF_RE.lastIndex = 0;
+    let m;
+    while ((m = DEF_RE.exec(s)) !== null) set.add(m[1]);
+  }
+  return set;
+}
+
+/**
+ * var(--x) with no fallback where --x is not defined.
+ * @param {string} src comments already stripped
+ * @param {string} relPath
+ * @param {Set<string>} defined
+ * @returns {VarFinding[]}
+ */
+export function findUndefinedVars(src, relPath, defined) {
+  const out = [];
+  VAR_RE.lastIndex = 0;
+  let m;
+  while ((m = VAR_RE.exec(src)) !== null) {
+    if (m[2] === ',') continue;
+    if (defined.has(m[1])) continue;
+    out.push({ path: relPath, line: lineOf(src, m.index), name: m[1] });
+  }
+  return out;
+}
+
+/**
+ * @param {string} src comments already stripped
+ * @param {string} relPath
+ * @returns {{ path: string, message: string } | null}
+ */
+export function checkBraces(src, relPath) {
+  const clean = blankStrings(src);
+  let depth = 0;
+  for (let i = 0; i < clean.length; i++) {
+    if (clean[i] === '{') depth++;
+    else if (clean[i] === '}') {
+      depth--;
+      if (depth < 0) return { path: relPath, message: `unbalanced braces: stray } at line ${lineOf(clean, i)}` };
+    }
+  }
+  return depth === 0 ? null : { path: relPath, message: `unbalanced braces: ${depth} unclosed {` };
+}
+
+/**
+ * Local stylesheets index.html links, in order.
+ * @param {string} root
+ * @returns {string[]}
+ */
+export function linkedStylesheets(root) {
+  const html = readFileSync(join(root, 'index.html'), 'utf8');
+  const out = [];
+  const re = /<link\b[^>]*>/gi;
+  let m;
+  while ((m = re.exec(html)) !== null) {
+    const tag = m[0];
+    if (!/rel\s*=\s*["']stylesheet["']/i.test(tag)) continue;
+    const href = /href\s*=\s*["']([^"']+)["']/i.exec(tag)?.[1];
+    if (!href || /^(?:[a-z]+:)?\/\//i.test(href)) continue;
+    const clean = href.replace(/^\.\//, '').split(/[?#]/)[0];
+    if (!out.includes(clean)) out.push(clean);
+  }
+  return out;
+}
+
+/** @param {string} root @param {(name: string) => boolean} accept */
+function walk(root, accept) {
+  /** @type {string[]} */
+  const out = [];
+  const visit = (dir) => {
+    let entries;
+    try {
+      entries = readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+    for (const ent of entries) {
+      if (ent.isDirectory()) {
+        if (SKIP_DIRS.has(ent.name) || ent.name.startsWith('.')) continue;
+        visit(join(dir, ent.name));
+      } else if (ent.isFile() && accept(ent.name)) {
+        out.push(join(dir, ent.name));
+      }
+    }
+  };
+  visit(root);
+  return out;
+}
+
+/**
+ * Every custom property the repo defines: CSS declarations anywhere, plus
+ * names JS/HTML sets (setProperty('--x'), style="--x: …").
+ * @param {string} root
+ */
+function repoDefinedProps(root) {
+  const css = walk(root, (n) => n.endsWith('.css')).map((p) => stripComments(readFileSync(p, 'utf8')));
+  const defined = collectDefinedProps(css);
+  for (const p of walk(root, (n) => /\.(?:m?js|html)$/.test(n))) {
+    let src;
+    try {
+      src = readFileSync(p, 'utf8');
+    } catch {
+      continue;
+    }
+    JS_DEF_RE.lastIndex = 0;
+    let m;
+    while ((m = JS_DEF_RE.exec(src)) !== null) defined.add(m[1] || m[2]);
+  }
+  return defined;
+}
+
+/**
+ * @param {Counts} counts
+ * @param {{ files?: Counts }} baseline
+ * @returns {FreshFinding[]}
+ */
+export function diffAgainstBaseline(counts, baseline) {
+  const base = baseline?.files || {};
+  /** @type {FreshFinding[]} */
+  const fresh = [];
+  for (const file of Object.keys(counts).sort()) {
+    for (const kind of Object.keys(counts[file]).sort()) {
+      for (const [key, count] of Object.entries(counts[file][kind])) {
+        const allowed = base[file]?.[kind]?.[key] || 0;
+        if (count > allowed) fresh.push({ file, kind, key, count, allowed });
+      }
+    }
+  }
+  return fresh;
+}
+
+/**
+ * Lint the linked sheets under `root` against a baseline.
+ * @param {string} root
+ * @param {{ baseline?: { files?: Counts }, files?: string[] }} [opts]
+ */
+export function lintRepo(root, opts = {}) {
+  const files = (opts.files || linkedStylesheets(root)).filter((f) => !SOURCE_FILES.has(basename(f)));
+  const defined = repoDefinedProps(root);
+  /** @type {Counts} */
+  const counts = {};
+  const braces = [];
+  /** @type {Record<string, (ColorFinding|VarFinding)[]>} */
+  const locations = {};
+  for (const file of files) {
+    const abs = resolve(root, file);
+    if (!existsSync(abs)) continue;
+    const rel = relative(root, abs);
+    const src = stripComments(readFileSync(abs, 'utf8'));
+    const b = checkBraces(src, rel);
+    if (b) braces.push(b);
+    const entry = { color: {}, 'undefined-var': {} };
+    const locs = [];
+    for (const f of findColorLiterals(src, rel)) {
+      entry.color[f.literal] = (entry.color[f.literal] || 0) + 1;
+      locs.push(f);
+    }
+    for (const f of findUndefinedVars(src, rel, defined)) {
+      entry['undefined-var'][f.name] = (entry['undefined-var'][f.name] || 0) + 1;
+      locs.push(f);
+    }
+    counts[rel] = entry;
+    locations[rel] = locs;
+  }
+  const fresh = diffAgainstBaseline(counts, opts.baseline || { files: {} });
+  return { ok: fresh.length === 0 && braces.length === 0, fresh, braces, counts, locations, scanned: files.length };
+}
+
+/** Legacy class API: raw-hex scan of explicit paths. */
 export class TokenLinter {
   constructor() {
     /** @type {Finding[]} */
     this.findings = [];
   }
 
-  /**
-   * Scan the provided absolute file paths.
-   * @param {string[]} paths
-   * @returns {{ findings: Finding[], scanned: number }}
-   */
+  /** @param {string[]} paths */
   scan(paths) {
-    /** @type {Finding[]} */
     const findings = [];
     let scanned = 0;
     for (const p of paths) {
@@ -168,118 +330,83 @@ export class TokenLinter {
         continue;
       }
       scanned++;
-      const stripped = stripComments(raw);
-      const rel = relative(process.cwd(), p) || p;
-      findings.push(...findHexInSource(stripped, rel));
+      findings.push(...findHexInSource(stripComments(raw), relative(process.cwd(), p) || p));
     }
     this.findings = findings;
     return { findings, scanned };
   }
 }
 
-/**
- * Parse argv into a small options object.
- * @param {string[]} argv
- */
-function parseArgs(argv) {
-  const opts = {
-    json: false,
-    quiet: false,
-    help: false,
-    /** @type {string[]} */
-    paths: [],
-  };
-  for (let i = 0; i < argv.length; i++) {
-    const a = argv[i];
-    if (a === '--help' || a === '-h') opts.help = true;
-    else if (a === '--json') opts.json = true;
-    else if (a === '--quiet') opts.quiet = true;
-    else if (a === '--paths') {
-      while (i + 1 < argv.length && !argv[i + 1].startsWith('--')) {
-        opts.paths.push(argv[++i]);
-      }
-    }
-  }
-  return opts;
+/** Kept for callers of the pre-C2 API: true for any .css that is not a token source. */
+export function shouldScan(filePath) {
+  const name = basename(filePath);
+  return name.endsWith('.css') && !SOURCE_FILES.has(name);
 }
 
 const USAGE = `Usage: lint-tokens.mjs [options]
 
-Walks the repo from CWD and flags raw hex literals in v2-scope CSS files.
+Lints every stylesheet index.html links (tokens-v2.css excepted) for colour
+literals, var() of undefined tokens without a fallback, and unbalanced braces.
+Counts above ${DEFAULT_BASELINE} fail.
 
 Options:
-  --paths <a.css> <b.css>  Lint only the listed files (skips discovery).
-  --json                   Print JSON array of findings, no human output.
-  --quiet                  Print only the final tally line.
-  --help, -h               Show this help and exit 0.
-
-Exit code: 0 when no findings, 1 when one or more raw hex literals were found.
+  --baseline <file>     Baseline to compare against (default ${DEFAULT_BASELINE}).
+  --update-baseline     Rewrite the baseline to the current counts, exit 0.
+  --json                Print the result as JSON.
+  --help, -h            Show this help and exit 0.
 `;
 
-/**
- * CLI entry point.
- * @returns {Promise<number>}
- */
-export async function main() {
-  const opts = parseArgs(process.argv.slice(2));
-  if (opts.help) {
+export async function main(argv = process.argv.slice(2), root = process.cwd()) {
+  if (argv.includes('--help') || argv.includes('-h')) {
     process.stdout.write(USAGE);
     return 0;
   }
-  /** @type {string[]} */
-  let targets;
-  if (opts.paths.length > 0) {
-    targets = opts.paths.map((p) => resolve(process.cwd(), p));
-  } else {
-    targets = walkCss(process.cwd()).filter((p) => shouldScan(p));
-  }
-  const linter = new TokenLinter();
-  const { findings, scanned } = linter.scan(targets);
-  if (opts.json) {
-    process.stdout.write(JSON.stringify(findings) + '\n');
-  } else if (opts.quiet) {
-    process.stdout.write(`${findings.length} findings across ${scanned} file(s)\n`);
-  } else {
-    for (const f of findings) {
-      process.stdout.write(
-        `${f.path}:${f.line}:${f.col}  ${f.hex}  (raw hex; use a --jb-* token instead)\n`,
-      );
+  const bi = argv.indexOf('--baseline');
+  const baselinePath = resolve(root, bi >= 0 ? argv[bi + 1] : DEFAULT_BASELINE);
+  const baseline = existsSync(baselinePath) ? JSON.parse(readFileSync(baselinePath, 'utf8')) : { files: {} };
+  const result = lintRepo(root, { baseline });
+
+  if (argv.includes('--update-baseline')) {
+    if (result.braces.length) {
+      for (const b of result.braces) process.stderr.write(`${b.path}: ${b.message}\n`);
+      return 1;
     }
-    process.stdout.write(`${findings.length} findings across ${scanned} file(s)\n`);
+    const files = {};
+    for (const [file, kinds] of Object.entries(result.counts)) {
+      const keep = {};
+      for (const [kind, map] of Object.entries(kinds)) {
+        if (Object.keys(map).length) keep[kind] = Object.fromEntries(Object.entries(map).sort(([a], [b]) => a.localeCompare(b)));
+      }
+      if (Object.keys(keep).length) files[file] = keep;
+    }
+    const doc = {
+      note: 'Frozen token debt for npm run lint:tokens. Counts may only go down. Regenerate with: npm run lint:tokens -- --update-baseline',
+      files,
+    };
+    writeFileSync(baselinePath, JSON.stringify(doc, null, 2) + '\n');
+    process.stdout.write(`baseline written: ${relative(root, baselinePath)} (${Object.keys(files).length} files)\n`);
+    return 0;
   }
-  return findings.length === 0 ? 0 : 1;
+
+  if (argv.includes('--json')) {
+    process.stdout.write(JSON.stringify({ ok: result.ok, fresh: result.fresh, braces: result.braces }) + '\n');
+    return result.ok ? 0 : 1;
+  }
+  for (const b of result.braces) process.stdout.write(`${b.path}: ${b.message}\n`);
+  for (const f of result.fresh) {
+    const where = (result.locations[f.file] || [])
+      .filter((l) => ('literal' in l ? l.literal : l.name) === f.key)
+      .map((l) => l.line)
+      .join(', ');
+    const hint = f.kind === 'color' ? 'use a --jb-* token from tokens-v2.css' : 'define it in tokens-v2.css or add a fallback';
+    process.stdout.write(`${f.file}:${where}  ${f.kind} ${f.key}  (${f.count} > baseline ${f.allowed}; ${hint})\n`);
+  }
+  process.stdout.write(
+    `lint:tokens ${result.ok ? 'ok' : 'FAILED'}: ${result.scanned} sheet(s), ${result.fresh.length} new finding(s), ${result.braces.length} brace error(s)\n`,
+  );
+  return result.ok ? 0 : 1;
 }
 
-if (process.env.NODE_TEST) {
-  const { test } = await import('node:test');
-  const assertMod = await import('node:assert');
-  const assert = assertMod.default ?? assertMod;
-
-  test('clean string with var(--jb-*) only → 0 findings', () => {
-    const src = '.x { color: var(--jb-fg); background: var(--jb-bg-1); }';
-    const stripped = stripComments(src);
-    const findings = findHexInSource(stripped, 'mem.css');
-    assert.strictEqual(findings.length, 0);
-  });
-
-  test('raw hex outside comment → 1 finding', () => {
-    const src = '.x { color: #abc; }';
-    const stripped = stripComments(src);
-    const findings = findHexInSource(stripped, 'mem.css');
-    assert.strictEqual(findings.length, 1);
-    assert.strictEqual(findings[0].hex.toLowerCase(), '#abc');
-    assert.strictEqual(findings[0].line, 1);
-  });
-
-  test('hex inside /* comment */ only → 0 findings', () => {
-    const src = '.x {\n  /* #fff is the old token */\n  color: var(--jb-fg);\n}';
-    const stripped = stripComments(src);
-    const findings = findHexInSource(stripped, 'mem.css');
-    assert.strictEqual(findings.length, 0);
-  });
-}
-
-if (!process.env.NODE_TEST && import.meta.url === `file://${process.argv[1]}`) {
-  const code = await main();
-  process.exit(code);
+if (import.meta.url === `file://${process.argv[1]}`) {
+  process.exit(await main());
 }
