@@ -69,6 +69,7 @@ import {
   rescoreAllPipelineRows,
 } from "./profile-rescore-worker.mjs";
 import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
+import { codeForStatus } from "./api-error-codes.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -88,22 +89,8 @@ const app = express();
 // Every error response (status >= 400) with a JSON object body gains
 // { error, code, detail?, nextStep?, retryable } next to its existing fields,
 // so one reader handles every route. Success bodies are left alone.
-/** @type {Record<number, string>} */
-const API_ERROR_STATUS_CODES = {
-  400: "BAD_REQUEST",
-  401: "UNAUTHORIZED",
-  403: "FORBIDDEN",
-  404: "NOT_FOUND",
-  405: "METHOD_NOT_ALLOWED",
-  409: "CONFLICT",
-  413: "PAYLOAD_TOO_LARGE",
-  421: "MISDIRECTED_REQUEST",
-  429: "RATE_LIMITED",
-  500: "INTERNAL_ERROR",
-  502: "UPSTREAM_ERROR",
-  503: "SERVICE_UNAVAILABLE",
-  504: "UPSTREAM_TIMEOUT",
-};
+// The status-to-code map lives in api-error-codes.mjs (W2SQ-E) so the
+// convention test sees every generic code in one exported place.
 
 /** @param {unknown} value */
 function apiErrorText(value) {
@@ -123,8 +110,7 @@ function withApiErrorEnvelope(status, body) {
   const code =
     apiErrorText(record.code) ||
     apiErrorText(record.reason) ||
-    API_ERROR_STATUS_CODES[status] ||
-    (status >= 500 ? "INTERNAL_ERROR" : "BAD_REQUEST");
+    codeForStatus(status);
   const error =
     apiErrorText(record.error) ||
     apiErrorText(record.message) ||
@@ -390,7 +376,7 @@ app.post("/api/ats-scorecard", async (req, res) => {
       : redactSecrets(rawMsg);
     const responseBody = {
       error: publicError,
-      code: status === 400 ? "INVALID_REQUEST" : "UPSTREAM_ERROR",
+      code: status === 400 ? "invalid_request" : "upstream_error",
       requestId,
       ...(metadata && metadata.provider ? { provider: metadata.provider } : {}),
       ...(metadata && metadata.upstreamStatus != null
@@ -471,7 +457,7 @@ app.post("/profile", async (req, res) => {
     return res.json({ ok: true, updatedAt, logoRefresh: { ok: true } });
   } catch (err) {
     const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
-    if (error && error.code === "INVALID_PROFILE") {
+    if (error && error.code === "invalid_profile") {
       return res.status(400).json({
         ok: false,
         reason: "invalid_profile",
@@ -582,14 +568,14 @@ app.post("/profile/from-resume", async (req, res) => {
     // A provider with no key is the CLIENT's configuration state, not a
     // server fault: 409, so the dashboard can route the user to the AI step
     // instead of reporting an internal error (walkthrough 2026-09-02, step 12).
-    if (code === "GEMINI_NOT_CONFIGURED") {
+    if (code === "gemini_not_configured") {
       return res.status(409).json({
         ok: false,
         reason: "gemini_not_configured",
         message: errorMessage(err, "profile provider failed"),
       });
     }
-    if (code === "PROFILE_PROVIDER_NOT_CONFIGURED") {
+    if (code === "profile_provider_not_configured") {
       return res.status(409).json({
         ok: false,
         reason: "profile_provider_not_configured",
@@ -598,7 +584,7 @@ app.post("/profile/from-resume", async (req, res) => {
       });
     }
     const provider = error && typeof error.provider === "string" ? error.provider : "";
-    const isGeminiError = provider === "gemini" || code.startsWith("GEMINI_");
+    const isGeminiError = provider === "gemini" || code.startsWith("gemini_");
     return res.status(500).json({
       ok: false,
       reason: isGeminiError ? "gemini_error" : "profile_provider_error",
@@ -1013,7 +999,7 @@ app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, n
   if (error.type === "entity.too.large") {
     return res.status(413).json({
       error: "Request body is too large.",
-      code: "PAYLOAD_TOO_LARGE",
+      code: "payload_too_large",
       nextStep: "Send a smaller body (the limit is 2 MB).",
       retryable: false,
     });
@@ -1025,7 +1011,7 @@ app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, n
   ) {
     return res.status(400).json({
       error: "Malformed JSON body",
-      code: "INVALID_JSON",
+      code: "invalid_json",
     });
   }
   // BEAUDIT E7: any other thrown error answers JSON, never Express's HTML page.
@@ -1034,7 +1020,7 @@ app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, n
   if (res.headersSent) return next(err);
   return res.status(failureStatus).json({
     error: failureStatus >= 500 ? "Internal error." : "The request could not be completed.",
-    code: API_ERROR_STATUS_CODES[failureStatus] || "INTERNAL_ERROR",
+    code: codeForStatus(failureStatus),
   });
 }));
 
@@ -1042,7 +1028,7 @@ app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, n
 app.use((req, res) => {
   res.status(404).json({
     error: "Not found",
-    code: "NOT_FOUND",
+    code: "not_found",
     detail: `No API route for ${req.method} ${req.path}.`,
   });
 });

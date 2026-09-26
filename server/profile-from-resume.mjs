@@ -567,8 +567,8 @@ function assertProfileProviderConfigured(config) {
   const err = /** @type {ProfileProviderError} */ (new Error(status.reason));
   err.code =
     status.provider === "gemini"
-      ? "GEMINI_NOT_CONFIGURED"
-      : "PROFILE_PROVIDER_NOT_CONFIGURED";
+      ? "gemini_not_configured"
+      : "profile_provider_not_configured";
   err.provider = status.provider;
   throw err;
 }
@@ -813,7 +813,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (new Error(
       `${providerDisplayName(config.provider)} request failed: ${/** @type {string} */ (detail)}`,
     ));
-    err.code = "PROFILE_PROVIDER_REQUEST_FAILED";
+    err.code = "profile_provider_request_failed";
     err.provider = config.provider;
     err.cause = cause;
     throw err;
@@ -826,21 +826,21 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
       (data && data.error && data.error.message) ||
       `${providerDisplayName(config.provider)} HTTP ${resp.status}`;
     const err = /** @type {ProfileProviderError} */ (new Error(msg));
-    err.code = "PROFILE_PROVIDER_HTTP_ERROR";
+    err.code = "profile_provider_http_error";
     err.provider = config.provider;
     err.upstreamStatus = resp.status;
     throw err;
   }
   const finishReason = String(data.choices?.[0]?.finish_reason || "");
   if (finishReason === "length") {
-    throw truncatedDraftError(providerDisplayName(config.provider), "PROFILE_PROVIDER_TRUNCATED", config.provider);
+    throw truncatedDraftError(providerDisplayName(config.provider), "profile_provider_truncated", config.provider);
   }
   const raw = data.choices?.[0]?.message?.content || "";
   if (!String(raw || "").trim()) {
     const err = /** @type {ProfileProviderError} */ (
       new Error(`${providerDisplayName(config.provider)} returned empty content`)
     );
-    err.code = "PROFILE_PROVIDER_EMPTY_RESPONSE";
+    err.code = "profile_provider_empty_response";
     err.provider = config.provider;
     throw err;
   }
@@ -851,7 +851,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (new Error(
       `${providerDisplayName(config.provider)} returned non-JSON content: ${error.message}`,
     ));
-    err.code = "PROFILE_PROVIDER_PARSE_ERROR";
+    err.code = "profile_provider_parse_error";
     err.provider = config.provider;
     err.rawSample = String(raw || "").slice(0, 400);
     throw err;
@@ -894,7 +894,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (new Error(
       `Anthropic request failed: ${/** @type {string} */ (detail)}`,
     ));
-    err.code = "PROFILE_PROVIDER_REQUEST_FAILED";
+    err.code = "profile_provider_request_failed";
     err.provider = "anthropic";
     err.cause = cause;
     throw err;
@@ -905,13 +905,13 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
   if (!resp.ok) {
     const msg = (data && data.error && data.error.message) || `Anthropic HTTP ${resp.status}`;
     const err = /** @type {ProfileProviderError} */ (new Error(msg));
-    err.code = "PROFILE_PROVIDER_HTTP_ERROR";
+    err.code = "profile_provider_http_error";
     err.provider = "anthropic";
     err.upstreamStatus = resp.status;
     throw err;
   }
   if (String(/** @type {{ stop_reason?: string }} */ (data).stop_reason || "") === "max_tokens") {
-    throw truncatedDraftError("Anthropic", "PROFILE_PROVIDER_TRUNCATED", config.provider);
+    throw truncatedDraftError("Anthropic", "profile_provider_truncated", config.provider);
   }
   const raw = Array.isArray(data.content)
     ? data.content
@@ -923,7 +923,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (
       new Error("Anthropic returned empty content")
     );
-    err.code = "PROFILE_PROVIDER_EMPTY_RESPONSE";
+    err.code = "profile_provider_empty_response";
     err.provider = "anthropic";
     throw err;
   }
@@ -934,7 +934,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (new Error(
       `Anthropic returned non-JSON content: ${error.message}`,
     ));
-    err.code = "PROFILE_PROVIDER_PARSE_ERROR";
+    err.code = "profile_provider_parse_error";
     err.provider = "anthropic";
     err.rawSample = String(raw || "").slice(0, 400);
     throw err;
@@ -978,7 +978,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (
       new Error(`Gemini request failed: ${/** @type {string} */ (detail)}`)
     );
-    err.code = "GEMINI_REQUEST_FAILED";
+    err.code = "gemini_request_failed";
     err.provider = "gemini";
     err.cause = cause;
     throw err;
@@ -991,7 +991,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
       (data && data.error && data.error.message) ||
       `Gemini HTTP ${resp.status}`;
     const err = /** @type {ProfileProviderError} */ (new Error(msg));
-    err.code = "GEMINI_HTTP_ERROR";
+    err.code = "gemini_http_error";
     err.provider = "gemini";
     err.upstreamStatus = resp.status;
     throw err;
@@ -1000,7 +1000,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     data.candidates?.[0]
   );
   if (String(candidate?.finishReason || "") === "MAX_TOKENS") {
-    throw truncatedDraftError("Gemini", "GEMINI_TRUNCATED", "gemini");
+    throw truncatedDraftError("Gemini", "gemini_truncated", "gemini");
   }
   const raw =
     candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
@@ -1008,7 +1008,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (
       new Error("Gemini returned empty content")
     );
-    err.code = "GEMINI_EMPTY_RESPONSE";
+    err.code = "gemini_empty_response";
     err.provider = "gemini";
     throw err;
   }
@@ -1020,7 +1020,7 @@ async function callGeminiForProfile(resumeText, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (
       new Error(`Gemini returned non-JSON content: ${error.message}`)
     );
-    err.code = "GEMINI_PARSE_ERROR";
+    err.code = "gemini_parse_error";
     err.provider = "gemini";
     err.rawSample = raw.slice(0, 400);
     throw err;
@@ -1216,7 +1216,7 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
     const err = /** @type {ProfileProviderError} */ (
       new Error("analyzeResumeToProfile: resumeText is empty")
     );
-    err.code = "EMPTY_RESUME";
+    err.code = "empty_resume";
     throw err;
   }
   const rawConfig = opts.config || getProfileProviderConfig();

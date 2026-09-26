@@ -239,7 +239,7 @@ function normalizeBrowserCommandTimeoutMs(value: number | undefined): number {
 
 function blockedTargetError(message: string): Error {
   const error = new Error(message) as Error & { code?: string };
-  error.code = "SSRF_BLOCKED";
+  error.code = "ssrf_blocked";
   return error;
 }
 

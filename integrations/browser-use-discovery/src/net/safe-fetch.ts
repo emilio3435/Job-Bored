@@ -24,7 +24,7 @@ export interface SafeFetchOptions {
  * Worker-facing wrapper around the shared SSRF fetch primitive.
  * Platform fetch is fail-closed (DNS pin at connect). Injected `fetchImpl`
  * stays hermetic unless the caller passes `lookupImpl` or `resolveDns: true`.
- * Blocked targets throw with `code: "SSRF_BLOCKED"`.
+ * Blocked targets throw with `code: "ssrf_blocked"`.
  */
 export async function safeFetch(
   url: string,

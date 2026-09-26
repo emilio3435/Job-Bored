@@ -45,8 +45,12 @@
     let summary = legacyMessage;
     let detail = String(data.detail || "").trim();
     let nextStep = String(data.nextStep || "").trim();
+    // W2SQ-E: the server now answers lower_snake_case codes; the retired
+    // UPSTREAM_ERROR still matches older servers and cached payloads.
     if (
-      (!data.code || data.code === "UPSTREAM_ERROR") &&
+      (!data.code ||
+        data.code === "upstream_error" ||
+        data.code === "UPSTREAM_ERROR") &&
       (upstreamStatus === 401 || upstreamStatus === 403)
     ) {
       summary = "The job site blocked automated access.";

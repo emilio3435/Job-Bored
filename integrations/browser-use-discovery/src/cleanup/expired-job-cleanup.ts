@@ -410,7 +410,7 @@ export async function checkJobPostingUrl(
     if (
       err &&
       typeof err === "object" &&
-      (err as { code?: unknown }).code === "SSRF_BLOCKED"
+      (err as { code?: unknown }).code === "ssrf_blocked"
     ) {
       return {
         status: "unknown",
