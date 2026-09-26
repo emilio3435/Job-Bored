@@ -250,6 +250,15 @@ export function verifySiteAssets(siteDir) {
 // And the site must contain only the dashboard asset allowlist — the same
 // allowlist the dev-server serves (isServableRelativePath) — never
 // server/, scripts/, tests/ or integration sources.
+//
+// One deliberate exception (#129): server/profile-draft-shared.js is the
+// Fit Profile prompt/parse/clamp module that B3's browser-direct fallback
+// loads as a classic script, so serverless and Pages users can draft. It is
+// named alone in static-path-guard's PUBLIC_FILES; every other server/ file
+// stays out of the site. Keep this build on that one allowlist so the
+// dev-server and the Pages artifact never disagree about what is public.
+// The meta CSP needs no widening for it: script-src 'self' covers the file,
+// and the default AI origins B3 calls already sit in connect-src.
 
 const CSP_META_PATTERN = /<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/i;
 

@@ -515,7 +515,11 @@ describe("ASSET-1: deployed HTML cannot reference stale browser JavaScript", () 
 
 // G13 — Pages cannot set headers, so the deployed HTML must carry the CSP
 // itself, and the site must contain only the dashboard asset allowlist —
-// never server/, scripts/, tests/ or integrations/ sources.
+// never server/, scripts/, tests/ or integrations/ sources. The one named
+// exception is server/profile-draft-shared.js (#129): B3's browser-direct
+// draft fallback loads it as a classic script so Pages users can draft.
+const PAGES_SERVER_EXCEPTIONS = Object.freeze(["server/profile-draft-shared.js"]);
+
 describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
   it("G13: injectContentSecurityPolicyMeta places the policy after the charset", () => {
     const policy = "default-src 'self'; script-src 'self'";
@@ -563,6 +567,8 @@ describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
       writeFileSync(join(root, "vendor", "x.js"), "window.x = 1;\n");
       mkdirSync(join(root, "server"), { recursive: true });
       writeFileSync(join(root, "server", "index.mjs"), "secret server\n");
+      writeFileSync(join(root, "server", "profile-from-resume.mjs"), "secret server\n");
+      writeFileSync(join(root, "server", "profile-draft-shared.js"), "window.P = {};\n");
       mkdirSync(join(root, "scripts"), { recursive: true });
       writeFileSync(join(root, "scripts", "a.mjs"), "secret script\n");
       const siteDir = join(root, "_site");
@@ -571,7 +577,11 @@ describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
       assert.ok(copied.includes("a.js"));
       assert.ok(copied.includes(join("vendor", "x.js")));
       assert.ok(copied.includes("config.js"));
-      assert.ok(!copied.some((entry) => entry.startsWith("server")), "server/ must not ship");
+      assert.deepEqual(
+        copied.filter((entry) => entry.startsWith("server")),
+        [...PAGES_SERVER_EXCEPTIONS],
+        "only the #129 shared draft module may ship from server/",
+      );
       assert.ok(!copied.some((entry) => entry.startsWith("scripts")), "scripts/ must not ship");
       const index = readFileSync(join(siteDir, "index.html"), "utf8");
       assert.match(index, /<meta http-equiv="Content-Security-Policy"/);
@@ -588,6 +598,13 @@ describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
       assert.ok(copied.length > 100, `expected the whole asset set, got ${copied.length} files`);
       for (const entry of copied) {
         const first = entry.split("/")[0];
+        if (first === "server") {
+          assert.ok(
+            PAGES_SERVER_EXCEPTIONS.includes(entry),
+            `${entry} must not ship to Pages (only the #129 shared draft module may)`,
+          );
+          continue;
+        }
         assert.ok(
           !["server", "scripts", "tests", "tools", "probes", "prompts"].includes(first),
           `${entry} must not ship to Pages`,
@@ -599,7 +616,14 @@ describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
         }
       }
       assert.ok(copied.includes("config.js"), "the placeholder config.js must ship");
+      for (const exception of PAGES_SERVER_EXCEPTIONS) {
+        assert.ok(
+          copied.includes(exception),
+          `${exception} must ship: B3's browser-direct draft loads it (#129)`,
+        );
+      }
       const index = readFileSync(join(siteDir, "index.html"), "utf8");
+      assert.match(index, /src="server\/profile-draft-shared\.js\?v=[0-9a-f]{10}"/);
       assert.match(index, /<meta http-equiv="Content-Security-Policy" content="[^"]*default-src 'self'[^"]*" \/>/);
       assert.deepEqual(verifySiteAssets(siteDir), [], "every deployed reference must match its file");
     });
