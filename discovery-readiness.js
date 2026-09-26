@@ -188,8 +188,73 @@ function mapDiscoveryWizardFlow(rawFlow) {
     return "external_endpoint";
   }
   if (flow === "no_webhook") return "no_webhook";
-  if (flow === "stub_only") return "stub_only";
+  // D2: stub_only is not a path anyone is offered; it falls to local_agent.
   return "local_agent";
+}
+
+/**
+ * D4 / R9: the one recommended discovery path, computed from a snapshot's
+ * own signals plus whether Tailscale is installed (FE-B5 passes the
+ * wizard's probe state). An already-saved public endpoint wins; otherwise
+ * Tailscale's stable URL (existing_endpoint) when installed, else
+ * local_agent. Never stub_only (D2). The reason always names the same path.
+ */
+function recommendDiscoveryFlow(snapshot, tailscaleInstalled) {
+  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const kind = String(state.savedWebhookKind || "");
+  if (
+    kind === "worker" ||
+    kind === "generic_https" ||
+    state.engineState === cc().DISCOVERY_ENGINE_STATE_CONNECTED
+  ) {
+    return {
+      recommendedFlow: "existing_endpoint",
+      recommendedReason:
+        kind === "worker"
+          ? "A Cloudflare Worker URL is already saved."
+          : "A public HTTPS webhook is already saved.",
+    };
+  }
+  if (tailscaleInstalled === true) {
+    return {
+      recommendedFlow: "existing_endpoint",
+      recommendedReason:
+        "Tailscale is installed on this computer, so a stable Tailscale address is the recommended path.",
+    };
+  }
+  const hasLocalPathSignals =
+    kind === "local_http" || !!state.localWebhookUrl || !!state.tunnelPublicUrl;
+  let recommendedReason =
+    "Tailscale isn't installed, so discovery runs on this computer. You can add Tailscale later.";
+  if (hasLocalPathSignals) {
+    recommendedReason =
+      getDiscoveryLocalEngineKind({ localWebhookUrl: state.localWebhookUrl || "" }) === "hermes"
+        ? "A local Hermes route was detected on this machine. It can work, but the browser-use worker is the recommended default."
+        : "A local browser-use worker or local discovery path was detected on this machine.";
+  }
+  return { recommendedFlow: "local_agent", recommendedReason };
+}
+
+// The last probe answer FE-B5 passed: true / false, or null until one arrives.
+let knownTailscaleInstalled = null;
+
+/** An explicit boolean in options wins and is remembered for later reads. */
+function resolveTailscaleInstalled(options) {
+  if (options && typeof options.tailscaleInstalled === "boolean") {
+    knownTailscaleInstalled = options.tailscaleInstalled;
+  }
+  return knownTailscaleInstalled;
+}
+
+/** Stamp the D4 recommendation onto any snapshot (probe-built or cached). */
+function applyDiscoveryFlowRecommendation(snapshot, options = {}) {
+  const state = snapshot && typeof snapshot === "object" ? snapshot : {};
+  const tailscaleInstalled = resolveTailscaleInstalled(options);
+  return {
+    ...state,
+    tailscaleInstalled,
+    ...recommendDiscoveryFlow(state, tailscaleInstalled),
+  };
 }
 
 function getFallbackAppsScriptState() {
@@ -458,7 +523,7 @@ function buildFallbackEmptyStateDiscoveryView(snapshot) {
   };
 }
 
-function buildFallbackReadinessSnapshot() {
+function buildFallbackReadinessSnapshot(options = {}) {
   const transport = h("getDiscoveryTransportSetupState")();
   const savedWebhookUrl = es().normalizeDiscoveryWebhookIdentity(
     h("getDiscoveryWebhookUrl")(),
@@ -477,35 +542,16 @@ function buildFallbackReadinessSnapshot() {
     savedWebhookKind === "local_http" ||
     !!transport.localWebhookUrl ||
     !!transport.tunnelPublicUrl;
-  let recommendedFlow = "local_agent";
-  let recommendedReason =
-    "No public webhook is saved yet, so start with the path you want to use.";
-  if (
-    hasSavedExternalEndpoint ||
-    engineStatus.state === cc().DISCOVERY_ENGINE_STATE_CONNECTED
-  ) {
-    recommendedFlow = "existing_endpoint";
-    recommendedReason =
-      savedWebhookKind === "worker"
-        ? "A Cloudflare Worker URL is already saved."
-        : "A public HTTPS webhook is already saved.";
-  } else if (hasLocalPathSignals) {
-    recommendedFlow = "local_agent";
-    recommendedReason =
-      getDiscoveryLocalEngineKind({
-        localWebhookUrl: transport.localWebhookUrl || "",
-      }) === "hermes"
-        ? "A local Hermes route was detected on this machine. It can work, but the browser-use worker is the recommended default."
-        : "A local browser-use worker or local discovery path was detected on this machine.";
-  } else if (hasSavedStubEndpoint) {
-    recommendedFlow = "stub_only";
-    recommendedReason =
-      "Only the Apps Script stub is saved — good for testing.";
-  } else if (appsScriptState === "stub_only") {
-    recommendedFlow = "local_agent";
-    recommendedReason =
-      "An Apps Script stub exists, but it's not your main discovery path.";
-  }
+  const tailscaleInstalled = resolveTailscaleInstalled(options);
+  const { recommendedFlow, recommendedReason } = recommendDiscoveryFlow(
+    {
+      savedWebhookKind,
+      engineState: engineStatus.state,
+      localWebhookUrl: transport.localWebhookUrl || "",
+      tunnelPublicUrl: transport.tunnelPublicUrl || "",
+    },
+    tailscaleInstalled,
+  );
   const snapshot = {
     sheetConfigured: !!h("getSHEET_ID")(),
     savedWebhookUrl,
@@ -521,6 +567,7 @@ function buildFallbackReadinessSnapshot() {
     relayReady: savedWebhookKind === "worker",
     engineState: engineStatus.state,
     appsScriptState,
+    tailscaleInstalled,
     recommendedFlow,
     recommendedReason,
     blockingIssue: !h("getSHEET_ID")()
@@ -545,8 +592,12 @@ function buildFallbackReadinessSnapshot() {
   };
 }
 
-function getDiscoveryReadinessSnapshot() {
-  return cc().discoveryReadinessSnapshotCache || buildFallbackReadinessSnapshot();
+function getDiscoveryReadinessSnapshot(options = {}) {
+  const cached = cc().discoveryReadinessSnapshotCache;
+  if (!cached) return buildFallbackReadinessSnapshot(options);
+  const next = applyDiscoveryFlowRecommendation(cached, options);
+  cc().discoveryReadinessSnapshotCache = next;
+  return next;
 }
 
 function getDiscoverySettingsView(snapshot) {
@@ -591,7 +642,7 @@ async function refreshDiscoveryReadinessSnapshot(options = {}) {
   if (cc().discoveryReadinessSnapshotPromise && !options.force) {
     return cc().discoveryReadinessSnapshotPromise;
   }
-  const buildFallback = () => buildFallbackReadinessSnapshot();
+  const buildFallback = () => buildFallbackReadinessSnapshot(options);
   const probes = getDiscoveryWizardProbesApi();
   cc().discoveryReadinessSnapshotPromise = Promise.resolve()
     .then(async () => {
@@ -602,7 +653,9 @@ async function refreshDiscoveryReadinessSnapshot(options = {}) {
     })
     .then((snapshot) => {
       cc().discoveryReadinessSnapshotCache =
-        snapshot && typeof snapshot === "object" ? snapshot : buildFallback();
+        snapshot && typeof snapshot === "object"
+          ? applyDiscoveryFlowRecommendation(snapshot, options)
+          : buildFallback();
       return cc().discoveryReadinessSnapshotCache;
     })
     .catch((err) => {
@@ -1063,9 +1116,6 @@ function getDiscoveryWizardStepIds(flow) {
   if (normalizedFlow === "no_webhook") {
     return ["detect", "path_select", "no_webhook", "ready"];
   }
-  if (normalizedFlow === "stub_only") {
-    return ["detect", "path_select", "stub_only", "ready"];
-  }
   const localApi = getDiscoveryWizardLocalApi();
   if (localApi && typeof localApi.getLocalStepIds === "function") {
     return localApi.getLocalStepIds();
@@ -1125,6 +1175,7 @@ async function persistDiscoveryWizardState(patch = {}) {
     getDiscoveryWizardRelayApi,
     getDiscoveryWizardVerifyApi,
     mapDiscoveryWizardFlow,
+    recommendDiscoveryFlow,
     getDiscoveryLocalEngineKind,
     getDiscoveryLocalEngineLabel,
     getDiscoveryLocalEngineSummary,
