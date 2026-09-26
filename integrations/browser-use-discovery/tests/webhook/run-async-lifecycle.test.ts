@@ -96,6 +96,7 @@ function discoveryDeps(input: {
   events?: string[];
   maxRunDurationMs?: number;
   cancelRegistry?: ReturnType<typeof createRunCancelRegistry>;
+  pipelineWriter?: { write(sheetId: string, leads: unknown[]): Promise<unknown> };
 }) {
   const history = input.history ?? [];
   const logger = {
@@ -119,6 +120,7 @@ function discoveryDeps(input: {
         companies: [{ name: "Acme" }],
       }),
       discoveryRunsLogger: logger,
+      ...(input.pipelineWriter ? { pipelineWriter: input.pipelineWriter } : {}),
       now: () => new Date(),
       randomId: (prefix: string) =>
         `${prefix}_${Math.random().toString(16).slice(2, 10)}`,
@@ -277,7 +279,7 @@ test("A21: cancelling a live run aborts its signal, writes a cancelled failed st
   );
   const { runId } = JSON.parse(response.body);
   assert.ok(registry.has(runId), "a live async run registers for cancel");
-  const outcome = registry.cancel(runId);
+  const outcome = await registry.cancel(runId);
   assert.equal(outcome.ok, true);
   assert.equal(seenSignal?.aborted, true, "runDiscovery's abortSignal fires");
   const final = store.get(runId);
@@ -289,7 +291,86 @@ test("A21: cancelling a live run aborts its signal, writes a cancelled failed st
   assert.equal(history.length, 1);
   await sleep(5);
   assert.equal(store.get(runId)?.status, "failed", "the late abort rejection does not overwrite it");
-  assert.deepEqual(registry.cancel(runId), { ok: false, reason: "not_running" });
+  assert.deepEqual(await registry.cancel(runId), { ok: false, reason: "not_running" });
+});
+
+test("A21 repair: a run that keeps going after cancel cannot write leads, and cancel resolves only after the run stopped", async () => {
+  const store = createMemoryStore();
+  const history: unknown[] = [];
+  const registry = createRunCancelRegistry();
+  const pipelineWrites: unknown[] = [];
+  let runnerFinished = false;
+  let writeError: unknown;
+  const response = await handleDiscoveryWebhook(
+    discoveryRequest(),
+    discoveryDeps({
+      store,
+      history,
+      cancelRegistry: registry,
+      // Mirrors runDiscovery mid-run: it only notices the abort at its next
+      // checkpoint, after it has already reached the Sheet write.
+      runDiscovery: async (_req, _trigger, deps) => {
+        const signal = deps.abortSignal as AbortSignal;
+        await new Promise<void>((resolve) => signal.addEventListener("abort", () => resolve()));
+        await sleep(20);
+        const writer = deps.pipelineWriter as { write(sheetId: string, leads: unknown[]): Promise<unknown> };
+        try {
+          await writer.write(SHEET_ID, [{ title: "late lead" }]);
+        } catch (error) {
+          writeError = error;
+          runnerFinished = true;
+          throw error;
+        }
+        runnerFinished = true;
+        return fakeResult(String(deps.runId));
+      },
+      pipelineWriter: {
+        async write(_sheetId: string, leads: unknown[]) {
+          pipelineWrites.push(...leads);
+          return { appended: leads.length, updated: 0 };
+        },
+      },
+    }),
+  );
+  const { runId } = JSON.parse(response.body);
+  const outcome = await registry.cancel(runId);
+  assert.equal(runnerFinished, true, "cancel resolves only after the run has stopped");
+  assert.equal(outcome.ok, true);
+  assert.equal(pipelineWrites.length, 0, "no lead reaches the Sheet after cancel");
+  assert.match(String((writeError as Error)?.message), /cancelled/i);
+  const final = store.get(runId);
+  assert.equal(final?.status, "failed");
+  assert.match(String(final?.error), /cancelled by user/i);
+  if (outcome.ok) {
+    assert.equal(outcome.cancelled, true);
+    assert.equal(outcome.status?.status, "failed");
+  }
+  await waitFor(() => history.length, (n) => n > 0);
+  assert.equal(history.length, 1);
+});
+
+test("A21 repair: a run that finishes before it sees the abort reports completed, not cancelled", async () => {
+  const store = createMemoryStore();
+  const registry = createRunCancelRegistry();
+  const response = await handleDiscoveryWebhook(
+    discoveryRequest(),
+    discoveryDeps({
+      store,
+      cancelRegistry: registry,
+      runDiscovery: async (_req, _trigger, deps) => {
+        await sleep(10);
+        return fakeResult(String(deps.runId));
+      },
+    }),
+  );
+  const { runId } = JSON.parse(response.body);
+  const outcome = await registry.cancel(runId);
+  assert.equal(outcome.ok, true);
+  if (outcome.ok) {
+    assert.equal(outcome.cancelled, false);
+    assert.equal(outcome.status?.status, "completed");
+  }
+  assert.equal(store.get(runId)?.status, "completed");
 });
 
 test("A21: a finished run leaves the cancel registry", async () => {

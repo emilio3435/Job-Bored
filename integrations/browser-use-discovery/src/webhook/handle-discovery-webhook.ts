@@ -45,6 +45,7 @@ import {
   createRunStatusToken,
 } from "./run-status-auth.ts";
 import {
+  guardWriterWithSignal,
   runAsyncLifecycle,
   type RunCancelRegistry,
 } from "./run-async-lifecycle.ts";
@@ -495,6 +496,15 @@ export async function handleDiscoveryWebhook(
     work: (signal) =>
       dependencies.runDiscovery(requestForRun, dispatchTrigger, {
         ...dispatchDependencies,
+        // A21: once cancelled, no Sheet write of this run may start.
+        ...(dispatchDependencies.pipelineWriter
+          ? {
+              pipelineWriter: guardWriterWithSignal(
+                dispatchDependencies.pipelineWriter,
+                signal,
+              ),
+            }
+          : {}),
         abortSignal: dispatchDependencies.abortSignal
           ? AbortSignal.any([dispatchDependencies.abortSignal, signal])
           : signal,

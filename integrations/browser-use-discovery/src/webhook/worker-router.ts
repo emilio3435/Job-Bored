@@ -269,7 +269,7 @@ async function handleWorkerRequest(
 
   const cancelMatch = RUN_CANCEL_PATH.exec(requestPath);
   if (cancelMatch) {
-    handleRunCancel(deps, request, method, cancelMatch[1], finishJson, corsHeaders);
+    await handleRunCancel(deps, request, method, cancelMatch[1], finishJson, corsHeaders);
     return;
   }
 
@@ -449,14 +449,14 @@ async function handleWorkerRequest(
  * secret. Aborts a live async run of this worker process and writes its
  * terminal `failed` status ("cancelled by user") plus its DiscoveryRuns row.
  */
-function handleRunCancel(
+async function handleRunCancel(
   deps: WorkerRouterDependencies,
   request: IncomingMessage,
   method: string,
   rawRunId: string,
   finishJson: (status: number, body: unknown, extraHeaders?: Record<string, string>) => void,
   corsHeaders: Record<string, string>,
-): void {
+): Promise<void> {
   if (method !== "POST") {
     finishJson(
       405,
@@ -515,7 +515,7 @@ function handleRunCancel(
     return;
   }
   const outcome = deps.cancelRegistry
-    ? deps.cancelRegistry.cancel(runId, "Cancelled by user.")
+    ? await deps.cancelRegistry.cancel(runId, "Cancelled by user.")
     : ({ ok: false, reason: "not_running" } as const);
   if (!outcome.ok) {
     finishJson(
@@ -536,7 +536,7 @@ function handleRunCancel(
     {
       ok: true,
       runId,
-      cancelled: true,
+      cancelled: outcome.cancelled,
       run: outcome.status || deps.runStatusStore.get(runId),
     },
     corsHeaders,

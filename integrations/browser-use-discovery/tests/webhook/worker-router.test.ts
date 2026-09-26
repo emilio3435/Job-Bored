@@ -264,10 +264,10 @@ test("A21: POST /runs/:id/cancel requires the secret, cancels a live run, and re
     run_elsewhere: { runId: "run_elsewhere", status: "running", terminal: false },
   };
   let cancelledWith = "";
-  registry.register("run_live", (reason) => {
+  registry.register("run_live", async (reason) => {
     cancelledWith = reason;
     statuses.run_live = { runId: "run_live", status: "failed", terminal: true, error: reason };
-    return statuses.run_live as never;
+    return { cancelled: true, status: statuses.run_live as never };
   });
   const app = await boot({ statuses, cancelRegistry: registry });
   try {

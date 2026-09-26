@@ -29,9 +29,18 @@ export class RunCancelledError extends Error {
   }
 }
 
+/**
+ * `cancelled` is false only when the run finished on its own before it saw the
+ * abort; `status` is then its real (completed) terminal status.
+ */
 export type RunCancelOutcome =
-  | { ok: true; status: DiscoveryRunStatusPayload | null }
+  | { ok: true; cancelled: boolean; status: DiscoveryRunStatusPayload | null }
   | { ok: false; reason: "not_running" };
+
+export type RunCancelHandler = (reason: string) => Promise<{
+  cancelled: boolean;
+  status: DiscoveryRunStatusPayload | null;
+}>;
 
 /**
  * BEAUDIT A21: live async runs that can be cancelled, keyed by runId. A run
@@ -39,18 +48,16 @@ export type RunCancelOutcome =
  * terminal, so the map only ever holds in-flight runs of this process.
  */
 export interface RunCancelRegistry {
-  register(runId: string, cancel: (reason: string) => DiscoveryRunStatusPayload | null): void;
+  register(runId: string, cancel: RunCancelHandler): void;
   unregister(runId: string): void;
   has(runId: string): boolean;
-  cancel(runId: string, reason?: string): RunCancelOutcome;
+  /** Aborts the run and resolves once it has stopped and its status landed. */
+  cancel(runId: string, reason?: string): Promise<RunCancelOutcome>;
   size(): number;
 }
 
 export function createRunCancelRegistry(): RunCancelRegistry {
-  const entries = new Map<
-    string,
-    (reason: string) => DiscoveryRunStatusPayload | null
-  >();
+  const entries = new Map<string, RunCancelHandler>();
   return {
     register(runId, cancel) {
       entries.set(runId, cancel);
@@ -61,11 +68,12 @@ export function createRunCancelRegistry(): RunCancelRegistry {
     has(runId) {
       return entries.has(runId);
     },
-    cancel(runId, reason = "Cancelled by user.") {
+    async cancel(runId, reason = "Cancelled by user.") {
       const cancel = entries.get(runId);
       if (!cancel) return { ok: false, reason: "not_running" };
       entries.delete(runId);
-      return { ok: true, status: cancel(reason) };
+      const result = await cancel(reason);
+      return { ok: true, ...result };
     },
     size() {
       return entries.size;
@@ -109,6 +117,41 @@ export interface RunAsyncLifecycleOptions<T> {
   /** Called after a failure status is persisted. */
   onFailed?(error: unknown, status: DiscoveryRunStatusPayload): void;
   cancelRegistry?: RunCancelRegistry;
+  /**
+   * How long a cancel waits for work() to stop after the abort before it
+   * writes the cancelled status anyway. Default 15 s.
+   */
+  cancelSettleTimeoutMs?: number;
+}
+
+export const DEFAULT_CANCEL_SETTLE_TIMEOUT_MS = 15_000;
+
+/**
+ * Wraps a pipeline writer so that no write starts once `signal` has aborted.
+ * A cancelled run that only notices the abort at its next checkpoint would
+ * otherwise still reach the Sheet after its status says cancelled.
+ */
+export function guardWriterWithSignal<W extends { write(...args: never[]): Promise<unknown> }>(
+  writer: W,
+  signal: AbortSignal,
+): W {
+  return new Proxy(writer, {
+    get(target, property, receiver) {
+      if (property === "write") {
+        return (...args: Parameters<W["write"]>) => {
+          if (signal.aborted) {
+            const reason: unknown = signal.reason;
+            return Promise.reject(
+              reason instanceof Error ? reason : new RunCancelledError(),
+            );
+          }
+          return target.write(...args);
+        };
+      }
+      const value: unknown = Reflect.get(target, property, receiver);
+      return typeof value === "function" ? value.bind(target) : value;
+    },
+  });
 }
 
 export interface RunAsyncLifecycleHandle {
@@ -209,22 +252,9 @@ export function runAsyncLifecycle<T>(
     });
   };
 
-  if (options.cancelRegistry) {
-    options.cancelRegistry.register(runId, (reason) => {
-      if (safety.isTerminalStatusWritten()) return null;
-      const current =
-        options.runStatusStore?.get(runId) ?? options.runningStatus;
-      const failedAt = options.now().toISOString();
-      const cancelled: DiscoveryRunStatusPayload = {
-        ...buildFailedRunStatus(current, new RunCancelledError(reason), failedAt),
-        message: "Discovery run cancelled by user.",
-      };
-      const landed = writeTerminal(cancelled, "cancelled");
-      controller.abort(new RunCancelledError(reason));
-      log?.(`${eventPrefix}.cancelled`, { runId, mode: runMode, reason });
-      return landed;
-    });
-  }
+  // Set once a cancel is requested. While it is set, the settle handlers leave
+  // the terminal write to the cancel path, which runs after work() stopped.
+  let cancelRequested = false;
 
   let work: Promise<T>;
   try {
@@ -233,9 +263,70 @@ export function runAsyncLifecycle<T>(
     work = Promise.reject(error);
   }
 
+  if (options.cancelRegistry) {
+    options.cancelRegistry.register(runId, async (reason) => {
+      if (safety.isTerminalStatusWritten() || cancelRequested) {
+        return { cancelled: false, status: null };
+      }
+      cancelRequested = true;
+      // Abort first and wait for the run to stop, so no write of the run can
+      // land after the cancelled status (BEAUDIT A21 repair).
+      controller.abort(new RunCancelledError(reason));
+      log?.(`${eventPrefix}.cancel_requested`, { runId, mode: runMode, reason });
+      const timeoutMs =
+        options.cancelSettleTimeoutMs ?? DEFAULT_CANCEL_SETTLE_TIMEOUT_MS;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      const outcome = await Promise.race([
+        work.then(
+          (result) => ({ kind: "fulfilled" as const, result }),
+          () => ({ kind: "rejected" as const }),
+        ),
+        new Promise<{ kind: "timeout" }>((resolve) => {
+          timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+        }),
+      ]);
+      if (timer) clearTimeout(timer);
+      if (safety.isTerminalStatusWritten()) {
+        return { cancelled: false, status: options.runStatusStore?.get(runId) ?? null };
+      }
+      if (outcome.kind === "fulfilled") {
+        // The run finished before it saw the abort: report what really happened.
+        let status: DiscoveryRunStatusPayload | null = null;
+        try {
+          status = writeTerminal(options.buildTerminalStatus(outcome.result), "completed");
+          if (status && status.status !== "failed") options.onCompleted?.(outcome.result, status);
+        } catch (error) {
+          status = writeTerminal(
+            buildFailedRunStatus(options.runningStatus, error, options.now().toISOString()),
+            "failed",
+          );
+        }
+        log?.(`${eventPrefix}.cancel_too_late`, { runId, mode: runMode, reason });
+        return { cancelled: false, status };
+      }
+      if (outcome.kind === "timeout") {
+        log?.(`${eventPrefix}.cancel_settle_timeout`, { runId, mode: runMode, timeoutMs });
+      }
+      const current =
+        options.runStatusStore?.get(runId) ?? options.runningStatus;
+      const cancelled: DiscoveryRunStatusPayload = {
+        ...buildFailedRunStatus(
+          current,
+          new RunCancelledError(reason),
+          options.now().toISOString(),
+        ),
+        message: "Discovery run cancelled by user.",
+      };
+      const landed = writeTerminal(cancelled, "cancelled");
+      log?.(`${eventPrefix}.cancelled`, { runId, mode: runMode, reason });
+      return { cancelled: true, status: landed };
+    });
+  }
+
   const settled = work
     .then(
       (result) => {
+        if (cancelRequested) return;
         if (safety.isTerminalStatusWritten()) {
           ignoreLate("completion");
           return;
@@ -249,6 +340,7 @@ export function runAsyncLifecycle<T>(
       },
     )
     .catch((error) => {
+      if (cancelRequested) return;
       if (safety.isTerminalStatusWritten()) {
         ignoreLate("failure", error);
         return;
