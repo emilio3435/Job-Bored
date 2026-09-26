@@ -23,6 +23,7 @@ import {
   writeFileSync,
 } from "node:fs";
 import { request } from "node:http";
+import vm from "node:vm";
 import { createServer } from "node:net";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
@@ -171,6 +172,22 @@ describe("GFX-DESK-B dev-server desktop mode", () => {
     assert.match(String(res.headers["content-type"]), /javascript/);
     assert.match(res.text, /desk-b/);
     assert.ok(res.headers["content-security-policy"], "served with the dashboard headers");
+  });
+
+  it("R13 the served desktop config.js tells the page it runs in the app", async () => {
+    const seeded = join(home, ".jobbored", "desktop", "config.js");
+    const evalConfig = (text) => {
+      const win = {};
+      vm.runInNewContext(text, { window: win });
+      return win.COMMAND_CENTER_CONFIG;
+    };
+    writeFileSync(seeded, 'window.COMMAND_CENTER_CONFIG = { title: "desk-b" };\n');
+    let res = await httpCall(port, "/config.js");
+    assert.equal(evalConfig(res.text).jobBoredRuntime, "desktop");
+    assert.equal(readFileSync(seeded, "utf8").includes("jobBoredRuntime"), false, "the user's file is never rewritten");
+    writeFileSync(seeded, 'window.COMMAND_CENTER_CONFIG = { jobBoredRuntime: "source" };\n');
+    res = await httpCall(port, "/config.js");
+    assert.equal(evalConfig(res.text).jobBoredRuntime, "source", "an explicit value is left alone");
   });
 
   it("R23 a missing config.js is a 404 script, not 403 text/plain", async () => {
