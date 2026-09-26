@@ -112,15 +112,16 @@ describe("C7 · signed in with a sheet says so (FR-20)", () => {
 
 describe("C7 · one start command and honest arithmetic (FR-15, FR-17)", () => {
   it("names ONE start command in every beat — the one that runs discovery too", () => {
-    // `npm start` omits the discovery worker B5 needs; `npm run dev` runs
-    // the dashboard, scraper AND worker, so it is right in every beat.
+    // `npm start` omits the discovery worker B5 needs. GFX X1: the start
+    // sentence now comes from localServerHint(), never a beat's own npm line.
     for (const file of ["oneflow-beat-ai.js", "oneflow-beat-discovery.js"]) {
       assert.ok(
         !/\bnpm start\b/.test(readRepoFile(file)),
         `${file} must not name a second start command`,
       );
     }
-    assert.match(readRepoFile("oneflow-beat-ai.js"), /npm run dev/);
+    assert.ok(!/npm run dev/.test(readRepoFile("oneflow-beat-ai.js")));
+    assert.match(readRepoFile("oneflow-beat-ai.js"), /localServerHint\(/);
   });
 
   it("does not promise 100 searches is plenty for daily runs", () => {
