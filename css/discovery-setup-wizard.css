@@ -464,6 +464,38 @@
   letter-spacing: 0.06em;
 }
 
+/* GFX FE-B5 (D4): exactly one card is recommended, and it looks it — the
+   warm paper and navy ring the rest of setup uses, with the kicker set as
+   a sentence-case tag rather than tracked-out caps. The other cards sit
+   on the same paper, one step quieter. */
+.discovery-setup-wizard__option-grid .discovery-setup-wizard__option-col {
+  border-color: var(--jb-line, rgba(148, 163, 184, 0.18));
+  background: var(--jb-paper, #fff);
+  box-shadow: none;
+}
+
+.discovery-setup-wizard__option-grid .discovery-setup-wizard__option-col--recommended {
+  border-color: var(--jb-navy, var(--accent));
+  box-shadow: 0 0 0 1px var(--jb-navy, var(--accent));
+}
+
+.discovery-setup-wizard__option-grid
+  .discovery-setup-wizard__option-col--recommended
+  .discovery-setup-wizard__card-kicker {
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: var(--jb-navy, var(--accent));
+  color: var(--jb-ink-inverse, #fff);
+  font-size: var(--text-xs);
+  letter-spacing: 0;
+  text-transform: none;
+}
+
+.discovery-setup-wizard__option-grid .discovery-setup-wizard__option-col--selected {
+  border-color: var(--jb-accent-ink, var(--accent));
+  background: var(--jb-mint-tint, rgba(89, 203, 137, 0.08));
+}
+
 .discovery-setup-wizard__option-col .discovery-setup-wizard__card-title {
   font-size: var(--text-base);
   line-height: 1.2;

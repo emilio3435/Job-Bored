@@ -348,7 +348,7 @@ describe("integration: the skipped-connect end state (spec §5 B5/B6)", () => {
     assert.equal(env.openBeat(), "payoff");
     assert.match(
       env.text(),
-      /Connection is off/,
+      /Discovery isn't connected yet/,
       "B6 must render the skipped variant, not the armed one",
     );
 
@@ -381,7 +381,7 @@ describe("integration: the skipped-connect end state (spec §5 B5/B6)", () => {
     await settle();
 
     assert.equal(env.openBeat(), "discovery", "the beat must not advance");
-    assert.match(env.text(), /isn't skippable/);
+    assert.match(env.text(), /Discovery needs a working SerpApi key/);
   });
 });
 

@@ -273,7 +273,8 @@ describe("ONEFLOW L3 · B5 Save & verify renders its result (spec §10 Phase 0 �
     const message = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(message);
     assert.match(message.textContent, /Couldn't save your SerpApi key/);
-    assert.match(message.textContent, /Try again/, "every error names the next action (§8.4)");
+    // GFX FE-B5: the next action is the restart sentence, then Save & verify.
+    assert.match(message.textContent, /Save & verify/, "every error names the next action (§8.4)");
     assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
     assert.ok(
       !env.fetchCalls.some((c) => c.url.includes("full-boot")),
@@ -366,12 +367,12 @@ describe("ONEFLOW L3 · B5 connect drives the Tailscale auto path (spec §5 B5 p
     assert.equal(state.skipped.discoveryConnect, undefined);
   });
 
-  it("a blocked Tailscale keeps its honest copy and its Download/Re-check next action", async () => {
+  it("a blocked Tailscale keeps its honest copy and its Download/Check again next action", async () => {
     const bridge = makeConnectBridge(
       {
         ok: false,
         state: "needs_install",
-        message: "Tailscale isn't installed yet — grab it below, then Re-check.",
+        message: "Tailscale isn't installed yet — grab it below, then press Check again.",
       },
       ["machine"],
     );
@@ -382,14 +383,14 @@ describe("ONEFLOW L3 · B5 connect drives the Tailscale auto path (spec §5 B5 p
     await env.act(CONNECT_ACTION);
     const message = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(message, "a blocked state must reach the message slot, not a toast");
-    assert.match(message.textContent, /Tailscale isn't installed yet — grab it below, then Re-check\./);
+    assert.match(message.textContent, /Tailscale isn't installed yet — grab it below, then press Check again\./);
     const links = plain(env.mount.querySelectorAll("[href]")).map((el) =>
       el.getAttribute("href"),
     );
     assert.ok(links.includes("https://tailscale.com/download"), "name the download");
     assert.equal(
       env.button(CONNECT_ACTION).textContent,
-      "Re-check",
+      "Check again",
       "the blocked state's retry is the same control, renamed",
     );
     assert.ok(
@@ -457,7 +458,7 @@ describe("ONEFLOW L3 · B5 connect drives the Tailscale auto path (spec §5 B5 p
     const details = env.mount.querySelector(".oneflow-connect__advanced");
     assert.ok(details, "spec §5 B5: a collapsed details, not a fifth screen");
     assert.equal(details.tagName, "DETAILS");
-    assert.match(details.textContent, /Run without Tailscale, or paste your own endpoint/);
+    assert.match(details.textContent, /A web address you own/);
     assert.ok(details.querySelector("#oneFlowManualEndpointInput"));
     const secret = details.querySelector("#oneFlowManualSecretInput");
     assert.ok(secret);

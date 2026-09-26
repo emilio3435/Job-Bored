@@ -87,7 +87,16 @@
   const MANUAL_VERIFY_ACTION = "oneflow_discovery_manual_verify";
   /** UX01 C7 (FR-18): dashboard and discovery on one computer, no Tailscale. */
   const LOCAL_ACTION = "oneflow_discovery_local";
-  const LOCAL_LABEL = "Just this computer";
+  /**
+   * D6: one name per discovery path, the same in B5 and both wizard files.
+   * A path's name is said once, where the path is offered.
+   */
+  const PATH_NAMES = Object.freeze({
+    tailscale: "Stable URL · Tailscale",
+    local: "Just this computer",
+    own: "A web address you own",
+  });
+  const LOCAL_LABEL = PATH_NAMES.local;
   /** D2: the static host's one fix — B1's route-to-local screen. */
   const ROUTE_LOCAL_ACTION = "oneflow_discovery_route_local";
   const ROUTE_LOCAL_LABEL = "Open JobBored on this computer";
@@ -107,7 +116,7 @@
   const STALLED_STAGE_LABEL = "Taking longer than usual";
 
   const STALLED_MESSAGE =
-    "Still waiting on the local server. Nothing is lost — leave it running, " +
+    "Still waiting on JobBored on this computer. Nothing is lost — leave it running, " +
     "or press Try again to start a fresh save.";
 
   const SERPAPI_ENV_KEY = "SERPAPI_API_KEY";
@@ -133,52 +142,94 @@
     return "Google Jobs index connected.";
   }
 
+  const SERPAPI_KEY_PAGE = "https://serpapi.com/manage-api-key";
+  const LOCAL_DASHBOARD_URL = "http://localhost:8080/";
+
   /**
-   * Why the check failed, in the user's words, each naming the next action
-   * (voice rule §8.4). "Wrong key" and "you are offline" are different
-   * problems and must not share one shrug.
+   * The frozen outcome table (local-server.js OUTCOMES, PLAN §R2), one row
+   * per display key: the diagnosis, in the user's words, and exactly ONE
+   * fix (D1). Fix kinds:
+   *   link    — an in-panel link that goes where the fix is;
+   *   route   — the in-panel button to B1's route-to-local screen;
+   *   retry   — the fix is outside the page; Save & verify is the action;
+   *   restart — restart JobBored (the localServerHint sentence), then
+   *             Save & verify;
+   *   note    — not a block.
+   * Getters, so the platform's start sentence is read when a message is
+   * shown, not at load (GFX-S10: every start sentence is localServerHint).
    */
-  const FUEL_CHECK_ERRORS = Object.freeze({
-    invalid_key:
-      "SerpApi didn't recognise that key. Copy it again from " +
-      "serpapi.com/manage-api-key — the whole string, no spaces — then press " +
-      "Save & verify.",
-    unreachable:
-      "Couldn't reach SerpApi to check the key. Check this machine's " +
-      "internet connection, then press Save & verify again.",
-    upstream_error:
-      "SerpApi answered, but not with your account. Wait a moment, then " +
-      "press Save & verify again.",
-    // GFX-N3: names the launcher this machine actually has. A getter, so
-    // the platform is read when the message is shown, not at load.
-    get no_local_server() {
-      return (
-        "Couldn't reach the JobBored server on this computer. To start it, " +
-        localServerHint() +
-        ", then press Save & verify."
-      );
+  const FUEL_OUTCOMES = Object.freeze({
+    ok: {
+      get message() {
+        return state.fuelQuotaLine || quotaLine(null);
+      },
+      fix: { kind: "note" },
     },
-    // GFX-N3: the server is up and answered the check with a JSON 403 —
-    // its origin gate refused this page's address (a tailnet or LAN name,
-    // a webview), which is not a dead server and not a bad key.
-    wrong_origin:
-      "JobBored is running, but this page's address isn't allowed to use " +
-      "it — open http://localhost:8080 and press Save & verify there.",
-    internal_error:
-      "The JobBored server on this computer hit an error while checking " +
-      "your key. Press Save & verify again; if it keeps happening, quit " +
-      "JobBored and start it again.",
+    invalid_key: {
+      message:
+        "SerpApi didn't recognise that key. Copy it again from " +
+        "serpapi.com/manage-api-key — the whole string, no spaces — paste it " +
+        "above, then press Save & verify.",
+      fix: { kind: "link", label: "Open your SerpApi key page ↗", href: SERPAPI_KEY_PAGE },
+    },
+    // S9: the server is up and SerpApi's network isn't. Never "start the
+    // server" — that sends a user with a running JobBored hunting for one.
+    unreachable: {
+      message: "SerpApi didn't answer — check your internet, then press Save & verify.",
+      fix: { kind: "retry" },
+    },
+    upstream_error: {
+      message:
+        "SerpApi sent back an answer JobBored didn't expect. Try again in a " +
+        "minute — press Save & verify.",
+      fix: { kind: "retry" },
+    },
+    // GFX-N3: the server is up and answered with a JSON 403 — its origin
+    // gate refused this page's address (a tailnet or LAN name, a webview).
+    wrong_origin: {
+      message:
+        "JobBored is running, but this page's address isn't allowed to use " +
+        "it — open http://localhost:8080 and press Save & verify there.",
+      fix: { kind: "link", label: "Open http://localhost:8080", href: LOCAL_DASHBOARD_URL },
+    },
+    internal_error: {
+      get message() {
+        return (
+          "The JobBored server on this computer hit an error while checking your key. " +
+          "Restart it — quit JobBored, then " +
+          localServerHint() +
+          " — and press Save & verify."
+        );
+      },
+      fix: { kind: "restart" },
+    },
+    no_local_server: {
+      get message() {
+        return (
+          "Couldn't reach the JobBored server on this computer. To start it, " +
+          localServerHint() +
+          ", then press Save & verify."
+        );
+      },
+      fix: { kind: "restart" },
+    },
+    // GFX-N2: a 404/405/HTML answer on a loopback page — something on this
+    // computer answered that isn't a current JobBored (an old checkout,
+    // another app on 8080).
+    stale_server: {
+      message:
+        "The JobBored server on this computer is out of date or isn't " +
+        "JobBored — quit it and start JobBored again, then press Save & verify.",
+      fix: { kind: "restart" },
+    },
     // D2: the hosted page routes to local at B1; B5 never hands off here.
-    static_host:
-      "This page can't check your key — only JobBored running on your " +
-      "computer can. Press Open JobBored on this computer to set it up " +
-      "from step 1.",
-    // GFX-N2: the same 404/405/HTML signature on a loopback page. There is
-    // no hosted page to leave — something on this computer answered that
-    // isn't a current JobBored server (an old checkout, another app on 8080).
-    stale_server:
-      "The JobBored server on this computer is out of date or isn't " +
-      "JobBored — quit it and start JobBored again, then press Save & verify.",
+    static_host: {
+      message:
+        "This page can't check your key — only JobBored running on your " +
+        "computer can. Press Open JobBored on this computer to set it up " +
+        "from step 1.",
+      fix: { kind: "route", label: ROUTE_LOCAL_LABEL },
+    },
   });
 
   /**
@@ -337,6 +388,14 @@
     return a;
   }
 
+  /** A paragraph led by the path's name, so the name is said once. */
+  function namedCopy(name, text) {
+    const p = el("p", "oneflow-panel__copy");
+    p.appendChild(el("strong", "oneflow-connect__path", name));
+    p.appendChild(el("span", "", ` ${text}`));
+    return p;
+  }
+
   function field(parent, options) {
     const wrap = el("div", "oneflow-field");
     const label = el("label", "field-label", options.label);
@@ -371,7 +430,7 @@
     // retry here can never pass, so Save & verify steps aside for the
     // in-panel route to B1.
     ACTIONS[0].disabled = lastFuelReason === "static_host";
-    ACTIONS[1].label = blocked ? "Re-check" : "Set it up for me";
+    ACTIONS[1].label = blocked ? "Check again" : "Set it up for me";
     ACTIONS[1].disabled = !state.fuelPassed;
     ACTIONS[2].disabled = !state.fuelPassed;
     // The stall escape hatch is appended, never woven in: the three
@@ -432,8 +491,46 @@
   // Panels
   // ---------------------------------------------------------------
 
+  /**
+   * The one in-panel fix for the last blocked check (D1). Only `link` and
+   * `route` fixes are controls; every other fix ends in Save & verify, so
+   * the footer's primary is its action and nothing is added here.
+   */
+  const FIX_CLASS =
+    "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary oneflow-fuel__fix";
+
+  function renderFuelFix(panel) {
+    const row = lastFuelReason && FUEL_OUTCOMES[lastFuelReason];
+    const fix = row && row.fix;
+    if (!fix || (fix.kind !== "link" && fix.kind !== "route")) return;
+    let control;
+    if (fix.kind === "link") {
+      control = el("a", FIX_CLASS, fix.label);
+      control.setAttribute("href", fix.href);
+      // The key page opens beside the flow; the local dashboard replaces
+      // this page, because this address is the one that can't check.
+      if (/^https:/.test(fix.href)) {
+        control.setAttribute("target", "_blank");
+        control.setAttribute("rel", "noopener");
+      }
+    } else {
+      control = el("button", FIX_CLASS, fix.label);
+      control.type = "button";
+      control.dataset.actionId = ROUTE_LOCAL_ACTION;
+      control.addEventListener("click", () => {
+        if (lastContext) void dispatch(ROUTE_LOCAL_ACTION, lastContext);
+      });
+    }
+    control.dataset.fuelFix = fix.kind;
+    panel.appendChild(control);
+  }
+
   function renderFuelPanel(container) {
     const panel = el("section", "oneflow-panel oneflow-fuel");
+    // The rail node's state: passed, blocked on a diagnosed outcome, or
+    // waiting for a key (the default).
+    if (state.fuelPassed) panel.classList.add("oneflow-fuel--passed");
+    else if (lastFuelReason) panel.classList.add("oneflow-fuel--blocked");
     panel.appendChild(el("h4", "oneflow-panel__title", FUEL_TITLE));
     panel.appendChild(el("p", "oneflow-panel__copy", FUEL_COPY));
 
@@ -482,19 +579,7 @@
         ),
       );
     }
-    if (lastFuelReason === "static_host") {
-      const routeBtn = el(
-        "button",
-        "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary",
-        ROUTE_LOCAL_LABEL,
-      );
-      routeBtn.type = "button";
-      routeBtn.dataset.actionId = ROUTE_LOCAL_ACTION;
-      routeBtn.addEventListener("click", () => {
-        if (lastContext) void dispatch(ROUTE_LOCAL_ACTION, lastContext);
-      });
-      panel.appendChild(routeBtn);
-    }
+    renderFuelFix(panel);
     container.appendChild(panel);
   }
 
@@ -533,11 +618,10 @@
     }
     panel.appendChild(el("h4", "oneflow-panel__title", CONNECT_TITLE));
     panel.appendChild(
-      el(
-        "p",
-        "oneflow-panel__copy",
-        "One click sets this up over Tailscale — a free private network " +
-          "between your own devices. Nothing is exposed to the internet.",
+      namedCopy(
+        PATH_NAMES.tailscale,
+        "Set it up for me connects the two over Tailscale — a free private " +
+          "network between your own devices. Nothing is exposed to the internet.",
       ),
     );
     if (!state.fuelPassed) {
@@ -545,7 +629,7 @@
         el(
           "p",
           "oneflow-panel__status",
-          "Add your SerpApi key above first — the engine needs fuel before it needs a connection.",
+          "Add your SerpApi key above first — Save & verify unlocks this step.",
         ),
       );
     }
@@ -562,11 +646,10 @@
     // under "Advanced" behind an HTTPS-only label.
     const local = el("div", "oneflow-connect__local");
     local.appendChild(
-      el(
-        "p",
-        "oneflow-panel__copy",
-        "Only using JobBored on this computer? Skip Tailscale — connect to " +
-          "the search that runs right here.",
+      namedCopy(
+        PATH_NAMES.local,
+        "Only using JobBored here? Connect to the search that runs on this " +
+          "computer, no Tailscale needed.",
       ),
     );
     const localBtn = el(
@@ -588,12 +671,12 @@
     const summary = el(
       "summary",
       "oneflow-connect__advanced-summary",
-      "Run without Tailscale, or paste your own endpoint",
+      PATH_NAMES.own,
     );
     details.appendChild(summary);
     field(details, {
       id: "oneFlowManualEndpointInput",
-      label: "Address of the part that searches for you (HTTPS, or this computer)",
+      label: "Your web address (ends in /webhook)",
       type: "url",
       value: state.manualUrl,
       placeholder: "https://your-machine.tailXXXX.ts.net/webhook",
@@ -616,7 +699,7 @@
     const useBtn = el(
       "button",
       "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary",
-      "Use this endpoint",
+      "Use this address",
     );
     useBtn.type = "button";
     useBtn.dataset.actionId = MANUAL_VERIFY_ACTION;
@@ -732,7 +815,9 @@
       syncActions();
       ctx.clearBusy();
       ctx.setMessage(
-        FUEL_CHECK_ERRORS[checked.reason] || FUEL_CHECK_ERRORS.upstream_error,
+        // No generic fallback: a reason the table doesn't know is a server
+        // and page that disagree about the contract — stale_server.
+        (FUEL_OUTCOMES[checked.reason] || FUEL_OUTCOMES.stale_server).message,
         "error",
       );
       emit(steps().KEY_CHECK, {
@@ -799,7 +884,10 @@
       syncActions();
       ctx.clearBusy();
       ctx.setMessage(
-        "Couldn't save your SerpApi key — is the local server running? Try again.",
+        "Couldn't save your SerpApi key on this computer. Restart JobBored — " +
+          "quit it, then " +
+          localServerHint() +
+          " — and press Save & verify.",
         "error",
       );
       emit(steps().KEY_CHECK, {
@@ -994,7 +1082,7 @@
     if (actionId === SKIP_ACTION) {
       if (!state.fuelPassed) {
         ctx.setMessage(
-          "The SerpApi key isn't skippable — without it discovery has nothing to search.",
+          "Discovery needs a working SerpApi key — fix the problem above, then press Save & verify.",
           "error",
         );
         return undefined;
@@ -1037,6 +1125,7 @@
       },
       whenIdle: () => pending,
       fuelReason: () => lastFuelReason,
+      FUEL_OUTCOMES,
       CONNECT_STAGE_LABELS,
       // The C6 thresholds, so a probe need not wait fifteen real seconds.
       timings: CHECK_TIMINGS,

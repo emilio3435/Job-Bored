@@ -143,7 +143,9 @@ describe("B6 card 1 — Your search (spec §5 B6)", () => {
       container.querySelector(".oneflow-payoff__now"),
       "the receipt still renders — a dead /profile is not a dead payoff",
     );
-    assert.ok(textOf(container).includes(env.payoff.ETA_LINE));
+    // GFX FE-B5 (N8): with no roles the run can't happen, so the receipt
+    // says so instead of promising tomorrow's matches.
+    assert.ok(textOf(container).includes(env.payoff.NOT_ARMED_LINE));
   });
 });
 
@@ -225,7 +227,7 @@ describe("B6 skipped-connect variant (spec §5 B6)", () => {
     const text = textOf(container);
     assert.ok(
       text.includes(
-        "○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below",
+        "○ Discovery isn't connected yet — your keys are saved, and the banner below connects it when you're ready",
       ),
     );
     assert.ok(

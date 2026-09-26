@@ -682,6 +682,42 @@ function buildDiscoveryTunnelAgentPrompt(snapshot) {
   ].join("\n");
 }
 
+/**
+ * GFX-S10: how to start JobBored on this machine, from the one substrate
+ * sentence (local-server.js localServerHint) B2, B3 and B5 also speak.
+ */
+function localServerStartHint() {
+  try {
+    const api = window.JobBoredLocalServer;
+    if (api && typeof api.localServerHint === "function") {
+      return api.localServerHint();
+    }
+  } catch (_) {
+    /* fall through to the neutral sentence */
+  }
+  return "start JobBored";
+}
+
+function needsServerMessage() {
+  return (
+    "Couldn't reach JobBored on this computer. To start it, " +
+    localServerStartHint() +
+    ", then press Check again."
+  );
+}
+
+/** D6: one name per discovery path, shared with B5 and the shell. */
+const DISCOVERY_PATH_NAMES = Object.freeze({
+  local_agent: "Just this computer",
+  external_endpoint: "Stable URL · Tailscale",
+  own_endpoint: "A web address you own",
+  no_webhook: "Skip for now",
+});
+
+/** D7: what skipping costs, in one line. */
+const SKIP_FOR_NOW_CONSEQUENCE =
+  "Jobs won't arrive on their own until you connect — you can still add them yourself, and connect any time from Settings.";
+
 function getDiscoveryWizardActionableStep(flow, snapshot) {
   const normalizedFlow = host().mapDiscoveryWizardFlow(flow);
   const state =
@@ -690,7 +726,6 @@ function getDiscoveryWizardActionableStep(flow, snapshot) {
       : host().getDiscoveryReadinessSnapshot();
   if (normalizedFlow === "external_endpoint") return "existing_endpoint";
   if (normalizedFlow === "no_webhook") return "no_webhook";
-  if (normalizedFlow === "stub_only") return "stub_only";
   if (state.relayReady && host().isLikelyCloudflareWorkerUrl(state.savedWebhookUrl)) {
     return "verify";
   }
@@ -709,10 +744,9 @@ function getDiscoveryWizardRecommendedFlow(snapshot) {
 }
 
 function getDiscoveryWizardFlowLabel(flow) {
-  if (flow === "external_endpoint") return "Stable URL (Tailscale)";
-  if (flow === "no_webhook") return "Manual / no webhook";
-  if (flow === "stub_only") return "Stub only (testing)";
-  return "Local worker (this computer)";
+  if (flow === "external_endpoint") return DISCOVERY_PATH_NAMES.external_endpoint;
+  if (flow === "no_webhook") return DISCOVERY_PATH_NAMES.no_webhook;
+  return DISCOVERY_PATH_NAMES.local_agent;
 }
 
 function getDiscoveryWizardStepTitle(flow) {
@@ -760,7 +794,7 @@ function getDiscoveryWizardOptionDetails(flow) {
   const normalizedFlow = host().mapDiscoveryWizardFlow(flow);
   if (normalizedFlow === "external_endpoint") {
     return {
-      title: "Stable URL · Tailscale (recommended)",
+      title: DISCOVERY_PATH_NAMES.external_endpoint,
       bestWhen: "A permanent, private URL straight to your worker.",
       setupTime: "~3 min",
       effort: "Low",
@@ -771,15 +805,16 @@ function getDiscoveryWizardOptionDetails(flow) {
       ],
       cons: [
         "Install Tailscale (free) once per device",
-        "(Or paste any public HTTPS endpoint you already control)",
+        "(Or paste a web address you already own)",
       ],
     };
   }
   if (normalizedFlow === "no_webhook") {
     return {
-      title: "No webhook (manual)",
+      title: DISCOVERY_PATH_NAMES.no_webhook,
       bestWhen:
-        "You'll trigger discovery yourself from cron, GitHub Actions, or n8n.",
+        "You'll add jobs yourself for now, or trigger discovery from cron, GitHub Actions, or n8n.",
+      consequence: SKIP_FOR_NOW_CONSEQUENCE,
       setupTime: "Instant here",
       effort: "High (you build the runner)",
       pros: ["Nothing for JobBored to host or keep alive"],
@@ -790,18 +825,8 @@ function getDiscoveryWizardOptionDetails(flow) {
       ],
     };
   }
-  if (normalizedFlow === "stub_only") {
-    return {
-      title: "Stub only (testing)",
-      bestWhen: "You just want to confirm webhook delivery works.",
-      setupTime: "~2 min",
-      effort: "Low",
-      pros: ["Quick wiring test"],
-      cons: ["No real job results — smoke test only"],
-    };
-  }
   return {
-    title: "Local discovery worker",
+    title: DISCOVERY_PATH_NAMES.local_agent,
     bestWhen: "Run the worker on this machine and keep discovery fully local.",
     setupTime: "~10 min",
     effort: "Medium–High",
@@ -824,6 +849,7 @@ function buildDiscoveryWizardOptionCard(flow, snapshot) {
   if (recommended) {
     body.push(getDiscoveryWizardRecommendationReason(snapshot));
   }
+  if (option.consequence) body.push(option.consequence);
   body.push(`Best when: ${option.bestWhen}`);
   body.push(`Setup ${option.setupTime} · ${option.effort} effort`);
   body.push({
@@ -836,6 +862,7 @@ function buildDiscoveryWizardOptionCard(flow, snapshot) {
   return {
     type: "card",
     kicker: recommended ? "Recommended" : "",
+    recommended,
     title: option.title,
     body,
     flow,
@@ -874,7 +901,7 @@ function buildDiscoveryDetectBody(runtime) {
   if (snapshot.sheetConfigured) {
     foundItems.push("Pipeline sheet connected");
   } else {
-    missingItems.push("Pipeline sheet not set up");
+    missingItems.push("Your sheet isn't connected yet — Connect Sheet sets it up in step 1");
   }
 
   if (snapshot.savedWebhookUrl) {
@@ -882,7 +909,7 @@ function buildDiscoveryDetectBody(runtime) {
       `Webhook URL saved (${getDiscoveryWizardSavedEndpointLabel(snapshot.savedWebhookKind)})`,
     );
   } else {
-    missingItems.push("No webhook URL saved");
+    missingItems.push("Discovery isn't connected yet");
   }
 
   if (snapshot.localBootstrapAvailable) {
@@ -902,24 +929,25 @@ function buildDiscoveryDetectBody(runtime) {
 
   if (!isExternalFlow) {
     if (snapshot.tunnelReady) {
-      foundItems.push("ngrok tunnel active");
+      foundItems.push("Public link to this computer is up");
     } else if (snapshot.localWebhookReady) {
-      missingItems.push("No ngrok tunnel running");
+      missingItems.push("The public link to this computer isn't running");
     }
 
+    // D5: plain words; Fix setup (this step's primary) is the one action.
     if (recovery === "tunnel_rotated") {
       missingItems.push(
-        "Relay still points to the previous ngrok URL — redeploy needed",
+        "Your saved address still points at an old link — press Fix setup to reconnect it",
       );
     }
 
     if (snapshot.relayReady || snapshot.savedWebhookKind === "worker") {
-      foundItems.push("Cloudflare relay deployed");
+      foundItems.push("Permanent address set up");
     } else if (
       snapshot.tunnelReady ||
       snapshot.savedWebhookKind === "local_http"
     ) {
-      missingItems.push("Relay not deployed yet");
+      missingItems.push("The permanent address isn't set up yet");
     }
   } else if (!snapshot.savedWebhookUrl) {
     missingItems.push(
@@ -977,7 +1005,7 @@ function appendTailscaleAutoSetupStatus(container, runtime) {
   if (state === "needs_install") {
     const callout = appendWizardCallout(
       container,
-      "Tailscale isn't installed yet. It's a free, private network app — install it, sign in, then hit Re-check. ",
+      "Tailscale isn't installed yet. It's a free, private network app — install it, sign in, then press Check again. ",
     );
     if (callout && typeof callout.appendChild === "function") {
       const a = createWizardNode("a", "");
@@ -992,18 +1020,17 @@ function appendTailscaleAutoSetupStatus(container, runtime) {
   if (state === "needs_login") {
     appendWizardCallout(
       container,
-      "Tailscale is installed but not signed in. Open the Tailscale app, sign in (any account works), then hit Re-check.",
+      "Tailscale is installed but not signed in. Open the Tailscale app, sign in (any account works), then press Check again.",
     );
     return;
   }
   if (state === "needs_server") {
-    // The stop message names the launcher and the Re-check below; render
+    // The stop message names the launcher and the Check again below; render
     // it here too, or the card goes silent on exactly the state whose fix
     // is a button press.
     appendWizardCallout(
       container,
-      runtime.drafts.tailscaleAutoDetail ||
-        "Couldn't reach JobBored's local server — on the hosted page, open your local setup instead; otherwise double-click start.command in the JobBored folder to start it, then Re-check.",
+      runtime.drafts.tailscaleAutoDetail || needsServerMessage(),
     );
     return;
   }
@@ -1031,7 +1058,7 @@ function buildDiscoveryExistingEndpointBody(runtime) {
     const recheck = createWizardNode(
       "button",
       "btn-modal-secondary discovery-wizard-recheck",
-      "Re-check",
+      "Check again",
     );
     recheck.type = "button";
     recheck.addEventListener("click", () => {
@@ -1043,7 +1070,7 @@ function buildDiscoveryExistingEndpointBody(runtime) {
   const manualSummary = createWizardNode(
     "summary",
     "discovery-wizard-manual__summary",
-    "Prefer manual setup, or using your own endpoint?",
+    DISCOVERY_PATH_NAMES.own_endpoint,
   );
   manual.appendChild(manualSummary);
   appendWizardCodeBlock(manual, "tailscale serve --bg 8644", "Copy command");
@@ -1709,7 +1736,7 @@ function buildDiscoveryVerifyBody(runtime) {
     }
     secondaryFixes.push({
       id: "diag_rerun_diagnosis",
-      label: "Re-check",
+      label: "Check again",
     });
 
     secondaryFixes.forEach((fix) => {
@@ -1754,22 +1781,9 @@ function buildDiscoveryNoWebhookBody(runtime) {
   return [
     {
       type: "card",
-      title: "No webhook — that's fine.",
+      title: "You can connect later.",
       body: [
-        "You can still add jobs to Pipeline using GitHub Actions, cron, n8n, or Apps Script triggers. You can come back and add a webhook later.",
-      ],
-    },
-    buildDiscoveryWizardMessageCard(runtime),
-  ].filter(Boolean);
-}
-
-function buildDiscoveryStubOnlyBody(runtime) {
-  return [
-    {
-      type: "card",
-      title: "Stub mode — testing only.",
-      body: [
-        "The stub confirms webhook delivery works, but won't produce real job results. Switch to the Local or Webhook path when you're ready for real discovery.",
+        "Add jobs to your sheet yourself, or from GitHub Actions, cron, n8n, or Apps Script triggers.",
       ],
     },
     buildDiscoveryWizardMessageCard(runtime),
@@ -1814,6 +1828,7 @@ function buildDiscoveryWizardSteps(runtime) {
     runtime.snapshot &&
     runtime.snapshot.localRecoveryState &&
     runtime.snapshot.localRecoveryState !== "ok";
+  const missingSheet = !!(runtime.snapshot && runtime.snapshot.sheetConfigured === false);
   steps.push({
     id: "detect",
     label: "Your setup",
@@ -1821,9 +1836,11 @@ function buildDiscoveryWizardSteps(runtime) {
       ? "Local setup needs recovery"
       : "Current setup status",
     description: detectRecovery
-      ? "The local worker or tunnel is down. Click Fix setup to restore everything."
+      ? "Part of discovery on this computer has stopped. Fix setup restarts it."
       : "What's already connected and what still needs work.",
     body: () => buildDiscoveryDetectBody(host().getDiscoveryWizardRuntime()),
+    // One action per blocked state (D1): a stopped stack is Fix setup, a
+    // missing sheet is Connect Sheet (D4), and only then Continue.
     actions: detectRecovery
       ? [
           {
@@ -1832,13 +1849,21 @@ function buildDiscoveryWizardSteps(runtime) {
             variant: "primary",
           },
         ]
-      : [
-          {
-            id: "wizard_review_options",
-            label: "Continue",
-            variant: "primary",
-          },
-        ],
+      : missingSheet
+        ? [
+            {
+              id: "wizard_connect_sheet",
+              label: "Connect Sheet",
+              variant: "primary",
+            },
+          ]
+        : [
+            {
+              id: "wizard_review_options",
+              label: "Continue",
+              variant: "primary",
+            },
+          ],
     secondaryActions: [
       ...(detectRecovery
         ? [
@@ -1851,7 +1876,7 @@ function buildDiscoveryWizardSteps(runtime) {
         : []),
       {
         id: "wizard_refresh_detect",
-        label: "Re-scan",
+        label: "Check again",
         variant: "secondary",
       },
       ...(detectRecovery
@@ -1881,7 +1906,7 @@ function buildDiscoveryWizardSteps(runtime) {
       label: "Connect",
       title: "Connect a stable URL (Tailscale).",
       description:
-        "One click sets everything up over Tailscale — or paste any HTTPS endpoint you already control.",
+        "One click sets everything up over Tailscale — or paste a web address you already own.",
       body: () =>
         buildDiscoveryExistingEndpointBody(host().getDiscoveryWizardRuntime()),
       actions: [
@@ -1901,30 +1926,13 @@ function buildDiscoveryWizardSteps(runtime) {
     steps.push({
       id: "no_webhook",
       label: "Connect",
-      title: "Keep discovery manual.",
-      description:
-        "You can still add jobs to Pipeline manually or via automation — just no on-demand button.",
+      title: "Skip connecting for now.",
+      description: SKIP_FOR_NOW_CONSEQUENCE,
       body: () => buildDiscoveryNoWebhookBody(host().getDiscoveryWizardRuntime()),
       actions: [
         {
           id: "wizard_complete_no_webhook",
-          label: "Confirm — no webhook",
-          variant: "primary",
-        },
-      ],
-    });
-  } else if (flow === "stub_only") {
-    steps.push({
-      id: "stub_only",
-      label: "Connect",
-      title: "Test-only mode.",
-      description:
-        "The stub confirms wiring works but won't produce real job results.",
-      body: () => buildDiscoveryStubOnlyBody(host().getDiscoveryWizardRuntime()),
-      actions: [
-        {
-          id: "wizard_complete_stub_only",
-          label: "Confirm stub setup",
+          label: DISCOVERY_PATH_NAMES.no_webhook,
           variant: "primary",
         },
       ],
@@ -1935,7 +1943,7 @@ function buildDiscoveryWizardSteps(runtime) {
       label: "Connect",
       title: detectRecovery ? "Fix local setup" : "Load local config.",
       description: detectRecovery
-        ? "Fix setup restarts what is down and redeploys the relay if ngrok changed."
+        ? "Fix setup restarts what stopped and reconnects your address if it changed."
         : host().isLocalDashboardOrigin()
           ? "Generates or loads your local discovery config for you."
           : "Reads your saved local setup so the wizard knows your ports, URLs, and tunnel info.",
@@ -2424,7 +2432,7 @@ function renderTailscaleStagesInWizard({ state, stages }) {
  * SAME verification the manual flow uses (which persists the URL and
  * advances to Done). Human input only where physically unavoidable
  * (Tailscale install / sign-in), surfaced via drafts.tailscaleAutoState so
- * the endpoint card renders the right guidance + a Re-check button.
+ * the endpoint card renders the right guidance + a Check again button.
  *
  * deps are injectable for tests; production uses the module defaults.
  */
@@ -2493,7 +2501,7 @@ function isDeadTunnelEndpoint(raw) {
  * The second sentence for a run that failed to replace a dead saved link,
  * in the user's words, with the re-run as the fix (voice rule §8.4 —
  * every error names its next action). `rerunLabel` is the button on
- * screen: "Re-check" for the blocked machine states, "pressing Set it up
+ * screen: "Check again" for the blocked machine states, "pressing Set it up
  * for me again" once the sequence itself is what failed. "" when the
  * saved endpoint is not a dead tunnel link.
  */
@@ -2583,7 +2591,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     "";
   const blockedTunnelNote = deadTunnelSavedEndpointNote(
     savedEndpointBefore,
-    "Re-check",
+    "Check again",
   );
   const failedTunnelNote = deadTunnelSavedEndpointNote(
     savedEndpointBefore,
@@ -2623,14 +2631,25 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     console.warn("[JobBored] tailscale-state probe:", e);
     probeFailed = true;
   }
+  if (
+    ts &&
+    typeof ts.installed === "boolean" &&
+    typeof host().getDiscoveryReadinessSnapshot === "function"
+  ) {
+    // R9 / D4: the same answer steers the recommended card.
+    try {
+      host().getDiscoveryReadinessSnapshot({ tailscaleInstalled: ts.installed });
+    } catch (e) {
+      console.warn("[JobBored] tailscaleInstalled → readiness:", e);
+    }
+  }
   if (probeFailed || !ts) {
     // A probe that never reached the dev server is a SERVER problem, not a
     // Tailscale one (2026-09-02: the stack had died and the founder was told
     // Tailscale was not installed while it was running).
     return stop(
       "needs_server",
-      "Couldn't reach JobBored's local server — on the hosted page, open your local setup instead; otherwise double-click start.command in the JobBored folder to start it, then Re-check." +
-        blockedTunnelNote,
+      needsServerMessage() + blockedTunnelNote,
       "warning",
       "machine",
     );
@@ -2638,7 +2657,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   if (!ts.installed) {
     return stop(
       "needs_install",
-      "Tailscale isn't installed yet — grab it below, then Re-check." +
+      "Tailscale isn't installed yet — grab it below, then press Check again." +
         blockedTunnelNote,
       "warning",
       "machine",
@@ -2647,7 +2666,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   if (!ts.loggedIn) {
     return stop(
       "needs_login",
-      "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check." +
+      "Tailscale is installed but not signed in — open the Tailscale app, sign in, then press Check again." +
         blockedTunnelNote,
       "warning",
       "machine",
@@ -2940,6 +2959,28 @@ async function verifyDiscoveryEndpointForFlow(options = {}) {
   };
 }
 
+/**
+ * Is Tailscale installed on this computer? true / false from the dev
+ * server's /__proxy/tailscale-state, or null when nothing answered — a
+ * hosted page, a stopped server, no fetch. Keyless and read-only.
+ */
+async function probeTailscaleInstalled(fetchImpl) {
+  const doFetch =
+    typeof fetchImpl === "function"
+      ? fetchImpl
+      : typeof fetch === "function"
+        ? (...args) => fetch(...args)
+        : null;
+  if (!doFetch || !host().isLocalDashboardOrigin()) return null;
+  try {
+    const r = await doFetch("/__proxy/tailscale-state", { cache: "no-store" });
+    const body = r && r.ok ? await r.json() : null;
+    return body && typeof body.installed === "boolean" ? body.installed : null;
+  } catch (_) {
+    return null;
+  }
+}
+
 async function openDiscoverySetupWizard(options = {}) {
   // Funnel telemetry: the discovery setup surface was entered (fires once
   // per open, before the machine probe below).
@@ -2995,9 +3036,13 @@ async function openDiscoverySetupWizard(options = {}) {
   if (host().isSettingsModalOpen()) {
     host().closeCommandCenterSettingsModal();
   }
+  // R9 / D4: readiness recommends Tailscale only when it is installed, so
+  // the wizard's Tailscale probe rides along. No answer stays unknown.
+  const tailscaleInstalled = await probeTailscaleInstalled(options.fetchImpl);
   const snapshot = await host().refreshDiscoveryReadinessSnapshot({
     force: true,
     rerender: false,
+    ...(typeof tailscaleInstalled === "boolean" ? { tailscaleInstalled } : {}),
   });
   const probes = host().getDiscoveryWizardProbesApi();
   let savedState = null;
@@ -3252,17 +3297,15 @@ async function handleDiscoveryWizardVerification(url, context) {
     }
     await host().refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
     const snapshot = host().getDiscoveryReadinessSnapshot();
-    const flow =
-      result.kind === "stub_only"
-        ? "stub_only"
-        : host().getDiscoveryWizardRuntime().state.flow;
+    // R9: a stub URL is an ENGINE state (result below), never a flow.
+    const flow = host().getDiscoveryWizardRuntime().state.flow;
     setDiscoveryWizardMessage(
       result.message,
       result.kind === "stub_only" ? "warning" : "info",
     );
     await host().persistDiscoveryWizardState({
       flow,
-      currentStep: result.kind === "stub_only" ? "stub_only" : "ready",
+      currentStep: "ready",
       completedSteps: [
         ...((host().getDiscoveryWizardRuntime().state || {}).completedSteps || []),
         "verify",
@@ -3282,7 +3325,7 @@ async function handleDiscoveryWizardVerification(url, context) {
     });
     host().showDiscoveryVerificationToast(result, { context });
     return moveDiscoveryWizardToStep(
-      result.kind === "stub_only" ? "stub_only" : "ready",
+      "ready",
       {
         snapshot,
         state: {
@@ -3438,6 +3481,18 @@ async function handleDiscoveryWizardAction(actionId) {
     return handleDiscoveryWizardFlowSelection("no_webhook");
   }
 
+  if (actionId === "wizard_connect_sheet") {
+    const shellApi = host().getDiscoveryWizardShellApi();
+    if (shellApi && typeof shellApi.closeWizardShell === "function") {
+      shellApi.closeWizardShell("dismiss");
+    }
+    const oneFlow = window.JobBoredOneFlow;
+    if (oneFlow && typeof oneFlow.open === "function") {
+      return oneFlow.open("google");
+    }
+    return null;
+  }
+
   if (actionId === "wizard_refresh_detect") {
     setDiscoveryWizardMessage(
       "Refreshed discovery signals from the current repo and browser state.",
@@ -3580,32 +3635,6 @@ async function handleDiscoveryWizardAction(actionId) {
           "no_webhook",
         ],
         result: "none",
-      },
-    });
-  }
-  if (actionId === "wizard_complete_stub_only") {
-    if (runtime.snapshot.savedWebhookUrl) {
-      await host().recordDiscoveryEngineState(
-        runtime.snapshot.savedWebhookUrl,
-        host().DISCOVERY_ENGINE_STATE_STUB_ONLY,
-        "wizard_stub_only",
-      );
-    }
-    await host().refreshDiscoveryReadinessSnapshot({ force: true, rerender: false });
-    setDiscoveryWizardMessage(
-      "Stub-only wiring stays available, but it is not real discovery-ready.",
-      "warning",
-    );
-    return moveDiscoveryWizardToStep("ready", {
-      snapshot: host().getDiscoveryReadinessSnapshot(),
-      state: {
-        flow: "stub_only",
-        completedSteps: [
-          ...((runtime.state || {}).completedSteps || []),
-          "detect",
-          "stub_only",
-        ],
-        result: "stub_only",
       },
     });
   }
@@ -3899,7 +3928,7 @@ async function handleDiscoveryWizardAction(actionId) {
         }
         if (body && body.needsAuth) {
           host().showToast(
-            "Cloudflare auth needed. Run `npx wrangler login` in a terminal, then click Re-check.",
+            "Cloudflare auth needed. Run `npx wrangler login` in a terminal, then press Check again.",
             "warning",
             true,
           );

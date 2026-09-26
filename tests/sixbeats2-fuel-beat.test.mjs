@@ -148,8 +148,9 @@ describe("SIXBEATS2 NEW-3 · the fuel check contacts SerpApi before it claims an
       }),
     );
     const text = messageOf(env).textContent;
-    assert.match(text, /Couldn't reach SerpApi/);
-    assert.match(text, /internet connection/, "the next action is not 'retype your key'");
+    // GFX FE-B5 (S9): the frozen `unreachable` copy.
+    assert.match(text, /SerpApi didn't answer/);
+    assert.match(text, /check your internet/, "the next action is not 'retype your key'");
     assert.doesNotMatch(text, /didn't recognise/);
   });
 
