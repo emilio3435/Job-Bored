@@ -40,6 +40,12 @@ If `COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` in your repo secrets is a
   worker's public URL (for example its tunnel URL ending in `/webhook`) or an
   Apps Script `/exec` URL, never the relay.
 
+The workflow now stops on a relay URL instead of failing silently: when
+`COMMAND_CENTER_DISCOVERY_WEBHOOK_URL` is a `workers.dev` host, or the receiver
+answers the relay's own 401 refusal, the job exits non-zero and prints these
+two migration steps. Any other receiver still gets the POST, and a non-2xx
+answer from it also fails the job.
+
 ## What it sends
 
 A minimal JSON body matching [AGENT_CONTRACT.md](../../AGENT_CONTRACT.md) v1:

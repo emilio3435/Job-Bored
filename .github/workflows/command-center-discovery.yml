@@ -2,6 +2,8 @@
 #
 # Copy this file to: .github/workflows/command-center-discovery.yml
 # Set repository secrets (see templates/github-actions/README.md)
+# The Cloudflare relay is not a GitHub Actions target: this job refuses a relay
+# webhook URL with a migration note instead of failing silently.
 
 name: Command Center discovery ping
 
@@ -15,11 +17,15 @@ jobs:
   discovery:
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
+
       - name: POST discovery webhook
         env:
           WEBHOOK_URL: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_URL }}
           SHEET_ID: ${{ secrets.COMMAND_CENTER_SHEET_ID }}
           WEBHOOK_SECRET: ${{ secrets.COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET }}
+          COMMAND_CENTER_DISCOVERY_PROFILE_JSON: ${{ secrets.COMMAND_CENTER_DISCOVERY_PROFILE_JSON }}
+          COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON: ${{ secrets.COMMAND_CENTER_DISCOVERY_PREFERENCES_JSON }}
         run: |
           set -euo pipefail
           if [ -z "${WEBHOOK_URL:-}" ] || [ -z "${SHEET_ID:-}" ]; then
@@ -32,27 +38,44 @@ jobs:
             echo "Skipping discovery: America/Chicago local time is $LOCAL_TIME, not $LOCAL_TARGET."
             exit 0
           fi
-          VAR_KEY="gh-${{ github.run_id }}-${{ github.run_attempt }}-$(date +%s)"
-          REQ_AT="$(date -u +"%Y-%m-%dT%H:%M:%SZ")"
-          BODY=$(jq -n \
-            --arg v "$VAR_KEY" \
-            --arg s "$SHEET_ID" \
-            --arg t "$REQ_AT" \
-            '{
-              event: "command-center.discovery",
-              schemaVersion: 1,
-              sheetId: $s,
-              variationKey: $v,
-              requestedAt: $t,
-              trigger: "scheduled-github",
-              discoveryProfile: {}
-            }')
+          relay_refused() {
+            echo "::error::COMMAND_CENTER_DISCOVERY_WEBHOOK_URL points at the Cloudflare relay, which is retired as a GitHub Actions target: it answers 401 to any caller without its per-dashboard bearer."
+            echo "Migrate one of two ways:"
+            echo "  1. Redeploy the relay with --sheet-id (npm run cloudflare-relay:deploy -- --sheet-id YOUR_SHEET_ID) and let Cloudflare Cron schedule runs, then delete this workflow."
+            echo "  2. Point COMMAND_CENTER_DISCOVERY_WEBHOOK_URL at your worker's public URL or an Apps Script /exec URL."
+            echo "See templates/github-actions/README.md, section \"GitHub Actions and the Cloudflare relay\"."
+            exit 1
+          }
+          WEBHOOK_HOST="${WEBHOOK_URL#*://}"
+          WEBHOOK_HOST="${WEBHOOK_HOST%%/*}"
+          WEBHOOK_HOST="${WEBHOOK_HOST%%\?*}"
+          WEBHOOK_HOST="${WEBHOOK_HOST##*@}"
+          WEBHOOK_HOST="$(printf '%s' "${WEBHOOK_HOST%%:*}" | tr '[:upper:]' '[:lower:]')"
+          case "$WEBHOOK_HOST" in
+            workers.dev|*.workers.dev) relay_refused ;;
+          esac
+          BODY="$(node scripts/run-scheduled-discovery.mjs \
+            --trigger scheduled-github \
+            --sheet-id "$SHEET_ID" \
+            --dry-run)"
           SECRET_HEADER=()
           if [ -n "${WEBHOOK_SECRET:-}" ]; then
             SECRET_HEADER=(-H "x-discovery-secret: ${WEBHOOK_SECRET}")
           fi
-          curl -sS -X POST "$WEBHOOK_URL" \
+          RESP_FILE="$(mktemp)"
+          HTTP_CODE="$(curl -sS -X POST "$WEBHOOK_URL" \
+            -o "$RESP_FILE" \
+            -w "%{http_code}" \
             -H "Content-Type: application/json" \
-            "${SECRET_HEADER[@]}" \
-            -d "$BODY" \
-            -w "\nHTTP %{http_code}\n"
+            ${SECRET_HEADER[@]+"${SECRET_HEADER[@]}"} \
+            -d "$BODY")"
+          cat "$RESP_FILE"
+          echo
+          echo "HTTP $HTTP_CODE"
+          if [ "$HTTP_CODE" = "401" ] && grep -Eq '"error"[[:space:]]*:[[:space:]]*"(Unauthorized|relay_token_not_configured)"' "$RESP_FILE"; then
+            relay_refused
+          fi
+          case "$HTTP_CODE" in
+            2??) ;;
+            *) echo "::error::Discovery webhook answered HTTP $HTTP_CODE."; exit 1 ;;
+          esac
