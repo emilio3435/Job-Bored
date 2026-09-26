@@ -1,0 +1,296 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emilio Nunez-Garcia: Cover letter, 3E AI &amp; Marketing Analytics Manager</title>
+<!-- Take C: signal instrument. Letterhead band + scale, channel gutter, readings footer. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=block" />
+<link rel="stylesheet" href="../../../../../vendor/fonts/fonts.css" />
+<style>
+:root {
+  --volt: #4a24ff;
+  --ink: #15112e;
+  --graphite: #55516e;
+  --grat: #d9d5f2;
+  --paper: #ffffff;
+  --band-soft: #d3cbff;
+  --sans: "Archivo", "DM Sans", Arial, sans-serif;
+  --mono: "Martian Mono", "JetBrains Mono", ui-monospace, monospace;
+  --hand: "Caveat", "Segoe Script", cursive;
+  --pad-x: 0.55in;
+  --gutter: 1.02in;
+  --gap: 0.2in;
+}
+@page { size: letter; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #e9e7f3; }
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  font-kerning: normal;
+}
+.sheet {
+  width: 8.5in;
+  height: 11in;
+  margin: 0 auto;
+  background: var(--paper);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+@media screen { .sheet { margin: 24px auto; box-shadow: 0 30px 60px -30px rgba(40, 20, 140, .45); } }
+@media print { html, body { background: var(--paper); } .sheet { margin: 0; } }
+
+/* ---------- letterhead band + scale (shared with the resume) ---------- */
+.band {
+  position: relative;
+  background: var(--volt);
+  color: #fff;
+  padding: 0.34in var(--pad-x) 0.27in;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  column-gap: 0.3in;
+}
+.band::after {
+  content: "";
+  position: absolute;
+  left: var(--pad-x);
+  right: var(--pad-x);
+  bottom: 0;
+  height: 7pt;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.95) 0 1pt, transparent 1pt 0.5in) bottom left / 100% 7pt no-repeat,
+    repeating-linear-gradient(90deg, rgba(255,255,255,.55) 0 0.6pt, transparent 0.6pt 0.1in) bottom left / 100% 3.5pt no-repeat;
+}
+.name {
+  margin: 0;
+  font-size: 25pt;
+  font-weight: 800;
+  font-stretch: 125%;
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+.target {
+  margin: 6pt 0 0;
+  font-size: 10pt;
+  font-weight: 500;
+  font-stretch: 112%;
+  color: var(--band-soft);
+}
+.contact {
+  margin: 0;
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-size: 7.6pt;
+  line-height: 1.6;
+  text-align: right;
+}
+.contact a { color: inherit; text-decoration: none; }
+
+/* ---------- letter body: channel gutter + prose ---------- */
+.main {
+  flex: 1;
+  padding: 0.62in var(--pad-x) 0;
+  display: grid;
+  grid-template-columns: var(--gutter) 1fr;
+  column-gap: var(--gap);
+  align-content: start;
+}
+.meta { margin: 0; padding-top: 3pt; }
+.meta dt {
+  font-size: 8.5pt;
+  font-weight: 700;
+  font-stretch: 112%;
+  color: var(--volt);
+  padding-top: 5pt;
+  border-top: 1pt solid var(--volt);
+  width: 0.5in;
+}
+.meta dd {
+  margin: 3pt 0 16pt;
+  font-size: 8.8pt;
+  line-height: 1.4;
+  color: var(--ink);
+}
+.prose { max-width: 5.6in; }
+.prose p {
+  margin: 0 0 13pt;
+  font-size: 11.2pt;
+  line-height: 1.68;
+  color: var(--ink);
+  hyphens: manual;
+}
+.prose .salute { font-weight: 600; font-stretch: 112%; margin-bottom: 12pt; }
+.prose .lede {
+  font-size: 16pt;
+  line-height: 1.34;
+  font-weight: 500;
+  letter-spacing: -0.012em;
+  font-stretch: 104%;
+  margin-bottom: 14pt;
+  padding-left: 12pt;
+  border-left: 2.4pt solid var(--volt);
+}
+.n {
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-weight: 600;
+  font-size: 0.95em;
+  letter-spacing: -0.02em;
+}
+
+.sign { margin-top: 20pt; }
+.sign .off { margin: 0; font-size: 11.2pt; }
+.sign .hand {
+  margin: 0;
+  font-family: var(--hand);
+  font-weight: 600;
+  font-size: 36pt;
+  line-height: 1.1;
+  color: var(--volt);
+  transform: rotate(-2deg);
+  transform-origin: left center;
+}
+.sign .who {
+  margin: 0;
+  font-size: 11.2pt;
+  font-weight: 700;
+  font-stretch: 112%;
+}
+.sign .how {
+  margin: 2pt 0 0;
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-size: 7.8pt;
+  color: var(--graphite);
+}
+
+/* ---------- readings footer ---------- */
+.readout {
+  position: relative;
+  margin: 0 var(--pad-x) 0.42in;
+  padding-top: 0.2in;
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+}
+.readout::before { /* the scale again, in Volt, bookending the band */
+  content: "";
+  position: absolute;
+  left: 0; right: 0; top: 0;
+  height: 7pt;
+  background:
+    linear-gradient(var(--ink), var(--ink)) top left / 100% 0.75pt no-repeat,
+    repeating-linear-gradient(90deg, var(--volt) 0 1pt, transparent 1pt 0.5in) top left / 100% 7pt no-repeat,
+    repeating-linear-gradient(90deg, var(--grat) 0 0.6pt, transparent 0.6pt 0.1in) top left / 100% 3.5pt no-repeat;
+}
+.channel {
+  display: flex;
+  align-items: center;
+  gap: 6pt;
+  height: 0.3in;
+  margin-right: 0.12in;
+  border-top: 1.2pt solid var(--volt);
+  position: relative;
+}
+.channel::before, .channel::after {
+  content: "";
+  position: absolute;
+  top: -1.2pt;
+  width: 1.2pt;
+  height: 5pt;
+  background: var(--volt);
+}
+.channel::before { left: 0; }
+.channel::after { right: 0; }
+.ch-audacy { grid-column: 1 / span 2; }
+.ch-elio { grid-column: 3 / span 2; margin-right: 0; }
+.channel .src { font-size: 8.5pt; color: var(--graphite); }
+.logo-elio { height: 0.4in; width: auto; margin: -0.07in -0.03in -0.06in -0.03in; }
+.logo-audacy { height: 0.17in; width: auto; }
+.reading { margin: 4pt 0 0; padding-right: 0.1in; grid-row: 2; }
+.reading + .reading { border-left: 0.5pt solid var(--grat); padding-left: 0.12in; }
+.reading.ch-split { border-left: 0.75pt solid var(--ink); }
+.fig {
+  display: block;
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-weight: 600;
+  font-size: 21pt;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+}
+.cap { display: block; margin-top: 3pt; font-size: 8.5pt; line-height: 1.25; color: var(--graphite); }
+
+/* Registry rule (materials-v3 §9): PDF text order follows paint order, and
+   positioned boxes paint after in-flow ones. With li and .band positioned and
+   everything else in flow, the band and the bullets extracted last. Making every
+   block box in the sheet positioned (no offsets, so no layout change) paints
+   them in one layer, in DOM order, so ATS extraction reads the header first.
+   Inline runs stay in flow so metric spans extract inside their sentence. */
+.sheet :is(header, footer, section, article, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3), .head > * { position: relative; }
+</style>
+</head>
+<body>
+<article class="sheet page" data-page="1" data-doc="cover-letter" data-take="C">
+
+  <header class="band">
+    <div>
+      <h1 class="name">Emilio Nunez-Garcia</h1>
+      <p class="target">AI &amp; Marketing Analytics Manager</p>
+    </div>
+    <p class="contact">
+      Denver, CO&ensp;501.366.2080<br />
+      <a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a><br />
+      <a href="https://emiliobuilds.com">emiliobuilds.com</a>
+    </p>
+  </header>
+
+  <div class="main">
+    <dl class="meta">
+      <dt>Date</dt>
+      <dd>September 17, 2026</dd>
+      <dt>To</dt>
+      <dd>Hiring team<br />3E<br />Bethesda, MD<br />Eastern remote</dd>
+      <dt>Re</dt>
+      <dd>AI &amp; Marketing Analytics Manager</dd>
+    </dl>
+
+    <div class="prose">
+      <p class="salute">Dear hiring team,</p>
+      <p class="lede">You are hiring someone to keep a live Claude operating model honest and to make marketing spend explain itself to a pipeline. Those are the same week for me, already.</p>
+      <p>At Audacy I carried a <span class="n">$10M+</span> digital book in Denver and the argument that came with it: which channels moved buying stage, which were last-click theater, what we stopped funding. The framework I wrote is the one account executives defended in QBRs after I stopped sitting in them. A <span class="n">#19</span> market ranked <span class="n">top-3</span> nationally because the readouts were honest, not because the media plan was clever.</p>
+      <p>The other half I built. Elio routes across Claude, Gemini, GPT, Grok, and Llama on Cloud Run with grounded retrieval and live data connections, and the forecaster inside it ran <span class="n">21</span> scenarios against <span class="n">$2.4M</span> of real pipeline. I hold the keys, the service accounts, and the schedules. That is the shape of <span class="n">25</span> skills and <span class="n">15</span> connections, and it is not prompting.</p>
+      <p>I would start by sitting in on one Demand Gen readout and tracing a single skill from the CRM to the sentence someone acts on. Power BI would be new; Looker Studio, GA4, and SQL are not. Easy to reach either way.</p>
+
+      <div class="sign">
+        <p class="off">Best,</p>
+        <p class="hand" aria-hidden="true">Emilio Nunez-Garcia</p>
+        <p class="who">Emilio Nunez-Garcia</p>
+        <p class="how">501.366.2080&ensp;emilio3435@gmail.com&ensp;emiliobuilds.com</p>
+      </div>
+    </div>
+  </div>
+
+  <section class="readout" aria-label="Figures referenced in this letter">
+    <div class="channel ch-audacy">
+      <img class="logo-audacy" src="../../assets/logos/audacy.svg" alt="Audacy logo" />
+      <span class="src">Digital Sales Manager, 2021 to 2026</span>
+    </div>
+    <div class="channel ch-elio">
+      <img class="logo-elio" src="../../assets/logos/elio.png" alt="Elio Intelligence Suite logo" />
+      <span class="src">Founder, 2024 to present</span>
+    </div>
+    <p class="reading" style="grid-column:1"><span class="fig">$10M+</span><span class="cap">digital book owned</span></p>
+    <p class="reading" style="grid-column:2"><span class="fig">top-3</span><span class="cap">national rank from a #19&#8209;sized market</span></p>
+    <p class="reading ch-split" style="grid-column:3"><span class="fig">21</span><span class="cap">forecast scenarios run</span></p>
+    <p class="reading" style="grid-column:4"><span class="fig">$2.4M</span><span class="cap">of live pipeline, for a seller pitch</span></p>
+  </section>
+</article>
+</body>
+</html>

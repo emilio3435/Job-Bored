@@ -1,0 +1,396 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emilio Nunez-Garcia: Resume, 3E AI &amp; Marketing Analytics Manager</title>
+<!-- Take C r2: signal instrument. Band + scale, readout strip, logo-beside-name log. -->
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Archivo:ital,wdth,wght@0,62..125,100..900;1,62..125,100..900&family=Martian+Mono:wdth,wght@75..112.5,100..800&display=block" />
+<link rel="stylesheet" href="../../../../../vendor/fonts/fonts.css" />
+<style>
+:root {
+  --volt: #4a24ff;
+  --ink: #15112e;
+  --graphite: #55516e;
+  --grat: #d9d5f2;
+  --paper: #ffffff;
+  --band-soft: #d3cbff;
+  --sans: "Archivo", "DM Sans", Arial, sans-serif;
+  --mono: "Martian Mono", "JetBrains Mono", ui-monospace, monospace;
+  --pad-x: 0.55in;
+  --gutter: 1.02in;
+  --gap: 0.2in;
+}
+@page { size: letter; margin: 0; }
+* { box-sizing: border-box; }
+html, body { margin: 0; background: #e9e7f3; }
+body {
+  font-family: var(--sans);
+  color: var(--ink);
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  font-kerning: normal;
+}
+.sheet {
+  width: 8.5in;
+  height: 11in;
+  margin: 0 auto;
+  background: var(--paper);
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+@media screen { .sheet { margin: 24px auto; box-shadow: 0 30px 60px -30px rgba(40, 20, 140, .45); } }
+@media print { html, body { background: var(--paper); } .sheet { margin: 0; } }
+
+/* ---------- band + graduated scale ---------- */
+.band {
+  position: relative;
+  background: var(--volt);
+  color: #fff;
+  padding: 0.3in var(--pad-x) 0.25in;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  column-gap: 0.3in;
+}
+.band::after { /* the scale: minor tick every 0.1in, major every 0.5in */
+  content: "";
+  position: absolute;
+  left: var(--pad-x);
+  right: var(--pad-x);
+  bottom: 0;
+  height: 7pt;
+  background:
+    repeating-linear-gradient(90deg, rgba(255,255,255,.95) 0 1pt, transparent 1pt 0.5in) bottom left / 100% 7pt no-repeat,
+    repeating-linear-gradient(90deg, rgba(255,255,255,.55) 0 0.6pt, transparent 0.6pt 0.1in) bottom left / 100% 3.5pt no-repeat;
+}
+.name {
+  margin: 0;
+  font-size: 25pt;
+  font-weight: 800;
+  font-stretch: 125%;
+  letter-spacing: -0.01em;
+  line-height: 0.95;
+}
+.target {
+  margin: 6pt 0 0;
+  font-size: 10pt;
+  font-weight: 500;
+  font-stretch: 112%;
+  color: var(--band-soft);
+}
+.contact {
+  margin: 0;
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-size: 7.6pt;
+  line-height: 1.6;
+  text-align: right;
+  color: #fff;
+}
+.contact a { color: inherit; text-decoration: none; }
+
+/* ---------- readout strip ---------- */
+.readout {
+  padding: 0.11in var(--pad-x) 0.09in;
+  display: grid;
+  grid-template-columns: 1fr 1fr 1.02fr 1fr 1fr 1fr;
+  column-gap: 0;
+  border-bottom: 0.75pt solid var(--ink);
+}
+.channel {
+  display: flex;
+  align-items: center;
+  gap: 6pt;
+  height: 0.22in;
+  margin-right: 0.12in;
+  border-top: 1.2pt solid var(--volt);
+  position: relative;
+}
+.channel::before, .channel::after { /* bracket feet */
+  content: "";
+  position: absolute;
+  top: -1.2pt;
+  width: 1.2pt;
+  height: 5pt;
+  background: var(--volt);
+}
+.channel::before { left: 0; }
+.channel::after { right: 0; }
+.ch-elio { grid-column: 1 / span 2; }
+.ch-audacy { grid-column: 3 / span 4; margin-right: 0; }
+.channel .src {
+  font-size: 8.5pt;
+  color: var(--graphite);
+  font-stretch: 100%;
+}
+.channel .src { white-space: nowrap; }
+.channel .src b { font-weight: 700; font-stretch: 112%; color: var(--ink); }
+.reading { margin: 4pt 0 0; padding-right: 0.1in; grid-row: 2; }
+.reading + .reading { border-left: 0.5pt solid var(--grat); padding-left: 0.1in; }
+.reading.first-of-ch { border-left: 0; padding-left: 0; }
+.reading.ch-split { border-left: 0.75pt solid var(--ink); padding-left: 0.12in; }
+.fig {
+  display: block;
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-weight: 600;
+  font-size: 21pt;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  color: var(--ink);
+}
+.cap {
+  display: block;
+  margin-top: 3pt;
+  font-size: 8.5pt;
+  line-height: 1.25;
+  color: var(--graphite);
+}
+
+/* ---------- body ---------- */
+.body { padding: 0.12in var(--pad-x) 0.36in; flex: 1; display: flex; flex-direction: column; }
+.statement {
+  margin: 0 0 7pt calc(var(--gutter) + var(--gap));
+  font-size: 10.6pt;
+  line-height: 1.38;
+  font-weight: 450;
+  max-width: 6in;
+}
+.row {
+  display: grid;
+  grid-template-columns: var(--gutter) 1fr;
+  column-gap: var(--gap);
+}
+.sec-label {
+  display: grid;
+  grid-template-columns: var(--gutter) 1fr;
+  column-gap: var(--gap);
+  align-items: center;
+  margin: 0 0 6pt;
+}
+.sec-label h2 {
+  margin: 0;
+  font-size: 9pt;
+  font-weight: 700;
+  font-stretch: 112%;
+  color: var(--volt);
+}
+.sec-label i {
+  height: 0.5pt;
+  background: var(--grat);
+  background: repeating-linear-gradient(90deg, var(--grat) 0 0.6pt, transparent 0.6pt 0.1in);
+  height: 3pt;
+}
+.entry { margin-bottom: 7pt; }
+.gut { padding-top: 0.07in; }
+.gut .when { margin-top: 0; }
+.mark { display: block; flex: none; width: auto; }
+/* optical sizes: Elio PNG carries ~20% transparent padding, offset by negative margins (no crop) */
+.mark-elio { height: 0.5in; margin: -0.09in -0.04in -0.08in -0.05in; }
+.mark-audacy { height: 0.2in; }
+.mark-prm { height: 0.34in; margin: -0.02in -0.02in -0.02in -0.03in; }
+.when {
+  display: block;
+  margin-top: 4pt;
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-size: 7.8pt;
+  line-height: 1.45;
+  color: var(--graphite);
+}
+.head {
+  margin: 0 0 3pt;
+  display: flex;
+  align-items: center;
+  gap: 8pt;
+  flex-wrap: wrap;
+}
+.org {
+  margin: 0;
+  font-size: 10.6pt;
+  font-weight: 700;
+  font-stretch: 112%;
+  letter-spacing: -0.005em;
+}
+.seat { font-size: 9.3pt; color: var(--graphite); }
+ul { margin: 0; padding: 0; list-style: none; }
+li {
+  position: relative;
+  padding-left: 11pt;
+  margin: 0 0 2.4pt;
+  font-size: 9.4pt;
+  line-height: 1.36;
+}
+li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.62em;
+  width: 6pt;
+  height: 1pt;
+  background: var(--volt);
+}
+.n {
+  font-family: var(--mono);
+  font-stretch: 75%;
+  font-weight: 600;
+  font-size: 0.95em;
+  letter-spacing: -0.02em;
+}
+.sub {
+  margin-top: 5pt;
+  padding-top: 5pt;
+  border-top: 0.5pt dashed var(--grat);
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8pt;
+}
+.sub .when { margin: 1pt 0 0; }
+.sub p { margin: 0; font-size: 9.4pt; line-height: 1.36; }
+.sub b { font-weight: 700; font-stretch: 112%; }
+
+.ventures { display: grid; grid-template-columns: 1fr 1fr; column-gap: 0.2in; }
+.ventures p { margin: 0; font-size: 9.4pt; line-height: 1.36; }
+.ventures b { font-weight: 700; font-stretch: 112%; }
+.ventures .when { display: inline; margin: 0 0 0 4pt; }
+
+.spec { margin: 0; display: grid; grid-template-columns: 0.9in 1fr; row-gap: 1.5pt; }
+.spec dt { font-size: 9.4pt; font-weight: 600; font-stretch: 112%; line-height: 1.36; }
+.spec dd { margin: 0; font-size: 9.4pt; line-height: 1.36; }
+.spec dd span + span::before { content: ", "; }
+
+.cred { display: grid; grid-template-columns: auto 1fr; column-gap: 10pt; align-items: center; }
+.mark-cc { height: 0.32in; width: auto; display: block; }
+.cred p { margin: 0; font-size: 9.4pt; line-height: 1.4; }
+.cred b { font-weight: 700; font-stretch: 112%; }
+.sec { margin-top: 3pt; }
+.sec + .sec { margin-top: 7pt; }
+
+/* Registry rule (materials-v3 §9): PDF text order follows paint order, and
+   positioned boxes paint after in-flow ones. With li and .band positioned and
+   everything else in flow, the band and the bullets extracted last. Making every
+   block box in the sheet positioned (no offsets, so no layout change) paints
+   them in one layer, in DOM order, so ATS extraction reads the header first.
+   Inline runs stay in flow so metric spans extract inside their sentence. */
+.sheet :is(header, footer, section, article, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3), .head > * { position: relative; }
+</style>
+</head>
+<body>
+<article class="sheet page" data-page="1" data-doc="resume" data-take="C">
+
+  <header class="band">
+    <div>
+      <h1 class="name">Emilio Nunez-Garcia</h1>
+      <p class="target">AI &amp; Marketing Analytics Manager</p>
+    </div>
+    <p class="contact">
+      Denver, CO&ensp;501.366.2080<br />
+      <a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a><br />
+      <a href="https://emiliobuilds.com">emiliobuilds.com</a><br />
+      <a href="https://www.linkedin.com/in/emiliobuilds">linkedin.com/in/emiliobuilds</a>
+    </p>
+  </header>
+
+  <section class="readout" aria-label="Verified figures">
+    <div class="channel ch-elio">
+      <span class="src"><b>Elio Intelligence Suite</b>, founder</span>
+    </div>
+    <div class="channel ch-audacy">
+      <span class="src"><b>Audacy</b>, Digital Sales Manager, 2021 to 2026</span>
+    </div>
+    <p class="reading first-of-ch" style="grid-column:1"><span class="fig">21</span><span class="cap">forecast scenarios run</span></p>
+    <p class="reading" style="grid-column:2"><span class="fig">$2.4M</span><span class="cap">of live pipeline, for a seller pitch</span></p>
+    <p class="reading ch-split" style="grid-column:3"><span class="fig">$10M+</span><span class="cap">digital book owned</span></p>
+    <p class="reading" style="grid-column:4"><span class="fig">top-3</span><span class="cap">national rank from a #19&#8209;sized market</span></p>
+    <p class="reading" style="grid-column:5"><span class="fig">130%</span><span class="cap">YoY paid-search conversion growth</span></p>
+    <p class="reading" style="grid-column:6"><span class="fig">13%</span><span class="cap">new-user lift, financial services</span></p>
+  </section>
+
+  <div class="body">
+    <p class="statement">Sixty percent of this role is making spend explain itself; forty is running the AI that does the explaining. I have shipped both: an attribution argument over a $10M+ book, and a production multi-model stack with live data connections underneath it.</p>
+
+    <div class="sec-label"><h2>Experience</h2><i aria-hidden="true"></i></div>
+
+    <article class="row entry" data-employer="elio">
+      <div class="gut">
+        <span class="when">2024 to present<br />Denver, CO</span>
+      </div>
+      <div>
+        <div class="head"><img class="mark mark-elio" src="../../assets/logos/elio.png" alt="Elio Intelligence Suite logo" /><h2 class="org company-name">Elio Intelligence Suite</h2><span class="seat">Founder &amp; AI engineer, elioai.app</span></div>
+        <ul>
+          <li data-claim="elio-platform">Built and operate a production multi-model platform on GCP Cloud Run that routes Claude, GPT, Gemini, Grok, and Llama by task fit, with Vertex AI Search retrieval and live data connections.</li>
+          <li data-claim="elio-forecast">Shipped a Gemini-grounded SEM forecaster that ran <span class="n">21</span> scenarios against <span class="n">$2.4M</span> of live pipeline, so the seller walked into the pitch with spend-to-stage math instead of a dashboard.</li>
+          <li data-claim="elio-ops">Run scheduled agent workflows across <span class="n">8–10</span> API keys and <span class="n">3–4</span> GCP service accounts, and hold the on-call when a connection drifts. Operations, not prompting.</li>
+          <li data-claim="jobbored-claude-code">Run JobBored's agent fleet in Claude Code against a user-owned Google Sheet.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="row entry" data-employer="audacy">
+      <div class="gut">
+        <span class="when">2017 to 2026<br />Denver, CO</span>
+      </div>
+      <div>
+        <div class="head"><img class="mark mark-audacy" src="../../assets/logos/audacy.svg" alt="Audacy logo" /><h2 class="org company-name">Audacy</h2><span class="seat">Digital Sales Manager, <span class="n">$10M+</span> digital book, 2021 to 2026</span></div>
+        <ul>
+          <li data-claim="audacy-book">Owned the <span class="n">$10M+</span> digital book and reallocated Google, Meta, OTT/CTV, and programmatic against marginal ROAS; Denver held a <span class="n">top-3</span> national rank from a <span class="n">#19</span>-sized market.</li>
+          <li data-claim="audacy-framework">Wrote the bidding and attribution framework used in QBRs (last-click vs. assisted, incrementality, channel-to-stage movement) and trained <span class="n">10</span> AE desks to defend it.</li>
+          <li data-claim="audacy-metric">Drove <span class="n">130%</span> YoY paid-search conversion growth and a <span class="n">13%</span> new-user lift on a flagship financial-services account. The deliverable was the readout: what happened, why, and what we cut Monday.</li>
+        </ul>
+        <div class="sub" data-employer="audacy-earlier">
+          <span class="when">2017 to 2021</span>
+          <p data-claim="audacy-earlier-sme"><b>Senior KAM, KAM, Digital Campaign Manager.</b> Trafficked Google, Meta, and OTT campaigns, built the market's reporting dashboards, and became the digital SME account executives brought into client calls.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="row entry" data-employer="prmi">
+      <div class="gut">
+        <span class="when">2015 to 2016<br />Denver, CO</span>
+      </div>
+      <div>
+        <div class="head"><img class="mark mark-prm" src="../../assets/logos/prm-apple-touch.png" alt="Primary Residential Mortgage logo" /><h2 class="org company-name">Primary Residential Mortgage</h2><span class="seat">SEM &amp; web programs</span></div>
+        <ul><li data-claim="prmi-sem">Ran paid search and WordPress site programs for loan-officer demand generation.</li></ul>
+      </div>
+    </article>
+
+    <section class="row sec" data-section="ventures">
+      <div class="sec-label" style="display:block;margin:0"><h2>Ventures</h2></div>
+      <div class="ventures">
+        <p data-claim="hormiga-playbook"><b>Hormiga</b>, founder<span class="when">2025 to present</span><br />Built an <span class="n">18</span>-idea growth playbook for small-business clients.</p>
+        <p data-claim="bucketz-launch"><b>Bucketz</b>, founder<span class="when">2023 to 2024</span><br />Launched a consumer marketplace side product and its paid acquisition test plan on Meta Ads and Shopify.</p>
+      </div>
+    </section>
+
+    <section class="row sec" data-section="toolkit">
+      <div class="sec-label" style="display:block;margin:0"><h2>Toolkit</h2></div>
+      <dl class="spec">
+        <dt>AI systems</dt>
+        <dd><span>Claude API</span><span>Claude Code</span><span>Gemini</span><span>Vertex AI Search</span><span>GCP Cloud Run</span><span>multi-model routing</span><span>RAG</span><span>schedulers</span><span>Google Sheets API</span></dd>
+        <dt>Analytics</dt>
+        <dd><span>SQL</span><span>Looker Studio</span><span>GA4</span><span>attribution (last-click, DDA, MTA)</span><span>incrementality</span><span>forecasting</span></dd>
+        <dt>Media</dt>
+        <dd><span>Google Ads</span><span>Meta</span><span>OTT/CTV</span><span>programmatic</span><span>paid search</span><span>CRO</span><span>WordPress</span><span>Shopify</span></dd>
+        <dt>Operations</dt>
+        <dd><span>scheduled agent workflows</span><span>API keys</span><span>GCP service accounts</span><span>on-call for connection drift</span></dd>
+        <dt>Ramping</dt>
+        <dd>Power BI and DAX are new; they transfer from Looker Studio, GA4, and SQL</dd>
+      </dl>
+    </section>
+
+    <section class="row sec" data-section="credentials">
+      <div class="sec-label" style="display:block;margin:0"><h2>Credentials</h2></div>
+      <div class="cred">
+        <img class="mark-cc" src="../../assets/logos/colorado-college.svg" alt="Colorado College logo" />
+        <p><b data-claim="education">B.A. Mathematical Economics, Colorado College, 2017.</b> <span data-claim="certs">Google Ads, GA4, and Meta Blueprint certifications.</span> English &amp; Spanish.</p>
+      </div>
+    </section>
+
+  </div>
+</article>
+</body>
+</html>

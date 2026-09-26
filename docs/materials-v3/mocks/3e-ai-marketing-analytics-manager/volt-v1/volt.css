@@ -1,0 +1,449 @@
+/* ============================================================
+   Volt — Materials v3 print system (resume + cover letter)
+   ------------------------------------------------------------
+   Two families, one accent, one column. No serif, no chrome,
+   no chips, no bars, no texture. Screen shows a white sheet on
+   a dark stage; print drops the stage and keeps the sheet.
+
+   Fonts come from the app's own vendored stack
+   (vendor/fonts/fonts.css → Geist + JetBrains Mono), so the
+   template needs no network and no per-mock font copies.
+   ============================================================ */
+
+:root {
+  --paper: #ffffff;
+  --ink: #0b0b0f;
+  --ink-80: #2a2a33;
+  --ink-55: #5d5d6b;
+  --ink-35: #8e8e9c;
+  --hair: #e6e6ee;
+  --hair-strong: #d2d2de;
+  --volt: #4a24ff;
+  --volt-wash: rgba(74, 36, 255, 0.13);
+  --sans: "Geist", "Inter", "Helvetica Neue", Arial, sans-serif;
+  --mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+
+@page {
+  size: 8.5in 11in;
+  margin: 0;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: var(--sans);
+  color: var(--ink);
+  -webkit-font-smoothing: antialiased;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+}
+
+/* ---------- screen stage (never prints) ---------- */
+
+.stage {
+  min-height: 100vh;
+  padding: 44px 16px 72px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 16px;
+  background:
+    radial-gradient(
+      900px 520px at 50% -160px,
+      rgba(74, 36, 255, 0.28),
+      transparent 70%
+    ),
+    #07070b;
+}
+
+.stage-tag {
+  width: 8.5in;
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  font-family: var(--mono);
+  font-size: 10px;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: #6f6f86;
+}
+
+.stage-tag b {
+  font-weight: 500;
+  color: #a58cff;
+}
+
+/* ---------- the sheet ---------- */
+
+.sheet {
+  width: 8.5in;
+  height: 11in;
+  padding: 0.62in 0.66in 0.5in;
+  background: var(--paper);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow:
+    0 60px 120px -50px rgba(74, 36, 255, 0.5),
+    0 2px 0 rgba(255, 255, 255, 0.06);
+}
+
+@media print {
+  .stage {
+    display: block;
+    padding: 0;
+    background: var(--paper);
+    min-height: 0;
+  }
+  .stage-tag {
+    display: none;
+  }
+  .sheet {
+    box-shadow: none;
+  }
+}
+
+/* ---------- masthead ---------- */
+
+.masthead {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: end;
+  column-gap: 0.4in;
+}
+
+.wordmark {
+  margin: 0;
+  font-size: 27pt;
+  font-weight: 600;
+  line-height: 0.92;
+  letter-spacing: -0.038em;
+}
+
+/* signature move: the caret. The only ornament in the system. */
+.caret {
+  display: inline-block;
+  width: 0.3in;
+  height: 3pt;
+  margin-left: 6pt;
+  background: var(--volt);
+  transform: translateY(-1.5pt);
+}
+
+.target {
+  margin: 8pt 0 0;
+  font-family: var(--mono);
+  font-size: 7.3pt;
+  font-weight: 500;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-55);
+}
+
+.contact {
+  margin: 0;
+  font-family: var(--mono);
+  font-size: 7.1pt;
+  line-height: 1.75;
+  letter-spacing: 0.02em;
+  text-align: right;
+  color: var(--ink-55);
+}
+
+.contact a {
+  color: inherit;
+  text-decoration: none;
+  border-bottom: 0.5pt solid rgba(74, 36, 255, 0.45);
+}
+
+/* leading indigo segment, then hairline — the width of the caret */
+.rule {
+  height: 1pt;
+  margin-top: 12pt;
+  background: linear-gradient(
+    90deg,
+    var(--volt) 0 0.72in,
+    var(--hair) 0.72in 100%
+  );
+}
+
+/* ---------- statement (resume thesis) ---------- */
+
+.statement {
+  margin: 19pt 0 4pt;
+  max-width: 6.3in;
+  font-size: 12.8pt;
+  font-weight: 400;
+  line-height: 1.38;
+  letter-spacing: -0.013em;
+  color: var(--ink);
+}
+
+.hl {
+  font-weight: 500;
+  background: linear-gradient(
+    0deg,
+    var(--volt-wash) 0 0.44em,
+    transparent 0.44em
+  );
+}
+
+/* ---------- sections ---------- */
+
+.sec {
+  margin-top: 16pt;
+}
+
+.label {
+  display: flex;
+  align-items: center;
+  gap: 9pt;
+  margin: 0 0 8pt;
+}
+
+.label span {
+  font-family: var(--mono);
+  font-size: 6.6pt;
+  font-weight: 500;
+  letter-spacing: 0.24em;
+  text-transform: uppercase;
+  color: var(--ink-35);
+  white-space: nowrap;
+}
+
+.label span::before {
+  content: "/";
+  margin-right: 0.6em;
+  color: var(--volt);
+}
+
+.label i {
+  flex: 1;
+  height: 0.5pt;
+  background: var(--hair);
+}
+
+/* ---------- experience ---------- */
+
+.entry {
+  display: grid;
+  grid-template-columns: 0.98in 1fr;
+  column-gap: 0.26in;
+  margin: 0 0 12pt;
+}
+
+.entry:last-child {
+  margin-bottom: 0;
+}
+
+.meta {
+  margin: 0;
+  padding-top: 2pt;
+  font-family: var(--mono);
+  font-size: 6.9pt;
+  line-height: 1.55;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--ink-35);
+}
+
+.org {
+  margin: 0;
+  font-size: 10.6pt;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+}
+
+.seat {
+  margin: 2pt 0 6pt;
+  font-size: 9pt;
+  color: var(--ink-55);
+}
+
+ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+li {
+  position: relative;
+  margin: 0 0 4.5pt;
+  padding-left: 12pt;
+  font-size: 9.3pt;
+  line-height: 1.45;
+  color: var(--ink-80);
+}
+
+li:last-child {
+  margin-bottom: 0;
+}
+
+li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.66em;
+  width: 6pt;
+  height: 0.9pt;
+  background: var(--volt);
+}
+
+/* signature move: metrics set as data, not as bold prose */
+.n {
+  font-family: var(--mono);
+  font-size: 0.93em;
+  font-weight: 500;
+  letter-spacing: -0.02em;
+  color: var(--ink);
+}
+
+.line {
+  margin: 0;
+  font-size: 9pt;
+  line-height: 1.5;
+  color: var(--ink-80);
+}
+
+/* ---------- stack + education ---------- */
+
+.stack {
+  margin: 0;
+  font-size: 9pt;
+  line-height: 1.75;
+  color: var(--ink-80);
+}
+
+.stack em {
+  font-style: normal;
+  margin: 0 0.16em;
+  color: var(--hair-strong);
+}
+
+.stack span {
+  white-space: nowrap;
+}
+
+/* ---------- footer ---------- */
+
+.foot {
+  margin-top: auto;
+  padding-top: 10pt;
+  border-top: 0.5pt solid var(--hair);
+  display: flex;
+  justify-content: space-between;
+  font-family: var(--mono);
+  font-size: 6.4pt;
+  letter-spacing: 0.2em;
+  text-transform: uppercase;
+  color: var(--ink-35);
+}
+
+/* ============================================================
+   Letter-only
+   ============================================================ */
+
+.index {
+  display: flex;
+  justify-content: space-between;
+  gap: 24pt;
+  padding-bottom: 10pt;
+  border-bottom: 0.5pt solid var(--hair);
+  font-family: var(--mono);
+  font-size: 6.5pt;
+  font-weight: 500;
+  letter-spacing: 0.26em;
+  text-transform: uppercase;
+  color: var(--ink-35);
+}
+
+.index b {
+  font-weight: 500;
+  color: var(--volt);
+}
+
+.letter-head {
+  margin-top: 0.52in;
+}
+
+.letter-body {
+  display: grid;
+  grid-template-columns: 1fr 1.15in;
+  column-gap: 0.34in;
+  margin-top: 0.42in;
+}
+
+.prose {
+  grid-column: 1;
+  max-width: 5.4in;
+}
+
+.salute {
+  margin: 0 0 14pt;
+  font-size: 11pt;
+  font-weight: 500;
+  letter-spacing: -0.015em;
+}
+
+.prose p {
+  margin: 0 0 14pt;
+  font-size: 10.5pt;
+  line-height: 1.7;
+  letter-spacing: -0.004em;
+  color: var(--ink-80);
+}
+
+/* restated metadata only — never a unique claim (keeps ATS text lossless) */
+.rail {
+  grid-column: 2;
+  grid-row: 1;
+  padding-top: 3pt;
+  border-left: 0.5pt solid var(--hair);
+  padding-left: 0.16in;
+  font-family: var(--mono);
+  font-size: 6.4pt;
+  line-height: 1.85;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--ink-35);
+}
+
+.rail b {
+  display: block;
+  margin-top: 11pt;
+  font-weight: 500;
+  color: var(--volt);
+}
+
+.rail b:first-child {
+  margin-top: 0;
+}
+
+.sign {
+  margin-top: 0.38in;
+}
+
+.sign .off {
+  margin: 0 0 10pt;
+  font-size: 10.5pt;
+  color: var(--ink-80);
+}
+
+.sign .who {
+  margin: 0;
+  font-size: 14pt;
+  font-weight: 600;
+  letter-spacing: -0.03em;
+}
+
+.sign .how {
+  margin: 7pt 0 0;
+  font-family: var(--mono);
+  font-size: 7.1pt;
+  letter-spacing: 0.02em;
+  color: var(--ink-55);
+}

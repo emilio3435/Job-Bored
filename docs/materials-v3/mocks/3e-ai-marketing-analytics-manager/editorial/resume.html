@@ -1,0 +1,411 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emilio Nunez-Garcia, resume, 3E AI &amp; Marketing Analytics Manager</title>
+<!-- Take B, Editorial: magazine profile. Facts from claim-ledger.json only. -->
+<link rel="stylesheet" href="../../../../../vendor/fonts/fonts.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&display=block" />
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #15142a;
+    --ink-2: #3a394f;
+    --ink-3: #6a6980;
+    --hair: #dddce8;
+    --volt: #4a24ff;
+    --display: "Bodoni Moda", "Bodoni 72", Didot, Georgia, serif;
+    --text: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif;
+    --gutter: 0.98in;
+  }
+  @page { size: letter; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--paper); }
+  body {
+    font-family: var(--text);
+    color: var(--ink);
+    font-size: 9.4pt;
+    line-height: 1.34;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-kerning: normal;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  .sheet {
+    width: 8.5in;
+    height: 11in;
+    padding: 0.4in 0.56in 0.36in;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- opener: name + pull quote ---------- */
+  .opener {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    column-gap: 0.3in;
+    align-items: end;
+  }
+  .name {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 36pt;
+    line-height: 0.9;
+    letter-spacing: -0.012em;
+    font-optical-sizing: auto;
+  }
+  .name span { display: block; }
+  .deck {
+    margin-top: 0.1in;
+    font-weight: 600;
+    font-size: 10.5pt;
+    letter-spacing: 0.005em;
+    color: var(--volt);
+  }
+  .pull {
+    position: relative;
+    padding-left: 0.3in;
+    font-family: var(--display);
+    font-style: italic;
+    font-weight: 400;
+    font-size: 12.8pt;
+    line-height: 1.24;
+    color: var(--ink);
+    border-left: 1px solid var(--hair);
+    margin-bottom: 0.02in;
+  }
+  .pull::before {
+    content: "\201C";
+    position: absolute;
+    left: -0.15in;
+    top: -0.1in;
+    background: var(--paper);
+    padding-bottom: 0.04in;
+    font-family: var(--display);
+    font-style: normal;
+    font-weight: 900;
+    font-size: 38pt;
+    line-height: 1;
+    color: var(--volt);
+  }
+
+  .contact {
+    margin-top: 0.13in;
+    padding: 0.05in 0;
+    border-top: 1.5px solid var(--ink);
+    border-bottom: 1px solid var(--hair);
+    display: flex;
+    justify-content: space-between;
+    font-size: 9pt;
+    color: var(--ink-2);
+  }
+
+  /* ---------- profile intro ---------- */
+  .intro {
+    margin-top: 0.17in;
+    column-count: 2;
+    column-gap: 0.3in;
+    column-rule: 1px solid var(--hair);
+    font-size: 9.4pt;
+    line-height: 1.36;
+    color: var(--ink-2);
+  }
+  /* Raised initial: it sits on the first line's baseline instead of floating,
+     so PDF text extraction keeps "Since" as one word. */
+  .intro::first-letter {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 25pt;
+    line-height: 0;
+    margin-right: 0.015in;
+    color: var(--volt);
+  }
+
+  /* ---------- section heads ---------- */
+  .head {
+    display: flex;
+    align-items: baseline;
+    gap: 0.12in;
+    font-family: var(--display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 12.5pt;
+    color: var(--ink);
+    margin: 0.11in 0 0.05in;
+  }
+  .head::after {
+    content: "";
+    flex: 1;
+    border-top: 1px solid var(--hair);
+    transform: translateY(-0.05em);
+  }
+
+  /* ---------- timeline ---------- */
+  .career { position: relative; }
+  .career::before {
+    content: "";
+    position: absolute;
+    left: var(--gutter);
+    top: 0.08in;
+    bottom: 0.06in;
+    border-left: 1.5px solid var(--volt);
+  }
+  .stop {
+    display: grid;
+    grid-template-columns: var(--gutter) 1fr;
+    padding-bottom: 0.075in;
+  }
+  .stop:last-child { padding-bottom: 0; }
+  .mark {
+    padding-right: 0.16in;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 0.05in;
+  }
+  .mark img { display: block; }
+  .mark .elio { width: 0.7in; height: 0.7in; margin: -0.12in 0 -0.09in -0.07in; }
+  .mark .audacy { width: 0.74in; height: auto; margin-top: 0.04in; }
+  .mark .prm { width: 0.36in; height: 0.36in; }
+  /* Figures and date ranges use the text face: Bodoni's hairline en dash and
+     tiny plus disappear at these sizes (8-10 read as "8 10"). Whole tokens stay
+     in one face so PDF extraction does not split them. */
+  .years {
+    font-family: var(--text);
+    font-weight: 700;
+    font-size: 10pt;
+    line-height: 1.1;
+    font-variant-numeric: lining-nums;
+    color: var(--ink);
+  }
+  .years small {
+    display: block;
+    font-family: var(--text);
+    font-weight: 400;
+    font-size: 8.5pt;
+    color: var(--ink-3);
+    margin-top: 0.02in;
+  }
+  .story {
+    position: relative;
+    padding-left: 0.2in;
+  }
+  .story::before {
+    content: "";
+    position: absolute;
+    left: -0.047in;
+    top: 0.075in;
+    width: 0.085in;
+    height: 0.085in;
+    border-radius: 50%;
+    background: var(--volt);
+    box-shadow: 0 0 0 2.5px var(--paper);
+  }
+  .stop.side .story::before { background: var(--paper); border: 1.5px solid var(--volt); }
+  .org {
+    display: flex;
+    align-items: baseline;
+    gap: 0.1in;
+    flex-wrap: wrap;
+  }
+  .org h2 {
+    font-family: var(--display);
+    font-weight: 700;
+    font-size: 13pt;
+    line-height: 1.15;
+  }
+  .org .role {
+    font-style: italic;
+    font-size: 9.6pt;
+    color: var(--ink-2);
+  }
+  .org .where {
+    margin-left: auto;
+    font-size: 8.8pt;
+    color: var(--ink-3);
+  }
+  .sub {
+    margin-top: 0.07in;
+    font-weight: 600;
+    font-size: 9.4pt;
+    color: var(--ink);
+  }
+  .sub i { font-weight: 400; color: var(--ink-3); }
+  ul { list-style: none; margin-top: 0.035in; }
+  li {
+    position: relative;
+    padding-left: 0.15in;
+    margin-top: 0.028in;
+    color: var(--ink-2);
+  }
+  li::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: 0.63em;
+    width: 0.07in;
+    border-top: 1.5px solid var(--volt);
+  }
+  .fig {
+    font-family: var(--text);
+    font-style: normal;
+    font-weight: 700;
+    font-variant-numeric: lining-nums;
+    color: var(--ink);
+  }
+  .ventures { margin-top: 0.03in; color: var(--ink-2); }
+  .ventures p + p { margin-top: 0.03in; }
+  .ventures b { font-weight: 600; color: var(--ink); }
+
+  /* ---------- back matter ---------- */
+  .back {
+    margin-top: auto;
+    padding-top: 0.09in;
+    border-top: 1.5px solid var(--ink);
+    display: grid;
+    grid-template-columns: 2.1fr 1fr 1fr;
+    column-gap: 0.26in;
+  }
+  .back h3 {
+    font-family: var(--display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 11pt;
+    margin-bottom: 0.04in;
+  }
+  .back p { color: var(--ink-2); font-size: 9pt; line-height: 1.33; }
+  .back p + p { margin-top: 0.04in; }
+  .back p b { font-weight: 600; color: var(--ink); }
+  .cc { display: block; width: 1.12in; height: auto; margin: 0.03in 0 0.06in; }
+</style>
+</head>
+<body>
+<article class="sheet page" data-page="1" data-doc="resume" data-pages="1">
+
+  <header class="opener">
+    <div>
+      <h1 class="name"><span>Emilio</span> <span>Nunez-Garcia</span></h1>
+      <p class="deck">AI &amp; Marketing Analytics Manager</p>
+    </div>
+    <blockquote class="pull">
+      Sixty percent of this role is making spend explain itself; forty is running the AI that does the
+      explaining. I have shipped both: an attribution argument over a <span class="fig">$10M+</span> book, and a production
+      multi-model stack with live data connections underneath it.
+    </blockquote>
+  </header>
+
+  <p class="contact">
+    <span>Denver, CO</span>
+    <span>501.366.2080</span>
+    <a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a>
+    <a href="https://emiliobuilds.com">emiliobuilds.com</a>
+    <a href="https://www.linkedin.com/in/emiliobuilds">linkedin.com/in/emiliobuilds</a>
+  </p>
+
+  <p class="intro">Since 2015, Emilio Nunez-Garcia has worked the question every media budget eventually faces: what did this spend actually move? He ran paid search for Primary Residential Mortgage, then spent 2017 to 2026 at Audacy in Denver, rising from trafficking campaigns to owning a $10M+ digital book and the attribution framework its QBRs ran on. Since 2024 he has built Elio Intelligence Suite, a production multi-model AI platform, and he holds a B.A. in Mathematical Economics from Colorado College.</p>
+
+  <h2 class="head">The career, newest first</h2>
+
+  <section class="career" data-section="experience">
+
+    <article class="stop" data-claim-group="elio">
+      <div class="mark">
+        <img class="elio" src="../../assets/logos/elio.png" alt="Elio Intelligence Suite logo" />
+        <p class="years">2024–now<small>Denver, CO</small></p>
+      </div>
+      <div class="story">
+        <div class="org">
+          <h2 class="company-name">Elio Intelligence Suite</h2>
+          <span class="role">Founder &amp; AI engineer</span>
+          <span class="where">elioai.app</span>
+        </div>
+        <ul>
+          <li data-claim="elio-platform">Built and operate a production multi-model platform on GCP Cloud Run that routes Claude, GPT, Gemini, Grok, and Llama by task fit, with Vertex AI Search retrieval and live data connections underneath every answer.</li>
+          <li data-claim="elio-forecast">Shipped a Gemini-grounded SEM forecaster that ran <span class="fig">21</span> scenarios against <span class="fig">$2.4M</span> of live pipeline for a seller pitch, so the seller walked in with spend-to-stage math instead of a dashboard.</li>
+          <li data-claim="elio-ops">Run scheduled agent workflows across <span class="fig">8–10</span> API keys and <span class="fig">3–4</span> GCP service accounts, and hold on-call for connection drift: the unglamorous half that keeps a live system honest.</li>
+          <li data-claim="jobbored-claude-code">Run JobBored's agent fleet in Claude Code against a user-owned Google Sheet, operating the agents rather than prompting them.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="stop side" data-claim-group="ventures">
+      <div class="mark">
+        <p class="years">2023–now<small>Side ventures</small></p>
+      </div>
+      <div class="story">
+        <div class="org">
+          <h2>Founder, twice on the side</h2>
+        </div>
+        <div class="ventures">
+          <p data-claim="hormiga-playbook"><b>Hormiga</b>, 2025–present. Built an <span class="fig">18</span>-idea growth playbook for small-business clients.</p>
+          <p data-claim="bucketz-launch"><b>Bucketz</b>, 2023–2024. Launched a consumer marketplace and its paid acquisition test plan on Meta Ads and Shopify.</p>
+        </div>
+      </div>
+    </article>
+
+    <article class="stop" data-claim-group="audacy">
+      <div class="mark">
+        <img class="audacy" src="../../assets/logos/audacy.svg" alt="Audacy logo" />
+        <p class="years">2017–2026<small>Denver, CO</small></p>
+      </div>
+      <div class="story">
+        <div class="org">
+          <h2 class="company-name">Audacy</h2>
+          <span class="role">Digital Sales Manager, 2021–2026</span>
+          <span class="where"><span class="fig">$10M+</span> digital book</span>
+        </div>
+        <ul>
+          <li data-claim="audacy-book">Owned a <span class="fig">$10M+</span> digital book and reallocated Google, Meta, OTT/CTV, and programmatic against marginal ROAS. Denver held a <span class="fig">top-3</span> national rank from a <span class="fig">#19</span>-sized market.</li>
+          <li data-claim="audacy-framework">Wrote the bidding and attribution framework used in QBRs (last-click vs. assisted, incrementality, channel-to-stage movement) and trained <span class="fig">10</span> AE desks to defend it.</li>
+          <li data-claim="audacy-metric">Drove <span class="fig">130%</span> YoY paid-search conversion growth and a <span class="fig">13%</span> new-user lift on a flagship financial-services account; the deliverable was the readout of what happened, why, and what to cut.</li>
+        </ul>
+        <p class="sub">Senior KAM, KAM, Digital Campaign Manager <i>2017–2021</i></p>
+        <ul>
+          <li data-claim="audacy-earlier-sme">Trafficked Google, Meta, and OTT campaigns, built the market's reporting, and became the digital SME account executives brought onto client calls.</li>
+        </ul>
+      </div>
+    </article>
+
+    <article class="stop" data-claim-group="prmi">
+      <div class="mark">
+        <img class="prm" src="../../assets/logos/prm-apple-touch.png" alt="Primary Residential Mortgage logo" />
+        <p class="years">2015–2016<small>Denver, CO</small></p>
+      </div>
+      <div class="story">
+        <div class="org">
+          <h2 class="company-name">Primary Residential Mortgage</h2>
+          <span class="role">SEM &amp; web programs</span>
+        </div>
+        <ul>
+          <li data-claim="prmi-sem">Ran paid search and WordPress site programs for loan-officer demand generation.</li>
+        </ul>
+      </div>
+    </article>
+  </section>
+
+  <footer class="back">
+    <section data-section="toolkit">
+      <h3>Toolkit</h3>
+      <p><b>AI systems</b> Claude API, Claude Code, Gemini, Vertex AI Search, RAG, multi-model routing, Cloud Run, GCP service accounts, schedulers</p>
+      <p><b>Measurement</b> GA4, Looker Studio, SQL, attribution (last-click, DDA, MTA), incrementality</p>
+      <p><b>Media</b> Google Ads, Meta, OTT/CTV, programmatic, paid search, CRO</p>
+    </section>
+    <section data-section="credentials">
+      <h3>Credentials</h3>
+      <p data-claim="certs">Google Ads, GA4, and Meta Blueprint certifications</p>
+      <p><b>Languages</b> English &amp; Spanish</p>
+    </section>
+    <section data-section="education">
+      <h3>Education</h3>
+      <img class="cc" src="../../assets/logos/colorado-college.svg" alt="Colorado College logo" />
+      <p data-claim="education">B.A. Mathematical Economics, Colorado College, 2017</p>
+    </section>
+  </footer>
+</article>
+</body>
+</html>
