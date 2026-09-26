@@ -18,6 +18,7 @@ import { applyDiscoveryWorkerLlmAliases } from "./scripts/lib/llm-env.mjs";
 import {
   mergeEnvFileValues,
   parseEnvFileText,
+  resolveLayeredEnvSources,
 } from "./scripts/lib/env-file-merge.mjs";
 import {
   detectTailscale,
@@ -504,7 +505,7 @@ async function probeDiscoveryWorkerHealth(port) {
  * `npm run dev` gives it — a credential declared only in the repo's env file
  * was simply absent, and the worker refused every run (2026-09-02).
  */
-export function readDiscoveryWorkerEnvFileLayers() {
+export function readDiscoveryWorkerEnvFileLayersWithPaths() {
   const paths = [
     join(ROOT, "integrations", "browser-use-discovery", ".env"),
     join(ROOT, "server", ".env"),
@@ -514,7 +515,7 @@ export function readDiscoveryWorkerEnvFileLayers() {
   for (const path of paths) {
     if (!existsSync(path)) continue;
     try {
-      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
+      layers.push({ path, values: parseEnvFileText(readFileSync(path, "utf8")) });
     } catch (err) {
       console.warn(
         `[dev-server] could not read ${path}: ${(err && err.message) || err}`,
@@ -522,6 +523,22 @@ export function readDiscoveryWorkerEnvFileLayers() {
     }
   }
   return layers;
+}
+
+export function readDiscoveryWorkerEnvFileLayers() {
+  return readDiscoveryWorkerEnvFileLayersWithPaths().map((layer) => layer.values);
+}
+
+/**
+ * BEAUDIT G11: the same key-to-file map the starter logs, served to the
+ * dashboard. Paths and the word "process" — never values.
+ */
+export function resolveDiscoveryWorkerEnvSources() {
+  const layers = readDiscoveryWorkerEnvFileLayersWithPaths();
+  return resolveLayeredEnvSources(
+    layers.map((layer) => layer.values),
+    { paths: layers.map((layer) => layer.path), processEnv: process.env },
+  ).sources;
 }
 
 export function buildDiscoveryWorkerEnv(port, baseEnv = process.env, options = {}) {
@@ -2408,8 +2425,16 @@ async function handleDiscoveryState(req, res, options = {}) {
     recoverableHint = "worker_down";
   }
 
+  let envSources = {};
+  try {
+    envSources = resolveDiscoveryWorkerEnvSources();
+  } catch {
+    envSources = {};
+  }
+
   const body = {
     ok: true,
+    envSources,
     worker: {
       up: workerUp,
       port: workerPort,

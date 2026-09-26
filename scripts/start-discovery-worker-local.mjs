@@ -12,7 +12,11 @@ import { join, resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
-import { mergeEnvFileValues, parseEnvFileText } from "./lib/env-file-merge.mjs";
+import {
+  mergeEnvFileValues,
+  parseEnvFileText,
+  resolveLayeredEnvSources,
+} from "./lib/env-file-merge.mjs";
 import { applyDiscoveryWorkerLlmAliases } from "./lib/llm-env.mjs";
 
 const repoRoot = process.cwd();
@@ -37,14 +41,12 @@ const bundledBrowserUseCommandPath = join(
 );
 
 
-function readEnvFiles() {
-  // Later files override earlier ones, but a present-but-EMPTY value never
-  // erases a configured one — see scripts/lib/env-file-merge.mjs.
+function readEnvFileLayers() {
   const layers = [];
   for (const path of envFilePaths) {
     if (!existsSync(path)) continue;
     try {
-      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
+      layers.push({ path, values: parseEnvFileText(readFileSync(path, "utf8")) });
     } catch (err) {
       console.warn(
         `[start:discovery-worker] could not read ${path}: ${
@@ -53,7 +55,28 @@ function readEnvFiles() {
       );
     }
   }
-  return mergeEnvFileValues(layers);
+  return layers;
+}
+
+function readEnvFiles() {
+  // Later files override earlier ones, but a present-but-EMPTY value never
+  // erases a configured one — see scripts/lib/env-file-merge.mjs.
+  return mergeEnvFileValues(readEnvFileLayers().map((layer) => layer.values));
+}
+
+/**
+ * BEAUDIT G11: one `KEY <- <path>` line per resolved key — the precedence
+ * used to be silent. Paths and the word "process", never values.
+ */
+function logEnvSources() {
+  const layers = readEnvFileLayers();
+  const { sources } = resolveLayeredEnvSources(
+    layers.map((layer) => layer.values),
+    { paths: layers.map((layer) => layer.path), processEnv: process.env },
+  );
+  for (const [key, source] of Object.entries(sources)) {
+    console.info(`[start:discovery-worker] env ${key} <- ${source || "(unknown)"}`);
+  }
 }
 
 function readFirstEnvValue(source, keys) {
@@ -732,6 +755,7 @@ function holdForForeignListener(
 
 async function main() {
   const runtimeEnv = resolveRuntimeEnv();
+  logEnvSources();
   const host = String(runtimeEnv.BROWSER_USE_DISCOVERY_HOST || "127.0.0.1");
   const port = Number.parseInt(
     String(runtimeEnv.BROWSER_USE_DISCOVERY_PORT || "8644"),
