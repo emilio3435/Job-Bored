@@ -723,9 +723,36 @@
     return fallback(url, init);
   }
 
+  /* Whether this page has a /profile API to sync to. An explicit URL is
+     one answer; the other is the local dashboard itself: with
+     `jobBoredApiUrl` empty (every fresh install) profileUrl() resolves
+     /profile same-origin, and dev-server.mjs proxies that to the local API
+     (SIXBEATS C3). Only a non-local static host with no URL (GitHub Pages,
+     any hosted copy) truly has no API — that is #130's local-only save. */
+  function servedByLocalDashboard() {
+    const overrides = window.JobBoredApp && window.JobBoredApp.configOverrides;
+    if (overrides && typeof overrides.isLocalDashboardOrigin === "function") {
+      try {
+        return Boolean(overrides.isLocalDashboardOrigin());
+      } catch (_) {
+        return false;
+      }
+    }
+    const location = window.location;
+    if (!location) return false;
+    const host = String(location.hostname || "").toLowerCase();
+    return (
+      host === "localhost" ||
+      host === "127.0.0.1" ||
+      host === "[::1]" ||
+      host === "::1"
+    );
+  }
+
   function profileApiConfigured() {
     const config = window.COMMAND_CENTER_CONFIG || {};
-    return Boolean(text(config.jobBoredApiUrl || config.jobPostingScrapeUrl));
+    if (text(config.jobBoredApiUrl || config.jobPostingScrapeUrl)) return true;
+    return servedByLocalDashboard();
   }
 
   function noteLocalOnlySave(detail) {
