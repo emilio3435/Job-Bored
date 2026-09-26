@@ -180,8 +180,9 @@
   /**
    * How to start the local server on this machine, as a clause that fits
    * "To start it, …". macOS gets the double-clickable start.command; every
-   * other platform gets npm start. Exported so other beats can name the
-   * same launcher. Never throws — no navigator reads as "not a Mac".
+   * other platform runs the same start.sh (never a bare npm command — C7
+   * keeps one start command across beats). Exported so other beats can
+   * name the same launcher. Never throws — no navigator reads as "not a Mac".
    */
   function localServerHint() {
     let platform = "";
@@ -201,7 +202,7 @@
     }
     return /mac/i.test(platform)
       ? "double-click start.command in the JobBored folder"
-      : "run npm start in the JobBored folder";
+      : "run ./start.sh in the JobBored folder";
   }
 
   const WORKER_PORT = 8644;

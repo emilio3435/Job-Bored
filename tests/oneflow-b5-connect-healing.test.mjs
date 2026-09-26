@@ -45,7 +45,7 @@ const FAILED_TUNNEL_NOTE =
   "you a stable address that doesn't expire.";
 const FUEL_NO_SERVER_MESSAGE =
   "Couldn't reach the JobBored server on this computer. To start it, run " +
-  "npm start in the JobBored folder, then press Save & verify.";
+  "./start.sh in the JobBored folder, then press Save & verify.";
 
 // ---------------------------------------------------------------
 // The Tailscale auto path, driven the way B5 drives it.

@@ -35,7 +35,7 @@ const STATIC_HOST_MESSAGE =
 
 const NO_SERVER_MESSAGE =
   "Couldn't reach the JobBored server on this computer. To start it, run " +
-  "npm start in the JobBored folder, then press Save & verify.";
+  "./start.sh in the JobBored folder, then press Save & verify.";
 
 const LOCAL_SETUP_HREF = "http://localhost:8080/?beat=discovery&returnTo=close";
 const GET_APP_HREF = "https://github.com/emilio3435/Job-Bored";
@@ -946,12 +946,12 @@ describe("GFX-N3 · any JSON ping answer proves the server; the POST decides", (
     assert.match(env.beat.localServerHint(), /start\.command/);
   });
 
-  it("GFX-N3: localServerHint names npm start everywhere else", () => {
+  it("GFX-N3: localServerHint names ./start.sh everywhere else", () => {
     const env = loadDiscoveryBeat();
     env.window.navigator = { platform: "Linux x86_64" };
-    assert.equal(env.beat.localServerHint(), "run npm start in the JobBored folder");
+    assert.equal(env.beat.localServerHint(), "run ./start.sh in the JobBored folder");
     env.window.navigator = { userAgentData: { platform: "Windows" }, platform: "Win32" };
-    assert.equal(env.beat.localServerHint(), "run npm start in the JobBored folder");
+    assert.equal(env.beat.localServerHint(), "run ./start.sh in the JobBored folder");
   });
 
   it("GFX-N3: the no_local_server copy is platform-aware and drops '(ping failed)'", async () => {
