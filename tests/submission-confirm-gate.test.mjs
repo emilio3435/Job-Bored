@@ -122,7 +122,15 @@ describe("APPLY-01 submission confirmation gate", () => {
       "the Applied write must happen only after confirmation",
     );
     assert.equal(runtime.writeCalls.length, 1);
-    assert.deepEqual(runtime.writeCalls[0], ["4", "Applied", "researching"]);
+    // D11: the fallback writer receives the confirmed evidence (it used to
+    // get 3 args and write today's date with no note — the APPLY-01 drop).
+    assert.deepEqual(runtime.writeCalls[0].slice(0, 3), ["4", "Applied", "researching"]);
+    assert.deepEqual({ ...runtime.writeCalls[0][3] }, {
+      appliedDate: "2026-08-31",
+      source: "Company portal",
+      receiptNote: "Receipt R-17; checklist complete",
+      followUpDate: "2026-09-07",
+    });
     assert.equal(result.confirmed, true);
     assert.deepEqual({ ...result.evidence }, {
       appliedDate: "2026-08-31",

@@ -127,6 +127,15 @@
     return window.CommandCenterResumeIngest || null;
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    const scope = typeof window !== "undefined" ? window : null;
+    const auth = scope && scope.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   function profileUrl(path) {
     const api = window.JobBoredProfileApi;
     if (api && typeof api.getProfileApiBase === "function") {
@@ -539,7 +548,7 @@
     const payload = { resumeText: text, ...provider };
     let res;
     try {
-      res = await fetch(profileUrl("/profile/from-resume"), {
+      res = await apiFetch(profileUrl("/profile/from-resume"), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
@@ -683,7 +692,7 @@
   async function fetchTemplateSeed(id) {
     if (id === "blank") return null;
     try {
-      const res = await fetch(profileUrl(`/profile/template/${encodeURIComponent(id)}`), {
+      const res = await apiFetch(profileUrl(`/profile/template/${encodeURIComponent(id)}`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
       });

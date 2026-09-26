@@ -530,6 +530,15 @@
     return "http://127.0.0.1:3847";
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    const scope = typeof window !== "undefined" ? window : null;
+    const auth = scope && scope.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   /** The one write path: the override store, mirrored into the live config. */
   function persistProviderConfig(def, value) {
     const patch = { resumeProvider: def.id };
@@ -552,7 +561,7 @@
       baseUrl: def.baseUrlField ? String(value || "").trim() : "",
     };
     try {
-      const resp = await fetch(resolveJobBoredApiUrl() + "/api/llm-config", {
+      const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(pin),
