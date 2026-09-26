@@ -1229,7 +1229,8 @@ export type SourceAdapter = {
   sourceLabel: string;
   detect(companyContext: CompanyContext): Promise<DetectionResult | null>;
   listJobs(boardContext: BoardContext): Promise<RawListing[]>;
-  normalize(raw: RawListing, run: DiscoveryRun): Promise<NormalizedLead | null>;
+  // BEAUDIT A18 (TD-008): `normalize` was declared here but no caller ever
+  // used it; leads are normalized by normalize/lead-normalizer.ts.
 };
 
 export type PlannedCompany = {

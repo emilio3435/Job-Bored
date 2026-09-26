@@ -1,0 +1,8 @@
+{
+  "ok": true,
+  "kind": "accepted_async",
+  "runId": "ingest_0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+  "message": "URL ingest accepted \u2014 worker is reading the posting.",
+  "statusPath": "/runs/ingest_0a1b2c3d4e5f60718293a4b5c6d7e8f9",
+  "pollAfterMs": 2500
+}

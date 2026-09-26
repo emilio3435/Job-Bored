@@ -153,6 +153,27 @@ Matching is by normalized job URL, falling back to company+title. Unknown rows r
 
 ---
 
+## Worker error envelope (`api-error.v1`)
+
+Every error body from the Browser Use worker (`:8644`) and the local API (`server/index.mjs`, `:3847`) carries **`{ error, code, detail?, nextStep?, retryable }`** ([`schemas/api-error.v1.schema.json`](schemas/api-error.v1.schema.json), fixture [`examples/api-error.v1.json`](examples/api-error.v1.json)). `error` is one sentence safe to show the user; `code` is stable (worker codes are `lower_snake_case`, API codes `UPPER_SNAKE_CASE`); `nextStep` says how to recover; `retryable` is true only when repeating the same request later may work (timeouts, 5xx, rate limits). Worker bodies keep their legacy `ok: false` and `message` fields and route-specific fields (`reason`, `auth`, `remediation`); readers ignore fields they do not know. An unknown path is a JSON `404` with `code` `not_found` (worker) or `NOT_FOUND` (API). The local API applies the envelope to responses with status 400 or higher; the worker also applies it to `/ingest-url`'s HTTP 200 `ok: false` outcomes, with `code` equal to `reason`.
+
+## Run status and cancel (`GET /runs/:runId`, `POST /runs/:runId/cancel`)
+
+- **`GET /runs/:runId`** answers `{ ok: true, ...status }` ([`schemas/run-status.v1.schema.json`](schemas/run-status.v1.schema.json), fixture [`examples/run-status.v1.json`](examples/run-status.v1.json)). `status` is `accepted`, `running`, `completed`, `partial`, `empty` or `failed`; once `terminal` is true the status never changes. A worker restart marks an interrupted run `failed` and writes its DiscoveryRuns row. Terminal snapshots older than 30 days, or beyond the newest 200, are pruned at worker boot. Hosted workers authorize the poll with the `statusToken` in `statusPath`, `x-run-status-token`, or the webhook secret.
+- **`POST /runs/:runId/cancel`** (header `x-discovery-secret`, no body) stops a live async discovery run of this worker process: it aborts the run's in-flight work, writes `failed` with `error` `Cancelled by user.`, and writes the DiscoveryRuns row. Answers: `200 { ok: true, runId, cancelled: true, run }` (`run` is run-status.v1); `401` without the secret; `404` `run_not_found`; `409` `run_already_terminal` (with the finished `run`); `409` `run_not_cancellable` when the run is not live in this process (a synchronous run, or one started before a restart).
+
+## Add a job by URL (`POST /ingest-url`, schemaVersion 1)
+
+Request: [`schemas/ingest-url-request.v1.schema.json`](schemas/ingest-url-request.v1.schema.json), fixture [`examples/ingest-url-request.v1.json`](examples/ingest-url-request.v1.json): `event` `ingest.url.request`, `schemaVersion` `1`, `url` (required, at most 2048 characters), optional `sheetId` (falls back to the worker config), `async`, `googleAccessToken` (this request only, never persisted) and `manual` (`title`, `company` and optional `location`, `description`, `fitScore`) to skip extraction. Authenticated with `x-discovery-secret`.
+
+Order: the worker resolves the Sheet and proves a Google Sheets credential **before** any ATS, Gemini, Browser Use or scrape call, and answers `409` `sheets_credential_missing` without one. Answers ([`schemas/ingest-url-response.v1.schema.json`](schemas/ingest-url-response.v1.schema.json), fixture [`examples/ingest-url-response.v1.json`](examples/ingest-url-response.v1.json)): `202` `accepted_async` with a `statusPath` whose terminal status carries the final answer in `ingestResult`; `200` success with `strategy`, `lead` and `appended`; `200` with `ok: false` and `reason` `blocked_aggregator`, `scrape_failed`, `low_quality_extraction`, `duplicate` or `worker_error`; `400` `invalid_url` or `private_network`; `409` `sheets_credential_missing`; `500` `worker_error`. Every failure carries the api-error.v1 envelope.
+
+## Expired-job cleanup pass (`POST /cleanup-expired`)
+
+Request: [`schemas/cleanup-expired-request.v1.schema.json`](schemas/cleanup-expired-request.v1.schema.json), fixture [`examples/cleanup-expired-request.v1.json`](examples/cleanup-expired-request.v1.json): `sheetId` (required), `dryRun` (default true; only an explicit `false` writes), `maxRows`, `timeoutMs`, `googleAccessToken`. Authenticated with `x-discovery-secret`. The `200` answer ([`schemas/cleanup-expired-response.v1.schema.json`](schemas/cleanup-expired-response.v1.schema.json), fixture [`examples/cleanup-expired-response.v1.json`](examples/cleanup-expired-response.v1.json)) carries the counts (`checked`, `open`, `needsReview`, `skipped`, `wouldExpire`, `updated`) and one `results` entry per checked row with its `action` (`would_expire`, `expired`, `open`, `needs_review`, `skipped`). Failures are api-error.v1: `400` (bad JSON or no `sheetId`), `401`, `500` `Cleanup failed.`.
+
+---
+
 ## v2 kanban-card data-attributes (Dossier wiring)
 
 Each `.kanban-card[data-stable-key="<n>"]` rendered by `app.js`'s

@@ -10,6 +10,15 @@ These JSON files are **sample POST bodies** for **Run discovery**: when a user c
 | `discovery-webhook-request.v1-with-profile.json` | Same shape with example `discoveryProfile` strings. |
 | `discovery-webhook-request.v1.1-idempotency.json` | Contract v1.1: the minimal body plus an optional `idempotencyKey`. |
 
+Worker route fixtures (each validated against its schema by `integrations/browser-use-discovery/tests/webhook/worker-contract-schemas.test.ts`):
+
+| File | Schema |
+| ---- | ------ |
+| `api-error.v1.json` | `schemas/api-error.v1.schema.json` — the error envelope of every worker and API route. |
+| `run-status.v1.json` | `schemas/run-status.v1.schema.json` — `GET /runs/:runId`. |
+| `ingest-url-request.v1.json` / `ingest-url-response.v1.json` | `schemas/ingest-url-request.v1.schema.json` / `schemas/ingest-url-response.v1.schema.json` — `POST /ingest-url`. |
+| `cleanup-expired-request.v1.json` / `cleanup-expired-response.v1.json` | `schemas/cleanup-expired-request.v1.schema.json` / `schemas/cleanup-expired-response.v1.schema.json` — `POST /cleanup-expired`. |
+
 **Schema:** [../schemas/discovery-webhook-request.v1.schema.json](../schemas/discovery-webhook-request.v1.schema.json)
 
 ## Any receiver (Apps Script, webhook.site, a local echo)

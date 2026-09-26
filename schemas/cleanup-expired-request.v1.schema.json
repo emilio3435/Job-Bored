@@ -1,0 +1,37 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/cleanup-expired-request.v1.schema.json",
+  "title": "Expired-job cleanup pass (POST /cleanup-expired body)",
+  "description": "Sent to the Browser Use worker with x-discovery-secret. Runs one synchronous pass over Pipeline rows in New or Researching and answers counts plus per-row results (cleanup-expired-response.v1). A dry run (the default) changes nothing.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "sheetId"
+  ],
+  "properties": {
+    "sheetId": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S"
+    },
+    "dryRun": {
+      "type": "boolean",
+      "default": true,
+      "description": "Only an explicit false writes Expired and audit notes."
+    },
+    "maxRows": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Cap on rows checked this pass."
+    },
+    "timeoutMs": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "Per-URL check timeout."
+    },
+    "googleAccessToken": {
+      "type": "string",
+      "description": "Optional short-lived dashboard Google token for this request only."
+    }
+  }
+}

@@ -1,0 +1,42 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/api-error.v1.schema.json",
+  "title": "JobBored API error envelope (api-error.v1)",
+  "description": "The error body every JobBored HTTP route returns: the local API (server/index.mjs, :3847) and the discovery worker (:8644). Worker bodies also keep their legacy `ok: false` and `message` fields, and route-specific fields such as `reason`, `auth` or `remediation`; readers must ignore fields they do not know. `/ingest-url` extraction outcomes carry this envelope with HTTP 200 and `code` equal to `reason`.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": ["error", "code", "retryable"],
+  "properties": {
+    "error": {
+      "type": "string",
+      "minLength": 1,
+      "description": "One human-readable sentence saying what went wrong. Safe to show the user."
+    },
+    "code": {
+      "type": "string",
+      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
+      "description": "Stable machine code for the failure. The worker uses lower_snake_case (for example `invalid_request`, `sheets_credential_missing`, `run_not_found`); the local API uses UPPER_SNAKE_CASE (for example `INVALID_JSON`, `PAYLOAD_TOO_LARGE`, `NOT_FOUND`)."
+    },
+    "detail": {
+      "type": "string",
+      "description": "Optional technical detail (a parser message, an upstream status). Never contains secrets."
+    },
+    "nextStep": {
+      "type": "string",
+      "description": "Optional instruction for the user or the calling agent to recover."
+    },
+    "retryable": {
+      "type": "boolean",
+      "description": "True when repeating the same request later may succeed without any change (timeouts, 5xx, rate limits)."
+    },
+    "ok": {
+      "type": "boolean",
+      "const": false,
+      "description": "Legacy worker field; always false on an error body."
+    },
+    "message": {
+      "type": "string",
+      "description": "Legacy worker field; equals or paraphrases `error`."
+    }
+  }
+}

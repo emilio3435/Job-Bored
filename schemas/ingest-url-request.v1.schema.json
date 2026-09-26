@@ -1,0 +1,77 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/ingest-url-request.v1.schema.json",
+  "title": "Add a job by URL (POST /ingest-url body)",
+  "description": "Sent by the dashboard's Add URL flow to the Browser Use worker, authenticated with x-discovery-secret. The worker proves a Sheets credential before any extraction and answers 409 `sheets_credential_missing` without one.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "event",
+    "schemaVersion",
+    "url"
+  ],
+  "properties": {
+    "event": {
+      "type": "string",
+      "const": "ingest.url.request"
+    },
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "url": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 2048,
+      "pattern": "\\S",
+      "description": "The posting URL. Local and private-network URLs are refused."
+    },
+    "sheetId": {
+      "type": "string",
+      "description": "Target Sheet. Optional when the worker config holds a default sheetId."
+    },
+    "async": {
+      "type": "boolean",
+      "description": "When true the worker answers 202 accepted_async with a statusPath (run-status.v1) and extracts in the background."
+    },
+    "googleAccessToken": {
+      "type": "string",
+      "description": "Optional short-lived dashboard Google token for this request only; never persisted or logged."
+    },
+    "manual": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "title",
+        "company"
+      ],
+      "description": "Manual fill: skip extraction and write these fields.",
+      "properties": {
+        "title": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 300,
+          "pattern": "\\S"
+        },
+        "company": {
+          "type": "string",
+          "minLength": 1,
+          "maxLength": 200,
+          "pattern": "\\S"
+        },
+        "location": {
+          "type": "string",
+          "maxLength": 200
+        },
+        "description": {
+          "type": "string",
+          "maxLength": 20000
+        },
+        "fitScore": {
+          "type": "number",
+          "description": "Clamped and rounded to 0-10."
+        }
+      }
+    }
+  }
+}
