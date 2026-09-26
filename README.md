@@ -68,6 +68,7 @@ reading below.
 | Local discovery worker | ✅ | ✅ | ✅ |
 | Scheduled daily refresh | ✅ launchd | ✅ systemd user timer (crontab fallback) | ✅ Task Scheduler — [walkthrough](docs/SETTINGS-SCHEDULE.md#windows-walkthrough) |
 | Worker/tunnel autostart at boot | ✅ launchd | ✅ systemd-user units | ❌ not supported |
+| Restart dev stack (`npm run restart`) | ✅ stops only JobBored-owned listeners | ✅ via lsof (stops nothing, honestly, without it) | ✅ via netstat |
 | Tailscale transport | ✅ | ✅ | ✅ |
 | Hermes materials workflow (Python) | ✅ | ✅ | WSL only |
 
