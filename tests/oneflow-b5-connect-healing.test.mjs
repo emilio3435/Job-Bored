@@ -59,6 +59,7 @@ function healingWizardEnv({
   serve = { ok: true, url: "https://mac.tailnet.ts.net" },
   secret = null,
   verifyResult = { ok: true, message: "Connected." },
+  verifyImpl,
   envKeyImpl,
   bootImpl,
   savedDraftEndpoint = "",
@@ -143,13 +144,91 @@ function healingWizardEnv({
   const deps = {
     fetchImpl,
     verify: async () => {
-      runtime.lastVerificationResult = verifyResult;
-      return verifyResult;
+      runtime.lastVerificationResult = verifyImpl
+        ? await verifyImpl(runtime)
+        : verifyResult;
+      return runtime.lastVerificationResult;
     },
     render: () => null,
   };
   return { ui, window, deps, fetched, runtime };
 }
+
+describe("persisted secret not loaded by an already running worker", () => {
+  const secret = { ok: true, secret: "synthetic-worker-secret", wrote: false };
+  const denied = { ok: false, kind: "auth_required", message: "Authentication required." };
+
+  it("reloads the worker once and repeats the handshake after an auth failure", async () => {
+    let loaded = false;
+    let checks = 0;
+    const env = healingWizardEnv({
+      secret,
+      bootImpl: async () => {
+        loaded = true;
+        return { ok: true, json: async () => ({ ok: true }) };
+      },
+      verifyImpl: async () => {
+        checks += 1;
+        return loaded ? { ok: true, message: "Connected." } : denied;
+      },
+    });
+    const outcome = await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(outcome.ok, true);
+    assert.equal(checks, 2);
+    const boots = env.fetched.filter((r) => r.url.includes("full-boot"));
+    assert.equal(boots.length, 1);
+    assert.match(boots[0].url, /skip_tunnel=1&force_restart=1/);
+  });
+
+  for (const kind of ["network_error", "cors_blocked"]) {
+    it(`does not restart for ${kind}`, async () => {
+      const env = healingWizardEnv({ secret, verifyResult: { ...denied, kind } });
+      assert.equal((await env.ui.runTailscaleAutoSetup(env.deps)).ok, false);
+      assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 0);
+    });
+  }
+
+  it("does not restart without a resolved local secret", async () => {
+    const env = healingWizardEnv({ verifyResult: denied });
+    await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 0);
+  });
+
+  it("stops after one retry if authentication still fails", async () => {
+    let checks = 0;
+    const env = healingWizardEnv({ secret, verifyImpl: async () => { checks += 1; return denied; } });
+    assert.equal((await env.ui.runTailscaleAutoSetup(env.deps)).ok, false);
+    assert.equal(checks, 2);
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 1);
+  });
+
+  it("does not retry authentication when restart fails", async () => {
+    let checks = 0;
+    const env = healingWizardEnv({
+      secret,
+      bootImpl: async () => ({ ok: false, json: async () => ({ ok: false, message: "Worker is externally owned." }) }),
+      verifyImpl: async () => { checks += 1; return denied; },
+    });
+    const outcome = await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(outcome.ok, false);
+    assert.match(outcome.message, /externally owned/);
+    assert.equal(checks, 1);
+  });
+
+  it("does not restart twice when this setup already loaded a new secret", async () => {
+    const env = healingWizardEnv({ secret: { ...secret, wrote: true }, verifyResult: denied });
+    await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 1);
+  });
+
+  it("preserves a manually supplied secret without restarting the worker", async () => {
+    const env = healingWizardEnv({ secret, verifyResult: denied });
+    env.runtime.drafts.endpointSecret = "synthetic-manual-secret";
+    await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(env.runtime.drafts.endpointSecret, "synthetic-manual-secret");
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 0);
+  });
+});
 
 // ---------------------------------------------------------------
 // A saved endpoint on a dead quick-tunnel/ngrok host
