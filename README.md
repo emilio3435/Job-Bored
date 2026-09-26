@@ -5,6 +5,8 @@ your Google Sheet is the database. BYO API keys. 100% local‑first browser
 app with an optional local discovery worker. Not a hosted SaaS.
 
 > **Hosted mode is unsupported for now.** Run the dashboard and discovery worker locally; the Cloudflare relay requires a per-dashboard `RELAY_TOKEN` bearer (see [templates/cloudflare-worker/README.md](templates/cloudflare-worker/README.md)).
+>
+> The API server (`server/`) does deploy to Render or Docker on its own: `render.yaml` mints `JOBBORED_API_TOKEN` and takes `COMMAND_CENTER_ALLOWED_ORIGINS` as an unsynced value — set it to your dashboard origin or browsers get no CORS auth headers. The image needs no `integrations/` sibling (the profile schema ships vendored; logo resolution answers `501 LOGOS_UNAVAILABLE` without the Hermes checkout).
 
 ![License](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Vanilla JS](https://img.shields.io/badge/vanilla-JS-yellow) ![Node](https://img.shields.io/badge/node-24.x-339933) [![CI](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml/badge.svg)](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/emilio3435/Job-Bored)](https://github.com/emilio3435/Job-Bored/releases/latest)
 

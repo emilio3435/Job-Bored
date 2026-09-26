@@ -293,12 +293,16 @@ describe("BEAUDIT E17/E5 the server/ image layout boots", () => {
       const templateRes = await fetch(`${api.baseUrl}/profile/template/engineer`, {
         method: "POST",
       });
-      const template = await templateRes.text();
-      assert.equal(templateRes.status, 200, template.slice(0, 300));
+      const templateText = await templateRes.text();
+      assert.equal(templateRes.status, 200, templateText.slice(0, 300));
+      // POST /profile takes the profile object, not the {ok, template}
+      // transport envelope — the wizard unwraps data.template before saving,
+      // and the schema requires top-level version/identity/strengths.
+      const { template } = JSON.parse(templateText);
       const res = await fetch(`${api.baseUrl}/profile`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: template,
+        body: JSON.stringify(template),
       });
       const { text } = await readJson(res);
       assert.doesNotMatch(text, new RegExp(ctx.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));

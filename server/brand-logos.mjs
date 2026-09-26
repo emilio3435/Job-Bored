@@ -141,6 +141,11 @@ function isValidSlug(slug) {
  * @param {string} message
  * @param {number} statusCode
  */
+/**
+ * @param {string} message
+ * @param {number} statusCode
+ * @param {string} [code]
+ */
 function makeError(message, statusCode, code) {
   const err = /** @type {Error & { statusCode: number, code?: string, retryable?: boolean }} */ (new Error(message));
   err.statusCode = statusCode;

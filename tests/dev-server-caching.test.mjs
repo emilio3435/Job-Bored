@@ -10,7 +10,7 @@ import { mkdirSync, mkdtempSync, rmSync, utimesSync, writeFileSync } from "node:
 import { readFile } from "node:fs/promises";
 import { statSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
+import { join } from "node:path";
 import { describe, it } from "node:test";
 
 import {
@@ -41,6 +41,27 @@ describe("G19 keep-alive status cache", () => {
     assert.deepEqual(await cachedKeepAliveStatus({ nowMs: 1_000 + 29_999, cache, loadImpl }), { loads: 1 });
     assert.equal(loads, 1, "one load for every call inside the TTL");
     assert.deepEqual(await cachedKeepAliveStatus({ nowMs: 1_000 + 30_000, cache, loadImpl }), { loads: 2 });
+  });
+
+  it("reloads inside the TTL when the state fingerprint changes", async () => {
+    let loads = 0;
+    const loadImpl = async () => ({ loads: ++loads });
+    const cache = {};
+    let fingerprint = "home|one";
+    const fingerprintImpl = () => fingerprint;
+    assert.deepEqual(
+      await cachedKeepAliveStatus({ nowMs: 1_000, cache, loadImpl, fingerprintImpl }),
+      { loads: 1 },
+    );
+    assert.deepEqual(
+      await cachedKeepAliveStatus({ nowMs: 1_001, cache, loadImpl, fingerprintImpl }),
+      { loads: 1 },
+    );
+    fingerprint = "home|two";
+    assert.deepEqual(
+      await cachedKeepAliveStatus({ nowMs: 1_002, cache, loadImpl, fingerprintImpl }),
+      { loads: 2 },
+    );
   });
 });
 

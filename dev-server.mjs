@@ -5,6 +5,7 @@ import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import { homedir } from "node:os";
 import { gzipSync } from "node:zlib";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes, listIncludeTargets } from "./scripts/lib/expand-index-includes.mjs";
@@ -2770,16 +2771,50 @@ async function loadKeepAliveStatus() {
   }
 }
 
+/**
+ * Fingerprint for the keep-alive status cache: the home dir plus the state
+ * file's content. A hit still requires the TTL, but a rewritten state file
+ * (or a new HOME) invalidates immediately — the cache never serves a status
+ * older than the file it was read from. Content, not mtime: two writes in
+ * the same millisecond must still invalidate. The read is cheap; the
+ * launchd spawn it guards is what the cache saves.
+ */
+function keepAliveStateFingerprint() {
+  try {
+    const home = homedir();
+    let marker = "missing";
+    try {
+      marker = readFileSync(join(home, ".jobbored", "keep-alive-state.json"), "utf8");
+    } catch {
+      marker = "missing";
+    }
+    return `${home}|${marker}`;
+  } catch {
+    return "";
+  }
+}
+
 export async function cachedKeepAliveStatus(
-  { nowMs = Date.now(), cache = keepAliveStatusCache, loadImpl = loadKeepAliveStatus } = {},
+  {
+    nowMs = Date.now(),
+    cache = keepAliveStatusCache,
+    loadImpl = loadKeepAliveStatus,
+    fingerprintImpl = keepAliveStateFingerprint,
+  } = {},
 ) {
-  if (cache.filled && nowMs - cache.at < KEEP_ALIVE_STATUS_CACHE_TTL_MS) {
+  const fingerprint = fingerprintImpl();
+  if (
+    cache.filled &&
+    nowMs - cache.at < KEEP_ALIVE_STATUS_CACHE_TTL_MS &&
+    cache.fingerprint === fingerprint
+  ) {
     return cache.value;
   }
   const value = await loadImpl();
   cache.at = nowMs;
   cache.value = value;
   cache.filled = true;
+  cache.fingerprint = fingerprint;
   return value;
 }
 

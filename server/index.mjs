@@ -194,6 +194,8 @@ const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
  * BEAUDIT E5: hosted error details must never carry container/host fs paths.
  * Redacts the server dir, the home dir, and any remaining quoted or bare
  * absolute-path-looking token. URLs are never touched.
+ * @param {unknown} text
+ * @returns {string}
  */
 function redactFsPaths(text) {
   let out = String(text ?? "");
