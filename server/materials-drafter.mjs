@@ -1,45 +1,29 @@
 /**
- * In-process materials FIFO: JD gate → writer → composer → critic → editor.
+ * In-process materials FIFO: JD resolve → ledger → the v3 stage runner.
  * One draft at a time. Does not talk to Hermes or Telegram.
  */
 
-import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
-import { tmpdir } from "node:os";
+import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import * as cheerio from "cheerio";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
-import { renderCandidateLetter, renderCandidateResume, candidateHeader } from "./materials-candidate-docs.mjs";
-import { composeCoverLetter, composeResume } from "./materials-composer.mjs";
-import { critiqueMaterials } from "./materials-critic.mjs";
 import { resolveJobDescription, isUsableJobDescription } from "./materials-jd-gate.mjs";
-import { openPdfSession, renderPdfIfPossible } from "./materials-pdf.mjs";
+import { openPdfSession } from "./materials-pdf.mjs";
 import { readResolvedMarks } from "./brand-logos.mjs";
-import { buildRenderModelFromWriter } from "./materials-render-model-adapter.mjs";
-import { renderDocument } from "./materials-render.mjs";
-import { materialsCacheKey, newRunId, renderPackage, writePackageRecords } from "./materials-package.mjs";
-import { letterWordBand, resolveRunFamily } from "./materials-templates.mjs";
-import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
+import { newRunId } from "./materials-package.mjs";
+import { runPipeline } from "./materials-pipeline.mjs";
+import { resolveRunFamily } from "./materials-templates.mjs";
+import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
-  formatProvenanceLine,
   normalizeResumeSource,
   resumeProvenance,
   resumeRequiredError,
   writeResumeSnapshot,
 } from "./materials-resume-source.mjs";
-import { callEditor, callWriter } from "./materials-writer.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import { readProfile } from "./user-profile.mjs";
 
-const PAGE_COUNT_CODES = new Set([
-  "resume_page_count_high",
-  "resume_two_page_sparse",
-  "resume_second_page_sparse",
-  "cover_letter_page_count",
-]);
 
-
-const MAX_EDITOR_LOOPS = 2;
 /* F14: a non-terminal pending with no heartbeat for this long belongs to
  * a dead process (the live drafter heartbeats every minute). */
 const ORPHANED_PENDING_MS = 5 * 60 * 1000;
@@ -116,20 +100,6 @@ export async function reconcileOrphanedPending(options = {}) {
   }
   return { scanned, reconciled };
 }
-const NESTED_LETTER_SLOTS = {
-  company: ["company-mention", "company-mention-2", "company-mention-3"],
-  role: ["role-keyword"],
-  closing: ["closing-hook"],
-};
-const PARENT_LETTER_SLOTS = [
-  ["hook", "hook"],
-  ["whyThem", "why-them"],
-  ["whyMe", "why-me"],
-  ["whyNow", "why-now"],
-  ["closing", "closing"],
-  ["flourish", "flourish"],
-];
-
 /**
  * @typedef {object} MaterialsRequestPayload
  * @property {string} slug
@@ -143,6 +113,8 @@ const PARENT_LETTER_SLOTS = [
  * @property {import("./materials-resume-source.mjs").ResumeSource | null} [resume]
  *   The user's own resume — the only source of facts. enqueue() refuses
  *   (422 resume_required) without it.
+ * @property {"snapshot"} [resumeFrom] F8: a repair re-enters at the draft
+ *   stage with the stored draft JSON plus notes as editor instructions
  * @property {string} [template] a registry family named by this request
  * @property {string} [preferredTemplate] the user's saved materialsTemplate
  */
@@ -181,12 +153,6 @@ const PARENT_LETTER_SLOTS = [
  */
 
 /**
- * @typedef {object} Scorecard
- * @property {string} [status]
- * @property {CriticIssue[]} [issues]
- */
-
-/**
  * @param {unknown} value
  * @returns {value is Record<string, unknown>}
  */
@@ -210,16 +176,20 @@ function pinIsConfigured(pin) {
  * the cheap voice signal available to the writer in this wave.
  *
  * @param {MaterialsRequestPayload} payload
- * @returns {Promise<unknown[]>}
+ * @returns {Promise<string[]>}
  */
 async function collectVoiceSamples(payload) {
-  /** @type {unknown[]} */
+  /** @type {string[]} */
   const samples = [];
   try {
     const result = await readProfile();
     if (result.ok && isPlainObject(result.profile)) {
       const extra = result.profile.writingSamples || result.profile.writingSampleExcerpts;
-      if (Array.isArray(extra)) samples.push(...extra);
+      if (Array.isArray(extra)) {
+        for (const item of extra) {
+          if (typeof item === "string" && item.trim()) samples.push(item);
+        }
+      }
     }
   } catch {
     // no on-disk profile
@@ -227,44 +197,6 @@ async function collectVoiceSamples(payload) {
   const notes = typeof payload.notes === "string" ? payload.notes.trim() : "";
   if (notes) samples.push(notes);
   return samples;
-}
-
-/**
- * Replace only direct text nodes so nested chrome (`.it`, `.target`,
- * `[data-slot]`, `.dot`) stays in place.
- *
- * @param {import("cheerio").Cheerio<import("domhandler").AnyNode>} $el
- * @param {string} value
- */
-function replaceDirectTextNodes($el, value) {
-  let replaced = false;
-  $el.contents().each((_, node) => {
-    if (node.type !== "text") return;
-    if (!replaced) {
-      node.data = value;
-      replaced = true;
-    } else {
-      node.data = "";
-    }
-  });
-  if (!replaced) $el.prepend(value);
-}
-
-function unconfiguredError() {
-  return Object.assign(new Error("No LLM pin configured."), {
-    statusCode: 409,
-    code: "llm_unconfigured",
-  });
-}
-
-/** @param {unknown} feature */
-function wantsResume(feature) {
-  return feature === "resume" || feature === "both";
-}
-
-/** @param {unknown} feature */
-function wantsLetter(feature) {
-  return feature === "cover_letter" || feature === "both";
 }
 
 /**
@@ -304,120 +236,6 @@ function elapsedSeconds(stamp, nowIso) {
   const end = Date.parse(String(nowIso || ""));
   if (!Number.isFinite(start) || !Number.isFinite(end)) return 0;
   return Math.max(0, Math.floor((end - start) / 1000));
-}
-
-/**
- * @param {unknown} letter
- * @param {string} html
- * @returns {string}
- */
-export function composeLetterWithNestedSlots(html, letter) {
-  if (!isPlainObject(letter)) return composeCoverLetter(html, letter);
-
-  /** @type {Record<string, unknown>} */
-  const rest = { ...letter };
-  for (const [field] of PARENT_LETTER_SLOTS) delete rest[field];
-  const composed = composeCoverLetter(html, rest);
-  const $ = cheerio.load(composed);
-
-  for (const [field, slot] of PARENT_LETTER_SLOTS) {
-    const value = letter[field];
-    if (typeof value !== "string") continue;
-    const $slot = $(`[data-slot="${slot}"]`);
-    if (!$slot.length) continue;
-    replaceDirectTextNodes($slot, value);
-  }
-
-  for (const [field, slots] of Object.entries(NESTED_LETTER_SLOTS)) {
-    const value = letter[field];
-    if (typeof value !== "string") continue;
-    for (const slot of slots) {
-      $(`[data-slot="${slot}"]`).text(value);
-    }
-  }
-  return $.html();
-}
-
-/**
- * HTML `article.page` count is not a real PDF page count. When PDF is skipped,
- * demote a lone resume_page_count_high fail to review so HTML can still land.
- *
- * @param {Scorecard | null | undefined} scorecard
- * @param {boolean} pdfSkipped
- * @returns {Scorecard}
- */
-export function adjustScorecardForSkippedPdf(scorecard, pdfSkipped) {
-  const rawIssues = scorecard && Array.isArray(scorecard.issues) ? scorecard.issues : [];
-  const issues = rawIssues.map((issue) => {
-    if (
-      pdfSkipped &&
-      issue &&
-      issue.code === "resume_page_count_high" &&
-      issue.severity === "fail"
-    ) {
-      return { ...issue, severity: "review" };
-    }
-    return issue;
-  });
-  if (!pdfSkipped) {
-    return { ...(scorecard || {}), issues };
-  }
-  const blocking = issues.filter((issue) => issue && issue.code !== "resume_page_count_high");
-  const hasFail = blocking.some((issue) => issue && issue.severity === "fail");
-  /** @type {string} */
-  let status;
-  if (hasFail) status = "fail";
-  else if (blocking.length === 0) {
-    status = issues.some((issue) => issue && issue.code === "resume_page_count_high")
-      ? "review"
-      : "pass";
-  } else if (blocking.some((issue) => issue && issue.severity === "review")) status = "review";
-  else status = String((scorecard && scorecard.status) || "review");
-  return { ...(scorecard || {}), issues, status };
-}
-
-/**
- * Replace HTML article.page counts with issues from the rendered PDFs.
- *
- * @param {Scorecard | null | undefined} scorecard
- * @param {object} files
- * @param {string} files.resumeHtml
- * @param {string} files.letterHtml
- * @param {string} files.resumePdfPath
- * @param {string} files.coverLetterPdfPath
- * @returns {Promise<Scorecard>}
- */
-async function mergePdfPageCounts(scorecard, files) {
-  const tmp = await mkdtemp(join(tmpdir(), "jb-pdf-audit-"));
-  try {
-    const resumeHtmlPath = join(tmp, "resume.html");
-    const letterHtmlPath = join(tmp, "cover-letter.html");
-    await writeFile(resumeHtmlPath, files.resumeHtml, "utf8");
-    await writeFile(letterHtmlPath, files.letterHtml, "utf8");
-    const [resume, letter] = await Promise.all([
-      auditResume({ htmlPath: resumeHtmlPath, pdfPath: files.resumePdfPath }),
-      auditCoverLetter({ htmlPath: letterHtmlPath, pdfPath: files.coverLetterPdfPath }),
-    ]);
-    const kept = (scorecard && Array.isArray(scorecard.issues) ? scorecard.issues : []).filter(
-      (issue) => issue && !PAGE_COUNT_CODES.has(String(issue.code || "")),
-    );
-    const fromPdf = [...(resume?.issues || []), ...(letter?.issues || [])].filter(
-      (issue) => issue && PAGE_COUNT_CODES.has(String(issue.code || "")),
-    );
-    const issues = [...kept, ...fromPdf];
-    const hasFail = issues.some((issue) => issue && issue.severity === "fail");
-    /** @type {string} */
-    const status = hasFail ? "fail" : issues.length ? "review" : "pass";
-    return { ...(scorecard || {}), issues, status };
-  } finally {
-    await rm(tmp, { recursive: true, force: true });
-  }
-}
-
-/** @param {Scorecard | null | undefined} scorecard */
-function onlySkippedPdfPageCount(scorecard) {
-  const issues = scorecard && Array.isArray(scorecard.issues) ? scorecard.issues : [];
-  return issues.length > 0 && issues.every((issue) => issue && issue.code === "resume_page_count_high");
 }
 
 /**
@@ -477,68 +295,18 @@ async function writeJdFile(dir, text, meta = {}) {
 
 
 /**
- * @param {Record<string, unknown>} [input]
- * @returns {Promise<{ skipped: boolean, path?: string, note?: string }>}
- */
-async function defaultPdfRenderer(input = {}) {
-  const resumeHtml = typeof input.resumeHtml === "string" ? input.resumeHtml : "";
-  const letterHtml = typeof input.letterHtml === "string" ? input.letterHtml : "";
-  const resumePdfPath = typeof input.resumePdfPath === "string" ? input.resumePdfPath : "";
-  const coverLetterPdfPath =
-    typeof input.coverLetterPdfPath === "string" ? input.coverLetterPdfPath : "";
-
-  /** @type {Array<Promise<{ skipped: boolean, path?: string, note?: string }>>} */
-  const jobs = [];
-  if (resumeHtml && resumePdfPath) {
-    jobs.push(renderPdfIfPossible(resumeHtml, resumePdfPath));
-  }
-  if (letterHtml && coverLetterPdfPath) {
-    jobs.push(renderPdfIfPossible(letterHtml, coverLetterPdfPath));
-  }
-  if (!jobs.length) return { skipped: true, note: "pdf_skipped" };
-
-  const results = await Promise.all(jobs);
-  if (results.some((result) => result.skipped)) {
-    return {
-      skipped: true,
-      note: results.find((result) => result.note)?.note || "pdf_skipped",
-    };
-  }
-  const path = results.find((result) => result.path)?.path;
-  return path ? { skipped: false, path } : { skipped: false };
-}
-
-/**
- * @typedef {object} DrafterComposer
- * @property {(html: unknown, letter: unknown) => string} [composeCoverLetter]
- * @property {(html: unknown, resume: unknown) => string} [composeResume]
- */
-
-/**
  * @typedef {object} DrafterDeps
  * @property {string} [applicationsRoot]
  * @property {() => unknown} [loadPin]
  * @property {(pin: unknown) => unknown} [resolvePin]
  * @property {(url: string) => Promise<{ description?: unknown }>} [scrapeJob]
- * @property {() => Promise<string>} [readMasterResume] TEST-ONLY sample resume layout
- *   (e.g. the repo's resume-template). Omitted in production: the resume is
- *   rendered from the user's resume via materials-candidate-docs.mjs.
- * @property {() => Promise<string>} [readMasterLetter] TEST-ONLY sample letter layout.
- * @property {(input: Record<string, unknown>) => Promise<unknown>} [writer]
- * @property {(input: Record<string, unknown>) => Promise<unknown>} [editor]
- * @property {(input: Record<string, unknown>) => Promise<Scorecard>} [critic]
- * @property {DrafterComposer} [composer]
- * @property {(input?: Record<string, unknown>) => Promise<{ skipped?: boolean, path?: string, note?: string }>} [pdfRenderer]
- *   Legacy/test PDF hook. When set (and no pdfSession is given), the
- *   registry path renders unmeasured and hands its HTML to this hook.
- * @property {(() => Promise<import("./materials-pdf.mjs").PdfSession | null>) | null} [pdfSession]
- *   Opens the headless browser the registry path measures fit and prints
- *   PDFs with. Defaults to openPdfSession unless pdfRenderer is injected.
+ * @property {(input: string | URL, init?: RequestInit) => Promise<Response>} [fetchImpl]
+ *   Model-call transport for the pipeline stages (defaults to global fetch).
+ * @property {(() => Promise<import("./materials-pdf.mjs").PdfSession | null>) | null} [openSession]
+ *   Opens the headless browser the pipeline measures fit and prints PDFs
+ *   with. Defaults to openPdfSession; null renders unmeasured (tests).
  * @property {() => Promise<import("./materials-render-model-adapter.mjs").ResolvedMark[]>} [logoLoader]
  *   Resolved brand-logo marks (defaults to readResolvedMarks, read-only).
- * @property {boolean} [legacyRender] render with materials-candidate-docs.mjs
- *   instead of the template registry (one-release fallback; also
- *   JOBBORED_MATERIALS_LEGACY_RENDER=1)
  * @property {() => Date | string | number} [now]
  * @property {number} [heartbeatMs] F14: queued-job heartbeat interval
  *   (default 60s; tests use a shorter one)
@@ -561,74 +329,16 @@ export function createMaterialsDrafter(deps = {}) {
     typeof deps.scrapeJob === "function"
       ? deps.scrapeJob
       : (/** @type {string} */ url) => scrapeJobPosting(url);
-  /* Sample-template layouts are test-only (the repo's resume-template and
-   * cover-letter-template are the maintainer's, kept as labelled samples).
-   * In production both are null and the documents are rendered from the
-   * writer's JSON by materials-candidate-docs.mjs. */
-  const readSampleResume =
-    typeof deps.readMasterResume === "function" ? deps.readMasterResume : null;
-  const readSampleLetter =
-    typeof deps.readMasterLetter === "function" ? deps.readMasterLetter : null;
-  const writer =
-    typeof deps.writer === "function"
-      ? deps.writer
-      : (/** @type {Record<string, unknown>} */ input) =>
-        callWriter({
-          pin: /** @type {import("./materials-writer.mjs").WriterPin} */ (input.pin),
-          jdText: String(input.jdText || ""),
-          masterResumeHtml: String(input.masterResumeHtml || ""),
-          resumeText: String(input.resumeText || ""),
-          voiceSamples: input.voiceSamples,
-          letterWords: Array.isArray(input.letterWords) ? /** @type {number[]} */ (input.letterWords) : undefined,
-          fetchImpl:
-            typeof input.fetchImpl === "function"
-              ? /** @type {import("./materials-writer.mjs").WriterInput["fetchImpl"]} */ (input.fetchImpl)
-              : globalThis.fetch.bind(globalThis),
-        });
-  const editor =
-    typeof deps.editor === "function"
-      ? deps.editor
-      : (/** @type {Record<string, unknown>} */ input) =>
-        callEditor({
-          pin: /** @type {import("./materials-writer.mjs").WriterPin} */ (input.pin),
-          jdText: String(input.jdText || ""),
-          masterResumeHtml: String(input.masterResumeHtml || ""),
-          resumeText: String(input.resumeText || ""),
-          voiceSamples: input.voiceSamples,
-          letterWords: Array.isArray(input.letterWords) ? /** @type {number[]} */ (input.letterWords) : undefined,
-          current: /** @type {import("./materials-writer.mjs").WriterJson} */ (input.current),
-          scorecard: input.scorecard || {},
-          fetchImpl:
-            typeof input.fetchImpl === "function"
-              ? /** @type {import("./materials-writer.mjs").WriterInput["fetchImpl"]} */ (input.fetchImpl)
-              : globalThis.fetch.bind(globalThis),
-        });
-  const critic =
-    typeof deps.critic === "function"
-      ? deps.critic
-      : (/** @type {Record<string, unknown>} */ input) => critiqueMaterials(input);
-  const composeSampleLetter =
-    deps.composer && typeof deps.composer.composeCoverLetter === "function"
-      ? deps.composer.composeCoverLetter
-      : composeLetterWithNestedSlots;
-  const composeSampleResume =
-    deps.composer && typeof deps.composer.composeResume === "function"
-      ? deps.composer.composeResume
-      : composeResume;
-  const pdfRenderer =
-    typeof deps.pdfRenderer === "function" ? deps.pdfRenderer : defaultPdfRenderer;
+  const fetchImpl =
+    typeof deps.fetchImpl === "function" ? deps.fetchImpl : globalThis.fetch.bind(globalThis);
   const openSession =
-    deps.pdfSession === null
+    deps.openSession === null
       ? null
-      : typeof deps.pdfSession === "function"
-        ? deps.pdfSession
-        : typeof deps.pdfRenderer === "function"
-          ? null
-          : () => openPdfSession();
+      : typeof deps.openSession === "function"
+        ? deps.openSession
+        : () => openPdfSession();
   const logoLoader =
     typeof deps.logoLoader === "function" ? deps.logoLoader : () => readResolvedMarks();
-  const legacyRender =
-    deps.legacyRender === true || process.env.JOBBORED_MATERIALS_LEGACY_RENDER === "1";
   const now = typeof deps.now === "function" ? deps.now : () => new Date();
 
   /** @type {Array<{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord }>} */
@@ -717,8 +427,8 @@ export function createMaterialsDrafter(deps = {}) {
     const name = String(error?.name || "");
     const errCode = String(error?.code || "");
     /* First-class resumable states keep their own neutral message. */
-    if (errCode === "jd_unusable" && typeof error?.message === "string") {
-      return { code: "jd_unusable", message: error.message };
+    if ((errCode === "jd_unusable" || errCode === "ledger_empty") && typeof error?.message === "string") {
+      return { code: errCode, message: error.message };
     }
     if (name === "WriterJsonError" || errCode === "writer_json_error") {
       return {
@@ -819,42 +529,6 @@ export function createMaterialsDrafter(deps = {}) {
   }
 
   /**
-   * @param {string} dir
-   * @param {string} pendingPath
-   * @param {object} args
-   * @param {string} args.feature
-   * @param {string} [args.letterHtml]
-   * @param {string} [args.resumeHtml]
-   * @param {Scorecard} args.scorecard
-   * @param {string[]} [args.notes]
-   * @param {() => Promise<void>} [args.beforeRelease] runs after the files
-   *   are written and before pending.json goes away
-   */
-  async function finishWithFiles(dir, pendingPath, { feature, letterHtml, resumeHtml, scorecard, notes = [], beforeRelease }) {
-    let wroteHtml = false;
-    if (wantsLetter(feature) && typeof letterHtml === "string") {
-      await writeFile(join(dir, "cover-letter.html"), letterHtml, "utf8");
-      wroteHtml = true;
-    }
-    if (wantsResume(feature) && typeof resumeHtml === "string") {
-      await writeFile(join(dir, "resume.html"), resumeHtml, "utf8");
-      wroteHtml = true;
-    }
-    const status = scorecard.status === "pass" ? "READY" : "REVIEW";
-    await writeFile(
-      join(dir, "qa-report.md"),
-      formatQaReport({
-        status,
-        issues: Array.isArray(scorecard.issues) ? scorecard.issues : [],
-        notes,
-      }),
-      "utf8",
-    );
-    if (beforeRelease) await beforeRelease();
-    if (wroteHtml) await rm(pendingPath, { force: true });
-  }
-
-  /**
    * @param {{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord }} job
    */
   async function runJob(job) {
@@ -913,25 +587,43 @@ export function createMaterialsDrafter(deps = {}) {
       });
     }
 
-    /** @type {import("./materials-writer.mjs").WriterPin} */
-    const resolved = /** @type {import("./materials-writer.mjs").WriterPin} */ (await resolvePin(pin));
-    // Log and persist the exact model used for this draft for dogfood verification.
+    /* Slice 6: a missing pin degrades to a deterministic REVIEW package —
+     * it no longer 409s. The dossier renders the llm_unconfigured note. */
+    /** @type {import("./materials-writer.mjs").WriterPin | null} */
+    let resolved = null;
     try {
-      const pinProvider = String((/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin))).provider || "");
-      const requestedModel = String((/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin))).model || "");
-      const resolvedModel = String(resolved.resolvedModel || "");
-      // Console log for live verification
-      // Example: [materials] slug=eab-role provider=gemini requested_model=gemini-flash resolved_model=gemini-3.7-flash
-      // No secrets are logged.
+      const early = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin || {}));
+      /** @type {any} */ (job.record).debug = {
+        ...(/** @type {any} */ (job.record).debug),
+        llm: {
+          provider: String(early.provider || ""),
+          requestedModel: String(early.model || ""),
+          resolvedModel: "",
+        },
+      };
+      resolved = pinIsConfigured(pin)
+        ? /** @type {import("./materials-writer.mjs").WriterPin} */ (await resolvePin(pin))
+        : null;
+    } catch (err) {
+      await failJob(job, err);
+      return;
+    }
+    try {
+      const pinRecord = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin || {}));
+      const resolvedRecord = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (resolved || {}));
+      const pinProvider = String(pinRecord.provider || "");
+      const requestedModel = String(pinRecord.model || "");
+      const resolvedModel = String(resolvedRecord.resolvedModel || "");
+      // Console log for live verification. No secrets are logged.
       // eslint-disable-next-line no-console
       console.log(
-        `[materials] slug=${payload.slug} provider=${String(resolved.provider || pinProvider)} requested_model=${requestedModel} resolved_model=${resolvedModel}`,
+        `[materials] slug=${payload.slug} provider=${String(resolvedRecord.provider || pinProvider || "none")} requested_model=${requestedModel} resolved_model=${resolvedModel || "none"}`,
       );
       // Include a small debug field in pending.json without changing the UI message.
       /** @type {any} */ (job.record).debug = {
         ...(/** @type {any} */ (job.record).debug),
         llm: {
-          provider: String(resolved.provider || pinProvider),
+          provider: String(resolvedRecord.provider || pinProvider),
           requestedModel,
           resolvedModel,
         },
@@ -943,285 +635,82 @@ export function createMaterialsDrafter(deps = {}) {
     const resumeSource = normalizeResumeSource(payload.resume);
     if (!resumeSource) throw resumeRequiredError();
     const resumeText = resumeSource.text;
-    const [sampleResumeHtml, sampleLetterHtml] = await Promise.all([
-      readSampleResume ? readSampleResume() : Promise.resolve(null),
-      readSampleLetter ? readSampleLetter() : Promise.resolve(null),
-    ]);
-    /* Only a test-injected sample layout ever reaches the writer as HTML. */
-    const masterResumeHtml = typeof sampleResumeHtml === "string" ? sampleResumeHtml : "";
-    const voiceSamples = await collectVoiceSamples(payload);
-    /* The template registry renders every production draft; the sample
-       layouts (test-only) and the legacy flag keep the old composers. */
-    const useRegistry = typeof sampleResumeHtml !== "string" && typeof sampleLetterHtml !== "string" && !legacyRender;
-    const { family, source: templateSource } = resolveRunFamily({
-      template: payload.template,
-      preferredTemplate: payload.preferredTemplate,
-    });
-    /** @type {import("./materials-render-model-adapter.mjs").ResolvedMark[]} */
-    let marks = [];
-    if (useRegistry) {
+
+    /* The claim ledger: the saved profile plus this request's resume
+     * snapshot. No facts, no draft — ledger_empty names the fix. */
+    let profile = null;
+    try {
+      const read = await readProfile();
+      if (read.ok) profile = read.profile;
+    } catch {
+      profile = null;
+    }
+    let ledger;
+    try {
+      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source });
+    } catch (err) {
+      if (err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") {
+        await failJob(job, {
+          code: "ledger_empty",
+          message: "Add a résumé in Settings → Profile before drafting.",
+        });
+        return;
+      }
+      throw err;
+    }
+
+    /* F8 repair: an existing draft plus notes re-enters at the draft
+     * stage with the notes as editor instructions. */
+    let current;
+    let repairInstructions = "";
+    if (payload.resumeFrom) {
       try {
-        marks = await logoLoader();
+        current = JSON.parse(await readFile(join(dir, "draft.json"), "utf8"));
+        repairInstructions = typeof payload.notes === "string" ? payload.notes : "";
       } catch {
-        marks = [];
+        current = undefined;
       }
     }
-    const draftStartedAt = Date.now();
+    const voiceSamples = await collectVoiceSamples(current ? { ...payload, notes: "" } : payload);
 
-    /* Registry drafts ask for the family's letter band (180–260 today). */
-    const letterWords = useRegistry ? letterWordBand(family) : undefined;
-    let writerJson = await writer({
+    const words = jdText.split(/\s+/).filter(Boolean).length;
+    const gate = {
+      verdict: "usable",
+      confidence: Math.min(0.95, Math.round((0.5 + words / 2000) * 100) / 100),
+      signals: { words, source: jd.source },
+    };
+    const runId = newRunId(payload.slug, job.record.requested_at || isoNow());
+    await runPipeline({
+      dir,
+      payload,
       pin: resolved,
+      fetchImpl,
       jdText,
-      masterResumeHtml,
+      jdSource: jd.source,
+      gate,
+      ledger,
       resumeText,
-      voiceSamples,
-      ...(letterWords ? { letterWords } : {}),
-    });
-
-    /** @param {unknown} json */
-    function modelFor(json) {
-      return buildRenderModelFromWriter({
-        writerJson: json,
-        resumeText,
-        request: { company: payload.company, title: payload.title },
-        family,
-        marks,
-        nowIso: isoNow(),
-      });
-    }
-
-    /**
-     * @param {unknown} json
-     */
-    function composeBoth(json) {
-      const letter = isPlainObject(json) && isPlainObject(json.letter) ? json.letter : {};
-      const resume = isPlainObject(json) && isPlainObject(json.resume) ? json.resume : {};
-      if (useRegistry) {
-        const model = modelFor(json);
-        return {
-          letterHtml: renderDocument(model, "coverLetter"),
-          resumeHtml: renderDocument(model, "resume"),
-        };
-      }
-      return {
-        letterHtml: typeof sampleLetterHtml === "string"
-          ? composeSampleLetter(sampleLetterHtml, letter)
-          : renderCandidateLetter(letter, candidateHeader(resume, resumeText)),
-        resumeHtml: typeof sampleResumeHtml === "string"
-          ? composeSampleResume(sampleResumeHtml, resume)
-          : renderCandidateResume(resume, { resumeText }),
-      };
-    }
-
-    let composed = composeBoth(writerJson);
-    let rawScorecard = await critic({
-      letterHtml: composed.letterHtml,
-      resumeHtml: composed.resumeHtml,
-      jdText,
-      masterResumeHtml,
-      sourceResumeText: resumeText,
-      writerJson,
-    });
-    let scorecard = adjustScorecardForSkippedPdf(rawScorecard, true);
-
-    let editorLoops = 0;
-    while (
-      scorecard.status !== "pass" &&
-      !onlySkippedPdfPageCount(scorecard) &&
-      editorLoops < MAX_EDITOR_LOOPS
-    ) {
-      editorLoops += 1;
-      writerJson = await editor({
-        pin: resolved,
-        jdText,
-        masterResumeHtml,
-        resumeText,
-        voiceSamples,
-        ...(letterWords ? { letterWords } : {}),
-        current: writerJson,
-        scorecard,
-      });
-      composed = composeBoth(writerJson);
-      rawScorecard = await critic({
-        letterHtml: composed.letterHtml,
-        resumeHtml: composed.resumeHtml,
-        jdText,
-        masterResumeHtml,
-        sourceResumeText: resumeText,
-        writerJson,
-      });
-      scorecard = adjustScorecardForSkippedPdf(rawScorecard, true);
-    }
-    const draftMs = Date.now() - draftStartedAt;
-
-    const resumePdfPath = join(dir, "resume.pdf");
-    const coverLetterPdfPath = join(dir, "cover-letter.pdf");
-    /** @type {string[]} */
-    const notes = [formatProvenanceLine(resumeSource)];
-    /** @type {CriticIssue[]} */
-    let fitIssues = [];
-    /** @type {Awaited<ReturnType<typeof renderPackage>> | null} */
-    let rendered = null;
-    /** @type {import("./materials-render.mjs").RenderModel | null} */
-    let model = null;
-    let pdfSkipped = true;
-    /** @type {string} */
-    let pdfNote = "pdf_skipped";
-    const renderStartedAt = Date.now();
-
-    if (useRegistry) {
-      model = modelFor(writerJson);
-      const session = openSession ? await openSession() : null;
-      try {
-        rendered = await renderPackage({
-          model,
-          feature: payload.feature,
-          session,
-          pdfPaths: { resumePdfPath, coverLetterPdfPath },
-        });
-      } finally {
-        if (session) await session.close();
-      }
-      composed = {
-        resumeHtml: rendered.resumeHtml ?? composed.resumeHtml,
-        letterHtml: rendered.letterHtml ?? composed.letterHtml,
-      };
-      fitIssues = rendered.issues;
-      notes.push(...rendered.notes.filter((note) => note !== "pdf_skipped"));
-      if (session) {
-        pdfSkipped = rendered.notes.includes("pdf_skipped");
-      } else {
-        const pdfResult = await pdfRenderer({
-          slug: payload.slug,
-          dir,
-          resumeHtml: composed.resumeHtml,
-          letterHtml: composed.letterHtml,
-          resumePdfPath,
-          coverLetterPdfPath,
-        });
-        pdfSkipped = Boolean(pdfResult?.skipped);
-        if (typeof pdfResult?.note === "string" && pdfResult.note) pdfNote = pdfResult.note;
-      }
-    } else {
-      const pdfResult = await pdfRenderer({
-        slug: payload.slug,
-        dir,
-        resumeHtml: composed.resumeHtml,
-        letterHtml: composed.letterHtml,
-        resumePdfPath,
-        coverLetterPdfPath,
-      });
-      pdfSkipped = Boolean(pdfResult?.skipped);
-      if (typeof pdfResult?.note === "string" && pdfResult.note) pdfNote = pdfResult.note;
-    }
-    if (!pdfSkipped) {
-      try {
-        rawScorecard = await mergePdfPageCounts(rawScorecard, {
-          resumeHtml: composed.resumeHtml,
-          letterHtml: composed.letterHtml,
-          resumePdfPath,
-          coverLetterPdfPath,
-        });
-      } catch {
-        // Keep the pre-merge scorecard. A QA reread must not sink the draft.
-      }
-    }
-    scorecard = adjustScorecardForSkippedPdf(rawScorecard, pdfSkipped);
-    if (fitIssues.length) {
-      const issues = [...(scorecard.issues || []), ...fitIssues];
-      scorecard = { ...scorecard, issues, status: issues.some((i) => i.severity === "fail") ? "fail" : "review" };
-    }
-    if (pdfSkipped) notes.push(pdfNote);
-    const renderMs = Date.now() - renderStartedAt;
-
-    const finalModel = model;
-    const finalRendered = rendered;
-    await finishWithFiles(dir, pendingPath, {
-      feature: payload.feature,
-      letterHtml: composed.letterHtml,
-      resumeHtml: composed.resumeHtml,
-      scorecard,
-      notes,
-      beforeRelease: finalModel && finalRendered
-        ? async () => {
-          const finishedAt = isoNow();
-          const runId = newRunId(payload.slug, job.record.requested_at || finishedAt);
-          const applied = [
-            ...(finalRendered.fit.resume?.applied || []).map((s) => `resume:${s}`),
-            ...(finalRendered.fit.coverLetter?.applied || []).map((s) => `letter:${s}`),
-          ];
-          const measured = Boolean(finalRendered.fit.resume?.measured || finalRendered.fit.coverLetter?.measured);
-          const overflow = fitIssues.some((i) => i.code === "layout_overflow");
-          /** @type {Record<string, number>} */
-          const pages = {};
-          if (finalRendered.pdf.resume) pages["resume.pdf"] = finalRendered.pdf.resume.pages;
-          if (finalRendered.pdf.coverLetter) pages["cover-letter.pdf"] = finalRendered.pdf.coverLetter.pages;
-          const debugLlm = /** @type {{ debug?: { llm?: { provider: string, requestedModel: string, resolvedModel: string } } }} */ (job.record).debug?.llm;
-          await writePackageRecords({
-            dir,
-            rendered: finalRendered,
-            model: finalModel,
-            pages,
-            manifestDefaults: { company: payload.company, title: payload.title, job_url: payload.jobUrl || "" },
-            run: {
-              runId,
-              slug: payload.slug,
-              feature: payload.feature,
-              requestedAt: job.record.requested_at || finishedAt,
-              finishedAt,
-              source: templateSource,
-              pin: debugLlm ? { provider: debugLlm.provider, requestedModel: debugLlm.requestedModel, resolvedModel: debugLlm.resolvedModel } : undefined,
-              stages: [
-                {
-                  stage: "intake",
-                  status: "ok",
-                  llm: false,
-                  detail: `template ${family.id}@${family.version} (${templateSource}); cache key ${materialsCacheKey({ jdText, resumeText, family })}`,
-                },
-                { stage: "jd.resolve", status: "ok", llm: false, detail: `job description from ${jd.source}` },
-                {
-                  stage: "draft",
-                  status: "ok",
-                  ms: draftMs,
-                  llm: true,
-                  detail: `writer${editorLoops ? ` + ${editorLoops} editor pass(es)` : ""}; adapted to the render model by materials-render-model-adapter.mjs`,
-                },
-                {
-                  stage: "fit",
-                  status: overflow ? "failed" : measured ? "ok" : "skipped",
-                  llm: false,
-                  out: ["render-model.json"],
-                  detail: measured
-                    ? (applied.length ? `measured; applied ${applied.join(", ")}` : "measured; fits without trims")
-                    : "not measured (no headless browser); rendered unclipped",
-                },
-                {
-                  stage: "render",
-                  status: "ok",
-                  ms: renderMs,
-                  llm: false,
-                  out: [
-                    ...(finalRendered.resumeHtml ? ["resume.html", "resume.txt"] : []),
-                    ...(finalRendered.letterHtml ? ["cover-letter.html", "cover-letter.txt"] : []),
-                    ...(!pdfSkipped ? Object.keys(pages) : []),
-                  ],
-                  detail: `${family.id} ${family.version}`,
-                },
-                {
-                  stage: "qa",
-                  status: scorecard.status === "pass" ? "ok" : "review",
-                  llm: false,
-                  out: ["qa-report.md"],
-                  detail: `${(scorecard.issues || []).length} issue(s)`,
-                },
-                { stage: "publish", status: "ok", llm: false, out: ["manifest.json", "run.json"] },
-              ],
-            },
-          });
+      voice: voiceSamples,
+      now: now(),
+      runId,
+      openSession: openSession || (async () => null),
+      readMarks: async () => {
+        try {
+          return await logoLoader();
+        } catch {
+          return [];
         }
-        : undefined,
+      },
+      onStage: (stage, status) => {
+        job.record = withPhase(job.record, "drafting", `Drafting… (${stage}: ${status})`);
+        void writePending(pendingPath, job.record).catch(() => {});
+      },
+      current,
+      repairInstructions,
     });
+    /* The pipeline wrote the package (or returned the cached one) — the
+     * spinner comes down either way. */
+    await rm(pendingPath, { force: true });
   }
 
   /**
@@ -1232,10 +721,9 @@ export function createMaterialsDrafter(deps = {}) {
     if (!resumeSource) throw resumeRequiredError();
     /* An unknown template is a 400 before anything is queued. */
     resolveRunFamily({ template: payload.template, preferredTemplate: payload.preferredTemplate });
+    /* A missing pin no longer rejects: the run degrades to a deterministic
+     * REVIEW package with llm_unconfigured (slice 6). */
     const pin = loadPin();
-    if (!pinIsConfigured(pin)) {
-      throw unconfiguredError();
-    }
 
     const slug = payload.slug;
     const dir = join(applicationsRoot, slug);

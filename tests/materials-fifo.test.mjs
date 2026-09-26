@@ -7,13 +7,7 @@ import {
   createMaterialsDrafter,
   reconcileOrphanedPending,
 } from "../server/materials-drafter.mjs";
-
-const SAMPLE_RESUME = {
-  source: "portfolio",
-  filename: "sample-resume.txt",
-  addedAt: "2026-09-20T00:00:00.000Z",
-  text: "Sample Candidate\nEngineer",
-};
+import { EXAMPLE_RESUME_SOURCE, scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
 
 const pin = { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "" };
 
@@ -88,30 +82,23 @@ describe("F14: orphaned pending", () => {
   });
 
   it("heartbeats queued jobs so a long queue never goes stale", async () => {
-    const letterTpl = "<html><body><p data-slot=\"hook\">x</p></body></html>";
-    const resumeTpl = "<html><body><section data-section=\"summary\">s</section></body></html>";
     let releaseFirst;
     const gate = new Promise((r) => {
       releaseFirst = r;
     });
+    const stub = scriptedPipelineFetch({ gate });
     const drafter = createMaterialsDrafter({
       applicationsRoot: dir,
       loadPin: () => pin,
       resolvePin: async (loaded) => ({ ...loaded, resolvedModel: "m" }),
       scrapeJob: async () => ({ description: "word ".repeat(100) }),
-      readMasterLetter: async () => letterTpl,
-      readMasterResume: async () => resumeTpl,
-      writer: async () => {
-        await gate;
-        return { letter: { hook: "h" }, resume: { roles: [] } };
-      },
-      editor: async () => ({ letter: { hook: "h" }, resume: { roles: [] } }),
-      critic: async () => ({ status: "pass", issues: [] }),
-      pdfRenderer: async () => ({ skipped: true, note: "pdf_skipped" }),
+      fetchImpl: stub.fetchImpl,
+      openSession: null,
+      logoLoader: async () => [],
       heartbeatMs: 25,
     });
     const payload = (slug) => ({
-      resume: SAMPLE_RESUME,
+      resume: EXAMPLE_RESUME_SOURCE,
       slug,
       company: "Co",
       title: "Engineer",

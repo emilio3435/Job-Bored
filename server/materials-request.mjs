@@ -165,6 +165,8 @@ export async function spawnMaterialsRequest(payload, options = {}) {
     }
   }
   if (!resume) throw resumeRequiredError();
-  const { resumeFrom: _resumeFrom, ...rest } = payload;
-  return enqueue({ ...rest, resume });
+  const { resumeFrom, ...rest } = payload;
+  /* F8: the repair signal travels with the snapshot resume so the drafter
+   * re-enters at the draft stage instead of regenerating from scratch. */
+  return resumeFrom ? enqueue({ ...rest, resumeFrom, resume }) : enqueue({ ...rest, resume });
 }

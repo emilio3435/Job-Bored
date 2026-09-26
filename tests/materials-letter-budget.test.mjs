@@ -18,6 +18,7 @@ import { renderDocument } from "../server/materials-render.mjs";
 import { letterWordBand, resolveFamily, validateFamily } from "../server/materials-templates.mjs";
 import { callWriter } from "../server/materials-writer.mjs";
 import { EXAMPLE_RESUME_SOURCE, EXAMPLE_RESUME_TEXT, EXAMPLE_WRITER_JSON } from "./fixtures/materials-example-writer.mjs";
+import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
 
 const FAMILIES = ["signal", "dossier", "editorial"];
 
@@ -106,25 +107,23 @@ describe("the writer is asked for the family's band", () => {
     assert.match(sent, /total 180–260 words/);
   });
 
-  it("should pass the band from the drafter to the writer for a registry draft", async () => {
+  it("should carry the family's letter band into the draft call for a registry draft", async () => {
     const dir = await mkdtemp(join(tmpdir(), "jb-letter-writer-"));
     try {
-      let seen = null;
+      const stub = scriptedPipelineFetch();
       const drafter = createMaterialsDrafter({
         applicationsRoot: dir,
         loadPin: () => ({ provider: "gemini", model: "m", apiKey: "k", baseUrl: "" }),
         resolvePin: async (pin) => ({ ...pin, resolvedModel: "m" }),
-        writer: async (input) => {
-          seen = input.letterWords;
-          return EXAMPLE_WRITER_JSON;
-        },
-        critic: async () => ({ status: "pass", issues: [] }),
-        pdfRenderer: async () => ({ skipped: true }),
+        fetchImpl: stub.fetchImpl,
+        openSession: null,
         logoLoader: async () => [],
       });
       await drafter.enqueue({ slug: "acme-band", company: "Acme", title: "Ops", feature: "both", jobUrl: "", notes: "", jobDescription: "operations analytics carrier scorecard forecasting ".repeat(30), resume: EXAMPLE_RESUME_SOURCE, template: "dossier" });
       await drafter.runUntilIdle();
-      assert.deepEqual(seen, [180, 260]);
+      const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
+      assert.ok(draftCall, "draft call issued");
+      assert.match(draftCall.system, /180-260 words/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }
