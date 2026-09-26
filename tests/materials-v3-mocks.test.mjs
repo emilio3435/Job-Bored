@@ -306,11 +306,11 @@ const LOGO_DIR = join(repoRoot, "docs/materials-v3/mocks/assets/logos");
 
 /**
  * Families whose reference mock still loads a display face from Google Fonts
- * at render time. Known gap: the build lane vendors Archivo, Martian Mono and
- * Bodoni Moda into vendor/fonts/ (plan, slice 3). Remove a family from this
- * set once its fonts are vendored; the offline-fonts test then enforces it.
+ * at render time. Empty since plan slice 3 vendored Archivo, Martian Mono and
+ * Bodoni Moda into vendor/fonts/ and the mocks dropped their Google Fonts
+ * links, so the offline-fonts test below enforces rule 5 for every family.
  */
-const GOOGLE_FONTS_GAP = new Set(["signal", "editorial"]);
+const GOOGLE_FONTS_GAP = new Set();
 
 /** @param {string} html */
 function styleText(html) {
