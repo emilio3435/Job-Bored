@@ -986,23 +986,11 @@ test("VAL-ROUTE-009: browser_plus_ats with empty companies runs grounded lane wi
 
 // === VAL-ROUTE-010: Browser-only unrestricted grounded query evidence is modifier-driven (not placeholder-company-driven) ===
 
-test("VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grounded query (no placeholder company artifacts)", async (t) => {
+test("VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grounded query (no placeholder company artifacts)", async () => {
   // When browser_only preset is used with empty companies and non-blank modifiers,
   // the grounded search prompt should be driven by role/keyword/location modifiers
   // and NOT use placeholder company artifacts like "Target careers".
   let groundedSearchPrompt: string | undefined;
-
-  // Strict preflight fetches each grounded candidate. Serve a job page locally so
-  // the test never reaches example.com (it hung on the 12s preflight timeout offline).
-  const originalFetch = globalThis.fetch;
-  globalThis.fetch = (async () =>
-    new Response(
-      `<html><head><title>Senior Software Engineer</title></head><body><h1>Senior Software Engineer</h1><button>Apply now</button><p>${"Responsibilities and qualifications for the role. ".repeat(10)}</p></body></html>`,
-      { status: 200, headers: { "content-type": "text/html" } },
-    )) as typeof fetch;
-  t.after(() => {
-    globalThis.fetch = originalFetch;
-  });
 
   const dependencies = {
     runtimeConfig: {
@@ -1111,7 +1099,24 @@ test("VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grou
     randomId: () => "run_modifier_driven_test",
   };
 
-  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+  // Strict preflight fetches each candidate URL. Stub fetch so the test never
+  // reaches the network: a live request to example.com sometimes outlasted
+  // the source timeout, aborted the grounded search, and emptied querySummary.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) =>
+    new Response(
+      "<html><head><title>Senior Software Engineer</title></head><body><h1>Senior Software Engineer</h1><p>Example Corp. Remote. Build software. Apply now.</p></body></html>",
+      {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      },
+    )) as typeof fetch;
+  let result;
+  try {
+    result = await runDiscovery(makeRequest(), "manual", dependencies);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 
   // grounded_web should have executed with modifier-driven query
   const groundedEntry = result.sourceSummary.find((s) => s.sourceId === "grounded_web");
