@@ -1027,6 +1027,11 @@ async function handleFixSetup(req, res, options = {}) {
   }
 
   const corsHeaders = jsonCorsHeaders(req);
+  if (isDesktopRuntime()) {
+    res.writeHead(409, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "desktop_managed", message: "Discovery is managed by the JobBored app." }));
+    return;
+  }
 
   // Allow callers (e.g. handleFullBoot) to inject earlier phases so the
   // dashboard sees one continuous timeline.
@@ -1050,7 +1055,6 @@ async function handleFixSetup(req, res, options = {}) {
   if (!bootstrapResult.ok) {
     emit("bootstrap_failed", {
       message: "Bootstrap script failed.",
-      detail: bootstrapResult.stderr.slice(0, 500),
     });
     res.writeHead(500, corsHeaders);
     res.end(JSON.stringify({ ok: false, phases }));
@@ -1159,7 +1163,6 @@ async function handleFixSetup(req, res, options = {}) {
 
     emit("relay_deploy_failed", {
       message: "Relay deploy failed.",
-      detail: deployResult.stderr.slice(0, 500),
     });
     res.writeHead(500, corsHeaders);
     res.end(JSON.stringify({
@@ -1381,6 +1384,11 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    res.writeHead(409, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "desktop_managed", message: "Discovery is managed by the JobBored app." }));
     return;
   }
 

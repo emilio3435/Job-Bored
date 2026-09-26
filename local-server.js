@@ -187,7 +187,7 @@
     if (!body || typeof body.ok !== "boolean") {
       return outcome(foreignAnswer(response, loopback), { body: null });
     }
-    if (body.ok === true) {
+    if (body.ok === true && status >= 200 && status < 300) {
       const left = Number(body.searchesLeft);
       const clean = { ok: true };
       if (typeof body.plan === "string" && body.plan.trim()) clean.plan = body.plan;
@@ -195,6 +195,9 @@
         clean.searchesLeft = left;
       }
       return outcome("ok", { body: clean });
+    }
+    if (body.ok === true) {
+      return outcome(status >= 500 ? "internal_error" : "stale_server", { body: null });
     }
     const reason = SERVER_REASONS[String(body.reason || "")];
     if (reason) return outcome(reason, { body: null });
@@ -275,53 +278,55 @@
     }
     let response = null;
     try {
-      response = await doFetch(
-        `${base}/__proxy/ping`,
-        ctrl ? { method: "GET", signal: ctrl.signal } : { method: "GET" },
-      );
-    } catch (e) {
-      result.aborted = !!(e && e.name === "AbortError");
+      try {
+        response = await doFetch(
+          `${base}/__proxy/ping`,
+          ctrl ? { method: "GET", signal: ctrl.signal } : { method: "GET" },
+        );
+      } catch (e) {
+        result.aborted = !!(e && e.name === "AbortError");
+        return result;
+      }
+      if (!response) return result;
+      result.status = Number(response.status) || 0;
+      const body = await readJson(response);
+      if (!body || typeof body.ok !== "boolean") {
+        result.outcome = foreignAnswer(response, loopback);
+        return result;
+      }
+      if (body.ok !== true) {
+        // A JSON 403 still proves a server is up; the keyed POST decides.
+        if (body.reason === "forbidden") {
+          result.outcome = "forbidden";
+          result.up = true;
+          return result;
+        }
+        result.outcome = "stale_server";
+        return result;
+      }
+      if (result.status < 200 || result.status >= 300) {
+        result.outcome = "stale_server";
+        return result;
+      }
+      result.version = typeof body.version === "string" ? body.version : "";
+      result.runtime = typeof body.runtime === "string" ? body.runtime : "";
+      result.routes = Array.isArray(body.routes)
+        ? body.routes.filter((route) => typeof route === "string")
+        : [];
+      result.desktopVersion =
+        typeof body.desktopVersion === "string" ? body.desktopVersion : "";
+      if (!result.version || !hasRequiredRoutes(result.routes)) {
+        result.outcome = "stale_server";
+        return result;
+      }
+      result.outcome = "ok";
+      result.up = true;
+      result.current = true;
       return result;
     } finally {
       if (timer != null) clearTimeout(timer);
       if (unlink) unlink();
     }
-    if (!response) return result;
-    result.status = Number(response.status) || 0;
-    const body = await readJson(response);
-    if (!body || typeof body.ok !== "boolean") {
-      result.outcome = foreignAnswer(response, loopback);
-      return result;
-    }
-    if (body.ok !== true) {
-      // GFX-N3: Safari <16.4 and some webviews send no Sec-Fetch-Site, so a
-      // running server can refuse the keyless ping with a JSON 403. It is
-      // up; the keyed check (which carries Origin) decides.
-      if (body.reason === "forbidden") {
-        result.outcome = "forbidden";
-        result.up = true;
-        return result;
-      }
-      result.outcome = "stale_server";
-      return result;
-    }
-    result.version = typeof body.version === "string" ? body.version : "";
-    result.runtime = typeof body.runtime === "string" ? body.runtime : "";
-    result.routes = Array.isArray(body.routes)
-      ? body.routes.filter((route) => typeof route === "string")
-      : [];
-    result.desktopVersion =
-      typeof body.desktopVersion === "string" ? body.desktopVersion : "";
-    if (!result.version || !hasRequiredRoutes(result.routes)) {
-      // N-stale: a server that predates the §R3 contract, or one that
-      // doesn't serve the check this client is about to make.
-      result.outcome = "stale_server";
-      return result;
-    }
-    result.outcome = "ok";
-    result.up = true;
-    result.current = true;
-    return result;
   }
 
   /**
@@ -336,6 +341,9 @@
   async function checkSerpApiKey(key, options) {
     const opts = options || {};
     const base = String(opts.base || "").replace(/\/+$/, "");
+    // The keyed check belongs to this page's own JobBored server. Only the
+    // keyless presence ping may probe an absolute loopback base (R21).
+    if (base) return outcome("forbidden", { body: null, ping: null });
     const ping = await pingLocalServer(opts);
     if (!ping.up) return outcome(ping.outcome, { body: null, ping });
     const doFetch =

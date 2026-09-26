@@ -244,6 +244,39 @@
   // G16: the one create in flight. The post-sign-in resume and a second
   // click both join it instead of POSTing a second spreadsheet.
   let starterSheetCreateInFlight = null;
+  // A successful Google create followed by a failed header PUT must retry
+  // that same spreadsheet, including after a tab reload. Otherwise one
+  // transient header error leaves an orphan Sheet on every retry.
+  const PENDING_STARTER_HEADER_KEY = "jb:starter-sheet:pending-header.v1";
+  let pendingStarterHeader = null;
+
+  function readPendingStarterHeader() {
+    if (pendingStarterHeader) return pendingStarterHeader;
+    try {
+      const raw = sessionStorage.getItem(PENDING_STARTER_HEADER_KEY);
+      const value = raw ? JSON.parse(raw) : null;
+      if (value && /^[A-Za-z0-9_-]+$/.test(value.spreadsheetId)) {
+        pendingStarterHeader = value;
+      }
+    } catch (_) {
+      // Blocked storage still has the in-memory guard for this page.
+    }
+    return pendingStarterHeader;
+  }
+
+  function savePendingStarterHeader(value) {
+    pendingStarterHeader = value;
+    try {
+      sessionStorage.setItem(PENDING_STARTER_HEADER_KEY, JSON.stringify(value));
+    } catch (_) {}
+  }
+
+  function clearPendingStarterHeader() {
+    pendingStarterHeader = null;
+    try {
+      sessionStorage.removeItem(PENDING_STARTER_HEADER_KEY);
+    } catch (_) {}
+  }
 
   const SCOPE_MISSING_MESSAGE =
     "Google signed you in but didn't grant Sheets access. Click the " +
@@ -644,83 +677,86 @@
     const headerRange = host().getStarterPipelineHeaderRange();
     const title = `JobBored Pipeline ${new Date().toISOString().slice(0, 10)}`;
     try {
-      const createResp = await fetch(
-        "https://sheets.googleapis.com/v4/spreadsheets",
-        {
-          method: "POST",
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
-            "Content-Type": "application/json",
-          },
-          body: JSON.stringify({
-            properties: { title },
-            sheets: [
-              {
-                properties: {
-                  title: "Pipeline",
-                  gridProperties: {
-                    rowCount: 200,
-                    columnCount: starterHeaders.length,
-                    frozenRowCount: 1,
+      let pending = readPendingStarterHeader();
+      if (!pending) {
+        const createResp = await fetch(
+          "https://sheets.googleapis.com/v4/spreadsheets",
+          {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${accessToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({
+              properties: { title },
+              sheets: [
+                {
+                  properties: {
+                    title: "Pipeline",
+                    gridProperties: {
+                      rowCount: 200,
+                      columnCount: starterHeaders.length,
+                      frozenRowCount: 1,
+                    },
                   },
                 },
-              },
-            ],
-          }),
-        },
-      );
-
-      if (createResp.status === 401) {
-        if (!isRetry) {
-          const ok = await host().refreshAccessTokenSilently();
-          if (ok) return createBlankStarterSheet(true);
-        }
-        host().clearSessionAuthState();
-        const message = "Google session expired while creating the starter sheet.";
-        console.error("[JobBored] Starter sheet:", message);
-        host().showToast(message, "error", true);
-        return { ok: false, reason: "session_expired", message };
-      }
-
-      if (!createResp.ok) {
-        const err = await createResp.json().catch(() => ({}));
-        const message = String(
-          err.error?.message ||
-            `Starter sheet creation failed (HTTP ${createResp.status}).`,
+              ],
+            }),
+          },
         );
-        if (
-          createResp.status === 403 &&
-          /insufficient authentication scopes/i.test(message)
-        ) {
-          // B1-N2: we're past three awaits, not in a user gesture — a
-          // consent popup here is blocked and the flow dies silently. Say
-          // so; the caller's next click (a real gesture) opens consent.
-          return {
-            ok: false,
-            reason: "scope_missing",
-            message: SCOPE_MISSING_MESSAGE,
-          };
-        }
-        throw new Error(message);
-      }
 
-      const spreadsheet = await createResp.json();
-      const spreadsheetId =
-        spreadsheet && spreadsheet.spreadsheetId
-          ? String(spreadsheet.spreadsheetId).trim()
-          : "";
-      const spreadsheetUrl =
-        spreadsheet && spreadsheet.spreadsheetUrl
-          ? String(spreadsheet.spreadsheetUrl).trim()
-          : "";
-      if (!spreadsheetId) {
-        throw new Error(
-          "Google created a sheet but did not return a spreadsheetId.",
-        );
+        if (createResp.status === 401) {
+          if (!isRetry) {
+            const ok = await host().refreshAccessTokenSilently();
+            if (ok) return createBlankStarterSheet(true);
+          }
+          host().clearSessionAuthState();
+          const message = "Google session expired while creating the starter sheet.";
+          console.error("[JobBored] Starter sheet:", message);
+          host().showToast(message, "error", true);
+          return { ok: false, reason: "session_expired", message };
+        }
+
+        if (!createResp.ok) {
+          const err = await createResp.json().catch(() => ({}));
+          const message = String(
+            err.error?.message ||
+              `Starter sheet creation failed (HTTP ${createResp.status}).`,
+          );
+          if (
+            createResp.status === 403 &&
+            /insufficient authentication scopes/i.test(message)
+          ) {
+            // The next click is a gesture that can open the consent popup.
+            return {
+              ok: false,
+              reason: "scope_missing",
+              message: SCOPE_MISSING_MESSAGE,
+            };
+          }
+          throw new Error(message);
+        }
+
+        const spreadsheet = await createResp.json();
+        const spreadsheetId =
+          spreadsheet && spreadsheet.spreadsheetId
+            ? String(spreadsheet.spreadsheetId).trim()
+            : "";
+        const spreadsheetUrl =
+          spreadsheet && spreadsheet.spreadsheetUrl
+            ? String(spreadsheet.spreadsheetUrl).trim()
+            : "";
+        if (!spreadsheetId) {
+          throw new Error(
+            "Google created a sheet but did not return a spreadsheetId.",
+          );
+        }
+        pending = { spreadsheetId, spreadsheetUrl };
+        savePendingStarterHeader(pending);
       }
 
       const headerResp = await fetch(
-        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(spreadsheetId)}/values/${encodeURIComponent(headerRange)}?valueInputOption=RAW`,
+        `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(pending.spreadsheetId)}/values/${encodeURIComponent(headerRange)}?valueInputOption=RAW`,
         {
           method: "PUT",
           headers: {
@@ -743,7 +779,7 @@
         );
       }
 
-      return { ok: true, spreadsheetId, spreadsheetUrl };
+      return { ok: true, ...pending };
     } catch (err) {
       console.error("[JobBored] Starter sheet:", err);
       const message = String(
@@ -873,6 +909,7 @@
     pendingStarterSheetCreateOptions = null;
     host().mergeStoredConfigOverridePatch({ sheetId: created.spreadsheetId });
     core().setSHEET_ID(created.spreadsheetId);
+    clearPendingStarterHeader();
     host().setInitialSheetAccessResolved(true);
     setDashboardSheetLinks();
 
