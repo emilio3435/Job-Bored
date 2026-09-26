@@ -29,6 +29,7 @@ import {
   TRANSPORT_CLOUDFLARE_QUICK,
 } from "./lib/discovery-transport.mjs";
 import { resolveConfiguredWorkerPort } from "./install-discovery-worker-autostart.mjs";
+import { bootstrapStatePath } from "./lib/paths.mjs";
 
 export const TUNNEL_AUTOSTART_LABEL = "ai.jobbored.discovery.tunnel";
 
@@ -38,11 +39,12 @@ const defaultRepoRoot = resolve(__dirname, "..");
 export function getTunnelAutostartPaths({
   homeDir = homedir(),
   repoRoot = defaultRepoRoot,
+  env = process.env,
 } = {}) {
   const jobboredDir = join(homeDir, ".jobbored");
   return {
     repoRoot,
-    bootstrapStatePath: join(repoRoot, "discovery-local-bootstrap.json"),
+    bootstrapStatePath: bootstrapStatePath({ env, repoRoot }),
     logPath: join(jobboredDir, "logs", "discovery-tunnel.log"),
     launchAgentDir: join(homeDir, "Library", "LaunchAgents"),
     launchAgentPath: join(

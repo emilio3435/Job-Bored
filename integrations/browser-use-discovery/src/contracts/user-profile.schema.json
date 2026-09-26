@@ -149,7 +149,7 @@
         "salaryFloor": {
           "type": ["integer", "null"],
           "minimum": 0,
-          "description": "Annual USD minimum. Null = no floor. Used only when salaryRequired=true AND listing publishes a salary number."
+          "description": "Annual USD minimum. Null = no floor. Jobs with a listed salary below the floor are excluded; salaryRequired separately controls jobs without a listed salary."
         },
         "salaryRequired": {
           "type": "boolean",

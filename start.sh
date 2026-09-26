@@ -13,6 +13,11 @@ cd "$ROOT"
 # Defaults: open ON for interactive/double-click; OFF under CI or headless
 # with no TTY unless JB_FORCE_BROWSER_OPEN=1.
 JB_DASHBOARD_PORT="${PORT:-8080}"
+if ! [[ "$JB_DASHBOARD_PORT" =~ ^[0-9]{1,5}$ ]] ||
+  (( 10#$JB_DASHBOARD_PORT < 1 || 10#$JB_DASHBOARD_PORT > 65535 )); then
+  printf 'PORT must be a number from 1 to 65535.\n' >&2
+  exit 1
+fi
 if [ -n "${COMMAND_CENTER_TLS:-}" ] || [ -n "${HTTPS:-}" ]; then
   JB_DASHBOARD_SCHEME="https"
 else
@@ -20,6 +25,11 @@ else
 fi
 JB_OPEN_URL="${JB_DASHBOARD_SCHEME}://localhost:${JB_DASHBOARD_PORT}/"
 JB_OPEN_MAX_WAIT_SECS="${JB_OPEN_MAX_WAIT_SECS:-30}"
+if ! [[ "$JB_OPEN_MAX_WAIT_SECS" =~ ^[0-9]{1,3}$ ]] ||
+  (( 10#$JB_OPEN_MAX_WAIT_SECS < 1 || 10#$JB_OPEN_MAX_WAIT_SECS > 120 )); then
+  printf 'JB_OPEN_MAX_WAIT_SECS must be a number from 1 to 120.\n' >&2
+  exit 1
+fi
 
 jb_skip_reason() {
   if [ "${JB_SKIP_BROWSER_OPEN:-}" = "1" ]; then

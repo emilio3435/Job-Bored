@@ -428,6 +428,7 @@
         method: "POST",
         headers,
         body: JSON.stringify(body),
+        signal: opts?.signal,
       });
     } catch (e) {
       if (label === "local") {
@@ -473,6 +474,7 @@
     try {
       resp = await fetch("https://api.openai.com/v1/chat/completions", {
         method: "POST",
+        signal: opts?.signal,
         headers: {
           "Content-Type": "application/json",
           Authorization: `Bearer ${apiKey}`,
@@ -495,6 +497,7 @@
     try {
       resp = await fetch("https://api.anthropic.com/v1/messages", {
         method: "POST",
+        signal: opts?.signal,
         headers: {
           "Content-Type": "application/json",
           "x-api-key": apiKey,
@@ -580,6 +583,7 @@
     try {
       resp = await fetch(url, {
         method: "POST",
+        signal: opts?.signal,
         headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },

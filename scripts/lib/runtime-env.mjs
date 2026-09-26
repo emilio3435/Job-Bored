@@ -323,12 +323,16 @@ function readFirstEnvValue(source) {
 function resolveBrowserUseCommand(o, fromFiles) {
   const bundled = join(o.appRoot, "integrations", "browser-use-discovery", "bin", "browser-use-agent-browser.mjs");
   const processCommand = readFirstEnvValue(o.baseEnv);
-  if (processCommand) return processCommand;
+  if (processCommand) {
+    // session.ts executes this through a shell. A configured executable path
+    // is one word even when HOME or the app folder contains spaces.
+    return existsSync(processCommand) ? shellQuote(processCommand) : processCommand;
+  }
 
   const fileCommand = readFirstEnvValue(fromFiles);
   const isPathLike = fileCommand.includes("/") || fileCommand.includes("\\");
   if (fileCommand && (!isPathLike || existsSync(resolve(o.appRoot, fileCommand)))) {
-    return fileCommand;
+    return isPathLike ? shellQuote(fileCommand) : fileCommand;
   }
   if (fileCommand) {
     o.warn(`ignoring stale browser command from env file because it does not exist: ${fileCommand}`);
