@@ -107,6 +107,11 @@ export default [
       // tracked from before the ignore rule — don't lint throwaways.
       "tmp/**",
       ".lane-evidence/**",
+      // GFX-X2: nested git worktrees and Muse lane state are other
+      // checkouts, not this one — linting them fails lint:repo on code
+      // this tree does not own.
+      ".worktrees/**",
+      ".muse/**",
       // Workflow-tool scripts: a top-level `return` is legal in that runner, not in ESM.
       "docs/programs/**/*.workflow.js",
     ],
