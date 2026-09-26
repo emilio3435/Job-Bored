@@ -428,7 +428,14 @@ app.get("/profile", async (_req, res) => {
     if (!result.ok) {
       // 200 with ok:false so the wizard can branch cleanly without try/catch
       // on 404s. The "missing profile" state is the expected first-run case.
-      return res.status(200).json({ ok: false, reason: result.reason });
+      // F17: a schema-invalid file reports invalid_profile with the errors.
+      return res.status(200).json({
+        ok: false,
+        reason: result.reason,
+        ...(result.reason === "invalid_profile" && result.errors
+          ? { errors: result.errors }
+          : {}),
+      });
     }
     return res.json({ ok: true, profile: result.profile });
   } catch (err) {

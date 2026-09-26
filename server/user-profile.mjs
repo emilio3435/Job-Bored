@@ -90,6 +90,9 @@ async function ensureParentDir(path) {
  *   { ok: true, profile, path }
  *   { ok: false, reason: "no_profile" } when the file is missing
  *   { ok: false, reason: "invalid_json", detail } when unparseable
+ *   { ok: false, reason: "invalid_profile", errors } when it fails the
+ *   schema (F17: a hand-edited file must not pass rescore and materials
+ *   only to fail discovery)
  */
 export async function readProfile() {
   const path = resolveProfilePath();
@@ -109,6 +112,10 @@ export async function readProfile() {
   }
   try {
     const profile = JSON.parse(raw);
+    const validation = validateProfile(profile);
+    if (!validation.ok) {
+      return { ok: false, reason: "invalid_profile", errors: validation.errors };
+    }
     return { ok: true, profile, path };
   } catch (err) {
     const error = /** @type {{ message?: unknown } | null | undefined} */ (err);
