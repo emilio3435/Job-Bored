@@ -153,6 +153,12 @@
       "This hosted page can't check your key — checking runs in the " +
       "JobBored app on your computer. Copy your key, open your local " +
       "setup, then press Save & verify there.",
+    // GFX-N2: the same 404/405/HTML signature on a loopback page. There is
+    // no hosted page to leave — something on this computer answered that
+    // isn't a current JobBored server (an old checkout, another app on 8080).
+    stale_server:
+      "The JobBored server on this computer is out of date or isn't " +
+      "JobBored — quit it and start JobBored again, then press Save & verify.",
   });
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
@@ -799,6 +805,28 @@
   }
 
   /**
+   * True when this page itself is served from loopback (localhost,
+   * 127.0.0.0/8, [::1]). Only a non-loopback page can be "the hosted page";
+   * on loopback the same wrong-server signature means the server on this
+   * computer is stale or foreign (GFX-N2). No location reads as not
+   * loopback — the hosted-page reading is the one with a handoff.
+   */
+  function pageIsLoopback() {
+    try {
+      const loc = window.location;
+      const host = String((loc && loc.hostname) || "").toLowerCase();
+      return (
+        host === "localhost" ||
+        host === "[::1]" ||
+        host === "::1" ||
+        /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
+      );
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
    * Ask the dev-server to ask SerpApi (locked decision 5). Answers the
    * server's `{ok, plan, searchesLeft}` on success, and `{ok:false, reason}`
    * otherwise — including when the local server itself is the thing that
@@ -819,8 +847,15 @@
    * falls back to `no_local_server`. Without this the ping-first
    * short-circuit would shadow the handoff on every page the dev server
    * doesn't serve.
+   *
+   * GFX-N2: that signature means "hosted page" only off loopback. A
+   * loopback page was served by something on this computer, so a
+   * 404/405/HTML — or any non-JSON answer — is a stale or foreign server
+   * (`stale_server`), never "this hosted page can't check your key".
    */
   async function checkFuelKey(key) {
+    const loopback = pageIsLoopback();
+    const wrongServer = loopback ? "stale_server" : "static_host";
     try {
       const PING_TIMEOUT_MS = 3000;
       let pingSignal;
@@ -843,12 +878,14 @@
           "/__proxy/ping",
           pingSignal ? { signal: pingSignal } : undefined,
         );
+        const pingBody = ping ? await ping.json().catch(() => null) : null;
         if (ping && (ping.status === 404 || ping.status === 405)) {
           pingStatic = true;
         } else if (isHtmlAnswer(ping)) {
           pingStatic = true;
+        } else if (loopback && ping && (!pingBody || typeof pingBody !== "object")) {
+          pingStatic = true;
         }
-        const pingBody = ping ? await ping.json().catch(() => null) : null;
         pinged = !!(
           ping &&
           ping.ok &&
@@ -862,7 +899,7 @@
         }
       }
       if (!pinged) {
-        lastFuelReason = pingStatic ? "static_host" : "no_local_server";
+        lastFuelReason = pingStatic ? wrongServer : "no_local_server";
         return { ok: false, reason: lastFuelReason };
       }
     } catch (e) {
@@ -877,14 +914,15 @@
         body: JSON.stringify({ key }),
       });
       if (response && (response.status === 404 || response.status === 405)) {
-        lastFuelReason = "static_host";
-        return { ok: false, reason: "static_host" };
+        lastFuelReason = wrongServer;
+        return { ok: false, reason: wrongServer };
       }
       const body = response ? await response.json().catch(() => null) : null;
       if (!body || typeof body !== "object") {
-        const reason = isHtmlAnswer(response)
-          ? "static_host"
-          : "no_local_server";
+        const reason =
+          response && (isHtmlAnswer(response) || loopback)
+            ? wrongServer
+            : "no_local_server";
         lastFuelReason = reason;
         return { ok: false, reason };
       }
