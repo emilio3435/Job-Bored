@@ -114,7 +114,8 @@ describe("repo validation surface", () => {
     assert.match(startDiscoveryWorkerLocal, /BROWSER_USE_DISCOVERY_HOST/);
     assert.match(startDiscoveryWorkerLocal, /BROWSER_USE_DISCOVERY_PORT/);
     assert.match(startDiscoveryWorkerLocal, /"8644"/);
-    assert.match(startDiscoveryWorkerLocal, /readEnvFiles\(\)/);
+    // GFX R14: env-file layering moved into scripts/lib/runtime-env.mjs.
+    assert.match(startDiscoveryWorkerLocal, /resolveWorkerEnv\(/);
     assert.doesNotMatch(
       pkg.scripts["start:discovery-worker"],
       /BROWSER_USE_DISCOVERY_PORT=8644(?:\s|$)/,

@@ -7,127 +7,28 @@ import {
   decideHeldWorkerAction,
   parseStarterOptions,
 } from "./lib/discovery-worker-policy.mjs";
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
-import { resolveJobBoredPaths } from "./lib/paths.mjs";
-import { mergeEnvFileValues, parseEnvFileText } from "./lib/env-file-merge.mjs";
-import { applyDiscoveryWorkerLlmAliases } from "./lib/llm-env.mjs";
+import { resolveWorkerEnv } from "./lib/runtime-env.mjs";
 
 const repoRoot = process.cwd();
-const initialPaths = resolveJobBoredPaths({ env: process.env, repoRoot });
-const envFilePaths = [
-  join(repoRoot, "integrations", "browser-use-discovery", ".env"),
-  join(repoRoot, "server", ".env"),
-  initialPaths.workerEnv,
-].filter((path, index, all) => path && all.indexOf(path) === index);
 const bootstrapStatePath = join(repoRoot, "discovery-local-bootstrap.json");
-const browserCommandEnvKeys = [
-  "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
-  "BROWSER_USE_COMMAND",
-  "DISCOVERY_BROWSER_COMMAND",
-];
-const bundledBrowserUseCommandPath = join(
-  repoRoot,
-  "integrations",
-  "browser-use-discovery",
-  "bin",
-  "browser-use-agent-browser.mjs",
-);
 
-
-function readEnvFiles() {
-  // Later files override earlier ones, but a present-but-EMPTY value never
-  // erases a configured one — see scripts/lib/env-file-merge.mjs.
-  const layers = [];
-  for (const path of envFilePaths) {
-    if (!existsSync(path)) continue;
-    try {
-      layers.push(parseEnvFileText(readFileSync(path, "utf8")));
-    } catch (err) {
-      console.warn(
-        `[start:discovery-worker] could not read ${path}: ${
-          err && err.message ? err.message : String(err)
-        }`,
-      );
-    }
-  }
-  return mergeEnvFileValues(layers);
-}
-
-function readFirstEnvValue(source, keys) {
-  for (const key of keys) {
-    const value = String(source[key] || "").trim();
-    if (value) return value;
-  }
-  return "";
-}
-
-function isPathLikeCommand(command) {
-  return (
-    String(command || "").includes("/") || String(command || "").includes("\\")
-  );
-}
-
-function commandPathExists(command) {
-  if (!isPathLikeCommand(command)) return true;
-  return existsSync(resolve(repoRoot, command));
-}
-
-function resolveBrowserUseCommand(fromFiles) {
-  const processCommand = readFirstEnvValue(process.env, browserCommandEnvKeys);
-  if (processCommand) return processCommand;
-
-  const fileCommand = readFirstEnvValue(fromFiles, browserCommandEnvKeys);
-  if (fileCommand && commandPathExists(fileCommand)) return fileCommand;
-
-  if (fileCommand) {
-    console.warn(
-      `[start:discovery-worker] ignoring stale browser command from env file because it does not exist: ${fileCommand}`,
-    );
-  }
-  return bundledBrowserUseCommandPath;
-}
-
-function resolveRuntimeEnv() {
-  const fromFiles = readEnvFiles();
-  const env = { ...fromFiles, ...process.env };
-  const paths = resolveJobBoredPaths({ env, repoRoot });
-  const fallbackGemini =
-    String(env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY || "").trim() ||
-    String(env.ATS_GEMINI_API_KEY || "").trim() ||
-    String(env.GEMINI_API_KEY || "").trim();
-  const runtimeEnv = {
-    ...env,
-    BROWSER_USE_DISCOVERY_RUN_MODE:
-      String(env.BROWSER_USE_DISCOVERY_RUN_MODE || "").trim() || "local",
-    BROWSER_USE_DISCOVERY_HOST:
-      String(env.BROWSER_USE_DISCOVERY_HOST || "").trim() || "127.0.0.1",
-    BROWSER_USE_DISCOVERY_PORT:
-      String(env.BROWSER_USE_DISCOVERY_PORT || "").trim() || "8644",
-    BROWSER_USE_DISCOVERY_CONFIG_PATH:
-      String(env.BROWSER_USE_DISCOVERY_CONFIG_PATH || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_WORKER_CONFIG || "").trim() ||
-      paths.workerConfig,
-    BROWSER_USE_DISCOVERY_WORKER_CONFIG:
-      String(env.BROWSER_USE_DISCOVERY_WORKER_CONFIG || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_CONFIG_PATH || "").trim() ||
-      paths.workerConfig,
-    BROWSER_USE_DISCOVERY_ENV_FILE:
-      String(env.BROWSER_USE_DISCOVERY_ENV_FILE || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_WORKER_ENV || "").trim() ||
-      paths.workerEnv,
-    BROWSER_USE_DISCOVERY_WORKER_ENV:
-      String(env.BROWSER_USE_DISCOVERY_WORKER_ENV || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_ENV_FILE || "").trim() ||
-      paths.workerEnv,
-    BROWSER_USE_DISCOVERY_STATE_DB_PATH:
-      String(env.BROWSER_USE_DISCOVERY_STATE_DB_PATH || "").trim() ||
-      paths.workerStateDb,
-    BROWSER_USE_DISCOVERY_BROWSER_COMMAND: resolveBrowserUseCommand(fromFiles),
-    BROWSER_USE_DISCOVERY_GEMINI_API_KEY: fallbackGemini,
-  };
-  return applyDiscoveryWorkerLlmAliases(runtimeEnv);
+/**
+ * How to spawn the worker: scripts/lib/runtime-env.mjs, the same resolver the
+ * desktop supervisor uses, so the two can't drift (GFX R14). Env files layer
+ * there; the process env wins.
+ */
+function resolveWorkerSpawnSpec() {
+  const desktop = String(process.env.JOBBORED_DESKTOP || "").trim() === "1";
+  return resolveWorkerEnv({
+    appRoot: repoRoot,
+    baseEnv: process.env,
+    warn: (message) => console.warn(`[start:discovery-worker] ${message}`),
+    ...(desktop ? { home: homedir(), execPath: process.execPath } : {}),
+  });
 }
 
 function createTimeoutSignal(ms) {
@@ -477,7 +378,8 @@ async function terminateWorkerListenersOnPort(port) {
 }
 
 async function main() {
-  const runtimeEnv = resolveRuntimeEnv();
+  const spawnSpec = resolveWorkerSpawnSpec();
+  const runtimeEnv = spawnSpec.env;
   const host = String(runtimeEnv.BROWSER_USE_DISCOVERY_HOST || "127.0.0.1");
   const port = Number.parseInt(
     String(runtimeEnv.BROWSER_USE_DISCOVERY_PORT || "8644"),
@@ -493,7 +395,7 @@ async function main() {
     const action = decideExistingWorkerAction({ existingHealthy, restartExisting });
     if (action === "reuse") {
       holdProcessOpenForExistingWorker(host, port, {
-        onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+        onWorkerGone: () => superviseWorker(spawnSpec, host, port),
       });
       return;
     }
@@ -507,7 +409,7 @@ async function main() {
           `[start:discovery-worker] could not terminate listener(s) on port ${port}; keeping existing worker.`,
         );
         holdProcessOpenForExistingWorker(host, port, {
-          onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+          onWorkerGone: () => superviseWorker(spawnSpec, host, port),
         });
         return;
       }
@@ -515,7 +417,7 @@ async function main() {
     }
   }
 
-  superviseWorker(runtimeEnv, host, port);
+  superviseWorker(spawnSpec, host, port);
 }
 
 /** Poll /health until a worker answers or the deadline passes. */
@@ -535,7 +437,7 @@ async function waitForHealthyWorker(host, port, timeoutMs) {
  * `concurrently -k` child and its exit tears web + scraper down (2026-09-02).
  * Policy: scripts/lib/discovery-worker-policy.mjs decideAfterChildExit.
  */
-function superviseWorker(runtimeEnv, host, port) {
+function superviseWorker(spawnSpec, host, port) {
   const MAX_RESPAWNS = 3;
   let current = null;
   let shuttingDown = false;
@@ -555,18 +457,11 @@ function superviseWorker(runtimeEnv, host, port) {
   process.on("SIGTERM", () => forwardSignal("SIGTERM"));
 
   const spawnOnce = () => {
-    const child = spawn(
-      "node",
-      [
-        "--experimental-strip-types",
-        "integrations/browser-use-discovery/src/server.ts",
-      ],
-      {
-        cwd: repoRoot,
-        env: runtimeEnv,
-        stdio: "inherit",
-      },
-    );
+    const child = spawn(spawnSpec.cmd, spawnSpec.args, {
+      cwd: spawnSpec.cwd,
+      env: spawnSpec.env,
+      stdio: "inherit",
+    });
     current = child;
     if (child.pid) updateBootstrapWorkerPid(child.pid);
     child.on("exit", async (code, signal) => {
