@@ -259,6 +259,8 @@ export function buildRepairRequestPayload(manifest, options = {}) {
       feature,
       jobUrl,
       notes,
+      /* C11: redraft from the resume the role's last draft used. */
+      resumeFrom: /** @type {const} */ ("snapshot"),
     },
     repair: {
       feature,

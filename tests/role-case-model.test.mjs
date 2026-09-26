@@ -20,6 +20,15 @@ function load() {
   return sandbox.window.JobBoredCase.model;
 }
 
+function loadForCollect(seed) {
+  const sandbox = { window: seed };
+  vm.runInNewContext(readFileSync(join(repoRoot, "jb-text.js"), "utf8"), sandbox, { filename: "jb-text.js" });
+  assert.equal(typeof sandbox.window.JobBoredText.normalizeInline, "function", "jb-text must load first");
+  vm.runInNewContext(readFileSync(join(repoRoot, "recruiter-strip.js"), "utf8"), sandbox, { filename: "recruiter-strip.js" });
+  vm.runInNewContext(readFileSync(join(repoRoot, "role-case-model.js"), "utf8"), sandbox, { filename: "role-case-model.js" });
+  return sandbox.window.JobBoredCase.model;
+}
+
 /* The model is assembled inside the vm realm, so its arrays/objects are not
    reference-equal to this realm's intrinsics. Round-trip through JSON so
    assert.deepEqual compares values, not prototypes (same idiom as
@@ -54,7 +63,7 @@ function baseDeps(over = {}) {
     keywords: { percentage: 74, foundCount: 12, partialCount: 4, missingTerms: [{ label: "Kubernetes" }],
       byLabel: new Map([["5+ years design systems", "found"], ["wcag 2.2", "found"], ["react", "found"], ["storybook", "partial"], ["mentoring", "missing"]]) },
     scorecard: { result: { overallScore: 82, topStrengths: ["Led a11y guild"], evidence: [{ claim: "Token pipeline", sourceSnippet: "Built a token pipeline", sourceType: "resume" }],
-      criticalGaps: [{ gap: "Experimentation", whyItMatters: "Named twice", severity: "high" }],
+      criticalGaps: [{ gap: "Experimentation measurement gap", whyItMatters: "Named twice", severity: "high" }],
       dimensionScores: { requirementsCoverage: 84, experienceRelevance: 88, impactClarity: 72, atsParseability: 90, toneFit: 78 } }, storedAt: "2026-08-30T00:00:00Z" },
     manifest: { documents: [
       { type: "resume", label: "Tailored resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] },
@@ -86,21 +95,20 @@ describe("buildCaseModel", () => {
   it("demotes markdown in the one-liner and marks requirements from keyword analysis", () => {
     const m = build(baseDeps());
     assert.equal(m.oneLine, "Design infrastructure that ships.");
-    assert.deepEqual(m.theyWant.requirements, [{ text: "5+ years design systems", status: "found" }, { text: "WCAG 2.2", status: "found" }]);
+    assert.deepEqual(m.theyWant.requirements, [{ text: "5+ years design systems", status: "found", evidence: null }, { text: "WCAG 2.2", status: "found", evidence: null }]);
     /* P0-0 changed this line: the "Design Systems" tag is covered by the
        analyzer's "5+ years design systems" term, which the resume matched.
        `unknown` here was the exact-lookup bug, not the intended answer. */
     assert.deepEqual(m.theyWant.stack.map((s) => s.status), ["found", "partial", "found"]); // React, Storybook, Design Systems(tag)
     assert.equal(m.theyWant.hasMatchData, true);
   });
-  it("uses the scorecard for YOU HAVE and falls back to keywords without one", () => {
+  it("uses the scorecard for YOU HAVE and returns none without one", () => {
     const with_ = build(baseDeps());
     assert.equal(with_.youHave.source, "scorecard");
     assert.equal(with_.youHave.gaps[0].severity, "high");
     assert.equal(with_.youHave.dimensions.length, 5);
     const without = build(baseDeps({ scorecard: null }));
-    assert.equal(without.youHave.source, "keywords");
-    assert.deepEqual(without.youHave.gaps.map((g) => g.gap), ["Kubernetes"]);
+    assert.deepEqual(without.youHave, { source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [] });
   });
   it("builds a dated record with future steps hollow", () => {
     const m = build(baseDeps());
@@ -121,6 +129,120 @@ describe("buildCaseModel", () => {
   it("collapses terminal stages", () => {
     const m = build(baseDeps({ vm: { job: { ...baseDeps().vm.job, stage: "rejected" } } }));
     assert.equal(m.stage.terminal, true);
+  });
+});
+
+describe("They-want schema delta", () => {
+  it("ranks requirements missing → partial → found → unknown, stably", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 1,
+      partialCount: 1,
+      missingTerms: [{ label: "automation" }, { label: "loyalty" }],
+      uniqueTerms: [
+        { label: "performance narrative", status: "found" },
+        { label: "capability edge", status: "partial" },
+        { label: "automation", status: "missing" },
+        { label: "loyalty", status: "missing" },
+      ],
+    } });
+    d.vm.job.requirements = [
+      "Own the performance narrative",
+      "Build a capability edge",
+      "Lead an unknown workstream",
+      "Build automation systems",
+      "Grow the loyalty program",
+    ];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+
+    const m = build(d);
+    assert.deepEqual(m.theyWant.requirements.map((item) => item.status), ["missing", "missing", "partial", "found", "unknown"]);
+    assert.deepEqual(m.theyWant.requirements.map((item) => item.text), [
+      "Build automation systems",
+      "Grow the loyalty program",
+      "Build a capability edge",
+      "Own the performance narrative",
+      "Lead an unknown workstream",
+    ]);
+    assert.ok(m.theyWant.requirements.every((item) => item.evidence === null));
+    assert.equal(m.theyWant.visibleCount, 8);
+  });
+
+  it("drops Automation & Technology, Customer Intelligence & CDP, and Loyalty Program header tails", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 1,
+      partialCount: 1,
+      missingTerms: [{ label: "leadership" }],
+      uniqueTerms: [
+        { label: "performance narrative", status: "found" },
+        { label: "capability edge", status: "partial" },
+        { label: "leadership", status: "missing" },
+      ],
+    } });
+    d.vm.job.requirements = [
+      "…performance narrative. Automation & Technology",
+      "…capability edge. Customer Intelligence & CDP",
+      "…for leadership. Loyalty Program",
+    ];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+
+    assert.deepEqual(build(d).theyWant.requirements, [
+      { text: "…for leadership.", status: "missing", evidence: null },
+      { text: "…capability edge.", status: "partial", evidence: null },
+      { text: "…performance narrative.", status: "found", evidence: null },
+    ]);
+  });
+
+  it("dedupes the live API/APIs and AI/AI integrations chips before the 12-chip cap", () => {
+    const d = baseDeps({ keywords: {
+      percentage: 50,
+      foundCount: 2,
+      partialCount: 0,
+      missingTerms: [{ label: "apis" }, { label: "ai integrations" }],
+      uniqueTerms: [
+        { label: "API", status: "found" },
+        { label: "APIs", status: "missing" },
+        { label: "AI", status: "found" },
+        { label: "AI integrations", status: "missing" },
+      ],
+    } });
+    d.vm.job.skills = [];
+    d.vm.job.tags = [];
+    d.vm.job.enrichment = {
+      mustHaves: [], niceToHaves: [],
+      toolsAndStack: ["API", "APIs", "AI", "AI integrations", "CRM", "CDP", "SMS", "Figma", "OpenAI", "Gemini", "Grok", "Llama", "React", "Storybook", "Node.js"],
+    };
+
+    const stack = build(d).theyWant;
+    assert.equal(stack.stack.length, 12);
+    assert.deepEqual(stack.stackHidden.map((item) => item.text), ["Node.js"]);
+    assert.equal(stack.stack.filter((item) => /^apis?$/i.test(item.text)).length, 1);
+    assert.equal(stack.stack.find((item) => item.text === "API").status, "found", "the strongest API/APIs status survives");
+    assert.equal(stack.stack.some((item) => item.text === "AI"), false);
+    assert.equal(stack.stack.find((item) => item.text === "AI integrations").status, "found", "the strongest nested-chip status survives");
+    assert.equal(stack.stack.some((item) => item.text === "CRM"), true);
+  });
+
+  it("attaches the resume sentence only to found and partial requirements", () => {
+    const foundEvidence = { snippet: "Built multi-model AI integrations in production.", source: "Experience" };
+    const partialEvidence = { snippet: "Led lifecycle automation for a national retailer.", source: "profile" };
+    const d = baseDeps({ keywords: {
+      percentage: 50, foundCount: 1, partialCount: 1, missingTerms: [{ label: "CDP" }],
+      uniqueTerms: [
+        { label: "AI integrations", status: "found", evidence: foundEvidence },
+        { label: "lifecycle automation", status: "partial", evidence: partialEvidence },
+        { label: "CDP", status: "missing", evidence: null },
+      ],
+    } });
+    d.vm.job.requirements = ["Own AI integrations", "Lead lifecycle automation", "Operate a CDP", "Manage vendor strategy"];
+    d.vm.job.enrichment = { mustHaves: [], niceToHaves: [], toolsAndStack: [] };
+
+    const byText = new Map(build(d).theyWant.requirements.map((item) => [item.text, item]));
+    assert.deepEqual(byText.get("Own AI integrations").evidence, foundEvidence);
+    assert.deepEqual(byText.get("Lead lifecycle automation").evidence, partialEvidence);
+    assert.equal(byText.get("Operate a CDP").evidence, null);
+    assert.equal(byText.get("Manage vendor strategy").evidence, null);
   });
 });
 
@@ -278,7 +400,7 @@ describe("day counts are local calendar days (P0-0d)", () => {
   });
 });
 
-describe("the keyword fallback claims nothing it was not told (P0-7, P0-10)", () => {
+describe("the keyword analyzer never becomes a claims lane (P0-7, P0-10)", () => {
   function fallbackDeps() {
     const d = baseDeps({ scorecard: null, keywords: {
       percentage: 50, foundCount: 2, partialCount: 0,
@@ -288,16 +410,87 @@ describe("the keyword fallback claims nothing it was not told (P0-7, P0-10)", ()
     } });
     return d;
   }
-  it("emits no severity for a gap no engine graded (P0-7)", () => {
-    const g = build(fallbackDeps()).youHave.gaps[0];
-    assert.equal(g.gap, "Kubernetes");
-    assert.ok(!g.severity, `the fallback must not invent a severity, got ${JSON.stringify(g.severity)}`);
-  });
-  it("renders the term's own casing, not the lowercased map key (P0-10)", () => {
-    assert.deepEqual(build(fallbackDeps()).youHave.strengths, ["WCAG 2.2", "Figma design systems"]);
+  it("returns source none and no display claims when no scorecard exists", () => {
+    assert.deepEqual(build(fallbackDeps()).youHave, {
+      source: "none", storedAt: "", strengths: [], evidence: [], gaps: [], dimensions: [],
+    });
   });
   it("keeps the scorecard's own severity untouched", () => {
     assert.equal(build(baseDeps()).youHave.gaps[0].severity, "high");
+  });
+});
+
+describe("scorecard claim quality", () => {
+  it("drops the live noun/fragment strengths and collapses prefix-duplicate gaps to the longest claim", () => {
+    const d = baseDeps();
+    d.scorecard.result.topStrengths = [
+      "P&L management)", "CRM", "AI", "API", "APIs", "AI integrations",
+      '[<|"|>AI (Claude',
+      "Led global lifecycle automation",
+      "Built AI routing systems",
+    ];
+    d.scorecard.result.criticalGaps = [
+      { gap: "Proven omni-channel acumen (eCommerce, physical retail, and experient…", whyItMatters: "Long fragment", severity: "high" },
+      { gap: "Proven omni-channel acumen (eCommerce", whyItMatters: "Mid fragment", severity: "medium" },
+      { gap: "experiential)", whyItMatters: "Tail fragment", severity: "low" },
+      { gap: "Limited lifecycle automation", whyItMatters: "Short duplicate", severity: "low" },
+      { gap: "Limited lifecycle automation across global brands", whyItMatters: "Actionable gap", severity: "high" },
+      { gap: "Missing enterprise experimentation evidence", whyItMatters: "Actionable gap", severity: "medium" },
+    ];
+
+    const have = build(d).youHave;
+    assert.deepEqual(have.strengths, ["Led global lifecycle automation", "Built AI routing systems"]);
+    assert.deepEqual(have.gaps.map((item) => item.gap), [
+      "Limited lifecycle automation across global brands",
+      "Missing enterprise experimentation evidence",
+    ]);
+    assert.equal(have.gaps[0].severity, "high", "the longest gap retains its own scorecard metadata");
+  });
+});
+
+describe("sheet talking-point uniqueness", () => {
+  const boilerplate = "Lead with AI systems experience — multi-model routing, RAG, GCP deploy";
+
+  it("collectDeps counts normalized column-Q points by row and reads the sheet once", () => {
+    let reads = 0;
+    const row = (points) => {
+      const cells = Array(17).fill("");
+      cells[16] = points;
+      return cells;
+    };
+    const seed = {
+      JobBoredApp: {
+        core: {
+          getJobByStableKey: () => ({ jobKey: "job-1" }),
+          getPipelineRawRows: () => {
+            reads += 1;
+            return [
+              row(`${boilerplate}\nAsk about roadmap ownership; quantify scope`),
+              row(`${boilerplate}; Show customer proof`),
+              row("Show customer proof · Show customer proof"),
+            ];
+          },
+        },
+      },
+      JobBoredDawn: { data: { getRoleViewModel: () => ({ job: {} }) } },
+      JobBoredStages: stages,
+    };
+
+    const deps = loadForCollect(seed).collectDeps("job-1");
+    assert.equal(reads, 1);
+    assert.equal(deps.sheetPointCounts.get(boilerplate.toLowerCase()), 2);
+    assert.equal(deps.sheetPointCounts.get("ask about roadmap ownership; quantify scope"), 1, "newlines make semicolons content");
+    assert.equal(deps.sheetPointCounts.get("show customer proof"), 2, "duplicates inside one row count once");
+  });
+
+  it("drops repeated sheet boilerplate but never filters enrichment points", () => {
+    const d = baseDeps({ sheetPointCounts: new Map([[boilerplate.toLowerCase(), 3]]) });
+    d.vm.job.enrichment = { ...d.vm.job.enrichment, talkingPoints: [] };
+    d.vm.job.talkingPoints = [boilerplate, "Ask about this role's lifecycle roadmap"];
+    assert.deepEqual(build(d).moves.talkingPoints, ["Ask about this role's lifecycle roadmap"]);
+
+    d.vm.job.enrichment.talkingPoints = [boilerplate];
+    assert.deepEqual(build(d).moves.talkingPoints, [boilerplate], "enrichment prose is role-specific and bypasses sheet filtering");
   });
 });
 
@@ -335,5 +528,102 @@ describe("failures are loud, and never upgrade a guess (P0-E)", () => {
     const m = build(d);
     assert.deepEqual(m.provenance.inferredFields, ["inferredTitle"], "a throw must not erase the guesses already found");
     assert.equal(m.provenance.inferredIdentity, true, "an inferred title must still be flagged");
+  });
+});
+
+/* ------------------------------------------------------------
+   The verdict line (docs/redesign/dossier-2026-09/SPEC.md §4).
+
+   Derived prose is exactly where a UI starts asserting things nobody
+   measured, and this codebase has been burned by that twice: `Number(null)
+   === 0` rendering as a score of 0, and a MED severity pill no engine
+   assigned. So every clause here must be traceable to a non-null model field,
+   an absent input must DROP its clause rather than guess it, and the
+   all-null case must still produce a line that says nothing false.
+   ------------------------------------------------------------ */
+describe("the verdict", () => {
+  it("reads standing from the fit, the requirement match and the keyword miss", () => {
+    const v = build(baseDeps()).verdict;
+    assert.equal(v.standing, "Strong fit — 2 of 2 requirements matched, 1 keyword missing");
+  });
+
+  it("grades the fit bands off the score alone", () => {
+    const standing = (fitScore) => {
+      const d = baseDeps();
+      d.vm.job.fitScore = fitScore;
+      return build(d).verdict.standing;
+    };
+    assert.match(standing(8), /^Strong fit/);
+    assert.match(standing(6), /^Solid fit/);
+    assert.match(standing(4), /^Mixed fit/);
+    assert.match(standing(1), /^Weak fit/);
+  });
+
+  it("says the raw fit when there is no resume to match against, and invites one", () => {
+    const v = build(baseDeps({ keywords: null, scorecard: null })).verdict;
+    assert.equal(v.standing, "Fit 8 of 10");
+    assert.equal(v.note, "Add a resume to see which of the 2 requirements you actually answer.");
+  });
+
+  it("reads the gap off the same manifest the ledger rows render from", () => {
+    const gapFor = (documents, pending) => build(baseDeps({ manifest: { documents, pending } })).verdict.gap;
+    const resumeReady = { type: "resume", status: "ready", lastModifiedAt: "2026-08-30T09:00:00Z", files: [] };
+    assert.equal(gapFor([], null), "Nothing drafted yet.");
+    assert.equal(gapFor([resumeReady], null), "Resume is ready; the cover letter has not been drafted.");
+    assert.equal(
+      gapFor([resumeReady], { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 9, attempt: 1 } }),
+      "The cover letter is being written now.",
+    );
+    assert.equal(
+      gapFor([resumeReady], { feature: "cover_letter", progress: { phase: "failed", elapsedSeconds: 67, attempt: 2 } }),
+      "The cover letter failed after 2 attempts; the resume is ready.",
+    );
+    assert.equal(
+      gapFor([resumeReady, { type: "cover_letter", status: "ready", lastModifiedAt: "2026-08-31T09:00:00Z", files: [] }], null),
+      "The resume and the cover letter are both ready.",
+    );
+  });
+
+  it("prints one urgent clause, most urgent first", () => {
+    const closing = baseDeps();
+    closing.vm.job.closesAt = "2026-09-10";
+    assert.equal(build(closing).verdict.next, "Closes in 9 days");
+    /* A follow-up already past is the clause once no deadline is in range. */
+    const overdue = baseDeps();
+    overdue.vm.job.followUpDate = "2026-08-28";
+    assert.equal(build(overdue).verdict.next, "Follow-up overdue by 4 days");
+    /* And with neither, the stage is the only dated fact left. */
+    const idle = baseDeps();
+    idle.vm.job.followUpDate = "";
+    assert.equal(build(idle).verdict.next, "Day 2 in researching");
+  });
+
+  it("says it is still reading while the enrichment runs, and claims nothing else", () => {
+    const d = baseDeps();
+    d.vm.job.enrichment = { status: "loading" };
+    const v = build(d).verdict;
+    assert.equal(v.standing, "Reading the posting");
+    assert.equal(v.note, "The fit read and the requirement list land in a few seconds.");
+    assert.equal(v.gap, "");
+    assert.equal(v.next, "");
+  });
+
+  it("a closed role says what happened and what is still on file, with no next move", () => {
+    const d = baseDeps();
+    d.vm.job.stage = "rejected";
+    d.vm.job.appliedAt = "2026-08-20";
+    const v = build(d).verdict;
+    assert.equal(v.standing, "rejected, applied 2026-08-20");
+    assert.equal(v.next, "");
+  });
+
+  it("says nothing at all rather than something false when every input is null", () => {
+    const empty = {
+      vm: { job: { jobKey: "job-1", role: "", company: "", stage: "", requirements: [], skills: [], tags: [], enrichment: {} } },
+      keywords: null, scorecard: null, manifest: null, health: null, stages,
+      nowMs: NOW, parseDate: () => null,
+    };
+    const v = build(empty).verdict;
+    assert.deepEqual(v, { standing: "", gap: "", next: "", note: "" });
   });
 });

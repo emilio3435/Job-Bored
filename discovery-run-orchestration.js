@@ -295,6 +295,16 @@ async function ensureLocalDiscoveryAutoSetupForRun() {
     shouldRunSetup = true;
   }
   if (!shouldRunSetup) return false;
+  if (
+    !askHostChange({
+      action: "Run discovery",
+      writesEnv: true,
+      restartsWorker: true,
+    })
+  ) {
+    h("showToast", "Discovery setup left unchanged — nothing on this computer was touched.", "info");
+    return false;
+  }
   h("setDiscoveryWizardMessage",
     "Setting up local discovery from this dev server...",
     "info",
@@ -321,6 +331,32 @@ async function ensureLocalDiscoveryAutoSetupForRun() {
     console.warn("[JobBored] local discovery auto setup failed:", err);
     return false;
   }
+}
+
+
+/**
+ * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+ * JobBoredDiscoveryHelpers.confirmHostChange, which names what changes and
+ * logs the answer.
+ */
+function askHostChange(opts) {
+  const helpers = typeof window !== "undefined" ? window.JobBoredDiscoveryHelpers : null;
+  if (helpers && typeof helpers.confirmHostChange === "function") {
+    return helpers.confirmHostChange(opts);
+  }
+  if (typeof window !== "undefined" && typeof window.confirm === "function") {
+    return !!window.confirm(
+      "JobBored will " +
+        [
+          opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+          opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+        ]
+          .filter(Boolean)
+          .join(", and ") +
+        " on this computer. Continue?",
+    );
+  }
+  return true;
 }
 
 /** Notify automation (Hermes, n8n, etc.) to run another discovery pass (varied query). */

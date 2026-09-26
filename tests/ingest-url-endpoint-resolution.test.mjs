@@ -431,7 +431,8 @@ describe("Add job from URL endpoint resolution", () => {
     assert.equal(elements.ingestManualForm.resetCalled, true);
     assert.equal(elements.ingestManualUrl.value, url);
     assert.equal(elements.ingestManualModal.style.display, "flex");
-    assert.match(elements.ingestManualModalExplain.textContent, /Wellfound did not expose/);
+    // UX01 C5 (FR-04): one plain sentence, whatever the cause.
+    assert.match(elements.ingestManualModalExplain.textContent, /We couldn't read that page from here/);
     assert.equal(elements.ingestManualTitle.focusCalled, true);
   });
 

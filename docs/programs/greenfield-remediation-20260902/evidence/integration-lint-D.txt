@@ -1,0 +1,13 @@
+
+> command-center@0.1.0 lint:repo
+> npm run lint:js && npm run lint:skills
+
+
+> command-center@0.1.0 lint:js
+> eslint .
+
+
+> command-center@0.1.0 lint:skills
+> node scripts/lint-integration-skills.mjs
+
+OK integrations/openclaw-command-center/SKILL.md

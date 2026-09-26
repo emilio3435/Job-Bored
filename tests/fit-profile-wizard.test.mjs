@@ -946,7 +946,7 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
     assert.equal(activeStep(env.root()), 1);
   });
 
-  it("F2B-PROFILE02-RESUME: resume prefill POSTs browser-local extractedText as resumeText without forwarding secrets", async () => {
+  it("F2B-PROFILE02-RESUME: resume prefill POSTs browser-local extractedText as resumeText (no provider configured here, so no key is forwarded; GREENFIELD A4 covers the verified-provider case)", async () => {
     const staged = "I shipped distributed systems at Acme for ten years.";
     const env = loadWizard({
       userContent: {
@@ -980,6 +980,93 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
     assert.equal(body.resumeText, staged);
     assert.equal(body.apiKey, undefined);
     assert.equal(body.googleAccessToken, undefined);
+  });
+
+  /* ----------------------------------------------------------------
+     GREENFIELD A4 — this editor posts the SAME /profile/from-resume
+     route Beat 3 posts, so it has to send the same provider block. A
+     server reading only its own env answered a freshly-connected
+     OpenRouter install "Missing Gemini API key" (finding F1); the fix
+     cannot be Beat 3's alone. What counts as a usable provider is
+     decided once, in oneflow-beat-resume.js, and asserted against the
+     real function in tests/greenfield-a-provider-guard.test.mjs — what
+     is asserted here is that this caller asks it and forwards it.
+     ---------------------------------------------------------------- */
+
+  const VERIFIED_BLOCK = {
+    provider: "openrouter",
+    apiKey: "sk-or-verified-key",
+    model: "openai/gpt-oss-120b:free",
+    baseUrl: "https://openrouter.ai/api/v1",
+  };
+
+  function stagedResume(staged) {
+    return {
+      async getActiveResume() {
+        return { extractedText: staged };
+      },
+      async getStagedResumeTextForAnalysis() {
+        return staged;
+      },
+    };
+  }
+
+  function resumeOkFetch() {
+    return resumeFetch({
+      ok: true,
+      status: 200,
+      json: async () => ({ ok: true, profile: ENGINEER_TEMPLATE, source: "staged_request" }),
+    });
+  }
+
+  async function postedBody(env) {
+    env.window.openFitProfileWizard({ mode: "create" });
+    clickResumeCard(env);
+    await flush();
+    const call = env.fetchCalls.find((c) =>
+      String(c.url).includes("/profile/from-resume"),
+    );
+    assert.ok(call, "must POST /profile/from-resume");
+    return JSON.parse(call.body);
+  }
+
+  it("GREENFIELD A4: forwards the provider block Beat 3 sends", async () => {
+    const env = loadWizard({
+      userContent: stagedResume("Ten years of distributed systems at Acme."),
+      fetchImpl: resumeOkFetch(),
+    });
+    env.window.JobBoredOneFlowBeatResume = {
+      verifiedProviderConfig: () => ({ ...VERIFIED_BLOCK }),
+    };
+    const body = await postedBody(env);
+    assert.equal(body.provider, "openrouter");
+    assert.equal(body.apiKey, "sk-or-verified-key");
+    assert.equal(body.model, "openai/gpt-oss-120b:free");
+    assert.equal(body.baseUrl, "https://openrouter.ai/api/v1");
+  });
+
+  it("GREENFIELD A4: sends no provider block when nothing usable is connected", async () => {
+    const env = loadWizard({
+      userContent: stagedResume("Ten years of distributed systems at Acme."),
+      fetchImpl: resumeOkFetch(),
+    });
+    env.window.JobBoredOneFlowBeatResume = { verifiedProviderConfig: () => null };
+    const body = await postedBody(env);
+    assert.equal(
+      "provider" in body,
+      false,
+      "no verified provider leaves the server's own env in charge, as before",
+    );
+    assert.equal(body.apiKey, undefined);
+  });
+
+  it("GREENFIELD A4: survives a page where the beat module never loaded", async () => {
+    const env = loadWizard({
+      userContent: stagedResume("Ten years of distributed systems at Acme."),
+      fetchImpl: resumeOkFetch(),
+    });
+    const body = await postedBody(env);
+    assert.equal("provider" in body, false);
   });
 });
 

@@ -125,8 +125,9 @@ describe("repo validation surface", () => {
     );
     assert.equal(
       pkg.scripts["lint:repo"],
-      "npm run lint:js && npm run lint:skills",
+      "npm run lint:js && npm run lint:skills && npm run lint:tokens",
     );
+    assert.equal(pkg.scripts["lint:tokens"], "node tools/lint-tokens.mjs");
     assert.match(pkg.scripts["typecheck:repo"], /node --check app\.js/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check scripts\/setup\.mjs/);
     assert.match(pkg.scripts["typecheck:repo"], /node --check discovery-coach\.js/);

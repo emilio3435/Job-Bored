@@ -19,7 +19,7 @@
      clearCache(provider?)
 
    Endpoints used (all CORS-friendly per provider docs):
-     gemini    GET https://generativelanguage.googleapis.com/v1beta/models?key=KEY
+     gemini    GET https://generativelanguage.googleapis.com/v1beta/models  Header: x-goog-api-key
      openai    GET https://api.openai.com/v1/models           Auth: Bearer KEY
      anthropic GET https://api.anthropic.com/v1/models        Headers: x-api-key,
                                                               anthropic-version: 2023-06-01,
@@ -79,29 +79,27 @@
     return [GEMINI_FLASH_OPTION, ...rest];
   }
 
+  /**
+   * The one default model per provider. Beat 2 offers it on a fresh install
+   * and Settings falls back to it when a model field is left blank; before
+   * this table the two disagreed (Settings still saved gpt-4o-mini and
+   * claude-sonnet-4-6 while the beat had moved to gpt-5.6-terra and
+   * claude-sonnet-5), so a save from Settings silently downgraded the model
+   * the flow had just verified (GREENFIELD D5).
+   */
+  const DEFAULT_MODEL_BY_PROVIDER = Object.freeze({
+    openrouter: "openai/gpt-5.4-mini",
+    gemini: "gemini-flash",
+    openai: "gpt-5.6-terra",
+    anthropic: "claude-sonnet-5",
+    local: "gemma4:e2b",
+  });
+
   const STATIC_FALLBACK = {
     gemini: [
       GEMINI_FLASH_OPTION,
-      {
-        value: "gemini-3.5-flash",
-        label: "Gemini 3.5 Flash · Stable",
-        description: "Most intelligent everyday model — recommended default.",
-      },
-      {
-        value: "gemini-3.1-pro-preview",
-        label: "Gemini 3.1 Pro · Preview",
-        description: "Strongest reasoning, higher latency/cost.",
-      },
-      {
-        value: "gemini-3-flash-preview",
-        label: "Gemini 3 Flash · Preview",
-        description: "Fast, economical preview.",
-      },
-      {
-        value: "gemini-3.1-flash-lite-preview",
-        label: "Gemini 3.1 Flash-Lite · Preview",
-        description: "Cheapest/fastest option.",
-      },
+      { value: "gemini-pro", label: "Gemini Pro (latest)", description: "Advanced reasoning family." },
+      { value: "gemini-flash-lite", label: "Gemini Flash Lite (latest)", description: "Cheapest/fastest option." },
     ],
     openai: [
       { value: "gpt-5.4", label: "GPT-5.4" },
@@ -122,6 +120,12 @@
       { value: "claude-3-5-haiku-20241022", label: "Claude 3.5 Haiku" },
     ],
     openrouter: [
+      {
+        // UX01 C7 (FR-07): the onboarding default — strong enough for letters.
+        value: "openai/gpt-5.4-mini",
+        label: "GPT-5.4 mini",
+        description: "Recommended — strong enough for tailored letters. Pay-as-you-go.",
+      },
       {
         value: "openai/gpt-oss-120b:free",
         label: "GPT-OSS 120B · free",
@@ -277,9 +281,10 @@
   function endpointFor({ provider, apiKey, baseUrl }) {
     const p = String(provider || "").toLowerCase();
     if (p === "gemini") {
+      // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
       return {
-        url: `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey || "")}`,
-        headers: {},
+        url: "https://generativelanguage.googleapis.com/v1beta/models",
+        headers: apiKey ? { "x-goog-api-key": apiKey } : {},
       };
     }
     if (p === "openai") {
@@ -564,6 +569,7 @@
 
   window.JobBoredModelCatalog = {
     STATIC: STATIC_FALLBACK,
+    DEFAULT_MODEL_BY_PROVIDER,
     getStaticModels,
     fetchProviderModels,
     pingProvider,

@@ -1,0 +1,23 @@
+{
+  "stripControlTokens": [
+    ["[<|\"|>AI (Claude", "AI (Claude"],
+    ["<|assistant|> Lead with the posting.", "Lead with the posting."],
+    ["[<Show the evidence|>", "Show the evidence"],
+    ["[< Ask about the team >]", "Ask about the team"]
+  ],
+  "isFragment": [
+    ["P&L management)", true],
+    ["Proven omni-channel acumen (eCommerce, physical retail, and experient…", true],
+    ["Proven omni-channel acumen (eCommerce", true],
+    ["experiential)", true],
+    ["AI", false],
+    ["Lead lifecycle strategy", false],
+    ["customer intelligence and", true]
+  ],
+  "splitHeadingTail": [
+    ["…performance narrative. Automation & Technology", { "body": "…performance narrative.", "heading": "Automation & Technology" }],
+    ["…capability edge. Customer Intelligence & CDP", { "body": "…capability edge.", "heading": "Customer Intelligence & CDP" }],
+    ["…for leadership. Loyalty Program", { "body": "…for leadership.", "heading": "Loyalty Program" }],
+    ["Lead with AI systems experience — multi-model routing, RAG, GCP deploy", { "body": "Lead with AI systems experience — multi-model routing, RAG, GCP deploy", "heading": "" }]
+  ]
+}

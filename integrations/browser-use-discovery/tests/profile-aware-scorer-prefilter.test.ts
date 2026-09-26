@@ -80,6 +80,30 @@ describe("runPreFilter", () => {
     assert.equal(result.pass, true);
   });
 
+  test("workMode=remote_only accepts listings with unknown remoteBucket when location signals Remote", () => {
+    const result = runPreFilter(
+      makeListing({ remoteBucket: "unknown", location: "Remote — United States" }),
+      makeProfile({ workMode: "remote_only" }),
+    );
+    assert.equal(result.pass, true);
+  });
+
+  test("workMode=remote_only rejects listings with unknown remoteBucket when location is clearly onsite", () => {
+    const result = runPreFilter(
+      makeListing({
+        remoteBucket: "unknown",
+        location: "New York, NY",
+        // Avoid "distributed systems" triggering a remote inference via 'distributed'
+        descriptionText: "Work on backend services and APIs.",
+      }),
+      makeProfile({ workMode: "remote_only" }),
+    );
+    assert.equal(result.pass, false);
+    if (!result.pass) {
+      assert.equal(result.reason, "work_mode_mismatch");
+    }
+  });
+
   test("ONEFLOW-L2 §5 B4: workMode=any never hard-rejects a saved location mismatch", () => {
     const result = runPreFilter(
       makeListing({ location: "Boise, ID" }),

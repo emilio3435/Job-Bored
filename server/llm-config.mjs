@@ -1,6 +1,21 @@
-import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  existsSync,
+  mkdirSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join } from "node:path";
+import { basename, dirname, join } from "node:path";
+import {
+  GEMINI_API_BASE,
+  geminiHeaders,
+  isHttpUrl,
+  normalizeProvider,
+  providerAlias,
+} from "./ai/provider.mjs";
 import {
   GEMINI_FLASH_FALLBACK,
   isGeminiFlashFamily,
@@ -14,11 +29,13 @@ import {
  * @property {string} apiKey
  * @property {string} baseUrl
  * @property {string} updatedAt
+ * @property {string} [alias] the spelling the user picked ("local", "ollama") when it differs from provider
  */
 
 /**
  * @typedef {object} RedactedLlmConfig
  * @property {string} provider
+ * @property {string} alias
  * @property {string} model
  * @property {string} baseUrl
  * @property {boolean} keyPresent
@@ -67,13 +84,17 @@ function asString(value) {
 function asLlmConfig(value) {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const record = /** @type {Record<string, unknown>} */ (value);
-  return {
+  /** @type {LlmConfig} */
+  const config = {
     provider: asString(record.provider),
     model: asString(record.model),
     apiKey: asString(record.apiKey),
     baseUrl: asString(record.baseUrl),
     updatedAt: asString(record.updatedAt),
   };
+  const alias = asString(record.alias);
+  if (alias) config.alias = alias;
+  return config;
 }
 
 /**
@@ -88,22 +109,45 @@ function normalizeLlmConfig(config) {
     baseUrl: "",
     updatedAt: "",
   };
-  return {
-    ...parsed,
+  // One enum on disk: "local"/"ollama" are stored as openai_compatible, and
+  // the user's spelling is kept as `alias` so Settings can show it (E2).
+  const canonical = normalizeProvider(parsed.provider);
+  const alias = providerAlias(parsed.provider) || (canonical ? asString(parsed.alias) : "");
+  /** @type {LlmConfig} */
+  const out = {
+    provider: canonical || parsed.provider,
+    model: parsed.model,
+    apiKey: parsed.apiKey,
+    baseUrl: parsed.baseUrl,
     updatedAt: new Date().toISOString(),
   };
+  if (alias) out.alias = alias;
+  return out;
 }
 
 /**
+ * Atomic write (E14): the temp file is created 0600 in the same directory and
+ * renamed over llm.json, so there is no 0644 window and no torn file on crash.
  * @param {LlmConfig} config
  * @param {NodeJS.ProcessEnv} [env]
  * @returns {LlmConfig}
  */
 function persistLlmConfig(config, env) {
   const path = llmConfigPath(env);
-  mkdirSync(dirname(path), { recursive: true });
-  writeFileSync(path, `${JSON.stringify(config, null, 2)}\n`, "utf8");
-  chmodSync(path, 0o600);
+  const dir = dirname(path);
+  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  const tmp = join(dir, `.${basename(path)}.${process.pid}.${randomBytes(6).toString("hex")}.tmp`);
+  try {
+    writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, {
+      encoding: "utf8",
+      mode: 0o600,
+      flag: "wx",
+    });
+    renameSync(tmp, path);
+  } catch (error) {
+    rmSync(tmp, { force: true });
+    throw error;
+  }
   return config;
 }
 
@@ -209,7 +253,8 @@ export function redactLlmConfig(config) {
     updatedAt: "",
   };
   return {
-    provider: parsed.provider,
+    provider: normalizeProvider(parsed.provider) || parsed.provider,
+    alias: providerAlias(parsed.provider) || asString(parsed.alias),
     model: parsed.model,
     baseUrl: parsed.baseUrl,
     keyPresent: Boolean(parsed.apiKey),
@@ -234,8 +279,12 @@ async function defaultListGeminiModels(config, fetchImpl) {
   const doFetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
   if (typeof doFetch !== "function") return [];
   const apiKey = asString(config && config.apiKey);
-  const url = `https://generativelanguage.googleapis.com/v1beta/models?key=${encodeURIComponent(apiKey)}`;
-  const resp = await doFetch(url);
+  // The key rides in a header, never the URL (E14, B17).
+  const resp = await doFetch(`${GEMINI_API_BASE}/models`, {
+    method: "GET",
+    headers: geminiHeaders(apiKey),
+    signal: AbortSignal.timeout(10_000),
+  });
   const data =
     resp && typeof resp.json === "function"
       ? await resp.json().catch(() => ({}))
@@ -250,6 +299,20 @@ async function defaultListGeminiModels(config, fetchImpl) {
   return ids;
 }
 
+const RESOLVED_FLASH_TTL_MS = 60 * 60 * 1000;
+/** @type {Map<string, { model: string, at: number }>} */
+const resolvedFlashCache = new Map();
+
+/** Test hook: forget every cached `gemini-flash` resolution. */
+export function clearResolvedFlashCache() {
+  resolvedFlashCache.clear();
+}
+
+/** @param {string} apiKey */
+function flashCacheKey(apiKey) {
+  return createHash("sha256").update(apiKey).digest("hex");
+}
+
 /**
  * @param {LlmConfig} config
  * @param {{ fetchImpl?: unknown, listGeminiModels?: () => Promise<unknown> }} [options]
@@ -258,24 +321,33 @@ async function defaultListGeminiModels(config, fetchImpl) {
 export async function resolveActivePin(config, options) {
   let resolvedModel = asString(config && config.model);
   if (isGeminiFlashFamily(resolvedModel)) {
-    const provider = asString(config && config.provider).toLowerCase();
-    const listGeminiModels =
-      options && typeof options.listGeminiModels === "function"
-        ? options.listGeminiModels
-        : provider === "gemini"
-          ? () => defaultListGeminiModels(config, options && options.fetchImpl)
-          : null;
-    /** @type {unknown} */
-    let ids = [];
-    try {
-      ids = listGeminiModels ? await listGeminiModels() : [];
-    } catch {
-      ids = [];
+    const provider = normalizeProvider(config && config.provider);
+    const injected = options && typeof options.listGeminiModels === "function";
+    const listGeminiModels = injected
+      ? /** @type {() => Promise<unknown>} */ (options && options.listGeminiModels)
+      : provider === "gemini"
+        ? () => defaultListGeminiModels(config, options && options.fetchImpl)
+        : null;
+    // E18: one models.list per key per hour, not one per ATS call.
+    const cacheKey = !injected && listGeminiModels ? flashCacheKey(asString(config && config.apiKey)) : "";
+    const cached = cacheKey ? resolvedFlashCache.get(cacheKey) : undefined;
+    if (cached && Date.now() - cached.at < RESOLVED_FLASH_TTL_MS) {
+      resolvedModel = cached.model;
+    } else {
+      /** @type {unknown} */
+      let ids = [];
+      try {
+        ids = listGeminiModels ? await listGeminiModels() : [];
+      } catch {
+        ids = [];
+      }
+      const picked = pickStableGeminiFlash(ids);
+      resolvedModel = picked || GEMINI_FLASH_FALLBACK;
+      if (cacheKey && picked) resolvedFlashCache.set(cacheKey, { model: picked, at: Date.now() });
     }
-    resolvedModel = pickStableGeminiFlash(ids) || GEMINI_FLASH_FALLBACK;
   }
   return {
-    provider: asString(config && config.provider),
+    provider: normalizeProvider(config && config.provider) || asString(config && config.provider),
     model: asString(config && config.model),
     apiKey: asString(config && config.apiKey),
     baseUrl: asString(config && config.baseUrl),
@@ -298,20 +370,61 @@ export async function handleGetLlmConfig(req, res, env = process.env) {
 }
 
 /**
+ * POST /api/llm-config (E12).
+ * - `provider` must be one of the shared enum or an alias of it.
+ * - `baseUrl`, when given, must be http(s).
+ * - An omitted `apiKey` keeps the stored key, but only while the provider
+ *   and base URL are unchanged, so a key never follows the pin to a different
+ *   endpoint. A present `apiKey` replaces it: `""` (Settings' emptied field)
+ *   and `null` both clear it.
  * @param {import("express").Request} req
  * @param {import("express").Response} res
  * @param {NodeJS.ProcessEnv} [env]
  */
 export async function handlePostLlmConfig(req, res, env = process.env) {
-  const body = /** @type {Record<string, unknown>} */ (req.body || {});
-  const provider = String(body.provider || "").trim();
-  const model = String(body.model || "").trim();
-  const apiKey = String(body.apiKey || "").trim();
-  const baseUrl = String(body.baseUrl || "").trim();
-  if (!provider || !model) {
+  const rawBody = req.body;
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    res.status(400).json({ error: "Body must be a JSON object.", code: "llm_invalid" });
+    return;
+  }
+  const body = /** @type {Record<string, unknown>} */ (rawBody);
+  const rawProvider = asString(body.provider);
+  const model = asString(body.model);
+  const baseUrl = asString(body.baseUrl);
+  if (!rawProvider || !model) {
     res.status(400).json({ error: "provider and model are required.", code: "llm_invalid" });
     return;
   }
-  const saved = await writeLlmConfig({ provider, model, apiKey, baseUrl }, env);
+  const provider = normalizeProvider(rawProvider);
+  if (!provider) {
+    res.status(400).json({
+      error: "Unsupported provider. Use gemini, openai, anthropic, openrouter, openai_compatible or local.",
+      code: "llm_invalid",
+    });
+    return;
+  }
+  if (baseUrl && !isHttpUrl(baseUrl)) {
+    res.status(400).json({ error: "baseUrl must be an http(s) URL.", code: "llm_invalid" });
+    return;
+  }
+  if (model.length > 200 || baseUrl.length > 2048) {
+    res.status(400).json({ error: "model or baseUrl is too long.", code: "llm_invalid" });
+    return;
+  }
+  // Omitted apiKey keeps the stored key (same provider and base URL). A
+  // present apiKey is the caller's answer: Settings sends "" when the user
+  // empties the key box, and null also clears.
+  let apiKey = "";
+  if (body.apiKey !== undefined) {
+    apiKey = asString(body.apiKey);
+  } else {
+    const existing = loadLlmConfig(env);
+    const sameTarget =
+      existing &&
+      normalizeProvider(existing.provider) === provider &&
+      asString(existing.baseUrl).replace(/\/+$/, "") === baseUrl.replace(/\/+$/, "");
+    apiKey = sameTarget && existing ? existing.apiKey : "";
+  }
+  const saved = await writeLlmConfig({ provider: rawProvider, model, apiKey, baseUrl }, env);
   res.json(redactLlmConfig(saved));
 }

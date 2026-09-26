@@ -1,0 +1,43 @@
+name: Hermes pytest
+
+# Runs the Hermes job-hunt Python suite against the repo copy of the scripts
+# (BEAUDIT H10). The suite stubs Google, Telegram, httpx and Playwright and
+# blocks every non-loopback socket, so it needs no secrets and no network.
+# Advisory until it is added to the ruleset's required checks.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'integrations/hermes-job-hunt/**'
+      - '.github/workflows/hermes-pytest.yml'
+  pull_request:
+    branches: [main]
+    paths:
+      - 'integrations/hermes-job-hunt/**'
+      - '.github/workflows/hermes-pytest.yml'
+
+concurrency:
+  group: hermes-pytest-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  hermes-pytest:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ['3.9', '3.12']
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install test dependencies
+        run: python -m pip install -r integrations/hermes-job-hunt/requirements-dev.txt
+      - name: Run the Hermes suite
+        run: python -m pytest integrations/hermes-job-hunt/tests -q -p no:cacheprovider

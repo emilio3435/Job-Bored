@@ -8,7 +8,11 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { decideExistingWorkerAction, parseStarterOptions } from "../scripts/lib/discovery-worker-policy.mjs";
+import {
+  decideExistingWorkerAction,
+  decideHeldWorkerAction,
+  parseStarterOptions,
+} from "../scripts/lib/discovery-worker-policy.mjs";
 
 describe("worker starter policy", () => {
   it("reuses a healthy worker by default", () => {
@@ -45,5 +49,34 @@ describe("worker starter supervision — a worker terminated by someone else mus
   });
   it("exits when the worker died on its own with a code (crash) rather than a signal", () => {
     assert.equal(decideAfterChildExit({ signal: null, code: 1, initiatedByUs: false, replacementHealthy: false }), "exit");
+  });
+});
+
+describe("worker starter hold-watch — a reused worker that later dies must not leave a zombie holder", () => {
+  // 2026-09-16: `npm run dev` kept the starter alive via holdProcessOpenForExistingWorker
+  // (noopInterval, no child) after --restart-existing thought :8644 was healthy.
+  // The real listener then disappeared and the starter never respawned — health
+  // checks failed with connection refused while web+scraper stayed up.
+  it("keeps holding while the reused worker is still healthy", () => {
+    assert.equal(
+      decideHeldWorkerAction({ heldWorkerHealthy: true, shuttingDown: false }),
+      "keep_holding",
+    );
+  });
+  it("respawns when the reused worker is no longer healthy", () => {
+    assert.equal(
+      decideHeldWorkerAction({ heldWorkerHealthy: false, shuttingDown: false }),
+      "respawn",
+    );
+  });
+  it("exits on our own shutdown instead of respawning into a tearing-down stack", () => {
+    assert.equal(
+      decideHeldWorkerAction({ heldWorkerHealthy: false, shuttingDown: true }),
+      "exit",
+    );
+    assert.equal(
+      decideHeldWorkerAction({ heldWorkerHealthy: true, shuttingDown: true }),
+      "exit",
+    );
   });
 });

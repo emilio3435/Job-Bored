@@ -57,31 +57,19 @@
         value: "gemini-flash",
         label: "Gemini Flash (latest)",
         description:
-          "Newest stable Flash. Resolves at call time. Pro: stays current. Con: exact snapshot is chosen at call time.",
+          "Newest stable Flash family. Resolves at call time. Pro: stays current. Con: exact snapshot chosen at call time.",
       },
       {
-        value: "gemini-3.1-pro-preview",
-        label: "Gemini 3.1 Pro · Preview",
+        value: "gemini-pro",
+        label: "Gemini Pro (latest)",
         description:
-          "Advanced intelligence for complex problem-solving, agentic flows, and vibe coding. Pro: strongest reasoning. Con: higher latency/cost.",
+          "Advanced reasoning family for complex problem-solving. Pro: strongest reasoning. Con: higher latency/cost.",
       },
       {
-        value: "gemini-3.5-flash",
-        label: "Gemini 3.5 Flash · Stable",
+        value: "gemini-flash-lite",
+        label: "Gemini Flash Lite (latest)",
         description:
-          "Most intelligent model for sustained frontier performance on agentic and coding tasks. Pro: dependable default. Con: less experimental than preview models.",
-      },
-      {
-        value: "gemini-3-flash-preview",
-        label: "Gemini 3 Flash · Preview",
-        description:
-          "Frontier-class performance rivaling larger models at lower cost. Pro: fast and economical. Con: preview stability.",
-      },
-      {
-        value: "gemini-3.1-flash-lite-preview",
-        label: "Gemini 3.1 Flash-Lite · Preview",
-        description:
-          "Lightweight frontier model at a fraction of the cost. Pro: cheapest/fastest option. Con: weaker on complex reasoning.",
+          "Lightweight Flash family at a fraction of the cost. Pro: cheapest/fastest option. Con: weaker on complex reasoning.",
       },
     ],
     openai: [
@@ -317,7 +305,7 @@
   }
 
   async function callGemini(bundle, apiKey, model) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const body = {
@@ -332,7 +320,7 @@
     try {
       resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify(body),
       });
     } catch (e) {
@@ -342,12 +330,13 @@
     if (!resp.ok) {
       const msg =
         data.error?.message || JSON.stringify(data) || `HTTP ${resp.status}`;
-      if (isGeminiModelNotFound(msg) && model !== DEFAULT_GEMINI_MODEL) {
+      const fallback = isGeminiModelNotFound(msg) ? GEMINI_FLASH_PINNED_FALLBACK : "";
+      if (fallback && model !== fallback) {
         console.warn(
-          `[JobBored] Gemini model "${model}" was rejected; retrying with ${DEFAULT_GEMINI_MODEL}.`,
+          `[JobBored] Gemini model "${model}" was rejected; retrying with ${fallback}.`,
         );
-        const insights = await callGemini(bundle, apiKey, DEFAULT_GEMINI_MODEL);
-        repairStoredGeminiModel(DEFAULT_GEMINI_MODEL);
+        const insights = await callGemini(bundle, apiKey, fallback);
+        repairStoredGeminiModel(fallback);
         return insights;
       }
       throw new Error(msg);
@@ -522,7 +511,8 @@
     return text.trim();
   }
 
-  const DEFAULT_GEMINI_MODEL = "gemini-3.5-flash";
+  const GEMINI_FLASH_FAMILY = "gemini-flash";
+  const GEMINI_FLASH_PINNED_FALLBACK = "gemini-3.7-flash";
   /** The Gemini model that last answered — the live check reports this,
    *  not the configured id, so a repaired fallback shows the truth. */
   let lastGeminiModelUsed = "";
@@ -548,22 +538,22 @@
   }
 
   async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
-    const resolvedModel = model || "gemini-flash";
+    const resolvedModel = model || GEMINI_FLASH_FAMILY;
     const wantJson = wantsJsonResponse(opts);
     const isThinkingModel =
-      resolvedModel === "gemini-flash" ||
+      resolvedModel === GEMINI_FLASH_FAMILY ||
       /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
     const generationConfig = {
       maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
       temperature: 0.5,
     };
     if (wantJson) generationConfig.responseMimeType = "application/json";
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent?key=${encodeURIComponent(apiKey)}`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;
     let resp;
     try {
       resp = await fetch(url, {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
         body: JSON.stringify({
           systemInstruction: { parts: [{ text: system }] },
           contents: [{ role: "user", parts: [{ text: user }] }],
@@ -576,12 +566,13 @@
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       const message = data.error?.message || `Gemini HTTP ${resp.status}`;
-      if (isGeminiModelNotFound(message) && resolvedModel !== DEFAULT_GEMINI_MODEL) {
+      const fallback = isGeminiModelNotFound(message) ? GEMINI_FLASH_PINNED_FALLBACK : "";
+      if (fallback && resolvedModel !== fallback) {
         console.warn(
-          `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${DEFAULT_GEMINI_MODEL}.`,
+          `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${fallback}.`,
         );
-        const text = await callConfiguredAiGemini(system, user, apiKey, DEFAULT_GEMINI_MODEL, opts);
-        repairStoredGeminiModel(DEFAULT_GEMINI_MODEL);
+        const text = await callConfiguredAiGemini(system, user, apiKey, fallback, opts);
+        repairStoredGeminiModel(fallback);
         return text;
       }
       throw new Error(message);

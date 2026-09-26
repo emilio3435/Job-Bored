@@ -3,6 +3,7 @@
   "$id": "https://github.com/job-bored/command-center/schemas/discovery-webhook-request.v1.schema.json",
   "title": "Command Center discovery webhook (POST body)",
   "description": "Sent by the dashboard when the user clicks Run discovery. schemaVersion 1.",
+  "$comment": "Transport, not body: a Cloudflare relay deployed with npm run cloudflare-relay:deploy answers 401 unless the request carries the per-dashboard relay token as Authorization: Bearer <RELAY_TOKEN> (kept in .jobbored-relay/credential.json). This body and schemaVersion 1 are unchanged. See AGENT_CONTRACT.md receiver checklist and examples/README.md.",
   "type": "object",
   "additionalProperties": true,
   "required": [

@@ -5,16 +5,23 @@
 
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
+import { join } from "node:path";
 import * as cheerio from "cheerio";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
+import { renderCandidateLetter, renderCandidateResume, candidateHeader } from "./materials-candidate-docs.mjs";
 import { composeCoverLetter, composeResume } from "./materials-composer.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
-import { resolveJobDescription } from "./materials-jd-gate.mjs";
+import { resolveJobDescription, isUsableJobDescription } from "./materials-jd-gate.mjs";
 import { renderPdfIfPossible } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
+import {
+  formatProvenanceLine,
+  normalizeResumeSource,
+  resumeProvenance,
+  resumeRequiredError,
+  writeResumeSnapshot,
+} from "./materials-resume-source.mjs";
 import { callEditor, callWriter } from "./materials-writer.mjs";
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import { readProfile } from "./user-profile.mjs";
@@ -26,23 +33,6 @@ const PAGE_COUNT_CODES = new Set([
   "cover_letter_page_count",
 ]);
 
-const __dirname = dirname(fileURLToPath(import.meta.url));
-const DEFAULT_RESUME_TEMPLATE = join(
-  __dirname,
-  "..",
-  "integrations",
-  "hermes-job-hunt",
-  "resume-template",
-  "resume.html",
-);
-const DEFAULT_LETTER_TEMPLATE = join(
-  __dirname,
-  "..",
-  "integrations",
-  "hermes-job-hunt",
-  "cover-letter-template",
-  "cover-letter.html",
-);
 
 const MAX_EDITOR_LOOPS = 2;
 const NESTED_LETTER_SLOTS = {
@@ -69,6 +59,9 @@ const PARENT_LETTER_SLOTS = [
  * @property {string} notes
  * @property {string} [jobDescription]
  * @property {string} [jdText]
+ * @property {import("./materials-resume-source.mjs").ResumeSource | null} [resume]
+ *   The user's own resume — the only source of facts. enqueue() refuses
+ *   (422 resume_required) without it.
  */
 
 /**
@@ -92,6 +85,8 @@ const PARENT_LETTER_SLOTS = [
  * @property {string} requested_at
  * @property {string} source
  * @property {PendingProgress} progress
+ * @property {{ source: string, filename: string, addedAt: string }} [resume] provenance, no text
+ * @property {{ llm?: { provider: string, requestedModel: string, resolvedModel: string } }} [debug]
  */
 
 /**
@@ -383,6 +378,8 @@ function stripJdComments(raw) {
 async function writeJdFile(dir, text, meta = {}) {
   const body = String(text || "").replace(/\r\n/g, "\n").trim();
   if (!body) return;
+  // Do not poison the cache with fit-score blurbs or too-short text.
+  if (!isUsableJobDescription(body)) return;
   const header = [
     "<!-- job-description.md",
     `source: ${meta.source || "unknown"}`,
@@ -394,13 +391,6 @@ async function writeJdFile(dir, text, meta = {}) {
   await writeFile(join(dir, "job-description.md"), `${header}${body}\n`, "utf8");
 }
 
-async function defaultReadMasterResume() {
-  return readFile(DEFAULT_RESUME_TEMPLATE, "utf8");
-}
-
-async function defaultReadMasterLetter() {
-  return readFile(DEFAULT_LETTER_TEMPLATE, "utf8");
-}
 
 /**
  * @param {Record<string, unknown>} [input]
@@ -446,8 +436,10 @@ async function defaultPdfRenderer(input = {}) {
  * @property {() => unknown} [loadPin]
  * @property {(pin: unknown) => unknown} [resolvePin]
  * @property {(url: string) => Promise<{ description?: unknown }>} [scrapeJob]
- * @property {() => Promise<string>} [readMasterResume]
- * @property {() => Promise<string>} [readMasterLetter]
+ * @property {() => Promise<string>} [readMasterResume] TEST-ONLY sample resume layout
+ *   (e.g. the repo's resume-template). Omitted in production: the resume is
+ *   rendered from the user's resume via materials-candidate-docs.mjs.
+ * @property {() => Promise<string>} [readMasterLetter] TEST-ONLY sample letter layout.
  * @property {(input: Record<string, unknown>) => Promise<unknown>} [writer]
  * @property {(input: Record<string, unknown>) => Promise<unknown>} [editor]
  * @property {(input: Record<string, unknown>) => Promise<Scorecard>} [critic]
@@ -473,10 +465,14 @@ export function createMaterialsDrafter(deps = {}) {
     typeof deps.scrapeJob === "function"
       ? deps.scrapeJob
       : (/** @type {string} */ url) => scrapeJobPosting(url);
-  const readMasterResume =
-    typeof deps.readMasterResume === "function" ? deps.readMasterResume : defaultReadMasterResume;
-  const readMasterLetter =
-    typeof deps.readMasterLetter === "function" ? deps.readMasterLetter : defaultReadMasterLetter;
+  /* Sample-template layouts are test-only (the repo's resume-template and
+   * cover-letter-template are the maintainer's, kept as labelled samples).
+   * In production both are null and the documents are rendered from the
+   * writer's JSON by materials-candidate-docs.mjs. */
+  const readSampleResume =
+    typeof deps.readMasterResume === "function" ? deps.readMasterResume : null;
+  const readSampleLetter =
+    typeof deps.readMasterLetter === "function" ? deps.readMasterLetter : null;
   const writer =
     typeof deps.writer === "function"
       ? deps.writer
@@ -485,6 +481,7 @@ export function createMaterialsDrafter(deps = {}) {
           pin: /** @type {import("./materials-writer.mjs").WriterPin} */ (input.pin),
           jdText: String(input.jdText || ""),
           masterResumeHtml: String(input.masterResumeHtml || ""),
+          resumeText: String(input.resumeText || ""),
           voiceSamples: input.voiceSamples,
           fetchImpl:
             typeof input.fetchImpl === "function"
@@ -499,6 +496,7 @@ export function createMaterialsDrafter(deps = {}) {
           pin: /** @type {import("./materials-writer.mjs").WriterPin} */ (input.pin),
           jdText: String(input.jdText || ""),
           masterResumeHtml: String(input.masterResumeHtml || ""),
+          resumeText: String(input.resumeText || ""),
           voiceSamples: input.voiceSamples,
           current: /** @type {import("./materials-writer.mjs").WriterJson} */ (input.current),
           scorecard: input.scorecard || {},
@@ -511,11 +509,11 @@ export function createMaterialsDrafter(deps = {}) {
     typeof deps.critic === "function"
       ? deps.critic
       : (/** @type {Record<string, unknown>} */ input) => critiqueMaterials(input);
-  const composeLetter =
+  const composeSampleLetter =
     deps.composer && typeof deps.composer.composeCoverLetter === "function"
       ? deps.composer.composeCoverLetter
       : composeLetterWithNestedSlots;
-  const composeResumeHtml =
+  const composeSampleResume =
     deps.composer && typeof deps.composer.composeResume === "function"
       ? deps.composer.composeResume
       : composeResume;
@@ -656,6 +654,13 @@ export function createMaterialsDrafter(deps = {}) {
     job.record = withPhase(job.record, "drafting");
     await writePending(pendingPath, job.record);
 
+    // Prefer a usable JD provided in the request payload (pasted by the user in the UI)
+    // over anything on disk. This allows a quick success path without requiring a scrape.
+    const providedJdRaw =
+      (typeof payload.jobDescription === "string" && payload.jobDescription) ||
+      (typeof payload.jdText === "string" && payload.jdText) ||
+      "";
+
     let cachedText = "";
     try {
       cachedText = stripJdComments(await readFile(join(dir, "job-description.md"), "utf8"));
@@ -663,15 +668,23 @@ export function createMaterialsDrafter(deps = {}) {
       cachedText = "";
     }
 
-    const jd = await resolveJobDescription({
-      cachedText,
-      jobUrl: payload.jobUrl,
-      scrapeJob,
-    });
+    /** @type {{ text: string, source: "cache" | "scrape" | "request" } | { error: "jd_unusable" }} */
+    let jd;
+    if (isUsableJobDescription(providedJdRaw)) {
+      jd = { text: providedJdRaw.trim(), source: "request" };
+    } else {
+      jd = await resolveJobDescription({
+        cachedText,
+        jobUrl: payload.jobUrl,
+        scrapeJob,
+      });
+    }
     if ("error" in jd) {
       const jdIssue = {
         code: "jd_unusable",
-        message: "Cached job description is unusable and scraping the job URL failed.",
+        message:
+          "Cached job description is unusable and scraping the job URL failed. " +
+          "Paste the full job posting into the Dossier (not a fit blurb), or replace the aggregator/blocked URL with the employer careers page.",
         severity: "review",
       };
       await writeFile(
@@ -684,25 +697,57 @@ export function createMaterialsDrafter(deps = {}) {
     }
 
     const jdText = jd.text;
-    if (jd.source === "scrape") {
+    if (jd.source === "scrape" || jd.source === "request") {
       await writeJdFile(dir, jdText, {
-        source: "scrape",
+        source: jd.source,
         jobUrl: payload.jobUrl,
         nowIso: isoNow(),
       });
     }
 
-    const resolved = await resolvePin(pin);
-    const [masterResumeHtml, masterLetterHtml] = await Promise.all([
-      readMasterResume(),
-      readMasterLetter(),
+    /** @type {import("./materials-writer.mjs").WriterPin} */
+    const resolved = /** @type {import("./materials-writer.mjs").WriterPin} */ (await resolvePin(pin));
+    // Log and persist the exact model used for this draft for dogfood verification.
+    try {
+      const pinProvider = String((/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin))).provider || "");
+      const requestedModel = String((/** @type {Record<string, unknown>} */ (/** @type {unknown} */ (pin))).model || "");
+      const resolvedModel = String(resolved.resolvedModel || "");
+      // Console log for live verification
+      // Example: [materials] slug=eab-role provider=gemini requested_model=gemini-flash resolved_model=gemini-3.7-flash
+      // No secrets are logged.
+      // eslint-disable-next-line no-console
+      console.log(
+        `[materials] slug=${payload.slug} provider=${String(resolved.provider || pinProvider)} requested_model=${requestedModel} resolved_model=${resolvedModel}`,
+      );
+      // Include a small debug field in pending.json without changing the UI message.
+      /** @type {any} */ (job.record).debug = {
+        ...(/** @type {any} */ (job.record).debug),
+        llm: {
+          provider: String(resolved.provider || pinProvider),
+          requestedModel,
+          resolvedModel,
+        },
+      };
+      await writePending(pendingPath, job.record);
+    } catch {
+      // Best-effort only — never fail the draft if logging cannot be written.
+    }
+    const resumeSource = normalizeResumeSource(payload.resume);
+    if (!resumeSource) throw resumeRequiredError();
+    const resumeText = resumeSource.text;
+    const [sampleResumeHtml, sampleLetterHtml] = await Promise.all([
+      readSampleResume ? readSampleResume() : Promise.resolve(null),
+      readSampleLetter ? readSampleLetter() : Promise.resolve(null),
     ]);
+    /* Only a test-injected sample layout ever reaches the writer as HTML. */
+    const masterResumeHtml = typeof sampleResumeHtml === "string" ? sampleResumeHtml : "";
     const voiceSamples = await collectVoiceSamples(payload);
 
     let writerJson = await writer({
       pin: resolved,
       jdText,
       masterResumeHtml,
+      resumeText,
       voiceSamples,
     });
 
@@ -713,8 +758,12 @@ export function createMaterialsDrafter(deps = {}) {
       const letter = isPlainObject(json) && isPlainObject(json.letter) ? json.letter : {};
       const resume = isPlainObject(json) && isPlainObject(json.resume) ? json.resume : {};
       return {
-        letterHtml: composeLetter(masterLetterHtml, letter),
-        resumeHtml: composeResumeHtml(masterResumeHtml, resume),
+        letterHtml: typeof sampleLetterHtml === "string"
+          ? composeSampleLetter(sampleLetterHtml, letter)
+          : renderCandidateLetter(letter, candidateHeader(resume, resumeText)),
+        resumeHtml: typeof sampleResumeHtml === "string"
+          ? composeSampleResume(sampleResumeHtml, resume)
+          : renderCandidateResume(resume, { resumeText }),
       };
     }
 
@@ -724,6 +773,7 @@ export function createMaterialsDrafter(deps = {}) {
       resumeHtml: composed.resumeHtml,
       jdText,
       masterResumeHtml,
+      sourceResumeText: resumeText,
       writerJson,
     });
     let scorecard = adjustScorecardForSkippedPdf(rawScorecard, true);
@@ -739,6 +789,7 @@ export function createMaterialsDrafter(deps = {}) {
         pin: resolved,
         jdText,
         masterResumeHtml,
+        resumeText,
         voiceSamples,
         current: writerJson,
         scorecard,
@@ -749,6 +800,7 @@ export function createMaterialsDrafter(deps = {}) {
         resumeHtml: composed.resumeHtml,
         jdText,
         masterResumeHtml,
+        sourceResumeText: resumeText,
         writerJson,
       });
       scorecard = adjustScorecardForSkippedPdf(rawScorecard, true);
@@ -779,7 +831,7 @@ export function createMaterialsDrafter(deps = {}) {
     }
     scorecard = adjustScorecardForSkippedPdf(rawScorecard, pdfSkipped);
     /** @type {string[]} */
-    const notes = [];
+    const notes = [formatProvenanceLine(resumeSource)];
     if (pdfSkipped) {
       notes.push(typeof pdfResult?.note === "string" && pdfResult.note ? pdfResult.note : "pdf_skipped");
     }
@@ -797,6 +849,8 @@ export function createMaterialsDrafter(deps = {}) {
    * @param {MaterialsRequestPayload} payload
    */
   async function enqueue(payload) {
+    const resumeSource = normalizeResumeSource(payload && payload.resume);
+    if (!resumeSource) throw resumeRequiredError();
     const pin = loadPin();
     if (!pinIsConfigured(pin)) {
       throw unconfiguredError();
@@ -828,6 +882,7 @@ export function createMaterialsDrafter(deps = {}) {
       notes: payload.notes || "",
       requested_at: requestedAt,
       source: "jobbored-dossier",
+      resume: resumeProvenance(resumeSource),
       progress: {
         phase: "queued",
         message: defaultProgressMessage("queued", payload.feature),
@@ -841,6 +896,7 @@ export function createMaterialsDrafter(deps = {}) {
 
     try {
       await mkdir(dir, { recursive: true });
+      await writeResumeSnapshot(dir, resumeSource, requestedAt);
       const providedJd =
         (typeof payload.jobDescription === "string" && payload.jobDescription) ||
         (typeof payload.jdText === "string" && payload.jdText) ||
@@ -855,7 +911,7 @@ export function createMaterialsDrafter(deps = {}) {
 
       await writePending(pendingPath, record);
       queue.push({
-        payload,
+        payload: { ...payload, resume: resumeSource },
         pin: /** @type {object} */ (pin),
         dir,
         pendingPath,

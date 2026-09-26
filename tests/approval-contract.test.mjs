@@ -30,16 +30,24 @@ function loadContract() {
 }
 
 describe("F3C-APPLY02-CONTRACT — one versioned Gate 1 / send / poll contract", () => {
-  it("docs, runtime, send, and poll agree on Gate 2 thread id (no 48 vs 314 split)", () => {
+  it("docs, runtime, send, and poll share one Gate 2 route (no 48 vs 314 split)", () => {
     const contract = loadContract();
-    const threadId = Number(contract.gate2.threadId);
-    const chatId = Number(contract.gate2.chatId);
-    assert.equal(Number.isInteger(threadId), true);
-    assert.equal(Number.isInteger(chatId), true);
-    assert.equal(
-      contract.gate2.target,
-      `telegram:${chatId}:${threadId}`,
-      "gate2.target must be telegram:<chatId>:<threadId>",
+    // BEAUDIT H8/H21: owner routing ids live in the gitignored
+    // approval-contract.local.json; the tracked contract ships none.
+    assert.equal(contract.gate2.chatId, null, "tracked contract must not hold a chat id");
+    assert.equal(contract.gate2.threadId, null, "tracked contract must not hold a thread id");
+    assert.deepEqual(contract.gate2.approverUserIds, [], "tracked contract must not hold approver ids");
+    assert.equal(contract.localOverride, "approval-contract.local.json");
+
+    const example = JSON.parse(read("approval-contract.local.example.json"));
+    assert.equal(Number.isInteger(example.gate2.chatId), true);
+    assert.equal(Number.isInteger(example.gate2.threadId), true);
+    assert.equal(Array.isArray(example.gate2.approverUserIds), true);
+    assert.equal(Number.isInteger(example.interest.threadId), true);
+    assert.notEqual(
+      example.interest.threadId,
+      example.gate2.threadId,
+      "interest prompts and submit approvals use different threads",
     );
 
     const sendSrc = read("scripts/gate2_telegram.py");
@@ -49,11 +57,8 @@ describe("F3C-APPLY02-CONTRACT — one versioned Gate 1 / send / poll contract",
     const specSrc = read("approval-guard-spec.md");
     const loaderSrc = read("scripts/approval_contract.py");
 
-    assert.match(
-      loaderSrc,
-      /approval-contract\.v1\.json/,
-      "runtime loader must read the versioned contract JSON",
-    );
+    assert.match(loaderSrc, /approval-contract\.v1\.json/, "runtime loader must read the versioned contract JSON");
+    assert.match(loaderSrc, /approval-contract\.local\.json/, "runtime loader must merge the local override");
     assert.match(sendSrc, /from approval_contract import|import approval_contract/, "send must import the contract");
     assert.match(watcherSrc, /from approval_contract import|import approval_contract/, "poll/watcher must import the contract");
     assert.match(submitSrc, /from approval_contract import|import approval_contract/, "jhos_submit must import the contract");
@@ -63,48 +68,21 @@ describe("F3C-APPLY02-CONTRACT — one versioned Gate 1 / send / poll contract",
       "apply-orchestrator must consume the contract or the send helper that does",
     );
 
-    const sendLiterals = [...sendSrc.matchAll(/THREAD_ID\s*=\s*([0-9]+)/g)].map((m) => Number(m[1]));
-    const watcherLiterals = [...watcherSrc.matchAll(/TELEGRAM_THREAD_ID\s*=\s*([0-9]+)/g)].map((m) => Number(m[1]));
-    const submitTargets = [...submitSrc.matchAll(/telegram:(-?[0-9]+):([0-9]+)/g)];
-
-    for (const n of sendLiterals) {
-      assert.equal(n, threadId, "send must not hardcode a competing Gate 2 thread");
+    for (const [name, src] of [
+      ["send", sendSrc],
+      ["watcher", watcherSrc],
+      ["jhos_submit", submitSrc],
+    ]) {
+      assert.equal(/THREAD_ID\s*=\s*[0-9]+/.test(src), false, `${name} must not hardcode a Gate 2 thread`);
+      assert.equal(/CHAT_ID\s*=\s*-?[0-9]+/.test(src), false, `${name} must not hardcode a chat`);
+      assert.equal(/telegram:-?[0-9]+:[0-9]+/.test(src), false, `${name} must not hardcode a telegram target`);
     }
-    for (const n of watcherLiterals) {
-      assert.equal(n, threadId, "watcher must not hardcode a competing Gate 2 thread");
-    }
-    for (const match of submitTargets) {
-      assert.equal(Number(match[1]), chatId, "jhos_submit chat must equal contract.gate2.chatId");
-      assert.equal(Number(match[2]), threadId, "jhos_submit thread must equal contract.gate2.threadId");
-    }
+    assert.equal(/TELEGRAM_HOME_CHANNEL/.test(watcherSrc), false, "the watcher must not let env override the contract chat");
 
-    const competing = threadId === 48 ? 314 : 48;
-    assert.equal(
-      sendSrc.includes(`THREAD_ID = ${competing}`) || sendSrc.includes(`thread ${competing}`),
-      false,
-      `send must not keep competing thread ${competing}`,
-    );
-    assert.equal(
-      watcherSrc.includes(`TELEGRAM_THREAD_ID = ${competing}`) || watcherSrc.includes(`thread ${competing}`),
-      false,
-      `watcher must not keep competing thread ${competing}`,
-    );
-    assert.equal(
-      submitSrc.includes(`telegram:${chatId}:${competing}`),
-      false,
-      `jhos_submit must not keep competing thread ${competing}`,
-    );
-
-    assert.match(
-      specSrc,
-      new RegExp(`telegram:-1003800236296:${threadId}|thread ${threadId}`),
-      "approval-guard-spec.md must document the same Gate 2 thread as the contract",
-    );
-    assert.match(
-      loaderSrc,
-      /GATE2_THREAD_ID/,
-      "loader must export GATE2_THREAD_ID for send/poll",
-    );
+    assert.match(specSrc, /telegram:<gate2\.chatId>:<gate2\.threadId>/, "spec must document the local Gate 2 target");
+    assert.match(loaderSrc, /GATE2_THREAD_ID/, "loader must export GATE2_THREAD_ID for send/poll");
+    assert.match(loaderSrc, /GATE2_APPROVER_USER_IDS/, "loader must export the approver allowlist");
+    assert.match(loaderSrc, /INTEREST_THREAD_ID/, "loader must export the interest thread");
   });
 
   it("Gate 1 is the schema Approval Status marker, not a second competing rule", () => {

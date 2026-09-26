@@ -150,7 +150,7 @@ describe("B6 card 1 — Your search (spec §5 B6)", () => {
 describe("B6 card 2 — What happens now (spec §5 B6)", () => {
   it("names the provider the user actually configured", async () => {
     const env = loadPayoff({ provider: "anthropic" });
-    const { container } = await renderPayoff(env);
+    const { container } = await renderPayoff(env, { flowState: { completedBeats: ["google", "ai", "resume", "fit", "discovery"] } });
     assert.ok(
       textOf(container).includes("✓ AI connected — Anthropic"),
       "the provider line is read from config, never hardcoded to Gemini",
@@ -159,7 +159,7 @@ describe("B6 card 2 — What happens now (spec §5 B6)", () => {
 
   it("counts armed sources from the discovery snapshot and credits Google's index", async () => {
     const env = loadPayoff();
-    const { container, state } = await renderPayoff(env);
+    const { container, state } = await renderPayoff(env, { flowState: { completedBeats: ["google", "ai", "resume", "fit", "discovery"] } });
     assert.equal(state.sourceCount, 3);
     assert.ok(
       textOf(container).includes(
@@ -173,7 +173,7 @@ describe("B6 card 2 — What happens now (spec §5 B6)", () => {
     env.window.JobBoredDiscoveryPayload = {
       buildSearchPlan: () => ({ facets: { sourceLanes: ["serpapi_google_jobs"] } }),
     };
-    const { container } = await renderPayoff(env);
+    const { container } = await renderPayoff(env, { flowState: { completedBeats: ["google", "ai", "resume", "fit", "discovery"] } });
     assert.ok(
       textOf(container).includes(
         "✓ Discovery armed — 1 source watching, including Google's job index",
@@ -241,6 +241,7 @@ describe("B6 skipped-connect variant (spec §5 B6)", () => {
       plain(state.actions).map((a) => [a.id, a.label, a.variant]),
       [
         ["payoff_dashboard", "Go to my dashboard", "primary"],
+        ["payoff_track_job", "Track a job you already found", "ghost"],
         ["payoff_connect_discovery", "Actually — connect discovery", "ghost"],
       ],
     );
@@ -253,6 +254,7 @@ describe("B6 skipped-connect variant (spec §5 B6)", () => {
       plain(state.actions).map((a) => [a.id, a.label, a.variant]),
       [
         ["payoff_run_now", "Run discovery now", "primary"],
+        ["payoff_track_job", "Track a job you already found", "ghost"],
         ["payoff_dashboard", "Take me to my dashboard", "ghost"],
       ],
     );
@@ -427,6 +429,7 @@ describe("B6 in the real shell — the footer carries the right primary", () => 
     const env = loadPayoff();
     assert.deepEqual(plain(await openPayoff(env)), [
       ["payoff_run_now", "Run discovery now", "primary"],
+      ["payoff_track_job", "Track a job you already found", "ghost"],
       ["payoff_dashboard", "Take me to my dashboard", "ghost"],
     ]);
   });
@@ -438,6 +441,7 @@ describe("B6 in the real shell — the footer carries the right primary", () => 
     });
     assert.deepEqual(plain(await openPayoff(env)), [
       ["payoff_dashboard", "Go to my dashboard", "primary"],
+      ["payoff_track_job", "Track a job you already found", "ghost"],
       ["payoff_connect_discovery", "Actually — connect discovery", "ghost"],
     ]);
   });

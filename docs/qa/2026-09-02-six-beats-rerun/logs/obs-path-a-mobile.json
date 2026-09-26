@@ -1,0 +1,3881 @@
+{
+  "observations": [
+    {
+      "surface": "S0-mobile",
+      "file": "s0-m01-cold-start-390.png",
+      "copy": {
+        "beatId": null,
+        "headerTitle": null,
+        "kicker": null,
+        "headline": null,
+        "sub": null,
+        "spine": [],
+        "spineTime": null,
+        "progressSystems": [],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "01Brief",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "02Pipeline",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "03Dossier",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-discovery page-top__action page-top__action--primary"
+          },
+          {
+            "text": "0",
+            "disabled": false,
+            "cls": "btn-materials btn-materials--icon btn-expired-review page-top__action page-top__action--icon"
+          },
+          {
+            "text": "Continue",
+            "disabled": false,
+            "cls": "btn-google-signin"
+          },
+          {
+            "text": "Resume onboarding",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Setup health",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovery worker on boot",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Sign out",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovered 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Researched 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Applied 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Phone screen 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Interview 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Offer 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Expired 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Turn on job discovery",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Use JobBored on other devices",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Dismiss",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Later",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__later"
+          },
+          {
+            "text": "Don't show again",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Urgency",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Fit",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Newest",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "★ Favorites",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "Dismissed",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "+ Add job from URL",
+            "disabled": false,
+            "cls": "pipe-tool__btn pipe-tool__btn--url"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "pipe-url-modal__close"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "pipe-url-modal__secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "pipe-url-modal__primary"
+          },
+          {
+            "text": "↑ Pick a role from the pipeline⌘Kto search",
+            "disabled": false,
+            "cls": "jb-shelf__cta"
+          },
+          {
+            "text": "Cover letter",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Resume",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Save version",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Rescore",
+            "disabled": false,
+            "cls": "scribe-btn scribe-scorecard__rescore"
+          },
+          {
+            "text": "more specific",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "cut to 250 words",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "emphasize Python",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Log in with Google",
+            "disabled": false,
+            "cls": "login-gate__btn-google"
+          },
+          {
+            "text": "Settings",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "ingest-url-hero__submit ingest-url-submit"
+          },
+          {
+            "text": "Add manually",
+            "disabled": false,
+            "cls": "ingest-url-hero__manual-link"
+          },
+          {
+            "text": "⭐ Favorites only",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Show dismissed",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Set up job discovery →",
+            "disabled": false,
+            "cls": "onboarding-celebration__cta"
+          },
+          {
+            "text": "or start with your other devices →",
+            "disabled": false,
+            "cls": "onboarding-celebration__alt"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Manual",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Scheduled",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Success",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Partial",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Failure",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "runs-refresh-btn"
+          },
+          {
+            "text": "Run cleanup now",
+            "disabled": false,
+            "cls": "expired-review-card__run"
+          },
+          {
+            "text": "Mark Expired",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Dismiss",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Set Researching",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Setup",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Fit Profile",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Sheet",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Scraping",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "ATS Scoring",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "AI Providers",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Upgrades",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Redo onboarding wizard",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Run setup again",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Clear saved settings",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Remove saved settings",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Scraper setup",
+            "disabled": false,
+            "cls": "btn-setup-scraper-link"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Download model",
+            "disabled": false,
+            "cls": "btn-modal-secondary model-download-control__btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Save & reload",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Test connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Save paste",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Guided capture",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Add sample",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Copy prompt to clipboard",
+            "disabled": false,
+            "cls": "profile-ai-copy-btn"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save preferences",
+            "disabled": false,
+            "cls": "profile-btn-save"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "profile-btn-reset"
+          },
+          {
+            "text": "Save to profile",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-doc-primary"
+          },
+          {
+            "text": "Continue without notes",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Generate draft",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "?",
+            "disabled": false,
+            "cls": "discovery-drawer__coach-btn"
+          },
+          {
+            "text": "Search",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Sources",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Automation",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Connection",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "History",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Exclude",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Scrape",
+            "disabled": false,
+            "cls": "btn-modal-secondary btn-dp-scrape"
+          },
+          {
+            "text": "Generate ideas",
+            "disabled": false,
+            "cls": "btn-modal-primary btn-dp-suggest"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Copy install command",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy uninstall command",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Download workflow file",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Open discovery setup",
+            "disabled": false,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Test webhook",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Deploy Apps Script stub",
+            "disabled": false,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Copy /exec URL",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Re-check public access",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Open discovery runs log",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Close",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "disabled": false,
+            "cls": "oneflow-demo__invite-action oneflow-demo__invite-action--primary"
+          },
+          {
+            "text": "Poke around first",
+            "disabled": false,
+            "cls": "oneflow-demo__invite-action oneflow-demo__invite-action--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": []
+      },
+      "msSincePrevious": 1634,
+      "urlAfterLoad": "http://localhost:8095/",
+      "geometry": {
+        "buttons": [
+          {
+            "text": "Make it mine — 15 min, once",
+            "y": 333.3,
+            "bottom": 371.5,
+            "w": 221.4,
+            "h": 38.2,
+            "onScreen": true
+          },
+          {
+            "text": "Poke around first",
+            "y": 379.5,
+            "bottom": 417.7,
+            "w": 146,
+            "h": 38.2,
+            "onScreen": true
+          }
+        ],
+        "docScrollWidth": 390,
+        "docClientWidth": 390
+      }
+    },
+    {
+      "surface": "S0-mobile",
+      "file": "s0-m02-cold-start-390-full.png",
+      "copy": {
+        "beatId": null,
+        "headerTitle": null,
+        "kicker": null,
+        "headline": null,
+        "sub": null,
+        "spine": [],
+        "spineTime": null,
+        "progressSystems": [],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "01Brief",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "02Pipeline",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "03Dossier",
+            "disabled": false,
+            "cls": "page-nav__pill"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-discovery page-top__action page-top__action--primary"
+          },
+          {
+            "text": "0",
+            "disabled": false,
+            "cls": "btn-materials btn-materials--icon btn-expired-review page-top__action page-top__action--icon"
+          },
+          {
+            "text": "Continue",
+            "disabled": false,
+            "cls": "btn-google-signin"
+          },
+          {
+            "text": "Resume onboarding",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Setup health",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovery worker on boot",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Sign out",
+            "disabled": false,
+            "cls": "auth-user-menu__signout"
+          },
+          {
+            "text": "Discovered 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Researched 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Applied 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Phone screen 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Interview 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Offer 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Expired 0",
+            "disabled": false,
+            "cls": "brief-funnel__row"
+          },
+          {
+            "text": "Turn on job discovery",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Use JobBored on other devices",
+            "disabled": false,
+            "cls": "btn-modal-secondary whats-next-banner__cta"
+          },
+          {
+            "text": "Dismiss",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Later",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__later"
+          },
+          {
+            "text": "Don't show again",
+            "disabled": false,
+            "cls": "login-gate__text-btn whats-next-banner__dismiss"
+          },
+          {
+            "text": "Urgency",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Fit",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "Newest",
+            "disabled": false,
+            "cls": "pipe-tool__chip"
+          },
+          {
+            "text": "★ Favorites",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "Dismissed",
+            "disabled": false,
+            "cls": "pipe-tool__chip pipe-tool__chip--filter"
+          },
+          {
+            "text": "+ Add job from URL",
+            "disabled": false,
+            "cls": "pipe-tool__btn pipe-tool__btn--url"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "pipe-url-modal__close"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "pipe-url-modal__secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "pipe-url-modal__primary"
+          },
+          {
+            "text": "↑ Pick a role from the pipeline⌘Kto search",
+            "disabled": false,
+            "cls": "jb-shelf__cta"
+          },
+          {
+            "text": "Cover letter",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Resume",
+            "disabled": false,
+            "cls": "scribe-tab"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Save version",
+            "disabled": false,
+            "cls": "scribe-btn"
+          },
+          {
+            "text": "Rescore",
+            "disabled": false,
+            "cls": "scribe-btn scribe-scorecard__rescore"
+          },
+          {
+            "text": "more specific",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "cut to 250 words",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "emphasize Python",
+            "disabled": false,
+            "cls": "scribe-chip"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "scribe-btn scribe-btn--primary"
+          },
+          {
+            "text": "Log in with Google",
+            "disabled": false,
+            "cls": "login-gate__btn-google"
+          },
+          {
+            "text": "Settings",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "login-gate__text-btn"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "ingest-url-hero__submit ingest-url-submit"
+          },
+          {
+            "text": "Add manually",
+            "disabled": false,
+            "cls": "ingest-url-hero__manual-link"
+          },
+          {
+            "text": "⭐ Favorites only",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Show dismissed",
+            "disabled": false,
+            "cls": "filter-btn"
+          },
+          {
+            "text": "Set up job discovery →",
+            "disabled": false,
+            "cls": "onboarding-celebration__cta"
+          },
+          {
+            "text": "or start with your other devices →",
+            "disabled": false,
+            "cls": "onboarding-celebration__alt"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Manual",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Scheduled",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "All",
+            "disabled": false,
+            "cls": "runs-filter-chip is-active"
+          },
+          {
+            "text": "Success",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Partial",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Failure",
+            "disabled": false,
+            "cls": "runs-filter-chip"
+          },
+          {
+            "text": "Reload",
+            "disabled": false,
+            "cls": "runs-refresh-btn"
+          },
+          {
+            "text": "Run cleanup now",
+            "disabled": false,
+            "cls": "expired-review-card__run"
+          },
+          {
+            "text": "Mark Expired",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Dismiss",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Set Researching",
+            "disabled": true,
+            "cls": ""
+          },
+          {
+            "text": "Setup",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Fit Profile",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Sheet",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Scraping",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "ATS Scoring",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "AI Providers",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Upgrades",
+            "disabled": false,
+            "cls": "settings-tablist__btn"
+          },
+          {
+            "text": "Redo onboarding wizard",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Run setup again",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Discovery setup",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-setup-wizard-row__btn"
+          },
+          {
+            "text": "Clear saved settings",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Remove saved settings",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Scraper setup",
+            "disabled": false,
+            "cls": "btn-setup-scraper-link"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Download model",
+            "disabled": false,
+            "cls": "btn-modal-secondary model-download-control__btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Check connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary settings-check-btn"
+          },
+          {
+            "text": "Save & reload",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "btn-copy-scraper"
+          },
+          {
+            "text": "Test connection",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Save paste",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Guided capture",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Browse files",
+            "disabled": false,
+            "cls": "profile-dropzone__browse"
+          },
+          {
+            "text": "Add sample",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Copy prompt to clipboard",
+            "disabled": false,
+            "cls": "profile-ai-copy-btn"
+          },
+          {
+            "text": "Save",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Clear",
+            "disabled": false,
+            "cls": "profile-btn-secondary"
+          },
+          {
+            "text": "Save preferences",
+            "disabled": false,
+            "cls": "profile-btn-save"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Paste from clipboard",
+            "disabled": false,
+            "cls": "profile-btn-secondary linkedincap-paste"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "profile-btn-reset"
+          },
+          {
+            "text": "Save to profile",
+            "disabled": false,
+            "cls": "btn-modal-primary profile-btn-done"
+          },
+          {
+            "text": "Refine",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Print / PDF",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Copy text",
+            "disabled": false,
+            "cls": "btn-doc-secondary"
+          },
+          {
+            "text": "Done",
+            "disabled": false,
+            "cls": "btn-doc-primary"
+          },
+          {
+            "text": "Continue without notes",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Generate draft",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "?",
+            "disabled": false,
+            "cls": "discovery-drawer__coach-btn"
+          },
+          {
+            "text": "Search",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Sources",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Automation",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Connection",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "History",
+            "disabled": false,
+            "cls": "discovery-subtab"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Exclude",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Scrape",
+            "disabled": false,
+            "cls": "btn-modal-secondary btn-dp-scrape"
+          },
+          {
+            "text": "Generate ideas",
+            "disabled": false,
+            "cls": "btn-modal-primary btn-dp-suggest"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Apply",
+            "disabled": false,
+            "cls": "btn-modal-secondary dp-stratum-card__apply"
+          },
+          {
+            "text": "Copy install command",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Copy uninstall command",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Download workflow file",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Open discovery setup",
+            "disabled": false,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Test webhook",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Deploy Apps Script stub",
+            "disabled": false,
+            "cls": "btn-discovery-setup"
+          },
+          {
+            "text": "Copy /exec URL",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Re-check public access",
+            "disabled": false,
+            "cls": "btn-discovery-setup btn-discovery-setup--secondary"
+          },
+          {
+            "text": "Open discovery runs log",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Run setup doctor",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Close",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Run discovery",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Cancel",
+            "disabled": false,
+            "cls": "btn-modal-secondary"
+          },
+          {
+            "text": "Add to Pipeline",
+            "disabled": false,
+            "cls": "btn-modal-primary"
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "disabled": false,
+            "cls": "oneflow-demo__invite-action oneflow-demo__invite-action--primary"
+          },
+          {
+            "text": "Poke around first",
+            "disabled": false,
+            "cls": "oneflow-demo__invite-action oneflow-demo__invite-action--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": []
+      },
+      "msSincePrevious": 0
+    },
+    {
+      "surface": "B1-mobile",
+      "file": "b1-m01-google-390.png",
+      "copy": {
+        "beatId": "google",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Your pipeline lives in a Google Sheet you own.",
+        "sub": "Sign in and we'll create it for you. Nothing is stored on our side — there is no 'our side.'",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "current"
+          },
+          {
+            "label": "AI",
+            "state": "todo"
+          },
+          {
+            "label": "Resume",
+            "state": "todo"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 15 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Copy",
+            "disabled": false,
+            "cls": "oneflow-google__detour-copy"
+          },
+          {
+            "text": "Save Client ID",
+            "disabled": false,
+            "cls": "oneflow-google__client-id-save"
+          },
+          {
+            "text": "Continue with Google",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "Connect an existing sheet instead",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "We ask for one permission: your Google Sheets. The sheet is created in your Drive, owned by you, and readable only by you.",
+          "First time? You'll need a free Client ID"
+        ]
+      },
+      "msSincePrevious": 0,
+      "geometry": {
+        "buttons": [
+          {
+            "text": "×Close",
+            "y": 16,
+            "bottom": 51.6,
+            "w": 94.5,
+            "h": 35.6,
+            "onScreen": true
+          },
+          {
+            "text": "Copy",
+            "y": 545.2,
+            "bottom": 572.5,
+            "w": 49.6,
+            "h": 27.3,
+            "onScreen": true
+          },
+          {
+            "text": "Save Client ID",
+            "y": 1044.2,
+            "bottom": 1071.5,
+            "w": 96.4,
+            "h": 27.3,
+            "onScreen": false
+          },
+          {
+            "text": "Continue with Google",
+            "y": 740.7,
+            "bottom": 782.4,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "Connect an existing sheet instead",
+            "y": 790.4,
+            "bottom": 832,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "y": 333.3,
+            "bottom": 371.5,
+            "w": 221.4,
+            "h": 38.2,
+            "onScreen": true
+          },
+          {
+            "text": "Poke around first",
+            "y": 379.5,
+            "bottom": 417.7,
+            "w": 146,
+            "h": 38.2,
+            "onScreen": true
+          }
+        ],
+        "docScrollWidth": 390,
+        "docClientWidth": 390
+      }
+    },
+    {
+      "surface": "B2-mobile",
+      "file": "b2-m01-ai-390.png",
+      "copy": {
+        "beatId": "ai",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Now give it a brain.",
+        "sub": "One AI key powers everything personal here: it drafts your fit profile from your resume on the next screen, scores every job discovery finds, and writes your tailored resumes and cover letters. Gemini Flash is the recommended pin; OpenRouter is a free alternative.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "current"
+          },
+          {
+            "label": "Resume",
+            "state": "todo"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 10 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "GeminiRecommended. Free tier, and it lights up URL import and grounded search.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "OpenRouter — freeFree tier, no card, works straight from the browser.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "OpenAIPaid. It runs through the local server — keep npm start running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "AnthropicPaid. It runs through the local server — keep npm start running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "Local — on your machineNo key, no cost. Needs a model server (Ollama) already running.",
+            "disabled": false,
+            "cls": "oneflow-ai__card"
+          },
+          {
+            "text": "Check & continue",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Gemini",
+          "Recommended. Free tier, and it lights up URL import and grounded search.",
+          "OpenRouter — free",
+          "Free tier, no card, works straight from the browser.",
+          "OpenAI",
+          "Paid. It runs through the local server — keep npm start running.",
+          "Anthropic",
+          "Paid. It runs through the local server — keep npm start running.",
+          "Local — on your machine",
+          "No key, no cost. Needs a model server (Ollama) already running.",
+          "Create a free Gemini key ↗",
+          "Copy your key.",
+          "Paste it here.",
+          "The key is stored in this browser and sent only to the provider you picked.",
+          "Your Gemini key also unlocks URL import and grounded search — done, no extra step."
+        ]
+      },
+      "msSincePrevious": 0,
+      "geometry": {
+        "buttons": [
+          {
+            "text": "×Close",
+            "y": 16,
+            "bottom": 51.6,
+            "w": 94.5,
+            "h": 35.6,
+            "onScreen": true
+          },
+          {
+            "text": "GeminiRecommended. Free tier, and it lights up U",
+            "y": 350.1,
+            "bottom": 431.4,
+            "w": 324,
+            "h": 81.3,
+            "onScreen": true
+          },
+          {
+            "text": "OpenRouter — freeFree tier, no card, works strai",
+            "y": 439.4,
+            "bottom": 504.5,
+            "w": 324,
+            "h": 65.1,
+            "onScreen": true
+          },
+          {
+            "text": "OpenAIPaid. It runs through the local server — k",
+            "y": 512.5,
+            "bottom": 593.8,
+            "w": 324,
+            "h": 81.3,
+            "onScreen": true
+          },
+          {
+            "text": "AnthropicPaid. It runs through the local server ",
+            "y": 601.8,
+            "bottom": 683.1,
+            "w": 324,
+            "h": 81.3,
+            "onScreen": true
+          },
+          {
+            "text": "Local — on your machineNo key, no cost. Needs a ",
+            "y": 691.1,
+            "bottom": 772.4,
+            "w": 324,
+            "h": 81.3,
+            "onScreen": true
+          },
+          {
+            "text": "Check & continue",
+            "y": 790.4,
+            "bottom": 832,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "y": 333.3,
+            "bottom": 371.5,
+            "w": 221.4,
+            "h": 38.2,
+            "onScreen": true
+          },
+          {
+            "text": "Poke around first",
+            "y": 379.5,
+            "bottom": 417.7,
+            "w": 146,
+            "h": 38.2,
+            "onScreen": true
+          }
+        ],
+        "docScrollWidth": 390,
+        "docClientWidth": 390
+      }
+    },
+    {
+      "surface": "B3-mobile",
+      "file": "b3-m01-resume-390.png",
+      "copy": {
+        "beatId": "resume",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Drop in your resume. We'll do the typing.",
+        "sub": "From this one file we'll draft your whole fit profile — target roles, strengths, what you want, what to avoid. You'll review everything on the next screen; nothing is saved until you approve it.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "current"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 8 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "Draft from this text",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          },
+          {
+            "text": "I'd rather start from a template",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Drag your resume here — PDF, Word, or plain text.",
+          "…OR PASTE THE TEXT INSTEAD",
+          "Your resume stays in this browser and on this machine. We send the text to the AI provider you connected on the last screen, and nowhere else."
+        ]
+      },
+      "msSincePrevious": 2584,
+      "geometry": {
+        "buttons": [
+          {
+            "text": "×Close",
+            "y": 16,
+            "bottom": 51.6,
+            "w": 94.5,
+            "h": 35.6,
+            "onScreen": true
+          },
+          {
+            "text": "Draft from this text",
+            "y": 740.7,
+            "bottom": 782.4,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "I'd rather start from a template",
+            "y": 789.4,
+            "bottom": 831,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "y": 333.3,
+            "bottom": 371.5,
+            "w": 221.4,
+            "h": 38.2,
+            "onScreen": true
+          },
+          {
+            "text": "Poke around first",
+            "y": 379.5,
+            "bottom": 417.7,
+            "w": 146,
+            "h": 38.2,
+            "onScreen": true
+          }
+        ],
+        "docScrollWidth": 390,
+        "docClientWidth": 390
+      }
+    },
+    {
+      "surface": "B3-mobile",
+      "file": "b3-m02-templates-390.png",
+      "copy": {
+        "beatId": "resume",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Drop in your resume. We'll do the typing.",
+        "sub": "From this one file we'll draft your whole fit profile — target roles, strengths, what you want, what to avoid. You'll review everything on the next screen; nothing is saved until you approve it.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "current"
+          },
+          {
+            "label": "Your fit",
+            "state": "todo"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 8 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "MarketerSenior marketing / director. Performance + brand + analytics.",
+            "disabled": false,
+            "cls": "oneflow-resume__template-card"
+          },
+          {
+            "text": "EngineerStaff / senior backend IC. Distributed systems + tech leadership.",
+            "disabled": false,
+            "cls": "oneflow-resume__template-card"
+          },
+          {
+            "text": "Product ManagerSenior / principal PM. Strategy + research + technical fluency.",
+            "disabled": false,
+            "cls": "oneflow-resume__template-card"
+          },
+          {
+            "text": "Start blankFill every field yourself. No seed data.",
+            "disabled": false,
+            "cls": "oneflow-resume__template-card"
+          },
+          {
+            "text": "Back to upload or paste",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--ghost"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Pick the closest starting point. Everything is editable on the next screen — a template is a seed, not a lock.",
+          "Marketer",
+          "Senior marketing / director. Performance + brand + analytics.",
+          "Engineer",
+          "Staff / senior backend IC. Distributed systems + tech leadership.",
+          "Product Manager",
+          "Senior / principal PM. Strategy + research + technical fluency.",
+          "Start blank",
+          "Fill every field yourself. No seed data."
+        ]
+      },
+      "msSincePrevious": 943,
+      "geometry": {
+        "buttons": [
+          {
+            "text": "×Close",
+            "y": 16,
+            "bottom": 51.6,
+            "w": 94.5,
+            "h": 35.6,
+            "onScreen": true
+          },
+          {
+            "text": "MarketerSenior marketing / director. Performance",
+            "y": 423.3,
+            "bottom": 504.6,
+            "w": 324,
+            "h": 81.3,
+            "onScreen": true
+          },
+          {
+            "text": "EngineerStaff / senior backend IC. Distributed s",
+            "y": 512.6,
+            "bottom": 593.9,
+            "w": 324,
+            "h": 81.3,
+            "onScreen": true
+          },
+          {
+            "text": "Product ManagerSenior / principal PM. Strategy +",
+            "y": 601.9,
+            "bottom": 683.2,
+            "w": 324,
+            "h": 81.3,
+            "onScreen": true
+          },
+          {
+            "text": "Start blankFill every field yourself. No seed da",
+            "y": 691.2,
+            "bottom": 756.3,
+            "w": 324,
+            "h": 65.1,
+            "onScreen": true
+          },
+          {
+            "text": "Back to upload or paste",
+            "y": 789.4,
+            "bottom": 831,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "y": 333.3,
+            "bottom": 371.5,
+            "w": 221.4,
+            "h": 38.2,
+            "onScreen": true
+          },
+          {
+            "text": "Poke around first",
+            "y": 379.5,
+            "bottom": 417.7,
+            "w": 146,
+            "h": 38.2,
+            "onScreen": true
+          }
+        ],
+        "docScrollWidth": 390,
+        "docClientWidth": 390
+      },
+      "hasBackAction": 1
+    },
+    {
+      "surface": "B3",
+      "tag": "draft-failed-taking-template-fallback",
+      "message": "Missing Gemini API key: set PROFILE_GEMINI_API_KEY, ATS_GEMINI_API_KEY, or GEMINI_API_KEY."
+    },
+    {
+      "surface": "B4-mobile",
+      "file": "b4-m01-fit-390.png",
+      "copy": {
+        "beatId": "fit",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Here's how we'll judge every job for you.",
+        "sub": "We drafted this from your resume. Fix anything that's off — this is the one-time part that makes every match yours.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "current"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 7 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "edit",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Looks like me →",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Looking for",
+          "↑",
+          "↓",
+          "×",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Seniority",
+          "Intern",
+          "Entry",
+          "Mid",
+          "Senior",
+          "Staff",
+          "Principal",
+          "Manager",
+          "Director",
+          "Head",
+          "VP",
+          "C-level",
+          "Any",
+          "Anywhere",
+          "Your edge",
+          "1",
+          "↑",
+          "↓",
+          "×",
+          "2",
+          "↑",
+          "↓",
+          "×",
+          "3",
+          "↑",
+          "↓",
+          "×",
+          "4",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Growth marketer who has owned both brand and performance for B2C and B2B brands. I run paid acquisition, lifecycle, and content as one system, and I judge channels on contribution margin, not vanity reach. I want a senior role where strategy, budget, and execution all sit on my desk.",
+          "edit",
+          "Lean toward / away",
+          "Lean toward",
+          "×",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Lean away",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Edit details",
+          "Raw profile JSON"
+        ]
+      },
+      "msSincePrevious": 3565,
+      "geometry": {
+        "buttons": [
+          {
+            "text": "×Close",
+            "y": 16,
+            "bottom": 51.6,
+            "w": 94.5,
+            "h": 35.6,
+            "onScreen": true
+          },
+          {
+            "text": "↑",
+            "y": 359.2,
+            "bottom": 385.6,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↓",
+            "y": 359.2,
+            "bottom": 385.6,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 359.2,
+            "bottom": 385.6,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↑",
+            "y": 399.6,
+            "bottom": 425.9,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↓",
+            "y": 399.6,
+            "bottom": 425.9,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 399.6,
+            "bottom": 425.9,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "Add",
+            "y": 443.9,
+            "bottom": 470.3,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↑",
+            "y": 669.5,
+            "bottom": 695.8,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↓",
+            "y": 669.5,
+            "bottom": 695.8,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 669.5,
+            "bottom": 695.8,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↑",
+            "y": 715.8,
+            "bottom": 742.2,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↓",
+            "y": 715.8,
+            "bottom": 742.2,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 715.8,
+            "bottom": 742.2,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↑",
+            "y": 762.2,
+            "bottom": 788.5,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↓",
+            "y": 762.2,
+            "bottom": 788.5,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 762.2,
+            "bottom": 788.5,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↑",
+            "y": 808.5,
+            "bottom": 834.9,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "↓",
+            "y": 808.5,
+            "bottom": 834.9,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 808.5,
+            "bottom": 834.9,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "Add",
+            "y": 856.9,
+            "bottom": 883.2,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "edit",
+            "y": 1062.6,
+            "bottom": 1089,
+            "w": 35.6,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1201,
+            "bottom": 1227.3,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1241.3,
+            "bottom": 1267.7,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1281.7,
+            "bottom": 1308,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1322,
+            "bottom": 1348.4,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Add",
+            "y": 1366.4,
+            "bottom": 1392.7,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1443.7,
+            "bottom": 1470.1,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1484.1,
+            "bottom": 1510.4,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1524.4,
+            "bottom": 1550.8,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Add",
+            "y": 1568.8,
+            "bottom": 1595.1,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Add",
+            "y": 1821,
+            "bottom": 1847.4,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 2026.3,
+            "bottom": 2052.7,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 2066.7,
+            "bottom": 2093,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 2107,
+            "bottom": 2133.3,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Add",
+            "y": 2151.3,
+            "bottom": 2177.7,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Looks like me →",
+            "y": 790.4,
+            "bottom": 832,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "y": 333.3,
+            "bottom": 371.5,
+            "w": 221.4,
+            "h": 38.2,
+            "onScreen": true
+          },
+          {
+            "text": "Poke around first",
+            "y": 379.5,
+            "bottom": 417.7,
+            "w": 146,
+            "h": 38.2,
+            "onScreen": true
+          }
+        ],
+        "docScrollWidth": 390,
+        "docClientWidth": 390
+      },
+      "addControls": [
+        {
+          "lines": 1,
+          "w": 36.28,
+          "h": 26.34,
+          "whiteSpace": "normal"
+        },
+        {
+          "lines": 1,
+          "w": 36.28,
+          "h": 26.34,
+          "whiteSpace": "normal"
+        },
+        {
+          "lines": 1,
+          "w": 36.28,
+          "h": 26.34,
+          "whiteSpace": "normal"
+        },
+        {
+          "lines": 1,
+          "w": 36.28,
+          "h": 26.34,
+          "whiteSpace": "normal"
+        },
+        {
+          "lines": 1,
+          "w": 36.28,
+          "h": 26.34,
+          "whiteSpace": "normal"
+        },
+        {
+          "lines": 1,
+          "w": 36.28,
+          "h": 26.34,
+          "whiteSpace": "normal"
+        }
+      ],
+      "primaryReachable": {
+        "y": 790.4,
+        "bottom": 832,
+        "onScreenWithoutScrolling": true
+      }
+    },
+    {
+      "surface": "B4-mobile",
+      "file": "b4-m02-fit-390-full.png",
+      "copy": {
+        "beatId": "fit",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Here's how we'll judge every job for you.",
+        "sub": "We drafted this from your resume. Fix anything that's off — this is the one-time part that makes every match yours.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "current"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 7 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "edit",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Looks like me →",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Looking for",
+          "↑",
+          "↓",
+          "×",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Seniority",
+          "Intern",
+          "Entry",
+          "Mid",
+          "Senior",
+          "Staff",
+          "Principal",
+          "Manager",
+          "Director",
+          "Head",
+          "VP",
+          "C-level",
+          "Any",
+          "Anywhere",
+          "Your edge",
+          "1",
+          "↑",
+          "↓",
+          "×",
+          "2",
+          "↑",
+          "↓",
+          "×",
+          "3",
+          "↑",
+          "↓",
+          "×",
+          "4",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Growth marketer who has owned both brand and performance for B2C and B2B brands. I run paid acquisition, lifecycle, and content as one system, and I judge channels on contribution margin, not vanity reach. I want a senior role where strategy, budget, and execution all sit on my desk.",
+          "edit",
+          "Lean toward / away",
+          "Lean toward",
+          "×",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Lean away",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Edit details",
+          "Raw profile JSON"
+        ]
+      },
+      "msSincePrevious": 0
+    },
+    {
+      "surface": "B4-mobile",
+      "file": "b4-m03-fit-390-details.png",
+      "copy": {
+        "beatId": "fit",
+        "headerTitle": "Set up JobBored",
+        "kicker": null,
+        "headline": "Here's how we'll judge every job for you.",
+        "sub": "We drafted this from your resume. Fix anything that's off — this is the one-time part that makes every match yours.",
+        "spine": [
+          {
+            "label": "Google",
+            "state": "done"
+          },
+          {
+            "label": "AI",
+            "state": "done"
+          },
+          {
+            "label": "Resume",
+            "state": "done"
+          },
+          {
+            "label": "Your fit",
+            "state": "current"
+          },
+          {
+            "label": "Discovery",
+            "state": "todo"
+          },
+          {
+            "label": "Done",
+            "state": "todo"
+          }
+        ],
+        "spineTime": "about 7 min left",
+        "progressSystems": [
+          ".discovery-setup-wizard__spine"
+        ],
+        "message": null,
+        "stages": [],
+        "buttons": [
+          {
+            "text": "×Close",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__close"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "↑",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "↑",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "↓",
+            "disabled": true,
+            "cls": "oneflow-fit-chip__move"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "edit",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "×",
+            "disabled": false,
+            "cls": "oneflow-fit-chip__remove"
+          },
+          {
+            "text": "Add",
+            "disabled": false,
+            "cls": "oneflow-fit-link-button"
+          },
+          {
+            "text": "Looks like me →",
+            "disabled": false,
+            "cls": "discovery-setup-wizard__btn discovery-setup-wizard__btn--primary"
+          }
+        ],
+        "toasts": [],
+        "url": "http://localhost:8095/",
+        "beatText": [
+          "Looking for",
+          "↑",
+          "↓",
+          "×",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Seniority",
+          "Intern",
+          "Entry",
+          "Mid",
+          "Senior",
+          "Staff",
+          "Principal",
+          "Manager",
+          "Director",
+          "Head",
+          "VP",
+          "C-level",
+          "Any",
+          "Anywhere",
+          "Your edge",
+          "1",
+          "↑",
+          "↓",
+          "×",
+          "2",
+          "↑",
+          "↓",
+          "×",
+          "3",
+          "↑",
+          "↓",
+          "×",
+          "4",
+          "↑",
+          "↓",
+          "×",
+          "Add",
+          "Growth marketer who has owned both brand and performance for B2C and B2B brands. I run paid acquisition, lifecycle, and content as one system, and I judge channels on contribution margin, not vanity reach. I want a senior role where strategy, budget, and execution all sit on my desk.",
+          "edit",
+          "Lean toward / away",
+          "Lean toward",
+          "×",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Lean away",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Edit details",
+          "Work mode",
+          "Any",
+          "Remote only",
+          "Hybrid OK",
+          "Onsite OK",
+          "Acceptable locations",
+          "Add",
+          "Salary floor (USD/year)",
+          "Reject listings without published salary",
+          "Skip titles",
+          "×",
+          "×",
+          "×",
+          "Add",
+          "Work authorization",
+          "Any",
+          "US citizen",
+          "US authorized",
+          "Needs sponsorship",
+          "Raw profile JSON"
+        ]
+      },
+      "msSincePrevious": 788,
+      "geometry": {
+        "buttons": [
+          {
+            "text": "×Close",
+            "y": 16,
+            "bottom": 51.6,
+            "w": 94.5,
+            "h": 35.6,
+            "onScreen": true
+          },
+          {
+            "text": "↑",
+            "y": -620.8,
+            "bottom": -594.4,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↓",
+            "y": -620.8,
+            "bottom": -594.4,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": -620.8,
+            "bottom": -594.4,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↑",
+            "y": -580.4,
+            "bottom": -554.1,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↓",
+            "y": -580.4,
+            "bottom": -554.1,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": -580.4,
+            "bottom": -554.1,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Add",
+            "y": -536.1,
+            "bottom": -509.8,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↑",
+            "y": -310.5,
+            "bottom": -284.2,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↓",
+            "y": -310.5,
+            "bottom": -284.2,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": -310.5,
+            "bottom": -284.2,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↑",
+            "y": -264.2,
+            "bottom": -237.8,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↓",
+            "y": -264.2,
+            "bottom": -237.8,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": -264.2,
+            "bottom": -237.8,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↑",
+            "y": -217.8,
+            "bottom": -191.5,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↓",
+            "y": -217.8,
+            "bottom": -191.5,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": -217.8,
+            "bottom": -191.5,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↑",
+            "y": -171.5,
+            "bottom": -145.1,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "↓",
+            "y": -171.5,
+            "bottom": -145.1,
+            "w": 18.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": -171.5,
+            "bottom": -145.1,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Add",
+            "y": -123.1,
+            "bottom": -96.8,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "edit",
+            "y": 82.6,
+            "bottom": 109,
+            "w": 35.6,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 221,
+            "bottom": 247.3,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 261.3,
+            "bottom": 287.7,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 301.7,
+            "bottom": 328,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 342,
+            "bottom": 368.4,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "Add",
+            "y": 386.4,
+            "bottom": 412.7,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 463.7,
+            "bottom": 490.1,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 504.1,
+            "bottom": 530.4,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "×",
+            "y": 544.4,
+            "bottom": 570.8,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "Add",
+            "y": 588.8,
+            "bottom": 615.1,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": true
+          },
+          {
+            "text": "Add",
+            "y": 841,
+            "bottom": 867.4,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1046.3,
+            "bottom": 1072.7,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1086.7,
+            "bottom": 1113,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "×",
+            "y": 1127,
+            "bottom": 1153.3,
+            "w": 15.2,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Add",
+            "y": 1171.3,
+            "bottom": 1197.7,
+            "w": 36.3,
+            "h": 26.3,
+            "onScreen": false
+          },
+          {
+            "text": "Looks like me →",
+            "y": 790.4,
+            "bottom": 832,
+            "w": 358,
+            "h": 41.6,
+            "onScreen": true
+          },
+          {
+            "text": "Make it mine — 15 min, once",
+            "y": 333.3,
+            "bottom": 371.5,
+            "w": 221.4,
+            "h": 38.2,
+            "onScreen": true
+          },
+          {
+            "text": "Poke around first",
+            "y": 379.5,
+            "bottom": 417.7,
+            "w": 146,
+            "h": 38.2,
+            "onScreen": true
+          }
+        ],
+        "docScrollWidth": 390,
+        "docClientWidth": 390
+      }
+    }
+  ],
+  "fatal": null,
+  "log": {
+    "shots": [
+      {
+        "file": "s0-m01-cold-start-390.png",
+        "hash": "0eb9abf606573825",
+        "surface": "S0-mobile"
+      },
+      {
+        "file": "s0-m02-cold-start-390-full.png",
+        "hash": "0eb9abf606573825",
+        "surface": "S0-mobile"
+      },
+      {
+        "file": "b1-m01-google-390.png",
+        "hash": "a4b0859c67bdb27d",
+        "surface": "B1-mobile"
+      },
+      {
+        "file": "b2-m01-ai-390.png",
+        "hash": "1842bd1c2ee3c540",
+        "surface": "B2-mobile"
+      },
+      {
+        "file": "b3-m01-resume-390.png",
+        "hash": "231968ae0596bc9e",
+        "surface": "B3-mobile"
+      },
+      {
+        "file": "b3-m02-templates-390.png",
+        "hash": "7b657f7e1abc4a31",
+        "surface": "B3-mobile"
+      },
+      {
+        "file": "b4-m01-fit-390.png",
+        "hash": "9838af6097ad30a3",
+        "surface": "B4-mobile"
+      },
+      {
+        "file": "b4-m02-fit-390-full.png",
+        "hash": "21658431e98cd522",
+        "surface": "B4-mobile"
+      },
+      {
+        "file": "b4-m03-fit-390-details.png",
+        "hash": "f35a84b508f61380",
+        "surface": "B4-mobile"
+      }
+    ],
+    "console": [
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 403 (Forbidden)",
+        "at": "/config.js:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Refused to execute script from 'http://localhost:8095/config.js' because its MIME type ('text/plain') is not executable, and strict MIME type checking is enabled.",
+        "at": "/?greenfield=1:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "[JobBored startup] window:error {kind: resource, target: http://localhost:8095/config.js}",
+        "at": "/?greenfield=1:94:27",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Access to fetch at 'http://127.0.0.1:3847/api/applications' from origin 'http://localhost:8095' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "at": "/?greenfield=1:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "at": "http://127.0.0.1:3847/api/applications:0:0",
+        "surface": "boot"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 404 ()",
+        "at": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash:generateContent?key=<redacted>:0:0",
+        "surface": "B2-mobile"
+      },
+      {
+        "type": "warning",
+        "text": "[JobBored] Gemini model \"gemini-flash\" was rejected; retrying with gemini-3.5-flash.",
+        "at": "/resume-generate.js:579:16",
+        "surface": "B2-mobile"
+      },
+      {
+        "type": "error",
+        "text": "Access to fetch at 'http://127.0.0.1:3847/api/llm-config' from origin 'http://localhost:8095' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.",
+        "at": "/:0:0",
+        "surface": "B2-mobile"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: net::ERR_FAILED",
+        "at": "http://127.0.0.1:3847/api/llm-config:0:0",
+        "surface": "B2-mobile"
+      },
+      {
+        "type": "warning",
+        "text": "[JobBored] llm-config pin POST failed: Failed to fetch",
+        "at": "/oneflow-beat-ai.js:525:14",
+        "surface": "B2-mobile"
+      },
+      {
+        "type": "error",
+        "text": "Failed to load resource: the server responded with a status of 500 (Internal Server Error)",
+        "at": "/profile/from-resume:0:0",
+        "surface": "B3-mobile"
+      }
+    ],
+    "network": [
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/config.js",
+        "status": 403,
+        "ms": 28,
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://localhost:8095/config.js",
+        "status": "FAILED",
+        "ms": 29,
+        "failure": "net::ERR_ABORTED",
+        "surface": "boot"
+      },
+      {
+        "method": "GET",
+        "url": "http://127.0.0.1:3847/api/applications",
+        "status": "FAILED",
+        "ms": 15,
+        "failure": "net::ERR_FAILED",
+        "surface": "boot"
+      },
+      {
+        "method": "POST",
+        "url": "https://generativelanguage.googleapis.com/v1beta/models/gemini-flash:generateContent?key=<redacted>",
+        "status": 404,
+        "ms": 538,
+        "surface": "B2-mobile"
+      },
+      {
+        "method": "POST",
+        "url": "http://127.0.0.1:3847/api/llm-config",
+        "status": "FAILED",
+        "ms": 3,
+        "failure": "net::ERR_FAILED",
+        "surface": "B2-mobile"
+      },
+      {
+        "method": "POST",
+        "url": "http://localhost:8095/profile/from-resume",
+        "status": 500,
+        "ms": 280,
+        "surface": "B3-mobile"
+      }
+    ],
+    "pageErrors": [
+      {
+        "type": "pageerror",
+        "text": "Cannot read properties of null (reading 'appendChild')",
+        "stack": "TypeError: Cannot read properties of null (reading 'appendChild') |     at <anonymous>:15:28 |     at <anonymous>:34:3 |     at <anonymous>:36:7",
+        "surface": "boot"
+      }
+    ]
+  }
+}

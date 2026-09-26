@@ -1,5 +1,7 @@
 /* ============================================================
-   role.css — JobBored v2 PART 03 (The Dossier) + empty-state shelf
+   role.css — JobBored v2 PART 03 (The Dossier): .dossier frame, legacy
+   materials panel, workshop stepper/chips. The empty-state shelf lives in
+   flowing-chrome.css (UX01 DS-09).
    ------------------------------------------------------------
    Owner:    dossier-df/css lane
    Scope:    body.jb-v2 [data-region="role"] (region host) and
@@ -37,178 +39,9 @@ body.jb-v2 [data-region="role"] *,
 body.jb-v2 [data-region="role"] *::before,
 body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
 
-/* ────────────────────────────────────────────────────────────
-   Section divider — common to both empty + open states
-   ──────────────────────────────────────────────────────────── */
-/* Section divider — small editorial tag above the Dossier and the
-   Workshop. The role title is the page hero (in the Case's status
-   rail), not this divider; we keep this as a small mono eyebrow + a
-   tucked close affordance, never as a headline. */
-.jb-role-divider {
-  position: relative;
-  padding: 36px 32px 12px;
-}
-.jb-role-divider__rule {
-  position: absolute;
-  left: 0; right: 0; top: 24px;
-  height: 1px;
-  background: repeating-linear-gradient(90deg, var(--jb-line, #C9C2B0) 0 6px, transparent 6px 12px);
-}
-.jb-role-divider__inner {
-  max-width: 1600px;
-  margin: 0 auto;
-  display: flex;
-  align-items: center;
-  gap: 16px;
-}
-.jb-role-divider__num {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 10.5px;
-  color: var(--jb-mute, #6B7B82);
-  letter-spacing: .25em;
-}
-.jb-role-divider__title {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 11px;
-  line-height: 1;
-  color: var(--jb-navy, #0E3A4E);
-  letter-spacing: .22em;
-  text-transform: uppercase;
-  padding: 0;
-}
-.jb-role-divider__title em {
-  font-style: normal;
-  color: var(--jb-mint, #5FCB8E);
-}
-.jb-role-divider__sub {
-  margin-left: auto;
-  max-width: 420px;
-  font-size: 12.5px;
-  line-height: 1.5;
-  color: var(--jb-navy-soft, #355467);
-  font-style: italic;
-}
-.jb-role-divider__close {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 10.5px;
-  color: var(--jb-mute, #6B7B82);
-  letter-spacing: .15em;
-  text-decoration: none;
-  padding: 5px 11px;
-  border: 1px solid var(--jb-line, #C9C2B0);
-  border-radius: 999px;
-  background: transparent;
-  cursor: pointer;
-}
-.jb-role-divider__close:hover {
-  color: var(--jb-navy, #0E3A4E);
-  border-color: var(--jb-navy, #0E3A4E);
-}
-
-/* ────────────────────────────────────────────────────────────
-   Empty-state shelf
-   ──────────────────────────────────────────────────────────── */
-.jb-shelf {
-  max-width: 1100px;
-  margin: 56px auto 80px;
-  padding: 0 32px;
-  text-align: center;
-  position: relative;
-}
-.jb-shelf__rule {
-  height: 1px;
-  background: repeating-linear-gradient(90deg, var(--jb-line, #C9C2B0) 0 6px, transparent 6px 12px);
-  margin-bottom: 22px;
-}
-.jb-shelf__num {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 11px;
-  color: var(--jb-mute, #6B7B82);
-  letter-spacing: .25em;
-  margin-bottom: 14px;
-}
-.jb-shelf__num em {
-  font-style: normal;
-  color: var(--jb-amber, #EF8F26);
-}
-.jb-shelf__title {
-  font-family: var(--font-display, "Caveat", "Bradley Hand", cursive);
-  font-size: 38px;
-  color: var(--jb-navy-soft, #355467);
-  line-height: 1.1;
-  margin: 0 0 10px;
-}
-.jb-shelf__title em {
-  color: var(--jb-mint, #5FCB8E);
-  font-style: italic;
-}
-.jb-shelf__sub {
-  font-size: 14px;
-  color: var(--jb-mute, #6B7B82);
-  font-style: italic;
-  max-width: 520px;
-  margin: 0 auto 26px;
-  line-height: 1.55;
-}
-.jb-shelf__hints {
-  display: grid;
-  grid-template-columns: 1.5fr 1fr;
-  gap: 18px;
-  max-width: 820px;
-  margin: 0 auto;
-}
-@media (max-width: 720px) {
-  .jb-shelf__hints { grid-template-columns: 1fr; }
-}
-.jb-hint {
-  border: 1.5px dashed var(--jb-line, #C9C2B0);
-  border-radius: var(--radius, 14px);
-  padding: 18px 20px;
-  background: transparent;
-  text-align: left;
-}
-.jb-hint__eyebrow {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 10px;
-  color: var(--jb-mute, #6B7B82);
-  letter-spacing: .2em;
-  margin-bottom: 6px;
-}
-.jb-hint__title {
-  font-family: var(--font-display, "Caveat", "Bradley Hand", cursive);
-  font-size: 22px;
-  color: var(--jb-navy-soft, #355467);
-  line-height: 1.15;
-  margin: 0 0 4px;
-}
-.jb-hint__desc {
-  font-size: 12.5px;
-  color: var(--jb-mute, #6B7B82);
-  line-height: 1.5;
-}
-.jb-shelf__cta {
-  display: inline-flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 28px;
-  padding: 10px 18px;
-  border: 1px solid var(--jb-navy, #0E3A4E);
-  border-radius: 999px;
-  font-size: 13px;
-  color: var(--jb-navy, #0E3A4E);
-  background: var(--jb-paper, #FFFEF9);
-  cursor: pointer;
-  box-shadow: var(--shadow-sticker, 3px 4px 0 rgba(14,58,78,.12));
-  font-family: inherit;
-}
-.jb-shelf__cta-key {
-  font-family: var(--font-mono, "JetBrains Mono", ui-monospace, monospace);
-  font-size: 11px;
-  padding: 2px 6px;
-  background: var(--jb-cream-2, #F4ECDB);
-  border: 1px solid var(--jb-line, #C9C2B0);
-  border-radius: 4px;
-}
+/* .jb-role-divider had no renderer left; removed (UX01 DS-09). */
+/* The empty-state shelf (.jb-shelf, .jb-hint) moved to flowing-chrome.css
+   (UX01 DS-09). */
 /* ════════════════════════════════════════════════════════
    Dossier — Direction F two-card layout
    ════════════════════════════════════════════════════════ */
@@ -224,7 +57,15 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   --radius-md: 10px;
   --radius-lg: 16px;
 
-  max-width: 1180px;
+  /* The wrapper carries the shell gutter exactly like every other flow
+     region ([data-region="pipeline"] et al), so the Case inside it can be a
+     plain min(1220px, 100%) and land on the same width. The old
+     `max-width: 1180px` was the second of three competing maxima: the token's
+     nested `100%` re-resolved against this box and subtracted the gutter a
+     second time, leaving the dossier 104px narrower than the pipeline above
+     it (docs/redesign/dossier-2026-09/TEARDOWN.md §4). */
+  width: var(--jb-flow-content-width, min(1220px, calc(100% - 32px)));
+  max-width: none;
   margin: 0 auto;
   display: flex;
   flex-direction: column;
@@ -483,7 +324,6 @@ body.jb-v2 [data-region="role"] *::after { box-sizing: border-box; }
   }
 }
 
-}
 
 /* ════════════════════════════════════════════════════════
    Application Materials — Hermes-generated artifacts panel

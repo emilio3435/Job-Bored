@@ -1,0 +1,18 @@
+import { openApp, shoot } from "/Users/emilionunezgarcia/Job-Bored.worktrees/ux01/docs/programs/ux01-20260925/audit/tools/audit-harness.mjs";
+const L = "modern-patterns";
+const vp = process.argv[2] || "desktop";
+const log = (...a) => console.log(vp, ...a);
+const app = await openApp({ mode: "greenfield", viewport: vp });
+const p = app.page;
+await shoot(p, L, "onboarding-demo-board");
+await p.getByRole("button", { name: /Make it mine/ }).click();
+await p.waitForTimeout(1500);
+await shoot(p, L, "onboarding-beat1");
+log("beat1:", await p.evaluate(() => { const d = [...document.querySelectorAll('[role=dialog],dialog,[data-beat-id]')].filter(x => x.offsetParent || x.open); return d.map(x => (x.dataset.beatId || x.id) + " :: " + x.innerText.replace(/\s+/g, " ").slice(0, 900)); }));
+await app.close();
+const app2 = await openApp({ mode: "greenfield", viewport: vp });
+await app2.page.getByRole("button", { name: /Poke around/ }).click();
+await app2.page.waitForTimeout(1500);
+await shoot(app2.page, L, "onboarding-poke-around");
+log("poke:", await app2.page.evaluate(() => document.body.innerText.replace(/\s+/g, " ").slice(0, 600)));
+await app2.close();

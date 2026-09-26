@@ -208,7 +208,18 @@ export function buildDiscoveryRunLogRowFromStatus(
     leadsUpdated: Number(status.writeResult?.updated) || 0,
     source: extras.source || "worker",
     variationKey: String(status.request?.variationKey || ""),
-    error: logStatus === "success" ? "" : String(status.error || ""),
+    // Small UX: when non-success states lack an explicit `error`, surface the
+    // lifecycle.reasonMessage or the first warning as a human-readable hint.
+    error:
+      logStatus === "success"
+        ? ""
+        : String(
+            status.error ||
+              status.lifecycle?.reasonMessage ||
+              (Array.isArray(status.warnings) && status.warnings.length
+                ? status.warnings[0]
+                : ""),
+          ),
   };
 }
 

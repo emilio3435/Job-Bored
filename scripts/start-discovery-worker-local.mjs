@@ -1,7 +1,12 @@
 #!/usr/bin/env node
 
 import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { decideAfterChildExit, decideExistingWorkerAction, parseStarterOptions } from "./lib/discovery-worker-policy.mjs";
+import {
+  decideAfterChildExit,
+  decideExistingWorkerAction,
+  decideHeldWorkerAction,
+  parseStarterOptions,
+} from "./lib/discovery-worker-policy.mjs";
 import { join, resolve } from "node:path";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
@@ -226,17 +231,79 @@ async function probeExistingWorker(host, port) {
   }
 }
 
-function holdProcessOpenForExistingWorker(host, port) {
+const DEFAULT_HOLD_PROBE_MS = 5_000;
+
+/**
+ * Keep this concurrently child alive while someone else owns :8644, but
+ * re-probe health. A dead held worker must not leave a zombie noop holder
+ * (2026-09-16: starter PID alive for hours, no child, connection refused).
+ *
+ * @param {string} host
+ * @param {number} port
+ * @param {{ onWorkerGone?: () => void, probeIntervalMs?: number }} [options]
+ */
+function holdProcessOpenForExistingWorker(host, port, options = {}) {
   console.info(
-    `[start:discovery-worker] browser-use discovery worker already running at http://${host}:${port}; reusing existing process.`,
+    `[start:discovery-worker] browser-use discovery worker already running at http://${host}:${port}; reusing existing process (will respawn if it dies).`,
   );
-  const noopInterval = setInterval(() => {}, 60_000);
-  const shutdown = () => {
-    clearInterval(noopInterval);
-    process.exit(0);
+  const probeIntervalMs = Number(options.probeIntervalMs);
+  const intervalMs =
+    Number.isFinite(probeIntervalMs) && probeIntervalMs > 0
+      ? probeIntervalMs
+      : DEFAULT_HOLD_PROBE_MS;
+  let shuttingDown = false;
+  let finished = false;
+  let inFlight = false;
+
+  const finish = (next) => {
+    if (finished) return;
+    finished = true;
+    clearInterval(interval);
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+    if (typeof next === "function") next();
   };
-  process.on("SIGINT", shutdown);
-  process.on("SIGTERM", shutdown);
+
+  const onSignal = () => {
+    shuttingDown = true;
+    finish(() => process.exit(0));
+  };
+
+  const tick = async () => {
+    if (finished || inFlight) return;
+    inFlight = true;
+    try {
+      const healthy = await probeExistingWorker(host, port);
+      const action = decideHeldWorkerAction({
+        heldWorkerHealthy: healthy,
+        shuttingDown,
+      });
+      if (action === "exit") {
+        finish(() => process.exit(0));
+        return;
+      }
+      if (action === "respawn") {
+        console.warn(
+          `[start:discovery-worker] reused worker at http://${host}:${port} is no longer healthy; respawning.`,
+        );
+        finish(() => {
+          if (typeof options.onWorkerGone === "function") {
+            options.onWorkerGone();
+            return;
+          }
+          process.exit(1);
+        });
+      }
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  const interval = setInterval(() => {
+    void tick();
+  }, intervalMs);
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
 }
 
 function sleep(ms) {
@@ -348,7 +415,9 @@ async function main() {
     const { restartExisting } = parseStarterOptions(process.argv.slice(2), runtimeEnv);
     const action = decideExistingWorkerAction({ existingHealthy, restartExisting });
     if (action === "reuse") {
-      holdProcessOpenForExistingWorker(host, port);
+      holdProcessOpenForExistingWorker(host, port, {
+        onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+      });
       return;
     }
     if (action === "restart") {
@@ -360,7 +429,9 @@ async function main() {
         console.warn(
           `[start:discovery-worker] could not terminate listener(s) on port ${port}; keeping existing worker.`,
         );
-        holdProcessOpenForExistingWorker(host, port);
+        holdProcessOpenForExistingWorker(host, port, {
+          onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+        });
         return;
       }
       await sleep(150);
@@ -433,11 +504,20 @@ function superviseWorker(runtimeEnv, host, port) {
         initiatedByUs: shuttingDown,
         replacementHealthy,
       });
+      const resumeSupervising = () => {
+        if (shuttingDown) return;
+        // The held replacement was healthy when we started watching; its later
+        // death is a new event, not another immediate SIGTERM storm.
+        respawns = 0;
+        spawnOnce();
+      };
       if (action === "hold") {
         console.info(
           `[start:discovery-worker] a replacement worker is healthy on port ${port}; keeping the dev stack up on its behalf.`,
         );
-        holdProcessOpenForExistingWorker(host, port);
+        holdProcessOpenForExistingWorker(host, port, {
+          onWorkerGone: resumeSupervising,
+        });
         return;
       }
       if (action === "respawn") {
@@ -454,7 +534,9 @@ function superviseWorker(runtimeEnv, host, port) {
         );
         await sleep(1000);
         if (await probeExistingWorker(host, port)) {
-          holdProcessOpenForExistingWorker(host, port);
+          holdProcessOpenForExistingWorker(host, port, {
+            onWorkerGone: resumeSupervising,
+          });
           return;
         }
         spawnOnce();

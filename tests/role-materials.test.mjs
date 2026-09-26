@@ -680,7 +680,7 @@ describe("materials rows in the case mount", () => {
 
   function rowFor(host, type) {
     const html = rowsHtml(host);
-    const re = new RegExp('<div class="case__doc" data-doc="' + type + '">([\\s\\S]*?)<\\/div><\\/div>');
+    const re = new RegExp('<div class="case__doc case__doc--[a-z]+" data-doc="' + type + '">([\\s\\S]*?)<\\/div><\\/div>');
     const m = re.exec(html);
     return m ? m[0] : "";
   }
@@ -696,8 +696,11 @@ describe("materials rows in the case mount", () => {
     const host = makeCaseMount();
     api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
     const row = rowFor(host, "resume");
-    assert.match(row, /case__docst--ready">ready</);
-    assert.match(row, /2026-08-30/);
+    assert.match(row, /case__docst--ready" data-status="ready">ready</);
+    /* SPEC §3.4: the pill carries one word; the sentence goes in the meta
+       line, which has the whole row rather than the most width-constrained
+       slot on the page. */
+    assert.match(row, /case__doc-meta">drafted 2026-08-30 · 2 files/);
     assert.match(row, /data-action="materials-preview"/);
     assert.match(row, /data-action="materials-download"/);
     assert.match(row, /\/files\/resume\.pdf\?download=1&amp;v=/);
@@ -708,9 +711,9 @@ describe("materials rows in the case mount", () => {
     api.renderManifest(host, CASE_MANIFEST, "http://127.0.0.1:3847");
     const row = rowFor(host, "cover_letter");
     /* P0-4: the row says the phase in words, and no retry count on attempt 1. */
-    assert.match(row, /writing · 42s</);
-    assert.match(row, /case__docst--drafting">drafting</);
-    assert.match(row, /case__doc-eyebrow">DRAFTING IN PROGRESS</);
+    assert.match(row, /case__docst--drafting" data-status="drafting">drafting</);
+    assert.match(row, /case__doc-eyebrow">drafting in progress · 42s</);
+    assert.match(row, /case__doc-track"/, "an indeterminate track says the run is still alive");
     assert.doesNotMatch(row, /data-action="materials-preview"/);
   });
 
@@ -725,7 +728,8 @@ describe("materials rows in the case mount", () => {
     };
     api.renderManifest(host, queued, "http://127.0.0.1:3847");
     const row = rowFor(host, "cover_letter");
-    assert.match(row, /case__doc-eyebrow">WAITING IN QUEUE</);
+    assert.match(row, /case__docst--queued" data-status="drafting">queued</);
+    assert.match(row, /case__doc-eyebrow">waiting in queue · 42s</);
     assert.match(row, /case__doc-msg">Queued for the drafting worker\.</);
     assert.match(row, /data-phase="queued"/);
   });
@@ -738,9 +742,8 @@ describe("materials rows in the case mount", () => {
     };
     api.renderManifest(host, optimistic, "http://127.0.0.1:3847");
     const row = rowFor(host, "cover_letter");
-    assert.match(row, /case__docst--drafting">drafting</);
-    assert.match(row, /case__doc-eyebrow">WAITING IN QUEUE</);
-    assert.match(row, /in line · —<\/small>/);
+    assert.match(row, /case__docst--queued" data-status="drafting">queued</);
+    assert.match(row, /case__doc-eyebrow">waiting in queue · —</);
   });
 
   it("missing resume / cover letter offer a Draft button; support docs do not", () => {
@@ -748,9 +751,26 @@ describe("materials rows in the case mount", () => {
     api.renderManifest(host, { ...CASE_MANIFEST, documents: [], pending: null }, "http://127.0.0.1:3847");
     assert.match(rowFor(host, "resume"), /data-action="resume-tailor"[^>]*>Draft</);
     assert.match(rowFor(host, "cover_letter"), /data-action="resume-cover"[^>]*>Draft</);
-    assert.match(rowFor(host, "resume"), /not drafted/);
+    assert.match(rowFor(host, "resume"), /case__docst--missing" data-status="missing">not drafted</);
+    assert.match(rowFor(host, "resume"), /case__doc-meta">never requested</);
     assert.doesNotMatch(rowFor(host, "manual_apply_checklist"), /<button/);
     assert.doesNotMatch(rowFor(host, "qa_report"), /<button/);
+    /* SPEC §6 state 7: a deliverable nothing can draft on its own says what
+       produces it instead of leaving a row with no cause and no action. */
+    assert.match(rowFor(host, "qa_report"), /case__doc-meta">written with the resume</);
+  });
+
+  /* Spec §3.7: a missing document gets ONE label. Since the dossier
+     redesign (#119) that label is the one-word state pill; the meta line
+     says something else (why it is missing), never "missing" again. The
+     Draft button stays. */
+  it("a missing document says not-drafted exactly once", () => {
+    const host = makeCaseMount();
+    api.renderManifest(host, { ...CASE_MANIFEST, documents: [], pending: null }, "http://127.0.0.1:3847");
+    const row = rowFor(host, "resume");
+    assert.equal((row.match(/not drafted/g) || []).length, 1, "one label, not two");
+    assert.doesNotMatch(row, />missing</, "the raw status word never prints");
+    assert.match(row, /data-action="resume-tailor"[^>]*>Draft</, "the Draft button stays");
   });
 
   it("a document with a quality issue offers Repair in its row", () => {
@@ -784,7 +804,7 @@ describe("materials rows in the case mount", () => {
       pending: { feature: "cover_letter", progress: { phase: "rendering_pdf", elapsedSeconds: 64, attempt: 1 } },
     }, "http://127.0.0.1:3847");
     const row = rowFor(host, "cover_letter");
-    assert.match(row, /polishing the PDFs · 1m 04s</);
+    assert.match(row, /case__doc-eyebrow">polishing the PDFs · 1m 04s</);
     assert.doesNotMatch(row, /rendering_pdf ·/);
     assert.doesNotMatch(row, /attempt/);
   });
@@ -795,12 +815,15 @@ describe("materials rows in the case mount", () => {
       ...CASE_MANIFEST,
       pending: { feature: "cover_letter", progress: { phase: "drafting", elapsedSeconds: 5, attempt: 3 } },
     }, "http://127.0.0.1:3847");
-    assert.match(rowFor(host, "cover_letter"), /writing · 5s · retry 3</);
+    assert.match(rowFor(host, "cover_letter"), /case__doc-eyebrow">drafting in progress · 5s · retry 3</);
   });
 
   /* P2-5: a failed row stated the failure and offered no exit, unlike the
-     legacy panel's dismiss + retry pair. */
-  it("a failed row says it couldn't finish and offers retry and dismiss", () => {
+     legacy panel's dismiss + retry pair. TEARDOWN §2: the humane copy the
+     pill carried — "couldn't finish" — was 15 nowrap characters in the most
+     width-constrained slot on the page, and it is what took the name column's
+     width. Same words, better place: the meta line. */
+  it("a failed row says what happened in the meta line and offers retry and dismiss", () => {
     const host = makeCaseMount();
     api.renderManifest(host, {
       ...CASE_MANIFEST,
@@ -808,7 +831,10 @@ describe("materials rows in the case mount", () => {
       pending: { feature: "cover_letter", progress: { phase: "failed", elapsedSeconds: 12, attempt: 1 } },
     }, "http://127.0.0.1:3847");
     const row = rowFor(host, "cover_letter");
-    assert.match(row, /case__docst--failed">couldn&#39;t finish</);
+    assert.match(row, /case__docst--failed" data-status="failed">failed</);
+    assert.doesNotMatch(row, /couldn&#39;t finish/, "the pill carries one word, not a sentence");
+    assert.match(row, /case__doc-meta">stopped after 12s/);
+    assert.match(row, /case__doc-msg">The drafting worker stopped before the cover letter was written\. Nothing was saved\.</);
     assert.match(row, /data-action="materials-retry"[^>]*data-feature="cover_letter"[^>]*>Try again</);
     assert.match(row, /data-action="materials-dismiss"[^>]*data-feature="cover_letter"[^>]*>Dismiss</);
   });

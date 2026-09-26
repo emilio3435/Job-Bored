@@ -1,180 +1,173 @@
 /* ============================================
-   JOBBORED — Light Theme
-   Cool neutral base + mint accents.
-   With OAuth auth, write-back, toasts.
+   JOBBORED — base styles
+   Legacy token names below are ALIASES ONLY (UX01 C2, DS-01).
+   Every value lives in tokens-v2.css; add new values there, never
+   here. New CSS should use the --jb-* names directly.
    ============================================ */
 
 :root {
-  /* Core palette — JobBored brand */
-  --bg: #f8fafc;
-  --bg-raised: #ffffff;
-  --surface: #ffffff;
-  --surface-2: #f1f5f9;
-  --surface-hover: #f8fafc;
-  --border: #e2e8f0;
-  --border-bright: #cbd5e1;
-  --divider: #f1f5f9;
+  /* Surfaces */
+  --bg: var(--jb-paper);
+  --bg-raised: var(--jb-paper);
+  --surface: var(--jb-surface);
+  --surface-2: var(--jb-paper-2);
+  --surface-hover: var(--jb-paper-2);
+  --border: var(--jb-line-soft);
+  --border-bright: var(--jb-line);
+  --divider: var(--jb-line-soft);
 
-  /* Accent — Mint */
-  --accent: #59cb89;
-  --accent-dim: rgba(89, 203, 137, 0.1);
-  --accent-hover: #45b676;
-  --accent-text: #006482;
+  /* Accent — mint fill; text on it uses --jb-on-accent */
+  --accent: var(--jb-mint);
+  --accent-dim: var(--jb-mint-tint);
+  --accent-hover: var(--jb-mint-hover);
+  --accent-text: var(--jb-navy);
 
-  /* Text — Navy */
-  --text: #003851;
-  --text-muted: #3d6272;
-  --text-faint: #7a9aab;
-  /* WCAG AA-compliant softer ink for hint/subtitle/desc copy on warm-paper
-     surfaces (wizard cards). Measures ~5.6:1 against #fcf7ec; --text-faint
-     itself measures only ~2.8:1 and is reserved for non-essential chrome
-     (filter pill counts, kanban rail decorations, etc.) where the
-     surrounding context already names the meaning. */
-  --text-soft: #4a6577;
-  --text-inverse: #fefffe;
+  /* Ink */
+  --text: var(--jb-ink);
+  --text-muted: var(--jb-ink-2);
+  --text-faint: var(--jb-ink-3);
+  --text-soft: var(--jb-ink-2);
+  --text-inverse: var(--jb-ink-inverse);
 
-  /* Semantic — priority (Amber) */
-  --hot-orange: #ef8f26;
-  --hot-bg: #fef6eb;
-  --hot-border: #f5d4a0;
-  --high-yellow: #ca8a04;
-  --high-bg: #fefce8;
-  --high-border: #fef08a;
+  /* Priority */
+  --hot-orange: var(--jb-amber);
+  --hot-bg: var(--jb-warn-tint);
+  --hot-border: var(--jb-amber-soft);
+  --high-yellow: var(--jb-warn);
+  --high-bg: var(--jb-yellow-soft);
+  --high-border: var(--jb-yellow-tape);
 
-  /* Stage rail accent colors — left-border highlight on kanban cards */
-  --stage-rail-new: #7a9aab; /* muted slate — not yet active */
-  --stage-rail-researching: #7c3aed; /* violet — discovery */
-  --stage-rail-applied: #ef8f26; /* amber — action taken */
-  --stage-rail-phone-screen: #0891b2; /* cyan — first contact */
-  --stage-rail-interviewing: #59cb89; /* mint — progressing */
-  --stage-rail-offer: #16a34a; /* green — winning */
-  --stage-rail-rejected: #b91c1c; /* red — closed out */
-  --stage-rail-passed: #64748b; /* slate — neutral exit */
-  --stage-rail-expired: #78716c; /* stone — posting closed */
+  /* Stage rails */
+  --stage-rail-new: var(--jb-stage-new);
+  --stage-rail-researching: var(--jb-stage-researching);
+  --stage-rail-applied: var(--jb-stage-applied);
+  --stage-rail-phone-screen: var(--jb-stage-phone);
+  --stage-rail-interviewing: var(--jb-stage-interviewing);
+  --stage-rail-offer: var(--jb-stage-offer);
+  --stage-rail-rejected: var(--jb-stage-rejected);
+  --stage-rail-passed: var(--jb-stage-passed);
+  --stage-rail-expired: var(--jb-stage-expired);
 
-  /* Status colors */
-  --status-new-bg: rgba(0, 100, 130, 0.1);
-  --status-new-text: #006482;
-  --status-researching-bg: #ede9fe;
-  --status-researching-text: #6d28d9;
-  --status-applied-bg: rgba(89, 203, 137, 0.12);
-  --status-applied-text: #006482;
-  --status-phone-bg: rgba(89, 203, 137, 0.15);
-  --status-phone-text: #0f766e;
-  --status-interviewing-bg: rgba(89, 203, 137, 0.18);
-  --status-interviewing-text: #15803d;
-  --status-offer-bg: #bbf7d0;
-  --status-offer-text: #166534;
-  --status-rejected-bg: #fee2e2;
-  --status-rejected-text: #b91c1c;
-  --status-passed-bg: #f1f5f9;
-  --status-passed-text: #4b5563;
-  --status-expired-bg: #f5f5f4;
-  --status-expired-text: #57534e;
+  /* Stage pills */
+  --status-new-bg: var(--jb-info-bg);
+  --status-new-text: var(--jb-navy);
+  --status-researching-bg: var(--jb-violet-soft);
+  --status-researching-text: var(--jb-violet-ink);
+  --status-applied-bg: var(--jb-mint-tint);
+  --status-applied-text: var(--jb-navy);
+  --status-phone-bg: var(--jb-mint-tint);
+  --status-phone-text: var(--jb-accent-ink);
+  --status-interviewing-bg: var(--jb-ok-tint);
+  --status-interviewing-text: var(--jb-ok);
+  --status-offer-bg: var(--jb-mint-soft);
+  --status-offer-text: var(--jb-accent-ink);
+  --status-rejected-bg: var(--jb-err-tint);
+  --status-rejected-text: var(--jb-err);
+  --status-passed-bg: var(--jb-paper-3);
+  --status-passed-text: var(--jb-ink-2);
+  --status-expired-bg: var(--jb-paper-3);
+  --status-expired-text: var(--jb-stage-expired);
 
-  /* Fit score colors */
-  --fit-high: #15803d;
-  --fit-mid: #a16207;
-  --fit-low: #7a9aab;
+  /* Fit */
+  --fit-high: var(--jb-ok);
+  --fit-mid: var(--jb-fit-mid);
+  --fit-low: var(--jb-ink-3);
 
-  /* Toast colors */
-  --toast-success: #15803d;
-  --toast-success-bg: #f0fdf4;
-  --toast-error: #b91c1c;
-  --toast-error-bg: #fef2f2;
-  --toast-info: #006482;
-  --toast-info-bg: rgba(0, 100, 130, 0.08);
+  /* Toasts (opaque tints — a toast sits over content) */
+  --toast-success: var(--jb-ok);
+  --toast-success-bg: var(--jb-ok-tint);
+  --toast-error: var(--jb-err);
+  --toast-error-bg: var(--jb-err-tint);
+  --toast-info: var(--jb-info);
+  --toast-info-bg: var(--jb-info-bg);
 
-  /* Generic run/task status — consumed by .runs-status-badge and the
-     Discovery runs log. Separate from kanban stage tokens on purpose: a
-     discovery run's success/partial/failure is orthogonal to a job's
-     pipeline stage. AA-contrast text colors, soft tinted backgrounds. */
-  --status-ok: #15803d;
-  --status-ok-bg: rgba(22, 163, 74, 0.12);
-  --status-ok-border: rgba(22, 163, 74, 0.32);
-  --status-warn: #a16207;
-  --status-warn-bg: rgba(234, 179, 8, 0.14);
-  --status-warn-border: rgba(234, 179, 8, 0.34);
-  --status-err: #b91c1c;
-  --status-err-bg: rgba(220, 38, 38, 0.12);
-  --status-err-border: rgba(220, 38, 38, 0.32);
-  --status-info: #006482;
-  --status-info-bg: rgba(0, 100, 130, 0.1);
-  --status-info-border: rgba(0, 100, 130, 0.28);
+  /* Run / task status */
+  --status-ok: var(--jb-ok);
+  --status-ok-bg: var(--jb-ok-bg);
+  --status-ok-border: color-mix(in srgb, var(--jb-ok) 32%, transparent);
+  --status-warn: var(--jb-warn);
+  --status-warn-bg: var(--jb-warn-bg);
+  --status-warn-border: color-mix(in srgb, var(--jb-warn) 34%, transparent);
+  --status-err: var(--jb-err);
+  --status-err-bg: var(--jb-err-bg);
+  --status-err-border: color-mix(in srgb, var(--jb-err) 32%, transparent);
+  --status-info: var(--jb-info);
+  --status-info-bg: var(--jb-info-bg);
+  --status-info-border: color-mix(in srgb, var(--jb-info) 28%, transparent);
+  --danger: var(--jb-err);
 
   /* Typography */
-  --font-body: "DM Sans", -apple-system, BlinkMacSystemFont, sans-serif;
-  --font-mono: "JetBrains Mono", "Fira Code", monospace;
+  --font-body: var(--jb-font-legacy-body);
+  --font-mono: var(--jb-font-legacy-mono);
 
   /* Type scale */
-  --text-xs: clamp(0.6875rem, 0.65rem + 0.2vw, 0.75rem);
-  --text-sm: clamp(0.75rem, 0.7rem + 0.25vw, 0.8125rem);
-  --text-base: clamp(0.8125rem, 0.78rem + 0.2vw, 0.875rem);
-  --text-lg: clamp(0.9375rem, 0.9rem + 0.2vw, 1rem);
-  --text-xl: clamp(1.125rem, 1rem + 0.5vw, 1.375rem);
-  --text-2xl: clamp(1.5rem, 1.2rem + 1vw, 2rem);
+  --text-xs: var(--jb-text-xs);
+  --text-sm: var(--jb-text-sm);
+  --text-base: var(--jb-text-base);
+  --text-md: var(--jb-text-md);
+  --text-lg: var(--jb-text-lg);
+  --text-xl: var(--jb-text-xl);
+  --text-2xl: var(--jb-text-2xl);
 
-  /* Spacing */
-  --space-1: 0.25rem;
-  --space-2: 0.5rem;
-  --space-3: 0.75rem;
-  --space-4: 1rem;
-  --space-5: 1.25rem;
-  --space-6: 1.5rem;
-  --space-8: 2rem;
-  --space-10: 2.5rem;
-  --space-12: 3rem;
-  --space-16: 4rem;
+  /* Spacing (n × 4px) */
+  --space-1: var(--jb-space-1);
+  --space-2: var(--jb-space-2);
+  --space-3: var(--jb-space-3);
+  --space-4: var(--jb-space-4);
+  --space-5: var(--jb-space-5);
+  --space-6: var(--jb-space-6);
+  --space-7: var(--jb-space-7);
+  --space-8: var(--jb-space-8);
+  --space-9: var(--jb-space-9);
+  --space-10: var(--jb-space-10);
+  --space-12: var(--jb-space-12);
+  --space-14: var(--jb-space-14);
+  --space-16: var(--jb-space-16);
 
   /* Radius */
-  --radius-sm: 0.375rem;
-  --radius-md: 0.5rem;
-  --radius-lg: 0.75rem;
-  --radius-xl: 1rem;
+  --radius-sm: var(--jb-radius-sm);
+  --radius-md: var(--jb-radius-md);
+  --radius-lg: var(--jb-radius-lg);
+  --radius-xl: var(--jb-radius-lg);
 
   /* Shadows */
-  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-md: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 2px rgba(0, 0, 0, 0.04);
-  --shadow-lg: 0 4px 12px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.04);
-  --shadow-hover: 0 4px 16px rgba(0, 0, 0, 0.1), 0 2px 4px rgba(0, 0, 0, 0.04);
+  --shadow-sm: var(--jb-shadow-sm);
+  --shadow-md: var(--jb-shadow-md);
+  --shadow-lg: var(--jb-shadow-lg);
+  --shadow-hover: var(--jb-shadow-hover);
 
-  /* Pipeline cards — solid cool white */
-  --glass-bg: #ffffff;
-  --glass-bg-hover: #f8fafc;
-  --glass-stroke: rgba(15, 23, 42, 0.06);
-  --radius-card: 1.125rem;
-  --radius-soft: 0.625rem;
+  /* Pipeline cards */
+  --glass-bg: var(--jb-surface);
+  --glass-bg-hover: var(--jb-paper-2);
+  --glass-stroke: var(--jb-line-strong);
+  --radius-card: var(--jb-radius-lg);
+  --radius-soft: var(--jb-radius-md);
 
   /* Transitions */
-  --ease: cubic-bezier(0.16, 1, 0.3, 1);
-  --transition: 180ms cubic-bezier(0.16, 1, 0.3, 1);
+  --ease: var(--jb-ease);
+  --transition: var(--jb-transition-base);
 
-  /* ============================================
-     Dossier (Direction F) tokens — additive only.
-     Consumed by role.css, scoped to the dossier subtree.
-     Do not change values without orchestrator approval —
-     these are the visual source of truth from
-     docs/redesign/dossier-direction-f-wireframe.html.
-     ============================================ */
-  --navy: #1B2A4E;
-  --navy-soft: #2A3A60;
-  --ink: #1A1A1A;
-  --ink-soft: #4A4A4A;
-  --mute: #7A7468;
-  --parchment: #FBF7EC;
-  --parchment-deep: #F5EFDC;
-  --workshop-bg: #EDEDE4;
-  --workshop-card: #F8F7F1;
-  --border-strong: #C9C2A8;
-  --mint: #B5D4C2;
-  --mint-deep: #6E9F87;
-  --amber: #E7B549;
-  --crimson: #B23A48;
-  --shadow-soft: 0 1px 2px rgba(27, 42, 78, 0.06), 0 8px 24px rgba(27, 42, 78, 0.08);
-  --shadow-strong: 0 2px 4px rgba(27, 42, 78, 0.10), 0 18px 40px rgba(27, 42, 78, 0.14);
-  --serif: "Lora", "Source Serif Pro", Georgia, serif;
-  --sans: "DM Sans", system-ui, -apple-system, "Segoe UI", sans-serif;
-  --mono: "JetBrains Mono", "Special Elite", ui-monospace, monospace;
+  /* Dossier (Direction F) — aliases of the --jb-dossier-* primitives.
+     role.css still redefines some of these locally (DS-02, after casefit). */
+  --navy: var(--jb-dossier-navy);
+  --navy-soft: var(--jb-dossier-navy-soft);
+  --ink: var(--jb-dossier-ink);
+  --ink-soft: var(--jb-dossier-ink-soft);
+  --mute: var(--jb-dossier-mute);
+  --parchment: var(--jb-parchment);
+  --parchment-deep: var(--jb-parchment-deep);
+  --workshop-bg: var(--jb-workshop-bg);
+  --workshop-card: var(--jb-workshop-card);
+  --border-strong: var(--jb-dossier-line);
+  --mint: var(--jb-dossier-mint);
+  --mint-deep: var(--jb-dossier-mint-deep);
+  --amber: var(--jb-dossier-amber);
+  --crimson: var(--jb-crimson);
+  --shadow-soft: var(--jb-shadow-soft);
+  --shadow-strong: var(--jb-shadow-strong);
+  --serif: var(--jb-font-serif);
+  --sans: var(--jb-font-dossier-sans);
+  --mono: var(--jb-font-dossier-mono);
 }
 
 /* ============================================
@@ -235,7 +228,7 @@ textarea {
 }
 
 :focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
   border-radius: var(--radius-sm);
 }
@@ -464,7 +457,7 @@ textarea {
   padding: var(--space-2) var(--space-4);
   font-size: var(--text-xs);
   font-weight: 600;
-  color: var(--text-inverse);
+  color: var(--jb-on-accent);
   background: var(--accent);
   border: none;
   border-radius: var(--radius-md);
@@ -726,7 +719,7 @@ textarea {
 }
 
 .auth-menu-toggle:focus-visible {
-  outline: 2px solid var(--accent);
+  outline: 2px solid var(--jb-focus-color);
   outline-offset: 2px;
 }
 
@@ -1090,7 +1083,7 @@ textarea {
   padding: var(--space-3) var(--space-5);
   font-size: var(--text-base);
   font-weight: 600;
-  color: #ffffff;
+  color: var(--jb-on-accent);
   background: var(--accent);
   border: none;
   border-radius: var(--radius-md);
@@ -1254,11 +1247,11 @@ textarea {
 
 .field-label {
   display: block;
-  font-size: 0.625rem;
+  font-size: var(--jb-type-label);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
-  color: var(--text-faint);
+  color: var(--jb-ink-2); /* 7.8:1 — AX-08 / SS-18 */
   margin-bottom: var(--space-1);
 }
 
@@ -1372,7 +1365,7 @@ textarea {
   position: fixed;
   bottom: var(--space-5);
   right: var(--space-5);
-  z-index: 1000;
+  z-index: var(--jb-z-toast);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -1608,7 +1601,7 @@ textarea {
 
 .error-btn-primary {
   background: var(--accent);
-  color: var(--text-inverse);
+  color: var(--jb-on-accent);
   border-color: var(--accent);
 }
 

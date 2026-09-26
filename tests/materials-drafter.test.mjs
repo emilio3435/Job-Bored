@@ -8,6 +8,14 @@ import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 const letterTpl = `<html><head><style>.x{}</style></head><body><p data-slot="hook">old</p><p data-slot="why-them"></p><p data-slot="why-me"></p><p data-slot="why-now"></p><p data-slot="closing"></p></body></html>`;
 const resumeTpl = `<html><head><style>.x{}</style></head><body><section data-section="summary">s</section><article data-role="audacy-dsm"><ul><li>b</li></ul></article><section data-section="experience">e</section></body></html>`;
 
+/* C11: every draft carries the user's resume; this one is a stand-in. */
+const SAMPLE_RESUME = {
+  source: "portfolio",
+  filename: "sample-resume.txt",
+  addedAt: "2026-09-20T00:00:00.000Z",
+  text: "Sample Candidate\nAudacy — Digital Sales Manager, 2016–2024\n- Grew Denver to top-3 nationally.",
+};
+
 const goodJson = {
   letter: {
     hook: "I ship paid spend toward marginal ROAS for advancement teams.",
@@ -64,6 +72,7 @@ describe("createMaterialsDrafter", () => {
     await assert.rejects(
       () =>
         drafter.enqueue({
+      resume: SAMPLE_RESUME,
           slug: "eab-role",
           company: "EAB",
           title: "Director",
@@ -90,6 +99,7 @@ describe("createMaterialsDrafter", () => {
     await mkdir(join(dir, "eab-role"), { recursive: true });
     await writeFile(join(dir, "eab-role", "job-description.md"), "Low fit — 4.7/10");
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -100,6 +110,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
     assert.match(report, /jd_unusable/);
+    assert.match(report, /full job posting/i, "actionable guidance should invite pasting the full posting");
+    assert.match(report, /(aggregator|employer careers page|blocked URL)/i, "guidance should mention replacing aggregator/blocked URLs");
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
     await assert.rejects(readFile(join(dir, "eab-role", "resume.html")));
@@ -135,6 +147,7 @@ describe("createMaterialsDrafter", () => {
       pdfRenderer: async () => ({ skipped: true }),
     });
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -167,6 +180,7 @@ describe("createMaterialsDrafter", () => {
       pdfRenderer: async () => ({ skipped: true }),
     });
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -183,6 +197,7 @@ describe("createMaterialsDrafter", () => {
   it("returns accepted pending fields and deletes pending.json on READY", async () => {
     const drafter = createMaterialsDrafter(baseDeps(dir));
     const result = await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -217,6 +232,7 @@ describe("createMaterialsDrafter", () => {
       }),
     );
     const first = await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -225,6 +241,7 @@ describe("createMaterialsDrafter", () => {
       notes: "first",
     });
     const second = await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -249,6 +266,7 @@ describe("createMaterialsDrafter", () => {
       }),
     );
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -259,6 +277,9 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
+    // Debug LLM model resolution should be present for dogfood verification.
+    assert.ok(pending.debug && pending.debug.llm, "pending.json should include llm debug info");
+    assert.equal(typeof pending.debug.llm.resolvedModel, "string");
   });
 
   it("fills nested letter chrome slots and keeps .dot children", async () => {
@@ -276,6 +297,7 @@ describe("createMaterialsDrafter", () => {
       }),
     );
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -317,6 +339,7 @@ describe("createMaterialsDrafter", () => {
       }),
     );
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -327,6 +350,34 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     assert.ok(Array.isArray(seen));
     assert.ok(seen.includes("write like a human operator"));
+  });
+
+  it("uses a usable JD provided in the request without scraping", async () => {
+    let scraped = 0;
+    const drafter = createMaterialsDrafter(
+      baseDeps(dir, {
+        scrapeJob: async () => {
+          scraped += 1;
+          throw new Error("scrape blocked");
+        },
+      }),
+    );
+    const providedJd = ("responsibility ".repeat(100)).trim();
+    await drafter.enqueue({
+      resume: SAMPLE_RESUME,
+      slug: "eab-role",
+      company: "EAB",
+      title: "Director",
+      feature: "both",
+      jobUrl: "https://example.com/job",
+      notes: "",
+      jdText: providedJd,
+    });
+    await drafter.runUntilIdle();
+    // HTML artifacts should exist even though scrape always fails.
+    await readFile(join(dir, "eab-role", "resume.html"), "utf8");
+    await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
+    assert.ok(scraped <= 1, "scrape should not be required when a usable JD is provided");
   });
 
   it("treats resume_page_count_high as review when PDF is skipped so HTML still lands", async () => {
@@ -344,6 +395,7 @@ describe("createMaterialsDrafter", () => {
       }),
     );
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -373,6 +425,7 @@ describe("createMaterialsDrafter", () => {
       }),
     );
     await drafter.enqueue({
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",
@@ -391,6 +444,7 @@ describe("createMaterialsDrafter", () => {
   it("reserves the same slug before any await so a concurrent enqueue is a no-op", async () => {
     const drafter = createMaterialsDrafter(baseDeps(dir));
     const payload = {
+      resume: SAMPLE_RESUME,
       slug: "eab-role",
       company: "EAB",
       title: "Director",

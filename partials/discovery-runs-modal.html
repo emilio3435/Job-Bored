@@ -1,4 +1,77 @@
     <!-- Discovery runs log: reads DiscoveryRuns sheet tab -->
+    <!-- UX01 C9 (FD-17): the four-column log and its row disclosure. Scoped to
+         #runsModal and token-only; handed to lane A to move into the renamed
+         runs sheet (css/legacy-discovery-runs.css is not lane B's file). -->
+    <style>
+      #runsModal .runs-table thead th {
+        white-space: normal;
+      }
+      #runsModal .runs-table tbody td.runs-at-cell {
+        white-space: normal;
+        min-width: 4.5rem;
+      }
+      #runsModal .runs-table tbody td.runs-new-cell {
+        text-align: right;
+        font-variant-numeric: tabular-nums;
+      }
+      #runsModal .runs-table tbody td.runs-why-cell {
+        text-align: left;
+        white-space: normal;
+        overflow-wrap: anywhere;
+        font-size: var(--text-xs);
+        color: var(--text-muted);
+      }
+      #runsModal .runs-row--failure td.runs-why-cell,
+      #runsModal .runs-row--partial td.runs-why-cell {
+        color: var(--status-err);
+      }
+      #runsModal .runs-row-toggle,
+      #runsModal .runs-view-pipeline {
+        padding: 0;
+        border: 0;
+        background: none;
+        font: inherit;
+        color: inherit;
+        text-align: left;
+        cursor: pointer;
+        text-decoration: underline dotted;
+        text-underline-offset: 3px;
+      }
+      #runsModal .runs-view-pipeline {
+        color: var(--accent);
+        text-decoration-style: solid;
+      }
+      #runsModal .runs-row-toggle::after {
+        content: " ▸";
+        color: var(--text-muted);
+      }
+      #runsModal .runs-row-toggle[aria-expanded="true"]::after {
+        content: " ▾";
+      }
+      #runsModal .runs-detail-row td {
+        background: var(--surface-2);
+      }
+      #runsModal .runs-detail {
+        display: grid;
+        grid-template-columns: repeat(auto-fill, minmax(7.5rem, 1fr));
+        gap: var(--space-2) var(--space-4);
+        margin: 0;
+      }
+      #runsModal .runs-detail dt {
+        font-size: var(--text-xs);
+        color: var(--text-muted);
+      }
+      #runsModal .runs-detail dd {
+        margin: 0;
+        overflow-wrap: anywhere;
+      }
+      @media (max-width: 720px) {
+        #runsModal .runs-table thead th,
+        #runsModal .runs-table tbody td {
+          padding: var(--space-2) var(--space-1);
+        }
+      }
+    </style>
     <div
       class="modal-overlay"
       id="runsModal"
@@ -37,6 +110,13 @@
           open.
         </p>
         <div class="runs-modal-actions">
+          <button
+            type="button"
+            class="btn-modal-primary"
+            id="runsRunDiscoveryBtn"
+          >
+            Run discovery
+          </button>
           <button
             type="button"
             class="btn-modal-secondary"
@@ -111,15 +191,9 @@
             <thead>
               <tr>
                 <th data-runs-sort="runAt" scope="col" tabindex="0" aria-sort="descending">Run at</th>
-                <th data-runs-sort="trigger" scope="col" tabindex="0" aria-sort="none">Trigger</th>
                 <th data-runs-sort="status" scope="col" tabindex="0" aria-sort="none">Status</th>
-                <th data-runs-sort="durationS" scope="col" tabindex="0" aria-sort="none">Duration</th>
-                <th data-runs-sort="companiesSeen" scope="col" tabindex="0" aria-sort="none">Companies</th>
-                <th data-runs-sort="leadsWritten" scope="col" tabindex="0" aria-sort="none">Leads</th>
-                <th data-runs-sort="leadsUpdated" scope="col" tabindex="0" aria-sort="none">Updated</th>
-                <th data-runs-sort="source" scope="col" tabindex="0" aria-sort="none">Source</th>
-                <th data-runs-sort="variationKey" scope="col" tabindex="0" aria-sort="none">Variation</th>
-                <th scope="col">Error</th>
+                <th data-runs-sort="leadsWritten" scope="col" tabindex="0" aria-sort="none">New roles</th>
+                <th scope="col">Why</th>
               </tr>
             </thead>
             <tbody id="runsTableBody"></tbody>

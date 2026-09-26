@@ -694,7 +694,7 @@ describe("wizard motion — one entrance signature across every surface (delight
   const SIGNATURE = "cubic-bezier(0.16, 1, 0.3, 1)";
   it("the shell panel animates in (it used to hard-pop) with the canonical curve + reduced-motion guard", async () => {
     const { readFileSync } = await import("node:fs");
-    const css = readFileSync(new URL("../css/legacy-discovery-setup-wizard.css", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../css/discovery-setup-wizard.css", import.meta.url), "utf8");
     assert.match(css, /\.discovery-setup-wizard__panel\s*\{[^}]*animation:[^}]*jbWizardIn/s, "shell panel must enter, not pop");
     assert.ok(css.includes(SIGNATURE), "shell uses the canonical curve");
     assert.match(css, /@keyframes jbWizardIn/);
@@ -725,7 +725,7 @@ describe("wizard button vocabulary — one language (delight pass)", () => {
 describe("wizard shell repaint — warm-paper skin (delight pass)", () => {
   it("done rail segments are solid mint with real checkmarks; the frame is warm paper", async () => {
     const { readFileSync } = await import("node:fs");
-    const css = readFileSync(new URL("../css/legacy-discovery-setup-wizard.css", import.meta.url), "utf8");
+    const css = readFileSync(new URL("../css/discovery-setup-wizard.css", import.meta.url), "utf8");
     assert.match(css, /__seg--done \.discovery-setup-wizard__seg-label::before\s*\{\s*content: "✓ "/s, "completed steps show a checkmark, not just a tint");
     assert.ok(css.includes("rgba(251, 246, 235, 0.92)"), "the step frame uses the warm cream paper, not slate white");
   });
@@ -741,7 +741,7 @@ describe("wizard typography — one title scale (delight pass)", () => {
     // Two of the three wizard families are gone (§7); the shell is what is
     // left, and its scale is what every beat now inherits.
     const files = [
-      ["css/legacy-discovery-setup-wizard.css", ".discovery-setup-wizard__step-title"],
+      ["css/discovery-setup-wizard.css", ".discovery-setup-wizard__step-title"],
     ];
     for (const [file, sel] of files) {
       const css = readFileSync(new URL(`../${file}`, import.meta.url), "utf8");

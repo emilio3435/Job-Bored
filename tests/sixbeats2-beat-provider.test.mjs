@@ -2,7 +2,7 @@
  * SIXBEATS-2 — Beat 2's provider defaults and Beat 3's drafting call.
  *
  * NEW-11: Beat 2 pre-selected Gemini and called it "Recommended"; spec §5 B2
- *         says `OpenRouter — free` is pre-selected and recommended.
+ *         places OpenRouter first. UX01 C7 names its paid default honestly.
  * NEW-8:  Beat 2 pinned the alias `gemini-flash`, which Google answers with
  *         404 "models/gemini-flash is not found for API version v1beta".
  * NEW-2:  Beat 3 posted `{resumeText}` alone, so the server drafted on its
@@ -45,7 +45,7 @@ const VERIFIED_OPENROUTER = {
   resumeOpenAIApiKey: "",
   resumeAnthropicApiKey: "",
   resumeOpenRouterApiKey: "sk-or-verified-key",
-  resumeGeminiModel: "gemini-3.5-flash",
+  resumeGeminiModel: "gemini-flash",
   resumeOpenAIModel: "gpt-5.6-terra",
   resumeAnthropicModel: "claude-sonnet-4-6",
   resumeOpenRouterModel: "openai/gpt-oss-120b:free",
@@ -81,6 +81,9 @@ function draftCtx(drafts = {}) {
 
 async function openResume(options = {}) {
   const env = loadArrival({ fetchImpl: draftingFetch(), ...options });
+  // GREENFIELD §4.1 gates Beat 3 on Beat 2 — this suite's whole subject is
+  // "Beat 3 drafts through the provider Beat 2 verified", so Beat 2 is done.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.open("resume");
   return env;
 }
@@ -115,7 +118,7 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
     }
   });
 
-  it("ships the spec §5 B2 sub-line, which names OpenRouter as the free path", async () => {
+  it("names OpenRouter's paid default in the B2 sub-line", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
     assert.ok(
@@ -123,23 +126,34 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
-          "letters. OpenRouter is free and takes about two minutes.",
+          "letters. An OpenRouter account takes about two minutes; the " +
+          "recommended model uses paid credit.",
       ),
     );
   });
 });
 
-describe("SIXBEATS-2 NEW-8 — Beat 2 pins a Gemini model Google actually serves", () => {
-  it("defaults Gemini to gemini-3.5-flash, not the 404-ing `gemini-flash` alias", async () => {
+describe("SIXBEATS-2 NEW-8 — Beat 2 defaults Gemini to the Flash family", () => {
+  // GREENFIELD D5: the default no longer lives on the PROVIDERS entry — one
+  // exported table in model-catalog.js feeds both the beat and Settings, so
+  // a Settings save can no longer downgrade the model the beat verified.
+  // #115: that default is the `gemini-flash` family alias; HTTP call sites
+  // fall back to a pinned snapshot when Google 404s the alias.
+  it("defaults Gemini to gemini-flash (family alias) from the one table", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
+    assert.equal(env.beats.ai.defaultModelFor("gemini"), "gemini-flash");
+    assert.equal(
+      env.window.JobBoredModelCatalog.DEFAULT_MODEL_BY_PROVIDER.gemini,
+      "gemini-flash",
+    );
     const gemini = env.beats.ai.PROVIDERS.find((p) => p.id === "gemini");
-    assert.equal(gemini.defaultModel, "gemini-3.5-flash");
+    assert.equal(gemini.defaultModel, undefined, "no per-entry default to drift");
   });
 
   it("pins that model on the server when Gemini passes its check", async () => {
     const env = loadArrival({
-      verifyProvider: async () => ({ ok: true, provider: "gemini", model: "gemini-3.5-flash", ms: 8 }),
+      verifyProvider: async () => ({ ok: true, provider: "gemini", model: "gemini-flash", ms: 8 }),
     });
     await env.flow.open("ai");
     env.mount().querySelector('[data-provider="gemini"]').dispatch("click");
@@ -147,7 +161,7 @@ describe("SIXBEATS-2 NEW-8 — Beat 2 pins a Gemini model Google actually serves
     await env.beats.ai.handleAction("ai_check");
     const pin = env.fetchImpl.calls.find((c) => c.url.includes("/api/llm-config"));
     assert.ok(pin, "the beat pins the verified provider server-side");
-    assert.equal(pin.body.model, "gemini-3.5-flash");
+    assert.equal(pin.body.model, "gemini-flash");
   });
 });
 
@@ -175,7 +189,7 @@ describe("SIXBEATS-2 NEW-2 — Beat 3 drafts through the provider Beat 2 verifie
     const call = env.fetchImpl.calls.find((c) => c.url.includes("/profile/from-resume"));
     assert.equal(call.body.provider, "gemini");
     assert.equal(call.body.apiKey, "AIza-verified-key");
-    assert.equal(call.body.model, "gemini-3.5-flash");
+    assert.equal(call.body.model, "gemini-flash");
   });
 
   it("sends the local server's base URL and no key for the Local provider", async () => {
@@ -189,18 +203,19 @@ describe("SIXBEATS-2 NEW-2 — Beat 3 drafts through the provider Beat 2 verifie
     assert.equal(call.body.model, "gemma4:e2b");
   });
 
-  it("omits the provider block entirely when nothing is configured", async () => {
+  it("makes no request at all when nothing is configured", async () => {
     const env = await openResume();
     env.window.CommandCenterResumeGenerate.getResumeGenerationConfig = () => {
       throw new Error("not loaded");
     };
     await env.beats.resume.ingestText(RESUME_TEXT, "paste");
-    const call = env.fetchImpl.calls.find((c) => c.url.includes("/profile/from-resume"));
-    assert.equal(call.body.resumeText, RESUME_TEXT);
+    // GREENFIELD A3 supersedes the older "let the server fall back to its
+    // own env" reading: falling back is exactly how a fresh OpenRouter
+    // install was answered "Missing Gemini API key" (F1). With nothing to
+    // draft with, the honest move is to say so without spending a request.
     assert.equal(
-      "provider" in call.body,
-      false,
-      "a body with no provider must let the server fall back to its own env",
+      env.fetchImpl.calls.filter((c) => c.url.includes("/profile/from-resume")).length,
+      0,
     );
   });
 });

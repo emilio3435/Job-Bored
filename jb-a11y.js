@@ -490,7 +490,9 @@
 
   /**
    * @param {{title: string, body?: string, confirmLabel?: string,
-   *          cancelLabel?: string, fields?: Array<object>}} spec
+   *          cancelLabel?: string, fields?: Array<object>, note?: string,
+   *          checks?: {label: string, items: Array<{id: string,
+   *            label: string, checked?: boolean}>}}} spec
    * @returns {Promise<{confirmed: boolean, values: Record<string, string>}>}
    */
   function confirmDialog(spec) {
@@ -527,17 +529,53 @@
       panel.appendChild(field.wrap);
     }
 
+    /* TA-21: an optional checkbox group, e.g. "Sent with it". Each item's
+       value reads back as "true" / "false" under its id. */
+    var checks = s.checks && typeof s.checks === "object" && Array.isArray(s.checks.items)
+      ? s.checks
+      : null;
+    if (checks && checks.items.length) {
+      var set = document.createElement("fieldset");
+      set.className = "jb-a11y-checks";
+      var legend = document.createElement("legend");
+      legend.className = "jb-a11y-checks__legend";
+      legend.textContent = String(checks.label || "");
+      set.appendChild(legend);
+      for (var c = 0; c < checks.items.length; c++) {
+        var item = checks.items[c] || {};
+        var row = document.createElement("label");
+        row.className = "jb-a11y-checks__item";
+        var box = document.createElement("input");
+        box.type = "checkbox";
+        box.id = item.id || uid("check");
+        box.checked = item.checked !== false;
+        row.appendChild(box);
+        row.appendChild(document.createTextNode(" " + String(item.label || "")));
+        set.appendChild(row);
+        built.push({ key: box.id, input: box, checkbox: true });
+      }
+      panel.appendChild(set);
+    }
+
+    if (s.note) {
+      var note = document.createElement("p");
+      note.className = "jb-a11y-dialog__note";
+      note.textContent = String(s.note);
+      panel.appendChild(note);
+    }
+
     var actions = document.createElement("div");
     actions.className = "jb-a11y-dialog__actions";
     var cancelBtn = document.createElement("button");
     cancelBtn.type = "button";
     cancelBtn.className =
-      "jb-a11y-dialog__btn jb-a11y-dialog__btn--cancel jb-a11y-touch-target";
+      "jb-a11y-dialog__btn jb-a11y-dialog__btn--cancel jb-btn jb-btn--secondary jb-a11y-touch-target";
     cancelBtn.textContent = s.cancelLabel || "Cancel";
     var confirmBtn = document.createElement("button");
     confirmBtn.type = "button";
+    // TR-06 / TA-04: the kit's filled navy primary, never a pale tint.
     confirmBtn.className =
-      "jb-a11y-dialog__btn jb-a11y-dialog__btn--confirm jb-a11y-touch-target";
+      "jb-a11y-dialog__btn jb-a11y-dialog__btn--confirm jb-btn jb-btn--primary jb-a11y-touch-target";
     confirmBtn.textContent = s.confirmLabel || "Confirm";
     actions.appendChild(cancelBtn);
     actions.appendChild(confirmBtn);
@@ -550,6 +588,10 @@
       function readValues() {
         var values = {};
         for (var j = 0; j < built.length; j++) {
+          if (built[j].checkbox) {
+            values[built[j].key] = built[j].input.checked ? "true" : "false";
+            continue;
+          }
           values[built[j].key] = String(
             built[j].input.value == null ? "" : built[j].input.value,
           );
@@ -829,10 +871,66 @@
       focusEl(items[wrapped]);
     }
 
+    /* TR-07 / AX-02: the list used to paint inside the card, under the next
+       card or column, where every item hit-tested to something else. It now
+       renders in the top layer (popover) positioned from the trigger's rect,
+       so no card stacking context or column overflow can trap it. */
+    var canPopover = typeof menu.showPopover === "function";
+    if (canPopover) menu.setAttribute("popover", "manual");
+
+    function placeMenu() {
+      if (!canPopover || !open) return;
+      var r = trigger.getBoundingClientRect();
+      var vw = window.innerWidth || document.documentElement.clientWidth || 0;
+      var vh = window.innerHeight || document.documentElement.clientHeight || 0;
+      var width = Math.max(r.width, 200);
+      var left = Math.min(Math.max(8, r.left), Math.max(8, vw - width - 8));
+      menu.style.position = "fixed";
+      menu.style.margin = "0";
+      menu.style.inset = "auto";
+      menu.style.left = left + "px";
+      menu.style.minWidth = width + "px";
+      var below = vh - r.bottom;
+      var h = menu.offsetHeight || 0;
+      if (h && below < h + 8 && r.top > below) {
+        menu.style.top = Math.max(8, r.top - h - 4) + "px";
+      } else {
+        menu.style.top = r.bottom + 4 + "px";
+      }
+    }
+
+    function onOutsidePointer(event) {
+      var t = event.target;
+      if (t && (menu.contains(t) || trigger.contains(t))) return;
+      closeMenu(false);
+    }
+
+    function onViewportChange() {
+      placeMenu();
+    }
+
     function setOpen(next) {
       open = next === true;
       menu.hidden = !open;
       trigger.setAttribute("aria-expanded", open ? "true" : "false");
+      if (canPopover) {
+        try {
+          if (open) menu.showPopover();
+          else if (menu.matches && menu.matches(":popover-open")) menu.hidePopover();
+        } catch (_) {
+          /* A detached card cannot show a popover; the in-flow list remains. */
+        }
+      }
+      if (open) {
+        placeMenu();
+        document.addEventListener("pointerdown", onOutsidePointer, true);
+        window.addEventListener("scroll", onViewportChange, true);
+        window.addEventListener("resize", onViewportChange);
+      } else {
+        document.removeEventListener("pointerdown", onOutsidePointer, true);
+        window.removeEventListener("scroll", onViewportChange, true);
+        window.removeEventListener("resize", onViewportChange);
+      }
     }
 
     function closeMenu(restoreFocus) {
@@ -878,9 +976,9 @@
       var fromStage = current;
       closeMenu(true);
 
-      // Optimistic announce, then revert copy on failure — the same contract
-      // lattice.js handleStageChange (:926-951) already implements locally.
-      announce("Moved to " + labelFor(toStage));
+      // AX-03: announce only once the write settles. commitMove resolves true
+      // (written), "cancelled" (the person backed out, e.g. the Applied
+      // dialog), or false (the write failed).
       var pending;
       try {
         pending = o.commitMove(o.jobKey, toStage, fromStage);
@@ -889,10 +987,18 @@
       }
       Promise.resolve(pending).then(
         function (ok) {
+          if (ok === "cancelled") {
+            current = fromStage;
+            syncTriggerName();
+            renderItems();
+            announce("Move cancelled; still in " + labelFor(fromStage));
+            return;
+          }
           if (ok) {
             current = toStage;
             syncTriggerName();
             renderItems();
+            announce("Moved to " + labelFor(toStage));
             return;
           }
           revert(fromStage);
@@ -919,6 +1025,7 @@
     cardEl.appendChild(wrap);
 
     return function detach() {
+      if (open) setOpen(false);
       trigger.removeEventListener("click", onTriggerClick);
       if (wrap.parentNode) wrap.parentNode.removeChild(wrap);
     };

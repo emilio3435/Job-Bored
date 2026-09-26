@@ -22,13 +22,13 @@
 
   const HEADLINE = "Now give it a brain.";
 
-  /** Normative, spec §5 B2 — it names the pre-selected card, so it moved
-   *  with the recommendation (SIXBEATS-2 NEW-11). */
+  /** Names the pre-selected card and its actual paid model (UX01 C7). */
   const SUB =
     "One AI key powers everything personal here: it drafts your fit " +
     "profile from your resume on the next screen, scores every job " +
     "discovery finds, and writes your tailored resumes and cover " +
-    "letters. OpenRouter is free and takes about two minutes.";
+    "letters. An OpenRouter account takes about two minutes; the " +
+    "recommended model uses paid credit.";
 
   const WEAK_MATERIALS_MODEL_WARNING =
     "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
@@ -47,7 +47,7 @@
     "no extra step.";
 
   /** Inline note on the two providers a browser cannot call directly. */
-  const CORS_NOTE = "runs through the local server — keep npm start running";
+  const CORS_NOTE = "runs through the local server — keep npm run dev running";
 
   /**
    * The clock on a slow check. A free tier under throttle takes seconds,
@@ -98,11 +98,17 @@
   const PROVIDERS = [
     {
       id: "openrouter",
-      label: "OpenRouter — free",
-      note: "Recommended. Free tier, no card, works straight from the browser.",
+      // UX01 C7 (FR-07): the recommended card used to pin a `:free` model
+      // the app itself flags as too weak for tailored letters, so everyone
+      // who followed the recommendation got weak drafts. The default is now
+      // a capable model; free models stay one Settings pick away.
+      label: "OpenRouter",
+      note:
+        "Recommended. One key for many models, works straight from the " +
+        "browser. The default writes letters well; it's pay-as-you-go, so " +
+        "add a few dollars of credit.",
       keyField: "resumeOpenRouterApiKey",
       modelField: "resumeOpenRouterModel",
-      defaultModel: "openai/gpt-oss-120b:free",
       keyPlaceholder: "sk-or-…",
       signupUrl: "https://openrouter.ai/keys",
       signupLabel: "Create a free OpenRouter account ↗",
@@ -114,10 +120,6 @@
       note: "Free tier, and it lights up URL import and grounded search.",
       keyField: "resumeGeminiApiKey",
       modelField: "resumeGeminiModel",
-      // A concrete id, not the `gemini-flash` alias: Google answers that
-      // one with 404 "models/gemini-flash is not found for API version
-      // v1beta" and the draft only survived on a fallback (NEW-8).
-      defaultModel: "gemini-3.5-flash",
       keyPlaceholder: "AIza…",
       signupUrl: "https://aistudio.google.com/app/apikey",
       signupLabel: "Create a free Gemini key ↗",
@@ -129,7 +131,6 @@
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeOpenAIApiKey",
       modelField: "resumeOpenAIModel",
-      defaultModel: "gpt-5.6-terra",
       keyPlaceholder: "sk-…",
       signupUrl: "https://platform.openai.com/api-keys",
       signupLabel: "Create an OpenAI key ↗",
@@ -141,7 +142,6 @@
       note: `Paid. It ${CORS_NOTE}.`,
       keyField: "resumeAnthropicApiKey",
       modelField: "resumeAnthropicModel",
-      defaultModel: "claude-sonnet-5",
       keyPlaceholder: "sk-ant-…",
       signupUrl: "https://console.anthropic.com/settings/keys",
       signupLabel: "Create an Anthropic key ↗",
@@ -153,7 +153,6 @@
       note: "No key, no cost. Needs a model server (Ollama) already running.",
       keyField: "",
       modelField: "resumeLocalModel",
-      defaultModel: "gemma4:e2b",
       baseUrlField: "resumeLocalBaseUrl",
       baseUrlPlaceholder: "http://127.0.0.1:11434/v1",
       cors: false,
@@ -169,7 +168,7 @@
   // ---------------------------------------------------------------
 
   const state = {
-    // Spec §5 B2: `OpenRouter — free` is the pre-selected card (NEW-11).
+    // OpenRouter is the pre-selected card (SIXBEATS-2 NEW-11).
     provider: "openrouter",
     keyDraft: "",
     baseUrlDraft: "",
@@ -494,7 +493,26 @@
   // ---------------------------------------------------------------
 
   function liveConfig() {
-    return (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
+    if (typeof window === "undefined") return {};
+    const core = window.JobBoredApp && window.JobBoredApp.configCore;
+    if (core && typeof core.getEffectiveConfig === "function") {
+      const resolved = core.getEffectiveConfig();
+      if (resolved && typeof resolved === "object") return resolved;
+    }
+    return window.COMMAND_CENTER_CONFIG || {};
+  }
+
+  /**
+   * Read lazily: model-catalog.js loads after this file in index.html, so a
+   * default captured at parse time would be undefined at runtime and green
+   * in every node test.
+   */
+  function defaultModelFor(providerId) {
+    const catalog =
+      typeof window !== "undefined" && window.JobBoredModelCatalog;
+    const table = catalog && catalog.DEFAULT_MODEL_BY_PROVIDER;
+    const model = table && table[providerId];
+    return typeof model === "string" ? model : "";
   }
 
   function resolveModel(def) {
@@ -503,7 +521,7 @@
       def.modelField && typeof cfg[def.modelField] === "string"
         ? cfg[def.modelField].trim()
         : "";
-    return fromCfg || def.defaultModel || "";
+    return fromCfg || defaultModelFor(def.id);
   }
 
   function resolveJobBoredApiUrl() {
@@ -552,7 +570,42 @@
     }
   }
 
+
+  /**
+   * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+   * JobBoredDiscoveryHelpers.confirmHostChange (names the change, logs it).
+   */
+  function askHostChange(opts) {
+    const helpers = window.JobBoredDiscoveryHelpers;
+    if (helpers && typeof helpers.confirmHostChange === "function") {
+      return helpers.confirmHostChange(opts);
+    }
+    if (typeof window.confirm === "function") {
+      return !!window.confirm(
+        "JobBored will " +
+          [
+            opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+            opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+          ]
+            .filter(Boolean)
+            .join(", and ") +
+          " on this computer. Continue?",
+      );
+    }
+    return true;
+  }
+
   async function writeGeminiKeyThrough(key) {
+    // UX01 C8 (FD-19): the bonus writes into the discovery .env — ask.
+    if (
+      !askHostChange({
+        action: "Share your Gemini key with discovery",
+        writesEnv: true,
+        envKeys: [GEMINI_ENV_KEY],
+      })
+    ) {
+      return false;
+    }
     try {
       const res = await fetch(DISCOVERY_ENV_ENDPOINT, {
         method: "POST",
@@ -705,7 +758,7 @@
     id: "ai",
     order: 2,
     label: "AI",
-    timeLabel: "about 10 min left",
+    timeLabel: "about 12 min left",
     headline: HEADLINE,
     sub: SUB,
     actions: ACTIONS,
@@ -728,6 +781,8 @@
     getSelectedProvider() {
       return state.provider;
     },
+    /** The catalog-resolved default for a provider id (GREENFIELD D5). */
+    defaultModelFor,
     didWriteGeminiKeyThrough() {
       return state.geminiWroteThrough;
     },

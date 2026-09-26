@@ -107,6 +107,8 @@ export default [
       // tracked from before the ignore rule — don't lint throwaways.
       "tmp/**",
       ".lane-evidence/**",
+      // Workflow-tool scripts: a top-level `return` is legal in that runner, not in ESM.
+      "docs/programs/**/*.workflow.js",
     ],
   },
   {
@@ -178,13 +180,26 @@ export default [
   {
     // Playwright specs run snippets INSIDE the browser via page.evaluate —
     // window/document/getComputedStyle are real there even though the file
-    // itself executes under Node.
-    files: ["tests/e2e-smoke/**/*.mjs"],
+    // itself executes under Node. The dossier layout audit scripts under
+    // docs/redesign/ drive Playwright the same way.
+    files: ["tests/e2e-smoke/**/*.mjs", "docs/redesign/**/audit/*.mjs"],
     languageOptions: {
       ecmaVersion: "latest",
       sourceType: "module",
       globals: { ...globals.node, ...globals.browser },
     },
     rules: correctnessRules,
+  },
+  {
+    // Program audit measurement scripts (kept so acceptance can be re-run):
+    // Playwright drivers with page.evaluate snippets that use the injected
+    // axe global. Throwaway probes, so unused bindings are not worth a gate.
+    files: ["docs/programs/**/audit/**/*.mjs"],
+    languageOptions: {
+      ecmaVersion: "latest",
+      sourceType: "module",
+      globals: { ...globals.node, ...globals.browser, axe: "readonly" },
+    },
+    rules: { ...correctnessRules, "no-unused-vars": "off" },
   },
 ];

@@ -1,0 +1,950 @@
+<title>JobBored Zero to One</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@600&family=Geist:wght@400;500;600&family=JetBrains+Mono:wght@500;600&family=Lora:ital,wght@0,500;1,400&display=swap">
+<style>
+/* ============================================================
+   Proposed JobBored tokens (UX01 SPEC §2). The page and every
+   mock below are drawn on these values only.
+   Deliberately single-theme: this is the product's own palette.
+   ============================================================ */
+:root{
+  color-scheme: light;
+  --jb-paper:#FFFEF9; --jb-paper-2:#FBF7EE; --jb-paper-3:#F3EEE2;
+  --jb-ink:#1B2B33; --jb-ink-2:#3A5566; --jb-ink-3:#587080;
+  --jb-line:#C9C2B0; --jb-line-soft:#E5DFCC;
+  --jb-action:#0E3A4E; --jb-on-action:#FFFEF9;
+  --jb-accent:#5FCB8E; --jb-on-accent:#0E3A4E; --jb-accent-ink:#1F6F4A; --jb-accent-soft:#DCF1E2;
+  --jb-ok:#1F6F4A; --jb-ok-bg:#DCF1E2;
+  --jb-warn:#A15C07; --jb-warn-bg:#FBEFD9;
+  --jb-err:#B4321F; --jb-err-bg:#FBE7E3;
+  --jb-info:#1D6FA3; --jb-info-bg:#E3EFF8;
+  --jb-stage-new:#6B8493; --jb-stage-researching:#7C3AED; --jb-stage-applied:#EF8F26;
+  --jb-stage-phone:#0891B2; --jb-stage-interviewing:#5FCB8E; --jb-stage-offer:#2F8A5A;
+  --jb-stage-rejected:#C0392B; --jb-stage-passed:#64748B; --jb-stage-expired:#57534E;
+  --jb-fit-high:#2F8A5A; --jb-fit-mid:#A16207; --jb-fit-low:#6B8493;
+  --jb-font-display:"Caveat","Bradley Hand",cursive;
+  --jb-font-body:"Geist",-apple-system,BlinkMacSystemFont,"Segoe UI",system-ui,sans-serif;
+  --jb-font-mono:"JetBrains Mono",ui-monospace,"SF Mono",Menlo,monospace;
+  --jb-font-read:"Lora",Georgia,serif;
+  --jb-text-display:40px; --jb-text-title:24px; --jb-text-heading:18px; --jb-text-body:15px;
+  --jb-text-small:13px; --jb-text-label:11px; --jb-text-data:13px;
+  --jb-space-1:4px; --jb-space-2:8px; --jb-space-3:12px; --jb-space-4:16px; --jb-space-5:20px;
+  --jb-space-6:24px; --jb-space-8:32px; --jb-space-10:40px; --jb-space-12:48px; --jb-space-16:64px;
+  --jb-radius-sm:6px; --jb-radius-md:10px; --jb-radius-lg:14px; --jb-radius-pill:999px;
+  --jb-shadow-card:0 1px 0 rgba(14,58,78,.05), 0 0 0 1px var(--jb-line-soft);
+  --jb-shadow-raised:0 18px 40px -18px rgba(14,58,78,.35), 0 0 0 1px var(--jb-line);
+  --jb-focus:0 0 0 2px var(--jb-paper), 0 0 0 4px var(--jb-action);
+  --jb-ease:cubic-bezier(.2,0,0,1);
+  /* annotation layer for this page only, not a product token */
+  --anno:#C2255C; --anno-ink:#FFFFFF;
+}
+*{box-sizing:border-box}
+body{margin:0;background:var(--jb-paper-2);color:var(--jb-ink);font:400 var(--jb-text-body)/1.47 var(--jb-font-body);-webkit-font-smoothing:antialiased}
+button,input,select,textarea{font:inherit;color:inherit}
+:focus-visible{outline:none;box-shadow:var(--jb-focus);border-radius:var(--jb-radius-sm)}
+img{max-width:100%;display:block}
+code{font:500 12px var(--jb-font-mono);background:var(--jb-paper-3);padding:1px 5px;border-radius:4px}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+
+/* ---------- page chrome (presentation layer) ---------- */
+.wrap{max-width:1320px;margin:0 auto;padding-inline:24px;padding-block:32px 64px}
+@media (max-width:640px){.wrap{padding-inline:16px}}
+.eyebrow{font:500 var(--jb-text-label)/1.3 var(--jb-font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--jb-ink-3);margin:0}
+.pg-head{display:grid;gap:var(--jb-space-4);padding-bottom:var(--jb-space-8);border-bottom:2px solid var(--jb-action)}
+.pg-head h1{font:600 clamp(40px,6vw,64px)/1 var(--jb-font-display);margin:0;color:var(--jb-action);text-wrap:balance}
+.pg-head p.lede{margin:0;max-width:70ch;color:var(--jb-ink-2);font-size:17px}
+.pg-meta{display:flex;flex-wrap:wrap;gap:var(--jb-space-3) var(--jb-space-6);align-items:center;font-size:var(--jb-text-small);color:var(--jb-ink-2)}
+.controls{display:flex;flex-wrap:wrap;gap:var(--jb-space-3);align-items:center}
+.seg{display:inline-flex;background:var(--jb-paper);border:1px solid var(--jb-line);border-radius:var(--jb-radius-pill);padding:3px}
+.seg button{border:0;background:transparent;padding:6px 14px;border-radius:var(--jb-radius-pill);font:500 var(--jb-text-small) var(--jb-font-body);color:var(--jb-ink-2);cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--jb-action);color:var(--jb-on-action)}
+.chk{display:inline-flex;gap:8px;align-items:center;font-size:var(--jb-text-small);color:var(--jb-ink-2);cursor:pointer}
+.chk input{accent-color:var(--anno);width:16px;height:16px}
+.acc{display:grid;grid-template-columns:repeat(auto-fit,minmax(200px,1fr));gap:1px;background:var(--jb-line-soft);border:1px solid var(--jb-line-soft);border-radius:var(--jb-radius-lg);overflow:hidden;margin-top:var(--jb-space-6)}
+.acc div{background:var(--jb-paper);padding:var(--jb-space-3) var(--jb-space-4);display:grid;gap:2px}
+.acc b{font:600 var(--jb-text-data)/1.3 var(--jb-font-mono);font-variant-numeric:tabular-nums;color:var(--jb-ink)}
+.acc b s{color:var(--jb-ink-3);text-decoration-thickness:1px;font-weight:500}
+.acc span{font-size:12px;color:var(--jb-ink-3)}
+.toc{display:flex;flex-wrap:wrap;gap:var(--jb-space-2);margin-top:var(--jb-space-6)}
+.toc a{font:500 var(--jb-text-small) var(--jb-font-body);color:var(--jb-action);text-decoration:none;border:1px solid var(--jb-line);background:var(--jb-paper);padding:6px 12px;border-radius:var(--jb-radius-pill)}
+.toc a:hover{border-color:var(--jb-action)}
+
+.sec{margin-top:var(--jb-space-16);scroll-margin-top:16px}
+.sec__head{display:grid;gap:var(--jb-space-2);max-width:78ch;margin-bottom:var(--jb-space-6)}
+.sec__head h2{font:600 var(--jb-text-title)/1.25 var(--jb-font-body);margin:0;text-wrap:balance}
+.sec__head p{margin:0;color:var(--jb-ink-2)}
+.compare{display:grid;gap:var(--jb-space-6);grid-template-columns:minmax(0,1fr) minmax(0,2.4fr);align-items:start}
+html[data-w="phone"] .compare{grid-template-columns:repeat(2,minmax(0,375px));justify-content:center}
+@media (max-width:980px){.compare,html[data-w="phone"] .compare{grid-template-columns:minmax(0,1fr)}}
+html[data-w="phone"] .after{max-width:375px}
+.col{display:grid;gap:var(--jb-space-4);align-content:start;min-width:0}
+.col__label{display:flex;gap:8px;align-items:center;font:600 var(--jb-text-label)/1 var(--jb-font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--jb-ink-2)}
+.col__label::before{content:"";width:8px;height:8px;border-radius:50%;background:var(--jb-err)}
+.after .col__label::before{background:var(--jb-accent-ink)}
+.shot{margin:0;display:grid;gap:6px}
+.shot button{border:1px solid var(--jb-line);border-radius:var(--jb-radius-md);padding:0;background:var(--jb-paper);overflow:hidden;cursor:zoom-in;display:block;width:100%}
+.shot button img{width:100%;height:auto}
+.shot figcaption{font-size:12.5px;line-height:1.45;color:var(--jb-ink-2)}
+.shot figcaption b{font:600 11px var(--jb-font-mono);color:var(--jb-err);letter-spacing:.02em}
+html:not([data-w="phone"]) .shot[data-w="phone"],html[data-w="phone"] .shot[data-w="desktop"]{display:none}
+.frame-cap{font-size:12.5px;color:var(--jb-ink-2);margin:-8px 0 0}
+.legend{list-style:none;margin:var(--jb-space-6) 0 0;padding:0;display:grid;gap:1px;background:var(--jb-line-soft);border:1px solid var(--jb-line-soft);border-radius:var(--jb-radius-lg);overflow:hidden}
+.legend li{background:var(--jb-paper);display:grid;grid-template-columns:52px minmax(0,1fr) minmax(0,.9fr);gap:var(--jb-space-3);padding:10px var(--jb-space-4);align-items:baseline;font-size:var(--jb-text-small)}
+.legend .ids{font:500 11.5px/1.5 var(--jb-font-mono);color:var(--jb-ink-3)}
+@media (max-width:720px){.legend li{grid-template-columns:52px minmax(0,1fr)}.legend .ids{grid-column:2}}
+.tag{font:600 10.5px/1 var(--jb-font-mono);background:var(--anno);color:var(--anno-ink);padding:4px 6px;border-radius:5px;letter-spacing:.02em;white-space:nowrap;display:inline-block}
+.legend .tag{justify-self:start}
+[data-c]{position:relative}
+[data-c]::after{content:attr(data-c);position:absolute;top:-8px;right:8px;z-index:5;font:600 10px/1 var(--jb-font-mono);background:var(--anno);color:var(--anno-ink);padding:4px 5px;border-radius:5px;box-shadow:0 0 0 2px var(--jb-paper);pointer-events:none}
+html[data-tags="off"] [data-c]::after{display:none}
+.foot{margin-top:var(--jb-space-16);padding-top:var(--jb-space-6);border-top:1px solid var(--jb-line);font-size:var(--jb-text-small);color:var(--jb-ink-3);display:grid;gap:6px}
+dialog.lb{border:0;padding:0;background:transparent;max-width:min(96vw,1480px)}
+dialog.lb::backdrop{background:rgba(14,58,78,.72)}
+dialog.lb img{max-height:88vh;width:auto;border-radius:var(--jb-radius-md)}
+dialog.lb button{position:absolute;top:8px;right:8px}
+
+/* ---------- product primitives (the proposed kit) ---------- */
+.jb-btn{--h:36px;display:inline-flex;align-items:center;justify-content:center;gap:6px;min-height:var(--h);padding:0 14px;border-radius:var(--jb-radius-md);border:1px solid transparent;font:600 var(--jb-text-small)/1 var(--jb-font-body);cursor:pointer;white-space:nowrap;transition:background-color 120ms var(--jb-ease),border-color 120ms var(--jb-ease)}
+.jb-btn svg{width:15px;height:15px;flex:none}
+.jb-btn--sm{--h:32px;padding:0 12px}
+.jb-btn--primary{background:var(--jb-action);color:var(--jb-on-action)}
+.jb-btn--accent{background:var(--jb-accent);color:var(--jb-on-accent)}
+.jb-btn--secondary{background:var(--jb-paper);color:var(--jb-action);border-color:var(--jb-line)}
+.jb-btn--ghost{background:transparent;color:var(--jb-action)}
+.jb-btn--ghost:hover,.jb-btn--secondary:hover{background:var(--jb-paper-3)}
+.jb-btn--icon{width:var(--h);padding:0;background:transparent;color:var(--jb-ink-2);border-color:var(--jb-line-soft)}
+.jb-btn--danger{background:var(--jb-paper);color:var(--jb-err);border-color:var(--jb-line)}
+.jb-chip{display:inline-flex;align-items:center;gap:5px;height:22px;padding:0 8px;border-radius:var(--jb-radius-pill);font:500 11px/1 var(--jb-font-mono);letter-spacing:.02em;background:var(--jb-paper-3);color:var(--jb-ink-2);white-space:nowrap}
+.jb-chip[data-tone="ok"]{background:var(--jb-ok-bg);color:var(--jb-ok)}
+.jb-chip[data-tone="warn"]{background:var(--jb-warn-bg);color:var(--jb-warn)}
+.jb-chip[data-tone="err"]{background:var(--jb-err-bg);color:var(--jb-err)}
+.jb-chip[data-tone="info"]{background:var(--jb-info-bg);color:var(--jb-info)}
+.jb-chip[data-tone="miss"]{background:transparent;color:var(--jb-ink-2);box-shadow:inset 0 0 0 1px var(--jb-line);}
+.sd{width:8px;height:8px;border-radius:50%;background:var(--c,var(--jb-stage-new));box-shadow:0 0 0 3px color-mix(in srgb,var(--c,var(--jb-stage-new)) 20%,transparent);flex:none;display:inline-block}
+.jb-field{display:grid;gap:5px}
+.jb-field>span{font:500 var(--jb-text-label)/1.2 var(--jb-font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--jb-ink-2)}
+.jb-field>span small{text-transform:none;letter-spacing:0;font:400 12px var(--jb-font-body);color:var(--jb-ink-3);margin-left:4px}
+.jb-input{min-height:38px;padding:8px 11px;background:var(--jb-paper);border:1px solid var(--jb-line);border-radius:var(--jb-radius-md);font:400 var(--jb-text-small)/1.4 var(--jb-font-body);color:var(--jb-ink);width:100%}
+.jb-input.is-filled{background:var(--jb-paper)}
+.jb-input.is-focus{box-shadow:var(--jb-focus);border-color:var(--jb-action)}
+.jb-banner{display:flex;gap:var(--jb-space-3);align-items:flex-start;padding:10px 12px;border-radius:var(--jb-radius-md);font-size:var(--jb-text-small);line-height:1.45;border:1px solid transparent}
+.jb-banner svg{width:16px;height:16px;flex:none;margin-top:2px}
+.jb-banner p{margin:0;flex:1;min-width:0}
+.jb-banner .jb-banner__acts{display:flex;gap:6px;flex-wrap:wrap}
+.jb-banner[data-tone="ok"]{background:var(--jb-ok-bg);color:var(--jb-ink)} .jb-banner[data-tone="ok"] svg{color:var(--jb-ok)}
+.jb-banner[data-tone="warn"]{background:var(--jb-warn-bg);color:var(--jb-ink)} .jb-banner[data-tone="warn"] svg{color:var(--jb-warn)}
+.jb-banner[data-tone="err"]{background:var(--jb-err-bg);color:var(--jb-ink)} .jb-banner[data-tone="err"] svg{color:var(--jb-err)}
+.jb-banner[data-tone="info"]{background:var(--jb-info-bg);color:var(--jb-ink)} .jb-banner[data-tone="info"] svg{color:var(--jb-info)}
+.jb-toast{display:flex;gap:var(--jb-space-3);align-items:center;background:var(--jb-action);color:var(--jb-on-action);padding:10px 12px 10px 14px;border-radius:var(--jb-radius-md);font-size:var(--jb-text-small);box-shadow:var(--jb-shadow-raised)}
+.jb-toast button{background:transparent;border:1px solid rgba(255,254,249,.45);color:var(--jb-on-action);border-radius:var(--jb-radius-sm);padding:4px 10px;font:600 12px var(--jb-font-body)}
+.ring{--p:80;--rc:var(--jb-fit-high);width:30px;height:30px;border-radius:50%;background:conic-gradient(var(--rc) calc(var(--p)*1%),var(--jb-line-soft) 0);display:inline-grid;place-items:center;position:relative;flex:none}
+.ring::before{content:"";position:absolute;inset:3px;border-radius:50%;background:var(--jb-paper)}
+.ring b{position:relative;font:600 11px/1 var(--jb-font-mono);color:var(--jb-ink)}
+.ring--lg{width:56px;height:56px}.ring--lg::before{inset:5px}.ring--lg b{font-size:17px}
+.ring--mid{--rc:var(--jb-fit-mid)}
+.label{font:500 var(--jb-text-label)/1.3 var(--jb-font-mono);letter-spacing:.08em;text-transform:uppercase;color:var(--jb-ink-3)}
+.co{font:500 11.5px/1.2 var(--jb-font-mono);letter-spacing:.04em;color:var(--jb-ink-2)}
+
+/* ---------- design-language board ---------- */
+.dl{background:var(--jb-paper);border-radius:var(--jb-radius-lg);box-shadow:var(--jb-shadow-card);padding:var(--jb-space-6);display:grid;gap:var(--jb-space-8)}
+.dl h3{font:600 var(--jb-text-heading)/1.3 var(--jb-font-body);margin:0 0 var(--jb-space-3)}
+.sw{display:grid;grid-template-columns:repeat(auto-fill,minmax(150px,1fr));gap:var(--jb-space-3)}
+.sw div{display:grid;grid-template-rows:48px auto;border-radius:var(--jb-radius-md);overflow:hidden;box-shadow:0 0 0 1px var(--jb-line-soft)}
+.sw i{display:block;background:var(--v)}
+.sw p{margin:0;padding:8px 10px;font-size:12px;line-height:1.4;background:var(--jb-paper)}
+.sw p b{display:block;font:600 11.5px var(--jb-font-mono);color:var(--jb-ink)}
+.sw p span{color:var(--jb-ink-3);font-family:var(--jb-font-mono);font-size:11px}
+.ts{display:grid;gap:10px}
+.ts div{display:grid;grid-template-columns:110px minmax(0,1fr);gap:var(--jb-space-4);align-items:baseline;border-bottom:1px dashed var(--jb-line-soft);padding-bottom:10px}
+.ts div:last-child{border-bottom:0}
+.ts code{background:none;padding:0;color:var(--jb-ink-3)}
+.sp{display:flex;flex-wrap:wrap;gap:var(--jb-space-4);align-items:flex-end}
+.sp div{display:grid;gap:6px;justify-items:center;font:500 11px var(--jb-font-mono);color:var(--jb-ink-3)}
+.sp i{display:block;background:var(--jb-accent-soft);box-shadow:inset 0 0 0 1px var(--jb-accent);width:var(--s);height:var(--s);border-radius:2px}
+.kit{display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:var(--jb-space-6)}
+.kit>div{display:grid;gap:var(--jb-space-3);align-content:start}
+.row{display:flex;flex-wrap:wrap;gap:var(--jb-space-2);align-items:center}
+.dl-2{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:var(--jb-space-8)}
+
+/* ---------- app mock ---------- */
+.frame{container:app/inline-size;background:var(--jb-paper);border-radius:var(--jb-radius-lg);box-shadow:var(--jb-shadow-raised);overflow:hidden;position:relative}
+.frame--flush{box-shadow:var(--jb-shadow-card)}
+.tb{display:flex;align-items:center;gap:var(--jb-space-4);padding:10px 16px;border-bottom:1px solid var(--jb-line-soft);background:var(--jb-paper)}
+.tb__logo{display:inline-flex;align-items:center;gap:8px;font:600 16px var(--jb-font-body);color:var(--jb-action);white-space:nowrap}
+.tb__logo em{font:600 20px/1 var(--jb-font-display);font-style:normal;color:var(--jb-accent-ink);margin-left:-5px}
+.tb__mark{width:22px;height:22px;border-radius:7px;background:var(--jb-accent);position:relative}
+.tb__mark::before,.tb__mark::after{content:"";position:absolute;top:8px;width:4px;height:4px;border-radius:50%;background:var(--jb-action)}
+.tb__mark::before{left:6px}.tb__mark::after{right:6px}
+.tb__views{display:inline-flex;gap:2px;background:var(--jb-paper-3);padding:3px;border-radius:var(--jb-radius-pill)}
+.tb__views a{font:500 var(--jb-text-small)/1 var(--jb-font-body);color:var(--jb-ink-2);padding:7px 12px;border-radius:var(--jb-radius-pill);text-decoration:none;white-space:nowrap}
+.tb__views a[aria-current="page"]{background:var(--jb-paper);color:var(--jb-action);box-shadow:0 0 0 1px var(--jb-line-soft);font-weight:600}
+.tb__views a .n{font:600 10.5px var(--jb-font-mono);margin-left:5px;color:var(--jb-ink-3)}
+.tb__acts{margin-left:auto;display:flex;align-items:center;gap:var(--jb-space-2)}
+.tb__avatar{width:32px;height:32px;border-radius:50%;background:var(--jb-accent-soft);color:var(--jb-accent-ink);display:grid;place-items:center;font:600 13px var(--jb-font-body)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--jb-warn);display:inline-block}
+.dot--ok{background:var(--jb-accent-ink)}
+.tb .only-narrow{display:none}
+.skipbar{display:flex;align-items:center;gap:10px;padding:8px 16px;background:var(--jb-paper-2);border-bottom:1px solid var(--jb-line-soft);font-size:12px;color:var(--jb-ink-3)}
+.skip{background:var(--jb-action);color:var(--jb-on-action);font:600 12px var(--jb-font-body);padding:6px 10px;border-radius:var(--jb-radius-sm);box-shadow:var(--jb-focus);text-decoration:none}
+.app-main{padding:var(--jb-space-6);display:grid;gap:var(--jb-space-6)}
+.h-display{font:600 var(--jb-text-display)/1 var(--jb-font-display);color:var(--jb-action);margin:0}
+.h-title{font:600 var(--jb-text-title)/1.25 var(--jb-font-body);margin:0}
+.h-head{font:600 var(--jb-text-heading)/1.3 var(--jb-font-body);margin:0}
+.muted{color:var(--jb-ink-3)}
+.small{font-size:var(--jb-text-small)}
+
+/* first run */
+.fr-grid{display:grid;grid-template-columns:minmax(0,1.6fr) minmax(0,1fr);gap:var(--jb-space-6);align-items:start}
+.acts3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--jb-space-3)}
+.act{border-radius:var(--jb-radius-lg);box-shadow:var(--jb-shadow-card);background:var(--jb-paper);padding:var(--jb-space-4);display:grid;gap:var(--jb-space-2);align-content:start}
+.act p{margin:0;font-size:var(--jb-text-small);color:var(--jb-ink-2)}
+.act .jb-btn{justify-self:start;margin-top:4px}
+.act h4{margin:0;font:600 15px/1.3 var(--jb-font-body)}
+.act svg{width:20px;height:20px;color:var(--jb-accent-ink)}
+.receipt{border-radius:var(--jb-radius-lg);background:var(--jb-paper-2);box-shadow:0 0 0 1px var(--jb-line-soft);padding:var(--jb-space-4);display:grid;gap:var(--jb-space-3)}
+.rc{display:grid;grid-template-columns:20px minmax(0,1fr);gap:10px;align-items:start;font-size:var(--jb-text-small)}
+.rc b{display:block;font-weight:600}
+.rc span{color:var(--jb-ink-2)}
+.rc .ic{width:20px;height:20px;border-radius:50%;display:grid;place-items:center}
+.rc .ic svg{width:12px;height:12px}
+.rc .ic--ok{background:var(--jb-ok-bg);color:var(--jb-ok)}
+.rc .ic--todo{box-shadow:inset 0 0 0 1.5px var(--jb-line);color:var(--jb-ink-3)}
+.rc .jb-btn{margin-top:6px}
+.invite{padding:var(--jb-space-6);display:grid;gap:var(--jb-space-3);background:var(--jb-paper);max-width:560px;margin:var(--jb-space-6) auto;border-radius:var(--jb-radius-lg);box-shadow:0 0 0 2px var(--jb-accent)}
+.invite h3{font:600 34px/1.05 var(--jb-font-display);color:var(--jb-action);margin:0}
+.invite p{margin:0;color:var(--jb-ink-2)}
+.invite ul{margin:0;padding-left:18px;color:var(--jb-ink-2);font-size:var(--jb-text-small);display:grid;gap:4px}
+.demo-bg{background:repeating-linear-gradient(135deg,var(--jb-paper-2) 0 14px,var(--jb-paper-3) 14px 15px);padding:var(--jb-space-2) var(--jb-space-4) var(--jb-space-4)}
+.demo-bg .label{display:block;padding:8px 4px 0}
+.modal{max-width:460px;margin:var(--jb-space-6) auto;background:var(--jb-paper);border-radius:var(--jb-radius-lg);box-shadow:var(--jb-shadow-raised);padding:var(--jb-space-6);display:grid;gap:var(--jb-space-4)}
+.modal__head{display:flex;justify-content:space-between;align-items:start;gap:var(--jb-space-3)}
+.modal__foot{display:flex;gap:var(--jb-space-2);justify-content:flex-end;flex-wrap:wrap;align-items:center}
+.modal__foot .muted{margin-right:auto;font-size:12px}
+.scrim{background:rgba(14,58,78,.5);padding:var(--jb-space-4) var(--jb-space-4)}
+.two{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:var(--jb-space-3)}
+
+/* today */
+.runstrip{display:flex;align-items:center;gap:var(--jb-space-3);background:var(--jb-ok-bg);border-radius:var(--jb-radius-md);padding:10px 12px;font-size:var(--jb-text-small)}
+.runstrip svg{width:16px;height:16px;color:var(--jb-ok);flex:none}
+.runstrip p{margin:0;flex:1;min-width:0}
+.runstrip small{display:block;color:var(--jb-ink-2);font-size:12px}
+.today-head{display:flex;flex-wrap:wrap;align-items:baseline;gap:var(--jb-space-2) var(--jb-space-4)}
+.today-head .sum{font:500 12px var(--jb-font-mono);color:var(--jb-ink-2)}
+.band{display:grid;gap:var(--jb-space-2)}
+.band__h{display:flex;align-items:center;gap:8px}
+.band__h .label{color:var(--jb-ink-2)}
+.band__h .n{font:600 11px var(--jb-font-mono);background:var(--jb-paper-3);border-radius:var(--jb-radius-pill);padding:2px 7px;color:var(--jb-ink-2)}
+.band[data-k="owe"] .band__h .label{color:var(--jb-err)}
+.band[data-k="due"] .band__h .label{color:var(--jb-warn)}
+.band[data-k="offer"] .band__h .label{color:var(--jb-accent-ink)}
+.ti{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:var(--jb-space-3);align-items:center;background:var(--jb-paper);box-shadow:var(--jb-shadow-card);border-radius:var(--jb-radius-md);padding:10px 12px}
+.ti__main{display:grid;gap:2px;min-width:0}
+.ti__t{display:flex;align-items:center;gap:8px;font-weight:600;font-size:15px;min-width:0}
+.ti__t span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ti__d{font-size:var(--jb-text-small);color:var(--jb-ink-2)}
+.ti__acts{display:flex;gap:6px;flex-wrap:wrap;justify-content:flex-end}
+.ti--fit{grid-template-columns:auto minmax(0,1fr) auto}
+
+/* board */
+.pipe-tools{display:flex;flex-wrap:wrap;gap:var(--jb-space-2);align-items:center}
+.pipe-tools .jb-input{width:220px;min-height:34px}
+.board{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:var(--jb-space-2);align-items:start}
+.colm{background:var(--jb-paper-2);border-radius:var(--jb-radius-md);padding:8px;display:grid;gap:8px;min-width:0;align-content:start}
+.colm__h{display:flex;align-items:center;gap:6px;font:600 12px/1.2 var(--jb-font-body);padding:2px 2px 4px;border-bottom:1px solid var(--jb-line-soft)}
+.colm__h .n{margin-left:auto;font:600 11px var(--jb-font-mono);color:var(--jb-ink-3)}
+.card{background:var(--jb-paper);border-radius:var(--jb-radius-md);box-shadow:var(--jb-shadow-card);padding:9px 10px;display:grid;gap:5px;min-width:0}
+.card__top{display:flex;justify-content:space-between;align-items:center;gap:6px;min-width:0}
+.card__top .co{min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.card .jb-chip{white-space:normal;height:auto;min-height:22px;padding:3px 8px;line-height:1.3;max-width:100%}
+.card__t{font:600 13px/1.3 var(--jb-font-body);margin:0}
+.card__m{font:400 12px/1.35 var(--jb-font-body);color:var(--jb-ink-2)}
+.card .jb-chip{justify-self:start}
+.card--menu{box-shadow:0 0 0 2px var(--jb-action)}
+.closed-row{display:flex;flex-wrap:wrap;gap:var(--jb-space-2);align-items:center;font-size:12.5px;color:var(--jb-ink-2)}
+.menu{position:absolute;left:8px;top:calc(100% - 4px);z-index:4;width:180px;background:var(--jb-paper);border-radius:var(--jb-radius-md);box-shadow:var(--jb-shadow-raised);padding:6px;display:grid;gap:2px}
+.menu div{display:flex;align-items:center;gap:8px;padding:7px 8px;border-radius:var(--jb-radius-sm);font-size:12.5px}
+.menu div.is-on{background:var(--jb-paper-3);font-weight:600}
+.menu hr{border:0;border-top:1px solid var(--jb-line-soft);margin:4px 0}
+.toastpos{display:flex;justify-content:flex-end}
+.list{display:none;gap:var(--jb-space-4)}
+.lgroup{display:grid;gap:6px}
+.lgroup__h{display:flex;align-items:center;gap:8px;font:600 13px var(--jb-font-body)}
+.lgroup__h .n{font:600 11px var(--jb-font-mono);color:var(--jb-ink-3)}
+.lgroup .card{grid-template-columns:auto minmax(0,1fr) auto;align-items:center;column-gap:10px}
+.states3{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:var(--jb-space-3);padding:var(--jb-space-4)}
+.mini{display:grid;gap:8px;align-content:start}
+.skel{height:44px;border-radius:var(--jb-radius-md);background:linear-gradient(90deg,var(--jb-paper-3),var(--jb-paper-2),var(--jb-paper-3));box-shadow:var(--jb-shadow-card)}
+.skel.s2{height:36px;opacity:.7}
+
+/* dossier */
+.dos-head{background:var(--jb-action);color:var(--jb-on-action);padding:var(--jb-space-5) var(--jb-space-6);display:grid;grid-template-columns:auto minmax(0,1fr) auto;gap:var(--jb-space-4);align-items:center}
+.mono-k{width:48px;height:48px;border-radius:var(--jb-radius-md);background:var(--jb-paper);color:var(--jb-action);display:grid;place-items:center;font:500 22px var(--jb-font-read)}
+.dos-head h3{font:500 26px/1.15 var(--jb-font-read);margin:0}
+.dos-head p{margin:4px 0 0;font:500 11.5px/1.5 var(--jb-font-mono);letter-spacing:.04em;color:#D6E2E8}
+.dos-head .ring::before{background:var(--jb-action)}
+.dos-head .ring b{color:var(--jb-on-action)}
+.dos-head .r{display:flex;gap:var(--jb-space-3);align-items:center}
+.dos-head .jb-btn--secondary{background:transparent;color:var(--jb-on-action);border-color:rgba(255,254,249,.5)}
+.return{display:flex;flex-wrap:wrap;gap:var(--jb-space-3);align-items:center;padding:10px var(--jb-space-6);background:var(--jb-info-bg);font-size:var(--jb-text-small)}
+.return p{margin:0;flex:1;min-width:200px}
+.stepper{display:flex;flex-wrap:wrap;align-items:center;gap:6px 14px;padding:12px var(--jb-space-6);border-bottom:1px solid var(--jb-line-soft);background:var(--jb-paper-2);font:500 11.5px var(--jb-font-mono);letter-spacing:.04em;text-transform:uppercase;color:var(--jb-ink-3)}
+.stepper span{display:inline-flex;align-items:center;gap:6px}
+.stepper span.is-now{color:var(--jb-action);font-weight:600}
+.stepper span.is-done{color:var(--jb-ink-2)}
+.dos-body{display:grid;grid-template-columns:minmax(0,1.35fr) minmax(0,1fr);gap:var(--jb-space-6);padding:var(--jb-space-6)}
+.blk{display:grid;gap:var(--jb-space-3);align-content:start}
+.blk__h{display:flex;justify-content:space-between;align-items:center;gap:8px;border-bottom:2px solid var(--jb-action);padding-bottom:6px}
+.want{display:flex;flex-wrap:wrap;gap:6px}
+.scribe{border-radius:var(--jb-radius-lg);box-shadow:0 0 0 1px var(--jb-line)}
+.scribe__bar{border-radius:var(--jb-radius-lg) var(--jb-radius-lg) 0 0}
+.refine{border-radius:0 0 var(--jb-radius-lg) var(--jb-radius-lg)}
+.scribe__bar{display:flex;flex-wrap:wrap;gap:8px;align-items:center;padding:8px 12px;background:var(--jb-paper-2);border-bottom:1px solid var(--jb-line-soft)}
+.scribe__bar .tabs{display:inline-flex;gap:2px;background:var(--jb-paper-3);border-radius:var(--jb-radius-pill);padding:2px}
+.scribe__bar .tabs b{font:600 12px var(--jb-font-body);padding:5px 10px;border-radius:var(--jb-radius-pill)}
+.scribe__bar .tabs b:first-child{background:var(--jb-paper);box-shadow:0 0 0 1px var(--jb-line-soft)}
+.scribe__bar .tabs b:last-child{font-weight:500;color:var(--jb-ink-2)}
+.scribe__doc{padding:var(--jb-space-4) var(--jb-space-5);font:400 15px/1.7 var(--jb-font-read);color:var(--jb-ink);background:var(--jb-paper)}
+.scribe__doc p{margin:0 0 10px}
+.scribe__doc mark{background:var(--jb-accent-soft);color:inherit;border-radius:3px;padding:0 2px}
+.meter{display:grid;gap:6px;padding:10px 12px;background:var(--jb-paper-2);border-top:1px solid var(--jb-line-soft)}
+.meter__bar{height:6px;border-radius:3px;background:var(--jb-line-soft);overflow:hidden}
+.meter__bar i{display:block;height:100%;width:78%;background:var(--jb-accent-ink)}
+.meter p{margin:0;font-size:12.5px;color:var(--jb-ink-2)}
+.refine{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--jb-line-soft);background:var(--jb-paper);flex-wrap:wrap}
+.refine .jb-input{flex:1;min-width:160px}
+.mat{background:var(--jb-paper);box-shadow:var(--jb-shadow-card);border-radius:var(--jb-radius-md);padding:10px 12px;display:grid;gap:6px}
+.mat__h{display:flex;justify-content:space-between;align-items:center;gap:8px}
+.mat__h b{font:500 15px var(--jb-font-read)}
+.mat__note{font-size:12.5px;color:var(--jb-ink-2);margin:0}
+.mat__note strong{color:var(--jb-warn)}
+.from{display:flex;gap:8px;align-items:center;font-size:12.5px;color:var(--jb-ink-2);padding:8px 10px;background:var(--jb-paper-2);border-radius:var(--jb-radius-md)}
+.from svg{width:15px;height:15px;color:var(--jb-accent-ink);flex:none}
+.next{background:var(--jb-paper-2);border-radius:var(--jb-radius-md);padding:10px 12px;display:grid;gap:3px}
+.next b{font:500 15px var(--jb-font-read);font-style:italic}
+.gate{padding:var(--jb-space-6);display:grid;gap:var(--jb-space-3)}
+.gate .row{margin-top:4px}
+.checks{display:grid;gap:6px;font-size:var(--jb-text-small)}
+.checks label{display:flex;gap:8px;align-items:center}
+.checks input{accent-color:var(--jb-action);width:16px;height:16px}
+.sticky-acts{display:none}
+
+/* ---------- container queries: the 375 layout ---------- */
+@container app (max-width:760px){
+  .board{display:none}
+  .list{display:grid}
+  .pipe-tools .jb-input{width:100%}
+}
+@container app (max-width:560px){
+  .tb{flex-wrap:wrap;gap:8px;padding:10px 12px}
+  .tb__views{order:3;width:100%;justify-content:space-between}
+  .tb__views a{flex:1;text-align:center}
+  .tb .hide-narrow{display:none}
+  .tb .only-narrow{display:inline-flex}
+  .app-main{padding:var(--jb-space-4);gap:var(--jb-space-4)}
+  .h-display{font-size:32px}
+  .fr-grid,.acts3,.dos-body,.two,.states3{grid-template-columns:minmax(0,1fr)}
+  .ti{grid-template-columns:minmax(0,1fr)}
+  .ti--fit{grid-template-columns:auto minmax(0,1fr)}
+  .ti--fit .ti__acts{grid-column:1/-1}
+  .ti__acts{justify-content:flex-start}
+  .dos-head{grid-template-columns:auto minmax(0,1fr);padding:var(--jb-space-4)}
+  .dos-head .r{grid-column:1/-1}
+  .dos-head h3{font-size:22px}
+  .stepper,.return{padding-inline:var(--jb-space-4)}
+  .dos-body{padding:var(--jb-space-4)}
+  .modal{margin:0;padding:var(--jb-space-4);border-radius:var(--jb-radius-lg) var(--jb-radius-lg) 0 0;max-width:none}
+  .scrim{padding:var(--jb-space-12) 0 0}
+  .invite{margin:var(--jb-space-4) 0}
+  .invite h3{font-size:28px}
+  .sticky-acts{display:flex;gap:8px;padding:10px 12px;border-top:1px solid var(--jb-line);background:var(--jb-paper);position:sticky;bottom:0}
+  .sticky-acts .jb-btn{flex:1}
+}
+</style>
+
+<svg width="0" height="0" style="position:absolute" aria-hidden="true">
+  <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14" stroke="currentColor" stroke-width="2.2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5" stroke="currentColor" stroke-width="2" fill="none"/><path d="M16 16l4.5 4.5" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-gear" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3.2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 2.8v3M12 18.2v3M2.8 12h3M18.2 12h3M5.5 5.5l2.1 2.1M16.4 16.4l2.1 2.1M5.5 18.5l2.1-2.1M16.4 7.6l2.1-2.1" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-check" viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5" stroke="currentColor" stroke-width="2.6" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+  <symbol id="i-link" viewBox="0 0 24 24"><path d="M10 14a4 4 0 0 0 5.7 0l3-3a4 4 0 0 0-5.7-5.7l-1 1M14 10a4 4 0 0 0-5.7 0l-3 3a4 4 0 0 0 5.7 5.7l1-1" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-pen" viewBox="0 0 24 24"><path d="M4 20h4L19 9l-4-4L4 16v4z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/></symbol>
+  <symbol id="i-radar" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8.5" stroke="currentColor" stroke-width="2" fill="none"/><circle cx="12" cy="12" r="4" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 12l6-6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-warn" viewBox="0 0 24 24"><path d="M12 3l9.5 17h-19L12 3z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M12 10v4.5M12 17.5v.5" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-err" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 7.5v5.5M12 16.2v.3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-info" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9" stroke="currentColor" stroke-width="2" fill="none"/><path d="M12 11v5.5M12 7.8v.3" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/></symbol>
+  <symbol id="i-off" viewBox="0 0 24 24"><path d="M3 3l18 18M8.5 16.5a5 5 0 0 1 7 0M5 13a10 10 0 0 1 4-2.6M12 20h.01M15 10.5A10 10 0 0 1 19 13M2 9.5a15 15 0 0 1 4.5-3M11 5.1A15 15 0 0 1 22 9.5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round"/></symbol>
+  <symbol id="i-doc" viewBox="0 0 24 24"><path d="M6 3h8l4 4v14H6z" stroke="currentColor" stroke-width="2" fill="none" stroke-linejoin="round"/><path d="M9 12h6M9 16h6" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-cal" viewBox="0 0 24 24"><rect x="4" y="5" width="16" height="15" rx="2" stroke="currentColor" stroke-width="2" fill="none"/><path d="M4 10h16M9 3v4M15 3v4" stroke="currentColor" stroke-width="2" stroke-linecap="round"/></symbol>
+  <symbol id="i-out" viewBox="0 0 24 24"><path d="M14 4h6v6M20 4l-9 9M18 14v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V7a1 1 0 0 1 1-1h5" stroke="currentColor" stroke-width="2" fill="none" stroke-linecap="round" stroke-linejoin="round"/></symbol>
+</svg>
+
+<div class="wrap">
+  <header class="pg-head">
+    <p class="eyebrow">UX01 · Phase 2 mockup · 2026-09-25 · for approval</p>
+    <h1>JobBored, zero to one</h1>
+    <p class="lede">These are the redesigned first run, Today and Pipeline, and role dossier screens, drawn on the proposed tokens. Each pink tag is a numbered change in <code>SPEC.md</code> §3. Next to each redesign is the Phase 1 screenshot of <code>main</code> today (f227fbb, hermetic harness, 12 fictional roles).</p>
+    <div class="pg-meta">
+      <div class="controls">
+        <div class="seg" role="group" aria-label="Screen width">
+          <button type="button" id="w-desktop" aria-pressed="true">Desktop 1440</button>
+          <button type="button" id="w-phone" aria-pressed="false">Phone 375</button>
+        </div>
+        <label class="chk"><input type="checkbox" id="tags" checked> Show change tags</label>
+      </div>
+      <span>Spec: <code>docs/programs/ux01-20260925/SPEC.md</code></span>
+    </div>
+    <div class="acc" aria-label="Acceptance targets from SPEC §6">
+      <div><span>Stylesheets loaded</span><b><s>36</s> → ≤ 16</b></div>
+      <div><span>Distinct colours</span><b><s>459</s> → ≤ 40</b></div>
+      <div><span>Distinct font sizes rendered</span><b><s>50</s> → ≤ 9</b></div>
+      <div><span>Clicks to the first tracked job</span><b><s>~22</s> → ≤ 12</b></div>
+      <div><span>axe critical + serious</span><b><s>16 + 25</s> → 0</b></div>
+    </div>
+    <nav class="toc" aria-label="Sections">
+      <a href="#language">0 · Design language</a>
+      <a href="#first-run">1 · First run</a>
+      <a href="#track">2 · Today and Pipeline</a>
+      <a href="#dossier">3 · Role dossier</a>
+    </nav>
+  </header>
+
+  <!-- ===================== 0 · DESIGN LANGUAGE ===================== -->
+  <section class="sec" id="language">
+    <div class="sec__head">
+      <p class="eyebrow">0 · Design language · C2 C3 C4</p>
+      <h2>One token file, one button, one ink scale</h2>
+      <p>Today the app has two token systems, 459 literal colours, 50 rendered font sizes and 72 button looks. The proposal keeps the JobBored feel (warm paper, navy, mint, handwritten headlines) and holds all of it in <code>tokens-v2.css</code>.</p>
+    </div>
+    <div class="compare">
+      <div class="col before">
+        <p class="col__label">Before · main today</p>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/design-system/components-buttons-1440.png"><img src="audit/shots/design-system/components-buttons-1440.png" alt="Contact sheet of 72 distinct button looks rendered by the app"></button>
+          <figcaption><b>DS-05</b> 72 button looks, including 10 different primaries: navy mono, mint pill, mint gradient, dossier navy.</figcaption>
+        </figure>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/design-system/greenfield-beat1-1440.png"><img src="audit/shots/design-system/greenfield-beat1-1440.png" alt="Beat 1 of setup with a white-on-mint Continue with Google button"></button>
+          <figcaption><b>DS-06 · AX-06</b> "Continue with Google": white on mint, 2.0:1. It's the first button a stranger presses.</figcaption>
+        </figure>
+        <figure class="shot" data-w="phone">
+          <button type="button" data-full="audit/shots/design-system/signed-in-default-375.png"><img src="audit/shots/design-system/signed-in-default-375.png" alt="Signed-in dashboard at 375 pixels wide"></button>
+          <figcaption><b>DS-11 · AX-07</b> Mono eyebrows at 10–11 px in ink-3, 3.9:1. 99 declarations sit below the type floor.</figcaption>
+        </figure>
+      </div>
+      <div class="col after">
+        <p class="col__label">After · proposed tokens</p>
+        <div class="dl" data-c="C2">
+          <div>
+            <h3>Colour roles</h3>
+            <div class="sw">
+              <div><i style="--v:var(--jb-paper)"></i><p><b>paper</b><span>#FFFEF9 · page</span></p></div>
+              <div><i style="--v:var(--jb-paper-2)"></i><p><b>paper-2</b><span>#FBF7EE · panel</span></p></div>
+              <div><i style="--v:var(--jb-paper-3)"></i><p><b>paper-3</b><span>#F3EEE2 · sunken</span></p></div>
+              <div><i style="--v:var(--jb-ink)"></i><p><b>ink</b><span>#1B2B33 · 14.4:1</span></p></div>
+              <div><i style="--v:var(--jb-ink-2)"></i><p><b>ink-2</b><span>#3A5566 · 7.8:1</span></p></div>
+              <div><i style="--v:var(--jb-ink-3)"></i><p><b>ink-3</b><span>#587080 · 5.1:1 (was 3.9)</span></p></div>
+              <div><i style="--v:var(--jb-action)"></i><p><b>action</b><span>#0E3A4E · the one primary</span></p></div>
+              <div><i style="--v:var(--jb-accent)"></i><p><b>accent + on-accent</b><span>#5FCB8E, navy text 6.0:1</span></p></div>
+              <div><i style="--v:var(--jb-accent-ink)"></i><p><b>accent-ink / ok</b><span>#1F6F4A · 6.1:1</span></p></div>
+              <div><i style="--v:var(--jb-warn)"></i><p><b>warn</b><span>#A15C07 · 5.1:1</span></p></div>
+              <div><i style="--v:var(--jb-err)"></i><p><b>err</b><span>#B4321F · 6.1:1</span></p></div>
+              <div><i style="--v:var(--jb-info)"></i><p><b>info</b><span>#1D6FA3 · 5.4:1</span></p></div>
+            </div>
+          </div>
+          <div class="dl-2">
+            <div>
+              <h3>Type, named steps</h3>
+              <div class="ts">
+                <div><code>display</code><span style="font:600 40px/1 var(--jb-font-display);color:var(--jb-action)">Your pipeline</span></div>
+                <div><code>title</code><span style="font:600 24px/1.25 var(--jb-font-body)">Staff Frontend Engineer</span></div>
+                <div><code>heading</code><span style="font:600 18px/1.3 var(--jb-font-body)">You owe an answer</span></div>
+                <div><code>body</code><span style="font-size:15px">Kestrel replied to your note on Tuesday.</span></div>
+                <div><code>small</code><span style="font-size:13px;color:var(--jb-ink-2)">Follow up tomorrow · applied Sep 19</span></div>
+                <div><code>label</code><span class="label" style="color:var(--jb-ink-2)">Due in 48 h</span></div>
+                <div><code>data</code><span style="font:500 13px var(--jb-font-mono);font-variant-numeric:tabular-nums">$190k–$240k · 8/10</span></div>
+                <div><code>read</code><span style="font:400 17px/1.6 var(--jb-font-read)">Dossier prose, long-form only.</span></div>
+              </div>
+            </div>
+            <div class="kit" style="grid-template-columns:1fr" data-c="C3">
+              <div>
+                <h3>Buttons: one kit</h3>
+                <div class="row">
+                  <button class="jb-btn jb-btn--primary" type="button">Save to Pipeline</button>
+                  <button class="jb-btn jb-btn--secondary" type="button">Cancel</button>
+                  <button class="jb-btn jb-btn--ghost" type="button">Snooze</button>
+                  <button class="jb-btn jb-btn--accent" type="button">Run search</button>
+                  <button class="jb-btn jb-btn--icon" type="button" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+                </div>
+              </div>
+              <div>
+                <h3>Chips: tone, not colour</h3>
+                <div class="row">
+                  <span class="jb-chip" data-tone="ok">Ready</span>
+                  <span class="jb-chip" data-tone="warn">Review · 1 flag</span>
+                  <span class="jb-chip" data-tone="err">Reply owed</span>
+                  <span class="jb-chip" data-tone="info">Drafting</span>
+                  <span class="jb-chip"><i class="sd" style="--c:var(--jb-stage-researching)"></i>Researching</span>
+                </div>
+              </div>
+              <div>
+                <h3>Field, banner, toast, focus</h3>
+                <label class="jb-field"><span>Company</span><input class="jb-input is-focus" value="Kestrel" aria-label="Company example"></label>
+                <div class="jb-banner" data-tone="err"><svg><use href="#i-err"/></svg><p>Couldn't refresh from your Sheet. Showing what we had at 9:41.</p><div class="jb-banner__acts"><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Retry</button></div></div>
+                <div class="jb-toast"><span style="flex:1">Moved Canopy to Applied</span><button type="button">Undo</button></div>
+              </div>
+            </div>
+          </div>
+          <div>
+            <h3>Spacing: a 4 px grid</h3>
+            <div class="sp">
+              <div><i style="--s:4px"></i>1</div><div><i style="--s:8px"></i>2</div><div><i style="--s:12px"></i>3</div><div><i style="--s:16px"></i>4</div><div><i style="--s:20px"></i>5</div><div><i style="--s:24px"></i>6</div><div><i style="--s:32px"></i>8</div><div><i style="--s:40px"></i>10</div><div><i style="--s:48px"></i>12</div><div><i style="--s:64px"></i>16</div>
+            </div>
+            <p class="small muted" style="margin:12px 0 0">Radii 6 · 10 · 14 · pill. Focus ring: a 2 px paper gap plus 2 px navy, 12:1 (today's mint halo is 1.28:1). Motion 120 / 200 / 320 ms; under reduced motion, fades only. Retired: DM Sans, Source Sans 3, Special Elite, <code>jb-spark</code>, <code>jb-kbd</code>, Lattice.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+    <ul class="legend">
+      <li><span class="tag">C2</span><span>One token source: <code>style.css :root</code> becomes aliases only; named type, space, z and focus scales; <code>lint:tokens</code> runs in CI.</span><span class="ids">DS-01–03 06 11 14–16 21 22 · AX-06–08 11 · SS-18 · FD-23 · FR-22</span></li>
+      <li><span class="tag">C3</span><span>Component kit (<code>.jb-btn</code>, <code>.jb-chip</code>, <code>.jb-field</code>, <code>.jb-banner</code>, <code>.jb-toast</code>); <code>:where(body.jb-v2)</code> type rules end the cascade trap.</span><span class="ids">DS-05 10 18 19 · SS-23 · TA-20</span></li>
+      <li><span class="tag">C4</span><span>Remove dead code, rename the 8 live <code>legacy-*.css</code> sheets for the surfaces they style, trim fonts, gzip. 36 stylesheets become ≤ 16.</span><span class="ids">DS-04 07–09 12 13 17 20 23 24 · TR-20 · TA-25 · FD-24 · AX-26</span></li>
+    </ul>
+  </section>
+
+  <!-- ===================== 1 · FIRST RUN ===================== -->
+  <section class="sec" id="first-run">
+    <div class="sec__head">
+      <p class="eyebrow">1 · First run · C5 C6 C7 C11</p>
+      <h2>A tracked job after the Google step, not after five beats</h2>
+      <p>Today a stranger can track nothing until Google, AI, resume, fit and discovery are all done: about 22 clicks, 3 outside signups and 22 minutes. After this change, the real board appears as soon as the Sheet exists, adding a job needs no worker, and the setup receipt shows only checks that actually ran.</p>
+    </div>
+    <div class="compare">
+      <div class="col before">
+        <p class="col__label">Before · main today</p>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/first-run/s0-default-1440.png"><img src="audit/shots/first-run/s0-default-1440.png" alt="Demo board with the setup invitation"></button>
+          <figcaption><b>FR-11</b> The invitation promises 15 minutes; the measured happy path is about 22.</figcaption>
+        </figure>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/first-run/addjob-after-submit-1440.png"><img src="audit/shots/first-run/addjob-after-submit-1440.png" alt="Add job from URL modal showing a CORS and tunnel error"></button>
+          <figcaption><b>FD-01 · FR-04</b> Paste a link with no worker: "CORS, Cloudflare Access, a stale tunnel", and no way to save the role.</figcaption>
+        </figure>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/first-run/b1-default-1440.png"><img src="audit/shots/first-run/b1-default-1440.png" alt="Setup beat 1, connect Google"></button>
+          <figcaption><b>FR-06 · FR-14</b> "Continue with Google" is primary, although every stranger first needs a Client ID, which is hidden behind "First time?".</figcaption>
+        </figure>
+        <figure class="shot" data-w="phone">
+          <button type="button" data-full="audit/shots/first-run/s0-default-375.png"><img src="audit/shots/first-run/s0-default-375.png" alt="Demo board invitation at 375"></button>
+          <figcaption><b>FR-02</b> "Poke around first" leaves you on sample data, with no real board and no way to add a job.</figcaption>
+        </figure>
+        <figure class="shot" data-w="phone">
+          <button type="button" data-full="audit/shots/first-run/b-payoff-default-375.png"><img src="audit/shots/first-run/b-payoff-default-375.png" alt="Setup payoff beat at 375"></button>
+          <figcaption><b>FR-09 · FR-10</b> The payoff ticks "AI connected" and "Discovery armed" from stored config alone, and hands over no job.</figcaption>
+        </figure>
+      </div>
+      <div class="col after">
+        <p class="col__label">After · proposed</p>
+
+        <div class="frame frame--flush">
+          <div class="demo-bg">
+            <span class="label">Sample pipeline · this is what a set-up JobBored looks like</span>
+            <div class="invite" data-c="C7">
+              <h3>This is your job hunt on autopilot.</h3>
+              <p>Set it up once. It takes <strong>about 20–25 minutes</strong>, and you'll need:</p>
+              <ul>
+                <li>a free Google app key, so the Sheet is yours (about 10 min, guided)</li>
+                <li>an AI key from OpenRouter or Gemini (2 min)</li>
+                <li>your resume, so drafts sound like you</li>
+              </ul>
+              <p class="small muted">Your resume and pipeline stay in your Google Sheet and on this computer.</p>
+              <div class="row"><button class="jb-btn jb-btn--primary" type="button">Make it mine</button><button class="jb-btn jb-btn--secondary" type="button">Poke around first</button></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-cap">Screen 0, before any Sheet exists: the time estimate is honest and names what it takes.</p>
+
+        <div class="frame">
+          <header class="tb">
+            <span class="tb__logo"><i class="tb__mark"></i>Job<em>Bored</em></span>
+            <nav class="tb__views" aria-label="Views"><a aria-current="page">Today</a><a>Pipeline<span class="n">0</span></a><a>Dossier</a></nav>
+            <div class="tb__acts">
+              <button class="jb-btn jb-btn--primary jb-btn--sm hide-narrow" type="button" data-c="C5"><svg><use href="#i-plus"/></svg>Add job</button>
+              <button class="jb-btn jb-btn--primary jb-btn--sm only-narrow" type="button" aria-label="Add job" data-c="C5"><svg><use href="#i-plus"/></svg></button>
+              <button class="jb-btn jb-btn--secondary jb-btn--sm hide-narrow" type="button"><i class="dot"></i>Find jobs</button>
+              <button class="jb-btn jb-btn--icon" type="button" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+              <span class="tb__avatar" aria-label="Signed in as Alex Rivera">A</span>
+            </div>
+          </header>
+          <div class="app-main">
+            <div class="jb-banner" data-tone="ok" data-c="C6"><svg><use href="#i-check"/></svg><p><b>Your Sheet is ready.</b> "JobBored Pipeline" is in your Google Drive, and only you can open it. This is your real board: add the first role you're weighing.</p></div>
+            <div class="fr-grid">
+              <div style="display:grid;gap:var(--jb-space-4)">
+                <h2 class="h-display">Add your first role</h2>
+                <div class="acts3" data-c="C5">
+                  <div class="act"><svg><use href="#i-link"/></svg><h4>Paste a job link</h4><p>Any posting URL. We read what we can, and you fill in the rest.</p><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Paste a link</button></div>
+                  <div class="act"><svg><use href="#i-pen"/></svg><h4>Type it in</h4><p>A title and company are enough to start tracking.</p><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Add by hand</button></div>
+                  <div class="act"><svg><use href="#i-radar"/></svg><h4>Find jobs for me</h4><p>Searches job boards each morning. Setup takes about 3 min.</p><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Set up search</button></div>
+                </div>
+              </div>
+              <aside class="receipt" data-c="C7">
+                <p class="label" style="color:var(--jb-ink-2)">Setup · checked, not assumed</p>
+                <div class="rc"><span class="ic ic--ok"><svg><use href="#i-check"/></svg></span><div><b>Google Sheet</b><span>Read and write checked just now</span></div></div>
+                <div class="rc"><span class="ic ic--ok"><svg><use href="#i-check"/></svg></span><div><b>AI · OpenRouter</b><span>Key checked just now · a model strong enough for letters</span></div></div>
+                <div class="rc" data-c="C11"><span class="ic ic--todo"></span><div><b>Your resume</b><span>Needed before any draft. Tailored letters are written from it.</span><br><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Add resume</button></div></div>
+                <div class="rc"><span class="ic ic--todo"></span><div><b>Job search</b><span>Not set up. You can track jobs without it.</span></div></div>
+              </aside>
+            </div>
+          </div>
+        </div>
+        <p class="frame-cap">Right after the Google step. The real, empty board with three ways in, and a receipt that marks only verified steps.</p>
+
+        <div class="frame frame--flush">
+          <div class="scrim">
+            <div class="modal" role="dialog" aria-label="Add a job" data-c="C5">
+              <div class="modal__head"><div><p class="label">Pipeline</p><h3 class="h-head">Add a job</h3></div><button class="jb-btn jb-btn--icon" type="button" aria-label="Close">×</button></div>
+              <label class="jb-field"><span>Job link</span><input class="jb-input is-filled" value="https://boards.greenhouse.io/kestrel/jobs/4471" aria-label="Job link"></label>
+              <div class="jb-banner" data-tone="warn"><svg><use href="#i-warn"/></svg><p>We couldn't read that page from here. Fill in the rest and it goes straight to your Sheet.</p></div>
+              <div class="two">
+                <label class="jb-field"><span>Role title</span><input class="jb-input is-focus" value="Staff Frontend Engineer" aria-label="Role title"></label>
+                <label class="jb-field"><span>Company</span><input class="jb-input" value="Kestrel" aria-label="Company"></label>
+              </div>
+              <label class="jb-field"><span>Location <small>optional</small></span><input class="jb-input" value="Remote (US/Canada)" aria-label="Location"></label>
+              <div class="modal__foot"><span class="muted">Saved as a new Pipeline row</span><button class="jb-btn jb-btn--secondary" type="button">Cancel</button><button class="jb-btn jb-btn--primary" type="button">Save to Pipeline</button></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-cap">The link can't be fetched (no worker, blocked site). Manual entry opens prefilled, so the job is still tracked, with no network jargon.</p>
+      </div>
+    </div>
+    <ul class="legend">
+      <li><span class="tag">C5</span><span>"Add job" in the top bar. When a link can't be read, manual entry opens prefilled. Empty views carry the three ways in.</span><span class="ids">FD-01–03 22 · FR-03 04 · SS-11 · TR-22 · MP-06</span></li>
+      <li><span class="tag">C6</span><span>Once a Sheet exists, closing setup or choosing "Poke around" shows your real board; the payoff ends on a real row. <i>After #104.</i></span><span class="ids">FR-02 10 19 · AX-09</span></li>
+      <li><span class="tag">C7</span><span>Honest setup: a ✓ appears only after its check passes, the estimate says "20–25 min", copy is plain, and the default model is capable. <i>After #104.</i></span><span class="ids">FR-05 07 09 11–18 20 23 · SS-12</span></li>
+      <li><span class="tag">C11</span><span>No drafts until the stranger's own resume is in. The receipt asks for it before the dossier ever needs it.</span><span class="ids">TA-01 02 15</span></li>
+    </ul>
+  </section>
+
+  <!-- ===================== 2 · TODAY AND PIPELINE ===================== -->
+  <section class="sec" id="track">
+    <div class="sec__head">
+      <p class="eyebrow">2 · Today and Pipeline · C9 C17–C21</p>
+      <h2>One view at a time, one next step per role, moves you can trust</h2>
+      <p>Today the dashboard is one 4,559 px scroll, and the board starts 2.3 screens down. Five surfaces rank next steps differently. Board moves never reach the app's own state, and at 375 the open column is 22 px wide. The proposal splits Today, Pipeline and Dossier into views, and gives every row actions that clear it.</p>
+    </div>
+    <div class="compare">
+      <div class="col before">
+        <p class="col__label">Before · main today</p>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/track/signed-in-page-fold-1440.png"><img src="audit/shots/track/signed-in-page-fold-1440.png" alt="Today list at the top of the signed-in page"></button>
+          <figcaption><b>TR-13 · TR-14</b> "You owe an answer" can never be cleared, and each row's single button opens the dossier.</figcaption>
+        </figure>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/track/signed-in-board-1440.png"><img src="audit/shots/track/signed-in-board-1440.png" alt="Pipeline board with one open column and eight collapsed strips"></button>
+          <figcaption><b>TR-09 · TR-19</b> The board starts at y=2096. One column is open and eight are 56 px strips, so 2 of 12 roles are visible.</figcaption>
+        </figure>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/track/stage-menu-open-1440.png"><img src="audit/shots/track/stage-menu-open-1440.png" alt="Move to stage menu painted under the next card"></button>
+          <figcaption><b>TR-07 · AX-02</b> "Move to stage" draws under the next card and can't be clicked. It is the only keyboard and touch move.</figcaption>
+        </figure>
+        <figure class="shot" data-w="phone">
+          <button type="button" data-full="audit/shots/track/signed-in-board-phone-375.png"><img src="audit/shots/track/signed-in-board-phone-375.png" alt="Pipeline at 375 with a 22 pixel open column"></button>
+          <figcaption><b>TR-08 · AX-01</b> At 375 the open column is 22 px wide and cards are 26 px, so no role can be read.</figcaption>
+        </figure>
+        <figure class="shot" data-w="phone">
+          <button type="button" data-full="audit/shots/track/signed-in-page-fold-375.png"><img src="audit/shots/track/signed-in-page-fold-375.png" alt="Today at 375"></button>
+          <figcaption><b>TR-19</b> The pipeline sits four screens down, behind about 3,000 px of summary.</figcaption>
+        </figure>
+      </div>
+      <div class="col after">
+        <p class="col__label">After · proposed</p>
+
+        <div class="frame">
+          <div class="skipbar"><a class="skip" href="#track" data-c="C18">Skip to Pipeline</a><span>the first Tab stop on every view</span></div>
+          <header class="tb">
+            <span class="tb__logo"><i class="tb__mark"></i>Job<em>Bored</em></span>
+            <nav class="tb__views" aria-label="Views" data-c="C18"><a aria-current="page">Today<span class="n">9</span></a><a>Pipeline<span class="n">12</span></a><a>Dossier</a></nav>
+            <div class="tb__acts">
+              <button class="jb-btn jb-btn--primary jb-btn--sm hide-narrow" type="button"><svg><use href="#i-plus"/></svg>Add job</button>
+              <button class="jb-btn jb-btn--primary jb-btn--sm only-narrow" type="button" aria-label="Add job"><svg><use href="#i-plus"/></svg></button>
+              <button class="jb-btn jb-btn--secondary jb-btn--sm hide-narrow" type="button"><i class="dot dot--ok"></i>Find jobs</button>
+              <button class="jb-btn jb-btn--icon" type="button" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+              <span class="tb__avatar" aria-label="Signed in as Alex Rivera">A</span>
+            </div>
+          </header>
+          <div class="app-main">
+            <div class="runstrip" data-c="C9"><svg><use href="#i-check"/></svg><p><b>Found 4 new roles</b> for Senior Product Designer and Design Engineer<small>This morning's search · also tried "Design Systems Designer" · Greenhouse, Lever, Google Jobs</small></p><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">View 4 new</button></div>
+            <div class="today-head"><h2 class="h-display">Friday, Sep 25</h2><span class="sum">2 to answer · 1 due soon · 1 offer open · 5 worth a look</span></div>
+
+            <div class="band" data-k="owe" data-c="C20">
+              <div class="band__h"><span class="label">You owe an answer</span><span class="n">2</span></div>
+              <div class="ti"><div class="ti__main"><span class="co">Tidewater Health</span><span class="ti__t"><i class="sd" style="--c:var(--jb-stage-phone)"></i><span>Frontend Engineer</span></span><span class="ti__d">Maya Chen (recruiter) replied 3 days ago</span></div><div class="ti__acts"><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Reply</button><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Mark answered</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Snooze</button></div></div>
+              <div class="ti"><div class="ti__main"><span class="co">Orbital</span><span class="ti__t"><i class="sd" style="--c:var(--jb-stage-interviewing)"></i><span>Design Engineer</span></span><span class="ti__d">Dev Patel (hiring manager) replied yesterday · follow-up set for Sep 27</span></div><div class="ti__acts"><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Reply</button><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Mark answered</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Snooze</button></div></div>
+            </div>
+
+            <div class="band" data-k="due" data-c="C20">
+              <div class="band__h"><span class="label">Due in 48 h</span><span class="n">1</span></div>
+              <div class="ti"><div class="ti__main"><span class="co">Juniper Bank</span><span class="ti__t"><i class="sd" style="--c:var(--jb-stage-applied)"></i><span>Product Engineer</span></span><span class="ti__d">Follow up tomorrow · applied Sep 19 through a referral</span></div><div class="ti__acts"><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Done</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Snooze</button><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button"><svg><use href="#i-cal"/></svg>Add to calendar</button></div></div>
+            </div>
+
+            <div class="band" data-k="offer">
+              <div class="band__h"><span class="label">Offer open</span><span class="n">1</span></div>
+              <div class="ti"><div class="ti__main"><span class="co">Brightline Pay</span><span class="ti__t"><i class="sd" style="--c:var(--jb-stage-offer)"></i><span>Software Engineer, Payments UI</span></span><span class="ti__d">Decide by Oct 1 · 6 days left · Ana Ruiz is waiting on your reply</span></div><div class="ti__acts"><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Open offer</button></div></div>
+            </div>
+
+            <div class="band">
+              <div class="band__h"><span class="label">Worth a look</span><span class="n">5</span></div>
+              <div class="ti ti--fit"><span class="ring" style="--p:90"><b>9</b></span><div class="ti__main"><span class="co">Lumen Labs</span><span class="ti__t"><span>Senior Product Designer</span></span><span class="ti__d">Remote (US) · $170k–$210k · your design-system migration matches their brief</span></div><div class="ti__acts"><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Start researching</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Pass</button></div></div>
+              <div class="ti ti--fit"><span class="ring ring--mid" style="--p:70"><b>7</b></span><div class="ti__main"><span class="co">Parcel</span><span class="ti__t"><span>Full-Stack Engineer</span></span><span class="ti__d">Remote · $150k–$180k · light on the logistics domain</span></div><div class="ti__acts"><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Start researching</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Pass</button></div></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-cap">The Today view. Every row carries the action that clears it, and one ranking feeds Today, the card strip and People.</p>
+
+        <div class="frame">
+          <header class="tb">
+            <span class="tb__logo"><i class="tb__mark"></i>Job<em>Bored</em></span>
+            <nav class="tb__views" aria-label="Views"><a>Today<span class="n">9</span></a><a aria-current="page">Pipeline<span class="n">12</span></a><a>Dossier</a></nav>
+            <div class="tb__acts">
+              <button class="jb-btn jb-btn--primary jb-btn--sm hide-narrow" type="button"><svg><use href="#i-plus"/></svg>Add job</button>
+              <button class="jb-btn jb-btn--primary jb-btn--sm only-narrow" type="button" aria-label="Add job"><svg><use href="#i-plus"/></svg></button>
+              <button class="jb-btn jb-btn--icon" type="button" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+            </div>
+          </header>
+          <div class="app-main">
+            <div class="pipe-tools">
+              <input class="jb-input" value="" placeholder="Search roles, companies, tags" aria-label="Search roles">
+              <span class="jb-chip" data-tone="info">Sort: Next step</span>
+              <div class="seg" role="group" aria-label="Layout" data-c="C19" style="margin-left:auto"><button type="button" class="lay-list" aria-pressed="false">List</button><button type="button" class="lay-board" aria-pressed="true">Board</button></div>
+            </div>
+            <div class="board" data-c="C19">
+              <div class="colm"><div class="colm__h"><i class="sd"></i>Discovered<span class="n">3</span></div>
+                <div class="card"><div class="card__top"><span class="co">Lumen Labs</span><span class="ring" style="--p:90"><b>9</b></span></div><p class="card__t">Senior Product Designer</p><span class="card__m">Remote (US) · $170–210k</span><span class="jb-chip" data-tone="info">New today</span></div>
+                <div class="card"><div class="card__top"><span class="co">Parcel</span><span class="ring ring--mid" style="--p:70"><b>7</b></span></div><p class="card__t">Full-Stack Engineer</p><span class="card__m">Remote · $150–180k</span></div>
+                <div class="card"><div class="card__top"><span class="co">Harbor</span><span class="ring ring--mid" style="--p:60"><b>6</b></span></div><p class="card__t">Senior UI Engineer</p><span class="card__m">New York · $165–195k</span></div>
+              </div>
+              <div class="colm"><div class="colm__h"><i class="sd" style="--c:var(--jb-stage-researching)"></i>Researching<span class="n">2</span></div>
+                <div class="card"><div class="card__top"><span class="co">Kestrel</span><span class="ring" style="--p:80"><b>8</b></span></div><p class="card__t">Staff Frontend Engineer</p><span class="card__m">Remote · $190–240k</span><span class="jb-chip" data-tone="ok">Drafts ready</span></div>
+                <div class="card card--menu" style="position:relative" data-c="C17"><div class="card__top"><span class="co">Canopy</span><span class="ring ring--mid" style="--p:70"><b>7</b></span></div><p class="card__t">Web Platform Engineer</p><span class="card__m">Toronto · CA$160–190k</span>
+                  <div class="menu" role="menu" aria-label="Move Canopy to stage"><div>Discovered</div><div class="is-on"><i class="sd" style="--c:var(--jb-stage-applied)"></i>Applied…</div><div>Phone screen</div><div>Interviewing</div><div>Offer</div><hr><div>Passed</div><div>Rejected</div></div>
+                </div>
+              </div>
+              <div class="colm"><div class="colm__h"><i class="sd" style="--c:var(--jb-stage-applied)"></i>Applied<span class="n">1</span></div>
+                <div class="card"><div class="card__top"><span class="co">Juniper Bank</span><span class="ring" style="--p:80"><b>8</b></span></div><p class="card__t">Product Engineer</p><span class="card__m">Brooklyn · $160–200k</span><span class="jb-chip" data-tone="warn">Follow up tomorrow</span></div>
+              </div>
+              <div class="colm"><div class="colm__h"><i class="sd" style="--c:var(--jb-stage-phone)"></i>Phone screen<span class="n">1</span></div>
+                <div class="card"><div class="card__top"><span class="co">Tidewater</span><span class="ring ring--mid" style="--p:70"><b>7</b></span></div><p class="card__t">Frontend Engineer</p><span class="card__m">Boston, hybrid</span><span class="jb-chip" data-tone="err">Reply owed</span></div>
+              </div>
+              <div class="colm"><div class="colm__h"><i class="sd" style="--c:var(--jb-stage-interviewing)"></i>Interviewing<span class="n">1</span></div>
+                <div class="card"><div class="card__top"><span class="co">Orbital</span><span class="ring" style="--p:90"><b>9</b></span></div><p class="card__t">Design Engineer</p><span class="card__m">Remote · $175–215k</span><span class="jb-chip" data-tone="err">Reply owed</span></div>
+              </div>
+              <div class="colm"><div class="colm__h"><i class="sd" style="--c:var(--jb-stage-offer)"></i>Offer<span class="n">1</span></div>
+                <div class="card"><div class="card__top"><span class="co">Brightline</span><span class="ring" style="--p:80"><b>8</b></span></div><p class="card__t">Software Engineer, Payments UI</p><span class="card__m">Seattle · $175k</span><span class="jb-chip" data-tone="warn">Decide by Oct 1</span></div>
+              </div>
+            </div>
+
+            <div class="list" data-c="C19">
+              <div class="lgroup"><div class="lgroup__h"><i class="sd"></i>Discovered<span class="n">3</span></div>
+                <div class="card"><span class="ring" style="--p:90"><b>9</b></span><div><span class="co">Lumen Labs</span><p class="card__t">Senior Product Designer</p><span class="card__m">Remote (US) · $170–210k</span></div><span class="jb-chip" data-tone="info">New</span></div>
+                <div class="card"><span class="ring ring--mid" style="--p:70"><b>7</b></span><div><span class="co">Parcel</span><p class="card__t">Full-Stack Engineer</p><span class="card__m">Remote · $150–180k</span></div><span></span></div>
+              </div>
+              <div class="lgroup"><div class="lgroup__h"><i class="sd" style="--c:var(--jb-stage-researching)"></i>Researching<span class="n">2</span></div>
+                <div class="card"><span class="ring" style="--p:80"><b>8</b></span><div><span class="co">Kestrel</span><p class="card__t">Staff Frontend Engineer</p><span class="card__m">Remote · $190–240k</span></div><span class="jb-chip" data-tone="ok">Drafts</span></div>
+                <div class="card"><span class="ring ring--mid" style="--p:70"><b>7</b></span><div><span class="co">Canopy</span><p class="card__t">Web Platform Engineer</p><span class="card__m">Toronto · CA$160–190k</span></div><span></span></div>
+              </div>
+              <div class="lgroup"><div class="lgroup__h"><i class="sd" style="--c:var(--jb-stage-applied)"></i>Applied<span class="n">1</span></div>
+                <div class="card"><span class="ring" style="--p:80"><b>8</b></span><div><span class="co">Juniper Bank</span><p class="card__t">Product Engineer</p><span class="card__m">Brooklyn · $160–200k</span></div><span class="jb-chip" data-tone="warn">Tomorrow</span></div>
+              </div>
+              <div class="lgroup"><div class="lgroup__h"><i class="sd" style="--c:var(--jb-stage-phone)"></i>Phone screen · Interviewing · Offer<span class="n">3</span></div></div>
+            </div>
+
+            <div class="closed-row"><span class="label">Closed</span><span class="jb-chip"><i class="sd" style="--c:var(--jb-stage-rejected)"></i>Rejected 1</span><span class="jb-chip"><i class="sd" style="--c:var(--jb-stage-passed)"></i>Passed 1</span><span class="jb-chip"><i class="sd" style="--c:var(--jb-stage-expired)"></i>Expired 1</span></div>
+            <div class="toastpos" data-c="C17"><div class="jb-toast"><span>Moved Juniper Bank to Applied · Sheet updated</span><button type="button">Undo</button></div></div>
+          </div>
+        </div>
+        <p class="frame-cap">The Pipeline view. At desktop width every active stage is open; below 760 px the same cards become a grouped list. The stage menu opens on top, and every move shows Undo.</p>
+
+        <div class="frame frame--flush" data-c="C21">
+          <div class="states3">
+            <div class="mini"><p class="label">Loading</p><div class="skel"></div><div class="skel s2"></div><p class="small muted" style="margin:0">Skeleton rows. No "Nothing is waiting on you" until the Sheet answers.</p></div>
+            <div class="mini"><p class="label">Refresh failed</p><div class="jb-banner" data-tone="err"><svg><use href="#i-err"/></svg><p><b>Couldn't refresh.</b> alex@example.com can't open this Sheet any more. Showing the 12 roles from 9:41.</p></div><div class="row"><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Retry</button><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Switch account</button></div></div>
+            <div class="mini"><p class="label">Offline</p><div class="jb-banner" data-tone="info"><svg><use href="#i-off"/></svg><p><b>You're offline.</b> 1 change will sync when you reconnect.</p></div><p class="small muted" style="margin:0">Retries on <code>online</code>, and says which role each queued change belongs to.</p></div>
+          </div>
+        </div>
+        <p class="frame-cap">A failure never looks empty. Today a failed refresh drops the board to 0 cards with no error (SS-01).</p>
+      </div>
+    </div>
+    <ul class="legend">
+      <li><span class="tag">C9</span><span>A run strip in plain words that ends at a count and "View", and your own roles always stay in the query. <i>After #102.</i></span><span class="ids">FD-07–13 15–18 21 25 26 · SS-19 24</span></li>
+      <li><span class="tag">C17</span><span>One planner for every move: the app updates or rolls back with a named Retry, Undo on every move, a drag never opens the dossier, and the stage menu sits in the top layer.</span><span class="ids">TR-01–05 07 10 11 25 · SS-07 · AX-02 04 10 13 14</span></li>
+      <li><span class="tag">C18</span><span>Today, Pipeline and Dossier are views on the same anchors. There is a skip link, and focus moves to the view you picked.</span><span class="ids">TR-19 23 · TA-09 17 · AX-05 12 15 16 23–25</span></li>
+      <li><span class="tag">C19</span><span>Every non-empty stage is open at desktop width; below 760 px a list is the default, with a Board toggle. Cards show pay, place and a relative follow-up, and targets are ≥ 44 px.</span><span class="ids">TR-08 09 16 17 · AX-01 19 · MP-09</span></li>
+      <li><span class="tag">C20</span><span>One next-step engine with "Due in 48 h" and "Offer open" bands. Rows get Done, Snooze, Mark answered and Add to calendar (<code>.ics</code>).</span><span class="ids">TR-12–15 18 · MP-07</span></li>
+      <li><span class="tag">C21</span><span>Keep the last good data behind a Retry banner, show skeletons until the first load, add an offline notice, and write 403 copy that names the account.</span><span class="ids">SS-01 02 05 06 08–10 25 26 · TR-21</span></li>
+    </ul>
+  </section>
+
+  <!-- ===================== 3 · ROLE DOSSIER ===================== -->
+  <section class="sec" id="dossier">
+    <div class="sec__head">
+      <p class="eyebrow">3 · Role dossier · C11–C16</p>
+      <h2>Tailor from your resume, review before you send, and record what you did</h2>
+      <p>Today drafts come from the maintainer's committed resume, the verdict says "ready" over a QA flag, Scribe never binds to the open role, and the Applied dialog throws away what you type. The dossier keeps the #119 reading canvas and fixes the loop inside it.</p>
+    </div>
+    <div class="compare">
+      <div class="col before">
+        <p class="col__label">Before · main today</p>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/tailor-apply/materials-ready-1440.png"><img src="audit/shots/tailor-apply/materials-ready-1440.png" alt="Dossier with materials marked ready"></button>
+          <figcaption><b>TA-12 · TA-11</b> "Both ready" while the resume carries a QA flag nobody can read. The QA report and checklist can't be opened.</figcaption>
+        </figure>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/tailor-apply/dossier-open-1440.png"><img src="audit/shots/tailor-apply/dossier-open-1440.png" alt="Dossier with two error toasts"></button>
+          <figcaption><b>TA-15 · TA-18</b> "Add a resume to see what matches" is plain text, and two red toasts appear on every open.</figcaption>
+        </figure>
+        <figure class="shot" data-w="desktop">
+          <button type="button" data-full="audit/shots/tailor-apply/applied-confirm-open-1440.png"><img src="audit/shots/tailor-apply/applied-confirm-open-1440.png" alt="Mark application submitted dialog"></button>
+          <figcaption><b>TR-06 = TA-04</b> The dialog asks for four fields and writes none of them. It names no role, and its primary button looks disabled.</figcaption>
+        </figure>
+        <figure class="shot" data-w="phone">
+          <button type="button" data-full="audit/shots/tailor-apply/dossier-open-375.png"><img src="audit/shots/tailor-apply/dossier-open-375.png" alt="Dossier at 375"></button>
+          <figcaption><b>AX-25 · AX-22</b> The stage row scrolls with its scrollbar hidden, and two error toasts cover a fifth of the screen.</figcaption>
+        </figure>
+        <figure class="shot" data-w="phone">
+          <button type="button" data-full="audit/shots/tailor-apply/applied-confirm-open-375.png"><img src="audit/shots/tailor-apply/applied-confirm-open-375.png" alt="Applied confirm at 375"></button>
+          <figcaption><b>TA-20</b> "Mark application submitted?" with no role name.</figcaption>
+        </figure>
+      </div>
+      <div class="col after">
+        <p class="col__label">After · proposed</p>
+
+        <div class="frame">
+          <header class="tb">
+            <span class="tb__logo"><i class="tb__mark"></i>Job<em>Bored</em></span>
+            <nav class="tb__views" aria-label="Views"><a>Today<span class="n">9</span></a><a>Pipeline<span class="n">12</span></a><a aria-current="page">Dossier</a></nav>
+            <div class="tb__acts">
+              <button class="jb-btn jb-btn--primary jb-btn--sm hide-narrow" type="button"><svg><use href="#i-plus"/></svg>Add job</button>
+              <button class="jb-btn jb-btn--icon" type="button" aria-label="Settings"><svg><use href="#i-gear"/></svg></button>
+            </div>
+          </header>
+          <div class="return" data-c="C16"><svg width="16" height="16" style="color:var(--jb-info)"><use href="#i-info"/></svg><p><b>Back from Kestrel's posting.</b> Did you apply?</p><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Yes, mark applied</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Not yet</button></div>
+          <div class="dos-head" data-c="C18">
+            <span class="mono-k">K</span>
+            <div><h3 tabindex="-1">Staff Frontend Engineer</h3><p>KESTREL · REMOTE (US/CANADA) · $190K–$240K · VIA GREENHOUSE · FOUND SEP 23</p></div>
+            <div class="r"><span class="ring ring--lg" style="--p:80"><b>8</b></span><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">View posting<svg><use href="#i-out"/></svg></button></div>
+          </div>
+          <div class="stepper"><span class="is-done"><i class="sd"></i>New</span><span class="is-now"><i class="sd" style="--c:var(--jb-stage-researching)"></i>Researching</span><span>Applied</span><span>Phone screen</span><span>Interviewing</span><span>Offer</span><span>More ▾</span></div>
+          <div class="dos-body">
+            <div class="blk">
+              <div class="blk__h"><span class="label" style="color:var(--jb-action)">They want · from the posting</span><span class="jb-chip" data-tone="ok">7 of 9 in your resume</span></div>
+              <div class="want"><span class="jb-chip" data-tone="ok">✓ Design systems</span><span class="jb-chip" data-tone="ok">✓ Performance</span><span class="jb-chip" data-tone="ok">✓ React</span><span class="jb-chip" data-tone="ok">✓ Accessibility</span><span class="jb-chip" data-tone="miss">Mentoring</span><span class="jb-chip" data-tone="miss">Perf budgets</span></div>
+              <div class="scribe" data-c="C14">
+                <div class="scribe__bar"><span class="tabs"><b>Cover letter v1</b><b>Resume v2</b></span><span class="jb-chip" data-tone="ok" style="margin-left:auto">Saved</span></div>
+                <div class="scribe__doc">
+                  <p>Dear Kestrel team,</p>
+                  <p>Last year I led the <mark>design-system</mark> migration at Fathom that cut UI regressions by a third and brought first paint under a second on our heaviest dashboards, the same <mark>performance</mark> work your Staff Frontend posting names first…</p>
+                </div>
+                <div class="meter"><div class="meter__bar"><i></i></div><p><b>Covers 7 of 9</b> skills the posting names · missing: <b>Mentoring</b>, <b>Performance budgets</b> · free, updates as you type</p></div>
+                <div class="refine"><input class="jb-input" value="" placeholder="Tell it what to change" aria-label="Refine instructions"><span class="jb-chip" data-tone="miss">+ mentoring story</span><span class="jb-chip" data-tone="miss">Cut to 250 words</span><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Refine</button></div>
+              </div>
+            </div>
+            <div class="blk">
+              <div class="blk__h"><span class="label" style="color:var(--jb-action)">Materials · your files</span></div>
+              <div class="from" data-c="C11"><svg><use href="#i-doc"/></svg><span>Drafted from <b>alex-rivera-resume.pdf</b>, added Sep 25</span><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button" style="margin-left:auto">Change</button></div>
+              <div class="mat" data-c="C13"><div class="mat__h"><b>Tailored resume · v2</b><span class="jb-chip" data-tone="warn">Review · 1 flag</span></div><p class="mat__note"><strong>Runs to 2 pages.</strong> Trim to 1 before sending; the QA check flagged it.</p><div class="row"><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Open QA report</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Edit</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">PDF</button></div></div>
+              <div class="mat"><div class="mat__h"><b>Cover letter · v1</b><span class="jb-chip" data-tone="ok">Ready</span></div><div class="row"><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Edit in place</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">PDF</button></div></div>
+              <div class="mat"><div class="mat__h"><b>Apply checklist</b><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Open</button></div></div>
+              <div class="next"><span class="label">Next step</span><b>Fix the resume flag, then apply.</b></div>
+            </div>
+          </div>
+          <div class="sticky-acts"><button class="jb-btn jb-btn--secondary" type="button">Refine</button><button class="jb-btn jb-btn--primary" type="button">Mark applied</button></div>
+        </div>
+        <p class="frame-cap">The Dossier view. It says which resume a draft came from, surfaces the QA flag, and keeps Scribe inside the role, bound to its documents.</p>
+
+        <div class="frame frame--flush">
+          <div class="scrim">
+            <div class="modal" role="dialog" aria-label="Mark as applied" data-c="C15">
+              <div class="modal__head"><div><p class="label">Record the application</p><h3 class="h-head">Staff Frontend Engineer at Kestrel</h3></div><button class="jb-btn jb-btn--icon" type="button" aria-label="Close">×</button></div>
+              <div class="two">
+                <label class="jb-field"><span>Applied on</span><input class="jb-input" value="Sep 25, 2026" aria-label="Applied on"></label>
+                <label class="jb-field"><span>Follow up on</span><input class="jb-input" value="Oct 2, 2026" aria-label="Follow up on"></label>
+              </div>
+              <div class="two">
+                <label class="jb-field"><span>Where</span><input class="jb-input" value="Greenhouse (from the posting)" aria-label="Where"></label>
+                <label class="jb-field"><span>Confirmation <small>optional</small></span><input class="jb-input is-focus" value="GH-4471-A2" aria-label="Confirmation"></label>
+              </div>
+              <div class="checks"><span class="label">Sent with it</span><label><input type="checkbox" checked> Tailored resume v2</label><label><input type="checkbox" checked> Cover letter v1</label></div>
+              <p class="small muted" style="margin:0">These values are written to your Sheet exactly as shown: Applied Date, Follow-up Date, and a line in Notes.</p>
+              <div class="modal__foot"><button class="jb-btn jb-btn--secondary" type="button">Cancel</button><button class="jb-btn jb-btn--primary" type="button">Mark applied</button></div>
+            </div>
+          </div>
+        </div>
+        <p class="frame-cap">Applied names the role, writes what you typed through the planner, and shows Undo afterwards. Cancel leaves the stage as it was.</p>
+
+        <div class="frame frame--flush">
+          <div class="states3" style="grid-template-columns:repeat(2,minmax(0,1fr))">
+            <div class="mini" data-c="C11"><p class="label">No resume yet</p><h3 class="h-head" style="font-size:16px">Add your resume first</h3><p class="small" style="margin:0;color:var(--jb-ink-2)">Drafts are written from it, so they sound like you and list only what you've done. It stays on this computer.</p><div class="row"><button class="jb-btn jb-btn--primary jb-btn--sm" type="button">Upload resume</button><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Paste text</button></div></div>
+            <div class="mini" data-c="C12"><p class="label">Drafting server not running</p><div class="jb-banner" data-tone="warn"><svg><use href="#i-warn"/></svg><p>Drafting is paused. In your JobBored folder run <code>npm start</code>, then try again.</p></div><div class="row"><button class="jb-btn jb-btn--secondary jb-btn--sm" type="button">Retry</button><button class="jb-btn jb-btn--ghost jb-btn--sm" type="button">Copy command</button></div></div>
+          </div>
+        </div>
+        <p class="frame-cap">The states that used to lie. A draft never starts without the stranger's resume, and "Queued" never appears while nothing is running.</p>
+      </div>
+    </div>
+    <ul class="legend">
+      <li><span class="tag">C11</span><span>The server drafts from the resume sent with the request and refuses without one. The dossier says which file each draft came from. The server half runs as a sol lane.</span><span class="ids">TA-01 02 15</span></li>
+      <li><span class="tag">C12</span><span>Drafting states match reality: when the server is down, Draft is off and Retry is shown. One click drafts, auto-draft is opt-in, and a notice appears at 3 min.</span><span class="ids">TA-03 05–07 16 18 22 26 · TR-24 · AX-22</span></li>
+      <li><span class="tag">C13</span><span>A Review state shows the QA flag in the row. The QA report and checklist open inline, and the score names the document and version it rates.</span><span class="ids">TA-11–13</span></li>
+      <li><span class="tag">C14</span><span>Scribe lives in the dossier, bound to the role's documents. It has a free, live keyword meter, and its chips come from the skills the draft is missing. <i>After casefit.</i></span><span class="ids">TA-08–10 23 24 · MP-03 · AX-17 20 21</span></li>
+      <li><span class="tag">C15</span><span>Applied names the role, writes the date, follow-up, source and receipt through the planner, and offers Undo. Cancel reverts the menu.</span><span class="ids">TR-06 = TA-04 · TA-19 21 · AX-03</span></li>
+      <li><span class="tag">C16</span><span>Coming back from "View posting" asks "Did you apply?" with the source prefilled.</span><span class="ids">MP-04</span></li>
+      <li><span class="tag">C18</span><span>The dossier is a view. Opening it focuses the role heading, and closing it returns focus to the card.</span><span class="ids">AX-05 · TA-17</span></li>
+    </ul>
+  </section>
+
+  <footer class="foot">
+    <p style="margin:0">Before-screenshots come from Phase 1 (<code>audit/shots/</code>). They were captured through the hermetic harness with 12 fictional roles and a stranger's config. Companies and people in the mocks are fictional.</p>
+    <p style="margin:0">Build order: lane A (tokens, kit, harness fence, legacy exit) lands first, then lanes C, D and F in parallel. Lanes B and E wait on #104, #102 and <code>feat/casefit</code>. No build lane starts until Emilio approves the spec and names his cut.</p>
+  </footer>
+</div>
+
+<dialog class="lb" id="lb" aria-label="Screenshot">
+  <img alt="" id="lb-img">
+  <button class="jb-btn jb-btn--secondary jb-btn--sm" type="button" id="lb-close">Close</button>
+</dialog>
+
+<script>
+(function () {
+  var root = document.documentElement;
+  var KEY_W = "ux01-mock-width", KEY_T = "ux01-mock-tags";
+  function store(k, v) { try { localStorage.setItem(k, v); } catch (e) {} }
+  function read(k) { try { return localStorage.getItem(k); } catch (e) { return null; } }
+  var bD = document.getElementById("w-desktop"), bP = document.getElementById("w-phone");
+  function setW(w) {
+    root.setAttribute("data-w", w);
+    bD.setAttribute("aria-pressed", String(w === "desktop"));
+    bP.setAttribute("aria-pressed", String(w === "phone"));
+    document.querySelectorAll(".lay-list").forEach(function (b) { b.setAttribute("aria-pressed", String(w === "phone")); });
+    document.querySelectorAll(".lay-board").forEach(function (b) { b.setAttribute("aria-pressed", String(w !== "phone")); });
+    store(KEY_W, w);
+  }
+  bD.addEventListener("click", function () { setW("desktop"); });
+  bP.addEventListener("click", function () { setW("phone"); });
+  setW(read(KEY_W) === "phone" ? "phone" : "desktop");
+
+  var tags = document.getElementById("tags");
+  function setT(on) { root.setAttribute("data-tags", on ? "on" : "off"); tags.checked = on; store(KEY_T, on ? "on" : "off"); }
+  tags.addEventListener("change", function () { setT(tags.checked); });
+  setT(read(KEY_T) !== "off");
+
+  var lb = document.getElementById("lb"), lbImg = document.getElementById("lb-img");
+  document.querySelectorAll(".shot button[data-full]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      lbImg.src = b.getAttribute("data-full");
+      lbImg.alt = (b.querySelector("img") || {}).alt || "";
+      if (lb.showModal) lb.showModal();
+    });
+  });
+  document.getElementById("lb-close").addEventListener("click", function () { lb.close(); });
+  lb.addEventListener("click", function (e) { if (e.target === lb) lb.close(); });
+})();
+</script>

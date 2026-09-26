@@ -1,0 +1,86 @@
+{
+  "source": "integrations/browser-use-discovery/src/normalize/lead-normalizer.ts#normalizeLeadUrl",
+  "note": "Shared parity fixture: tests/hermes-url-normalize-parity.test.mjs pins the TS side, tests/test_jhos_submit.py pins jhos_submit.normalize_url.",
+  "cases": [
+    {
+      "input": "https://jobs.example.com/posting?sid=111",
+      "expected": "https://jobs.example.com/posting?sid=111"
+    },
+    {
+      "input": "https://jobs.example.com/posting?sid=222",
+      "expected": "https://jobs.example.com/posting?sid=222"
+    },
+    {
+      "input": "https://jobs.example.com/view?ref=REQ-1",
+      "expected": "https://jobs.example.com/view"
+    },
+    {
+      "input": "https://jobs.example.com/view?refId=REQ-1",
+      "expected": "https://jobs.example.com/view?refId=REQ-1"
+    },
+    {
+      "input": "https://jobs.example.com/view?referrer=abc&ref=x",
+      "expected": "https://jobs.example.com/view?referrer=abc"
+    },
+    {
+      "input": "https://careers.example.com/Job/AbC123",
+      "expected": "https://careers.example.com/Job/AbC123"
+    },
+    {
+      "input": "https://careers.example.com/job/abc123",
+      "expected": "https://careers.example.com/job/abc123"
+    },
+    {
+      "input": "https://Boards.Greenhouse.io/acme/jobs/5678/?utm_source=linkedin&utm_medium=social",
+      "expected": "https://boards.greenhouse.io/acme/jobs/5678"
+    },
+    {
+      "input": "https://boards.greenhouse.io/acme/jobs/5678?gh_src=abc123",
+      "expected": "https://boards.greenhouse.io/acme/jobs/5678"
+    },
+    {
+      "input": "https://jobs.lever.co/acme/1234-abcd/apply?lever-source=LinkedIn",
+      "expected": "https://jobs.lever.co/acme/1234-abcd/apply"
+    },
+    {
+      "input": "https://jobs.lever.co/acme/1234-abcd///",
+      "expected": "https://jobs.lever.co/acme/1234-abcd"
+    },
+    {
+      "input": "https://example.com:443/careers/42?source=x&id=9#section",
+      "expected": "https://example.com/careers/42?id=9"
+    },
+    {
+      "input": "http://example.com:80/careers/42?src=feed&trk=abc&fbclid=1&gclid=2",
+      "expected": "http://example.com/careers/42"
+    },
+    {
+      "input": "https://example.com/jobs?ei=123&si=456&cid=789&feature=share",
+      "expected": "https://example.com/jobs?ei=123&si=456&cid=789&feature=share"
+    },
+    {
+      "input": "https://user:pw@example.com/job/1",
+      "expected": "https://example.com/job/1"
+    },
+    {
+      "input": "https://example.com",
+      "expected": "https://example.com/"
+    },
+    {
+      "input": "https://example.com/search?q=a+b&page=2",
+      "expected": "https://example.com/search?q=a+b&page=2"
+    },
+    {
+      "input": "https://example.com/search?b=2&a=1&b=3",
+      "expected": "https://example.com/search?b=2&a=1&b=3"
+    },
+    {
+      "input": "not a url",
+      "expected": "not a url"
+    },
+    {
+      "input": "",
+      "expected": ""
+    }
+  ]
+}

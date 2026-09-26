@@ -354,6 +354,7 @@ function classifyIngestEndpointFailure({
 }
 
 function classifyIngestNetworkFailure(endpointUrl, err) {
+  console.info("[JobBored] ingest endpoint unreachable:", endpointUrl, err);
   const verifyApi = h("getDiscoveryWizardVerifyApi");
   if (verifyApi && typeof verifyApi.createVerificationResult === "function") {
     return verifyApi.createVerificationResult({
@@ -362,9 +363,9 @@ function classifyIngestNetworkFailure(endpointUrl, err) {
       engineState: "none",
       httpStatus: 0,
       message: "Can't reach the endpoint.",
+      // FR-04: plain words for strangers; the endpoint goes to the console.
       detail:
-        "The browser lost the ingest connection. Likely causes: CORS, Cloudflare Access, a stale tunnel, or the worker being offline. Tried: " +
-        endpointUrl,
+        "The worker didn't answer. It may be offline, or this browser blocked the request.",
       layer: "browser",
     });
   }
@@ -540,6 +541,16 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
     return headers;
   }
 
+  // Relay requests (the Add URL POST and its status poll) carry the
+  // per-dashboard bearer (G24) and retry once with a refreshed token on a
+  // relay 401.
+  const relayFetch =
+    typeof window !== "undefined" &&
+    window.JobBoredRelayAuth &&
+    typeof window.JobBoredRelayAuth.fetch === "function"
+      ? window.JobBoredRelayAuth.fetch
+      : fetch;
+
   async function buildRequestBody(options = {}) {
     const body = {
       event: "ingest.url.request",
@@ -579,7 +590,7 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
       INGEST_URL_TIMEOUT_MS,
     );
     try {
-      const res = await fetch(endpoint, {
+      const res = await relayFetch(endpoint, {
         method: "POST",
         headers: buildDiscoveryWorkerHeaders(),
         body: JSON.stringify(body),
@@ -677,7 +688,7 @@ async function handleIngestUrlSubmit(url, manualOverride, options = {}) {
       await new Promise((resolve) => setTimeout(resolve, pollAfterMs));
       let res;
       try {
-        res = await fetch(statusUrl, {
+        res = await relayFetch(statusUrl, {
           method: "GET",
           mode: "cors",
           headers: statusApi.buildDiscoveryStatusPollHeaders(statusUrl),
@@ -787,6 +798,8 @@ function getIngestManualModalEls() {
     modal: document.getElementById("ingestManualModal"),
     form: document.getElementById("ingestManualForm"),
     explain: document.getElementById("ingestManualModalExplain"),
+    banner: document.getElementById("ingestManualModalBanner"),
+    bannerText: document.getElementById("ingestManualModalBannerText"),
     error: document.getElementById("ingestManualModalError"),
     urlField: document.getElementById("ingestManualUrl"),
     title: document.getElementById("ingestManualTitle"),
@@ -813,22 +826,68 @@ function setIngestManualModalError(message) {
   els.error.textContent = message;
 }
 
-function openIngestManualModal({ url, message }) {
+// UX01 C5 (FD-01): when the manual modal was opened because the worker could
+// not be reached, the row is appended straight to the Sheet — sending it back
+// through the same unreachable worker would fail the same way.
+let ingestManualDirect = false;
+
+// C5 (FD-01, FR-04): the sentence a stranger sees when a link can't be read.
+const UNREADABLE_LINK_COPY =
+  "We couldn't read that page from here. Fill in the rest and it goes straight to your Sheet.";
+
+/* A warn tone shows the message in the modal's .jb-banner (the mockup's
+   "couldn't read that page" state); anything else is the plain lede. */
+function setIngestManualModalLead(els, message, tone) {
+  const warn = tone === "warn";
+  const useBanner = warn && !!(els.banner && els.banner.style);
+  if (els.banner && els.banner.style) {
+    els.banner.style.display = useBanner ? "" : "none";
+    if (els.bannerText) els.bannerText.textContent = useBanner ? message : "";
+  }
+  if (els.explain) {
+    if (els.explain.style) els.explain.style.display = useBanner ? "none" : "";
+    els.explain.textContent = useBanner ? "" : message;
+  }
+}
+
+function openIngestManualModal({ url, message, title, company, location, direct, tone }) {
   const els = getIngestManualModalEls();
-  if (!els.modal || !els.form) return;
+  if (!els.modal || !els.form) return false;
   els.form.reset();
+  ingestManualDirect = direct === true;
   if (els.urlField) els.urlField.value = url || "";
+  if (els.title && title) els.title.value = String(title);
+  if (els.company && company) els.company.value = String(company);
+  if (els.location && location) els.location.value = String(location);
   if (els.fit) els.fit.value = "5";
   if (els.fitLabel) els.fitLabel.textContent = "5";
-  if (els.explain) {
-    els.explain.textContent =
-      message || "We couldn't auto-scrape this URL — fill in what you can.";
-  }
+  setIngestManualModalLead(
+    els,
+    message || "Fill in what you know. JobBored will add the role to your Pipeline.",
+    tone,
+  );
   setIngestManualModalError("");
   els.modal.style.display = "flex";
-  if (els.title) {
-    setTimeout(() => els.title.focus(), 0);
+  const firstEmpty = [els.title, els.company].find((el) => el && !el.value);
+  const focusTarget = firstEmpty || els.title;
+  if (focusTarget) {
+    setTimeout(() => focusTarget.focus(), 0);
   }
+  return true;
+}
+
+/* Worker-side failures where the posting itself is fine but the ingest worker
+   could not be reached or did not answer. */
+function isIngestTransportFailure(err) {
+  if (!err) return false;
+  if (err.discoveryVerificationResult) return true;
+  const message = String(err.message || "");
+  return (
+    message === "missing_discovery_webhook" ||
+    message === "invalid_endpoint" ||
+    message === "timeout" ||
+    /network|fetch|failed/i.test(message)
+  );
 }
 
 function closeIngestManualModal() {
@@ -849,10 +908,10 @@ function manualFallbackMessageForIngestFailure(data) {
 }
 
 function openIngestManualFallback(url, data) {
-  openIngestManualModal({
-    url,
-    message: manualFallbackMessageForIngestFailure(data),
-  });
+  if (data && (data.hint || data.message)) {
+    console.info("[JobBored] ingest could not read the page:", manualFallbackMessageForIngestFailure(data));
+  }
+  openIngestManualModal({ url, tone: "warn", message: UNREADABLE_LINK_COPY });
 }
 
 async function refreshPipelineAfterIngest(options = {}) {
@@ -1285,8 +1344,9 @@ async function submitIngestFromToolbar() {
           onClick: () => {
             openIngestManualModal({
               url,
-              message:
-                "No ingest worker is connected. Fill in the details and JobBored will append the row directly to Pipeline.",
+              direct: true,
+              tone: "warn",
+              message: UNREADABLE_LINK_COPY,
             });
           },
         },
@@ -1343,9 +1403,9 @@ async function submitIngestFromManualModal() {
       description,
       fitScore,
     };
-    const data = url
+    const data = url && !ingestManualDirect
       ? await handleIngestUrlSubmit(url, manualPayload)
-      : await appendManualPipelineRowDirect(manualPayload);
+      : await appendManualPipelineRowDirect({ ...manualPayload, url });
     if (data && data.ok === true) {
       handleIngestUrlResponse(data, url);
       const toolbarInput = document.getElementById("ingestUrlInput");
@@ -1361,7 +1421,12 @@ async function submitIngestFromManualModal() {
         "Worker rejected the manual entry. Check the fields and try again.",
     );
   } catch (err) {
-    if (err && err.message === "missing_discovery_webhook") {
+    if (
+      err &&
+      err.message !== "signed_out" &&
+      err.message !== "missing_sheet" &&
+      isIngestTransportFailure(err)
+    ) {
       try {
         const direct = await appendManualPipelineRowDirect({
           title,
@@ -1377,7 +1442,9 @@ async function submitIngestFromManualModal() {
         setIngestManualModalError(
           directErr && directErr.message === "signed_out"
             ? "Sign in with Google so JobBored can append this row to Pipeline."
-            : "Could not append directly to Pipeline.",
+            : directErr && directErr.message === "missing_sheet"
+              ? "Connect your Pipeline sheet before adding manual rows."
+              : "Could not append directly to Pipeline.",
         );
       }
     } else if (err && err.message === "timeout") {
@@ -1458,6 +1525,35 @@ function initIngestUrlFlow() {
     });
   }
 }
+
+  /* UX01 lane D public API (C5; consumed by lane C's top-bar "Add job" and
+     empty states, and lane B's capture bookmarklet):
+       window.JobBoredIngest.openManual({ url, title, company, location,
+                                          message?, direct?, tone? }) -> boolean
+     tone: "warn" shows the message in the modal's warn banner. With no
+     message and tone "warn", the unreadable-link sentence is used.
+     Opens the manual-entry modal with whatever is known already filled in.
+     Returns false when the modal is not in the page. */
+  window.JobBoredIngest = window.JobBoredIngest || {};
+  window.JobBoredIngest.openManual = function openManual(prefill) {
+    const p = prefill && typeof prefill === "object" ? prefill : {};
+    const hasUrl = !!String(p.url || "").trim();
+    return openIngestManualModal({
+      url: String(p.url || "").trim(),
+      title: p.title,
+      company: p.company,
+      location: p.location,
+      direct: p.direct === true,
+      tone: p.tone === "warn" ? "warn" : "",
+      message:
+        p.message ||
+        (p.tone === "warn" ? UNREADABLE_LINK_COPY : "") ||
+        (hasUrl
+          ? "Fill in what you know. JobBored will add the role to your Pipeline."
+          : "No link handy? Fill in the basics and JobBored will track it in your Pipeline."),
+    });
+  };
+  window.JobBoredIngest.isTransportFailure = isIngestTransportFailure;
 
   Object.assign(ingestUrlFlow, {
     resolveIngestUrlEndpoint,

@@ -405,26 +405,32 @@ body.jb-v2 [data-region="dawn"] .brief-story__body {
   margin: 0 0 var(--space-4, 14px) 0;
 }
 
-/* --- Shared button primitive (scoped under the brief region) - */
+/* --- Buttons: the C3 kit, scoped under the brief region -------
+   DS-05: .brief-btn wears jb-ui.css .jb-btn--secondary and
+   .brief-btn--primary wears .jb-btn--primary (JB-UI.md): the one navy
+   fill, not a mint pill. dawn.js can add the kit classes and these rules
+   still agree with them. */
 body.jb-v2 [data-region="dawn"] .brief-btn {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
-  padding: 7px 12px;
-  border-radius: var(--jb-radius-pill);
-  border: 1px solid var(--jb-navy);
+  justify-content: center;
+  gap: var(--jb-space-2);
+  box-sizing: border-box;
+  min-height: 36px;
+  padding: 0 14px;
+  border-radius: var(--jb-radius-md);
+  border: 1px solid var(--jb-line);
   background: var(--jb-paper);
-  color: var(--jb-navy);
-  font-family: var(--jb-font-body);
-  font-size: 12px;
-  font-weight: 500;
+  color: var(--jb-action);
+  font: 600 var(--jb-type-small)/1 var(--jb-font-body);
+  white-space: nowrap;
   cursor: pointer;
   text-decoration: none;
+  transition: background-color var(--jb-transition-fast), border-color var(--jb-transition-fast), color var(--jb-transition-fast);
 }
 
-body.jb-v2 [data-region="dawn"] .brief-btn:hover,
-body.jb-v2 [data-region="dawn"] .brief-btn:focus-visible {
-  background: var(--jb-paper-2);
+body.jb-v2 [data-region="dawn"] .brief-btn:hover:not(:disabled) {
+  background: var(--jb-paper-3);
 }
 
 body.jb-v2 [data-region="dawn"] .brief-btn:focus-visible {
@@ -433,15 +439,13 @@ body.jb-v2 [data-region="dawn"] .brief-btn:focus-visible {
 }
 
 body.jb-v2 [data-region="dawn"] .brief-btn--primary {
-  background: var(--jb-mint);
-  border-color: var(--jb-navy);
-  color: var(--jb-navy);
-  box-shadow: var(--jb-shadow-sticker);
+  background: var(--jb-action);
+  border-color: var(--jb-action);
+  color: var(--jb-on-action);
 }
 
-body.jb-v2 [data-region="dawn"] .brief-btn--primary:hover,
-body.jb-v2 [data-region="dawn"] .brief-btn--primary:focus-visible {
-  background: var(--jb-mint-soft);
+body.jb-v2 [data-region="dawn"] .brief-btn--primary:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--jb-action) 82%, var(--jb-ink));
 }
 
 /* --- Responsive ------------------------------------------- */
@@ -488,7 +492,7 @@ body.jb-v2 [data-region="dawn"] .brief-btn--primary:focus-visible {
 
 /* --- Reduced motion --------------------------------------- */
 @media (prefers-reduced-motion: reduce) {
-  body.jb-v2 [data-region="dawn"] .brief-btn--primary,
+  body.jb-v2 [data-region="dawn"] .brief-btn { transition: none; }
   body.jb-v2 [data-region="dawn"] .brief-lead__sticker {
     box-shadow: none;
   }
@@ -983,4 +987,18 @@ body.jb-v2 [data-region="dawn"] .brief-leads-queue__fit--empty {
   body.jb-v2 [data-region="dawn"] .brief-leads-stage > .brief-lead {
     transition: none;
   }
+}
+
+/* C5 · MP-06: the empty Brief carries its way in. */
+body.jb-v2 [data-region="dawn"] .brief-leads-empty__hint {
+  margin: var(--space-2, 8px) 0 0;
+  text-align: center;
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="dawn"] .brief-leads-empty__acts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-block-start: 12px;
 }

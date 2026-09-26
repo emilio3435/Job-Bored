@@ -81,3 +81,50 @@ describe("parseLooseFieldValue", () => {
     assert.deepEqual(loose("mustHaves", "A\nB\nC"), ["A", "B", "C"]);
   });
 });
+
+describe("case-fit enrichment prompt contract", () => {
+  const talkingPointsRule =
+    "3-5 points, each ≤ 25 words, second person, imperative, opening with a verb (Lead with…, Show…, Ask about…). Each point names ONE must-have from this posting and the candidate-profile fact that answers it. Never a gerund opener, never third person.";
+  const requiredFields = [
+    "inferredTitle",
+    "inferredCompany",
+    "inferredLocation",
+    "postingSummary",
+    "roleInOneLine",
+    "mustHaves",
+    "responsibilities",
+    "niceToHaves",
+    "toolsAndStack",
+    "atsFitScore",
+    "atsFitRationale",
+    "fitAngle",
+    "talkingPoints",
+    "extraKeywords",
+  ];
+
+  it('replaces "Discussing his experience in…" with grounded second-person imperatives without changing shape', () => {
+    const fitAngleStart = insightsSource.indexOf("fitAngle: {");
+    const talkingPointsStart = insightsSource.indexOf("talkingPoints: {");
+    const extraKeywordsStart = insightsSource.indexOf("extraKeywords: {");
+    assert.ok(fitAngleStart > -1 && talkingPointsStart > fitAngleStart);
+    assert.ok(extraKeywordsStart > talkingPointsStart);
+
+    const fitAngleSchema = insightsSource.slice(fitAngleStart, talkingPointsStart);
+    const talkingPointsSchema = insightsSource.slice(talkingPointsStart, extraKeywordsStart);
+    assert.ok(talkingPointsSchema.includes(talkingPointsRule));
+    assert.match(
+      fitAngleSchema,
+      /second person, imperative, opening with a verb[^]*Never a gerund opener, never third person\./,
+    );
+    assert.match(insightsSource, /talkingPoints:\s*list\(parsed\.talkingPoints, 6\)/);
+
+    const requiredBlock = /required:\s*\[([^]*?)\],\s*additionalProperties: false/.exec(
+      insightsSource,
+    );
+    assert.ok(requiredBlock, "the enrichment schema required-field list must remain present");
+    const actualFields = [...requiredBlock[1].matchAll(/"([^"]+)"/g)].map(
+      (match) => match[1],
+    );
+    assert.deepEqual(actualFields, requiredFields);
+  });
+});
