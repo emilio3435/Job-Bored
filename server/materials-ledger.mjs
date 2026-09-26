@@ -139,7 +139,7 @@ export async function writeLedgerAtomic(ledger) {
     const err = /** @type {Error & { code: string, errors: unknown }} */ (
       new Error("invalid_ledger")
     );
-    err.code = "INVALID_LEDGER";
+    err.code = "invalid_ledger";
     err.errors = validation.errors;
     throw err;
   }

@@ -511,7 +511,7 @@ export async function runPipeline({
     rubric: { score: rubric.total, max: 12, threshold: RUBRIC_READY_THRESHOLD, rows: rubric.rows },
     checks: issues.length
       ? issues.map((i) => ({ code: i.code, severity: i.severity, stage: "qa", message: i.message }))
-      : [{ code: "qa.clean", severity: "pass", stage: "qa", message: `rubric ${rubric.total}/12, no issues` }],
+      : [{ code: "qa_clean", severity: "pass", stage: "qa", message: `rubric ${rubric.total}/12, no issues` }],
   };
   await writeJson(join(dir, "qa.json"), qaRecord);
   record({
