@@ -593,7 +593,7 @@ export function resolveDiscoveryWorkerLogPath(workerEnvPath = PACKAGED_PATHS.wor
 }
 
 /**
- * stdio for a detached worker that keeps writing after we unref it: stdout
+ * stdio for a worker that writes to the log: stdout
  * and stderr appended to the worker log, so the worker the DASHBOARD starts
  * leaves the same trail the starter and the keep-alive do. This spawn used
  * `stdio: "ignore"`, and every Beat 5 save force-restarts through it — so
@@ -631,6 +631,11 @@ export function buildDiscoveryWorkerSpawnEnv(port, baseEnv = process.env) {
   });
 }
 
+export function discoveryWorkerSpawnMode(env = process.env) {
+  const detached = !isDesktopRuntime(env);
+  return { detached, unref: detached };
+}
+
 async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
   const resolvedPort = normalizeDiscoveryWorkerPort(port);
   const before = await probeDiscoveryWorkerHealth(resolvedPort);
@@ -658,17 +663,18 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
   }
 
   const workerLog = openDiscoveryWorkerLogStdio(resolveDiscoveryWorkerLogPath());
+  const spawnMode = discoveryWorkerSpawnMode();
   const child = spawn(
     process.execPath,
     ["--experimental-strip-types", DISCOVERY_WORKER_SCRIPT],
     {
       cwd: ROOT,
-      detached: true,
+      detached: spawnMode.detached,
       stdio: workerLog.stdio,
       env: buildDiscoveryWorkerSpawnEnv(resolvedPort),
     },
   );
-  child.unref();
+  if (spawnMode.unref) child.unref();
   workerLog.close();
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
