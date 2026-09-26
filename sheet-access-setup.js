@@ -56,6 +56,66 @@
   const START_FRESH_BTN_ID = "sheetAccessGateStartFreshBtn";
   let startFreshBtn = null;
 
+  const FIX_SIGN_IN_BTN_ID = "sheetAccessGateFixSignInBtn";
+  let fixSignInBtn = null;
+
+  /**
+   * Repair routing for a failed sign-in: the one-flow's Google beat IS the
+   * guided sign-in surface (stages, sheet check, Client ID detour), so a
+   * gate opened by a session failure offers it with returnTo:"close" — fix
+   * this one thing, land back where you were. Returns true when the flow
+   * took the surface. When the flow module never loaded, the caller falls
+   * back to the current behavior (the GIS sign-in popup), never a dead end.
+   */
+  function openSignInRepair() {
+    const flow = window.JobBoredOneFlow;
+    if (!flow || typeof flow.open !== "function") return false;
+    startupLog("sheet-access:fix-sign-in-open-beat-1", {});
+    hideSheetAccessGate();
+    void Promise.resolve(flow.open("google", { returnTo: "close" })).catch(
+      (e) => {
+        startupLog(
+          "sheet-access:fix-sign-in-open-failed",
+          { error: String(e) },
+          "error",
+        );
+        host().signIn();
+      },
+    );
+    return true;
+  }
+
+  /**
+   * "Fix sign-in" — rendered only in the gate's signin mode when a caller
+   * named the failure (the session-restore overrides auth-session.js
+   * passes). The plain signed-out gate keeps its single primary; the
+   * failure variant gains the guided repair. Created here, like the
+   * start-fresh action, so it exists wherever the gate does.
+   */
+  function renderSignInRepairAction(show) {
+    let btn = fixSignInBtn || document.getElementById(FIX_SIGN_IN_BTN_ID);
+    if (!show) {
+      if (btn) btn.hidden = true;
+      return;
+    }
+    if (!btn) {
+      btn = document.createElement("button");
+      btn.type = "button";
+      btn.id = FIX_SIGN_IN_BTN_ID;
+      btn.className = "login-gate__btn-secondary";
+      btn.textContent = "Fix sign-in";
+      btn.addEventListener("click", () => {
+        if (!openSignInRepair()) host().signIn();
+      });
+      const row =
+        document.getElementById("sheetAccessGateSecondaryRow") ||
+        document.getElementById("sheetAccessGateScreen");
+      if (row) row.appendChild(btn);
+      fixSignInBtn = btn;
+    }
+    btn.hidden = false;
+  }
+
   /**
    * "Set up JobBored for this account" — rendered only in the gate's error
    * mode while a token is present. Created here rather than in index.html
@@ -431,6 +491,11 @@
     if (stepTitle) stepTitle.textContent = nextStepTitle;
     if (stepBody) stepBody.textContent = nextStepBody;
     renderStartFreshAction(mode === "error" && showStartFresh);
+    // A signin gate that names its failure (expired session, dead restore)
+    // is a repair moment: offer the guided fix, not just the bare popup.
+    renderSignInRepairAction(
+      mode === "signin" && !!(gateOpts.title || gateOpts.detail),
+    );
     if (signInBtn) signInBtn.hidden = !showSignIn;
     if (settingsBtn) settingsBtn.hidden = false;
     if (reloadBtn) {

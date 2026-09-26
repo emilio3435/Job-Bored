@@ -85,7 +85,7 @@
   }
 
   const SCRAPER_HTTPS_BLOCKED_HINT =
-    "HTTPS pages (e.g. GitHub Pages) cannot call http://127.0.0.1 — the browser blocks it. Deploy the scraper to a public HTTPS URL and paste it in Settings, or run the app locally with npm start. See DEPLOY-SCRAPER.md.";
+    "A page served over HTTPS (e.g. GitHub Pages) can't reach a scraper on this computer — the browser blocks it. Deploy the scraper to a public HTTPS URL and paste it in Settings, or open JobBored from this computer instead. See DEPLOY-SCRAPER.md.";
 
   // UX01 C22 (SS-03): opened from Settings, the guide used to inherit the
   // Settings focus trap's `inert` and sit UNDER the Settings overlay, so
@@ -185,11 +185,11 @@
     if (!base) {
       if (out) {
         out.textContent =
-          "No URL — paste a deployed HTTPS scraper, or open this app on localhost (npm start).";
+          "No URL — paste a deployed HTTPS scraper URL, or run JobBored on your own computer instead.";
         out.className = "scraper-test-result scraper-test-result--bad";
       }
       showToast(
-        "Set a scraper URL in Settings or use the setup guide for local npm start.",
+        "Set a scraper URL in Settings, or open the setup guide to run it on this computer.",
         "error",
       );
       return;
@@ -221,10 +221,10 @@
       let msg =
         e && e.message
           ? String(e.message)
-          : "Could not reach server — is npm start running?";
+          : "Could not reach the server — is JobBored still running on this computer?";
       if (isFetchNetworkError(e)) {
         msg =
-          "Can't connect — start the server: cd server && npm start (leave the terminal open).";
+          "Can't connect — start the JobBored server on this computer, then try again.";
       }
       if (out) {
         out.textContent = msg;

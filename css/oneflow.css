@@ -593,14 +593,16 @@
 }
 
 .oneflow-google__detour-lede,
-.oneflow-google__detour-foot {
+.oneflow-google__detour-foot,
+.oneflow-google__detour-failing-note {
   margin: var(--space-3) 0 0;
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-google__detour-origin {
+.oneflow-google__detour-origin,
+.oneflow-google__detour-failing-origin {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -609,7 +611,8 @@
   font-size: var(--text-sm);
 }
 
-.oneflow-google__detour-origin code {
+.oneflow-google__detour-origin code,
+.oneflow-google__detour-failing-origin code {
   padding: 2px 6px;
   border-radius: 6px;
   background: var(--jb-paper, var(--surface));

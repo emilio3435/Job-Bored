@@ -29,7 +29,7 @@ import { fileURLToPath } from "url";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
 import {
   detectCloudflared,
-  parseQuickTunnelUrl,
+  parseLastQuickTunnelUrl,
   selectTransport,
   isStableTransport,
   buildQuickTunnelCommand,
@@ -1328,32 +1328,153 @@ function normalizeNamedTunnelUrl(raw) {
 }
 
 /**
- * Start a Cloudflare QUICK tunnel (anonymous, zero-signup) for the worker port
- * and poll its log file for the https://<random>.trycloudflare.com URL. Mirrors
- * how ngrok startup polls. The cloudflared process is spawned detached and
- * keeps running after bootstrap exits. Returns { publicUrl, startedTunnel }.
+ * Read the current quick-tunnel URL out of the cloudflared log. The log
+ * accumulates across spawns, so the LAST URL wins (the first match would be a
+ * previous tunnel's dead URL). Returns "" when the log is missing, unreadable,
+ * or names no URL yet.
  */
-async function ensureCloudflareQuickTunnel(port) {
-  const logPath = cloudflaredQuickTunnelLogPath;
-  // If a previous run already left a quick-tunnel URL in the log and the tunnel
-  // is still up, we still start fresh: quick tunnels rotate and we cannot
-  // reattach to an unknown PID's tunnel, so a clean start is the honest path.
+function readLoggedQuickTunnelUrl(logPath, { existsSyncImpl = existsSync, readFileSyncImpl = readFileSync } = {}) {
+  try {
+    if (!existsSyncImpl(logPath)) return "";
+    return parseLastQuickTunnelUrl(readFileSyncImpl(logPath, "utf8"));
+  } catch (_) {
+    return "";
+  }
+}
+
+/**
+ * PURE predicate: is this process-table command line OUR OWN cloudflared QUICK
+ * tunnel for this worker port — i.e. a `cloudflared tunnel --url
+ * http://127.0.0.1:<port>` argv like buildQuickTunnelCommand() produces?
+ *
+ * Deliberately false for everything else: named tunnels (`cloudflared tunnel
+ * run <name>`, user-managed and stable), ngrok, other ports' quick tunnels,
+ * and bare `cloudflared` invocations. Kill decisions funnel through this so a
+ * stale-tunnel cleanup can never take out a tunnel it doesn't own.
+ */
+function isOwnCloudflaredQuickTunnelCommand(command, port) {
+  const text = String(command || "");
+  const lowered = text.toLowerCase();
+  if (!lowered.includes("cloudflared")) return false;
+  if (!/\btunnel\b/.test(lowered)) return false;
+  if (/\btunnel\s+run\b/.test(lowered)) return false;
+  if (!lowered.includes("--url")) return false;
+  const resolvedPort = Number.parseInt(String(port), 10);
+  if (!Number.isInteger(resolvedPort) || resolvedPort <= 0) return false;
+  // `:<port>` with a non-digit boundary so :864 never matches :8644.
+  return new RegExp(`:${resolvedPort}(?!\\d)`).test(text);
+}
+
+/**
+ * PURE: parse `ps -ax -o pid= -o command=` output into [{ pid, command }],
+ * skipping the headerless rows that don't parse and our own PID.
+ */
+function parseProcessTable(text) {
+  const rows = [];
+  for (const line of String(text || "").split(/\r?\n/)) {
+    const match = line.match(/^\s*(\d+)\s+(.*\S)\s*$/);
+    if (!match) continue;
+    const pid = Number.parseInt(match[1], 10);
+    if (!Number.isFinite(pid) || pid <= 0 || pid === process.pid) continue;
+    rows.push({ pid, command: match[2] });
+  }
+  return rows;
+}
+
+/**
+ * List PIDs of OUR OWN cloudflared quick tunnels for this port. Returns []
+ * when the process table can't be enumerated (ps missing on Windows, minimal
+ * Linux) — the caller then kills nothing and the reuse path still works via
+ * the log URL + health check.
+ */
+function listOwnCloudflaredQuickTunnelPids(port, { spawnSyncImpl = spawnSync } = {}) {
+  let result;
+  try {
+    result = spawnSyncImpl("ps", ["-ax", "-o", "pid=", "-o", "command="], {
+      encoding: "utf8",
+    });
+  } catch (_) {
+    return [];
+  }
+  if (!result || result.error) return [];
+  if (result.status !== 0 && !result.stdout) return [];
+  return parseProcessTable(result.stdout)
+    .filter((row) => isOwnCloudflaredQuickTunnelCommand(row.command, port))
+    .map((row) => row.pid);
+}
+
+/**
+ * SIGTERM only OUR OWN stale cloudflared quick-tunnel processes for this port.
+ * Returns the killed PIDs. ngrok, named tunnels, and foreign processes never
+ * match the ownership predicate above, so they are never signaled.
+ */
+async function killOwnStaleCloudflaredQuickTunnels(
+  port,
+  { findPids = listOwnCloudflaredQuickTunnelPids, killPid = (pid) => process.kill(pid, "SIGTERM"), sleepImpl = sleep } = {},
+) {
+  const pids = findPids(port) || [];
+  const killed = [];
+  for (const pid of pids) {
+    try {
+      killPid(pid);
+      killed.push(pid);
+    } catch (_) {
+      // process may already be gone
+    }
+  }
+  // Brief grace period so the OS releases the edge bindings before we respawn.
+  if (killed.length) await sleepImpl(800);
+  return killed;
+}
+
+/**
+ * Reuse a live Cloudflare QUICK tunnel (anonymous, zero-signup) for the worker
+ * port, or start one and poll its log file for the
+ * https://<random>.trycloudflare.com URL. Mirrors how ngrok startup reuses an
+ * existing tunnel before spawning. The cloudflared process is spawned detached
+ * and keeps running after bootstrap exits. Returns { publicUrl, startedTunnel }.
+ */
+async function ensureCloudflareQuickTunnel(port, options = {}) {
+  const logPath = options.logPath || cloudflaredQuickTunnelLogPath;
+  const verifyIdentity = options.verifyIdentity || verifyPublicWorkerIdentity;
+  // Reuse: when the log already names a quick-tunnel URL that still serves
+  // THIS worker, keep it — spawning a second tunnel per bootstrap is the leak
+  // this repair closes.
+  const loggedUrl = readLoggedQuickTunnelUrl(logPath, options);
+  if (loggedUrl) {
+    let identity = null;
+    try {
+      identity = await verifyIdentity(loggedUrl);
+    } catch (_) {
+      identity = null;
+    }
+    if (identity && identity.ok) {
+      console.log(
+        `discovery:bootstrap-local: reusing live Cloudflare quick tunnel ${loggedUrl}`,
+      );
+      return { publicUrl: loggedUrl, startedTunnel: false };
+    }
+    console.log(
+      `discovery:bootstrap-local: quick tunnel URL in the log is no longer live; restarting it...`,
+    );
+  }
+  // Otherwise kill only OUR OWN stale quick-tunnel processes for this port
+  // before spawning — never ngrok, named tunnels, or foreign processes.
+  await killOwnStaleCloudflaredQuickTunnels(port, options);
   const { command, args } = buildQuickTunnelCommand(port);
   console.log(
     `discovery:bootstrap-local: starting Cloudflare quick tunnel on port ${port}...`,
   );
   startDetached(command, args, {}, { logPath });
 
+  // The log still holds the previous (dead) URL, so only accept a URL that
+  // differs from it — otherwise the poll would "succeed" instantly on the
+  // stale entry instead of waiting for the fresh tunnel.
+  const staleUrl = loggedUrl;
   for (let attempt = 0; attempt < 20; attempt += 1) {
     await sleep(1000);
-    let logText = "";
-    try {
-      logText = existsSync(logPath) ? readFileSync(logPath, "utf8") : "";
-    } catch (_) {
-      logText = "";
-    }
-    const publicUrl = parseQuickTunnelUrl(logText);
-    if (publicUrl) {
+    const publicUrl = readLoggedQuickTunnelUrl(logPath, options);
+    if (publicUrl && publicUrl !== staleUrl) {
       return { publicUrl, startedTunnel: true };
     }
   }
@@ -1876,6 +1997,12 @@ export {
   WEBHOOK_SECRET_ENV_KEY,
   pickNgrokPublicUrl,
   tunnelMatchesPort,
+  readLoggedQuickTunnelUrl,
+  isOwnCloudflaredQuickTunnelCommand,
+  parseProcessTable,
+  listOwnCloudflaredQuickTunnelPids,
+  killOwnStaleCloudflaredQuickTunnels,
+  ensureCloudflareQuickTunnel,
   isBrowserUseDiscoveryHealth,
   isTcpPortFree,
   findAvailableWorkerPort,

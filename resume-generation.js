@@ -783,7 +783,7 @@ async function runResumeGeneration(dataIndex, feature, options) {
   const Bundle = materialsState().getResumeBundle();
   const Gen = materialsState().getResumeGenerate();
   if (!UC || !Bundle || !Gen) {
-    host().showToast("Resume modules failed to load", "error");
+    host().showToast("Resume tools failed to load — reload and try again", "error");
     return;
   }
 
@@ -1149,7 +1149,7 @@ async function openSavedDraftVersion(draftId) {
   const UC = materialsState().getUserContent();
   const Bundle = materialsState().getResumeBundle();
   if (!UC || !Bundle) {
-    host().showToast("Resume modules failed to load", "error");
+    host().showToast("Resume tools failed to load — reload and try again", "error");
     return;
   }
   try {

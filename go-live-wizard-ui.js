@@ -495,7 +495,7 @@
     if (!proxyAvailable) {
       safeCallout(
         container,
-        "We couldn't reach the local backend (/__proxy endpoints didn't respond). Start the local dev server (npm run web-only) and click Re-detect.",
+        "We couldn't reach JobBored on this computer. Start it with npm run web-only, then click Re-detect.",
         "warn",
       );
       // Link to full reference even when proxy is unreachable.
@@ -554,7 +554,7 @@
     } else if (recommendation === "needs_login") {
       safeParagraph(
         container,
-        "Tailscale is installed but signed out. Run this in a terminal, then click Re-detect:",
+        "Tailscale is installed but signed out. Run this command on this computer, then click Re-detect:",
         "discovery-setup-wizard__copy discovery-setup-wizard__copy--bold",
       );
       safeCodeBlock(container, "tailscale up", "Copy command");

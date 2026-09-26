@@ -640,7 +640,7 @@
         return {
           ok: false,
           error:
-            "Cloudflare auth needed — run `npx wrangler login` then retry.",
+            "Cloudflare sign-in needed — run `npx wrangler login` on this computer, then retry.",
           needsUserClick: true,
         };
       }

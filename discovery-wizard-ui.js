@@ -996,6 +996,17 @@ function appendTailscaleAutoSetupStatus(container, runtime) {
     );
     return;
   }
+  if (state === "needs_server") {
+    // The stop message names the launcher and the Re-check below; render
+    // it here too, or the card goes silent on exactly the state whose fix
+    // is a button press.
+    appendWizardCallout(
+      container,
+      runtime.drafts.tailscaleAutoDetail ||
+        "Couldn't reach JobBored's local server — double-click start.command in the JobBored folder to start it, then Re-check.",
+    );
+    return;
+  }
   if (state === "failed") {
     appendWizardCallout(
       container,
@@ -1012,7 +1023,11 @@ function buildDiscoveryExistingEndpointBody(runtime) {
   // route folds away until asked for.
   appendTailscaleAutoSetupStatus(container, runtime);
   const autoState = runtime.drafts && runtime.drafts.tailscaleAutoState;
-  if (autoState === "needs_install" || autoState === "needs_login") {
+  if (
+    autoState === "needs_install" ||
+    autoState === "needs_login" ||
+    autoState === "needs_server"
+  ) {
     const recheck = createWizardNode(
       "button",
       "btn-modal-secondary discovery-wizard-recheck",
@@ -2439,6 +2454,100 @@ function askHostChange(opts) {
   return true;
 }
 
+/**
+ * Ephemeral tunnel hosts — quick tunnels and ngrok free URLs. These names
+ * die with the tunnel process that minted them (a restart mints a new
+ * random subdomain), so a SAVED endpoint on one is dead everywhere except
+ * the session that created it. Mirrors the worker's
+ * DEFAULT_TUNNEL_HOST_PATTERNS
+ * (integrations/browser-use-discovery/src/config.ts), minus *.ts.net —
+ * Tailscale names are stable and must never trip this check.
+ */
+const DISCOVERY_EPHEMERAL_TUNNEL_SUFFIXES = Object.freeze([
+  ".ngrok.io",
+  ".ngrok.app",
+  ".ngrok-free.app",
+  ".ngrok-free.dev",
+  ".trycloudflare.com",
+]);
+
+function discoveryEndpointHostname(raw) {
+  try {
+    const u = new URL(String(raw || "").trim());
+    if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+    return u.hostname.toLowerCase();
+  } catch (_) {
+    return "";
+  }
+}
+
+function isDeadTunnelEndpoint(raw) {
+  const hostname = discoveryEndpointHostname(raw);
+  if (!hostname) return false;
+  return DISCOVERY_EPHEMERAL_TUNNEL_SUFFIXES.some(
+    (suffix) => hostname === suffix.slice(1) || hostname.endsWith(suffix),
+  );
+}
+
+/**
+ * The second sentence for a run that failed to replace a dead saved link,
+ * in the user's words, with the re-run as the fix (voice rule §8.4 —
+ * every error names its next action). `rerunLabel` is the button on
+ * screen: "Re-check" for the blocked machine states, "pressing Set it up
+ * for me again" once the sequence itself is what failed. "" when the
+ * saved endpoint is not a dead tunnel link.
+ */
+function deadTunnelSavedEndpointNote(savedUrl, rerunLabel) {
+  if (!isDeadTunnelEndpoint(savedUrl)) return "";
+  return (
+    " Your saved address was a temporary tunnel link — those stop working " +
+    `when the tunnel restarts, so ${rerunLabel} mints you a stable address ` +
+    "that doesn't expire."
+  );
+}
+
+/**
+ * The worker env key the allowed-origins heal writes through
+ * POST /__proxy/discovery-env-key (allowlisted in dev-server.mjs).
+ */
+const DISCOVERY_ALLOWED_ORIGINS_ENV_KEY =
+  "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS";
+
+/**
+ * The worker's loopback defaults, mirrored from
+ * scripts/bootstrap-local-discovery.mjs (defaultLocalAllowedOrigins) and
+ * the worker's own config. Setting the allowed-origins key REPLACES the
+ * worker defaults, so the heal always writes defaults-plus-the-blocked-
+ * origin, never the lone origin. The server appends the hosted Pages
+ * origin (./CNAME) on top server-side when one resolves.
+ */
+const DISCOVERY_WORKER_LOOPBACK_ORIGINS = Object.freeze([
+  "http://localhost:8080",
+  "http://127.0.0.1:8080",
+  "http://localhost:8081",
+  "http://127.0.0.1:8081",
+]);
+
+function buildHealedAllowedOriginsValue(blockedOrigin) {
+  const out = [...DISCOVERY_WORKER_LOOPBACK_ORIGINS];
+  const origin = String(blockedOrigin || "").trim();
+  if (origin) out.push(origin);
+  // localhost ⇄ 127.0.0.1 alias for a loopback origin, mirroring
+  // bootstrap's localOriginAliases.
+  try {
+    const parsed = new URL(origin);
+    const hostname = String(parsed.hostname || "").toLowerCase();
+    if (hostname === "localhost" || hostname === "127.0.0.1") {
+      const alias = new URL(origin);
+      alias.hostname = hostname === "localhost" ? "127.0.0.1" : "localhost";
+      out.push(alias.origin);
+    }
+  } catch (_) {
+    // buildHealedAllowedOriginsValue callers validate first; ignore here.
+  }
+  return [...new Set(out)].join(",");
+}
+
 async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   const fetchImpl = deps.fetchImpl || ((...args) => fetch(...args));
   // UX01 C8 (FD-19): this path may write the worker's secret into the
@@ -2450,7 +2559,10 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     !consent({
       action: "Set it up for me",
       writesEnv: true,
-      envKeys: ["BROWSER_USE_DISCOVERY_WEBHOOK_SECRET"],
+      envKeys: [
+        "BROWSER_USE_DISCOVERY_WEBHOOK_SECRET",
+        DISCOVERY_ALLOWED_ORIGINS_ENV_KEY,
+      ],
       restartsWorker: true,
     })
   ) {
@@ -2460,6 +2572,23 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     );
     return { ok: false, reason: "declined" };
   }
+  // The endpoint on file BEFORE this run mints its replacement. A saved
+  // quick-tunnel/ngrok address is dead by nature (those hosts die with the
+  // tunnel process), so every stop below names it with the re-run as the
+  // fix instead of leaving the user with a dead link and no next step.
+  const runtimeBefore = host().getDiscoveryWizardRuntime() || {};
+  const savedEndpointBefore =
+    (runtimeBefore.drafts && runtimeBefore.drafts.endpointUrl) ||
+    (runtimeBefore.snapshot && runtimeBefore.snapshot.savedWebhookUrl) ||
+    "";
+  const blockedTunnelNote = deadTunnelSavedEndpointNote(
+    savedEndpointBefore,
+    "Re-check",
+  );
+  const failedTunnelNote = deadTunnelSavedEndpointNote(
+    savedEndpointBefore,
+    "pressing Set it up for me again",
+  );
   const verify = deps.verify || handleDiscoveryWizardVerification;
   const render = deps.render || renderDiscoverySetupWizard;
   // No onStage → the standalone wizard renders the stages itself.
@@ -2500,7 +2629,8 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     // Tailscale was not installed while it was running).
     return stop(
       "needs_server",
-      "Couldn't reach JobBored's local server — is `npm run dev` still running? Start it, then Re-check.",
+      "Couldn't reach JobBored's local server — double-click start.command in the JobBored folder to start it, then Re-check." +
+        blockedTunnelNote,
       "warning",
       "machine",
     );
@@ -2508,7 +2638,8 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   if (!ts.installed) {
     return stop(
       "needs_install",
-      "Tailscale isn't installed yet — grab it below, then Re-check.",
+      "Tailscale isn't installed yet — grab it below, then Re-check." +
+        blockedTunnelNote,
       "warning",
       "machine",
     );
@@ -2516,7 +2647,8 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   if (!ts.loggedIn) {
     return stop(
       "needs_login",
-      "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check.",
+      "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check." +
+        blockedTunnelNote,
       "warning",
       "machine",
     );
@@ -2543,6 +2675,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   // secret was JUST generated (a worker started before the secret existed
   // is running without it and would 401 every webhook).
   let workerUp = false;
+  let workerBlockedOrigin = "";
   try {
     const r = await fetchImpl(
       `/__proxy/discovery-state?port=${DISCOVERY_TAILSCALE_WORKER_PORT}`,
@@ -2550,19 +2683,69 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     );
     const body = r && r.ok ? await r.json() : null;
     workerUp = !!(body && body.worker && body.worker.up);
+    // discovery-state probes the worker's CORS for THIS dashboard and
+    // reports the verdict (worker.originAllowed plus the dashboard origin
+    // it was computed against). A healthy worker that rejects this
+    // dashboard's origin would fail verification with a bare CORS error —
+    // capture the blocked origin so the heal below can allow it.
+    if (body && body.worker && body.worker.originAllowed === false) {
+      const echoed = String(body.worker.dashboardOrigin || "").trim();
+      try {
+        const parsed = new URL(echoed);
+        if (parsed.protocol === "http:" || parsed.protocol === "https:") {
+          workerBlockedOrigin = parsed.origin;
+        }
+      } catch (_) {
+        workerBlockedOrigin = "";
+      }
+    }
   } catch (_) {
     workerUp = false;
+    workerBlockedOrigin = "";
   }
   reportStage("worker", "active");
-  if (!workerUp || (secretInfo && secretInfo.wrote)) {
+  // CORS self-heal: a worker that is UP but rejects this dashboard's
+  // origin gets the origin merged into its allowed list (defaults kept —
+  // setting the key replaces them) via the same env-key + restart path
+  // the fuel panel uses, and the boot below is forced so it reloads.
+  // Best-effort: an older dev server answers key_not_allowed, and setup
+  // must still work against it — verification reports the real outcome.
+  let originsWrote = false;
+  if (workerUp && workerBlockedOrigin) {
+    try {
+      const r = await fetchImpl("/__proxy/discovery-env-key", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          key: DISCOVERY_ALLOWED_ORIGINS_ENV_KEY,
+          value: buildHealedAllowedOriginsValue(workerBlockedOrigin),
+        }),
+      });
+      const healed = await r.json().catch(() => ({}));
+      originsWrote = !!(r.ok && healed && healed.ok);
+      if (!originsWrote) {
+        console.warn(
+          "[JobBored] allowed-origins heal skipped:",
+          (healed && healed.reason) || (r && r.status) || "request failed",
+        );
+      }
+    } catch (e) {
+      console.warn("[JobBored] allowed-origins heal:", e);
+      originsWrote = false;
+    }
+  }
+  if (!workerUp || (secretInfo && secretInfo.wrote) || originsWrote) {
     setAuto("running", "Starting the discovery worker…");
     setDiscoveryWizardMessage("Starting the discovery worker…", "info");
     try {
       // A freshly generated secret needs a FORCED reboot — full-boot spares
       // a healthy worker, which would keep running with the old (empty)
-      // secret and 401 every webhook.
+      // secret and 401 every webhook. Same for healed origins: the allow
+      // list only loads on a real reboot.
       const forceParam =
-        secretInfo && secretInfo.wrote ? "&force_restart=1" : "";
+        (secretInfo && secretInfo.wrote) || originsWrote
+          ? "&force_restart=1"
+          : "";
       const r = await fetchImpl(
         `/__proxy/full-boot?port=${DISCOVERY_TAILSCALE_WORKER_PORT}&skip_tunnel=1${forceParam}`,
         {
@@ -2575,8 +2758,9 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       if (!r.ok || !body.ok) {
         return stop(
           "failed",
-          (body && body.message) ||
-            "Couldn't start the discovery worker automatically — paste a URL below, or try again.",
+          ((body && body.message) ||
+            "Couldn't start the discovery worker automatically — paste a URL below, or try again.") +
+            failedTunnelNote,
           "warning",
           "worker",
         );
@@ -2585,7 +2769,8 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       console.warn("[JobBored] worker boot (tailscale auto-setup):", e);
       return stop(
         "failed",
-        "Couldn't start the discovery worker automatically — paste a URL below, or try again.",
+        "Couldn't start the discovery worker automatically — paste a URL below, or try again." +
+          failedTunnelNote,
         "warning",
         "worker",
       );
@@ -2611,8 +2796,9 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     if (!serveUrl) {
       return stop(
         "failed",
-        (body && body.error) ||
-          "Tailscale couldn't publish the worker — paste a URL below, or try again.",
+        ((body && body.error) ||
+          "Tailscale couldn't publish the worker — paste a URL below, or try again.") +
+          failedTunnelNote,
         "warning",
         "publish",
       );
@@ -2621,7 +2807,8 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     console.warn("[JobBored] tailscale-serve (auto-setup):", e);
     return stop(
       "failed",
-      "Tailscale couldn't publish the worker — paste a URL below, or try again.",
+      "Tailscale couldn't publish the worker — paste a URL below, or try again." +
+        failedTunnelNote,
       "warning",
       "publish",
     );
@@ -2662,8 +2849,9 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     reportStage("verify", "failed");
     setAuto(
       "failed",
-      (v && v.message) ||
-        "Verification didn't pass — check the result below, or try again.",
+      ((v && v.message) ||
+        "Verification didn't pass — check the result below, or try again.") +
+        failedTunnelNote,
     );
     render();
   }

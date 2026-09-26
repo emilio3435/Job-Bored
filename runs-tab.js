@@ -60,6 +60,35 @@
       .replace(/'/g, "&#39;");
   }
 
+  /**
+   * User-world rendering of fetchDiscoveryRuns failure reasons. The internal
+   * codes stay machine-shaped for logic (missing_tab, unauthorized); only
+   * what reaches the screen is translated — every error names its next
+   * action (ONE-FLOW-ONBOARDING-SPEC §8.4), never a status code.
+   */
+  function describeRunsFailure(reason) {
+    var raw = String(reason == null ? "" : reason);
+    if (raw === "signed_out" || raw === "unauthorized") {
+      return "Your Google session ended — sign in again.";
+    }
+    if (raw === "sheetId is required") {
+      return "No sheet configured — connect one in Settings.";
+    }
+    if (raw === "fetch is not available") {
+      return "This browser can't reach Google Sheets.";
+    }
+    if (/^network error:/i.test(raw)) {
+      return "Check your connection and try Reload.";
+    }
+    if (/^HTTP \d+/i.test(raw)) {
+      return "Google Sheets rejected the request — try Reload.";
+    }
+    if (/invalid JSON/i.test(raw)) {
+      return "Google Sheets sent a reply JobBored couldn't read — try Reload.";
+    }
+    return raw;
+  }
+
   function toInt(value) {
     var n = typeof value === "number" ? value : parseInt(String(value), 10);
     return Number.isFinite(n) ? n : 0;
@@ -850,13 +879,21 @@
               "Couldn't load DiscoveryRuns; showing the local run state.",
             );
           } else if (isInitial) {
-            setStatus(statusEl, "error", "Couldn't load runs: " + result.reason);
+            setStatus(
+              statusEl,
+              "error",
+              "Couldn't load runs: " + describeRunsFailure(result.reason),
+            );
             showEmpty({
               title: "Couldn't load runs",
-              hint: "Check your connection and try Reload. Full detail: " + result.reason,
+              hint: describeRunsFailure(result.reason),
             });
           } else {
-            setStatus(statusEl, "error", "Couldn't load runs: " + result.reason);
+            setStatus(
+              statusEl,
+              "error",
+              "Couldn't load runs: " + describeRunsFailure(result.reason),
+            );
           }
           return;
         }
@@ -1110,6 +1147,7 @@
       initRunsTab: initRunsTab,
       whyText: whyText,
       triggerLabel: triggerLabel,
+      describeRunsFailure: describeRunsFailure,
     },
   };
 })();

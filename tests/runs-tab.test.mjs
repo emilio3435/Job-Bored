@@ -1068,3 +1068,36 @@ describe("F4C-P2-ZERO: terminal zero ≠ unavailable ≠ partial", () => {
     );
   });
 });
+
+describe("lane D · runs failure copy speaks user words (spec §8.4)", () => {
+  it("translates machine reasons into errors that name the next action", async () => {
+    const mod = await loadRunsTab();
+    const tell = mod.__test.describeRunsFailure;
+    assert.equal(
+      tell("unauthorized"),
+      "Your Google session ended — sign in again.",
+    );
+    assert.equal(
+      tell("signed_out"),
+      "Your Google session ended — sign in again.",
+    );
+    assert.match(tell("sheetId is required"), /connect one in Settings/);
+    assert.match(
+      tell("network error: Failed to fetch"),
+      /Check your connection and try Reload/,
+    );
+    assert.match(tell("HTTP 400 - nope"), /Google Sheets rejected/);
+    assert.match(
+      tell("invalid JSON from Sheets API"),
+      /couldn't read — try Reload/,
+    );
+  });
+
+  it("leaves unknown reasons untouched (full detail survives)", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(
+      mod.__test.describeRunsFailure("something exotic"),
+      "something exotic",
+    );
+  });
+});

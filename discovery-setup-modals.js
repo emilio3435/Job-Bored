@@ -147,15 +147,7 @@ function initDiscoverySetupGuide() {
   document
     .getElementById("settingsDiscoveryOpenSetupBtn")
     ?.addEventListener("click", () => {
-      const oneFlow = window.JobBoredOneFlow;
-      if (oneFlow && typeof oneFlow.open === "function") {
-        void oneFlow.open("discovery", { returnTo: "close" });
-        return;
-      }
-      void h("requestDiscoverySetup", {
-        entryPoint: "settings",
-        allowWhileOnboarding: true,
-      });
+      openDiscoverySetupBeat({ entryPoint: "settings" });
     });
   document
     .getElementById("settingsDiscoveryTestBtn")
@@ -164,9 +156,40 @@ function initDiscoverySetupGuide() {
     });
 }
 
+/**
+ * Shared OneFlow-first entry to Beat 5 (GREENFIELD-SPEC C1 pattern).
+ * Surfaces that must not touch the flow controller (see
+ * tests/oneflow-l0-wiring.test.mjs) reach the discovery beat through
+ * here instead of calling oneFlow.open themselves. Falls back to the
+ * legacy requestDiscoverySetup chain when the flow is absent, cannot
+ * open, or throws synchronously. Lives directly below the button
+ * wiring (hoisting makes the order safe) so the L7 sweep reads the
+ * button's full path in one window.
+ */
+function openDiscoverySetupBeat(options = {}) {
+  const entryPoint =
+    options && typeof options.entryPoint === "string" && options.entryPoint
+      ? options.entryPoint
+      : "settings";
+  const oneFlow = window.JobBoredOneFlow;
+  if (oneFlow && typeof oneFlow.open === "function") {
+    try {
+      void oneFlow.open("discovery", { returnTo: "close" });
+      return;
+    } catch (e) {
+      console.warn("[JobBored] discovery setup (flow):", e);
+    }
+  }
+  void h("requestDiscoverySetup", {
+    entryPoint,
+    allowWhileOnboarding: true,
+  });
+}
+
   Object.assign(setupModals, {
     testDiscoveryWebhookFromSettings,
     handleAppsScriptBrowserCorsFailure,
     initDiscoverySetupGuide,
+    openDiscoverySetupBeat,
   });
 })();

@@ -8,6 +8,7 @@ import {
   normalizeTransportPreference,
   detectCloudflared,
   parseQuickTunnelUrl,
+  parseLastQuickTunnelUrl,
   selectTransport,
   isStableTransport,
   buildQuickTunnelCommand,
@@ -44,6 +45,19 @@ test("parseQuickTunnelUrl extracts the trycloudflare URL from the banner", () =>
   ].join("\n");
   assert.equal(parseQuickTunnelUrl(banner), "https://foo-bar-baz.trycloudflare.com");
   assert.equal(parseQuickTunnelUrl("no url here"), "");
+});
+
+test("parseLastQuickTunnelUrl returns the newest URL from an accumulated log", () => {
+  const log = [
+    "2024-02-13T10:30:00Z INF |  https://old-dead-aaa.trycloudflare.com  |",
+    "[2024-02-14T10:30:00Z] starting cloudflared tunnel --url http://127.0.0.1:8644",
+    "2024-02-14T10:30:01Z INF |  https://new-live-bbb.trycloudflare.com  |",
+  ].join("\n");
+  // First match is the previous tunnel's dead URL; only the last can be live.
+  assert.equal(parseQuickTunnelUrl(log), "https://old-dead-aaa.trycloudflare.com");
+  assert.equal(parseLastQuickTunnelUrl(log), "https://new-live-bbb.trycloudflare.com");
+  assert.equal(parseLastQuickTunnelUrl("no url here"), "");
+  assert.equal(parseLastQuickTunnelUrl(""), "");
 });
 
 test("selectTransport honors explicit preference over everything", () => {

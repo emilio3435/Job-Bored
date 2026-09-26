@@ -91,6 +91,21 @@ export function parseQuickTunnelUrl(text) {
 }
 
 /**
+ * Parse the LAST public https://<x>.trycloudflare.com URL out of cloudflared's
+ * quick-tunnel output. The quick-tunnel log accumulates across spawns (every
+ * spawn appends), so after a restart the FIRST match is the previous tunnel's
+ * dead URL and only the LAST match can belong to the live tunnel. Returns ""
+ * when none is present. PURE.
+ */
+export function parseLastQuickTunnelUrl(text) {
+  const haystack = String(text || "");
+  const matches = haystack.match(
+    /https:\/\/[a-z0-9][a-z0-9-]*\.trycloudflare\.com/gi,
+  );
+  return matches && matches.length ? matches[matches.length - 1] : "";
+}
+
+/**
  * Select the transport to use given environment facts and an explicit
  * preference. Priority (highest first):
  *   1. explicit preference (when it is a concrete kind, not "auto")

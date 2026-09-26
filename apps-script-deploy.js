@@ -841,7 +841,7 @@ function renderAppsScriptDeployUi() {
   let message =
     "Create a new Apps Script stub in your Google Drive and save its /exec URL here.";
   let detail =
-    "This keeps webhook verification in your account. Browser -> /exec requests may still need a proxy or server-side POST if CORS blocks them, and the stub still needs real discovery logic before it can add jobs.";
+    "This keeps verification in your own Google account. The browser may still be unable to reach the /exec address directly, and the stub still needs real discovery logic before it can add jobs.";
   let effectiveStatus = configCore.appsScriptDeployStatus;
 
   if (configCore.appsScriptDeployStatus && configCore.appsScriptDeployStatus.message) {
