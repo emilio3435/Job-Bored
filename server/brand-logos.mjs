@@ -31,7 +31,8 @@ const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const MAX_UPLOAD_BYTES = 2 * 1024 * 1024;
 const DEFAULT_TIMEOUT_MS = 45_000;
 
-/** @typedef {{ slug: string, label: string, domain?: string, upload?: string }} LogoEntry */
+/** @typedef {{ slug: string, label: string, domain?: string, upload?: string, shape?: LogoShape }} LogoEntry */
+/** @typedef {"mark" | "wordmark" | "lockup"} LogoShape */
 /** @typedef {{ $comment?: string, logos: LogoEntry[] }} LogoManifest */
 /** @typedef {{ slug: string, source: string, detail: string }} ResolverRow */
 
@@ -294,6 +295,94 @@ function imageMime(data) {
   return "application/octet-stream";
 }
 
+/**
+ * Pixel or user-unit dimensions of a PNG, GIF, WebP (VP8X) or SVG mark.
+ * @param {Buffer} buffer
+ * @returns {{ width: number, height: number } | null}
+ */
+export function imageDimensions(buffer) {
+  if (buffer.length >= 24 && buffer.subarray(0, 8).equals(Buffer.from("\x89PNG\r\n\x1a\n", "binary"))) {
+    return { width: buffer.readUInt32BE(16), height: buffer.readUInt32BE(20) };
+  }
+  if (buffer.length >= 10 && /^GIF8[79]a/.test(buffer.subarray(0, 6).toString("latin1"))) {
+    return { width: buffer.readUInt16LE(6), height: buffer.readUInt16LE(8) };
+  }
+  if (buffer.length >= 30 && buffer.subarray(8, 16).toString("latin1") === "WEBPVP8X") {
+    return { width: 1 + buffer.readUIntLE(24, 3), height: 1 + buffer.readUIntLE(27, 3) };
+  }
+  const head = buffer.subarray(0, 4096).toString("utf8");
+  const svg = /<svg\b[^>]*>/i.exec(head);
+  if (svg) {
+    const viewBox = /viewBox=["']\s*[-\d.]+[\s,]+[-\d.]+[\s,]+([\d.]+)[\s,]+([\d.]+)/i.exec(svg[0]);
+    if (viewBox) return { width: Number(viewBox[1]), height: Number(viewBox[2]) };
+    const w = /\bwidth=["']([\d.]+)/i.exec(svg[0]);
+    const h = /\bheight=["']([\d.]+)/i.exec(svg[0]);
+    if (w && h) return { width: Number(w[1]), height: Number(h[1]) };
+  }
+  return null;
+}
+
+/**
+ * The optical-size class a template sizes a mark by (visual spec §9.2 rule 3).
+ * Square-ish marks are `mark`; wide ones spell a name and are `wordmark`. A
+ * `lockup` (icon plus name) cannot be told from a wordmark by shape alone, so
+ * it comes only from a manifest entry's explicit `shape`.
+ *
+ * @param {Buffer} buffer
+ * @param {unknown} [declared] logos.json `shape`, which wins when valid
+ * @returns {LogoShape}
+ */
+export function logoShape(buffer, declared) {
+  if (declared === "mark" || declared === "wordmark" || declared === "lockup") return declared;
+  const dims = imageDimensions(buffer);
+  if (!dims || !(dims.width > 0) || !(dims.height > 0)) return "mark";
+  return dims.width / dims.height >= 1.8 ? "wordmark" : "mark";
+}
+
+/**
+ * Resolved marks for the materials renderer, read-only: unlike listLogos()
+ * this never creates the template folder. Missing folder → no marks.
+ *
+ * @param {{ templateRoot?: string }} [options]
+ * @returns {Promise<Array<{ slug: string, label: string, domain: string, src: string, alt: string, shape: LogoShape, source?: "upload" }>>}
+ */
+export async function readResolvedMarks({ templateRoot } = {}) {
+  const root = templateRoot || getBrandLogosTemplateRoot();
+  const manifestPath = join(root, "logos.json");
+  if (!existsSync(manifestPath)) return [];
+  /** @type {LogoManifest} */
+  let manifest;
+  try {
+    const parsed = JSON.parse(await readFile(manifestPath, "utf8"));
+    manifest = parsed && Array.isArray(parsed.logos) ? parsed : { logos: [] };
+  } catch {
+    return [];
+  }
+  /** @type {Array<{ slug: string, label: string, domain: string, src: string, alt: string, shape: LogoShape, source?: "upload" }>} */
+  const marks = [];
+  for (const entry of manifest.logos) {
+    const slug = String(entry && entry.slug ? entry.slug : "").trim();
+    if (!isValidSlug(slug)) continue;
+    const assetPath = join(root, "assets", `logo-${slug}.png`);
+    if (!existsSync(assetPath)) continue;
+    const data = await readFile(assetPath);
+    if (!looksLikeImage(data)) continue;
+    const label = String(entry.label || slug);
+    /** @type {{ slug: string, label: string, domain: string, src: string, alt: string, shape: LogoShape, source?: "upload" }} */
+    const mark = {
+      slug,
+      label,
+      domain: entry.domain ? String(entry.domain) : "",
+      src: `data:${imageMime(data)};base64,${data.toString("base64")}`,
+      alt: `${label} logo`,
+      shape: logoShape(data, entry.shape),
+    };
+    if (existsSync(join(root, "uploads", `logo-${slug}.png`))) mark.source = "upload";
+    marks.push(mark);
+  }
+  return marks;
+}
+
 /** @param {unknown} raw */
 function normalizeDomain(raw) {
   let value = String(raw || "").trim();
@@ -381,6 +470,10 @@ export function buildLogoManifestFromProfile(profile, priorManifest = null) {
       normalizeLogoUpload(record.logoUpload, slug) ||
       (prior && typeof prior.upload === "string" ? prior.upload : "");
     if (upload) entry.upload = upload;
+    const declaredShape = record.logoShape || (prior && prior.shape);
+    if (declaredShape === "mark" || declaredShape === "wordmark" || declaredShape === "lockup") {
+      entry.shape = declaredShape;
+    }
     logos.push(entry);
   });
 
@@ -462,7 +555,7 @@ export async function saveUpload(slug, buffer, { templateRoot } = {}) {
 export async function listLogos({ templateRoot } = {}) {
   const root = await resolveTemplateRoot(templateRoot || getBrandLogosTemplateRoot());
   const manifest = await readManifest(root);
-  /** @type {Array<{ slug: string, label: string, domain: string, upload: string, source: string, mark: { path: string, mime: string, dataUrl: string } | null }>} */
+  /** @type {Array<{ slug: string, label: string, domain: string, upload: string, source: string, shape: LogoShape, mark: { path: string, mime: string, dataUrl: string } | null }>} */
   const logos = [];
   for (const entry of manifest.logos) {
     const slug = String(entry && entry.slug ? entry.slug : "").trim();
@@ -471,8 +564,11 @@ export async function listLogos({ templateRoot } = {}) {
       ensureParent: true,
     });
     let mark = null;
+    /** @type {LogoShape} */
+    let shape = logoShape(Buffer.alloc(0), entry.shape);
     if (existsSync(assetPath)) {
       const data = await readFile(assetPath);
+      shape = logoShape(data, entry.shape);
       mark = {
         path: `assets/logo-${slug}.png`,
         mime: imageMime(data),
@@ -488,6 +584,7 @@ export async function listLogos({ templateRoot } = {}) {
       domain: entry.domain ? String(entry.domain) : "",
       upload: entry.upload ? String(entry.upload) : "",
       source: existsSync(uploadPath) ? "upload" : mark ? "resolved" : "missing",
+      shape,
       mark,
     });
   }

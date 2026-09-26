@@ -1,0 +1,97 @@
+{{! editorial.resume — slot-only template over materials.render-model.v1. No facts live here. }}
+<article class="sheet page" data-page="1" {{sheetAttrs}}>
+
+  <header class="opener">
+    <div>
+      {{! The two name lines keep a real text space (a preserved trailing space on line one), so extraction reads "First Last", never "FirstLast" (rule 7). }}
+      <h1 class="name">{{#if identity.hasNameLast}}<span class="l1">{{identity.nameFirst}} </span><span class="l2">{{identity.nameLast}}</span>{{else}}{{identity.name}}{{/if}}</h1>
+      <p class="deck">{{identity.target}}</p>
+    </div>
+    <section class="pull-wrap" data-section="summary">
+      <blockquote class="pull">{{resume.statement.html}}</blockquote>
+    </section>
+  </header>
+
+  <p class="contact">
+    {{#each identity.contact.items}}{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}<span>{{text}}</span>{{/if}}
+    {{/each}}
+  </p>
+
+  {{#if resume.intro}}<p class="intro" data-claims="{{resume.intro.claimIds}}">{{resume.intro.html}}</p>{{/if}}
+
+  {{#if resume.experience}}
+  <h2 class="head">{{resume.experience.label}}</h2>
+  <section class="career" data-section="experience">
+    {{#each resume.experience.entries}}
+    <article class="stop" data-claim-group="{{employerId}}">
+      <div class="mark">
+        {{#if logo}}<img src="{{logo.src}}" alt="{{logo.alt}}" style="{{logo.style}}" />{{/if}}
+        <p class="years">{{dates}}{{#if place}}<small>{{place}}</small>{{/if}}</p>
+      </div>
+      <div class="story">
+        <div class="org">
+          <h2 class="company-name{{#if orgIsDuplicate}} visually-dup{{/if}}">{{org}}</h2>
+          {{#if hasSeat}}<span class="role">{{seatHtml}}</span>{{/if}}
+        </div>
+        {{#if hasBullets}}
+        <ul>
+          {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+          {{/each}}
+        </ul>
+        {{else}}
+        {{#if line}}<ul><li data-claim="{{claimId}}">{{line}}</li></ul>{{/if}}
+        {{/if}}
+      </div>
+    </article>
+    {{/each}}
+    {{#if resume.ventures}}
+    <article class="stop side" data-section="ventures">
+      <div class="mark">
+        <p class="years">{{resume.ventures.label}}</p>
+      </div>
+      <div class="story">
+        <div class="ventures">
+          {{#each resume.ventures.entries}}<p data-claim="{{claimId}}"><b>{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{#if dates}}, {{dates}}{{/if}}.{{#if line}} {{line}}{{/if}}</p>
+          {{/each}}
+        </div>
+      </div>
+    </article>
+    {{/if}}
+    {{#each resume.earlier.entries}}
+    <article class="stop earlier" data-claim-group="{{employerId}}">
+      <div class="mark">
+        {{#if logo}}<img src="{{logo.src}}" alt="{{logo.alt}}" style="{{logo.style}}" />{{/if}}
+        <p class="years">{{dates}}</p>
+      </div>
+      <div class="story">
+        <div class="org">
+          <h3 class="sub-org">{{org}}</h3>
+          {{#if hasSeat}}<span class="role">{{seatHtml}}</span>{{/if}}
+        </div>
+        {{#if line}}<ul><li data-claim="{{claimId}}">{{line}}</li></ul>{{/if}}
+      </div>
+    </article>
+    {{/each}}
+  </section>
+  {{/if}}
+
+  <footer class="back">
+    {{#if resume.hasSkills}}
+    <section data-section="skills">
+      <h3>{{resume.skillsLabel}}</h3>
+      {{#each resume.toolkit.groups}}<p><b>{{label}}</b> {{itemsText}}</p>
+      {{/each}}
+      {{#each resume.skills}}<p>{{#if resume.showSkillLabels}}<b>{{label}}</b> {{/if}}{{itemsText}}</p>
+      {{/each}}
+    </section>
+    {{/if}}
+    {{#if resume.education}}
+    <section data-section="education">
+      <h3>{{resume.education.label}}</h3>
+      {{#if resume.education.logo}}<img class="cc" src="{{resume.education.logo.src}}" alt="{{resume.education.logo.alt}}" style="{{resume.education.logo.style}}" />{{/if}}
+      {{#each resume.education.lines}}<p{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+      {{/each}}
+    </section>
+    {{/if}}
+  </footer>
+</article>

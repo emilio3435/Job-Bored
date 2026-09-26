@@ -1,0 +1,27 @@
+{
+  "id": "signal",
+  "label": "Signal",
+  "description": "The default. A Volt name band with a graduated scale, a strip of verified figures, and a logo-labelled log.",
+  "version": "1.0",
+  "documents": { "resume": "resume.html", "coverLetter": "cover-letter.html" },
+  "stylesheet": "signal.css",
+  "fonts": ["Archivo", "Martian Mono", "Caveat"],
+  "accents": ["volt", "ink"],
+  "densities": ["standard"],
+  "logos": {
+    "opticalSizesIn": { "mark": 0.34, "wordmark": 0.2, "lockup": 0.28 },
+    "hideNameBesideWordmark": true
+  },
+  "fit": {
+    "bottomMarginIn": 0.3,
+    "resumeLadderTail": ["drop_section:ventures", "drop_toolkit_group:Ramping", "drop_readouts"],
+    "letterLadder": ["css:tight-1", "css:tight-2", "drop_letter_readouts", "css:tight-3"]
+  },
+  "budgets": { "visibleWords": [340, 500], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4] },
+  "reads": ["logo", "readouts", "toolkit", "credentials", "ventures", "letterReadouts"],
+  "signatureMoves": [
+    "A narrow Volt band with a white graduated scale carries only the name, the target title and the contact details.",
+    "A readout strip of verified figures in condensed Martian Mono, under Volt channel brackets labelled by employer.",
+    "A logo-labelled log in one reading column, with dates in a 1in gutter and metric-led bullets."
+  ]
+}

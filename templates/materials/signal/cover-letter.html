@@ -1,0 +1,49 @@
+{{! signal.letter — slot-only template over materials.render-model.v1. No facts live here. }}
+<article class="sheet page" data-page="1" {{sheetAttrs}}>
+
+  <header class="band">
+    <div>
+      <h1 class="name">{{identity.name}}</h1>
+      <p class="target">{{identity.target}}</p>
+    </div>
+    <p class="contact">
+      {{#each identity.contact.items}}{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}<span>{{text}}</span>{{/if}}{{#unless @last}}<br />{{/unless}}{{/each}}
+    </p>
+  </header>
+
+  <div class="main">
+    <dl class="meta">
+      {{#each letter.rail}}<dt>{{label}}</dt>
+      <dd>{{#each lines}}{{this}}{{#unless @last}}<br />{{/unless}}{{/each}}</dd>
+      {{/each}}
+    </dl>
+
+    <div class="prose">
+      <p class="salute">{{letter.salutation}}</p>
+      {{#if letter.lede}}<p class="lede" data-paragraph="{{letter.lede.id}}"{{#if letter.lede.claimId}} data-claim="{{letter.lede.claimId}}"{{/if}}>{{letter.lede.html}}</p>{{/if}}
+      {{#each letter.body}}<p data-paragraph="{{id}}"{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+      {{/each}}
+
+      <div class="sign">
+        <p class="off">{{letter.signoff}}</p>
+        <p class="hand" aria-hidden="true">{{identity.name}}</p>
+        <p class="who">{{identity.name}}</p>
+        {{#if identity.contact.signatureText}}<p class="how">{{identity.contact.signatureText}}</p>{{/if}}
+      </div>
+    </div>
+  </div>
+
+  {{#if letter.readouts}}
+  <section class="letter-readout" aria-label="Figures referenced in this letter" style="grid-template-columns:repeat({{letter.readouts.columns}}, 1fr)">
+    {{#each letter.readouts.groups}}
+    <div class="channel{{#if last}} channel--last{{/if}}" style="grid-column:{{start}} / span {{span}}">
+      {{#if logo}}<img class="logo" src="{{logo.src}}" alt="{{logo.alt}}" style="{{logo.style}}" />{{else}}<span class="src"><b>{{org}}</b></span>{{/if}}
+      {{#if dates}}<span class="src">{{dates}}</span>{{/if}}
+    </div>
+    {{/each}}
+    {{#each letter.readouts.items}}
+    <p class="reading{{#if first}} first-of-ch{{/if}}{{#if split}} ch-split{{/if}}" data-claim="{{claimId}}" style="grid-column:{{col}}"><span class="fig">{{n}}</span><span class="cap">{{caption}}</span></p>
+    {{/each}}
+  </section>
+  {{/if}}
+</article>
