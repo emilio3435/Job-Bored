@@ -1887,7 +1887,7 @@ function initDiscoveryDrawer() {
       if (!base) {
         if (statusEl) {
           statusEl.textContent =
-            "No scraper configured. Set one in Settings or use localhost.";
+            "No scraper configured. Set one in Settings, or run JobBored on your own computer.";
           statusEl.hidden = false;
         }
         return;

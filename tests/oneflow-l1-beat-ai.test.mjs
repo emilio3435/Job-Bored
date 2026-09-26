@@ -259,7 +259,16 @@ describe("B2 Give it a brain — failures reach the screen (spec §3.5.2, §8.4)
     assert.match(help.textContent, /Having trouble\?/);
     assert.match(help.textContent, /rate limit/i);
     assert.match(help.textContent, /wrong key|key is wrong|copied the wrong/i);
-    assert.match(help.textContent, /npm start/);
+    assert.match(
+      help.textContent,
+      /keep JobBored running on this computer \(npm run dev\)/,
+      "the browser-block fix names the one start command in user words",
+    );
+    assert.equal(
+      /terminal|\(CORS\)/.test(help.textContent),
+      false,
+      "the trouble block speaks user words, never machine words",
+    );
   });
 
   it("clears the pasted key when the provider changes", async () => {

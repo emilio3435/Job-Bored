@@ -549,8 +549,8 @@
         ok: false,
         missing: false,
         message:
-          "Couldn't reach the local server. Make sure npm start is running, " +
-          `then try again. (${String((err && err.message) || err || "")})`,
+          "Couldn't reach the local server. Make sure JobBored is still " +
+          `running on this computer (npm run dev), then try again. (${String((err && err.message) || err || "")})`,
       };
     }
     const data = res ? await res.json().catch(() => null) : null;

@@ -9,8 +9,8 @@
  */
 
 import assert from "node:assert/strict";
-import { describe, it, before, after } from "node:test";
-import { mkdtempSync, rmSync } from "node:fs";
+import { describe, it, before, after, afterEach } from "node:test";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -40,7 +40,7 @@ async function withDevServer(fn) {
  * inbound test requests through to the real fetch. We only intercept calls
  * to the two host:port pairs the discovery-state probes hit.
  */
-function installFetchMock({ workerUp, workerBody, ngrokUp, ngrokUrl, ngrokAddr = "http://127.0.0.1:8644" }) {
+function installFetchMock({ workerUp, workerBody, ngrokUp, ngrokUrl, ngrokAddr = "http://127.0.0.1:8644", publicTunnelHealth = null, publicProbes = null }) {
   const realFetch = globalThis.fetch;
   globalThis.fetch = async (url, init) => {
     const u = String(url);
@@ -86,12 +86,60 @@ function installFetchMock({ workerUp, workerBody, ngrokUp, ngrokUrl, ngrokAddr =
         headers: { "content-type": "application/json" },
       });
     }
+    if (/^https:\/\/[^/]+\/health$/.test(u)) {
+      // Lane C: public-URL liveness probe for a rotation candidate. Fail
+      // closed so tests never hit the real network.
+      if (Array.isArray(publicProbes)) publicProbes.push(u);
+      const verdict = publicTunnelHealth ? publicTunnelHealth[u] : undefined;
+      if (verdict === undefined) {
+        throw new TypeError(`unexpected public tunnel probe ${u}`);
+      }
+      if (!verdict) {
+        throw new TypeError(`connect ENOTFOUND ${u}`);
+      }
+      return new Response(JSON.stringify(verdict), {
+        status: 200,
+        headers: { "content-type": "application/json" },
+      });
+    }
     return realFetch(url, init);
   };
   return () => {
     globalThis.fetch = realFetch;
   };
 }
+
+/**
+ * Lane C rotation fixtures. The endpoint reads the recorded tunnel URL from
+ * the keep-alive state ($HOME/.jobbored/keep-alive-state.json) and the live
+ * cloudflared URL from the quick-tunnel log
+ * ($JOBBORED_HOME/browser-use-discovery/logs/discovery-tunnel.log); both HOME
+ * and JOBBORED_HOME point at the temp dir in the rotation suite below.
+ */
+function writeKeepAliveState(homeDir, lastTunnelUrl) {
+  const dir = join(homeDir, ".jobbored");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(
+    join(dir, "keep-alive-state.json"),
+    JSON.stringify({ schemaVersion: 1, lastNgrokUrl: lastTunnelUrl }),
+    "utf8",
+  );
+}
+
+function writeTunnelLog(homeDir, text) {
+  const dir = join(homeDir, "browser-use-discovery", "logs");
+  mkdirSync(dir, { recursive: true });
+  writeFileSync(join(dir, "discovery-tunnel.log"), text, "utf8");
+}
+
+function clearRotationFixtures(homeDir) {
+  rmSync(join(homeDir, ".jobbored", "keep-alive-state.json"), { force: true });
+  rmSync(join(homeDir, "browser-use-discovery", "logs", "discovery-tunnel.log"), {
+    force: true,
+  });
+}
+
+const WORKER_IDENTITY = { status: "ok", service: "browser-use-discovery-worker" };
 
 describe("GET /__proxy/discovery-state", () => {
   // The endpoint calls getKeepAliveStatus(), which reads
@@ -213,16 +261,180 @@ describe("GET /__proxy/discovery-state", () => {
     }
   });
 
-  it("returns ngrok_rotated hint when keep-alive recorded a different URL", async () => {
-    // The endpoint reads getKeepAliveStatus().lastNgrokUrl. We can't easily
-    // inject that without filesystem manipulation, so this test validates
-    // the contract via a separate integration path: when only ngrok is up
-    // and worker is down, hint is worker_down (already covered above), but
-    // when worker is up and ngrok is up with the same URL, recommendation
-    // is ready (already covered). This placeholder documents the rotated
-    // detection codepath; full coverage lives in the unit tests in
-    // tests/discovery-autodetect.test.mjs which exercise the classify()
-    // function directly.
-    assert.ok(true);
+  describe("tunnel rotation (lane C)", () => {
+    // The quick-tunnel log path resolves via JOBBORED_HOME at request time;
+    // point it at the same temp HOME so the suite is hermetic on any machine.
+    let savedJobboredHome;
+    before(() => {
+      savedJobboredHome = process.env.JOBBORED_HOME;
+      process.env.JOBBORED_HOME = tmpHome;
+    });
+    after(() => {
+      if (savedJobboredHome === undefined) delete process.env.JOBBORED_HOME;
+      else process.env.JOBBORED_HOME = savedJobboredHome;
+    });
+    afterEach(() => {
+      clearRotationFixtures(tmpHome);
+    });
+
+    it("returns auto_recoverable/tunnel_rotated when the live cloudflared URL differs from the recorded one", async () => {
+      const recorded = "https://old-aaa.trycloudflare.com";
+      const live = "https://new-bbb.trycloudflare.com";
+      writeKeepAliveState(tmpHome, recorded);
+      writeTunnelLog(tmpHome, `2026-09-26T00:00:00Z INF |  ${live}  |\n`);
+      const publicProbes = [];
+      const restore = installFetchMock({
+        workerUp: true,
+        ngrokUp: false,
+        publicTunnelHealth: { [`${live}/health`]: WORKER_IDENTITY },
+        publicProbes,
+      });
+      try {
+        await withDevServer(async (baseUrl) => {
+          const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
+            headers: { Origin: baseUrl },
+          });
+          const body = await resp.json();
+          assert.equal(body.recommendation, "auto_recoverable");
+          assert.equal(body.recoverableHint, "tunnel_rotated");
+          assert.equal(body.cloudflared.up, true);
+          assert.equal(body.cloudflared.url, live);
+          assert.equal(body.relay.configuredUrl, recorded);
+          assert.equal(body.relay.reachable, false);
+          // The candidate URL was verified live before counting as rotated.
+          assert.deepEqual(publicProbes, [`${live}/health`]);
+        });
+      } finally {
+        restore();
+      }
+    });
+
+    it("returns ready when the cloudflared URL matches the recorded one (no liveness probe needed)", async () => {
+      const url = "https://same-ccc.trycloudflare.com";
+      writeKeepAliveState(tmpHome, url);
+      writeTunnelLog(tmpHome, `2026-09-26T00:00:00Z INF |  ${url}  |\n`);
+      const publicProbes = [];
+      const restore = installFetchMock({
+        workerUp: true,
+        ngrokUp: false,
+        publicTunnelHealth: {},
+        publicProbes,
+      });
+      try {
+        await withDevServer(async (baseUrl) => {
+          const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
+            headers: { Origin: baseUrl },
+          });
+          const body = await resp.json();
+          assert.equal(body.recommendation, "ready");
+          assert.equal(body.recoverableHint, undefined);
+          assert.equal(body.cloudflared.up, true);
+          assert.equal(body.cloudflared.url, url);
+          assert.equal(body.relay.reachable, true);
+          assert.deepEqual(publicProbes, []);
+        });
+      } finally {
+        restore();
+      }
+    });
+
+    it("returns ready (not rotated) when the changed cloudflared URL is dead", async () => {
+      writeKeepAliveState(tmpHome, "https://old-aaa.trycloudflare.com");
+      const dead = "https://dead-ddd.trycloudflare.com";
+      writeTunnelLog(tmpHome, `2026-09-26T00:00:00Z INF |  ${dead}  |\n`);
+      const restore = installFetchMock({
+        workerUp: true,
+        ngrokUp: false,
+        publicTunnelHealth: { [`${dead}/health`]: null },
+      });
+      try {
+        await withDevServer(async (baseUrl) => {
+          const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
+            headers: { Origin: baseUrl },
+          });
+          const body = await resp.json();
+          // A dead URL is tunnel absence, not rotation (Tailscale-era ready).
+          assert.equal(body.recommendation, "ready");
+          assert.equal(body.recoverableHint, undefined);
+          assert.equal(body.cloudflared.up, false);
+          assert.equal(body.relay.reachable, false);
+        });
+      } finally {
+        restore();
+      }
+    });
+
+    it("returns auto_recoverable/tunnel_rotated when the live ngrok URL differs from the recorded one", async () => {
+      writeKeepAliveState(tmpHome, "https://old-ngrok.ngrok.app");
+      const restore = installFetchMock({
+        workerUp: true,
+        ngrokUp: true,
+        ngrokUrl: "https://new-ngrok.ngrok.app",
+      });
+      try {
+        await withDevServer(async (baseUrl) => {
+          const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
+            headers: { Origin: baseUrl },
+          });
+          const body = await resp.json();
+          assert.equal(body.recommendation, "auto_recoverable");
+          assert.equal(body.recoverableHint, "tunnel_rotated");
+          assert.equal(body.ngrok.up, true);
+          assert.equal(body.ngrok.url, "https://new-ngrok.ngrok.app");
+          assert.equal(body.relay.reachable, false);
+        });
+      } finally {
+        restore();
+      }
+    });
+
+    it("stays ready when the recorded ngrok URL matches the live one", async () => {
+      writeKeepAliveState(tmpHome, "https://same-ngrok.ngrok.app");
+      const restore = installFetchMock({
+        workerUp: true,
+        ngrokUp: true,
+        ngrokUrl: "https://same-ngrok.ngrok.app",
+      });
+      try {
+        await withDevServer(async (baseUrl) => {
+          const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
+            headers: { Origin: baseUrl },
+          });
+          const body = await resp.json();
+          assert.equal(body.recommendation, "ready");
+          assert.equal(body.recoverableHint, undefined);
+          assert.equal(body.relay.reachable, true);
+        });
+      } finally {
+        restore();
+      }
+    });
+
+    it("ignores an unrelated live ngrok tunnel while the recorded cloudflared tunnel is steady", async () => {
+      const url = "https://same-ccc.trycloudflare.com";
+      writeKeepAliveState(tmpHome, url);
+      writeTunnelLog(tmpHome, `2026-09-26T00:00:00Z INF |  ${url}  |\n`);
+      const restore = installFetchMock({
+        workerUp: true,
+        ngrokUp: true,
+        ngrokUrl: "https://other-purpose.ngrok.app",
+        publicTunnelHealth: {},
+      });
+      try {
+        await withDevServer(async (baseUrl) => {
+          const resp = await fetch(`${baseUrl}/__proxy/discovery-state?port=8644`, {
+            headers: { Origin: baseUrl },
+          });
+          const body = await resp.json();
+          // Rotation compares within the recorded URL's own transport.
+          assert.equal(body.recommendation, "ready");
+          assert.equal(body.recoverableHint, undefined);
+          assert.equal(body.cloudflared.up, true);
+          assert.equal(body.relay.reachable, true);
+        });
+      } finally {
+        restore();
+      }
+    });
   });
 });

@@ -421,7 +421,7 @@
                 type="url"
                 id="settingsJobPostingScrapeUrl"
                 class="modal-input"
-                placeholder="https://your-scraper.onrender.com or leave blank on localhost"
+                placeholder="https://your-scraper.onrender.com or leave blank on your own computer"
                 autocomplete="off"
                 spellcheck="false"
               />
@@ -431,9 +431,8 @@
                   you run JobBored on your own computer.
                   <details class="settings-field-details">
                     <summary>Details</summary>
-                    On <code class="modal-code">localhost</code>, blank uses
-                    <code class="modal-code">http://127.0.0.1:3847</code> with
-                    <code class="modal-code">npm start</code>. A hosted copy
+                    On your own computer, blank uses the built-in server that
+                    starts with the dashboard. A hosted copy
                     (for example GitHub Pages) needs a deployed HTTPS URL. No
                     trailing slash.
                   </details></span
@@ -458,7 +457,7 @@
             >
               <h4 class="settings-tab-panel__title">ATS Scoring</h4>
               <p class="settings-tab-panel__lede">
-                Scorecard endpoint for resume-to-posting match scoring.
+                Scorecard service for resume-to-posting match scoring.
               </p>
 
               <label class="field-label" for="settingsAtsScoringMode"

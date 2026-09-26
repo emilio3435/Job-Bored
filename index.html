@@ -321,6 +321,14 @@
       })();
     </script>
 
+    <noscript>
+      <nav class="site-legal-noscript" aria-label="Legal">
+        <a href="https://jobbored.elioai.app">JobBored</a>
+        <a href="privacy.html">Privacy policy</a>
+        <a href="terms.html">Terms of service</a>
+      </nav>
+    </noscript>
+
     <!-- ============================================================ -->
     <!-- JB-V2 REGIONS — DO NOT remove or rename. Owned by Phase 3 agents. -->
     <!-- Each region renders only when body.jb-v2 is set. Legacy markup -->
@@ -933,7 +941,7 @@
                       id="workerAutostartBtn"
                       type="button"
                       style="margin-bottom: 8px;"
-                      title="Keeps your local discovery worker running across reboot, so new roles keep showing up without reopening a terminal."
+                      title="Keeps your local discovery worker running across reboot, so new roles keep showing up after a restart."
                       hidden
                     >
                       <span>Discovery worker on boot</span>
@@ -1280,6 +1288,10 @@
       <!-- Footer -->
       <footer class="site-footer">
         <span>Agentic search + Google Sheets</span>
+        <nav class="site-footer__legal" aria-label="Legal">
+          <a href="privacy.html">Privacy</a>
+          <a href="terms.html">Terms</a>
+        </nav>
         <a href="" target="_blank" rel="noopener" id="footerSheetLink"
           >Open Sheet ↗</a
         >

@@ -1580,12 +1580,12 @@
     if (typeof blocked === "function" && base) {
       try {
         if (blocked(base)) {
-          return "This HTTPS page cannot reach a local HTTP materials server (browser mixed-content block). Run the dashboard at http://localhost:8080 with npm start, or deploy the scraper to HTTPS and set Job posting scrape URL in Settings.";
+          return "This HTTPS page can't reach the materials server on this computer — the browser blocks it. Open your local dashboard (http://localhost:8080) instead, or deploy the scraper to HTTPS and set Job posting scrape URL in Settings.";
         }
       } catch (e) { /* fall through */ }
     }
     if (isMaterialsNetworkError(err)) {
-      return "Local materials server is not reachable. From the repo root run npm start (dashboard :8080 + materials API :3847) and keep that terminal open.";
+      return "The materials server on this computer isn't answering. Run npm start in your JobBored folder, then try again.";
     }
     return (err && err.message) || "Could not load application materials.";
   }

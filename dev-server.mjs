@@ -1580,14 +1580,21 @@ export function handleDiscoveryRelayToken(
 }
 
 /**
- * Localhost-only: write ONE allowlisted enhancement key into the discovery
- * worker's env file (the wizard's in-place key entry — no terminal, no file
- * editing). Strictly a closed set: anything outside the allowlist is a 400.
- * Callers reboot the worker afterwards so it loads the new key.
+ * Localhost-only: write ONE allowlisted key into the discovery worker's env
+ * file (the wizard's in-place key entry — no terminal, no file editing).
+ * Strictly a closed set: anything outside the allowlist is a 400. Callers
+ * reboot the worker afterwards so it loads the new value.
+ *
+ * BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS is the Tailscale auto-setup's CORS
+ * self-heal (see runDiscoveryTailscaleAutoSetup in discovery-wizard-ui.js):
+ * full-boot's skip_tunnel path never runs the bootstrap origins merge, so
+ * without this key a healthy worker that rejects the dashboard's origin has
+ * no writer to heal it.
  */
 const DISCOVERY_ENV_KEY_ALLOWLIST = new Set([
   "SERPAPI_API_KEY",
   "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
+  "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS",
 ]);
 
 async function handleDiscoveryEnvKey(req, res) {
@@ -2042,16 +2049,20 @@ async function handleWorkerAutostartStatus(req, res) {
 //     ok: true,
 //     worker:  { up: boolean, port: number, lastSeenAt?: string },
 //     ngrok:   { up: boolean, url?: string },
+//     cloudflared: { up: boolean, url?: string },
 //     relay:   { configuredUrl?: string, reachable: boolean },
 //     recommendation: "ready" | "auto_recoverable" | "needs_human",
 //     recoverableHint?: string
 //   }
 //
 // Recommendation rules:
-//   ready              — worker up + ngrok up + relay reachable (or relay not
-//                        configured but webhook URL is locally usable)
-//   auto_recoverable   — worker down OR ngrok down OR ngrok rotated; the
-//                        existing /__proxy/full-boot can fix all of these
+//   ready              — worker up and no live tunnel URL differs from the
+//                        recorded relay URL (a missing tunnel is fine: the
+//                        dashboard reaches the worker directly or over Tailscale)
+//   auto_recoverable   — worker down OR tunnel rotated (the live ngrok or
+//                        cloudflared URL differs from the recorded one while
+//                        still serving the worker); /__proxy/full-boot resyncs
+//                        the relay onto the live URL
 //   needs_human        — anything else (e.g. unknown state, missing CLI auth)
 // ============================================================================
 async function handleDiscoveryState(req, res, options = {}) {
@@ -2088,13 +2099,98 @@ async function handleDiscoveryState(req, res, options = {}) {
   const ngrokRotated =
     !!(lastNgrokUrl && liveNgrokUrl && lastNgrokUrl !== liveNgrokUrl);
 
-  // Check the relay (if its target URL is the live ngrok URL). We don't
+  // Cloudflare quick tunnels rotate exactly like ngrok tunnels do, and the
+  // keep-alive records the live public URL in lastNgrokUrl for EITHER
+  // transport — so a cloudflared rotation is the same stale-relay state as an
+  // ngrok rotation and recovers the same way (full-boot resyncs the relay).
+  // The live cloudflared URL comes from the quick-tunnel log (last URL wins;
+  // the log accumulates across spawns) and only counts when it still serves
+  // this worker, mirroring how a :4040-listed ngrok URL is live by
+  // construction. Rotation is compared within the recorded URL's own
+  // transport; stable named-tunnel hostnames and unknown recordings never
+  // count as rotated.
+  const normalizeTunnelUrl = (value) =>
+    String(value || "").trim().replace(/\/+$/g, "");
+  const recordedTunnelUrl = normalizeTunnelUrl(lastNgrokUrl);
+  let recordedTransportKind = "";
+  let liveCloudflaredUrl = "";
+  try {
+    const transport = await import("./scripts/lib/discovery-transport.mjs");
+    recordedTransportKind = transport.inferTransportKindFromUrl(lastNgrokUrl);
+    const workerHome = resolveJobBoredPaths({ env: process.env, repoRoot: ROOT })
+      .workerHome;
+    const tunnelLogPath = join(workerHome, "logs", "discovery-tunnel.log");
+    if (existsSync(tunnelLogPath)) {
+      liveCloudflaredUrl = normalizeTunnelUrl(
+        transport.parseLastQuickTunnelUrl(readFileSync(tunnelLogPath, "utf8")),
+      );
+    }
+  } catch (_) {
+    recordedTransportKind = "";
+    liveCloudflaredUrl = "";
+  }
+  // Transport vocabulary owned by scripts/lib/discovery-transport.mjs.
+  const recordedIsNgrok = recordedTransportKind === "ngrok";
+  const recordedIsCloudflaredQuick =
+    recordedTransportKind === "cloudflare_quick";
+  const cloudflaredSteady =
+    recordedIsCloudflaredQuick &&
+    !!recordedTunnelUrl &&
+    !!liveCloudflaredUrl &&
+    liveCloudflaredUrl === recordedTunnelUrl;
+  let cloudflaredCandidateLive = false;
+  if (
+    recordedIsCloudflaredQuick &&
+    recordedTunnelUrl &&
+    liveCloudflaredUrl &&
+    liveCloudflaredUrl !== recordedTunnelUrl
+  ) {
+    const ctrl = new AbortController();
+    const timer = setTimeout(() => {
+      try {
+        ctrl.abort();
+      } catch (_) {}
+    }, 1500);
+    try {
+      const resp = await fetch(`${liveCloudflaredUrl}/health`, {
+        method: "GET",
+        signal: ctrl.signal,
+      });
+      const json = await resp.json().catch(() => null);
+      cloudflaredCandidateLive = !!(
+        resp.ok &&
+        json &&
+        String(json.status || "").toLowerCase() === "ok" &&
+        String(json.service || "").toLowerCase() ===
+          "browser-use-discovery-worker"
+      );
+    } catch (_) {
+      cloudflaredCandidateLive = false;
+    } finally {
+      clearTimeout(timer);
+    }
+  }
+  const cloudflaredRotated =
+    recordedIsCloudflaredQuick &&
+    !!recordedTunnelUrl &&
+    !!liveCloudflaredUrl &&
+    liveCloudflaredUrl !== recordedTunnelUrl &&
+    cloudflaredCandidateLive;
+  const cloudflaredUp = cloudflaredSteady || cloudflaredCandidateLive;
+  // ngrok rotation only counts when the recorded URL is itself an ngrok URL:
+  // a cloudflared user with an unrelated live ngrok tunnel must not flip to
+  // recovery while their recorded tunnel is steady.
+  const tunnelRotated = (recordedIsNgrok && ngrokRotated) || cloudflaredRotated;
+
+  // Check the relay (if its target URL is the live tunnel URL). We don't
   // know the relay URL from the dev-server side, so we only mark relay
-  // reachable if ngrok is up — the keep-alive job is responsible for
-  // pointing the relay at the live URL.
+  // reachable if the live tunnel for the recorded transport matches the
+  // recorded URL — the keep-alive job is responsible for pointing the relay
+  // at the live URL.
   const relayInfo = {
     configuredUrl: lastNgrokUrl,
-    reachable: ngrokUp && !ngrokRotated,
+    reachable:
+      (ngrokUp && !ngrokRotated) || (cloudflaredUp && !cloudflaredRotated),
   };
 
   let recommendation;
@@ -2103,11 +2199,18 @@ async function handleDiscoveryState(req, res, options = {}) {
     recommendation = "auto_recoverable";
     recoverableHint = "origin_not_allowed";
   } else if (workerUp) {
-    // ngrok is retired: the dashboard reaches the worker over Tailscale or
-    // directly, so worker-up + origin-allowed is "ready". A missing/rotated
-    // tunnel is no longer a recovery condition and must not force setup or
+    // A missing tunnel stays "ready": the dashboard reaches the worker over
+    // Tailscale or directly, so tunnel absence must not force setup or
     // intercept runs (which caused the "Setting up local discovery…" popup).
-    recommendation = "ready";
+    // A ROTATED tunnel is different: the relay still targets the recorded URL
+    // while the live tunnel serves another one, so scheduled relay runs fail
+    // until full-boot resyncs it — auto_recoverable for either transport.
+    if (tunnelRotated) {
+      recommendation = "auto_recoverable";
+      recoverableHint = "tunnel_rotated";
+    } else {
+      recommendation = "ready";
+    }
   } else if (
     workerHealth &&
     (workerHealth.reason === "wrong_service" ||
@@ -2149,6 +2252,10 @@ async function handleDiscoveryState(req, res, options = {}) {
       ...(liveNgrokUrl ? { url: liveNgrokUrl } : {}),
       ...(ngrokInfo && ngrokInfo.reason ? { reason: ngrokInfo.reason } : {}),
       ...(ngrokInfo && ngrokInfo.tunnels ? { tunnels: ngrokInfo.tunnels } : {}),
+    },
+    cloudflared: {
+      up: cloudflaredUp,
+      ...(liveCloudflaredUrl ? { url: liveCloudflaredUrl } : {}),
     },
     relay: relayInfo,
     recommendation,

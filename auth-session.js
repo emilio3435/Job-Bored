@@ -626,6 +626,97 @@ function showToast(message, type = "success", persistent = false, action) {
 // ============================================
 
 /**
+ * Substrings that mark a GIS failure as an origin/client misconfiguration.
+ *
+ * Heuristic, documented because it is one: Google often surfaces these
+ * failures ONLY inside its own popup (a 401 / invalid_client page), so the
+ * error_callback and the token callback receive fragments — err.type,
+ * err.message, error, or error_description — rather than a stable code.
+ * Match case-insensitively across all of them. A miss falls through to
+ * the generic sign-in message, never to a raw dump.
+ */
+const OAUTH_ORIGIN_CLIENT_PATTERNS = [
+  "invalid_client",
+  "origin",
+  "401",
+  "idpiframe",
+];
+
+/** True when `err` looks like an origin/client misconfiguration (see above). */
+function isOAuthOriginClientFailure(err) {
+  const parts = [];
+  if (err && typeof err === "object") {
+    for (const key of [
+      "type",
+      "message",
+      "error",
+      "error_description",
+      "detail",
+      "details",
+    ]) {
+      if (err[key] != null) parts.push(String(err[key]));
+    }
+  } else if (err != null) {
+    parts.push(String(err));
+  }
+  const haystack = parts.join("\n").toLowerCase();
+  if (!haystack) return false;
+  return OAUTH_ORIGIN_CLIENT_PATTERNS.some((pattern) =>
+    haystack.includes(pattern),
+  );
+}
+
+function currentPageOrigin() {
+  try {
+    return (
+      (typeof window !== "undefined" &&
+        window.location &&
+        window.location.origin) ||
+      ""
+    );
+  } catch (_) {
+    return "";
+  }
+}
+
+/**
+ * Deep-open Beat 1's first-timer detour on an origin/client failure,
+ * carrying the address Google rejected so the beat can render it with
+ * its Copy control. returnTo:"close" closes where it opened once the
+ * beat completes instead of walking a dashboard user through all of setup.
+ */
+function openGoogleOriginDetour() {
+  try {
+    const flow =
+      typeof window !== "undefined" ? window.JobBoredOneFlow : null;
+    if (!flow || typeof flow.open !== "function") return false;
+    const failingOrigin = currentPageOrigin();
+    if (typeof flow.seedRuntime === "function") {
+      flow.seedRuntime({ failingOrigin });
+    }
+    void flow.open("google", { returnTo: "close" });
+    return true;
+  } catch (_) {
+    return false;
+  }
+}
+
+/**
+ * Voice §8.4: every error names its next action. When the detour opened,
+ * the action is its Continue button; otherwise it is the settings the
+ * user can reach from here.
+ */
+function showOriginClientFailureToast(opened) {
+  showToast(
+    opened
+      ? "Google didn't recognize this page's address. Add it in the steps shown, then press Continue with Google again."
+      : "Google didn't recognize this page's address. Check the address listed in your Google app key settings, then try signing in again.",
+    "error",
+    true,
+  );
+}
+
+/**
  * Apply a freshly saved OAuth client ID without forcing a full page reload.
  * Tries to rebuild the GIS tokenClient in place; falls back to reload if that
  * fails (e.g. GIS not loaded yet, or tokenClient threw). Removes the most
@@ -657,6 +748,9 @@ function applyOAuthClientChange(clientId) {
       error_callback: (err) => {
         console.error("[JobBored] GIS error_callback (re-init):", err);
         host().recordSheetAccessError(err);
+        if (isOAuthOriginClientFailure(err)) {
+          showOriginClientFailureToast(openGoogleOriginDetour());
+        }
       },
     });
     setupAuthUI();
@@ -725,6 +819,10 @@ function initAuth() {
             return;
           }
           oauthPendingOp = null;
+          if (isOAuthOriginClientFailure(err)) {
+            showOriginClientFailureToast(openGoogleOriginDetour());
+            return;
+          }
           const errType =
             err && typeof err === "object" && err.type != null
               ? String(err.type)
@@ -774,11 +872,14 @@ function handleTokenResponse(tokenResponse) {
       host().showSheetAccessGate("signin", SESSION_ENDED_GATE);
     }
     if (!silentOp) {
-      showToast(
-        "Sign-in failed: " +
-          (tokenResponse.error_description || tokenResponse.error),
-        "error",
-      );
+      if (isOAuthOriginClientFailure(tokenResponse)) {
+        showOriginClientFailureToast(openGoogleOriginDetour());
+      } else {
+        showToast(
+          "Google sign-in failed. Try again — and if it keeps failing, allow popups for this page and try once more.",
+          "error",
+        );
+      }
     }
     return;
   }
@@ -1541,6 +1642,8 @@ function isSignedIn() {
     showToast,
     applyOAuthClientChange,
     initAuth,
+    isOAuthOriginClientFailure,
+    openGoogleOriginDetour,
     handleTokenResponse,
     fetchUserEmail,
     signIn,

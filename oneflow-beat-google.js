@@ -145,6 +145,23 @@
     }
   }
 
+  /**
+   * The address Google rejected, carried in by auth-session's origin/client
+   * classifier via seedRuntime({ failingOrigin }) before it deep-opens this
+   * beat. "" on the normal path — the detour below renders unchanged.
+   */
+  function failingOriginFromCtx(ctx) {
+    const raw =
+      ctx && ctx.runtime && ctx.runtime.failingOrigin != null
+        ? String(ctx.runtime.failingOrigin).trim()
+        : "";
+    return raw;
+  }
+
+  function clearFailingOrigin(ctx) {
+    if (ctx && ctx.runtime) ctx.runtime.failingOrigin = "";
+  }
+
   function el(tag, className, attrs = {}, text) {
     const node = document.createElement(tag);
     if (className) node.className = className;
@@ -251,6 +268,10 @@
   ];
 
   function renderDetour(ctx) {
+    // An origin/client failure deep-opens this beat (auth-session.js): the
+    // detour opens itself — the fix is the screen, not a toast.
+    const failingOrigin = failingOriginFromCtx(ctx);
+    if (failingOrigin) state.detourOpen = true;
     const details = el("details", "oneflow-google__detour");
     if (state.detourOpen) details.open = true;
     details.addEventListener("toggle", () => {
@@ -274,8 +295,37 @@
           "minutes and it is genuinely tedious. You only ever do this once.",
       ),
     );
+    // The rejected address renders FIRST with the same Copy control as the
+    // page-origin row below — it is the exact string to paste.
+    if (failingOrigin) {
+      const failingRow = el("p", "oneflow-google__detour-failing-origin");
+      failingRow.appendChild(
+        el("span", "oneflow-google__detour-origin-label", {}, "Google rejected this address: "),
+      );
+      failingRow.appendChild(el("code", "", {}, failingOrigin));
+      const copyFailing = el(
+        "button",
+        "oneflow-google__detour-copy",
+        { type: "button" },
+        "Copy",
+      );
+      copyFailing.addEventListener("click", () => {
+        call("copyTextToClipboard", failingOrigin);
+      });
+      failingRow.appendChild(copyFailing);
+      details.appendChild(failingRow);
+      details.appendChild(
+        el(
+          "p",
+          "oneflow-google__detour-failing-note",
+          {},
+          "Add this address under Authorized JavaScript origins in the steps " +
+            "below, wait a minute, then press Continue with Google again.",
+        ),
+      );
+    }
     const originValue = origin();
-    if (originValue) {
+    if (originValue && originValue !== failingOrigin) {
       const originRow = el("p", "oneflow-google__detour-origin");
       originRow.appendChild(
         el("span", "oneflow-google__detour-origin-label", {}, "This page's origin: "),
@@ -354,6 +404,17 @@
         {},
         "If Google shows redirect_uri_mismatch, the app type was wrong — " +
           "recreate the Client ID as a Web application.",
+      ),
+    );
+    trouble.appendChild(
+      el(
+        "p",
+        "oneflow-google__detour-foot",
+        {},
+        "If Google shows an error about an unauthorized origin or " +
+          "\"Error 401: invalid client\", this page's address isn't on the " +
+          "list yet — add it under Authorized JavaScript origins above, " +
+          "wait a minute, then press Continue with Google again.",
       ),
     );
     details.appendChild(trouble);
@@ -671,6 +732,9 @@
   }
 
   async function finish(ctx, createdSheet) {
+    // Sign-in worked, so the rejected address is fixed — don't re-open the
+    // detour on a later re-entry into this beat.
+    clearFailingOrigin(ctx);
     state.mode = "signin";
     state.sheetUrlDraft = "";
     fields.sheetUrl = null;

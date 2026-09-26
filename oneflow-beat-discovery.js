@@ -147,8 +147,9 @@
       "SerpApi answered, but not with your account. Wait a moment, then " +
       "press Save & verify again.",
     no_local_server:
-      "Couldn't reach the local server to check your key — is it still " +
-      "running? Start it with `npm run dev`, then press Save & verify.",
+      "Couldn't reach JobBored's local server to check your key — " +
+      "double-click start.command in the JobBored folder to start it, " +
+      "then press Save & verify.",
   });
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";

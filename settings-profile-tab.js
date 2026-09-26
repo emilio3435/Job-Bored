@@ -592,7 +592,7 @@
   function localWorkerUnavailableError(fallbackEndpoint) {
     var health = profileHealthEndpoint(fallbackEndpoint) || "http://127.0.0.1:8644/health";
     var err = new Error(
-      "Local discovery worker is not running or is still starting. Start it with root `npm run dev`, wait for `[browser-use-discovery] listening on http://127.0.0.1:8644`, then try again. Health check: " +
+      "The discovery worker on this computer isn't running yet. Start it with npm run dev, wait a few seconds, then try again. Health check: " +
         health,
     );
     err.localWorkerUnavailable = true;

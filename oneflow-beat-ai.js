@@ -454,9 +454,9 @@
         "li",
         "",
         {},
-        "Blocked by the browser (CORS): OpenAI and Anthropic refuse direct " +
-          "browser calls, so they run through the local server — keep npm " +
-          "start running in your terminal and try again.",
+        "Blocked by the browser: OpenAI and Anthropic refuse direct " +
+          "browser calls, so they run through the local server — keep " +
+          "JobBored running on this computer (npm run dev) and try again.",
       ),
     );
     if (def.signupUrl) {

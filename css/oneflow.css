@@ -593,14 +593,16 @@
 }
 
 .oneflow-google__detour-lede,
-.oneflow-google__detour-foot {
+.oneflow-google__detour-foot,
+.oneflow-google__detour-failing-note {
   margin: var(--space-3) 0 0;
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-google__detour-origin {
+.oneflow-google__detour-origin,
+.oneflow-google__detour-failing-origin {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -609,7 +611,8 @@
   font-size: var(--text-sm);
 }
 
-.oneflow-google__detour-origin code {
+.oneflow-google__detour-origin code,
+.oneflow-google__detour-failing-origin code {
   padding: 2px 6px;
   border-radius: 6px;
   background: var(--jb-paper, var(--surface));
@@ -1334,6 +1337,38 @@
   letter-spacing: 0.06em;
   text-transform: uppercase;
   color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-demo .oneflow-demo__header-brand {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2) var(--space-4);
+  min-width: 0;
+}
+
+.oneflow-demo .oneflow-demo__legal {
+  display: flex;
+  gap: var(--space-3);
+}
+
+.oneflow-demo .oneflow-demo__legal-link {
+  font-family: var(--jb-font-body, var(--font-body));
+  font-size: var(--jb-type-small, 0.8125rem);
+  line-height: 1.4;
+  color: var(--jb-ink-2, var(--text-muted));
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.oneflow-demo .oneflow-demo__legal-link:hover {
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-demo .oneflow-demo__legal-link:focus-visible {
+  outline: none;
+  border-radius: var(--jb-radius-sm, 6px);
+  box-shadow: var(--jb-shadow-focus);
 }
 
 /* ---------- The framed board ----------

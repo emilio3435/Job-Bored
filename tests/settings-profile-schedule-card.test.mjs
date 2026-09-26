@@ -607,7 +607,7 @@ describe("Profile tab — resume restore source selection", () => {
           mode: "schedule-save",
           schedule: { enabled: true, hour: 8, minute: 15, mode: "local" },
         }),
-      /Local discovery worker is not running.*npm run dev/,
+      /discovery worker on this computer isn't running yet.*npm run dev/,
     );
     assert.deepEqual(calls, [
       "http://127.0.0.1:8644/health",

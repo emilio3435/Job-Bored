@@ -407,12 +407,31 @@
   }
 
   /**
-   * "Turn on job discovery" CTA — opens the guided discovery setup
-   * wizard via the shared host.requestDiscoverySetup. Both wizards are
-   * already closed on the dashboard path (no deferral race), so a plain
-   * call is correct here.
+   * "Turn on job discovery" CTA — the banner's nudge for incomplete or
+   * broken discovery. The one-flow's discovery beat IS discovery setup,
+   * so it opens there first via the shared setupModals helper
+   * (returnTo:"close" — fix this one thing, land back on the
+   * dashboard); the banner itself must not touch the flow controller
+   * (see tests/oneflow-l0-wiring.test.mjs). Only when the helper is
+   * absent or throws does it fall back to the legacy wizard via the
+   * shared host.requestDiscoverySetup. Both wizards are already closed
+   * on the dashboard path (no deferral race), so a plain call is
+   * correct there.
    */
   function handleOpenDiscovery() {
+    const discoveryNs = window.JobBoredDiscovery || null;
+    const setupModals = (discoveryNs && discoveryNs.setupModals) || null;
+    if (
+      setupModals &&
+      typeof setupModals.openDiscoverySetupBeat === "function"
+    ) {
+      try {
+        void setupModals.openDiscoverySetupBeat({ entryPoint: "whats_next" });
+        return;
+      } catch (e) {
+        console.warn("[JobBored] whats-next discovery (flow):", e);
+      }
+    }
     const host =
       (window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host) ||
       null;

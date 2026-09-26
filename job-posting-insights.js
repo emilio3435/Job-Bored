@@ -333,7 +333,7 @@
     if (err && err.name === "TypeError" && /fail|fetch|network/i.test(m)) {
       return new Error(
         corsBlocked
-          ? "OpenAI and Anthropic can't be called directly from this page (CORS). Switch to OpenRouter, local, Gemini, or a webhook in Settings."
+          ? "OpenAI and Anthropic can't be called directly from this page — the browser blocks it. Switch to OpenRouter, Local, Gemini, or a webhook in Settings."
           : `${label}: network error — check connection.`,
       );
     }

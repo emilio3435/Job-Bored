@@ -8,6 +8,7 @@ import {
   parseStarterOptions,
 } from "./lib/discovery-worker-policy.mjs";
 import { join, resolve } from "node:path";
+import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
 import { resolveJobBoredPaths } from "./lib/paths.mjs";
 import { mergeEnvFileValues, parseEnvFileText } from "./lib/env-file-merge.mjs";
@@ -168,12 +169,21 @@ function writeLocalBootstrapState(runtimeEnv, host, port) {
     existing && existing.diagnostics && typeof existing.diagnostics === "object"
       ? { ...existing.diagnostics }
       : {};
+  // Sync the recorded PID to the LIVE listener owner on every boot: a PID left
+  // behind by a previous boot is stale the moment another process owns the
+  // port, and acting on it (or on no PID at all) is the stale-PID/EADDRINUSE
+  // confusion this ends. null means "nothing listens (yet)" — honest, not stale.
+  const pidRecord = resolveWorkerPidRecord({
+    liveOwnerPid: resolveLiveListenerOwnerPid(port),
+    existingPid: existing.workerPid,
+  });
   const payload = {
     ...existing,
     schemaVersion: 1,
     bootstrapVersion: 2,
     generatedAt: nowIso,
     repoRoot,
+    workerPid: pidRecord.workerPid,
     routeName:
       typeof existing.routeName === "string" && existing.routeName.trim()
         ? existing.routeName.trim()
@@ -210,6 +220,35 @@ function writeLocalBootstrapState(runtimeEnv, host, port) {
       }`,
     );
   }
+}
+
+/**
+ * Re-sync the recorded workerPid after (re)spawning the supervised child: the
+ * boot-time sync above captured whoever owned the port BEFORE this spawn (on a
+ * restart boot, the worker we just terminated), so without this the file would
+ * point at a PID we killed. Only called with a live child PID.
+ */
+function updateBootstrapWorkerPid(pid) {
+  const existing = readBootstrapStateFile();
+  const record = resolveWorkerPidRecord({
+    liveOwnerPid: pid,
+    existingPid: existing.workerPid,
+  });
+  if (!record.changed) return record.workerPid;
+  try {
+    writeFileSync(
+      bootstrapStatePath,
+      `${JSON.stringify({ ...existing, workerPid: record.workerPid }, null, 2)}\n`,
+      "utf8",
+    );
+  } catch (err) {
+    console.warn(
+      `[start:discovery-worker] could not sync workerPid in discovery-local-bootstrap.json: ${
+        err && err.message ? err.message : String(err)
+      }`,
+    );
+  }
+  return record.workerPid;
 }
 
 async function probeExistingWorker(host, port) {
@@ -346,6 +385,44 @@ function isProcessAlive(pid) {
   } catch {
     return false;
   }
+}
+
+/**
+ * Resolve the PID that currently owns the worker port listener: the first
+ * live listener PID, 0 when nothing listens, or null when the port cannot be
+ * inspected at all (lsof missing) so the caller keeps the recorded value
+ * instead of claiming knowledge it doesn't have.
+ */
+function resolveLiveListenerOwnerPid(port, { listPids = listListeningPids } = {}) {
+  const pids = listPids(port);
+  if (pids === null || pids === undefined) return null;
+  return pids.length ? pids[0] : 0;
+}
+
+/**
+ * PURE: decide which workerPid to record in discovery-local-bootstrap.json.
+ * The recorded PID always tracks the LIVE listener owner: a dead recorded PID
+ * is replaced (or cleared to null when nothing listens), and an uninspectable
+ * port keeps the existing value because staleness can't be proven.
+ * Returns { workerPid, changed }.
+ */
+function resolveWorkerPidRecord({ liveOwnerPid, existingPid }) {
+  const previous =
+    typeof existingPid === "number" &&
+    Number.isInteger(existingPid) &&
+    existingPid > 0
+      ? existingPid
+      : null;
+  if (liveOwnerPid === null || liveOwnerPid === undefined) {
+    return { workerPid: previous, changed: false };
+  }
+  const next =
+    typeof liveOwnerPid === "number" &&
+    Number.isInteger(liveOwnerPid) &&
+    liveOwnerPid > 0
+      ? liveOwnerPid
+      : null;
+  return { workerPid: next, changed: next !== previous };
 }
 
 async function waitForPidExit(pid, timeoutMs = 2500) {
@@ -491,6 +568,7 @@ function superviseWorker(runtimeEnv, host, port) {
       },
     );
     current = child;
+    if (child.pid) updateBootstrapWorkerPid(child.pid);
     child.on("exit", async (code, signal) => {
       console.warn(
         `[start:discovery-worker] worker exited (code=${code === null ? "null" : code}, signal=${signal || "none"})${shuttingDown ? "" : " — something else terminated the listener on port " + port + "."}`,
@@ -552,11 +630,25 @@ function superviseWorker(runtimeEnv, host, port) {
   spawnOnce();
 }
 
-main().catch((err) => {
-  console.error(
-    `[start:discovery-worker] failed: ${
-      err && err.message ? err.message : String(err)
-    }`,
-  );
-  process.exit(1);
-});
+// Only run the starter entry point when this file is invoked directly
+// (`node scripts/start-discovery-worker-local.mjs`). When imported from a
+// test, the helpers below should be testable without the side effects of
+// main() — mirrors scripts/bootstrap-local-discovery.mjs.
+const __invokedAsCli =
+  process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+
+if (__invokedAsCli) {
+  main().catch((err) => {
+    console.error(
+      `[start:discovery-worker] failed: ${
+        err && err.message ? err.message : String(err)
+      }`,
+    );
+    process.exit(1);
+  });
+}
+
+// Test-only exports. Keep the surface narrow — these are not a stable public
+// API; they exist so tests can exercise the PID-sync path without running the
+// starter pipeline.
+export { resolveLiveListenerOwnerPid, resolveWorkerPidRecord };
