@@ -9,10 +9,21 @@ import { spawnSync } from "node:child_process";
 
 import { getTunnelAutostartPaths } from "../scripts/install-discovery-tunnel-autostart.mjs";
 import { getWorkerAutostartPaths } from "../scripts/install-discovery-worker-autostart.mjs";
-import { createDevServer } from "../dev-server.mjs";
+import { createDevServer, discoveryWorkerSpawnMode } from "../dev-server.mjs";
 import { resolveWorkerEnv } from "../scripts/lib/runtime-env.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+test("GFX-SOL-16 desktop worker respawn remains owned by its parent", () => {
+  assert.deepEqual(discoveryWorkerSpawnMode({ JOBBORED_DESKTOP: "1" }), {
+    detached: false,
+    unref: false,
+  });
+  assert.deepEqual(discoveryWorkerSpawnMode({ JOBBORED_DESKTOP: "0" }), {
+    detached: true,
+    unref: true,
+  });
+});
 
 test("GFX-SOL-1 dev keeps the start process ownership policy", () => {
   const { scripts } = JSON.parse(readFileSync(join(root, "package.json"), "utf8"));
