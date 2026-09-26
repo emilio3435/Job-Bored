@@ -92,9 +92,9 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `event`             | string   | Always `command-center.discovery`.                                                                                                                     |
 | `schemaVersion`     | number   | `1` for this contract.                                                                                                                                 |
-| `sheetId`           | string   | Target spreadsheet ID.                                                                                                                                 |
-| `variationKey`      | string   | Random hex string; use as a seed for query variation.                                                                                                  |
-| `requestedAt`       | string   | ISO 8601 timestamp.                                                                                                                                    |
+| `sheetId`           | string   | Target spreadsheet ID. May be empty or omitted for a local-mode worker, which then uses the `sheetId` in its worker config; a hosted worker requires it.          |
+| `variationKey`      | string   | Non-blank string (any length); use as a seed for query variation.                                                                                      |
+| `requestedAt`       | string   | RFC 3339 / ISO 8601 date-time (`2026-09-25T10:00:00.000Z`). Other date strings get `400`.                                                              |
 | `discoveryProfile`  | object   | Optional. User preferences from the dashboard (see below). Omitted keys or empty values mean “no preference”.                                          |
 | `trigger`           | string   | Optional origin label: `manual`, `scheduled-browser`, `scheduled-local`, `scheduled-github`, `scheduled-cloudflare`, `scheduled-appsscript`, or `cli`. |
 | `companyAllowlist`  | string[] | Optional. Per-run company subset selected from the dashboard. Omitted or empty means use the stored company list exactly as before. Capped at 500 entries. Resolved against the stored company catalog; unknown-only lists do **not** silently broaden to unrestricted search unless `allowUnrestrictedFallback` is true. |
@@ -102,6 +102,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `googleAccessToken` | string   | Optional. Short-lived dashboard Google OAuth token for this run only; receivers must not persist it.                                                    |
 | `mergedUserProfile` | object   | Optional. Master Fit Profile merged with per-run overrides (non-secret; no raw resume text). The worker parser preserves it, strips resume/secret keys, and uses it for this run after ajv validation. Invalid payloads are ignored and the worker falls back to its disk profile. Never persisted. |
 | `allowUnrestrictedFallback` | boolean | Optional. Explicit confirmation that an unmatched `companyAllowlist` may fall back to unrestricted stored-company search. When the stored **active** company list and history are empty (typical post-wizard local install), that fallback seeds this run from the requested allowlist names instead of searching with a blank company. Omitted/false fails closed. |
+| `idempotencyKey`    | string   | Optional, contract **v1.1**. A key the caller stamps once per user action (one click, one scheduler slot); non-blank, at most 200 characters. When present the worker derives the run id from `sheetId` + `idempotencyKey` (instead of `variationKey` + `requestedAt`), so a retried or double-sent request with the same key answers with the original run's `runId`/`statusPath` and never starts a second run. Omit it for v1 behavior. |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -125,6 +126,8 @@ Effective intent is one object (`intentContractVersion: 1`) derived from `discov
 `companyBlocklist` is applied after skip + allowlist filtering and subtracts matching companies from both the normal and ATS pools.
 
 Runtime ATS memory/host-search seeds and final deduplicated leads are re-filtered before write selection. This keeps per-run company restrictions effective for sources created after config merge and for profile-wide lanes such as SerpApi. Shared multi-tenant ATS hosts are never treated as company identity at the write boundary; the lead must still match an allowed company name, key, or alias.
+
+**Validation (worker).** The Browser Use worker validates every body against [`schemas/discovery-webhook-request.v1.schema.json`](schemas/discovery-webhook-request.v1.schema.json) after its field checks, so the schema and the worker accept and reject the same bodies (`tests/webhook/webhook-schema-parity.test.ts`). `discoveryProfile.ultraPlanTuning` and `discoveryProfile.groundedSearchTuning` are closed objects (unknown keys get `400`); `companyAllowlist`/`companyBlocklist` entries must be non-blank and duplicates are collapsed. The one rule JSON Schema cannot express is **blank effective intent**: a present `discoveryProfile` with no roles or keywords (and no `searchPlan`, `profileSnapshot` or `mergedUserProfile` intent) gets `400`.
 
 Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllowlist`, `mergedUserProfile`, and `googleAccessToken` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
 

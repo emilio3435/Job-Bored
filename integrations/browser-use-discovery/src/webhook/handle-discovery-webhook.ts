@@ -1,4 +1,10 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Ajv2020 } from "ajv/dist/2020.js";
+import addFormatsModule from "ajv-formats";
 
 import {
   DISCOVERY_RUN_TRIGGERS,
@@ -553,6 +559,30 @@ type DiscoveryPreflightFailure = {
   remediation?: string;
 };
 
+/**
+ * BEAUDIT A7: the published request schema is enforced, not just documented.
+ * The hand checks below run first (their messages are precise and tested);
+ * the schema then runs as the final gate so the schema and the parser accept
+ * and reject exactly the same bodies. The only parser-only rule is blank
+ * effective intent, which JSON Schema cannot express.
+ */
+const DISCOVERY_WEBHOOK_SCHEMA_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "..",
+  "schemas",
+  "discovery-webhook-request.v1.schema.json",
+);
+const webhookSchemaAjv = new Ajv2020({ allErrors: true, strict: false });
+addFormatsModule.default(webhookSchemaAjv);
+const validateWebhookRequestSchema = webhookSchemaAjv.compile(
+  JSON.parse(readFileSync(DISCOVERY_WEBHOOK_SCHEMA_PATH, "utf8")),
+);
+
+const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
+
 /** A Sheet id that is actually configured — the shipped placeholder is not. */
 function normalizeConfiguredSheetId(raw: unknown): string {
   const value = String(raw || "").trim();
@@ -1013,6 +1043,35 @@ function parseWebhookRequest(
     trigger = payload.trigger as DiscoveryRunTrigger;
   }
 
+  // BEAUDIT A20 (webhook v1.1): optional client idempotency key.
+  let idempotencyKey: string | undefined;
+  if (payload.idempotencyKey !== undefined) {
+    const raw = payload.idempotencyKey;
+    if (
+      typeof raw !== "string" ||
+      !raw.trim() ||
+      raw.length > MAX_IDEMPOTENCY_KEY_LENGTH
+    ) {
+      return {
+        ok: false,
+        message: `idempotencyKey must be a non-blank string of at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters when present.`,
+      };
+    }
+    idempotencyKey = raw.trim();
+  }
+
+  if (!validateWebhookRequestSchema(payload)) {
+    return {
+      ok: false,
+      message: "Request body does not match discovery-webhook-request.v1.",
+      detail: webhookSchemaAjv.errorsText(validateWebhookRequestSchema.errors, {
+        dataVar: "body",
+      }),
+      remediation:
+        "Validate the body against schemas/discovery-webhook-request.v1.schema.json (see AGENT_CONTRACT.md).",
+    };
+  }
+
   return {
     ok: true,
     request: {
@@ -1026,6 +1085,7 @@ function parseWebhookRequest(
         : {}),
       ...(googleAccessToken ? { googleAccessToken } : {}),
       ...(trigger ? { trigger } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(companyAllowlist.length ? { companyAllowlist } : {}),
       ...(companyBlocklist.length ? { companyBlocklist } : {}),
       ...(mergedUserProfile ? { mergedUserProfile } : {}),
@@ -1417,7 +1477,20 @@ export function deriveIdempotentRunId(request: {
   sheetId?: string;
   variationKey?: string;
   requestedAt?: string;
+  idempotencyKey?: string;
 }): string | null {
+  // BEAUDIT A20: a client-supplied key names the logical action (one click,
+  // one scheduler slot), so it replaces variationKey + requestedAt, which a
+  // second click re-stamps. Namespaced so it can never equal a v1 identity.
+  const idempotencyKey = String(request.idempotencyKey || "").trim();
+  if (idempotencyKey) {
+    const keyed = [
+      "idempotency-key-v1",
+      String(request.sheetId || "").trim(),
+      idempotencyKey,
+    ].join("\n");
+    return `run_${createHash("sha256").update(keyed).digest("hex").slice(0, 32)}`;
+  }
   const requestedAt = String(request.requestedAt || "").trim();
   if (!requestedAt || Number.isNaN(Date.parse(requestedAt))) return null;
   const identity = [

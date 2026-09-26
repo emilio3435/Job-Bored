@@ -319,6 +319,12 @@ export type DiscoveryWebhookRequestV1 = {
    */
   trigger?: DiscoveryRunTrigger;
   /**
+   * Webhook v1.1 (BEAUDIT A20): optional client idempotency key, stamped once
+   * per user action. When present the runId is derived from sheetId + this
+   * key, so a retried or double-sent request resolves to the original run.
+   */
+  idempotencyKey?: string;
+  /**
    * Optional allowlist of company names/domains/keys to restrict discovery to.
    * Empty or missing means no company restriction (broad discovery).
    * Strings are trimmed by the worker; entries cap at 500.

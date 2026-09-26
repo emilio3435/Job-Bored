@@ -8,6 +8,7 @@ These JSON files are **sample POST bodies** for **Run discovery**: when a user c
 | ------------------------------------------------ | --------------------------------------------------- |
 | `discovery-webhook-request.v1.json`              | Minimal body; empty `discoveryProfile`.             |
 | `discovery-webhook-request.v1-with-profile.json` | Same shape with example `discoveryProfile` strings. |
+| `discovery-webhook-request.v1.1-idempotency.json` | Contract v1.1: the minimal body plus an optional `idempotencyKey`. |
 
 **Schema:** [../schemas/discovery-webhook-request.v1.schema.json](../schemas/discovery-webhook-request.v1.schema.json)
 
