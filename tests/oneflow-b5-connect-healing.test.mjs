@@ -342,7 +342,7 @@ function makeFuelFetch({ checkImpl, pingImpl } = {}) {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
       if (typeof pingImpl === "function") return pingImpl();
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) {
       if (typeof checkImpl === "function") return checkImpl();

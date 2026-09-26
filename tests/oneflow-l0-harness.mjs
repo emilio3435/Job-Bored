@@ -549,6 +549,7 @@ export function loadOneFlow({ beatFiles = false } = {}) {
   ];
   if (beatFiles) {
     files.push(
+      "local-server.js",
       "oneflow-beat-google.js",
       "oneflow-beat-ai.js",
       "oneflow-beat-resume.js",
