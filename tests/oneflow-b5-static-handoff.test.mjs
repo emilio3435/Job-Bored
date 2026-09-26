@@ -730,3 +730,126 @@ describe("B5 handoff · the wizard twins the truthful needs_server copy", () => 
     assert.doesNotMatch(outcome.message, /npm run dev/);
   });
 });
+
+// ---------------------------------------------------------------
+// GFX-N2: a loopback page is never "the hosted page"
+// ---------------------------------------------------------------
+
+const STALE_SERVER_MESSAGE =
+  "The JobBored server on this computer is out of date or isn't " +
+  "JobBored — quit it and start JobBored again, then press Save & verify.";
+
+/** Put the beat on a page with this hostname (read lazily by the beat). */
+function onPage(env, hostname) {
+  env.window.location = { hostname, search: "", pathname: "/", hash: "" };
+}
+
+describe("GFX-N2 · a 404/405/HTML answer on a loopback page is a stale server", () => {
+  function staticPing() {
+    return async (url) => {
+      const u = String(url);
+      if (u.includes("localhost:8080/__proxy/ping")) {
+        throw new Error("a loopback page never starts the hosted-page presence poll");
+      }
+      if (u.includes("__proxy/ping")) {
+        return {
+          ok: false,
+          status: 404,
+          headers: staticHtmlHeaders("text/plain"),
+          json: async () => null,
+        };
+      }
+      if (u.includes("serpapi-check")) {
+        throw new Error("the key must never be POSTed when the ping fails");
+      }
+      return { ok: false, json: async () => ({}) };
+    };
+  }
+
+  for (const hostname of ["localhost", "127.0.0.1", "[::1]"]) {
+    it(`GFX-N2: a 404 ping on ${hostname} reads stale_server, not static_host`, async () => {
+      const env = loadDiscoveryBeat({ fetchImpl: staticPing() });
+      onPage(env, hostname);
+      try {
+        await env.flow.open("discovery");
+        await failFuel(env);
+        assert.equal(env.beat._internal.fuelReason(), "stale_server");
+        assert.equal(messageSlot(env).textContent, STALE_SERVER_MESSAGE);
+        assert.doesNotMatch(messageSlot(env).textContent, /hosted page/);
+        assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+        assert.equal(
+          env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
+          0,
+        );
+      } finally {
+        env.beat._internal.stopLocalServerPoll();
+      }
+    });
+  }
+
+  it("GFX-N2: a 405 check answer on localhost reads stale_server", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: makeCheckFetch(async () => ({ ok: false, status: 405, json: async () => null })),
+    });
+    onPage(env, "localhost");
+    await env.flow.open("discovery");
+    await failFuel(env);
+    assert.equal(env.beat._internal.fuelReason(), "stale_server");
+    assert.equal(messageSlot(env).textContent, STALE_SERVER_MESSAGE);
+    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+  });
+
+  it("GFX-N2: an HTML check answer on 127.0.0.1 reads stale_server", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: makeCheckFetch(async () => ({
+        ok: true,
+        status: 200,
+        headers: staticHtmlHeaders(),
+        json: async () => null,
+      })),
+    });
+    onPage(env, "127.0.0.1");
+    await env.flow.open("discovery");
+    await failFuel(env);
+    assert.equal(env.beat._internal.fuelReason(), "stale_server");
+    assert.equal(messageSlot(env).textContent, STALE_SERVER_MESSAGE);
+  });
+
+  it("GFX-N2: a non-JSON check answer on localhost reads stale_server", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: makeCheckFetch(async () => ({ ok: false, status: 502, json: async () => null })),
+    });
+    onPage(env, "localhost");
+    await env.flow.open("discovery");
+    await failFuel(env);
+    assert.equal(env.beat._internal.fuelReason(), "stale_server");
+  });
+
+  it("GFX-N2: a 404 ping on a hosted hostname still reads static_host", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: makeCheckFetch(async () => ({ ok: false, status: 404, json: async () => null })),
+    });
+    onPage(env, "emilio3435.github.io");
+    try {
+      await env.flow.open("discovery");
+      await failFuel(env);
+      assert.equal(env.beat._internal.fuelReason(), "static_host");
+      assert.equal(messageSlot(env).textContent, STATIC_HOST_MESSAGE);
+      assert.ok(env.mount.querySelector(".oneflow-fuel__handoff"));
+    } finally {
+      env.beat._internal.stopLocalServerPoll();
+    }
+  });
+
+  it("GFX-N2: a fetch throw on localhost stays no_local_server", async () => {
+    const env = loadDiscoveryBeat({
+      fetchImpl: makeCheckFetch(async () => {
+        throw new TypeError("Failed to fetch");
+      }),
+    });
+    onPage(env, "localhost");
+    await env.flow.open("discovery");
+    await failFuel(env);
+    assert.equal(env.beat._internal.fuelReason(), "no_local_server");
+  });
+});
