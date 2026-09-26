@@ -175,8 +175,9 @@ describe("§3.4 — resume beats migration", () => {
       signedIn: true,
       config: { resumeProvider: "openrouter", resumeOpenRouterKey: "sk-x" },
     });
-    // The user got as far as B5 last session.
-    await env.flow.goToBeat("discovery");
+    // The user got as far as B4 last session. (Not B5: GFX-R4 gates
+    // discovery behind fit, so an unfinished fit can't be the saved B5.)
+    await env.flow.goToBeat("fit");
     await settle();
     env.flow.close("test-reset");
 
@@ -184,7 +185,7 @@ describe("§3.4 — resume beats migration", () => {
 
     assert.equal(
       env.openBeat(),
-      "discovery",
+      "fit",
       "refreshing mid-flow resumes the beat, it does not re-derive one",
     );
     assert.deepEqual(

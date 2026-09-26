@@ -85,7 +85,8 @@ describe("GREENFIELD A1 — the flow refuses to skip past an unmet prerequisite"
   });
 
   it("A1-OPEN-DIRECT: beats with no prerequisite are never redirected", async () => {
-    for (const id of ["discovery", "ai", "google", "fit"]) {
+    // GFX-R4: discovery now requires fit (gfx-be-fuel-b5-fuel.test.mjs).
+    for (const id of ["ai", "google", "fit"]) {
       const env = await seeded({ completedBeats: [] });
       await env.flow.open(id);
       assert.equal(openBeat(env), id, `open("${id}") must land on ${id}`);

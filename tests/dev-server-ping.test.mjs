@@ -2,7 +2,9 @@
  * B5 C2 — keyless GET /__proxy/ping presence probe.
  *
  * The fuel check pings first so "the local server is down" is known before
- * the key leaves the browser. The route answers `{ ok: true }` to the local
+ * the key leaves the browser. The route answers the PLAN §R3 contract
+ * (`{ ok: true, version, runtime, routes }`, pinned in full by
+ * gfx-be-fuel-ping-contract.test.mjs) to the local
  * Origin allowlist PLUS the exact hosted Pages origin from ./CNAME (a Pages
  * dashboard on this machine still talks to its loopback dev server). The
  * shared Host gate runs first and is unchanged: a foreign Host gets
@@ -79,18 +81,25 @@ function useTempCname(t, cnameText) {
   });
 }
 
+/** The §R3 ping answer: ok, and it names the fuel check's route. */
+function assertPingOk(body) {
+  assert.equal(body.ok, true);
+  assert.equal(typeof body.version, "string");
+  assert.ok(body.routes.includes("serpapi-check"));
+}
+
 function acao(res) {
   return res.headers.get("access-control-allow-origin");
 }
 
 describe("B5 C2 · GET /__proxy/ping answers the local origin", () => {
-  it("answers {ok:true} and echoes the exact origin, never *", async () => {
+  it("answers the §R3 ping and echoes the exact origin, never *", async () => {
     await withDevServer(async ({ baseUrl, localOrigin }) => {
       const res = await fetch(`${baseUrl}/__proxy/ping`, {
         headers: { Origin: localOrigin },
       });
       assert.equal(res.status, 200);
-      assert.deepEqual(await res.json(), { ok: true });
+      assertPingOk(await res.json());
       assert.equal(acao(res), localOrigin);
       assert.notEqual(acao(res), "*");
     });
@@ -117,7 +126,7 @@ describe("B5 C2 · GET /__proxy/ping answers the exact Pages origin", () => {
         headers: { Origin: "https://pages.example.test" },
       });
       assert.equal(res.status, 200);
-      assert.deepEqual(await res.json(), { ok: true });
+      assertPingOk(await res.json());
       assert.equal(acao(res), "https://pages.example.test");
     });
   });
@@ -197,7 +206,7 @@ describe("B5 C2 · GET /__proxy/ping refuses the rest", () => {
         headers: { host: `127.0.0.1:${port}`, origin: localOrigin },
       });
       assert.equal(ok.status, 200);
-      assert.deepEqual(JSON.parse(ok.text), { ok: true });
+      assertPingOk(JSON.parse(ok.text));
     });
   });
 });

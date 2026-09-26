@@ -37,7 +37,7 @@ const SKIP_ACTION = "oneflow_discovery_skip_connect";
 function makeFuelFetch({ checkOk = true, envOk = true, bootOk = true } = {}) {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) {
       return {
@@ -239,7 +239,7 @@ describe("ONEFLOW L3 · B5 Save & verify renders its result (spec §10 Phase 0 �
           const busy = env.mount.querySelector(".discovery-setup-wizard__busy");
           if (busy) stages.push(busy.textContent);
           if (String(url).includes("__proxy/ping")) {
-            return { ok: true, json: async () => ({ ok: true }) };
+            return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
           }
           if (String(url).includes("serpapi-check")) {
             return {
@@ -532,7 +532,7 @@ function typeKey(env, value) {
 function failingFuelFetch() {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) {
       throw new TypeError("Failed to fetch");

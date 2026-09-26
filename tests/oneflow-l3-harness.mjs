@@ -115,6 +115,8 @@ export function loadDiscoveryBeat({ fetchImpl, wizardUi, sessionStorage } = {}) 
   // The beat reads the wizard bridge lazily, so the stub can be installed
   // after the shell has claimed the JobBoredDiscoveryWizard namespace.
   win.JobBoredDiscoveryWizard.ui = wizardUi || {};
+  // index.html loads the local-server substrate before the beats (GFX BE-FUEL).
+  vm.runInContext(readRepoFile("local-server.js"), ctx, { filename: "local-server.js" });
   vm.runInContext(readRepoFile("oneflow-beat-discovery.js"), ctx, {
     filename: "oneflow-beat-discovery.js",
   });

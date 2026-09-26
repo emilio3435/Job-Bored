@@ -55,6 +55,9 @@
    */
   const BEAT_PREREQS = Object.freeze({
     resume: ["ai"],
+    // GFX R4: discovery scores every job against the fit profile, so a cold
+    // ?beat=discovery (or jobbored://open?beat=discovery) lands on Beat 4.
+    discovery: ["fit"],
     payoff: ["google"],
   });
 
@@ -62,6 +65,7 @@
   const GATE_NOTES = Object.freeze({
     ai: "Connect an AI provider first \u2014 your resume is drafted with it.",
     google: "Connect Google first \u2014 your board lives in that Sheet.",
+    fit: "Set your fit profile first \u2014 discovery scores every job against it.",
   });
 
   /** Spoken when a deep link (§4.1 returnTo) closes where it opened. */
@@ -206,10 +210,6 @@
       sub: asString(raw.sub),
       render: raw.render,
       onAction: typeof raw.onAction === "function" ? raw.onAction : null,
-      // GFX-N7: called when the beat stops owning the screen — the flow
-      // moves to another beat, finishes, or closes — so a beat can stop the
-      // timers it started. Optional; most beats have nothing to stop.
-      onLeave: typeof raw.onLeave === "function" ? raw.onLeave : null,
       actions: Array.isArray(raw.actions) ? raw.actions : [],
     };
     beats.set(id, beat);
@@ -806,21 +806,6 @@
     return slot;
   }
 
-  /**
-   * Tell the open beat it no longer owns the screen (GFX-N7). Runs before
-   * openBeatId moves on; a throwing hook is logged, never allowed to block
-   * the transition or the close.
-   */
-  function leaveOpenBeat() {
-    const beat = openBeatId ? getBeat(openBeatId) : null;
-    if (!beat || typeof beat.onLeave !== "function") return;
-    try {
-      beat.onLeave();
-    } catch (e) {
-      console.warn("[JobBored] one-flow: beat onLeave failed", beat.id, e);
-    }
-  }
-
   /** Remember (or forget) that this entry closes where it opened (§4.1). */
   function setReturnTo(mode, beatId) {
     runtime.returnTo = mode === "close" ? "close" : "";
@@ -1026,7 +1011,6 @@
     mirrorDrafts();
     hideResumePill();
     if (options && options.returnTo === "close") setReturnTo("close", beat.id);
-    if (openBeatId && openBeatId !== beat.id) leaveOpenBeat();
     openBeatId = beat.id;
     const rendered = renderBeat(beat);
     renderGateNote(gated.prereq, gated.note);
@@ -1136,7 +1120,6 @@
     const sh = shell();
     if (sh && typeof sh.closeWizardShell === "function") {
       // Suppress the abandon emission: a finished flow is not a drop-off.
-      leaveOpenBeat();
       const wasOpen = openBeatId;
       openBeatId = "";
       sh.closeWizardShell("flow-complete");
@@ -1156,7 +1139,6 @@
    */
   async function handleShellClose(reason) {
     if (!openBeatId) return;
-    leaveOpenBeat();
     const beat = openBeatId;
     const why = asString(reason, "close");
     openBeatId = "";

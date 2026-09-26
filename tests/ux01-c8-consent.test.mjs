@@ -56,6 +56,13 @@ describe("C8 · confirmHostChange names what changes and logs the answer", () =>
 
 function fuelFetch() {
   return async (url) => {
+    // GFX §R3: the ping names its version and routes, or the build is stale.
+    if (String(url).includes("__proxy/ping")) {
+      return {
+        ok: true,
+        json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }),
+      };
+    }
     if (String(url).includes("serpapi-check")) {
       return { ok: true, json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }) };
     }

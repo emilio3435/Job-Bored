@@ -30,7 +30,7 @@ function makeFetch({ check, envOk = true, bootOk = true } = {}) {
   return async (url) => {
     const u = String(url);
     if (u.includes("__proxy/ping")) {
-      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (u.includes("serpapi-check")) {
       return { ok: true, status: 200, json: async () => answer };
