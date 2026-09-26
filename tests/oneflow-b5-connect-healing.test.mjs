@@ -533,7 +533,7 @@ describe("B5 C2 · the keyless ping gates the keyed check", () => {
         }),
       }),
     );
-    assert.match(slotOf(env).textContent, /Couldn't reach SerpApi/);
+    assert.match(slotOf(env).textContent, /SerpApi didn't answer/);
     assert.doesNotMatch(slotOf(env).textContent, /JobBored server on this computer/);
     assert.match(slotOf(env).textContent, /Save & verify/);
   });

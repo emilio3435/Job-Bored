@@ -218,7 +218,7 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     await env.flow.open("discovery");
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "unreachable");
-    assert.match(messageSlot(env).textContent, /internet connection/);
+    assert.match(messageSlot(env).textContent, /check your internet/);
     assert.equal(routeButton(env), null);
   });
 

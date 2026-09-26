@@ -273,7 +273,8 @@ describe("ONEFLOW L3 · B5 Save & verify renders its result (spec §10 Phase 0 �
     const message = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(message);
     assert.match(message.textContent, /Couldn't save your SerpApi key/);
-    assert.match(message.textContent, /Try again/, "every error names the next action (§8.4)");
+    // GFX FE-B5: the next action is the restart sentence, then Save & verify.
+    assert.match(message.textContent, /Save & verify/, "every error names the next action (§8.4)");
     assert.ok(message.classList.contains("discovery-setup-wizard__message--error"));
     assert.ok(
       !env.fetchCalls.some((c) => c.url.includes("full-boot")),
@@ -457,7 +458,7 @@ describe("ONEFLOW L3 · B5 connect drives the Tailscale auto path (spec §5 B5 p
     const details = env.mount.querySelector(".oneflow-connect__advanced");
     assert.ok(details, "spec §5 B5: a collapsed details, not a fifth screen");
     assert.equal(details.tagName, "DETAILS");
-    assert.match(details.textContent, /Run without Tailscale, or paste your own endpoint/);
+    assert.match(details.textContent, /A web address you own/);
     assert.ok(details.querySelector("#oneFlowManualEndpointInput"));
     const secret = details.querySelector("#oneFlowManualSecretInput");
     assert.ok(secret);
