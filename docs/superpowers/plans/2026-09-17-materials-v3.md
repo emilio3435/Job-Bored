@@ -184,7 +184,7 @@ Acceptance: the dashboard BYOK path and the Materials Queue produce documents wi
 1. Regenerate the 3E package through the real loop on `gemini-flash`.
 2. Compare structure (not prose) against the slice-0 fixtures: stage list, budgets, rubric rows, one page each.
 3. Regenerate two more roles with different shapes (a senior IC posting and a thin JD) to exercise `jd_thin` and the trim ladder.
-4. Remove the legacy compose flag, delete `tests/materials-composer.test.mjs`, and demote `integrations/hermes-job-hunt/resume-template/resume.html` to an ingest source with a header comment saying so.
+4. Remove the legacy compose flag (`JOBBORED_MATERIALS_LEGACY_RENDER`, kept for one release by slice 3), delete `tests/materials-composer.test.mjs`, and demote `integrations/hermes-job-hunt/resume-template/resume.html` to an ingest source with a header comment saying so.
 5. Strip the React tweaks panel and the unpkg reference from the old letter template so no leftover run can fetch a CDN.
 
 ---

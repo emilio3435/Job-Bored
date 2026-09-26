@@ -1,0 +1,89 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "materials.template-family.v1",
+  "description": "Shape of templates/materials/<family>/family.json. A family is a dumb renderer over materials.render-model.v1 (visual spec §8, §9). server/materials-templates.mjs validates every family.json against this schema and against the hard limits in MATERIALS_BUDGETS (server/materials-fit-budget.mjs) when it loads the registry.",
+  "type": "object",
+  "required": ["id", "label", "description", "version", "documents", "stylesheet", "fonts", "accents", "densities", "logos", "fit", "budgets", "reads", "signatureMoves"],
+  "additionalProperties": false,
+  "$defs": {
+    "range": { "type": "array", "minItems": 2, "maxItems": 2, "items": { "type": "integer", "minimum": 0 } },
+    "ladderStep": {
+      "description": "One fit step. drop_section:<kind> removes a resume section of that kind; drop_toolkit_group:<label> removes one toolkit row; drop_readouts removes the resume readout strip; drop_intro removes the resume intro; drop_letter_readouts and drop_pull_quote remove letter chrome; css:<token> adds a token to the sheet's data-fit attribute, which the family stylesheet maps to a tighter letter setting.",
+      "type": "string",
+      "pattern": "^(drop_section:(readouts|ventures|toolkit|credentials|tokens|earlier)|drop_toolkit_group:[A-Za-z][A-Za-z &-]*|drop_readouts|drop_intro|drop_letter_readouts|drop_pull_quote|css:[a-z][a-z0-9-]*)$"
+    }
+  },
+  "properties": {
+    "id": { "enum": ["signal", "dossier", "editorial"] },
+    "label": { "type": "string", "minLength": 1 },
+    "description": { "type": "string", "minLength": 1, "maxLength": 140 },
+    "version": { "type": "string", "pattern": "^[0-9]+\\.[0-9]+(\\.[0-9]+)?$" },
+    "documents": {
+      "type": "object",
+      "required": ["resume", "coverLetter"],
+      "additionalProperties": false,
+      "properties": {
+        "resume": { "const": "resume.html" },
+        "coverLetter": { "const": "cover-letter.html" }
+      }
+    },
+    "stylesheet": { "type": "string", "pattern": "^[a-z]+\\.css$" },
+    "fonts": {
+      "description": "Every face the family sets. Each must be declared in vendor/fonts/fonts.css; nothing loads from a network at render time (rule 5).",
+      "type": "array",
+      "minItems": 1,
+      "items": { "type": "string", "minLength": 1 }
+    },
+    "accents": { "type": "array", "minItems": 1, "items": { "enum": ["volt", "ink"] }, "contains": { "const": "ink" } },
+    "densities": { "type": "array", "minItems": 1, "items": { "enum": ["air", "standard", "tight"] } },
+    "logos": {
+      "type": "object",
+      "required": ["opticalSizesIn", "hideNameBesideWordmark"],
+      "additionalProperties": false,
+      "properties": {
+        "opticalSizesIn": {
+          "description": "Rendered height, in inches, of a mark per shape class. Marks are never recoloured, cropped or filtered (rule 3).",
+          "type": "object",
+          "required": ["mark", "wordmark", "lockup"],
+          "additionalProperties": false,
+          "properties": {
+            "mark": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "wordmark": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 },
+            "lockup": { "type": "number", "exclusiveMinimum": 0, "maximum": 1 }
+          }
+        },
+        "hideNameBesideWordmark": {
+          "description": "When an employer's logo is a wordmark that already spells the name, hide the duplicate h2.company-name visually while keeping it in the text layer for ATS.",
+          "type": "boolean"
+        }
+      }
+    },
+    "fit": {
+      "type": "object",
+      "required": ["bottomMarginIn", "resumeLadderTail", "letterLadder"],
+      "additionalProperties": false,
+      "properties": {
+        "bottomMarginIn": { "description": "The last text box must end at least this far above the sheet's bottom edge (rule 4).", "type": "number", "minimum": 0, "maximum": 1 },
+        "resumeLadderTail": { "description": "Family-specific resume trims, run after the shared ladder's content steps (rule 4).", "type": "array", "items": { "$ref": "#/$defs/ladderStep" } },
+        "letterLadder": { "description": "Letter fit steps, in order.", "type": "array", "items": { "$ref": "#/$defs/ladderStep" } }
+      }
+    },
+    "budgets": {
+      "description": "Soft-budget overrides. They must stay inside the hard limits of MATERIALS_BUDGETS (rule 9).",
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "visibleWords": { "$ref": "#/$defs/range" },
+        "featuredEmployers": { "type": "integer", "minimum": 1 },
+        "bulletsPerFeatured": { "$ref": "#/$defs/range" },
+        "letterWords": { "description": "The letter body's word band (paragraphs only). The writer is asked for it and QA checks it; it must sit inside MATERIALS_BUDGETS.letter's hard band.", "$ref": "#/$defs/range" }
+      }
+    },
+    "reads": {
+      "description": "Optional render-model fields the family reads; it must render acceptably without each of them (§8).",
+      "type": "array",
+      "items": { "enum": ["logo", "readouts", "ventures", "toolkit", "credentials", "intro", "headline", "pullQuote", "letterReadouts"] }
+    },
+    "signatureMoves": { "type": "array", "minItems": 1, "maxItems": 4, "items": { "type": "string", "minLength": 1 } }
+  }
+}

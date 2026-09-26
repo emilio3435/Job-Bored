@@ -1,0 +1,114 @@
+{{! dossier.resume — slot-only template over materials.render-model.v1. No facts live here. }}
+<article class="sheet page" data-page="1" {{sheetAttrs}}>
+
+  <header class="masthead">
+    <h1 class="name">{{identity.name}}</h1>
+    <p class="target">{{identity.target}}</p>
+  </header>
+
+  <div class="ledger">
+
+    <div class="row row-first">
+      <div class="rail">
+        <address class="contact">
+          {{#each identity.contact.items}}<span{{#if isMono}} class="mono"{{/if}}>{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}{{text}}{{/if}}</span>
+          {{/each}}
+        </address>
+      </div>
+      <div class="main">
+        <section data-section="summary">
+          <p class="summary">{{resume.statement.html}}</p>
+        </section>
+      </div>
+    </div>
+
+    {{#if resume.experience}}
+    <section class="rows" data-section="experience">
+      {{#each resume.experience.entries}}
+      <div class="row" data-claim-group="{{employerId}}">
+        <div class="rail">
+          {{#if logo}}<img class="logo logo--{{logo.shape}}" src="{{logo.src}}" alt="{{logo.alt}}" style="{{logo.style}}" />{{/if}}
+          <h2 class="org company-name{{#if orgIsDuplicate}} visually-dup{{/if}}">{{org}}</h2>
+          {{#if dates}}<p class="when">{{dates}}</p>{{/if}}
+          {{#if place}}<p class="where">{{place}}</p>{{/if}}
+        </div>
+        <div class="main">
+          {{#if hasSeat}}<div class="role"><h3 class="title">{{seatHtml}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>{{/if}}
+          {{#if hasBullets}}
+          <ul>
+            {{#each bullets}}<li data-claim="{{claimId}}">{{#if hasLead}}<span class="k">{{lead}}</span><span>{{restHtml}}</span>{{else}}<span class="k k--dash" aria-hidden="true"></span><span>{{html}}</span>{{/if}}</li>
+            {{/each}}
+          </ul>
+          {{else}}
+          {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
+          {{/if}}
+        </div>
+      </div>
+      {{/each}}
+    </section>
+    {{/if}}
+
+    {{#if resume.earlier}}
+    <section class="rows" data-section="earlier">
+      <div class="row">
+        <div class="rail">
+          <p class="stack-label">{{resume.earlier.label}}</p>
+        </div>
+        <div class="main">
+          {{#each resume.earlier.entries}}
+          <div class="earlier" data-claim-group="{{employerId}}">
+            <div class="role"><h3 class="title">{{org}}{{#if hasSeat}} <small>/ {{seatHtml}}</small>{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
+            {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
+          </div>
+          {{/each}}
+        </div>
+      </div>
+    </section>
+    {{/if}}
+
+    <div class="row row-last">
+      <div class="rail">
+        {{#if resume.education}}
+        <section class="cred" data-section="education">
+          {{#if resume.education.logo}}<img class="logo logo--{{resume.education.logo.shape}}" src="{{resume.education.logo.src}}" alt="{{resume.education.logo.alt}}" style="{{resume.education.logo.style}}" />{{/if}}
+          <p class="cred-h">{{resume.education.label}}</p>
+          {{#each resume.education.lines}}<p{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+          {{/each}}
+        </section>
+        {{/if}}
+      </div>
+      <div class="main">
+        {{#if resume.ventures}}
+        <section class="ventures" data-section="ventures">
+          {{#each resume.ventures.entries}}
+          <div data-claim-group="{{employerId}}">
+            <div class="role"><h3 class="title">{{org}}{{#if hasSeat}} <small>{{seatHtml}}</small>{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
+            {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
+          </div>
+          {{/each}}
+        </section>
+        {{/if}}
+        {{#if resume.hasSkills}}
+        <section class="fit" data-section="skills">
+          {{#if resume.showSkillLabels}}
+          <dl>
+            {{#each resume.toolkit.groups}}<dt>{{label}}</dt><dd>{{itemsText}}</dd>
+            {{/each}}
+            {{#each resume.skills}}<dt>{{label}}</dt><dd>{{itemsText}}</dd>
+            {{/each}}
+          </dl>
+          {{else}}
+          <dl><dt>{{resume.skillsLabel}}</dt><dd>{{#each resume.skills}}{{itemsText}}{{/each}}</dd></dl>
+          {{/if}}
+        </section>
+        {{/if}}
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="foot">
+    <span>{{identity.name}} · {{identity.target}}</span>
+    <span>{{identity.contact.signatureText}}</span>
+  </footer>
+</article>

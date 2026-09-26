@@ -307,6 +307,33 @@
       prefs.resumeTemplateId,
     );
     fillVisualThemeSelect("prefVisualTheme", prefs.visualThemeId);
+    fillMaterialsTemplateSelect("prefMaterialsTemplate", prefs.materialsTemplate);
+  }
+
+  /**
+   * One option per template registry family (label + one-line description),
+   * from the list user-content-store.js bundles; it mirrors
+   * templates/materials/<family>/family.json and GET /api/materials/templates.
+   * @param {string} id
+   * @param {string} selected
+   */
+  function fillMaterialsTemplateSelect(id, selected) {
+    const el = document.getElementById(id);
+    const UC = getUserContent();
+    const families =
+      UC && Array.isArray(UC.MATERIALS_TEMPLATE_FAMILIES)
+        ? UC.MATERIALS_TEMPLATE_FAMILIES
+        : [];
+    if (!el || !families.length) return;
+    const fallback = (families.find((f) => f.default) || families[0]).id;
+    const value = families.some((f) => f.id === selected) ? selected : fallback;
+    el.innerHTML = families
+      .map(
+        (f) =>
+          `<option value="${escapeHtml(f.id)}" title="${escapeHtml(f.description)}">${escapeHtml(f.label)}: ${escapeHtml(f.description)}</option>`,
+      )
+      .join("");
+    el.value = value;
   }
 
   async function refreshPersonalPreferencesPanel() {

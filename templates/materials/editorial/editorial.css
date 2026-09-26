@@ -1,0 +1,406 @@
+/* editorial 1.0 — "magazine profile" (visual spec §9.3). Ported from the
+   reference fixture docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/editorial/.
+   Faces: Bodoni Moda (roman + italic) and Source Sans 3, both vendored. */
+:root {
+  --paper: #ffffff;
+  --ink: #15142a;
+  --ink-2: #3a394f;
+  --ink-3: #6a6980;
+  --hair: #dddce8;
+  --volt: #4a24ff;
+  --display: "Bodoni Moda", "Bodoni 72", Didot, Georgia, serif;
+  --text: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --gutter: 0.98in;
+}
+.sheet[data-accent="ink"] { --volt: #15142a; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+html, body { background: var(--paper); }
+body {
+  font-family: var(--text);
+  color: var(--ink);
+  font-size: 9.4pt;
+  line-height: 1.34;
+  -webkit-print-color-adjust: exact;
+  print-color-adjust: exact;
+  font-kerning: normal;
+}
+a { color: inherit; text-decoration: none; }
+.sheet {
+  width: 8.5in;
+  height: 11in;
+  margin: 0 auto;
+  padding: 0.4in 0.56in 0.36in;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  background: var(--paper);
+}
+@media screen { .sheet { margin: 24px auto; box-shadow: 0 30px 60px -30px rgba(21, 20, 42, .35); } html, body { background: #eceaf2; } }
+@media print { html, body { background: var(--paper); } .sheet { margin: 0; box-shadow: none; } }
+
+/* Figures and date ranges use the text face: Bodoni's hairline en dash and
+   tiny plus disappear at small sizes. Whole tokens stay in one face so PDF
+   extraction does not split them. */
+.n {
+  font-family: var(--text);
+  font-style: normal;
+  font-weight: 700;
+  font-variant-numeric: lining-nums;
+  color: var(--ink);
+}
+
+/* ---------- opener: name + pull quote ---------- */
+.opener {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 0.3in;
+  align-items: end;
+}
+.name {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 36pt;
+  line-height: 0.9;
+  letter-spacing: -0.012em;
+  font-optical-sizing: auto;
+  max-width: 3.6in;
+}
+/* Two lines, one text-layer space: line one keeps its trailing space with
+   white-space: pre, so extraction reads "First Last", never "FirstLast"
+   (rule 7). A plain wrapped space or a <br> is dropped from the PDF. */
+.name .l1 { display: block; white-space: pre; }
+.name .l2 { display: block; }
+.deck {
+  margin-top: 0.1in;
+  font-weight: 600;
+  font-size: 10.5pt;
+  letter-spacing: 0.005em;
+  color: var(--volt);
+}
+.pull {
+  padding-left: 0.3in;
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 400;
+  font-size: 12.4pt;
+  line-height: 1.24;
+  color: var(--ink);
+  border-left: 1px solid var(--hair);
+  margin-bottom: 0.02in;
+}
+.pull::before {
+  content: "\201C";
+  position: absolute;
+  left: -0.15in;
+  top: -0.1in;
+  background: var(--paper);
+  padding-bottom: 0.04in;
+  font-family: var(--display);
+  font-style: normal;
+  font-weight: 900;
+  font-size: 38pt;
+  line-height: 1;
+  color: var(--volt);
+}
+.pull .hl { font-style: italic; font-weight: 600; }
+.contact {
+  margin-top: 0.13in;
+  padding: 0.05in 0;
+  border-top: 1.5px solid var(--ink);
+  border-bottom: 1px solid var(--hair);
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  column-gap: 0.2in;
+  font-size: 9pt;
+  color: var(--ink-2);
+}
+
+/* ---------- profile intro ---------- */
+.intro {
+  margin-top: 0.17in;
+  column-count: 2;
+  column-gap: 0.3in;
+  column-rule: 1px solid var(--hair);
+  font-size: 9.4pt;
+  line-height: 1.36;
+  color: var(--ink-2);
+}
+/* Raised initial: it sits on the first line's baseline instead of floating,
+   so PDF text extraction keeps the first word whole (rule 7). */
+.intro::first-letter {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 25pt;
+  line-height: 0;
+  margin-right: 0.015in;
+  color: var(--volt);
+}
+
+/* ---------- section heads ---------- */
+.head {
+  display: flex;
+  align-items: baseline;
+  gap: 0.12in;
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 12.5pt;
+  color: var(--ink);
+  margin: 0.11in 0 0.05in;
+}
+.head::after {
+  content: "";
+  flex: 1;
+  border-top: 1px solid var(--hair);
+  transform: translateY(-0.05em);
+}
+
+/* ---------- timeline ---------- */
+.career::before {
+  content: "";
+  position: absolute;
+  left: var(--gutter);
+  top: 0.08in;
+  bottom: 0.06in;
+  border-left: 1.5px solid var(--volt);
+}
+.stop {
+  display: grid;
+  grid-template-columns: var(--gutter) 1fr;
+  padding-bottom: 0.075in;
+}
+.stop:last-child { padding-bottom: 0; }
+.mark {
+  padding-right: 0.16in;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 0.05in;
+}
+.mark img { display: block; max-width: 100%; }
+.years {
+  font-family: var(--text);
+  font-weight: 700;
+  font-size: 9.6pt;
+  line-height: 1.1;
+  font-variant-numeric: lining-nums;
+  color: var(--ink);
+}
+.years small {
+  display: block;
+  font-weight: 400;
+  font-size: 8.5pt;
+  color: var(--ink-3);
+  margin-top: 0.02in;
+}
+.story { padding-left: 0.2in; min-width: 0; }
+.story::before {
+  content: "";
+  position: absolute;
+  left: -0.047in;
+  top: 0.075in;
+  width: 0.085in;
+  height: 0.085in;
+  border-radius: 50%;
+  background: var(--volt);
+  box-shadow: 0 0 0 2.5px var(--paper);
+}
+.stop.side .story::before, .stop.earlier .story::before { background: var(--paper); border: 1.5px solid var(--volt); }
+.org {
+  display: flex;
+  align-items: baseline;
+  gap: 0.1in;
+  flex-wrap: wrap;
+}
+.org h2 {
+  font-family: var(--display);
+  font-weight: 700;
+  font-size: 13pt;
+  line-height: 1.15;
+}
+.org .sub-org {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 11pt;
+  line-height: 1.15;
+}
+.org .role {
+  font-style: italic;
+  font-size: 9.6pt;
+  color: var(--ink-2);
+}
+ul { list-style: none; margin-top: 0.035in; }
+li {
+  padding-left: 0.15in;
+  margin-top: 0.028in;
+  color: var(--ink-2);
+}
+li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 0.63em;
+  width: 0.07in;
+  border-top: 1.5px solid var(--volt);
+}
+.ventures { margin-top: 0.01in; color: var(--ink-2); }
+.ventures p + p { margin-top: 0.03in; }
+.ventures b { font-weight: 600; color: var(--ink); }
+
+/* ---------- back matter ---------- */
+.back {
+  margin-top: auto;
+  padding-top: 0.09in;
+  border-top: 1.5px solid var(--ink);
+  display: grid;
+  grid-template-columns: 2.1fr 1fr;
+  column-gap: 0.26in;
+}
+.back h3 {
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 11pt;
+  margin-bottom: 0.04in;
+}
+.back p { color: var(--ink-2); font-size: 9pt; line-height: 1.33; }
+.back p + p { margin-top: 0.04in; }
+.back p b { font-weight: 600; color: var(--ink); }
+.cc { display: block; margin: 0.03in 0 0.06in; }
+.sheet[data-doc="resume"] .career { margin-bottom: 0.12in; }
+
+/* ---------- letter ---------- */
+.sheet[data-doc="cover-letter"] { padding: 0.5in 0.7in 0.45in; font-size: 11pt; line-height: 1.56; }
+.masthead {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-end;
+  padding-bottom: 0.09in;
+  border-bottom: 2.5px solid var(--ink);
+}
+.masthead h1 {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 22pt;
+  line-height: 1;
+  letter-spacing: -0.01em;
+}
+.masthead .deck { margin-top: 0.05in; font-size: 9.5pt; }
+.masthead .contact-r {
+  text-align: right;
+  font-size: 9pt;
+  line-height: 1.45;
+  color: var(--ink-2);
+}
+.byline {
+  display: flex;
+  flex-wrap: wrap;
+  column-gap: 0.25in;
+  padding: 0.07in 0;
+  border-bottom: 1px solid var(--hair);
+  font-size: 9pt;
+  line-height: 1.35;
+  color: var(--ink-2);
+}
+.byline i {
+  font-family: var(--display);
+  font-weight: 600;
+  font-size: 10pt;
+  color: var(--volt);
+  margin-right: 0.05in;
+}
+.headline {
+  margin-top: 0.4in;
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 30pt;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+  max-width: 6.3in;
+}
+.standfirst {
+  margin-top: 0.2in;
+  max-width: 6in;
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 14pt;
+  line-height: 1.34;
+  color: var(--ink);
+}
+.standfirst .salute { font-style: normal; font-weight: 700; color: var(--volt); }
+.standfirst .n { font-style: normal; }
+.feature {
+  margin-top: 0.28in;
+  padding-top: 0.3in;
+  border-top: 1px solid var(--hair);
+  display: grid;
+  grid-template-columns: 1fr 1.85in;
+  column-gap: 0.36in;
+}
+.feature.no-margin { grid-template-columns: 1fr; }
+.prose p { color: var(--ink-2); }
+.prose p + p { margin-top: 0.12in; }
+/* Raised initial, never floated, so extraction keeps the first word whole. */
+.prose p:first-child::first-letter {
+  font-family: var(--display);
+  font-weight: 900;
+  font-size: 36pt;
+  line-height: 0;
+  margin-right: 0.02in;
+  color: var(--volt);
+}
+.margin {
+  align-self: start;
+  margin-top: -0.12in;
+  padding-top: 0.14in;
+  border-top: 3px solid var(--volt);
+}
+.margin blockquote {
+  font-family: var(--display);
+  font-style: italic;
+  font-size: 13.5pt;
+  line-height: 1.28;
+  color: var(--ink);
+}
+.margin .n { font-weight: 800; color: var(--volt); }
+.sign { margin-top: 0.36in; }
+.sign .off { color: var(--ink-2); }
+.sign .who {
+  margin-top: 0.04in;
+  font-family: var(--display);
+  font-style: italic;
+  font-weight: 600;
+  font-size: 21pt;
+  line-height: 1.1;
+}
+.sign .how { margin-top: 0.05in; font-size: 9pt; color: var(--ink-3); }
+.folio {
+  margin-top: auto;
+  padding-top: 0.08in;
+  border-top: 1px solid var(--hair);
+  display: flex;
+  justify-content: space-between;
+  font-size: 8.5pt;
+  color: var(--ink-3);
+}
+.folio b { font-family: var(--display); font-weight: 700; color: var(--ink); }
+
+.sheet[data-fit~="tight-1"] .headline { margin-top: 0.24in; font-size: 25pt; }
+.sheet[data-fit~="tight-1"] .standfirst { font-size: 12.5pt; }
+.sheet[data-fit~="tight-1"] .feature { margin-top: 0.18in; padding-top: 0.2in; }
+.sheet[data-fit~="tight-1"] .prose p { font-size: 10.4pt; line-height: 1.48; }
+.sheet[data-fit~="tight-1"] .sign { margin-top: 0.2in; }
+.sheet[data-fit~="tight-2"] .headline { margin-top: 0.16in; font-size: 21pt; }
+.sheet[data-fit~="tight-2"] .standfirst { font-size: 11.5pt; margin-top: 0.12in; }
+.sheet[data-fit~="tight-2"] .prose p { font-size: 9.9pt; line-height: 1.42; }
+.sheet[data-fit~="tight-2"] .prose p + p { margin-top: 0.08in; }
+.sheet[data-fit~="tight-2"] .sign .who { font-size: 17pt; }
+.sheet[data-fit~="tight-3"] .prose p { font-size: 9.5pt; line-height: 1.38; }
+.sheet[data-fit~="tight-3"] .standfirst { font-size: 10.8pt; }
+.sheet[data-fit~="tight-3"] .sign { margin-top: 0.12in; }
+
+/* Rule 6: every block box positioned, so paint order (and PDF text order)
+   follows DOM order and the name extracts first. */
+.sheet :is(header, footer, section, article, aside, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3, blockquote), .org > * { position: relative; }

@@ -1,0 +1,50 @@
+{{! editorial.letter — slot-only template over materials.render-model.v1. No facts live here. }}
+<article class="sheet page" data-page="1" {{sheetAttrs}}>
+
+  <header class="masthead">
+    <div>
+      <h1>{{identity.name}}</h1>
+      <p class="deck">{{identity.target}}</p>
+    </div>
+    <p class="contact-r">
+      {{#each identity.contact.items}}{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}<span>{{text}}</span>{{/if}}{{#unless @last}}<br />{{/unless}}{{/each}}
+    </p>
+  </header>
+
+  {{#if letter.rail}}
+  <p class="byline">
+    {{#each letter.rail}}<span><i>{{label}}</i> {{linesText}}</span>
+    {{/each}}
+  </p>
+  {{/if}}
+
+  {{#if letter.headline}}<h2 class="headline">{{letter.headline}}</h2>{{/if}}
+
+  <p class="standfirst">
+    <span class="salute">{{letter.salutation}}</span>
+    {{#if letter.lede}}<span data-paragraph="{{letter.lede.id}}"{{#if letter.lede.claimId}} data-claim="{{letter.lede.claimId}}"{{/if}}>{{letter.lede.html}}</span>{{/if}}
+  </p>
+
+  <section class="feature{{#unless letter.pullQuote}} no-margin{{/unless}}">
+    <div class="prose">
+      {{#each letter.body}}<p data-paragraph="{{id}}"{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+      {{/each}}
+    </div>
+    {{#if letter.pullQuote}}
+    <aside class="margin" aria-hidden="true">
+      <blockquote>{{letter.pullQuote.html}}</blockquote>
+    </aside>
+    {{/if}}
+  </section>
+
+  <div class="sign">
+    <p class="off">{{letter.signoff}}</p>
+    <p class="who">{{identity.name}}</p>
+    {{#if identity.contact.signatureText}}<p class="how">{{identity.contact.signatureText}}</p>{{/if}}
+  </div>
+
+  <footer class="folio">
+    <span>{{#if letter.foot}}{{letter.foot.left}}{{else}}{{identity.target}}{{/if}}</span>
+    <b>1</b>
+  </footer>
+</article>

@@ -717,6 +717,13 @@
   margin: var(--space-1) 0 var(--space-1);
 }
 
+.profile-field-hint {
+  font-size: var(--text-xs);
+  line-height: 1.4;
+  color: var(--text-muted);
+  margin: var(--space-1) 0 0;
+}
+
 .profile-textarea {
   width: 100%;
   box-sizing: border-box;

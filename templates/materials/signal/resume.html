@@ -1,0 +1,106 @@
+{{! signal.resume — slot-only template over materials.render-model.v1. No facts live here. }}
+<article class="sheet page" data-page="1" {{sheetAttrs}}>
+
+  <header class="band">
+    <div>
+      <h1 class="name">{{identity.name}}</h1>
+      <p class="target">{{identity.target}}</p>
+    </div>
+    <p class="contact">
+      {{#each identity.contact.items}}{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}<span>{{text}}</span>{{/if}}{{#unless @last}}<br />{{/unless}}{{/each}}
+    </p>
+  </header>
+
+  {{#if resume.readouts}}
+  <section class="readout" data-section="readouts" aria-label="{{resume.readouts.label}}" style="grid-template-columns:repeat({{resume.readouts.columns}}, 1fr)">
+    {{#each resume.readouts.groups}}
+    <div class="channel{{#if last}} channel--last{{/if}}" style="grid-column:{{start}} / span {{span}}">
+      <span class="src"><b>{{org}}</b>{{#if dates}}, {{dates}}{{/if}}</span>
+    </div>
+    {{/each}}
+    {{#each resume.readouts.items}}
+    <p class="reading{{#if first}} first-of-ch{{/if}}{{#if split}} ch-split{{/if}}" data-claim="{{claimId}}" style="grid-column:{{col}}"><span class="fig">{{n}}</span><span class="cap">{{caption}}</span></p>
+    {{/each}}
+  </section>
+  {{/if}}
+
+  <div class="body">
+    <section class="statement" data-section="summary">
+      <p>{{resume.statement.html}}</p>
+    </section>
+
+    {{#if resume.experience}}
+    <section data-section="experience">
+      <div class="sec-label"><h2>{{resume.experience.label}}</h2><i aria-hidden="true"></i></div>
+      {{#each resume.experience.entries}}
+      <article class="row entry" data-claim-group="{{employerId}}">
+        <div class="gut">
+          <span class="when">{{dates}}{{#if place}}<br />{{place}}{{/if}}</span>
+        </div>
+        <div>
+          <div class="head">{{#if logo}}<img class="mark" src="{{logo.src}}" alt="{{logo.alt}}" style="{{logo.style}}" />{{/if}}<h2 class="org company-name{{#if orgIsDuplicate}} visually-dup{{/if}}">{{org}}{{#if orgIsDuplicate}} {{/if}}</h2>{{#if hasSeat}}<span class="seat">{{seatHtml}}</span>{{/if}}</div>
+          {{#if hasBullets}}
+          <ul>
+            {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+            {{/each}}
+          </ul>
+          {{else}}
+          {{#if line}}<p class="line" data-claim="{{claimId}}">{{line}}</p>{{/if}}
+          {{/if}}
+        </div>
+      </article>
+      {{/each}}
+    </section>
+    {{/if}}
+
+    {{#if resume.earlier}}
+    <section class="row sec" data-section="earlier">
+      <div class="sec-label sec-label--gut"><h2>{{resume.earlier.label}}</h2></div>
+      <div class="earlier">
+        {{#each resume.earlier.entries}}
+        <p class="earlier-line" data-claim-group="{{employerId}}"><b class="company-name-inline">{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}<br /><span data-claim="{{claimId}}">{{line}}</span>{{/if}}</p>
+        {{/each}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if resume.ventures}}
+    <section class="row sec" data-section="ventures">
+      <div class="sec-label sec-label--gut"><h2>{{resume.ventures.label}}</h2></div>
+      <div class="ventures">
+        {{#each resume.ventures.entries}}
+        <p data-claim="{{claimId}}"><b>{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{#if dates}}<span class="when">{{dates}}</span>{{/if}}{{#if line}}<br />{{line}}{{/if}}</p>
+        {{/each}}
+      </div>
+    </section>
+    {{/if}}
+
+    {{#if resume.hasSkills}}
+    <section class="row sec" data-section="skills">
+      <div class="sec-label sec-label--gut"><h2>{{resume.skillsLabel}}</h2></div>
+      {{#if resume.showSkillLabels}}
+      <dl class="spec">
+        {{#each resume.toolkit.groups}}<dt>{{label}}</dt>
+        <dd>{{itemsText}}</dd>
+        {{/each}}
+        {{#each resume.skills}}<dt>{{label}}</dt>
+        <dd>{{itemsText}}</dd>
+        {{/each}}
+      </dl>
+      {{else}}
+      <p class="line">{{#each resume.skills}}{{itemsText}}{{/each}}</p>
+      {{/if}}
+    </section>
+    {{/if}}
+
+    {{#if resume.education}}
+    <section class="row sec" data-section="education">
+      <div class="sec-label sec-label--gut"><h2>{{resume.education.label}}</h2></div>
+      <div class="cred">
+        {{#if resume.education.logo}}<img class="mark-cc" src="{{resume.education.logo.src}}" alt="{{resume.education.logo.alt}}" style="{{resume.education.logo.style}}" />{{/if}}
+        <p>{{#each resume.education.lines}}<span{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</span>{{#unless @last}}<br />{{/unless}}{{/each}}</p>
+      </div>
+    </section>
+    {{/if}}
+  </div>
+</article>

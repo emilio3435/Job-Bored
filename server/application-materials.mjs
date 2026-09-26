@@ -34,6 +34,10 @@ const ALLOWED_FILES = new Set([
   "job-description.md",
   "manual-apply-checklist.md",
   "manifest.json",
+  "resume.txt",
+  "cover-letter.txt",
+  "run.json",
+  "render-model.json",
 ]);
 
 /** @type {Record<string, string>} */
@@ -42,6 +46,7 @@ const CONTENT_TYPES = {
   ".html": "text/html; charset=utf-8",
   ".md": "text/markdown; charset=utf-8",
   ".json": "application/json; charset=utf-8",
+  ".txt": "text/plain; charset=utf-8",
 };
 
 /** @typedef {{ filename: string, format: string, size: number, modifiedAt: string }} FileStat */
@@ -74,6 +79,9 @@ const CONTENT_TYPES = {
  * @property {object} [dossier]
  * @property {object} [quality]
  * @property {PendingRecord} [pending]
+ * @property {{ family: string, version: string, templateIds?: object, source?: string, regeneratedFrom?: string }} [template]
+ *   the template family the published package was rendered in (run.json)
+ * @property {string} [runId]
  */
 
 /**
@@ -622,6 +630,14 @@ export async function buildManifest(slug, { root } = {}) {
       out.dossier = onDiskManifest.dossier;
     }
   }
+  /* The template block: manifest.json wins, run.json backs it up. */
+  const templateSource = onDiskManifest && isTemplateBlock(onDiskManifest.template)
+    ? onDiskManifest
+    : await readRunTemplate(dir);
+  if (templateSource && isTemplateBlock(templateSource.template)) {
+    out.template = templateSource.template;
+    if (typeof templateSource.runId === "string") out.runId = templateSource.runId;
+  }
   try {
     const quality = await auditApplicationMaterials(dir);
     if (quality && Object.keys(quality.documents || {}).length) {
@@ -695,6 +711,31 @@ export async function buildManifest(slug, { root } = {}) {
     out.pending = synthesizeFailedPending(failure);
   }
   return out;
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is { family: string, version: string }}
+ */
+function isTemplateBlock(value) {
+  return Boolean(value) && typeof value === "object" &&
+    typeof (/** @type {Record<string, unknown>} */ (value)).family === "string" &&
+    typeof (/** @type {Record<string, unknown>} */ (value)).version === "string";
+}
+
+/**
+ * @param {string} dir
+ * @returns {Promise<{ template?: unknown, runId?: unknown } | null>}
+ */
+async function readRunTemplate(dir) {
+  const path = join(dir, "run.json");
+  if (!existsSync(path)) return null;
+  try {
+    const run = JSON.parse(await readFile(path, "utf8"));
+    return run && typeof run === "object" ? run : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

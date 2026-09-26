@@ -1,0 +1,27 @@
+{
+  "id": "editorial",
+  "label": "Editorial",
+  "description": "A magazine profile. Bodoni display type, the statement as a pull quote, and a logo-anchored timeline.",
+  "version": "1.0",
+  "documents": { "resume": "resume.html", "coverLetter": "cover-letter.html" },
+  "stylesheet": "editorial.css",
+  "fonts": ["Bodoni Moda", "Source Sans 3"],
+  "accents": ["volt", "ink"],
+  "densities": ["standard"],
+  "logos": {
+    "opticalSizesIn": { "mark": 0.4, "wordmark": 0.2, "lockup": 0.3 },
+    "hideNameBesideWordmark": false
+  },
+  "fit": {
+    "bottomMarginIn": 0.3,
+    "resumeLadderTail": ["drop_section:ventures", "drop_intro"],
+    "letterLadder": ["css:tight-1", "drop_pull_quote", "css:tight-2", "css:tight-3"]
+  },
+  "budgets": { "visibleWords": [340, 500], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4], "letterWords": [180, 260] },
+  "reads": ["logo", "intro", "headline", "pullQuote", "ventures", "toolkit", "credentials"],
+  "signatureMoves": [
+    "Bodoni Moda display type against Source Sans 3 text; every figure stays in the text face.",
+    "The positioning statement as a pull quote beside the name.",
+    "A logo-anchored timeline spine with a node per stop."
+  ]
+}

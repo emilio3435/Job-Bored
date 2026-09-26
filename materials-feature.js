@@ -617,6 +617,7 @@
       const coverTplEl = document.getElementById("prefCoverLetterTemplate");
       const resumeTplEl = document.getElementById("prefResumeTemplate");
       const visualThemeEl = document.getElementById("prefVisualTheme");
+      const materialsTemplateEl = document.getElementById("prefMaterialsTemplate");
       const DT = window.CommandCenterDocumentTemplates;
       const VT = window.CommandCenterVisualThemes;
       const maxWords = parseInt(mwEl && mwEl.value, 10);
@@ -643,6 +644,11 @@
           (VT && typeof VT.getDefaultVisualThemeId === "function"
             ? VT.getDefaultVisualThemeId()
             : "classic"),
+        /* user-content-store normalizes an unknown id back to the default. */
+        materialsTemplate:
+          (materialsTemplateEl && materialsTemplateEl.value) ||
+          (UC.DEFAULT_PREFERENCES && UC.DEFAULT_PREFERENCES.materialsTemplate) ||
+          "signal",
       });
       closeAuthUserMenu();
       showToast("Preferences saved", "success");

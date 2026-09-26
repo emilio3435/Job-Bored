@@ -1,0 +1,71 @@
+{{! dossier.letter — slot-only template over materials.render-model.v1. No facts live here. }}
+<article class="sheet page" data-page="1" {{sheetAttrs}}>
+
+  <header class="masthead">
+    <h1 class="name">{{identity.name}}</h1>
+    <p class="target">{{identity.target}}</p>
+  </header>
+
+  <div class="ledger">
+
+    <div class="row row-first">
+      <div class="rail">
+        <address class="contact">
+          {{#each identity.contact.items}}<span{{#if isMono}} class="mono"{{/if}}>{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}{{text}}{{/if}}</span>
+          {{/each}}
+        </address>
+      </div>
+      <div class="main">
+        <p class="subject">
+          {{#if letter.date}}<span class="date">{{letter.date.linesText}}</span>{{/if}}
+          {{#if letter.re}}<b>Re: {{letter.re.linesText}}</b>{{/if}}
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <aside class="rail">
+        {{#if letter.to}}
+        <div class="blk">
+          <p class="blk-h">{{letter.to.label}}</p>
+          <p>{{#each letter.to.lines}}{{this}}{{#unless @last}}<br />{{/unless}}{{/each}}</p>
+        </div>
+        {{/if}}
+        {{#if letter.readouts}}
+        <div class="blk">
+          <p class="blk-h">From the letter</p>
+          <ul class="proof">
+            {{#each letter.readouts.groups}}
+            <li>
+              {{#if logo}}<img src="{{logo.src}}" alt="{{logo.alt}}" style="{{logo.style}}" />{{/if}}
+              <b>{{org}}</b>{{#if dates}}, {{dates}}{{/if}}
+              {{#each items}}<br /><span class="k">{{n}}</span> {{caption}}{{/each}}
+            </li>
+            {{/each}}
+          </ul>
+        </div>
+        {{/if}}
+      </aside>
+
+      <div class="main letter">
+        <p class="salute">{{letter.salutation}}</p>
+        {{#if letter.lede}}<p class="lede" data-paragraph="{{letter.lede.id}}"{{#if letter.lede.claimId}} data-claim="{{letter.lede.claimId}}"{{/if}}>{{letter.lede.html}}</p>{{/if}}
+        {{#each letter.body}}<p data-paragraph="{{id}}"{{#if claimId}} data-claim="{{claimId}}"{{/if}}{{#if k}} data-k="{{k}}"{{/if}}>{{html}}</p>
+        {{/each}}
+
+        <div class="sign">
+          <p class="off">{{letter.signoff}}</p>
+          <span class="hand" aria-hidden="true">{{identity.nameFirst}}</span>
+          <p class="who">{{identity.name}}</p>
+          {{#if identity.contact.signatureText}}<p class="how">{{identity.contact.signatureText}}</p>{{/if}}
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="foot">
+    <span>{{identity.name}} · {{identity.target}}</span>
+    {{#if letter.foot}}<span>{{letter.foot.left}}</span>{{/if}}
+  </footer>
+</article>

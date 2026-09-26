@@ -1,0 +1,27 @@
+{
+  "id": "dossier",
+  "label": "Dossier",
+  "description": "Every proof point at once. A rail that indexes each employer, and bullets hung on their lead figure.",
+  "version": "1.0",
+  "documents": { "resume": "resume.html", "coverLetter": "cover-letter.html" },
+  "stylesheet": "dossier.css",
+  "fonts": ["Source Sans 3", "JetBrains Mono", "Caveat"],
+  "accents": ["volt", "ink"],
+  "densities": ["standard"],
+  "logos": {
+    "opticalSizesIn": { "mark": 0.42, "wordmark": 0.24, "lockup": 0.3 },
+    "hideNameBesideWordmark": false
+  },
+  "fit": {
+    "bottomMarginIn": 0.25,
+    "resumeLadderTail": ["drop_section:ventures", "drop_section:earlier"],
+    "letterLadder": ["css:tight-1", "css:tight-2", "drop_letter_readouts", "css:tight-3"]
+  },
+  "budgets": { "visibleWords": [360, 520], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4], "letterWords": [180, 260] },
+  "reads": ["logo", "ventures", "credentials", "toolkit", "letterReadouts"],
+  "signatureMoves": [
+    "The hung ledger gutter: a bullet that opens on its verified figure sets that figure in a mono gutter; others get a quiet dash.",
+    "One grid row per employer, with the rail holding the logo, the name, the dates and the place.",
+    "Restraint everywhere except the numbers and the logos."
+  ]
+}

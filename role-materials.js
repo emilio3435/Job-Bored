@@ -497,6 +497,42 @@
       .catch(function () { return { available: false, resume: null }; });
   }
 
+  /* Materials template registry (visual spec §9.4). The saved
+     materialsTemplate preference rides every /request as preferredTemplate;
+     the server resolves request → preference → default. */
+  var TEMPLATE_FAMILIES_FALLBACK = [
+    { id: "signal", label: "Signal" },
+    { id: "dossier", label: "Dossier" },
+    { id: "editorial", label: "Editorial" },
+  ];
+
+  function templateFamilies() {
+    var uc = root.CommandCenterUserContent;
+    var list = uc && Array.isArray(uc.MATERIALS_TEMPLATE_FAMILIES) ? uc.MATERIALS_TEMPLATE_FAMILIES : null;
+    return list && list.length ? list : TEMPLATE_FAMILIES_FALLBACK;
+  }
+
+  function templateLabel(id) {
+    var match = templateFamilies().filter(function (f) { return f.id === id; })[0];
+    return match ? match.label : String(id || "");
+  }
+
+  function readTemplatePreference() {
+    var uc = root.CommandCenterUserContent;
+    if (!uc || typeof uc.getPreferences !== "function") return Promise.resolve("");
+    return Promise.resolve()
+      .then(function () { return uc.getPreferences(); })
+      .then(function (prefs) { return prefs && prefs.materialsTemplate ? String(prefs.materialsTemplate) : ""; })
+      .catch(function () { return ""; });
+  }
+
+  function withTemplatePreference(body) {
+    return readTemplatePreference().then(function (id) {
+      if (id) body.preferredTemplate = id;
+      return body;
+    });
+  }
+
   function getResumeSummary() {
     return resumeSummary;
   }
@@ -927,6 +963,24 @@
       + ' <button type="button" class="case__link" data-action="open-resume">Change</button></p>';
   }
 
+  /* Slice 3b: the package's recorded template, and "Regenerate in…" for the
+     other families. Regenerating re-renders the stored render model: no
+     model call, and the original run stays on disk untouched. */
+  function templateBarHtml(manifest) {
+    var t = manifest && manifest.template && manifest.template.family ? manifest.template : null;
+    if (!t || (manifest && manifest.pending)) return "";
+    var others = templateFamilies().filter(function (f) { return f.id !== t.family; });
+    var buttons = others.map(function (f) {
+      return '<button type="button" class="case__link" data-action="materials-regenerate" data-template="'
+        + escapeHtml(f.id) + '">' + escapeHtml(f.label) + '</button>';
+    }).join(" ");
+    return '<p class="case__template" data-template-family="' + escapeHtml(t.family) + '">'
+      + 'Template: <b>' + escapeHtml(templateLabel(t.family)) + '</b>'
+      + (t.source === "regenerate" ? " (regenerated)" : "")
+      + (buttons ? ' <span class="case__template-regen">Regenerate in ' + buttons + '</span>' : "")
+      + '</p>';
+  }
+
   /* C12 (TA-16): one click drafts; notes are an optional disclosure the next
      draft picks up, not a mandatory second form. */
   var draftNotes = "";
@@ -1088,6 +1142,7 @@
     appendSection(hostEl, '<section class="' + SECTION_CLASS + ' ' + SECTION_CLASS + '--rows"'
       + ' aria-label="Application materials" data-slug="' + escapeHtml(manifest.slug) + '">'
       + provenanceHtml(manifest)
+      + templateBarHtml(manifest)
       + rows
       + draftNotesHtml()
       + '</section>');
@@ -1150,6 +1205,7 @@
         + derivedTag
       + '</header>'
       + bannerHtml
+      + templateBarHtml(manifest)
       + bodyHtml
       + '</section>';
     appendSection(briefEl, html);
@@ -1329,6 +1385,14 @@
             handleDismiss(section.getAttribute("data-slug") || "");
             return;
           }
+          if (action === "materials-regenerate") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            handleRegenerate(
+              section.getAttribute("data-slug") || "",
+              t.getAttribute("data-template") || "",
+            );
+            return;
+          }
           if (action === "materials-retry") {
             if (typeof e.preventDefault === "function") e.preventDefault();
             handleRetry(
@@ -1506,6 +1570,25 @@
       .then(function (r) {
         if (r.available && !r.resume) { renderResumeGate(findMount()); return null; }
         return submitDraftRequest(ctx, feature, prevNotes, r.resume);
+      });
+  }
+
+  function handleRegenerate(slug, template) {
+    if (!slug || !template || !currentContext) return;
+    var ctx = currentContext;
+    toast("Regenerating in " + templateLabel(template) + "\u2026", "info");
+    return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/regenerate", { template: template })
+      .then(function () {
+        dispatch("jb:materials:changed", { slug: slug, reason: "regenerated" });
+        return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
+      })
+      .then(function (manifest) {
+        var brief = findMount();
+        if (brief && manifest) commitManifest(brief, manifest, ctx.base, ctx.jobKey);
+        toast("Regenerated in " + templateLabel(template) + ". No new AI calls were made.", "success");
+      })
+      .catch(function (err) {
+        toast("Couldn\u2019t regenerate: " + ((err && err.message) || "unknown error"), "error");
       });
   }
 
@@ -2303,7 +2386,9 @@
             if (resumeForRun) body.resume = resumeForRun;
             /* The opt-in run says what it is spending, as it happens. */
             toast("Drafting resume + letter for " + (ctx.title || "this role") + (ctx.company ? " at " + ctx.company : ""), "info");
-            return postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/request", body);
+            return withTemplatePreference(body).then(function (b) {
+              return postJson(base + "/api/applications/" + encodeURIComponent(slug) + "/request", b);
+            });
           })
           .then(function (result) {
             getApplications(base, { refresh: true });
@@ -2659,7 +2744,9 @@
       };
       /* C11: the server drafts from this, and 422s without it. */
       if (resume) body.resume = resume;
-      return postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", body);
+      return withTemplatePreference(body).then(function (b) {
+        return postJson(ctx.base + "/api/applications/" + encodeURIComponent(ctx.slug) + "/request", b);
+      });
     }).then(function () {
       /* Fire the queue-changed event immediately so the global strip
          updates without waiting for the manifest re-fetch round-trip.

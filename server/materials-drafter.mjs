@@ -13,7 +13,12 @@ import { renderCandidateLetter, renderCandidateResume, candidateHeader } from ".
 import { composeCoverLetter, composeResume } from "./materials-composer.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
 import { resolveJobDescription, isUsableJobDescription } from "./materials-jd-gate.mjs";
-import { renderPdfIfPossible } from "./materials-pdf.mjs";
+import { openPdfSession, renderPdfIfPossible } from "./materials-pdf.mjs";
+import { readResolvedMarks } from "./brand-logos.mjs";
+import { buildRenderModelFromWriter } from "./materials-render-model-adapter.mjs";
+import { renderDocument } from "./materials-render.mjs";
+import { materialsCacheKey, newRunId, renderPackage, writePackageRecords } from "./materials-package.mjs";
+import { letterWordBand, resolveRunFamily } from "./materials-templates.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import {
   formatProvenanceLine,
@@ -62,6 +67,8 @@ const PARENT_LETTER_SLOTS = [
  * @property {import("./materials-resume-source.mjs").ResumeSource | null} [resume]
  *   The user's own resume — the only source of facts. enqueue() refuses
  *   (422 resume_required) without it.
+ * @property {string} [template] a registry family named by this request
+ * @property {string} [preferredTemplate] the user's saved materialsTemplate
  */
 
 /**
@@ -445,6 +452,16 @@ async function defaultPdfRenderer(input = {}) {
  * @property {(input: Record<string, unknown>) => Promise<Scorecard>} [critic]
  * @property {DrafterComposer} [composer]
  * @property {(input?: Record<string, unknown>) => Promise<{ skipped?: boolean, path?: string, note?: string }>} [pdfRenderer]
+ *   Legacy/test PDF hook. When set (and no pdfSession is given), the
+ *   registry path renders unmeasured and hands its HTML to this hook.
+ * @property {(() => Promise<import("./materials-pdf.mjs").PdfSession | null>) | null} [pdfSession]
+ *   Opens the headless browser the registry path measures fit and prints
+ *   PDFs with. Defaults to openPdfSession unless pdfRenderer is injected.
+ * @property {() => Promise<import("./materials-render-model-adapter.mjs").ResolvedMark[]>} [logoLoader]
+ *   Resolved brand-logo marks (defaults to readResolvedMarks, read-only).
+ * @property {boolean} [legacyRender] render with materials-candidate-docs.mjs
+ *   instead of the template registry (one-release fallback; also
+ *   JOBBORED_MATERIALS_LEGACY_RENDER=1)
  * @property {() => Date | string | number} [now]
  */
 
@@ -483,6 +500,7 @@ export function createMaterialsDrafter(deps = {}) {
           masterResumeHtml: String(input.masterResumeHtml || ""),
           resumeText: String(input.resumeText || ""),
           voiceSamples: input.voiceSamples,
+          letterWords: Array.isArray(input.letterWords) ? /** @type {number[]} */ (input.letterWords) : undefined,
           fetchImpl:
             typeof input.fetchImpl === "function"
               ? /** @type {import("./materials-writer.mjs").WriterInput["fetchImpl"]} */ (input.fetchImpl)
@@ -498,6 +516,7 @@ export function createMaterialsDrafter(deps = {}) {
           masterResumeHtml: String(input.masterResumeHtml || ""),
           resumeText: String(input.resumeText || ""),
           voiceSamples: input.voiceSamples,
+          letterWords: Array.isArray(input.letterWords) ? /** @type {number[]} */ (input.letterWords) : undefined,
           current: /** @type {import("./materials-writer.mjs").WriterJson} */ (input.current),
           scorecard: input.scorecard || {},
           fetchImpl:
@@ -519,6 +538,18 @@ export function createMaterialsDrafter(deps = {}) {
       : composeResume;
   const pdfRenderer =
     typeof deps.pdfRenderer === "function" ? deps.pdfRenderer : defaultPdfRenderer;
+  const openSession =
+    deps.pdfSession === null
+      ? null
+      : typeof deps.pdfSession === "function"
+        ? deps.pdfSession
+        : typeof deps.pdfRenderer === "function"
+          ? null
+          : () => openPdfSession();
+  const logoLoader =
+    typeof deps.logoLoader === "function" ? deps.logoLoader : () => readResolvedMarks();
+  const legacyRender =
+    deps.legacyRender === true || process.env.JOBBORED_MATERIALS_LEGACY_RENDER === "1";
   const now = typeof deps.now === "function" ? deps.now : () => new Date();
 
   /** @type {Array<{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord }>} */
@@ -622,8 +653,10 @@ export function createMaterialsDrafter(deps = {}) {
    * @param {string} [args.resumeHtml]
    * @param {Scorecard} args.scorecard
    * @param {string[]} [args.notes]
+   * @param {() => Promise<void>} [args.beforeRelease] runs after the files
+   *   are written and before pending.json goes away
    */
-  async function finishWithFiles(dir, pendingPath, { feature, letterHtml, resumeHtml, scorecard, notes = [] }) {
+  async function finishWithFiles(dir, pendingPath, { feature, letterHtml, resumeHtml, scorecard, notes = [], beforeRelease }) {
     let wroteHtml = false;
     if (wantsLetter(feature) && typeof letterHtml === "string") {
       await writeFile(join(dir, "cover-letter.html"), letterHtml, "utf8");
@@ -643,6 +676,7 @@ export function createMaterialsDrafter(deps = {}) {
       }),
       "utf8",
     );
+    if (beforeRelease) await beforeRelease();
     if (wroteHtml) await rm(pendingPath, { force: true });
   }
 
@@ -742,14 +776,46 @@ export function createMaterialsDrafter(deps = {}) {
     /* Only a test-injected sample layout ever reaches the writer as HTML. */
     const masterResumeHtml = typeof sampleResumeHtml === "string" ? sampleResumeHtml : "";
     const voiceSamples = await collectVoiceSamples(payload);
+    /* The template registry renders every production draft; the sample
+       layouts (test-only) and the legacy flag keep the old composers. */
+    const useRegistry = typeof sampleResumeHtml !== "string" && typeof sampleLetterHtml !== "string" && !legacyRender;
+    const { family, source: templateSource } = resolveRunFamily({
+      template: payload.template,
+      preferredTemplate: payload.preferredTemplate,
+    });
+    /** @type {import("./materials-render-model-adapter.mjs").ResolvedMark[]} */
+    let marks = [];
+    if (useRegistry) {
+      try {
+        marks = await logoLoader();
+      } catch {
+        marks = [];
+      }
+    }
+    const draftStartedAt = Date.now();
 
+    /* Registry drafts ask for the family's letter band (180–260 today). */
+    const letterWords = useRegistry ? letterWordBand(family) : undefined;
     let writerJson = await writer({
       pin: resolved,
       jdText,
       masterResumeHtml,
       resumeText,
       voiceSamples,
+      ...(letterWords ? { letterWords } : {}),
     });
+
+    /** @param {unknown} json */
+    function modelFor(json) {
+      return buildRenderModelFromWriter({
+        writerJson: json,
+        resumeText,
+        request: { company: payload.company, title: payload.title },
+        family,
+        marks,
+        nowIso: isoNow(),
+      });
+    }
 
     /**
      * @param {unknown} json
@@ -757,6 +823,13 @@ export function createMaterialsDrafter(deps = {}) {
     function composeBoth(json) {
       const letter = isPlainObject(json) && isPlainObject(json.letter) ? json.letter : {};
       const resume = isPlainObject(json) && isPlainObject(json.resume) ? json.resume : {};
+      if (useRegistry) {
+        const model = modelFor(json);
+        return {
+          letterHtml: renderDocument(model, "coverLetter"),
+          resumeHtml: renderDocument(model, "resume"),
+        };
+      }
       return {
         letterHtml: typeof sampleLetterHtml === "string"
           ? composeSampleLetter(sampleLetterHtml, letter)
@@ -791,6 +864,7 @@ export function createMaterialsDrafter(deps = {}) {
         masterResumeHtml,
         resumeText,
         voiceSamples,
+        ...(letterWords ? { letterWords } : {}),
         current: writerJson,
         scorecard,
       });
@@ -805,18 +879,68 @@ export function createMaterialsDrafter(deps = {}) {
       });
       scorecard = adjustScorecardForSkippedPdf(rawScorecard, true);
     }
+    const draftMs = Date.now() - draftStartedAt;
 
     const resumePdfPath = join(dir, "resume.pdf");
     const coverLetterPdfPath = join(dir, "cover-letter.pdf");
-    const pdfResult = await pdfRenderer({
-      slug: payload.slug,
-      dir,
-      resumeHtml: composed.resumeHtml,
-      letterHtml: composed.letterHtml,
-      resumePdfPath,
-      coverLetterPdfPath,
-    });
-    const pdfSkipped = Boolean(pdfResult?.skipped);
+    /** @type {string[]} */
+    const notes = [formatProvenanceLine(resumeSource)];
+    /** @type {CriticIssue[]} */
+    let fitIssues = [];
+    /** @type {Awaited<ReturnType<typeof renderPackage>> | null} */
+    let rendered = null;
+    /** @type {import("./materials-render.mjs").RenderModel | null} */
+    let model = null;
+    let pdfSkipped = true;
+    /** @type {string} */
+    let pdfNote = "pdf_skipped";
+    const renderStartedAt = Date.now();
+
+    if (useRegistry) {
+      model = modelFor(writerJson);
+      const session = openSession ? await openSession() : null;
+      try {
+        rendered = await renderPackage({
+          model,
+          feature: payload.feature,
+          session,
+          pdfPaths: { resumePdfPath, coverLetterPdfPath },
+        });
+      } finally {
+        if (session) await session.close();
+      }
+      composed = {
+        resumeHtml: rendered.resumeHtml ?? composed.resumeHtml,
+        letterHtml: rendered.letterHtml ?? composed.letterHtml,
+      };
+      fitIssues = rendered.issues;
+      notes.push(...rendered.notes.filter((note) => note !== "pdf_skipped"));
+      if (session) {
+        pdfSkipped = rendered.notes.includes("pdf_skipped");
+      } else {
+        const pdfResult = await pdfRenderer({
+          slug: payload.slug,
+          dir,
+          resumeHtml: composed.resumeHtml,
+          letterHtml: composed.letterHtml,
+          resumePdfPath,
+          coverLetterPdfPath,
+        });
+        pdfSkipped = Boolean(pdfResult?.skipped);
+        if (typeof pdfResult?.note === "string" && pdfResult.note) pdfNote = pdfResult.note;
+      }
+    } else {
+      const pdfResult = await pdfRenderer({
+        slug: payload.slug,
+        dir,
+        resumeHtml: composed.resumeHtml,
+        letterHtml: composed.letterHtml,
+        resumePdfPath,
+        coverLetterPdfPath,
+      });
+      pdfSkipped = Boolean(pdfResult?.skipped);
+      if (typeof pdfResult?.note === "string" && pdfResult.note) pdfNote = pdfResult.note;
+    }
     if (!pdfSkipped) {
       try {
         rawScorecard = await mergePdfPageCounts(rawScorecard, {
@@ -830,18 +954,99 @@ export function createMaterialsDrafter(deps = {}) {
       }
     }
     scorecard = adjustScorecardForSkippedPdf(rawScorecard, pdfSkipped);
-    /** @type {string[]} */
-    const notes = [formatProvenanceLine(resumeSource)];
-    if (pdfSkipped) {
-      notes.push(typeof pdfResult?.note === "string" && pdfResult.note ? pdfResult.note : "pdf_skipped");
+    if (fitIssues.length) {
+      const issues = [...(scorecard.issues || []), ...fitIssues];
+      scorecard = { ...scorecard, issues, status: issues.some((i) => i.severity === "fail") ? "fail" : "review" };
     }
+    if (pdfSkipped) notes.push(pdfNote);
+    const renderMs = Date.now() - renderStartedAt;
 
+    const finalModel = model;
+    const finalRendered = rendered;
     await finishWithFiles(dir, pendingPath, {
       feature: payload.feature,
       letterHtml: composed.letterHtml,
       resumeHtml: composed.resumeHtml,
       scorecard,
       notes,
+      beforeRelease: finalModel && finalRendered
+        ? async () => {
+          const finishedAt = isoNow();
+          const runId = newRunId(payload.slug, job.record.requested_at || finishedAt);
+          const applied = [
+            ...(finalRendered.fit.resume?.applied || []).map((s) => `resume:${s}`),
+            ...(finalRendered.fit.coverLetter?.applied || []).map((s) => `letter:${s}`),
+          ];
+          const measured = Boolean(finalRendered.fit.resume?.measured || finalRendered.fit.coverLetter?.measured);
+          const overflow = fitIssues.some((i) => i.code === "layout_overflow");
+          /** @type {Record<string, number>} */
+          const pages = {};
+          if (finalRendered.pdf.resume) pages["resume.pdf"] = finalRendered.pdf.resume.pages;
+          if (finalRendered.pdf.coverLetter) pages["cover-letter.pdf"] = finalRendered.pdf.coverLetter.pages;
+          const debugLlm = /** @type {{ debug?: { llm?: { provider: string, requestedModel: string, resolvedModel: string } } }} */ (job.record).debug?.llm;
+          await writePackageRecords({
+            dir,
+            rendered: finalRendered,
+            model: finalModel,
+            pages,
+            manifestDefaults: { company: payload.company, title: payload.title, job_url: payload.jobUrl || "" },
+            run: {
+              runId,
+              slug: payload.slug,
+              feature: payload.feature,
+              requestedAt: job.record.requested_at || finishedAt,
+              finishedAt,
+              source: templateSource,
+              pin: debugLlm ? { provider: debugLlm.provider, requestedModel: debugLlm.requestedModel, resolvedModel: debugLlm.resolvedModel } : undefined,
+              stages: [
+                {
+                  stage: "intake",
+                  status: "ok",
+                  llm: false,
+                  detail: `template ${family.id}@${family.version} (${templateSource}); cache key ${materialsCacheKey({ jdText, resumeText, family })}`,
+                },
+                { stage: "jd.resolve", status: "ok", llm: false, detail: `job description from ${jd.source}` },
+                {
+                  stage: "draft",
+                  status: "ok",
+                  ms: draftMs,
+                  llm: true,
+                  detail: `writer${editorLoops ? ` + ${editorLoops} editor pass(es)` : ""}; adapted to the render model by materials-render-model-adapter.mjs`,
+                },
+                {
+                  stage: "fit",
+                  status: overflow ? "failed" : measured ? "ok" : "skipped",
+                  llm: false,
+                  out: ["render-model.json"],
+                  detail: measured
+                    ? (applied.length ? `measured; applied ${applied.join(", ")}` : "measured; fits without trims")
+                    : "not measured (no headless browser); rendered unclipped",
+                },
+                {
+                  stage: "render",
+                  status: "ok",
+                  ms: renderMs,
+                  llm: false,
+                  out: [
+                    ...(finalRendered.resumeHtml ? ["resume.html", "resume.txt"] : []),
+                    ...(finalRendered.letterHtml ? ["cover-letter.html", "cover-letter.txt"] : []),
+                    ...(!pdfSkipped ? Object.keys(pages) : []),
+                  ],
+                  detail: `${family.id} ${family.version}`,
+                },
+                {
+                  stage: "qa",
+                  status: scorecard.status === "pass" ? "ok" : "review",
+                  llm: false,
+                  out: ["qa-report.md"],
+                  detail: `${(scorecard.issues || []).length} issue(s)`,
+                },
+                { stage: "publish", status: "ok", llm: false, out: ["manifest.json", "run.json"] },
+              ],
+            },
+          });
+        }
+        : undefined,
     });
   }
 
@@ -851,6 +1056,8 @@ export function createMaterialsDrafter(deps = {}) {
   async function enqueue(payload) {
     const resumeSource = normalizeResumeSource(payload && payload.resume);
     if (!resumeSource) throw resumeRequiredError();
+    /* An unknown template is a 400 before anything is queued. */
+    resolveRunFamily({ template: payload.template, preferredTemplate: payload.preferredTemplate });
     const pin = loadPin();
     if (!pinIsConfigured(pin)) {
       throw unconfiguredError();
