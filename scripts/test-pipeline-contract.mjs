@@ -259,6 +259,37 @@ if (!sameOrdered(appPriorityKeys, schemaPriEnum)) {
   process.exit(1);
 }
 
+// BEAUDIT D18/D19: the worker column map is generated from this schema.
+const WORKER_COLUMNS = "integrations/browser-use-discovery/src/sheets/pipeline-columns.generated.ts";
+const MERGE_RULES = new Set(["overwrite", "lockable", "fillIfEmpty", "preserve"]);
+{
+  const generated = readFileSync(join(repoRoot, WORKER_COLUMNS), "utf8");
+  const rowRe =
+    /\{ id: "([^"]+)", letter: "([^"]+)", headerLabel: "([^"]+)", sheetIndex: (\d+), discoveryMerge: "([^"]+)" \}/g;
+  const rows = [];
+  let m;
+  while ((m = rowRe.exec(generated))) {
+    rows.push({ id: m[1], letter: m[2], headerLabel: m[3], sheetIndex: Number(m[4]), discoveryMerge: m[5] });
+  }
+  const expected = schema.columns.map((c) => ({
+    id: c.id,
+    letter: c.letter,
+    headerLabel: c.headerLabel,
+    sheetIndex: c.sheetIndex,
+    discoveryMerge: c.discoveryMerge,
+  }));
+  if (JSON.stringify(rows) !== JSON.stringify(expected)) {
+    console.error(`${WORKER_COLUMNS} is out of date with ${PIPELINE_SCHEMA}; regenerate it.`);
+    process.exit(1);
+  }
+  for (const c of schema.columns) {
+    if (!MERGE_RULES.has(c.discoveryMerge)) {
+      console.error(`column ${c.letter} needs discoveryMerge in ${[...MERGE_RULES].join(", ")}`);
+      process.exit(1);
+    }
+  }
+}
+
 const schemaReplyEnum = col(schema, "responseFlag").enum;
 const expectedReply = ["Yes", "No", "Unknown"];
 if (!sameOrdered(schemaReplyEnum, expectedReply)) {
