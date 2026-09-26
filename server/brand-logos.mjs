@@ -9,7 +9,7 @@
  * This module keeps the Express surface small: validate uploads, write the
  * profile-derived manifest, spawn the resolver, and report current marks.
  */
-import { spawn } from "node:child_process";
+import { spawn, spawnSync } from "node:child_process";
 import {
   mkdir,
   realpath,
@@ -254,14 +254,96 @@ async function writeJsonAtomic(path, value) {
   await rename(tmpPath, path);
 }
 
+/** @type {boolean | null} */
+let developerToolsPresent = null;
+
+/** `xcode-select -p` answers without the install dialog `python3` would pop. */
+function probeDeveloperToolsOnce() {
+  if (developerToolsPresent === null) {
+    const result = spawnSync("/usr/bin/xcode-select", ["-p"], {
+      stdio: "ignore",
+      timeout: 5_000,
+    });
+    developerToolsPresent = result.status === 0;
+  }
+  return developerToolsPresent;
+}
+
 /**
- * @param {{ force?: boolean, templateRoot?: string }} [options]
+ * GFX blocker 3: on a Mac without the Command Line Tools, /usr/bin/python3 is
+ * a shim that pops Apple's "Install developer tools" dialog, and the resolver
+ * runs on every profile save. Skip it under the desktop app, when
+ * `xcode-select -p` fails, or when JOBBORED_LOGO_RESOLVER=off.
+ *
+ * @param {{ env?: NodeJS.ProcessEnv, platform?: string, probeDeveloperTools?: () => boolean }} [options]
+ * @returns {{ enabled: boolean, reason: "" | "disabled" | "desktop" | "developer_tools_missing" }}
+ */
+export function logoResolverGate({
+  env = process.env,
+  platform = process.platform,
+  probeDeveloperTools = probeDeveloperToolsOnce,
+} = {}) {
+  if (String(env.JOBBORED_LOGO_RESOLVER || "").trim().toLowerCase() === "off") {
+    return { enabled: false, reason: "disabled" };
+  }
+  if (String(env.JOBBORED_DESKTOP || "").trim() === "1") {
+    return { enabled: false, reason: "desktop" };
+  }
+  if (platform === "darwin" && !probeDeveloperTools()) {
+    return { enabled: false, reason: "developer_tools_missing" };
+  }
+  return { enabled: true, reason: "" };
+}
+
+/**
+ * Without the Python resolver: an uploaded logo still becomes the mark;
+ * every other entry is left to the renderer's monogram.
+ *
+ * @param {string} root
+ * @param {LogoManifest} manifest
+ * @param {{ force: boolean, reason: string }} options
  * @returns {Promise<ResolverRow[]>}
  */
-export async function runResolver({ force = false, templateRoot } = {}) {
+async function resolveWithoutPython(root, manifest, { force, reason }) {
+  /** @type {ResolverRow[]} */
+  const rows = [];
+  for (const entry of manifest.logos) {
+    const slug = String(entry && entry.slug ? entry.slug : "").trim();
+    if (!isValidSlug(slug)) continue;
+    const uploadPath = entry.upload
+      ? await safeTemplatePath(root, String(entry.upload))
+      : "";
+    const upload = uploadPath && existsSync(uploadPath) ? await readFile(uploadPath) : null;
+    if (upload && looksLikeImage(upload)) {
+      const assetPath = await safeTemplatePath(root, join("assets", `logo-${slug}.png`), {
+        ensureParent: true,
+      });
+      if (force || !existsSync(assetPath)) await writeFileAtomic(assetPath, upload);
+      rows.push({ slug, source: "upload", detail: `logo resolver skipped (${reason})` });
+      continue;
+    }
+    rows.push({ slug, source: "monogram", detail: `logo resolver skipped (${reason})` });
+  }
+  return rows;
+}
+
+/**
+ * @param {{ force?: boolean, templateRoot?: string, env?: NodeJS.ProcessEnv, platform?: string, probeDeveloperTools?: () => boolean }} [options]
+ * @returns {Promise<ResolverRow[]>}
+ */
+export async function runResolver({
+  force = false,
+  templateRoot,
+  env,
+  platform,
+  probeDeveloperTools,
+} = {}) {
   const root = await resolveTemplateRoot(templateRoot || getBrandLogosTemplateRoot());
   const manifest = await readManifest(root);
   if (!manifest.logos.length) return [];
+
+  const gate = logoResolverGate({ env, platform, probeDeveloperTools });
+  if (!gate.enabled) return resolveWithoutPython(root, manifest, { force, reason: gate.reason });
 
   const script = getLogoResolverScript();
   const args = [script, "--template-dir", root];
