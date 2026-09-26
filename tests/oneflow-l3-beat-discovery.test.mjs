@@ -37,11 +37,12 @@ const SKIP_ACTION = "oneflow_discovery_skip_connect";
 function makeFuelFetch({ checkOk = true, envOk = true, bootOk = true } = {}) {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
-      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) {
       return {
         ok: true,
+        status: 200,
         json: async () =>
           checkOk
             ? { ok: true, plan: "Free", searchesLeft: 97 }
@@ -239,17 +240,18 @@ describe("ONEFLOW L3 · B5 Save & verify renders its result (spec §10 Phase 0 �
           const busy = env.mount.querySelector(".discovery-setup-wizard__busy");
           if (busy) stages.push(busy.textContent);
           if (String(url).includes("__proxy/ping")) {
-            return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
+            return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
           }
           if (String(url).includes("serpapi-check")) {
             return {
               ok: true,
+              status: 200,
               json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }),
             };
           }
           return String(url).includes("discovery-env-key") ||
             String(url).includes("full-boot")
-            ? { ok: true, json: async () => ({ ok: true }) }
+            ? { ok: true, status: 200, json: async () => ({ ok: true }) }
             : { ok: false, json: async () => ({}) };
         },
       }),
@@ -533,7 +535,7 @@ function typeKey(env, value) {
 function failingFuelFetch() {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
-      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) {
       throw new TypeError("Failed to fetch");

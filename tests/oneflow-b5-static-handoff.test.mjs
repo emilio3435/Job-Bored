@@ -50,14 +50,14 @@ const WIZARD_NEEDS_SERVER =
 function makeCheckFetch(checkImpl) {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
-      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) return checkImpl();
     if (String(url).includes("discovery-env-key")) {
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
     if (String(url).includes("full-boot")) {
-      return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, phases: [] }) };
     }
     return { ok: false, json: async () => ({}) };
   };
@@ -640,9 +640,9 @@ describe("GFX-N3 · any JSON ping answer proves the server; the POST decides", (
         };
       }
       if (u.includes("serpapi-check")) return checkImpl();
-      if (u.includes("discovery-env-key")) return { ok: true, json: async () => ({ ok: true }) };
+      if (u.includes("discovery-env-key")) return { ok: true, status: 200, json: async () => ({ ok: true }) };
       if (u.includes("full-boot")) {
-        return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+        return { ok: true, status: 200, json: async () => ({ ok: true, phases: [] }) };
       }
       return { ok: false, json: async () => ({}) };
     };
