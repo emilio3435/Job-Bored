@@ -8,8 +8,9 @@ import type {
 import { DISCOVERY_RUNS_SHEET_NAME } from "../../src/contracts.ts";
 import {
   appendDiscoveryRunRow,
-  createDiscoveryRunsLogger,
   buildDiscoveryRunLogRowFromStatus,
+  createDiscoveryRunsLogger,
+  resolveDiscoveryRunLogError,
 } from "../../src/sheets/discovery-runs-writer.ts";
 import type { DiscoveryRunStatusPayload } from "../../src/contracts.ts";
 
@@ -393,6 +394,78 @@ test("createDiscoveryRunsLogger returns a bound append function that shares the 
   });
   const result = await logger.append("sheet-123", makeRow());
   assert.equal(result.ok, true);
+});
+
+test("resolveDiscoveryRunLogError keeps success blank and prefers reason over warnings", () => {
+  assert.equal(
+    resolveDiscoveryRunLogError({
+      status: "success",
+      reasonMessage: "should not appear",
+      warnings: ["grounded timed out"],
+    }),
+    "",
+  );
+  assert.equal(
+    resolveDiscoveryRunLogError({
+      status: "partial",
+      reasonMessage: "ATS scout attempted detection but produced no scorable candidates.",
+      warnings: ["Grounded search returned no usable candidate links."],
+    }),
+    "ATS scout attempted detection but produced no scorable candidates.",
+  );
+  assert.equal(
+    resolveDiscoveryRunLogError({
+      status: "partial",
+      warnings: ["Grounded search returned no usable candidate links."],
+    }),
+    "Grounded search returned no usable candidate links.",
+  );
+});
+
+test("buildDiscoveryRunLogRowFromStatus copies reasonMessage into Error for partial", () => {
+  const row = buildDiscoveryRunLogRowFromStatus({
+    runId: "run_partial",
+    status: "partial",
+    terminal: true,
+    message: "Discovery completed with warnings — worker processed the run.",
+    trigger: "manual",
+    request: {
+      sheetId: "sheet-123",
+      variationKey: "var-partial",
+      requestedAt: "2026-09-16T16:41:00.000Z",
+    },
+    acceptedAt: "2026-09-16T16:41:00.000Z",
+    startedAt: "2026-09-16T16:41:00.000Z",
+    completedAt: "2026-09-16T16:43:42.000Z",
+    updatedAt: "2026-09-16T16:43:42.000Z",
+    lifecycle: {
+      runId: "run_partial",
+      trigger: "manual",
+      startedAt: "2026-09-16T16:41:00.000Z",
+      completedAt: "2026-09-16T16:43:42.000Z",
+      state: "partial",
+      companyCount: 0,
+      detectionCount: 0,
+      listingCount: 0,
+      normalizedLeadCount: 0,
+      reasonMessage:
+        "No surface discoveries were made by ATS or browser scouts. Check configured companies, intent keywords, and ATS board availability.",
+    },
+    writeResult: {
+      sheetId: "sheet-123",
+      appended: 0,
+      updated: 0,
+      skippedDuplicates: 0,
+      skippedBlacklist: 0,
+      warnings: [],
+    },
+    warnings: ["Grounded search returned no usable candidate links."],
+    sources: [],
+  });
+  assert.equal(row.status, "partial");
+  assert.equal(row.companiesSeen, 0);
+  assert.equal(row.leadsWritten, 0);
+  assert.match(row.error, /No surface discoveries were made/);
 });
 
 test("buildDiscoveryRunLogRowFromStatus falls back to reasonMessage/warnings when error is blank", () => {
