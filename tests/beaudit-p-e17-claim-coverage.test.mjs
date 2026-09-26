@@ -313,7 +313,7 @@ describe("BEAUDIT E17/E5 the server/ image layout boots", () => {
 
   it(
     "the logo routes answer without a 500 when the resolver is absent",
-    target("wave-2 lane O (E5: 501 LOGOS_UNAVAILABLE or ship python3)"),
+    target("wave-2 lane O (E5: 501 logos_unavailable or ship python3)"),
     async () => {
       const res = await fetch(`${api.baseUrl}/api/brand-logos`);
       const { text } = await readJson(res);

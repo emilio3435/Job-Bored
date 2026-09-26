@@ -276,7 +276,7 @@ export async function runResolver({ force = false, templateRoot } = {}) {
     const unavailable = makeError(
       "Logo resolution is unavailable on this host (resolver script missing).",
       501,
-      "LOGOS_UNAVAILABLE",
+      "logos_unavailable",
     );
     unavailable.retryable = false;
     throw unavailable;

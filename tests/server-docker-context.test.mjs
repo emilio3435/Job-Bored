@@ -4,7 +4,7 @@
  * /profile answered 500 write_failed and leaked the container path in
  * detail. The schema is vendored into server/contracts/ with a loader
  * fallback, error details never carry fs paths, and logo resolution
- * answers 501 LOGOS_UNAVAILABLE when its script is absent.
+ * answers 501 logos_unavailable when its script is absent.
  *
  * These tests boot the API from a server-only copy (no integrations
  * sibling), simulating the image the Dockerfile builds.
@@ -179,7 +179,7 @@ describe("E5 server-only boot (Docker context simulation)", () => {
     rmSync(bootRoot, { recursive: true, force: true });
   });
 
-  it("answers 501 LOGOS_UNAVAILABLE when the resolver script is absent", async () => {
+  it("answers 501 logos_unavailable when the resolver script is absent", async () => {
     await bootServerOnly();
     const logosDir = join(tmpRoot, "logos");
     mkdirSync(join(logosDir, "assets"), { recursive: true });
@@ -196,7 +196,7 @@ describe("E5 server-only boot (Docker context simulation)", () => {
     assert.equal(res.status, 501);
     assert.deepEqual(await res.json(), {
       error: "Logo resolution is unavailable on this host (resolver script missing).",
-      code: "LOGOS_UNAVAILABLE",
+      code: "logos_unavailable",
       retryable: false,
     });
   });
