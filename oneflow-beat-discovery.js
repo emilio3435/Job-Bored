@@ -527,6 +527,10 @@
 
   function renderFuelPanel(container) {
     const panel = el("section", "oneflow-panel oneflow-fuel");
+    // The rail node's state: passed, blocked on a diagnosed outcome, or
+    // waiting for a key (the default).
+    if (state.fuelPassed) panel.classList.add("oneflow-fuel--passed");
+    else if (lastFuelReason) panel.classList.add("oneflow-fuel--blocked");
     panel.appendChild(el("h4", "oneflow-panel__title", FUEL_TITLE));
     panel.appendChild(el("p", "oneflow-panel__copy", FUEL_COPY));
 

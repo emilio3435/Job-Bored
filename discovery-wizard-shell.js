@@ -719,6 +719,9 @@
           if (isSelected) {
             col.classList.add("discovery-setup-wizard__option-col--selected");
           }
+          if (item.recommended) {
+            col.classList.add("discovery-setup-wizard__option-col--recommended");
+          }
           if (item.kicker) {
             appendText(
               col,
