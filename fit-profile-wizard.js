@@ -23,6 +23,15 @@
 
   /* ── Config ───────────────────────────────────────────────────────── */
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    var scope = typeof window !== "undefined" ? window : null;
+    var auth = scope && scope.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   var PROFILE_SCHEMA_VERSION = 1;
   var WORK_MODES = [
     { id: "any", label: "Any" },
@@ -125,7 +134,7 @@
   }
 
   async function fetchTemplate(id) {
-    var res = await fetch(profileUrl("/profile/template/" + encodeURIComponent(id)), {
+    var res = await apiFetch(profileUrl("/profile/template/" + encodeURIComponent(id)), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
     });
@@ -189,7 +198,7 @@
     var body = staged ? { resumeText: staged } : {};
     var provider = verifiedProviderConfig();
     if (provider) Object.assign(body, provider);
-    var res = await fetch(profileUrl("/profile/from-resume"), {
+    var res = await apiFetch(profileUrl("/profile/from-resume"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
@@ -213,7 +222,7 @@
   }
 
   async function fetchProfile() {
-    var res = await fetch(profileUrl("/profile"));
+    var res = await apiFetch(profileUrl("/profile"));
     var data = await res.json().catch(function () {
       return null;
     });
@@ -222,7 +231,7 @@
   }
 
   async function saveProfile(profile) {
-    var res = await fetch(profileUrl("/profile"), {
+    var res = await apiFetch(profileUrl("/profile"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(profile),

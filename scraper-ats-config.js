@@ -17,6 +17,15 @@
     }
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    const scope = typeof window !== "undefined" ? window : null;
+    const auth = scope && scope.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   /**
    * Scraper API base URL (no trailing slash).
    * Explicit config wins. If unset and the dashboard is opened on localhost, defaults
@@ -205,7 +214,7 @@
     }
     const url = `${base}/health`;
     try {
-      const r = await fetch(url, { method: "GET", mode: "cors" });
+      const r = await apiFetch(url, { method: "GET", mode: "cors" });
       const j = await r.json().catch(() => ({}));
       if (!r.ok) throw new Error(`HTTP ${r.status}`);
       if (j.ok) {

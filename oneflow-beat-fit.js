@@ -712,11 +712,20 @@
     return (raw ? raw.replace(/\/+$/, "") : "") + "/profile";
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    const scope = typeof window !== "undefined" ? window : null;
+    const auth = scope && scope.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   async function postFitProfile(payload) {
     if (typeof window.fetch !== "function") {
       throw new Error("The JobBored profile API is unavailable.");
     }
-    const response = await window.fetch(profileUrl(), {
+    const response = await apiFetch(profileUrl(), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(payload),
