@@ -1589,13 +1589,86 @@ export function handleDiscoveryRelayToken(
  * self-heal (see runDiscoveryTailscaleAutoSetup in discovery-wizard-ui.js):
  * full-boot's skip_tunnel path never runs the bootstrap origins merge, so
  * without this key a healthy worker that rejects the dashboard's origin has
- * no writer to heal it.
+ * no writer to heal it. Origins writes also gain the hosted Pages origin
+ * (./CNAME) via appendPagesOriginToAllowedOrigins, so one heal covers the
+ * loopback dashboard and the public site together.
  */
+const DISCOVERY_ALLOWED_ORIGINS_ENV_KEY =
+  "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS";
+
 const DISCOVERY_ENV_KEY_ALLOWLIST = new Set([
   "SERPAPI_API_KEY",
   "BROWSER_USE_DISCOVERY_GEMINI_API_KEY",
-  "BROWSER_USE_DISCOVERY_ALLOWED_ORIGINS",
+  DISCOVERY_ALLOWED_ORIGINS_ENV_KEY,
 ]);
+
+/**
+ * The hosted app's origin, derived from the repo's ./CNAME (GitHub Pages
+ * custom domain). Pure text in, canonical https origin out, "" when the
+ * file is missing, empty, or not a dotted https host — "no hosted app"
+ * is an ordinary case (local-only installs), never an error.
+ */
+function pagesHostedOriginFromCnameText(raw) {
+  const first = String(raw || "")
+    .split("\n")[0]
+    .trim();
+  if (!first || /\s/.test(first)) return "";
+  const candidate = /^https?:\/\//i.test(first)
+    ? first
+    : `https://${first}`;
+  let url;
+  try {
+    url = new URL(candidate);
+  } catch (_) {
+    return "";
+  }
+  if (url.protocol !== "https:") return "";
+  if (url.username || url.password) return "";
+  const host = String(url.hostname || "").toLowerCase();
+  if (
+    !host ||
+    !host.includes(".") ||
+    /[\u0000-\u001F\u007F\u2028\u2029]/.test(host)
+  ) {
+    return "";
+  }
+  return `https://${host}${url.port ? `:${url.port}` : ""}`;
+}
+
+function readPagesCnameFile() {
+  try {
+    const { jobBoredRepo } = resolveJobBoredPaths({
+      env: process.env,
+      repoRoot: ROOT,
+    });
+    return readFileSync(join(jobBoredRepo, "CNAME"), "utf8");
+  } catch (_) {
+    return "";
+  }
+}
+
+/**
+ * Allowed-origins writes also carry the hosted Pages origin (when ./CNAME
+ * resolves one), so "Set it up for me" heals localhost AND the public
+ * site in one write — no hand-editing the worker .env. Idempotent, and a
+ * no-op for non-origins callers (there are none — the handler gates on
+ * the key). options.cnameText bypasses the disk read for tests.
+ */
+export function appendPagesOriginToAllowedOrigins(value, options = {}) {
+  const text =
+    options && typeof options.cnameText === "string"
+      ? options.cnameText
+      : readPagesCnameFile();
+  const pages = pagesHostedOriginFromCnameText(text);
+  if (!pages) return String(value || "");
+  const parts = String(value || "")
+    .split(",")
+    .map((entry) => entry.trim())
+    .filter(Boolean);
+  if (parts.includes(pages)) return String(value || "");
+  parts.push(pages);
+  return [...new Set(parts)].join(",");
+}
 
 async function handleDiscoveryEnvKey(req, res) {
   const corsHeaders = buildLocalControlCorsHeaders(req, {
@@ -1632,8 +1705,12 @@ async function handleDiscoveryEnvKey(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "empty_value" }));
     return;
   }
+  const effectiveValue =
+    key === DISCOVERY_ALLOWED_ORIGINS_ENV_KEY
+      ? appendPagesOriginToAllowedOrigins(value)
+      : value;
   try {
-    const result = upsertBrowserUseDiscoveryEnvValue(key, value);
+    const result = upsertBrowserUseDiscoveryEnvValue(key, effectiveValue);
     res.writeHead(200, corsHeaders);
     res.end(JSON.stringify({ ok: true, key, mode: result && result.mode }));
   } catch (e) {

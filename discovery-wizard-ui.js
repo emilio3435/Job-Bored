@@ -2518,7 +2518,8 @@ const DISCOVERY_ALLOWED_ORIGINS_ENV_KEY =
  * scripts/bootstrap-local-discovery.mjs (defaultLocalAllowedOrigins) and
  * the worker's own config. Setting the allowed-origins key REPLACES the
  * worker defaults, so the heal always writes defaults-plus-the-blocked-
- * origin, never the lone origin.
+ * origin, never the lone origin. The server appends the hosted Pages
+ * origin (./CNAME) on top server-side when one resolves.
  */
 const DISCOVERY_WORKER_LOOPBACK_ORIGINS = Object.freeze([
   "http://localhost:8080",
