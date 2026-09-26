@@ -517,6 +517,25 @@ async function handleRunCancel(
   const outcome = deps.cancelRegistry
     ? await deps.cancelRegistry.cancel(runId, "Cancelled by user.")
     : ({ ok: false, reason: "not_running" } as const);
+  if (!outcome.ok && outcome.reason === "status_not_saved") {
+    // The run was stopped but its cancelled status did not persist: polling
+    // still says `running`, so this is not a durable cancel (A21 repair).
+    finishJson(
+      503,
+      {
+        ok: false,
+        code: "cancel_status_not_saved",
+        message: "The run was stopped, but its cancelled status could not be saved.",
+        detail: outcome.stopConfirmed
+          ? "The run has stopped."
+          : "The run had not fully stopped when the cancel gave up waiting.",
+        nextStep: "Retry the cancel; if it keeps failing, check the worker's disk and state database.",
+        retryable: true,
+      },
+      corsHeaders,
+    );
+    return;
+  }
   if (!outcome.ok) {
     finishJson(
       409,
@@ -537,6 +556,7 @@ async function handleRunCancel(
       ok: true,
       runId,
       cancelled: outcome.cancelled,
+      stopConfirmed: outcome.stopConfirmed,
       run: outcome.status || deps.runStatusStore.get(runId),
     },
     corsHeaders,

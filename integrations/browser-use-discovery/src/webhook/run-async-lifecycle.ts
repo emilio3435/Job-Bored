@@ -4,6 +4,9 @@ import {
   type DiscoveryRunStatusStore,
 } from "../state/run-status-store.ts";
 import { createSafetyTimer, type SafetyTimerMode } from "./safety-timer.ts";
+import { RunCancelledError } from "../run/run-abort.ts";
+
+export { RunCancelledError };
 
 /**
  * BEAUDIT A12: the one async run lifecycle shared by `/webhook` (discovery)
@@ -20,26 +23,32 @@ import { createSafetyTimer, type SafetyTimerMode } from "./safety-timer.ts";
  * more attempt at the deadline.
  */
 
-export class RunCancelledError extends Error {
-  readonly reason: string;
-  constructor(reason = "Cancelled by user.") {
-    super(reason);
-    this.name = "RunCancelledError";
-    this.reason = reason;
-  }
-}
-
 /**
  * `cancelled` is false only when the run finished on its own before it saw the
  * abort; `status` is then its real (completed) terminal status.
+ * `stopConfirmed` is false when the run, or a Sheet write it had already
+ * started, had not settled by the cancel's settle deadline: such a write may
+ * still land after the answer.
+ * `status_not_saved` means the run was stopped but its terminal status could
+ * not be persisted; the run stays registered so a retry can save it.
  */
 export type RunCancelOutcome =
-  | { ok: true; cancelled: boolean; status: DiscoveryRunStatusPayload | null }
-  | { ok: false; reason: "not_running" };
+  | {
+      ok: true;
+      cancelled: boolean;
+      stopConfirmed: boolean;
+      status: DiscoveryRunStatusPayload | null;
+    }
+  | { ok: false; reason: "not_running" }
+  | { ok: false; reason: "status_not_saved"; stopConfirmed: boolean };
 
 export type RunCancelHandler = (reason: string) => Promise<{
   cancelled: boolean;
   status: DiscoveryRunStatusPayload | null;
+  /** Defaults to true. */
+  stopConfirmed?: boolean;
+  /** False when the terminal status could not be persisted. Defaults to true. */
+  saved?: boolean;
 }>;
 
 /**
@@ -73,7 +82,18 @@ export function createRunCancelRegistry(): RunCancelRegistry {
       if (!cancel) return { ok: false, reason: "not_running" };
       entries.delete(runId);
       const result = await cancel(reason);
-      return { ok: true, ...result };
+      const stopConfirmed = result.stopConfirmed !== false;
+      if (result.saved === false) {
+        // Keep the run cancellable: a retry gets another attempt at the write.
+        if (!entries.has(runId)) entries.set(runId, cancel);
+        return { ok: false, reason: "status_not_saved", stopConfirmed };
+      }
+      return {
+        ok: true,
+        cancelled: result.cancelled,
+        stopConfirmed,
+        status: result.status,
+      };
     },
     size() {
       return entries.size;
@@ -107,7 +127,8 @@ export interface RunAsyncLifecycleOptions<T> {
   log?(event: string, details: Record<string, unknown>): void;
   /** Event-name prefix for this run family, e.g. `discovery.run`. */
   eventPrefix: string;
-  work(signal: AbortSignal): Promise<T>;
+  /** `writes` tracks Sheet writes; pass it to guardWriterWithSignal. */
+  work(signal: AbortSignal, writes: RunWriteTracker): Promise<T>;
   /** Terminal status for a settled `work()`. */
   buildTerminalStatus(result: T): DiscoveryRunStatusPayload;
   /** Called once, after a terminal status (of any source) is persisted. */
@@ -127,13 +148,53 @@ export interface RunAsyncLifecycleOptions<T> {
 export const DEFAULT_CANCEL_SETTLE_TIMEOUT_MS = 15_000;
 
 /**
+ * Counts writes that have started and not yet settled, so a cancel can wait
+ * for a write that was already in flight when the abort arrived (the runner
+ * itself stops waiting for it the moment the signal aborts).
+ */
+export interface RunWriteTracker {
+  track<R>(write: Promise<R>): Promise<R>;
+  pending(): number;
+  /** Resolves once no tracked write is in flight. */
+  idle(): Promise<void>;
+}
+
+export function createRunWriteTracker(): RunWriteTracker {
+  let inFlight = 0;
+  let waiters: Array<() => void> = [];
+  const release = () => {
+    inFlight -= 1;
+    if (inFlight === 0) {
+      const ready = waiters;
+      waiters = [];
+      for (const resolve of ready) resolve();
+    }
+  };
+  return {
+    track(write) {
+      inFlight += 1;
+      return write.finally(release);
+    },
+    pending() {
+      return inFlight;
+    },
+    idle() {
+      if (inFlight === 0) return Promise.resolve();
+      return new Promise((resolve) => waiters.push(resolve));
+    },
+  };
+}
+
+/**
  * Wraps a pipeline writer so that no write starts once `signal` has aborted.
  * A cancelled run that only notices the abort at its next checkpoint would
- * otherwise still reach the Sheet after its status says cancelled.
+ * otherwise still reach the Sheet after its status says cancelled. With a
+ * `tracker`, writes that did start are counted until they settle.
  */
 export function guardWriterWithSignal<W extends { write(...args: never[]): Promise<unknown> }>(
   writer: W,
   signal: AbortSignal,
+  tracker?: RunWriteTracker,
 ): W {
   return new Proxy(writer, {
     get(target, property, receiver) {
@@ -145,7 +206,8 @@ export function guardWriterWithSignal<W extends { write(...args: never[]): Promi
               reason instanceof Error ? reason : new RunCancelledError(),
             );
           }
-          return target.write(...args);
+          const write = target.write(...args);
+          return tracker ? tracker.track(write) : write;
         };
       }
       const value: unknown = Reflect.get(target, property, receiver);
@@ -255,57 +317,98 @@ export function runAsyncLifecycle<T>(
   // Set once a cancel is requested. While it is set, the settle handlers leave
   // the terminal write to the cancel path, which runs after work() stopped.
   let cancelRequested = false;
+  // A terminal status the cancel path could not persist; a retried cancel
+  // writes it again (the safety timer stays armed meanwhile).
+  let unsavedCancel: {
+    status: DiscoveryRunStatusPayload;
+    source: TerminalSource;
+    cancelled: boolean;
+    stopConfirmed: boolean;
+  } | null = null;
+  const writes = createRunWriteTracker();
 
   let work: Promise<T>;
   try {
-    work = Promise.resolve(options.work(controller.signal));
+    work = Promise.resolve(options.work(controller.signal, writes));
   } catch (error) {
     work = Promise.reject(error);
   }
 
   if (options.cancelRegistry) {
     options.cancelRegistry.register(runId, async (reason) => {
+      if (unsavedCancel && !safety.isTerminalStatusWritten()) {
+        const retry = unsavedCancel;
+        const landed = writeTerminal(retry.status, retry.source);
+        if (!landed) {
+          return { cancelled: retry.cancelled, status: null, stopConfirmed: retry.stopConfirmed, saved: false };
+        }
+        unsavedCancel = null;
+        return { cancelled: retry.cancelled, status: landed, stopConfirmed: retry.stopConfirmed };
+      }
       if (safety.isTerminalStatusWritten() || cancelRequested) {
-        return { cancelled: false, status: null };
+        return { cancelled: false, status: options.runStatusStore?.get(runId) ?? null };
       }
       cancelRequested = true;
-      // Abort first and wait for the run to stop, so no write of the run can
-      // land after the cancelled status (BEAUDIT A21 repair).
+      // Abort first and wait for the run AND any Sheet write it already
+      // started to settle, so no write of the run lands after the cancelled
+      // status (BEAUDIT A21 repair).
       controller.abort(new RunCancelledError(reason));
       log?.(`${eventPrefix}.cancel_requested`, { runId, mode: runMode, reason });
       const timeoutMs =
         options.cancelSettleTimeoutMs ?? DEFAULT_CANCEL_SETTLE_TIMEOUT_MS;
       let timer: ReturnType<typeof setTimeout> | undefined;
+      const deadline = new Promise<{ kind: "timeout" }>((resolve) => {
+        timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
+      });
       const outcome = await Promise.race([
         work.then(
           (result) => ({ kind: "fulfilled" as const, result }),
           () => ({ kind: "rejected" as const }),
         ),
-        new Promise<{ kind: "timeout" }>((resolve) => {
-          timer = setTimeout(() => resolve({ kind: "timeout" }), timeoutMs);
-        }),
+        deadline,
       ]);
+      const writesSettled =
+        outcome.kind !== "timeout" &&
+        (await Promise.race([
+          writes.idle().then(() => true),
+          deadline.then(() => false),
+        ]));
       if (timer) clearTimeout(timer);
+      const stopConfirmed = writesSettled && writes.pending() === 0;
+      if (!stopConfirmed) {
+        log?.(`${eventPrefix}.cancel_settle_timeout`, {
+          runId,
+          mode: runMode,
+          timeoutMs,
+          workSettled: outcome.kind !== "timeout",
+          writesInFlight: writes.pending(),
+        });
+      }
       if (safety.isTerminalStatusWritten()) {
-        return { cancelled: false, status: options.runStatusStore?.get(runId) ?? null };
+        return { cancelled: false, status: options.runStatusStore?.get(runId) ?? null, stopConfirmed };
       }
       if (outcome.kind === "fulfilled") {
-        // The run finished before it saw the abort: report what really happened.
-        let status: DiscoveryRunStatusPayload | null = null;
+        // The runner rethrows a user cancel at its last checkpoint before the
+        // history row (throwIfRunCancelled), so a fulfilled run passed that
+        // checkpoint before it saw the abort: it really finished.
+        let terminal: DiscoveryRunStatusPayload;
+        let source: TerminalSource = "completed";
         try {
-          status = writeTerminal(options.buildTerminalStatus(outcome.result), "completed");
-          if (status && status.status !== "failed") options.onCompleted?.(outcome.result, status);
+          terminal = options.buildTerminalStatus(outcome.result);
         } catch (error) {
-          status = writeTerminal(
-            buildFailedRunStatus(options.runningStatus, error, options.now().toISOString()),
-            "failed",
-          );
+          terminal = buildFailedRunStatus(options.runningStatus, error, options.now().toISOString());
+          source = "failed";
+        }
+        const status = writeTerminal(terminal, source);
+        if (status && source === "completed" && status.status !== "failed") {
+          options.onCompleted?.(outcome.result, status);
         }
         log?.(`${eventPrefix}.cancel_too_late`, { runId, mode: runMode, reason });
-        return { cancelled: false, status };
-      }
-      if (outcome.kind === "timeout") {
-        log?.(`${eventPrefix}.cancel_settle_timeout`, { runId, mode: runMode, timeoutMs });
+        if (!status) {
+          unsavedCancel = { status: terminal, source, cancelled: false, stopConfirmed };
+          return { cancelled: false, status: null, stopConfirmed, saved: false };
+        }
+        return { cancelled: false, status, stopConfirmed };
       }
       const current =
         options.runStatusStore?.get(runId) ?? options.runningStatus;
@@ -315,11 +418,18 @@ export function runAsyncLifecycle<T>(
           new RunCancelledError(reason),
           options.now().toISOString(),
         ),
-        message: "Discovery run cancelled by user.",
+        message: stopConfirmed
+          ? "Discovery run cancelled by user."
+          : "Discovery run cancelled by user, but work it had already started (such as a Sheet write) had not finished and may still land.",
       };
       const landed = writeTerminal(cancelled, "cancelled");
-      log?.(`${eventPrefix}.cancelled`, { runId, mode: runMode, reason });
-      return { cancelled: true, status: landed };
+      if (!landed) {
+        unsavedCancel = { status: cancelled, source: "cancelled", cancelled: true, stopConfirmed };
+        log?.(`${eventPrefix}.cancel_status_not_saved`, { runId, mode: runMode, reason });
+        return { cancelled: true, status: null, stopConfirmed, saved: false };
+      }
+      log?.(`${eventPrefix}.cancelled`, { runId, mode: runMode, reason, stopConfirmed });
+      return { cancelled: true, status: landed, stopConfirmed };
     });
   }
 

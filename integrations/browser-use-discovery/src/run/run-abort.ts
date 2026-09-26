@@ -186,3 +186,36 @@ function abortReason(
   }
   return timeoutError;
 }
+
+/**
+ * BEAUDIT A21: a user cancel of a live run. It lives here (not in the
+ * webhook layer) so the runner can tell a cancel apart from a timeout.
+ */
+export class RunCancelledError extends Error {
+  readonly reason: string;
+  constructor(reason = "Cancelled by user.") {
+    super(reason);
+    this.name = "RunCancelledError";
+    this.reason = reason;
+  }
+}
+
+export function isRunCancelledError(error: unknown): error is RunCancelledError {
+  return (
+    error instanceof RunCancelledError ||
+    (Boolean(error) &&
+      typeof error === "object" &&
+      (error as { name?: unknown }).name === "RunCancelledError")
+  );
+}
+
+/**
+ * Throws the cancel when `signal` was aborted by a user cancel. The runner
+ * swallows per-source abort errors as warnings, so without this checkpoint a
+ * cancelled run would finish as `partial` and write a partial history row.
+ */
+export function throwIfRunCancelled(signal: AbortSignal | undefined): void {
+  if (signal?.aborted && isRunCancelledError(signal.reason)) {
+    throw signal.reason;
+  }
+}

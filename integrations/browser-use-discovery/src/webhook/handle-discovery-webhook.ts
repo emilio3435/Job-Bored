@@ -493,7 +493,7 @@ export async function handleDiscoveryWebhook(
     log: dependencies.log,
     eventPrefix: "discovery.run",
     cancelRegistry: dependencies.cancelRegistry,
-    work: (signal) =>
+    work: (signal, writes) =>
       dependencies.runDiscovery(requestForRun, dispatchTrigger, {
         ...dispatchDependencies,
         // A21: once cancelled, no Sheet write of this run may start.
@@ -502,6 +502,7 @@ export async function handleDiscoveryWebhook(
               pipelineWriter: guardWriterWithSignal(
                 dispatchDependencies.pipelineWriter,
                 signal,
+                writes,
               ),
             }
           : {}),

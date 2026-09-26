@@ -73,6 +73,7 @@ import {
 } from "./budget-tracker.ts";
 import {
   createRunAbortController,
+  throwIfRunCancelled,
   withAbortableTimeout,
   TimeoutError,
 } from "./run-abort.ts";
@@ -1310,6 +1311,7 @@ export async function runDiscovery(
     maxLeadCapApplied,
   });
 
+  throwIfRunCancelled(dependencies.abortSignal);
   checkpointRunProgress("write");
   let writeResult: PipelineWriteResult;
   if (leadsToWrite.length === 0) {
@@ -1541,6 +1543,10 @@ export async function runDiscovery(
     extractionResultsBySource,
     rejectionSummaryBySource,
   );
+
+  // BEAUDIT A21: a user cancel is not a partial run. Hand it back to the
+  // caller's lifecycle, which records the cancel and its history row.
+  throwIfRunCancelled(dependencies.abortSignal);
 
   // DiscoveryRuns sheet log (contract §3 / docs/INTERFACE-DISCOVERY-RUNS.md).
   // Best-effort: a logging failure must never fail the run itself.

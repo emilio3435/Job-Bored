@@ -300,3 +300,32 @@ test("A21: POST /runs/:id/cancel requires the secret, cancels a live run, and re
     await app.close();
   }
 });
+
+test("A21 repair: POST /runs/:id/cancel answers 503 cancel_status_not_saved when the cancelled status could not be persisted", async () => {
+  const registry = createRunCancelRegistry();
+  const statuses: Record<string, Record<string, unknown>> = {
+    run_live: { runId: "run_live", status: "running", terminal: false },
+    run_slow: { runId: "run_slow", status: "running", terminal: false },
+  };
+  registry.register("run_live", async () => ({ cancelled: true, status: null, saved: false }));
+  registry.register("run_slow", async () => ({
+    cancelled: true,
+    stopConfirmed: false,
+    status: { runId: "run_slow", status: "failed", terminal: true } as never,
+  }));
+  const app = await boot({ statuses, cancelRegistry: registry });
+  try {
+    const unsaved = await app.send("/runs/run_live/cancel", { method: "POST", headers: authed });
+    assert.equal(unsaved.status, 503);
+    assertApiError(unsaved.body, "cancel_status_not_saved");
+    assert.equal(unsaved.body.retryable, true);
+    assert.equal(registry.has("run_live"), true, "a retry can still save the cancel");
+
+    const unconfirmed = await app.send("/runs/run_slow/cancel", { method: "POST", headers: authed });
+    assert.equal(unconfirmed.status, 200);
+    assert.equal(unconfirmed.body.cancelled, true);
+    assert.equal(unconfirmed.body.stopConfirmed, false);
+  } finally {
+    await app.close();
+  }
+});
