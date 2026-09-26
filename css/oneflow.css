@@ -509,6 +509,23 @@
     box-shadow: 0 -8px 20px -14px rgba(14, 58, 78, 0.55);
   }
 
+  /* The message-slot rule above wraps the footer so the message gets its
+     own row. In this column dock, wrapping starts a second COLUMN instead,
+     and the message landed off-screen to the right (x≈367 of 375) — every
+     beat's error was invisible on a phone. Stack, don't wrap. */
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__footer--dock:has(> .discovery-setup-wizard__message),
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__footer--dock:has(> .discovery-setup-wizard__busy) {
+    flex-wrap: nowrap;
+  }
+
+  .discovery-setup-wizard--spine
+    .discovery-setup-wizard__footer--dock
+    .discovery-setup-wizard__message {
+    flex: 0 0 auto;
+  }
+
   .discovery-setup-wizard--spine
     .discovery-setup-wizard__footer--dock
     .discovery-setup-wizard__actions {
