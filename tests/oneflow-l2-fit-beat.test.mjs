@@ -142,6 +142,89 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     ]);
     assert.equal(env.completions.length, 1);
     assert.equal(env.completions[0].edited, false);
+    assert.equal(env.completions[0].serverSynced, true);
+  });
+
+  it("L2-FIT-SERVER-OPTIONAL: a failed server sync still completes off the local save", async () => {
+    const env = renderBeat();
+    const discoveryWrites = [];
+    const requests = [];
+    env.window.CommandCenterUserContent.saveDiscoveryProfile = async (payload) => {
+      discoveryWrites.push(payload);
+      return payload;
+    };
+    env.window.COMMAND_CENTER_CONFIG = {
+      jobBoredApiUrl: "https://api.example.test/",
+    };
+    env.window.fetch = async (url, options) => {
+      requests.push({ url, options });
+      return {
+        ok: false,
+        status: 405,
+        async json() {
+          return null;
+        },
+      };
+    };
+
+    await env.beat.onAction("confirm-fit", env.ctx);
+
+    assert.equal(discoveryWrites.length, 1);
+    assert.equal(requests.length, 1);
+    assert.equal(env.completions.length, 1);
+    assert.equal(env.completions[0].serverSynced, false);
+    assert.deepEqual(env.runtime.fitProfile.identity.targetRoles, [
+      "Staff Engineer",
+      "Platform Engineer",
+    ]);
+    assert.ok(
+      env.messages.every((m) => m.tone !== "error"),
+      "a failed sync must not surface as a beat-blocking error",
+    );
+  });
+
+  it("L2-FIT-LOCAL-ONLY: with no profile API configured the beat completes without any server call", async () => {
+    const env = renderBeat();
+    const discoveryWrites = [];
+    const requests = [];
+    env.window.CommandCenterUserContent.saveDiscoveryProfile = async (payload) => {
+      discoveryWrites.push(payload);
+      return payload;
+    };
+    env.window.COMMAND_CENTER_CONFIG = {};
+    env.window.fetch = async (url, options) => {
+      requests.push({ url, options });
+      throw new Error("must not fetch without a configured API");
+    };
+
+    await env.beat.onAction("confirm-fit", env.ctx);
+
+    assert.equal(discoveryWrites.length, 1);
+    assert.equal(requests.length, 0);
+    assert.equal(env.completions.length, 1);
+    assert.equal(env.completions[0].serverSynced, false);
+  });
+
+  it("L2-FIT-LOCAL-SOURCE-OF-TRUTH: a failed local save still blocks the beat", async () => {
+    const env = renderBeat();
+    env.window.CommandCenterUserContent.saveDiscoveryProfile = async () => {
+      throw new Error("quota exceeded");
+    };
+    env.window.COMMAND_CENTER_CONFIG = {
+      jobBoredApiUrl: "https://api.example.test/",
+    };
+    env.window.fetch = async () => ({
+      ok: true,
+      status: 200,
+      async json() {
+        return { ok: true };
+      },
+    });
+
+    await env.beat.onAction("confirm-fit", env.ctx);
+
+    assert.equal(env.completions.length, 0);
+    assert.ok(env.messages.some((m) => m.tone === "error"));
   });
 
   it("UX01 FD-26: the drawer's exclude keywords carry the avoids as well as skip titles", async () => {
