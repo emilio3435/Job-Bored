@@ -77,10 +77,10 @@ describe("G16: foreign Host is rejected on static and the profile proxy", () => 
       const sameOrigin = `127.0.0.1:${port}`;
       const foreign = await httpGet({ port, path: "/", host: "enemy.test" });
       assert.equal(foreign.status, 403);
-      assert.match(foreign.body, /HOST_NOT_ALLOWED/);
+      assert.match(foreign.body, /host_not_allowed/);
       const profile = await httpGet({ port, path: "/profile", host: "enemy.test" });
       assert.equal(profile.status, 403);
-      assert.match(profile.body, /HOST_NOT_ALLOWED/);
+      assert.match(profile.body, /host_not_allowed/);
       const control = await httpGet({ port, path: "/", host: sameOrigin });
       assert.equal(control.status, 200);
     } finally {
