@@ -862,6 +862,7 @@ function buildDiscoveryWizardOptionCard(flow, snapshot) {
   return {
     type: "card",
     kicker: recommended ? "Recommended" : "",
+    recommended,
     title: option.title,
     body,
     flow,
@@ -908,7 +909,7 @@ function buildDiscoveryDetectBody(runtime) {
       `Webhook URL saved (${getDiscoveryWizardSavedEndpointLabel(snapshot.savedWebhookKind)})`,
     );
   } else {
-    missingItems.push("No webhook URL saved");
+    missingItems.push("Discovery isn't connected yet");
   }
 
   if (snapshot.localBootstrapAvailable) {

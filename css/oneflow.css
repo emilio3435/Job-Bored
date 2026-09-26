@@ -1713,10 +1713,137 @@
 /* ONEFLOW:L3 */
 /* B5 Turn on discovery — fuel panel, then connect panel. */
 
+/* GFX FE-B5: the two panels hang on one rail, the ladder B1's route-to-
+   local screen uses, because they ARE a sequence: the key, then the
+   connection. Each panel's node says where the user is — navy ring while
+   waiting for a key, rose when a check is blocked, filled green once it
+   passed; the connection's node stays grey until the key unlocks it.
+   Everything here is scoped under .oneflow-discovery (0,2,0+): `body.jb-v2 a`
+   is (0,1,2) and would otherwise repaint every link mint-deep. */
 .oneflow-discovery {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
+  padding-left: 1.75rem;
+}
+
+.oneflow-discovery::before {
+  content: "";
+  position: absolute;
+  left: 5px;
+  top: calc(var(--space-4) + 10px);
+  bottom: calc(var(--space-4) + 10px);
+  width: 2px;
+  background: var(--jb-line-soft, var(--border));
+}
+
+.oneflow-discovery .oneflow-panel {
+  position: relative;
+}
+
+.oneflow-discovery .oneflow-panel::before {
+  content: "";
+  position: absolute;
+  left: calc(-1.75rem + 0px);
+  top: calc(var(--space-4) + 4px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--jb-navy, var(--text));
+  background: var(--jb-paper, var(--surface));
+}
+
+.oneflow-discovery .oneflow-fuel--blocked::before {
+  border-color: var(--jb-err, #b4321f);
+  background: var(--jb-err-tint, var(--surface));
+}
+
+.oneflow-discovery .oneflow-fuel--passed::before {
+  border-color: var(--jb-accent-ink, #1f6f4a);
+  background: var(--jb-accent-ink, #1f6f4a);
+}
+
+.oneflow-discovery .oneflow-panel--dimmed::before {
+  border-color: var(--jb-line, var(--border));
+}
+
+/* A blocked check puts its hairline where the eye already is. */
+.oneflow-discovery .oneflow-fuel--blocked {
+  border-color: color-mix(in srgb, var(--jb-err, #b4321f) 35%, var(--jb-line, #c9c2b0));
+}
+
+/* D1: the one fix, directly under the field it repairs. A link or the
+   route button, set as a quiet secondary so Save & verify stays the
+   primary. Explicit colour, because a link-shaped button otherwise
+   inherits `body.jb-v2 a` mint-deep on mint (about 2:1). */
+.oneflow-discovery .oneflow-fuel__fix,
+.oneflow-discovery a.oneflow-fuel__fix,
+.oneflow-discovery a.oneflow-fuel__fix:hover {
+  display: inline-flex;
+  align-items: center;
+  min-height: 40px;
+  margin-top: var(--space-3);
+  padding: 0 var(--space-4);
+  border: 1px solid var(--jb-navy, var(--text));
+  border-radius: 999px;
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  box-shadow: none;
+  font-size: var(--text-sm);
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.oneflow-discovery .oneflow-fuel__fix:hover {
+  background: var(--jb-paper-3, var(--surface));
+}
+
+.oneflow-discovery .oneflow-fuel__fix:focus-visible {
+  outline: 2px solid var(--jb-focus-color, var(--jb-navy));
+  outline-offset: 2px;
+}
+
+/* D6: a path's name leads the paragraph that offers it. */
+.oneflow-discovery .oneflow-connect__path {
+  color: var(--jb-navy, var(--text));
+  font-weight: 700;
+}
+
+/* D1: while the key is blocked the footer paints one action. Connect and
+   Skip stay in the DOM, disabled (the gate's contract), but a disabled
+   "Skip" under a blocked key reads as an escape that isn't there. */
+.discovery-setup-wizard:has(.oneflow-connect.oneflow-panel--dimmed)
+  .discovery-setup-wizard__btn[data-action-id="oneflow_discovery_connect"]:disabled,
+.discovery-setup-wizard:has(.oneflow-connect.oneflow-panel--dimmed)
+  .discovery-setup-wizard__btn[data-action-id="oneflow_discovery_skip_connect"]:disabled {
+  display: none;
+}
+
+/* Link-shaped primaries in B5 and B6 get the on-accent navy back. */
+.discovery-setup-wizard:has(.oneflow-discovery) a.discovery-setup-wizard__btn--primary,
+.discovery-setup-wizard:has(.oneflow-discovery) a.discovery-setup-wizard__btn--primary:hover,
+.discovery-setup-wizard:has(.oneflow-payoff) a.discovery-setup-wizard__btn--primary,
+.discovery-setup-wizard:has(.oneflow-payoff) a.discovery-setup-wizard__btn--primary:hover {
+  color: var(--jb-on-accent, var(--text));
+  text-decoration: none;
+}
+
+@media (max-width: 480px) {
+  .oneflow-discovery {
+    padding-left: 1.25rem;
+  }
+
+  .oneflow-discovery .oneflow-panel::before {
+    left: -1.25rem;
+  }
+
+  .oneflow-discovery .oneflow-fuel__fix {
+    width: 100%;
+    justify-content: center;
+    min-height: 44px;
+  }
 }
 
 /* Two panels, read in order: the fuel is required, the connection is not.
@@ -1749,7 +1876,8 @@
 }
 
 .oneflow-panel__status--ok {
-  color: var(--jb-mint-deep, #2f8a5a);
+  /* green-ink, not mint-deep: 6.1:1 on paper where mint-deep is ~4:1 */
+  color: var(--jb-accent-ink, #1f6f4a);
   font-weight: 600;
 }
 
@@ -1800,6 +1928,15 @@
   font-weight: 600;
   color: var(--jb-navy, var(--text));
   text-decoration: underline;
+}
+
+/* Colour only: `body.jb-v2 a` (0,1,2) outranks the single-class rule
+   above, so B5's links would otherwise render mint-deep, not navy. */
+.oneflow-discovery a.oneflow-beat__keylink,
+.oneflow-discovery a.oneflow-beat__doclink {
+  color: var(--jb-navy, var(--text));
+  text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .oneflow-field {
@@ -2604,7 +2741,8 @@
 }
 
 .oneflow-payoff__row--ok {
-  color: var(--jb-mint-deep, #2f8a5a);
+  /* green-ink: mint-deep on paper-2 is ~4:1, under the 4.5 floor */
+  color: var(--jb-accent-ink, #1f6f4a);
 }
 
 /* The skipped-connect line is honest, not alarming: this is a choice the
@@ -2617,9 +2755,13 @@
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-payoff__sheet-link {
+/* `a` in the selector beats `body.jb-v2 a` (0,1,2), which painted this
+   link mint-deep inside a green-ink row. */
+.oneflow-payoff a.oneflow-payoff__sheet-link,
+.oneflow-payoff a.oneflow-payoff__sheet-link:hover {
   color: inherit;
   text-decoration: underline;
+  text-underline-offset: 2px;
 }
 
 .oneflow-payoff__empty {
