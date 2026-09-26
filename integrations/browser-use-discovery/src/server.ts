@@ -727,6 +727,8 @@ async function buildHealthPayload() {
   const sheetsCredentialReadiness =
     await validateSheetsCredentialReadiness(runtimeConfig, {
       sheetId: String(storedConfig?.sheetId || "").trim(),
+      // BEAUDIT A8/D16: /health polling reuses a result for a minute.
+      cacheTtlMs: 60_000,
     });
   const localInteractiveSheetsReady =
     runtimeConfig.runMode === "local" &&
