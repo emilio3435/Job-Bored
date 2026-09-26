@@ -14,10 +14,10 @@
  *   JOBBORED_PROFILE_PATH — absolute path to a profile.json. When set, both
  *   the canonical path AND backup naming use this location's directory.
  */
-import { readFile, writeFile, rename, mkdir } from "node:fs/promises";
+import { readFile, writeFile, rename, mkdir, readdir, unlink } from "node:fs/promises";
 import { existsSync, readFileSync } from "node:fs";
 import { homedir } from "node:os";
-import { dirname, join, isAbsolute, resolve as resolvePath } from "node:path";
+import { basename, dirname, join, isAbsolute, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -38,6 +38,9 @@ const SCHEMA_PATH = resolvePath(
 
 /** @type {ProfileValidator | null} */
 let cachedValidator = null;
+
+/* F6: how many pre-save backups to keep beside profile.json. */
+const MAX_PROFILE_BACKUPS = 5;
 
 function loadValidator() {
   if (cachedValidator) return cachedValidator;
@@ -169,25 +172,16 @@ export async function writeProfileAtomic(candidate) {
   toWrite.updatedAt = nowIso;
 
   let priorCreatedAt = null;
+  let priorRaw = null;
   if (existsSync(path)) {
     try {
-      const prior = JSON.parse(await readFile(path, "utf8"));
+      priorRaw = await readFile(path, "utf8");
+      const prior = JSON.parse(priorRaw);
       if (prior && typeof prior.createdAt === "string") {
         priorCreatedAt = prior.createdAt;
       }
     } catch (_) {
       // Corrupt previous file — leave the backup as proof, write fresh.
-    }
-    // Backup before overwrite. .bak.<safeTimestamp> (colons + dots → dashes
-    // so it is filesystem-safe on every platform we support).
-    const safeStamp = nowIso.replace(/[:.]/g, "-");
-    const backupPath = `${path}.bak.${safeStamp}`;
-    try {
-      await rename(path, backupPath);
-    } catch (_renameErr) {
-      // Cross-device or race — fall back to copy-via-read/write.
-      const raw = await readFile(path, "utf8");
-      await writeFile(backupPath, raw, "utf8");
     }
   }
 
@@ -197,9 +191,38 @@ export async function writeProfileAtomic(candidate) {
 
   const tmpPath = `${path}.tmp.${process.pid}.${Date.now()}`;
   await writeFile(tmpPath, JSON.stringify(toWrite, null, 2) + "\n", "utf8");
+  // F6: the live file stays in place until the replacement is fully
+  // written — copy (never move) it to the backup, then rename tmp over
+  // it, so concurrent readers never see no_profile.
+  if (priorRaw !== null) {
+    // .bak.<safeTimestamp> (colons + dots → dashes so it is
+    // filesystem-safe on every platform we support); pid suffix keeps
+    // same-millisecond saves from colliding.
+    const safeStamp = nowIso.replace(/[:.]/g, "-");
+    const backupPath = `${path}.bak.${safeStamp}.${process.pid}`;
+    await writeFile(backupPath, priorRaw, "utf8");
+    await pruneProfileBackups(path);
+  }
   await rename(tmpPath, path);
 
   return { updatedAt: nowIso, path };
+}
+
+/**
+ * F6: keep the newest MAX_PROFILE_BACKUPS backups, delete the rest.
+ * Best-effort: a pruning failure must never fail the save.
+ * @param {string} path the live profile path
+ */
+async function pruneProfileBackups(path) {
+  try {
+    const parent = dirname(path);
+    const prefix = `${basename(path)}.bak.`;
+    const entries = (await readdir(parent)).filter((n) => n.startsWith(prefix)).sort();
+    const stale = entries.slice(0, Math.max(0, entries.length - MAX_PROFILE_BACKUPS));
+    await Promise.all(stale.map((n) => unlink(join(parent, n)).catch(() => {})));
+  } catch {
+    // ignore — pruning is hygiene, not correctness
+  }
 }
 
 /* ─── Starter templates ──────────────────────────────────────────────────
