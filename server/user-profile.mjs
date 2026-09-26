@@ -157,7 +157,7 @@ export async function writeProfileAtomic(candidate) {
     const err = /** @type {Error & { code: string, errors: unknown }} */ (
       new Error("invalid_profile")
     );
-    err.code = "INVALID_PROFILE";
+    err.code = "invalid_profile";
     err.errors = validation.errors;
     throw err;
   }

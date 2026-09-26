@@ -439,7 +439,7 @@ export async function loadWorkerConfig() {
     const err = /** @type {WorkerConfigError} */ (
       new Error(`worker-config.json not found at ${path}`)
     );
-    err.code = "WORKER_CONFIG_MISSING";
+    err.code = "worker_config_missing";
     throw err;
   }
   const raw = await readFile(path, "utf8");
@@ -451,7 +451,7 @@ export async function loadWorkerConfig() {
     const err = /** @type {WorkerConfigError} */ (
       new Error(`worker-config.json is not valid JSON: ${error.message}`)
     );
-    err.code = "WORKER_CONFIG_INVALID";
+    err.code = "worker_config_invalid";
     throw err;
   }
   const sheetId = String(parsed && parsed.sheetId ? parsed.sheetId : "").trim();
@@ -459,7 +459,7 @@ export async function loadWorkerConfig() {
     const err = /** @type {WorkerConfigError} */ (
       new Error("worker-config.json has no sheetId")
     );
-    err.code = "WORKER_CONFIG_NO_SHEET";
+    err.code = "worker_config_no_sheet";
     throw err;
   }
   return { sheetId, raw: parsed, path };
@@ -558,7 +558,7 @@ export async function resolveSheetsAccessToken({ overrideToken } = {}) {
   const err = /** @type {WorkerConfigError} */ (new Error(
     "No Google Sheets credential found. Set JOBBORED_GOOGLE_SERVICE_ACCOUNT_FILE or place a service-account-key.json next to the discovery worker.",
   ));
-  err.code = "NO_SHEETS_CREDENTIAL";
+  err.code = "no_sheets_credential";
   throw err;
 }
 
