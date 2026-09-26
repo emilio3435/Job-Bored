@@ -25,6 +25,9 @@ You can implement **A only** (cron job that appends rows) and never touch **B**.
 - **Required columns A–Q** (see [README.md](README.md) — Sheet Structure). Optional **R–T** extend reply tracking and company logos.
 - **Row identity (dedupe):** Automations should treat **column E (Link)** as the stable key when avoiding duplicate roles. Before appending a row, if a row with the same job URL already exists, **update** that row (e.g. refresh fit score, date found) instead of inserting a second line for the same posting.
 - **Append:** New discoveries are **new rows** below the header, following the column order the README documents.
+- **Re-discovery merge (column ownership):** each column in `schemas/pipeline-row.v1.json` declares `discoveryMerge`. `overwrite` (E Link, H Fit Score, T Logo URL, U Match Score): discovery replaces the cell. `lockable` (B Title, C Company, D Location, G Salary): discovery replaces it unless the row's Edit Lock (Y) names the field. `fillIfEmpty` (A, F Source, I Priority, J Tags, K Fit Assessment, L, M, Q Talking Points, V, W, X): discovery writes it only while it is empty, so a user's value is kept. `preserve` (N, O, P, R, S, Y): discovery never writes it. The worker writes only the cells that change, never the whole row.
+- **Concurrency:** the worker serializes its own writes per Sheet, re-checks each target row's Link right before writing (a row that moved is found again by Link; one that vanished is skipped with a warning), and re-reads column E before appending so a URL another writer added in between is not appended twice. Agents that write the Sheet directly should do the same: address rows by Link, not by a remembered row number.
+- **Text, not formulas:** the worker writes `USER_ENTERED` values and prefixes a `'` to any text cell that starts with `=`, `+`, `-` or `@`, so posting text or model output is stored as text. Agents writing untrusted text should do the same, or write with `RAW`.
 
 ### Recommended values (agents)
 
@@ -43,6 +46,8 @@ Hermes, n8n, or your agent **writes** these cells; the dashboard **reads** them 
 ### Expired job cleanup agents
 
 Expired cleanup is a safe move, not deletion: write `Expired` to column M only when the posting is confirmed closed, and append an audit line to Notes with timestamp, previous status, checked URL, evidence, confidence, and source. Column E remains the row identity. Cleanup agents should default to blank/New/Researching rows; Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are protected unless a human deliberately handles them. HTTP 403, captchas, timeouts, network failures, and ambiguous pages must be reported as needs-review/unknown, not auto-expired.
+
+The worker's cleanup writes one cell set per expired row: Status (M) `Expired`, Follow-up Date (P) cleared, and an audit line appended to Notes (O), the same set `/pipeline-update` writes for `stage: "Expired"`. It checks four postings at a time, writes every 25 rows (a pass killed by the scheduler keeps what it wrote), skips rows whose Notes carry a `[JobBored YYYY-MM-DD]` check from the last 7 days, and re-reads each row by Link right before writing: a row a user moved out of New/Researching during the pass is left alone (`status_changed`), and a row that vanished is skipped (`row_moved_or_removed`).
 
 Scheduled expired cleanup is separate from scheduled discovery refresh. Its default mode is dry-run and its logs/report counts must make checked, open, needs-review, skipped, and would-expire outcomes clear. Automatic writes require explicit `--write`.
 
@@ -139,17 +144,21 @@ Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllow
 
 ---
 
-## Pipeline update (`POST /pipeline-update`, schemaVersion 1)
+## Pipeline update (`POST /pipeline-update`, schemaVersion 2)
 
 An external agent advances an existing Pipeline row from inbound signals. Local-first: authenticated with `x-discovery-secret`; the worker writes with its own Google credential (no token in the request).
 
 - `event`: `"command-center.pipeline-update"` (const)
-- `schemaVersion`: `1` (const)
+- `schemaVersion`: `2` (const). Version `1` bodies are still accepted; they cannot send `source`, and `stage: "Applied"` without a date defaults Applied Date to today.
 - `sheetId`: target Google Sheet (required)
 - `job`: row identity — `url` (preferred), or both `company` and `title`
-- `fields` (at least one): `stage` (one of: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, Expired), `contact`, `note` (appended as a dated, deduped line), `lastContact`, `appliedDate`, `didTheyReply` (Yes | No | Unknown)
+- `fields` (at least one): `stage` (one of: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, Expired), `contact`, `note` (prepended as a dated, deduped line), `lastContact` and `appliedDate` (dates as `YYYY-MM-DD`), `didTheyReply` (Yes | No | Unknown), and `source` (v2: where an application went in).
+- **Applied (v2):** `stage: "Applied"` requires `appliedDate` and a non-blank `source`. The worker writes Status (M), Applied Date (N), a Follow-up Date (P) 7 days later when the row has none, and a Notes line `[today] Applied via <source>: <note>`.
+- **Other stage side effects** (a TS port of `pipeline-transitions.js`): Phone Screen and Interviewing backfill Applied Date to today and set Follow-up +3 / +5 days; Offer, Rejected, Passed and Expired clear Follow-up; Expired adds `Marked Expired` when no note is sent; New clears Applied Date and Follow-up. Re-sending the row's current stage changes nothing but the other fields.
 
-Matching is by normalized job URL, falling back to company+title. Unknown rows return `404` (this contract updates existing rows only; discovery creates rows). Schema: `schemas/pipeline-update-request.v1.schema.json`; fixture: `examples/pipeline-update-request.v1.json`.
+Matching is by normalized job URL, falling back to company+title. The worker checks row 1 against `schemas/pipeline-row.v1.json`, holds its per-Sheet lock, re-reads the matched row by Link before writing, and writes only changed cells (text is formula-escaped).
+
+Responses: `200 {ok, updated, matched, matchedBy, row, rowNumber}`. Errors carry the `api-error.v1` fields `{error, code, detail?, nextStep, retryable}` (plus `ok: false` and `message` for v1 callers): `400 invalid_request`, `401 unauthorized`, `404 not_found` (this contract updates existing rows only; discovery creates rows), `409 header_mismatch` (a Pipeline column moved; nothing written), `409 ambiguous_match` (the job matches more than one row; nothing written), `502 sheet_write_failed` (`retryable: true`). Schemas: `schemas/pipeline-update-request.v2.schema.json` (current), `schemas/pipeline-update-request.v1.schema.json`; fixtures: `examples/pipeline-update-request.v2.json`, `examples/pipeline-update-request.v1.json`.
 
 ---
 

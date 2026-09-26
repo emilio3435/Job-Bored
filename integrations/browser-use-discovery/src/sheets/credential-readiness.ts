@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 
 import type { WorkerRuntimeConfig } from "../config.ts";
@@ -244,13 +245,78 @@ function invalidCredential(
   };
 }
 
+type ReadinessOptions = {
+  now?: () => Date;
+  fetchImpl?: FetchLike;
+  sheetId?: string;
+  /**
+   * Reuse a result for this long (BEAUDIT A8/D16). The key covers the
+   * credential's content and the Sheet id, so a changed credential is a new
+   * key. `/health` passes it; the discovery preflight checks live.
+   */
+  cacheTtlMs?: number;
+};
+
+type CachedReadiness = { value: SheetsCredentialReadiness; expiresAtMs: number };
+const readinessCache = new WeakMap<FetchLike, Map<string, CachedReadiness>>();
+
+async function fileFingerprint(filePath: string): Promise<string> {
+  if (!filePath) return "";
+  try {
+    return await readFile(filePath, "utf8");
+  } catch (error) {
+    return `unreadable:${formatError(error)}`;
+  }
+}
+
+async function readinessCacheKey(
+  runtimeConfig: WorkerRuntimeConfig,
+  sheetId: string,
+): Promise<string> {
+  const hash = createHash("sha256");
+  for (const part of [
+    asText(runtimeConfig.googleAccessToken),
+    asText(runtimeConfig.googleServiceAccountJson),
+    asText(runtimeConfig.googleServiceAccountFile),
+    await fileFingerprint(asText(runtimeConfig.googleServiceAccountFile)),
+    asText(runtimeConfig.googleOAuthTokenJson),
+    asText(runtimeConfig.googleOAuthTokenFile),
+    await fileFingerprint(asText(runtimeConfig.googleOAuthTokenFile)),
+    resolveProbeSheetId(sheetId),
+  ]) {
+    hash.update(part).update("\0");
+  }
+  return hash.digest("hex");
+}
+
 export async function validateSheetsCredentialReadiness(
   runtimeConfig: WorkerRuntimeConfig,
-  options: {
-    now?: () => Date;
-    fetchImpl?: FetchLike;
-    sheetId?: string;
-  } = {},
+  options: ReadinessOptions = {},
+): Promise<SheetsCredentialReadiness> {
+  const ttl = Number(options.cacheTtlMs) || 0;
+  if (ttl <= 0) return validateSheetsCredentialReadinessLive(runtimeConfig, options);
+  const now = options.now || (() => new Date());
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  let byKey = readinessCache.get(fetchImpl);
+  if (!byKey) {
+    byKey = new Map();
+    readinessCache.set(fetchImpl, byKey);
+  }
+  const key = await readinessCacheKey(runtimeConfig, options.sheetId || "");
+  const hit = byKey.get(key);
+  if (hit && hit.expiresAtMs > now().getTime()) return hit.value;
+  const value = await validateSheetsCredentialReadinessLive(runtimeConfig, {
+    ...options,
+    now,
+    fetchImpl,
+  });
+  byKey.set(key, { value, expiresAtMs: now().getTime() + ttl });
+  return value;
+}
+
+async function validateSheetsCredentialReadinessLive(
+  runtimeConfig: WorkerRuntimeConfig,
+  options: ReadinessOptions = {},
 ): Promise<SheetsCredentialReadiness> {
   const now = options.now || (() => new Date());
   const fetchImpl = options.fetchImpl || globalThis.fetch;

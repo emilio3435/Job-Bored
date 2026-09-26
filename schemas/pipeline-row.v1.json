@@ -4,6 +4,12 @@
   "description": "Descriptor for the Pipeline sheet tab: column letters, header labels, and constrained values where the UI enforces enums. schemaVersion 1. Authoritative UI enums: app.js renderCardActions (status), priority order objects, response select.",
   "schemaVersion": 1,
   "tabName": "Pipeline",
+  "discoveryMergeSemantics": {
+    "overwrite": "Discovery owns the cell: a re-discovered non-empty value replaces it.",
+    "lockable": "Discovery replaces the cell unless the row's Edit Lock (Y) names the field.",
+    "fillIfEmpty": "Discovery writes the cell only while it is empty; a user's value is kept.",
+    "preserve": "Discovery never writes the cell on a re-discovered row."
+  },
   "headerRow": [
     "Date Found",
     "Title",
@@ -37,56 +43,64 @@
       "letter": "A",
       "headerLabel": "Date Found",
       "type": "date",
-      "sheetIndex": 0
+      "sheetIndex": 0,
+      "discoveryMerge": "fillIfEmpty"
     },
     {
       "id": "title",
       "letter": "B",
       "headerLabel": "Title",
       "type": "string",
-      "sheetIndex": 1
+      "sheetIndex": 1,
+      "discoveryMerge": "lockable"
     },
     {
       "id": "company",
       "letter": "C",
       "headerLabel": "Company",
       "type": "string",
-      "sheetIndex": 2
+      "sheetIndex": 2,
+      "discoveryMerge": "lockable"
     },
     {
       "id": "location",
       "letter": "D",
       "headerLabel": "Location",
       "type": "string",
-      "sheetIndex": 3
+      "sheetIndex": 3,
+      "discoveryMerge": "lockable"
     },
     {
       "id": "link",
       "letter": "E",
       "headerLabel": "Link",
       "type": "string",
-      "sheetIndex": 4
+      "sheetIndex": 4,
+      "discoveryMerge": "overwrite"
     },
     {
       "id": "source",
       "letter": "F",
       "headerLabel": "Source",
       "type": "string",
-      "sheetIndex": 5
+      "sheetIndex": 5,
+      "discoveryMerge": "fillIfEmpty"
     },
     {
       "id": "salary",
       "letter": "G",
       "headerLabel": "Salary",
       "type": "string",
-      "sheetIndex": 6
+      "sheetIndex": 6,
+      "discoveryMerge": "lockable"
     },
     {
       "id": "fitScore",
       "letter": "H",
       "headerLabel": "Fit Score",
       "type": "number",
-      "sheetIndex": 7
+      "sheetIndex": 7,
+      "discoveryMerge": "overwrite"
     },
     {
       "id": "priority",
@@ -94,6 +108,7 @@
       "headerLabel": "Priority",
       "type": "string",
       "sheetIndex": 8,
+      "discoveryMerge": "fillIfEmpty",
       "enum": ["🔥", "⚡", "—", "↓"],
       "emptyAllowed": true
     },
@@ -102,21 +117,24 @@
       "letter": "J",
       "headerLabel": "Tags",
       "type": "string",
-      "sheetIndex": 9
+      "sheetIndex": 9,
+      "discoveryMerge": "fillIfEmpty"
     },
     {
       "id": "fitAssessment",
       "letter": "K",
       "headerLabel": "Fit Assessment",
       "type": "string",
-      "sheetIndex": 10
+      "sheetIndex": 10,
+      "discoveryMerge": "fillIfEmpty"
     },
     {
       "id": "contact",
       "letter": "L",
       "headerLabel": "Contact",
       "type": "string",
-      "sheetIndex": 11
+      "sheetIndex": 11,
+      "discoveryMerge": "fillIfEmpty"
     },
     {
       "id": "status",
@@ -124,6 +142,7 @@
       "headerLabel": "Status",
       "type": "string",
       "sheetIndex": 12,
+      "discoveryMerge": "fillIfEmpty",
       "enum": [
         "New",
         "Researching",
@@ -142,28 +161,32 @@
       "letter": "N",
       "headerLabel": "Applied Date",
       "type": "date",
-      "sheetIndex": 13
+      "sheetIndex": 13,
+      "discoveryMerge": "preserve"
     },
     {
       "id": "notes",
       "letter": "O",
       "headerLabel": "Notes",
       "type": "string",
-      "sheetIndex": 14
+      "sheetIndex": 14,
+      "discoveryMerge": "preserve"
     },
     {
       "id": "followUpDate",
       "letter": "P",
       "headerLabel": "Follow-up Date",
       "type": "date",
-      "sheetIndex": 15
+      "sheetIndex": 15,
+      "discoveryMerge": "preserve"
     },
     {
       "id": "talkingPoints",
       "letter": "Q",
       "headerLabel": "Talking Points",
       "type": "string",
-      "sheetIndex": 16
+      "sheetIndex": 16,
+      "discoveryMerge": "fillIfEmpty"
     },
     {
       "id": "lastHeardFrom",
@@ -171,6 +194,7 @@
       "headerLabel": "Last contact",
       "type": "string",
       "sheetIndex": 17,
+      "discoveryMerge": "preserve",
       "optionalColumn": true
     },
     {
@@ -179,6 +203,7 @@
       "headerLabel": "Did they reply?",
       "type": "string",
       "sheetIndex": 18,
+      "discoveryMerge": "preserve",
       "enum": ["Yes", "No", "Unknown"],
       "emptyAllowed": true,
       "optionalColumn": true
@@ -189,6 +214,7 @@
       "headerLabel": "Logo URL",
       "type": "string",
       "sheetIndex": 19,
+      "discoveryMerge": "overwrite",
       "optionalColumn": true
     },
     {
@@ -197,6 +223,7 @@
       "headerLabel": "Match Score",
       "type": "number",
       "sheetIndex": 20,
+      "discoveryMerge": "overwrite",
       "optionalColumn": true
     },
     {
@@ -205,6 +232,7 @@
       "headerLabel": "Favorite",
       "type": "string",
       "sheetIndex": 21,
+      "discoveryMerge": "fillIfEmpty",
       "optionalColumn": true
     },
     {
@@ -213,6 +241,7 @@
       "headerLabel": "Dismissed At",
       "type": "string",
       "sheetIndex": 22,
+      "discoveryMerge": "fillIfEmpty",
       "optionalColumn": true
     },
     {
@@ -221,6 +250,7 @@
       "headerLabel": "Approval Status",
       "type": "string",
       "sheetIndex": 23,
+      "discoveryMerge": "fillIfEmpty",
       "description": "Gate 1 approval marker for the JHOS apply flow. Set to 'Approved' by Emilio in the Pipeline tab before an agent may advance an apply card. Workers read this field to determine whether submission is permitted.",
       "optionalColumn": true
     },
@@ -230,6 +260,7 @@
       "headerLabel": "Edit Lock",
       "type": "string",
       "sheetIndex": 24,
+      "discoveryMerge": "preserve",
       "description": "Comma-separated, de-duplicated list of user-locked field ids drawn from {title,company,location,salary}, e.g. 'title,salary'. Written by the dashboard when a user edits an identity field. mergeExistingRow preserves the locked columns (title:1, company:2, location:3, salary:6) against re-discovery for that row only; untouched/locked-elsewhere identity fields keep improving. Empty/absent => no lock => byte-identical pre-change discovery behavior.",
       "optionalColumn": true
     }

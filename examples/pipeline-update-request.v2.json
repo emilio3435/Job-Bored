@@ -1,0 +1,12 @@
+{
+  "event": "command-center.pipeline-update",
+  "schemaVersion": 2,
+  "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+  "job": { "url": "https://boards.greenhouse.io/acme/jobs/12345" },
+  "fields": {
+    "stage": "Applied",
+    "appliedDate": "2026-09-25",
+    "source": "Company portal",
+    "note": "Receipt R-17"
+  }
+}

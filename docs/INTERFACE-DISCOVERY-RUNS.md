@@ -47,6 +47,8 @@ export const DISCOVERY_RUNS_HEADER_ROW = [
 
 The worker ensures the tab + header exist on first append (create-if-missing). Reuse the Sheets API client that already writes Pipeline.
 
+Only a `400` "Unable to parse range" on the header read means the tab is missing; a `401`, `403`, `429` or `5xx` is reported as a failed log write and never creates a tab. A tab that still carries the first 9-column header (`Leads Written`, no `Leads Updated`) is migrated in one write: the new header, and each old row with an empty `Leads Updated` at G, so old rows keep reading correctly (BEAUDIT D13).
+
 ---
 
 ## 2. Trigger enum

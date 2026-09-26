@@ -21,6 +21,10 @@ import {
 } from "../contracts.ts";
 import type { DiscoveryRunStatusPayload } from "../contracts.ts";
 import { resolveAccessToken } from "./pipeline-writer.ts";
+import {
+  isLegacyDiscoveryRunsHeader,
+  migrateLegacyDiscoveryRunsTab,
+} from "./discovery-runs-legacy.ts";
 
 type FetchLike = typeof fetch;
 
@@ -444,14 +448,24 @@ async function ensureTabExists(
         (cell, index) => String(existingRow[index] || "").trim() === cell,
       );
     if (headerMatches) return { ok: true, created: false };
+    // BEAUDIT D13: a legacy 9-column tab moves its rows with the header.
+    if (isLegacyDiscoveryRunsHeader(existingRow)) {
+      const migrated = await migrateLegacyDiscoveryRunsTab(sheetId, token, fetchImpl);
+      if (!migrated.ok) return migrated;
+      return { ok: true, created: false };
+    }
     // Tab exists but header is missing or wrong — (re)write the header row.
     const writeHeader = await writeHeaderRow(sheetId, token, fetchImpl);
     if (!writeHeader.ok) return writeHeader;
     return { ok: true, created: false };
   }
 
+  // BEAUDIT D13: only 400 "Unable to parse range" means the tab is missing;
+  // 401/403/429 are auth or quota answers and must not create a tab.
+  const missingTabDetail =
+    headerResponse.status === 400 ? await headerResponse.clone().text().catch(() => "") : "";
   // 4xx typically means the tab doesn't exist yet — create it then write header.
-  if (headerResponse.status >= 400 && headerResponse.status < 500) {
+  if (headerResponse.status === 400 && /Unable to parse range/i.test(missingTabDetail)) {
     const created = await addSheetTab(sheetId, token, fetchImpl);
     if (!created.ok) return created;
     log?.("discovery.runs_log.tab_created", {
