@@ -713,12 +713,14 @@
   }
 
   /* E4: the JobBored API transport. Attaches the hosted token when
-     hosted-api-auth.js is loaded; plain fetch otherwise. */
+     hosted-api-auth.js is loaded; otherwise window.fetch, as before. */
   function apiFetch(url, init) {
     const scope = typeof window !== "undefined" ? window : null;
     const auth = scope && scope.JobBoredHostedApiAuth;
     if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
-    return fetch(url, init);
+    const fallback =
+      scope && typeof scope.fetch === "function" ? scope.fetch : fetch;
+    return fallback(url, init);
   }
 
   async function postFitProfile(payload) {
