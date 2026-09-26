@@ -242,10 +242,12 @@
     coverLetterTemplateId: "cover_classic_paragraphs",
     resumeTemplateId: "resume_traditional_sections",
     profileMergePreference: "merge",
-    /** Keep in sync with visual-themes.js default id. */
-    visualThemeId: "classic",
     /** Materials template family (server/materials-templates.mjs DEFAULT_FAMILY). */
     materialsTemplate: "signal",
+    /** Preview accent (render-model template.accent; every family lists volt and ink). */
+    materialsAccent: "volt",
+    /** Preview density (render-model template.density; families list standard only). */
+    materialsDensity: "standard",
   };
 
   /**
@@ -284,6 +286,72 @@
       ? id
       : DEFAULT_PREFERENCES.materialsTemplate;
   }
+
+  /**
+   * The preview accent knob. The render-model schema allows volt and ink and
+   * every initial family lists both (visual spec §9), so the set is closed.
+   */
+  const MATERIALS_ACCENTS = Object.freeze([
+    Object.freeze({
+      id: "volt",
+      label: "Volt",
+      description: "The default electric indigo accent.",
+    }),
+    Object.freeze({
+      id: "ink",
+      label: "Ink",
+      description:
+        "Near-black; survives grayscale and backgrounds-off printing.",
+    }),
+  ]);
+
+  /**
+   * The preview density knob. The render-model schema allows air, standard
+   * and tight, but every initial family is tuned by hand to fill one page and
+   * lists standard only, so the select offers just that until a family lists
+   * a second density.
+   */
+  const MATERIALS_DENSITIES = Object.freeze([
+    Object.freeze({
+      id: "standard",
+      label: "Standard",
+      description: "The density every family is tuned for.",
+    }),
+  ]);
+
+  /** @param {unknown} value */
+  function normalizeMaterialsAccent(value) {
+    const id = String(value == null ? "" : value).trim();
+    return MATERIALS_ACCENTS.some((a) => a.id === id)
+      ? id
+      : DEFAULT_PREFERENCES.materialsAccent;
+  }
+
+  /** @param {unknown} value */
+  function normalizeMaterialsDensity(value) {
+    const id = String(value == null ? "" : value).trim();
+    return MATERIALS_DENSITIES.some((d) => d.id === id)
+      ? id
+      : DEFAULT_PREFERENCES.materialsDensity;
+  }
+
+  /**
+   * Slice 7: one-time migration for the retired `visualThemeId` preview
+   * themes. Only fills keys the stored record does not already set, so an
+   * explicit template or accent choice always wins. Serif emphasis is the
+   * editorial look (Bodoni display type); muted and high contrast map to the
+   * ink accent; compactness as a theme is retired (density stays standard).
+   */
+  const VISUAL_THEME_MIGRATION = Object.freeze({
+    classic: Object.freeze({ materialsTemplate: "signal" }),
+    compact: Object.freeze({ materialsTemplate: "signal" }),
+    serif_emphasis: Object.freeze({ materialsTemplate: "editorial" }),
+    muted: Object.freeze({ materialsTemplate: "signal", materialsAccent: "ink" }),
+    high_contrast: Object.freeze({
+      materialsTemplate: "signal",
+      materialsAccent: "ink",
+    }),
+  });
   const LINKEDIN_PROFILE_MAX_CHARS = 24000;
   const ADDITIONAL_CONTEXT_MAX_CHARS = 40000;
 
@@ -1248,9 +1316,10 @@
 
   async function getPreferences() {
     const p = await getSetting("preferences");
+    const stored = p && typeof p === "object" ? p : {};
     const merged = {
       ...DEFAULT_PREFERENCES,
-      ...(p && typeof p === "object" ? p : {}),
+      ...stored,
     };
     const pref = String(merged.profileMergePreference || "").trim();
     if (
@@ -1261,7 +1330,24 @@
       merged.profileMergePreference =
         DEFAULT_PREFERENCES.profileMergePreference;
     }
+    /* Retired key: migrate a stored visualThemeId once, then drop it. An
+       explicitly stored template or accent always wins over the migration. */
+    if (stored.visualThemeId != null) {
+      const migration =
+        VISUAL_THEME_MIGRATION[String(stored.visualThemeId).trim()] || null;
+      if (migration) {
+        if (stored.materialsTemplate == null && migration.materialsTemplate) {
+          merged.materialsTemplate = migration.materialsTemplate;
+        }
+        if (stored.materialsAccent == null && migration.materialsAccent) {
+          merged.materialsAccent = migration.materialsAccent;
+        }
+      }
+    }
+    delete merged.visualThemeId;
     merged.materialsTemplate = normalizeMaterialsTemplate(merged.materialsTemplate);
+    merged.materialsAccent = normalizeMaterialsAccent(merged.materialsAccent);
+    merged.materialsDensity = normalizeMaterialsDensity(merged.materialsDensity);
     return merged;
   }
 
@@ -1287,7 +1373,19 @@
           ? partial.materialsTemplate
           : cur.materialsTemplate,
       ),
+      materialsAccent: normalizeMaterialsAccent(
+        partial && partial.materialsAccent != null
+          ? partial.materialsAccent
+          : cur.materialsAccent,
+      ),
+      materialsDensity: normalizeMaterialsDensity(
+        partial && partial.materialsDensity != null
+          ? partial.materialsDensity
+          : cur.materialsDensity,
+      ),
     };
+    /* The retired key is never written again, even when an old caller passes it. */
+    delete next.visualThemeId;
     await setSetting("preferences", next);
     return next;
   }
@@ -1455,6 +1553,10 @@
     DEFAULT_PREFERENCES,
     MATERIALS_TEMPLATE_FAMILIES,
     normalizeMaterialsTemplate,
+    MATERIALS_ACCENTS,
+    normalizeMaterialsAccent,
+    MATERIALS_DENSITIES,
+    normalizeMaterialsDensity,
     LINKEDIN_PROFILE_MAX_CHARS,
     normalizeLinkedInProfile,
     getLinkedInProfile,
