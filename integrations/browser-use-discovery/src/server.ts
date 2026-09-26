@@ -63,6 +63,11 @@ import {
   recoverAbandonedRuns,
 } from "./webhook/boot-recovery.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
+import { resolveWorkerIdentityFields } from "./worker-identity.ts";
+
+// BEAUDIT G7: checkout identity, resolved once — launchers reuse or kill only
+// a worker whose repoRoot equals their own checkout.
+const workerIdentity = resolveWorkerIdentityFields(import.meta.url, process.env);
 
 const runtimeConfig = loadRuntimeConfig(process.env);
 const sessionManager = createBrowserUseSessionManager(runtimeConfig);
@@ -740,6 +745,9 @@ async function buildHealthPayload() {
   return {
     status: "ok",
     service: "browser-use-discovery-worker",
+    repoRoot: workerIdentity.repoRoot,
+    version: workerIdentity.version,
+    envSources: workerIdentity.envSources,
     mode: runtimeConfig.runMode,
     asyncAckByDefault: runtimeConfig.asyncAckByDefault,
     routes: {

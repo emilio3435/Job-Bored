@@ -11,10 +11,13 @@
  */
 
 /**
- * @param {{ existingHealthy: boolean, restartExisting: boolean, portBound?: boolean }} input
+ * @param {{ existingHealthy: boolean, restartExisting: boolean, portBound?: boolean, foreignCheckout?: boolean }} input
  * @returns {"start" | "reuse" | "restart" | "hold_foreign"}
  */
-export function decideExistingWorkerAction({ existingHealthy, restartExisting, portBound = false }) {
+export function decideExistingWorkerAction({ existingHealthy, restartExisting, portBound = false, foreignCheckout = false }) {
+  // BEAUDIT G7: a healthy worker from another checkout is never reused or
+  // restarted from here — hold and report it.
+  if (existingHealthy && foreignCheckout) return "hold_foreign";
   if (!existingHealthy) {
     // BEAUDIT G5: the port answers but it is not the worker (Hermes
     // gateway, another checkout). Spawning anyway dies with EADDRINUSE and

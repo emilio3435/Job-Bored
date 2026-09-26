@@ -33,6 +33,7 @@ import {
 import {
   buildWorkerSpawnCommand,
   describePortOwner,
+  probeWorkerIdentity,
 } from "../scripts/start-discovery-worker-local.mjs";
 
 describe("G5 starter policy — foreign listener on the worker port", () => {
@@ -120,6 +121,66 @@ describe("G6 residual — hold-watch needs consecutive failures plus a free port
   });
 });
 
+describe("G7 starter policy — a healthy worker from another checkout is foreign", () => {
+  it("holds instead of reusing or restarting a foreign worker", () => {
+    assert.equal(
+      decideExistingWorkerAction({ existingHealthy: true, restartExisting: false, foreignCheckout: true }),
+      "hold_foreign",
+    );
+    assert.equal(
+      decideExistingWorkerAction({ existingHealthy: true, restartExisting: true, foreignCheckout: true }),
+      "hold_foreign",
+    );
+  });
+
+  it("reuses our own healthy worker as before", () => {
+    assert.equal(
+      decideExistingWorkerAction({ existingHealthy: true, restartExisting: false, foreignCheckout: false }),
+      "reuse",
+    );
+  });
+});
+
+describe("G7 worker identity probe", () => {
+  it("reads repoRoot and version from /health", async () => {
+    const worker = createServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          status: "ok",
+          service: "browser-use-discovery-worker",
+          repoRoot: "/Users/someone/Other-Checkout",
+          version: "0.1.0",
+        }),
+      );
+    });
+    await new Promise((resolve) => worker.listen(0, "127.0.0.1", resolve));
+    try {
+      const identity = await probeWorkerIdentity("127.0.0.1", worker.address().port);
+      assert.equal(identity.healthy, true);
+      assert.equal(identity.repoRoot, "/Users/someone/Other-Checkout");
+      assert.equal(identity.version, "0.1.0");
+    } finally {
+      await new Promise((resolve) => worker.close(resolve));
+    }
+  });
+
+  it("reports unhealthy with empty identity for a non-worker listener", async () => {
+    const foreign = createServer((req, res) => {
+      res.writeHead(404, { "content-type": "text/plain" });
+      res.end("hermes gateway");
+    });
+    await new Promise((resolve) => foreign.listen(0, "127.0.0.1", resolve));
+    try {
+      const identity = await probeWorkerIdentity("127.0.0.1", foreign.address().port);
+      assert.equal(identity.healthy, false);
+      assert.equal(identity.repoRoot, "");
+    } finally {
+      await new Promise((resolve) => foreign.close(resolve));
+    }
+  });
+});
+
 describe("G12 starter half — spawn the running Node, not PATH node", () => {
   it("builds the worker spawn from process.execPath", () => {
     const { command, args } = buildWorkerSpawnCommand();
@@ -183,6 +244,67 @@ describe("G5 behavior — starter holds (not exits) when a foreign listener owns
         await sleep(200);
       }
       await new Promise((resolve) => foreign.close(resolve));
+      rmSync(homeDir, { recursive: true, force: true });
+      rmSync(cwdDir, { recursive: true, force: true });
+    }
+  });
+
+  it("holds and names the checkout when a healthy worker from another checkout owns the port", async () => {
+    const otherCheckout = "/Users/someone/Other-Checkout.worktrees/ux01";
+    const worker = createServer((req, res) => {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          status: "ok",
+          service: "browser-use-discovery-worker",
+          repoRoot: otherCheckout,
+          version: "0.1.0",
+        }),
+      );
+    });
+    await new Promise((resolve) => worker.listen(0, "127.0.0.1", resolve));
+    const port = worker.address().port;
+    const homeDir = mkdtempSync(join(tmpdir(), "jobbored-g7-home-"));
+    const cwdDir = mkdtempSync(join(tmpdir(), "jobbored-g7-cwd-"));
+    let child = null;
+    try {
+      const starterPath = new URL("../scripts/start-discovery-worker-local.mjs", import.meta.url);
+      let output = "";
+      child = spawn(process.execPath, [starterPath.pathname], {
+        cwd: cwdDir,
+        env: {
+          ...process.env,
+          HOME: homeDir,
+          BROWSER_USE_DISCOVERY_PORT: String(port),
+          BROWSER_USE_DISCOVERY_WEBHOOK_SECRET: "probe-secret",
+        },
+        stdio: ["ignore", "pipe", "pipe"],
+      });
+      child.stdout.on("data", (chunk) => {
+        output += chunk.toString("utf8");
+      });
+      child.stderr.on("data", (chunk) => {
+        output += chunk.toString("utf8");
+      });
+      const exited = await Promise.race([
+        new Promise((resolve) => child.on("exit", (code) => resolve(code))),
+        sleep(6000).then(() => null),
+      ]);
+      assert.equal(
+        exited,
+        null,
+        `starter must hold, not exit or reuse, a foreign checkout's worker (exited ${exited}):\n${output}`,
+      );
+      assert.match(output, /another checkout/);
+      assert.match(output, /Other-Checkout/);
+      assert.match(output, /holding so the dev stack survives/);
+      assert.doesNotMatch(output, /reusing existing process/);
+    } finally {
+      if (child && child.exitCode == null) {
+        child.kill("SIGKILL");
+        await sleep(200);
+      }
+      await new Promise((resolve) => worker.close(resolve));
       rmSync(homeDir, { recursive: true, force: true });
       rmSync(cwdDir, { recursive: true, force: true });
     }

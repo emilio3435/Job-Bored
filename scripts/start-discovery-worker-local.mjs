@@ -252,23 +252,49 @@ function updateBootstrapWorkerPid(pid) {
   return record.workerPid;
 }
 
-async function probeExistingWorker(host, port) {
+/**
+ * BEAUDIT G7: probe /health for liveness AND checkout identity.
+ * Returns { healthy, repoRoot, version } — repoRoot/version are "" when the
+ * listener is not a worker or predates identity (legacy).
+ */
+async function probeWorkerIdentity(host, port) {
   const signal = createTimeoutSignal(1000);
   try {
     const res = await fetch(`http://${host}:${port}/health`, {
       method: "GET",
       signal: signal || undefined,
     });
-    if (!res.ok) return false;
+    if (!res.ok) return { healthy: false, repoRoot: "", version: "" };
     const payload = await res.json().catch(() => null);
-    return (
+    const healthy =
       !!payload &&
       String(payload.status || "").toLowerCase() === "ok" &&
-      String(payload.service || "").toLowerCase() === "browser-use-discovery-worker"
-    );
+      String(payload.service || "").toLowerCase() === "browser-use-discovery-worker";
+    return {
+      healthy,
+      repoRoot:
+        payload && typeof payload.repoRoot === "string" ? payload.repoRoot.trim() : "",
+      version:
+        payload && typeof payload.version === "string" ? payload.version.trim() : "",
+    };
   } catch {
-    return false;
+    return { healthy: false, repoRoot: "", version: "" };
   }
+}
+
+async function probeExistingWorker(host, port) {
+  return (await probeWorkerIdentity(host, port)).healthy;
+}
+
+function normalizeStarterRepoRoot(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+/** BEAUDIT G7: only a repoRoot that disagrees proves foreign; legacy "" never does. */
+function isForeignCheckoutRepoRoot(claimedRepoRoot) {
+  const claimed = normalizeStarterRepoRoot(claimedRepoRoot);
+  if (!claimed) return false;
+  return claimed !== normalizeStarterRepoRoot(repoRoot);
 }
 
 /**
@@ -660,6 +686,50 @@ async function terminateWorkerListenersOnPort(port) {
   };
 }
 
+/**
+ * BEAUDIT G5/G7: report a foreign port owner and hold so the dev stack
+ * survives. checkoutRepoRoot names the other checkout when the owner is a
+ * healthy worker from elsewhere (G7); otherwise the lsof owner lines name
+ * the process (G5).
+ */
+function holdForForeignListener(
+  runtimeEnv,
+  host,
+  port,
+  { checkoutRepoRoot = "", checkoutVersion = "" } = {},
+) {
+  const owner = describePortOwner(port);
+  if (checkoutRepoRoot) {
+    console.warn(
+      `[start:discovery-worker] port ${port} is served by a discovery worker from another checkout (${checkoutRepoRoot}${checkoutVersion ? `, version ${checkoutVersion}` : ""}) — not reusing or restarting it from here.`,
+    );
+  } else {
+    console.warn(
+      `[start:discovery-worker] port ${port} is held by another process, not the discovery worker — spawning would die with EADDRINUSE.`,
+    );
+  }
+  const ownerLines = checkoutRepoRoot
+    ? [`worker checkout: ${checkoutRepoRoot}`, ...owner.lines]
+    : owner.lines;
+  // In the foreign-checkout case the tick must only "see" OUR worker —
+  // otherwise it would hand the hold to the foreign one it just refused.
+  const probeOurs = checkoutRepoRoot
+    ? async (probeHost, probePort) => {
+        const identity = await probeWorkerIdentity(probeHost, probePort);
+        return identity.healthy && !isForeignCheckoutRepoRoot(identity.repoRoot);
+      }
+    : undefined;
+  holdProcessOpenForForeignListener(host, port, {
+    ownerLines,
+    ...(probeOurs ? { probeExistingWorker: probeOurs } : {}),
+    onPortFree: () => superviseWorker(runtimeEnv, host, port),
+    onWorkerHealthy: () =>
+      holdProcessOpenForExistingWorker(host, port, {
+        onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+      }),
+  });
+}
+
 async function main() {
   const runtimeEnv = resolveRuntimeEnv();
   const host = String(runtimeEnv.BROWSER_USE_DISCOVERY_HOST || "127.0.0.1");
@@ -672,12 +742,16 @@ async function main() {
   }
 
   if (Number.isFinite(port) && port > 0) {
-    const existingHealthy = await probeExistingWorker(host, port);
+    const identity = await probeWorkerIdentity(host, port);
+    const existingHealthy = identity.healthy;
     const { restartExisting } = parseStarterOptions(process.argv.slice(2), runtimeEnv);
     // BEAUDIT G5: the port may answer without being the worker. Ask over
     // HTTP (works without lsof) whether anything is bound before spawning.
     const portBound = existingHealthy ? true : await isPortBound(host, port);
-    const action = decideExistingWorkerAction({ existingHealthy, restartExisting, portBound });
+    // BEAUDIT G7: a healthy worker from another checkout is foreign — never
+    // reused or restarted from here.
+    const foreignCheckout = existingHealthy && isForeignCheckoutRepoRoot(identity.repoRoot);
+    const action = decideExistingWorkerAction({ existingHealthy, restartExisting, portBound, foreignCheckout });
     if (action === "reuse") {
       holdProcessOpenForExistingWorker(host, port, {
         onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
@@ -685,17 +759,9 @@ async function main() {
       return;
     }
     if (action === "hold_foreign") {
-      const owner = describePortOwner(port);
-      console.warn(
-        `[start:discovery-worker] port ${port} is held by another process, not the discovery worker — spawning would die with EADDRINUSE.`,
-      );
-      holdProcessOpenForForeignListener(host, port, {
-        ownerLines: owner.lines,
-        onPortFree: () => superviseWorker(runtimeEnv, host, port),
-        onWorkerHealthy: () =>
-          holdProcessOpenForExistingWorker(host, port, {
-            onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
-          }),
+      holdForForeignListener(runtimeEnv, host, port, {
+        checkoutRepoRoot: foreignCheckout ? identity.repoRoot : "",
+        checkoutVersion: foreignCheckout ? identity.version : "",
       });
       return;
     }
@@ -770,27 +836,18 @@ function superviseWorker(runtimeEnv, host, port) {
       // pre-spawn check and this spawn. A crash exit with a foreign listener
       // on the port holds (never the EADDRINUSE exit that kills the stack).
       if (!shuttingDown && !signal && code) {
+        const identity = await probeWorkerIdentity(host, port);
+        const foreignCheckout =
+          identity.healthy && isForeignCheckoutRepoRoot(identity.repoRoot);
         const foreignBound =
-          !(await probeExistingWorker(host, port)) &&
-          (await isPortBound(host, port));
+          foreignCheckout || (!identity.healthy && (await isPortBound(host, port)));
         if (foreignBound) {
-          const owner = describePortOwner(port);
           console.warn(
-            `[start:discovery-worker] worker exited (code=${code}) and port ${port} is held by another process, not the discovery worker.`,
+            `[start:discovery-worker] worker exited (code=${code}); holding for the foreign listener on port ${port}.`,
           );
-          holdProcessOpenForForeignListener(host, port, {
-            ownerLines: owner.lines,
-            onPortFree: () => {
-              respawns = 0;
-              spawnOnce();
-            },
-            onWorkerHealthy: () =>
-              holdProcessOpenForExistingWorker(host, port, {
-                onWorkerGone: () => {
-                  respawns = 0;
-                  spawnOnce();
-                },
-              }),
+          holdForForeignListener(runtimeEnv, host, port, {
+            checkoutRepoRoot: foreignCheckout ? identity.repoRoot : "",
+            checkoutVersion: foreignCheckout ? identity.version : "",
           });
           return;
         }
@@ -880,6 +937,7 @@ export {
   buildWorkerSpawnCommand,
   describePortOwner,
   holdProcessOpenForForeignListener,
+  probeWorkerIdentity,
   resolveLiveListenerOwnerPid,
   resolveWorkerPidRecord,
 };

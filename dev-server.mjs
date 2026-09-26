@@ -413,6 +413,23 @@ function classifyDiscoveryWorkerHealthResponse(response, port) {
   };
 
   if (isExpectedDiscoveryWorkerPayload(payload) && response.ok) {
+    // BEAUDIT G7: healthy, but is it OURS? A worker from another checkout
+    // must be reported, never reused or killed from here. Legacy workers
+    // without repoRoot keep the old reuse behavior.
+    const repoRoot =
+      payload && typeof payload.repoRoot === "string" ? payload.repoRoot.trim() : "";
+    if (repoRoot && normalizeCheckoutRoot(repoRoot) !== normalizeCheckoutRoot(ROOT)) {
+      return {
+        ok: false,
+        ...base,
+        reason: "foreign_checkout",
+        repoRoot,
+        workerVersion: payload && typeof payload.version === "string" ? payload.version : "",
+        message: `Port ${base.port} is served by a discovery worker from another checkout (${repoRoot}).`,
+        payload,
+        response,
+      };
+    }
     return {
       ok: true,
       ...base,
@@ -626,6 +643,7 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
       statusCode: before.statusCode,
       service: before.service,
       workerStatus: before.workerStatus,
+      ...(before.repoRoot ? { repoRoot: before.repoRoot } : {}),
       message:
         before.message ||
         `Port ${resolvedPort} is occupied by a process that is not the discovery worker.`,
@@ -1161,6 +1179,38 @@ function isKnownJobBoredWorkerCommand(command) {
   );
 }
 
+// BEAUDIT G7: ROOT carries a trailing slash (it is a dir URL); the worker's
+// repoRoot does not. Compare normalized so our own worker is never foreign.
+function normalizeCheckoutRoot(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+/**
+ * BEAUDIT G7: which checkout does this process command belong to? Compares
+ * the absolute <checkout>/integrations/browser-use-discovery/ path named in
+ * the command against this ROOT. Null means "unknown" (no path, or a
+ * relative one the starter legitimately spawns) — then the /health repoRoot
+ * decides, and legacy workers without one keep the old behavior.
+ */
+export function commandBelongsToForeignCheckout(command, root = ROOT) {
+  const text = String(command || "");
+  const marker = "integrations/browser-use-discovery/";
+  const at = text.indexOf(marker);
+  if (at < 0) return null;
+  const token = text
+    .slice(0, at)
+    .split(/\s+/)
+    .filter(Boolean)
+    .pop();
+  if (!token) return null;
+  // A relative token ("integrations/...") is what our own starter spawns —
+  // it proves nothing either way.
+  if (!token.startsWith("/") && !/^[A-Za-z]:[\\/]/.test(token)) return null;
+  const checkout = normalizeCheckoutRoot(token);
+  if (!checkout) return null;
+  return checkout !== normalizeCheckoutRoot(root);
+}
+
 function isKnownNgrokCommandForPort(command, workerPort) {
   const text = String(command || "").toLowerCase();
   if (!text.includes("ngrok")) return false;
@@ -1179,6 +1229,30 @@ function isKnownManagedListener(processInfo, port, workerPort) {
   return false;
 }
 
+/**
+ * BEAUDIT G7: who owns the worker on this port — us or another checkout?
+ * Probes /health once and compares its repoRoot to this ROOT. { foreign,
+ * repoRoot }; repoRoot "" means unknown (nothing answering, or a legacy
+ * worker without identity), and unknown keeps the legacy kill behavior.
+ */
+async function defaultWorkerPortOwnership(port) {
+  try {
+    const health = await probeDiscoveryWorkerHealth(port);
+    const payload = health && health.payload ? health.payload : null;
+    const repoRoot =
+      payload && typeof payload.repoRoot === "string" ? payload.repoRoot.trim() : "";
+    if (repoRoot) {
+      return {
+        foreign: normalizeCheckoutRoot(repoRoot) !== normalizeCheckoutRoot(ROOT),
+        repoRoot,
+      };
+    }
+  } catch {
+    // fall through to unknown
+  }
+  return { foreign: false, repoRoot: "" };
+}
+
 async function terminateKnownStaleListeners({
   ports = [DEFAULT_DISCOVERY_WORKER_PORT, 4040],
   workerPort = DEFAULT_DISCOVERY_WORKER_PORT,
@@ -1187,11 +1261,19 @@ async function terminateKnownStaleListeners({
   findProcesses = listListeningProcesses,
   killPid = (pid) => process.kill(pid, "SIGTERM"),
   waitAfterKillMs = 600,
+  resolveWorkerOwnership = defaultWorkerPortOwnership,
 } = {}) {
   const killedProcesses = [];
   const blocked = [];
   const warnings = [];
   let skippedHealthyWorker = false;
+  const ownershipByPort = new Map();
+  const ownershipFor = async (port) => {
+    if (!ownershipByPort.has(port)) {
+      ownershipByPort.set(port, await resolveWorkerOwnership(port));
+    }
+    return ownershipByPort.get(port);
+  };
 
   for (const port of ports) {
     if (port === healthyDiscoveryWorkerPort) {
@@ -1227,6 +1309,28 @@ async function terminateKnownStaleListeners({
         });
         continue;
       }
+      if (port === workerPort) {
+        // BEAUDIT G7: a worker-command match is not enough — verify the
+        // listener belongs to THIS checkout before killing. /health repoRoot
+        // decides; when it is unknown (legacy worker), a checkout path in
+        // the command is the fallback signal.
+        const ownership = await ownershipFor(port);
+        const foreignByIdentity = !!(ownership && ownership.foreign);
+        const foreignByCommand =
+          !(ownership && ownership.repoRoot) &&
+          commandBelongsToForeignCheckout(command) === true;
+        if (foreignByIdentity || foreignByCommand) {
+          const where =
+            ownership && ownership.repoRoot ? ` (${ownership.repoRoot})` : "";
+          blocked.push({
+            port,
+            pid,
+            command,
+            action: `Worker belongs to another checkout${where}; stop it there instead of killing it from here.`,
+          });
+          continue;
+        }
+      }
       try {
         killPid(pid);
         killedProcesses.push({ port, pid, command });
@@ -1256,6 +1360,7 @@ export async function killFullBootStalePorts({
   findProcesses = listListeningProcesses,
   killPid = (pid) => process.kill(pid, "SIGTERM"),
   waitAfterKillMs = 600,
+  resolveWorkerOwnership,
 } = {}) {
   return terminateKnownStaleListeners({
     ports,
@@ -1265,6 +1370,7 @@ export async function killFullBootStalePorts({
     findProcesses,
     killPid,
     waitAfterKillMs,
+    ...(resolveWorkerOwnership ? { resolveWorkerOwnership } : {}),
   });
 }
 
@@ -2292,7 +2398,8 @@ async function handleDiscoveryState(req, res, options = {}) {
     workerHealth &&
     (workerHealth.reason === "wrong_service" ||
       workerHealth.reason === "invalid_health_response" ||
-      workerHealth.reason === "worker_unhealthy")
+      workerHealth.reason === "worker_unhealthy" ||
+      workerHealth.reason === "foreign_checkout")
   ) {
     recommendation = "needs_human";
     recoverableHint = workerHealth.reason;
@@ -2321,6 +2428,10 @@ async function handleDiscoveryState(req, res, options = {}) {
             workerStatus: workerHealth.workerStatus,
             message: workerHealth.message,
             listeners: workerHealth.listeners || [],
+            ...(workerHealth.repoRoot ? { repoRoot: workerHealth.repoRoot } : {}),
+            ...(workerHealth.workerVersion
+              ? { workerVersion: workerHealth.workerVersion }
+              : {}),
           }
         : {}),
     },
