@@ -384,10 +384,24 @@
    * Also takes `{ platform, runtime }` (R13): once the ping reports
    * `runtime: "desktop"`, the JobBored app is how JobBored starts, on any
    * platform. The positional form stays for existing callers.
+   *
+   * With no runtime given, the page's own config decides: the desktop app
+   * serves its config.js with `jobBoredRuntime: "desktop"`, which is the
+   * only way to know it when no server answers the ping.
    */
+  function configuredRuntime() {
+    try {
+      const cfg = window.COMMAND_CENTER_CONFIG;
+      return cfg && typeof cfg.jobBoredRuntime === "string" ? cfg.jobBoredRuntime : "";
+    } catch (_) {
+      return "";
+    }
+  }
+
   function localServerHint(arg) {
     const opts = arg !== null && typeof arg === "object" ? arg : { platform: arg };
-    if (opts.runtime === "desktop") return "open the JobBored app";
+    const runtime = opts.runtime === undefined ? configuredRuntime() : opts.runtime;
+    if (runtime === "desktop") return "open the JobBored app";
     const platform = opts.platform;
     const name = platform === undefined ? readPlatform() : String(platform || "");
     return /mac/i.test(name)
