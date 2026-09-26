@@ -848,8 +848,20 @@ async function serveDashboardConfig(req, res, dashboardConfigPath) {
     writeMissingConfigScript(res);
     return;
   }
+  if (process.env.JOBBORED_DESKTOP === "1") {
+    data = Buffer.concat([Buffer.from(data), Buffer.from(DESKTOP_RUNTIME_MARKER)]);
+  }
   sendStaticBody(req, res, MIME[".js"], data, dashboardConfigPath);
 }
+
+/**
+ * GFX R13: the page can only learn it runs inside the desktop app from its
+ * own config — when no server answers, there is no ping to ask. Appended
+ * to the served desktop config.js (never written to the user's file), and
+ * it leaves an explicit user value alone. local-server.js reads it.
+ */
+const DESKTOP_RUNTIME_MARKER =
+  '\n;(function () { var c = window.COMMAND_CENTER_CONFIG; if (c && !c.jobBoredRuntime) c.jobBoredRuntime = "desktop"; })();\n';
 
 async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
   if (urlPath === "/config.js") {
