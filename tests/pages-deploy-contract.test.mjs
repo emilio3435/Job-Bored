@@ -14,9 +14,13 @@ import { dirname, join } from "node:path";
 
 import {
   assembleIndex,
+  buildDeployableIndex,
+  buildSite,
+  injectContentSecurityPolicyMeta,
   stampLocalAssetDigests,
   verifySiteAssets,
 } from "../scripts/assemble-index.mjs";
+import { buildContentSecurityPolicy } from "../scripts/lib/browser-csp-policy.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const workflow = readFileSync(
@@ -27,12 +31,11 @@ const workflow = readFileSync(
 describe("GitHub Pages deployment contract", () => {
   it("deploys an assembled dashboard artifact from main", () => {
     assert.match(workflow, /push:\s*\n\s+branches: \[main\]/);
-    assert.match(workflow, /node scripts\/assemble-index\.mjs --write/);
-    assert.match(workflow, /cp index\.assembled\.html _site\/index\.html/);
-    assert.match(
+    assert.match(workflow, /node scripts\/assemble-index\.mjs --build-site _site/);
+    assert.doesNotMatch(
       workflow,
-      /cp config\.example\.js _site\/config\.js/,
-      "the public artifact must serve a placeholder config.js instead of logging a 404",
+      /\.\/ _site\//,
+      "G13: the site must be built from the dashboard asset allowlist, never a whole-repo copy",
     );
     assert.match(workflow, /actions\/upload-pages-artifact@v4/);
     assert.match(workflow, /path: _site/);
@@ -271,12 +274,7 @@ describe("ASSET-1: deployed HTML cannot reference stale browser JavaScript", () 
       /node scripts\/assemble-index\.mjs --verify-site _site/,
       "without a post-build guard, a hand-edited artifact could pair new HTML with old scripts",
     );
-    assert.match(
-      workflow,
-      /cp config\.example\.js _site\/config\.js/,
-      "the guard must not displace the placeholder config.js copy",
-    );
-    const buildStep = workflow.indexOf("cp index.assembled.html _site/index.html");
+    const buildStep = workflow.indexOf("--build-site _site");
     const verifyStep = workflow.indexOf("--verify-site _site");
     const uploadStep = workflow.indexOf("actions/upload-pages-artifact@v4");
     assert.ok(buildStep > -1 && verifyStep > buildStep && uploadStep > verifyStep,
@@ -511,6 +509,99 @@ describe("ASSET-1: deployed HTML cannot reference stale browser JavaScript", () 
         [],
         "a data: URI is not a local reference: failing loud must not mean crying wolf over a tag the matcher cut in half",
       );
+    });
+  });
+});
+
+// G13 — Pages cannot set headers, so the deployed HTML must carry the CSP
+// itself, and the site must contain only the dashboard asset allowlist —
+// never server/, scripts/, tests/ or integrations/ sources.
+describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
+  it("G13: injectContentSecurityPolicyMeta places the policy after the charset", () => {
+    const policy = "default-src 'self'; script-src 'self'";
+    const out = injectContentSecurityPolicyMeta(
+      '<!doctype html>\n<html>\n<head>\n<meta charset="UTF-8" />\n<title>t</title>\n</head>',
+      policy,
+    );
+    assert.match(
+      out,
+      /<meta charset="UTF-8" \/>\n\s*<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self'" \/>/,
+    );
+  });
+
+  it("G13: injectContentSecurityPolicyMeta falls back to the head tag, and never duplicates", () => {
+    const policy = "default-src 'self'";
+    assert.match(
+      injectContentSecurityPolicyMeta("<head><title>t</title></head>", policy),
+      /<head><meta http-equiv="Content-Security-Policy" content="default-src 'self'" \/><title>/,
+    );
+    const once = injectContentSecurityPolicyMeta("<head></head>", policy);
+    assert.equal(injectContentSecurityPolicyMeta(once, policy), once);
+    assert.equal(injectContentSecurityPolicyMeta("<html>no head</html>", policy), "<html>no head</html>");
+  });
+
+  it("G13: the deployable index carries the meta policy and stays deterministic", () => {
+    const first = buildDeployableIndex(repoRoot);
+    const second = buildDeployableIndex(repoRoot);
+    assert.equal(first, second, "two builds of the same tree must be byte-identical");
+    const meta = /<meta http-equiv="Content-Security-Policy" content="([^"]*)" \/>/.exec(first);
+    assert.ok(meta, "the deployable index must carry a CSP meta tag");
+    assert.equal(meta[1], buildContentSecurityPolicy({ forMeta: true }));
+    assert.doesNotMatch(meta[1], /frame-ancestors/, "frame-ancestors is ignored in a meta tag");
+    assert.match(meta[1], /default-src 'self'/);
+    // Stamping still applies on the deploy path.
+    assert.match(first, /src="app\.js\?v=[0-9a-f]{10}"/);
+    assert.doesNotMatch(first, /<!--\s*@include\s+/);
+  });
+
+  it("G13: buildSite copies the asset allowlist and nothing else", () => {
+    withTempRoot((root) => {
+      writeFileSync(join(root, "index.html"), "<head></head><script src=\"a.js\"></script>");
+      writeFileSync(join(root, "a.js"), "window.a = 1;\n");
+      writeFileSync(join(root, "config.example.js"), "window.C = {};\n");
+      mkdirSync(join(root, "vendor"), { recursive: true });
+      writeFileSync(join(root, "vendor", "x.js"), "window.x = 1;\n");
+      mkdirSync(join(root, "server"), { recursive: true });
+      writeFileSync(join(root, "server", "index.mjs"), "secret server\n");
+      mkdirSync(join(root, "scripts"), { recursive: true });
+      writeFileSync(join(root, "scripts", "a.mjs"), "secret script\n");
+      const siteDir = join(root, "_site");
+      const copied = buildSite(root, siteDir);
+      assert.ok(copied.includes("index.html"));
+      assert.ok(copied.includes("a.js"));
+      assert.ok(copied.includes(join("vendor", "x.js")));
+      assert.ok(copied.includes("config.js"));
+      assert.ok(!copied.some((entry) => entry.startsWith("server")), "server/ must not ship");
+      assert.ok(!copied.some((entry) => entry.startsWith("scripts")), "scripts/ must not ship");
+      const index = readFileSync(join(siteDir, "index.html"), "utf8");
+      assert.match(index, /<meta http-equiv="Content-Security-Policy"/);
+      assert.match(index, /src="a\.js\?v=[0-9a-f]{10}"/);
+      assert.equal(readFileSync(join(siteDir, "config.js"), "utf8"), "window.C = {};\n");
+      assert.deepEqual(verifySiteAssets(siteDir), []);
+    });
+  });
+
+  it("G13: a real-repo build excludes sources and satisfies the asset guard", () => {
+    withTempRoot((root) => {
+      const siteDir = join(root, "site");
+      const copied = buildSite(repoRoot, siteDir);
+      assert.ok(copied.length > 100, `expected the whole asset set, got ${copied.length} files`);
+      for (const entry of copied) {
+        const first = entry.split("/")[0];
+        assert.ok(
+          !["server", "scripts", "tests", "tools", "probes", "prompts"].includes(first),
+          `${entry} must not ship to Pages`,
+        );
+        if (first === "integrations") {
+          const allowed =
+            entry.endsWith(".md") || entry.startsWith("integrations/apps-script/");
+          assert.ok(allowed, `${entry}: only integration READMEs and the Apps Script deploy sources ship`);
+        }
+      }
+      assert.ok(copied.includes("config.js"), "the placeholder config.js must ship");
+      const index = readFileSync(join(siteDir, "index.html"), "utf8");
+      assert.match(index, /<meta http-equiv="Content-Security-Policy" content="[^"]*default-src 'self'[^"]*" \/>/);
+      assert.deepEqual(verifySiteAssets(siteDir), [], "every deployed reference must match its file");
     });
   });
 });
