@@ -47,8 +47,21 @@ function onPage(env, hostname) {
   env.window.location = { hostname, search: "", pathname: "/", hash: "" };
 }
 
-async function checkKey(env) {
+/**
+ * GFX D2: a hosted page never reaches B5 through flow.open() — the pre-flow
+ * gate hands it B1's route-to-local screen instead. B5's own hosted-page
+ * handling is now defense in depth, so the flow opens B5 on loopback and the
+ * hosted address is put back before the check, which reads it at call time.
+ */
+async function openB5(env) {
+  const page = env.window.location;
+  env.window.location = { ...(page || {}), hostname: "localhost" };
   await env.flow.open("discovery");
+  env.window.location = page;
+}
+
+async function checkKey(env) {
+  await openB5(env);
   env.beat._internal.setKeyDraft("fake-serp-key-000");
   await env.act(FUEL_ACTION);
 }
@@ -168,7 +181,7 @@ describe("GFX-S1 / D2 · the static host routes to B1", () => {
 
   it("GFX-S1: the route action does nothing unless the answer was static_host", async () => {
     const { env } = staticEnv();
-    await env.flow.open("discovery");
+    await openB5(env);
     await env.act(ROUTE_LOCAL_ACTION);
     assert.equal(env.flow.getState().beat, "discovery");
   });
