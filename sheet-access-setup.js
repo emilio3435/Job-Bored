@@ -241,6 +241,15 @@
   // it must stay in the wizard rather than hand off to the dashboard.
   let pendingStarterSheetCreateOptions = null;
 
+  // G16: the one create in flight. The post-sign-in resume and a second
+  // click both join it instead of POSTing a second spreadsheet.
+  let starterSheetCreateInFlight = null;
+
+  const SCOPE_MISSING_MESSAGE =
+    "Google signed you in but didn't grant Sheets access. Click the " +
+    "create button again and check the box allowing JobBored to manage " +
+    "your Google Sheets.";
+
   /** Rotating hero tips on the login gate (left panel). */
   const LOGIN_GATE_TIPS = [
     {
@@ -618,11 +627,17 @@
     if (dashboard) dashboard.style.display = "block";
   }
 
+  /**
+   * POST a new Pipeline spreadsheet and write its header row.
+   * Returns { ok:true, spreadsheetId, spreadsheetUrl } or
+   * { ok:false, reason, message? } — reason is one of no_token,
+   * scope_missing, session_expired, create_failed.
+   */
   async function createBlankStarterSheet(isRetry) {
     const accessToken = host().getAccessToken();
     if (!accessToken) {
       showSheetAccessGate("signin");
-      return null;
+      return { ok: false, reason: "no_token" };
     }
 
     const starterHeaders = host().getStarterPipelineHeaders();
@@ -661,9 +676,10 @@
           if (ok) return createBlankStarterSheet(true);
         }
         host().clearSessionAuthState();
-        throw new Error(
-          "Google session expired while creating the starter sheet.",
-        );
+        const message = "Google session expired while creating the starter sheet.";
+        console.error("[JobBored] Starter sheet:", message);
+        host().showToast(message, "error", true);
+        return { ok: false, reason: "session_expired", message };
       }
 
       if (!createResp.ok) {
@@ -674,17 +690,16 @@
         );
         if (
           createResp.status === 403 &&
-          /insufficient authentication scopes/i.test(message) &&
-          !isRetry
+          /insufficient authentication scopes/i.test(message)
         ) {
-          core().setPendingSetupStarterSheetCreate(true);
-          host().showToast(
-            "Google needs Sheets permission before JobBored can create a starter sheet. Approve the prompt and try again.",
-            "info",
-            true,
-          );
-          host().signIn({ prompt: "consent" });
-          return null;
+          // B1-N2: we're past three awaits, not in a user gesture — a
+          // consent popup here is blocked and the flow dies silently. Say
+          // so; the caller's next click (a real gesture) opens consent.
+          return {
+            ok: false,
+            reason: "scope_missing",
+            message: SCOPE_MISSING_MESSAGE,
+          };
         }
         throw new Error(message);
       }
@@ -728,15 +743,14 @@
         );
       }
 
-      return { spreadsheetId, spreadsheetUrl };
+      return { ok: true, spreadsheetId, spreadsheetUrl };
     } catch (err) {
       console.error("[JobBored] Starter sheet:", err);
-      host().showToast(
-        String(err.message || err || "Could not create starter sheet"),
-        "error",
-        true,
+      const message = String(
+        (err && err.message) || err || "Could not create starter sheet",
       );
-      return null;
+      host().showToast(message, "error", true);
+      return { ok: false, reason: "create_failed", message };
     }
   }
 
@@ -776,7 +790,7 @@
         true,
       );
       void host().openCommandCenterSettingsModal();
-      return;
+      return { ok: false, reason: "missing_client_id" };
     }
     if (!core().getGisLoaded() || !core().getTokenClient()) {
       pendingStarterSheetCreateOptions = null;
@@ -785,7 +799,7 @@
         "error",
         true,
       );
-      return;
+      return { ok: false, reason: "gis_not_ready" };
     }
     if (
       !host().getAccessToken() ||
@@ -798,13 +812,9 @@
         // so the consent popup gets popup-blocked and the flow dies silently.
         // Surface the fix and let the next click (a real gesture) open consent.
         pendingStarterSheetCreateOptions = null;
-        const message =
-          "Google signed you in but didn't grant Sheets access. Click the " +
-          "create button again and check the box allowing JobBored to manage " +
-          "your Google Sheets.";
-        notify(message, true);
-        host().showToast(message, "error", true);
-        return;
+        notify(SCOPE_MISSING_MESSAGE, true);
+        host().showToast(SCOPE_MISSING_MESSAGE, "error", true);
+        return { ok: false, reason: "scope_missing" };
       }
       // Sheet step precedes the explicit sign-in step in the wizard: remember
       // the context so the resumed create stays in the wizard.
@@ -817,21 +827,48 @@
       host().signIn({
         prompt: host().getAccessToken() ? "consent" : "",
       });
-      return;
+      return { ok: false, reason: "signin_started" };
     }
 
+    // G16: one create at a time. Joining callers get the same answer; only
+    // the caller that started the create runs the handoff below.
+    if (starterSheetCreateInFlight) return starterSheetCreateInFlight;
+    starterSheetCreateInFlight = createAndHandOffStarterSheet(
+      opts,
+      skipDashboardHandoff,
+      notify,
+    );
+    try {
+      return await starterSheetCreateInFlight;
+    } finally {
+      starterSheetCreateInFlight = null;
+    }
+  }
+
+  async function createAndHandOffStarterSheet(opts, skipDashboardHandoff, notify) {
     // Committed to creating now: keep the context so a silent re-auth inside
     // createBlankStarterSheet also resumes with the right handoff behavior.
     pendingStarterSheetCreateOptions = opts;
     notify("Creating your starter sheet…");
     const created = await createBlankStarterSheet(false);
-    if (!created) {
+    if (!created.ok) {
+      pendingStarterSheetCreateOptions = null;
+      if (created.reason === "scope_missing") {
+        notify(SCOPE_MISSING_MESSAGE, true);
+        host().showToast(SCOPE_MISSING_MESSAGE, "error", true);
+        return { ok: false, reason: "scope_missing" };
+      }
       notify(
         "Could not create the starter sheet. Check the error message and try again.",
         true,
       );
-      return;
+      return { ok: false, reason: created.reason, message: created.message };
     }
+    const result = {
+      ok: true,
+      spreadsheetId: created.spreadsheetId,
+      spreadsheetUrl: created.spreadsheetUrl,
+    };
 
     pendingStarterSheetCreateOptions = null;
     host().mergeStoredConfigOverridePatch({ sheetId: created.spreadsheetId });
@@ -840,22 +877,20 @@
     setDashboardSheetLinks();
 
     if (skipDashboardHandoff) {
-      // Wizard create: connect the Sheet, open it in a new tab (the wizard
-      // stays put in this tab), then advance via the caller's onCreated. It
+      // Wizard create: connect the Sheet, then advance via the caller's
+      // onCreated, which carries spreadsheetUrl for the beat's own link (G16:
+      // a window.open this many awaits after the click is popup-blocked). It
       // runs on the direct path and on the post-sign-in resume (GIS never
       // reloads the page).
-      notify("Starter sheet created — opening it in a new tab.");
-      if (created.spreadsheetUrl) {
-        window.open(created.spreadsheetUrl, "_blank", "noopener");
-      }
+      notify("Starter sheet created.");
       if (typeof opts.onCreated === "function") {
         try {
-          opts.onCreated(created);
+          opts.onCreated(result);
         } catch (err) {
           console.warn("[JobBored] wizard starter sheet onCreated:", err);
         }
       }
-      return;
+      return result;
     }
 
     revealDashboardShell();
@@ -863,13 +898,11 @@
       new URLSearchParams(window.location.search).get("setup") === "discovery";
     await host().runPostAccessBootstrapOnce();
     void host().loadAllData();
-    if (created.spreadsheetUrl) {
-      window.open(created.spreadsheetUrl, "_blank", "noopener");
-    }
     if (!hadDiscoveryDeepLink) {
       await host().requestDiscoverySetup({ entryPoint: "starter_sheet_created" });
     }
     host().showToast("Starter sheet created. Opening guided setup…", "success");
+    return result;
   }
 
   function initSetupAndSheetAccessActions() {
@@ -907,6 +940,15 @@
    * header row (is it the sheet we can work with). Moved here from the
    * retired first-run wizard (spec §7) because Beat 1's paste path is the
    * one caller that survived it.
+   *
+   * Contract (FE-B1's B1-N4 copy keys off `reason`; keep these stable):
+   *   headers_ok          ok:true — the token reads the Pipeline header row
+   *   access_denied       the spreadsheet metadata was refused (+ status)
+   *   headers_unreadable  the sheet opened but Pipeline!A1:Z1 did not (+ status)
+   *   no_token            no Google access token yet
+   *   invalid_id          empty sheet id
+   *   fetch_unavailable   no fetch in this runtime
+   *   fetch_failed        the request threw (+ message)
    */
   async function verifyExistingSheetAccess({
     sheetId,
