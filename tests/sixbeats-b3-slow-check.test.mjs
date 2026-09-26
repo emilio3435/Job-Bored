@@ -198,6 +198,13 @@ describe("C6 · B5 Save & verify — the clock on the fuel write (spec §5 B5)",
     const hang = deferred();
     const env = await openFuel((url) => {
       if (String(url).includes("discovery-env-key")) return hang.promise;
+      // GFX §R3: a current build's ping names its version and routes.
+      if (String(url).includes("__proxy/ping")) {
+        return Promise.resolve({
+          ok: true,
+          json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }),
+        });
+      }
       return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
     });
     const running = env.act("oneflow_discovery_save_verify");

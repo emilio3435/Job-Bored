@@ -38,6 +38,7 @@ const PAGE_SCRIPTS = Object.freeze([
   "onboarding-telemetry.js",
   "discovery-wizard-shell.js",
   "onboarding-flow.js",
+  "local-server.js",
   "oneflow-beat-google.js",
   "oneflow-beat-ai.js",
   "oneflow-beat-resume.js",

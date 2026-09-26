@@ -7,10 +7,11 @@
        static host's signature (wrong page), not a dead local server —
        it keeps its own static_host reason and truthful copy, while a
        fetch throw stays no_local_server.
-     · while static_host is the last answer, the fuel panel carries the
-       handoff: Copy-my-key (clipboard, local-only), the Open-local-setup
-       deep link (?beat=discovery&returnTo=close), and the Get-the-app
-       link — no retry that cannot help.
+     · while static_host is the last answer, the fuel panel carries ONE
+       fix — Open JobBored on this computer, the route to B1 (§0 D2) —
+       and Save & verify steps aside: a retry here can never pass. The
+       clipboard handoff and the localhost presence poll moved to B1's
+       route-to-local screen (FE-B1) and are gone from B5 (GFX BE-FUEL).
      · a cold load with ?beat=discovery opens the discovery beat through
        the registered chain; &returnTo=close closes where it opened;
        unknown ids boot normally; beat/returnTo strip without touching
@@ -29,29 +30,26 @@ import {
 const FUEL_ACTION = "oneflow_discovery_save_verify";
 
 const STATIC_HOST_MESSAGE =
-  "This hosted page can't check your key — checking runs in the " +
-  "JobBored app on your computer. Copy your key, open your local " +
-  "setup, then press Save & verify there.";
+  "This page can't check your key — only JobBored running on your " +
+  "computer can. Press Open JobBored on this computer to set it up " +
+  "from step 1.";
+
+const ROUTE_LOCAL_ACTION = "oneflow_discovery_route_local";
 
 const NO_SERVER_MESSAGE =
   "Couldn't reach the JobBored server on this computer. To start it, run " +
   "./start.sh in the JobBored folder, then press Save & verify.";
 
-const LOCAL_SETUP_HREF = "http://localhost:8080/?beat=discovery&returnTo=close";
-const GET_APP_HREF = "https://github.com/emilio3435/Job-Bored";
 
 const WIZARD_NEEDS_SERVER =
   "Couldn't reach JobBored's local server — on the hosted page, open " +
   "your local setup instead; otherwise double-click start.command in " +
   "the JobBored folder to start it, then Re-check.";
 
-/** vm-realm arrays are not deepStrictEqual to host arrays — re-home them. */
-const plain = (list) => [...list];
-
 function makeCheckFetch(checkImpl) {
   return async (url) => {
     if (String(url).includes("__proxy/ping")) {
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
     }
     if (String(url).includes("serpapi-check")) return checkImpl();
     if (String(url).includes("discovery-env-key")) {
@@ -73,6 +71,11 @@ async function failFuel(env) {
   await env.act(FUEL_ACTION);
 }
 
+/** The static host's one fix: the in-panel route to B1 (§0 D2). */
+function routeButton(env) {
+  return env.mount.querySelector(`[data-action-id="${ROUTE_LOCAL_ACTION}"]`);
+}
+
 function messageSlot(env) {
   return env.mount.querySelector(".discovery-setup-wizard__message");
 }
@@ -91,14 +94,12 @@ function fakeLocation(search) {
   };
 }
 
-const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
-
 // ---------------------------------------------------------------
 // Static-host detection: 404/405/HTML vs fetch throw
 // ---------------------------------------------------------------
 
 describe("B5 handoff · the check tells a static host from a dead server", () => {
-  it("a 404 check answer renders static_host with the handoff, not the launcher fix", async () => {
+  it("a 404 check answer renders static_host with the route to B1, not the launcher fix", async () => {
     const env = loadDiscoveryBeat({
       fetchImpl: makeCheckFetch(async () => ({
         ok: false,
@@ -113,10 +114,9 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     assert.ok(slot, "the outcome must reach the screen");
     assert.equal(slot.textContent, STATIC_HOST_MESSAGE);
     assert.ok(slot.classList.contains("discovery-setup-wizard__message--error"));
-    assert.match(slot.textContent, /Save & verify/, "every error names the next action (§8.4)");
+    assert.match(slot.textContent, /Open JobBored on this computer/, "every error names the next action (§8.4)");
     assert.doesNotMatch(slot.textContent, /start\.command/, "the launcher cannot fix the wrong page");
-    const handoff = env.mount.querySelector(".oneflow-fuel__handoff");
-    assert.ok(handoff, "the handoff earns its place while static_host is the answer");
+    assert.ok(routeButton(env), "the route to B1 earns its place while static_host is the answer");
     assert.equal(
       env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
       1,
@@ -136,7 +136,7 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "static_host");
     assert.equal(messageSlot(env).textContent, STATIC_HOST_MESSAGE);
-    assert.ok(env.mount.querySelector(".oneflow-fuel__handoff"));
+    assert.ok(routeButton(env));
   });
 
   it("an HTML page with a 200 status still reads as static_host, not a pass", async () => {
@@ -152,10 +152,10 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "static_host");
     assert.equal(messageSlot(env).textContent, STATIC_HOST_MESSAGE);
-    assert.ok(env.mount.querySelector(".oneflow-fuel__handoff"));
+    assert.ok(routeButton(env));
   });
 
-  it("a fetch throw stays no_local_server — the launcher fix, no handoff", async () => {
+  it("a fetch throw stays no_local_server — the launcher fix, no route to B1", async () => {
     const env = loadDiscoveryBeat({
       fetchImpl: makeCheckFetch(async () => {
         throw new TypeError("Failed to fetch");
@@ -165,7 +165,7 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "no_local_server");
     assert.equal(messageSlot(env).textContent, NO_SERVER_MESSAGE);
-    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+    assert.equal(routeButton(env), null);
   });
 
   it("a headerless null body without a status stays no_local_server (existing shape)", async () => {
@@ -190,7 +190,7 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "invalid_key");
     assert.match(messageSlot(env).textContent, /didn't recognise/);
-    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+    assert.equal(routeButton(env), null);
   });
 
   it("server up + SerpApi down stays unreachable, never static_host", async () => {
@@ -205,10 +205,10 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "unreachable");
     assert.match(messageSlot(env).textContent, /internet connection/);
-    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+    assert.equal(routeButton(env), null);
   });
 
-  it("a pass clears the handoff gate for the next render", async () => {
+  it("a pass clears the static-host gate for the next render", async () => {
     const env = loadDiscoveryBeat({
       fetchImpl: makeCheckFetch(async () => ({
         ok: true,
@@ -219,7 +219,7 @@ describe("B5 handoff · the check tells a static host from a dead server", () =>
     await env.flow.open("discovery");
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "");
-    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+    assert.equal(routeButton(env), null);
     assert.match(messageSlot(env).textContent, /Google Jobs index connected/);
   });
 
@@ -250,7 +250,7 @@ describe("B5 handoff · the ping classifies before the key moves", () => {
       const u = String(url);
       // Localhost first: it also contains "__proxy/ping".
       if (u.includes("localhost:8080/__proxy/ping")) {
-        throw new Error("localhost poll must stay quiet on the default 3s cadence");
+        throw new Error("B5 never polls localhost — the presence poll moved to B1 (§0 D2)");
       }
       if (u.includes("__proxy/ping")) return pingImpl();
       if (u.includes("serpapi-check")) {
@@ -260,7 +260,7 @@ describe("B5 handoff · the ping classifies before the key moves", () => {
     };
   }
 
-  it("a 404 ping is the static host: handoff renders, key never POSTed", async () => {
+  it("a 404 ping is the static host: the route to B1 renders, key never POSTed", async () => {
     const env = loadDiscoveryBeat({
       fetchImpl: pingFetch(async () => ({
         ok: false,
@@ -275,8 +275,8 @@ describe("B5 handoff · the ping classifies before the key moves", () => {
       assert.equal(env.beat._internal.fuelReason(), "static_host");
       assert.equal(messageSlot(env).textContent, STATIC_HOST_MESSAGE);
       assert.ok(
-        env.mount.querySelector(".oneflow-fuel__handoff"),
-        "the real static-host shape must earn the handoff, not the launcher fix",
+        routeButton(env),
+        "the real static-host shape must earn the route to B1, not the launcher fix",
       );
       assert.equal(
         env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
@@ -284,9 +284,7 @@ describe("B5 handoff · the ping classifies before the key moves", () => {
         "a failed ping short-circuits before the key leaves the browser",
       );
     } finally {
-      if (typeof env.beat._internal.stopLocalServerPoll === "function") {
-        env.beat._internal.stopLocalServerPoll();
-      }
+      // No presence poll to stop: it moved to B1 (§0 D2).
     }
   });
 
@@ -304,15 +302,13 @@ describe("B5 handoff · the ping classifies before the key moves", () => {
       await failFuel(env);
       assert.equal(env.beat._internal.fuelReason(), "static_host");
       assert.equal(messageSlot(env).textContent, STATIC_HOST_MESSAGE);
-      assert.ok(env.mount.querySelector(".oneflow-fuel__handoff"));
+      assert.ok(routeButton(env));
     } finally {
-      if (typeof env.beat._internal.stopLocalServerPoll === "function") {
-        env.beat._internal.stopLocalServerPoll();
-      }
+      // No presence poll to stop: it moved to B1 (§0 D2).
     }
   });
 
-  it("a ping throw stays no_local_server — the launcher fix, no handoff", async () => {
+  it("a ping throw stays no_local_server — the launcher fix, no route to B1", async () => {
     const env = loadDiscoveryBeat({
       fetchImpl: pingFetch(async () => {
         throw new TypeError("Failed to fetch");
@@ -322,254 +318,11 @@ describe("B5 handoff · the ping classifies before the key moves", () => {
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "no_local_server");
     assert.equal(messageSlot(env).textContent, NO_SERVER_MESSAGE);
-    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+    assert.equal(routeButton(env), null);
     assert.equal(
       env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
       0,
     );
-  });
-});
-
-// ---------------------------------------------------------------
-// The hosted page notices when the local app appears
-// ---------------------------------------------------------------
-
-describe("B5 handoff · localhost presence polling", () => {
-  const LOCAL_PING = "http://localhost:8080/__proxy/ping";
-
-  const FOUND_MESSAGE =
-    "Your local app is running — copy your key above, then press Open " +
-    "local setup to continue there.";
-
-  function presenceFetch(localImpl) {
-    return async (url) => {
-      const u = String(url);
-      if (u === LOCAL_PING) return localImpl();
-      if (u.includes("__proxy/ping")) {
-        return {
-          ok: false,
-          status: 404,
-          headers: staticHtmlHeaders(),
-          json: async () => null,
-        };
-      }
-      if (u.includes("serpapi-check")) {
-        throw new Error("the key must never move on a static host");
-      }
-      return { ok: false, json: async () => ({}) };
-    };
-  }
-
-  function localhostCalls(env) {
-    return env.fetchCalls.filter((c) => String(c.url).includes("localhost:8080"));
-  }
-
-  async function waitFor(fn, label) {
-    const deadline = Date.now() + 2000;
-    for (;;) {
-      if (fn()) return;
-      if (Date.now() > deadline) {
-        throw new Error("timed out waiting for: " + label);
-      }
-      await tick();
-    }
-  }
-
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  function fastPoll(env, maxPolls = 50) {
-    const timings = env.beat._internal.pollTimings;
-    const saved = { intervalMs: timings.intervalMs, maxPolls: timings.maxPolls };
-    timings.intervalMs = 5;
-    timings.maxPolls = maxPolls;
-    return () => {
-      timings.intervalMs = saved.intervalMs;
-      timings.maxPolls = saved.maxPolls;
-      env.beat._internal.stopLocalServerPoll();
-    };
-  }
-
-  it("finding the local app flips the handoff to the found variant", async () => {
-    const env = loadDiscoveryBeat({
-      fetchImpl: presenceFetch(async () => ({
-        ok: true,
-        json: async () => ({ ok: true }),
-      })),
-    });
-    const restore = fastPoll(env);
-    try {
-      await env.flow.open("discovery");
-      await failFuel(env);
-      assert.equal(env.beat._internal.fuelReason(), "static_host");
-      await waitFor(
-        () => messageSlot(env).textContent === FOUND_MESSAGE,
-        "the found announcement",
-      );
-      assert.ok(
-        localhostCalls(env).length >= 1,
-        "the hosted page asks the machine's own dashboard",
-      );
-      assert.match(
-        env.text(),
-        /Your local app is running/,
-        "the handoff panel flips to the found variant",
-      );
-      for (const call of localhostCalls(env)) {
-        assert.ok(
-          !String(call.body || "").includes("serp-key-123"),
-          "the presence probe is keyless",
-        );
-      }
-    } finally {
-      restore();
-    }
-  });
-
-  it("the poll is bounded: it stops after maxPolls unanswered", async () => {
-    const env = loadDiscoveryBeat({
-      fetchImpl: presenceFetch(async () => {
-        throw new TypeError("Failed to fetch");
-      }),
-    });
-    const restore = fastPoll(env, 3);
-    try {
-      await env.flow.open("discovery");
-      await failFuel(env);
-      await waitFor(() => localhostCalls(env).length >= 3, "three unanswered polls");
-      await sleep(40);
-      assert.equal(
-        localhostCalls(env).length,
-        3,
-        "no fourth probe: the poll gives up quietly",
-      );
-      assert.equal(env.beat._internal.fuelReason(), "static_host");
-      assert.ok(env.mount.querySelector(".oneflow-fuel__handoff"));
-    } finally {
-      restore();
-    }
-  });
-
-  it("no localhost traffic when the same-origin server answers", async () => {
-    const env = loadDiscoveryBeat({
-      fetchImpl: makeCheckFetch(async () => ({
-        ok: true,
-        status: 200,
-        json: async () => ({ ok: false, reason: "invalid_key" }),
-      })),
-    });
-    const restore = fastPoll(env);
-    try {
-      await env.flow.open("discovery");
-      await failFuel(env);
-      assert.equal(env.beat._internal.fuelReason(), "invalid_key");
-      await sleep(30);
-      assert.equal(
-        localhostCalls(env).length,
-        0,
-        "the poll only runs while the handoff is on screen",
-      );
-    } finally {
-      restore();
-    }
-  });
-});
-
-// ---------------------------------------------------------------
-// The handoff: Copy-my-key, Open-local-setup, Get-the-app
-// ---------------------------------------------------------------
-
-describe("B5 handoff · Copy-my-key, Open-local-setup, Get-the-app", () => {
-  async function staticEnv() {
-    const env = loadDiscoveryBeat({
-      fetchImpl: makeCheckFetch(async () => ({
-        ok: false,
-        status: 404,
-        json: async () => null,
-      })),
-    });
-    await env.flow.open("discovery");
-    await failFuel(env);
-    return env;
-  }
-
-  it("links the local deep link (C1 full form) and the app, key-free", async () => {
-    const env = await staticEnv();
-    const hrefs = plain(env.mount.querySelectorAll("[href]")).map((el) =>
-      el.getAttribute("href"),
-    );
-    assert.ok(hrefs.includes(LOCAL_SETUP_HREF), "Open local setup carries ?beat=discovery&returnTo=close");
-    assert.ok(hrefs.includes(GET_APP_HREF), "Get the app points at the repo");
-    for (const href of hrefs) {
-      assert.ok(!href.includes("serp-key-123"), "no link may carry key material");
-    }
-    assert.match(env.text(), /Open local setup/);
-    assert.match(env.text(), /Get the app/);
-  });
-
-  it("Copy-my-key writes the draft to the clipboard and says so", async () => {
-    const env = await staticEnv();
-    const copied = [];
-    env.window.navigator = {
-      clipboard: {
-        writeText: async (text) => {
-          copied.push(text);
-        },
-      },
-    };
-    const button = env.mount.querySelector('[data-handoff-action="copy-key"]');
-    assert.ok(button);
-    assert.equal(button.textContent, "Copy my key");
-    const postsBefore = env.fetchCalls.length;
-    button.dispatch("click", {});
-    await tick();
-    assert.deepEqual(copied, ["serp-key-123"]);
-    assert.equal(button.textContent, "Copied ✓");
-    assert.equal(env.fetchCalls.length, postsBefore, "copying is local-only, no network");
-  });
-
-  it("without a clipboard the field is focused and selected instead", async () => {
-    const env = await staticEnv();
-    assert.equal(env.window.navigator, undefined, "the L3 sandbox ships no clipboard");
-    const button = env.mount.querySelector('[data-handoff-action="copy-key"]');
-    button.dispatch("click", {});
-    await tick();
-    assert.equal(button.textContent, "Key selected — copy it");
-    assert.equal(
-      env.document.activeElement,
-      env.mount.querySelector("#oneFlowSerpApiKeyInput"),
-      "one keypress still carries the key over",
-    );
-  });
-
-  it("a refusing clipboard falls back to select, never to silence", async () => {
-    const env = await staticEnv();
-    env.window.navigator = {
-      clipboard: {
-        writeText: async () => {
-          throw new Error("denied");
-        },
-      },
-    };
-    const button = env.mount.querySelector('[data-handoff-action="copy-key"]');
-    button.dispatch("click", {});
-    await tick();
-    assert.equal(button.textContent, "Key selected — copy it");
-    assert.equal(
-      env.document.activeElement,
-      env.mount.querySelector("#oneFlowSerpApiKeyInput"),
-    );
-  });
-
-  it("an empty draft asks for the key instead of copying nothing", async () => {
-    const env = await staticEnv();
-    const copied = [];
-    env.window.navigator = { clipboard: { writeText: async (text) => void copied.push(text) } };
-    env.beat._internal.setKeyDraft("   ");
-    const button = env.mount.querySelector('[data-handoff-action="copy-key"]');
-    button.dispatch("click", {});
-    await tick();
-    assert.equal(button.textContent, "Paste your key first");
-    assert.deepEqual(copied, [], "blank drafts never reach the clipboard");
   });
 });
 
@@ -749,7 +502,7 @@ describe("GFX-N2 · a 404/405/HTML answer on a loopback page is a stale server",
     return async (url) => {
       const u = String(url);
       if (u.includes("localhost:8080/__proxy/ping")) {
-        throw new Error("a loopback page never starts the hosted-page presence poll");
+        throw new Error("B5 never polls localhost — the presence poll moved to B1 (§0 D2)");
       }
       if (u.includes("__proxy/ping")) {
         return {
@@ -776,13 +529,13 @@ describe("GFX-N2 · a 404/405/HTML answer on a loopback page is a stale server",
         assert.equal(env.beat._internal.fuelReason(), "stale_server");
         assert.equal(messageSlot(env).textContent, STALE_SERVER_MESSAGE);
         assert.doesNotMatch(messageSlot(env).textContent, /hosted page/);
-        assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+        assert.equal(routeButton(env), null);
         assert.equal(
           env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
           0,
         );
       } finally {
-        env.beat._internal.stopLocalServerPoll();
+        // No presence poll to stop: it moved to B1 (§0 D2).
       }
     });
   }
@@ -796,7 +549,7 @@ describe("GFX-N2 · a 404/405/HTML answer on a loopback page is a stale server",
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "stale_server");
     assert.equal(messageSlot(env).textContent, STALE_SERVER_MESSAGE);
-    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+    assert.equal(routeButton(env), null);
   });
 
   it("GFX-N2: an HTML check answer on 127.0.0.1 reads stale_server", async () => {
@@ -835,9 +588,9 @@ describe("GFX-N2 · a 404/405/HTML answer on a loopback page is a stale server",
       await failFuel(env);
       assert.equal(env.beat._internal.fuelReason(), "static_host");
       assert.equal(messageSlot(env).textContent, STATIC_HOST_MESSAGE);
-      assert.ok(env.mount.querySelector(".oneflow-fuel__handoff"));
+      assert.ok(routeButton(env));
     } finally {
-      env.beat._internal.stopLocalServerPoll();
+      // No presence poll to stop: it moved to B1 (§0 D2).
     }
   });
 
@@ -915,7 +668,7 @@ describe("GFX-N3 · any JSON ping answer proves the server; the POST decides", (
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "wrong_origin");
     assert.equal(messageSlot(env).textContent, WRONG_ORIGIN_MESSAGE);
-    assert.equal(env.mount.querySelector(".oneflow-fuel__handoff"), null);
+    assert.equal(routeButton(env), null);
   });
 
   it("GFX-N3: a 500 internal_error has its own copy, not the SerpApi upstream line", async () => {
@@ -1014,97 +767,5 @@ describe("GFX-N5 · ?beat= is ignored once onboarding is complete", () => {
     env.window.history = link.history;
     assert.ok(await env.flow.openFromDeepLink());
     assert.equal(env.flow.isOpen(), true);
-  });
-});
-
-// ---------------------------------------------------------------
-// GFX-N7: the presence poll dies with the beat
-// ---------------------------------------------------------------
-
-describe("GFX-N7 · the presence poll stops when B5 is left or the flow closes", () => {
-  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
-
-  /** Hosted page, local app never answers: the poll would run 50 ticks. */
-  function unansweredEnv() {
-    const env = loadDiscoveryBeat({
-      fetchImpl: async (url) => {
-        const u = String(url);
-        if (u === "http://localhost:8080/__proxy/ping") {
-          throw new TypeError("Failed to fetch");
-        }
-        if (u.includes("__proxy/ping")) {
-          return { ok: false, status: 404, headers: staticHtmlHeaders(), json: async () => null };
-        }
-        return { ok: false, json: async () => ({}) };
-      },
-    });
-    const timings = env.beat._internal.pollTimings;
-    const saved = { ...timings };
-    timings.intervalMs = 5;
-    timings.maxPolls = 50;
-    env.restore = () => {
-      timings.intervalMs = saved.intervalMs;
-      timings.maxPolls = saved.maxPolls;
-      env.beat._internal.stopLocalServerPoll();
-    };
-    env.localCalls = () =>
-      env.fetchCalls.filter((c) => c.url.includes("localhost:8080")).length;
-    return env;
-  }
-
-  async function waitForPolls(env, n) {
-    const deadline = Date.now() + 2000;
-    while (env.localCalls() < n) {
-      if (Date.now() > deadline) throw new Error(`timed out waiting for ${n} polls`);
-      await tick();
-    }
-  }
-
-  it("GFX-N7: closing the flow stops the poll", async () => {
-    const env = unansweredEnv();
-    try {
-      await env.flow.open("discovery");
-      await failFuel(env);
-      await waitForPolls(env, 1);
-      env.flow.close("close");
-      await sleep(5);
-      const after = env.localCalls();
-      await sleep(50);
-      assert.equal(env.localCalls(), after, "no probe fires after the flow closes");
-    } finally {
-      env.restore();
-    }
-  });
-
-  it("GFX-N7: moving on to another beat stops the poll", async () => {
-    const env = unansweredEnv();
-    try {
-      env.flow.registerBeat({ id: "payoff", order: 6, render() {}, actions: [] });
-      await env.flow.open("discovery");
-      await failFuel(env);
-      await waitForPolls(env, 1);
-      await env.flow.goToBeat("payoff");
-      assert.equal(env.flow.getState().beat, "payoff");
-      await sleep(5);
-      const after = env.localCalls();
-      await sleep(50);
-      assert.equal(env.localCalls(), after, "no probe fires once B5 is left");
-    } finally {
-      env.restore();
-    }
-  });
-
-  it("GFX-N7: a tick bails when B5 is no longer the open beat", async () => {
-    const env = unansweredEnv();
-    try {
-      await env.flow.open("discovery");
-      await failFuel(env);
-      // No hook ran — the flow simply stopped reporting B5 as open.
-      env.flow.isOpen = () => false;
-      await sleep(50);
-      assert.equal(env.localCalls(), 0, "the first tick checks the beat before probing");
-    } finally {
-      env.restore();
-    }
   });
 });

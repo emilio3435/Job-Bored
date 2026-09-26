@@ -88,6 +88,9 @@
   /** UX01 C7 (FR-18): dashboard and discovery on one computer, no Tailscale. */
   const LOCAL_ACTION = "oneflow_discovery_local";
   const LOCAL_LABEL = "Just this computer";
+  /** D2: the static host's one fix — B1's route-to-local screen. */
+  const ROUTE_LOCAL_ACTION = "oneflow_discovery_route_local";
+  const ROUTE_LOCAL_LABEL = "Open JobBored on this computer";
 
   /**
    * The clock on the fuel write. Saving the key and force-restarting the
@@ -165,10 +168,11 @@
       "The JobBored server on this computer hit an error while checking " +
       "your key. Press Save & verify again; if it keeps happening, quit " +
       "JobBored and start it again.",
+    // D2: the hosted page routes to local at B1; B5 never hands off here.
     static_host:
-      "This hosted page can't check your key — checking runs in the " +
-      "JobBored app on your computer. Copy your key, open your local " +
-      "setup, then press Save & verify there.",
+      "This page can't check your key — only JobBored running on your " +
+      "computer can. Press Open JobBored on this computer to set it up " +
+      "from step 1.",
     // GFX-N2: the same 404/405/HTML signature on a loopback page. There is
     // no hosted page to leave — something on this computer answered that
     // isn't a current JobBored server (an old checkout, another app on 8080).
@@ -178,64 +182,29 @@
   });
 
   /**
-   * How to start the local server on this machine, as a clause that fits
-   * "To start it, …". macOS gets the double-clickable start.command; every
-   * other platform runs the same start.sh (never a bare npm command — C7
-   * keeps one start command across beats). Exported so other beats can
-   * name the same launcher. Never throws — no navigator reads as "not a Mac".
+   * The substrate (local-server.js, loaded before the beats) owns every
+   * "is JobBored running here" answer: the fuel check's classification and
+   * the one start sentence (GFX-X1). Read lazily, so a harness that loads
+   * this beat alone degrades to "no local server", never an exception.
    */
-  function localServerHint() {
-    let platform = "";
+  function localServer() {
     try {
-      const nav =
-        window.navigator ||
-        (typeof navigator !== "undefined" ? navigator : null);
-      if (nav) {
-        platform = String(
-          (nav.userAgentData && nav.userAgentData.platform) ||
-            nav.platform ||
-            "",
-        );
-      }
+      const api = window.JobBoredLocalServer;
+      return api && typeof api.checkSerpApiKey === "function" ? api : null;
     } catch (_) {
-      platform = "";
+      return null;
     }
-    return /mac/i.test(platform)
-      ? "double-click start.command in the JobBored folder"
-      : "run ./start.sh in the JobBored folder";
+  }
+
+  /** How to start JobBored here, as a clause that fits "To start it, …". */
+  function localServerHint() {
+    const api = localServer();
+    return api ? api.localServerHint() : "start JobBored";
   }
 
   const WORKER_PORT = 8644;
   const TAILSCALE_DOWNLOAD_URL = "https://tailscale.com/download";
   const SELF_HOSTING_DOC = "docs/SELF-HOSTING.md";
-  /**
-   * The static-host handoff (B5 truthful handoff). The deep link is the C1
-   * full form (?beat=discovery&returnTo=close) against the local dashboard;
-   * the app link is the repo the README's clone instructions point at. Both
-   * carry beat/returnTo only — the key travels via the clipboard, never the
-   * URL (§4.1).
-   */
-  const LOCAL_SETUP_DEEP_LINK =
-    "http://localhost:8080/?beat=discovery&returnTo=close";
-  const GET_APP_URL = "https://github.com/emilio3435/Job-Bored";
-  /**
-   * Presence polling (Option 2, client half): while the handoff is on
-   * screen, the hosted page asks the machine's own dashboard — same origin
-   * as the deep link above, keyless, loopback-only, bounded. The dev server
-   * answers cross-origin only for the exact Pages origin over loopback, so
-   * a foreign page learns nothing and a foreign machine is unreachable.
-   * An affordance, not a dependency: when the app appears the handoff flips
-   * to the found variant; when it never does, the handoff simply stays.
-   * Mutable so tests exercise the real timer wiring in milliseconds.
-   */
-  const LOCAL_PING_URL = "http://localhost:8080/__proxy/ping";
-  const LOCAL_POLL_TIMINGS = { intervalMs: 3000, maxPolls: 60 };
-  let localPollTimer = null;
-  let localPolls = 0;
-  // A tick in flight when a new check starts must die quietly instead of
-  // announcing against the newer attempt's screen.
-  let localPollGen = 0;
-
   /**
    * Beat-local state. The shell re-renders the whole step on every
    * setMessage/setBusy, so anything the user typed has to live here — an
@@ -261,9 +230,6 @@
     // True when keyDraft came back from the pending slot at mount rather
     // than from typing in this session.
     fuelRestored: false,
-    // True once the presence poll has seen the local dashboard answer.
-    // Flips the handoff to the found variant; never implies fuelPassed.
-    localServerFound: false,
   };
 
   /**
@@ -325,14 +291,12 @@
 
   /**
    * What the last fuel check answered ("" before the first check and after
-   * a pass). checkFuelKey owns this: it records every outcome, and the fuel
-   * panel reads it to decide whether the static-host handoff earns a place
-   * on screen. A reason, never key material.
+   * a pass). checkFuelKey owns this: it records every outcome's display
+   * key, and the footer reads it — on the static host, retrying here can
+   * never pass, so the one action is the route to B1. A reason, never key
+   * material.
    */
   let lastFuelReason = "";
-
-  /** The live key field, for the clipboard fallback's focus + select. */
-  let keyInput = null;
 
   function dispatch(actionId, ctx) {
     lastContext = ctx;
@@ -403,6 +367,10 @@
       state.connectState === "needs_install" ||
       state.connectState === "needs_login" ||
       state.connectState === "needs_server";
+    // D1: every blocked state has exactly one fix. On the static host a
+    // retry here can never pass, so Save & verify steps aside for the
+    // in-panel route to B1.
+    ACTIONS[0].disabled = lastFuelReason === "static_host";
     ACTIONS[1].label = blocked ? "Re-check" : "Set it up for me";
     ACTIONS[1].disabled = !state.fuelPassed;
     ACTIONS[2].disabled = !state.fuelPassed;
@@ -477,7 +445,7 @@
     }
     panel.appendChild(list);
 
-    keyInput = field(panel, {
+    field(panel, {
       id: "oneFlowSerpApiKeyInput",
       label: "SerpApi API key",
       // Masked: a pasted credential is never rendered in clear text.
@@ -515,7 +483,17 @@
       );
     }
     if (lastFuelReason === "static_host") {
-      renderStaticHostHandoff(panel);
+      const routeBtn = el(
+        "button",
+        "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary",
+        ROUTE_LOCAL_LABEL,
+      );
+      routeBtn.type = "button";
+      routeBtn.dataset.actionId = ROUTE_LOCAL_ACTION;
+      routeBtn.addEventListener("click", () => {
+        if (lastContext) void dispatch(ROUTE_LOCAL_ACTION, lastContext);
+      });
+      panel.appendChild(routeBtn);
     }
     container.appendChild(panel);
   }
@@ -658,365 +636,44 @@
     container.appendChild(panel);
   }
 
-  /**
-   * The static-host handoff: Save & verify can never pass on the hosted
-   * page (there is no /__proxy/* there to answer it), so the next actions
-   * are carrying the typed key over, not retrying here. Rendered only while
-   * the last check answered static_host; the draft survives in the field
-   * above because the fail path never clears it.
-   */
-  function renderStaticHostHandoff(panel) {
-    const handoff = el("div", "oneflow-fuel__handoff");
-    handoff.dataset.handoff = "static-host";
-    handoff.dataset.found = state.localServerFound ? "true" : "false";
-    handoff.appendChild(
-      el(
-        "p",
-        "oneflow-panel__copy",
-        state.localServerFound
-          ? "Your local app is running — carry your key over:"
-          : "Your typed key is still in the field above — carry it over:",
-      ),
-    );
-    const row = el("div", "oneflow-fuel__handoff-row");
-    const copyBtn = el(
-      "button",
-      "discovery-setup-wizard__btn discovery-setup-wizard__btn--secondary",
-      "Copy my key",
-    );
-    copyBtn.type = "button";
-    copyBtn.dataset.handoffAction = "copy-key";
-    copyBtn.addEventListener("click", () => {
-      void copyKeyDraft(copyBtn);
-    });
-    row.appendChild(copyBtn);
-    link(row, LOCAL_SETUP_DEEP_LINK, "Open local setup ↗");
-    link(row, GET_APP_URL, "Get the app ↗");
-    handoff.appendChild(row);
-    panel.appendChild(handoff);
-  }
-
-  function clipboard() {
-    try {
-      const winNav = window.navigator;
-      if (winNav && winNav.clipboard) return winNav.clipboard;
-    } catch (_) {
-      // A missing navigator falls through to the bare global.
-    }
-    try {
-      if (
-        typeof navigator !== "undefined" &&
-        navigator &&
-        navigator.clipboard
-      ) {
-        return navigator.clipboard;
-      }
-    } catch (_) {
-      // No clipboard anywhere: the caller falls back to select.
-    }
-    return null;
-  }
-
-  /**
-   * Copy the typed draft to the clipboard. Local-only by construction: the
-   * key goes to the clipboard, never into a URL or a log. Without a
-   * clipboard (permissions, non-secure context) the field is focused and
-   * selected instead, so one keypress still carries the key over.
-   */
-  async function copyKeyDraft(button) {
-    if (!state.keyDraft.trim()) {
-      button.textContent = "Paste your key first";
-      return;
-    }
-    const clip = clipboard();
-    if (clip && typeof clip.writeText === "function") {
-      try {
-        await clip.writeText(state.keyDraft);
-        button.textContent = "Copied ✓";
-        return;
-      } catch (_) {
-        // A refusing clipboard falls through to select below.
-      }
-    }
-    if (keyInput) {
-      if (typeof keyInput.focus === "function") keyInput.focus();
-      if (typeof keyInput.select === "function") keyInput.select();
-    }
-    button.textContent = "Key selected — copy it";
-  }
-
-  function stopLocalServerPoll() {
-    localPollGen += 1;
-    if (localPollTimer != null) {
-      try {
-        clearTimeout(localPollTimer);
-      } catch (_) {
-        // A missing clearer leaves a bounded, self-stopping tick.
-      }
-      localPollTimer = null;
-    }
-  }
-
-  async function pollLocalServerOnce() {
-    try {
-      const res = await fetch(LOCAL_PING_URL);
-      const body = res ? await res.json().catch(() => null) : null;
-      return !!(
-        res &&
-        res.ok &&
-        body &&
-        typeof body === "object" &&
-        body.ok
-      );
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /**
-   * True while the flow is open on this beat. The poll's own guard, so a
-   * tick never announces on a screen B5 no longer owns even if the leave
-   * hook was missed (GFX-N7). Unreadable reads as "not ours".
-   */
-  function beatIsActive() {
-    try {
-      if (typeof flow.isOpen !== "function" || !flow.isOpen()) return false;
-      const snapshot = typeof flow.getState === "function" ? flow.getState() : null;
-      return !!(snapshot && snapshot.beat === "discovery");
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /**
-   * Watch for the local dashboard while the static-host answer stands.
-   * Keyless by construction — the probe carries no body at all. Stops on
-   * found, on a new check or a pass (the generation moves on), when the
-   * flow leaves B5 or closes (the onLeave hook, plus a per-tick
-   * beatIsActive check), or after maxPolls unanswered ticks: never a
-   * forever timer.
-   */
-  function scheduleLocalServerPoll(ctx) {
-    stopLocalServerPoll();
-    localPolls = 0;
-    state.localServerFound = false;
-    const gen = localPollGen;
-    const tickPoll = async () => {
-      localPollTimer = null;
-      if (gen !== localPollGen) return;
-      if (lastFuelReason !== "static_host" || state.localServerFound) return;
-      if (!beatIsActive()) return;
-      localPolls += 1;
-      let found = false;
-      try {
-        found = await pollLocalServerOnce();
-      } catch (_) {
-        found = false;
-      }
-      if (gen !== localPollGen || !beatIsActive()) return;
-      if (found) {
-        state.localServerFound = true;
-        // Re-render through the message slot: the handoff below reads
-        // localServerFound and flips to the found variant. The key still
-        // travels via the clipboard — the link never carries it.
-        try {
-          ctx.setMessage(
-            "Your local app is running — copy your key above, then press Open " +
-              "local setup to continue there.",
-            "info",
-          );
-        } catch (_) {
-          // The panel still flips on the next render; this was a nudge.
-        }
-        return;
-      }
-      if (localPolls >= LOCAL_POLL_TIMINGS.maxPolls) return;
-      try {
-        localPollTimer = setTimeout(tickPoll, LOCAL_POLL_TIMINGS.intervalMs);
-      } catch (_) {
-        localPollTimer = null;
-      }
-    };
-    try {
-      localPollTimer = setTimeout(tickPoll, LOCAL_POLL_TIMINGS.intervalMs);
-    } catch (_) {
-      localPollTimer = null;
-    }
-  }
-
   // ---------------------------------------------------------------
   // Fuel — save the key, restart the worker, RENDER the result
   // ---------------------------------------------------------------
 
   /**
-   * True when the answer carries an HTML page instead of the proxy's JSON —
-   * the other static-host tell beside a 404/405 status. Guarded for
-   * responses without headers (stubs, opaque answers): no content-type
-   * means "not proven HTML", never an exception.
-   */
-  function isHtmlAnswer(response) {
-    try {
-      const headers = response && response.headers;
-      const contentType =
-        headers && typeof headers.get === "function"
-          ? headers.get("content-type")
-          : "";
-      return /text\/html/i.test(String(contentType || ""));
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /**
-   * True when this page itself is served from loopback (localhost,
-   * 127.0.0.0/8, [::1]). Only a non-loopback page can be "the hosted page";
-   * on loopback the same wrong-server signature means the server on this
-   * computer is stale or foreign (GFX-N2). No location reads as not
-   * loopback — the hosted-page reading is the one with a handoff.
-   */
-  function pageIsLoopback() {
-    try {
-      const loc = window.location;
-      const host = String((loc && loc.hostname) || "").toLowerCase();
-      return (
-        host === "localhost" ||
-        host === "[::1]" ||
-        host === "::1" ||
-        /^127\.\d{1,3}\.\d{1,3}\.\d{1,3}$/.test(host)
-      );
-    } catch (_) {
-      return false;
-    }
-  }
-
-  /**
-   * Ask the dev-server to ask SerpApi (locked decision 5). Answers the
-   * server's `{ok, plan, searchesLeft}` on success, and `{ok:false, reason}`
-   * otherwise — including when the local server itself is the thing that
-   * cannot be reached, which is a different problem with a different fix.
-   *
-   * The /__proxy/* routes exist only on the local dev server, so a
-   * 404/405/HTML answer is the static host's signature (wrong page: open
-   * the local setup), while a fetch throw is a dead local server
-   * (double-click start.command). The two keep distinct reasons so each
-   * names its own fix; every outcome is recorded on lastFuelReason for the
-   * handoff gate.
-   *
-   * B5 C2: a keyless `GET /__proxy/ping` goes first, so "the server is down"
-   * is known before the key leaves the browser. Any ping failure
-   * short-circuits without sending the key anywhere — and the ping carries
-   * the same static-host signature as the check, so a 404/405/HTML ping
-   * keeps the `static_host` reason and only a throw (or an unproven answer)
-   * falls back to `no_local_server`. Without this the ping-first
-   * short-circuit would shadow the handoff on every page the dev server
-   * doesn't serve.
-   *
-   * GFX-N2: that signature means "hosted page" only off loopback. A
-   * loopback page was served by something on this computer, so a
-   * 404/405/HTML — or any non-JSON answer — is a stale or foreign server
-   * (`stale_server`), never "this hosted page can't check your key".
+   * Ask the dev-server to ask SerpApi (locked decision 5), through the
+   * substrate: a keyless ping first, then the keyed POST, classified by
+   * local-server.js against the frozen outcome table (PLAN §R2). Answers
+   * the server's `{ok, plan, searchesLeft}` on success and `{ok:false,
+   * reason}` otherwise, where `reason` is the outcome's display key
+   * (`forbidden` reads `wrong_origin`). Every outcome is recorded on
+   * lastFuelReason. Fails closed: no substrate, or a check that throws,
+   * is `no_local_server` — never a pass.
    */
   async function checkFuelKey(key) {
-    const loopback = pageIsLoopback();
-    const wrongServer = loopback ? "stale_server" : "static_host";
-    try {
-      const PING_TIMEOUT_MS = 3000;
-      let pingSignal;
-      let pingTimer = null;
-      if (typeof AbortController !== "undefined") {
-        const pingCtrl = new AbortController();
-        pingSignal = pingCtrl.signal;
-        pingTimer = setTimeout(() => {
-          try {
-            pingCtrl.abort();
-          } catch (_) {
-            /* the ping below treats the abort as a failed ping */
-          }
-        }, PING_TIMEOUT_MS);
-      }
-      let pinged = false;
-      let pingStatic = false;
+    const api = localServer();
+    let answer = null;
+    if (api) {
       try {
-        const ping = await fetch(
-          "/__proxy/ping",
-          pingSignal ? { signal: pingSignal } : undefined,
-        );
-        const pingBody = ping ? await ping.json().catch(() => null) : null;
-        // GFX-N3: the ping's own origin gate leans on Sec-Fetch-Site, which
-        // Safari <16.4 and some webviews never send — so a running server can
-        // answer a JSON 403. Any JobBored-shaped JSON answer ({ok: boolean},
-        // whatever the status) proves the server is up; the POST, which
-        // carries Origin, decides whether this page may use it.
-        const serverAnswered = !!(
-          pingBody &&
-          typeof pingBody === "object" &&
-          typeof pingBody.ok === "boolean"
-        );
-        if (serverAnswered) {
-          pingStatic = false;
-        } else if (ping && (ping.status === 404 || ping.status === 405)) {
-          pingStatic = true;
-        } else if (isHtmlAnswer(ping)) {
-          pingStatic = true;
-        } else if (loopback && ping && (!pingBody || typeof pingBody !== "object")) {
-          pingStatic = true;
-        }
-        pinged = serverAnswered;
-      } finally {
-        if (pingTimer != null && typeof clearTimeout === "function") {
-          clearTimeout(pingTimer);
-        }
+        answer = await api.checkSerpApiKey(key, { base: "" });
+      } catch (e) {
+        console.warn("[JobBored] B5 SerpApi check:", e && e.name ? e.name : "error");
+        answer = null;
       }
-      if (!pinged) {
-        lastFuelReason = pingStatic ? wrongServer : "no_local_server";
-        return { ok: false, reason: lastFuelReason };
-      }
-    } catch (e) {
-      console.warn("[JobBored] B5 local server ping:", e && e.name ? e.name : e);
-      lastFuelReason = "no_local_server";
-      return { ok: false, reason: "no_local_server" };
     }
-    try {
-      const response = await fetch("/__proxy/serpapi-check", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ key }),
-      });
-      if (response && (response.status === 404 || response.status === 405)) {
-        lastFuelReason = wrongServer;
-        return { ok: false, reason: wrongServer };
-      }
-      const body = response ? await response.json().catch(() => null) : null;
-      if (!body || typeof body !== "object") {
-        const reason =
-          response && (isHtmlAnswer(response) || loopback)
-            ? wrongServer
-            : "no_local_server";
-        lastFuelReason = reason;
-        return { ok: false, reason };
-      }
-      if (body.ok) {
-        lastFuelReason = "";
-        return body;
-      }
-      let reason = String(body.reason || "upstream_error");
-      // The server's origin gate speaks "forbidden"; the user needs to hear
-      // which address to open instead (GFX-N3).
-      if (reason === "forbidden") reason = "wrong_origin";
-      lastFuelReason = reason;
-      return { ok: false, reason };
-    } catch (e) {
-      console.warn("[JobBored] B5 SerpApi check:", e && e.name ? e.name : e);
+    if (!answer || typeof answer.outcome !== "string") {
       lastFuelReason = "no_local_server";
-      return { ok: false, reason: "no_local_server" };
+      return { ok: false, reason: lastFuelReason };
     }
+    if (answer.outcome === "ok" && answer.body) {
+      lastFuelReason = "";
+      return answer.body;
+    }
+    lastFuelReason = answer.display || "no_local_server";
+    return { ok: false, reason: lastFuelReason };
   }
 
   async function saveAndVerifyFuel(ctx) {
-    // A new attempt owns the screen: any presence poll from an older
-    // static_host answer dies with its generation.
-    stopLocalServerPoll();
-    state.localServerFound = false;
     const key = state.keyDraft.trim();
     // B5 pending fuel (Option 3, C3): every exit but the verified pass
     // keeps the verbatim draft in the pending slot, so the server gap
@@ -1090,7 +747,6 @@
       // "your keys are saved" literally true on the no-local-server path.
       // fuelPassed stays false: kept is not verified.
       keepPendingDraft();
-      if (checked.reason === "static_host") scheduleLocalServerPoll(ctx);
       return;
     }
     stages[0].state = "done";
@@ -1180,7 +836,6 @@
     // Verified live — the pending copy has served its purpose and must not
     // linger past the check that proved it.
     dropPendingDraft();
-    stopLocalServerPoll();
     state.fuelQuotaLine = quotaLine(checked);
     syncActions();
     for (const stage of stages) stage.state = "done";
@@ -1332,6 +987,10 @@
       state.manualUrl = `http://127.0.0.1:${WORKER_PORT}/webhook`;
       return runManualConnect(ctx);
     }
+    if (actionId === ROUTE_LOCAL_ACTION) {
+      if (lastFuelReason !== "static_host") return undefined;
+      return ctx.goToBeat("google");
+    }
     if (actionId === SKIP_ACTION) {
       if (!state.fuelPassed) {
         ctx.setMessage(
@@ -1365,11 +1024,6 @@
     onAction(actionId, ctx) {
       return dispatch(actionId, ctx);
     },
-    // GFX-N7: leaving B5 (next beat, finish, pause) ends the presence poll,
-    // so no tick fires setMessage on a screen this beat no longer owns.
-    onLeave() {
-      stopLocalServerPoll();
-    },
   });
 
   // Test seam (read in tests; never relied on from app code) — mirrors
@@ -1383,12 +1037,9 @@
       },
       whenIdle: () => pending,
       fuelReason: () => lastFuelReason,
-      localFound: () => state.localServerFound,
-      stopLocalServerPoll,
       CONNECT_STAGE_LABELS,
       // The C6 thresholds, so a probe need not wait fifteen real seconds.
       timings: CHECK_TIMINGS,
-      pollTimings: LOCAL_POLL_TIMINGS,
     },
   };
 })();
