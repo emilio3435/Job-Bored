@@ -1,6 +1,3 @@
-import { createSign } from "node:crypto";
-import { readFile } from "node:fs/promises";
-
 import type { WorkerRuntimeConfig } from "../config.ts";
 import {
   DEFAULT_BLACKLIST_SHEET_NAME,
@@ -16,10 +13,41 @@ import {
   serializeIntakeIdentity,
 } from "../normalize/intake-identity.ts";
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
+import { PIPELINE_COLUMNS } from "./pipeline-columns.generated.ts";
+import {
+  DEFAULT_SHEET_NAME,
+  DEFAULT_TOKEN_SCOPE,
+  PIPELINE_COL,
+  PIPELINE_LAST_COLUMN_LETTER,
+  SheetsHttpError,
+  appendSheetValues,
+  batchGetSheetValues,
+  batchUpdateSheetValues,
+  changedCellRanges,
+  checkPipelineHeader,
+  getSheetValues,
+  isRetryableStatus,
+  readPipelineLinks,
+  resolveAccessToken,
+  resolveRowsByLink,
+  withSheetLock,
+  type FetchLike,
+  type RetryOptions,
+} from "./sheets-client.ts";
+
+export {
+  DEFAULT_SHEET_NAME,
+  DEFAULT_TOKEN_SCOPE,
+  getSheetValues,
+  resolveAccessToken,
+  type FetchLike,
+};
 
 /**
  * Error thrown when a Sheet write operation fails.
  * Carries phase attribution so callers can distinguish update vs append failures.
+ * `uncertain` is true when the request may have been applied (the response was
+ * lost), so a caller must not assume nothing was written.
  */
 export class SheetWriteError extends Error {
   readonly phase: "update" | "append";
@@ -27,6 +55,7 @@ export class SheetWriteError extends Error {
   readonly httpStatus?: number;
   readonly detail?: string;
   readonly partialResult?: PipelineWriteResult;
+  readonly uncertain: boolean;
 
   constructor(params: {
     phase: "update" | "append";
@@ -35,6 +64,7 @@ export class SheetWriteError extends Error {
     httpStatus?: number;
     detail?: string;
     partialResult?: PipelineWriteResult;
+    uncertain?: boolean;
   }) {
     super(params.message);
     this.name = "SheetWriteError";
@@ -43,63 +73,28 @@ export class SheetWriteError extends Error {
     this.httpStatus = params.httpStatus;
     this.detail = params.detail;
     this.partialResult = params.partialResult;
+    this.uncertain = params.uncertain === true;
   }
 }
-
-export type FetchLike = typeof fetch;
-
-type SheetValuesResponse = {
-  values?: unknown[][];
-};
 
 type PipelineWriterOptions = {
   fetchImpl?: FetchLike;
   now?: () => Date;
   sheetName?: string;
   tokenScope?: string;
+  /** Attempts after the first for 429/5xx answers (default 3). */
+  retries?: number;
+  /** First retry delay in ms; doubles per attempt (default 400). */
+  retryBaseMs?: number;
 };
 
 export type PipelineWriter = {
   write(sheetId: string, leads: NormalizedLead[]): Promise<PipelineWriteResult>;
 };
 
-type GoogleServiceAccount = {
-  client_email: string;
-  private_key: string;
-  token_uri?: string;
-};
-
-type GoogleOAuthToken = {
-  token: string;
-  refresh_token: string;
-  client_id: string;
-  client_secret: string;
-  token_uri: string;
-  expiry: string;
-};
-
-export const DEFAULT_SHEET_NAME = "Pipeline";
-export const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
-const GOOGLE_TOKEN_URI = "https://oauth2.googleapis.com/token";
 const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
-const REQUIRED_HEADER_COUNT = 17;
 // Last A1-notation column letter covering every column in PIPELINE_HEADER_ROW.
-// Derived from COLUMN_COUNT so range strings automatically widen when optional
-// Pipeline columns are appended.
-export const LAST_COLUMN_LETTER = columnIndexToLetter(COLUMN_COUNT);
-
-function columnIndexToLetter(index: number): string {
-  // 1 -> "A", 26 -> "Z", 27 -> "AA".
-  if (!Number.isFinite(index) || index < 1) return "A";
-  let n = Math.floor(index);
-  let out = "";
-  while (n > 0) {
-    const rem = (n - 1) % 26;
-    out = String.fromCharCode(65 + rem) + out;
-    n = Math.floor((n - 1) / 26);
-  }
-  return out;
-}
+export const LAST_COLUMN_LETTER = PIPELINE_LAST_COLUMN_LETTER;
 
 function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
@@ -107,35 +102,6 @@ function asText(value: unknown): string {
 
 function toRowCells(row: unknown[]): string[] {
   return Array.from({ length: COLUMN_COUNT }, (_, index) => asText(row[index]));
-}
-
-function inspectHeaderRow(values: unknown[][]): {
-  header: string[];
-  needsUpgrade: boolean;
-} {
-  const header = toRowCells(values[0] || []);
-  const expected = PIPELINE_HEADER_ROW.map((value) => value.trim());
-  const mismatchIndex = expected.findIndex((value, index) => {
-    const found = header[index] || "";
-    if (index < REQUIRED_HEADER_COUNT) {
-      return found !== value;
-    }
-    return found !== "" && found !== value;
-  });
-  if (mismatchIndex !== -1) {
-    const found = header.join(" | ");
-    const want = expected.join(" | ");
-    throw new Error(
-      `Pipeline header mismatch. Expected ${want}; got ${found || "<empty>"}`,
-    );
-  }
-  return {
-    header,
-    needsUpgrade: expected.some(
-      (value, index) =>
-        index >= REQUIRED_HEADER_COUNT && (header[index] || "") !== value,
-    ),
-  };
 }
 
 function normalizeRowLink(row: string[]): string {
@@ -273,21 +239,26 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
   ];
 }
 
+// Per-row Edit Lock ids (column Y) and the column each one protects.
+const LOCKABLE_INDEX: Record<string, number> = {
+  title: PIPELINE_COL.title,
+  company: PIPELINE_COL.company,
+  location: PIPELINE_COL.location,
+  salary: PIPELINE_COL.salary,
+};
+
+/**
+ * Merge a re-discovered lead into the row the Sheet holds now. Column
+ * ownership comes from schemas/pipeline-row.v1.json (`discoveryMerge`):
+ * discovery replaces the cells it owns, fills user columns only while they are
+ * empty, honours the row's Edit Lock for identity columns, and never touches
+ * the CRM columns.
+ */
 function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
   const merged = existingRow.slice(0, COLUMN_COUNT);
   while (merged.length < COLUMN_COUNT) merged.push("");
 
-  // Per-row edit-lock skip set. The Edit Lock column (Y, index 24) holds a
-  // comma-separated list of user-locked field ids; locked identity columns are
-  // preserved against re-discovery FOR THIS ROW ONLY. Empty Y => empty set =>
-  // byte-identical pre-change behavior.
-  const LOCKABLE_INDEX: Record<string, number> = {
-    title: 1,
-    company: 2,
-    location: 3,
-    salary: 6,
-  };
-  const lockedRaw = (existingRow[24] || "").trim();
+  const lockedRaw = (existingRow[PIPELINE_COL.editLock] || "").trim();
   const lockedIndexes = new Set<number>();
   if (lockedRaw) {
     for (const id of lockedRaw.split(",")) {
@@ -296,360 +267,29 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
     }
   }
 
-  for (let index = 0; index < COLUMN_COUNT; index += 1) {
-    if (
-      index === 0 || // Date Found: keep the original discovery date on re-discovery
-      index === 11 ||
-      index === 12 ||
-      index === 13 ||
-      index === 14 ||
-      index === 15 ||
-      index === 17 ||
-      index === 18 ||
-      lockedIndexes.has(index)
-    ) {
-      continue;
+  for (const column of PIPELINE_COLUMNS) {
+    const index = column.sheetIndex;
+    const incoming = leadRow[index] || "";
+    if (!incoming) continue;
+    switch (column.discoveryMerge) {
+      case "overwrite":
+        merged[index] = incoming;
+        break;
+      case "lockable":
+        if (!lockedIndexes.has(index)) merged[index] = incoming;
+        break;
+      case "fillIfEmpty":
+        if (!merged[index]) merged[index] = incoming;
+        break;
+      case "preserve":
+        break;
+      default: {
+        const unknownMerge: never = column.discoveryMerge;
+        throw new Error(`Unknown discoveryMerge: ${String(unknownMerge)}`);
+      }
     }
-    if (leadRow[index]) merged[index] = leadRow[index];
   }
-
-  // Backfill Date Found only when the existing row never had one (legacy rows).
-  if (!merged[0]) merged[0] = leadRow[0];
-  if (!merged[11]) merged[11] = leadRow[11];
-  if (!merged[12]) merged[12] = leadRow[12] || "New";
-  if (!merged[16]) merged[16] = leadRow[16];
   return merged;
-}
-
-function buildHeaders(token: string, isJson = true): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    ...(isJson ? { "Content-Type": "application/json" } : {}),
-  };
-}
-
-function encodeRange(range: string): string {
-  return encodeURIComponent(range);
-}
-
-function toBase64Url(input: string): string {
-  return Buffer.from(input, "utf8")
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "");
-}
-
-function parseServiceAccount(rawJson: string): GoogleServiceAccount {
-  const parsed = JSON.parse(rawJson) as Partial<GoogleServiceAccount>;
-  if (!parsed.client_email || !parsed.private_key) {
-    throw new Error(
-      "Service account JSON must include client_email and private_key",
-    );
-  }
-  return {
-    client_email: String(parsed.client_email),
-    private_key: String(parsed.private_key),
-    token_uri: parsed.token_uri ? String(parsed.token_uri) : GOOGLE_TOKEN_URI,
-  };
-}
-
-function parseOAuthToken(rawJson: string): GoogleOAuthToken {
-  const parsed = JSON.parse(rawJson) as Partial<GoogleOAuthToken>;
-  return {
-    token: asText(parsed.token),
-    refresh_token: asText(parsed.refresh_token),
-    client_id: asText(parsed.client_id),
-    client_secret: asText(parsed.client_secret),
-    token_uri: asText(parsed.token_uri) || GOOGLE_TOKEN_URI,
-    expiry: asText(parsed.expiry),
-  };
-}
-
-async function readServiceAccountConfig(
-  runtimeConfig: WorkerRuntimeConfig,
-): Promise<GoogleServiceAccount | null> {
-  const inline = asText(runtimeConfig.googleServiceAccountJson);
-  if (inline) return parseServiceAccount(inline);
-
-  const filePath = asText(runtimeConfig.googleServiceAccountFile);
-  if (!filePath) return null;
-  const fileText = await readFile(filePath, "utf8");
-  return parseServiceAccount(fileText);
-}
-
-async function readOAuthTokenConfig(
-  runtimeConfig: WorkerRuntimeConfig,
-): Promise<GoogleOAuthToken | null> {
-  const inline = asText(runtimeConfig.googleOAuthTokenJson);
-  if (inline) return parseOAuthToken(inline);
-
-  const filePath = asText(runtimeConfig.googleOAuthTokenFile);
-  if (!filePath) return null;
-  const fileText = await readFile(filePath, "utf8");
-  return parseOAuthToken(fileText);
-}
-
-async function exchangeServiceAccountToken(
-  serviceAccount: GoogleServiceAccount,
-  tokenScope: string,
-  fetchImpl: FetchLike,
-  now: () => Date,
-): Promise<string> {
-  const iat = Math.floor(now().getTime() / 1000);
-  const payload = {
-    iss: serviceAccount.client_email,
-    scope: tokenScope,
-    aud: serviceAccount.token_uri || GOOGLE_TOKEN_URI,
-    iat,
-    exp: iat + 3600,
-  };
-  const header = { alg: "RS256", typ: "JWT" };
-  const unsigned = `${toBase64Url(JSON.stringify(header))}.${toBase64Url(JSON.stringify(payload))}`;
-  const signer = createSign("RSA-SHA256");
-  signer.update(unsigned);
-  signer.end();
-  const signature = signer.sign(serviceAccount.private_key);
-  const assertion = `${unsigned}.${signature
-    .toString("base64")
-    .replace(/\+/g, "-")
-    .replace(/\//g, "_")
-    .replace(/=+$/g, "")}`;
-
-  const response = await fetchImpl(
-    serviceAccount.token_uri || GOOGLE_TOKEN_URI,
-    {
-      method: "POST",
-      headers: { "Content-Type": "application/x-www-form-urlencoded" },
-      body: new URLSearchParams({
-        grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
-        assertion,
-      }).toString(),
-    },
-  );
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to exchange service account token: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-    );
-  }
-
-  const data = (await response.json()) as { access_token?: string };
-  if (!data.access_token) {
-    throw new Error("Service account token response missing access_token");
-  }
-  return data.access_token;
-}
-
-function hasFreshOAuthAccessToken(
-  tokenConfig: GoogleOAuthToken,
-  now: () => Date,
-): boolean {
-  if (!tokenConfig.token) return false;
-  if (!tokenConfig.expiry) return true;
-  const expiryMs = Date.parse(tokenConfig.expiry);
-  if (!Number.isFinite(expiryMs)) return true;
-  return expiryMs - now().getTime() > 60_000;
-}
-
-async function refreshOAuthAccessToken(
-  tokenConfig: GoogleOAuthToken,
-  fetchImpl: FetchLike,
-): Promise<string> {
-  if (
-    !tokenConfig.refresh_token ||
-    !tokenConfig.client_id ||
-    !tokenConfig.client_secret
-  ) {
-    throw new Error(
-      "Google OAuth token JSON must include refresh_token, client_id, and client_secret when the cached access token is expired.",
-    );
-  }
-
-  const response = await fetchImpl(tokenConfig.token_uri || GOOGLE_TOKEN_URI, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      grant_type: "refresh_token",
-      refresh_token: tokenConfig.refresh_token,
-      client_id: tokenConfig.client_id,
-      client_secret: tokenConfig.client_secret,
-    }).toString(),
-  });
-
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to refresh Google OAuth token: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-    );
-  }
-
-  const data = (await response.json()) as { access_token?: string };
-  if (!data.access_token) {
-    throw new Error("Google OAuth refresh response missing access_token");
-  }
-  return data.access_token;
-}
-
-/**
- * Resolve a Google Sheets access token from the worker's runtime config using
- * the same precedence the Pipeline writer uses:
- *   1. runtimeConfig.googleAccessToken (highest — per-request token from the dashboard)
- *   2. service account JSON/file (JWT exchange)
- *   3. OAuth refresh token JSON/file (refresh flow)
- *
- * Exported so sibling Sheets writers (e.g. DiscoveryRuns logger) can share the
- * same auth resolution without duplicating the three-tier precedence logic.
- */
-export async function resolveAccessToken(
-  runtimeConfig: WorkerRuntimeConfig,
-  fetchImpl: FetchLike,
-  now: () => Date,
-  tokenScope: string,
-): Promise<string> {
-  if (asText(runtimeConfig.googleAccessToken)) {
-    return asText(runtimeConfig.googleAccessToken);
-  }
-  const serviceAccount = await readServiceAccountConfig(runtimeConfig);
-  if (serviceAccount) {
-    return exchangeServiceAccountToken(
-      serviceAccount,
-      tokenScope,
-      fetchImpl,
-      now,
-    );
-  }
-
-  const oauthToken = await readOAuthTokenConfig(runtimeConfig);
-  if (oauthToken) {
-    if (hasFreshOAuthAccessToken(oauthToken, now)) {
-      return oauthToken.token;
-    }
-    return refreshOAuthAccessToken(oauthToken, fetchImpl);
-  }
-
-  throw new Error(
-    "No Google Sheets credential available. Set googleAccessToken, service-account JSON/file, or Google OAuth token JSON/file.",
-  );
-}
-
-export async function getSheetValues(
-  sheetId: string,
-  range: string,
-  token: string,
-  fetchImpl: FetchLike,
-): Promise<string[][]> {
-  const url = new URL(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(range)}`,
-  );
-  url.searchParams.set("majorDimension", "ROWS");
-  url.searchParams.set("valueRenderOption", "FORMATTED_VALUE");
-  url.searchParams.set("dateTimeRenderOption", "FORMATTED_STRING");
-
-  const response = await fetchImpl(url, {
-    headers: buildHeaders(token, false),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to read ${range}: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-    );
-  }
-  const data = (await response.json()) as SheetValuesResponse;
-  return Array.isArray(data.values)
-    ? data.values.map((row) =>
-        Array.isArray(row) ? row.map((cell) => asText(cell)) : [],
-      )
-    : [];
-}
-
-export async function batchUpdateRows(
-  sheetId: string,
-  rowUpdates: Array<{ rowNumber: number; values: string[] }>,
-  token: string,
-  fetchImpl: FetchLike,
-  sheetName: string,
-): Promise<void> {
-  if (!rowUpdates.length) return;
-  const url = new URL(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values:batchUpdate`,
-  );
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: buildHeaders(token),
-    body: JSON.stringify({
-      valueInputOption: "USER_ENTERED",
-      data: rowUpdates.map((entry) => ({
-        range: `${sheetName}!A${entry.rowNumber}:${LAST_COLUMN_LETTER}${entry.rowNumber}`,
-        majorDimension: "ROWS",
-        values: [entry.values],
-      })),
-    }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new SheetWriteError({
-      phase: "update",
-      message: `Sheet write failed during update phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-      sheetId,
-      httpStatus: response.status,
-      detail: body || undefined,
-    });
-  }
-}
-
-async function appendRows(
-  sheetId: string,
-  rows: string[][],
-  token: string,
-  fetchImpl: FetchLike,
-  sheetName: string,
-): Promise<void> {
-  if (!rows.length) return;
-  const url = new URL(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(`${sheetName}!A:${LAST_COLUMN_LETTER}`)}:append`,
-  );
-  url.searchParams.set("valueInputOption", "USER_ENTERED");
-  url.searchParams.set("insertDataOption", "INSERT_ROWS");
-  url.searchParams.set("includeValuesInResponse", "false");
-
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: buildHeaders(token),
-    body: JSON.stringify({
-      majorDimension: "ROWS",
-      values: rows,
-    }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new SheetWriteError({
-      phase: "append",
-      message: `Sheet write failed during append phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-      sheetId,
-      httpStatus: response.status,
-      detail: body || undefined,
-    });
-  }
-}
-
-async function ensurePipelineHeaderRow(
-  sheetId: string,
-  token: string,
-  fetchImpl: FetchLike,
-  sheetName: string,
-  values: unknown[][],
-): Promise<void> {
-  const headerState = inspectHeaderRow(values);
-  if (!headerState.needsUpgrade) return;
-  await batchUpdateRows(
-    sheetId,
-    [{ rowNumber: 1, values: [...PIPELINE_HEADER_ROW] }],
-    token,
-    fetchImpl,
-    sheetName,
-  );
 }
 
 function dedupeIncomingLeads(leads: NormalizedLead[]): {
@@ -670,6 +310,55 @@ function dedupeIncomingLeads(leads: NormalizedLead[]): {
   };
 }
 
+/**
+ * Write a full-row update by row number (the header upgrade and callers that
+ * already hold a fresh row). Every text cell is formula-escaped.
+ */
+export async function batchUpdateRows(
+  sheetId: string,
+  rowUpdates: Array<{ rowNumber: number; values: string[] }>,
+  token: string,
+  fetchImpl: FetchLike,
+  sheetName: string,
+  retry?: RetryOptions,
+): Promise<void> {
+  if (!rowUpdates.length) return;
+  const response = await batchUpdateSheetValues(
+    sheetId,
+    rowUpdates.map((entry) => ({
+      range: `${sheetName}!A${entry.rowNumber}:${LAST_COLUMN_LETTER}${entry.rowNumber}`,
+      values: [entry.values],
+    })),
+    token,
+    fetchImpl,
+    retry,
+  );
+  if (!response.ok) {
+    const body = await response.text().catch(() => "");
+    throw new SheetWriteError({
+      phase: "update",
+      message: `Sheet write failed during update phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+      sheetId,
+      httpStatus: response.status,
+      detail: body || undefined,
+    });
+  }
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function formatError(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+type PendingUpdate = {
+  rowNumber: number;
+  link: string;
+  leadRows: string[][];
+};
+
 export function createPipelineWriter(
   runtimeConfig: WorkerRuntimeConfig,
   options: PipelineWriterOptions = {},
@@ -681,30 +370,62 @@ export function createPipelineWriter(
   const now = options.now || (() => new Date());
   const sheetName = options.sheetName || DEFAULT_SHEET_NAME;
   const tokenScope = options.tokenScope || DEFAULT_TOKEN_SCOPE;
+  const retry: RetryOptions = {
+    retries: options.retries ?? 3,
+    retryBaseMs: options.retryBaseMs ?? 400,
+  };
 
-  async function write(
+  async function readIdentitySnapshot(
+    sheetId: string,
+    token: string,
+  ): Promise<string[][]> {
+    // Identity columns only (Title..Source, Dismissed At..Edit Lock). Full
+    // rows are fetched later for the matched row numbers alone.
+    const [identity, tail] = await batchGetSheetValues(
+      sheetId,
+      [`${sheetName}!B2:F`, `${sheetName}!W2:${LAST_COLUMN_LETTER}`],
+      token,
+      fetchImpl,
+      retry,
+    );
+    const count = Math.max(identity.length, tail.length);
+    const rows: string[][] = [];
+    for (let index = 0; index < count; index += 1) {
+      const cells = new Array<string>(COLUMN_COUNT).fill("");
+      const front = identity[index] || [];
+      for (let offset = 0; offset < 5; offset += 1) cells[1 + offset] = asText(front[offset]);
+      const back = tail[index] || [];
+      for (let offset = 0; offset < COLUMN_COUNT - PIPELINE_COL.dismissedAt; offset += 1) {
+        cells[PIPELINE_COL.dismissedAt + offset] = asText(back[offset]);
+      }
+      rows.push(cells);
+    }
+    return rows;
+  }
+
+  async function writeLocked(
     sheetId: string,
     leads: NormalizedLead[],
+    accessToken: string,
   ): Promise<PipelineWriteResult> {
-    const accessToken = await resolveAccessToken(
-      runtimeConfig,
-      fetchImpl,
-      now,
-      tokenScope,
-    );
     const headerValues = await getSheetValues(
       sheetId,
       `${sheetName}!A1:${LAST_COLUMN_LETTER}1`,
       accessToken,
       fetchImpl,
+      retry,
     );
-    await ensurePipelineHeaderRow(
-      sheetId,
-      accessToken,
-      fetchImpl,
-      sheetName,
-      headerValues,
-    );
+    const headerState = checkPipelineHeader(headerValues[0] || [], sheetName);
+    if (headerState.needsUpgrade) {
+      await batchUpdateRows(
+        sheetId,
+        [{ rowNumber: 1, values: [...PIPELINE_HEADER_ROW] }],
+        accessToken,
+        fetchImpl,
+        sheetName,
+        retry,
+      );
+    }
     // A missing blacklist tab is normal (HTTP 400 "Unable to parse range") and
     // means "no blacklist". Any other error (429/5xx/network) is transient and
     // must NOT silently disable blacklist filtering — fail loud so suppressed
@@ -714,6 +435,7 @@ export function createPipelineWriter(
       `${DEFAULT_BLACKLIST_SHEET_NAME}!A2:A`,
       accessToken,
       fetchImpl,
+      retry,
     ).catch((error) => {
       const message = error instanceof Error ? error.message : String(error);
       if (/HTTP 400\b/.test(message) || /Unable to parse range/i.test(message)) {
@@ -727,12 +449,7 @@ export function createPipelineWriter(
         .filter((value) => Boolean(value)),
     );
 
-    const existingRows = await getSheetValues(
-      sheetId,
-      `${sheetName}!A2:${LAST_COLUMN_LETTER}`,
-      accessToken,
-      fetchImpl,
-    );
+    const existingRows = await readIdentitySnapshot(sheetId, accessToken);
     const existingByLink = new Map<string, ExistingPipelineRow>();
     const existingByProvider = new Map<string, ExistingPipelineRow>();
     const existingBySemantic = new Map<string, ExistingPipelineRow>();
@@ -760,11 +477,9 @@ export function createPipelineWriter(
 
     const deduped = dedupeIncomingLeads(leads);
     const uniqueLeads = deduped.leads;
-    const updates: Array<{ rowNumber: number; values: string[] }> = [];
+    const pendingByRow = new Map<number, PendingUpdate>();
     const appends: string[][] = [];
     const skippedBlacklist: Array<{ url: string; title: string }> = [];
-    let updated = 0;
-    let appended = 0;
     let skippedDuplicates = deduped.skippedDuplicates;
     const warnings: string[] = existingDuplicateCount
       ? [
@@ -774,7 +489,7 @@ export function createPipelineWriter(
 
     for (const lead of uniqueLeads) {
       const leadRow = buildLeadRow(lead, now());
-      const link = leadRow[4];
+      const link = leadRow[PIPELINE_COL.link];
       if (!link) continue;
       const identityHit = findExistingIdentityMatch(
         lead,
@@ -784,7 +499,7 @@ export function createPipelineWriter(
       );
       if (identityHit) {
         const match = identityHit.match;
-        if (match.row[22]) {
+        if (match.row[PIPELINE_COL.dismissedAt]) {
           skippedBlacklist.push({ url: link, title: lead.title || "" });
           continue;
         }
@@ -795,18 +510,19 @@ export function createPipelineWriter(
           );
           continue;
         }
-        const merged = mergeExistingRow(match.row, leadRow);
-        updates.push({
+        const pending = pendingByRow.get(match.rowNumber) || {
           rowNumber: match.rowNumber,
-          values: merged,
-        });
+          link: normalizeRowLink(match.row),
+          leadRows: [],
+        };
+        pending.leadRows.push(leadRow);
+        pendingByRow.set(match.rowNumber, pending);
         rememberExistingIdentity(
-          { rowNumber: match.rowNumber, row: merged },
+          { rowNumber: match.rowNumber, row: mergeExistingRow(match.row, leadRow) },
           existingByLink,
           existingByProvider,
           existingBySemantic,
         );
-        updated += 1;
         continue;
       }
       if (blacklistedUrls.has(link)) {
@@ -820,34 +536,166 @@ export function createPipelineWriter(
         existingByProvider,
         existingBySemantic,
       );
-      appended += 1;
     }
 
-    await batchUpdateRows(sheetId, updates, accessToken, fetchImpl, sheetName);
-    try {
-      await appendRows(sheetId, appends, accessToken, fetchImpl, sheetName);
-    } catch (error) {
-      if (error instanceof SheetWriteError && error.phase === "append") {
-        throw new SheetWriteError({
-          phase: error.phase,
-          message: error.message,
-          sheetId: error.sheetId,
-          httpStatus: error.httpStatus,
-          detail: error.detail,
-          partialResult: {
+    const pending = [...pendingByRow.values()];
+    let updated = 0;
+    let appended = 0;
+    let updateError: SheetWriteError | null = null;
+
+    // Update phase: re-read each matched row by Link right before writing,
+    // merge into what the Sheet holds now, and write only changed cells.
+    if (pending.length) {
+      try {
+        const resolved = await resolveRowsByLink({
+          sheetId,
+          sheetName,
+          token: accessToken,
+          fetchImpl,
+          targets: pending.map((p) => ({ rowNumber: p.rowNumber, link: p.link })),
+          normalizeLink: normalizeLeadUrl,
+          retry,
+        });
+        const data: Array<{ range: string; values: string[][] }> = [];
+        let matched = 0;
+        resolved.forEach((result, index) => {
+          const entry = pending[index];
+          if (result.status !== "found") {
+            warnings.push(
+              result.status === "ambiguous"
+                ? `Skipped update for ${entry.link}: the Link now appears on rows ${result.rowNumbers.join(", ")}.`
+                : `Skipped update for ${entry.link}: its Pipeline row moved or was removed during the write.`,
+            );
+            return;
+          }
+          if (result.row[PIPELINE_COL.dismissedAt]) {
+            skippedBlacklist.push({ url: entry.link, title: result.row[PIPELINE_COL.title] || "" });
+            return;
+          }
+          let merged = result.row;
+          for (const leadRow of entry.leadRows) merged = mergeExistingRow(merged, leadRow);
+          data.push(...changedCellRanges(sheetName, result.rowNumber, result.row, merged));
+          matched += entry.leadRows.length;
+        });
+        if (data.length) {
+          const response = await batchUpdateSheetValues(
             sheetId,
-            appended: 0,
-            updated,
-            skippedDuplicates: skippedDuplicates + existingDuplicateCount,
-            skippedBlacklist: skippedBlacklist.length,
-            warnings,
-          },
+            data,
+            accessToken,
+            fetchImpl,
+            retry,
+          );
+          if (!response.ok) {
+            const body = await response.text().catch(() => "");
+            throw new SheetWriteError({
+              phase: "update",
+              message: `Sheet write failed during update phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+              sheetId,
+              httpStatus: response.status,
+              detail: body || undefined,
+            });
+          }
+        }
+        updated = matched;
+      } catch (error) {
+        updateError =
+          error instanceof SheetWriteError
+            ? error
+            : new SheetWriteError({
+                phase: "update",
+                message: `Sheet write failed during update phase: ${formatError(error)}`,
+                sheetId,
+                httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
+                uncertain: !(error instanceof SheetsHttpError),
+              });
+      }
+    }
+
+    // Append phase runs even when the update phase failed: the two are
+    // independent, and new leads must not wait on a transient update error.
+    if (appends.length) {
+      const attempts = (retry.retries ?? 3) + 1;
+      for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const partial = (): PipelineWriteResult => ({
+          sheetId,
+          appended: 0,
+          updated,
+          skippedDuplicates: skippedDuplicates + existingDuplicateCount,
+          skippedBlacklist: skippedBlacklist.length,
+          warnings: [...warnings],
+        });
+        let present: Set<string>;
+        try {
+          // Links another writer added since the snapshot are not appended again.
+          present = await readPipelineLinks({
+            sheetId,
+            sheetName,
+            token: accessToken,
+            fetchImpl,
+            normalizeLink: normalizeLeadUrl,
+            retry,
+          });
+        } catch (error) {
+          throw new SheetWriteError({
+            phase: "append",
+            message: `Sheet write failed during append phase: ${formatError(error)}`,
+            sheetId,
+            httpStatus: error instanceof SheetsHttpError ? error.status : undefined,
+            partialResult: partial(),
+          });
+        }
+        const fresh = appends.filter((row) => !present.has(row[PIPELINE_COL.link]));
+        const already = appends.length - fresh.length;
+        if (already) {
+          skippedDuplicates += already;
+          warnings.push(
+            `${already} lead(s) were already in the Pipeline when the append ran; they were not appended again.`,
+          );
+          appends.splice(0, appends.length, ...fresh);
+        }
+        if (!appends.length) break;
+
+        let response: Response;
+        try {
+          response = await appendSheetValues(
+            sheetId,
+            `${sheetName}!A:${LAST_COLUMN_LETTER}`,
+            appends,
+            accessToken,
+            fetchImpl,
+            { retries: 0 },
+          );
+        } catch (error) {
+          // The request may have reached Google: the rows may be in the Sheet.
+          throw new SheetWriteError({
+            phase: "append",
+            message: `Sheet write failed during append phase: ${formatError(error)}`,
+            sheetId,
+            uncertain: true,
+            partialResult: partial(),
+          });
+        }
+        if (response.ok) {
+          appended = appends.length;
+          break;
+        }
+        const body = await response.text().catch(() => "");
+        if (isRetryableStatus(response.status) && attempt < attempts - 1) {
+          await sleep((retry.retryBaseMs ?? 400) * 2 ** attempt);
+          continue;
+        }
+        throw new SheetWriteError({
+          phase: "append",
+          message: `Sheet write failed during append phase: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+          sheetId,
+          httpStatus: response.status,
+          detail: body || undefined,
+          partialResult: partial(),
         });
       }
-      throw error;
     }
 
-    return {
+    const result: PipelineWriteResult = {
       sheetId,
       appended,
       updated,
@@ -855,6 +703,31 @@ export function createPipelineWriter(
       skippedBlacklist: skippedBlacklist.length,
       warnings,
     };
+    if (updateError) {
+      throw new SheetWriteError({
+        phase: "update",
+        message: updateError.message,
+        sheetId,
+        httpStatus: updateError.httpStatus,
+        detail: updateError.detail,
+        uncertain: updateError.uncertain,
+        partialResult: { ...result, updated: 0 },
+      });
+    }
+    return result;
+  }
+
+  async function write(
+    sheetId: string,
+    leads: NormalizedLead[],
+  ): Promise<PipelineWriteResult> {
+    const accessToken = await resolveAccessToken(
+      runtimeConfig,
+      fetchImpl,
+      now,
+      tokenScope,
+    );
+    return withSheetLock(sheetId, () => writeLocked(sheetId, leads, accessToken));
   }
 
   return { write };

@@ -1,0 +1,151 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/run-status.v1.schema.json",
+  "title": "Discovery run status (GET /runs/:runId)",
+  "description": "The body of a 200 from the Browser Use worker's GET /runs/:runId, and the `run` object of a POST /runs/:runId/cancel answer. Async /webhook and /ingest-url acks point at it through `statusPath`. `terminal: true` never changes again. Readers must ignore fields they do not know.",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "runId",
+    "status",
+    "terminal",
+    "message",
+    "trigger",
+    "request",
+    "acceptedAt",
+    "updatedAt",
+    "warnings",
+    "sources"
+  ],
+  "properties": {
+    "ok": {
+      "type": "boolean",
+      "const": true,
+      "description": "Present on the HTTP body (GET /runs/:runId); absent on the nested `run` object."
+    },
+    "runId": {
+      "type": "string",
+      "minLength": 1
+    },
+    "status": {
+      "type": "string",
+      "enum": [
+        "accepted",
+        "running",
+        "completed",
+        "partial",
+        "empty",
+        "failed"
+      ]
+    },
+    "terminal": {
+      "type": "boolean",
+      "description": "True for completed, partial, empty and failed."
+    },
+    "message": {
+      "type": "string"
+    },
+    "trigger": {
+      "type": "string",
+      "enum": [
+        "manual",
+        "scheduled"
+      ]
+    },
+    "request": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "sheetId",
+        "variationKey",
+        "requestedAt"
+      ],
+      "properties": {
+        "sheetId": {
+          "type": "string"
+        },
+        "variationKey": {
+          "type": "string",
+          "description": "`ingest_url` for an async /ingest-url run."
+        },
+        "requestedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "acceptedAt": {
+      "type": "string"
+    },
+    "startedAt": {
+      "type": "string"
+    },
+    "completedAt": {
+      "type": "string"
+    },
+    "updatedAt": {
+      "type": "string"
+    },
+    "warnings": {
+      "type": "array",
+      "items": {
+        "type": "string"
+      }
+    },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true
+      }
+    },
+    "error": {
+      "type": "string",
+      "description": "Why a failed run failed. A cancelled run says `Cancelled by user.`; a worker restart says the run was interrupted."
+    },
+    "progress": {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "phase",
+        "sequence",
+        "checkpointedAt"
+      ],
+      "properties": {
+        "phase": {
+          "type": "string"
+        },
+        "sequence": {
+          "type": "integer",
+          "minimum": 1
+        },
+        "checkpointedAt": {
+          "type": "string"
+        }
+      }
+    },
+    "lifecycle": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "writeResult": {
+      "type": "object",
+      "additionalProperties": true
+    },
+    "ingestResult": {
+      "$ref": "ingest-url-response.v1.schema.json",
+      "description": "Async /ingest-url only: the final ingest answer."
+    },
+    "ultraPlanTuning": {
+      "type": "object"
+    },
+    "groundedSearchTuning": {
+      "type": "object"
+    },
+    "profileSnapshot": {
+      "type": "object"
+    },
+    "searchPlan": {
+      "type": "object"
+    }
+  }
+}

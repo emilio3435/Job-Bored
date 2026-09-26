@@ -593,6 +593,16 @@ async function readPipelineRows(sheetId, token) {
 }
 
 /**
+ * Sheets evaluates a USER_ENTERED string starting with = + - @ as a formula;
+ * model output is untrusted, so store it as text (BEAUDIT D5/F5).
+ * @param {unknown} value
+ */
+function escapeCellText(value) {
+  const text = value == null ? "" : String(value);
+  return /^[=+\-@\t\r]/.test(text) ? `'${text}` : text;
+}
+
+/**
  * @param {{ sheetId: string, token: string, rowNumber: number, fitScore: number, fitAssessment: string, talkingPoints: string }} input
  */
 async function writeRowScoreCells({
@@ -615,12 +625,12 @@ async function writeRowScoreCells({
     {
       range: `${PIPELINE_SHEET_NAME}!${SHEET_COLUMN_LETTER.FIT_ASSESSMENT}${rowNumber}`,
       majorDimension: "ROWS",
-      values: [[fitAssessment]],
+      values: [[escapeCellText(fitAssessment)]],
     },
     {
       range: `${PIPELINE_SHEET_NAME}!${SHEET_COLUMN_LETTER.TALKING_POINTS}${rowNumber}`,
       majorDimension: "ROWS",
-      values: [[talkingPoints]],
+      values: [[escapeCellText(talkingPoints)]],
     },
     {
       range: `${PIPELINE_SHEET_NAME}!${SHEET_COLUMN_LETTER.MATCH_SCORE}${rowNumber}`,
@@ -1530,5 +1540,6 @@ export const _internal = {
   deriveBand,
   buildFitAssessment,
   buildTalkingPoints,
+  writeRowScoreCells,
   COL,
 };

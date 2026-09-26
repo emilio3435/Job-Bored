@@ -23,7 +23,8 @@ Free, runs in **your** Google account. Deploy a **Web app** and paste the **`/ex
 - Returns **`{"ok":true,...}`** so the dashboard can show a success toast.
 - This default stub does **not** discover or scrape jobs by itself. It only
   proves that the dashboard can reach your webhook.
-- **`ENABLE_TEST_ROW`** (optional): appends a **`[CC test]`** row to **Pipeline** for smoke tests.
+- **`WEBHOOK_SECRET`** (recommended): the web app is public, so set a long random script property and append it to the `/exec` URL you paste into the dashboard as `?secret=<value>`. POSTs without it get `{"ok":false,"error":"unauthorized"}`. The stub logs only the event name and `variationKey`, never the request body.
+- **`ENABLE_TEST_ROW`** (optional): appends one **`[CC test]`** row per `variationKey` to **Pipeline** for smoke tests (deduped by its Link). It only writes when `WEBHOOK_SECRET` is set.
 - In the dashboard, this should be treated as **stub-only**, not as a real discovery engine.
 
 ---

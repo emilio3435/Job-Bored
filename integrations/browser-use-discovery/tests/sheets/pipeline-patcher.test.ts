@@ -3,26 +3,23 @@ import assert from "node:assert/strict";
 
 import { createPipelinePatcher } from "../../src/sheets/pipeline-patcher.ts";
 import { PIPELINE_HEADER_ROW } from "../../src/contracts.ts";
+import { createFakeSheets } from "./fake-sheets.ts";
 
 const runtimeConfig = { googleAccessToken: "test-token" } as never;
 
 type Call = { url: string; method: string; body?: string };
 
+// Backed by the in-memory Sheets fake: the patcher now checks row 1 against
+// the schema (BEAUDIT D6), so a mock that answered every GET with data rows
+// no longer models a Sheet.
 function mockFetch(existingRows: string[][]) {
+  const sheet = createFakeSheets({ Pipeline: [[...PIPELINE_HEADER_ROW], ...existingRows] });
   const calls: Call[] = [];
   const fetchImpl = (async (input: URL | string, init: { method?: string; body?: string } = {}) => {
-    const url = String(input);
-    const method = (init.method || "GET").toUpperCase();
-    calls.push({ url, method, body: init.body });
-    if (method === "GET" && /\/values\//.test(url)) {
-      return { ok: true, status: 200, json: async () => ({ values: existingRows }), text: async () => "" };
-    }
-    if (method === "POST" && /values:batchUpdate/.test(url)) {
-      return { ok: true, status: 200, json: async () => ({}), text: async () => "" };
-    }
-    return { ok: false, status: 404, json: async () => ({}), text: async () => "not found" };
+    calls.push({ url: String(input), method: (init.method || "GET").toUpperCase(), body: init.body });
+    return sheet.fetchImpl(input as never, init as never);
   }) as never;
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, sheet };
 }
 
 function rowFor(opts: { url?: string; company?: string; title?: string; status?: string; notes?: string }): string[] {

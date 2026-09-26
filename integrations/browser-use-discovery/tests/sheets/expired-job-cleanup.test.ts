@@ -7,6 +7,7 @@ import {
   classifyJobPostingAvailability,
   runExpiredJobCleanup,
 } from "../../src/cleanup/expired-job-cleanup.ts";
+import { createFakeSheets } from "./fake-sheets.ts";
 
 const runtimeConfig = {
   googleAccessToken: "test-access-token",
@@ -50,7 +51,11 @@ function responseText(body: string, status = 200) {
   });
 }
 
+// Sheets calls go to the in-memory fake (the cleanup now re-reads target
+// rows by Link before writing, BEAUDIT D2/D3); posting URLs answer from
+// `jobResponses`, else "Apply now".
 function createCleanupFetch(dataRows: string[][], jobResponses: Record<string, Response>) {
+  const sheet = createFakeSheets({ Pipeline: [[...PIPELINE_HEADER_ROW], ...dataRows] });
   const calls: Array<{ url: string; method: string; body: string }> = [];
   const fetchImpl = async (input: RequestInfo | URL, init: RequestInit = {}) => {
     const url = new URL(typeof input === "string" ? input : input.toString());
@@ -60,30 +65,14 @@ function createCleanupFetch(dataRows: string[][], jobResponses: Record<string, R
       method,
       body: init.body ? String(init.body) : "",
     });
-
-    if (
-      url.hostname === "sheets.googleapis.com" &&
-      method === "GET" &&
-      url.href.includes(`A1%3A${LAST_COLUMN_LETTER}1`)
-    ) {
-      return responseJson({ values: [PIPELINE_HEADER_ROW] });
+    if (url.hostname === "sheets.googleapis.com" || url.hostname === "oauth2.googleapis.com") {
+      return sheet.fetchImpl(input, init);
     }
-    if (
-      url.hostname === "sheets.googleapis.com" &&
-      method === "GET" &&
-      url.href.includes(`A2%3A${LAST_COLUMN_LETTER}`)
-    ) {
-      return responseJson({ values: dataRows });
-    }
-    if (url.hostname === "sheets.googleapis.com" && method === "POST") {
-      return responseJson({ updatedRows: 1 });
-    }
-
     const response = jobResponses[url.toString()];
     if (response) return response;
     return responseText("Apply now", 200);
   };
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, sheet };
 }
 
 test("classifyJobPostingAvailability only expires strong closed evidence", () => {

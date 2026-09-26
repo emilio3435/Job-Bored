@@ -25,6 +25,9 @@ You can implement **A only** (cron job that appends rows) and never touch **B**.
 - **Required columns A–Q** (see [README.md](README.md) — Sheet Structure). Optional **R–T** extend reply tracking and company logos.
 - **Row identity (dedupe):** Automations should treat **column E (Link)** as the stable key when avoiding duplicate roles. Before appending a row, if a row with the same job URL already exists, **update** that row (e.g. refresh fit score, date found) instead of inserting a second line for the same posting.
 - **Append:** New discoveries are **new rows** below the header, following the column order the README documents.
+- **Re-discovery merge (column ownership):** each column in `schemas/pipeline-row.v1.json` declares `discoveryMerge`. `overwrite` (E Link, H Fit Score, T Logo URL, U Match Score): discovery replaces the cell. `lockable` (B Title, C Company, D Location, G Salary): discovery replaces it unless the row's Edit Lock (Y) names the field. `fillIfEmpty` (A, F Source, I Priority, J Tags, K Fit Assessment, L, M, Q Talking Points, V, W, X): discovery writes it only while it is empty, so a user's value is kept. `preserve` (N, O, P, R, S, Y): discovery never writes it. The worker writes only the cells that change, never the whole row.
+- **Concurrency:** the worker serializes its own writes per Sheet, re-checks each target row's Link right before writing (a row that moved is found again by Link; one that vanished is skipped with a warning), and re-reads column E before appending so a URL another writer added in between is not appended twice. Agents that write the Sheet directly should do the same: address rows by Link, not by a remembered row number.
+- **Text, not formulas:** the worker writes `USER_ENTERED` values and prefixes a `'` to any text cell that starts with `=`, `+`, `-` or `@`, so posting text or model output is stored as text. Agents writing untrusted text should do the same, or write with `RAW`.
 
 ### Recommended values (agents)
 
@@ -43,6 +46,8 @@ Hermes, n8n, or your agent **writes** these cells; the dashboard **reads** them 
 ### Expired job cleanup agents
 
 Expired cleanup is a safe move, not deletion: write `Expired` to column M only when the posting is confirmed closed, and append an audit line to Notes with timestamp, previous status, checked URL, evidence, confidence, and source. Column E remains the row identity. Cleanup agents should default to blank/New/Researching rows; Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are protected unless a human deliberately handles them. HTTP 403, captchas, timeouts, network failures, and ambiguous pages must be reported as needs-review/unknown, not auto-expired.
+
+The worker's cleanup writes one cell set per expired row: Status (M) `Expired`, Follow-up Date (P) cleared, and an audit line appended to Notes (O), the same set `/pipeline-update` writes for `stage: "Expired"`. It checks four postings at a time, writes every 25 rows (a pass killed by the scheduler keeps what it wrote), skips rows whose Notes carry a `[JobBored YYYY-MM-DD]` check from the last 7 days, and re-reads each row by Link right before writing: a row a user moved out of New/Researching during the pass is left alone (`status_changed`), and a row that vanished is skipped (`row_moved_or_removed`).
 
 Scheduled expired cleanup is separate from scheduled discovery refresh. Its default mode is dry-run and its logs/report counts must make checked, open, needs-review, skipped, and would-expire outcomes clear. Automatic writes require explicit `--write`.
 
@@ -92,9 +97,9 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | ------------------- | -------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
 | `event`             | string   | Always `command-center.discovery`.                                                                                                                     |
 | `schemaVersion`     | number   | `1` for this contract.                                                                                                                                 |
-| `sheetId`           | string   | Target spreadsheet ID.                                                                                                                                 |
-| `variationKey`      | string   | Random hex string; use as a seed for query variation.                                                                                                  |
-| `requestedAt`       | string   | ISO 8601 timestamp.                                                                                                                                    |
+| `sheetId`           | string   | Target spreadsheet ID. May be empty or omitted for a local-mode worker, which then uses the `sheetId` in its worker config; a hosted worker requires it.          |
+| `variationKey`      | string   | Non-blank string (any length); use as a seed for query variation.                                                                                      |
+| `requestedAt`       | string   | RFC 3339 / ISO 8601 date-time (`2026-09-25T10:00:00.000Z`). Other date strings get `400`.                                                              |
 | `discoveryProfile`  | object   | Optional. User preferences from the dashboard (see below). Omitted keys or empty values mean “no preference”.                                          |
 | `trigger`           | string   | Optional origin label: `manual`, `scheduled-browser`, `scheduled-local`, `scheduled-github`, `scheduled-cloudflare`, `scheduled-appsscript`, or `cli`. |
 | `companyAllowlist`  | string[] | Optional. Per-run company subset selected from the dashboard. Omitted or empty means use the stored company list exactly as before. Capped at 500 entries. Resolved against the stored company catalog; unknown-only lists do **not** silently broaden to unrestricted search unless `allowUnrestrictedFallback` is true. |
@@ -102,6 +107,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `googleAccessToken` | string   | Optional. Short-lived dashboard Google OAuth token for this run only; receivers must not persist it.                                                    |
 | `mergedUserProfile` | object   | Optional. Master Fit Profile merged with per-run overrides (non-secret; no raw resume text). The worker parser preserves it, strips resume/secret keys, and uses it for this run after ajv validation. Invalid payloads are ignored and the worker falls back to its disk profile. Never persisted. |
 | `allowUnrestrictedFallback` | boolean | Optional. Explicit confirmation that an unmatched `companyAllowlist` may fall back to unrestricted stored-company search. When the stored **active** company list and history are empty (typical post-wizard local install), that fallback seeds this run from the requested allowlist names instead of searching with a blank company. Omitted/false fails closed. |
+| `idempotencyKey`    | string   | Optional, contract **v1.1**. A key the caller stamps once per user action (one click, one scheduler slot); non-blank, at most 200 characters. When present the worker derives the run id from `sheetId` + `idempotencyKey` (instead of `variationKey` + `requestedAt`), so a retried or double-sent request with the same key answers with the original run's `runId`/`statusPath` and never starts a second run. Omit it for v1 behavior. |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -126,6 +132,8 @@ Effective intent is one object (`intentContractVersion: 1`) derived from `discov
 
 Runtime ATS memory/host-search seeds and final deduplicated leads are re-filtered before write selection. This keeps per-run company restrictions effective for sources created after config merge and for profile-wide lanes such as SerpApi. Shared multi-tenant ATS hosts are never treated as company identity at the write boundary; the lead must still match an allowed company name, key, or alias.
 
+**Validation (worker).** The Browser Use worker validates every body against [`schemas/discovery-webhook-request.v1.schema.json`](schemas/discovery-webhook-request.v1.schema.json) after its field checks, so the schema and the worker accept and reject the same bodies (`tests/webhook/webhook-schema-parity.test.ts`). `discoveryProfile.ultraPlanTuning` and `discoveryProfile.groundedSearchTuning` are closed objects (unknown keys get `400`); `companyAllowlist`/`companyBlocklist` entries must be non-blank and duplicates are collapsed. The one rule JSON Schema cannot express is **blank effective intent**: a present `discoveryProfile` with no roles or keywords (and no `searchPlan`, `profileSnapshot` or `mergedUserProfile` intent) gets `400`.
+
 Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllowlist`, `mergedUserProfile`, and `googleAccessToken` keep working if they only read `event`, `sheetId`, `variationKey`, and `requestedAt`.
 
 ### Evolving this contract
@@ -136,17 +144,42 @@ Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllow
 
 ---
 
-## Pipeline update (`POST /pipeline-update`, schemaVersion 1)
+## Pipeline update (`POST /pipeline-update`, schemaVersion 2)
 
 An external agent advances an existing Pipeline row from inbound signals. Local-first: authenticated with `x-discovery-secret`; the worker writes with its own Google credential (no token in the request).
 
 - `event`: `"command-center.pipeline-update"` (const)
-- `schemaVersion`: `1` (const)
+- `schemaVersion`: `2` (const). Version `1` bodies are still accepted; they cannot send `source`, and `stage: "Applied"` without a date defaults Applied Date to today.
 - `sheetId`: target Google Sheet (required)
 - `job`: row identity — `url` (preferred), or both `company` and `title`
-- `fields` (at least one): `stage` (one of: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, Expired), `contact`, `note` (appended as a dated, deduped line), `lastContact`, `appliedDate`, `didTheyReply` (Yes | No | Unknown)
+- `fields` (at least one): `stage` (one of: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, Expired), `contact`, `note` (prepended as a dated, deduped line), `lastContact` and `appliedDate` (dates as `YYYY-MM-DD`), `didTheyReply` (Yes | No | Unknown), and `source` (v2: where an application went in).
+- **Applied (v2):** `stage: "Applied"` requires `appliedDate` and a non-blank `source`. The worker writes Status (M), Applied Date (N), a Follow-up Date (P) 7 days later when the row has none, and a Notes line `[today] Applied via <source>: <note>`.
+- **Other stage side effects** (a TS port of `pipeline-transitions.js`): Phone Screen and Interviewing backfill Applied Date to today and set Follow-up +3 / +5 days; Offer, Rejected, Passed and Expired clear Follow-up; Expired adds `Marked Expired` when no note is sent; New clears Applied Date and Follow-up. Re-sending the row's current stage changes nothing but the other fields.
 
-Matching is by normalized job URL, falling back to company+title. Unknown rows return `404` (this contract updates existing rows only; discovery creates rows). Schema: `schemas/pipeline-update-request.v1.schema.json`; fixture: `examples/pipeline-update-request.v1.json`.
+Matching is by normalized job URL, falling back to company+title. The worker checks row 1 against `schemas/pipeline-row.v1.json`, holds its per-Sheet lock, re-reads the matched row by Link before writing, and writes only changed cells (text is formula-escaped).
+
+Responses: `200 {ok, updated, matched, matchedBy, row, rowNumber}`. Errors carry the `api-error.v1` fields `{error, code, detail?, nextStep, retryable}` (plus `ok: false` and `message` for v1 callers): `400 invalid_request`, `401 unauthorized`, `404 not_found` (this contract updates existing rows only; discovery creates rows), `409 header_mismatch` (a Pipeline column moved; nothing written), `409 ambiguous_match` (the job matches more than one row; nothing written), `502 sheet_write_failed` (`retryable: true`). Schemas: `schemas/pipeline-update-request.v2.schema.json` (current), `schemas/pipeline-update-request.v1.schema.json`; fixtures: `examples/pipeline-update-request.v2.json`, `examples/pipeline-update-request.v1.json`.
+
+---
+
+## Worker error envelope (`api-error.v1`)
+
+Every error body from the Browser Use worker (`:8644`) and the local API (`server/index.mjs`, `:3847`) carries **`{ error, code, detail?, nextStep?, retryable }`** ([`schemas/api-error.v1.schema.json`](schemas/api-error.v1.schema.json), fixture [`examples/api-error.v1.json`](examples/api-error.v1.json)). `error` is one sentence safe to show the user; `code` is stable (worker codes are `lower_snake_case`, API codes `UPPER_SNAKE_CASE`); `nextStep` says how to recover; `retryable` is true only when repeating the same request later may work (timeouts, 5xx, rate limits). Worker bodies keep their legacy `ok: false` and `message` fields and route-specific fields (`reason`, `auth`, `remediation`); readers ignore fields they do not know. An unknown path is a JSON `404` with `code` `not_found` (worker) or `NOT_FOUND` (API). The local API applies the envelope to responses with status 400 or higher; the worker also applies it to `/ingest-url`'s HTTP 200 `ok: false` outcomes, with `code` equal to `reason`.
+
+## Run status and cancel (`GET /runs/:runId`, `POST /runs/:runId/cancel`)
+
+- **`GET /runs/:runId`** answers `{ ok: true, ...status }` ([`schemas/run-status.v1.schema.json`](schemas/run-status.v1.schema.json), fixture [`examples/run-status.v1.json`](examples/run-status.v1.json)). `status` is `accepted`, `running`, `completed`, `partial`, `empty` or `failed`; once `terminal` is true the status never changes. A worker restart marks an interrupted run `failed` and writes its DiscoveryRuns row. Terminal snapshots older than 30 days, or beyond the newest 200, are pruned at worker boot. Hosted workers authorize the poll with the `statusToken` in `statusPath`, `x-run-status-token`, or the webhook secret.
+- **`POST /runs/:runId/cancel`** (header `x-discovery-secret`, no body) stops a live async discovery run of this worker process: it aborts the run's in-flight work, blocks any Sheet write the run has not started yet, waits for the run to stop (up to 15 s), and only then writes `failed` with `error` `Cancelled by user.` and the DiscoveryRuns row. It also waits (inside the same 15 s) for a Sheet write the run had already started to settle, and a user cancel is never recorded as a `partial` run. Answers: `200 { ok: true, runId, cancelled, stopConfirmed, run }` (`run` is run-status.v1); `cancelled` is `true` normally and `false` when the run finished before it saw the abort, in which case `run` is its real `completed` status; `stopConfirmed` is `false` when the run or a write it had started had not settled by the deadline, so that write may still land (the run's `message` says so); `503` `cancel_status_not_saved` (`retryable: true`) when the run was stopped but its cancelled status could not be saved, in which case the run stays cancellable and a retry tries the write again; `401` without the secret; `404` `run_not_found`; `409` `run_already_terminal` (with the finished `run`); `409` `run_not_cancellable` when the run is not live in this process (a synchronous run, or one started before a restart).
+
+## Add a job by URL (`POST /ingest-url`, schemaVersion 1)
+
+Request: [`schemas/ingest-url-request.v1.schema.json`](schemas/ingest-url-request.v1.schema.json), fixture [`examples/ingest-url-request.v1.json`](examples/ingest-url-request.v1.json): `event` `ingest.url.request`, `schemaVersion` `1`, `url` (required, at most 2048 characters), optional `sheetId` (falls back to the worker config), `async`, `googleAccessToken` (this request only, never persisted) and `manual` (`title`, `company` and optional `location`, `description`, `fitScore`) to skip extraction. Authenticated with `x-discovery-secret`.
+
+Order: the worker resolves the Sheet and proves a Google Sheets credential **before** any ATS, Gemini, Browser Use or scrape call, and answers `409` `sheets_credential_missing` without one. Answers ([`schemas/ingest-url-response.v1.schema.json`](schemas/ingest-url-response.v1.schema.json), fixture [`examples/ingest-url-response.v1.json`](examples/ingest-url-response.v1.json)): `202` `accepted_async` with a `statusPath` whose terminal status carries the final answer in `ingestResult`; `200` success with `strategy`, `lead` and `appended`; `200` with `ok: false` and `reason` `blocked_aggregator`, `scrape_failed`, `low_quality_extraction`, `duplicate` or `worker_error`; `400` `invalid_url` or `private_network`; `409` `sheets_credential_missing`; `500` `worker_error`. Every failure carries the api-error.v1 envelope.
+
+## Expired-job cleanup pass (`POST /cleanup-expired`)
+
+Request: [`schemas/cleanup-expired-request.v1.schema.json`](schemas/cleanup-expired-request.v1.schema.json), fixture [`examples/cleanup-expired-request.v1.json`](examples/cleanup-expired-request.v1.json): `sheetId` (required), `dryRun` (default true; only an explicit `false` writes), `maxRows`, `timeoutMs`, `googleAccessToken`. Authenticated with `x-discovery-secret`. The `200` answer ([`schemas/cleanup-expired-response.v1.schema.json`](schemas/cleanup-expired-response.v1.schema.json), fixture [`examples/cleanup-expired-response.v1.json`](examples/cleanup-expired-response.v1.json)) carries the counts (`checked`, `open`, `needsReview`, `skipped`, `wouldExpire`, `updated`) and one `results` entry per checked row with its `action` (`would_expire`, `expired`, `open`, `needs_review`, `skipped`). Failures are api-error.v1: `400` (bad JSON or no `sheetId`), `401`, `500` `Cleanup failed.`.
 
 ---
 

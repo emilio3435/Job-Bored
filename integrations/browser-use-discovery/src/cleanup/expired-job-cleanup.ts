@@ -7,7 +7,16 @@ import {
   PIPELINE_HEADER_ROW,
 } from "../contracts.ts";
 import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
-import { resolveAccessToken } from "../sheets/pipeline-writer.ts";
+import { planStageMove } from "../sheets/pipeline-transitions.ts";
+import {
+  PIPELINE_COL,
+  batchUpdateSheetValues,
+  changedCellRanges,
+  getSheetValues,
+  resolveAccessToken,
+  resolveRowsByLink,
+  withSheetLock,
+} from "../sheets/sheets-client.ts";
 import { safeFetch, type SafeFetchOptions } from "../net/safe-fetch.ts";
 
 type FetchLike = typeof fetch;
@@ -74,19 +83,19 @@ type ExpiredCleanupOptions = {
   maxRows?: number;
   timeoutMs?: number;
   tokenScope?: string;
-};
-
-type SheetCellUpdate = {
-  range: string;
-  values: string[][];
-};
-
-type SheetValuesResponse = {
-  values?: unknown[][];
+  /** Posting checks in flight at once (default 4). */
+  concurrency?: number;
+  /** Rows per Sheet write; each flush persists on its own (default 25). */
+  flushEvery?: number;
+  /** Skip rows whose Notes carry a cleanup check this recent (default 7 days). */
+  recheckAfterDays?: number;
 };
 
 const DEFAULT_TOKEN_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 const DEFAULT_TIMEOUT_MS = 15_000;
+const DEFAULT_CONCURRENCY = 4;
+const DEFAULT_FLUSH_EVERY = 25;
+const DEFAULT_RECHECK_AFTER_DAYS = 7;
 const STATUS_COLUMN_INDEX = 12;
 const NOTES_COLUMN_INDEX = 14;
 const LINK_COLUMN_INDEX = 4;
@@ -195,47 +204,6 @@ function toRowCells(row: unknown[]): string[] {
   );
 }
 
-function encodeRange(range: string): string {
-  return encodeURIComponent(range);
-}
-
-function buildHeaders(token: string, isJson = true): Record<string, string> {
-  return {
-    Authorization: `Bearer ${token}`,
-    ...(isJson ? { "Content-Type": "application/json" } : {}),
-  };
-}
-
-async function getSheetValues(
-  sheetId: string,
-  range: string,
-  token: string,
-  fetchImpl: FetchLike,
-): Promise<string[][]> {
-  const url = new URL(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeRange(range)}`,
-  );
-  url.searchParams.set("majorDimension", "ROWS");
-  url.searchParams.set("valueRenderOption", "FORMATTED_VALUE");
-  url.searchParams.set("dateTimeRenderOption", "FORMATTED_STRING");
-
-  const response = await fetchImpl(url, {
-    headers: buildHeaders(token, false),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Failed to read ${range}: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-    );
-  }
-  const data = (await response.json()) as SheetValuesResponse;
-  return Array.isArray(data.values)
-    ? data.values.map((row) =>
-        Array.isArray(row) ? row.map((cell) => asText(cell)) : [],
-      )
-    : [];
-}
-
 function validatePipelineHeader(values: string[][], sheetName: string): void {
   const header = toRowCells(values[0] || []);
   const expected = PIPELINE_HEADER_ROW.map((value) => value.trim());
@@ -245,36 +213,6 @@ function validatePipelineHeader(values: string[][], sheetName: string): void {
         `${sheetName} header mismatch at ${columnIndexToLetter(index + 1)}. Expected "${expected[index]}", got "${header[index] || "<empty>"}".`,
       );
     }
-  }
-}
-
-async function batchUpdateCells(
-  sheetId: string,
-  updates: SheetCellUpdate[],
-  token: string,
-  fetchImpl: FetchLike,
-): Promise<void> {
-  if (!updates.length) return;
-  const url = new URL(
-    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values:batchUpdate`,
-  );
-  const response = await fetchImpl(url, {
-    method: "POST",
-    headers: buildHeaders(token),
-    body: JSON.stringify({
-      valueInputOption: "USER_ENTERED",
-      data: updates.map((entry) => ({
-        range: entry.range,
-        majorDimension: "ROWS",
-        values: entry.values,
-      })),
-    }),
-  });
-  if (!response.ok) {
-    const body = await response.text().catch(() => "");
-    throw new Error(
-      `Expired cleanup sheet update failed: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
-    );
   }
 }
 
@@ -596,6 +534,27 @@ function notesContainsRecentNeedsReview(notes: string): boolean {
   );
 }
 
+const CLEANUP_STAMP = /\[JobBored (\d{4}-\d{2}-\d{2})\]/g;
+
+/** True when Notes carry a cleanup stamp within `days` of `now`. */
+function notesCheckedRecently(notes: string, now: Date, days: number): boolean {
+  if (days <= 0) return false;
+  const cutoff = now.getTime() - days * 86_400_000;
+  for (const match of String(notes || "").matchAll(CLEANUP_STAMP)) {
+    const stamp = Date.parse(`${match[1]}T00:00:00Z`);
+    if (Number.isFinite(stamp) && stamp >= cutoff && stamp <= now.getTime()) return true;
+  }
+  return false;
+}
+
+type PendingWrite = {
+  index: number;
+  rowNumber: number;
+  normalizedLink: string;
+  kind: "expire" | "review";
+  auditNote: string;
+};
+
 export async function runExpiredJobCleanup(params: {
   sheetId: string;
   runtimeConfig: WorkerRuntimeConfig;
@@ -613,6 +572,9 @@ export async function runExpiredJobCleanup(params: {
   const sheetName = options.sheetName || DEFAULT_PIPELINE_SHEET_NAME;
   const dryRun = options.dryRun !== false;
   const timeoutMs = options.timeoutMs || DEFAULT_TIMEOUT_MS;
+  const concurrency = Math.max(1, Math.floor(options.concurrency || DEFAULT_CONCURRENCY));
+  const flushEvery = Math.max(1, Math.floor(options.flushEvery || DEFAULT_FLUSH_EVERY));
+  const recheckAfterDays = options.recheckAfterDays ?? DEFAULT_RECHECK_AFTER_DAYS;
   const accessToken = await resolveAccessToken(
     params.runtimeConfig,
     fetchImpl,
@@ -640,14 +602,9 @@ export async function runExpiredJobCleanup(params: {
       : dataRows.length;
 
   const timestamp = now().toISOString();
-  const results: ExpiredCleanupRowResult[] = [];
-  const updates: SheetCellUpdate[] = [];
+  const results: ExpiredCleanupRowResult[] = new Array(rowLimit);
+  const candidates: Array<{ index: number; cells: string[] }> = [];
   let checked = 0;
-  let updated = 0;
-  let wouldUpdate = 0;
-  let skipped = 0;
-  let needsReview = 0;
-  let open = 0;
 
   for (let index = 0; index < rowLimit; index += 1) {
     const cells = toRowCells(dataRows[index] || []);
@@ -655,79 +612,119 @@ export async function runExpiredJobCleanup(params: {
     const link = cells[LINK_COLUMN_INDEX] || "";
     const normalizedLink = normalizeLeadUrl(link);
     const previousStatus = cells[STATUS_COLUMN_INDEX] || "";
+    const skip = (reason: string) => {
+      results[index] = { rowNumber, link, normalizedLink, previousStatus, action: "skipped", reason };
+    };
     if (!normalizedLink) {
-      skipped += 1;
-      results.push({
-        rowNumber,
-        link,
-        normalizedLink: "",
-        previousStatus,
-        action: "skipped",
-        reason: "missing_link",
-      });
+      skip("missing_link");
       continue;
     }
-
     if (!isEligibleForCleanup(previousStatus)) {
-      skipped += 1;
-      results.push({
-        rowNumber,
-        link,
-        normalizedLink,
-        previousStatus,
-        action: "skipped",
-        reason: isProtectedStatus(previousStatus)
-          ? "protected_status"
-          : "unknown_status",
-      });
+      skip(isProtectedStatus(previousStatus) ? "protected_status" : "unknown_status");
       continue;
     }
+    if (notesCheckedRecently(cells[NOTES_COLUMN_INDEX] || "", now(), recheckAfterDays)) {
+      skip("recently_checked");
+      continue;
+    }
+    candidates.push({ index, cells });
+  }
 
-    checked += 1;
-    const classification = await checkJobPostingUrl(link, {
-      fetchImpl,
-      timeoutMs,
-    });
+  // Writes go out every `flushEvery` rows under the per-Sheet lock, each
+  // against the row as the Sheet holds it then: re-found by Link, and left
+  // alone when its status stopped being eligible (a user moved it).
+  const pending: PendingWrite[] = [];
+  let flushChain: Promise<void> = Promise.resolve();
 
-    if (classification.status === "expired") {
-      const auditNote = buildAuditLine({
-        timestamp,
-        previousStatus,
-        classification,
+  async function flush(batch: PendingWrite[]): Promise<void> {
+    if (!batch.length) return;
+    await withSheetLock(sheetId, async () => {
+      const resolved = await resolveRowsByLink({
+        sheetId,
+        sheetName,
+        token: accessToken,
+        fetchImpl,
+        targets: batch.map((w) => ({ rowNumber: w.rowNumber, link: w.normalizedLink })),
+        normalizeLink: normalizeLeadUrl,
       });
-      const notes = appendAuditNote(cells[NOTES_COLUMN_INDEX] || "", auditNote);
-      const action = dryRun ? "would_expire" : "expired";
-      if (dryRun) {
-        wouldUpdate += 1;
-      } else {
-        updated += 1;
-        updates.push(
-          {
-            range: `${sheetName}!M${rowNumber}`,
-            values: [["Expired"]],
-          },
-          {
-            range: `${sheetName}!O${rowNumber}`,
-            values: [[notes]],
-          },
+      const data: Array<{ range: string; values: string[][] }> = [];
+      resolved.forEach((found, i) => {
+        const write = batch[i];
+        const result = results[write.index];
+        if (found.status !== "found") {
+          results[write.index] = { ...result, action: "skipped", reason: "row_moved_or_removed" };
+          return;
+        }
+        const row = found.row;
+        const status = row[PIPELINE_COL.status] || "";
+        if (!isEligibleForCleanup(status)) {
+          results[write.index] = { ...result, action: "skipped", reason: "status_changed" };
+          return;
+        }
+        let next: string[];
+        if (write.kind === "expire") {
+          next = planStageMove(row, {
+            to: "Expired",
+            now: now(),
+            auditNote: write.auditNote,
+          });
+        } else {
+          const notes = row[PIPELINE_COL.notes] || "";
+          if (notesContainsRecentNeedsReview(notes)) return;
+          next = row.slice();
+          next[PIPELINE_COL.notes] = appendAuditNote(notes, write.auditNote);
+        }
+        results[write.index] = { ...result, rowNumber: found.rowNumber };
+        data.push(...changedCellRanges(sheetName, found.rowNumber, row, next));
+      });
+      if (!data.length) return;
+      const response = await batchUpdateSheetValues(sheetId, data, accessToken, fetchImpl);
+      if (!response.ok) {
+        const body = await response.text().catch(() => "");
+        throw new Error(
+          `Expired cleanup sheet update failed: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
         );
       }
-      results.push({
+    });
+  }
+
+  function queueWrite(write: PendingWrite): Promise<void> {
+    pending.push(write);
+    if (pending.length < flushEvery) return flushChain;
+    const batch = pending.splice(0, pending.length);
+    flushChain = flushChain.then(() => flush(batch));
+    return flushChain;
+  }
+
+  async function checkRow(candidate: { index: number; cells: string[] }): Promise<void> {
+    const { index, cells } = candidate;
+    const rowNumber = index + 2;
+    const link = cells[LINK_COLUMN_INDEX] || "";
+    const normalizedLink = normalizeLeadUrl(link);
+    const previousStatus = cells[STATUS_COLUMN_INDEX] || "";
+    checked += 1;
+    const classification = await checkJobPostingUrl(link, { fetchImpl, timeoutMs });
+
+    if (classification.status === "expired") {
+      const auditNote = buildAuditLine({ timestamp, previousStatus, classification });
+      results[index] = {
         rowNumber,
         link,
         normalizedLink,
         previousStatus,
-        action,
+        action: dryRun ? "would_expire" : "expired",
         classification,
         reason: classification.reason,
         auditNote,
-      });
-      continue;
+      };
+      if (!dryRun) {
+        await queueWrite({ index, rowNumber, normalizedLink, kind: "expire", auditNote });
+      }
+      return;
     }
 
     if (classification.status === "open") {
-      open += 1;
-      results.push({
+      results[index] = {
         rowNumber,
         link,
         normalizedLink,
@@ -735,26 +732,12 @@ export async function runExpiredJobCleanup(params: {
         action: "open",
         classification,
         reason: classification.reason,
-      });
-      continue;
+      };
+      return;
     }
 
-    needsReview += 1;
-    const existingNotes = cells[NOTES_COLUMN_INDEX] || "";
-    const reviewAuditNote = buildNeedsReviewAuditLine({
-      timestamp,
-      classification,
-    });
-    const shouldAppendReviewNote =
-      !dryRun && !notesContainsRecentNeedsReview(existingNotes);
-    if (shouldAppendReviewNote) {
-      const updatedNotes = appendAuditNote(existingNotes, reviewAuditNote);
-      updates.push({
-        range: `${sheetName}!O${rowNumber}`,
-        values: [[updatedNotes]],
-      });
-    }
-    results.push({
+    const reviewAuditNote = buildNeedsReviewAuditLine({ timestamp, classification });
+    results[index] = {
       rowNumber,
       link,
       normalizedLink,
@@ -763,25 +746,45 @@ export async function runExpiredJobCleanup(params: {
       classification,
       reason: classification.reason,
       auditNote: reviewAuditNote,
-    });
+    };
+    if (!dryRun && !notesContainsRecentNeedsReview(cells[NOTES_COLUMN_INDEX] || "")) {
+      await queueWrite({ index, rowNumber, normalizedLink, kind: "review", auditNote: reviewAuditNote });
+    }
   }
 
+  let cursor = 0;
+  async function worker(): Promise<void> {
+    while (cursor < candidates.length) {
+      const candidate = candidates[cursor];
+      cursor += 1;
+      await checkRow(candidate);
+    }
+  }
+  await Promise.all(
+    Array.from({ length: Math.min(concurrency, candidates.length) }, () => worker()),
+  );
   if (!dryRun) {
-    await batchUpdateCells(sheetId, updates, accessToken, fetchImpl);
+    const rest = pending.splice(0, pending.length);
+    flushChain = flushChain.then(() => flush(rest));
+    await flushChain;
   }
 
+  const finalResults = results.filter(Boolean);
+  const count = (action: ExpiredCleanupRowResult["action"]) =>
+    finalResults.filter((r) => r.action === action).length;
+  const wouldUpdate = count("would_expire");
   return {
     sheetId,
     sheetName,
     dryRun,
     checked,
-    updated,
+    updated: count("expired"),
     wouldUpdate,
     wouldExpire: wouldUpdate,
-    skipped,
-    needsReview,
-    open,
-    results,
+    skipped: count("skipped"),
+    needsReview: count("needs_review"),
+    open: count("open"),
+    results: finalResults,
   };
 }
 
