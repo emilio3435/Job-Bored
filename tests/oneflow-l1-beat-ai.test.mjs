@@ -181,7 +181,8 @@ describe("B2 Give it a brain — the check is the gate (spec §5 B2 exit)", () =
     await pickAndCheck(env, "openrouter", "sk-or-abcdefgh12345678");
     assert.deepEqual(
       [...env.beats.ai.getRenderedStages().map((s) => s.label)],
-      ["Checking your key…", "✓ Connected — openai/gpt-oss-120b:free responded"],
+      // The shell draws ✓ from state "done"; the label carries none.
+      ["Checking your key…", "Connected — openai/gpt-oss-120b:free responded"],
     );
   });
 

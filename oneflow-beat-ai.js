@@ -195,6 +195,7 @@
     // The passed check waiting on the consent answer: { def, value, ms,
     // run, successAt, runtime }.
     pending: null,
+    consentShown: false,
   };
 
   const fields = { value: null };
@@ -599,7 +600,21 @@
     if (state.provider === "gemini" && state.phase === "key") {
       body.appendChild(el("p", "oneflow-ai__bonus", {}, GEMINI_BONUS_LINE));
     }
-    if (state.phase === "consent") body.appendChild(renderConsent());
+    if (state.phase === "consent") {
+      const row = renderConsent();
+      body.appendChild(row);
+      // The question lands below the fold of a long beat, and on a phone
+      // under the action dock: bring it into view once, when it first
+      // appears, so "Save it" never shows without its question.
+      if (!state.consentShown) {
+        state.consentShown = true;
+        setTimeout(() => {
+          if (typeof row.scrollIntoView === "function") {
+            row.scrollIntoView({ block: "center" });
+          }
+        }, 0);
+      }
+    }
     if (state.phase === "saved" && state.pending && state.pending.def.id === "gemini") {
       body.appendChild(renderReceipt());
     }
@@ -794,7 +809,8 @@
     setStages(ctx, [
       { label: "Checking your key…", state: "done" },
       {
-        label: model ? `✓ Connected — ${model} responded` : "✓ Connected",
+        // The shell draws ✓ from state "done"; a baked-in one doubled it.
+        label: model ? `Connected — ${model} responded` : "Connected",
         state: "done",
       },
     ]);
@@ -816,6 +832,7 @@
       return;
     }
     state.phase = "consent";
+    state.consentShown = false;
     repaint(ctx, "");
   }
 

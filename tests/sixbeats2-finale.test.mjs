@@ -254,7 +254,7 @@ describe("NEW-4 — B2 holds its success line before advancing (spec §5 B2)", (
       await new Promise((r) => setTimeout(r, 5));
       const connected = ai
         .getRenderedStages()
-        .some((stage) => String(stage.label || "").startsWith("✓ Connected"));
+        .some((stage) => stage.state === "done" && String(stage.label || "").startsWith("Connected"));
       if (connected) {
         sawSuccessWhileOnBeat = env.flow.getState().beat === "ai";
         break;
