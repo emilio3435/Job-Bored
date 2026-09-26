@@ -89,13 +89,14 @@ export async function openFlow(page, primaryLabel = INVITE_PRIMARY) {
  * not any beat's happy path.
  */
 export async function goToBeat(page, beatId) {
-  // GREENFIELD §4.1 gates `resume` on `ai` and `payoff` on `google`: a cold
+  // GREENFIELD §4.1 gates `resume` on `ai` and `payoff` on `google`, and
+  // GFX R4 gates `discovery` on `fit` (a cold deep link must not skip setup): a cold
   // start that jumps straight there is redirected to the prerequisite. The
   // claims below are the shell's geometry on EVERY beat, not the ordering
   // rule, so earn the prerequisites through the controller (which is also
   // what keeps its in-memory state and the store agreeing) and then jump.
   await page.evaluate(async (id) => {
-    const prereqs = { resume: ["ai"], payoff: ["google"] }[id] || [];
+    const prereqs = { resume: ["ai"], discovery: ["fit"], payoff: ["google"] }[id] || [];
     const flow = globalThis.JobBoredOneFlow;
     const done = new Set(flow.getState().completedBeats || []);
     for (const prereq of prereqs) {
