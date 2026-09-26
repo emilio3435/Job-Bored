@@ -120,6 +120,91 @@ test("computeListingSemanticKey includes normalized location and remote bucket",
   assert.match(newYork, /new york ny/);
 });
 
+test("B10: tenant-scoped provider keys keep same-id jobs from distinct employers apart", () => {
+  const pairs: Array<[string, string, string]> = [
+    // [sourceId, urlA (Acme), urlB (Globex)] — same per-tenant job id.
+    // C15: the probe's greenhouse/workable pairs plus lever/ashby — the
+    // highest-volume boards must scope keys too, not just the long tail.
+    [
+      "greenhouse",
+      "https://boards.greenhouse.io/acme/jobs/1",
+      "https://boards.greenhouse.io/globex/jobs/1",
+    ],
+    [
+      "lever",
+      "https://jobs.lever.co/acme/senior-backend-engineer",
+      "https://jobs.lever.co/globex/senior-backend-engineer",
+    ],
+    [
+      "ashby",
+      "https://jobs.ashbyhq.com/acme/senior-backend-engineer",
+      "https://jobs.ashbyhq.com/globex/senior-backend-engineer",
+    ],
+    [
+      "workable",
+      "https://apply.workable.com/acme/j/ABC123/",
+      "https://apply.workable.com/globex/j/ABC123/",
+    ],
+    [
+      "workday",
+      "https://acme.wd5.myworkdayjobs.com/en-US/Careers/job/Remote/Backend-Engineer_R-100",
+      "https://globex.wd1.myworkdayjobs.com/en-US/External/job/Remote/Backend-Engineer_R-100",
+    ],
+    [
+      "smartrecruiters",
+      "https://jobs.smartrecruiters.com/Acme/100-backend-engineer",
+      "https://jobs.smartrecruiters.com/Globex/100-backend-engineer",
+    ],
+    [
+      "icims",
+      "https://acme.icims.com/jobs/1234/job",
+      "https://globex.icims.com/jobs/1234/job",
+    ],
+    [
+      "taleo",
+      "https://acme.taleo.net/careersection/2/jobdetail.ftl?job=12345",
+      "https://globex.taleo.net/careersection/2/jobdetail.ftl?job=12345",
+    ],
+    [
+      "successfactors",
+      "https://acme.successfactors.com/career?career_job_req_id=987",
+      "https://globex.successfactors.com/career?career_job_req_id=987",
+    ],
+    [
+      "jobvite",
+      "https://jobs.jobvite.com/acme/job/oXyZ123",
+      "https://jobs.jobvite.com/globex/job/oXyZ123",
+    ],
+  ];
+  for (const [sourceId, urlA, urlB] of pairs) {
+    const listingA = {
+      sourceId,
+      title: "Backend Engineer",
+      company: "Acme",
+      location: "Remote",
+      url: urlA,
+    };
+    const listingB = {
+      sourceId,
+      title: "Backend Engineer",
+      company: "Globex",
+      location: "Remote",
+      url: urlB,
+    };
+    const keyA = computeListingFingerprint(listingA).providerJobKey;
+    const keyB = computeListingFingerprint(listingB).providerJobKey;
+    assert.ok(keyA, `${sourceId}: provider key A present`);
+    assert.ok(keyB, `${sourceId}: provider key B present`);
+    assert.notEqual(keyA, keyB, `${sourceId}: tenant must scope the key`);
+    const deduped = dedupeFingerprintListings([listingA, listingB]);
+    assert.equal(
+      deduped.uniqueItems.length,
+      2,
+      `${sourceId}: distinct employers must not collapse`,
+    );
+  }
+});
+
 test("computeListingPrimaryFingerprintKeys normalizes canonical urls and emits provider keys", () => {
   const keys = computeListingPrimaryFingerprintKeys({
     sourceId: "greenhouse",
@@ -131,7 +216,7 @@ test("computeListingPrimaryFingerprintKeys normalizes canonical urls and emits p
 
   assert.deepEqual(keys, [
     "url:https://boards.greenhouse.io/acme/jobs/12345",
-    "provider:greenhouse:12345",
+    "provider:greenhouse:acme:12345",
   ]);
 });
 
@@ -153,7 +238,7 @@ test("computeListingFingerprint exposes layered keys and stable fallback fingerp
   );
   assert.equal(
     fingerprint.providerJobKey,
-    "provider:lever:senior-platform-engineer",
+    "provider:lever:acme:senior-platform-engineer",
   );
   assert.equal(fingerprint.remoteBucket, "remote");
   assert.equal(

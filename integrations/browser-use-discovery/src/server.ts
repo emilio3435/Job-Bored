@@ -50,6 +50,7 @@ import {
   createDiscoveryRunStatusStore,
 } from "./state/run-status-store.ts";
 import { createDiscoveryMemoryStore } from "./state/discovery-memory-store.ts";
+import { openListingScoreCache } from "./state/listing-score-cache.ts";
 import { createRunDiscoveryMemoryStore } from "./state/run-discovery-memory-store.ts";
 import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
 import { createRunCancelRegistry } from "./webhook/run-async-lifecycle.ts";
@@ -73,6 +74,13 @@ const matchClient = createWorkerChatMatchClient(runtimeConfig);
 const sourceAdapterRegistry = createSourceAdapterRegistry(sessionManager);
 const rawDiscoveryMemoryStore = createDiscoveryMemoryStore(
   runtimeConfig.stateDatabasePath,
+);
+// B8: the cross-run profile-score cache lives next to the memory store and
+// is shared by every run through the shared dependencies below.
+const listingScoreCache = openListingScoreCache(
+  runtimeConfig.stateDatabasePath
+    ? `${runtimeConfig.stateDatabasePath.replace(/\.sqlite3?$/i, "")}-listing-scores.sqlite`
+    : undefined,
 );
 const companyPlanner: CompanyPlanner = {
   buildIntent(config: Parameters<typeof buildPlannerIntent>[0]) {
@@ -304,6 +312,7 @@ const sharedRunDependencies = {
   sourceAdapterRegistry,
   companyPlanner,
   discoveryMemoryStore,
+  listingScoreCache,
   browserSessionManager: sessionManager,
   groundedSearchClient,
   matchClient,

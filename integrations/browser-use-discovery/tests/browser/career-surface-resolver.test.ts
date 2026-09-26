@@ -442,6 +442,60 @@ test("VAL-LOOP-BROWSER-006: third-party hosts classify consistently regardless o
   }
 });
 
+test("C7: aggregator hosts from the shared table are hint_only under the write policy", () => {
+  // These four are aggregators in host-signatures.ts; the write policy must
+  // agree so a board URL is never written as the canonical Link.
+  for (const host of [
+    "lnkd.in",
+    "www.builtinnyc.com",
+    "www.welcometothejungle.com",
+    "www.jobs2careers.com",
+  ]) {
+    assert.equal(
+      classifyCareerSurfaceSourcePolicy(`https://${host}/jobs/view/12345`),
+      "hint_only",
+      `${host} should be hint_only`,
+    );
+    assert.ok(
+      isThirdPartyJobBoardHost(`https://${host}/jobs/view/12345`),
+      `${host} should be a third-party job board host`,
+    );
+  }
+});
+
+test("C7: write policy agrees with the shared table on every listed board", () => {
+  for (const host of [
+    "remote.co",
+    "weworkremotely.com",
+    "remotive.io",
+    "dynamitejobs.com",
+    "flexjobs.com",
+    "powertofly.com",
+    "jooble.org",
+    "talent.com",
+    "adzuna.com",
+    "jobtarget.com",
+    "otta.com",
+    "dice.com",
+  ]) {
+    assert.equal(
+      classifyCareerSurfaceSourcePolicy(`https://www.${host}/jobs/123`),
+      "hint_only",
+      `${host} should be hint_only`,
+    );
+  }
+  // First-party pages stay extractable: the search-engine entry in the
+  // shared table must not swallow Google's own careers site.
+  assert.equal(
+    classifyCareerSurfaceSourcePolicy("https://careers.google.com/jobs/results/123"),
+    "extractable",
+  );
+  assert.equal(
+    classifyCareerSurfaceSourcePolicy("https://acme.com/jobs/123"),
+    "extractable",
+  );
+});
+
 test("VAL-LOOP-BROWSER-006: resolveCareerSurfaceCandidate returns null for blocked hosts", () => {
   const company = { name: "TestCompany", domains: ["testcompany.com"] };
 

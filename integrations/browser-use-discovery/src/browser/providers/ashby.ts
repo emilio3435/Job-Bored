@@ -28,7 +28,8 @@ import type {
 export const ashbyProvider: AtsProvider = {
   id: "ashby",
   label: "Ashby",
-  async detectSurfaces(company, hints, memory) {
+  async detectSurfaces(company, hints, memory, signal) {
+    signal?.throwIfAborted?.();
     const surfaces: ProviderSurface[] = [];
 
     for (const url of collectMemoryUrls("ashby", memory)) {
@@ -56,8 +57,9 @@ export const ashbyProvider: AtsProvider = {
     }
 
     for (const token of uniqueProbeTokens(hints)) {
+      signal?.throwIfAborted?.();
       const probeUrl = buildAshbyJobsUrl(token, false);
-      const payload = await fetchJson(probeUrl);
+      const payload = await fetchJson(probeUrl, { signal });
       if (payload.ok) {
         surfaces.push(
           buildProviderSurface("ashby", "Ashby", company, {
@@ -76,7 +78,7 @@ export const ashbyProvider: AtsProvider = {
         continue;
       }
 
-      const html = await fetchText(buildAshbyBoardUrl(token));
+      const html = await fetchText(buildAshbyBoardUrl(token), { signal });
       if (
         html.ok &&
         (/ashby/i.test(html.text) || /jobs\.ashbyhq\.com/i.test(html.text))
@@ -103,11 +105,12 @@ export const ashbyProvider: AtsProvider = {
 
     return dedupeSurfaces(surfaces, ashbyProvider.scoreSurface);
   },
-  async enumerateListings(surface, sessionManager) {
+  async enumerateListings(surface, sessionManager, signal) {
+    signal?.throwIfAborted?.();
     const boardToken = surface.boardToken || extractAshbyBoardToken(surface.canonicalUrl);
     if (!boardToken) return [];
     const endpoint = buildAshbyJobsUrl(boardToken, true);
-    const payload = await fetchJson(endpoint);
+    const payload = await fetchJson(endpoint, { signal });
     if (payload.ok) {
       const listings = extractAshbyListings(payload.data, surface);
       if (listings.length) return maybeFilterToDirectSurface(surface, listings);
@@ -117,6 +120,7 @@ export const ashbyProvider: AtsProvider = {
       url: endpoint,
       instruction: ASHBY_BROWSER_INSTRUCTION,
       timeoutMs: 20_000,
+      abortSignal: signal,
     });
     const listings = extractAshbyListings(sessionResult.text, surface);
     if (listings.length) return maybeFilterToDirectSurface(surface, listings);

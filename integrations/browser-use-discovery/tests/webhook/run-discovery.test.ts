@@ -1972,7 +1972,7 @@ test("runDiscovery times out grounded collection when source timeout fires", asy
   );
 });
 
-test("runDiscovery marks grounded source readiness problems as partial outcomes with explicit warnings", async () => {
+test("runDiscovery marks grounded source readiness problems as empty outcomes with explicit warnings", async () => {
   let writeCalls = 0;
   const dependencies = {
     runtimeConfig: {
@@ -2050,7 +2050,9 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
   const result = await runDiscovery(makeRequest(), "manual", dependencies);
 
   assert.equal(writeCalls, 0);
-  assert.equal(result.lifecycle.state, "partial");
+  // B6: the only warning is informational (an unavailable optional Google
+  // tool), so a zero-lead run is empty rather than partial.
+  assert.equal(result.lifecycle.state, "empty");
   assert.equal(result.lifecycle.normalizedLeadCount, 0);
   assert.equal(result.sourceSummary.length, 1);
   assert.equal(result.sourceSummary[0].sourceId, "grounded_web");
