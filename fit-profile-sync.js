@@ -86,7 +86,16 @@
 
   async function syncProfile(payload, options) {
     var opts = options || {};
-    var fetchImpl = "fetchImpl" in opts ? opts.fetchImpl : root && root.fetch;
+    // window.fetch must be called on window: a detached call throws
+    // "Illegal invocation", which would read as a network failure.
+    var fetchImpl =
+      opts.fetchImpl !== undefined
+        ? opts.fetchImpl
+        : root && typeof root.fetch === "function"
+          ? function (url, init) {
+              return root.fetch(url, init);
+            }
+          : null;
     if (typeof fetchImpl !== "function") return localOnly(0);
 
     var controller = typeof AbortController === "function" ? new AbortController() : null;
