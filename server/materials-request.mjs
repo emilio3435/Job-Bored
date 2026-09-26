@@ -19,6 +19,8 @@ import {
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
 const FEATURES = new Set(["resume", "cover_letter", "both"]);
 const MAX_NOTES_LEN = 4000;
+/* Plenty for a long posting with boilerplate; matches the resume cap. */
+const MAX_JD_LEN = 60_000;
 
 /**
  * @typedef {object} MaterialsRequestPayload
@@ -28,6 +30,8 @@ const MAX_NOTES_LEN = 4000;
  * @property {string} feature
  * @property {string} jobUrl
  * @property {string} notes
+ * @property {string} [jobDescription] pasted posting; the drafter prefers
+ *   it over the cached JD and the scrape (F9)
  * @property {import("./materials-resume-source.mjs").ResumeSource | null} resume
  *   The user's own resume. Required unless resumeFrom is "snapshot".
  * @property {"snapshot"} [resumeFrom]
@@ -111,6 +115,11 @@ export function normalizeRequestBody(body) {
   }
   const jobUrl = trimString(body && body.jobUrl, 1000);
   const notes = trimString(body && body.notes, MAX_NOTES_LEN);
+  /* F9: a pasted posting in the body reaches the drafter's request-JD
+   * branch (payload JD → cache → scrape). jdText is the legacy alias. */
+  const jobDescription =
+    trimString(body && body.jobDescription, MAX_JD_LEN) ||
+    trimString(body && body.jdText, MAX_JD_LEN);
   const template = optionalFamily(body && body.template);
   const preferredTemplate = optionalFamily(body && body.preferredTemplate);
   const resume = normalizeResumeSource(body && body.resume);
@@ -120,6 +129,7 @@ export function normalizeRequestBody(body) {
   }
   /** @type {MaterialsRequestPayload} */
   const payload = { slug, company, title, feature, jobUrl, notes, resume };
+  if (jobDescription) payload.jobDescription = jobDescription;
   if (resumeFrom && !resume) payload.resumeFrom = resumeFrom;
   if (template) payload.template = template;
   if (preferredTemplate) payload.preferredTemplate = preferredTemplate;
