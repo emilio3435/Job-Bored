@@ -3,6 +3,14 @@ import { describe, it } from "node:test";
 
 import { loadCutover, settle } from "./oneflow-l6-harness.mjs";
 
+// GFX FE-B4 (B4-6): B4 no longer prints the raw profile JSON, which is
+// where these names used to surface as text. They live in the fields.
+function fitFieldText(root) {
+  return [root.textContent]
+    .concat(root.querySelectorAll(".oneflow-fit-tag__input").map((i) => i.value))
+    .join(" ");
+}
+
 /* ============================================================
    ONEFLOW L6 — migration (ONE-FLOW-ONBOARDING-SPEC §3.3).
 
@@ -136,7 +144,7 @@ describe("§3.3 row 4 — a legacy profile with no server fit profile opens at B
     await boot(env);
 
     assert.equal(env.openBeat(), "fit");
-    const rendered = env.text();
+    const rendered = fitFieldText(env.mount());
     assert.match(
       rendered,
       /Staff Engineer/,
