@@ -380,8 +380,15 @@
    * "To start it, …" (GFX-X1: the one sentence B2, B3 and B5 share).
    * macOS gets the double-clickable start.command; every other platform
    * runs the same start.sh. `platform` defaults to the navigator's.
+   *
+   * Also takes `{ platform, runtime }` (R13): once the ping reports
+   * `runtime: "desktop"`, the JobBored app is how JobBored starts, on any
+   * platform. The positional form stays for existing callers.
    */
-  function localServerHint(platform) {
+  function localServerHint(arg) {
+    const opts = arg !== null && typeof arg === "object" ? arg : { platform: arg };
+    if (opts.runtime === "desktop") return "open the JobBored app";
+    const platform = opts.platform;
     const name = platform === undefined ? readPlatform() : String(platform || "");
     return /mac/i.test(name)
       ? "double-click start.command in the JobBored folder"
