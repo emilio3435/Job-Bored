@@ -90,3 +90,7 @@ index.assembled.html
 LANE-REPORT-*
 SUB-REPORT-*
 VERDICT-*
+# GFX DESK-A: the desktop app's staged bundle, build output and its own deps.
+desktop/app-bundle/
+desktop/dist/
+desktop/node_modules/

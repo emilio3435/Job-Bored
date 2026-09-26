@@ -1,0 +1,22 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  JobBored for Mac, hardened runtime entitlements (GFX R20).
+  Applied to the app and inherited by its children, which are this same
+  binary run as Node (ELECTRON_RUN_AS_NODE=1, SPIKE S1).
+  S2 (signed + notarized build) confirms which are strictly needed.
+-->
+<plist version="1.0">
+<dict>
+  <!-- V8 JIT, in the app and in every Electron-as-Node child. -->
+  <key>com.apple.security.cs.allow-jit</key>
+  <true/>
+  <!-- V8 still maps some writable+executable pages without MAP_JIT. -->
+  <key>com.apple.security.cs.allow-unsigned-executable-memory</key>
+  <true/>
+  <!-- Electron's frameworks load under a different signature in dev and
+       universal builds; S2 decides whether this can be dropped. -->
+  <key>com.apple.security.cs.disable-library-validation</key>
+  <true/>
+</dict>
+</plist>

@@ -114,6 +114,11 @@ export default [
       ".muse/**",
       // Workflow-tool scripts: a top-level `return` is legal in that runner, not in ESM.
       "docs/programs/**/*.workflow.js",
+      // GFX DESK-A: the desktop app's staged bundle and build output are
+      // generated copies; desktop/*.mjs itself is linted as Node ESM below.
+      "desktop/app-bundle/**",
+      "desktop/dist/**",
+      "desktop/node_modules/**",
     ],
   },
   {
