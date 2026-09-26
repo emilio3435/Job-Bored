@@ -83,10 +83,16 @@ describe("cover letter length QA for template letters", () => {
     assert.ok(long.issues.some((i) => i.code === "cover_letter_too_long"));
   });
 
-  it("should keep the legacy whole-page 325–475 rule for a letter with no band", async () => {
-    const legacy = `<html><body><article class="page"><p>${words(250)}</p></article></body></html>`;
-    const result = await audit(legacy);
-    assert.ok(result.issues.some((i) => i.code === "cover_letter_too_short"));
+  it("should judge a letter with no band whole-page against the budget band", async () => {
+    const inBand = `<html><body><article class="page"><p>${words(250)}</p></article></body></html>`;
+    assert.deepEqual(
+      (await audit(inBand)).issues.filter((i) => /cover_letter_too/.test(i.code)),
+      [],
+    );
+    const short = `<html><body><article class="page"><p>${words(120)}</p></article></body></html>`;
+    const tooShort = (await audit(short)).issues.find((i) => i.code === "cover_letter_too_short");
+    assert.ok(tooShort);
+    assert.match(tooShort.message, /120 words \(target 180–260\)/);
   });
 });
 

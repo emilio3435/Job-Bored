@@ -1,13 +1,15 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { join } from "node:path";
+import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 
 const QUALITY_VERSION = "materials-quality.v1";
 
+/* Slice 2: the length numbers live in MATERIALS_BUDGETS alone. The QA
+ * thresholds below read the table; the contract test
+ * (scripts/test-materials-contract.mjs) fails if any copy drifts. */
 const RESUME_TWO_PAGE_MIN_WORDS = 750;
 const RESUME_TWO_PAGE_MIN_PAGE_WORDS = 240;
-const COVER_MIN_WORDS = 325;
-const COVER_MAX_WORDS = 475;
 
 /**
  * @typedef {object} QualityIssue
@@ -68,6 +70,22 @@ function extractSections(html) {
     sections.add(match[1]);
   }
   return Array.from(sections);
+}
+
+/**
+ * Text inside the first element carrying the named data-section.
+ * Templates never nest sections, so a non-greedy close match is enough.
+ * @param {unknown} html
+ * @param {string} name
+ * @returns {string}
+ */
+function extractSectionText(html, name) {
+  const text = String(html || "");
+  const open = new RegExp(`<section\\b[^>]*\\bdata-section=["']${name}["'][^>]*>`, "i").exec(text);
+  if (!open) return "";
+  const close = text.indexOf("</section>", open.index + open[0].length);
+  if (close === -1) return "";
+  return stripHtml(text.slice(open.index + open[0].length, close));
 }
 
 /**
@@ -201,15 +219,28 @@ export async function auditResume({ htmlPath, pdfPath } = {}) {
   }
   if (!hasAnySection(htmlStats.sections, ["summary"])) {
     issues.push(issue("resume_summary_missing", "Resume is missing a summary section.", "fail"));
+  } else {
+    /* Slice 2: the statement is required and held to its budget band.
+     * Capabilities/skills sections are optional now, never flagged. */
+    const statement = typeof html === "string" ? extractSectionText(html, "summary") : "";
+    if (!statement.trim()) {
+      issues.push(issue("resume_statement_missing", "Resume summary carries no statement.", "fail"));
+    } else {
+      const [statementMin, statementMax] = MATERIALS_BUDGETS.resume.statementWords;
+      const statementWords = countWords(statement);
+      if (statementWords < statementMin || statementWords > statementMax) {
+        issues.push(issue(
+          "resume_statement_word_count",
+          `Resume statement has ${statementWords} words (target ${statementMin}–${statementMax}); compress to resume density.`,
+        ));
+      }
+    }
   }
   if (!hasAnySection(htmlStats.sections, ["experience", "experience-continued"])) {
     issues.push(issue("resume_experience_missing", "Resume is missing an experience section.", "fail"));
   }
   if (!hasAnySection(htmlStats.sections, ["education"])) {
     issues.push(issue("resume_education_missing", "Resume is missing education.", "review"));
-  }
-  if (!hasAnySection(htmlStats.sections, ["capabilities", "skills"])) {
-    issues.push(issue("resume_capabilities_missing", "Resume is missing capabilities or skills.", "review"));
   }
 
   return {
@@ -244,10 +275,11 @@ export async function auditCoverLetter({ htmlPath, pdfPath } = {}) {
     ));
   }
   /* A registry letter is judged on its body against its family's band; a
-     legacy letter keeps the whole-page 325–475 rule. */
+     letter with no band is judged whole-page against the budget band —
+     the 325 floor is gone (slice 2). */
   const htmlText = typeof html === "string" ? html : "";
   const band = htmlText ? letterWordBandFromHtml(htmlText) : null;
-  const [minWords, maxWords] = band || [COVER_MIN_WORDS, COVER_MAX_WORDS];
+  const [minWords, maxWords] = band || MATERIALS_BUDGETS.letter.bodyWords;
   const counted = band ? letterBodyWords(htmlText) : htmlStats.words;
   const scope = band ? "body words" : "words";
   if (counted < minWords) {

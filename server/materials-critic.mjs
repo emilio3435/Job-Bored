@@ -154,7 +154,7 @@ function composedEmployerStrings(html) {
 
 /**
  * Word budgets stay in materials-quality; HTML is staged so auditCoverLetter
- * / auditResume read the same 325–475 and resume section rules.
+ * / auditResume read the same budget-band and resume section rules.
  *
  * @param {string} letterHtml
  * @param {string} resumeHtml
@@ -217,7 +217,6 @@ export async function critiqueMaterials({
   const issues = [...(letter.issues || []), ...(resume.issues || [])];
 
   const letterText = visibleText(letterSource);
-  const resumeText = visibleText(resumeSource);
 
   const jdWords = tokenize(jdText);
   if (jdWords.length >= JD_ECHO_WINDOW) {

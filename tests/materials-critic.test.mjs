@@ -18,15 +18,17 @@ function letterOf(words) {
 }
 
 describe("critiqueMaterials", () => {
-  it("fails a 200-word letter", async () => {
-    const out = await critiqueMaterials({
-      letterHtml: letterOf(200),
+  it("slice 2: a 200-word letter passes, a 100-word letter is too short", async () => {
+    const base = {
       resumeHtml: "<section data-section=\"summary\">x</section><section data-section=\"experience\">y</section>",
       jdText: jd,
       masterResumeHtml: "Audacy",
       writerJson: { letter: { hook: "word" }, resume: { roles: [] } },
-    });
-    assert.equal(out.issues.some((i) => i.code === "cover_letter_too_short"), true);
+    };
+    const passing = await critiqueMaterials({ ...base, letterHtml: letterOf(200) });
+    assert.equal(passing.issues.some((i) => /cover_letter_too/.test(i.code)), false);
+    const short = await critiqueMaterials({ ...base, letterHtml: letterOf(100) });
+    assert.equal(short.issues.some((i) => i.code === "cover_letter_too_short"), true);
   });
 
   it("flags banned filler", async () => {
