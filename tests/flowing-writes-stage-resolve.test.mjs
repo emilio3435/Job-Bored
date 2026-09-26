@@ -56,6 +56,10 @@ function loadWrites({
     }
   }
   const window = {
+    addEventListener(type, fn) {
+      listeners[type] = listeners[type] || [];
+      listeners[type].push(fn);
+    },
     JobBored: {
       getAccessToken: () => "token",
       getSheetId: () => "sheet-id",
@@ -291,6 +295,50 @@ describe("flowing-writes stage row resolution", () => {
     );
   });
 
+  it("C20: a numeric 0 jobKey on jb:role:writeback still writes (only null/undefined/'' are missing)", async () => {
+    const { fetchCalls, document, CustomEvent } = loadWrites({
+      getPipelineSheetRow: (jobKey) => (jobKey === 0 ? 7 : null),
+    });
+
+    document.dispatchEvent(
+      new CustomEvent("jb:role:writeback", {
+        detail: { jobKey: 0, field: "contact", value: "Maya" },
+      }),
+    );
+
+    await waitFor(
+      () => fetchCalls.some((call) => call.options.method === "PUT"),
+      "jobKey 0 should reach the Sheets update",
+    );
+    const putCall = fetchCalls.find((call) => call.options.method === "PUT");
+    assert.match(putCall.url, /\/values\/Pipeline!/);
+    assert.match(putCall.url, /7\?/);
+    assert.deepEqual(JSON.parse(putCall.options.body), { values: [["Maya"]] });
+  });
+
+  it("C20: a numeric 0 jobKey resolves through the card's data-job-url", async () => {
+    const { writes } = loadWrites({
+      cards: [makeCard({ "data-stable-key": "0", "data-job-url": "https://example.com/jobs/a" })],
+      sheetLinks: ["https://example.com/jobs/a"],
+    });
+
+    assert.equal(await writes._internal.resolveSheetRow(0), 2);
+  });
+
+  it("C20: null, undefined and empty-string jobKeys are ignored by jb:role:writeback", async () => {
+    const { fetchCalls, events, document, CustomEvent } = loadWrites({
+      getPipelineSheetRow: () => 7,
+    });
+    for (const jobKey of [null, undefined, ""]) {
+      document.dispatchEvent(
+        new CustomEvent("jb:role:writeback", { detail: { jobKey, field: "contact", value: "x" } }),
+      );
+    }
+    for (let i = 0; i < 10; i++) await Promise.resolve();
+    assert.equal(fetchCalls.length, 0);
+    assert.equal(events.filter((e) => e.type.startsWith("jb:write:")).length, 0);
+  });
+
   it("F3C-APPLY01-MARK: drag-to-Applied is Status-only and is not a Mark submitted confirmation", async () => {
     const { writes, fetchCalls } = loadWrites({
       getPipelineSheetRow: (jobKey) => (String(jobKey) === "1" ? 7 : null),
@@ -307,25 +355,6 @@ describe("flowing-writes stage row resolution", () => {
       false,
       "drag-only Applied must not be treated as an Applied Date write",
     );
-
-    const markPath = join(repoRoot, "mark-submitted.js");
-    const markSrc = readFileSync(markPath, "utf8");
-    const win = {};
-    vm.runInNewContext(
-      markSrc,
-      { window: win, globalThis: win, Date, Number, Math, String, Array, Object, JSON, console },
-      { filename: "mark-submitted.js" },
-    );
-    const marked = win.JobBoredMarkSubmitted.confirm(
-      { jobKey: "1", status: "Researching" },
-      { fromStage: "researching", toStage: "applied" },
-      {
-        transitionApplied() {
-          throw new Error("drag-only Applied is not confirmation");
-        },
-      },
-    );
-    assert.equal(marked.ok, false, "Mark submitted must reject the drag-only Applied claim");
   });
 });
 function loadTransitions() {

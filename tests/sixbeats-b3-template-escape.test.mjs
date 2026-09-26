@@ -24,6 +24,17 @@ function draftingFetch() {
 
 async function openBeat() {
   const env = loadArrival({ fetchImpl: draftingFetch() });
+  // GREENFIELD A3: B3 refuses to draft with a provider that has no
+  // credential, so the round-trip probe carries what B2 would have left.
+  env.window.CommandCenterResumeGenerate.getResumeGenerationConfig = () => ({
+    provider: "openrouter",
+    resumeOpenRouterApiKey: "sk-or-verified-key",
+    resumeOpenRouterModel: "openai/gpt-oss-120b:free",
+    resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
+  });
+  // GREENFIELD §4.1 gates B3 on B2; the template escape is probed from a
+  // B3 that was legitimately reached.
+  await env.store.saveOnboardingFlowState({ completedBeats: ["ai"] });
   await env.flow.open(BEAT_ID);
   return env;
 }

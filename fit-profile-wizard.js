@@ -165,9 +165,30 @@
     return "";
   }
 
+  /**
+   * The provider Beat 2 verified, exactly as Beat 3 sends it. One
+   * definition of "usable provider" lives in oneflow-beat-resume.js
+   * (GREENFIELD A4); this editor posts the same route, so a server that
+   * only read its own env would answer THIS caller "Missing Gemini API
+   * key" for a freshly-connected OpenRouter install too. Null whenever the
+   * beat module is absent or nothing usable is configured, which leaves
+   * the server's env in charge exactly as before.
+   */
+  function verifiedProviderConfig() {
+    var beat = typeof window !== "undefined" ? window.JobBoredOneFlowBeatResume : null;
+    if (!beat || typeof beat.verifiedProviderConfig !== "function") return null;
+    try {
+      return beat.verifiedProviderConfig();
+    } catch (_) {
+      return null;
+    }
+  }
+
   async function fetchProfileFromResume() {
     var staged = await getStagedResumeText();
     var body = staged ? { resumeText: staged } : {};
+    var provider = verifiedProviderConfig();
+    if (provider) Object.assign(body, provider);
     var res = await fetch(profileUrl("/profile/from-resume"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },

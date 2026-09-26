@@ -29,7 +29,11 @@
   /** @typedef {{ ready: boolean, recommendation: string, hint?: string, state?: object }} Verdict */
 
   const STATE_ENDPOINT = "/__proxy/discovery-state";
-  const FULL_BOOT_ENDPOINT = "/__proxy/full-boot";
+  // BEAUDIT G4: silent recovery may only start the local worker. Without
+  // skip_tunnel=1 full-boot runs bootstrap, which can open a public tunnel
+  // and redeploy the relay with no consent. Tunnel start and relay deploy
+  // stay behind the wizard's explicit buttons.
+  const FULL_BOOT_ENDPOINT = "/__proxy/full-boot?skip_tunnel=1";
   const PROBE_TIMEOUT_MS = 4000;
   const RECOVERY_TIMEOUT_MS = 90_000;
 
@@ -180,7 +184,25 @@
     let verdict = classify(state);
     if (verdict.ready) return verdict;
 
-    if (verdict.recommendation === "auto_recoverable" && allowRecover) {
+    // UX01 C8 (FD-19): a repair restarts the worker and may rewrite .env,
+    // so it runs only on an explicit yes.
+    const helpers = window.JobBoredDiscoveryHelpers;
+    const consented =
+      allowRecover &&
+      (typeof opts.confirmRecover === "function"
+        ? !!opts.confirmRecover()
+        : helpers && typeof helpers.confirmHostChange === "function"
+          ? helpers.confirmHostChange({
+              action: "Repair discovery",
+              writesEnv: true,
+              restartsWorker: true,
+            })
+          : typeof window.confirm === "function"
+            ? !!window.confirm(
+                "JobBored will restart your local discovery worker on this computer. Continue?",
+              )
+            : true);
+    if (verdict.recommendation === "auto_recoverable" && consented) {
       const bootResult = await runFullBoot();
       // Successful or not, re-probe so we report the truth.
       clearCache();

@@ -116,7 +116,9 @@ function loadAutoDraftHarness({
   const fetchCalls = [];
   const documentBus = makeEventTarget(events);
   const windowBus = makeEventTarget(events);
-  const storage = new Map(Object.entries(localStorageState || {}));
+  /* UX01 C12 (TA-03): auto-draft is opt-in now. This suite covers the
+     opted-in bridge, so the harness opts in unless a test says otherwise. */
+  const storage = new Map(Object.entries({ "jobBored:autoDraft:v1": "on", ...(localStorageState || {}) }));
   const body = {
     classList: {
       contains(name) { return name === "jb-v2"; },

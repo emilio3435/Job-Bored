@@ -60,13 +60,25 @@
 
   /* -------------------- empty-state -------------------- */
 
+  /* AX-24: ⌘K only exists on Apple keyboards; the handler also takes Ctrl
+     (pipeline.js), so everyone else is told Ctrl K. */
+  function isApplePlatform() {
+    var nav = root.navigator || {};
+    var p = (nav.userAgentData && nav.userAgentData.platform) || nav.platform || "";
+    return /mac|iphone|ipad|ipod/i.test(String(p));
+  }
+
+  function searchShortcutLabel() {
+    return isApplePlatform() ? "⌘K" : "Ctrl K";
+  }
+
   function renderEmpty(region) {
     region.innerHTML = '' +
       '<div class="jb-shelf">' +
         '<div class="jb-shelf__rule"></div>' +
         '<div class="jb-shelf__num">PART <em>03</em> · WAITING</div>' +
         '<h2 class="jb-shelf__title">Open a role to <em>read</em>.</h2>' +
-        '<p class="jb-shelf__sub">Click any card in the pipeline above. The dossier and your tailored materials will unfold here.</p>' +
+        '<p class="jb-shelf__sub">Open any card in the pipeline. The dossier and your tailored materials will unfold here.</p>' +
         '<div class="jb-shelf__hints">' +
           '<div class="jb-hint">' +
             '<div class="jb-hint__eyebrow">THE DOSSIER</div>' +
@@ -80,8 +92,8 @@
           '</div>' +
         '</div>' +
         '<button type="button" class="jb-shelf__cta" data-shelf-cta="pipeline">' +
-          '<span>↑ Pick a role from the pipeline</span>' +
-          '<span class="jb-shelf__cta-key">⌘K</span>' +
+          '<span>Pick a role from the pipeline</span>' +
+          '<span class="jb-shelf__cta-key">' + searchShortcutLabel() + '</span>' +
           '<span>to search</span>' +
         '</button>' +
       '</div>';
@@ -90,8 +102,11 @@
     var cta = region.querySelector('[data-shelf-cta="pipeline"]');
     if (cta) {
       cta.addEventListener("click", function () {
+        var views = root.JobBoredFlowing && root.JobBoredFlowing.views;
         var pipeline = document.querySelector(PIPELINE_REGION_SELECTOR);
-        if (pipeline) {
+        if (views && typeof views.show === "function") {
+          views.show("pipeline", { focus: false });
+        } else if (pipeline) {
           var prefersReduced = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
           try {
             pipeline.scrollIntoView({ behavior: prefersReduced ? "auto" : "smooth", block: "start" });
@@ -166,9 +181,56 @@
       if (root.JobBoredRoleMaterials && typeof root.JobBoredRoleMaterials.rehydrateOpenRole === "function") {
         root.JobBoredRoleMaterials.rehydrateOpenRole();
       }
+      scrollCurrentStepIntoView(region);
+      publishChromeHeight(region);
+      autosizeTitle(region);
     }
 
     wireDossier(region, job);
+  }
+
+  /* The masthead title is a wrapping <textarea> so a long posting title is
+     readable in full (role-case.css). `field-sizing: content` gives it its
+     height where it is supported; where it is not, size it from its own
+     content or a two-line title would sit behind a hidden scrollbar. */
+  function autosizeTitle(region) {
+    if (!region || typeof region.querySelector !== "function") return;
+    if (root.CSS && root.CSS.supports && root.CSS.supports("field-sizing", "content")) return;
+    var title = region.querySelector(".case__title");
+    if (!title || title.tagName !== "TEXTAREA" || !title.style) return;
+    function fit() {
+      title.style.height = "auto";
+      title.style.height = (title.scrollHeight || 0) + "px";
+    }
+    fit();
+    if (typeof title.addEventListener === "function") title.addEventListener("input", fit);
+  }
+
+  /* The sticky docket has to park FLUSH beneath the app's chrome: a gap is a
+     slot the page scrolls through, and an overlap hides the controls behind
+     the header. How tall the chrome is, is the app's business and not the
+     dossier's, so measure .page-top and publish it — role-case.css carries a
+     fallback for the render before this runs. */
+  function publishChromeHeight(region) {
+    if (!region || !region.style || typeof region.style.setProperty !== "function") return;
+    var chrome = document.querySelector(".page-top");
+    if (!chrome || typeof chrome.getBoundingClientRect !== "function") return;
+    var height = Math.round(chrome.getBoundingClientRect().height);
+    if (height > 0) region.style.setProperty("--jb-chrome-h", height + "px");
+  }
+
+  /* The docket's stepper is a horizontal scroller (role-case.css), so on a
+     narrow dossier the live stage can start out of view — which is the one
+     step the reader needs. Centre it by setting the scroller's own
+     scrollLeft: scrollIntoView() would scroll the page as well, moving the
+     dossier out from under the reader on every render. */
+  function scrollCurrentStepIntoView(region) {
+    if (!region || typeof region.querySelector !== "function") return;
+    var stepper = region.querySelector(".case__stepper");
+    var now = region.querySelector(".case__step--now");
+    if (!stepper || !now || typeof now.offsetLeft !== "number") return;
+    var target = now.offsetLeft - Math.max(0, (stepper.clientWidth - now.offsetWidth) / 2);
+    stepper.scrollLeft = Math.max(0, target);
   }
 
   function getCurrentJobKey() {
@@ -432,6 +494,9 @@
     var ae = document.activeElement;
     if (!ae || !ae.getAttribute || !region || typeof region.contains !== "function") return null;
     if (!region.contains(ae) || ae === region) return null;
+    /* The view heading has no action, but async materials/enrichment renders
+       replace it after the opening focus hand-off just like any control. */
+    if (ae.matches && ae.matches(".case__title-h")) return ".case__title-h";
     var action = ae.getAttribute("data-action");
     if (!action) return null;
     var selector = "";
@@ -446,7 +511,10 @@
   function restoreFocus(region, selector) {
     if (!region || !selector || typeof region.querySelector !== "function") return;
     var next = region.querySelector(selector);
-    if (next && typeof next.focus === "function") next.focus();
+    if (next && typeof next.focus === "function") {
+      if (selector === ".case__title-h") next.setAttribute("tabindex", "-1");
+      try { next.focus({ preventScroll: true }); } catch (_) { next.focus(); }
+    }
   }
 
   function renderForKey(jobKey) {
@@ -473,9 +541,33 @@
     restoreFocus(region, focused);
   }
 
+  /* AX-05 · TA-17: opening a role moves focus to its heading, so a
+     keyboard or screen-reader user lands on what they opened instead of
+     <body>. Deferred a tick so the chrome has switched to the dossier view
+     (a display:none heading cannot take focus). Closing hands focus back to
+     the opener; the chrome owns that half because it owns the views.
+     A caller that already put focus inside the dossier (the card pencil
+     drops it in the title input) meant it: the heading never takes it back. */
+  function focusHeading() {
+    var region = getRegion();
+    if (!region) return;
+    var active = document.activeElement;
+    if (active && active !== region && region.contains(active)) return;
+    var heading = region.querySelector(".case__title-h") || region.querySelector(".jb-shelf__title");
+    if (!heading || typeof heading.focus !== "function") return;
+    heading.setAttribute("tabindex", "-1");
+    try { heading.focus({ preventScroll: true }); } catch (_) { heading.focus(); }
+    if (typeof region.scrollIntoView === "function") {
+      var reduce = root.matchMedia && root.matchMedia("(prefers-reduced-motion: reduce)").matches;
+      try { region.scrollIntoView({ behavior: reduce ? "auto" : "smooth", block: "start" }); }
+      catch (_) { region.scrollIntoView(); }
+    }
+  }
+
   function onOpened(e) {
     var key = e && e.detail && e.detail.jobKey;
     renderForKey(key);
+    root.setTimeout(focusHeading, 0);
   }
   function onClosed() {
     renderForKey(null);
@@ -503,18 +595,22 @@
     root.addEventListener("jb:role:closed", onClosed);
     /* Cached enrichments are restored when app.js renders the Pipeline.
        If a role was already open (for example after a hard reload with a
-       #role hash), re-read the freshly-rendered card data-* attrs so the
+       #role hash), re-read the card data from the freshly loaded rows
+       (dawn-data.js getRoleViewModel, DS-08) so the
        Dossier does not stay on its pre-hydration basic view. */
     if (document && document.addEventListener) {
       document.addEventListener("jb:pipeline:rendered", rerenderOpenRole);
       document.addEventListener("jb:write:succeeded", onWriteSucceeded);
     }
-    /* When app.js finishes scrape + Gemini enrichment for a role, the
-       kanban-card's data-* attributes are refreshed; re-render the
+    /* When app.js finishes scrape + Gemini enrichment for a role, the row
+       gains the new fields and the pipeline re-renders; re-render the
        Dossier so it picks up the new AI fields. */
     /* Seam events (spec §2.3): a persisted scorecard, a resolved profile
        match, or a fresh materials manifest all change what the Case shows.
        All three funnel through renderForKey, so the focus guard still wins. */
+    /* The chrome's height changes with the viewport (its nav wraps), and the
+       docket's parking spot is derived from it. */
+    root.addEventListener("resize", function () { publishChromeHeight(getRegion()); });
     root.addEventListener("jb:ats:state", rerenderOpenRole);
     root.addEventListener("jb:profile-match:ready", rerenderOpenRole);
     root.addEventListener("jb:materials:manifest", function (e) {

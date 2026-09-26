@@ -1,16 +1,21 @@
 /**
  * submission-flow.js — human confirmation seam for an Applied transition.
  *
- * Classic-global IIFE. The integration owner routes only the v2 Applied move
- * here; this module delegates persistence to sheets-writeback so its canonical
- * row mapping and M/N/P side-effect batch remain the single source of truth.
+ * Classic-global IIFE. Every Applied move lands here. UX01 C15: the write goes
+ * through the one transition planner (pipeline-transitions.js) with the typed
+ * date, follow-up and source + receipt note, immediately, with Undo. The
+ * sheets-writeback updateJobStatus path is kept only as the fallback when no
+ * planner row can be resolved.
+ *
+ * Lane-D API (C16): confirmApplied({dataIndex, prefill:{source, date}}).
+ * TA-21: prefill.materials = [{id, label, checked?}] fills "Sent with it";
+ * without it, JobBoredPipeline.materialsFor(dataIndex) is asked.
  */
 (function (root) {
   "use strict";
 
   if (!root || typeof root !== "object") return;
 
-  var UNDO_GRACE_MS = 10 * 1000;
   var FIELD_IDS = Object.freeze({
     appliedDate: "jb-submission-applied-date",
     source: "jb-submission-source",
@@ -82,13 +87,67 @@
     ];
   }
 
-  function evidenceFrom(values, defaults) {
+  /* TA-21: the files that went with the application. Lane E (or any caller)
+     can pass them as prefill.materials; otherwise the board's cached
+     materials index is asked for this role's ready resume and letter. */
+  var SENT_PREFIX = "jb-submission-sent-";
+
+  function materialsFor(jobKey, prefilled) {
+    var list = Array.isArray(prefilled) ? prefilled : null;
+    if (!list) {
+      var board = root.JobBoredPipeline;
+      if (board && typeof board.materialsFor === "function") {
+        try {
+          list = board.materialsFor(jobKey);
+        } catch (_) {
+          list = null;
+        }
+      }
+    }
+    if (!Array.isArray(list)) return [];
+    var seen = {};
+    var out = [];
+    for (var i = 0; i < list.length; i++) {
+      var m = list[i] || {};
+      var id = text(m.id || m.type);
+      var label = text(m.label);
+      if (!id || !label || seen[id]) continue;
+      seen[id] = true;
+      out.push({ id: id, label: label, checked: m.checked !== false });
+    }
+    return out;
+  }
+
+  function sentChecks(materials) {
+    if (!materials.length) return null;
     return {
+      label: "Sent with it",
+      items: materials.map(function (m) {
+        return { id: SENT_PREFIX + m.id, label: m.label, checked: m.checked };
+      }),
+    };
+  }
+
+  function sentFrom(values, materials) {
+    var sent = [];
+    for (var i = 0; i < materials.length; i++) {
+      var raw = values && values[SENT_PREFIX + materials[i].id];
+      var on = raw == null ? materials[i].checked : String(raw) === "true";
+      if (on) sent.push(materials[i].label);
+    }
+    return sent;
+  }
+
+  function evidenceFrom(values, defaults, materials) {
+    var evidence = {
       appliedDate: fieldValue(values, "appliedDate") || defaults.appliedDate,
       source: fieldValue(values, "source") || "Unknown",
       receiptNote: fieldValue(values, "receiptNote"),
       followUpDate: fieldValue(values, "followUpDate") || defaults.followUpDate,
     };
+    // Only when the dialog offered files; the evidence shape is unchanged otherwise.
+    if (materials && materials.length) evidence.sent = sentFrom(values, materials);
+    return evidence;
   }
 
   function dispatchWriteFailure(jobKey, reason, error) {
@@ -113,60 +172,227 @@
     }
   }
 
-  function waitForGracePeriod() {
-    return new Promise(function (resolve) {
-      setTimeout(resolve, UNDO_GRACE_MS);
-    });
-  }
-
-  function showUndoToast(a11y, onUndo) {
+  function showToast(a11y, message, type, action) {
     if (a11y && typeof a11y.toast === "function") {
-      return a11y.toast(
-        "Application marked submitted. Saving in 10 seconds.",
-        "info",
-        {
-          persistent: true,
-          action: { label: "Undo", onClick: onUndo },
-        },
-      );
+      return a11y.toast(message, type || "success", action ? { action: action } : {});
     }
-
     var fallback = host().showToast;
     if (typeof fallback === "function") {
-      return fallback(
-        "Application marked submitted. Saving in 10 seconds.",
-        "info",
-        true,
-        { label: "Undo", onClick: onUndo },
-      );
+      return fallback(message, type || "success", false, action);
     }
     return null;
   }
 
+  /* UX01 C20 / MP-07: the follow-up date only reaches a person who closed
+     the tab if it is in their own calendar. Today's engine owns the RFC 5545
+     builder; this flow feature-detects it and hands the file over as a
+     download, so any OS calendar can open it. */
+  function icsBuilder() {
+    var today = root.JobBoredToday;
+    var data = today && today.data;
+    return data && typeof data.buildIcs === "function" ? data.buildIcs : null;
+  }
+
+  function isIsoDate(value) {
+    return /^\d{4}-\d{2}-\d{2}$/.test(text(value));
+  }
+
+  function slug(value) {
+    return String(value || "role").toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "") || "role";
+  }
+
+  function downloadFollowUpIcs(jobKey, job, evidence) {
+    var build = icsBuilder();
+    if (!build) return false;
+    var ics = build({
+      date: evidence.followUpDate,
+      title: job && text(job.title),
+      company: job && text(job.company),
+      jobKey: jobKey == null ? "" : String(jobKey),
+      summary: "Follow up",
+      description: "Applied " + evidence.appliedDate + " via " + evidence.source + ".",
+      url: job && text(job.link || job.url),
+    });
+    var URLApi = root.URL;
+    if (!ics || typeof Blob !== "function" || !URLApi || typeof URLApi.createObjectURL !== "function" ||
+        typeof document === "undefined" || !document.createElement || !document.body) {
+      return false;
+    }
+    var href = URLApi.createObjectURL(new Blob([ics], { type: "text/calendar;charset=utf-8" }));
+    var a = document.createElement("a");
+    a.href = href;
+    a.download = "jobbored-" + slug(job && job.company) + "-follow-up.ics";
+    a.style.display = "none";
+    document.body.appendChild(a);
+    a.click();
+    setTimeout(function () {
+      if (a.parentNode) a.parentNode.removeChild(a);
+      if (typeof URLApi.revokeObjectURL === "function") URLApi.revokeObjectURL(href);
+    }, 0);
+    return true;
+  }
+
+  function offerCalendar(a11y, jobKey, job, evidence) {
+    if (!icsBuilder() || !isIsoDate(evidence.followUpDate)) return;
+    var message = "Follow up with " + ((job && text(job.company)) || roleName(job)) +
+      " on " + evidence.followUpDate + ".";
+    var action = {
+      label: "Add to calendar",
+      onClick: function () { return downloadFollowUpIcs(jobKey, job, evidence); },
+    };
+    if (a11y && typeof a11y.toast === "function") {
+      a11y.toast(message, "info", { action: action, persistent: true });
+      return;
+    }
+    var fallback = host().showToast;
+    if (typeof fallback === "function") fallback(message, "info", true, action);
+  }
+
+  function jobFor(jobKey) {
+    var api = root.JobBored;
+    try {
+      var jobs = api && typeof api.getPipelineJobs === "function" ? api.getPipelineJobs() : null;
+      return (jobs && jobs[Number(jobKey)]) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function roleName(job) {
+    if (!job) return "this role";
+    var title = text(job.title);
+    var company = text(job.company);
+    if (title && company) return title + " at " + company;
+    return title || company || "this role";
+  }
+
+  /** The row as the planner sees it, when the adapter host can resolve one. */
+  function plannerRow(jobKey) {
+    var adapter = root.JobBoredPipelineTransitionAdapter;
+    var h = adapter && adapter.host;
+    if (!h || typeof h.getRow !== "function") return null;
+    try {
+      return h.getRow(jobKey) || null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function noteFor(evidence) {
+    var parts = ["Applied via " + evidence.source];
+    if (evidence.receiptNote) parts.push("receipt: " + evidence.receiptNote);
+    if (evidence.sent && evidence.sent.length) parts.push("sent: " + evidence.sent.join(", "));
+    return parts.join(" · ");
+  }
+
+  /* Accepts the lane-D API shape confirmApplied({dataIndex, prefill:{source,
+     date, followUpDate, receiptNote}, fromStage}) and the original
+     confirmApplied(jobKey, ctx) shape used by flowing-writes and tests. */
+  function normalizeArgs(first, second) {
+    if (first && typeof first === "object" && !Array.isArray(first) &&
+        (Object.prototype.hasOwnProperty.call(first, "dataIndex") ||
+         Object.prototype.hasOwnProperty.call(first, "jobKey"))) {
+      var prefill = first.prefill && typeof first.prefill === "object" ? first.prefill : {};
+      var key = first.dataIndex != null ? first.dataIndex : first.jobKey;
+      return {
+        jobKey: key == null ? "" : String(key),
+        ctx: {
+          fromStage: first.fromStage,
+          appliedDate: prefill.date || prefill.appliedDate,
+          source: prefill.source,
+          receiptNote: prefill.receiptNote,
+          followUpDate: prefill.followUpDate,
+          materials: prefill.materials,
+        },
+      };
+    }
+    return { jobKey: first, ctx: second || {} };
+  }
+
+  /** Write Applied through the one planner; the legacy writer is the fallback
+   *  only when no planner row can be resolved (no adapter host in the page). */
+  async function persistApplied(jobKey, fromStage, evidence) {
+    var adapter = root.JobBoredPipelineTransitionAdapter;
+    if (adapter && typeof adapter.move === "function") {
+      var res = await adapter.move({
+        jobKey: jobKey,
+        fromStage: fromStage,
+        toStage: "applied",
+        confirmation: {
+          submitted: true,
+          date: evidence.appliedDate,
+          source: evidence.source,
+          followUpDate: evidence.followUpDate,
+        },
+        note: noteFor(evidence),
+        source: "submission",
+        announce: false,
+        announceUndo: true,
+        handOff: false,
+      });
+      if (res && res.ok) return { ok: true, result: res };
+      var code = res && res.code;
+      if (code !== "missing_row" && code !== "missing_patch_api" && code !== "no_writer") {
+        // The adapter already dispatched jb:write:failed for this move.
+        return { ok: false, code: code || "persist-failed", reported: true };
+      }
+    }
+
+    var writer = host().sheetsWrite;
+    if (typeof writer.updateJobStatus !== "function") {
+      return { ok: false, code: "writer-unavailable" };
+    }
+    var succeeded = await writer.updateJobStatus(jobKey, "Applied", fromStage);
+    return succeeded ? { ok: true, result: null } : { ok: false, code: "persist-failed" };
+  }
+
   /**
-   * Ask for explicit submission confirmation, offer Undo, then persist Applied.
-   * @param {string|number} jobKey pipeline data index / stable key
+   * Ask for explicit submission confirmation, write Applied with what the
+   * person typed (date, follow-up, source + receipt to Notes), then offer Undo.
+   *
+   * @param {string|number|{dataIndex:(string|number), fromStage?:string,
+   *   prefill?:{source?:string, date?:string, followUpDate?:string,
+   *   receiptNote?:string}}} first  pipeline data index, or the prefill shape
    * @param {{fromStage?:string, appliedDate?:string, source?:string,
-   *   receiptNote?:string, checklistNote?:string, followUpDate?:string}} ctx
-   * @returns {Promise<{confirmed:boolean, evidence:object|null}>}
+   *   receiptNote?:string, checklistNote?:string, followUpDate?:string}} [second]
+   * @returns {Promise<{confirmed:boolean, cancelled?:boolean,
+   *   evidence:object|null, result?:object|null, code?:string}>}
    */
-  async function confirmApplied(jobKey, ctx) {
+  async function confirmApplied(first, second) {
+    var args = normalizeArgs(first, second);
+    var jobKey = args.jobKey;
+    var ctx = args.ctx || {};
     var a11y = root.JobBoredA11y;
     var confirm = a11y && a11y.dialog && a11y.dialog.confirm;
     if (typeof confirm !== "function") {
       dispatchWriteFailure(jobKey, "confirmation-unavailable", "Submission confirmation is unavailable");
-      return { confirmed: false, evidence: null };
+      return { confirmed: false, evidence: null, code: "confirmation-unavailable" };
     }
 
-    var defaults = defaultsFor(ctx || {});
+    var job = jobFor(jobKey);
+    var row = plannerRow(jobKey);
+    var seeded = {
+      fromStage: ctx.fromStage,
+      appliedDate: ctx.appliedDate || (row && row.appliedDate),
+      source: ctx.source,
+      receiptNote: ctx.receiptNote || ctx.checklistNote,
+      followUpDate: ctx.followUpDate || (row && row.followUpDate),
+    };
+    var defaults = defaultsFor(seeded);
+    var materials = materialsFor(jobKey, ctx.materials);
+    var company = job && text(job.company);
     var decision;
     try {
       decision = await confirm({
-        title: "Mark application submitted?",
-        body: "Confirm the submission details before Applied is written to your Sheet.",
-        confirmLabel: "Mark submitted",
+        title: company ? "Did you apply to " + company + "?" : "Mark this role as applied?",
+        body: "Confirm the details for " + roleName(job) +
+          ". They are written to your Sheet as you enter them.",
+        // TR-06: the label matches the stage it sets.
+        confirmLabel: "Mark applied",
         cancelLabel: "Cancel",
         fields: confirmationFields(defaults),
+        checks: sentChecks(materials),
+        note: "These are written to your Sheet as shown: Applied Date, Follow-up Date, and a line in Notes.",
       });
     } catch (err) {
       dispatchWriteFailure(
@@ -174,51 +400,56 @@
         "confirmation-failed",
         err && err.message ? err.message : String(err),
       );
-      return { confirmed: false, evidence: null };
+      return { confirmed: false, evidence: null, code: "confirmation-failed" };
     }
 
     if (!decision || decision.confirmed !== true) {
       dispatchWriteFailure(jobKey, "cancelled");
-      return { confirmed: false, evidence: null };
+      return { confirmed: false, cancelled: true, evidence: null };
     }
 
-    var evidence = evidenceFrom(decision.values, defaults);
-    var undone = false;
-    var dismissToast = showUndoToast(a11y, function () {
-      if (undone) return;
-      undone = true;
-      dispatchWriteFailure(jobKey, "undone");
-    });
-
-    await waitForGracePeriod();
-    if (typeof dismissToast === "function") dismissToast();
-    if (undone) return { confirmed: false, evidence: evidence };
-
-    var writer = host().sheetsWrite;
-    if (typeof writer.updateJobStatus !== "function") {
-      dispatchWriteFailure(jobKey, "writer-unavailable", "Applied writer is unavailable");
-      return { confirmed: false, evidence: evidence };
-    }
-
+    var evidence = evidenceFrom(decision.values, defaults, materials);
+    var outcome;
     try {
-      var succeeded = await writer.updateJobStatus(
-        jobKey,
-        "Applied",
-        ctx && ctx.fromStage,
-      );
-      if (!succeeded) {
-        dispatchWriteFailure(jobKey, "persist-failed", "Applied write failed");
-        return { confirmed: false, evidence: evidence };
-      }
-      return { confirmed: true, evidence: evidence };
+      outcome = await persistApplied(jobKey, ctx.fromStage, evidence);
     } catch (err) {
-      dispatchWriteFailure(
-        jobKey,
-        "persist-failed",
-        err && err.message ? err.message : String(err),
-      );
-      return { confirmed: false, evidence: evidence };
+      outcome = { ok: false, code: "persist-failed", error: err && err.message ? err.message : String(err) };
     }
+
+    if (!outcome.ok) {
+      if (!outcome.reported) {
+        dispatchWriteFailure(jobKey, outcome.code || "persist-failed", outcome.error || "Applied write failed");
+      }
+      showToast(a11y, "Couldn't save Applied for " + roleName(job) + ". Nothing was written.", "error", {
+        label: "Retry",
+        onClick: function () {
+          confirmApplied({ dataIndex: jobKey, fromStage: ctx.fromStage, prefill: {
+            source: evidence.source,
+            date: evidence.appliedDate,
+            followUpDate: evidence.followUpDate,
+            receiptNote: evidence.receiptNote,
+            materials: materials.map(function (m) {
+              return { id: m.id, label: m.label, checked: (evidence.sent || []).indexOf(m.label) !== -1 };
+            }),
+          } });
+        },
+      });
+      return { confirmed: false, evidence: evidence, code: outcome.code || "persist-failed" };
+    }
+
+    var written = outcome.result;
+    var message = "Applied: " + roleName(job) + " on " + evidence.appliedDate +
+      (evidence.followUpDate ? ". Follow up " + evidence.followUpDate + "." : ".");
+    showToast(
+      a11y,
+      message,
+      "success",
+      written && typeof written.undo === "function"
+        ? { label: "Undo", onClick: function () { return written.undo(); } }
+        : null,
+    );
+    offerCalendar(a11y, jobKey, job, evidence);
+    return { confirmed: true, evidence: evidence, result: written };
   }
 
   root.JobBoredSubmission = root.JobBoredSubmission || {};

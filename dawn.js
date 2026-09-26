@@ -8,9 +8,10 @@
    Does NOT mutate any DOM outside region:dawn.
    Does NOT introduce new fetches.
    Re-renders idempotently. Uses requestIdleCallback (rAF fallback).
-   Forwards activity-feed clicks to legacy .kanban-card[data-stable-key]
-   so the existing openJobDetail() / expandedJobKeys contract flows
-   unchanged.
+   Activity-feed clicks open the Case through JobBoredFlowing.openRole
+   (data-stable-key is the row index), so the openJobDetail() /
+   expandedJobKeys contract is unchanged. It reads no legacy .kanban-card
+   DOM (DS-08).
    ============================================================ */
 
 (function (root) {
@@ -152,11 +153,49 @@
    *  A unified nav pill (‹ · "N of M" · ›) groups the chevrons + counter.
    *  Below the active card, an "Up next" queue lists the remaining ranked
    *  leads so the left column has body and users can jump directly. */
+  /* jb:data:* (lane F), the same contract Today reads. "unknown" until the
+     first signal, when the Brief behaves as it always did; after it, the
+     empty-leads card only says "no active roles" once the data loaded. */
+  var dataState = "unknown";
+
+  function pipelineSize() {
+    var api = root.JobBored;
+    if (!api || typeof api.getPipelineJobs !== "function") return null;
+    try {
+      var jobs = api.getPipelineJobs();
+      return Array.isArray(jobs) ? jobs.length : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  function leadsStatusHtml(line, hint) {
+    return [
+      '<section class="brief-leads-section brief-leads-section--empty" aria-live="polite">',
+      '  <p class="brief-leads-empty">', escapeHtml(line), '</p>',
+      hint ? '  <p class="brief-leads-empty__hint">' + escapeHtml(hint) + '</p>' : '',
+      '</section>',
+    ].join("");
+  }
+
   function leadsStepperHtml(leads) {
+    if (!leads.length && dataState === "loading") {
+      return leadsStatusHtml("Loading your pipeline…", null);
+    }
+    if (!leads.length && dataState === "failed" && !pipelineSize()) {
+      return leadsStatusHtml(
+        "Your pipeline didn't load.",
+        "An empty Brief here is not a sign that nothing is waiting. Retry from the banner above."
+      );
+    }
     if (!leads.length) {
       return [
         '<section class="brief-leads-section brief-leads-section--empty">',
-        '  <p class="brief-leads-empty">No active roles to lead with today. Run discovery, or add a role manually.</p>',
+        '  <p class="brief-leads-empty">No active roles to lead with today.</p>',
+        '  <div class="brief-leads-empty__acts">',
+        '    <button type="button" class="brief-btn brief-btn--primary" data-brief-empty="url">Add a job from a link</button>',
+        '    <button type="button" class="brief-btn" data-brief-empty="discovery">Run discovery</button>',
+        '  </div>',
         '</section>',
       ].join("");
     }
@@ -190,7 +229,7 @@
     return [
       '<section class="brief-leads-section" data-leads-stepper aria-roledescription="carousel" aria-label="Daily Brief leads" tabindex="0">',
       '  <div class="brief-leads-head">',
-      '    <h2 class="brief-leads-title">Lead with these <span class="brief-leads-title__after">— ranked by fit</span></h2>',
+      '    <h2 class="brief-leads-title">Lead with these <span class="brief-leads-title__after">— next step first, then fit</span></h2>',
       '    <div class="brief-leads-nav" role="group" aria-label="Step through leads">',
       '      <button type="button" class="brief-leads-nav__btn brief-leads-nav__btn--prev" data-leads-step="prev" aria-label="Previous lead">‹</button>',
       '      <span class="brief-leads-nav__counter" data-leads-counter aria-live="polite">', counterLabel, '</span>',
@@ -240,7 +279,7 @@
 
   function funnelRowBriefHtml(row) {
     var stageAttr = row.kind === "phone_screen" ? "phone-screen" : (row.kind === "interview" ? "interviewing" : row.kind);
-    var ariaLabel = (row.label || "") + " " + (row.count || 0) + " in the last 30 days";
+    var ariaLabel = (row.label || "") + " " + (row.count || 0) + " in stage now";
     return [
       '<button type="button" class="brief-funnel__row" data-stage="', escapeHtml(stageAttr), '" data-kind="', escapeHtml(row.kind), '" aria-label="', escapeHtml(ariaLabel), '">',
       '  <div class="brief-funnel__label">', escapeHtml(row.label || ""), '</div>',
@@ -279,13 +318,13 @@
       '  </div>',
       '  <aside class="brief-main__right">',
       '    <div class="brief-card brief-stats-card">',
-      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS · LAST 30 DAYS</div>',
+      '      <div class="brief-stats-card__eyebrow">BY THE NUMBERS</div>',
       '      <div class="brief-stats-grid">',
       stats.map(statHtml).join(""),
       '      </div>',
       '    </div>',
       '    <div class="brief-card brief-funnel-card">',
-      '      <div class="brief-funnel-card__title">FUNNEL · LAST 30 DAYS</div>',
+      '      <div class="brief-funnel-card__title">PIPELINE · IN STAGE NOW</div>',
       funnel30.map(funnelRowBriefHtml).join(""),
       '    </div>',
       '  </aside>',
@@ -380,6 +419,24 @@
     region.__dawnBound = true;
 
     region.addEventListener("click", function (e) {
+      // Empty-state actions (C5 · MP-06): the Brief's empty card carries
+      // the way in instead of telling the user to find one.
+      var emptyBtn = e.target.closest('[data-brief-empty]');
+      if (emptyBtn) {
+        e.preventDefault();
+        var which = emptyBtn.getAttribute('data-brief-empty');
+        var add = root.JobBoredFlowing && root.JobBoredFlowing.addJob;
+        if (which === "discovery") {
+          if (add && typeof add.runDiscovery === "function") add.runDiscovery();
+          else {
+            var disc = document.getElementById("discoveryBtn");
+            if (disc) disc.click();
+          }
+        } else if (add && typeof add.openUrl === "function") {
+          add.openUrl();
+        }
+        return;
+      }
       // Stepper chevrons.
       var stepBtn = e.target.closest('[data-leads-step]');
       if (stepBtn) {
@@ -471,17 +528,21 @@
   function observeLegacy() {
     var briefStats = document.getElementById("briefStats");
     var briefHeadline = document.getElementById("briefHeadline");
-    // #kanbanPipeline does not exist; the real legacy board is #jobCards. Never
-    // fall back to document.body — observing the whole body subtree turns each
-    // render's own DOM writes into a self-retriggering render loop.
-    var pipelineRoot = document.getElementById("kanbanPipeline") || document.getElementById("jobCards");
+
+    // TR-20: pipeline changes arrive as jb:pipeline:rendered (pipeline-render.js
+    // dispatches it at the end of every render), not as mutations of the
+    // hidden legacy #jobCards board. Never observe document.body — this
+    // region's own writes would retrigger a render loop.
+    if (!root.JobBoredDawn._pipelineListener) {
+      root.JobBoredDawn._pipelineListener = function () { scheduleRender(); };
+      document.addEventListener("jb:pipeline:rendered", root.JobBoredDawn._pipelineListener);
+    }
 
     var mo = new MutationObserver(function () {
       scheduleRender();
     });
     if (briefStats) mo.observe(briefStats, { childList: true, subtree: true, characterData: true });
     if (briefHeadline) mo.observe(briefHeadline, { childList: true, characterData: true, subtree: true });
-    if (pipelineRoot) mo.observe(pipelineRoot, { childList: true, subtree: true });
 
     // Also observe body class changes (jb-v2 flag toggled at runtime).
     var bodyMo = new MutationObserver(function () {
@@ -511,6 +572,17 @@
     observeLegacy();
     scheduleRender();
   }
+
+  function setDataState(next) {
+    dataState = next;
+    scheduleRender();
+  }
+
+  /* Bound once at load: the signal may arrive before body.jb-v2 is set, and
+     scheduleRender is a no-op until it is. */
+  document.addEventListener("jb:data:loading", function () { setDataState("loading"); });
+  document.addEventListener("jb:data:loaded", function () { setDataState("loaded"); });
+  document.addEventListener("jb:data:load-failed", function () { setDataState("failed"); });
 
   function observeBodyOnly() {
     if (root.JobBoredDawn && root.JobBoredDawn._bodyOnly) return;

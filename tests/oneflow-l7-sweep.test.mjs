@@ -138,7 +138,9 @@ describe("§7 · Settings → Upgrades carries what the wizard used to list", ()
     // exists. The wizard's own pointers had rotted (there is no Settings →
     // General tab, and no Browser Use Cloud switch in Settings at all), so
     // the cards carry the real switches, not the fossil route (§7 fossils).
-    assert.match(html, /Turn on: Settings → ATS Scoring\./);
+    // UX01 C22 (SS-16): the pointer is now a button that jumps to the tab.
+    assert.match(html, /data-settings-goto-tab="ats_scoring"/);
+    assert.match(html, /Turn on ATS scoring/);
     assert.match(html, /logoDevToken/);
     assert.match(html, /BROWSER_USE_API_KEY/);
     assert.equal(/Settings → General/.test(html), false);
@@ -154,7 +156,8 @@ describe("§7 · Settings → Upgrades carries what the wizard used to list", ()
     assert.match(html, /Grounded web search/i);
     assert.match(html, /Other devices/i);
     // Both Gemini-powered ones point at the key that unlocks them.
-    assert.match(html, /Settings → AI Providers → Gemini API key/);
+    // UX01 C22 (SS-16): a button that jumps straight to the Gemini key field.
+    assert.match(html, /data-settings-goto-field="settingsResumeGeminiApiKey"/);
     assert.match(read("oneflow-beat-payoff.js"), /Settings → Upgrades/);
   });
 
@@ -458,27 +461,8 @@ describe("§7 · welcome.js keeps its empty state, loses its onboarding", () => 
     assert.match(source, /discoveryBtn/);
   });
 
-  it("welcome.css keeps only what the card renders", () => {
-    const css = read("welcome.css");
-    for (const dead of [
-      "jbw-progress",
-      "jbw-step",
-      "jbw-dialog",
-      "jbw-opt",
-      "jbw-slider",
-      "jbw-say",
-      "jbw-sheet-actions",
-      'data-mode="onboarding"',
-    ]) {
-      assert.equal(
-        css.includes(dead),
-        false,
-        `welcome.css must not style the deleted flow (${dead})`,
-      );
-    }
-    for (const kept of [".jbw-empty", ".jbw-sample", ".jbw-btn", ".jbw-mascot"]) {
-      assert.ok(css.includes(kept), `${kept} still renders`);
-    }
+  it("welcome.css is gone: the v2 hide list never reveals the empty card (UX01 C4, DS-09)", () => {
+    assert.equal(existsSync(join(root, "welcome.css")), false);
   });
 
   it("WELCOME.md documents only what ships", () => {
@@ -589,13 +573,18 @@ describe("§7 · the drawer's Connection section is one button", () => {
     );
   });
 
-  it("the one button opens the discovery wizard the beats also use", () => {
+  it("the one button opens the six-beat flow at Beat 5", () => {
+    // GREENFIELD C1: it used to call requestDiscoverySetup, which opens the
+    // LEGACY three-step wizard — a second onboarding surface beside the
+    // beats (GREENFIELD-SPEC §1 F3). The legacy call survives only as the
+    // fallback for a page without onboarding-flow.js.
     const source = read("discovery-setup-modals.js");
     const fnIdx = source.indexOf("function initDiscoverySetupGuide()");
     assert.notEqual(fnIdx, -1);
     const body = source.slice(fnIdx, fnIdx + 2000);
     assert.match(body, /settingsDiscoveryOpenSetupBtn/);
-    assert.match(body, /requestDiscoverySetup/);
+    assert.match(body, /oneFlow\.open\("discovery", \{ returnTo: "close" \}\)/);
+    assert.match(body, /requestDiscoverySetup/, "the fallback stays reachable");
     assert.match(body, /entryPoint: "settings"/);
   });
 });

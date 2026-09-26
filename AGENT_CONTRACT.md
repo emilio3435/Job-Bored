@@ -69,6 +69,7 @@ Use this when wiring **any** HTTPS handler (Apps Script, Cloudflare Worker, n8n 
 - [ ] **POST** with **`Content-Type: application/json`** body matching [Discovery webhook JSON](#discovery-webhook-json) (validate offline with [examples/](examples/) + the [JSON Schema](schemas/discovery-webhook-request.v1.schema.json)).
 - [ ] **CORS** for browser-originated requests: respond with a permissive **`Access-Control-Allow-Origin`** for your dashboard (reflect the request `Origin` header, or set your deployed site URL). Without this, the dashboard shows a network/CORS error.
 - [ ] **OPTIONS** (preflight): if your stack does not auto-handle it, respond to **`OPTIONS`** on the same path with **`204`** (or **200**) and the same CORS headers as **`POST`** (`Access-Control-Allow-Methods`, `Access-Control-Allow-Headers: content-type`, etc.). Many platforms handle this for you.
+- [ ] **Relay auth (Cloudflare relay from `npm run cloudflare-relay:deploy`):** every request, including the `GET /runs/<id>` status poll, carries the per-dashboard relay token as **`Authorization: Bearer <RELAY_TOKEN>`**; the relay answers **`401`** without it and forwards only the dashboard's worker routes. The token lives in `.jobbored-relay/credential.json`; the relay `curl` and `npm run test:discovery-webhook` commands in [examples/README.md](examples/README.md) show the header and send it only to the relay URL, never to another receiver (the POST body and `schemaVersion` 1 are unchanged).
 - [ ] **2xx** on success: return **HTTP 200–299** when the job is **accepted** (queued or started). Non-2xx surfaces an error toast in the dashboard.
 - [ ] **Async status polling:** if your response includes `statusPath`, browser clients must preserve that returned path exactly, including query parameters. Hosted Browser Use workers may return `/runs/<runId>?statusToken=...`; stripping or rebuilding the path will break authorized `/runs/:runId` polling.
 
@@ -100,7 +101,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 | `companyBlocklist`  | string[] | Optional. Non-empty array of trimmed company names/keys to suppress from results. Capped at 50 unique entries. Subtracted from both ATS and normal company pools after skip/allowlist filtering. |
 | `googleAccessToken` | string   | Optional. Short-lived dashboard Google OAuth token for this run only; receivers must not persist it.                                                    |
 | `mergedUserProfile` | object   | Optional. Master Fit Profile merged with per-run overrides (non-secret; no raw resume text). The worker parser preserves it, strips resume/secret keys, and uses it for this run after ajv validation. Invalid payloads are ignored and the worker falls back to its disk profile. Never persisted. |
-| `allowUnrestrictedFallback` | boolean | Optional. Explicit confirmation that an unmatched `companyAllowlist` may fall back to unrestricted stored-company search. Omitted/false fails closed. |
+| `allowUnrestrictedFallback` | boolean | Optional. Explicit confirmation that an unmatched `companyAllowlist` may fall back to unrestricted stored-company search. When the stored **active** company list and history are empty (typical post-wizard local install), that fallback seeds this run from the requested allowlist names instead of searching with a blank company. Omitted/false fails closed. |
 
 **`discoveryProfile` fields (all optional):**
 
@@ -119,7 +120,7 @@ Changes to request fields are tracked in **[docs/CONTRACT-CHANGELOG.md](docs/CON
 
 Effective intent is one object (`intentContractVersion: 1`) derived from `discoveryProfile` fields, `searchPlan.query`, `profileSnapshot`, and `mergedUserProfile.identity`. Master-profile or search-plan roles/keywords are not `blank_intent`.
 
-`companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering. Unknown keys are reported; if none match the catalog, the run stays `blocked_unresolved` (empty pools, no unrestricted grounded-web fallback) unless `allowUnrestrictedFallback` is explicitly true. The worker never writes this field back to `worker-config.json`.
+`companyAllowlist` is ephemeral. It restricts only the current run to matching stored company/history entries after skipped-company filtering. Unknown keys are reported; if none match the catalog, the run stays `blocked_unresolved` (empty pools, no unrestricted grounded-web fallback) unless `allowUnrestrictedFallback` is explicitly true. When that flag is true and the stored **active** list plus history are empty (local wizard installs ship `companies: []` and only example ATS seeds), the worker seeds this run from the requested allowlist names so grounded/ATS scout has real company targets. The worker never writes this field back to `worker-config.json`.
 
 `companyBlocklist` is applied after skip + allowlist filtering and subtracts matching companies from both the normal and ATS pools.
 

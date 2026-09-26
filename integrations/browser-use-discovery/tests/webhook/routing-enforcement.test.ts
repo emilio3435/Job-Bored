@@ -1354,6 +1354,91 @@ test("VAL-ROUTE-011: ats_only with empty companies and no modifiers SHOULD emit 
   );
 });
 
+test("VAL-ROUTE-011b: ats_only with empty companies but populated atsCompanies does not emit missing-company warning", async () => {
+  const dependencies = {
+    runtimeConfig: {
+      stateDatabasePath: "",
+      workerConfigPath: "",
+      browserUseCommand: "",
+      geminiApiKey: "test-key",
+      geminiModel: "gemini-2.5-flash",
+      groundedSearchMaxResultsPerCompany: 6,
+      groundedSearchMaxPagesPerCompany: 4,
+      googleServiceAccountJson: "",
+      googleServiceAccountFile: "",
+      googleAccessToken: "",
+      googleOAuthTokenJson: "",
+      googleOAuthTokenFile: "",
+      webhookSecret: "",
+      allowedOrigins: [],
+      port: 0,
+      host: "127.0.0.1",
+      runMode: "hosted",
+      asyncAckByDefault: true,
+      useStructuredExtraction: false,
+    },
+    sourceAdapterRegistry: {
+      adapters: [
+        {
+          sourceId: "greenhouse",
+          sourceLabel: "Greenhouse",
+          detect: async () => null,
+          listJobs: async () => [],
+          normalize: async () => null,
+        },
+      ],
+      detectBoards: async () => [],
+      collectListings: async () => [],
+    },
+    pipelineWriter: {
+      write: async () => ({
+        sheetId: "sheet_123",
+        appended: 0,
+        updated: 0,
+        skippedDuplicates: 0,
+        skippedBlacklist: 0,
+        warnings: [],
+      }),
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123",
+      mode: "hosted",
+      timezone: "UTC",
+      companies: [],
+      atsCompanies: [
+        { name: "Scale AI", companyKey: "scale-ai" },
+        { name: "Figma", companyKey: "figma" },
+      ],
+      includeKeywords: [],
+      excludeKeywords: [],
+      targetRoles: [],
+      locations: [],
+      remotePolicy: "",
+      seniority: "",
+      maxLeadsPerRun: 25,
+      enabledSources: ["greenhouse", "lever", "ashby"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored, request) => ({
+      ...stored,
+      sheetId: request.sheetId,
+      variationKey: request.variationKey,
+      requestedAt: request.requestedAt,
+      sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse", "lever", "ashby"],
+    }),
+    now: () => new Date("2026-04-10T03:00:00.000Z"),
+    randomId: () => "run_ats_seeds_only",
+  };
+
+  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+  assert.equal(result.lifecycle.companyCount, 2);
+  assert.ok(
+    !result.warnings.some((w) => w.includes("No companies are configured")),
+    "Populated atsCompanies are a valid seed — do not warn as if the run had no companies",
+  );
+});
+
 // === VAL-ROUTE-015: parallel company processing is bounded by configured concurrency ===
 
 test("VAL-ROUTE-015: parallel company processing respects concurrency cap (cap=3 with 5 companies)", async () => {

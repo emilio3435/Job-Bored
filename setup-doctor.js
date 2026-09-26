@@ -927,6 +927,43 @@
       return;
     }
 
+    // UX01 C22 (SS-20): say what is wrong and what each fix will change
+    // (e.g. "Will write Pipeline!A1" — the Pipeline header contract in
+    // schemas/pipeline-row.v1.json) BEFORE the button that changes it.
+    const list = doc.createElement("ul");
+    list.className = "doctor-panel__list";
+    for (const issue of report.issues) {
+      const item = doc.createElement("li");
+      item.className = "doctor-panel__item";
+      const t = doc.createElement("strong");
+      t.textContent = issue.title || "Setup issue";
+      item.appendChild(t);
+      if (issue.detail) {
+        const d = doc.createElement("span");
+        d.className = "doctor-panel__detail";
+        d.textContent = " " + issue.detail;
+        item.appendChild(d);
+      }
+      const preview = previewActionForIssue(issue);
+      const writes = (preview.writes || []).filter(
+        (x) => x && /^[A-Za-z]+!/.test(String(x.path || "")),
+      );
+      if (writes.length) {
+        const wEl = doc.createElement("span");
+        wEl.className = "doctor-panel__writes";
+        wEl.textContent =
+          " Will write " + writes.map((x) => x.path).join(", ") + " in your Sheet.";
+        item.appendChild(wEl);
+      } else if (!issue.autoFixable) {
+        const uEl = doc.createElement("span");
+        uEl.className = "doctor-panel__writes";
+        uEl.textContent = " Needs a step from you.";
+        item.appendChild(uEl);
+      }
+      list.appendChild(item);
+    }
+    wrap.appendChild(list);
+
     const status = doc.createElement("div");
     status.className = "doctor-panel__status";
     wrap.appendChild(status);
@@ -934,7 +971,8 @@
     const fixBtn = doc.createElement("button");
     fixBtn.className = "doctor-panel__fixall btn-modal-primary";
     fixBtn.type = "button";
-    fixBtn.textContent = "Something’s off — fix it";
+    fixBtn.textContent =
+      report.issues.length === 1 ? "Fix it" : `Fix ${report.issues.length} things`;
     wrap.appendChild(fixBtn);
 
     fixBtn.addEventListener("click", async () => {
@@ -958,8 +996,10 @@
         return;
       }
       if (out.stoppedForUser) {
-        // One-screen action prompt — no instructions paragraph.
-        status.textContent = out.stoppedForUser.title;
+        // SS-20: keep the instructions next to Continue, not just a title.
+        status.textContent = out.stoppedForUser.detail
+          ? `${out.stoppedForUser.title} — ${out.stoppedForUser.detail}`
+          : out.stoppedForUser.title;
         fixBtn.textContent = "Continue";
         fixBtn.disabled = false;
         fixBtn.onclick = async () => {

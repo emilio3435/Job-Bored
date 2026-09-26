@@ -14,6 +14,12 @@
   var UNKNOWN_ALLOWLIST_WARNING =
     "Allowlist match status is unknown; unknown entries may broaden/no-op this run.";
 
+  var SOURCE_LANE_NAMES = {
+    serpapi_google_jobs: "Google Jobs",
+    grounded_web: "the web",
+    ats_provider: "company job boards",
+  };
+
   function fail(code, message) {
     var error = new Error(message);
     error.code = code;
@@ -152,28 +158,56 @@
       providerUse: providerUse,
       warnings: warnings,
     };
+    // UX01 C9 (FD-10): the preview reads as plain lines — roles (with the
+    // also-trying variant), where, and sources by name. Hashes, keys and
+    // credential kinds move to detailLines, behind a disclosure.
+    var alsoTrying =
+      (plan.selected && Array.isArray(plan.selected.alsoTrying)
+        ? plan.selected.alsoTrying
+        : []
+      ).filter(function (v) {
+        return roles.indexOf(v) === -1;
+      });
+    var laneNames = lanes.map(function (lane) {
+      return SOURCE_LANE_NAMES[lane] || lane;
+    });
+    preview.alsoTrying = alsoTrying;
     preview.summaryLines = [
-      "Roles: " + (roles.join(", ") || "None"),
-      "Locations: " + (locations.join(", ") || "Any"),
+      "Roles: " +
+        (roles.join(", ") || "None") +
+        (alsoTrying.length ? " · also trying: " + alsoTrying.join(", ") : ""),
+      "Where: " + (locations.join(", ") || "Anywhere"),
+      "Sources: " + (laneNames.join(", ") || "None"),
+    ];
+    if (block.length || keywordExclusions.length || profileAvoids.length) {
+      preview.summaryLines.push(
+        "Skipping: " +
+          keywordExclusions
+            .concat(
+              profileAvoids,
+              block.map(function (entry) {
+                return entry.value;
+              }),
+            )
+            .join(", "),
+      );
+    }
+    preview.summaryLines = preview.summaryLines.concat(warnings);
+    preview.detailLines = [
       "Allow companies: " +
         (allow.map(function (entry) {
           return entry.value + " (" + entry.status + ")";
         }).join(", ") || "Default stored set"),
-      "Block companies: " +
-        (block.map(function (entry) {
-          return entry.value;
-        }).join(", ") || "None"),
-      "Exclusions: " +
-        (keywordExclusions.concat(profileAvoids).join(", ") || "None"),
       "Source lanes: " + (lanes.join(", ") || "None"),
       "Sheets credential: " + providerUse.googleSheetsCredential,
       "Profile hash: " + (preview.profileHash || "Unknown"),
       "Variation key: " + (preview.variationKey || "Unknown"),
-    ].concat(warnings);
+    ];
     return preview;
   }
 
   return {
+    SOURCE_LANE_NAMES: SOURCE_LANE_NAMES,
     UNKNOWN_ALLOWLIST_WARNING: UNKNOWN_ALLOWLIST_WARNING,
     buildDiscoveryRunPreview: buildDiscoveryRunPreview,
   };

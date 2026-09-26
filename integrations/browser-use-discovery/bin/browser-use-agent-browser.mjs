@@ -3,10 +3,16 @@
 import { spawn } from "node:child_process";
 import { randomUUID } from "node:crypto";
 import { access, mkdir } from "node:fs/promises";
-import { constants as fsConstants } from "node:fs";
+import { constants as fsConstants, realpathSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { fileURLToPath } from "node:url";
+
+import {
+  validateScrapeTarget,
+  validateScrapeTargetWithDns,
+} from "../../../server/security-boundaries.mjs";
 
 const DEFAULT_AGENT_BROWSER_PATH = path.join(
   os.homedir(),
@@ -21,14 +27,62 @@ const DEFAULT_SOCKET_DIR = path.join(os.tmpdir(), "job-bored-agent-browser");
 const DEFAULT_TIMEOUT_MS = 25_000;
 const MAX_OUTPUT_BYTES = 10 * 1024 * 1024;
 
-main().catch((error) => {
-  const message = error instanceof Error ? error.message : String(error);
-  process.stderr.write(`${message}\n`);
-  process.exitCode = 1;
-});
+if (isEntrypoint()) {
+  main().catch((error) => {
+    const message = error instanceof Error ? error.message : String(error);
+    process.stderr.write(`${message}\n`);
+    process.exitCode = 1;
+  });
+}
+
+// Compare canonical paths: a symlinked launcher (npm bin shim, ~/.local/bin
+// link) gives argv[1] the link path while import.meta.url is the real file.
+function isEntrypoint() {
+  const invoked = process.argv[1];
+  if (!invoked) return false;
+  const self = fileURLToPath(import.meta.url);
+  try {
+    return realpathSync(path.resolve(invoked)) === realpathSync(self);
+  } catch {
+    return path.resolve(invoked) === self;
+  }
+}
+
+/**
+ * SSRF gate for the page the browser will open: http(s) only, no private
+ * literal, and every DNS answer publicly routable. Runs before any spawn.
+ * A real browser still follows redirects and re-resolves DNS itself, so the
+ * landing URL is checked again after `open` (see main()).
+ *
+ * @param {string} url
+ * @param {{ lookupImpl?: (hostname: string, options: { all: true }) => Promise<Array<{ address: string, family: number }>> }} [options]
+ */
+export async function assertSafeBrowserTarget(url, options = {}) {
+  const result = await validateScrapeTargetWithDns(url, options);
+  if (!result.ok) {
+    const error = new Error(`browser-use-agent-browser: refused ${url}: ${result.error}`);
+    error.code = "SSRF_BLOCKED";
+    throw error;
+  }
+  return result.url;
+}
+
+/** @param {string} url */
+function assertSafeLandingUrl(url) {
+  if (!url) return;
+  const result = validateScrapeTarget(url);
+  if (!result.ok) {
+    const error = new Error(
+      `browser-use-agent-browser: browser landed on ${url}: ${result.error}`,
+    );
+    error.code = "SSRF_BLOCKED";
+    throw error;
+  }
+}
 
 async function main() {
   const request = await readRequest();
+  await assertSafeBrowserTarget(request.url);
   const executable = await resolveAgentBrowserExecutable();
   const socketDir = resolveSocketDir();
   const timeoutMs = normalizeTimeoutMs(request.timeoutMs);
@@ -58,6 +112,10 @@ async function main() {
       timeoutMs,
       operation: "open",
     });
+    // A redirect inside the browser can land on a private host; withhold it.
+    const landingUrl = readNestedString(openResult, ["data", "url"]);
+    assertSafeLandingUrl(landingUrl);
+    if (landingUrl) await assertSafeBrowserTarget(landingUrl);
 
     try {
       await runAgentBrowserCommand(executable, [

@@ -266,9 +266,76 @@
   // Public API
   // ---------------------------------------------------------------------------
 
+  // ---------------------------------------------------------------------------
+  // UX01 C8 (FD-19): consent before a dashboard click changes this computer.
+  //
+  // Several discovery paths POST /__proxy/fix-setup, /__proxy/full-boot or
+  // /__proxy/discovery-env-key, which rewrite the local discovery .env and
+  // restart the worker. During the UX01 audit a single wizard click did
+  // exactly that, announced only by an info toast. Every such call now asks
+  // first, naming what changes, and the answer is logged (hostChangeLog).
+  // ---------------------------------------------------------------------------
+
+  const DISCOVERY_ENV_PATH = "integrations/browser-use-discovery/.env";
+  const hostChangeLog = [];
+
+  /**
+   * @param {{ action?: string, writesEnv?: boolean, envKeys?: string[],
+   *   restartsWorker?: boolean, redeploysRelay?: boolean }} opts
+   * @returns {string}
+   */
+  function describeHostChange(opts) {
+    const o = opts && typeof opts === "object" ? opts : {};
+    const changes = [];
+    if (o.writesEnv) {
+      const keys = Array.isArray(o.envKeys) ? o.envKeys.filter(Boolean) : [];
+      changes.push(
+        keys.length
+          ? `update ${DISCOVERY_ENV_PATH} (${keys.join(", ")})`
+          : `update ${DISCOVERY_ENV_PATH}`,
+      );
+    }
+    if (o.restartsWorker) changes.push("restart your local discovery worker");
+    if (o.redeploysRelay) changes.push("redeploy your discovery relay");
+    const what = changes.length
+      ? changes.join(", and ")
+      : "change your local discovery setup";
+    const lead = asString(o.action) ? `${asString(o.action)}: ` : "";
+    return `${lead}JobBored will ${what} on this computer. Continue?`;
+  }
+
+  /**
+   * Ask before a host-changing request. Resolves true only on an explicit
+   * yes. A page with no window.confirm (a test sandbox, a worker) is not a
+   * browser a person is clicking in, so it resolves true there.
+   */
+  function confirmHostChange(opts) {
+    const message = describeHostChange(opts);
+    let accepted = true;
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      try {
+        accepted = !!window.confirm(message);
+      } catch (_) {
+        accepted = false;
+      }
+    }
+    const entry = { at: new Date().toISOString(), message, accepted };
+    hostChangeLog.push(entry);
+    if (hostChangeLog.length > 50) hostChangeLog.shift();
+    if (typeof console !== "undefined" && console.info) {
+      console.info("[JobBored] host change", accepted ? "approved" : "declined", "—", message);
+    }
+    return accepted;
+  }
+
   Object.assign(root, {
     // Core
     asString,
+    // Consent (UX01 C8)
+    DISCOVERY_ENV_PATH,
+    describeHostChange,
+    confirmHostChange,
+    hostChangeLog,
     normalizeUrl,
     isLocalHost,
     // Classification

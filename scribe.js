@@ -65,8 +65,13 @@
     return !!(document.body && document.body.classList.contains("jb-v2"));
   }
 
+  /* UX01 C14: a Case re-render detaches the workspace from the dossier
+     until remount() puts it back, so the element is remembered once found. */
+  let regionEl = null;
   function getRegion() {
-    return document.querySelector(REGION_SELECTOR);
+    const found = document.querySelector(REGION_SELECTOR);
+    if (found) regionEl = found;
+    return found || regionEl;
   }
 
   // ---------------------------------------------------------
@@ -189,6 +194,8 @@
               ></div>
             </article>
 
+            <p class="scribe-coverage" data-scribe-coverage aria-live="polite" hidden></p>
+
             <article class="jb-sticker scribe-versions" aria-labelledby="scribeVersionsTitle">
               <div class="scribe-versions__head">
                 <h4 class="scribe-versions__title" id="scribeVersionsTitle">Saved versions</h4>
@@ -214,7 +221,7 @@
               <span class="jb-stamp scribe-scorecard__stamp" aria-hidden="true">DRAFT</span>
               <div class="scribe-scorecard__head">
                 <jb-fit-ring size="lg" id="scribeFitRing"
-                             label="Overall ATS match not available" data-unscored="true"></jb-fit-ring>
+                             label="—" data-unscored="true" aria-hidden="true"></jb-fit-ring>
                 <div class="scribe-scorecard__heading">
                   <span class="scribe-scorecard__kicker">ATS match</span>
                   <h3 class="scribe-scorecard__title">Per-axis scorecard</h3>
@@ -268,7 +275,7 @@
             <div class="scribe-strip__chips" role="group" aria-label="Quick refinements">
               <button type="button" class="scribe-chip" data-scribe-chip="more specific">more specific</button>
               <button type="button" class="scribe-chip" data-scribe-chip="cut to 250 words">cut to 250 words</button>
-              <button type="button" class="scribe-chip" data-scribe-chip="emphasize Python">emphasize Python</button>
+              <span class="scribe-strip__chips-missing" data-scribe-missing-chips></span>
               <jb-ai-chip variant="tip">AI applies your edits as a single undo step</jb-ai-chip>
             </div>
           </div>
@@ -277,7 +284,7 @@
               id="scribeRefineInput"
               class="scribe-strip__textarea"
               rows="2"
-              placeholder="Make the opening more specific, emphasize Python, cut this to 250 words…"
+              placeholder="Make the opening more specific, cut this to 250 words…"
               aria-label="Refine instructions"
             ></textarea>
             <button type="button" class="scribe-btn scribe-btn--primary" id="scribeRefineBtn">Refine</button>
@@ -701,6 +708,7 @@
       setStatus("typing…", "busy");
       const st = scribeState();
       if (st) st.noteEditorChange(plainTextFromEditor(editor));
+      renderCoverage();
       if (state.debounceTimer) window.clearTimeout(state.debounceTimer);
       state.debounceTimer = window.setTimeout(() => {
         state.debounceTimer = null;
@@ -787,6 +795,197 @@
   // ---------------------------------------------------------
   // Boot
   // ---------------------------------------------------------
+  // ---------------------------------------------------------
+  // UX01 C14: Scribe lives in the dossier, bound to the role's document
+  // ---------------------------------------------------------
+  const SCRIBE_MOUNT = '[data-region="role"] [data-mount="scribe"]';
+  const doc = { open: null, terms: [], home: null, focusedId: "" };
+
+  /* The posting's named terms: the keyword analysis when the page has one,
+     else the requirements and stack the dossier already parsed. */
+  function postingTerms(jobKey) {
+    const app = window.JobBoredApp;
+    try {
+      const raw = app && app.core && typeof app.core.getJobByStableKey === "function"
+        ? app.core.getJobByStableKey(jobKey)
+        : null;
+      const analysis = raw && app.keywordMatch && typeof app.keywordMatch.analyzeJob === "function"
+        ? app.keywordMatch.analyzeJob(raw)
+        : null;
+      const unique = analysis && Array.isArray(analysis.uniqueTerms) ? analysis.uniqueTerms : [];
+      const labels = unique
+        .map((t) => String((t && (t.label || t.fullLabel)) || "").trim())
+        .filter((l) => l && l.split(/\s+/).length <= 4);
+      if (labels.length) return labels.slice(0, 16);
+    } catch (_) {
+      /* fall through to the dossier's own lists */
+    }
+    const dawn = window.JobBoredDawn && window.JobBoredDawn.data;
+    try {
+      const vm = dawn && typeof dawn.getRoleViewModel === "function" ? dawn.getRoleViewModel(jobKey) : null;
+      const job = (vm && vm.job) || {};
+      const enr = job.enrichment || {};
+      const pick = (arr) => (Array.isArray(arr) ? arr : []).map((x) => String((x && x.text) || x || "").trim());
+      return pick(enr.toolsAndStack).concat(pick(job.skills), pick(enr.mustHaves))
+        .filter((l) => l && l.split(/\s+/).length <= 4)
+        .slice(0, 16);
+    } catch (_) {
+      return [];
+    }
+  }
+
+  function escapeText(s) {
+    return String(s == null ? "" : s)
+      .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+  }
+
+  function renderCoverage() {
+    const region = getRegion();
+    if (!region) return;
+    const meter = region.querySelector("[data-scribe-coverage]");
+    const chipsHost = region.querySelector("[data-scribe-missing-chips]");
+    const score = scribeScore();
+    if (!doc.open || !doc.terms.length || !score || typeof score.keywordCoverage !== "function") {
+      if (meter) meter.setAttribute("hidden", "");
+      if (chipsHost) chipsHost.innerHTML = "";
+      return;
+    }
+    const cov = score.keywordCoverage(plainTextFromEditor(getEditor()), doc.terms);
+    if (meter) {
+      meter.removeAttribute("hidden");
+      meter.textContent = `Covers ${cov.matched.length} of ${cov.total} skills the posting names`
+        + (cov.missing.length ? ` · missing: ${cov.missing.join(", ")}` : "")
+        + " · free, updates as you type";
+    }
+    if (chipsHost) {
+      const refineInput = region.querySelector("#scribeRefineInput");
+      chipsHost.innerHTML = cov.missing.slice(0, 2)
+        .map((term) => `<button type="button" class="scribe-chip" data-scribe-chip="emphasize ${escapeText(term)}">+ ${escapeText(term)}</button>`)
+        .join("");
+      chipsHost.querySelectorAll("[data-scribe-chip]").forEach((chip) => {
+        chip.addEventListener("click", () => {
+          const text = chip.getAttribute("data-scribe-chip") || "";
+          if (!refineInput) return;
+          const cur = (refineInput.value || "").trim();
+          refineInput.value = cur ? `${cur}; ${text}` : text;
+          refineInput.focus();
+        });
+      });
+    }
+  }
+
+  function openRoleKey() {
+    const flow = window.JobBoredFlowing && window.JobBoredFlowing.openRole;
+    const key = flow && typeof flow.get === "function" ? flow.get() : null;
+    return key == null ? "" : String(key);
+  }
+
+  /* Park the workspace inside the open role's dossier while one of its
+     documents is open (TA-09); otherwise it sits hidden where index.html put
+     it, so an empty editor never costs a fifth of the page and 16 tab stops.
+     role-materials.js calls this after every Case render. Create the section
+     only for an open document so the reading canvas has no empty sections. */
+  function remount() {
+    const region = getRegion();
+    if (!region) return;
+    const open = openRoleKey();
+    if (doc.open && open && open !== doc.open.jobKey) closeDocument();
+    let mount = document.querySelector ? document.querySelector(SCRIBE_MOUNT) : null;
+    if (doc.open && !mount && document.querySelector) {
+      const canvas = document.querySelector('[data-region="role"] .case__canvas');
+      if (canvas) {
+        mount = document.createElement("section");
+        mount.className = "case__section case__section--scribe";
+        mount.setAttribute("data-mount", "scribe");
+        mount.setAttribute("aria-label", "Edit this role’s document");
+        canvas.insertBefore(mount, canvas.querySelector(".case__section--say, .case__section--notes"));
+      }
+    }
+    if (doc.open && mount) {
+      if (!doc.home && region.parentNode && typeof document.createComment === "function") {
+        doc.home = document.createComment("scribe-home");
+        region.parentNode.insertBefore(doc.home, region);
+      }
+      const moved = region.parentNode !== mount;
+      if (moved) mount.appendChild(region);
+      mount.removeAttribute("hidden");
+      region.removeAttribute("hidden");
+      /* A Case render detaches the workspace mid-keystroke; put the caret's
+         control back in focus so typing is not silently dropped. */
+      if (moved && doc.focusedId) {
+        const back = document.getElementById(doc.focusedId);
+        const ae = document.activeElement;
+        if (back && (!ae || ae === document.body) && typeof back.focus === "function") {
+          try { back.focus({ preventScroll: true }); } catch (_) { back.focus(); }
+        }
+      }
+      return;
+    }
+    if (!doc.open) region.setAttribute("hidden", "");
+  }
+
+  function closeDocument() {
+    const region = getRegion();
+    doc.open = null;
+    doc.terms = [];
+    const st = scribeState();
+    if (st && typeof st.clearDocument === "function") st.clearDocument();
+    if (region && doc.home && doc.home.parentNode) {
+      doc.home.parentNode.insertBefore(region, doc.home);
+    }
+    if (region) region.setAttribute("hidden", "");
+    const mount = document.querySelector ? document.querySelector(SCRIBE_MOUNT) : null;
+    if (mount) mount.remove();
+    renderCoverage();
+  }
+
+  /* role-materials.js hands over the role's written document (its HTML file,
+     reduced to text). */
+  function openDocument(d) {
+    const input = d || {};
+    if (!state.rendered) boot();
+    const region = getRegion();
+    if (!region || !state.rendered) return false;
+    const feature = input.feature === "resume" || input.feature === "resume_update" ? "resume_update" : "cover_letter";
+    doc.open = { jobKey: String(input.jobKey == null ? "" : input.jobKey), feature, filename: String(input.filename || "") };
+    doc.terms = Array.isArray(input.terms) ? input.terms.slice() : postingTerms(input.jobKey);
+    const st = scribeState();
+    if (st && typeof st.bindDocument === "function") {
+      const app = window.JobBoredApp;
+      let job = null;
+      try {
+        job = app && app.core && typeof app.core.getJobByStableKey === "function" ? app.core.getJobByStableKey(input.jobKey) : null;
+      } catch (_) {
+        job = null;
+      }
+      st.bindDocument({
+        jobKey: input.jobKey,
+        feature,
+        filename: input.filename,
+        job: job ? Object.assign({}, job, { title: job.title || input.title, company: job.company || input.company }) : null,
+        title: input.title,
+        company: input.company,
+      });
+    }
+    const editor = getEditor();
+    if (editor) {
+      const html = htmlFromPlainText(input.text || "");
+      editor.innerHTML = html;
+      editor.dataset.empty = html ? "false" : "true";
+      updateCounter(editor);
+      if (st) st.setBaselineText(plainTextFromEditor(editor));
+    }
+    selectTab(feature, false);
+    renderStateViews();
+    renderCoverage();
+    remount();
+    refreshScore();
+    if (editor && typeof editor.scrollIntoView === "function") {
+      try { editor.scrollIntoView({ block: "nearest" }); } catch (_) { /* ignored */ }
+    }
+    return true;
+  }
+
   function boot() {
     if (!isV2()) {
       // The jb-v2 class lands AFTER this deferred script runs (the flag
@@ -815,6 +1014,17 @@
     renderStateViews();
 
     setEditorFromLegacy();
+
+    /* UX01 C14 (TA-09): hidden until a dossier opens one of its documents
+       here; a role switch or close sends it home. */
+    if (!doc.open) region.setAttribute("hidden", "");
+    region.addEventListener("focusin", (e) => {
+      const t = e && e.target;
+      doc.focusedId = t && t.id ? String(t.id) : "";
+    });
+    window.addEventListener("jb:role:closed", () => {
+      if (doc.open) closeDocument();
+    });
 
     const score = scribeScore();
     if (score && typeof score.mount === "function") {
@@ -870,6 +1080,10 @@
     // early on state.rendered) and still gates on body.jb-v2, so handing it
     // out cannot double-render or mount behind the flag.
     boot: boot,
+    /* UX01 C14: the dossier's per-document Edit opens Scribe on it. */
+    openDocument: openDocument,
+    closeDocument: closeDocument,
+    remount: remount,
     flushEditor: flushEditor,
     syncEditorIntoLegacy: syncEditorIntoLegacy,
     setEditorFromLegacy: setEditorFromLegacy,

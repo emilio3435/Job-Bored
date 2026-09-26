@@ -256,20 +256,31 @@ function applyEnrichmentCache(jobs) {
 const AI_PROVIDER_CONFIG_MISSING_TOAST =
   "Configure your selected AI provider in Settings → AI Providers to enable posting insights.";
 
+function _canEnrichWithLlm() {
+  try {
+    return !!(
+      window.CommandCenterJobPostingInsights &&
+      window.CommandCenterJobPostingInsights.canEnrichWithLLM()
+    );
+  } catch (_) {
+    return false;
+  }
+}
+
+/** UX01 C12 (TA-18, TR-24, AX-22): the missing-provider message is one
+ *  inline line in the dossier (role-case-model.js collectDeps reads this),
+ *  not two red error toasts per open that covered the docket. Live: it
+ *  clears the moment a provider is configured. */
+function getProviderNotice() {
+  return _canEnrichWithLlm() ? "" : AI_PROVIDER_CONFIG_MISSING_TOAST;
+}
+
 /** Race guard + provider-config gate. Returns true when it's safe to
- *  proceed. Side-effect: shows a single toast on the no-go path. */
+ *  proceed. The no-go path is silent here: the dossier says it inline. */
 function _enrichmentPreconditionsOk(job) {
   if (!job) return false;
   if (job._enrichmentLoading) return false;
-  const canLlm = !!(
-    window.CommandCenterJobPostingInsights &&
-    window.CommandCenterJobPostingInsights.canEnrichWithLLM()
-  );
-  if (!canLlm) {
-    host().showToast(AI_PROVIDER_CONFIG_MISSING_TOAST, "error");
-    return false;
-  }
-  return true;
+  return _canEnrichWithLlm();
 }
 
 /** Attempt a scrape. Returns the scraped payload on success, or
@@ -582,8 +593,13 @@ window.addEventListener("jb:role:opened", (e) => {
 
   }
 
+  window.JobBoredPostingEnrichment = Object.assign(window.JobBoredPostingEnrichment || {}, {
+    getProviderNotice,
+  });
+
   Object.assign(postingEnrichment, {
     AI_PROVIDER_CONFIG_MISSING_TOAST,
+    getProviderNotice,
     ENRICHMENT_CACHE_TTL_MS,
     cacheEnrichment,
     getCachedEnrichmentForJob,

@@ -159,8 +159,28 @@
 
   /* -------------------- openRole API -------------------- */
 
+  /* DS-08: a jobKey is the row's index in the loaded pipeline, so the meta
+     comes from window.JobBored.getPipelineJobs(). Under body.jb-v2 there is
+     no legacy .kanban-card to read; the card lookup stays only for a page
+     without app.js (and the unit tests that stub one). */
+  function lookupJobMetaFromRows(jobKey) {
+    var api = root.JobBored;
+    if (!api || typeof api.getPipelineJobs !== "function") return null;
+    var idx = Number(jobKey);
+    if (!Number.isInteger(idx) || idx < 0) return { role: "", company: "" };
+    var job = null;
+    try { job = (api.getPipelineJobs() || [])[idx] || null; } catch (_) { job = null; }
+    return {
+      role: job ? String(job.title || "").trim() : "",
+      company: job ? String(job.company || "").trim() : "",
+    };
+  }
+
   function lookupJobMeta(jobKey) {
-    if (!jobKey || typeof document === "undefined") return { role: "", company: "" };
+    if (!jobKey) return { role: "", company: "" };
+    var fromRows = lookupJobMetaFromRows(jobKey);
+    if (fromRows) return fromRows;
+    if (typeof document === "undefined") return { role: "", company: "" };
     var card = document.querySelector('.kanban-card[data-stable-key="' + cssEscape(jobKey) + '"]');
     if (!card) return { role: "", company: "" };
     var t = card.querySelector(".kanban-card__title");
@@ -255,6 +275,7 @@
     record: recordRecent,
     clear: clearRecents,
   };
+  ns.lookupJobMeta = lookupJobMeta;
 
   /* -------------------- self-test (?jb-v2-debug=1) -------------------- */
   (function selfTest() {

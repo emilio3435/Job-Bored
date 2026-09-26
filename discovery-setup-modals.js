@@ -138,10 +138,20 @@ async function handleAppsScriptBrowserCorsFailure(
 }
 
 function initDiscoverySetupGuide() {
-  // One way in (spec §7): the discovery wizard, which Beat 5 also drives.
+  // One way in (GREENFIELD-SPEC §4.4): the six-beat flow at Beat 5, which
+  // IS discovery setup. requestDiscoverySetup opened the LEGACY three-step
+  // wizard into #discoverySetupWizardMount — a second onboarding surface
+  // beside the beats (F3). It stays as the fallback for a page that loaded
+  // the drawer without onboarding-flow.js, so the legacy path is never
+  // stranded, only stepped over.
   document
     .getElementById("settingsDiscoveryOpenSetupBtn")
     ?.addEventListener("click", () => {
+      const oneFlow = window.JobBoredOneFlow;
+      if (oneFlow && typeof oneFlow.open === "function") {
+        void oneFlow.open("discovery", { returnTo: "close" });
+        return;
+      }
       void h("requestDiscoverySetup", {
         entryPoint: "settings",
         allowWhileOnboarding: true,

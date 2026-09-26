@@ -188,6 +188,14 @@ function makeDependencies(overrides = {}) {
         ];
         return () => dates[Math.min(index++, dates.length - 1)];
       })(),
+      // LIFECYCLE-1: runIds are now derived from request identity
+      // (sheetId + variationKey + requestedAt) so a redelivery resolves to the
+      // original run. This suite is about status transitions, ack shape,
+      // logging and the watchdog — not about how the id is minted — so it pins
+      // the id through the handler's existing highest-precedence `runId` seam
+      // and keeps every assertion below unchanged. Derivation itself is driven
+      // end to end in tests/webhook/lifecycle-idempotency.test.ts.
+      runId: "run_queued",
       randomId: (prefix) => `${prefix}_queued`,
       ...overrides.runDependencies,
     },
@@ -1158,6 +1166,9 @@ test("VAL-LOOP-CROSS-006: handleDiscoveryWebhook async zero-lead browser_only ru
           ];
           return () => dates[Math.min(index++, dates.length - 1)];
         })(),
+        // LIFECYCLE-1: this override replaces runDependencies wholesale, so it
+        // pins the runId seam itself (see makeDependencies).
+        runId: "run_queued",
         randomId: (prefix) => `${prefix}_queued`,
       },
     });

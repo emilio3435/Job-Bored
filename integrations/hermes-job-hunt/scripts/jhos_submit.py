@@ -3,7 +3,8 @@
 JHOS Phase 4 — Submit Pipeline Library
 
 All submit-pipeline primitives in one module:
-  - URL normalization (mirrors lead-normalizer.ts)
+  - URL normalization (parity with lead-normalizer.ts normalizeLeadUrl;
+    pinned by tests/fixtures/url-normalize-parity.json)
   - Submit lock (SQLite-backed, TTL=15min)
   - Gate 1 check (Pipeline Approval Status via Google Sheets API)
   - Workday hostname blocker
@@ -18,18 +19,22 @@ Usage:
   js.write_evidence(slug, screenshot_path, metadata)
 """
 
+from __future__ import annotations
+
+import hashlib
 import json
 import os
 import re
+import shutil
 import sqlite3
-import subprocess
 import sys
 import time
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
-from urllib.parse import urlparse, urlencode, parse_qs
+from urllib.parse import parse_qsl, quote_plus, urlparse, urlsplit, urlunsplit
 
+import jhos_common
 from approval_contract import (
+    GATE1_HEADER_LABEL,
     GATE1_PASS_VALUE,
     GATE2_TARGET,
     GATE2_TIMEOUT_SECONDS,
@@ -47,13 +52,17 @@ EVIDENCE_DIR = JHOS_ROOT / "evidence"
 LOCK_DB = STATE_DIR / "submit-locks.db"
 LOCK_TTL_SECONDS = 1200  # 20 minutes (covers Gate 2 wait + browser fill)
 
-# Tracking params to strip (mirrors lead-normalizer.ts SAFE_TRACKING_PARAM_PATTERN)
+# Tracking params to strip — the same anchored pattern as
+# lead-normalizer.ts SAFE_TRACKING_PARAM_PATTERN. Keep the two in sync; the
+# shared fixture tests/fixtures/url-normalize-parity.json pins both.
 TRACKING_PARAM_RE = re.compile(
-    r"^(utm_|ref|source|cid|fbclid|gclid|mc_|_ga|_gl|si|feature|rcid|sxsrf|ved|ei)",
+    r"^(utm_.+|ref|source|src|gh_src|lever-source|fbclid|gclid|trk)$",
     re.IGNORECASE,
 )
 
 # Column indices (0-based) matching pipeline-row.v1.json
+COL_TITLE = 1         # B: Title
+COL_COMPANY = 2       # C: Company
 COL_LINK = 4          # E: Link (job URL)
 COL_STATUS = 12       # M: Status
 COL_APPLIED_DATE = 13 # N: Applied Date
@@ -64,33 +73,40 @@ COLUMN_COUNT = 24     # A through X
 
 
 # ─── URL Normalization ────────────────────────────────────────────────
+def _form_encode(value: str) -> str:
+    """application/x-www-form-urlencoded, as URLSearchParams serializes it."""
+    return quote_plus(value, safe="*").replace("~", "%7E")
+
+
 def normalize_url(raw: str) -> str:
-    """Normalize a job URL for idempotency (mirrors normalizeLeadUrl in TS)."""
+    """Normalize a job URL exactly like normalizeLeadUrl in lead-normalizer.ts.
+
+    Lowercases only the scheme and host, drops credentials, the fragment,
+    default ports and anchored tracking params, and trims trailing slashes.
+    Path case and every other query param are kept, so distinct postings
+    never collapse to one key.
+    """
     raw = (raw or "").strip()
     if not raw:
         return ""
     try:
-        parsed = urlparse(raw)
-        # Lowercase host
-        netloc = parsed.netloc.lower()
-        # Strip default ports
-        host_part = parsed.hostname or ""
-        port_part = parsed.port
-        if (parsed.scheme == "https" and port_part == 443) or (parsed.scheme == "http" and port_part == 80):
-            port_part = None
-        netloc = host_part if port_part is None else f"{host_part}:{port_part}"
-        # Strip tracking params
-        qs = parse_qs(parsed.query, keep_blank_values=True)
-        filtered = {k: v for k, v in qs.items() if not TRACKING_PARAM_RE.match(k)}
-        query = urlencode(filtered, doseq=True) if filtered else ""
-        # Lowercase path, strip trailing slashes and /apply suffix (spec rule 2+4)
-        path = parsed.path.lower().rstrip("/") or "/"
-        path = re.sub(r"/apply$", "", path) or "/"
-        path = re.sub(r"/jobs/+$", "/jobs", path)
-        from urllib.parse import urlunparse
-        return urlunparse((parsed.scheme, netloc, path, "", query, ""))
-    except Exception:
-        return raw.rstrip("/")
+        parts = urlsplit(raw)
+        if not parts.scheme or not parts.netloc or parts.hostname is None:
+            raise ValueError("not an absolute URL")
+        scheme = parts.scheme.lower()
+        host = parts.hostname.lower()
+        if ":" in host:
+            host = f"[{host}]"
+        port = parts.port
+        if (scheme == "https" and port == 443) or (scheme == "http" and port == 80):
+            port = None
+        netloc = host if port is None else f"{host}:{port}"
+        pairs = [(k, v) for k, v in parse_qsl(parts.query, keep_blank_values=True) if not TRACKING_PARAM_RE.match(k)]
+        query = "&".join(f"{_form_encode(k)}={_form_encode(v)}" for k, v in pairs)
+        path = re.sub(r"/+$", "", parts.path) or "/"
+        return urlunsplit((scheme, netloc, path, query, ""))
+    except ValueError:
+        return re.sub(r"/+$", "", raw)
 
 
 def url_to_slug(url: str) -> str:
@@ -212,53 +228,101 @@ def lock_release(job_url: str, task_id: str) -> tuple[bool, str]:
 
 
 # ─── Gate 1: Pipeline Approval Status (approval-contract.v1.json) ────
+def _read_pipeline_rows(sheet_id: str, access_token: str) -> list[list[str]]:
+    """Read Pipeline!A2:X. Raises on any read failure (callers fail closed)."""
+    import urllib.request
+
+    api_url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/Pipeline!A2:X"
+    req = urllib.request.Request(api_url, headers={"Authorization": f"Bearer {access_token}"})
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        data = json.loads(resp.read())
+    rows = []
+    for row in data.get("values", []):
+        row = list(row)
+        while len(row) < COLUMN_COUNT:
+            row.append("")
+        rows.append(row)
+    return rows
+
+
+def find_rows_by_link(rows: list[list[str]], job_url: str) -> list[tuple[int, list[str]]]:
+    """Return (sheet_row_number, row) for every row whose Link normalizes to job_url."""
+    normalized = normalize_url(job_url)
+    return [
+        (i + 2, row)  # 1-indexed, header is row 1
+        for i, row in enumerate(rows)
+        if normalized and normalize_url(row[COL_LINK]) == normalized
+    ]
+
+
 def gate1_check(job_url: str, sheet_id: str, access_token: str) -> dict:
     """Read Pipeline Approval Status (Column X).
 
-    Gate 1 passes only when approvalStatus == Approved. Fail closed otherwise.
+    Gate 1 passes only when exactly one row matches the job URL and its
+    approvalStatus == Approved. Fail closed otherwise (read error, no row,
+    or more than one row).
     Returns {approved, row_number, status, approvalStatus, title, company, link}.
     """
-    import urllib.request
     normalized = normalize_url(job_url)
     if not normalized:
         return {"approved": False, "error": "Empty URL"}
-
-    # Read all pipeline rows
-    range_str = f"Pipeline!A2:X"
-    api_url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/{range_str}"
-    req = urllib.request.Request(api_url, headers={"Authorization": f"Bearer {access_token}"})
     try:
-        with urllib.request.urlopen(req, timeout=30) as resp:
-            data = json.loads(resp.read())
+        rows = _read_pipeline_rows(sheet_id, access_token)
     except Exception as e:
         return {"approved": False, "error": f"Sheets API error: {e}"}
 
-    rows = data.get("values", [])
-    for i, row in enumerate(rows):
-        # Pad row to COLUMN_COUNT
-        while len(row) < COLUMN_COUNT:
-            row.append("")
-        link = normalize_url(row[COL_LINK])
-        if link == normalized:
-            status = (row[COL_STATUS] or "").strip()
-            approval_status = (row[COL_APPROVAL] or "").strip()
-            approved = approval_status == GATE1_PASS_VALUE
-            return {
-                "approved": approved,
-                "row_number": i + 2,  # 1-indexed, header is row 1
-                "status": status,
-                "approvalStatus": approval_status,
-                "title": row[1],
-                "company": row[2],
-                "link": row[COL_LINK],
-                "gate1_reason": (
-                    f"Approval Status '{approval_status}' permits submit"
-                    if approved
-                    else f"Approval Status '{approval_status}' does not permit submit (requires '{GATE1_PASS_VALUE}')"
-                ),
-            }
+    matches = find_rows_by_link(rows, job_url)
+    if not matches:
+        return {"approved": False, "error": "Job URL not found in Pipeline", "searched_url": normalized}
+    if len(matches) > 1:
+        return {
+            "approved": False,
+            "error": f"Ambiguous: {len(matches)} Pipeline rows match this job URL (rows {[n for n, _ in matches]})",
+            "searched_url": normalized,
+        }
+    row_number, row = matches[0]
+    status = (row[COL_STATUS] or "").strip()
+    approval_status = (row[COL_APPROVAL] or "").strip()
+    approved = approval_status == GATE1_PASS_VALUE
+    return {
+        "approved": approved,
+        "row_number": row_number,
+        "status": status,
+        "approvalStatus": approval_status,
+        "title": row[COL_TITLE],
+        "company": row[COL_COMPANY],
+        "link": row[COL_LINK],
+        "gate1_reason": (
+            f"Approval Status '{approval_status}' permits submit"
+            if approved
+            else f"Approval Status '{approval_status}' does not permit submit (requires '{GATE1_PASS_VALUE}')"
+        ),
+    }
 
-    return {"approved": False, "error": "Job URL not found in Pipeline", "searched_url": normalized}
+
+# ─── Platform ────────────────────────────────────────────────────────
+_PLATFORM_HOSTS = (
+    ("greenhouse.io", "Greenhouse"),
+    ("lever.co", "Lever"),
+    ("ashbyhq.com", "Ashby"),
+    ("smartrecruiters.com", "SmartRecruiters"),
+    ("workable.com", "Workable"),
+    ("bamboohr.com", "BambooHR"),
+    ("jobvite.com", "Jobvite"),
+    ("icims.com", "iCIMS"),
+    ("recruitee.com", "Recruitee"),
+    ("myworkdayjobs.com", "Workday"),
+    ("workday.com", "Workday"),
+)
+
+
+def platform_from_url(url: str) -> str:
+    """Name the application platform from the job URL's host."""
+    host = (urlsplit(url or "").hostname or "").lower()
+    for suffix, name in _PLATFORM_HOSTS:
+        if host == suffix or host.endswith("." + suffix):
+            return name
+    return f"Direct ({host})" if host else "Direct"
 
 
 # ─── Evidence Writer ─────────────────────────────────────────────────
@@ -275,8 +339,8 @@ def write_evidence(
     evidence_dir = EVIDENCE_DIR / slug
     evidence_dir.mkdir(parents=True, exist_ok=True)
 
-    now = datetime.now(timezone(timedelta(hours=-5)))  # Central Time
-    ts = now.strftime("%Y-%m-%dT%H:%M:%S%z")
+    now = jhos_common.local_now()
+    ts = now.isoformat(timespec="seconds")
     ts_file = now.strftime("%Y%m%d-%H%M%S")
 
     metadata = {
@@ -295,9 +359,9 @@ def write_evidence(
 
     if screenshot_path and Path(screenshot_path).exists():
         dest = evidence_dir / f"submit-{ts_file}.png"
-        import shutil
         shutil.copy2(screenshot_path, dest)
         metadata["screenshot"] = str(dest)
+        metadata["screenshot_sha256"] = hashlib.sha256(dest.read_bytes()).hexdigest()
         # Rewrite with screenshot path
         meta_path.write_text(json.dumps(metadata, indent=2))
 
@@ -308,49 +372,42 @@ def write_evidence(
 def update_pipeline_applied(
     sheet_id: str,
     access_token: str,
-    row_number: int,
+    job_url: str,
     notes_append: str = "",
+    expected_row: int | None = None,
 ) -> dict:
-    """Update Pipeline row: set Applied Date (N) and append to Notes (O)."""
+    """Set Status=Applied, Applied Date and append Notes on the job's row.
+
+    The row is re-resolved by Link right before writing (a sort or insert
+    during the Gate 2 wait must not land Applied on another job). The same
+    read supplies the existing Notes; if that read fails, nothing is written.
+    Values are written RAW so user text is never parsed as a formula.
+    """
     import urllib.request
 
-    now = datetime.now(timezone(timedelta(hours=-5)))
-    date_str = now.strftime("%Y-%m-%d")
+    try:
+        rows = _read_pipeline_rows(sheet_id, access_token)
+    except Exception as e:
+        return {"success": False, "error": f"Aborted: Pipeline read failed, nothing written ({e})"}
+    matches = find_rows_by_link(rows, job_url)
+    if len(matches) != 1:
+        return {
+            "success": False,
+            "error": f"Aborted: {len(matches)} Pipeline rows match {normalize_url(job_url)}; nothing written",
+        }
+    row_number, row = matches[0]
 
-    updates = []
-
-    # Column M (Status) → "Applied"
-    updates.append({
-        "range": f"Pipeline!M{row_number}",
-        "values": [["Applied"]],
-    })
-    # Column N (Applied Date)
-    updates.append({
-        "range": f"Pipeline!N{row_number}",
-        "values": [[date_str]],
-    })
-    # Column O (Notes) — append
+    date_str = jhos_common.local_now().strftime("%Y-%m-%d")
+    updates = [
+        {"range": f"Pipeline!M{row_number}", "values": [["Applied"]]},
+        {"range": f"Pipeline!N{row_number}", "values": [[date_str]]},
+    ]
     if notes_append:
-        # Read existing notes first
-        notes_url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values/Pipeline!O{row_number}"
-        req = urllib.request.Request(notes_url, headers={"Authorization": f"Bearer {access_token}"})
-        try:
-            with urllib.request.urlopen(req, timeout=15) as resp:
-                existing = json.loads(resp.read()).get("values", [[""]])[0][0]
-        except Exception:
-            existing = ""
-        new_notes = f"{existing}\n{notes_append}".strip() if existing else notes_append
-        updates.append({
-            "range": f"Pipeline!O{row_number}",
-            "values": [[new_notes]],
-        })
+        existing = (row[COL_NOTES] or "").strip()
+        new_notes = f"{existing}\n{notes_append}" if existing else notes_append
+        updates.append({"range": f"Pipeline!O{row_number}", "values": [[new_notes]]})
 
-    # Batch update
-    body = json.dumps({
-        "valueInputOption": "USER_ENTERED",
-        "data": updates,
-    }).encode()
-
+    body = json.dumps({"valueInputOption": "RAW", "data": updates}).encode()
     batch_url = f"https://sheets.googleapis.com/v4/spreadsheets/{sheet_id}/values:batchUpdate"
     req = urllib.request.Request(
         batch_url,
@@ -364,7 +421,13 @@ def update_pipeline_applied(
     try:
         with urllib.request.urlopen(req, timeout=30) as resp:
             result = json.loads(resp.read())
-        return {"success": True, "updated_row": row_number, "date": date_str, "response": result}
+        return {
+            "success": True,
+            "updated_row": row_number,
+            "row_moved": expected_row is not None and expected_row != row_number,
+            "date": date_str,
+            "response": result,
+        }
     except Exception as e:
         return {"success": False, "error": str(e)}
 
@@ -389,9 +452,13 @@ class SubmitFailure:
 
 
 def fail_gate1(title: str, company: str, status: str) -> SubmitFailure:
+    """`status` is the row's Approval Status value (Gate 1), not Column M."""
     return SubmitFailure(
         gate="gate1",
-        reason=f"Pipeline Status is '{status}' — needs to be beyond 'New' (e.g. 'Researching') to proceed",
+        reason=(
+            f"Gate 1 not satisfied: Pipeline {GATE1_HEADER_LABEL} is '{status}' "
+            f"— requires '{GATE1_PASS_VALUE}'"
+        ),
         kanban_action="no_change",
         telegram_msg="",  # No telegram notification for gate1 fail per spec
     )

@@ -167,7 +167,10 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
   });
 
   it("renders a six-segment spine once all six beats are registered", async () => {
-    const { flow, document } = loadOneFlow({ beatFiles: true });
+    const { flow, document, store } = loadOneFlow({ beatFiles: true });
+    // GREENFIELD §4.1 gates Beat 3 on Beat 2: a spine probe that wants to
+    // LAND on resume has to have earned it first.
+    await store.saveOnboardingFlowState({ completedBeats: ["ai"] });
     await flow.open("resume");
     const mount = document.getElementById("oneFlowMount");
     const segs = mount.querySelectorAll(".discovery-setup-wizard__spine-step");
@@ -178,7 +181,7 @@ describe("the beat stubs register themselves (locked decision 3)", () => {
     );
     assert.equal(
       mount.querySelector(".discovery-setup-wizard__spine-time").textContent,
-      "about 8 min left",
+      "about 10 min left",
       "the spine shows the CURRENT beat's remaining-time label",
     );
   });

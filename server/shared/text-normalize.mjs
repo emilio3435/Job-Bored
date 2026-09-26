@@ -20,6 +20,21 @@ const NAMED_ENTITIES = {
 const ENTITY_RE = /&(?:#(\d{1,7})|#x([0-9a-fA-F]{1,6})|([a-zA-Z]{2,10}));/g;
 const ZERO_WIDTH_RE = /[\u200B-\u200D\uFEFF\u2060]/g;
 const CONTROL_RE = /[\u0000-\u0008\u000B\u000C\u000E-\u001F\u007F]/g;
+const FRAGMENT_STOP_WORDS = new Set([
+  "a", "an", "and", "are", "as", "at", "be", "by", "for", "from", "in", "into",
+  "of", "on", "or", "the", "to", "with", "using", "your", "our", "their", "you",
+  "we", "will", "have", "has", "had", "this", "that", "these", "those", "years",
+  "year", "plus", "strong", "ability", "abilities", "experience", "experienced",
+  "knowledge", "understanding", "background", "preferred", "required", "requirement",
+  "requirements",
+]);
+const KNOWN_TOOL_ALIASES = new Set([
+  "javascript", "js", "typescript", "ts", "nodejs", "node js", "node.js", "react",
+  "reactjs", "react.js", "ci cd", "ci/cd", "continuous integration",
+  "continuous delivery", "machine learning", "ml", "artificial intelligence", "ai",
+  "kubernetes", "k8s", "postgresql", "postgres", "amazon web services", "aws",
+  "google cloud platform", "gcp", "google cloud", "microsoft azure", "azure",
+]);
 
 /** @param {unknown} s */
 export function decodeHtmlEntities(s) {
@@ -51,6 +66,89 @@ export function stripMarkdownInline(s) {
 /** @param {unknown} s */
 export function stripListGlyph(s) {
   return String(s == null ? "" : s).replace(/^\s*(?:[-*•·‣▪–—]|\d{1,4}[.)])\s+/, "");
+}
+
+/** Remove model control tokens and partial token delimiters. @param {unknown} s */
+export function stripControlTokens(s) {
+  return String(s == null ? "" : s)
+    .replace(/(?:\[)?<\|[\s\S]*?\|>/g, "")
+    .replace(/\[<\|/g, "")
+    .replace(/\|>/g, "")
+    .replace(/\[</g, "")
+    .replace(/>\]/g, "")
+    .trim();
+}
+
+/** @param {string} s */
+function normalizeFragmentText(s) {
+  return s
+    .toLowerCase()
+    .replace(/\bci\/cd\b/g, "ci cd")
+    .replace(/\bnode\.js\b/g, "nodejs")
+    .replace(/\breact\.js\b/g, "react")
+    .replace(/&/g, " and ")
+    .replace(/[’']/g, "")
+    .replace(/[^a-z0-9+#.%/\-\s]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/** @param {string} s */
+function hasUnbalancedParens(s) {
+  let depth = 0;
+  for (const char of s) {
+    if (char === "(") depth += 1;
+    if (char === ")") depth -= 1;
+    if (depth < 0) return true;
+  }
+  return depth !== 0;
+}
+
+/** @param {string} s */
+function hasUnbalancedQuotes(s) {
+  const straightDouble = (s.match(/"/g) || []).length;
+  const curlyOpen = (s.match(/“/g) || []).length;
+  const curlyClose = (s.match(/”/g) || []).length;
+  return straightDouble % 2 !== 0 || curlyOpen !== curlyClose;
+}
+
+/** Detect incomplete prose that cannot stand as a requirement or claim. @param {unknown} s */
+export function isFragment(s) {
+  const text = stripControlTokens(s);
+  if (hasUnbalancedParens(text) || hasUnbalancedQuotes(text)) return true;
+
+  const normalized = normalizeFragmentText(text);
+  const significantTokens = normalized
+    .split(" ")
+    .filter(Boolean)
+    .filter((token) => token.length > 1 || /\d/.test(token))
+    .filter((token) => !FRAGMENT_STOP_WORDS.has(token));
+  const knownTool = KNOWN_TOOL_ALIASES.has(normalized);
+
+  if (/^[a-z]/.test(text) && significantTokens.length < 3) return true;
+  if (/(?:[,;]|\b(?:and|or))$/i.test(text)) return true;
+  return significantTokens.length < 2 && !knownTool;
+}
+
+/** Split a sentence from a trailing short Title Case section heading. @param {unknown} s */
+export function splitHeadingTail(s) {
+  const text = String(s == null ? "" : s).trim();
+  const match = /^([\s\S]*[.!?])\s+([^.!?\n]+)$/.exec(text);
+  if (!match) return { body: text, heading: "" };
+
+  const body = match[1].trim();
+  const heading = match[2].trim();
+  const words = heading.match(/[A-Za-z0-9][A-Za-z0-9+/#'’\-]*/g) || [];
+  const titleWords = words.filter((word) => /^[A-Z0-9]/.test(word));
+  if (
+    !body.replace(/[.!?]/g, "").trim() ||
+    words.length === 0 ||
+    words.length > 6 ||
+    titleWords.length / words.length < 0.6
+  ) {
+    return { body: text, heading: "" };
+  }
+  return { body, heading };
 }
 
 /** Plain text → Canonical Job Text (spec §3). @param {unknown} s */

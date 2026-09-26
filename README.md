@@ -4,6 +4,8 @@ A personal, open‑source job‑hunt dashboard for developers. Sheet‑native �
 your Google Sheet is the database. BYO API keys. 100% local‑first browser
 app with an optional local discovery worker. Not a hosted SaaS.
 
+> **Hosted mode is unsupported for now.** Run the dashboard and discovery worker locally; the Cloudflare relay requires a per-dashboard `RELAY_TOKEN` bearer (see [templates/cloudflare-worker/README.md](templates/cloudflare-worker/README.md)).
+
 ![License](https://img.shields.io/badge/license-MIT-blue) ![No Backend](https://img.shields.io/badge/backend-none-green) ![Vanilla JS](https://img.shields.io/badge/vanilla-JS-yellow) ![Node](https://img.shields.io/badge/node-24.x-339933) [![CI](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml/badge.svg)](https://github.com/emilio3435/Job-Bored/actions/workflows/ci.yml) [![Release](https://img.shields.io/github/v/release/emilio3435/Job-Bored)](https://github.com/emilio3435/Job-Bored/releases/latest)
 
 > Maintainer note: actively dogfooded and currently paused (Emilio got a job).
@@ -403,7 +405,7 @@ When the daily schedule runs in `--write` mode it auto-flips Status to `Expired`
 
 **Apps Script (visual walkthrough):** **[integrations/apps-script/WALKTHROUGH.md](integrations/apps-script/WALKTHROUGH.md)** — deploy the repo stub for webhook verification only (`npm run apps-script:push`, `npm run test:discovery-webhook`).
 
-**Built-in real worker path:** use **[`integrations/browser-use-discovery/`](integrations/browser-use-discovery/)** for the repo’s Browser Use-backed discovery worker. It keeps the v1 webhook contract stable, supports local and hosted deployment, writes directly to the user’s Sheet, and covers Greenhouse / Lever / Ashby as the first-layer sources.
+**Built-in real worker path:** use **[`integrations/browser-use-discovery/`](integrations/browser-use-discovery/)** for the repo’s Browser Use-backed discovery worker. It keeps the v1 webhook contract stable, runs locally (hosted mode is unsupported for now), writes directly to the user’s Sheet, and covers Greenhouse / Lever / Ashby as the first-layer sources.
 
 When the worker accepts an async run, it may return `statusPath` for `/runs/:runId` polling. Hosted workers include a per-run `statusToken` query parameter in that path; browser clients and relays must preserve the returned `statusPath` exactly, including the query string, instead of rebuilding it from `runId`.
 

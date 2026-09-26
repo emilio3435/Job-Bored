@@ -1206,9 +1206,6 @@ function syncPipelineFilterControls() {
 function notifyPipelineFiltersChanged() {
   return pipelineController().notifyPipelineFiltersChanged();
 }
-function notifyPipelineRendered() {
-  return pipelineController().notifyPipelineRendered();
-}
 function setPipelineViewFilters(nextFilters = {}) {
   return pipelineController().setPipelineViewFilters(nextFilters);
 }

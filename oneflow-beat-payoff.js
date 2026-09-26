@@ -37,7 +37,26 @@
     "More power-ups — URL import, grounded search, other devices — live in Settings → Upgrades, each one click, none required.";
   const SKIPPED_LINE =
     "○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below";
+  /** GREENFIELD-SPEC §4.3 — the first "What happens now" line when B6 is
+      not actually armed. Locked copy. */
+  const NOT_ARMED_LINE =
+    "Not armed yet — finish the step above and it runs on its own.";
   const SHEET_LINK_LABEL = "open it ↗";
+  /**
+   * UX01 C7 (FR-09): a ✓ is earned by a check this flow recorded — B2
+   * completes only after its live key check, B5 only after its fuel is
+   * verified. Stored config alone is a claim, so it renders as ○.
+   */
+  const AI_UNVERIFIED_LINE =
+    "○ AI isn't checked yet — go back to the AI step to connect it";
+  const DISCOVERY_UNVERIFIED_LINE =
+    "○ Job search isn't set up — you can track jobs without it";
+  /** UX01 C6 (FR-10): once a Sheet exists, manual tracking can start here. */
+  const TRACK_JOB_ACTION = Object.freeze({
+    id: "payoff_track_job",
+    label: "Track a job you already found",
+    variant: "ghost",
+  });
 
   /** Provider display names — the same caps Settings shows. */
   const PROVIDER_LABELS = Object.freeze({
@@ -60,6 +79,15 @@
   const ACTIONS = [];
 
   let celebrated = false;
+  /**
+   * Whether the saved profile named any target role, once the async resolve
+   * has answered. Remembered so the NEXT synchronous paint starts from what
+   * we know rather than guessing again and flipping the primary back and
+   * forth forever. ONLY the roles half is cached: the sheet is always read
+   * fresh, so connecting one in B1 and coming back is seen immediately.
+   * Cleared with the rest of the beat's memory in _reset().
+   */
+  let resolvedRoles = null;
   let firstResultsArmed = false;
   let firstResultsAt = 0;
   let firstResultsSink = null;
@@ -189,6 +217,12 @@
         }
       }
     }
+    return searchFromProfile(profile);
+  }
+
+  /** The same read, off a profile already in hand — B4 leaves one on the
+      runtime, which is what the first synchronous paint can see. */
+  function searchFromProfile(profile) {
     if (!profile || typeof profile !== "object") return { ...EMPTY_SEARCH };
     const identity = profile.identity || {};
     const hard = profile.hardConstraints || {};
@@ -205,6 +239,23 @@
         .map((s) => asString(s && s.name))
         .filter(Boolean),
     };
+  }
+
+  /**
+   * What B6 may honestly promise (GREENFIELD-SPEC §4.3). A run needs a
+   * Sheet to write into and roles to search for; without either it returns
+   * nothing and raises two error toasts, which is what F5 measured.
+   */
+  function readiness(roles) {
+    return {
+      sheet: !!sheetId(),
+      roles: Array.isArray(roles) && roles.length > 0,
+    };
+  }
+
+  function isArmed(state) {
+    const r = state && state.readiness;
+    return r ? !!(r.sheet && r.roles) : true;
   }
 
   /**
@@ -235,7 +286,7 @@
   }
 
   /** Spec §5 B6: the primary flips with the connect skip, not the copy. */
-  function buildActions(flowState) {
+  function buildActions(flowState, ready_) {
     const skipped = !!(
       flowState &&
       flowState.skipped &&
@@ -244,6 +295,7 @@
     if (skipped) {
       return [
         { id: "payoff_dashboard", label: "Go to my dashboard", variant: "primary" },
+        { ...TRACK_JOB_ACTION },
         {
           id: "payoff_connect_discovery",
           label: "Actually — connect discovery",
@@ -251,13 +303,39 @@
         },
       ];
     }
+    const dashboard = {
+      id: "payoff_dashboard",
+      label: "Take me to my dashboard",
+      variant: "ghost",
+    };
+    // The primary adapts to readiness (GREENFIELD-SPEC §4.3): a run is only
+    // offered once it can actually run. The escape stays in every state.
+    const ready = ready_ || { sheet: true, roles: true };
+    if (!ready.sheet) {
+      return [
+        {
+          id: "payoff_connect_google",
+          label: "Connect Google to go live",
+          variant: "primary",
+        },
+        dashboard,
+      ];
+    }
+    if (!ready.roles) {
+      return [
+        {
+          id: "payoff_fix_fit",
+          label: "Tell it what to look for",
+          variant: "primary",
+        },
+        { ...TRACK_JOB_ACTION },
+        dashboard,
+      ];
+    }
     return [
       { id: "payoff_run_now", label: "Run discovery now", variant: "primary" },
-      {
-        id: "payoff_dashboard",
-        label: "Take me to my dashboard",
-        variant: "ghost",
-      },
+      { ...TRACK_JOB_ACTION },
+      dashboard,
     ];
   }
 
@@ -267,8 +345,26 @@
     const runtime = (ctx && ctx.runtime) || {};
     const firstName = resolveFirstName(runtime);
     const id = sheetId();
+    // B4 hands the profile forward on the runtime, so the first paint
+    // usually knows the roles too. When it does not, roles are UNKNOWN, not
+    // missing — the resolve below settles it and repaints if it changed the
+    // primary. A sheet, by contrast, is always synchronously knowable.
+    const carried = runtime.fitProfile || null;
+    const ready = {
+      sheet: !!id,
+      roles: carried
+        ? searchFromProfile(carried).roles.length > 0
+        : resolvedRoles === null
+          ? true
+          : resolvedRoles,
+    };
+    const earned = Array.isArray(flowState.completedBeats)
+      ? flowState.completedBeats
+      : [];
     return {
       firstName,
+      aiVerified: earned.includes("ai"),
+      discoveryVerified: earned.includes("discovery"),
       headline: buildHeadline(firstName),
       sub: SUB,
       skippedConnect: !!(flowState.skipped && flowState.skipped.discoveryConnect),
@@ -277,7 +373,8 @@
       sheetUrl: id ? `https://docs.google.com/spreadsheets/d/${id}/edit` : "",
       search: { ...EMPTY_SEARCH },
       sourceCount: 0,
-      actions: buildActions(flowState),
+      readiness: ready,
+      actions: buildActions(flowState, ready),
       hydrated: false,
     };
   }
@@ -291,6 +388,8 @@
     ]);
     state.search = search;
     state.sourceCount = sourceCount;
+    state.readiness = readiness(search.roles);
+    state.actions = buildActions((ctx && ctx.state) || {}, state.readiness);
     state.hydrated = true;
     return state;
   }
@@ -351,20 +450,32 @@
       el("h4", "oneflow-payoff__card-title", "What happens now"),
     );
     const list = el("ul", "oneflow-payoff__list");
+    const armed = isArmed(state);
 
-    if (state.provider) {
+    // Not armed: say so FIRST and say nothing else about discovery. The
+    // "✓ Discovery armed" line and the "run it right now" ETA were both
+    // claims B6 could not keep (GREENFIELD-SPEC §1 F5, §4.3).
+    if (!armed) addRow(list, "oneflow-payoff__row--off", NOT_ARMED_LINE);
+
+    if (state.provider && state.aiVerified) {
       addRow(list, "oneflow-payoff__row--ok", `✓ AI connected — ${state.provider}`);
+    } else {
+      addRow(list, "oneflow-payoff__row--off", AI_UNVERIFIED_LINE);
     }
 
     if (state.skippedConnect) {
       addRow(list, "oneflow-payoff__row--off", SKIPPED_LINE);
-    } else {
-      const noun = state.sourceCount === 1 ? "source" : "sources";
-      addRow(
-        list,
-        "oneflow-payoff__row--ok",
-        `✓ Discovery armed — ${state.sourceCount} ${noun} watching, including Google's job index`,
-      );
+    } else if (armed) {
+      if (state.discoveryVerified) {
+        const noun = state.sourceCount === 1 ? "source" : "sources";
+        addRow(
+          list,
+          "oneflow-payoff__row--ok",
+          `✓ Discovery armed — ${state.sourceCount} ${noun} watching, including Google's job index`,
+        );
+      } else {
+        addRow(list, "oneflow-payoff__row--off", DISCOVERY_UNVERIFIED_LINE);
+      }
     }
 
     if (state.sheetUrl) {
@@ -577,12 +688,48 @@
     return result;
   }
 
+  /**
+   * UX01 C6 (FR-10): finish the flow, then open manual add on the real
+   * board so the payoff ends on a tracked row even with no discovery run.
+   * `JobBoredIngest.openManual` is lane D's entry; the legacy manual
+   * fallback covers a build where it has not landed yet.
+   */
+  function openManualAdd() {
+    const ingest = window.JobBoredIngest;
+    if (ingest && typeof ingest.openManual === "function") {
+      ingest.openManual({ source: "onboarding_payoff" });
+      return true;
+    }
+    const legacy = window.JobBored;
+    if (legacy && typeof legacy.openIngestManualFallback === "function") {
+      legacy.openIngestManualFallback("", {});
+      return true;
+    }
+    return false;
+  }
+
+  async function trackJob(ctx) {
+    const result = await ctx.completeBeat({ beat: "payoff", ran: false, trackJob: true });
+    try {
+      openManualAdd();
+    } catch (e) {
+      console.warn("[JobBored] B6: could not open manual add:", e);
+    }
+    return result;
+  }
+
   async function onAction(actionId, ctx) {
     const id = asString(actionId);
     if (id === "payoff_run_now") return runNow(ctx);
+    if (id === "payoff_track_job") return trackJob(ctx);
     if (id === "payoff_dashboard") {
       return ctx.completeBeat({ beat: "payoff", ran: false });
     }
+    // The two readiness detours (GREENFIELD-SPEC §4.3). Neither completes
+    // the beat and neither fires a run — they walk back to the beat that
+    // owns the missing piece and let the flow's own bookkeeping resume.
+    if (id === "payoff_connect_google") return ctx.goToBeat("google");
+    if (id === "payoff_fix_fit") return ctx.goToBeat("fit");
     if (id === "payoff_connect_discovery") {
       // The one escape back: re-enter B5 so the skipped connect panel can
       // be finished without leaving the flow's bookkeeping behind.
@@ -595,14 +742,18 @@
   // Beat registration
   // ---------------------------------------------------------------
 
+  function plainIds(actions) {
+    return (actions || []).map((a) => (a && a.id) || "").join("|");
+  }
+
   function render(container, ctx) {
     // Resolve the variant NOW: the shell reads this array by reference
     // when it builds the footer, which happens after this body renders.
-    const resolved = buildActions((ctx && ctx.state) || {});
-    ACTIONS.length = 0;
-    ACTIONS.push(...resolved);
-
+    // baseState already resolved it against the readiness this paint knows.
     const sync = baseState(ctx);
+    ACTIONS.length = 0;
+    ACTIONS.push(...sync.actions);
+
     renderPayoff(container, sync);
 
     void resolvePayoffState(ctx)
@@ -612,6 +763,17 @@
         }
         renderPayoff(container, state);
         celebrate(state);
+        // The profile answered after the footer was built. If it changed
+        // which primary is honest, remember it and ask the shell for one
+        // more pass — the remembered readiness is what the next synchronous
+        // baseState reads, so this settles rather than oscillates.
+        const next = plainIds(state.actions);
+        resolvedRoles = state.readiness.roles;
+        if (next !== plainIds(ACTIONS)) {
+          ACTIONS.length = 0;
+          ACTIONS.push(...state.actions);
+          if (ctx && typeof ctx.setMessage === "function") ctx.setMessage("");
+        }
       })
       .catch((e) => {
         console.warn("[JobBored] B6: could not resolve the payoff:", e);
@@ -643,6 +805,10 @@
     ETA_LINE,
     FOOTER_LINE,
     SKIPPED_LINE,
+    NOT_ARMED_LINE,
+    AI_UNVERIFIED_LINE,
+    DISCOVERY_UNVERIFIED_LINE,
+    TRACK_JOB_ACTION,
     PROVIDER_LABELS,
     buildActions,
     resolvePayoffState,
@@ -653,6 +819,7 @@
     _onRunUpdate: onRunUpdate,
     _reset() {
       celebrated = false;
+      resolvedRoles = null;
       firstResultsArmed = false;
       firstResultsSink = null;
     },

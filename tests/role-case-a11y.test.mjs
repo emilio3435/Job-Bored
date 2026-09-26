@@ -45,6 +45,11 @@ function load() {
 }
 const Case = load();
 const caseCss = readFileSync(join(repoRoot, "role-case.css"), "utf8");
+const roleCss = readFileSync(join(repoRoot, "role.css"), "utf8");
+/* The frame's own rule: the .case selector also opens a token-only block, so
+   pick the declaration block that actually sizes the box. */
+const frameRule = (caseCss.match(/body\.jb-v2 \[data-region="role"\] \.case \{[^}]*\}/g) || [])
+  .find((rule) => /width:/.test(rule)) || "";
 
 function baseDeps(over = {}) {
   return {
@@ -134,7 +139,7 @@ describe("P0 — the dossier never prints a claim it has not earned", () => {
   it("'You have' hides when strengths, evidence, gaps and dimensions are all empty", () => {
     const keywords = { percentage: 40, foundCount: 0, partialCount: 3, missingTerms: [], byLabel: new Map([["react", "partial"]]) };
     const out = html({ keywords, scorecard: null });
-    assert.doesNotMatch(out, /case__lane--you/, "a header with nothing under it is not a lane");
+    assert.doesNotMatch(out, /case__section--you/, "a header with nothing under it is not a section");
     assert.doesNotMatch(out, /You have/);
   });
 
@@ -150,9 +155,13 @@ describe("P1 — the dossier is navigable and readable by assistive tech", () =>
   /* P1-1: H-key navigation and the rotor returned an empty list. */
   it("carries an h2 role identity and an h3 per lane", () => {
     const out = html();
-    assert.match(out, /<h2 class="case__vh">Senior PM at Meridian Labs<\/h2>/);
-    assert.match(out, /<h3 class="case__lane-title">They want<\/h3>/);
-    assert.match(out, /<h3 class="case__lane-title">Your moves<\/h3>/);
+    /* SPEC §8.1: the heading is the masthead's own identity block, so H-key
+       navigation lands on the title the eye is already reading. The spoken
+       name is the hidden span inside it, because the ink is an edit surface. */
+    assert.match(out, /<h2 class="case__title-h"><span class="case__vh">Senior PM at Meridian Labs<\/span><textarea[^>]*data-field="title"/);
+    assert.match(out, /<h3 class="case__section-title">They want<\/h3>/);
+    assert.match(out, /<h3 class="case__section-title">Materials<\/h3>/);
+    assert.match(out, /<h3 class="case__section-title">People<\/h3>/);
   });
   it("the visually-hidden heading is hidden by a Case-scoped rule, not display:none", () => {
     assert.match(caseCss, /body\.jb-v2 \[data-region="role"\] \.case \.case__vh\b/);
@@ -200,17 +209,62 @@ describe("P1 — the dossier is navigable and readable by assistive tech", () =>
     assert.match(caseCss, /body\.jb-v2 \[data-region="role"\] \.case \.case__step::after\b/);
     assert.match(caseCss, /body\.jb-v2 \[data-region="role"\] \.case \.case__fact-input::after|\.case__fact-input\s*\{[^}]*min-height:\s*24px/);
   });
+
+  /* Spec §4: the two disclosure toggles are real buttons with the same
+     crimson focus-visible ring the other case buttons carry. */
+  it("the disclosure toggles are keyboard-visible buttons", () => {
+    assert.match(caseCss, /\.case__more-btn:focus-visible\s*\{[^}]*outline:/);
+    assert.match(caseCss, /button\.case__chip--more:focus-visible\s*\{[^}]*outline:/);
+  });
+
+  /* Cascade trap: a single-class rule loses to body.jb-v2 h3/p (0,1,1), so
+     every new rule in this lane lives under the full Case scope. */
+  it("every new Case rule is scoped under the Case", () => {
+    for (const sel of ["case__more-btn", "case__chips-more", "case__chip--more", "case__req-ev", "case__date", "case__date-empty"]) {
+      const re = new RegExp("^[ \\t]*body\\.jb-v2 \\[data-region=\"role\"\\] \\.case [^{]*\\." + sel + "(?![\\w-])[^{]*\\{", "gm");
+      assert.ok(re.test(caseCss), sel + " must be scoped under body.jb-v2 [data-region=\"role\"] .case");
+    }
+  });
 });
 
 describe("P1-0 — the Case surface holds its own gutter and colors", () => {
-  /* P1-0: the only v2 region not using the shared flow width. */
-  it(".case sits in the shared flow width instead of running to the browser edge", () => {
-    assert.match(caseCss, /body\.jb-v2 \[data-region="role"\] \.case\s*\{[^}]*--jb-flow-content-width/);
+  /* The frame's width is ONE maximum, and it is the same one every other flow
+     region resolves to. Resolving --jb-flow-content-width here re-resolved the
+     token's nested percentage against .dossier and subtracted the shell gutter
+     a second time, so the dossier rendered 104px narrower than the pipeline
+     directly above it (docs/redesign/dossier-2026-09/TEARDOWN.md §4). The
+     gutter now belongs to the .dossier wrapper in role.css, which is a
+     top-level flow box like every other region host. */
+  it(".case is min(1220px, 100%) and never re-resolves the flow token", () => {
+    assert.match(frameRule, /width: min\(1220px, 100%\)/);
+    assert.doesNotMatch(frameRule, /--jb-flow-content-width/);
+    assert.doesNotMatch(frameRule, /max-width/, "one maximum, not two");
+    assert.match(roleCss, /\.dossier \{[^}]*width: var\(--jb-flow-content-width/, "the wrapper carries the shell gutter");
   });
-  /* P1-0b: hardcoded 5 columns for a band that usually renders 2-4 tiles. */
-  it("the numbers band tracks off data-count, not a hardcoded five", () => {
-    assert.match(caseCss, /\.case__numbers\[data-count="3"\]/);
-    assert.match(caseCss, /\.case__numbers\[data-count="2"\]/);
+  /* TEARDOWN §5: `overflow: hidden` for a 14px radius also made the frame a
+     scroll container, which silently disables `position: sticky` for every
+     descendant — so the dossier could not have a persistent action bar at all,
+     and the drafting buttons scrolled away after ~200px. */
+  it("the frame clips with clip-path, so it is not a scroll container", () => {
+    assert.match(frameRule, /clip-path: inset\(0 round 14px\)/);
+    assert.doesNotMatch(frameRule, /overflow/);
+    assert.match(frameRule, /container-type: inline-size/);
+    assert.match(frameRule, /container-name: dossier/);
+  });
+  /* TEARDOWN §3: `max-width: 1080px` is a fact about the window. What a lane
+     needs to know is how wide the DOSSIER is, which is why the shipped board
+     was correct at 1024 and shredded at 1440. Only motion and forced-colours
+     may still ask about the medium (SPEC §7). */
+  it("no viewport media query decides dossier layout", () => {
+    const queries = caseCss.match(/@media[^{]+/g) || [];
+    for (const query of queries) {
+      assert.match(
+        query,
+        /prefers-reduced-motion|forced-colors/,
+        "layout thresholds must be @container dossier (…), not @media: " + query.trim(),
+      );
+    }
+    assert.match(caseCss, /@container dossier \(inline-size/, "the frame is queried by its own width");
   });
   /* P1-0c: mint-deep on parchment is 2.81:1 — the saved mark is invisible. */
   it("the on-light mint is darkened to a readable value", () => {
@@ -234,6 +288,25 @@ describe("P1-0 — the Case surface holds its own gutter and colors", () => {
   });
 });
 
+/* Spec §3.7: labels tell the truth once. :placeholder-shown never fires
+   on a native date input, so the reliable selector is the rendered value
+   attribute — role.js re-renders after every committed write, keeping it
+   truthful. The span is always in the DOM; CSS alone decides. */
+describe("§3.7 — the follow-up empty state", () => {
+  it("wraps the date with a Not-set sibling", () => {
+    assert.match(html(), /<span class="case__date">[\s\S]*?case__date-empty">Not set</);
+    assert.match(html(), /data-field="followupAt"[^>]*type="date"/, "the native date control stays");
+  });
+  it("shows Not set only while the input's value is empty", () => {
+    assert.match(caseCss, /\.case__date-empty \{[^}]*display:\s*none/, "hidden by default");
+    assert.match(
+      caseCss,
+      /\.case__date input\[value=""\] \+ \.case__date-empty \{[^}]*display:\s*inline/,
+      "the rendered value attribute is what reveals it",
+    );
+  });
+});
+
 describe("P2 — the copy says what it means", () => {
   /* P2-2: "parse" is about JSON, not the job. */
   it("a recovered payload is tagged unverified, in words a hunter can act on", () => {
@@ -246,10 +319,13 @@ describe("P2 — the copy says what it means", () => {
   });
 
   /* P2-3: the acronym is never expanded, and crimson is the alarm color. */
-  it("the ATS tile is 'Resume score', and only a low score is crimson", () => {
+  /* UX01 C13 (TA-13): the tile names the document it rates. This fixture's
+     scorecard records no feature, so it is a "Draft score", never guessed to
+     be the resume. */
+  it("the ATS tile names its document, and only a low score is crimson", () => {
     const good = html({ scorecard: { result: { overallScore: 94, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
-    assert.match(good, /data-num="ats"[\s\S]*?Resume score/);
-    assert.match(good, /How well your draft answers this posting/);
+    assert.match(good, /data-num="ats"[\s\S]*?Draft score/);
+    assert.match(good, /scored draft · 2026-08-30/);
     assert.doesNotMatch(good, /data-num="ats"[\s\S]*?case__num-v--crimson/, "a 94 is not bad news");
     const bad = html({ scorecard: { result: { overallScore: 41, topStrengths: ["Led a11y guild"], evidence: [], criticalGaps: [], dimensionScores: {} }, storedAt: "2026-08-30T00:00:00Z" } });
     assert.match(bad, /data-num="ats"[\s\S]*?case__num-v--crimson/);
@@ -257,7 +333,9 @@ describe("P2 — the copy says what it means", () => {
 
   /* P2-7: the engineering reliability legend, shipped as UI with no key. */
   it("source tags read as English, not as SHEET / SCRAPE / AI / DERIVED / FILES", () => {
-    const out = html();
+    /* The `ai` tag hangs off model-written prose, so this needs a role that
+       has some: the fixture's talking points are empty. */
+    const out = html({ vmPatch: { enrichment: { ...baseDeps().vm.job.enrichment, talkingPoints: ["Cut visual drift 80%"] } } });
     assert.match(out, /case__src--sheet" aria-hidden="true">from your sheet</);
     assert.match(out, /case__src--scrape" aria-hidden="true">from the posting</);
     assert.match(out, /case__src--ai" aria-hidden="true">written by AI</);

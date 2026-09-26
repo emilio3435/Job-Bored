@@ -445,9 +445,31 @@ export function loadCutover(options = {}) {
 
   const verifyCalls = [];
   win.CommandCenterResumeGenerate = {
-    getResumeGenerationConfig: () => ({
-      provider: String(win.COMMAND_CENTER_CONFIG.resumeProvider || ""),
-    }),
+    // Mirrors resume-generate.js getResumeGenerationConfig(): the provider
+    // AND the credential B2 wrote into the live config (oneflow-beat-ai.js
+    // persistProviderConfig mirrors its patch there). GREENFIELD A3 makes
+    // the credential load-bearing — B3 refuses to draft with a provider
+    // that has none — so a stub publishing only the provider NAME would
+    // fail a journey the real page passes.
+    getResumeGenerationConfig: () => {
+      const c = win.COMMAND_CENTER_CONFIG || {};
+      const str = (key) => String(c[key] || "");
+      return {
+        provider: str("resumeProvider"),
+        resumeGeminiApiKey: str("resumeGeminiApiKey"),
+        resumeOpenAIApiKey: str("resumeOpenAIApiKey"),
+        resumeAnthropicApiKey: str("resumeAnthropicApiKey"),
+        resumeOpenRouterApiKey: str("resumeOpenRouterApiKey"),
+        resumeLocalApiKey: str("resumeLocalApiKey"),
+        resumeGeminiModel: str("resumeGeminiModel"),
+        resumeOpenAIModel: str("resumeOpenAIModel"),
+        resumeAnthropicModel: str("resumeAnthropicModel"),
+        resumeOpenRouterModel: str("resumeOpenRouterModel"),
+        resumeOpenRouterBaseUrl: str("resumeOpenRouterBaseUrl"),
+        resumeLocalBaseUrl: str("resumeLocalBaseUrl"),
+        resumeLocalModel: str("resumeLocalModel"),
+      };
+    },
     async verifyResumeProviderLive(...args) {
       verifyCalls.push(args);
       if (options.verifyProvider === null) return { ok: false, message: "no" };

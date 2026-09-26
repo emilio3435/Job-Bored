@@ -8,7 +8,7 @@ function cors(env) {
     "Access-Control-Allow-Origin": o,
     "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
     "Access-Control-Allow-Headers":
-      "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret, X-Discovery-Auth-Probe, Ngrok-Skip-Browser-Warning",
+      "Content-Type, Authorization, X-Forward-Secret, X-Discovery-Secret, X-Relay-Token, X-Discovery-Auth-Probe, Ngrok-Skip-Browser-Warning",
     "Access-Control-Max-Age": "86400",
   };
 }
@@ -23,6 +23,31 @@ function cors(env) {
 function isRelayReadOnlyPath(pathname) {
   if (typeof pathname !== "string") return false;
   return pathname === "/runs" || pathname.startsWith("/runs/");
+}
+
+/**
+ * POST paths the relay forwards to the upstream worker: the discovery webhook
+ * plus the dashboard's sibling worker routes (Settings profile run, Add URL,
+ * expired-row cleanup). `/` maps to TARGET_URL itself. Anything else, such as
+ * /pipeline-update (agents call the worker directly) or /health, is 404.
+ */
+const RELAY_POST_PATHS = new Set([
+  "/",
+  "/webhook",
+  "/discovery",
+  "/discovery-profile",
+  "/ingest-url",
+  "/cleanup-expired",
+]);
+
+function timingSafeEqual(a, b) {
+  const x = String(a);
+  const y = String(b);
+  let diff = x.length ^ y.length;
+  for (let i = 0; i < Math.max(x.length, y.length); i += 1) {
+    diff |= (x.charCodeAt(i) || 0) ^ (y.charCodeAt(i) || 0);
+  }
+  return diff === 0;
 }
 
 function json(obj, status, env) {
@@ -41,47 +66,68 @@ export default {
       return new Response(null, { status: 204, headers: h });
     }
 
-    const target = env.TARGET_URL || url.searchParams.get("target");
+    // Caller authentication (BEAUDIT G1, spec §0.7). The deploy helper mints a
+    // per-dashboard RELAY_TOKEN and stores it in the dashboard config; the
+    // dashboard sends it as `Authorization: Bearer <token>` (or X-Relay-Token).
+    // FORWARD_SECRET is accepted as the legacy name for the same token. With no
+    // token configured the relay fails closed: before this, an anonymous
+    // internet caller's POST reached the worker with DISCOVERY_SECRET injected.
+    const expectedToken = env.RELAY_TOKEN || env.FORWARD_SECRET || "";
+    const auth = request.headers.get("Authorization") || "";
+    const presented = auth.startsWith("Bearer ")
+      ? auth.slice(7).trim()
+      : request.headers.get("X-Relay-Token") ||
+        request.headers.get("X-Forward-Secret") ||
+        "";
+    if (!expectedToken) {
+      return json(
+        {
+          error: "relay_token_not_configured",
+          message:
+            "This relay has no RELAY_TOKEN secret. Re-run scripts/deploy-cloudflare-relay.mjs to mint one.",
+        },
+        401,
+        env,
+      );
+    }
+    if (!presented || !timingSafeEqual(presented, expectedToken)) {
+      return json({ error: "Unauthorized" }, 401, env);
+    }
+
+    // TARGET_URL only; the old `?target=` query override let any caller pick
+    // the upstream.
+    const target = env.TARGET_URL;
     if (!target) {
-      return json({ error: "Missing TARGET_URL secret or ?target=" }, 400, env);
+      return json({ error: "Missing TARGET_URL secret" }, 400, env);
     }
 
-    // Path-preserving forwarding. The relay used to collapse every request to
-    // TARGET_URL's own path, which made /discovery-profile (and any future
-    // sibling endpoint) land on /webhook. Now:
-    //   - No FORWARD_SECRET: the incoming path is preserved against TARGET_URL's
-    //     origin. Root (`/`) falls back to TARGET_URL as-is for backward compat.
-    //   - With FORWARD_SECRET: callers POST /forward (legacy, maps to the
-    //     configured TARGET_URL path) or /forward/<subpath> (maps to
-    //     <TARGET_URL origin>/<subpath>). Anything else is 404.
-    let upstreamPath = url.pathname;
+    // Path allowlist: RELAY_POST_PATHS take POST, `/runs` and `/runs/<id>`
+    // take GET for run-status polling. `/forward` and `/forward/<p>` are the
+    // legacy FORWARD_SECRET spellings of the same paths. Everything else is
+    // 404 so the relay cannot reach other routes on the tunnel origin.
+    let relayPath = url.pathname || "/";
+    if (relayPath === "/forward") relayPath = "/";
+    else if (relayPath.startsWith("/forward/")) {
+      relayPath = relayPath.slice("/forward".length);
+    }
+    let upstreamPath = relayPath;
     let useTargetPath = false;
-
-    if (env.FORWARD_SECRET) {
-      if (url.pathname === "/forward") {
-        useTargetPath = true;
-      } else if (url.pathname.startsWith("/forward/")) {
-        upstreamPath = url.pathname.slice("/forward".length); // leading / preserved
-      } else {
-        return new Response("Not found", { status: 404, headers: h });
-      }
-      const auth = request.headers.get("Authorization");
-      const tok = auth?.startsWith("Bearer ")
-        ? auth.slice(7)
-        : request.headers.get("X-Forward-Secret");
-      if (tok !== env.FORWARD_SECRET) {
-        return json({ error: "Unauthorized" }, 401, env);
-      }
-    } else if (url.pathname === "" || url.pathname === "/") {
-      // Root request: forward verbatim to TARGET_URL (legacy behavior).
+    if (relayPath === "/") {
       useTargetPath = true;
+    } else if (
+      !RELAY_POST_PATHS.has(relayPath) &&
+      !isRelayReadOnlyPath(relayPath)
+    ) {
+      return new Response("Not found", { status: 404, headers: h });
     }
 
-    // GET is allowed only for the read-only run-status path. Every other
-    // GET is rejected. POST is allowed everywhere it was before.
+    // GET is allowed only for the read-only run-status path; POST only for
+    // RELAY_POST_PATHS.
     const isReadOnlyGet =
-      request.method === "GET" && isRelayReadOnlyPath(url.pathname);
-    if (request.method !== "POST" && !isReadOnlyGet) {
+      request.method === "GET" && isRelayReadOnlyPath(relayPath);
+    const isAllowedPost =
+      request.method === "POST" && RELAY_POST_PATHS.has(relayPath);
+    if (!isAllowedPost && !isReadOnlyGet) {
       return new Response("Method Not Allowed", { status: 405, headers: h });
     }
 
@@ -160,7 +206,9 @@ export default {
 
     const sheetId = env.REFRESH_SHEET_ID || "";
     if (!sheetId) {
-      console.error("[cron] REFRESH_SHEET_ID secret not set — skipping discovery");
+      console.error(
+        "[cron] REFRESH_SHEET_ID secret not set — skipping discovery",
+      );
       return;
     }
     const requestedAt = new Date().toISOString();
@@ -194,10 +242,7 @@ export default {
         console.error(`${statusLine} body=${text.slice(0, 200)}`);
       }
     } catch (err) {
-      console.error(
-        `[cron ${event.cron}] refresh failed:`,
-        err && err.message,
-      );
+      console.error(`[cron ${event.cron}] refresh failed:`, err && err.message);
     }
   },
 };

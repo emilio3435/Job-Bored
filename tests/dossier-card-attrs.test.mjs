@@ -26,7 +26,6 @@ const caseSources = ["jb-text.js", "role-case-model.js", "role-case.js"].map((f)
   filename: f,
   code: readFileSync(join(repoRoot, f), "utf8"),
 }));
-const workshopSource = readFileSync(join(repoRoot, "role-workshop.js"), "utf8");
 const roleSource = readFileSync(join(repoRoot, "role.js"), "utf8");
 
 class TestCustomEvent {
@@ -253,7 +252,6 @@ function loadAllThree({ vm: roleVm }) {
   });
 
   for (const { filename, code } of caseSources) vm.runInContext(code, context, { filename });
-  vm.runInContext(workshopSource, context, { filename: "role-workshop.js" });
   vm.runInContext(roleSource, context, { filename: "role.js" });
   return { context, windowEl, documentEl, region };
 }
@@ -275,18 +273,23 @@ describe("dossier card attrs", () => {
 
     const html = assembleHtml(region);
 
-    /* Dossier-owned actions: notes are the marginalia textarea. The CLOSE
-       button on the divider has been removed — users close the dossier via
-       the kanban-row affordance instead. */
-    assert.doesNotMatch(html, /data-action="close-role"/, "close-role button should be removed");
+    /* Dossier-owned actions: notes are the marginalia textarea. `close-role`
+       has been wired in role.js since the cutover and nothing rendered it, so
+       the dossier had no close control at all; the docket carries it now
+       (docs/redesign/dossier-2026-09/SPEC.md §5.1). */
+    assert.match(html, /class="case__docket"[\s\S]*?data-action="close-role"/, "the docket must render the close control");
     assert.match(html, /data-action="notes"/, "notes action selector missing");
 
     /* Case block selectors (spec §1 layout, in order). */
     assert.match(html, /class="case__rail"/, "status rail missing");
     assert.match(html, /class="case__stepper"/, "stage stepper missing");
-    assert.match(html, /class="case__board"/, "evidence board missing");
+    /* The three-column board is gone: the read is a canvas beside a bounded
+       ledger (docs/redesign/dossier-2026-09/SPEC.md §3.2). */
+    assert.match(html, /class="case__body"/, "the canvas + ledger body missing");
+    assert.match(html, /class="case__canvas"/, "the reading canvas missing");
+    assert.match(html, /class="case__ledger" aria-label="Role ledger"/, "the ledger missing");
     assert.match(html, /class="case__notes"/, "notes block missing");
-    assert.match(html, /class="case__chron"/, "the record missing");
+    assert.match(html, /class="case__section case__section--record"/, "the record missing");
 
     /* Identity is editable in place, through the frozen writeback contract. */
     assert.match(html, /data-action="edit-field"[^\u003e]*data-field="title"/, "editable title missing");
@@ -334,7 +337,7 @@ describe("dossier card attrs", () => {
     assert.equal(workshopMount, undefined, "expected NO workshop mount in dossier");
 
     assert.match(briefMount.innerHTML, /class="case__rail"/);
-    assert.match(briefMount.innerHTML, /class="case__board"/);
+    assert.match(briefMount.innerHTML, /class="case__body"/);
     assert.match(briefMount.innerHTML, /data-action="notes"/);
     /* The Case emits the materials mount role-materials.js renders into. */
     assert.match(briefMount.innerHTML, /class="case__materials" data-mount="materials"/);

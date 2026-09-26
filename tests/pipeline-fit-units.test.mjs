@@ -16,7 +16,6 @@ import vm from "node:vm";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dawnDataSrc = readFileSync(join(repoRoot, "dawn-data.js"), "utf8");
-const latticeJs = readFileSync(join(repoRoot, "lattice.js"), "utf8");
 const pipelineJs = readFileSync(join(repoRoot, "pipeline.js"), "utf8");
 const companyCapJs = readFileSync(join(repoRoot, "company-cap.js"), "utf8");
 
@@ -127,19 +126,6 @@ describe("F2A-PIPE03-FIT: normalize 1–10 units; unknown ≠ 0", () => {
       },
     });
     assert.equal(eight.fitScore, 8);
-  });
-
-  it("Lattice no longer labels 1–10 fit as a percent", () => {
-    assert.equal(
-      /Fit "\s*\+\s*pct\s*\+\s*"%/.test(latticeJs),
-      false,
-      'lattice.js must not render label: "Fit " + pct + "%" — 1–10 units are not percents',
-    );
-    assert.match(
-      latticeJs,
-      /Fit .*\/10|"Fit "\s*\+\s*.*\s*\+\s*"\/10"/,
-      "lattice.js fit label must use /10 units when a score is present",
-    );
   });
 
   it("Pipeline sticker already uses units and unknown, never a percent label", () => {

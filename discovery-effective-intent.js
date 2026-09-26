@@ -128,6 +128,16 @@
     return out;
   }
 
+  function companyTargetFromAllowlistEntry(entry) {
+    var name = cleanString(entry);
+    var slug = name.toLowerCase().replace(/\s+/g, "-");
+    return {
+      name: name,
+      companyKey: slug,
+      normalizedName: slug,
+    };
+  }
+
   function filterBySet(companies, blocked, keep) {
     return (Array.isArray(companies) ? companies : []).filter(function (company) {
       var keys = companyMatchKeys(company);
@@ -294,6 +304,28 @@
             matched: [],
             unknown: unknown,
           };
+          if (!companies.length && !history.length && unknown.length) {
+            var seeded = unknown
+              .map(function (entry) {
+                return companyTargetFromAllowlistEntry(entry);
+              })
+              .filter(function (company) {
+                if (!company.name) return false;
+                return companyMatchKeys(company).every(function (key) {
+                  return !skip[key];
+                });
+              });
+            if (seeded.length) {
+              companies = seeded;
+              atsCompanies = seeded.map(function (company) {
+                return {
+                  name: company.name,
+                  companyKey: company.companyKey,
+                  normalizedName: company.normalizedName,
+                };
+              });
+            }
+          }
         } else {
           allowlistResolution = {
             mode: "blocked_unresolved",
@@ -319,6 +351,22 @@
         };
         companies = filterBySet(dedupeCompanies(companies.concat(history)), allow, true);
         atsCompanies = filterBySet(atsCompanies, allow, true);
+        if (!companies.length && unknown.length) {
+          var extra = unknown
+            .map(function (entry) {
+              return companyTargetFromAllowlistEntry(entry);
+            })
+            .filter(function (company) {
+              if (!company.name) return false;
+              return companyMatchKeys(company).every(function (key) {
+                return !skip[key];
+              });
+            });
+          if (extra.length) {
+            companies = extra;
+            atsCompanies = dedupeCompanies(atsCompanies.concat(extra));
+          }
+        }
       }
     }
 
