@@ -279,10 +279,28 @@
    * that tells a stranger whose product they are looking at, and that
    * what is under it is a sample.
    */
+  function buildLegalLink(href, label) {
+    const link = createEl("a", "oneflow-demo__legal-link", label);
+    link.href = href;
+    return link;
+  }
+
+  /** Privacy and terms, on the public first screen as well as the dashboard. */
+  function buildLegalNav() {
+    const nav = createEl("nav", "oneflow-demo__legal");
+    nav.setAttribute("aria-label", "Legal");
+    nav.appendChild(buildLegalLink("privacy.html", "Privacy"));
+    nav.appendChild(buildLegalLink("terms.html", "Terms"));
+    return nav;
+  }
+
   function buildHeader() {
     const header = createEl("header", "oneflow-demo__header");
     const inner = createEl("div", "oneflow-demo__header-inner");
-    inner.appendChild(buildWordmark());
+    const brand = createEl("div", "oneflow-demo__header-brand");
+    brand.appendChild(buildWordmark());
+    brand.appendChild(buildLegalNav());
+    inner.appendChild(brand);
     if (rows.length) {
       inner.appendChild(createEl("p", "oneflow-demo__note", BOARD.kicker));
     }

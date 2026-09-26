@@ -1617,13 +1617,30 @@ textarea {
 
 .site-footer {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   justify-content: center;
-  gap: var(--space-4);
+  gap: var(--space-3) var(--space-4);
   padding: var(--space-6) var(--space-5);
   font-size: var(--text-xs);
   color: var(--text-faint);
   border-top: 1px solid var(--border);
+}
+
+.site-footer__legal {
+  display: flex;
+  gap: var(--space-4);
+}
+
+.site-legal-noscript {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  font-size: var(--text-sm);
+  background: var(--bg);
+  color: var(--text);
+  border-bottom: 1px solid var(--border);
 }
 
 .site-footer a {
