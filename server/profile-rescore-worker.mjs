@@ -38,6 +38,7 @@ import {
   resolveActivePin,
 } from "./llm-config.mjs";
 import { geminiGenerateContentUrl, geminiHeaders } from "./ai/provider.mjs";
+import { readProfile } from "./user-profile.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -51,6 +52,30 @@ const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
 
 const MAX_CONCURRENT_LLM = 3;
 const LLM_MIN_GAP_MS = 250;
+
+/* F4: single-flight across direct callers. Every live run takes a
+ * generation id; a newer run aborts the older one, whose pending rows
+ * stop before scoring and whose writes are skipped. The HTTP route adds
+ * its own 409 via tryBeginRouteRescore below. */
+let rescoreGeneration = 0;
+/** @type {AbortController | null} */
+let liveRescoreAbort = null;
+let routeRescoreLive = false;
+
+/**
+ * F4: HTTP single-flight. Returns false when a rescore is already live
+ * (the route answers 409 rescore_in_progress); otherwise holds the slot
+ * until endRouteRescore.
+ */
+export function tryBeginRouteRescore() {
+  if (routeRescoreLive) return false;
+  routeRescoreLive = true;
+  return true;
+}
+
+export function endRouteRescore() {
+  routeRescoreLive = false;
+}
 const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 const MAX_PROVIDER_TIMEOUT_MS = 120_000;
 // Hard cap so a runaway sheet doesn't blow through the quota silently.
@@ -590,6 +615,35 @@ async function readPipelineRows(sheetId, token) {
       ? /** @type {unknown[][]} */ (json.values)
       : [];
   return values;
+}
+
+/**
+ * F16: re-read one row's Link cell right before writing, so a sort,
+ * insert or delete between the snapshot and the write cannot land new
+ * scores on a different job.
+ * @param {string} sheetId
+ * @param {string} token
+ * @param {number} rowNumber
+ * @returns {Promise<string>}
+ */
+async function readLinkCell(sheetId, token, rowNumber) {
+  const url = new URL(
+    `https://sheets.googleapis.com/v4/spreadsheets/${encodeURIComponent(sheetId)}/values/${encodeURIComponent(`${PIPELINE_SHEET_NAME}!E${rowNumber}`)}`,
+  );
+  url.searchParams.set("valueRenderOption", "FORMATTED_VALUE");
+  const resp = await fetch(url, {
+    headers: { Authorization: `Bearer ${token}` },
+  });
+  if (!resp.ok) {
+    const body = await resp.text().catch(() => "");
+    throw new Error(`Link re-read failed: HTTP ${resp.status}${body ? ` — ${body.slice(0, 240)}` : ""}`);
+  }
+  const json = await resp.json();
+  const values =
+    json && typeof json === "object" && "values" in json && Array.isArray(json.values)
+      ? /** @type {unknown[][]} */ (json.values)
+      : [];
+  return String(values[0]?.[0] ?? "").trim();
 }
 
 /**
@@ -1331,6 +1385,8 @@ function classifyRowForRescore(row) {
  * @param {(evt: Record<string, unknown>) => void} [args.onProgress] - per-row + terminal events
  * @param {AbortSignal} [args.signal] - early abort
  * @param {number} [args.maxRows] - cap rows processed during this run
+ * @param {string} [args.profileUpdatedAt] - the profile revision this run
+ *   scores against; a write is skipped once the saved profile moves on (F4)
  * @returns {Promise<{rescored:number, skipped:number, failed:number, total:number}>}
  */
 export async function rescoreAllPipelineRows({
@@ -1344,6 +1400,7 @@ export async function rescoreAllPipelineRows({
   onProgress,
   signal,
   maxRows,
+  profileUpdatedAt,
 }) {
   if (!profile || typeof profile !== "object") {
     throw new Error("rescoreAllPipelineRows: profile is required");
@@ -1370,14 +1427,18 @@ export async function rescoreAllPipelineRows({
       ? Math.min(maxRows, MAX_ROWS)
       : MAX_ROWS;
   const counted = rows.slice(0, effectiveMax);
-  /** @type {Array<{ rowNumber: number, row: unknown[] }>} */
+  /** @type {Array<{ rowNumber: number, row: unknown[], expectedUrl: string }>} */
   const candidates = [];
   let skipped = 0;
   for (let i = 0; i < counted.length; i += 1) {
     const cls = classifyRowForRescore(counted[i]);
     const rowNumber = i + HEADER_ROW_COUNT + 1; // header is row 1; data starts row 2
     if (cls.kind === "rescore") {
-      candidates.push({ rowNumber, row: counted[i] });
+      candidates.push({
+        rowNumber,
+        row: counted[i],
+        expectedUrl: String(counted[i][COL.LINK] || "").trim(),
+      });
     } else {
       skipped += 1;
       emit({
@@ -1427,12 +1488,60 @@ export async function rescoreAllPipelineRows({
     throw new Error(`rescoreAllPipelineRows: ${providerStatus.detail}`);
   }
 
+  /* F4: take a generation; a newer run aborts this one. Dry runs never
+   * reach here (they returned above), so they stay concurrent. */
+  const generation = ++rescoreGeneration;
+  if (liveRescoreAbort) liveRescoreAbort.abort();
+  const runAbort = new AbortController();
+  liveRescoreAbort = runAbort;
+  const superseded = () => generation !== rescoreGeneration || runAbort.signal.aborted;
+  const runSignal = signal ? AbortSignal.any([signal, runAbort.signal]) : runAbort.signal;
+
+  /**
+   * F4: the saved profile moved on since this run started — its scores
+   * are stale, so no more writes. Only checked when the caller passed
+   * the revision it scored against.
+   */
+  async function profileMovedOn() {
+    if (!profileUpdatedAt) return false;
+    try {
+      const current = await readProfile();
+      return !current.ok || String(current.profile?.updatedAt || "") !== String(profileUpdatedAt);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * F4+F16: one guarded write. Skips (never throws) when a newer run
+   * superseded this one, the profile moved on, or the row's Link cell
+   * no longer holds the snapshotted URL.
+   * @param {{ rowNumber: number, expectedUrl: string, fitScore: number, fitAssessment: string, talkingPoints: string }} cell
+   * @returns {Promise<"written" | "aborted" | "profile_changed" | "row_drift">}
+   */
+  async function guardedWrite(cell) {
+    if (superseded()) return "aborted";
+    if (await profileMovedOn()) return "profile_changed";
+    const liveUrl = await readLinkCell(sheetId, token, cell.rowNumber);
+    if (liveUrl !== cell.expectedUrl) return "row_drift";
+    await writeRowScoreCells({
+      sheetId,
+      token,
+      rowNumber: cell.rowNumber,
+      fitScore: cell.fitScore,
+      fitAssessment: cell.fitAssessment,
+      talkingPoints: cell.talkingPoints,
+    });
+    return "written";
+  }
+
   let rescored = 0;
   let failed = 0;
   let lastCallEnd = 0;
 
-  await runWithConcurrency(candidates, MAX_CONCURRENT_LLM, async ({ rowNumber, row }) => {
-    if (signal && signal.aborted) {
+  try {
+  await runWithConcurrency(candidates, MAX_CONCURRENT_LLM, async ({ rowNumber, row, expectedUrl }) => {
+    if ((signal && signal.aborted) || superseded()) {
       failed += 1;
       emit({ kind: "progress", row: rowNumber, status: "failed", reason: "aborted" });
       return;
@@ -1441,6 +1550,11 @@ export async function rescoreAllPipelineRows({
     const gap = Date.now() - lastCallEnd;
     if (gap < LLM_MIN_GAP_MS) {
       await new Promise((r) => setTimeout(r, LLM_MIN_GAP_MS - gap));
+    }
+    if (superseded()) {
+      failed += 1;
+      emit({ kind: "progress", row: rowNumber, status: "failed", reason: "aborted" });
+      return;
     }
 
     try {
@@ -1466,14 +1580,18 @@ export async function rescoreAllPipelineRows({
           rationale: `Hard constraint: ${preFilter.detail}`,
           leadAngle: "",
         };
-        await writeRowScoreCells({
-          sheetId,
-          token,
+        const preWrite = await guardedWrite({
           rowNumber,
+          expectedUrl,
           fitScore: score.fitScore,
           fitAssessment: buildFitAssessment(score, ""),
           talkingPoints: "",
         });
+        if (preWrite !== "written") {
+          failed += 1;
+          emit({ kind: "progress", row: rowNumber, status: "failed", reason: preWrite });
+          return;
+        }
         rescored += 1;
         emit({
           kind: "progress",
@@ -1490,16 +1608,20 @@ export async function rescoreAllPipelineRows({
         profile,
         rawListing,
         providerConfig: resolvedProviderConfig,
-        signal,
+        signal: runSignal,
       });
-      await writeRowScoreCells({
-        sheetId,
-        token,
+      const wrote = await guardedWrite({
         rowNumber,
+        expectedUrl,
         fitScore: score.fitScore,
         fitAssessment: buildFitAssessment(score, ""),
         talkingPoints: buildTalkingPoints(score),
       });
+      if (wrote !== "written") {
+        failed += 1;
+        emit({ kind: "progress", row: rowNumber, status: "failed", reason: wrote });
+        return;
+      }
       rescored += 1;
       emit({
         kind: "progress",
@@ -1522,6 +1644,9 @@ export async function rescoreAllPipelineRows({
       lastCallEnd = Date.now();
     }
   });
+  } finally {
+    if (liveRescoreAbort === runAbort) liveRescoreAbort = null;
+  }
 
   const result = { rescored, skipped, failed, total: candidates.length };
   emit({ kind: "done", ...result });

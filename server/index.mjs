@@ -63,10 +63,12 @@ import {
   resolveResumeTextForAnalysis,
 } from "./profile-from-resume.mjs";
 import {
+  endRouteRescore,
   getProfileRescoreProviderConfigFromEnv,
   getProfileRescoreProviderStatus,
   loadWorkerConfig,
   rescoreAllPipelineRows,
+  tryBeginRouteRescore,
 } from "./profile-rescore-worker.mjs";
 import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
 
@@ -715,6 +717,17 @@ app.post("/profile/rescore", async (req, res) => {
     }
   }
 
+  // F4: one live rescore at a time; a second click gets 409, not a
+  // second run whose stale writes would win. Dry runs bypass the lock.
+  if (!tryBeginRouteRescore()) {
+    return res.status(409).json({
+      ok: false,
+      reason: "rescore_in_progress",
+      detail: "A rescore is already running; wait for it to finish.",
+      retryable: true,
+    });
+  }
+
   // Live path: open SSE.
   res.setHeader("Content-Type", "text/event-stream");
   res.setHeader("Cache-Control", "no-cache");
@@ -740,6 +753,7 @@ app.post("/profile/rescore", async (req, res) => {
       onProgress: sendEvent,
       signal,
       maxRows,
+      profileUpdatedAt: profileResult.profile?.updatedAt,
     });
     sendEvent({ kind: "done", ...summary });
   } catch (err) {
@@ -748,6 +762,7 @@ app.post("/profile/rescore", async (req, res) => {
       message: errorMessage(err, err),
     });
   } finally {
+    endRouteRescore();
     res.end();
   }
 });
