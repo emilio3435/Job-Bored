@@ -1730,61 +1730,130 @@ async function handleDiscoveryEnvKey(req, res) {
 }
 
 /**
- * B5 presence probe (spec C2): keyless `GET /__proxy/ping` answers
- * `{ ok: true }` so the fuel check can tell "the local server is down" from
- * "SerpApi is unhappy" before spending the key. The shared Host gate at the
- * top of the request handler runs first and is unchanged; the Origin posture
- * is the local allowlist PLUS the exact hosted Pages origin from ./CNAME
- * (a Pages dashboard on this machine still talks to its loopback dev
- * server). The allowed origin is echoed back exactly — never `*`, never a
- * reflection of an arbitrary Origin.
+ * The /__proxy routes this build serves, as `GET /__proxy/ping` advertises
+ * them (PLAN §R3). A client that needs a route missing here — or a server
+ * whose ping has no `routes` at all — reads the server as stale. Pinned
+ * against the handler's own route literals by
+ * tests/gfx-be-fuel-ping-contract.test.mjs.
  */
-function isPingAllowedOrigin(req) {
-  if (isLocalOrigin(req)) return true;
+const PING_ROUTES = Object.freeze(
+  [
+    "discovery-env-key",
+    "discovery-health",
+    "discovery-relay-token",
+    "discovery-state",
+    "discovery-webhook-secret",
+    "fix-setup",
+    "full-boot",
+    "install-doctor",
+    "install-keep-alive",
+    "install-worker-autostart",
+    "kill-stale",
+    "local-health",
+    "ngrok-tunnels",
+    "ping",
+    "serpapi-check",
+    "start-discovery-worker",
+    "tailscale-serve",
+    "tailscale-state",
+  ].sort(),
+);
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+/**
+ * The §R3 ping body. `runtime` is "desktop" only under the desktop app
+ * (JOBBORED_DESKTOP=1); `desktopVersion` appears only when the app says
+ * which it is. Computed once per server: none of it changes while the
+ * process lives.
+ */
+export function buildPingBody(env = process.env, version = readPackageVersion()) {
+  const desktop = String((env && env.JOBBORED_DESKTOP) || "") === "1";
+  const desktopVersion = String((env && env.JOBBORED_DESKTOP_VERSION) || "").trim();
+  return {
+    ok: true,
+    version,
+    runtime: desktop ? "desktop" : "source",
+    routes: [...PING_ROUTES],
+    ...(desktopVersion ? { desktopVersion } : {}),
+  };
+}
+
+/**
+ * B5 presence probe (spec C2, PLAN §R3): keyless `GET /__proxy/ping`
+ * answers the build's version, runtime and routes, so a client can tell
+ * "the local server is down" from "the local server is too old" before
+ * spending the key. The shared Host gate at the top of the request handler
+ * runs first and is unchanged; the Origin posture is the local allowlist
+ * PLUS the exact hosted Pages origin from ./CNAME, over a loopback peer (a
+ * Pages dashboard on this machine still talks to its loopback dev server).
+ * The allowed origin is echoed back exactly — never `*`, never a
+ * reflection of an arbitrary Origin. `pagesOrigin` is read from ./CNAME
+ * once, when the server starts.
+ */
+function isPagesPingOrigin(req, pagesOrigin) {
+  if (!pagesOrigin) return false;
   const peer = req && req.socket ? req.socket.remoteAddress : "";
   if (!isLoopbackPeer(peer)) return false;
   const headers = (req && req.headers) || {};
   const origin = String(headers.origin || headers.Origin || "").trim();
-  if (!origin) return false;
-  const pages = pagesHostedOriginFromCnameText(readPagesCnameFile());
-  return !!pages && origin === pages;
+  return !!origin && origin === pagesOrigin;
 }
 
-function pingCorsHeaders(req, extra = {}) {
+function isPingAllowedOrigin(req, pagesOrigin) {
+  return isLocalOrigin(req) || isPagesPingOrigin(req, pagesOrigin);
+}
+
+function pingCorsHeaders(req, pagesOrigin, extra = {}) {
   if (isLocalOrigin(req)) return buildLocalControlCorsHeaders(req, extra);
   const headers = { vary: "Origin", ...extra };
-  if (isPingAllowedOrigin(req)) {
-    const headersIn = (req && req.headers) || {};
-    headers["access-control-allow-origin"] = String(
-      headersIn.origin || headersIn.Origin || "",
-    ).trim();
+  if (isPagesPingOrigin(req, pagesOrigin)) {
+    headers["access-control-allow-origin"] = pagesOrigin;
   }
   return headers;
 }
 
-function pingPreflightHeaders(req) {
-  return pingCorsHeaders(req, {
+function pingPreflightHeaders(req, pagesOrigin) {
+  const extra = {
     "access-control-allow-methods": "GET, OPTIONS",
     "access-control-allow-headers": "content-type",
     "access-control-max-age": "86400",
-  });
+  };
+  // Chrome's Private Network Access preflight: a public page (the exact
+  // Pages origin) reaching loopback must be told yes explicitly. Local
+  // origins are not crossing into a more private network, so they never
+  // get it.
+  if (!isLocalOrigin(req) && isPagesPingOrigin(req, pagesOrigin)) {
+    extra["access-control-allow-private-network"] = "true";
+  }
+  return pingCorsHeaders(req, pagesOrigin, extra);
 }
 
-function handlePing(req, res) {
-  if (!isPingAllowedOrigin(req)) {
+function handlePing(req, res, pagesOrigin, pingBody) {
+  if (!isPingAllowedOrigin(req, pagesOrigin)) {
     denyNonLocalControl(res);
     return;
   }
   if (req.method !== "GET") {
     res.writeHead(405, {
-      ...pingCorsHeaders(req, { "content-type": "application/json" }),
+      ...pingCorsHeaders(req, pagesOrigin, { "content-type": "application/json" }),
       allow: "GET, OPTIONS",
     });
     res.end(JSON.stringify({ ok: false, reason: "method_not_allowed" }));
     return;
   }
-  res.writeHead(200, pingCorsHeaders(req, { "content-type": "application/json" }));
-  res.end(JSON.stringify({ ok: true }));
+  res.writeHead(
+    200,
+    pingCorsHeaders(req, pagesOrigin, { "content-type": "application/json" }),
+  );
+  res.end(JSON.stringify(pingBody));
 }
 
 /**
@@ -2697,6 +2766,10 @@ function createRequestHandler({
       : () => {};
 
   const dashboardAllowedHosts = readDashboardAllowedHosts();
+  // Read once per server (GFX-N-stale): the ping is polled, and neither the
+  // CNAME nor the build's version changes while the process lives.
+  const pagesOrigin = pagesHostedOriginFromCnameText(readPagesCnameFile());
+  const pingBody = buildPingBody();
   return (req, res) => {
     // BEAUDIT E1/G2/G3: one Host gate for every route. A DNS-rebound page
     // connects to loopback with its own name in Host; it gets nothing here,
@@ -2740,15 +2813,15 @@ function createRequestHandler({
     // knows local origins — the Host gate above already ran.
     if (pathname === "/__proxy/ping") {
       if (req.method === "OPTIONS") {
-        if (!isPingAllowedOrigin(req)) {
+        if (!isPingAllowedOrigin(req, pagesOrigin)) {
           denyNonLocalControl(res);
           return;
         }
-        res.writeHead(204, pingPreflightHeaders(req));
+        res.writeHead(204, pingPreflightHeaders(req, pagesOrigin));
         res.end();
         return;
       }
-      handlePing(req, res);
+      handlePing(req, res, pagesOrigin, pingBody);
       return;
     }
 
