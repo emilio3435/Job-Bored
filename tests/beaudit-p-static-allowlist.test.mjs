@@ -27,6 +27,9 @@ const SERVED = [
   "docs/SELF-HOSTING.md",
   "integrations/apps-script/Code.gs",
   "integrations/browser-use-discovery/README.md",
+  // The lone server/ exception: B3's serverless fallback loads it as a
+  // classic script. Named one by one — the rest of server/ stays dark.
+  "server/profile-draft-shared.js",
 ];
 
 const REFUSED = [
@@ -38,6 +41,7 @@ const REFUSED = [
   "integrations/hermes-job-hunt/resume-template/uploads/me.png",
   "dev-server.mjs",
   "server/index.mjs",
+  "server/profile-from-resume.mjs",
   "scripts/lib/static-path-guard.mjs",
   "start.sh",
   "redact_secrets.py",
