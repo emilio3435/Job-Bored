@@ -223,6 +223,19 @@
     const mime = guessMime(file);
     const name = (file.name || "").toLowerCase();
 
+    // GFX B3-2: an old Word file has no parser here. guessMime folds
+    // application/msword into .docx, so check the name and raw type first.
+    if (
+      name.endsWith(".doc") ||
+      (file.type === "application/msword" && !name.endsWith(".docx"))
+    ) {
+      throw new Error(
+        "That's an older Word file (.doc), which JobBored can't read. In " +
+          "Word, choose File → Save As → Word Document (.docx) and drop " +
+          "that in, or paste the text below.",
+      );
+    }
+
     if (mime === "application/pdf" || name.endsWith(".pdf")) {
       return extractTextFromPdf(buf);
     }
