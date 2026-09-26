@@ -592,12 +592,52 @@
   }
 
   /**
+   * GFX D2 / R11: is this page served from somewhere other than this
+   * computer (the hosted site, a file:// copy)? Such a page gets the
+   * route-to-local screen instead of Beat 1 and writes no onboarding state.
+   * Harnesses and partial boots with no readable address are not hosted —
+   * only a page whose hostname is known and non-loopback is.
+   */
+  function hostedPage() {
+    const ls = window.JobBoredLocalServer;
+    if (!ls || typeof ls.isLoopbackPage !== "function") return false;
+    let loc = null;
+    try {
+      loc = window.location || null;
+    } catch (e) {
+      return false;
+    }
+    if (!loc) return false;
+    if (String(loc.protocol || "") === "file:") return true;
+    let hostname = asString(loc.hostname);
+    if (!hostname && loc.origin) {
+      try {
+        hostname = new URL(String(loc.origin)).hostname;
+      } catch (e) {
+        hostname = "";
+      }
+    }
+    if (!hostname) return false;
+    return !ls.isLoopbackPage({ hostname });
+  }
+
+  /** Paint the route-to-local screen; null when it is not loaded. */
+  function showRouteToLocal() {
+    const screen = window.JobBoredOneFlowRouteLocal;
+    if (!screen || typeof screen.show !== "function") return null;
+    return screen.show({ mountId: MOUNT_ID });
+  }
+
+  /**
    * Should the one-flow run for this profile? Resolves false for anyone
    * who already finished setup under the legacy chain (or under this
    * flow), recording the completion so the question is only asked once.
    * Renders nothing either way.
    */
   async function maybeStart() {
+    // D2: a hosted page always "starts" — open() shows it the route to
+    // JobBored on this computer — and never reads or writes flow state.
+    if (hostedPage()) return true;
     await hydrate();
     // Only a host that CAN answer "no sheet" makes a completion stale.
     const stale = sheetConfigured() === false;
@@ -970,6 +1010,8 @@
    * a refresh or a re-entry from the S0 card never restarts the deal.
    */
   async function open(beatId, options) {
+    // D2 / R11: before ANY beat, and before anything below writes state.
+    if (hostedPage()) return showRouteToLocal();
     // S0 reads once to label its invitation, but state may have changed in
     // storage since that paint (for example, another entry point saved a
     // beat). Re-read on entry so the saved target and its gate use current
