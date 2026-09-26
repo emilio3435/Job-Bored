@@ -571,38 +571,39 @@
   color: var(--jb-ink-3, var(--text-faint));
 }
 
-/* ---------- B1 Connect Google (spec §5 B1) ---------- */
+/* ---------- B1 Connect Google (spec §5 B1) ----------
+   Every B1 rule hangs off .oneflow-google (0,2,0), so no element rule
+   from the jb-v2 sheets can out-rank it (the cascade trap). */
 
-/* The Cloud Console detour. Collapsed by default and visually quieter
-   than the primary path: it is a ten-minute chore for a minority, and
-   putting it in the foreground is what made the old gate feel like a
-   credential wall instead of a product. */
+/* The Cloud Console detour. Open by default only when there is no Client
+   ID (GFX G1), and visually quieter than the primary path: a returning
+   user should never read it as a credential wall. */
 
-.oneflow-google__detour {
+.oneflow-google .oneflow-google__detour {
   border: 1px solid var(--jb-line, var(--border));
-  border-radius: 12px;
+  border-radius: var(--jb-radius-md, 10px);
   padding: var(--space-3) var(--space-4);
   background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
 }
 
-.oneflow-google__detour-summary {
+.oneflow-google .oneflow-google__detour-summary {
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--jb-navy, var(--text));
 }
 
-.oneflow-google__detour-lede,
-.oneflow-google__detour-foot,
-.oneflow-google__detour-failing-note {
+.oneflow-google .oneflow-google__detour-lede,
+.oneflow-google .oneflow-google__detour-foot,
+.oneflow-google .oneflow-google__detour-failing-note {
   margin: var(--space-3) 0 0;
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-google__detour-origin,
-.oneflow-google__detour-failing-origin {
+.oneflow-google .oneflow-google__detour-origin,
+.oneflow-google .oneflow-google__detour-failing-origin {
   display: flex;
   align-items: center;
   flex-wrap: wrap;
@@ -611,20 +612,22 @@
   font-size: var(--text-sm);
 }
 
-.oneflow-google__detour-origin code,
-.oneflow-google__detour-failing-origin code {
+.oneflow-google .oneflow-google__detour-origin code,
+.oneflow-google .oneflow-google__detour-failing-origin code {
   padding: 2px 6px;
-  border-radius: 6px;
+  border-radius: var(--jb-radius-sm, 6px);
   background: var(--jb-paper, var(--surface));
   border: 1px solid var(--jb-line, var(--border));
+  font-family: var(--jb-font-mono, monospace);
   font-size: var(--text-xs);
   word-break: break-all;
 }
 
-.oneflow-google__detour-copy,
-.oneflow-google__client-id-save {
+.oneflow-google .oneflow-google__detour-copy,
+.oneflow-google .oneflow-google__client-id-save {
+  min-height: 28px;
   padding: 4px 10px;
-  border-radius: 8px;
+  border-radius: var(--jb-radius-sm, 8px);
   border: 1px solid var(--jb-line, var(--border));
   background: var(--jb-paper, var(--surface));
   color: var(--jb-navy, var(--text));
@@ -634,22 +637,89 @@
   cursor: pointer;
 }
 
-.oneflow-google__detour-link {
-  display: inline-block;
-  margin-top: var(--space-3);
-  font-size: var(--text-sm);
-  font-weight: 600;
+.oneflow-google .oneflow-google__client-id-save {
+  margin-top: var(--space-2);
 }
 
-.oneflow-google__detour-steps {
-  margin: var(--space-3) 0 0;
-  padding-left: 1.25em;
+/* The six steps ARE a sequence, so they keep their numbers — set in a
+   quiet disc on the left, the Console link directly under each step so
+   the user never hunts for the page the step names (GFX G3). */
+.oneflow-google .oneflow-google__detour-steps {
+  counter-reset: jb-detour-step;
+  list-style: none;
+  margin: var(--space-4) 0 0;
+  padding: 0;
   display: flex;
   flex-direction: column;
-  gap: var(--space-2);
+  gap: var(--space-3);
+}
+
+.oneflow-google .oneflow-google__detour-step {
+  counter-increment: jb-detour-step;
+  position: relative;
+  padding-left: 2rem;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-google .oneflow-google__detour-step::before {
+  content: counter(jb-detour-step);
+  position: absolute;
+  left: 0;
+  top: 1px;
+  width: 1.375rem;
+  height: 1.375rem;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: var(--text-xs);
+  font-weight: 700;
+  color: var(--jb-navy, var(--text));
+  background: var(--jb-paper, var(--surface));
+  border: 1px solid var(--jb-line, var(--border));
+}
+
+.oneflow-google .oneflow-google__detour-step-link,
+.oneflow-google .oneflow-google__sheet-link {
+  align-self: flex-start;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--jb-action, var(--accent));
+  text-underline-offset: 2px;
+}
+
+.oneflow-google .oneflow-google__sheet-link {
+  font-size: var(--text-sm);
+}
+
+.oneflow-google .oneflow-google__detour-trouble {
+  margin-top: var(--space-3);
+}
+
+.oneflow-google .oneflow-google__detour-trouble > summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-google .oneflow-google__privacy {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-google .oneflow-google__connected {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-ink, var(--text));
 }
 
 .oneflow-google__client-id,
@@ -675,6 +745,185 @@
   font-size: var(--text-sm);
   line-height: 1.5;
   color: var(--jb-ink-2, var(--text-muted));
+}
+
+/* ---------- Route to local (GFX D2 / D8) ----------
+   A hosted page's first and only screen. It is a LADDER, not a form:
+   three ways onto this computer, in fallback order, hung on one rail.
+   The first rung is the footer's primary (Open JobBored); the next two
+   stay quiet until detection finds no signal, then step forward
+   (.oneflow-route-local--fallback). Everything is scoped under
+   .oneflow-route-local (0,2,0+) against the jb-v2 cascade trap. */
+
+/* The screen comes before the six beats, so the chassis' spine (kept
+   only for the one-flow look) shows nothing. */
+.discovery-setup-wizard:has(.oneflow-route-local) .discovery-setup-wizard__spine-wrap {
+  display: none;
+}
+
+/* This screen's primaries are LINKS (Download, Go to JobBored), and
+   `body.jb-v2 a` (0,1,1) repaints a link-shaped button in mint-deep on
+   mint — 2:1. Give it back the on-accent navy every primary uses. */
+.discovery-setup-wizard:has(.oneflow-route-local) a.discovery-setup-wizard__btn--primary,
+.discovery-setup-wizard:has(.oneflow-route-local) a.discovery-setup-wizard__btn--primary:hover {
+  color: var(--jb-on-accent, var(--text));
+  text-decoration: none;
+}
+
+.oneflow-route-local {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-4);
+}
+
+.oneflow-route-local .oneflow-route-local__ladder {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  position: relative;
+}
+
+/* The rail: one hairline joining the rung nodes. */
+.oneflow-route-local .oneflow-route-local__ladder::before {
+  content: "";
+  position: absolute;
+  left: 7px;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  background: var(--jb-line-soft, var(--border));
+}
+
+.oneflow-route-local .oneflow-route-local__rung {
+  position: relative;
+  padding: var(--space-3) var(--space-3) var(--space-3) 2rem;
+  border-radius: var(--jb-radius-md, 10px);
+  transition: background-color var(--jb-duration-base, 200ms) ease;
+}
+
+.oneflow-route-local .oneflow-route-local__rung::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: calc(var(--space-3) + 4px);
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  box-sizing: border-box;
+  border: 2px solid var(--jb-line, var(--border));
+  background: var(--jb-paper, var(--surface));
+}
+
+.oneflow-route-local .oneflow-route-local__rung--open::before {
+  border-color: var(--jb-action, var(--accent));
+  background: var(--jb-action, var(--accent));
+}
+
+.oneflow-route-local .oneflow-route-local__rung-title {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--jb-ink, var(--text));
+}
+
+.oneflow-route-local .oneflow-route-local__rung-body {
+  margin: 2px 0 0;
+  max-width: 60ch;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-route-local .oneflow-route-local__download {
+  display: inline-block;
+  margin-top: var(--space-2);
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-action, var(--accent));
+  text-underline-offset: 2px;
+}
+
+/* The command reads like a line in a terminal: mono, on the page's
+   deepest paper, with its Copy button welded to the right edge. */
+.oneflow-route-local .oneflow-route-local__command {
+  display: flex;
+  align-items: stretch;
+  margin-top: var(--space-2);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-sm, 6px);
+  background: var(--jb-paper-3, var(--surface));
+  overflow: hidden;
+}
+
+.oneflow-route-local .oneflow-route-local__command-field {
+  flex: 1 1 auto;
+  min-width: 0;
+  padding: var(--space-2) var(--space-3);
+  border: 0;
+  background: transparent;
+  color: var(--jb-ink, var(--text));
+  font-family: var(--jb-font-mono, monospace);
+  font-size: var(--text-xs);
+  text-overflow: ellipsis;
+}
+
+.oneflow-route-local .oneflow-route-local__command-field:focus-visible {
+  outline: 2px solid var(--jb-focus-color, var(--jb-action));
+  outline-offset: -2px;
+}
+
+.oneflow-route-local .oneflow-route-local__copy {
+  flex: 0 0 auto;
+  min-width: 64px;
+  padding: 0 var(--space-3);
+  border: 0;
+  border-left: 1px solid var(--jb-line, var(--border));
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
+  font: inherit;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.oneflow-route-local .oneflow-route-local__copy:hover {
+  background: var(--jb-paper-2, var(--surface));
+}
+
+/* No signal: the lower rungs step forward. */
+.oneflow-route-local--fallback .oneflow-route-local__rung--download,
+.oneflow-route-local--fallback .oneflow-route-local__rung--command {
+  background: var(--jb-mint-tint, var(--surface));
+}
+
+.oneflow-route-local--fallback .oneflow-route-local__rung--download::before,
+.oneflow-route-local--fallback .oneflow-route-local__rung--command::before {
+  border-color: var(--jb-accent-ink, var(--accent));
+}
+
+.oneflow-route-local--fallback .oneflow-route-local__rung--open::before {
+  background: var(--jb-paper, var(--surface));
+  border-color: var(--jb-line, var(--border));
+}
+
+.oneflow-route-local .oneflow-route-local__note {
+  margin: 0;
+  padding: var(--space-2) var(--space-3);
+  border-radius: var(--jb-radius-sm, 6px);
+  background: var(--jb-warn-tint, var(--surface));
+  color: var(--jb-warn, var(--text));
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.5;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .oneflow-route-local .oneflow-route-local__rung {
+    transition: none;
+  }
 }
 
 /* ---------- B2 Give it a brain (spec §5 B2) ---------- */

@@ -6,14 +6,21 @@
    and owning a Sheet stop being two chapters.
    Everything it does is a CALL into a surface that already exists —
 
-     · auth-session.js  signIn()      — the OAuth dance, unforked;
+     · auth-session.js  signIn()      — the OAuth dance, unforked, and
+         isGoogleSignInReady()         — whether Google's script loaded;
      · sheet-access-setup.js
-         handleSetupCreateStarterSheet — the starter-sheet POST, its
-                                         config write, and its retries;
-     · first-run-wizard.js
-         verifyExistingSheetAccess     — the secondary path's validation;
+         handleSetupCreateStarterSheet — the starter-sheet create and its
+                                         config write; answers
+                                         { ok:false, reason:"scope_missing" }
+                                         when the Sheets box was unticked;
+         verifyExistingSheetAccess     — the secondary path's validation
+                                         (window.JobBoredApp.setup);
      · config-overrides.js
          mergeStoredConfigOverridePatch — the one override store.
+
+   A page not served from this computer never reaches this beat:
+   onboarding-flow.js hands it to oneflow-route-local.js first (GFX D2).
+   Copy follows docs/COPY.md: one name per concept ("Client ID").
 
    What is new here is the SHAPE: one screen, live stages instead of a
    silent wait, and failures that reach the message slot (§3.5.2).
@@ -27,8 +34,8 @@
   const HEADLINE = "Your pipeline lives in a Google Sheet you own.";
 
   const SUB =
-    "Sign in and we'll create it for you. Nothing is stored on our side " +
-    "— there is no 'our side.'";
+    "Sign in and we'll create it for you. JobBored has no server that sees " +
+    "your data.";
 
   const ACTION_CONTINUE = "google_continue";
   const ACTION_USE_EXISTING = "google_use_existing";
@@ -37,6 +44,35 @@
 
   const SHEET_URL_INPUT_ID = "oneFlowSheetUrlInput";
   const CLIENT_ID_INPUT_ID = "oneFlowOauthClientIdInput";
+
+  const SHEETS_SCOPE = "https://www.googleapis.com/auth/spreadsheets";
+
+  /** B1-N2: the Sheets box was left unticked on Google's consent screen. */
+  const SCOPE_MISSING_MESSAGE =
+    "Google signed you in without Sheets access. Press Continue with " +
+    "Google and tick 'See, edit, create… Google Sheets'.";
+
+  /** B1-N3: accounts.google.com never loaded (usually a blocker). */
+  const GSI_BLOCKED_MESSAGE =
+    "Google's sign-in script hasn't loaded. If you use an ad or tracker " +
+    "blocker, allow accounts.google.com, then reload.";
+
+  /** B1-N4: connect-existing failures, one sentence per reason. */
+  const EXISTING_SHEET_ERRORS = Object.freeze({
+    access_denied:
+      "Google won't let this account open that sheet. Sign in as the " +
+      "sheet's owner, or ask them to share it with you, then try again.",
+    headers_unreadable:
+      "JobBored can open that sheet but can't read a tab named Pipeline. " +
+      "Name the tab with your jobs Pipeline, then try again.",
+    no_token:
+      "Your Google sign-in ended before the check. Press the button again " +
+      "to sign in and connect this sheet.",
+  });
+
+  const EXISTING_SHEET_FALLBACK =
+    "Couldn't read that sheet. Check it's shared with the account you " +
+    "signed in as and that it has a Pipeline tab, then try again.";
 
   /** GREENFIELD-SPEC §4.4 — locked copy for the no-Client-ID state. */
   const DETOUR_PROMPT = "Paste your Client ID to continue.";
@@ -55,9 +91,14 @@
     sheetUrlDraft: "",
     clientIdDraft: "",
     stages: [],
-    // Collapsed at first, but a repaint must preserve a user's choice or
-    // keep it open after an invalid Client ID or a missing Client ID.
-    detourOpen: false,
+    // null until the user or a failure decides; then a repaint must keep
+    // that choice. Unset, it follows G1: open when there is no Client ID.
+    detourOpen: null,
+    // B1-N2: Google signed in without the Sheets box ticked. The next
+    // Continue click re-asks with consent, synchronously in the gesture.
+    scopeMissing: false,
+    // One create at a time; a second click mid-create is ignored.
+    inFlight: false,
   };
 
   // Live field references, refreshed on every render. The draft mirrors
@@ -107,6 +148,67 @@
           ? h.getSHEET_ID
           : null;
     return getter ? String(getter() || "").trim() : "";
+  }
+
+  /**
+   * G16: the link B1 renders as "Open your sheet ↗" and B6 reuses. The
+   * creator's own URL when this session made the sheet, else the Sheets
+   * URL of the configured id. Never opened with window.open: a link the
+   * user clicks is never popup-blocked.
+   */
+  function sheetUrl(ctx) {
+    const carried =
+      ctx && ctx.runtime && ctx.runtime.sheetUrl
+        ? String(ctx.runtime.sheetUrl).trim()
+        : "";
+    if (/^https:\/\/docs\.google\.com\//.test(carried)) return carried;
+    const id = currentSheetId();
+    return id
+      ? `https://docs.google.com/spreadsheets/d/${encodeURIComponent(id)}/edit`
+      : "";
+  }
+
+  function sheetLink(ctx) {
+    const href = sheetUrl(ctx);
+    if (!href) return null;
+    return el(
+      "a",
+      "oneflow-google__sheet-link",
+      { href, target: "_blank", rel: "noopener" },
+      "Open your sheet ↗",
+    );
+  }
+
+  /**
+   * B1-N3: has Google's sign-in script loaded? BE-CORE exposes
+   * isGoogleSignInReady() on the host; until then a token client is the
+   * same evidence. A host that can answer neither is not second-guessed.
+   */
+  function googleSignInReady() {
+    const h = host();
+    if (!h) return false;
+    try {
+      if (typeof h.isGoogleSignInReady === "function") {
+        return !!h.isGoogleSignInReady();
+      }
+      if (typeof h.getTokenClient === "function") return !!h.getTokenClient();
+    } catch (_) {
+      return false;
+    }
+    return true;
+  }
+
+  /** B1-N2: did the grant include Sheets? Unknown (no helper) reads as yes. */
+  function sheetsScopeGranted() {
+    const h = host();
+    if (!h || typeof h.hasGrantedOauthScope !== "function") return true;
+    const scope =
+      String(call("getGoogleSheetsScope") || "").trim() || SHEETS_SCOPE;
+    try {
+      return !!h.hasGrantedOauthScope(scope);
+    } catch (_) {
+      return true;
+    }
   }
 
   function signedIn() {
@@ -244,28 +346,80 @@
   }
 
   // ---------------------------------------------------------------
-  // The first-timer detour (spec §5 B1). A collapsed `details`, an
-  // honest ten minutes, the consent screen kept, the Drive API step
-  // gone (JobBored never touches Drive), and NO gcloud button until
-  // oauth-bootstrap.mjs mints a real Web-application client.
+  // The first-timer detour (spec §5 B1). Open by default when there is no
+  // Client ID (G1), an honest ten minutes, every step linked to its
+  // Console page (G3), the Drive API step gone (JobBored never touches
+  // Drive), and NO gcloud button until oauth-bootstrap.mjs mints a real
+  // Web-application client.
   // ---------------------------------------------------------------
 
+  const CONSOLE = "https://console.cloud.google.com";
+
   const DETOUR_STEPS = [
-    "In Google Cloud Console, create or pick a project (top bar → project " +
-      "picker → New project).",
-    "Configure the OAuth consent screen (APIs & Services → OAuth consent " +
-      "screen). Pick External, fill in an app name and your email, save. Add " +
-      "yourself as a test user under Audience. When you sign in you'll still " +
-      "see \"Google hasn't verified this app\" — it's your own app; click " +
-      "Advanced → Go to JobBored.",
-    "Enable the Google Sheets API for the project (APIs & Services → Library " +
-      "→ search → Enable).",
-    "Open Credentials → Create credentials → OAuth client ID → application " +
-      "type Web application.",
-    "Under Authorized JavaScript origins, click Add URI and paste this page's " +
-      "origin. Leave redirect URIs empty — JobBored doesn't use them.",
-    "Click Create. Google shows your Client ID — paste it below.",
+    {
+      text: "Create a project in Google Cloud Console. Any name works.",
+      href: `${CONSOLE}/projectcreate`,
+      label: "New project",
+    },
+    {
+      text:
+        "Set up the OAuth consent screen: pick External, name the app " +
+        "JobBored, and add your email. Under Audience, add yourself as a " +
+        "test user. When you sign in you'll see \"Google hasn't verified " +
+        "this app\" — it's your own app, so click Advanced → Go to " +
+        "JobBored (unsafe).",
+      href: `${CONSOLE}/apis/credentials/consent`,
+      label: "OAuth consent screen",
+    },
+    {
+      text:
+        "Under Data access, add the scope " +
+        ".../auth/spreadsheets (See, edit, create and delete your Google " +
+        "Sheets spreadsheets).",
+      href: `${CONSOLE}/auth/scopes`,
+      label: "Data access",
+    },
+    {
+      text: "Enable the Google Sheets API for the project.",
+      href: `${CONSOLE}/apis/library/sheets.googleapis.com`,
+      label: "Google Sheets API",
+    },
+    {
+      text:
+        "Create an OAuth client ID with application type Web application. " +
+        "Under Authorized JavaScript origins, add this page's address " +
+        "(below). Leave redirect URIs empty — JobBored doesn't use them.",
+      href: `${CONSOLE}/apis/credentials/oauthclient`,
+      label: "Create OAuth client ID",
+    },
+    {
+      text: "Click Create. Google shows your Client ID — paste it below.",
+      href: `${CONSOLE}/apis/credentials`,
+      label: "Credentials",
+    },
   ];
+
+  function detourIsOpen() {
+    return state.detourOpen == null ? !oauthClientId() : state.detourOpen;
+  }
+
+  function renderDetourSteps() {
+    const list = el("ol", "oneflow-google__detour-steps");
+    for (const step of DETOUR_STEPS) {
+      const item = el("li", "oneflow-google__detour-step");
+      item.appendChild(el("span", "oneflow-google__detour-step-text", {}, step.text));
+      item.appendChild(
+        el(
+          "a",
+          "oneflow-google__detour-step-link",
+          { href: step.href, target: "_blank", rel: "noopener" },
+          `${step.label} ↗`,
+        ),
+      );
+      list.appendChild(item);
+    }
+    return list;
+  }
 
   function renderDetour(ctx) {
     // An origin/client failure deep-opens this beat (auth-session.js): the
@@ -273,7 +427,7 @@
     const failingOrigin = failingOriginFromCtx(ctx);
     if (failingOrigin) state.detourOpen = true;
     const details = el("details", "oneflow-google__detour");
-    if (state.detourOpen) details.open = true;
+    if (detourIsOpen()) details.open = true;
     details.addEventListener("toggle", () => {
       state.detourOpen = !!details.open;
     });
@@ -282,7 +436,7 @@
         "summary",
         "oneflow-google__detour-summary",
         {},
-        "First time? You'll need a free Google app key",
+        "First time? Make a free Google Client ID",
       ),
     );
     details.appendChild(
@@ -290,9 +444,9 @@
         "p",
         "oneflow-google__detour-lede",
         {},
-        "Google needs a free \"app key\" (it calls it a Client ID) that " +
-          "proves this copy of JobBored is yours. Making one takes about 10 " +
-          "minutes and it is genuinely tedious. You only ever do this once.",
+        "You make a free ID that proves this copy of JobBored is yours. " +
+          "Google calls it a Client ID. It takes about 10 minutes, and you " +
+          "only do it once.",
       ),
     );
     // The rejected address renders FIRST with the same Copy control as the
@@ -324,11 +478,12 @@
         ),
       );
     }
+    details.appendChild(renderDetourSteps());
     const originValue = origin();
     if (originValue && originValue !== failingOrigin) {
       const originRow = el("p", "oneflow-google__detour-origin");
       originRow.appendChild(
-        el("span", "oneflow-google__detour-origin-label", {}, "This page's origin: "),
+        el("span", "oneflow-google__detour-origin-label", {}, "This page's address: "),
       );
       originRow.appendChild(el("code", "", {}, originValue));
       const copy = el(
@@ -343,23 +498,16 @@
       originRow.appendChild(copy);
       details.appendChild(originRow);
     }
+    // G11: Google matches the origin exactly.
     details.appendChild(
       el(
-        "a",
-        "oneflow-google__detour-link",
-        {
-          href: "https://console.cloud.google.com/apis/credentials",
-          target: "_blank",
-          rel: "noopener",
-        },
-        "Open Google Cloud Console ↗",
+        "p",
+        "oneflow-google__detour-foot",
+        {},
+        "Google treats localhost and 127.0.0.1 as different addresses. Add " +
+          "the one in your address bar, or add both.",
       ),
     );
-    const list = el("ol", "oneflow-google__detour-steps");
-    for (const step of DETOUR_STEPS) {
-      list.appendChild(el("li", "", {}, step));
-    }
-    details.appendChild(list);
 
     const input = el("input", "oneflow-google__client-id", {
       id: CLIENT_ID_INPUT_ID,
@@ -368,7 +516,7 @@
       spellcheck: false,
       placeholder: "xxxx.apps.googleusercontent.com",
       value: state.clientIdDraft,
-      "aria-label": "Your Google app key (Client ID)",
+      "aria-label": "Your Google Client ID",
     });
     input.addEventListener("input", () => {
       state.clientIdDraft = String(input.value || "");
@@ -404,6 +552,17 @@
         {},
         "If Google shows redirect_uri_mismatch, the app type was wrong — " +
           "recreate the Client ID as a Web application.",
+      ),
+    );
+    // G12: a missing test user is Google's 403, not a JobBored bug.
+    trouble.appendChild(
+      el(
+        "p",
+        "oneflow-google__detour-foot",
+        {},
+        "If Google shows \"Error 403: access_denied\", your Google account " +
+          "isn't a test user yet — add it under Audience → Test users, " +
+          "then press Continue with Google again.",
       ),
     );
     trouble.appendChild(
@@ -492,6 +651,11 @@
     return panel;
   }
 
+  /** The date sheet-access-setup.js stamps into the created sheet's name. */
+  function todayStamp() {
+    return new Date().toISOString().slice(0, 10);
+  }
+
   function render(container, ctx) {
     lastCtx = ctx;
     const body = el("div", "oneflow-google");
@@ -504,24 +668,38 @@
       // told "we'll create it for you" — Continue finishes the beat without
       // making a second sheet (continueWithGoogle's own exit condition).
       const email = userEmail();
-      body.appendChild(
-        el(
-          "p",
-          "oneflow-google__connected",
-          {},
-          email
-            ? `Signed in as ${email} · Sheet connected ✓`
-            : "Signed in · Sheet connected ✓",
-        ),
+      const connected = el(
+        "p",
+        "oneflow-google__connected",
+        {},
+        email
+          ? `Signed in as ${email} · Sheet connected ✓`
+          : "Signed in · Sheet connected ✓",
       );
+      body.appendChild(connected);
+      const link = sheetLink(ctx);
+      if (link) body.appendChild(link);
     } else {
+      // B1-N1 + G15: the three permissions Google actually asks for, what
+      // the Sheets one covers, and the name of the sheet it creates.
       body.appendChild(
         el(
           "p",
           "oneflow-google__privacy",
           {},
-          "We ask for one permission: your Google Sheets. The sheet is created " +
-            "in your Drive, owned by you, and readable only by you.",
+          "Google will ask to let JobBored see and edit your Google Sheets, " +
+            "and read your name and email. JobBored only opens the sheet it " +
+            `creates or the one you paste. It creates a sheet named ` +
+            `“JobBored Pipeline ${todayStamp()}” in your Drive, owned by you.`,
+        ),
+      );
+      body.appendChild(
+        el(
+          "p",
+          "oneflow-google__privacy",
+          {},
+          "Your sign-in lasts for this tab only; your Client ID and Sheet " +
+            "link are saved in this browser.",
         ),
       );
       body.appendChild(renderDetour(ctx));
@@ -551,6 +729,25 @@
     });
   }
 
+  /** After a consent re-ask: wait until the grant includes Sheets. */
+  function waitForSheetsGrant() {
+    return new Promise((resolve) => {
+      const deadline = Date.now() + SIGN_IN_TIMEOUT_MS;
+      const tick = () => {
+        if (signedIn() && sheetsScopeGranted()) {
+          resolve(true);
+          return;
+        }
+        if (Date.now() >= deadline) {
+          resolve(false);
+          return;
+        }
+        setTimeout(tick, SIGN_IN_POLL_MS);
+      };
+      tick();
+    });
+  }
+
   function signedInStage(state_) {
     const email = userEmail();
     return {
@@ -559,12 +756,23 @@
     };
   }
 
-  async function continueWithGoogle(ctx) {
+  /**
+   * B1-N2: the grant came back without Sheets. Say what to tick, and arm
+   * the next click to re-ask with consent inside its own gesture.
+   */
+  function reportScopeMissing(ctx) {
+    state.scopeMissing = true;
+    clearStages(ctx);
+    repaint(ctx, SCOPE_MISSING_MESSAGE, "error");
+  }
+
+  function continueWithGoogle(ctx) {
     if (!host()) {
       clearStages(ctx);
       repaint(ctx, "JobBored is still starting up. Reload the page and try again.", "error");
-      return;
+      return undefined;
     }
+    if (state.inFlight) return undefined;
 
     // No Client ID: Google cannot sign anyone in, so asking is the dead end
     // (GREENFIELD-SPEC §1 F4). The detour right here on the beat is the
@@ -573,17 +781,46 @@
       state.detourOpen = true;
       repaint(ctx, DETOUR_PROMPT, "info");
       focusClientIdSoon();
-      return;
+      return undefined;
     }
 
-    if (!signedIn()) {
+    // B1-N3: a blocked accounts.google.com is named now, not after a
+    // two-minute wait that blames popups.
+    if (!signedIn() && !googleSignInReady()) {
+      clearStages(ctx);
+      repaint(ctx, GSI_BLOCKED_MESSAGE, "error");
+      return undefined;
+    }
+
+    // B1-N2: consent is requested HERE, synchronously, while the click is
+    // still a user gesture — after an await the popup would be blocked.
+    let reconsent = false;
+    if (state.scopeMissing) {
+      state.scopeMissing = false;
+      reconsent = true;
+      setStages(ctx, [
+        { label: "Waiting for Google to grant Sheets access…", state: "active" },
+        { label: "Creating your Pipeline sheet…", state: "todo" },
+        { label: "Sheet ready ✓", state: "todo" },
+      ]);
+      call("signIn", { prompt: "consent" });
+    } else if (!signedIn()) {
       setStages(ctx, [
         { label: "Waiting for Google sign-in…", state: "active" },
         { label: "Creating your Pipeline sheet…", state: "todo" },
         { label: "Sheet ready ✓", state: "todo" },
       ]);
       call("signIn");
-      const ok = await waitForSignIn();
+    }
+    state.inFlight = true;
+    return finishContinue(ctx, reconsent).finally(() => {
+      state.inFlight = false;
+    });
+  }
+
+  async function finishContinue(ctx, reconsent) {
+    if (reconsent || !signedIn()) {
+      const ok = reconsent ? await waitForSheetsGrant() : await waitForSignIn();
       if (!ok) {
         clearStages(ctx);
         repaint(
@@ -607,6 +844,13 @@
       return;
     }
 
+    // Checked before the create: the creator would otherwise re-ask for
+    // consent outside the click, where Google's popup is blocked.
+    if (!sheetsScopeGranted()) {
+      reportScopeMissing(ctx);
+      return;
+    }
+
     setStages(ctx, [
       signedInStage("done"),
       { label: "Creating your Pipeline sheet…", state: "active" },
@@ -614,18 +858,29 @@
     ]);
 
     let creatorError = "";
+    let result;
     try {
-      await call("handleSetupCreateStarterSheet", {
+      result = await call("handleSetupCreateStarterSheet", {
         context: "wizard",
         onStatus(message, isError) {
           if (isError) creatorError = String(message || "");
         },
-        onCreated() {
-          /* the sheet id is read back from the host below */
+        onCreated(created) {
+          // G16: kept on the flow's runtime so B6 links the same sheet.
+          const url =
+            created && created.spreadsheetUrl
+              ? String(created.spreadsheetUrl).trim()
+              : "";
+          if (url && ctx && ctx.runtime) ctx.runtime.sheetUrl = url;
         },
       });
     } catch (err) {
       creatorError = String((err && err.message) || err || "");
+    }
+
+    if (result && result.ok === false && result.reason === "scope_missing") {
+      reportScopeMissing(ctx);
+      return;
     }
 
     if (!currentSheetId()) {
@@ -664,6 +919,11 @@
           "URL from your browser's address bar.",
         "error",
       );
+      return;
+    }
+
+    if (!signedIn() && !googleSignInReady()) {
+      repaint(ctx, GSI_BLOCKED_MESSAGE, "error");
       return;
     }
 
@@ -715,10 +975,12 @@
     clearStages(ctx);
 
     if (!result || !result.ok) {
+      const reason = result && typeof result.reason === "string" ? result.reason : "";
       repaint(
         ctx,
-        "Couldn't read that sheet. Check it's shared with the account you " +
-          "signed in as and that it has a Pipeline tab, then try again.",
+        Object.prototype.hasOwnProperty.call(EXISTING_SHEET_ERRORS, reason)
+          ? EXISTING_SHEET_ERRORS[reason]
+          : EXISTING_SHEET_FALLBACK,
         "error",
       );
       return;
@@ -791,6 +1053,10 @@
     HEADLINE,
     SUB,
     DETOUR_PROMPT,
+    DETOUR_STEPS,
+    SCOPE_MISSING_MESSAGE,
+    GSI_BLOCKED_MESSAGE,
+    EXISTING_SHEET_ERRORS,
     handleAction,
     getRenderedStages() {
       return state.stages.slice();

@@ -428,6 +428,8 @@ describe("B1 detour with a failing origin (oneflow-beat-google.js)", () => {
     text = text.replaceAll(/https?:\/\/\S+/g, "");
     // "Google Cloud Console" is the product's own name on its own button.
     text = text.replaceAll("Google Cloud Console", "");
+    // GFX G11: the one sentence that must name the address Google compares.
+    text = text.replaceAll("localhost and 127.0.0.1", "");
     assert.equal(
       /console|terminal|module|build|localhost/i.test(text),
       false,

@@ -61,7 +61,7 @@ const RESUME_FIT = "Resume setup — Your fit";
 const BEAT_ONE = {
   headline: "Your pipeline lives in a Google Sheet you own.",
   sub:
-    "Sign in and we'll create it for you. Nothing is stored on our side — there is no 'our side.'",
+    "Sign in and we'll create it for you. JobBored has no server that sees your data.",
 };
 
 /** Spec §3.5.1 — the six spine segments, in order. */

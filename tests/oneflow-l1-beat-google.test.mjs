@@ -45,8 +45,8 @@ describe("B1 Connect Google — the primary path (spec §5 B1)", () => {
     );
     assert.ok(
       text.includes(
-        "Sign in and we'll create it for you. Nothing is stored on our side " +
-          "— there is no 'our side.'",
+        "Sign in and we'll create it for you. JobBored has no server that " +
+          "sees your data.",
       ),
       "spec §5 B1 sub is normative",
     );
@@ -224,12 +224,12 @@ describe("B1 Connect Google — the first-timer detour (spec §5 B1, §10 Phase 
     assert.ok(details, "the Cloud Console walkthrough is a collapsed details, never a screen");
     assert.equal(details.tagName, "DETAILS");
     const text = renderedText(env.mount());
-    assert.ok(text.includes("First time? You'll need a free Google app key"));
+    assert.ok(text.includes("First time? Make a free Google Client ID"));
     assert.ok(
       /about 10 minutes/i.test(text),
       "voice rule §8.2: a 10-minute detour says 10 minutes",
     );
-    assert.ok(text.includes("You only ever do this once."));
+    assert.ok(text.includes("you only do it once."));
   });
 
   it("keeps the consent-screen step", async () => {

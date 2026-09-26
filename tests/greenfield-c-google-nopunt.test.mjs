@@ -177,10 +177,12 @@ describe("GREENFIELD C3 · Beat 1 with no Client ID opens its own detour", () =>
 
   it("opens the detour <details> so the guide is on screen, not behind a summary", async () => {
     const env = await openBeatOne({ oauthClientId: "" });
+    // GFX G1: with no Client ID the detour IS the next step, so it now
+    // starts open (it used to start collapsed and open on Continue).
     assert.equal(
       !!(detour(env) && detour(env).open),
-      false,
-      "it starts collapsed — the first-timer detour is opt-in",
+      true,
+      "it starts open when there is no Client ID (GFX G1)",
     );
 
     await env.beats.google.handleAction("google_continue");
