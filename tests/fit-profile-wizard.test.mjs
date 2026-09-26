@@ -10,6 +10,12 @@ const fitProfileWizardJs = readFileSync(
   join(repoRoot, "fit-profile-wizard.js"),
   "utf8",
 );
+// validateClientSide delegates to the shared schema module (N-B4-2), which
+// index.html loads before the wizard.
+const fitProfileSchemaJs = readFileSync(
+  join(repoRoot, "fit-profile-schema.js"),
+  "utf8",
+);
 
 // ============================================================
 // Behavioral coverage for fit-profile-wizard.js (classic-global IIFE).
@@ -233,6 +239,9 @@ function loadWizard({
     },
   };
   vm.createContext(ctx);
+  vm.runInContext(fitProfileSchemaJs, ctx, {
+    filename: "fit-profile-schema.js",
+  });
   vm.runInContext(fitProfileWizardJs, ctx, {
     filename: "fit-profile-wizard.js",
   });
@@ -501,8 +510,10 @@ describe("fit-profile-wizard — buildPayload canonicalizes the draft into schem
 describe("fit-profile-wizard — validateClientSide gates obviously-broken profiles before any POST", () => {
   function validPayload(form) {
     return {
+      version: 1,
       identity: {
         targetRoles: ["PM"],
+        targetSeniority: "any",
         primaryNarrative: "x".repeat(form.constants.NARRATIVE_MIN),
       },
       strengths: [{ name: "Strategy", rank: 1 }],
