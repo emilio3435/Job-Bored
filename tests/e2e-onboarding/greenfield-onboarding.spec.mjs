@@ -20,6 +20,9 @@ const CONFIG_EXAMPLE_SOURCE = readFileSync(
 const CLIENT_ID = "jobbored-onboarding-e2e.apps.googleusercontent.com";
 const ACCESS_TOKEN = "jobbored-onboarding-e2e-token";
 const OPENROUTER_KEY = "sk-or-jobbored-onboarding-e2e";
+// GFX D3: Gemini is the pre-selected B2 card, so the walk checks a Gemini key.
+const GEMINI_KEY = "AIza-jobbored-onboarding-e2e-fake";
+const GEMINI_ENV_KEY = "BROWSER_USE_DISCOVERY_GEMINI_API_KEY";
 const SERPAPI_KEY = "jobbored-onboarding-e2e-serpapi-key";
 const SHEET_ID = "jobboredOnboardingE2ESheet1234567890";
 const GOOGLE_SCOPES = [
@@ -158,6 +161,8 @@ async function installHermeticBoundaries(page) {
     sheetsReads: [],
     openrouterModels: [],
     openrouterChecks: [],
+    geminiChecks: [],
+    geminiEnvWrites: [],
     llmConfigPins: [],
     profileTemplates: [],
     profileWrites: [],
@@ -229,6 +234,14 @@ async function installHermeticBoundaries(page) {
 
     if (url.origin === baseUrl && url.pathname === "/__proxy/discovery-env-key") {
       const body = request.postDataJSON();
+      // GFX B2-4: B2's Gemini write-through, after the inline "Save it".
+      if (body?.key === GEMINI_ENV_KEY) {
+        calls.geminiEnvWrites.push(body);
+        if (method !== "POST") calls.violations.push(`Gemini env method ${method}`);
+        if (body?.value !== GEMINI_KEY) calls.violations.push("Gemini env payload");
+        await fulfillJson(route, { ok: true });
+        return;
+      }
       calls.discoveryEnvWrites.push(body);
       if (method !== "POST") calls.violations.push(`discovery env method ${method}`);
       if (body?.key !== "SERPAPI_API_KEY" || body?.value !== SERPAPI_KEY) {
@@ -401,6 +414,25 @@ async function installHermeticBoundaries(page) {
     }
 
     if (
+      url.origin === "https://generativelanguage.googleapis.com" &&
+      /^\/v1beta\/models\/[^/]+:generateContent$/.test(url.pathname)
+    ) {
+      if (method === "OPTIONS") {
+        await route.fulfill({ status: 204, headers: jsonHeaders() });
+        return;
+      }
+      const key = request.headers()["x-goog-api-key"] || "";
+      calls.geminiChecks.push({ method, path: url.pathname });
+      if (method !== "POST") calls.violations.push(`Gemini check method ${method}`);
+      if (key !== GEMINI_KEY) calls.violations.push("Gemini check key");
+      if (url.search) calls.violations.push("Gemini check put something in the URL query");
+      await fulfillJson(route, {
+        candidates: [{ content: { parts: [{ text: "ok" }] } }],
+      });
+      return;
+    }
+
+    if (
       url.origin === "https://openrouter.ai" &&
       url.pathname === "/api/v1/chat/completions"
     ) {
@@ -561,15 +593,29 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   expect(state.calls.sheetsCreate).toHaveLength(1);
   expect(state.calls.sheetsHeaders).toHaveLength(1);
 
-  const openrouter = beat(page, "ai").locator('[data-provider="openrouter"]');
-  await expect(openrouter).toHaveAttribute("aria-pressed", "true");
-  await beat(page, "ai")
-    .getByLabel("OpenRouter API key")
-    .fill(OPENROUTER_KEY);
+  // GFX D3: Gemini is first and pre-selected.
+  const gemini = beat(page, "ai").locator('[data-provider="gemini"]');
+  await expect(gemini).toHaveAttribute("aria-pressed", "true");
+  await beat(page, "ai").getByLabel("Gemini API key").fill(GEMINI_KEY);
   await page.getByRole("button", { name: "Check & continue" }).click();
+  // GFX B2-4 / B2-5: a passed check asks inline before anything is saved
+  // on this computer — no native dialog, no write yet.
+  await expect(
+    beat(page, "ai").getByText(
+      "Also save this key on this computer so drafting, scoring and discovery can use it?",
+      { exact: true },
+    ),
+  ).toBeVisible();
+  expect(state.calls.geminiChecks).toHaveLength(1);
+  expect(state.calls.llmConfigPins).toHaveLength(0);
+  expect(state.calls.geminiEnvWrites).toHaveLength(0);
+  await page.getByRole("button", { name: "Save it", exact: true }).click();
   await expect(beat(page, "resume")).toBeVisible();
-  expect(state.calls.openrouterChecks).toHaveLength(1);
   expect(state.calls.llmConfigPins).toHaveLength(1);
+  expect(state.calls.llmConfigPins[0].provider).toBe("gemini");
+  expect(state.calls.llmConfigPins[0].apiKey).toBe(GEMINI_KEY);
+  expect(state.calls.geminiEnvWrites).toHaveLength(1);
+  expect(state.calls.openrouterChecks).toHaveLength(0);
 
   await page
     .getByRole("button", { name: "I'd rather start from a template" })
@@ -619,7 +665,7 @@ test("VAL-ONEFLOW-001: six beats reach the payoff on a fresh install", async ({ 
   await expect(action(page, "payoff_connect_google")).toHaveCount(0);
   await expect(action(page, "payoff_fix_fit")).toHaveCount(0);
   await expect(beat(page, "payoff")).toContainText("Pipeline sheet connected");
-  await expect(beat(page, "payoff")).toContainText("AI connected — OpenRouter");
+  await expect(beat(page, "payoff")).toContainText("AI connected — Gemini");
 
   expectCleanRun(state);
 });
