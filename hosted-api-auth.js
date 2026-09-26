@@ -12,7 +12,9 @@
      apiFetch(input, init)
 
    E4: every packaged browser call to the JobBored API goes through
-   apiFetch(), which attaches the hosted token. It returns the fetch
+   apiFetch(), which attaches the hosted token — only to the API's own
+   origin (configured API base, local API default, or the page origin);
+   any other origin gets a plain fetch. It returns the fetch
    Response untouched: error bodies and their `code` pass through
    unchanged, so callers keep matching the lowercase form lane E sends.
 
@@ -83,9 +85,99 @@
     return getHostedApiToken(scope.COMMAND_CENTER_CONFIG);
   }
 
-  /* The one API transport. Attaches the hosted token when one is configured
-     and returns the fetch Response untouched — it never rewrites error
-     bodies, so `code` reaches the caller exactly as the server sent it. */
+  /* Callers fall back to this local API base when nothing is configured
+     (profile-api-base.js, settings-modal.js, role-materials.js, ...). */
+  var LOCAL_API_BASE = "http://127.0.0.1:3847";
+
+  function pageHref(scope) {
+    var loc = scope && scope.location;
+    if (loc && typeof loc.href === "string" && loc.href) return loc.href;
+    return "";
+  }
+
+  /* Absolute http(s) origin without the URL API (non-browser hosts). */
+  function parseAbsoluteOrigin(s) {
+    var m = /^(https?):\/\/([^/?#\\]+)/i.exec(s);
+    if (!m) return "";
+    var scheme = m[1].toLowerCase();
+    var hostPort = m[2].replace(/^[^@]*@/, "").toLowerCase();
+    if (scheme === "http") hostPort = hostPort.replace(/:80$/, "");
+    if (scheme === "https") hostPort = hostPort.replace(/:443$/, "");
+    return scheme + "://" + hostPort;
+  }
+
+  function originOf(raw, baseHref) {
+    var s = String(raw == null ? "" : raw).trim();
+    if (!s) return "";
+    if (typeof URL !== "function") {
+      var direct = parseAbsoluteOrigin(s);
+      if (direct) return direct;
+      if (!baseHref || /^[a-z][a-z0-9+.-]*:/i.test(s)) return "";
+      if (s.indexOf("//") === 0) {
+        var scheme = /^([a-z][a-z0-9+.-]*):/i.exec(baseHref);
+        return scheme ? parseAbsoluteOrigin(scheme[1] + ":" + s) : "";
+      }
+      return parseAbsoluteOrigin(baseHref);
+    }
+    try {
+      var u = baseHref ? new URL(s, baseHref) : new URL(s);
+      if (u.protocol !== "http:" && u.protocol !== "https:") return "";
+      return u.origin;
+    } catch (_) {
+      return "";
+    }
+  }
+
+  function requestUrlOf(input) {
+    if (input == null) return "";
+    if (typeof input === "string") return input;
+    if (typeof input === "object" && typeof input.url === "string") return input.url;
+    if (typeof input === "object" && typeof input.href === "string") return input.href;
+    return String(input);
+  }
+
+  /* The origins the hosted token may travel to: the page's own origin, every
+     configured JobBored API base the callers read (jobBoredApiUrl,
+     jobPostingScrapeUrl, atsScoringServerUrl), and the local API default. */
+  function trustedApiOrigins(scope) {
+    var href = pageHref(scope);
+    var cfg = (scope && scope.COMMAND_CENTER_CONFIG) || {};
+    var out = [];
+    function add(raw) {
+      var o = originOf(raw, href);
+      if (o && out.indexOf(o) === -1) out.push(o);
+    }
+    if (scope && scope.location && scope.location.origin) add(scope.location.origin);
+    add(cfg.jobBoredApiUrl);
+    add(cfg.jobPostingScrapeUrl);
+    if (String(cfg.atsScoringMode || "server").toLowerCase() !== "webhook") {
+      add(cfg.atsScoringServerUrl);
+    }
+    add(LOCAL_API_BASE);
+    return out;
+  }
+
+  /* True when `input` targets the JobBored API's own origin. A relative URL
+     resolves against location.href; with no page location it can only reach
+     the page's own origin, so it counts as same-origin. */
+  function isJobBoredApiRequest(input, scope) {
+    var raw = String(requestUrlOf(input) || "").trim();
+    if (!raw) return false;
+    var href = pageHref(scope);
+    var target = originOf(raw, href);
+    if (!target) {
+      var absolute = /^[a-z][a-z0-9+.-]*:/i.test(raw) || raw.indexOf("//") === 0;
+      return !href && !absolute;
+    }
+    return trustedApiOrigins(scope).indexOf(target) !== -1;
+  }
+
+  /* The one API transport. Attaches the hosted token only when one is
+     configured AND the request targets the JobBored API's own origin; any
+     other origin gets a plain fetch with the caller's init untouched, so the
+     token never leaks to a job page, a user webhook, or a CDN. Returns the
+     fetch Response untouched — it never rewrites error bodies, so `code`
+     reaches the caller exactly as the server sent it. */
   function apiFetch(input, init) {
     var scope = globalScope();
     var fetchImpl =
@@ -95,7 +187,22 @@
           ? fetch
           : null;
     if (!fetchImpl) return Promise.reject(new Error("fetch unavailable"));
-    return fetchImpl(input, applyHostedApiAuth(init, resolveApiToken()));
+    if (!isJobBoredApiRequest(input, scope)) return fetchImpl(input, init);
+    var token = resolveApiToken();
+    var base = init && typeof init === "object" ? Object.assign({}, init) : {};
+    /* A Request carries its own headers; an init.headers would replace them,
+       so seed from the Request when the caller passed none. */
+    if (
+      token &&
+      base.headers == null &&
+      input &&
+      typeof input === "object" &&
+      input.headers &&
+      typeof input.headers.forEach === "function"
+    ) {
+      base.headers = input.headers;
+    }
+    return fetchImpl(input, applyHostedApiAuth(base, token));
   }
 
   root.JobBoredHostedApiAuth = {
@@ -103,6 +210,9 @@
     applyHostedApiAuthHeaders: applyHostedApiAuthHeaders,
     applyHostedApiAuth: applyHostedApiAuth,
     resolveApiToken: resolveApiToken,
+    isJobBoredApiRequest: function (input) {
+      return isJobBoredApiRequest(input, globalScope());
+    },
     apiFetch: apiFetch,
   };
 })(typeof window !== "undefined" ? window : globalThis);
