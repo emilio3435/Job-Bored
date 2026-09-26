@@ -4,7 +4,7 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
+import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
@@ -2032,6 +2032,40 @@ async function handleTailscaleState(req, res) {
   res.end(JSON.stringify(body));
 }
 
+/**
+ * BEAUDIT G9: the transport block a successful `tailscale serve` writes.
+ * Only a serve of the WORKER port describes the worker's public transport;
+ * a dashboard serve (or a missing URL) yields null and writes nothing.
+ */
+export function buildTailscaleTransportState({ serveUrl, servedPort, workerPort }) {
+  const url = String(serveUrl || "").trim();
+  if (!url) return null;
+  if (Number(servedPort) !== Number(workerPort)) return null;
+  return { kind: "tailscale", publicUrl: url, stable: true };
+}
+
+/**
+ * BEAUDIT G9: annotate discovery-local-bootstrap.json with the transport
+ * block, preserving every other field. A missing or unparseable file is a
+ * no-op (false) — the serve handler annotates bootstrap state, it never
+ * creates it.
+ */
+export function writeBootstrapTransport(filePath, transport) {
+  try {
+    const raw = readFileSync(String(filePath), "utf8");
+    const parsed = JSON.parse(raw);
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return false;
+    writeFileSync(
+      String(filePath),
+      `${JSON.stringify({ ...parsed, transport }, null, 2)}\n`,
+      "utf8",
+    );
+    return true;
+  } catch {
+    return false;
+  }
+}
+
 async function handleTailscaleServe(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, jsonCorsHeaders(req));
@@ -2054,6 +2088,20 @@ async function handleTailscaleServe(req, res) {
     port,
     spawnSync: childProcess.spawnSync,
   });
+  // BEAUDIT G9: a worker-port serve records the Tailscale transport so the
+  // keep-alive (and discovery-state) stop treating the tailnet target as an
+  // unknown/ngrok URL.
+  if (result && result.ok) {
+    const workerPort = resolveDiscoveryWorkerPort("");
+    const transport = buildTailscaleTransportState({
+      serveUrl: result.url,
+      servedPort: Number.parseInt(String(port), 10),
+      workerPort,
+    });
+    if (transport) {
+      writeBootstrapTransport(join(ROOT, "discovery-local-bootstrap.json"), transport);
+    }
+  }
   res.writeHead(200, corsHeaders);
   res.end(JSON.stringify(result));
 }

@@ -15,6 +15,7 @@ import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
 import {
   TRANSPORT_CLOUDFLARE_QUICK,
   inferTransportKindFromUrl,
+  isStableTransport,
 } from "./lib/discovery-transport.mjs";
 
 export const KEEP_ALIVE_LABEL = "ai.jobbored.discovery.keepalive";
@@ -311,6 +312,24 @@ export async function runKeepAliveCheck(options = {}) {
         bootstrap.publicTargetUrl ||
         "",
     );
+  // BEAUDIT G9: a stable kind inferred from the URL (Tailscale *.ts.net)
+  // skips the resync exactly like a recorded stable transport — the hostname
+  // never rotates, so there is nothing to resync, and falling through to
+  // the ngrok API only reported ngrok_api_down every tick.
+  if (transportKind && isStableTransport(transportKind)) {
+    appendJsonLog(
+      "stable_transport_skip",
+      {
+        kind: transportKind,
+        publicUrl:
+          (bootstrap.transport && bootstrap.transport.publicUrl) ||
+          bootstrap.publicTargetUrl ||
+          "",
+      },
+      logOptions,
+    );
+    return { ok: true, redeployed: false, reason: "stable_transport" };
+  }
   if (transportKind === TRANSPORT_CLOUDFLARE_QUICK) {
     const publicUrl = normalizeNgrokPublicUrl(
       (bootstrap.transport && bootstrap.transport.publicUrl) ||
