@@ -69,6 +69,23 @@ async function draft(drafter, slug, extra = {}) {
   await drafter.runUntilIdle();
 }
 
+/**
+ * A stand-in for the headless browser: every layout fits and each "PDF" is a
+ * one-page stub, so regenerate runs its full path without Chromium. The real
+ * browser path is covered by tests/e2e-visual/materials-templates.spec.mjs.
+ */
+async function fakeSession() {
+  return {
+    measure: async () => ({ fits: true, scrollHeight: 1056, clientHeight: 1056, lastTextBottom: 1000, limit: 1027, blockedRequests: 0 }),
+    pdf: async (_html, outPath) => {
+      await writeFile(outPath, "%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n");
+      return { path: outPath, pages: 1, blockedRequests: 0 };
+    },
+    rasterize: async (src) => src,
+    close: async () => {},
+  };
+}
+
 /** @param {string} path */
 async function readJson(path) {
   return JSON.parse(await readFile(path, "utf8"));
@@ -177,7 +194,7 @@ describe("regenerate in another template", () => {
     try {
       result = await regeneratePackage(
         { slug: "acme-regen", template: "editorial" },
-        { applicationsRoot: dir, pdfSession: null, now: () => new Date("2026-09-25T13:00:00.000Z") },
+        { applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T13:00:00.000Z") },
       );
     } finally {
       globalThis.fetch = realFetch;
@@ -210,21 +227,45 @@ describe("regenerate in another template", () => {
     );
   });
 
+  it("should refuse without a browser and leave the package exactly as it was", async () => {
+    await draft(drafterFor(dir), "acme-nobrowser");
+    const pkg = join(dir, "acme-nobrowser");
+    /** @param {string} root */
+    const snapshot = async (root) => {
+      const out = {};
+      for (const name of await readdir(root, { recursive: true })) {
+        const path = join(root, String(name));
+        try {
+          out[String(name)] = (await readFile(path)).toString("base64");
+        } catch {
+          out[String(name)] = "<dir>";
+        }
+      }
+      return out;
+    };
+    const before = await snapshot(pkg);
+    await assert.rejects(
+      () => regeneratePackage({ slug: "acme-nobrowser", template: "editorial" }, { applicationsRoot: dir, pdfSession: async () => null }),
+      (e) => e.statusCode === 503 && e.code === "browser_unavailable" && /npx playwright install chromium/.test(e.message),
+    );
+    assert.deepEqual(await snapshot(pkg), before, "nothing in the package changed");
+  });
+
   it("should 400 an unknown family and 409 a package with no stored render model or a pending draft", async () => {
     await draft(drafterFor(dir), "acme-guard");
     await assert.rejects(
-      () => regeneratePackage({ slug: "acme-guard", template: "volt" }, { applicationsRoot: dir, pdfSession: null }),
+      () => regeneratePackage({ slug: "acme-guard", template: "volt" }, { applicationsRoot: dir, pdfSession: fakeSession }),
       (e) => e.statusCode === 400 && e.code === "unknown_template",
     );
     await writeFile(join(dir, "acme-guard", "pending.json"), "{}");
     await assert.rejects(
-      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { applicationsRoot: dir, pdfSession: null }),
+      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { applicationsRoot: dir, pdfSession: fakeSession }),
       (e) => e.statusCode === 409,
     );
     await rm(join(dir, "acme-guard", "pending.json"));
     await rm(join(dir, "acme-guard", "render-model.json"));
     await assert.rejects(
-      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { applicationsRoot: dir, pdfSession: null }),
+      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { applicationsRoot: dir, pdfSession: fakeSession }),
       (e) => e.statusCode === 409 && e.code === "render_model_missing",
     );
   });

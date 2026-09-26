@@ -7,14 +7,15 @@
  * the new family. The new run records `source: "regenerate"` and
  * `regeneratedFrom: <runId>`. The original run's files under
  * runs/<runId>/ are never touched; the top-level (published) files become
- * the new family's.
+ * the new family's. Without a headless browser it refuses (503
+ * browser_unavailable) and changes nothing.
  *
  * Nothing here calls a writer, an editor or any model: the only inputs are
  * files already on disk.
  */
 
 import { existsSync } from "node:fs";
-import { readFile, rm, writeFile } from "node:fs/promises";
+import { readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
@@ -113,20 +114,25 @@ export async function regeneratePackage(input, deps = {}) {
   const runId = newRunId(slug, nowIso);
   const resumePdfPath = join(dir, "resume.pdf");
   const coverLetterPdfPath = join(dir, "cover-letter.pdf");
+  /* No browser, no regenerate: the fit cannot be measured and no PDF can be
+     printed, and a package whose HTML and PDF disagree is worse than the
+     original. Refuse before anything on disk changes. */
   const openSession = deps.pdfSession === null ? null : deps.pdfSession || (() => openPdfSession());
   const session = openSession ? await openSession() : null;
+  if (!session) {
+    throw httpError(
+      "Install the browser (npx playwright install chromium) to regenerate PDFs. Your current package was left as it is.",
+      503,
+      "browser_unavailable",
+    );
+  }
   const started = Date.now();
   /** @type {Awaited<ReturnType<typeof renderPackage>>} */
   let rendered;
   try {
     rendered = await renderPackage({ model, feature, session, pdfPaths: { resumePdfPath, coverLetterPdfPath } });
   } finally {
-    if (session) await session.close();
-  }
-  if (!session) {
-    /* A PDF from the previous family would now disagree with the HTML. */
-    if (rendered.resumeHtml) await rm(resumePdfPath, { force: true });
-    if (rendered.letterHtml) await rm(coverLetterPdfPath, { force: true });
+    await session.close();
   }
   if (rendered.resumeHtml) await writeFile(join(dir, "resume.html"), rendered.resumeHtml, "utf8");
   if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
@@ -170,8 +176,7 @@ export async function regeneratePackage(input, deps = {}) {
   const status = issues.some((i) => i.severity === "fail") ? "fail" : issues.length ? "review" : "pass";
   const notes = [
     `Regenerated in ${family.label} (${family.id}@${family.version}) from run ${regeneratedFrom}; no model was called.`,
-    ...rendered.notes.filter((n) => n !== "pdf_skipped"),
-    ...(session ? [] : ["pdf_skipped"]),
+    ...rendered.notes,
   ];
   await writeFile(join(dir, "qa-report.md"), qaReport({ status: status === "pass" ? "READY" : "REVIEW", issues, notes }), "utf8");
 
