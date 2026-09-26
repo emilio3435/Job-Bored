@@ -91,7 +91,7 @@
     "typescript": "^7.0.2"
   },
   "dependencies": {
-    "browser-use-sdk": "^3.11.1",
+    "browser-use-sdk": "^3.11.3",
     "zod": "^4.4.3"
   },
   "overrides": {
