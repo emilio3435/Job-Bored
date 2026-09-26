@@ -729,8 +729,7 @@
         directFallback: true,
         message:
           "This page can't draft your resume by itself. Press 'I'd rather " +
-          "start from a template' below, or draft it in JobBored on this " +
-          "computer.",
+          "start from a template', or draft it in JobBored on this computer.",
         notice: { link: true, technical: "HTTP 405 from /profile/from-resume" },
       };
     }

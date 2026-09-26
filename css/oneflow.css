@@ -926,45 +926,73 @@
   }
 }
 
-/* ---------- B2 Give it a brain (spec §5 B2) ---------- */
+/* ---------- B2 Give it a brain (spec §5 B2, GFX FE-B2B3) ----------
+   Every rule hangs off .oneflow-ai (0,2,0+) so `body.jb-v2 p` and
+   `body.jb-v2 a` (0,1,1) can't repaint it — the cascade trap. Links are
+   navy on paper (12:1), never jb-v2's mint-deep (about 4:1). The one
+   loud element is the save question after a passed check. */
 
-.oneflow-ai__cards {
+/* Five cards sit in one row on a desktop card (no orphaned Local) and
+   two to a row on a phone. */
+.oneflow-ai .oneflow-ai__cards {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(132px, 1fr));
   gap: var(--space-2);
 }
 
-.oneflow-ai__card {
+.oneflow-ai .oneflow-ai__card {
+  position: relative;
   display: flex;
   flex-direction: column;
   gap: 4px;
   text-align: left;
-  padding: var(--space-3);
+  padding: var(--space-3) var(--space-3) var(--space-3) calc(var(--space-3) + 4px);
   border: 1px solid var(--jb-line, var(--border));
-  border-radius: 12px;
+  border-radius: var(--jb-radius-md, 10px);
   background: var(--jb-paper, var(--surface));
   color: var(--jb-navy, var(--text));
   font: inherit;
   cursor: pointer;
 }
 
-.oneflow-ai__card[data-selected="true"] {
-  border-color: var(--jb-mint, var(--accent));
-  box-shadow: 0 0 0 2px var(--jb-mint-soft, rgba(95, 203, 142, 0.25));
+.oneflow-ai .oneflow-ai__card:hover {
+  border-color: var(--jb-navy-soft, var(--border));
 }
 
-.oneflow-ai__card-label {
+/* Selected: a mint edge and a mint wash — the one place mint is a fill. */
+.oneflow-ai .oneflow-ai__card[data-selected="true"] {
+  border-color: var(--jb-mint, var(--accent));
+  background: var(--jb-mint-soft, rgba(95, 203, 142, 0.12));
+  box-shadow: inset 4px 0 0 var(--jb-mint, var(--accent));
+}
+
+.oneflow-ai .oneflow-ai__card-label {
   font-size: var(--text-sm);
   font-weight: 700;
+  color: var(--jb-navy, var(--text));
 }
 
-.oneflow-ai__card-note {
+.oneflow-ai .oneflow-ai__card-note {
   font-size: var(--text-xs);
   line-height: 1.45;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-ai .oneflow-ai__key-lede,
+.oneflow-ai .oneflow-ai__privacy,
+.oneflow-ai .oneflow-ai__bonus {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-ai .oneflow-ai__privacy {
+  font-size: var(--text-xs);
   color: var(--jb-ink-3, var(--text-faint));
 }
 
-.oneflow-ai__steps {
+.oneflow-ai .oneflow-ai__steps {
   margin: 0;
   padding-left: 1.25em;
   display: flex;
@@ -974,39 +1002,122 @@
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-ai__signup {
+/* Step 1 is the action on this screen, so its link reads as a control:
+   an outlined navy chip, not jb-v2's low-contrast mint link. */
+.oneflow-ai .oneflow-ai__signup,
+.oneflow-ai .oneflow-ai__signup:hover {
+  display: inline-flex;
+  align-items: center;
+  min-height: 32px;
+  padding: 4px 12px;
+  border: 1px solid var(--jb-navy, var(--text));
+  border-radius: 999px;
+  background: var(--jb-paper, var(--surface));
+  color: var(--jb-navy, var(--text));
   font-weight: 600;
+  text-decoration: none;
 }
 
-/* The Gemini bonus is a promise kept before the ask, not a receipt. */
-.oneflow-ai__bonus {
-  margin: 0;
-  padding: var(--space-2) var(--space-3);
-  border-radius: 10px;
-  background: rgba(95, 203, 142, 0.12);
-  border: 1px solid rgba(95, 203, 142, 0.32);
-  font-size: var(--text-sm);
+.oneflow-ai .oneflow-ai__signup:hover {
+  background: var(--jb-info-tint, var(--surface));
+}
+
+.oneflow-ai .oneflow-ai__trouble-link,
+.oneflow-ai .oneflow-ai__trouble-link:hover {
+  color: var(--jb-navy, var(--text));
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+/* GFX B2-6: a hint, not an error — it never blocks the check. */
+.oneflow-ai .oneflow-ai__shape {
+  margin: var(--space-2) 0 0;
+  padding: var(--space-1, 4px) var(--space-2);
+  border-radius: var(--jb-radius-sm, 6px);
+  background: var(--jb-warn-tint, var(--surface));
+  color: var(--jb-warn, var(--text));
+  font-size: var(--text-xs);
   line-height: 1.45;
-  color: var(--jb-mint-deep, #2f8a5a);
+}
+
+.oneflow-ai .oneflow-ai__shape[hidden] {
+  display: none;
+}
+
+/* GFX B2-4: the save question. A paper card with a navy rule — the
+   decision on this screen; its two answers are the footer's actions. */
+.oneflow-ai .oneflow-ai__consent {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+  border: 1px solid var(--jb-line, var(--border));
+  border-left: 4px solid var(--jb-navy, var(--text));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-paper, var(--surface));
+}
+
+.oneflow-ai .oneflow-ai__consent-ask {
+  margin: 0;
+  font-size: var(--text-base, 1rem);
+  font-weight: 600;
+  line-height: 1.4;
+  color: var(--jb-navy, var(--text));
+}
+
+.oneflow-ai .oneflow-ai__consent-summary {
+  cursor: pointer;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-ai .oneflow-ai__consent-list {
+  margin: var(--space-2) 0 0;
+  padding-left: 1.25em;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+  overflow-wrap: anywhere;
+}
+
+/* GFX B2-3: the write-through's receipt. */
+.oneflow-ai .oneflow-ai__receipt {
+  margin: 0;
+  font-size: var(--text-sm);
+  font-weight: 600;
+  line-height: 1.45;
+}
+
+.oneflow-ai .oneflow-ai__receipt--ok {
+  color: var(--jb-green-ink, var(--text));
+}
+
+.oneflow-ai .oneflow-ai__receipt--fail {
+  color: var(--jb-err, var(--text));
 }
 
 /* Renders only AFTER a failure — help offered pre-emptively reads as a
    warning about the product (spec §5 B2). */
-.oneflow-ai__trouble {
+.oneflow-ai .oneflow-ai__trouble {
   border: 1px solid var(--jb-line, var(--border));
-  border-radius: 12px;
+  border-radius: var(--jb-radius-md, 10px);
   padding: var(--space-3) var(--space-4);
   background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
 }
 
-.oneflow-ai__trouble-summary {
+.oneflow-ai .oneflow-ai__trouble-summary {
   cursor: pointer;
   font-size: var(--text-sm);
   font-weight: 600;
   color: var(--jb-navy, var(--text));
 }
 
-.oneflow-ai__trouble-list {
+.oneflow-ai .oneflow-ai__trouble-list {
   margin: var(--space-3) 0 0;
   padding-left: 1.25em;
   display: flex;
@@ -1017,26 +1128,28 @@
   color: var(--jb-ink-2, var(--text-muted));
 }
 
-/* ---------- B3 Hand us your resume (spec §5 B3) ---------- */
+/* ---------- B3 Hand us your resume (spec §5 B3, GFX FE-B2B3) ----------
+   Scoped under .oneflow-resume for the same cascade reason as B2. */
 
-.oneflow-resume__drop {
+.oneflow-resume .oneflow-resume__drop {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: var(--space-3);
   padding: var(--space-5) var(--space-4);
   border: 2px dashed var(--jb-line, var(--border));
-  border-radius: 14px;
+  border-radius: var(--jb-radius-lg, 14px);
   background: var(--jb-paper-2, rgba(148, 163, 184, 0.08));
   text-align: center;
 }
 
-.oneflow-resume__drop--over {
+.oneflow-resume .oneflow-resume__drop--over {
   border-color: var(--jb-mint, var(--accent));
-  background: rgba(95, 203, 142, 0.1);
+  border-style: solid;
+  background: var(--jb-mint-soft, rgba(95, 203, 142, 0.1));
 }
 
-.oneflow-resume__drop-lede {
+.oneflow-resume .oneflow-resume__drop-lede {
   margin: 0;
   font-size: var(--text-sm);
   font-weight: 600;
@@ -1046,61 +1159,122 @@
 /* The native file input sizes itself to the platform font (wider on Linux
    than on macOS) and does not shrink on its own — on a 390px phone it was
    the one element pushing the shell sideways (e2e-visual, CI 2026-09-02). */
-.oneflow-resume__file {
+.oneflow-resume .oneflow-resume__file {
   display: block;
   width: 100%;
   max-width: 100%;
   min-width: 0;
   box-sizing: border-box;
+  font-size: var(--text-sm);
+  color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-resume__paste {
+.oneflow-resume .oneflow-resume__paste {
   display: flex;
   flex-direction: column;
 }
 
-.oneflow-resume__paste-label {
-  font-size: var(--text-xs);
+.oneflow-resume .oneflow-resume__paste-label {
+  font-size: var(--text-sm);
   font-weight: 600;
-  letter-spacing: 0.04em;
-  text-transform: uppercase;
-  color: var(--jb-ink-3, var(--text-faint));
+  color: var(--jb-ink-2, var(--text-muted));
 }
 
-.oneflow-resume__paste-field {
+.oneflow-resume .oneflow-resume__paste-field {
   resize: vertical;
   min-height: 8em;
 }
 
-.oneflow-resume__template-grid {
+.oneflow-resume .oneflow-resume__privacy {
+  margin: 0;
+  font-size: var(--text-xs);
+  line-height: 1.5;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+/* A failed draft's second line: where JobBored runs, how to start it,
+   and the raw error folded away (GFX B3-6, B3-7). */
+.oneflow-resume .oneflow-resume__notice {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-4);
+  border: 1px solid var(--jb-line, var(--border));
+  border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-paper, var(--surface));
+}
+
+.oneflow-resume .oneflow-resume__notice-line,
+.oneflow-resume .oneflow-resume__tech-body {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-resume .oneflow-resume__open-local,
+.oneflow-resume .oneflow-resume__open-local:hover {
+  color: var(--jb-navy, var(--text));
+  font-weight: 600;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.oneflow-resume .oneflow-resume__tech-summary {
+  cursor: pointer;
+  font-size: var(--text-xs);
+  font-weight: 600;
+  color: var(--jb-ink-3, var(--text-faint));
+}
+
+.oneflow-resume .oneflow-resume__tech-body {
+  margin-top: var(--space-2);
+  font-family: var(--jb-font-mono, monospace);
+  font-size: var(--text-xs);
+  overflow-wrap: anywhere;
+}
+
+.oneflow-resume .oneflow-resume__templates-lede {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.5;
+  color: var(--jb-ink-2, var(--text-muted));
+}
+
+.oneflow-resume .oneflow-resume__template-grid {
   display: grid;
-  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
   gap: var(--space-2);
 }
 
-.oneflow-resume__template-card {
+.oneflow-resume .oneflow-resume__template-card {
   display: flex;
   flex-direction: column;
   gap: 4px;
   text-align: left;
   padding: var(--space-3);
   border: 1px solid var(--jb-line, var(--border));
-  border-radius: 12px;
+  border-radius: var(--jb-radius-md, 10px);
   background: var(--jb-paper, var(--surface));
   color: var(--jb-navy, var(--text));
   font: inherit;
   cursor: pointer;
 }
 
-.oneflow-resume__template-name {
+.oneflow-resume .oneflow-resume__template-card:hover {
+  border-color: var(--jb-navy-soft, var(--border));
+  background: var(--jb-paper-2, var(--surface));
+}
+
+.oneflow-resume .oneflow-resume__template-name {
   font-size: var(--text-sm);
   font-weight: 700;
 }
 
-.oneflow-resume__template-desc {
+.oneflow-resume .oneflow-resume__template-desc {
   font-size: var(--text-xs);
   line-height: 1.45;
-  color: var(--jb-ink-3, var(--text-faint));
+  color: var(--jb-ink-2, var(--text-muted));
 }
 
 /* ONEFLOW:L2 */
