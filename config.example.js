@@ -72,7 +72,7 @@ window.COMMAND_CENTER_CONFIG = {
   atsScoringWebhookUrl: "",
   //
   // For "Draft cover letter" and "Tailor resume" on job cards you must configure ONE of:
-  // - Gemini (recommended default): resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/
+  // - Gemini (recommended default): resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/app/apikey
   //   Model alias "gemini-flash" resolves at call time to the newest stable Flash.
   // - OpenRouter (free tier): resumeProvider "openrouter" + a FREE resumeOpenRouterApiKey
   //   from https://openrouter.ai/keys — no paid plan needed. CORS-friendly from the browser.
@@ -87,8 +87,9 @@ window.COMMAND_CENTER_CONFIG = {
   // OpenRouter free-tier key (browser-safe; paste a FREE key, do not commit real keys to public repos).
   // Get one at https://openrouter.ai/keys. Free models work without any paid plan.
   resumeOpenRouterApiKey: "",
-  // Default free model. Pick another ":free" model id in Settings if this one is retired.
-  resumeOpenRouterModel: "openai/gpt-oss-120b:free",
+  // Leave empty to use the app's recommended OpenRouter model; set a model id
+  // (e.g. a ":free" one) here or in Settings to pin your own.
+  resumeOpenRouterModel: "",
   // OpenRouter OpenAI-compatible base URL (no trailing slash). Rarely changed.
   resumeOpenRouterBaseUrl: "https://openrouter.ai/api/v1",
   // Local OpenAI-compatible server (e.g. Ollama). resumeProvider "local" runs
