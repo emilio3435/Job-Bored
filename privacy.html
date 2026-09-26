@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Privacy Policy — JobBored</title>
+    <link rel="canonical" href="https://jobbored.elioai.app/privacy.html" />
+    <meta
+      name="description"
+      content="Privacy policy for JobBored, the job-search dashboard at jobbored.elioai.app."
+    />
+    <link rel="stylesheet" href="vendor/fonts/fonts.css" />
+    <link rel="stylesheet" href="tokens-v2.css" />
+    <link rel="stylesheet" href="css/legal.css" />
+  </head>
+  <body class="legal">
+    <header class="legal__bar">
+      <a class="legal__brand" href="https://jobbored.elioai.app">JobBored</a>
+      <nav class="legal__nav" aria-label="Legal">
+        <a href="privacy.html" aria-current="page">Privacy</a>
+        <a href="terms.html">Terms</a>
+        <a href="https://jobbored.elioai.app">App</a>
+      </nav>
+    </header>
+    <main class="legal__main">
+      <p class="legal__kicker">JobBored</p>
+      <h1>Privacy policy</h1>
+      <p class="legal__meta">
+        Effective September 26, 2026. This policy describes the hosted app at
+        <a href="https://jobbored.elioai.app">https://jobbored.elioai.app</a>.
+        The operator is Arkansas Elio AI LLC, Little Rock, Arkansas.
+      </p>
+
+      <h2>What JobBored is</h2>
+      <p>
+        JobBored is a browser dashboard for a job search. The site is static.
+        Your Google Sheet is the database. JobBored does not run an account
+        system, and it does not keep a copy of your pipeline, resume, or Google
+        access token on a server operated by Arkansas Elio AI LLC.
+      </p>
+
+      <h2>Information that stays in this browser</h2>
+      <ul>
+        <li>
+          Settings you save, including a Sheet ID, an OAuth client ID, and API
+          keys you paste, live in this browser’s localStorage, or in a
+          <code>config.js</code> file you host yourself.
+        </li>
+        <li>
+          The Google access token for a signed-in session lives in
+          sessionStorage for that tab. It is cleared when the tab closes.
+        </li>
+        <li>
+          Resumes, writing samples, preferences, and generated drafts live in
+          this browser’s IndexedDB.
+        </li>
+      </ul>
+      <p>
+        Arkansas Elio AI LLC does not receive those values. Clearing site data
+        for this origin removes what the browser stored.
+      </p>
+
+      <h2>Google account data</h2>
+      <p>
+        When you choose to sign in with Google, JobBored asks for permission to:
+      </p>
+      <ul>
+        <li>
+          See, edit, create, and delete the spreadsheets in your Google Drive
+          that you use with JobBored, so the app can create your Pipeline sheet
+          and read and write the rows you ask it to change.
+        </li>
+        <li>
+          See your Google account email address and basic profile, so the
+          session can show which account is signed in.
+        </li>
+      </ul>
+      <p>
+        If you start an Apps Script deploy from the app, JobBored also asks for
+        permission to manage the Apps Script projects and deployments needed for
+        that step. That request happens only when you start it.
+      </p>
+      <p>
+        The access token is used in your browser to call Google APIs for those
+        features. The Sheet stays in your Google Drive and is owned by you.
+        You can revoke JobBored’s access at
+        <a href="https://myaccount.google.com/permissions"
+          >Google Account permissions</a
+        >.
+      </p>
+      <p>
+        JobBored’s use and transfer to any other app of information received
+        from Google APIs will adhere to the
+        <a href="https://developers.google.com/terms/api-services-user-data-policy"
+          >Google API Services User Data Policy</a
+        >, including the Limited Use requirements.
+      </p>
+      <p>
+        JobBored does not sell Google user data, use it for advertising, or use
+        it to train generalized AI models. People at Arkansas Elio AI LLC do
+        not read the contents of your Sheet.
+      </p>
+
+      <h2>Data you choose to send to another service</h2>
+      <p>
+        Optional features send data only after you turn them on and supply the
+        connection. That data is not sent to Arkansas Elio AI LLC.
+      </p>
+      <ul>
+        <li>
+          Drafts, summaries, and scorecards go to the provider you select:
+          OpenRouter, Google Gemini, OpenAI, Anthropic, a webhook URL you
+          enter, or a model running on your machine. The request can include
+          resume text, profile text, and job context from your Sheet.
+        </li>
+        <li>
+          A discovery run goes to an endpoint you configure, such as a worker
+          on your computer, Apps Script, GitHub Actions, a Cloudflare Worker,
+          n8n, or another URL you control. A per-run Google access token may be
+          included so that endpoint can write your Sheet for that run. The
+          local worker is written to drop that token from saved run state and
+          not to log the raw token.
+        </li>
+        <li>
+          Keys you add for optional lanes, including SerpApi and Browser Use,
+          stay in this browser until that lane calls the provider you enabled.
+        </li>
+        <li>
+          Fetching a job posting can call a scraper you run. This site does not
+          host a scraper.
+        </li>
+      </ul>
+
+      <h2>Hosting</h2>
+      <p>
+        GitHub Pages serves the static files for
+        <a href="https://jobbored.elioai.app">jobbored.elioai.app</a>. GitHub
+        may process ordinary request logs, such as IP address and browser type,
+        as the host. JobBored does not add its own analytics or advertising
+        tags.
+      </p>
+
+      <h2>How long information lasts</h2>
+      <ul>
+        <li>Sheet rows last until you change or delete them in Google Sheets.</li>
+        <li>
+          Browser storage lasts until you clear site data for this origin or
+          delete the item in the app.
+        </li>
+        <li>The Google access token lasts for that browser tab’s session.</li>
+      </ul>
+
+      <h2>Children</h2>
+      <p>
+        JobBored is a job-search tool. It is not directed at children under 13,
+        and it does not knowingly collect personal information from them.
+      </p>
+
+      <h2>Changes</h2>
+      <p>
+        The date at the top of this page is the date of the current version.
+        Continued use of the app after that date is use under the updated
+        policy.
+      </p>
+
+      <h2>Contact</h2>
+      <p>
+        Arkansas Elio AI LLC, Little Rock, Arkansas. Questions about this
+        policy:
+        <a href="https://github.com/emilio3435/Job-Bored/issues"
+          >JobBored on GitHub</a
+        >.
+      </p>
+    </main>
+    <footer class="legal__foot">
+      <a href="https://jobbored.elioai.app">https://jobbored.elioai.app</a>
+      ·
+      <a href="terms.html">Terms of service</a>
+    </footer>
+  </body>
+</html>
