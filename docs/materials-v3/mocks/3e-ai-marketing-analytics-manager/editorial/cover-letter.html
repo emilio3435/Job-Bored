@@ -1,0 +1,247 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emilio Nunez-Garcia, cover letter, 3E AI &amp; Marketing Analytics Manager</title>
+<!-- Take B, Editorial: magazine profile. Letter text is v1's cover-letter.txt, tightened; no new facts.
+     The margin pull quote repeats the job-fit sentence from paragraph three and sits beside paragraph two,
+     away from its source, so a skimmer who reads headline, standfirst and pull quote gets the whole pitch.
+     It is aria-hidden; the plain-text letter loses nothing. -->
+<link rel="stylesheet" href="../../../../../vendor/fonts/fonts.css" />
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bodoni+Moda:ital,opsz,wght@0,6..96,400..900;1,6..96,400..900&display=block" />
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #15142a;
+    --ink-2: #3a394f;
+    --ink-3: #6a6980;
+    --hair: #dddce8;
+    --volt: #4a24ff;
+    --display: "Bodoni Moda", "Bodoni 72", Didot, Georgia, serif;
+    --text: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif;
+  }
+  @page { size: letter; margin: 0; }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html, body { background: var(--paper); }
+  body {
+    font-family: var(--text);
+    color: var(--ink);
+    font-size: 11pt;
+    line-height: 1.56;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-kerning: normal;
+  }
+  a { color: inherit; text-decoration: none; }
+
+  .sheet {
+    width: 8.5in;
+    height: 11in;
+    padding: 0.5in 0.7in 0.45in;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  /* ---------- masthead ---------- */
+  .masthead {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding-bottom: 0.09in;
+    border-bottom: 2.5px solid var(--ink);
+  }
+  .masthead h1 {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 22pt;
+    line-height: 1;
+    letter-spacing: -0.01em;
+  }
+  .masthead .deck {
+    margin-top: 0.05in;
+    font-weight: 600;
+    font-size: 9.5pt;
+    color: var(--volt);
+  }
+  .masthead .contact {
+    text-align: right;
+    font-size: 9pt;
+    line-height: 1.45;
+    color: var(--ink-2);
+  }
+  .byline {
+    display: grid;
+    grid-template-columns: 1.35fr 1.2fr 0.8fr;
+    column-gap: 0.25in;
+    padding: 0.07in 0;
+    border-bottom: 1px solid var(--hair);
+    font-size: 9pt;
+    line-height: 1.35;
+    color: var(--ink-2);
+  }
+  .byline i {
+    font-family: var(--display);
+    font-weight: 600;
+    font-size: 10pt;
+    color: var(--volt);
+    margin-right: 0.05in;
+  }
+
+  /* ---------- headline + standfirst ---------- */
+  .headline {
+    margin-top: 0.5in;
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 33pt;
+    line-height: 1.02;
+    letter-spacing: -0.015em;
+    max-width: 6.3in;
+  }
+  .standfirst {
+    margin-top: 0.2in;
+    max-width: 6in;
+    font-family: var(--display);
+    font-style: italic;
+    font-size: 14.5pt;
+    line-height: 1.34;
+    color: var(--ink);
+  }
+  .standfirst .salute {
+    font-style: normal;
+    font-weight: 700;
+    color: var(--volt);
+  }
+
+  /* ---------- body + margin ---------- */
+  .feature {
+    margin-top: 0.32in;
+    padding-top: 0.44in;
+    border-top: 1px solid var(--hair);
+    display: grid;
+    grid-template-columns: 1fr 1.85in;
+    column-gap: 0.36in;
+  }
+  .prose p { color: var(--ink-2); }
+  .prose p + p { margin-top: 0.12in; }
+  /* Raised initial: it sits on the first line's baseline instead of floating,
+     so PDF text extraction keeps "At" as one word. */
+  .prose p:first-child::first-letter {
+    font-family: var(--display);
+    font-weight: 900;
+    font-size: 40pt;
+    line-height: 0;
+    margin-right: 0.02in;
+    color: var(--volt);
+  }
+  .margin {
+    align-self: start;
+    margin-top: -0.12in;
+    padding-top: 0.14in;
+    border-top: 3px solid var(--volt);
+  }
+  .margin blockquote {
+    font-family: var(--display);
+    font-style: italic;
+    font-size: 14pt;
+    line-height: 1.28;
+    color: var(--ink);
+  }
+  .margin .fig {
+    font-style: normal;
+    font-weight: 800;
+    color: var(--volt);
+  }
+
+  /* ---------- sign-off ---------- */
+  .sign {
+    margin-top: 0.42in;
+  }
+  .sign .off { color: var(--ink-2); }
+  .sign .who {
+    margin-top: 0.04in;
+    font-family: var(--display);
+    font-style: italic;
+    font-weight: 600;
+    font-size: 21pt;
+    line-height: 1.1;
+  }
+  .sign .how {
+    margin-top: 0.05in;
+    font-size: 9pt;
+    color: var(--ink-3);
+  }
+  .sign .how span + span { margin-left: 0.22in; }
+
+  .folio {
+    margin-top: auto;
+    padding-top: 0.08in;
+    border-top: 1px solid var(--hair);
+    display: flex;
+    justify-content: space-between;
+    font-size: 8.5pt;
+    color: var(--ink-3);
+  }
+  .folio b {
+    font-family: var(--display);
+    font-weight: 700;
+    color: var(--ink);
+  }
+</style>
+</head>
+<body>
+<article class="sheet page" data-page="1" data-doc="cover-letter" data-pages="1">
+
+  <header class="masthead">
+    <div>
+      <h1 data-slot="name">Emilio Nunez-Garcia</h1>
+      <p class="deck">AI &amp; Marketing Analytics Manager</p>
+    </div>
+    <p class="contact" data-slot="contact">
+      Denver, CO &nbsp; 501.366.2080<br />
+      <a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a> &nbsp;
+      <a href="https://emiliobuilds.com">emiliobuilds.com</a>
+    </p>
+  </header>
+
+  <p class="byline" data-slot="rail">
+    <span><i>To</i>Hiring team, 3E, Bethesda, MD / Eastern remote</span>
+    <span><i>Re</i>AI &amp; Marketing Analytics Manager</span>
+    <span><i>Date</i>September 17, 2026</span>
+  </p>
+
+  <h2 class="headline">Spend that explains itself, and the AI that does the explaining</h2>
+
+  <p class="standfirst" data-slot="p1">
+    <span class="salute" data-slot="salutation">Dear hiring team,</span>
+    you are hiring someone to keep a live Claude operating model honest and to make marketing spend
+    explain itself to a pipeline. Those are the same week for me, already.
+  </p>
+
+  <section class="feature">
+    <div class="prose">
+      <p data-slot="p2">At Audacy I carried a $10M+ digital book in Denver and the argument that came with it: which channels moved buying stage, which were last-click theater, what we stopped funding. The framework I wrote is the one account executives defended in QBRs after I stopped sitting in them. A #19 market ranked top-3 nationally because the readouts were honest, not because the media plan was clever.</p>
+      <p data-slot="p3">The other half I built. Elio routes across Claude, Gemini, GPT, Grok, and Llama on Cloud Run with grounded retrieval and live data connections, and the forecaster inside it ran 21 scenarios against $2.4M of real pipeline. I hold the keys, the service accounts, and the schedules. That is the shape of 25 skills and 15 connections, and it is not prompting.</p>
+      <p data-slot="p4">I would start by sitting in on one Demand Gen readout and tracing a single skill from the CRM to the sentence someone acts on. Power BI would be new; Looker Studio, GA4, and SQL are not. Easy to reach either way.</p>
+    </div>
+    <aside class="margin" aria-hidden="true">
+      <blockquote>That is the shape of <span class="fig">25</span> skills and <span class="fig">15</span> connections, and it is not prompting.</blockquote>
+    </aside>
+  </section>
+
+  <div class="sign">
+    <p class="off" data-slot="signoff">Best,</p>
+    <p class="who" data-slot="name-sign">Emilio Nunez-Garcia</p>
+    <p class="how" data-slot="contact-sign"><span>501.366.2080</span><span>emilio3435@gmail.com</span><span>emiliobuilds.com</span></p>
+  </div>
+
+  <footer class="folio">
+    <span>Cover letter for 3E, AI &amp; Marketing Analytics Manager</span>
+    <b>1</b>
+  </footer>
+</article>
+</body>
+</html>

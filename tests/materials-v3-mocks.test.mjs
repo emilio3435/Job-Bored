@@ -2,16 +2,18 @@
  * Contract test for the Materials v3 design package.
  *
  * The mocks and fixtures under docs/materials-v3/ are the acceptance snapshot
- * for the Volt visual system and the staged mechanism. This test keeps them
- * honest: fixtures must validate against the shipped schemas, the mock HTML
- * must obey the visual system's forbidden list, and the numbers quoted in
- * qa.json must match the documents they describe.
+ * for the template registry and the staged mechanism. This test keeps them
+ * honest: fixtures must validate against the shipped schemas, the numbers
+ * quoted in qa.json must match the Volt v1 reference render they were measured
+ * on (volt-v1/), and every registry family's reference fixture (signal,
+ * dossier, editorial) must carry the QA markers, the header-first order, the
+ * ledger-only facts, and the offline fonts that the visual spec §9 requires.
  */
 
 import test from "node:test";
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
-import { dirname, join } from "node:path";
+import { existsSync, readFileSync } from "node:fs";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
@@ -19,6 +21,8 @@ import { MATERIALS_BUDGETS } from "../server/materials-fit-budget.mjs";
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const mockDir = join(repoRoot, "docs/materials-v3/mocks/3e-ai-marketing-analytics-manager");
+/** The Volt 1.0 render the pipeline fixtures were measured on, kept as history. */
+const V1 = "volt-v1";
 
 /** @param {string} relative */
 function readMock(relative) {
@@ -75,8 +79,8 @@ for (const [fixture, schemaFile] of FIXTURE_SCHEMAS) {
   });
 }
 
-test("both documents are a single sheet with no script and no remote assets", () => {
-  for (const file of ["resume.html", "cover-letter.html"]) {
+test("the Volt v1 documents are a single sheet with no script and no remote assets", () => {
+  for (const file of [`${V1}/resume.html`, `${V1}/cover-letter.html`]) {
     const html = readMock(file);
     assert.equal(
       (html.match(/class="sheet"/g) || []).length,
@@ -96,8 +100,8 @@ test("both documents are a single sheet with no script and no remote assets", ()
   }
 });
 
-test("the Volt stylesheet obeys the visual system's forbidden list", () => {
-  const css = readMock("volt.css").replace(/\/\*[\s\S]*?\*\//g, " ");
+test("the Volt v1 stylesheet still obeys its own forbidden list", () => {
+  const css = readMock(`${V1}/volt.css`).replace(/\/\*[\s\S]*?\*\//g, " ");
   const forbidden = [
     // the `sans-serif` fallback keyword is fine; an actual serif stack is not
     /(?<!sans-)\bserif\b/i,
@@ -164,7 +168,7 @@ test("the resume respects the single budget table", () => {
   const tokens = resume.sections.find((section) => section.label === "Selected for this role").tokens;
   assert.ok(tokens.length >= minTokens && tokens.length <= maxTokens);
 
-  const visible = wordCount(sheetText(readMock("resume.html")));
+  const visible = wordCount(sheetText(readMock(`${V1}/resume.html`)));
   const [minVisible, maxVisible] = MATERIALS_BUDGETS.resume.visibleWords;
   assert.ok(
     visible >= minVisible && visible <= maxVisible,
@@ -178,7 +182,7 @@ test("qa.json measurements match the documents they describe", () => {
 
   assert.equal(qa.measurements.letterBodyWords, model.documents.coverLetter.bodyWords);
   assert.equal(qa.measurements.letterParagraphs, model.documents.coverLetter.paragraphs.length);
-  assert.equal(qa.measurements.resumeVisibleWords, wordCount(sheetText(readMock("resume.html"))));
+  assert.equal(qa.measurements.resumeVisibleWords, wordCount(sheetText(readMock(`${V1}/resume.html`))));
   assert.deepEqual(
     qa.measurements.resumeFeaturedBullets,
     model.documents.resume.sections
@@ -197,7 +201,7 @@ test("qa.json measurements match the documents they describe", () => {
 });
 
 test("every rendered bullet and metric run traces back to the render model", () => {
-  const html = readMock("resume.html");
+  const html = readMock(`${V1}/resume.html`);
   const text = sheetText(html);
   const resume = readMockJson("render-model.json").documents.resume;
   const experience = resume.sections.find((section) => section.kind === "experience");
@@ -230,8 +234,8 @@ test("every rendered bullet and metric run traces back to the render model", () 
 });
 
 test("the ATS twins carry the statement, every featured bullet, and no rail-only content", () => {
-  const resumeTxt = readMock("resume.txt");
-  const letterTxt = readMock("cover-letter.txt");
+  const resumeTxt = readMock(`${V1}/resume.txt`);
+  const letterTxt = readMock(`${V1}/cover-letter.txt`);
   const model = readMockJson("render-model.json");
   const resume = model.documents.resume;
 
@@ -289,3 +293,239 @@ test("the run ledger stays inside the per-run LLM budget", () => {
     false,
   );
 });
+
+// ---------------------------------------------------------------------------
+// Template registry reference fixtures (visual spec §9)
+// ---------------------------------------------------------------------------
+
+/** Registry families, default first. Keep in sync with the render-model enum. */
+const FAMILIES = ["signal", "dossier", "editorial"];
+const DEFAULT_FAMILY = "signal";
+const FAMILY_FILES = ["resume.html", "resume.pdf", "cover-letter.html", "cover-letter.pdf", "DESIGN.md"];
+const LOGO_DIR = join(repoRoot, "docs/materials-v3/mocks/assets/logos");
+
+/**
+ * Families whose reference mock still loads a display face from Google Fonts
+ * at render time. Known gap: the build lane vendors Archivo, Martian Mono and
+ * Bodoni Moda into vendor/fonts/ (plan, slice 3). Remove a family from this
+ * set once its fonts are vendored; the offline-fonts test then enforces it.
+ */
+const GOOGLE_FONTS_GAP = new Set(["signal", "editorial"]);
+
+/** @param {string} html */
+function styleText(html) {
+  return [...html.matchAll(/<style\b[^>]*>([\s\S]*?)<\/style>/gi)]
+    .map((match) => match[1])
+    .join("\n")
+    .replace(/\/\*[\s\S]*?\*\//g, " ");
+}
+
+/** @param {string} html */
+function sheetMarkup(html) {
+  const start = html.search(/<article\b[^>]*\bclass="[^"]*\bsheet\b/);
+  assert.ok(start >= 0, "no article.sheet found");
+  return html.slice(start);
+}
+
+/** @param {string} path */
+function pdfPageCount(path) {
+  const bytes = readFileSync(path).toString("latin1");
+  return (bytes.match(/\/Type\s*\/Page[^s]/g) || []).length;
+}
+
+test("the render-model fixture names a registry family and matching template IDs", () => {
+  const schema = readSchema("materials-render-model.v1.schema.json");
+  assert.deepEqual(schema.$defs.family.enum, FAMILIES, "schema enum and registry list drifted");
+  assert.equal(schema.properties.template.properties.family.default, DEFAULT_FAMILY);
+
+  const model = readMockJson("render-model.json");
+  assert.equal(model.template.family, DEFAULT_FAMILY);
+  assert.equal(model.documents.resume.templateId, `${model.template.family}.resume`);
+  assert.equal(model.documents.coverLetter.templateId, `${model.template.family}.letter`);
+
+  const run = readMockJson("run.json");
+  assert.equal(run.template.family, model.template.family, "run.json must record the family it rendered");
+  assert.equal(run.template.version, model.template.version);
+  assert.deepEqual(run.template.templateIds, {
+    resume: model.documents.resume.templateId,
+    coverLetter: model.documents.coverLetter.templateId,
+  });
+});
+
+test("the render-model schema rejects a template ID from another family", () => {
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addFormats(ajv);
+  const validate = ajv.compile(readSchema("materials-render-model.v1.schema.json"));
+  const model = readMockJson("render-model.json");
+  model.template.family = "dossier";
+  assert.equal(validate(model), false, "signal.resume under family dossier must fail");
+  model.documents.resume.templateId = "dossier.resume";
+  model.documents.coverLetter.templateId = "dossier.letter";
+  assert.equal(validate(model), true, JSON.stringify(validate.errors, null, 2));
+  model.template.family = "volt";
+  assert.equal(validate(model), false, "volt is no longer a registry family");
+});
+
+test("a regenerated package must say which run it re-rendered", () => {
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addFormats(ajv);
+  const validate = ajv.compile(readSchema("materials-run.v1.schema.json"));
+  const run = readMockJson("run.json");
+  run.template = { ...run.template, family: "editorial", templateIds: { resume: "editorial.resume", coverLetter: "editorial.letter" }, source: "regenerate" };
+  assert.equal(validate(run), false, "source regenerate without regeneratedFrom must fail");
+  run.template.regeneratedFrom = "mr_2026091718_3e_7f21";
+  assert.equal(validate(run), true, JSON.stringify(validate.errors, null, 2));
+});
+
+for (const family of FAMILIES) {
+  const dir = join(mockDir, family);
+
+  test(`${family}: the reference fixture ships both documents, both PDFs, and its design notes`, () => {
+    for (const file of FAMILY_FILES) {
+      assert.ok(existsSync(join(dir, file)), `${family}/${file} is missing`);
+    }
+    for (const file of ["resume.pdf", "cover-letter.pdf"]) {
+      assert.equal(pdfPageCount(join(dir, file)), 1, `${family}/${file} must be one page`);
+    }
+  });
+
+  for (const doc of ["resume", "cover-letter"]) {
+    test(`${family} ${doc}: one sheet, QA markers, header first, no script`, () => {
+      const html = readMock(`${family}/${doc}.html`);
+      assert.equal(/<script/i.test(html), false, "templates carry no script");
+
+      // server/materials-quality.mjs counts pages as article.page elements.
+      const pages = html.match(/<article\b[^>]*\bclass="[^"]*\bpage\b[^"]*"[^>]*>/g) || [];
+      assert.equal(pages.length, 1, "exactly one article.page");
+      assert.match(pages[0], /\bdata-page="1"/, "the page carries data-page");
+
+      // The name and contact header comes first in DOM order, so ATS text
+      // extraction reads it before anything else on the sheet.
+      const model = readMockJson("render-model.json");
+      const text = sheetText(sheetMarkup(html));
+      assert.ok(
+        text.startsWith(model.identity.name),
+        `${family}/${doc}.html must open on the name, but opens on "${text.slice(0, 60)}"`,
+      );
+      const sheet = sheetMarkup(html);
+      const email = model.identity.contact.find((c) => c.kind === "email").text;
+      const emailAt = sheet.indexOf(email);
+      const firstHeadingAt = sheet.search(/<h2\b/);
+      assert.ok(emailAt > 0, "the contact block is present");
+      if (firstHeadingAt >= 0) {
+        assert.ok(emailAt < firstHeadingAt, "contact comes before the first section heading");
+      }
+    });
+  }
+
+  test(`${family} resume: employers are h2.company-name and match the ledger`, () => {
+    const html = readMock(`${family}/resume.html`);
+    const ledger = readMockJson("claim-ledger.json");
+    const names = new Set(ledger.employers.map((e) => e.name));
+    // server/materials-critic.mjs reads employer names from h2.company-name.
+    const rendered = [...html.matchAll(/<h2\b[^>]*\bcompany-name\b[^>]*>([\s\S]*?)<\/h2>/g)].map((m) =>
+      sheetText(m[1]),
+    );
+    assert.ok(rendered.length >= 2, "at least the featured employers carry h2.company-name");
+    for (const name of rendered) {
+      assert.ok(names.has(name), `h2.company-name "${name}" is not a ledger employer`);
+    }
+  });
+
+  test(`${family} resume: every claim marker and metric figure comes from the ledger`, () => {
+    const html = readMock(`${family}/resume.html`);
+    const ledger = readMockJson("claim-ledger.json");
+    const claimIds = new Set(ledger.claims.map((c) => c.id));
+    const tokens = new Set(ledger.claims.flatMap((c) => (c.metrics || []).map((m) => m.token)));
+    // 3E's own operating model (~25 skills, ~15 connections) is cited from the
+    // JD, not claimed; those numbers may be set as figures when framed as 3E's.
+    const jdNumbers = new Set([...readMock("jd-extract.json").matchAll(/~(\d+)/g)].map((m) => m[1]));
+
+    const claims = [...html.matchAll(/data-claim="([^"]+)"/g)].map((m) => m[1]);
+    assert.ok(claims.length >= 6, "bullets carry data-claim markers");
+    for (const id of claims) assert.ok(claimIds.has(id), `data-claim="${id}" is not a ledger claim`);
+
+    const figures = [...html.matchAll(/<span class="(?:n|fig)"[^>]*>([^<]+)<\/span>/g)].map((m) => m[1].trim());
+    assert.ok(figures.length >= 6, "metric figures are typeset as data");
+    for (const figure of figures) {
+      assert.ok(tokens.has(figure) || jdNumbers.has(figure), `figure "${figure}" is not a ledger metric token`);
+    }
+
+    const text = sheetText(sheetMarkup(html));
+    // An adjacent tool never appears as owned.
+    for (const tool of ledger.toolInventory.filter((t) => t.level === "adjacent")) {
+      assert.equal(text.includes(tool.name), false, `${tool.name} is rated adjacent and must not be listed`);
+    }
+    // A tool Emilio does not own may appear only where the page says it is new.
+    for (const tool of ledger.toolInventory.filter((t) => t.level === "none")) {
+      const at = text.indexOf(tool.name);
+      if (at < 0) continue;
+      assert.match(
+        text.slice(Math.max(0, at - 40), at + 80),
+        /\bnew\b/i,
+        `${tool.name} is rated none and may only appear labelled as new`,
+      );
+    }
+
+    const hardMax = MATERIALS_BUDGETS.resume.visibleWordsHardMax;
+    const visible = wordCount(text);
+    assert.ok(visible <= hardMax, `${family} resume renders ${visible} words, over the ${hardMax} hard max`);
+  });
+
+  test(`${family}: logos come from the shared logo folder, with alt text, unaltered`, () => {
+    for (const doc of ["resume", "cover-letter"]) {
+      const html = readMock(`${family}/${doc}.html`);
+      for (const match of html.matchAll(/<img\b[^>]*>/g)) {
+        const tag = match[0];
+        const src = (tag.match(/\bsrc="([^"]+)"/) || [])[1] || "";
+        assert.ok(src.startsWith("../../assets/logos/"), `${family}/${doc} logo ${src} is outside assets/logos/`);
+        assert.ok(existsSync(resolve(dir, src)), `${family}/${doc} logo ${src} does not exist`);
+        assert.equal(resolve(dir, src).startsWith(LOGO_DIR), true);
+        assert.match(tag, /\balt="[^"]+"/, `${family}/${doc} logo ${src} needs alt text`);
+      }
+      const css = styleText(html);
+      assert.equal(/\bfilter\s*:/.test(css), false, `${family}/${doc} must not filter logos`);
+      assert.equal(/mix-blend-mode/.test(css), false, `${family}/${doc} must not blend logos`);
+    }
+  });
+
+  test(`${family}: drop caps and initials never split a word in extracted text`, () => {
+    for (const doc of ["resume", "cover-letter"]) {
+      const css = styleText(readMock(`${family}/${doc}.html`));
+      // A floated ::first-letter or initial-letter extracts as "S" / "ince".
+      assert.equal(/initial-letter/.test(css), false, `${family}/${doc} uses initial-letter`);
+      for (const rule of css.matchAll(/::first-letter\s*\{([^}]*)\}/g)) {
+        assert.equal(/\bfloat\s*:/.test(rule[1]), false, `${family}/${doc} floats a first letter`);
+      }
+    }
+  });
+
+  test(`${family}: fonts come from the repo's vendored stack`, () => {
+    for (const doc of ["resume", "cover-letter"]) {
+      const html = readMock(`${family}/${doc}.html`);
+      const href = (html.match(/href="([^"]*vendor\/fonts\/fonts\.css)"/) || [])[1];
+      assert.ok(href, `${family}/${doc} must link vendor/fonts/fonts.css`);
+      assert.ok(existsSync(resolve(dir, href)), `${family}/${doc} font path ${href} does not resolve`);
+      for (const url of html.match(/https?:\/\/[^"')\s]+/g) || []) {
+        assert.match(
+          url,
+          /^https:\/\/(emiliobuilds\.com|www\.linkedin\.com|fonts\.googleapis\.com|fonts\.gstatic\.com)/,
+          `${family}/${doc} loads an unexpected remote asset: ${url}`,
+        );
+      }
+    }
+  });
+
+  test(
+    `${family}: no Google Fonts at render time`,
+    GOOGLE_FONTS_GAP.has(family)
+      ? { todo: "known gap: display faces still load from Google Fonts until vendored (plan, slice 3)" }
+      : {},
+    () => {
+      for (const doc of ["resume", "cover-letter"]) {
+        const html = readMock(`${family}/${doc}.html`);
+        assert.equal(/fonts\.(googleapis|gstatic)\.com/.test(html), false, `${family}/${doc} fetches Google Fonts`);
+      }
+    },
+  );
+}
