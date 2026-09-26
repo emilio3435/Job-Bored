@@ -225,7 +225,7 @@ describe("B6 skipped-connect variant (spec §5 B6)", () => {
     const text = textOf(container);
     assert.ok(
       text.includes(
-        "○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below",
+        "○ Discovery isn't connected yet — your keys are saved, and the banner below connects it when you're ready",
       ),
     );
     assert.ok(
