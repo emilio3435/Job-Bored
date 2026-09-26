@@ -7,12 +7,93 @@
  * echo that origin — never `*`.
  */
 
+import { spawnSync } from "node:child_process";
+
 const LOOPBACK_PEERS = new Set([
   "127.0.0.1",
   "::1",
   "::ffff:127.0.0.1",
   "localhost",
 ]);
+const TAILNET_STATUS_TTL_MS = 5000;
+const requestTailnetResolvers = new WeakMap();
+
+function readTailscaleStatus() {
+  try {
+    const result = spawnSync("tailscale", ["status", "--json"], {
+      encoding: "utf8",
+      timeout: 1000,
+      maxBuffer: 1024 * 1024,
+      windowsHide: true,
+    });
+    if (result.error || result.status !== 0) return null;
+    return JSON.parse(result.stdout);
+  } catch {
+    return null;
+  }
+}
+
+/** Status is the local daemon's own node and user table, never request data. */
+export function createTailnetStatusResolver({
+  readStatus = readTailscaleStatus,
+  now = Date.now,
+  ttlMs = TAILNET_STATUS_TTL_MS,
+} = {}) {
+  let expiresAt = -Infinity;
+  let cached = { ok: false };
+  return () => {
+    const time = now();
+    if (time < expiresAt) return cached;
+    expiresAt = time + ttlMs;
+    try {
+      const status = readStatus();
+      const dnsName = String(status?.Self?.DNSName || "")
+        .replace(/\.$/, "")
+        .toLowerCase();
+      const userId = status?.Self?.UserID;
+      const ownerLogin =
+        userId == null ? "" : status?.User?.[String(userId)]?.LoginName;
+      if (
+        /^(?:[a-z0-9-]+\.)+ts\.net$/.test(dnsName) &&
+        typeof ownerLogin === "string" &&
+        ownerLogin.trim() &&
+        ownerLogin === ownerLogin.trim()
+      ) {
+        cached = { ok: true, dnsName, ownerLogin };
+        return cached;
+      }
+    } catch {
+      // An absent or failing daemon is never a source of trust.
+    }
+    cached = { ok: false };
+    return cached;
+  };
+}
+
+const defaultTailnetStatus = createTailnetStatusResolver();
+
+/** Per-server test seam. No request header can set this WeakMap entry. */
+export function bindTailnetStatusResolver(req, resolver) {
+  if (typeof resolver === "function") requestTailnetResolvers.set(req, resolver);
+}
+
+function readTailnetOrigin(req) {
+  const headers = req?.headers || {};
+  const explicit = headers.origin ?? headers.Origin;
+  if (explicit != null) return typeof explicit === "string" ? explicit.trim() : "";
+  if (String(headers["sec-fetch-site"] || "").trim().toLowerCase() !== "same-origin") return "";
+  const referer = headers.referer ?? headers.Referer;
+  if (referer) {
+    try {
+      return new URL(referer).origin;
+    } catch {
+      return "";
+    }
+  }
+  // Serve terminates HTTPS, then connects to this HTTP loopback listener.
+  // Browsers omit Origin and Referer on a same-origin GET under no-referrer.
+  return `https://${String(headers.host || headers.Host || "").trim()}`;
+}
 
 export function isLoopbackPeer(remoteAddress) {
   return LOOPBACK_PEERS.has(String(remoteAddress || ""));
@@ -85,6 +166,35 @@ export function authorizeLocalControlRequest(req, options = {}) {
 
   if (!isLoopbackPeer(peer)) {
     return { ok: false, origin, reason: "forbidden_peer" };
+  }
+  const host = String(req?.headers?.host || req?.headers?.Host || "").trim();
+  if (host.toLowerCase().replace(/:\d+$/, "").endsWith(".ts.net")) {
+    const tailnetOrigin = readTailnetOrigin(req);
+    const site = String(req?.headers?.["sec-fetch-site"] || "").trim().toLowerCase();
+    if (site && site !== "same-origin") {
+      return { ok: false, origin: tailnetOrigin, reason: "untrusted_origin" };
+    }
+    const resolveStatus =
+      options.tailnetStatusResolver ||
+      requestTailnetResolvers.get(req) ||
+      defaultTailnetStatus;
+    let status;
+    try {
+      status = resolveStatus();
+    } catch {
+      status = null;
+    }
+    if (!status?.ok) {
+      return { ok: false, origin: tailnetOrigin, reason: "tailscale_unavailable" };
+    }
+    if (host !== status.dnsName || tailnetOrigin !== `https://${status.dnsName}`) {
+      return { ok: false, origin: tailnetOrigin, reason: "untrusted_origin" };
+    }
+    const login = req?.headers?.["tailscale-user-login"];
+    if (typeof login !== "string" || login !== status.ownerLogin) {
+      return { ok: false, origin: tailnetOrigin, reason: "tailnet_owner_required" };
+    }
+    return { ok: true, origin: tailnetOrigin, reason: "ok", tailnetOwner: true };
   }
   if (!origin) {
     return { ok: false, origin, reason: "missing_origin" };
