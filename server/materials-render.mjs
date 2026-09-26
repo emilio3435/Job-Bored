@@ -25,7 +25,7 @@ import { readFileSync } from "node:fs";
 import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
-import { readFamilyFile, resolveFamily, templateIdsFor } from "./materials-templates.mjs";
+import { letterWordBand, readFamilyFile, resolveFamily, templateIdsFor } from "./materials-templates.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FONTS_DIR = resolvePath(__dirname, "..", "vendor", "fonts");
@@ -831,6 +831,9 @@ export function renderDocument(model, doc, options = {}) {
     '<meta name="viewport" content="width=device-width, initial-scale=1" />',
     `<title>${escapeHtml(view.title)}</title>`,
     `<meta name="materials-template" content="${escapeHtml(`${family.id}@${family.version}`)}" />`,
+    /* materials-quality counts a template letter's body (its data-paragraph
+       elements) against this band instead of the legacy whole-page 325–475. */
+    doc === "coverLetter" ? `<meta name="materials-letter-words" content="${letterWordBand(family).join("-")}" />` : "",
     `<style>\n${css}\n</style>`,
     "</head>",
     "<body>",
@@ -838,7 +841,7 @@ export function renderDocument(model, doc, options = {}) {
     "</body>",
     "</html>",
     "",
-  ].join("\n");
+  ].filter((line, i, all) => line !== "" || i === all.length - 1).join("\n");
 }
 
 /* ------------------------------------------------------------------ *

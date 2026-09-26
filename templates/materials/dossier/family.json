@@ -17,7 +17,7 @@
     "resumeLadderTail": ["drop_section:ventures", "drop_section:earlier"],
     "letterLadder": ["css:tight-1", "css:tight-2", "drop_letter_readouts", "css:tight-3"]
   },
-  "budgets": { "visibleWords": [360, 520], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4] },
+  "budgets": { "visibleWords": [360, 520], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4], "letterWords": [180, 260] },
   "reads": ["logo", "ventures", "credentials", "toolkit", "letterReadouts"],
   "signatureMoves": [
     "The hung ledger gutter: a bullet that opens on its verified figure sets that figure in a mono gutter; others get a quiet dash.",

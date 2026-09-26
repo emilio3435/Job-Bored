@@ -18,7 +18,7 @@ import { readResolvedMarks } from "./brand-logos.mjs";
 import { buildRenderModelFromWriter } from "./materials-render-model-adapter.mjs";
 import { renderDocument } from "./materials-render.mjs";
 import { materialsCacheKey, newRunId, renderPackage, writePackageRecords } from "./materials-package.mjs";
-import { resolveRunFamily } from "./materials-templates.mjs";
+import { letterWordBand, resolveRunFamily } from "./materials-templates.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import {
   formatProvenanceLine,
@@ -500,6 +500,7 @@ export function createMaterialsDrafter(deps = {}) {
           masterResumeHtml: String(input.masterResumeHtml || ""),
           resumeText: String(input.resumeText || ""),
           voiceSamples: input.voiceSamples,
+          letterWords: Array.isArray(input.letterWords) ? /** @type {number[]} */ (input.letterWords) : undefined,
           fetchImpl:
             typeof input.fetchImpl === "function"
               ? /** @type {import("./materials-writer.mjs").WriterInput["fetchImpl"]} */ (input.fetchImpl)
@@ -515,6 +516,7 @@ export function createMaterialsDrafter(deps = {}) {
           masterResumeHtml: String(input.masterResumeHtml || ""),
           resumeText: String(input.resumeText || ""),
           voiceSamples: input.voiceSamples,
+          letterWords: Array.isArray(input.letterWords) ? /** @type {number[]} */ (input.letterWords) : undefined,
           current: /** @type {import("./materials-writer.mjs").WriterJson} */ (input.current),
           scorecard: input.scorecard || {},
           fetchImpl:
@@ -792,12 +794,15 @@ export function createMaterialsDrafter(deps = {}) {
     }
     const draftStartedAt = Date.now();
 
+    /* Registry drafts ask for the family's letter band (180–260 today). */
+    const letterWords = useRegistry ? letterWordBand(family) : undefined;
     let writerJson = await writer({
       pin: resolved,
       jdText,
       masterResumeHtml,
       resumeText,
       voiceSamples,
+      ...(letterWords ? { letterWords } : {}),
     });
 
     /** @param {unknown} json */
@@ -859,6 +864,7 @@ export function createMaterialsDrafter(deps = {}) {
         masterResumeHtml,
         resumeText,
         voiceSamples,
+        ...(letterWords ? { letterWords } : {}),
         current: writerJson,
         scorecard,
       });

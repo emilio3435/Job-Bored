@@ -75,7 +75,8 @@
       "properties": {
         "visibleWords": { "$ref": "#/$defs/range" },
         "featuredEmployers": { "type": "integer", "minimum": 1 },
-        "bulletsPerFeatured": { "$ref": "#/$defs/range" }
+        "bulletsPerFeatured": { "$ref": "#/$defs/range" },
+        "letterWords": { "description": "The letter body's word band (paragraphs only). The writer is asked for it and QA checks it; it must sit inside MATERIALS_BUDGETS.letter's hard band.", "$ref": "#/$defs/range" }
       }
     },
     "reads": {

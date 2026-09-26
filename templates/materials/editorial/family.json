@@ -17,7 +17,7 @@
     "resumeLadderTail": ["drop_section:ventures", "drop_intro"],
     "letterLadder": ["css:tight-1", "drop_pull_quote", "css:tight-2", "css:tight-3"]
   },
-  "budgets": { "visibleWords": [340, 500], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4] },
+  "budgets": { "visibleWords": [340, 500], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4], "letterWords": [180, 260] },
   "reads": ["logo", "intro", "headline", "pullQuote", "ventures", "toolkit", "credentials"],
   "signatureMoves": [
     "Bodoni Moda display type against Source Sans 3 text; every figure stays in the text face.",

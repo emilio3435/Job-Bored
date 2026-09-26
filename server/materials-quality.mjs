@@ -70,6 +70,46 @@ function extractSections(html) {
   return Array.from(sections);
 }
 
+/**
+ * A template letter declares its body word band in
+ * <meta name="materials-letter-words" content="180-260">.
+ * @param {string} html
+ * @returns {[number, number] | null}
+ */
+export function letterWordBandFromHtml(html) {
+  const match = /<meta\s+name="materials-letter-words"\s+content="(\d+)-(\d+)"/i.exec(html);
+  return match ? [Number(match[1]), Number(match[2])] : null;
+}
+
+/**
+ * Words in the letter body: the text of every element carrying
+ * data-paragraph (nested inline markup included), chrome excluded.
+ * @param {string} html
+ */
+export function letterBodyWords(html) {
+  let words = 0;
+  const open = /<(p|span|div)\b[^>]*\bdata-paragraph="[^"]*"[^>]*>/gi;
+  let match;
+  while ((match = open.exec(html)) !== null) {
+    const tag = match[1].toLowerCase();
+    const tagRe = new RegExp(`<(/?)${tag}\\b[^>]*>`, "gi");
+    tagRe.lastIndex = match.index + match[0].length;
+    let depth = 1;
+    let end = html.length;
+    let t;
+    while ((t = tagRe.exec(html)) !== null) {
+      depth += t[1] ? -1 : 1;
+      if (depth === 0) {
+        end = t.index;
+        break;
+      }
+    }
+    words += countWords(stripHtml(html.slice(match.index + match[0].length, end)));
+    open.lastIndex = end;
+  }
+  return words;
+}
+
 /** @param {unknown} buffer */
 export function countPdfPages(buffer) {
   if (!buffer) return 0;
@@ -203,16 +243,23 @@ export async function auditCoverLetter({ htmlPath, pdfPath } = {}) {
       pageCount > 1 ? "fail" : "review",
     ));
   }
-  if (htmlStats.words < COVER_MIN_WORDS) {
+  /* A registry letter is judged on its body against its family's band; a
+     legacy letter keeps the whole-page 325–475 rule. */
+  const htmlText = typeof html === "string" ? html : "";
+  const band = htmlText ? letterWordBandFromHtml(htmlText) : null;
+  const [minWords, maxWords] = band || [COVER_MIN_WORDS, COVER_MAX_WORDS];
+  const counted = band ? letterBodyWords(htmlText) : htmlStats.words;
+  const scope = band ? "body words" : "words";
+  if (counted < minWords) {
     issues.push(issue(
       "cover_letter_too_short",
-      `Cover letter has ${htmlStats.words} words; add specific role evidence.`,
+      `Cover letter has ${counted} ${scope} (target ${minWords}–${maxWords}); add specific role evidence.`,
     ));
   }
-  if (htmlStats.words > COVER_MAX_WORDS) {
+  if (counted > maxWords) {
     issues.push(issue(
       "cover_letter_too_long",
-      `Cover letter has ${htmlStats.words} words; tighten to fit one page.`,
+      `Cover letter has ${counted} ${scope} (target ${minWords}–${maxWords}); tighten to fit one page.`,
     ));
   }
 

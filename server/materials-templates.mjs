@@ -44,6 +44,7 @@ export const TEMPLATE_SOURCES = Object.freeze(["default", "preference", "request
  * @property {number[]} [visibleWords]
  * @property {number} [featuredEmployers]
  * @property {number[]} [bulletsPerFeatured]
+ * @property {number[]} [letterWords]
  */
 
 /**
@@ -129,6 +130,14 @@ export function validateFamily(json) {
     if (min > max) errors.push("/budgets/bulletsPerFeatured min is above max");
     if (min < hardMin || max > hardMax) {
       errors.push(`/budgets/bulletsPerFeatured [${min}, ${max}] leaves the hard range [${hardMin}, ${hardMax}]`);
+    }
+  }
+  if (budgets.letterWords) {
+    const [min, max] = budgets.letterWords;
+    const letter = MATERIALS_BUDGETS.letter;
+    if (min > max) errors.push("/budgets/letterWords min is above max");
+    if (min < letter.bodyWordsHardMin || max > letter.bodyWordsHardMax) {
+      errors.push(`/budgets/letterWords [${min}, ${max}] leaves the hard range [${letter.bodyWordsHardMin}, ${letter.bodyWordsHardMax}]`);
     }
   }
   if (!family.accents.includes("ink")) errors.push("/accents must include ink (rule 10)");
@@ -260,6 +269,17 @@ export function templateCacheSegment(family) {
  */
 export function templateIdsFor(family) {
   return { resume: `${family.id}.resume`, coverLetter: `${family.id}.letter` };
+}
+
+/**
+ * The letter body's word band for a family: family.json budgets.letterWords,
+ * else MATERIALS_BUDGETS.letter.bodyWords.
+ * @param {{ budgets: FamilyBudgets }} family
+ * @returns {[number, number]}
+ */
+export function letterWordBand(family) {
+  const band = family.budgets.letterWords || MATERIALS_BUDGETS.letter.bodyWords;
+  return [band[0], band[1]];
 }
 
 /**

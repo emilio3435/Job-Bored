@@ -17,7 +17,7 @@
     "resumeLadderTail": ["drop_section:ventures", "drop_toolkit_group:Ramping", "drop_readouts"],
     "letterLadder": ["css:tight-1", "css:tight-2", "drop_letter_readouts", "css:tight-3"]
   },
-  "budgets": { "visibleWords": [340, 500], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4] },
+  "budgets": { "visibleWords": [340, 500], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4], "letterWords": [180, 260] },
   "reads": ["logo", "readouts", "toolkit", "credentials", "ventures", "letterReadouts"],
   "signatureMoves": [
     "A narrow Volt band with a white graduated scale carries only the name, the target title and the contact details.",

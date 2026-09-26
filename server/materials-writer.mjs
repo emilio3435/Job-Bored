@@ -113,6 +113,7 @@ const WRITER_SYSTEM_PROMPT = [
  * @property {unknown} [voiceSamples]
  * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
  * @property {number} [timeoutMs]
+ * @property {number[]} [letterWords] the template family's letter body band
  */
 
 /**
@@ -213,6 +214,11 @@ function buildUserPrompt(input, extraUserText) {
   }
   if (input.voiceSamples != null && !(Array.isArray(input.voiceSamples) && input.voiceSamples.length === 0)) {
     parts.push(`Voice samples:\n${JSON.stringify(input.voiceSamples)}`);
+  }
+  if (Array.isArray(input.letterWords) && input.letterWords.length === 2) {
+    parts.push(
+      `Cover letter length: the letter's paragraph fields (hook, whyThem, whyMe, whyNow, closing, flourish) total ${input.letterWords[0]}–${input.letterWords[1]} words. Leave a field empty rather than pad.`,
+    );
   }
   if (extraUserText) parts.push(extraUserText);
   return parts.join("\n\n");
