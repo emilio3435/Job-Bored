@@ -82,6 +82,10 @@ function scratchRepo() {
     join(root, "scripts", "lib", "spawn-npm.mjs"),
   );
   copyFileSync(
+    join(repoRoot, "scripts", "lib", "paths.mjs"),
+    join(root, "scripts", "lib", "paths.mjs"),
+  );
+  copyFileSync(
     join(repoRoot, "templates", "cloudflare-worker", "worker.js"),
     join(root, "templates", "cloudflare-worker", "worker.js"),
   );

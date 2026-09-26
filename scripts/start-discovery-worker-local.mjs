@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   decideAfterChildExit,
   decideExistingWorkerAction,
@@ -8,13 +8,15 @@ import {
   parseStarterOptions,
 } from "./lib/discovery-worker-policy.mjs";
 import { homedir } from "node:os";
-import { join } from "node:path";
+import { dirname } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
+import { bootstrapStatePath as resolveBootstrapStatePath } from "./lib/paths.mjs";
 import { resolveWorkerEnv } from "./lib/runtime-env.mjs";
 
 const repoRoot = process.cwd();
-const bootstrapStatePath = join(repoRoot, "discovery-local-bootstrap.json");
+// ~/.jobbored in desktop mode (read-only bundle), the repo root from source.
+const bootstrapStatePath = resolveBootstrapStatePath({ env: process.env, repoRoot });
 
 /**
  * How to spawn the worker: scripts/lib/runtime-env.mjs, the same resolver the
@@ -113,6 +115,7 @@ function writeLocalBootstrapState(runtimeEnv, host, port) {
     },
   };
   try {
+    mkdirSync(dirname(bootstrapStatePath), { recursive: true });
     writeFileSync(bootstrapStatePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   } catch (err) {
     console.warn(

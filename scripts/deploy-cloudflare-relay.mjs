@@ -25,6 +25,7 @@ import {
 import { tmpdir } from "os";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
+import { bootstrapStatePath } from "./lib/paths.mjs";
 
 import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
 
@@ -836,7 +837,7 @@ function restoreRelayCredential(file, previousContent) {
  * token route reads first. A relayToken left by an earlier deploy is dropped.
  */
 function writeRelayBootstrap(relayRecord, root = repoRoot) {
-  const bootstrapPath = join(root, "discovery-local-bootstrap.json");
+  const bootstrapPath = bootstrapStatePath({ repoRoot: root });
   let existing = {};
   if (existsSync(bootstrapPath)) {
     try {
@@ -855,6 +856,7 @@ function writeRelayBootstrap(relayRecord, root = repoRoot) {
       relayLocked: true,
     },
   };
+  mkdirSync(dirname(bootstrapPath), { recursive: true });
   writeFileSync(bootstrapPath, JSON.stringify(merged, null, 2) + "\n");
   return bootstrapPath;
 }
@@ -1189,9 +1191,7 @@ async function main() {
     // existing token (resolveRelayToken).
     const relayToken = resolveRelayToken({
       existingCredential: readRelayCredential(),
-      existingBootstrap: readBootstrapFile(
-        join(repoRoot, "discovery-local-bootstrap.json"),
-      ),
+      existingBootstrap: readBootstrapFile(bootstrapStatePath({ repoRoot })),
       workerName,
       rotate: args.rotateToken,
     });

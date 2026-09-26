@@ -10,6 +10,7 @@ import {
 import { homedir } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { bootstrapStatePath } from "./lib/paths.mjs";
 
 import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
 import {
@@ -23,7 +24,7 @@ const EXPECTED_WORKER_SERVICE = "browser-use-discovery-worker";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(__dirname, "..");
-const defaultBootstrapStatePath = resolve(repoRoot, "discovery-local-bootstrap.json");
+const defaultBootstrapStatePath = bootstrapStatePath({ repoRoot });
 
 export function keepAlivePaths({ homeDir = homedir() } = {}) {
   const root = join(homeDir, ".jobbored");
