@@ -23,6 +23,8 @@
     "extraKeywords",
   ];
 
+  function T() { return root.JobBoredText; }
+
   function looksLikeDelimiter(raw) {
     var s = String(raw == null ? "" : raw).trim();
     if (!s) return true;
@@ -73,7 +75,10 @@
   }
 
   function cleanItem(raw) {
-    var s = unwrapXml(String(raw == null ? "" : raw).trim());
+    var original = String(raw == null ? "" : raw).trim();
+    var text = T() && typeof T().stripControlTokens === "function" ? T().stripControlTokens(original) : original;
+    var changed = text !== original;
+    var s = unwrapXml(text);
     s = s.replace(/^```(?:json|javascript|js|ts|xml|html)?\s*/i, "").replace(/```$/i, "").trim();
     if (looksLikeDelimiter(s)) return { keep: false, polluted: true };
     var recovered = recoverJsonArray(s);
@@ -87,7 +92,10 @@
         return { keep: false, polluted: true };
       }
     }
-    return { keep: true, value: s, polluted: false };
+    if (T() && typeof T().isFragment === "function" && T().isFragment(s)) {
+      return { keep: false, polluted: true };
+    }
+    return { keep: true, value: s, polluted: changed };
   }
 
   function cleanList(arr) {

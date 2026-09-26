@@ -1,0 +1,28 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "followup-thresholds.schema.json",
+  "title": "Follow-up thresholds",
+  "description": "Days since an Applied row's Applied Date at which it needs attention. One source of truth for Hermes followup_monitor.py (reads it at run time) and the browser's daily-brief.js / today-data.js (pinned equal by tests/hermes-followup-thresholds.test.mjs).",
+  "type": "object",
+  "additionalProperties": false,
+  "required": ["schemaVersion", "waitingReplyMinDays", "staleAppliedDays", "likelyClosedDays"],
+  "properties": {
+    "$schema": { "type": "string" },
+    "schemaVersion": { "const": 1 },
+    "waitingReplyMinDays": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "From this many days, no reply means a follow-up is suggested (browser: waiting on a reply)."
+    },
+    "staleAppliedDays": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "From this many days the application is stale and the follow-up is overdue."
+    },
+    "likelyClosedDays": {
+      "type": "integer",
+      "minimum": 1,
+      "description": "From this many days the role is likely closed; Hermes suggests marking it Passed."
+    }
+  }
+}

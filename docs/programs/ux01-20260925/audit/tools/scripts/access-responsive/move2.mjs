@@ -1,0 +1,14 @@
+import { openApp } from "/Users/emilionunezgarcia/Job-Bored.worktrees/ux01/docs/programs/ux01-20260925/audit/tools/audit-harness.mjs";
+const app = await openApp({ mode: "signed-in", viewport: "desktop" }); const page = app.page;
+const writes = []; page.on("request", (r) => { if (/sheets\.googleapis/.test(r.url()) && r.method() !== "GET" && r.method() !== "OPTIONS") writes.push(r.method() + " " + decodeURIComponent(r.url().split("/values/")[1] || r.url()).slice(0, 60) + " " + (r.postData() || "").slice(0, 120)); });
+const t = page.locator('[data-action="move-to-stage"]:visible').first(); await t.focus();
+const key = await t.evaluate((e) => e.closest("[data-stable-key]")?.getAttribute("data-stable-key"));
+await page.keyboard.press("Enter"); await page.waitForTimeout(500);
+await page.keyboard.press("ArrowDown"); await page.keyboard.press("Enter"); await page.waitForTimeout(1200);
+const before = writes.length;
+await page.keyboard.press("Escape"); await page.waitForTimeout(2500);
+console.log("card key", key, "writes before Esc:", before, "after Esc:", writes.length); writes.forEach((w) => console.log("  ", w));
+console.log("card now in stage:", await page.evaluate((k) => document.querySelector(`.pipe-sticker[data-stable-key="${k}"]`)?.getAttribute("data-stage"), key));
+console.log("job status:", await page.evaluate((k) => { const d = window.getPipelineData?.() || window.pipelineData; const j = Array.isArray(d) ? d.find((x, i) => String(x.stableKey ?? x._key ?? i) === String(k)) : null; return j ? j.status : "unknown"; }, key));
+console.log("trigger label:", await page.evaluate((k) => document.querySelector(`.pipe-sticker[data-stable-key="${k}"] [data-action=move-to-stage]`)?.getAttribute("aria-label"), key), "focus:", await page.evaluate(() => document.activeElement === document.body ? "<body>" : document.activeElement.getAttribute("aria-label")), "live:", await page.evaluate(() => [...document.querySelectorAll(".jb-a11y-visually-hidden[aria-live]")].map(n => n.textContent.trim())));
+await app.close();

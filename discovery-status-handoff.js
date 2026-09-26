@@ -213,17 +213,19 @@ async function diagnoseDownstreamChain(snapshot) {
   const localUrl = snapshot.localWebhookUrl || transport.localWebhookUrl || "";
   diagnosis.localServer.url = localUrl;
 
-  // Honest remediation routing: only setups that actually use a tunnel
-  // (a tunnel URL in transport state, or a local webhook behind one) should
-  // ever be told to fix ngrok. A remote https webhook (Tailscale *.ts.net,
-  // *.workers.dev, generic https) can't be helped by the tunnel step.
+  // Honest remediation routing: only setups that actually use a tunnel should
+  // ever be told to fix ngrok. "Uses a tunnel" is decided from a real tunnel
+  // URL, or from the saved webhook's own kind (getRemoteDiscoveryWebhookHost
+  // returns "" for an ngrok webhook, which IS the tunnel) — never from the
+  // mere presence of a local webhook URL. scripts/bootstrap-local-discovery.mjs
+  // writes localWebhookUrl for EVERY local worker, Tailscale included, so
+  // reading it as "there is a tunnel" pointed Tailscale users at an ngrok
+  // tunnel they do not have.
   const savedWebhookUrl = String(
     snapshot.savedWebhookUrl || host().getDiscoveryWebhookUrl() || "",
   ).trim();
   const usesTunnelTransport = !!(
-    localUrl ||
-    snapshot.tunnelPublicUrl ||
-    transport.tunnelPublicUrl
+    snapshot.tunnelPublicUrl || transport.tunnelPublicUrl
   );
   const remoteWebhookHost = usesTunnelTransport
     ? ""
@@ -284,10 +286,16 @@ async function diagnoseDownstreamChain(snapshot) {
         "Attempts to start the recommended local browser-use worker automatically.",
     };
   } else if (remoteWebhookHost) {
-    diagnosis.summary =
-      `Your discovery worker at ${remoteWebhookHost} is unreachable. ` +
-      "Check that the machine running it is awake and that the saved URL " +
-      "in your connection settings is current, then re-test.";
+    // A healthy local worker is a different story from a missing one: the
+    // hop that is actually broken is the stable transport in front of it
+    // (e.g. `tailscale serve`), so say that instead of blaming the worker.
+    diagnosis.summary = diagnosis.localServer.healthy
+      ? `Your local worker is running, but ${remoteWebhookHost} is not reachable. ` +
+        "Check that the stable transport in front of it is up and that the " +
+        "saved URL in your connection settings is current, then re-test."
+      : `Your discovery worker at ${remoteWebhookHost} is unreachable. ` +
+        "Check that the machine running it is awake and that the saved URL " +
+        "in your connection settings is current, then re-test.";
     diagnosis.primaryFix = {
       id: "diag_fix_reverify",
       label: "Re-test",
@@ -504,6 +512,41 @@ async function requestDiscoverySetup(options = {}) {
 const MAX_POLL_ERRORS = 3;
 const STATUS_POLL_DEBOUNCE_MS = 500;
 
+// A /runs/:id answer is either transient (worth another poll) or settled
+// (the endpoint will never report this run). Burning three retries on a 404
+// and then telling the user "the run may still be running" is a false
+// statement, so the two cases are separated before any retry is spent.
+const TERMINAL_RUN_STATUS_POLL_CODES = [401, 403, 404, 405, 410];
+
+/**
+ * Classify a run-status poll response by HTTP status. Only codes we can prove
+ * are settled stop the poller; network failures (0 / non-numeric), the
+ * transient codes (408/425/429/5xx) and anything unclassified stay retryable.
+ * @param {number} status  HTTP status; 0 or non-numeric means a network failure
+ * @returns {"ok"|"retryable"|"terminal"}
+ */
+function classifyRunStatusPollResponse(status) {
+  const code = Number(status);
+  if (!Number.isFinite(code)) return "retryable";
+  if (code >= 200 && code < 300) return "ok";
+  if (TERMINAL_RUN_STATUS_POLL_CODES.includes(code)) return "terminal";
+  return "retryable";
+}
+
+/** Honest, hop-naming copy for a status endpoint that has settled. */
+function describeTerminalRunStatusPoll(status) {
+  const code = Number(status);
+  const tail =
+    "Status updates have stopped \u2014 check Runs or your sheet for the outcome.";
+  if (code === 401 || code === 403) {
+    return `The status endpoint rejected this run's status token (HTTP ${code}). ${tail}`;
+  }
+  if (code === 404 || code === 410) {
+    return `The worker has no record of this run (HTTP ${code}). ${tail}`;
+  }
+  return `The status endpoint cannot report this run (HTTP ${code}). ${tail}`;
+}
+
 /**
  * Build the full status URL from a relative statusPath.
  * Handles explicit statusPath or constructs from runId + base webhook URL.
@@ -635,6 +678,22 @@ async function pollRunStatus(webhookUrl) {
   }
 
   if (!response.ok) {
+    if (classifyRunStatusPollResponse(response.status) === "terminal") {
+      const message = describeTerminalRunStatusPoll(response.status);
+      // Older mounts only expose markStatusConnectionLost; the honest copy
+      // matters more than which entry point carries it.
+      if (typeof tracker.markStatusEndpointTerminal === "function") {
+        tracker.markStatusEndpointTerminal(message);
+      } else if (typeof tracker.markStatusConnectionLost === "function") {
+        tracker.markStatusConnectionLost(message);
+      } else if (typeof tracker.markPollError === "function") {
+        // Minimal/older tracker mounts may expose only the retryable poll
+        // error hook. Keep the poll result contract even when they cannot
+        // record this terminal distinction.
+        tracker.markPollError(message);
+      }
+      return null;
+    }
     tracker.markPollError(
       `Status endpoint returned HTTP ${response.status}`,
     );
@@ -796,6 +855,12 @@ async function startDiscoveryStatusPolling(webhookUrl) {
     const updated = tracker.getState();
 
     if (updated.status === "polling_error") {
+      if (updated.statusEndpointTerminal) {
+        // Settled: the message is already honest, and another poll would
+        // only re-earn the same answer.
+        renderDiscoveryRunStatus();
+        return;
+      }
       if (updated.pollErrorCount >= MAX_POLL_ERRORS) {
         tracker.markStatusConnectionLost(
           "Lost the status connection after multiple attempts. The discovery run may still be running.",
@@ -933,6 +998,9 @@ function resumeDiscoveryStatusPollingIfNeeded() {
   const next = runTracker().getState();
   if (!runTracker().isActive()) return;
   renderDiscoveryRunStatus();
+  // A settled status endpoint stays settled across a reload — re-polling it
+  // would only re-earn the same 404/401.
+  if (next.statusEndpointTerminal) return;
   void startDiscoveryStatusPolling(next.webhookUrl || host().getDiscoveryWebhookUrl());
 }
 
@@ -963,7 +1031,7 @@ function looksLikeExpiredSearchKey(rawText) {
 
 const EXPIRED_SEARCH_KEY_MESSAGE =
   "Discovery is set up, but your grounded-search key looks expired or invalid. " +
-  "Refresh it in Settings → Discovery to start getting results.";
+  "Refresh it in Settings → AI Providers to start getting results.";
 
 // Every class renderDiscoveryRunStatus() may put on #discoveryBtn — kept in
 // one list so stale states are always cleared before the next one applies.
@@ -1008,26 +1076,37 @@ function renderDiscoveryRunStatus() {
   let statusMessage = "";
   let statusTone = "info";
 
+  // UX01 C9 (FD-11, SS-24): plain words — no run IDs, no "worker logs",
+  // Pipeline rather than "sheet", and a count when the run reports one.
+  const foundCount =
+    (Number(state.leadsWritten) || 0) + (Number(state.leadsUpdated) || 0);
+  const why = String(state.errorMessage || "").trim().replace(/[.\s]+$/, "");
   switch (state.status) {
     case "pending":
       statusMessage = state.statusUnavailable
-        ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted, but this worker did not return a status URL. Check Pipeline or Runs for the final result.`
-        : `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted — checking status…`;
+        ? "Discovery started. This setup can't send live updates — new roles will land in your Pipeline; check Runs in a few minutes."
+        : "Discovery started — searching for new roles…";
       statusTone = "info";
       break;
     case "running":
-      statusMessage = `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} in progress…`;
+      statusMessage = "Searching for new roles…";
       statusTone = "info";
       break;
     case "polling_error":
-      statusMessage =
-        state.pollErrorCount >= MAX_POLL_ERRORS
-          ? `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} accepted, but JobBored lost the status connection. The worker may still be running.`
-          : `Run ${state.runId ? state.runId.slice(0, 8) + "…" : ""} — retrying status connection…`;
+      statusMessage = state.statusEndpointTerminal
+        ? "Discovery can't report this run. " +
+          (why ? why + ". " : "") +
+          "Open Runs for details."
+        : state.pollErrorCount >= MAX_POLL_ERRORS
+          ? "Discovery started — we stopped getting updates. The search may still be running; new roles may land in your Pipeline. Check Runs in a few minutes."
+          : "Reconnecting to the search…";
       statusTone = "warning";
       break;
     case "completed":
-      statusMessage = "Discovery complete — new roles will appear in your sheet.";
+      statusMessage =
+        foundCount > 0
+          ? `Found ${foundCount} new ${foundCount === 1 ? "role" : "roles"}.`
+          : "Discovery finished — new roles are in your Pipeline.";
       statusTone = "success";
       break;
     case "empty":
@@ -1036,15 +1115,16 @@ function renderDiscoveryRunStatus() {
       break;
     case "partial":
       statusMessage =
-        "Discovery finished with partial results. " +
-        (state.errorMessage ? state.errorMessage + ". " : "") +
-        "Check the worker logs for details.";
+        "Discovery finished, but some sources didn't answer. " +
+        (why ? why + ". " : "") +
+        "Open Runs to see which.";
       statusTone = "warning";
       break;
     case "failed":
       statusMessage =
-        "Discovery run failed. " +
-        (state.errorMessage ? state.errorMessage : "Check the worker logs.");
+        "Discovery didn't finish. " +
+        (why ? why + ". " : "") +
+        "Open Runs to see why.";
       statusTone = "error";
       break;
     default:
@@ -1077,16 +1157,22 @@ function renderDiscoveryRunStatus() {
             },
           }
         : state.status === "polling_error" &&
+            !state.statusEndpointTerminal &&
             state.statusPath &&
             state.pollErrorCount >= MAX_POLL_ERRORS
           ? { label: "Retry status", onClick: retryDiscoveryStatusConnection }
-          : state.status === "pending" && state.statusUnavailable
+          : (state.status === "pending" && state.statusUnavailable) ||
+              (state.status === "polling_error" && state.statusEndpointTerminal) ||
+              state.status === "partial" ||
+              state.status === "failed"
             ? {
                 label: "Open runs",
                 onClick: () => {
                   document.getElementById("runsBtn")?.click();
                 },
               }
+          : state.status === "completed"
+            ? { label: "View", onClick: viewFoundRoles }
           : undefined;
       const sticky =
         expiredSearchKey ||
@@ -1095,6 +1181,28 @@ function renderDiscoveryRunStatus() {
         (state.status === "pending" && state.statusUnavailable);
       host().showToast(statusMessage, statusTone, sticky, retryAction);
     }
+  }
+}
+
+/**
+ * UX01 C9 (FD-12): "Found N new · View" lands on the Pipeline. The view
+ * API shows the board before we scroll to it.
+ */
+function viewFoundRoles() {
+  try {
+    document.dispatchEvent(
+      new CustomEvent("jb:view:request", { detail: { view: "pipeline", from: "discovery_run" } }),
+    );
+  } catch (_) {
+    /* no CustomEvent: fall through to the scroll */
+  }
+  const views = window.JobBoredFlowing && window.JobBoredFlowing.views;
+  if (views && typeof views.show === "function") {
+    views.show("pipeline", { focus: true });
+  }
+  const board = document.querySelector('[data-region="pipeline"]');
+  if (board && typeof board.scrollIntoView === "function") {
+    board.scrollIntoView({ behavior: "smooth", block: "start" });
   }
 }
 
@@ -1266,8 +1374,30 @@ async function resolveOneFlowEntryBeat() {
     }
     return "fit";
   }
-  if (await hasVerifiedProvider()) return "resume";
+  if (await hasVerifiedProvider()) {
+    // GREENFIELD §4.1 gates Beat 3 on Beat 2. This rung IS Beat 2's exit
+    // condition — the configured provider just answered a live check — so
+    // the ladder has to SAY so, or the controller reads the skip as an unmet
+    // prerequisite and sends a migrated user back to the AI screen.
+    seedMigratedBeats(["ai"]);
+    return "resume";
+  }
   return "ai";
+}
+
+/**
+ * Tell the controller which rungs this profile has already cleared, through
+ * the same §3.3 seed seam that hands B4 its drafted profile. In-memory by
+ * contract: the ladder re-derives it on every boot.
+ */
+function seedMigratedBeats(beatIds) {
+  const flow = oneFlow();
+  if (!flow || typeof flow.seedRuntime !== "function") return;
+  try {
+    flow.seedRuntime({ migratedBeats: beatIds });
+  } catch (e) {
+    console.warn("[JobBored] one-flow: could not seed migrated beats:", e);
+  }
 }
 
 /**
@@ -1345,6 +1475,8 @@ function resetPostAccessBootstrap() {
     isLikelyNgrokUrl: isLikelyNgrokUrl,
     getDiscoveryStatusPollingWebhookUrl: getDiscoveryStatusPollingWebhookUrl,
     buildDiscoveryStatusPollHeaders: buildDiscoveryStatusPollHeaders,
+    classifyRunStatusPollResponse: classifyRunStatusPollResponse,
+    describeTerminalRunStatusPoll: describeTerminalRunStatusPoll,
     pollRunStatus: pollRunStatus,
     retryDiscoveryStatusConnection: retryDiscoveryStatusConnection,
     shouldRefreshPipelineAfterDiscoveryRun: shouldRefreshPipelineAfterDiscoveryRun,

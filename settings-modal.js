@@ -31,8 +31,30 @@
   }
 
 
-  function resolveGeminiModel(...args) {
-    return host().resolveGeminiModel(...args);
+  /**
+   * The overlay resolver (app-config-core.js). Settings reads config through
+   * it so a malformed sheet id no longer blanks the OAuth client, the
+   * provider, and every model name — which is what made Settings re-ask for
+   * what the six beats had already collected (GREENFIELD D1).
+   */
+  function getEffectiveConfig() {
+    const core = window.JobBoredApp && window.JobBoredApp.configCore;
+    if (core && typeof core.getEffectiveConfig === "function") {
+      const resolved = core.getEffectiveConfig();
+      if (resolved && typeof resolved === "object") return resolved;
+    }
+    return {
+      ...(window.COMMAND_CENTER_CONFIG || {}),
+      ...readStoredConfigOverrides(),
+    };
+  }
+
+  /** The one default-model table (model-catalog.js), read lazily. */
+  function defaultModelFor(providerId) {
+    const catalog = window.JobBoredModelCatalog;
+    const table = catalog && catalog.DEFAULT_MODEL_BY_PROVIDER;
+    const model = table && table[providerId];
+    return typeof model === "string" ? model : "";
   }
 
 // A11y focus + trap state (per-module). Saved on open and reapplied on close
@@ -363,6 +385,51 @@ async function refreshSettingsModelSelectsViaCatalog(cfg) {
  * the shared catalog using the key currently TYPED in the field (so users
  * can verify before saving) and renders ✓/✗ inline.
  */
+const SETTINGS_PROVIDER_NAMES = {
+  openrouter: "OpenRouter",
+  gemini: "Google Gemini",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  local: "your local model",
+};
+
+/** UX01 C22 (SS-13): plain words for a failed "Check connection", with the
+ *  raw reason tucked behind a disclosure instead of leading with it. */
+function describeProviderCheckFailure(provider, rawMessage) {
+  const name = SETTINGS_PROVIDER_NAMES[provider] || "that provider";
+  const raw = String(rawMessage || "");
+  if (/network|fetch|cors|connect|timed? ?out|abort/i.test(raw)) {
+    return provider === "openrouter" || provider === "local"
+      ? `Couldn’t reach ${name} from this browser. Check the address and your connection.`
+      : `Couldn’t reach ${name} from this browser. Check the key and your connection, or switch to OpenRouter (works from any browser).`;
+  }
+  if (/401|403|unauthori[sz]ed|invalid|api key|forbidden/i.test(raw)) {
+    return `${name} didn’t accept that key. Copy it again from ${name} and paste it here.`;
+  }
+  return `Couldn’t connect to ${name}. Check the key and try again.`;
+}
+
+function renderPlainCheckFailure(status, provider, result) {
+  const raw = (result && result.message) || "";
+  const plain = describeProviderCheckFailure(provider, raw);
+  if (typeof status.replaceChildren === "function") status.replaceChildren();
+  else status.textContent = "";
+  const lead = document.createElement("span");
+  lead.textContent = plain;
+  status.appendChild(lead);
+  if (raw) {
+    const details = document.createElement("details");
+    details.className = "settings-check-status__details";
+    const summary = document.createElement("summary");
+    summary.textContent = "Details";
+    const body = document.createElement("span");
+    body.textContent = raw;
+    details.appendChild(summary);
+    details.appendChild(body);
+    status.appendChild(details);
+  }
+}
+
 async function settingsVerifyProvider(provider) {
   const def = SETTINGS_PROVIDER_DEFS[provider];
   if (!def) return { ok: false, message: "Unknown provider." };
@@ -403,9 +470,7 @@ async function settingsVerifyProvider(provider) {
         (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {},
       );
     } else {
-      status.textContent = `Couldn't connect — ${
-        (result && result.message) || "check the key and try again."
-      }`;
+      renderPlainCheckFailure(status, provider, result);
       status.classList.add("settings-check-status--error");
     }
   }
@@ -433,10 +498,7 @@ async function populateDiscoveryProfileIntoSettingsForm() {
 }
 
 function populateCommandCenterSettingsForm() {
-  const cfg = {
-    ...(window.COMMAND_CENTER_CONFIG || {}),
-    ...readStoredConfigOverrides(),
-  };
+  const cfg = getEffectiveConfig();
   const set = (id, v) => {
     const el = document.getElementById(id);
     if (el) el.value = v != null ? String(v) : "";
@@ -445,8 +507,6 @@ function populateCommandCenterSettingsForm() {
   set("settingsSheetId", host().parseGoogleSheetId(sidRaw) || sidRaw);
   set("settingsOAuthClientId", cfg.oauthClientId);
   set("settingsTitle", host().normalizeDashboardTitle(cfg.title));
-  set("settingsDiscoveryWebhookUrl", cfg.discoveryWebhookUrl);
-  set("settingsDiscoveryWebhookSecret", cfg.discoveryWebhookSecret);
   set("settingsJobPostingScrapeUrl", cfg.jobPostingScrapeUrl);
   const atsMode = String(cfg.atsScoringMode || "server").toLowerCase();
   set("settingsAtsScoringMode", atsMode === "webhook" ? "webhook" : "server");
@@ -480,7 +540,139 @@ function populateCommandCenterSettingsForm() {
     err.textContent = "";
     err.style.display = "none";
   }
+  renderSettingsReceipts();
   host().renderAppsScriptDeployUi();
+}
+
+/* ============================================================
+   Receipts, not asks (GREENFIELD D4).
+
+   The Google and AI panels open with what setup already collected — the
+   Sheet, the signed-in account, the provider and model — and a single
+   "Change in setup" button that hands the user back to the beat that owns
+   that value. Settings stops being a second place to type credentials.
+   ============================================================ */
+
+const SETTINGS_RECEIPT_BEATS = Object.freeze({
+  google: "google",
+  ai: "ai",
+});
+
+const SETTINGS_PROVIDER_LABELS = Object.freeze({
+  openrouter: "OpenRouter",
+  gemini: "Gemini",
+  openai: "OpenAI",
+  anthropic: "Anthropic",
+  local: "Local",
+  webhook: "My server",
+});
+
+const SETTINGS_PROVIDER_CREDENTIAL_FIELDS = Object.freeze({
+  openrouter: "resumeOpenRouterApiKey",
+  gemini: "resumeGeminiApiKey",
+  openai: "resumeOpenAIApiKey",
+  anthropic: "resumeAnthropicApiKey",
+  local: "resumeLocalBaseUrl",
+  webhook: "resumeGenerationWebhookUrl",
+});
+
+const SETTINGS_PROVIDER_MODEL_FIELDS = Object.freeze({
+  openrouter: "resumeOpenRouterModel",
+  gemini: "resumeGeminiModel",
+  openai: "resumeOpenAIModel",
+  anthropic: "resumeAnthropicModel",
+  local: "resumeLocalModel",
+});
+
+const SETTINGS_RECEIPT_NOT_CONNECTED = "Not connected";
+
+function settingsSignedInEmail() {
+  const app = window.JobBoredApp;
+  const auth = app && app.auth;
+  try {
+    if (auth && typeof auth.getUserEmail === "function") {
+      return String(auth.getUserEmail() || "").trim();
+    }
+    const h = window.JobBoredApp && window.JobBoredApp.core && window.JobBoredApp.core.host;
+    if (h && typeof h.getUserEmail === "function") {
+      return String(h.getUserEmail() || "").trim();
+    }
+  } catch (_) {
+    /* the auth module may not be loaded yet */
+  }
+  return "";
+}
+
+function buildGoogleReceipt(cfg) {
+  const rawSheet = cfg.sheetId != null ? String(cfg.sheetId).trim() : "";
+  if (!rawSheet) {
+    return { connected: false, text: SETTINGS_RECEIPT_NOT_CONNECTED };
+  }
+  const parsed = host().parseGoogleSheetId(rawSheet);
+  const title = host().normalizeDashboardTitle(cfg.title);
+  const sheetLabel = title && title !== "JobBored" ? title : parsed || rawSheet;
+  const email = settingsSignedInEmail();
+  return {
+    connected: true,
+    text: email ? `${sheetLabel} · ${email}` : sheetLabel,
+  };
+}
+
+function buildAiReceipt(cfg) {
+  const provider = String(cfg.resumeProvider || "").trim().toLowerCase();
+  if (!provider || !SETTINGS_PROVIDER_LABELS[provider]) {
+    return { connected: false, text: SETTINGS_RECEIPT_NOT_CONNECTED };
+  }
+  const credentialField = SETTINGS_PROVIDER_CREDENTIAL_FIELDS[provider];
+  const credential =
+    credentialField && typeof cfg[credentialField] === "string"
+      ? cfg[credentialField].trim()
+      : "";
+  if (!credential) {
+    return { connected: false, text: SETTINGS_RECEIPT_NOT_CONNECTED };
+  }
+  const modelField = SETTINGS_PROVIDER_MODEL_FIELDS[provider];
+  const model =
+    (modelField && typeof cfg[modelField] === "string"
+      ? cfg[modelField].trim()
+      : "") || defaultModelFor(provider);
+  const label = SETTINGS_PROVIDER_LABELS[provider];
+  return { connected: true, text: model ? `${label} · ${model}` : label };
+}
+
+/** @param {"google"|"ai"} kind */
+function buildSettingsReceipt(kind, config) {
+  const cfg = config || getEffectiveConfig();
+  return kind === "ai" ? buildAiReceipt(cfg) : buildGoogleReceipt(cfg);
+}
+
+function renderSettingsReceipts() {
+  if (typeof document === "undefined" || !document.querySelector) return;
+  const cfg = getEffectiveConfig();
+  for (const kind of Object.keys(SETTINGS_RECEIPT_BEATS)) {
+    const node = document.querySelector(`[data-receipt-state="${kind}"]`);
+    if (!node) continue;
+    const receipt = buildSettingsReceipt(kind, cfg);
+    node.textContent = receipt.text;
+    if (node.dataset) node.dataset.connected = receipt.connected ? "1" : "0";
+  }
+}
+
+/**
+ * Hand the user back to the beat that owns this value. `returnTo: "close"`
+ * (lane A's controller seam) closes the shell when that one beat completes,
+ * so a "Change" from Settings does not walk them through the whole flow.
+ */
+function settingsChangeInSetup(beatId) {
+  const beat = SETTINGS_RECEIPT_BEATS[beatId] || beatId;
+  closeCommandCenterSettingsModal();
+  const oneFlow = window.JobBoredOneFlow;
+  if (!oneFlow || typeof oneFlow.open !== "function") return;
+  try {
+    void oneFlow.open(beat, { returnTo: "close" });
+  } catch (_) {
+    /* the shell may not be mounted yet; the modal is already closed */
+  }
 }
 
 function updateSettingsProviderPanels() {
@@ -581,17 +773,29 @@ async function openCommandCenterSettingsModal(opts) {
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "flex";
   if (modal) applySettingsInertBackground(modal);
+  snapshotSettingsForm();
   // Escape-to-close + auto-focus the close button. The brief asks for both:
   // - Escape lets keyboard users dismiss without hunting for the X.
   // - Focusing #settingsModalClose lands the user inside the trap with a
   //   discoverable exit affordance.
   if (typeof document !== "undefined" && !settingsEscapeHandler) {
+    // Capture phase + stopImmediatePropagation: materials-feature.js has a
+    // global Escape that closes Settings raw, which skipped the unsaved-
+    // changes question (UX01 SS-27). Settings owns its own Escape now.
     settingsEscapeHandler = (e) => {
       if (e.key === "Escape" && isSettingsModalOpen()) {
-        closeCommandCenterSettingsModal();
+        const scraper = document.getElementById("scraperSetupModal");
+        if (scraper && scraper.style.display === "flex") return;
+        e.stopImmediatePropagation();
+        const clearBar = document.getElementById("settingsClearConfirmBar");
+        if (clearBar && !clearBar.hidden) {
+          hideSettingsClearConfirmBar();
+          return;
+        }
+        requestCloseCommandCenterSettingsModal();
       }
     };
-    document.addEventListener("keydown", settingsEscapeHandler);
+    document.addEventListener("keydown", settingsEscapeHandler, true);
   }
   if (typeof requestAnimationFrame === "function") {
     requestAnimationFrame(() => {
@@ -630,7 +834,93 @@ async function openCommandCenterSettingsModal(opts) {
     } catch (e) {
       console.warn("[JobBored] settings modal hydration failed:", e);
     }
+    // Async hydration filled fields after open; that is not a user edit.
+    snapshotSettingsForm();
   }
+}
+
+/* UX01 C22 (SS-27): snapshot the form on open; Escape, X and the overlay
+   ask before throwing away a pasted key or Sheet link. Save and the
+   programmatic closes skip the question. */
+let settingsFormSnapshot = null;
+
+function readSettingsFormState() {
+  const modal = document.getElementById("settingsModal");
+  if (!modal || typeof modal.querySelectorAll !== "function") return {};
+  const out = {};
+  modal
+    .querySelectorAll(
+      'input[id^="settings"], select[id^="settings"], textarea[id^="settings"]',
+    )
+    .forEach((el) => {
+      if (!el.id || el.type === "file" || el.type === "button") return;
+      out[el.id] =
+        el.type === "checkbox" || el.type === "radio" ? !!el.checked : String(el.value || "");
+    });
+  return out;
+}
+
+function snapshotSettingsForm() {
+  settingsFormSnapshot = readSettingsFormState();
+}
+
+function settingsFormIsDirty() {
+  if (!settingsFormSnapshot) return false;
+  const now = readSettingsFormState();
+  for (const k of Object.keys(now)) {
+    if (!(k in settingsFormSnapshot)) continue;
+    if (now[k] !== settingsFormSnapshot[k]) return true;
+  }
+  return false;
+}
+
+function requestCloseCommandCenterSettingsModal() {
+  if (settingsFormIsDirty()) {
+    const ok =
+      typeof window.confirm === "function"
+        ? window.confirm("Discard your unsaved Settings changes?")
+        : true;
+    if (!ok) return false;
+  }
+  closeCommandCenterSettingsModal();
+  return true;
+}
+
+/* UX01 C22 (SS-14): only a new Sheet or a new Google client needs a
+   reload; everything else is read live from config, so apply in place. */
+function settingsSaveNeedsReload(before, payload, sheetId) {
+  const b = before || {};
+  if (String(sheetId || "") !== String(b.sheetId || "")) return true;
+  if (payload && Object.prototype.hasOwnProperty.call(payload, "oauthClientId")) {
+    if (String(payload.oauthClientId || "") !== String(b.oauthClientId || "")) {
+      return true;
+    }
+  }
+  return false;
+}
+
+function finishSettingsSave(before, payload, sheetId) {
+  if (settingsSaveNeedsReload(before, payload, sheetId)) {
+    showToast("Settings saved — reloading…", "success");
+    setTimeout(() => window.location.reload(), 400);
+    return;
+  }
+  if (payload && typeof payload.title === "string" && payload.title) {
+    const titleEl = document.getElementById("dashboardTitle");
+    const logoEl = document.getElementById("logoHorizontal");
+    document.title = payload.title + " — Job Search Dashboard";
+    if (payload.title === "JobBored") {
+      logoEl?.removeAttribute("hidden");
+      titleEl?.setAttribute("hidden", "");
+    } else if (titleEl) {
+      logoEl?.setAttribute("hidden", "");
+      titleEl.removeAttribute("hidden");
+      titleEl.textContent = payload.title;
+    }
+  }
+  showToast("Saved", "success");
+  snapshotSettingsForm();
+  closeCommandCenterSettingsModal();
 }
 
 function hideSettingsClearConfirmBar() {
@@ -646,6 +936,7 @@ function showSettingsClearConfirmBar() {
 }
 
 function closeCommandCenterSettingsModal() {
+  settingsFormSnapshot = null;
   hideSettingsClearConfirmBar();
   const modal = document.getElementById("settingsModal");
   if (modal) modal.style.display = "none";
@@ -655,6 +946,8 @@ function closeCommandCenterSettingsModal() {
     typeof document !== "undefined" &&
     typeof document.removeEventListener === "function"
   ) {
+    // Registered in the capture phase; the capture flag must match to remove.
+    document.removeEventListener("keydown", settingsEscapeHandler, true);
     document.removeEventListener("keydown", settingsEscapeHandler);
     settingsEscapeHandler = null;
   }
@@ -764,6 +1057,11 @@ async function saveCommandCenterSettingsFromForm() {
     return;
   }
   if (sheetEl) sheetEl.value = sheetId;
+  const beforeSave = {
+    sheetId: (typeof host().getSheetId === "function" && host().getSheetId()) || "",
+    oauthClientId:
+      (typeof host().getOAuthClientId === "function" && host().getOAuthClientId()) || "",
+  };
   const settingsRoot = document.getElementById("settingsModal");
   const readOwnedField = (id) => {
     const el = document.getElementById(id);
@@ -808,12 +1106,6 @@ async function saveCommandCenterSettingsFromForm() {
   assignOwned(payload, "title", "settingsTitle", (value) =>
     host().normalizeDashboardTitle(value),
   );
-  assignOwned(payload, "discoveryWebhookUrl", "settingsDiscoveryWebhookUrl");
-  assignOwned(
-    payload,
-    "discoveryWebhookSecret",
-    "settingsDiscoveryWebhookSecret",
-  );
   assignOwned(payload, "jobPostingScrapeUrl", "settingsJobPostingScrapeUrl");
   assignOwned(payload, "atsScoringMode", "settingsAtsScoringMode", (value) =>
     value.toLowerCase() === "webhook" ? "webhook" : "server",
@@ -825,21 +1117,21 @@ async function saveCommandCenterSettingsFromForm() {
     payload,
     "resumeGeminiModel",
     "settingsResumeGeminiModel",
-    (value) => value || resolveGeminiModel(),
+    (value) => value || defaultModelFor("gemini"),
   );
   assignOwned(payload, "resumeOpenAIApiKey", "settingsResumeOpenAIApiKey");
   assignOwned(
     payload,
     "resumeOpenAIModel",
     "settingsResumeOpenAIModel",
-    (value) => value || "gpt-4o-mini",
+    (value) => value || defaultModelFor("openai"),
   );
   assignOwned(payload, "resumeAnthropicApiKey", "settingsResumeAnthropicApiKey");
   assignOwned(
     payload,
     "resumeAnthropicModel",
     "settingsResumeAnthropicModel",
-    (value) => value || "claude-sonnet-4-6",
+    (value) => value || defaultModelFor("anthropic"),
   );
   assignOwned(
     payload,
@@ -850,7 +1142,7 @@ async function saveCommandCenterSettingsFromForm() {
     payload,
     "resumeOpenRouterModel",
     "settingsResumeOpenRouterModel",
-    (value) => value || "openai/gpt-oss-120b:free",
+    (value) => value || defaultModelFor("openrouter"),
   );
   assignOwned(
     payload,
@@ -862,7 +1154,7 @@ async function saveCommandCenterSettingsFromForm() {
     payload,
     "resumeLocalModel",
     "settingsResumeLocalModel",
-    (value) => value || "gemma4:e2b",
+    (value) => value || defaultModelFor("local"),
   );
   assignOwned(payload, "resumeLocalApiKey", "settingsResumeLocalApiKey");
   assignOwned(
@@ -940,37 +1232,11 @@ async function saveCommandCenterSettingsFromForm() {
   }
   host().setSHEET_ID(sheetId);
   host().setDashboardSheetLinks();
-  if (!Object.prototype.hasOwnProperty.call(payload, "discoveryWebhookUrl")) {
-    host().syncDiscoveryButtonState();
-    showToast("Settings saved — reloading…", "success");
-    setTimeout(() => window.location.reload(), 400);
-    return;
-  }
-  const savedWebhookUrl = host().normalizeDiscoveryWebhookIdentity(
-    payload.discoveryWebhookUrl,
-  );
-  if (!savedWebhookUrl) {
-    await host().recordDiscoveryEngineState(
-      "",
-      host().getDiscoveryEngineStateNone(),
-      "settings_saved",
-    );
-  } else {
-    const managedUrl = host().getManagedAppsScriptWebhookIdentity();
-    const savedState = host().getSavedDiscoveryEngineStateForUrl(savedWebhookUrl);
-    await host().recordDiscoveryEngineState(
-      savedWebhookUrl,
-      savedState && savedState.state
-        ? savedState.state
-        : managedUrl && managedUrl === savedWebhookUrl
-          ? host().getDiscoveryEngineStateStubOnly()
-          : host().getDiscoveryEngineStateUnverified(),
-      "settings_saved",
-    );
-  }
+  // The discovery engine state follows the webhook URL, and that field is
+  // the drawer's Connection tab now — a Settings save cannot change it, so
+  // there is nothing here to re-record (GREENFIELD D5).
   host().syncDiscoveryButtonState();
-  showToast("Settings saved — reloading…", "success");
-  setTimeout(() => window.location.reload(), 400);
+  finishSettingsSave(beforeSave, payload, sheetId);
 }
 
 /**
@@ -1130,11 +1396,11 @@ function initCommandCenterSettings() {
   document
     .getElementById("settingsModalClose")
     ?.addEventListener("click", () => {
-      closeCommandCenterSettingsModal();
+      requestCloseCommandCenterSettingsModal();
     });
   if (modal) {
     modal.addEventListener("click", (e) => {
-      if (e.target === modal) closeCommandCenterSettingsModal();
+      if (e.target === modal) requestCloseCommandCenterSettingsModal();
     });
   }
   document
@@ -1154,6 +1420,13 @@ function initCommandCenterSettings() {
   document.getElementById("settingsSaveBtn")?.addEventListener("click", () => {
     void saveCommandCenterSettingsFromForm();
   });
+  for (const btn of Array.from(
+    document.querySelectorAll('[data-action="settings_change_in_setup"]'),
+  )) {
+    btn.addEventListener("click", () => {
+      settingsChangeInSetup(btn.getAttribute("data-beat") || "google");
+    });
+  }
   document.getElementById("settingsClearBtn")?.addEventListener("click", () => {
     showSettingsClearConfirmBar();
   });
@@ -1230,6 +1503,9 @@ function initCommandCenterSettings() {
     fillResumeModelSelectsFromConfig,
     populateDiscoveryProfileIntoSettingsForm,
     populateCommandCenterSettingsForm,
+    buildSettingsReceipt,
+    renderSettingsReceipts,
+    settingsChangeInSetup,
     updateSettingsProviderPanels,
     isSettingsFullExperienceUnlocked,
     maybeSyncSettingsModalModeAfterAuth,
@@ -1239,6 +1515,10 @@ function initCommandCenterSettings() {
     hideSettingsClearConfirmBar,
     showSettingsClearConfirmBar,
     closeCommandCenterSettingsModal,
+    requestCloseCommandCenterSettingsModal,
+    settingsFormIsDirty,
+    settingsSaveNeedsReload,
+    describeProviderCheckFailure,
     saveCommandCenterSettingsFromForm,
     performSettingsClearOverrides,
     initCommandCenterSettings,

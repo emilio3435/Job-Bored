@@ -590,6 +590,10 @@
       buildGreenfieldOverrideMask: host.buildGreenfieldOverrideMask,
       canUseLocalStorage: host.canUseLocalStorage,
       applyOAuthClientChange: host.applyOAuthClientChange,
+      // Beat 1's saveClientId fallback calls call("initAuth"), which
+      // resolves against THIS host — without this entry the first-time GIS
+      // init on a greenfield boot is a silent no-op.
+      initAuth: host.initAuth,
       syncDiscoveryButtonState: host.syncDiscoveryButtonState,
       setDashboardSheetLinks() {
         return app.setup.setDashboardSheetLinks();
@@ -678,7 +682,6 @@
       },
       runPostAccessBootstrapOnce: host.runPostAccessBootstrapOnce,
       markJobViewed: host.markJobViewed,
-      notifyPipelineRendered: host.notifyPipelineRendered,
       toggleFavorite: host.toggleFavorite,
       restoreJob: host.restoreJob,
       updateJobStatus: host.updateJobStatus,

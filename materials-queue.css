@@ -260,3 +260,9 @@
 }
 
 
+
+/* UX01 C12 (TA-22): while a dossier is open its docket chip carries the
+   run, so the fixed dock steps aside instead of covering Download PDF. */
+[data-region="materials-queue"][data-dossier-open="true"] {
+  display: none;
+}

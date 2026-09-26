@@ -142,21 +142,29 @@ describe("kanban card edit affordance (pencil -> dossier)", () => {
 describe("v2 board must not self-trigger a render loop (pencil-flicker root cause)", () => {
   const dawnJs = readFileSync(join(repoRoot, "dawn.js"), "utf8");
 
-  it("observeLegacy targets the legacy #jobCards board, never document.body", () => {
+  it("observeLegacy repaints off jb:pipeline:rendered and never watches the body subtree", () => {
     // WHY: renderCards rewrites the region's innerHTML on every render. A
     // document.body-subtree MutationObserver would see those very writes and
     // reschedule forever — rebuilding every card each idle frame, which
     // restarts the pencil's opacity fade and makes it flicker/uncatchable.
-    // #kanbanPipeline does not exist; the real legacy container is #jobCards.
+    // DS-08: the legacy #jobCards board is not built under body.jb-v2, so the
+    // board repaints off the render event (app.js) instead of observing it.
+    const appJs = readFileSync(join(repoRoot, "app.js"), "utf8");
+    assert.doesNotMatch(pipelineJs, /getElementById\("jobCards"\)/, "pipeline.js must not observe #jobCards");
+    assert.match(
+      appJs,
+      /addEventListener\("jb:pipeline:rendered"[\s\S]{0,200}scheduleRender\(\)/,
+      "app.js must repaint the v2 board off jb:pipeline:rendered",
+    );
     assert.match(
       pipelineJs,
-      /getElementById\("kanbanPipeline"\) \|\| document\.getElementById\("jobCards"\)/,
-      "pipeline.js observeLegacy must target #jobCards",
+      /bodyMo\.observe\(document\.body, \{ attributes: true, attributeFilter: \["class"\] \}\)/,
+      "pipeline.js may watch only the body's class attribute",
     );
     assert.doesNotMatch(
       pipelineJs,
-      /var pipelineRoot = document\.getElementById\("kanbanPipeline"\) \|\| document\.body/,
-      "pipeline.js must not observe document.body (self-retriggering render loop)",
+      /observe\(document\.body, \{[^}]*subtree: true/,
+      "pipeline.js must not observe the document.body subtree (self-retriggering render loop)",
     );
     assert.doesNotMatch(
       dawnJs,

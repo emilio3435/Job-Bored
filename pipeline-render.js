@@ -173,53 +173,14 @@ function groupByStage(data) {
   return byStage;
 }
 
-function renderKanbanCard(job, index) {
-  const dataIndex = core().getPipelineData().indexOf(job);
-  const stableKey = dataIndex >= 0 ? dataIndex : index;
-  const title = job.title || "Untitled Role";
-  const company = job.company || "Unknown Company";
-  const roleFactsHtml = renderRoleFactsHtml(job, "kanban");
-  const isViewed = core().getViewedJobKeys().has(stableKey);
-
-  // First 3 tags from the sheet Tags column
-  const tagChips = job.tags
-    ? job.tags
-        .split(",")
-        .map((t) => t.trim())
-        .filter(Boolean)
-        .slice(0, 3)
-        .map((t) => `<span class="kanban-card__tag">${host().escapeHtml(t)}</span>`)
-        .join("")
-    : "";
-
-  const stageClass = `kanban-card--stage-${stageToCssKey((job.status || "new").trim() || "new")}`;
-  const isFavorite = !!job.favorite;
-  const isDismissed = !!job.dismissedAt;
-  const cardModClasses = [
-    stageClass,
-    isViewed ? "kanban-card--viewed" : "",
-    isFavorite ? "kanban-card--favorited" : "",
-    isDismissed ? "kanban-card--dismissed" : "",
-  ]
-    .filter(Boolean)
-    .join(" ");
-  const favBtnHtml = `<button type="button" class="card-action-btn card-action-btn--fav${isFavorite ? " is-active" : ""}" data-action="toggle-favorite" data-key="${stableKey}" aria-label="${isFavorite ? "Unfavorite" : "Favorite"}" aria-pressed="${isFavorite}" title="${isFavorite ? "Unfavorite" : "Favorite"}">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
-  </button>`;
-  const dismissBtnHtml = isDismissed
-    ? `<button type="button" class="card-action-btn card-action-btn--restore" data-action="restore" data-key="${stableKey}" aria-label="Restore" title="Restore">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 7 3 12 8 12"/><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/></svg>
-  </button>`
-    : `<button type="button" class="card-action-btn card-action-btn--dismiss" data-action="dismiss" data-key="${stableKey}" aria-label="Dismiss" title="Dismiss">
-    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
-  </button>`;
-
-  /* Attribute escaping goes through the shared text module (jb-text.js,
-     loaded earlier in the defer chain): it escapes exactly once AND encodes
-     newlines as &#10;, so a multi-paragraph value survives the round-trip
-     to the dossier instead of collapsing to a single line. */
-  const _attrEsc = (v) => `"${window.JobBoredText.escapeAttr(String(v))}"`;
-  const _pair = (k, v) => (v == null || v === "" ? "" : `${k}=${_attrEsc(v)}`);
+/* DS-08: the card's data-* attributes as ordered [name, value] pairs, raw
+   (not yet escaped). renderKanbanCard escapes them into the legacy <article>;
+   kanbanCardModel hands the same pairs to the v2 readers (dawn-data.js), so
+   the board, the Case and Dawn read one source whether or not a legacy card
+   is in the DOM. Empty values are omitted, exactly as the legacy card omits
+   the attribute. */
+function kanbanCardAttrPairs(job) {
+  const _pair = (k, v) => (v == null || v === "" ? null : [k, String(v)]);
   const jdRaw = (job._postingEnrichment && job._postingEnrichment.description) || job.fitAssessment || "";
   /* P0-D hand-off: preserve all three response values instead of collapsing
      No and Unknown into "". "They said no reply is coming" and "we never
@@ -263,8 +224,8 @@ function renderKanbanCard(job, index) {
     return "normal";
   };
   const _matchScore = Number(job && job.matchScore);
-  
-  const v2Attrs = [
+
+  return [
     _pair("data-jd-snippet", jdRaw ? window.JobBoredText.clip(String(jdRaw), 4000) : ""),
     _pair("data-notes", job.notes || ""),
     _pair("data-location", job.location || ""),
@@ -340,7 +301,106 @@ function renderKanbanCard(job, index) {
     ),
     _enrPair("data-enrichment-parse-mode", _enr && _enr._parseMode),
     _pair("data-edit-lock", job && job._editLock),
-  ].filter(Boolean).join(" ");
+  ].filter(Boolean);
+}
+
+/* DS-08: one legacy card as data. `attrs` is what the <article> would carry
+   (data-stable-key, data-index and every kanbanCardAttrPairs entry), plus the
+   text the card shows (title, company, the first three tag chips). */
+function kanbanCardModel(job, index) {
+  const dataIndex = core().getPipelineData().indexOf(job);
+  const stableKey = dataIndex >= 0 ? dataIndex : index;
+  const stageKey = stageToCssKey((job.status || "new").trim() || "new");
+  const attrs = { "data-stable-key": String(stableKey) };
+  if (dataIndex >= 0) attrs["data-index"] = String(dataIndex);
+  for (const [k, v] of kanbanCardAttrPairs(job)) attrs[k] = v;
+  const tags = job.tags
+    ? String(job.tags)
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+    : [];
+  return {
+    stableKey,
+    dataIndex,
+    stageKey,
+    className: `kanban-card kanban-card--stage-${stageKey}`,
+    title: job.title || "Untitled Role",
+    company: job.company || "Unknown Company",
+    tags,
+    attrs,
+  };
+}
+
+/* DS-08: the cards the legacy board would draw, in its order (search, sort,
+   the dismissed and favorites filters, stage lanes, the per-company cap), as
+   data. Under body.jb-v2 renderPipeline builds no #jobCards DOM, and this is
+   what the v2 surfaces read instead. */
+function getBoardCardModels() {
+  const data = filterAndSortJobs(
+    core().getPipelineData() || [],
+    core().getCurrentSearch(),
+    core().getCurrentSort(),
+  );
+  const byStage = groupByStage(data);
+  const out = [];
+  STAGE_ORDER.forEach((stage) => {
+    const { visible } = applyLegacyKanbanCap(byStage.get(stage) || []);
+    visible.forEach((job, i) => out.push(kanbanCardModel(job, i)));
+  });
+  return out;
+}
+
+function renderKanbanCard(job, index) {
+  const dataIndex = core().getPipelineData().indexOf(job);
+  const stableKey = dataIndex >= 0 ? dataIndex : index;
+  const title = job.title || "Untitled Role";
+  const company = job.company || "Unknown Company";
+  const roleFactsHtml = renderRoleFactsHtml(job, "kanban");
+  const isViewed = core().getViewedJobKeys().has(stableKey);
+
+  // First 3 tags from the sheet Tags column
+  const tagChips = job.tags
+    ? job.tags
+        .split(",")
+        .map((t) => t.trim())
+        .filter(Boolean)
+        .slice(0, 3)
+        .map((t) => `<span class="kanban-card__tag">${host().escapeHtml(t)}</span>`)
+        .join("")
+    : "";
+
+  const stageClass = `kanban-card--stage-${stageToCssKey((job.status || "new").trim() || "new")}`;
+  const isFavorite = !!job.favorite;
+  const isDismissed = !!job.dismissedAt;
+  const cardModClasses = [
+    stageClass,
+    isViewed ? "kanban-card--viewed" : "",
+    isFavorite ? "kanban-card--favorited" : "",
+    isDismissed ? "kanban-card--dismissed" : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
+  const favBtnHtml = `<button type="button" class="card-action-btn card-action-btn--fav${isFavorite ? " is-active" : ""}" data-action="toggle-favorite" data-key="${stableKey}" aria-label="${isFavorite ? "Unfavorite" : "Favorite"}" aria-pressed="${isFavorite}" title="${isFavorite ? "Unfavorite" : "Favorite"}">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="${isFavorite ? "currentColor" : "none"}" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polygon points="12 2 15.09 8.26 22 9.27 17 14.14 18.18 21.02 12 17.77 5.82 21.02 7 14.14 2 9.27 8.91 8.26 12 2"/></svg>
+  </button>`;
+  const dismissBtnHtml = isDismissed
+    ? `<button type="button" class="card-action-btn card-action-btn--restore" data-action="restore" data-key="${stableKey}" aria-label="Restore" title="Restore">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><polyline points="3 7 3 12 8 12"/><path d="M3 12a9 9 0 1 0 3-6.7L3 8"/></svg>
+  </button>`
+    : `<button type="button" class="card-action-btn card-action-btn--dismiss" data-action="dismiss" data-key="${stableKey}" aria-label="Dismiss" title="Dismiss">
+    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><line x1="18" y1="6" x2="6" y2="18"/><line x1="6" y1="6" x2="18" y2="18"/></svg>
+  </button>`;
+
+  /* Attribute escaping goes through the shared text module (jb-text.js,
+     loaded earlier in the defer chain): it escapes exactly once AND encodes
+     newlines as &#10;, so a multi-paragraph value survives the round-trip
+     to the dossier instead of collapsing to a single line. */
+  const _attrEsc = (v) => `"${window.JobBoredText.escapeAttr(String(v))}"`;
+  const v2Attrs = kanbanCardAttrPairs(job)
+    .map(([k, v]) => `${k}=${_attrEsc(v)}`)
+    .join(" ");
 
   return `
     <article class="kanban-card ${cardModClasses}" role="button" tabindex="0" data-action="open-detail" data-stable-key="${stableKey}" ${dataIndex >= 0 ? `data-index="${dataIndex}"` : ""} ${v2Attrs} style="animation-delay:${index * 30}ms">
@@ -1099,7 +1159,58 @@ function filterAndSortJobs(jobs, search, sort) {
   return data;
 }
 
+/* TR-20 / DS-08: every legacy render ends by announcing itself. The v2 board,
+   Dawn, Today, the dossier and the demo board repaint off this event instead of
+   watching the hidden #jobCards board mutate. detail.count is the number of
+   rows this render drew (after search), detail.total the whole pipeline. */
+function emitPipelineRendered(count) {
+  try {
+    if (typeof document === "undefined" || typeof CustomEvent !== "function") return;
+    const total = (core().getPipelineData() || []).length;
+    document.dispatchEvent(
+      new CustomEvent("jb:pipeline:rendered", { detail: { count, total } }),
+    );
+  } catch (_) {
+    /* Render notifications are best-effort for optional v2 surfaces. */
+  }
+}
+
+/* DS-08: under body.jb-v2 the v2 regions own the pipeline, so the legacy
+   renderer builds no #jobCards DOM. The v2 readers take the same cards from
+   getBoardCardModels(). */
+function isV2View() {
+  return (
+    typeof document !== "undefined" &&
+    !!document.body &&
+    !!document.body.classList &&
+    document.body.classList.contains("jb-v2")
+  );
+}
+
+let legacyBoardSkipped = false;
+let v2FlagObserver = null;
+
+/* JB_V2.disable() (the settings toggle) removes body.jb-v2 at runtime: draw the
+   legacy board the gate skipped. JB_V2.enable() drops a board drawn before it. */
+function watchV2Flag() {
+  if (v2FlagObserver || typeof MutationObserver !== "function") return;
+  if (typeof document === "undefined" || !document.body) return;
+  v2FlagObserver = new MutationObserver(() => {
+    if (isV2View()) {
+      const container = document.getElementById("jobCards");
+      if (container && container.firstChild) {
+        container.innerHTML = "";
+        legacyBoardSkipped = true;
+      }
+      return;
+    }
+    if (legacyBoardSkipped) renderPipeline();
+  });
+  v2FlagObserver.observe(document.body, { attributes: true, attributeFilter: ["class"] });
+}
+
 function renderPipeline() {
+  watchV2Flag();
   const container = document.getElementById("jobCards");
   const emptyState = document.getElementById("emptyState");
   const roleCountEl = document.getElementById("roleCount");
@@ -1144,15 +1255,27 @@ function renderPipeline() {
         }
       }
     }
+    emitPipelineRendered(0);
     return;
   }
 
   emptyState.style.display = "none";
-  if (data.length === 0) return;
+  if (data.length === 0) {
+    emitPipelineRendered(0);
+    return;
+  }
 
+  if (isV2View()) {
+    container.innerHTML = "";
+    legacyBoardSkipped = true;
+    emitPipelineRendered(data.length);
+    return;
+  }
+
+  legacyBoardSkipped = false;
   container.innerHTML = renderPipelineBoard(data);
   attachBoardListeners();
-  host().notifyPipelineRendered();
+  emitPipelineRendered(data.length);
 }
 
 function renderCardActions(job, indexForNotesId) {
@@ -1271,8 +1394,13 @@ function attachCardListeners() {
       sel.disabled = false;
     });
   });
-  // Stage stepper clicks (drawer)
-  document.querySelectorAll('[data-action="stage-step"]').forEach((btn) => {
+  // Stage stepper clicks (drawer). TR-25: only the legacy steppers, which
+  // carry data-index. The v2 dossier stepper shares data-action="stage-step"
+  // (PIPELINE-CARDS-HANDOFF name kept) but has no data-index, and binding it
+  // here fired updateJobStatus(NaN, ...).
+  document
+    .querySelectorAll('[data-action="stage-step"][data-index]')
+    .forEach((btn) => {
     btn.addEventListener("click", async () => {
       if (btn.disabled) return;
       const dataIndex = parseInt(btn.dataset.index, 10);
@@ -1486,6 +1614,10 @@ function attachCardListeners() {
     renderRoleFactsHtml,
     groupByStage,
     renderKanbanCard,
+    kanbanCardAttrPairs,
+    kanbanCardModel,
+    getBoardCardModels,
+    isV2View,
     applyLegacyKanbanCap,
     renderLegacyKanbanHiddenAffordance,
     renderStageLane,

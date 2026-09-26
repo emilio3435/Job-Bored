@@ -87,6 +87,16 @@ function matchesKeySet(company: CompanyTarget, keys: Set<string>): boolean {
   return companyMatchKeys(company).some((key) => keys.has(key));
 }
 
+function companyTargetFromAllowlistEntry(entry: string): CompanyTarget {
+  const name = cleanString(entry);
+  const slug = name.toLowerCase().replace(/\s+/g, "-");
+  return {
+    name,
+    companyKey: slug,
+    normalizedName: slug,
+  };
+}
+
 function dedupeCompanies(companies: readonly CompanyTarget[]): CompanyTarget[] {
   const seen = new Set<string>();
   const out: CompanyTarget[] = [];
@@ -253,6 +263,23 @@ export function resolveEffectiveCompanyPools(input: {
           matched: [],
           unknown,
         };
+        // Local wizard installs ship companies=[] and only the example ATS
+        // seeds (Scale AI / Figma / Notion). The dashboard allowlist is a
+        // preference, not a catalog lookup — if we leave companies empty,
+        // grounded/ATS scout runs unrestricted with a blank name and
+        // Companies Seen stays 0 (2026-09-16 dogfood). Seed this run only;
+        // never persist these names back to worker-config.json.
+        if (!companies.length && !history.length && unknown.length) {
+          const seeded = unknown
+            .map((entry) => companyTargetFromAllowlistEntry(entry))
+            .filter(
+              (company) => company.name && !matchesKeySet(company, skip),
+            );
+          if (seeded.length) {
+            companies = seeded;
+            atsCompanies = seeded.map((company) => ({ ...company }));
+          }
+        }
       } else {
         return {
           companies: [],
@@ -274,6 +301,15 @@ export function resolveEffectiveCompanyPools(input: {
       atsCompanies = atsCompanies.filter((company) =>
         matchesKeySet(company, allow),
       );
+      if (!companies.length && unknown.length) {
+        const seeded = unknown
+          .map((entry) => companyTargetFromAllowlistEntry(entry))
+          .filter((company) => company.name && !matchesKeySet(company, skip));
+        if (seeded.length) {
+          companies = seeded;
+          atsCompanies = dedupeCompanies([...atsCompanies, ...seeded]);
+        }
+      }
     }
   }
 

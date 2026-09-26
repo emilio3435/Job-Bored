@@ -383,6 +383,25 @@
     return tips.slice(0, 4);
   }
 
+  /* DS-08: the four stat-card numbers as data, so Dawn reads them from the
+     rows instead of scraping #briefStats. renderBrief draws exactly these. */
+  function getBriefStats(jobs) {
+    const list = Array.isArray(jobs) ? jobs : getPipelineData() || [];
+    const w = getInsightDateWindows();
+    const stn = (s) => (s || "").toLowerCase().trim();
+    const countStatus = (needle) =>
+      list.filter((j) => stn(j.status).includes(needle)).length;
+    return {
+      discRecent: countDateFoundInWindow(list, w.recentStart, w.recentEnd),
+      discPrior: countDateFoundInWindow(list, w.priorStart, w.priorEnd),
+      appRecent: countAppliedInWindow(list, w.recentStart, w.recentEnd),
+      appPrior: countAppliedInWindow(list, w.priorStart, w.priorEnd),
+      inLoop: countStatus("interviewing") + countStatus("phone screen"),
+      offers: countStatus("offer"),
+      medianDays: medianDaysDiscoveryToApply(list),
+    };
+  }
+
   function renderBriefStats(ctx) {
     const {
       discRecent,
@@ -764,16 +783,7 @@
         followPanel.style.display = "none";
       }
       if (mainGrid) mainGrid.classList.remove("brief-dashboard--empty");
-      if (statsEl)
-        statsEl.innerHTML = renderBriefStats({
-          discRecent: 0,
-          discPrior: 0,
-          appRecent: 0,
-          appPrior: 0,
-          inLoop: 0,
-          offers: 0,
-          medianDays: null,
-        });
+      if (statsEl) statsEl.innerHTML = renderBriefStats(getBriefStats([]));
       if (pipelineEl) pipelineEl.innerHTML = renderEmptyDonutScaffold();
       if (insightsEl) insightsEl.innerHTML = renderEmptyInsightsScaffold();
       if (sourcesEl) sourcesEl.innerHTML = renderEmptySourcesScaffold();
@@ -798,17 +808,11 @@
       w.recentStart,
       w.recentEnd,
     );
-    const discPrior = countDateFoundInWindow(
-      getPipelineData(),
-      w.priorStart,
-      w.priorEnd,
-    );
     const appRecent = countAppliedInWindow(
       getPipelineData(),
       w.recentStart,
       w.recentEnd,
     );
-    const appPrior = countAppliedInWindow(getPipelineData(), w.priorStart, w.priorEnd);
 
     const stn = (s) => (s || "").toLowerCase().trim();
     const offers = getPipelineData().filter((j) =>
@@ -838,7 +842,6 @@
     ).length;
     const newCount = inboxCount - researchingCount;
 
-    const medianDays = medianDaysDiscoveryToApply(getPipelineData());
     const sources = topSourcesInWindow(
       getPipelineData(),
       w.recentStart,
@@ -857,8 +860,6 @@
       total: getPipelineData().length,
     });
 
-    const inLoop = interviewing + phoneScreens;
-
     if (headlineEl)
       headlineEl.innerHTML = briefHeadlineSentence(
         overdue,
@@ -867,16 +868,7 @@
         todayJobs,
       );
 
-    if (statsEl)
-      statsEl.innerHTML = renderBriefStats({
-        discRecent,
-        discPrior,
-        appRecent,
-        appPrior,
-        inLoop,
-        offers,
-        medianDays,
-      });
+    if (statsEl) statsEl.innerHTML = renderBriefStats(getBriefStats());
 
     const stages = [
       { label: "New", count: newCount, color: "var(--stage-rail-new)" },
@@ -916,6 +908,7 @@
 
   Object.assign(brief, {
     renderBrief,
+    getBriefStats,
     renderAreaWidget,
     renderPipelineDailyBrief,
     getBriefActivityRange,

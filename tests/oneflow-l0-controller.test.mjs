@@ -289,12 +289,17 @@ describe("JobBoredOneFlow.completeBeat / skipBeat — advancing the flow", () =>
   });
 });
 
+/** One macrotask, so the close path's awaited flush has landed. */
+const closeSettled = () => new Promise((resolve) => setTimeout(resolve, 0));
+
 describe("JobBoredOneFlow close — pausing, with the reason recorded (spec §3.4)", () => {
   it("emits beat_abandoned with the beat and the reason", async () => {
     const { flow, events } = bareFlow();
     flow.registerBeat(stubBeat("ai", 2));
     await flow.open();
     flow.close("escape");
+    // The close path awaits flushDrafts() before it emits (GREENFIELD §4.2).
+    await closeSettled();
     const abandoned = STEP(events, "beat_abandoned");
     assert.equal(abandoned.length, 1);
     assert.equal(abandoned[0].detail.beat, "ai");
@@ -306,6 +311,7 @@ describe("JobBoredOneFlow close — pausing, with the reason recorded (spec §3.
     flow.registerBeat(stubBeat("ai", 2));
     await flow.open();
     shell.closeWizardShell("close-button");
+    await closeSettled();
     assert.equal(STEP(events, "beat_abandoned")[0].detail.reason, "close-button");
   });
 

@@ -224,7 +224,7 @@ describe("B1 Connect Google — the first-timer detour (spec §5 B1, §10 Phase 
     assert.ok(details, "the Cloud Console walkthrough is a collapsed details, never a screen");
     assert.equal(details.tagName, "DETAILS");
     const text = renderedText(env.mount());
-    assert.ok(text.includes("First time? You'll need a free Client ID"));
+    assert.ok(text.includes("First time? You'll need a free Google app key"));
     assert.ok(
       /about 10 minutes/i.test(text),
       "voice rule §8.2: a 10-minute detour says 10 minutes",
@@ -263,4 +263,69 @@ describe("B1 Connect Google — the first-timer detour (spec §5 B1, §10 Phase 
       false,
     );
   });
+});
+
+describe("B1 Connect Google — greenfield Client ID save (2026-09-02 grey-button defect)", () => {
+  const CLIENT_ID = "greenfield-test.apps.googleusercontent.com";
+
+  function saveClientId(env, value) {
+    env.mount().querySelector("#oneFlowOauthClientIdInput").value = value;
+    env.mount().querySelector(".oneflow-google__client-id-save").dispatch("click");
+  }
+
+  it("runs the first-time GIS init when the in-place re-init refuses", async () => {
+    const env = await openBeat({
+      host: {
+        applyOAuthClientChange(...args) {
+          env.host.__calls.push({ name: "applyOAuthClientChange", args });
+          // Production returns false on a greenfield boot: initAuth() ran
+          // with no Client ID, so GIS was never initialized.
+          return false;
+        },
+        initAuth(...args) {
+          env.host.__calls.push({ name: "initAuth", args });
+        },
+      },
+    });
+    saveClientId(env, CLIENT_ID);
+    const names = env.host.__calls.map((c) => c.name);
+    assert.ok(
+      names.includes("mergeStoredConfigOverridePatch"),
+      "the id must still be persisted first",
+    );
+    assert.ok(names.includes("applyOAuthClientChange"));
+    assert.ok(
+      names.includes("initAuth"),
+      "applyOAuthClientChange refused, so the beat must run the first-time " +
+        "init now that the id is saved — otherwise Continue with Google " +
+        "has no token client and sits grey",
+    );
+    assert.match(
+      renderedText(env.mount()),
+      /Client ID saved/,
+      "the success message still paints",
+    );
+  });
+
+  it("does not re-run the first-time init when the in-place re-init succeeds", async () => {
+    const env = await openBeat({
+      host: {
+        applyOAuthClientChange(...args) {
+          env.host.__calls.push({ name: "applyOAuthClientChange", args });
+          return true;
+        },
+        initAuth(...args) {
+          env.host.__calls.push({ name: "initAuth", args });
+        },
+      },
+    });
+    saveClientId(env, CLIENT_ID);
+    const inits = env.host.__calls.filter((c) => c.name === "initAuth");
+    assert.equal(
+      inits.length,
+      0,
+      "GIS is already up — re-running init would drop the live token client",
+    );
+  });
+
 });

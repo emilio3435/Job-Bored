@@ -1,0 +1,37 @@
+{
+  "_comment": "Copy to profile/filler-profile.json (gitignored) and replace every value with your own. The universal filler refuses to run live without it. Values below are neutral examples.",
+  "candidate": {
+    "first_name": "Alex",
+    "last_name": "Candidate",
+    "full_name": "Alex Candidate",
+    "email": "alex.candidate@example.com",
+    "phone": "555-555-0100",
+    "location": "Springfield, IL",
+    "city": "Springfield",
+    "state": "Illinois",
+    "zip": "00000",
+    "country": "United States",
+    "linkedin": "https://www.linkedin.com/in/example",
+    "website": "https://example.com",
+    "portfolio": "https://example.com",
+    "github": "https://github.com/example"
+  },
+  "answer_strategies": {
+    "work_authorization": "Yes",
+    "legally_authorized_us": "Yes",
+    "require_sponsorship": "No",
+    "sponsorship_now_or_future": "No",
+    "start_date": "Two weeks",
+    "available_start": "Two weeks",
+    "notice_period": "Two weeks",
+    "willing_to_relocate": "Open to discussion",
+    "highest_education": "Bachelor's Degree",
+    "degree": "Bachelor of Science",
+    "school": "Example University",
+    "graduation_year": "2015",
+    "years_experience": "8",
+    "languages": "English"
+  },
+  "professional_summary": "Two to four factual sentences about your experience, scope and strengths. Agents quote this directly in open-text fields.",
+  "why_interested": "One or two sentences you are comfortable reusing for 'Why this role?' questions."
+}

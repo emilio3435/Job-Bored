@@ -1,0 +1,7 @@
+$ npm test
+exec_command failed for `/bin/zsh -lc 'setopt pipefail
+npm test 2>&1 | tee docs/programs/greenfield-remediation-20260902/evidence/verify-floor-npm-test.txt'`: ProcessFailed { message: "Network access to \"127.0.0.1\" was blocked: local/private network addresses are blocked by the sandbox policy." }
+
+The partial stdout captured before the executor stopped the command is in
+verify-floor-npm-test.txt. This is an executor refusal, not a completed test
+run and not green evidence.

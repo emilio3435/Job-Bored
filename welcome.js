@@ -106,18 +106,31 @@
     actions.appendChild(discBtn);
     actions.appendChild(manualBtn);
 
+    /* FD-02 · FR-03: these used to target #ingestUrlInput and
+       #ingestManualModalOpenBtn, which live in the legacy main that jb-v2
+       hides. The chrome's add-job API is the one v2 intake (C5); the legacy
+       controls stay the fallback for the ?jb-v2=0 view. */
+    function addJob() {
+      return window.JobBoredFlowing && window.JobBoredFlowing.addJob;
+    }
     pasteBtn.addEventListener("click", function () {
       hideEmpty(region);
+      var add = addJob();
+      if (add && typeof add.openUrl === "function") return add.openUrl();
       var input = document.getElementById("ingestUrlInput");
       if (input) { input.focus(); input.scrollIntoView({ block: "center" }); }
     });
     manualBtn.addEventListener("click", function () {
       hideEmpty(region);
+      var add = addJob();
+      if (add && typeof add.openManual === "function") return add.openManual();
       var btn = document.getElementById("ingestManualModalOpenBtn");
       if (btn && typeof btn.click === "function") btn.click();
     });
     discBtn.addEventListener("click", function () {
       hideEmpty(region);
+      var add = addJob();
+      if (add && typeof add.runDiscovery === "function") return add.runDiscovery();
       var btn = document.querySelector('#discoveryBtn, [data-action="openDiscovery"], #openDiscoveryBtn, #runDiscoveryBtn');
       if (btn && typeof btn.click === "function") btn.click();
     });

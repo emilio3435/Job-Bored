@@ -35,7 +35,6 @@ const CONSUMERS = [
   "pipeline-render.js",
   "pipeline-controller.js",
   "dawn-data.js",
-  "lattice.js",
 ];
 
 function extractStagePairs(src, rel) {

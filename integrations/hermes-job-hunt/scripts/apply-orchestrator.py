@@ -8,7 +8,7 @@ Chains the full apply pipeline:
   3. Gate 1: Pipeline Approval Status = 'Approved'
   4. Acquire submit lock
   5. Gate 2: Telegram confirmation (10-min timeout)
-  6. Browser-assisted fill (Greenhouse/Lever)
+  6. Browser-assisted fill (universal_filler; dependencies preflighted before Gate 2)
   7. Evidence capture (screenshot + metadata)
   8. Pipeline row update (Status→Applied, Applied Date, Notes)
   9. Lock release
@@ -19,17 +19,18 @@ Usage:
 Dry-run mode: runs all checks but does NOT submit or update Pipeline.
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import os
 import subprocess
 import sys
-import time
-from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
 # Add scripts dir to path
 sys.path.insert(0, str(Path(__file__).parent))
+import jhos_common
 import jhos_submit as js
 
 def env_path(name, default):
@@ -42,8 +43,8 @@ APPLICATIONS_DIR = env_path("HERMES_APPLICATIONS_DIR", JHOS_ROOT / "applications
 
 
 def log(msg: str, level: str = "INFO"):
-    ts = datetime.now(timezone(timedelta(hours=-5))).strftime("%H:%M:%S CT")
-    print(f"[{ts}] [{level}] {msg}")
+    now = jhos_common.local_now()
+    print(f"[{now.strftime('%H:%M:%S')} {jhos_common.tz_label(now)}] [{level}] {msg}")
 
 
 def find_application_dir(job_url: str) -> Path | None:
@@ -187,7 +188,7 @@ def run_orchestrator(job_url: str, task_id: str, dry_run: bool = False, sheet_id
         results["steps"].append({"step": "gate1", **g1})
         if not g1["approved"]:
             log(f"Gate 1 FAILED: {g1.get('gate1_reason', g1.get('error', 'unknown'))}", "ERROR")
-            failure = js.fail_gate1(g1.get("title", ""), g1.get("company", ""), g1.get("status", ""))
+            failure = js.fail_gate1(g1.get("title", ""), g1.get("company", ""), g1.get("approvalStatus", ""))
             if not dry_run:
                 update_kanban(task_id, failure.kanban_action, failure.reason)
             return results
@@ -214,14 +215,23 @@ def run_orchestrator(job_url: str, task_id: str, dry_run: bool = False, sheet_id
         # Find Gate 1 data for Gate 2 message
         g1_data = next((s for s in results["steps"] if s.get("step") == "gate1" and s.get("approved")), {})
         title = g1_data.get("title", "Unknown Title")
-        company = g1_data.get("company", "Unknown Company")
+        company = g1_data.get("company", "")
+        platform = js.platform_from_url(job_url)
+
+        # ── Step 5b: Preflight browser dependencies BEFORE asking the human ──
+        import universal_filler as uf
+        preflight = uf.preflight_runtime()
+        results["steps"].append({"step": "preflight", "ok": bool(preflight.get("ok")), **preflight})
+        if not preflight.get("ok"):
+            log(f"Preflight FAILED, Gate 2 not sent: missing {preflight.get('missing')}", "ERROR")
+            return results
 
         # ── Step 6: Gate 2 — Telegram confirmation ──
         if dry_run:
             log("DRY RUN: skipping Gate 2 Telegram confirmation")
             results["steps"].append({"step": "gate2", "ok": True, "dry_run": True})
         else:
-            send_result = send_gate2_request(title, company, "Greenhouse/Lever", "See application folder for details")
+            send_result = send_gate2_request(title, company, platform, "See application folder for details")
             results["steps"].append({"step": "gate2_send", **send_result})
 
             if not send_result.get("sent"):
@@ -250,7 +260,6 @@ def run_orchestrator(job_url: str, task_id: str, dry_run: bool = False, sheet_id
             from urllib.parse import urlparse as _urlparse
             host = _urlparse(job_url).netloc.lower()
             log(f"Browser fill: using universal_filler for host {host or 'local'}")
-            import universal_filler as uf
             filler = uf.UniversalFiller(
                 url=job_url,
                 app_dir=app_dir,
@@ -270,7 +279,8 @@ def run_orchestrator(job_url: str, task_id: str, dry_run: bool = False, sheet_id
                 log(f"Browser fill failed/manual-review: {err}", "ERROR")
                 if not dry_run:
                     if fill_result.get("submit_attempted"):
-                        notify_telegram(f"⚠️ Manual verification required for {company}: submit may have been attempted but confirmation was not verified. Do not retry automatically. Error: {err}")
+                        update_kanban(task_id, "normal_update", "Submit attempted but not verified — check the employer portal before any retry")
+                        notify_telegram(f"⚠️ Manual verification required for {title} @ {company}: submit may have been attempted but confirmation was not verified. Do not retry automatically. Error: {err}")
                     else:
                         failure = js.fail_browser_crash(title, company, err)
                         update_kanban(task_id, failure.kanban_action, failure.reason)
@@ -291,7 +301,21 @@ def run_orchestrator(job_url: str, task_id: str, dry_run: bool = False, sheet_id
             results["steps"].append({"step": "evidence", "ok": True, "dry_run": True})
         elif browser_ok:
             try:
-                evidence_dir = js.write_evidence(job_url, company, title, task_id)
+                screenshots = fill_result.get("screenshots") or []
+                confirmation = fill_result.get("confirmation_screenshot") or (screenshots[-1] if screenshots else None)
+                evidence_dir = js.write_evidence(
+                    job_url,
+                    company,
+                    title,
+                    task_id,
+                    screenshot_path=confirmation,
+                    extra={
+                        "platform": platform,
+                        "submission_state": fill_result.get("submission_state"),
+                        "filler_results_path": fill_result.get("results_path"),
+                        "filler_screenshot_sha256": fill_result.get("confirmation_screenshot_sha256"),
+                    },
+                )
                 log(f"Evidence written to {evidence_dir}")
                 results["steps"].append({"step": "evidence", "ok": True, "path": str(evidence_dir)})
             except Exception as e:
@@ -307,16 +331,17 @@ def run_orchestrator(job_url: str, task_id: str, dry_run: bool = False, sheet_id
             results["steps"].append({"step": "pipeline_update", "ok": True, "dry_run": True})
         elif browser_ok and sheet_id and access_token:
             row_num = g1_data.get("row_number")
-            if row_num:
-                update_result = js.update_pipeline_applied(
-                    sheet_id, access_token, row_num,
-                    notes_append=f"Submitted {datetime.now(timezone(timedelta(hours=-5))).strftime('%Y-%m-%d %H:%M CT')} via Hermes — see evidence/ folder",
-                )
-                results["steps"].append({"step": "pipeline_update", **update_result})
-                if update_result.get("success"):
-                    log(f"Pipeline row {row_num} updated to Applied")
-                else:
-                    log(f"Pipeline update failed: {update_result.get('error')}", "WARN")
+            now = jhos_common.local_now()
+            update_result = js.update_pipeline_applied(
+                sheet_id, access_token, job_url,
+                notes_append=f"Submitted {now.strftime('%Y-%m-%d %H:%M')} {jhos_common.tz_label(now)} via Hermes — see evidence/ folder",
+                expected_row=row_num,
+            )
+            results["steps"].append({"step": "pipeline_update", "ok": bool(update_result.get("success")), **update_result})
+            if update_result.get("success"):
+                log(f"Pipeline row {update_result.get('updated_row')} updated to Applied")
+            else:
+                log(f"Pipeline update failed: {update_result.get('error')}", "WARN")
 
         # Compute success from step results
         failed_steps = [s for s in results["steps"] if not s.get("ok") and not s.get("dry_run")]

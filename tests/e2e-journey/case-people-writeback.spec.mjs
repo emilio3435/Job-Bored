@@ -361,7 +361,8 @@ test("the Case People controls write contact, last contact, reply, and follow-up
   await stageFakeSignedInSession(page);
   await seedPipelineThroughApp(page, jobs);
 
-  await expect(page.locator('.kanban-card[data-stable-key="1"]')).toBeAttached({
+  // DS-08: the v2 board's sticker is the "seeded" signal; no legacy card is built.
+  await expect(page.locator('[data-region="pipeline"] .pipe-sticker[data-stable-key="1"]')).toBeAttached({
     timeout: 10_000,
   });
 

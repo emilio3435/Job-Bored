@@ -208,12 +208,23 @@
     }
 
     if (target.key === "applied") {
+      /* UX01 C15 (TR-06 = TA-04): the dialog's date and follow-up are what the
+         person typed, so they win over what the row held. An untyped
+         follow-up keeps the row's own, or defaults to +7 days. */
       var confirmedDate = confirmation.date.trim();
-      if (!appliedDate) {
+      if (appliedDate !== confirmedDate) {
         appliedDate = confirmedDate;
         patches.push(cell(COLUMNS.appliedDate, row.sheetRow, appliedDate));
       }
-      if (!followUpDate) {
+      var typedFollowUp = confirmation.followUpDate == null
+        ? ""
+        : String(confirmation.followUpDate).trim();
+      if (typedFollowUp) {
+        if (typedFollowUp !== followUpDate) {
+          followUpDate = typedFollowUp;
+          patches.push(cell(COLUMNS.followUpDate, row.sheetRow, followUpDate));
+        }
+      } else if (!followUpDate) {
         followUpDate = plusDaysIso(appliedDate || confirmedDate, followUpDaysFor("Applied"));
         patches.push(cell(COLUMNS.followUpDate, row.sheetRow, followUpDate));
       }
@@ -286,7 +297,11 @@
     if (!patchApi || typeof patchApi.applyCells !== "function") {
       return fail("missing_patch_api", "patchApi.applyCells is required.");
     }
-    await patchApi.applyCells(planned.patches);
+    /* TR-02: applyCells resolves false when the Sheet refused the batch
+       (expired token, no access). Reporting success here left the card in a
+       column the Sheet never got. */
+    var wrote = await patchApi.applyCells(planned.patches);
+    if (wrote === false) return fail("write_failed", "The Sheet did not accept the change.");
     return planned;
   }
 
@@ -297,7 +312,8 @@
     if (!patchApi || typeof patchApi.applyCells !== "function") {
       return fail("missing_patch_api", "patchApi.applyCells is required.");
     }
-    await patchApi.applyCells(rollback.patches);
+    var wrote = await patchApi.applyCells(rollback.patches);
+    if (wrote === false) return fail("write_failed", "The Sheet did not accept the undo.");
     return { ok: true, action: "undo", patches: rollback.patches, rollback: rollback };
   }
 

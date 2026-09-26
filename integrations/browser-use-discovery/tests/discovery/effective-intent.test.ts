@@ -172,6 +172,91 @@ test("F1C-DISC06-ALLOW: explicit allowUnrestrictedFallback is the only broad fal
   );
 });
 
+test("empty catalog + allowlist + fallback seeds ephemeral companies from the requested names", () => {
+  const resolved = resolveEffectiveCompanyPools({
+    companies: [],
+    atsCompanies: [],
+    companyHistory: [],
+    negativeCompanyKeys: [],
+    companyAllowlist: ["The Trade Desk", "LiveRamp", "HubSpot"],
+    companyBlocklist: ["Meta"],
+    allowUnrestrictedFallback: true,
+  });
+  assert.equal(resolved.allowlistResolution.mode, "explicit_unrestricted");
+  assert.deepEqual(
+    resolved.companies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+  assert.deepEqual(
+    resolved.atsCompanies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+  assert.ok(
+    resolved.companies.every((company) => company.companyKey),
+    "seeded companies must have a companyKey so ATS/dedupe can use them",
+  );
+  assert.equal(resolved.allowUnrestrictedFallback, true);
+});
+
+test("empty active list + shipped ATS seeds + allowlist fallback still seeds the requested names", () => {
+  const resolved = resolveEffectiveCompanyPools({
+    companies: [],
+    atsCompanies: [
+      { name: "Scale AI", companyKey: "scale-ai" },
+      { name: "Figma", companyKey: "figma" },
+      { name: "Notion", companyKey: "notion" },
+    ],
+    companyHistory: [],
+    companyAllowlist: ["The Trade Desk", "LiveRamp", "HubSpot"],
+    allowUnrestrictedFallback: true,
+  });
+  assert.equal(resolved.allowlistResolution.mode, "explicit_unrestricted");
+  assert.deepEqual(
+    resolved.companies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+  assert.deepEqual(
+    resolved.atsCompanies.map((company) => company.name),
+    ["The Trade Desk", "LiveRamp", "HubSpot"],
+  );
+});
+
+test("empty active list + mixed allowlist keeps matched ATS seeds and adds unknown names", () => {
+  const resolved = resolveEffectiveCompanyPools({
+    companies: [],
+    atsCompanies: [
+      { name: "Figma", companyKey: "figma" },
+      { name: "Notion", companyKey: "notion" },
+    ],
+    companyAllowlist: ["Figma", "The Trade Desk"],
+    allowUnrestrictedFallback: true,
+  });
+  assert.equal(resolved.allowlistResolution.mode, "restricted");
+  assert.deepEqual(
+    resolved.companies.map((company) => company.name),
+    ["The Trade Desk"],
+  );
+  assert.deepEqual(
+    resolved.atsCompanies.map((company) => company.name).sort(),
+    ["Figma", "The Trade Desk"],
+  );
+});
+
+test("empty catalog + allowlist + fallback still honors skip and block lists", () => {
+  const resolved = resolveEffectiveCompanyPools({
+    companies: [],
+    atsCompanies: [],
+    negativeCompanyKeys: ["liveramp"],
+    companyAllowlist: ["The Trade Desk", "LiveRamp", "HubSpot"],
+    companyBlocklist: ["HubSpot"],
+    allowUnrestrictedFallback: true,
+  });
+  assert.deepEqual(
+    resolved.companies.map((company) => company.name),
+    ["The Trade Desk"],
+  );
+});
+
 test("F1C-P2-SHEETS: grouped multi-Sheet envelopes preserve siblings and unknown fields", () => {
   const envelope = {
     bySheetId: {

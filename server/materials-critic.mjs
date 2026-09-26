@@ -120,6 +120,19 @@ function extractEmployerStrings(html) {
 }
 
 /**
+ * Employer names as rendered in the composed resume (h2.company-name).
+ * @param {string} html
+ */
+function composedEmployerStrings(html) {
+  const employers = new Set();
+  for (const match of html.matchAll(/<h2\b[^>]*\bcompany-name\b[^>]*>([\s\S]*?)<\/h2>/gi)) {
+    const name = visibleText(match[1]).trim();
+    if (name) employers.add(name);
+  }
+  return [...employers];
+}
+
+/**
  * Word budgets stay in materials-quality; HTML is staged so auditCoverLetter
  * / auditResume read the same 325–475 and resume section rules.
  *
@@ -152,6 +165,8 @@ async function auditStagedHtml(letterHtml, resumeHtml) {
  * @param {unknown} [input.resumeHtml]
  * @param {unknown} [input.jdText]
  * @param {unknown} [input.masterResumeHtml]
+ * @param {unknown} [input.sourceResumeText] the user's own resume (C11); every
+ *   employer in the composed resume must appear in it
  * @param {unknown} [input.writerJson]
  * @returns {Promise<{
  *   status: "pass" | "review" | "fail",
@@ -165,6 +180,7 @@ export async function critiqueMaterials({
   resumeHtml,
   jdText,
   masterResumeHtml,
+  sourceResumeText,
   writerJson,
 } = {}) {
   const letterSource = typeof letterHtml === "string" ? letterHtml : "";
@@ -216,6 +232,20 @@ export async function critiqueMaterials({
       `Composed resume dropped frozen employer fact(s): ${missingEmployers.join(", ")}.`,
       "fail",
     ));
+  }
+
+  const sourceText = typeof sourceResumeText === "string" ? sourceResumeText.toLowerCase() : "";
+  if (sourceText) {
+    const invented = composedEmployerStrings(resumeSource).filter(
+      (name) => !sourceText.includes(name.toLowerCase()),
+    );
+    if (invented.length) {
+      issues.push(issue(
+        "invented_employer",
+        `Composed resume names employer(s) that are not in your resume: ${invented.join(", ")}.`,
+        "fail",
+      ));
+    }
   }
 
   /** @type {string[]} */

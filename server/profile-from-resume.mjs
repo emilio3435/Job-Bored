@@ -41,6 +41,7 @@ import {
   migrateLlmConfigFromEnv,
   resolveActivePin,
 } from "./llm-config.mjs";
+import { normalizeProvider as sharedNormalizeProvider } from "./ai/provider.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
@@ -73,7 +74,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * user has never seen an env var in their life (SIXBEATS-2 NEW-2).
  * @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string, origin?: "server" | "request" }} ProfileProviderConfig
  */
-/** @typedef {{ model?: string, config?: ProfileProviderConfig }} ProfileCallOptions */
+/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal }} ProfileCallOptions */
 /** @typedef {Error & { code: string, provider?: ProfileProvider, upstreamStatus?: number, rawSample?: string, cause?: unknown }} ProfileProviderError */
 /** @typedef {{ name: string, rank: number, evidence?: string, keywords?: string[] }} ProfileStrength */
 /**
@@ -392,9 +393,13 @@ export function getProfileProviderConfig() {
   // key can never stand in for a configured provider — seen 2026-09-02 as
   // "Missing Gemini API key" while PROFILE_PROVIDER said openrouter.
   const explicitProfileProvider = readFirstEnv(["PROFILE_PROVIDER", "PROFILE_LLM_PROVIDER"], "");
+  // A keyless pin is usable only for openai_compatible (Local/Ollama), in the
+  // shared enum's spelling: POST /api/llm-config stores "local" as
+  // openai_compatible (BEAUDIT E2).
   const pinUsable =
     loaded &&
-    (String(loaded.apiKey || "").trim() || normalizeProvider(loaded.provider) === "local");
+    (String(loaded.apiKey || "").trim() ||
+      sharedNormalizeProvider(loaded.provider) === "openai_compatible");
   if (loaded && pinUsable && !explicitProfileProvider) {
     return {
       provider: normalizeProvider(loaded.provider),
@@ -797,6 +802,7 @@ async function callChatJsonForProfile(resumeText, config, opts = {}) {
       method: "POST",
       headers,
       body: JSON.stringify(body),
+      signal: opts.signal,
     });
   } catch (cause) {
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
@@ -880,6 +886,7 @@ async function callAnthropicForProfile(resumeText, config, opts = {}) {
         system: SYSTEM_PROMPT,
         messages: [{ role: "user", content: buildUserPrompt(resumeText) }],
       }),
+      signal: opts.signal,
     });
   } catch (cause) {
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);
@@ -942,7 +949,8 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   const cfg = opts.config || getProfileProviderConfig();
   assertProfileProviderConfigured(cfg);
   const model = opts.model || cfg.model;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(cfg.apiKey)}`;
+  // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
   const body = {
     systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(resumeText) }] }],
@@ -957,8 +965,9 @@ async function callGeminiForProfile(resumeText, opts = {}) {
   try {
     resp = await fetch(url, {
       method: "POST",
-      headers: { "Content-Type": "application/json" },
+      headers: { "Content-Type": "application/json", "x-goog-api-key": String(cfg.apiKey) },
       body: JSON.stringify(body),
+      signal: opts.signal,
     });
   } catch (cause) {
     const error = /** @type {{ message?: unknown } | null | undefined} */ (cause);

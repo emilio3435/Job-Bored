@@ -19,6 +19,7 @@ import {
   buildCompletedRunStatus,
   buildRunningRunStatus,
   createDiscoveryRunStatusStore,
+  listRunStatusSnapshots,
 } from "../../src/state/run-status-store.ts";
 import type { DurableDiscoveryRunStatusPayload } from "../../src/state/run-status-store.ts";
 import type { RunDiscoveryResult } from "../../src/run/run-discovery.ts";
@@ -62,6 +63,16 @@ async function makeRunDirectory(): Promise<{
     tempDirectory,
     runDirectory: join(tempDirectory, "runs"),
   };
+}
+
+async function snapshotDirectoryBytes(
+  directory: string,
+): Promise<Record<string, string>> {
+  const contents: Record<string, string> = {};
+  for (const name of (await readdir(directory)).sort()) {
+    contents[name] = await readFile(join(directory, name), "utf8");
+  }
+  return contents;
 }
 
 function buildAccepted(runId: string): DiscoveryRunStatusPayload {
@@ -530,6 +541,116 @@ test("terminal snapshots remain queryable without recovery mutation", async () =
     ) as DiscoveryRunStatusPayload;
     assert.deepEqual(restarted.get("run_completed"), wireSafeExpected);
     restarted.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("CANARY-1: listRunStatusSnapshots reads persisted snapshots without opening a writable store", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put(
+      buildRunningRunStatus(
+        buildAccepted("run_listed_one"),
+        "2026-08-30T12:00:02.000Z",
+      ) as DurableDiscoveryRunStatusPayload,
+    );
+    writer.put(
+      buildRunningRunStatus(
+        buildAccepted("run_listed_two"),
+        "2026-08-30T12:00:03.000Z",
+      ) as DurableDiscoveryRunStatusPayload,
+    );
+    writer.close();
+
+    const listed = listRunStatusSnapshots(runDirectory);
+    assert.deepEqual(
+      listed.map((entry) => entry.runId).sort(),
+      ["run_listed_one", "run_listed_two"],
+    );
+    const first = listed.find((entry) => entry.runId === "run_listed_one");
+    assert.equal(first?.schemaVersion, 1);
+    assert.equal(first?.status.status, "running");
+    assert.equal(first?.status.request.sheetId, "sheet_123");
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("CANARY-1: listRunStatusSnapshots skips malformed entries and leaves the directory byte-for-byte untouched", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    writer.put(
+      buildRunningRunStatus(
+        buildAccepted("run_good"),
+        "2026-08-30T12:00:02.000Z",
+      ) as DurableDiscoveryRunStatusPayload,
+    );
+    writer.close();
+
+    const encode = (runId: string): string =>
+      Buffer.from(runId, "utf8").toString("base64url");
+    // A stray crash-leftover temp file the writable store would sweep away.
+    const strayTemporary = join(
+      runDirectory,
+      `${encode("run_orphan")}.json.tmp-1-2-3`,
+    );
+    await writeFile(strayTemporary, "{}", "utf8");
+    // A snapshot whose JSON is truncated.
+    await writeFile(
+      join(runDirectory, `${encode("run_truncated")}.json`),
+      '{"schemaVersion":1,"runId":"run_trunc',
+      "utf8",
+    );
+    // A snapshot that parses but fails the schema guard.
+    await writeFile(
+      join(runDirectory, `${encode("run_wrong_schema")}.json`),
+      JSON.stringify({ schemaVersion: 99, runId: "run_wrong_schema" }),
+      "utf8",
+    );
+    // A snapshot whose runId disagrees with its filename.
+    await writeFile(
+      join(runDirectory, `${encode("run_mismatch")}.json`),
+      JSON.stringify({
+        schemaVersion: 1,
+        runId: "run_somethingelse",
+        writtenAt: "2026-08-30T12:00:09.000Z",
+        status: buildAccepted("run_somethingelse"),
+      }),
+      "utf8",
+    );
+    // A file that is not a snapshot at all.
+    await writeFile(join(runDirectory, "README.txt"), "not a snapshot", "utf8");
+
+    const before = await snapshotDirectoryBytes(runDirectory);
+    const listed = listRunStatusSnapshots(runDirectory);
+    const after = await snapshotDirectoryBytes(runDirectory);
+
+    assert.deepEqual(
+      listed.map((entry) => entry.runId),
+      ["run_good"],
+      "only the well-formed snapshot is returned",
+    );
+    assert.deepEqual(
+      after,
+      before,
+      "listRunStatusSnapshots must not sweep, rewrite, or delete anything",
+    );
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("CANARY-1: listRunStatusSnapshots returns an empty list for a missing directory and never creates it", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+
+  try {
+    assert.deepEqual(listRunStatusSnapshots(runDirectory), []);
+    assert.deepEqual(await readdir(tempDirectory), []);
   } finally {
     await rm(tempDirectory, { recursive: true, force: true });
   }

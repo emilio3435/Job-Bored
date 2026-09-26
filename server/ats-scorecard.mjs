@@ -3,6 +3,12 @@ import {
   migrateLlmConfigFromEnv,
   resolveActivePin,
 } from "./llm-config.mjs";
+import {
+  chat,
+  clampTimeoutMs,
+  normalizeProvider,
+  providerDisplayName,
+} from "./ai/provider.mjs";
 
 const ATS_RESPONSE_SCHEMA = {
   type: "object",
@@ -90,15 +96,12 @@ const SYSTEM_PROMPT =
 
 const OPENROUTER_DEFAULT_BASE_URL = "https://openrouter.ai/api/v1";
 const OPENROUTER_DEFAULT_MODEL = "openai/gpt-oss-120b:free";
-const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
-const MAX_PROVIDER_TIMEOUT_MS = 120_000;
 const DEFAULT_GEMINI_MODEL = "gemini-flash";
 const NO_PIN_REASON = "No LLM pin configured. Save an AI provider in Settings.";
 const PIN_MISSING_KEY_REASON = "Missing API key. Save a key in Settings.";
 
 /** @typedef {"gemini" | "openai" | "anthropic" | "openrouter" | "openai_compatible"} AtsProvider */
 /** @typedef {Record<string, unknown>} UnknownRecord */
-/** @typedef {Error & { provider: AtsProvider, upstreamStatus?: number, providerCode?: string, classification: string, retryable: boolean }} ProviderApiError */
 /**
  * @typedef {object} AtsPayload
  * @property {string} feature
@@ -125,6 +128,9 @@ function clipText(text, max) {
   const s = normalizeSpace(text);
   return s.length > max ? `${s.slice(0, max)}\n… [truncated]` : s;
 }
+
+/** E18: one budget for every optional profile excerpt in the ATS prompt. */
+const PROFILE_EXCERPTS_MAX = 10000;
 
 // Scan for the first balanced {…} / […] embedded in surrounding text and parse
 // it. Lets a valid scorecard be recovered when the provider wraps its JSON in
@@ -234,24 +240,6 @@ async function withMalformedJsonRetry(label, run) {
   throw lastError;
 }
 
-const RATE_LIMIT_PROVIDER_CODES = new Set([
-  "resource_exhausted",
-  "rate_limit",
-  "rate_limit_exceeded",
-  "too_many_requests",
-]);
-
-const RETRYABLE_PROVIDER_CODES = new Set([
-  ...RATE_LIMIT_PROVIDER_CODES,
-  "deadline_exceeded",
-  "internal",
-  "overloaded",
-  "service_unavailable",
-  "temporarily_unavailable",
-  "timeout",
-  "unavailable",
-]);
-
 /**
  * @param {unknown} value
  * @returns {value is UnknownRecord}
@@ -260,196 +248,12 @@ function isPlainRecord(value) {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }
 
-/** @param {unknown} value */
-function normalizeProviderCode(value) {
-  if (value == null) return "";
-  return String(value)
-    .trim()
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "_")
-    .replace(/^_+|_+$/g, "");
-}
-
-/** @param {unknown} status */
-function isRetryableProviderStatus(status) {
-  return (
-    typeof status === "number" &&
-    Number.isInteger(status) &&
-    (status === 408 ||
-      status === 409 ||
-      status === 425 ||
-      status === 429 ||
-      status >= 500)
-  );
-}
-
-/** @param {unknown} payload */
-function extractProviderErrorDetails(payload) {
-  if (!isPlainRecord(payload)) return { message: "", code: "" };
-  const root = isPlainRecord(payload.error) ? payload.error : payload;
-  const message =
-    typeof root.message === "string"
-      ? root.message.trim()
-      : typeof payload.message === "string"
-        ? payload.message.trim()
-        : "";
-  const code = normalizeProviderCode(root.status || root.code || root.type || "");
-  return { message, code };
-}
-
-/** @param {AtsProvider} provider */
-function providerDisplayName(provider) {
-  if (provider === "openrouter") return "OpenRouter";
-  if (provider === "openai_compatible") return "OpenAI-compatible";
-  if (provider === "openai") return "OpenAI";
-  if (provider === "anthropic") return "Anthropic";
-  return "Gemini";
-}
-
 /**
- * @param {number | undefined} upstreamStatus
- * @param {string} providerCode
+ * ATS provider timeout. ATS_PROVIDER_TIMEOUT_MS still tunes it (clamped to
+ * the shared 120 s ceiling); the transport lives in server/ai/provider.mjs.
  */
-function classifyProviderError(upstreamStatus, providerCode) {
-  if (upstreamStatus === 429) return "rate_limit";
-  if (providerCode && RATE_LIMIT_PROVIDER_CODES.has(providerCode)) {
-    return "rate_limit";
-  }
-  return "upstream";
-}
-
-/**
- * @param {{ provider: AtsProvider, upstreamStatus: number, payload: unknown, fallbackMessage: string }} input
- * @returns {ProviderApiError}
- */
-function buildProviderHttpError({
-  provider,
-  upstreamStatus,
-  payload,
-  fallbackMessage,
-}) {
-  const details = extractProviderErrorDetails(payload);
-  const statusLabel = Number.isInteger(upstreamStatus)
-    ? `${providerDisplayName(provider)} HTTP ${upstreamStatus}`
-    : fallbackMessage || `${providerDisplayName(provider)} request failed`;
-  const error = /** @type {ProviderApiError} */ (new Error(statusLabel));
-  error.name = "ProviderApiError";
-  error.provider = provider;
-  error.upstreamStatus = Number.isInteger(upstreamStatus) ? upstreamStatus : undefined;
-  error.providerCode = details.code || undefined;
-  error.classification = classifyProviderError(error.upstreamStatus, details.code);
-  error.retryable =
-    isRetryableProviderStatus(error.upstreamStatus) ||
-    (details.code ? RETRYABLE_PROVIDER_CODES.has(details.code) : false);
-  return error;
-}
-
-/** @param {unknown} cause */
-function isAbortLikeError(cause) {
-  if (!cause || typeof cause !== "object") return false;
-  const name = "name" in cause ? String(cause.name) : "";
-  return name === "AbortError" || name === "TimeoutError";
-}
-
-/**
- * @param {AtsProvider} provider
- * @param {unknown} cause
- * @returns {ProviderApiError & { cause: unknown }}
- */
-function buildProviderRequestError(provider, cause) {
-  const timedOut = isAbortLikeError(cause);
-  const error = /** @type {ProviderApiError & { cause: unknown }} */ (
-    new Error(
-      timedOut
-        ? `${providerDisplayName(provider)} request timed out`
-        : `${providerDisplayName(provider)} request failed`,
-    )
-  );
-  error.name = "ProviderApiError";
-  error.provider = provider;
-  error.providerCode = timedOut ? "timeout" : "network_error";
-  error.classification = "upstream";
-  error.retryable = true;
-  error.cause = cause;
-  return error;
-}
-
 export function providerFetchTimeoutMs() {
-  const raw = Number(process.env.ATS_PROVIDER_TIMEOUT_MS);
-  if (Number.isFinite(raw) && raw > 0) {
-    return Math.min(Math.trunc(raw), MAX_PROVIDER_TIMEOUT_MS);
-  }
-  return DEFAULT_PROVIDER_TIMEOUT_MS;
-}
-
-/** @param {AbortSignal} [externalSignal] */
-function providerFetchSignal(externalSignal) {
-  const timeoutSignal = AbortSignal.timeout(providerFetchTimeoutMs());
-  if (!externalSignal) return timeoutSignal;
-  return AbortSignal.any([timeoutSignal, externalSignal]);
-}
-
-/** @param {unknown} schema */
-function toGeminiSchema(schema) {
-  const UNSUPPORTED = new Set([
-    "additionalProperties",
-    "$schema",
-    "$id",
-    "$ref",
-    "allOf",
-    "anyOf",
-    "oneOf",
-    "not",
-  ]);
-  /** @param {unknown} node */
-  function clean(node) {
-    if (!node || typeof node !== "object" || Array.isArray(node)) return node;
-    /** @type {UnknownRecord} */
-    const out = {};
-    for (const [k, v] of Object.entries(node)) {
-      if (UNSUPPORTED.has(k)) continue;
-      out[k] =
-        typeof v === "object" && v !== null
-          ? Array.isArray(v)
-            ? v.map(clean)
-            : clean(v)
-          : v;
-    }
-    return out;
-  }
-  return clean(schema);
-}
-
-/** @param {unknown} model */
-function openAIUsesMaxCompletionTokens(model) {
-  const m = String(model || "").toLowerCase();
-  return (
-    m.startsWith("gpt-5") ||
-    m.startsWith("o1") ||
-    m.startsWith("o3") ||
-    m.startsWith("o4")
-  );
-}
-
-/** @param {unknown} model */
-function openAISupportsStrictSchema(model) {
-  const m = String(model || "").toLowerCase();
-  return (
-    m.startsWith("gpt-5") ||
-    m.includes("gpt-4o") ||
-    m.includes("gpt-4-turbo") ||
-    m.startsWith("o1") ||
-    m.startsWith("o3") ||
-    m.startsWith("o4")
-  );
-}
-
-/** @param {unknown} baseUrl */
-function buildChatCompletionsUrl(baseUrl) {
-  const base = String(baseUrl || "").trim().replace(/\/+$/, "");
-  if (!base) return "";
-  if (/\/chat\/completions$/i.test(base)) return base;
-  return `${base}/chat/completions`;
+  return clampTimeoutMs(process.env.ATS_PROVIDER_TIMEOUT_MS);
 }
 
 /** @param {unknown} v */
@@ -548,6 +352,34 @@ function normalizeScorecard(parsed, model) {
   };
 }
 
+/**
+ * E18: the optional profile excerpts share one character budget, in priority
+ * order, instead of up to 30000 characters on top of the draft and posting.
+ * @param {UnknownRecord} profile
+ * @returns {string[]}
+ */
+function profileExcerptLines(profile) {
+  /** @type {[string, unknown, number][]} */
+  const fields = [
+    ["Candidate profile", profile.candidateProfileText, 6000],
+    ["Resume source", profile.resumeSourceText, 6000],
+    ["LinkedIn source", profile.linkedinProfileText, 3000],
+    ["Additional context", profile.additionalContextText, 3000],
+  ];
+  let remaining = PROFILE_EXCERPTS_MAX;
+  /** @type {string[]} */
+  const lines = [];
+  for (const [label, value, cap] of fields) {
+    const text = normalizeSpace(value);
+    if (!text || remaining <= 0) continue;
+    const clipped = clipText(text, Math.min(cap, remaining));
+    remaining -= Math.min(text.length, cap, remaining);
+    lines.push(`${label}:\n${clipped}`);
+  }
+  if (!normalizeSpace(profile.candidateProfileText)) lines.unshift("Candidate profile: (none)");
+  return lines;
+}
+
 /** @param {AtsPayload} payload */
 function buildUserPrompt(payload) {
   const featureLabel =
@@ -578,18 +410,7 @@ function buildUserPrompt(payload) {
     `Tools and stack: ${(Array.isArray(posting.toolsAndStack) ? posting.toolsAndStack.slice(0, 24) : []).join("; ") || "(none)"}`,
     "",
     "--- Candidate profile excerpts (optional) ---",
-    profile.candidateProfileText
-      ? `Candidate profile:\n${clipText(profile.candidateProfileText, 10000)}`
-      : "Candidate profile: (none)",
-    profile.resumeSourceText
-      ? `Resume source:\n${clipText(profile.resumeSourceText, 8000)}`
-      : "",
-    profile.linkedinProfileText
-      ? `LinkedIn source:\n${clipText(profile.linkedinProfileText, 6000)}`
-      : "",
-    profile.additionalContextText
-      ? `Additional context:\n${clipText(profile.additionalContextText, 6000)}`
-      : "",
+    ...profileExcerptLines(profile),
     "",
     instructions.userNotes
       ? `User notes: ${clipText(instructions.userNotes, 1200)}`
@@ -604,239 +425,42 @@ function buildUserPrompt(payload) {
 }
 
 /**
+ * One ATS call through the shared provider module (E15). The schema drives
+ * Gemini's responseSchema, OpenAI's strict json_schema and Anthropic's
+ * output_config; OpenRouter and OpenAI-compatible servers get plain JSON.
+ * @param {{ provider: AtsProvider, apiKey: string, model: string, baseUrl: string }} target
  * @param {string} userPrompt
- * @param {string} apiKey
- * @param {string} model
+ * @param {AbortSignal} [signal] the request signal (E11)
  */
-async function callGeminiJson(userPrompt, apiKey, model) {
-  return withMalformedJsonRetry("Gemini", async () => {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(apiKey)}`;
-    const body = {
-      systemInstruction: { parts: [{ text: SYSTEM_PROMPT }] },
-      contents: [{ role: "user", parts: [{ text: userPrompt }] }],
-      generationConfig: {
-        temperature: 0.15,
-        maxOutputTokens: 3500,
-        responseMimeType: "application/json",
-        responseSchema: toGeminiSchema(ATS_RESPONSE_SCHEMA),
-      },
-    };
-    let resp;
-    try {
-      resp = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(body),
-        signal: providerFetchSignal(),
-      });
-    } catch (error) {
-      throw buildProviderRequestError("gemini", error);
-    }
-    const data = /** @type {{ candidates?: Array<{ content?: { parts?: Array<{ text?: string }> } }> } & UnknownRecord} */ (
-      await resp.json().catch(() => ({}))
-    );
-    if (!resp.ok) {
-      throw buildProviderHttpError({
-        provider: "gemini",
-        upstreamStatus: resp.status,
-        payload: data,
-        fallbackMessage: `Gemini HTTP ${resp.status}`,
-      });
-    }
-    const raw =
-      data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") || "";
-    if (!raw.trim()) throw new Error("Gemini returned empty content");
-    return parseJsonSafe(raw);
-  });
-}
-
-/**
- * @param {string} userPrompt
- * @param {string} apiKey
- * @param {string} model
- */
-async function callOpenAIJson(userPrompt, apiKey, model) {
-  const limitKey = openAIUsesMaxCompletionTokens(model)
-    ? "max_completion_tokens"
-    : "max_tokens";
-  const responseFormat = openAISupportsStrictSchema(model)
-    ? {
-        type: "json_schema",
-        json_schema: {
-          name: "ats_scorecard",
-          strict: true,
-          schema: ATS_RESPONSE_SCHEMA,
-        },
-      }
-    : { type: "json_object" };
-  const body = {
-    model,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    response_format: responseFormat,
-    temperature: 0.15,
-    [limitKey]: 3500,
-  };
-  return withMalformedJsonRetry("OpenAI", async () => {
-    let resp;
-    try {
-      resp = await fetch("https://api.openai.com/v1/chat/completions", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${apiKey}`,
-        },
-        body: JSON.stringify(body),
-        signal: providerFetchSignal(),
-      });
-    } catch (error) {
-      throw buildProviderRequestError("openai", error);
-    }
-    const data = /** @type {{ choices?: Array<{ message?: { content?: string } }> } & UnknownRecord} */ (
-      await resp.json().catch(() => ({}))
-    );
-    if (!resp.ok) {
-      throw buildProviderHttpError({
-        provider: "openai",
-        upstreamStatus: resp.status,
-        payload: data,
-        fallbackMessage: `OpenAI HTTP ${resp.status}`,
-      });
-    }
-    const raw = data.choices?.[0]?.message?.content || "";
-    if (!raw.trim()) throw new Error("OpenAI returned empty content");
-    return parseJsonSafe(raw);
-  });
-}
-
-/**
- * @param {{ provider: AtsProvider, userPrompt: string, apiKey: string, baseUrl: string, model: string }} input
- */
-async function callOpenAICompatibleJson({
-  provider,
-  userPrompt,
-  apiKey,
-  baseUrl,
-  model,
-}) {
-  const label = providerDisplayName(provider);
-  const body = {
-    model,
-    messages: [
-      { role: "system", content: SYSTEM_PROMPT },
-      { role: "user", content: userPrompt },
-    ],
-    temperature: 0.15,
-    max_tokens: 3500,
-  };
+async function callProviderJson(target, userPrompt, signal) {
+  const label = providerDisplayName(target.provider);
   return withMalformedJsonRetry(label, async () => {
-    let resp;
-    try {
-      /** @type {Record<string, string>} */
-      const headers = { "Content-Type": "application/json" };
-      if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
-      resp = await fetch(buildChatCompletionsUrl(baseUrl), {
-        method: "POST",
-        headers,
-        body: JSON.stringify(body),
-        signal: providerFetchSignal(),
-      });
-    } catch (error) {
-      throw buildProviderRequestError(provider, error);
-    }
-    const data = /** @type {{ choices?: Array<{ message?: { content?: string } }> } & UnknownRecord} */ (
-      await resp.json().catch(() => ({}))
-    );
-    if (!resp.ok) {
-      throw buildProviderHttpError({
-        provider,
-        upstreamStatus: resp.status,
-        payload: data,
-        fallbackMessage: `${label} HTTP ${resp.status}`,
-      });
-    }
-    const raw = data.choices?.[0]?.message?.content || "";
-    if (!raw.trim()) throw new Error(`${label} returned empty content`);
-    return parseJsonSafe(raw);
+    const { text } = await chat({
+      pin: target,
+      messages: [
+        { role: "system", content: SYSTEM_PROMPT },
+        { role: "user", content: userPrompt },
+      ],
+      schema: ATS_RESPONSE_SCHEMA,
+      schemaName: "ats_scorecard",
+      signal,
+      timeoutMs: providerFetchTimeoutMs(),
+      maxTokens: 3500,
+      temperature: 0.15,
+    });
+    if (!text.trim()) throw new Error(`${label} returned empty content`);
+    return parseJsonSafe(text);
   });
 }
 
 /**
- * @param {string} userPrompt
- * @param {string} apiKey
- * @param {string} model
- */
-async function callAnthropicJson(userPrompt, apiKey, model) {
-  const body = {
-    model,
-    max_tokens: 3500,
-    system: SYSTEM_PROMPT,
-    messages: [{ role: "user", content: userPrompt }],
-    output_config: {
-      format: {
-        type: "json_schema",
-        schema: ATS_RESPONSE_SCHEMA,
-      },
-    },
-  };
-  return withMalformedJsonRetry("Anthropic", async () => {
-    let resp;
-    try {
-      resp = await fetch("https://api.anthropic.com/v1/messages", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "x-api-key": apiKey,
-          "anthropic-version": "2023-06-01",
-        },
-        body: JSON.stringify(body),
-        signal: providerFetchSignal(),
-      });
-    } catch (error) {
-      throw buildProviderRequestError("anthropic", error);
-    }
-    const data = /** @type {{ content?: Array<{ type?: string, text?: string }> } & UnknownRecord} */ (
-      await resp.json().catch(() => ({}))
-    );
-    if (!resp.ok) {
-      throw buildProviderHttpError({
-        provider: "anthropic",
-        upstreamStatus: resp.status,
-        payload: data,
-        fallbackMessage: `Anthropic HTTP ${resp.status}`,
-      });
-    }
-    const raw = Array.isArray(data.content)
-      ? data.content
-          .filter((b) => b.type === "text")
-          .map((b) => b.text || "")
-          .join("")
-      : "";
-    if (!raw.trim()) throw new Error("Anthropic returned empty content");
-    return parseJsonSafe(raw);
-  });
-}
-
-/**
+ * The shared enum: "local" and "ollama" are openai_compatible (E2). Anything
+ * unknown stays gemini, as before, so an old env-only install keeps working.
  * @param {unknown} value
  * @returns {AtsProvider}
  */
 function normalizeAtsProvider(value) {
-  const raw = String(value || "gemini")
-    .trim()
-    .toLowerCase()
-    .replace(/[\s-]+/g, "_");
-  if (
-    raw === "openai" ||
-    raw === "anthropic" ||
-    raw === "openrouter" ||
-    raw === "openai_compatible"
-  ) {
-    return raw;
-  }
-  return "gemini";
+  return normalizeProvider(value || "gemini") || "gemini";
 }
 
 /**
@@ -1037,8 +661,12 @@ export function getAtsConfigStatus() {
   return { configured: true, provider: cfg.provider, model, reason: "" };
 }
 
-/** @param {AtsPayload} payload */
-export async function analyzeAtsScorecard(payload) {
+/**
+ * @param {AtsPayload} payload
+ * @param {{ signal?: AbortSignal }} [options] `signal` is the request's
+ *   disconnect/deadline signal; aborting it cancels the billed call (E11).
+ */
+export async function analyzeAtsScorecard(payload, options = {}) {
   const cfg = getProviderConfigFromEnv();
   const status = getAtsConfigStatus();
   if (!status.configured) {
@@ -1056,40 +684,37 @@ export async function analyzeAtsScorecard(payload) {
   }
 
   const userPrompt = buildUserPrompt(payload);
+  const target = activeTargetFromCfg(cfg);
+  const parsed = await callProviderJson(target, userPrompt, options.signal);
+  return normalizeScorecard(parsed, target.model);
+}
 
+/**
+ * @param {AtsProviderConfig} cfg
+ * @returns {{ provider: AtsProvider, apiKey: string, model: string, baseUrl: string }}
+ */
+function activeTargetFromCfg(cfg) {
   if (cfg.provider === "openai") {
-    const model = cfg.openAIModel;
-    const parsed = await callOpenAIJson(userPrompt, cfg.openAIApiKey, model);
-    return normalizeScorecard(parsed, model);
+    return { provider: "openai", apiKey: cfg.openAIApiKey, model: cfg.openAIModel, baseUrl: "" };
   }
   if (cfg.provider === "anthropic") {
-    const model = cfg.anthropicModel;
-    const parsed = await callAnthropicJson(userPrompt, cfg.anthropicApiKey, model);
-    return normalizeScorecard(parsed, model);
+    return { provider: "anthropic", apiKey: cfg.anthropicApiKey, model: cfg.anthropicModel, baseUrl: "" };
   }
   if (cfg.provider === "openrouter") {
-    const model = cfg.openRouterModel;
-    const parsed = await callOpenAICompatibleJson({
-      provider: cfg.provider,
-      userPrompt,
+    return {
+      provider: "openrouter",
       apiKey: cfg.openRouterApiKey,
+      model: cfg.openRouterModel,
       baseUrl: cfg.openRouterBaseUrl,
-      model,
-    });
-    return normalizeScorecard(parsed, model);
+    };
   }
   if (cfg.provider === "openai_compatible") {
-    const model = cfg.openAICompatibleModel;
-    const parsed = await callOpenAICompatibleJson({
-      provider: cfg.provider,
-      userPrompt,
+    return {
+      provider: "openai_compatible",
       apiKey: cfg.openAICompatibleApiKey,
+      model: cfg.openAICompatibleModel,
       baseUrl: cfg.openAICompatibleBaseUrl,
-      model,
-    });
-    return normalizeScorecard(parsed, model);
+    };
   }
-  const model = cfg.geminiModel;
-  const parsed = await callGeminiJson(userPrompt, cfg.geminiApiKey, model);
-  return normalizeScorecard(parsed, model);
+  return { provider: "gemini", apiKey: cfg.geminiApiKey, model: cfg.geminiModel, baseUrl: "" };
 }

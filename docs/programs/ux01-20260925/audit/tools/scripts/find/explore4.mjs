@@ -1,0 +1,32 @@
+import { openApp, shoot } from "/Users/emilionunezgarcia/Job-Bored.worktrees/ux01/docs/programs/ux01-20260925/audit/tools/audit-harness.mjs";
+const L = "find";
+const vp = process.argv[2] || "desktop";
+const log = (...a) => console.log(`[${vp}]`, ...a);
+const app = await openApp({ mode: "signed-in", viewport: vp });
+const { page } = app;
+log("btn accessible name", await page.evaluate(() => { const b = document.getElementById("discoveryBtn"); return { aria: b.getAttribute("aria-label"), text: b.innerText.trim(), labelVisible: [...b.querySelectorAll("span")].map(s => [s.textContent.trim(), getComputedStyle(s).display, s.getBoundingClientRect().width]) }; }));
+await page.click("#runsBtn");
+await page.waitForTimeout(6000);
+log("runs status after 6s", await page.textContent("#runsStatus"));
+log("runs has run-now control?", await page.evaluate(() => [...document.querySelectorAll("#runsModal button")].map(b => b.innerText.trim() || b.getAttribute("aria-label"))));
+log("rows clickable?", await page.evaluate(() => { const r = document.querySelector("#runsTableBody tr:nth-child(2)"); return r ? [getComputedStyle(r).cursor, r.querySelectorAll("a,button").length] : null; }));
+await page.click("#runsModalClose");
+await page.click("#discoveryBtn");
+await page.waitForTimeout(1500);
+const tabs = await page.evaluate(() => [...document.querySelectorAll(".discovery-subtab")].map(t => { const b = t.getBoundingClientRect(); return [t.textContent.trim(), Math.round(b.left), Math.round(b.right)]; }));
+log("tabs x", JSON.stringify(tabs), "vw", await page.evaluate(() => innerWidth));
+// scrape button
+await page.evaluate(() => document.getElementById("dpJobUrl").scrollIntoView({ block: "center" }));
+await page.fill("#dpJobUrl", "https://boards.greenhouse.io/example/jobs/123");
+await page.click("#dpScrapeBtn").catch(e => log("scrape click", e.message.slice(0, 80)));
+await page.waitForTimeout(2500);
+log("scrape status", await page.evaluate(() => { const e = document.getElementById("dpScrapeStatus"); return e.hidden ? "(hidden)" : e.innerText; }));
+await shoot(page, L, "drawer-ai-ideas-scrape");
+// Set up Fit Profile link
+await page.click(".fit-profile-empty-banner__cta");
+await page.waitForTimeout(1500);
+log("after fit link: hash", await page.evaluate(() => location.hash), "drawer hidden", await page.evaluate(() => document.getElementById("discoveryDrawer").hidden));
+const overlay = await page.evaluate(() => [...document.querySelectorAll("[class*=fit-profile], [class*=fpw]")].filter(e => e.getClientRects().length && e.innerText.trim()).map(e => e.className + " :: " + e.innerText.replace(/\s+/g, " ").slice(0, 200)).slice(0, 2));
+log("fit overlay", JSON.stringify(overlay));
+await shoot(page, L, "drawer-fit-profile-link");
+await app.close();

@@ -82,7 +82,9 @@ body.jb-v2 [data-region="today"] .today-item {
 body.jb-v2 [data-region="today"] .today-item { border-inline-start: 3px solid var(--jb-line); }
 body.jb-v2 [data-region="today"] .today-item--reply { border-inline-start-color: var(--jb-amber); }
 body.jb-v2 [data-region="today"] .today-item--prep { border-inline-start-color: var(--jb-stage-interviewing); }
-body.jb-v2 [data-region="today"] .today-item--follow-up { border-inline-start-color: var(--jb-stage-applied); }
+body.jb-v2 [data-region="today"] .today-item--follow-up { border-inline-start-color: var(--jb-warn); }
+body.jb-v2 [data-region="today"] .today-item--due { border-inline-start-color: var(--jb-stage-applied); }
+body.jb-v2 [data-region="today"] .today-item--offer { border-inline-start-color: var(--jb-stage-offer); }
 body.jb-v2 [data-region="today"] .today-item--stale { border-inline-start-color: var(--jb-ink-3); }
 body.jb-v2 [data-region="today"] .today-item--fit { border-inline-start-color: var(--jb-mint); }
 
@@ -97,6 +99,9 @@ body.jb-v2 [data-region="today"] .today-item__eyebrow {
 }
 
 body.jb-v2 [data-region="today"] .today-item__title {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
   margin: 0;
   font-size: var(--jb-text-lg);
   font-weight: 600;
@@ -125,28 +130,164 @@ body.jb-v2 [data-region="today"] .today-item__aside {
   flex-shrink: 0;
 }
 
-/* One action per row, and it is a real target: 2.75rem clears the 44px
-   minimum on touch. */
-body.jb-v2 [data-region="today"] .today-item__action {
-  min-height: 2.75rem;
-  padding: 0 var(--space-4, 16px);
-  background: var(--jb-navy);
-  color: var(--jb-paper);
-  border: 1px solid var(--jb-navy);
-  border-radius: var(--jb-radius-sm);
+/* Bands (C20): each band carries a mono label and its count, so the
+   ranking reads without the row text. */
+body.jb-v2 [data-region="today"] .today-band + .today-band { margin-block-start: var(--space-5, 20px); }
+
+body.jb-v2 [data-region="today"] .today-band__head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2, 8px);
+  margin-block-end: var(--space-2, 8px);
+}
+
+body.jb-v2 [data-region="today"] .today-band__label {
+  margin: 0;
   font-family: var(--jb-font-mono);
   font-size: var(--jb-text-xs);
-  letter-spacing: 0.06em;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--jb-ink-2);
+}
+
+body.jb-v2 [data-region="today"] .today-band__n {
+  font-family: var(--jb-font-mono);
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+}
+
+body.jb-v2 [data-region="today"] .today-item__acts {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: var(--space-2, 8px);
+}
+
+/* Every action is a real target: 2.75rem clears the 44px minimum on
+   touch. DS-05: the actions wear the C3 kit (jb-ui.css .jb-btn, JB-UI.md):
+   primary is the one navy fill (--jb-action), secondary is paper with a
+   --jb-line border, ghost is bare; same radius, type, hover and focus ring.
+   Only the touch height is Today's own. Today's markup (today.js) can add
+   the kit classes and these rules still agree with them. */
+body.jb-v2 [data-region="today"] .today-item__action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--jb-space-2);
+  box-sizing: border-box;
+  min-height: 2.75rem;
+  padding: 0 14px;
+  background: var(--jb-action);
+  color: var(--jb-on-action);
+  border: 1px solid var(--jb-action);
+  border-radius: var(--jb-radius-md);
+  font: 600 var(--jb-type-small)/1 var(--jb-font-body);
+  text-decoration: none;
   cursor: pointer;
   white-space: nowrap;
+  transition: background-color var(--jb-transition-fast), border-color var(--jb-transition-fast), color var(--jb-transition-fast);
 }
 
-body.jb-v2 [data-region="today"] .today-item__action:hover { background: var(--jb-ink); }
+body.jb-v2 [data-region="today"] .today-item__action:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--jb-action) 82%, var(--jb-ink));
+}
+
+body.jb-v2 [data-region="today"] .today-item__action--secondary {
+  background: var(--jb-paper);
+  color: var(--jb-action);
+  border-color: var(--jb-line);
+}
+
+body.jb-v2 [data-region="today"] .today-item__action--ghost {
+  background: transparent;
+  color: var(--jb-action);
+  border-color: transparent;
+}
+
+body.jb-v2 [data-region="today"] .today-item__action--secondary:hover:not(:disabled),
+body.jb-v2 [data-region="today"] .today-item__action--ghost:hover:not(:disabled) {
+  background: var(--jb-paper-3);
+}
 
 body.jb-v2 [data-region="today"] .today-item__action:focus-visible {
-  outline: 2px solid var(--jb-mint);
-  outline-offset: 2px;
+  outline: none;
+  box-shadow: var(--jb-shadow-focus);
 }
+
+body.jb-v2 [data-region="today"] .today-item[data-today-pending] .today-item__action {
+  opacity: 0.55;
+  cursor: progress;
+}
+
+body.jb-v2 [data-region="today"] .today-snooze {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: var(--space-2, 8px);
+}
+
+body.jb-v2 [data-region="today"] .today-snooze[hidden] { display: none; }
+
+body.jb-v2 [data-region="today"] .today-snooze__pick {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2, 8px);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+}
+
+body.jb-v2 [data-region="today"] .today-snooze__pick input {
+  min-height: 2.75rem;
+  padding: 0 var(--space-2, 8px);
+  border: 1px solid var(--jb-line-strong);
+  border-radius: var(--jb-radius-sm);
+  background: var(--jb-paper);
+  color: var(--jb-ink);
+  font: inherit;
+}
+
+/* --- First run: three ways in (C5) ------------------------------ */
+
+body.jb-v2 [data-region="today"] .today-first-run__lede {
+  margin: 0 0 var(--space-3, 12px);
+  font-size: var(--jb-text-base);
+  color: var(--jb-ink-2);
+}
+
+body.jb-v2 [data-region="today"] .today-ways {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(14rem, 1fr));
+  gap: var(--space-3, 12px);
+}
+
+body.jb-v2 [data-region="today"] .today-way {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: var(--space-2, 8px);
+  padding: var(--space-4, 16px);
+  background: var(--jb-paper);
+  border: 1px solid var(--jb-line-soft);
+  border-radius: var(--jb-radius-lg);
+}
+
+body.jb-v2 [data-region="today"] .today-way__title {
+  margin: 0;
+  font-size: var(--jb-text-lg);
+  font-weight: 600;
+  color: var(--jb-ink);
+}
+
+body.jb-v2 [data-region="today"] .today-way__body {
+  margin: 0;
+  flex: 1 1 auto;
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+}
+
+body.jb-v2 [data-region="today"] .today-empty__acts { margin-block-start: var(--space-3, 12px); }
 
 /* --- Empty state -------------------------------------------- */
 
@@ -174,7 +315,9 @@ body.jb-v2 [data-region="today"] .today-empty__hint {
 
 @media (max-width: 640px) {
   body.jb-v2 [data-region="today"] .today-item { flex-direction: column; align-items: stretch; }
-  body.jb-v2 [data-region="today"] .today-item__aside { flex-direction: row; align-items: center; justify-content: space-between; }
+  body.jb-v2 [data-region="today"] .today-item__aside { align-items: stretch; }
+  body.jb-v2 [data-region="today"] .today-item__acts,
+  body.jb-v2 [data-region="today"] .today-snooze { justify-content: flex-start; }
 }
 
 @media (prefers-reduced-motion: reduce) {

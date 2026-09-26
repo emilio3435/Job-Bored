@@ -37,6 +37,7 @@ import {
   migrateLlmConfigFromEnv,
   resolveActivePin,
 } from "./llm-config.mjs";
+import { geminiGenerateContentUrl, geminiHeaders } from "./ai/provider.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = dirname(__filename);
@@ -1072,7 +1073,8 @@ function buildChatJsonSystemPrompt(profile) {
  */
 async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel, signal }) {
   const model = geminiModel || DEFAULT_GEMINI_MODEL;
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${encodeURIComponent(geminiApiKey)}`;
+  // The key rides in x-goog-api-key, never the URL (BEAUDIT B17).
+  const url = geminiGenerateContentUrl(model);
   const body = {
     systemInstruction: { parts: [{ text: buildSystemPrompt(profile) }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(rawListing) }] }],
@@ -1085,7 +1087,7 @@ async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiMod
   };
   const resp = await fetch(url, {
     method: "POST",
-    headers: { "Content-Type": "application/json" },
+    headers: geminiHeaders(geminiApiKey),
     body: JSON.stringify(body),
     signal: providerFetchSignal(signal),
   });

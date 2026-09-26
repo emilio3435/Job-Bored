@@ -180,7 +180,13 @@ describe("F2C-SETUP01-PRESERVE: Settings save omits absent discovery fields", ()
     assert.equal(storedOverrides.discoveryWebhookSecret, "keep-this-secret");
   });
 
-  it("still writes discovery URL/secret when those fields are present on the form", async () => {
+  // GREENFIELD D5: the drawer's Connection tab is the only owner of the
+  // discovery URL/secret. Those inputs live in partials/discovery-drawer.html
+  // and are reachable by id from anywhere on the page, so "the field exists"
+  // is not permission for a Settings save to write it — the saved identity
+  // must survive a Settings save that happens to run while the drawer is
+  // mounted.
+  it("leaves discovery URL/secret alone even when the drawer fields are mounted", async () => {
     const storedOverrides = {
       sheetId: "sheet-keep",
       discoveryWebhookUrl: "https://old.example/webhook",
@@ -208,7 +214,19 @@ describe("F2C-SETUP01-PRESERVE: Settings save omits absent discovery fields", ()
     });
     await api.saveCommandCenterSettingsFromForm();
     assert.ok(patches.length >= 1, "save must merge a settings patch");
-    assert.equal(patches[0].discoveryWebhookUrl, "https://new.example/webhook");
-    assert.equal(patches[0].discoveryWebhookSecret, "new-secret");
+    for (const patch of patches) {
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(patch, "discoveryWebhookUrl"),
+        false,
+        "Settings must not write the drawer-owned webhook URL",
+      );
+      assert.equal(
+        Object.prototype.hasOwnProperty.call(patch, "discoveryWebhookSecret"),
+        false,
+        "Settings must not write the drawer-owned webhook secret",
+      );
+    }
+    assert.equal(storedOverrides.discoveryWebhookUrl, "https://old.example/webhook");
+    assert.equal(storedOverrides.discoveryWebhookSecret, "old-secret");
   });
 });

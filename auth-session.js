@@ -25,6 +25,11 @@
     "https://www.googleapis.com/auth/userinfo.profile",
   ].join(" ");
   const GIS_INIT_STUCK_MS = 8000;
+  // UX01 C21 (SS-25): the gate copy for a session that could not be restored.
+  const SESSION_ENDED_GATE = {
+    title: "Your Google session ended",
+    detail: "Sign in again to pick up where you left off.",
+  };
   const FORCE_CONSENT_PROMPT_KEY = "command_center_force_consent_prompt";
 
 let accessToken = null;
@@ -522,6 +527,21 @@ function restoreOAuthSession() {
   }
 
   oauthPendingOp = { kind: "silent-restore" };
+  const restoreOp = oauthPendingOp;
+  // UX01 SS-25: 8 s, the same budget as GIS_INIT_STUCK_MS. Kept local so the
+  // function stays self-contained.
+  const restoreTimeoutMs = 8000;
+  setTimeout(() => {
+    if (oauthPendingOp !== restoreOp || accessToken) return;
+    oauthPendingOp = null;
+    console.warn("[JobBored] silent restore timed out after", restoreTimeoutMs, "ms");
+    if (host().getOAuthClientId()) {
+      host().showSheetAccessGate("signin", {
+        title: "Your Google session ended",
+        detail: "Sign in again to pick up where you left off.",
+      });
+    }
+  }, restoreTimeoutMs);
   try {
     tokenClient.requestAccessToken({ prompt: "none" });
   } catch (e) {
@@ -700,7 +720,7 @@ function initAuth() {
             // revoked. Open the sign-in gate instead of letting the dashboard render
             // and then throw toasts on the first click.
             if (host().getOAuthClientId() && !accessToken) {
-              host().showSheetAccessGate("signin");
+              host().showSheetAccessGate("signin", SESSION_ENDED_GATE);
             }
             return;
           }
@@ -751,7 +771,7 @@ function handleTokenResponse(tokenResponse) {
       oauthPendingOp = null;
     }
     if (silentOp && host().getOAuthClientId() && !accessToken) {
-      host().showSheetAccessGate("signin");
+      host().showSheetAccessGate("signin", SESSION_ENDED_GATE);
     }
     if (!silentOp) {
       showToast(
@@ -1041,20 +1061,21 @@ function initAuthUserMenu() {
     doctorBtn.addEventListener("click", async () => {
       closeAuthUserMenu();
       if (!window.SetupDoctor) {
-        showToast("Setup doctor unavailable in this build.", "warning");
+        showToast("The setup check couldn’t load. Reload the page and try again.", "warning");
         return;
       }
-      showToast("Running setup doctor…", "info");
+      showToast("Checking your setup…", "info");
       const ctx = { lastError: host().getLastSheetAccessError() || "" };
       const report = await window.SetupDoctor.diagnose(ctx);
       if (!report.issues.length) {
         showToast("Setup looks healthy.", "success");
         return;
       }
-      // Render into the login gate panel slot so the user has a
-      // consistent place to act on findings, even if they're already
-      // signed in.
-      host().showSheetAccessGate("error");
+      report._ctx = ctx;
+      // UX01 C22 (SS-21): show findings in a dialog OVER the dashboard.
+      // The error gate replaced the whole board with "Couldn't load this
+      // sheet" even when the Sheet loaded fine.
+      openSetupDoctorDialog(report);
     });
   }
 
@@ -1438,6 +1459,42 @@ function updateAuthUI() {
     signInBtn.style.display = "flex";
     authUser.style.display = "none";
     setAuthAvatarDisplay();
+  }
+}
+
+function openSetupDoctorDialog(report) {
+  let dialog = document.getElementById("jbDoctorDialog");
+  if (!dialog) {
+    dialog = document.createElement("dialog");
+    dialog.id = "jbDoctorDialog";
+    dialog.className = "jb-doctor-dialog";
+    dialog.setAttribute("aria-labelledby", "jbDoctorDialogTitle");
+    const head = document.createElement("div");
+    head.className = "jb-doctor-dialog__head";
+    const h = document.createElement("h2");
+    h.id = "jbDoctorDialogTitle";
+    h.className = "jb-doctor-dialog__title";
+    h.textContent = "Setup check";
+    const close = document.createElement("button");
+    close.type = "button";
+    close.className = "jb-doctor-dialog__close";
+    close.textContent = "Close";
+    close.addEventListener("click", () => dialog.close());
+    head.appendChild(h);
+    head.appendChild(close);
+    const body = document.createElement("div");
+    body.id = "jbDoctorDialogBody";
+    body.className = "jb-doctor-dialog__body";
+    dialog.appendChild(head);
+    dialog.appendChild(body);
+    document.body.appendChild(dialog);
+  }
+  const body = document.getElementById("jbDoctorDialogBody");
+  window.SetupDoctor.renderInline(body, report);
+  if (typeof dialog.showModal === "function") {
+    if (!dialog.open) dialog.showModal();
+  } else {
+    dialog.setAttribute("open", "");
   }
 }
 

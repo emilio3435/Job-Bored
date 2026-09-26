@@ -13,7 +13,7 @@ import json
 import os
 import sys
 from collections import Counter
-from datetime import datetime, timedelta
+from datetime import timedelta
 from pathlib import Path
 
 
@@ -33,16 +33,16 @@ if (
         os.environ["HERMES_SKIP_VENV_REEXEC"] = "1"
         os.execv(str(DEFAULT_VENV_PYTHON), [str(DEFAULT_VENV_PYTHON), *sys.argv])
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import jhos_common  # noqa: E402
+
 JOBBORED_REPO = env_path("JOBBORED_REPO", Path.home() / "Job-Bored")
-WORKER_CONFIG = env_path(
-    "BROWSER_USE_DISCOVERY_WORKER_CONFIG",
-    JOBBORED_REPO / "integrations/browser-use-discovery/state/worker-config.json",
-)
 WORKER_ENV = env_path(
     "BROWSER_USE_DISCOVERY_WORKER_ENV",
     JOBBORED_REPO / "integrations/browser-use-discovery/.env",
 )
-TOKEN_PATH = env_path("HERMES_GOOGLE_TOKEN", HERMES_HOME / "google_token.json")
+TOKEN_PATH = jhos_common.google_token_path()
+PIPELINE_RANGE = "Pipeline!A:M"  # open-ended: no row cap
 APPLICATIONS_DIR = env_path(
     "HERMES_APPLICATIONS_DIR",
     HERMES_JOB_HUNT_HOME / "applications",
@@ -51,16 +51,7 @@ APPLICATIONS_DIR = env_path(
 
 def read_worker_env():
     """Read worker .env keys without echoing values."""
-    if not WORKER_ENV.exists():
-        return {}
-    values = {}
-    for raw_line in WORKER_ENV.read_text().splitlines():
-        line = raw_line.strip()
-        if not line or line.startswith("#") or "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        values[key.strip()] = value.strip().strip('"').strip("'")
-    return values
+    return jhos_common.read_env_file(WORKER_ENV)
 
 
 def resolve_env_value(worker_env, *names):
@@ -73,15 +64,7 @@ def resolve_env_value(worker_env, *names):
 
 def get_oauth_sheets_service():
     """Build a Sheets service from the Hermes user OAuth token."""
-    from google.oauth2.credentials import Credentials
-    from google.auth.transport.requests import Request
-    from googleapiclient.discovery import build
-
-    creds = Credentials.from_authorized_user_file(str(TOKEN_PATH))
-    if creds.expired and creds.refresh_token:
-        creds.refresh(Request())
-        TOKEN_PATH.write_text(creds.to_json())
-    return build("sheets", "v4", credentials=creds)
+    return jhos_common.oauth_sheets_service(TOKEN_PATH)
 
 
 def get_service_account_sheets_service(worker_env):
@@ -135,21 +118,21 @@ def get_pipeline_data(sheet_id):
     try:
         service = get_sheets_service()
         result = service.spreadsheets().values().get(
-            spreadsheetId=sheet_id, range="Pipeline!A1:M500"
+            spreadsheetId=sheet_id, range=PIPELINE_RANGE
         ).execute()
         return result.get("values", [])
     except Exception:
         import csv, io, urllib.request
-        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Pipeline&range=A1:M500"
+        url = f"https://docs.google.com/spreadsheets/d/{sheet_id}/gviz/tq?tqx=out:csv&sheet=Pipeline&range=A:M"
         resp = urllib.request.urlopen(url, timeout=30).read().decode()
         return list(csv.reader(io.StringIO(resp)))
 
 
 def main():
-    config = json.loads(WORKER_CONFIG.read_text())
-    sheet_id = config.get("sheetId", "")
-    if not sheet_id:
-        print("ERROR: sheetId empty in worker-config.json")
+    try:
+        sheet_id = jhos_common.sheet_id_from_worker_config()
+    except RuntimeError as exc:
+        print(f"ERROR: {exc}")
         sys.exit(1)
 
     rows = get_pipeline_data(sheet_id)
@@ -165,8 +148,9 @@ def main():
     score_col = col_map.get("Fit Score", 7)
     status_col = col_map.get("Status", 12)
 
-    today = datetime.now().strftime("%Y-%m-%d")
-    yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
+    local_today = jhos_common.local_today()
+    today = local_today.isoformat()
+    yesterday = (local_today - timedelta(days=1)).isoformat()
 
     status_counts = Counter()
     new_today = []

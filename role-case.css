@@ -252,9 +252,29 @@ body.jb-v2 [data-region="role"] .case .case__m--partial { background: var(--ambe
 body.jb-v2 [data-region="role"] .case .case__m--missing { background: var(--crimson); }
 body.jb-v2 [data-region="role"] .case .case__m--unknown { background: transparent; border: 1px solid var(--border-strong); }
 body.jb-v2 [data-region="role"] .case .case__st { font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.14em; text-transform: uppercase; color: var(--mute); }
+/* Spec §3.3: the answering sentence under a marked requirement. It is a grid
+   item of the requirement row, pinned to the text column so it sits under
+   the demand it answers rather than the status dot. */
+body.jb-v2 [data-region="role"] .case .case__req-ev { grid-column: 2; margin-top: 2px; font-family: var(--serif); font-style: italic; font-size: 12.5px; line-height: 1.45; color: var(--ink-soft); overflow-wrap: anywhere; }
+/* Spec §3.2: the requirements disclosure. The overflow div keeps the UA
+   hidden style (no display rule here, or [hidden] stops hiding it); the
+   button is a quiet pill with the same crimson ring the other case buttons
+   carry on focus. */
+body.jb-v2 [data-region="role"] .case .case__more-btn { display: inline-flex; align-items: center; margin-top: 10px; border: 1px solid var(--border-strong); border-radius: 999px; background: transparent; cursor: pointer; padding: 5px 12px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.16em; text-transform: uppercase; color: var(--ink-soft); }
+body.jb-v2 [data-region="role"] .case .case__more-btn:hover { border-color: var(--crimson); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case .case__more-btn:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
 body.jb-v2 [data-region="role"] .case .case__chips { display: flex; flex-wrap: wrap; gap: 6px; }
 body.jb-v2 [data-region="role"] .case .case__chip { display: inline-flex; align-items: center; gap: 6px; padding: 4px 10px; border-radius: 999px; background: var(--surface); border: 1px solid var(--border-strong); font-family: var(--mono); font-size: 10.5px; color: var(--ink-soft); }
 body.jb-v2 [data-region="role"] .case .case__chip .case__m { width: 7px; height: 7px; top: 0; }
+/* Spec §3.2: the stack overflow expands in place — display:contents keeps
+   the disclosed chips in the same flex flow. The [hidden] rule must win
+   over display:contents, which otherwise overrides the UA hiding. The +N
+   chip is a real button wearing the chip shape, dashed so it reads quiet. */
+body.jb-v2 [data-region="role"] .case .case__chips-more { display: contents; }
+body.jb-v2 [data-region="role"] .case .case__chips-more[hidden] { display: none; }
+body.jb-v2 [data-region="role"] .case button.case__chip--more { cursor: pointer; border-style: dashed; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case button.case__chip--more:hover { border-color: var(--crimson); color: var(--crimson); }
+body.jb-v2 [data-region="role"] .case button.case__chip--more:focus-visible { outline: 2px solid var(--crimson); outline-offset: 2px; }
 body.jb-v2 [data-region="role"] .case .case__strength { padding: 8px 0 8px 14px; border-left: 2px solid var(--mint-deep); margin-bottom: 8px; font-family: var(--serif); font-size: 14.5px; line-height: 1.45; overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__evidence { margin-top: 6px; padding: 10px 12px; background: var(--surface); border: 1px solid var(--border); border-radius: 8px; font-family: var(--serif); font-style: italic; font-size: 13.5px; line-height: 1.5; color: var(--ink-soft); overflow-wrap: anywhere; }
 body.jb-v2 [data-region="role"] .case .case__from { display: block; font-family: var(--mono); font-style: normal; font-size: var(--dsr-label); letter-spacing: 0.16em; text-transform: uppercase; color: var(--mint-deep); margin-bottom: 4px; }
@@ -347,6 +367,24 @@ body.jb-v2 [data-region="role"] .case .case__v--edit:focus { border-bottom-color
 body.jb-v2 [data-region="role"] .case .case__move { display: block; margin: 0 0 14px; padding: 11px 13px; background: var(--parchment-deep); border-radius: 8px; }
 body.jb-v2 [data-region="role"] .case .case__move-k { display: block; margin-bottom: 4px; font-family: var(--mono); font-size: var(--dsr-label); letter-spacing: 0.18em; text-transform: uppercase; color: var(--crimson); }
 body.jb-v2 [data-region="role"] .case .case__move-v { font-family: var(--serif); font-style: italic; font-size: 15px; line-height: 1.5; color: var(--navy); text-wrap: pretty; }
+/* Spec §3.7: the native date control stays, but its raw mm/dd/yyyy never
+   reads as content. The Not-set sibling is always in the DOM and CSS alone
+   decides: hidden by default, revealed only while the rendered value
+   attribute is empty (role.js re-renders after every committed write, so
+   the attribute tracks the sheet; :placeholder-shown never fires on a
+   native date input, which is why the attribute selector is the reliable
+   one). */
+body.jb-v2 [data-region="role"] .case .case__date { display: inline-flex; align-items: baseline; gap: 8px; }
+/* Inside the inline-flex wrapper the shared 60% width resolves against a
+   shrink-to-fit box and clipped "09/06/2026" to "09/06/2…" (F1-case-1240.png).
+   A date is a fixed-width fact: size it to its own characters. */
+body.jb-v2 [data-region="role"] .case .case__date input.case__v--edit { width: auto; min-width: 11ch; }
+body.jb-v2 [data-region="role"] .case .case__date-empty { display: none; font-family: var(--serif); font-style: italic; font-size: 13px; color: var(--mute); }
+body.jb-v2 [data-region="role"] .case .case__date input[value=""] + .case__date-empty { display: inline; }
+/* Spec §3.7: the browser's mm/dd/yyyy must never read as content. While the
+   value is empty the text goes transparent and the input shrinks to its
+   picker icon; "Not set" beside it is the only words. */
+body.jb-v2 [data-region="role"] .case .case__date input.case__v--edit[value=""] { color: transparent; min-width: 0; width: 2.4em; }
 /* Replied: three chips in a row, the active one filled. 28px tall so the row
    stays a ledger line; the ::after stretches the hit area to the 44px the
    a11y floor asks for without growing the chip. */
@@ -461,3 +499,92 @@ body.jb-v2 [data-region="role"] .case .case__fact-input { min-height: 24px; }
    24px spacing exception. */
 body.jb-v2 [data-region="role"] .case .case__doc-btn { position: relative; }
 body.jb-v2 [data-region="role"] .case .case__doc-btn::after { content: ""; position: absolute; inset: -8px -2px; }
+
+/* ============================================================
+   UX01 lane E (C11–C14, C16). tokens-v2.css values only; every
+   rule scoped under the Case root (or the prompt's own root) so
+   body.jb-v2 h3/p (0,1,1) cannot out-rank it.
+   ============================================================ */
+
+/* C12 (TA-06): a disabled drafting control reads as off, not as pale. */
+body.jb-v2 [data-region="role"] .case .case__btn:disabled,
+body.jb-v2 [data-region="role"] .case .case__btn[disabled] { opacity: 0.55; cursor: not-allowed; }
+
+/* C12 (TA-18, TR-24, AX-22): one inline notice replaces the stacked toasts. */
+body.jb-v2 [data-region="role"] .case .case__notice {
+  margin: 8px 0 0; padding: 8px 12px; border-radius: var(--jb-radius-sm, 6px);
+  background: var(--jb-info-bg, transparent); color: var(--jb-ink-2, inherit);
+  font-family: var(--jb-font-body, inherit); font-size: var(--jb-text-sm, 13px); line-height: 1.45;
+}
+
+/* C11 (TA-15): the hint's inline control, and "Change" on the provenance line. */
+body.jb-v2 [data-region="role"] .case .case__link {
+  display: inline; padding: 0; border: 0; background: none; cursor: pointer;
+  font: inherit; color: var(--jb-navy, currentColor); text-decoration: underline; text-underline-offset: 2px;
+}
+body.jb-v2 [data-region="role"] .case .case__link:focus-visible { outline: 2px solid var(--jb-navy, currentColor); outline-offset: 2px; }
+
+/* C11: which resume the drafts came from. */
+body.jb-v2 [data-region="role"] .case .case__provenance {
+  margin: 0 0 8px; font-family: var(--jb-font-body, inherit); font-size: var(--jb-text-sm, 13px);
+  color: var(--jb-ink-2, inherit); overflow-wrap: anywhere;
+}
+body.jb-v2 [data-region="role"] .case .case__provenance b { font-weight: 600; color: var(--jb-ink, inherit); }
+
+/* C11 + C12: the resume gate and the server-down state share one block. */
+body.jb-v2 [data-region="role"] .case .case__gate {
+  display: grid; gap: 6px; padding: 12px 14px; border-radius: var(--jb-radius-md, 10px);
+  border: 1px solid var(--jb-line, currentColor); background: var(--jb-paper-2, transparent);
+}
+body.jb-v2 [data-region="role"] .case .case__gate--server { border-color: var(--jb-warn, currentColor); background: var(--jb-warn-bg, transparent); }
+body.jb-v2 [data-region="role"] .case .case__gate-kicker {
+  margin: 0; font-family: var(--jb-font-mono, monospace); font-size: 11px; letter-spacing: 0.12em; text-transform: uppercase; color: var(--jb-ink-3, inherit);
+}
+body.jb-v2 [data-region="role"] .case .case__gate-title { margin: 0; font-family: var(--jb-font-body, inherit); font-weight: 600; font-size: var(--jb-text-base, 15px); color: var(--jb-ink, inherit); }
+body.jb-v2 [data-region="role"] .case .case__gate-body { margin: 0; font-family: var(--jb-font-body, inherit); font-size: var(--jb-text-sm, 13px); line-height: 1.5; color: var(--jb-ink-2, inherit); }
+body.jb-v2 [data-region="role"] .case .case__gate-body code { font-family: var(--jb-font-mono, monospace); font-size: 13px; }
+body.jb-v2 [data-region="role"] .case .case__gate-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 4px; }
+
+/* C12 (TA-26): the 3-minute stall line. */
+body.jb-v2 [data-region="role"] .case .case__doc-stall {
+  display: block; margin-top: 4px; font-family: var(--jb-font-body, inherit); font-size: 13px; color: var(--jb-warn, inherit);
+}
+
+/* C12 (TA-16): notes are optional, folded under the rows. */
+body.jb-v2 [data-region="role"] .case .case__draft-notes { margin-top: 8px; font-family: var(--jb-font-body, inherit); font-size: var(--jb-text-sm, 13px); }
+body.jb-v2 [data-region="role"] .case .case__draft-notes > summary { cursor: pointer; color: var(--jb-ink-2, inherit); min-height: 24px; }
+body.jb-v2 [data-region="role"] .case .case__draft-notes-input {
+  display: block; width: 100%; box-sizing: border-box; margin-top: 6px; padding: 8px 10px; resize: vertical;
+  border: 1px solid var(--jb-line-strong, currentColor); border-radius: var(--jb-radius-sm, 6px);
+  background: var(--jb-paper, transparent); color: var(--jb-ink, inherit); font: inherit;
+}
+
+/* C13 (TA-12): review is its own tone — neither ready nor failed. */
+body.jb-v2 [data-region="role"] .case .case__docst--review { background: var(--jb-warn-bg, transparent); color: var(--jb-warn, inherit); }
+
+/* C13 (TA-11): the QA report / checklist, read inline. */
+body.jb-v2 [data-region="role"] .case .case__doc-read { grid-column: 1 / -1; margin-top: 8px; }
+body.jb-v2 [data-region="role"] .case .case__doc-read-text {
+  margin: 0; max-height: 18rem; overflow: auto; padding: 10px 12px; white-space: pre-wrap; overflow-wrap: anywhere;
+  border-radius: var(--jb-radius-sm, 6px); background: var(--jb-paper-2, transparent); color: var(--jb-ink, inherit);
+  font-family: var(--jb-font-mono, monospace); font-size: 13px; line-height: 1.5;
+}
+
+/* C16 (MP-04): "Did you apply?" — one quiet bar, bottom-centre, above the
+   materials dock and below modals. */
+body.jb-v2 .case-return {
+  position: fixed; left: 50%; bottom: 16px; transform: translateX(-50%); z-index: 850;
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  width: min(560px, calc(100vw - 32px)); box-sizing: border-box; padding: 10px 14px;
+  border: 1px solid var(--jb-line-strong, currentColor); border-radius: var(--jb-radius-md, 10px);
+  background: var(--jb-surface-raised, var(--jb-paper, transparent)); box-shadow: var(--jb-shadow-card, none);
+  font-family: var(--jb-font-body, inherit); color: var(--jb-ink, inherit);
+}
+body.jb-v2 .case-return .case-return__q { flex: 1 1 16rem; margin: 0; font-size: var(--jb-text-sm, 13px); line-height: 1.45; }
+body.jb-v2 .case-return .case-return__actions { display: flex; gap: 8px; }
+body.jb-v2 .case-return .case-return__btn {
+  min-height: 32px; padding: 6px 12px; border-radius: var(--jb-radius-pill, 999px); cursor: pointer;
+  border: 1px solid var(--jb-line-strong, currentColor); background: transparent; color: var(--jb-ink, inherit); font: inherit; font-size: 13px;
+}
+body.jb-v2 .case-return .case-return__btn--primary { background: var(--jb-navy, transparent); border-color: var(--jb-navy, currentColor); color: var(--jb-ink-inverse, inherit); }
+body.jb-v2 .case-return .case-return__btn:focus-visible { outline: 2px solid var(--jb-navy, currentColor); outline-offset: 2px; }

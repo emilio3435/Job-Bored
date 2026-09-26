@@ -1,0 +1,12 @@
+{
+  "_comment": "Copy to approval-contract.local.json (gitignored) next to approval-contract.v1.json and fill in your own Telegram IDs. Values below are neutral examples and do not route anywhere.",
+  "gate2": {
+    "chatId": -1001234567890,
+    "threadId": 2,
+    "approverUserIds": [123456789]
+  },
+  "interest": {
+    "chatId": -1001234567890,
+    "threadId": 3
+  }
+}

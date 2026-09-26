@@ -77,3 +77,31 @@
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
+
+/* TR-17: the stage dot stays out of the way until it is bound to the card's
+   data-stage (jb-ui.css gives the element a display, which beats [hidden]). */
+.jb-recruiter-strip jb-stage-dot[hidden] {
+  display: none;
+}
+
+/* TR-17: nothing known about the recruiter side is one line, not four
+   "Unknown" facts: the dot and the Next action sentence. */
+.jb-recruiter-strip[data-facts="none"] {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.jb-recruiter-strip[data-facts="none"] .jb-recruiter-strip__next {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 0.5rem;
+}
+
+/* TR-16: a follow-up past its date reads as late, in the warn role. */
+.jb-recruiter-strip time[data-flag="overdue"],
+.jb-recruiter-strip[data-flag="overdue"] .jb-recruiter-strip__next .jb-recruiter-strip__value {
+  color: var(--jb-warn);
+  font-weight: 600;
+}

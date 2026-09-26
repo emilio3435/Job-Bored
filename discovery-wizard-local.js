@@ -283,6 +283,32 @@
     }
   }
 
+
+  /**
+   * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
+   * JobBoredDiscoveryHelpers.confirmHostChange, which names what changes and
+   * logs the answer.
+   */
+  function askHostChange(opts) {
+    const helpers = typeof window !== "undefined" ? window.JobBoredDiscoveryHelpers : null;
+    if (helpers && typeof helpers.confirmHostChange === "function") {
+      return helpers.confirmHostChange(opts);
+    }
+    if (typeof window !== "undefined" && typeof window.confirm === "function") {
+      return !!window.confirm(
+        "JobBored will " +
+          [
+            opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
+            opts && opts.restartsWorker ? "restart your local discovery worker" : "",
+          ]
+            .filter(Boolean)
+            .join(", and ") +
+          " on this computer. Continue?",
+      );
+    }
+    return true;
+  }
+
   async function requestLocalAutoSetup() {
     if (!isLocalDashboard()) {
       return {
@@ -290,6 +316,19 @@
         phase: "not_local",
         message:
           "Automatic setup only runs from the local JobBored dev server.",
+      };
+    }
+    if (
+      !askHostChange({
+        action: "Set up locally",
+        writesEnv: true,
+        restartsWorker: true,
+      })
+    ) {
+      return {
+        ok: false,
+        phase: "declined",
+        message: "Setup left unchanged — nothing on this computer was touched.",
       };
     }
     try {
