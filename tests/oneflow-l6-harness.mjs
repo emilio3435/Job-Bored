@@ -35,10 +35,11 @@ export { FakeNode, readRepoFile };
 /** The page's script order for everything L6 boots. */
 const PAGE_SCRIPTS = Object.freeze([
   "user-content-store.js",
+  "local-server.js",
+  "oneflow-route-local.js",
   "onboarding-telemetry.js",
   "discovery-wizard-shell.js",
   "onboarding-flow.js",
-  "local-server.js",
   "oneflow-beat-google.js",
   "oneflow-beat-ai.js",
   "oneflow-beat-resume.js",
@@ -48,6 +49,9 @@ const PAGE_SCRIPTS = Object.freeze([
   "oneflow-demo-board.js",
   "onboarding-celebration.js",
   "sheet-access-setup.js",
+  "profile-api-base.js",
+  "fit-profile-schema.js",
+  "fit-profile-sync.js",
   "welcome.js",
   "discovery-status-handoff.js",
   "app-bootstrap.js",
@@ -366,6 +370,7 @@ export function loadCutover(options = {}) {
   win.location = {
     protocol: "http:",
     origin: "http://localhost:8080",
+    hostname: "localhost",
     search: "",
     pathname: "/index.html",
     hash: "",
@@ -409,6 +414,18 @@ export function loadCutover(options = {}) {
     if (call.url.endsWith("fixtures/demo-pipeline.json")) {
       const text = readRepoFile("fixtures/demo-pipeline.json");
       return { ok: true, status: 200, json: async () => JSON.parse(text) };
+    }
+    if (call.url.endsWith("/__proxy/ping")) {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          version: "0.1.0",
+          runtime: "source",
+          routes: ["serpapi-check"],
+        }),
+      };
     }
     if (/\/profile$/.test(call.url) && call.method === "GET") {
       const profile = options.serverProfile;

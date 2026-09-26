@@ -22,7 +22,7 @@
     "start:scraper": "node scripts/start-scraper-local.mjs",
     "start:discovery-worker": "node scripts/start-discovery-worker-local.mjs --restart-existing",
     "predev": "node scripts/install-repo.mjs",
-    "dev": "concurrently -k -n web,scrape,discovery -c blue,magenta,green \"npm run start:web\" \"npm run start:scraper\" \"npm run start:discovery-worker\"",
+    "dev": "concurrently -n web,scrape,discovery -c blue,magenta,green \"npm run start:web\" \"npm run start:scraper\" \"node scripts/start-discovery-worker-local.mjs\"",
     "restart:services": "bash scripts/restart-dev-services.sh",
     "web-only": "node dev-server.mjs",
     "web-only:https": "COMMAND_CENTER_TLS=1 node dev-server.mjs",

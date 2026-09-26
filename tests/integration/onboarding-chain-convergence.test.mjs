@@ -85,18 +85,30 @@ function type(env, id, value) {
   return input;
 }
 
-/** B1 → B5 fuel. Leaves the flow on B5 with the connect panel unlocked. */
-async function walkToConnectPanel(env) {
-  await env.act("google_continue");
-  await settle(10);
-  type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
+/** B2 now asks before saving a provider key on this computer (GFX B2-4). */
+async function checkAiAndContinue(env) {
+  type(env, "oneFlowAiKeyInput", "AIza-test-key");
   await env.act("ai_check");
   await settle(10);
+  assert.ok(env.button("ai_consent_skip"), "B2 offers a local-save choice");
+  await env.act("ai_consent_skip");
+  await settle(10);
+}
+
+/** B1 → B5 fuel. Leaves the flow on B5 with the connect panel unlocked. */
+async function walkToFuel(env) {
+  await env.act("google_continue");
+  await settle(10);
+  await checkAiAndContinue(env);
   type(env, "oneFlowResumePaste", "Staff engineer. Ten years of platform work.");
   await env.act("resume_use_text");
   await settle(10);
   await env.act("confirm-fit");
   await settle(10);
+}
+
+async function walkToConnectPanel(env) {
+  await walkToFuel(env);
   type(env, "oneFlowSerpApiKeyInput", "serpapi-test-key");
   await env.act("oneflow_discovery_save_verify");
   await settle(10);
@@ -152,9 +164,7 @@ describe("integration: sign-in walks B1 → B6 (spec §5)", () => {
     await settle(10);
     seen.push(env.openBeat());
 
-    type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
-    await env.act("ai_check");
-    await settle(10);
+    await checkAiAndContinue(env);
     seen.push(env.openBeat());
 
     type(env, "oneFlowResumePaste", "Staff engineer. Ten years of platform work.");
@@ -189,18 +199,25 @@ describe("integration: sign-in walks B1 → B6 (spec §5)", () => {
     await settle();
     await env.act("google_continue");
     await settle(10);
-    type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
-    await env.act("ai_check");
-    await settle(10);
+    await checkAiAndContinue(env);
     type(env, "oneFlowResumePaste", "Staff engineer. Ten years of platform work.");
     await env.act("resume_use_text");
     await settle(10);
 
     assert.equal(env.openBeat(), "fit");
-    const rendered = env.text();
-    assert.match(rendered, /Staff Engineer/);
-    assert.match(rendered, /Distributed systems/);
-    assert.match(rendered, /Austin/);
+    // B4 now renders editable chips and fields. Their values are visible to
+    // users but are not part of textContent in the DOM harness.
+    const values = [];
+    function readFields(node) {
+      if (node.tagName === "INPUT" || node.tagName === "TEXTAREA") {
+        values.push(String(node.value || ""));
+      }
+      for (const child of node.children || []) readFields(child);
+    }
+    readFields(env.mount());
+    assert.ok(values.includes("Staff Engineer"));
+    assert.ok(values.includes("Distributed systems"));
+    assert.ok(values.includes("Austin"));
   });
 
   it("finishing B6 writes every legacy completion flag (spec §3.2)", async () => {
@@ -262,9 +279,7 @@ describe("integration: escape is pausing, not skipping (spec §3.4)", () => {
     await settle();
     await env.act("google_continue");
     await settle(10);
-    type(env, "oneFlowAiKeyInput", "sk-or-v1-test");
-    await env.act("ai_check");
-    await settle(10);
+    await checkAiAndContinue(env);
     assert.equal(env.openBeat(), "resume");
 
     env.shell.closeWizardShell("escape");
@@ -314,9 +329,7 @@ describe("integration: a refresh mid-flow resumes the beat (spec §3.4)", () => 
     await settle();
     await first.act("google_continue");
     await settle(10);
-    type(first, "oneFlowAiKeyInput", "sk-or-v1-test");
-    await first.act("ai_check");
-    await settle(10);
+    await checkAiAndContinue(first);
     assert.equal(first.openBeat(), "resume");
 
     // A reload: a brand-new page against the same stored state.
@@ -374,8 +387,10 @@ describe("integration: the skipped-connect end state (spec §5 B5/B6)", () => {
 
   it("the fuel key is NOT skippable — a keyless setup is the ledger §5 B5 forbids", async () => {
     const env = newFlowEnv();
-    await env.flow.open("discovery");
+    await env.flow.open("google");
     await settle();
+    await walkToFuel(env);
+    assert.equal(env.openBeat(), "discovery", "R4 fit prerequisite is complete");
 
     await env.act("oneflow_discovery_skip_connect");
     await settle();
