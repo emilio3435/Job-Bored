@@ -2,10 +2,11 @@
 """
 JHOS Phase 6 — Follow-up Monitor
 
-Checks Pipeline for Applied roles needing follow-up:
-  - Applied > 7 days ago with no reply → suggest follow-up
-  - Applied > 14 days ago with no reply → flag as stale
-  - Applied > 21 days ago with no reply → recommend closing
+Checks Pipeline for Applied roles needing follow-up. The day thresholds come
+from ../followup-thresholds.v1.json (shared with the browser's daily brief):
+  - waitingReplyMinDays with no reply → suggest follow-up
+  - staleAppliedDays with no reply → flag as stale
+  - likelyClosedDays with no reply → recommend closing
 
 Output is designed for Telegram delivery (no_agent cron script).
 Silent when no action items (watchdog pattern).
@@ -13,19 +14,22 @@ Silent when no action items (watchdog pattern).
 Usage:
     python3 followup_monitor.py           # Print follow-up report
     python3 followup_monitor.py --update  # Also set Follow-up Date for flagged rows
+
+The Sheet ID comes from the discovery worker-config.json (never hardcoded),
+the Google token from the shared Hermes token via jhos_common, and "today"
+from the user's timezone with real DST rules.
 """
 
-import json
 import sys
-from datetime import datetime, timezone, timedelta
+from datetime import datetime, timedelta
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import jhos_common  # noqa: E402
 
 # ─── Config ───────────────────────────────────────────────────────────
 
-SHEET_ID = "1mGJ04E3f2Tp0-7ErNlb8veXjnlKz3x5a6gwyzEFvnKQ"
-TOKEN_PATH = Path.home() / ".hermes" / "google_token.json"
-CT = timezone(timedelta(hours=-5))  # Central Time
-TODAY = datetime.now(CT).date()
+PIPELINE_RANGE = "Pipeline!A:X"  # open-ended: no row cap
 
 # Column indices (0-based)
 COL_TITLE = 1
@@ -39,19 +43,12 @@ COL_DID_REPLY = 18
 
 
 def get_sheets_service():
-    from google.oauth2.credentials import Credentials
-    from googleapiclient.discovery import build
-    with open(TOKEN_PATH) as f:
-        token_data = json.load(f)
-    creds = Credentials.from_authorized_user_info(
-        token_data, ["https://www.googleapis.com/auth/spreadsheets"]
-    )
-    if creds.expired and creds.refresh_token:
-        from google.auth.transport.requests import Request
-        creds.refresh(Request())
-        with open(TOKEN_PATH, "w") as f:
-            json.dump(json.loads(creds.to_json()), f)
-    return build("sheets", "v4", credentials=creds)
+    # Loads the shared token with its own scopes and writes refreshes atomically.
+    return jhos_common.oauth_sheets_service()
+
+
+def today():
+    return jhos_common.local_today()
 
 
 def parse_date(date_str: str):
@@ -66,13 +63,16 @@ def parse_date(date_str: str):
     return None
 
 
-def main():
-    update_mode = "--update" in sys.argv
+def main(argv=None, service=None):
+    argv = sys.argv[1:] if argv is None else argv
+    update_mode = "--update" in argv
+    TODAY = today()
+    sheet_id = jhos_common.sheet_id_from_worker_config()
 
-    service = get_sheets_service()
+    service = service or get_sheets_service()
     result = service.spreadsheets().values().get(
-        spreadsheetId=SHEET_ID,
-        range="Pipeline!A1:X500"
+        spreadsheetId=sheet_id,
+        range=PIPELINE_RANGE,
     ).execute()
     rows = result.get("values", [])
 
@@ -114,22 +114,26 @@ def main():
         # Silent — no Applied roles need attention
         return
 
-    # Categorize
-    needs_followup = []      # 7-14 days
-    stale = []               # 14-21 days
-    likely_closed = []       # 21+ days
+    # Categorize against the shared thresholds (H20)
+    limits = jhos_common.followup_thresholds()
+    follow_days = limits["waitingReplyMinDays"]
+    stale_days = limits["staleAppliedDays"]
+    closed_days = limits["likelyClosedDays"]
+    needs_followup = []      # follow_days .. stale_days
+    stale = []               # stale_days .. closed_days
+    likely_closed = []       # closed_days+
     no_date = []             # Applied but no date
 
     for role in applied_roles:
         if role["days_since"] is None:
             no_date.append(role)
-        elif role["days_since"] >= 21:
+        elif role["days_since"] >= closed_days:
             likely_closed.append(role)
-        elif role["days_since"] >= 14:
+        elif role["days_since"] >= stale_days:
             stale.append(role)
-        elif role["days_since"] >= 7:
+        elif role["days_since"] >= follow_days:
             needs_followup.append(role)
-        # < 7 days: too early, skip
+        # below follow_days: too early, skip
 
     # If nothing needs attention, stay silent
     if not (needs_followup or stale or likely_closed or no_date):
@@ -139,19 +143,19 @@ def main():
     lines = ["📋 **Follow-up Monitor**", f"Date: {TODAY.isoformat()}", ""]
 
     if likely_closed:
-        lines.append("🔴 **21+ days — likely closed (consider marking Passed)**")
+        lines.append(f"🔴 **{closed_days}+ days — likely closed (consider marking Passed)**")
         for r in likely_closed:
             lines.append(f"  • {r['title']} @ {r['company']} — applied {r['applied_date']} ({r['days_since']}d ago)")
         lines.append("")
 
     if stale:
-        lines.append("🟡 **14-21 days — follow-up overdue**")
+        lines.append(f"🟡 **{stale_days}-{closed_days} days — follow-up overdue**")
         for r in stale:
             lines.append(f"  • {r['title']} @ {r['company']} — applied {r['applied_date']} ({r['days_since']}d ago)")
         lines.append("")
 
     if needs_followup:
-        lines.append("🟢 **7-14 days — follow-up suggested**")
+        lines.append(f"🟢 **{follow_days}-{stale_days} days — follow-up suggested**")
         for r in needs_followup:
             lines.append(f"  • {r['title']} @ {r['company']} — applied {r['applied_date']} ({r['days_since']}d ago)")
         lines.append("")
@@ -180,7 +184,7 @@ def main():
                 })
         if updates:
             service.spreadsheets().values().batchUpdate(
-                spreadsheetId=SHEET_ID,
+                spreadsheetId=sheet_id,
                 body={"valueInputOption": "RAW", "data": updates}
             ).execute()
             print(f"\n✅ Set Follow-up Date to {followup_target} for {len(updates)} roles.")

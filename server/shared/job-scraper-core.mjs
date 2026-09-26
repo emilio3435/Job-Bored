@@ -1501,6 +1501,13 @@ export async function scrapeJobPosting(url, options = {}) {
     }
     html = new TextDecoder("utf-8").decode(buf);
   } catch (error) {
+    const failure = classifyScrapeFailure(error, target.url);
+    // An alternate reader can recover blocked or unclassified responses
+    // (including LinkedIn's 999), but should not repeat a transient failure
+    // or a page that exceeded the safety limit.
+    if (failure.code !== "source_blocked" && failure.code !== "scrape_failed") {
+      throw failure;
+    }
     const recovery = await recoverWithLastLanes(target.url, {
       ...options,
       fetchImpl,

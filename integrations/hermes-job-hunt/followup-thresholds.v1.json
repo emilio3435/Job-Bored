@@ -1,0 +1,7 @@
+{
+  "$schema": "./followup-thresholds.schema.json",
+  "schemaVersion": 1,
+  "waitingReplyMinDays": 7,
+  "staleAppliedDays": 14,
+  "likelyClosedDays": 21
+}
