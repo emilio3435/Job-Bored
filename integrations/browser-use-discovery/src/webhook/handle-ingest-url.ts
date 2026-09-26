@@ -35,6 +35,10 @@ import {
 } from "../sources/gemini-url-context-extractor.ts";
 import { classifyIngestUrl } from "../sources/ingest-url-router.ts";
 import {
+  validateSheetsCredentialReadiness,
+  type SheetsCredentialReadiness,
+} from "../sheets/credential-readiness.ts";
+import {
   hasValidWebhookSecret,
   type WebhookRequestLike,
   type WebhookResponseLike,
@@ -43,7 +47,7 @@ import {
   appendRunStatusToken,
   createRunStatusToken,
 } from "./run-status-auth.ts";
-import { createSafetyTimer } from "./safety-timer.ts";
+import { runAsyncLifecycle } from "./run-async-lifecycle.ts";
 
 // Default maximum duration for an async /ingest-url run before the safety
 // timer force-terminalizes its status row. /ingest-url runs are
@@ -113,6 +117,16 @@ export type HandleIngestUrlDependencies = {
   now?: () => Date;
   randomId?: (prefix: string) => string;
   log?(event: string, details: Record<string, unknown>): void;
+  /**
+   * BEAUDIT A3: the Sheets credential check that runs before any extraction.
+   * Defaults to `validateSheetsCredentialReadiness`; injectable for tests.
+   */
+  checkSheetsCredential?(
+    runtimeConfig: WorkerRuntimeConfig,
+    options: { sheetId: string; now?: () => Date },
+  ): Promise<SheetsCredentialReadiness>;
+  /** Internal: set on the async path's inner call once the check ran. */
+  sheetsCredentialChecked?: boolean;
 };
 
 type ParsedIngestUrlRequest =
@@ -187,6 +201,40 @@ export async function handleIngestUrlWebhook(
     hasRequestGoogleAccessToken: !!requestGoogleAccessToken,
     async: ingestRequest.async === true,
   });
+
+  // BEAUDIT A3: order invariant. Resolve the Sheet and prove a Sheets
+  // credential BEFORE any paid or outbound extraction (Gemini URL context,
+  // Browser Use Cloud, ATS, scrape), exactly as /webhook's preflight does.
+  // A missing credential answers 409 without spending a call.
+  if (!dependencies.sheetsCredentialChecked) {
+    const preflightSheetId = await resolveSheetId(
+      ingestRequest.sheetId,
+      effectiveDependencies,
+    ).catch(() => "");
+    if (preflightSheetId) {
+      const readiness = await (
+        dependencies.checkSheetsCredential || validateSheetsCredentialReadiness
+      )(effectiveRuntimeConfig, { sheetId: preflightSheetId, now });
+      if (!readiness.configured) {
+        dependencies.log?.("discovery.run.ingest_url_preflight_failed", {
+          runId,
+          reason: "sheets_credential_missing",
+          source: readiness.source,
+        });
+        return jsonResponse(409, {
+          ok: false,
+          reason: "sheets_credential_missing",
+          message:
+            readiness.message ||
+            "Discovery worker has no Google Sheets credential configured.",
+          ...(readiness.detail ? { detail: readiness.detail } : {}),
+          ...(readiness.remediation
+            ? { remediation: readiness.remediation }
+            : {}),
+        } satisfies IngestUrlResponseV1);
+      }
+    }
+  }
 
   if (
     ingestRequest.async === true &&
@@ -270,7 +318,7 @@ export async function handleIngestUrlWebhook(
           message: "Manual payload could not be normalized into a Pipeline lead.",
         } satisfies IngestUrlResponseV1);
       }
-      return writeLeadAndRespond({
+      return await writeLeadAndRespond({
         dependencies: effectiveDependencies,
         sheetId: resolvedSheetId,
         lead: manualLead,
@@ -452,7 +500,7 @@ export async function handleIngestUrlWebhook(
       } satisfies IngestUrlResponseV1);
     }
 
-    return writeLeadAndRespond({
+    return await writeLeadAndRespond({
       dependencies: effectiveDependencies,
       sheetId: resolvedSheetId,
       lead,
@@ -513,51 +561,43 @@ async function acceptAsyncIngestUrl(input: {
 
   const maxRunDurationMs =
     input.dependencies.maxRunDurationMs ?? DEFAULT_INGEST_MAX_RUN_DURATION_MS;
-  // Mirrors handle-discovery-webhook.ts: guarantee the /ingest-url run STATUS
-  // becomes terminal even if the inner sync handler never resolves/rejects.
-  const safety = createSafetyTimer({
-    runId: input.runId,
-    runMode: "ingest_url_async",
-    maxRunDurationMs,
-    runStatusStore: input.dependencies.runStatusStore,
-    acceptedStatus,
-    now: input.now,
-    log: input.dependencies.log,
-  });
 
   const {
     async: _asyncRequested,
     googleAccessToken: _requestGoogleAccessToken,
     ...syncRequest
   } = input.ingestRequest;
-  void handleIngestUrlWebhook(
-    {
-      ...input.request,
-      bodyText: JSON.stringify(syncRequest),
-    },
-    {
-      ...input.dependencies,
-      randomId: () => input.runId,
-      runStatusStore: undefined,
-    },
-  )
-    .then((response) => {
-      if (safety.isTerminalStatusWritten()) {
-        input.dependencies.log?.("discovery.run.ingest_url_async_completed_after_safety", {
-          runId: input.runId,
-          reason: "terminal_status_already_written",
-          httpStatus: response.status,
-        });
-        return;
-      }
-      safety.markTerminal();
-      safety.clear();
+  // BEAUDIT A12: the same lifecycle as async discovery (A2's write-then-disarm
+  // order, the failed fallback, and the status backstop after a grace window).
+  runAsyncLifecycle({
+    runId: input.runId,
+    runMode: "ingest_url_async",
+    maxRunDurationMs,
+    runStatusStore: input.dependencies.runStatusStore,
+    runningStatus,
+    now: input.now,
+    log: input.dependencies.log,
+    eventPrefix: "discovery.run.ingest_url_async",
+    work: () =>
+      handleIngestUrlWebhook(
+        {
+          ...input.request,
+          bodyText: JSON.stringify(syncRequest),
+        },
+        {
+          ...input.dependencies,
+          randomId: () => input.runId,
+          runStatusStore: undefined,
+          sheetsCredentialChecked: true,
+        },
+      ),
+    buildTerminalStatus: (response) => {
       const completedAt = input.now().toISOString();
       const ingestResult = parseIngestResponseBody(response.body);
       const failed = isFailedAsyncIngestResponse(response, ingestResult);
       const current =
         input.dependencies.runStatusStore?.get(input.runId) ?? runningStatus;
-      input.dependencies.runStatusStore?.put({
+      return {
         ...current,
         status: failed ? "failed" : "completed",
         terminal: true,
@@ -581,43 +621,29 @@ async function acceptAsyncIngestUrl(input: {
                   : "") || `Ingest worker returned HTTP ${response.status}.`,
             }
           : {}),
-      });
-      input.dependencies.log?.("discovery.run.ingest_url_async_completed", {
-        runId: input.runId,
-        status: failed ? "failed" : "completed",
-        httpStatus: response.status,
-        ok: ingestResult?.ok,
-        ...(ingestResult && "strategy" in ingestResult
-          ? { strategy: ingestResult.strategy }
-          : {}),
-        ...(ingestResult && "reason" in ingestResult
-          ? { reason: ingestResult.reason }
-          : {}),
-      });
-    })
-    .catch((error) => {
-      if (safety.isTerminalStatusWritten()) {
-        input.dependencies.log?.("discovery.run.ingest_url_async_failed_after_safety", {
+      };
+    },
+    onTerminal: (status) => {
+      const ingestResult = status.ingestResult;
+      input.dependencies.log?.(
+        status.status === "failed" && !ingestResult
+          ? "discovery.run.ingest_url_async_failed"
+          : "discovery.run.ingest_url_async_completed",
+        {
           runId: input.runId,
-          reason: "terminal_status_already_written",
-          message: error instanceof Error ? error.message : String(error),
-        });
-        return;
-      }
-      safety.markTerminal();
-      safety.clear();
-      input.dependencies.runStatusStore?.put(
-        buildFailedRunStatus(runningStatus, error, input.now().toISOString()),
+          status: status.status,
+          ok: ingestResult?.ok,
+          ...(ingestResult && "strategy" in ingestResult
+            ? { strategy: ingestResult.strategy }
+            : {}),
+          ...(ingestResult && "reason" in ingestResult
+            ? { reason: ingestResult.reason }
+            : {}),
+          ...(status.error ? { message: status.error } : {}),
+        },
       );
-      input.dependencies.log?.("discovery.run.ingest_url_async_failed", {
-        runId: input.runId,
-        message: error instanceof Error ? error.message : String(error),
-      });
-    });
-
-  // Start the safety backstop AFTER the inner handler is dispatched so the
-  // timer cannot race a synchronous completion.
-  safety.schedule();
+    },
+  });
 
   input.dependencies.log?.("discovery.run.ingest_url_async_accepted", {
     runId: input.runId,

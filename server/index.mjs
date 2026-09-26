@@ -82,6 +82,76 @@ const ALLOWED_BROWSER_ORIGINS = normalizeAllowedBrowserOrigins(
 );
 const app = express();
 
+// BEAUDIT E7: the api-error.v1 envelope (schemas/api-error.v1.schema.json).
+// Every error response (status >= 400) with a JSON object body gains
+// { error, code, detail?, nextStep?, retryable } next to its existing fields,
+// so one reader handles every route. Success bodies are left alone.
+/** @type {Record<number, string>} */
+const API_ERROR_STATUS_CODES = {
+  400: "BAD_REQUEST",
+  401: "UNAUTHORIZED",
+  403: "FORBIDDEN",
+  404: "NOT_FOUND",
+  405: "METHOD_NOT_ALLOWED",
+  409: "CONFLICT",
+  413: "PAYLOAD_TOO_LARGE",
+  421: "MISDIRECTED_REQUEST",
+  429: "RATE_LIMITED",
+  500: "INTERNAL_ERROR",
+  502: "UPSTREAM_ERROR",
+  503: "SERVICE_UNAVAILABLE",
+  504: "UPSTREAM_TIMEOUT",
+};
+
+/** @param {unknown} value */
+function apiErrorText(value) {
+  return typeof value === "string" ? value.trim() : "";
+}
+
+/**
+ * @param {number} status
+ * @param {unknown} body
+ * @returns {unknown}
+ */
+function withApiErrorEnvelope(status, body) {
+  if (status < 400 || !body || typeof body !== "object" || Array.isArray(body)) {
+    return body;
+  }
+  const record = /** @type {Record<string, unknown>} */ (body);
+  const code =
+    apiErrorText(record.code) ||
+    apiErrorText(record.reason) ||
+    API_ERROR_STATUS_CODES[status] ||
+    (status >= 500 ? "INTERNAL_ERROR" : "BAD_REQUEST");
+  const error =
+    apiErrorText(record.error) ||
+    apiErrorText(record.message) ||
+    "The request could not be completed.";
+  const detail = apiErrorText(record.detail);
+  const nextStep =
+    apiErrorText(record.nextStep) ||
+    apiErrorText(record.remediation) ||
+    apiErrorText(record.hint);
+  const retryable =
+    typeof record.retryable === "boolean"
+      ? record.retryable
+      : status >= 500 || status === 429;
+  return {
+    ...record,
+    error,
+    code,
+    ...(detail ? { detail } : {}),
+    ...(nextStep ? { nextStep } : {}),
+    retryable,
+  };
+}
+
+app.use((_req, res, next) => {
+  const sendJson = res.json.bind(res);
+  res.json = (body) => sendJson(withApiErrorEnvelope(res.statusCode, body));
+  next();
+});
+
 // When the service binds to a non-loopback host (Render/Fly/Docker), every
 // non-health endpoint can expose or mutate local user data: require a shared
 // token. Loopback local dev remains open so the static dashboard works with no
@@ -902,9 +972,10 @@ app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, n
   const error = /** @type {{ type?: unknown, status?: unknown, statusCode?: unknown }} */ (err);
   if (error.type === "entity.too.large") {
     return res.status(413).json({
-      error:
-        "Request body too large for ATS endpoint. Reduce payload size or raise server JSON limit.",
+      error: "Request body is too large.",
       code: "PAYLOAD_TOO_LARGE",
+      nextStep: "Send a smaller body (the limit is 2 MB).",
+      retryable: false,
     });
   }
   const status = Number(error.status || error.statusCode);
@@ -917,8 +988,24 @@ app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, n
       code: "INVALID_JSON",
     });
   }
-  return next(err);
+  // BEAUDIT E7: any other thrown error answers JSON, never Express's HTML page.
+  const failureStatus = Number.isInteger(status) && status >= 400 && status < 600 ? status : 500;
+  console.error("[job-scraper] unhandled route error:", errorMessage(err, "error"));
+  if (res.headersSent) return next(err);
+  return res.status(failureStatus).json({
+    error: failureStatus >= 500 ? "Internal error." : "The request could not be completed.",
+    code: API_ERROR_STATUS_CODES[failureStatus] || "INTERNAL_ERROR",
+  });
 }));
+
+// BEAUDIT E7: an unknown route is a JSON 404 (it used to be Express's HTML).
+app.use((req, res) => {
+  res.status(404).json({
+    error: "Not found",
+    code: "NOT_FOUND",
+    detail: `No API route for ${req.method} ${req.path}.`,
+  });
+});
 
 app.listen(PORT, HOST, () => {
   const ats = getAtsConfigStatus();

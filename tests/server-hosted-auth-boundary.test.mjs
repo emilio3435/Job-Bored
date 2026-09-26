@@ -88,11 +88,11 @@ test("hosted scraper keeps health public but protects local-data routes without 
 
   const profile = await fetch(`${baseUrl}/profile`);
   assert.equal(profile.status, 401);
-  assert.deepEqual(await json(profile), { error: "Unauthorized" });
+  assert.deepEqual(await json(profile), { error: "Unauthorized", code: "UNAUTHORIZED", retryable: false });
 
   const applications = await fetch(`${baseUrl}/api/applications`);
   assert.equal(applications.status, 401);
-  assert.deepEqual(await json(applications), { error: "Unauthorized" });
+  assert.deepEqual(await json(applications), { error: "Unauthorized", code: "UNAUTHORIZED", retryable: false });
 
   const writeDescription = await fetch(`${baseUrl}/api/applications/acme/job-description`, {
     method: "PUT",
@@ -100,7 +100,7 @@ test("hosted scraper keeps health public but protects local-data routes without 
     body: JSON.stringify({ text: "Confidential JD", source: "test" }),
   });
   assert.equal(writeDescription.status, 401);
-  assert.deepEqual(await json(writeDescription), { error: "Unauthorized" });
+  assert.deepEqual(await json(writeDescription), { error: "Unauthorized", code: "UNAUTHORIZED", retryable: false });
 });
 
 test("hosted scraper accepts bearer auth on protected routes", async () => {

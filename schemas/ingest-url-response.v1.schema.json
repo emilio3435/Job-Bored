@@ -1,0 +1,125 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/ingest-url-response.v1.schema.json",
+  "title": "Add a job by URL (POST /ingest-url answer)",
+  "description": "One of three shapes. An accepted async ack (202), a success (200), or a failure with `ok: false` and a `reason`. Extraction outcomes (`blocked_aggregator`, `scrape_failed`, `low_quality_extraction`, `duplicate`, `worker_error`) answer HTTP 200 so the dashboard can switch on `reason`; `invalid_url` and `private_network` answer 400, `sheets_credential_missing` 409, and an unhandled failure 500. Every failure also carries the api-error.v1 envelope with `code` equal to `reason`.",
+  "oneOf": [
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "ok",
+        "kind",
+        "runId",
+        "message",
+        "statusPath",
+        "pollAfterMs"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "kind": {
+          "const": "accepted_async"
+        },
+        "runId": {
+          "type": "string"
+        },
+        "message": {
+          "type": "string"
+        },
+        "statusPath": {
+          "type": "string"
+        },
+        "pollAfterMs": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "ok",
+        "strategy",
+        "lead",
+        "appended"
+      ],
+      "properties": {
+        "ok": {
+          "const": true
+        },
+        "strategy": {
+          "type": "string",
+          "enum": [
+            "ats_api",
+            "gemini_url_context",
+            "jsonld",
+            "cheerio_dom",
+            "manual_fill",
+            "url_only",
+            "browser_use_cloud"
+          ]
+        },
+        "lead": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "appended": {
+          "type": "boolean"
+        },
+        "rowNumber": {
+          "type": "number"
+        }
+      }
+    },
+    {
+      "type": "object",
+      "additionalProperties": true,
+      "required": [
+        "ok",
+        "reason",
+        "message"
+      ],
+      "properties": {
+        "ok": {
+          "const": false
+        },
+        "reason": {
+          "type": "string",
+          "enum": [
+            "invalid_url",
+            "private_network",
+            "blocked_aggregator",
+            "scrape_failed",
+            "low_quality_extraction",
+            "duplicate",
+            "worker_error",
+            "sheets_credential_missing"
+          ]
+        },
+        "message": {
+          "type": "string"
+        },
+        "host": {
+          "type": "string"
+        },
+        "hint": {
+          "type": "string"
+        },
+        "httpStatus": {
+          "type": "number"
+        },
+        "rowNumber": {
+          "type": "number"
+        },
+        "detail": {
+          "type": "string"
+        },
+        "remediation": {
+          "type": "string"
+        }
+      }
+    }
+  ]
+}

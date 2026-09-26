@@ -5,7 +5,6 @@ import type {
   CompanyTarget,
   DetectionResult,
   DiscoveryRun,
-  NormalizedLead,
   RawListing,
   SourceAdapter,
   SupportedSourceId,
@@ -17,13 +16,7 @@ import {
   type ProviderMemorySnapshot,
 } from "./providers/index.ts";
 import type { AtsProvider, ProviderSurface } from "./providers/types.ts";
-import {
-  buildDetectionHints,
-  normalizeWhitespace,
-  sanitizeCompensationValue,
-  sanitizeDescriptionText,
-  sanitizeTags,
-} from "./providers/shared.ts";
+import { buildDetectionHints } from "./providers/shared.ts";
 
 export type BoardCollectionFailure = {
   sourceId: string;
@@ -227,57 +220,6 @@ function createCompatSourceAdapter(
           externalJobId,
         };
       });
-    },
-    async normalize(raw, run): Promise<NormalizedLead | null> {
-      if (!raw.url) return null;
-      const canonicalUrl =
-        raw.canonicalUrl ||
-        provider.canonicalizeUrl(raw.url) ||
-        normalizeLeadUrl(raw.url);
-      const sourceQuery =
-        raw.metadata && typeof raw.metadata === "object"
-          ? String((raw.metadata as Record<string, unknown>).sourceQuery || "")
-          : "";
-      return {
-        sourceId: raw.sourceId,
-        sourceLabel: raw.sourceLabel,
-        title: normalizeWhitespace(raw.title),
-        company: normalizeWhitespace(raw.company),
-        location: normalizeWhitespace(raw.location || ""),
-        url: normalizeLeadUrl(raw.url),
-        compensationText: sanitizeCompensationValue(raw.compensationText || ""),
-        fitScore: null,
-        matchScore: null,
-        favorite: false,
-        dismissedAt: null,
-        priority: "",
-        tags: sanitizeTags(raw.tags || []),
-        fitAssessment: sanitizeDescriptionText(raw.descriptionText).slice(0, 500),
-        contact: normalizeWhitespace(raw.contact || ""),
-        status: "New",
-        appliedDate: "",
-        notes: "",
-        followUpDate: "",
-        talkingPoints: "",
-        logoUrl: "",
-        approvalStatus: "",
-        discoveredAt: run.request.requestedAt || new Date().toISOString(),
-        metadata: {
-          runId: run.runId,
-          variationKey: run.request.variationKey,
-          sourceQuery: sourceQuery || `${raw.sourceLabel}:${raw.url}`,
-          providerType: provider.id,
-          externalJobId:
-            raw.externalJobId ||
-            provider.extractExternalJobId(canonicalUrl, raw.metadata),
-          canonicalUrl,
-          boardToken: raw.metadata?.boardToken
-            ? String(raw.metadata.boardToken)
-            : "",
-          sourceLane: raw.sourceLane || "ats_provider",
-          surfaceId: raw.surfaceId || "",
-        },
-      };
     },
   };
 }

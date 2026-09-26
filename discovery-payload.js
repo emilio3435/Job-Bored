@@ -438,6 +438,11 @@
       variationKey: variationKey,
       requestedAt: requestedAt,
       ...(trigger ? { trigger: trigger } : {}),
+      // Webhook v1.1 (BEAUDIT A20): a caller that stamps one key per user
+      // action passes it through; the worker hashes it into the runId.
+      ...(cleanString(source.idempotencyKey, 200)
+        ? { idempotencyKey: cleanString(source.idempotencyKey, 200) }
+        : {}),
       discoveryProfile: wireProfile,
       ...(cleanString(source.googleAccessToken, 4096)
         ? { googleAccessToken: cleanString(source.googleAccessToken, 4096) }

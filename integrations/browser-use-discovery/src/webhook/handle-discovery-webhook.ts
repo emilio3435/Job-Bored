@@ -1,4 +1,10 @@
 import { createHash, randomUUID, timingSafeEqual } from "node:crypto";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+
+import { Ajv2020 } from "ajv/dist/2020.js";
+import addFormatsModule from "ajv-formats";
 
 import {
   DISCOVERY_RUN_TRIGGERS,
@@ -38,7 +44,11 @@ import {
   appendRunStatusToken,
   createRunStatusToken,
 } from "./run-status-auth.ts";
-import { createSafetyTimer } from "./safety-timer.ts";
+import {
+  guardWriterWithSignal,
+  runAsyncLifecycle,
+  type RunCancelRegistry,
+} from "./run-async-lifecycle.ts";
 
 export type WebhookRequestLike = {
   method: string;
@@ -85,11 +95,25 @@ export type HandleWebhookDependencies = {
    * This guarantees that async runs cannot stall indefinitely in running state.
    */
   maxRunDurationMs?: number;
+  /**
+   * BEAUDIT A21: registry of live async runs that `POST /runs/:id/cancel`
+   * can abort. When omitted, async runs are not cancellable.
+   */
+  cancelRegistry?: RunCancelRegistry;
 };
 
 // Default maximum async run duration: 60 minutes. Discovery runs in the
 // background; per-source timeouts still provide narrower stuck-lane bounds.
 const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
+
+/**
+ * BEAUDIT A9: the dashboard's Google Identity Services access token lives
+ * about 3600 s, which equals the default run budget, so a run authorized only
+ * by that token could not write its final DiscoveryRuns row. Such runs are
+ * capped at 50 minutes, which leaves the terminal write inside the token's
+ * life.
+ */
+export const GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS = 50 * 60 * 1000;
 
 export async function handleDiscoveryWebhook(
   request: WebhookRequestLike,
@@ -230,6 +254,12 @@ export async function handleDiscoveryWebhook(
           };
           return {
             ...baseRunDependencies,
+            // BEAUDIT A9: end inside the request token's life.
+            maxRunDurationMs: Math.min(
+              baseRunDependencies.maxRunDurationMs ??
+                DEFAULT_MAX_RUN_DURATION_MS,
+              GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS,
+            ),
             runtimeConfig: overrideRuntimeConfig,
             pipelineWriter: dependencies.createPipelineWriterForRequest
               ? dependencies.createPipelineWriterForRequest(
@@ -425,8 +455,11 @@ export async function handleDiscoveryWebhook(
   });
 
   const startedAt = now().toISOString();
-  const maxRunDurationMs =
+  const configuredMaxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+  const maxRunDurationMs = requestGoogleAccessToken
+    ? Math.min(configuredMaxRunDurationMs, GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS)
+    : configuredMaxRunDurationMs;
   const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
   try {
     dependencies.runStatusStore?.put(runningStatus);
@@ -444,43 +477,50 @@ export async function handleDiscoveryWebhook(
     });
   }
 
-  // Safety backstop for the run STATUS. The run itself is bounded by the
-  // in-loop budget tracker (also keyed to maxRunDurationMs) and per-source
-  // timeouts; this timer only guarantees the status row becomes terminal so
-  // pollers never hang if a late `.then`/`.catch` is delayed. It does not
-  // cancel in-flight work (there is no run-wide AbortSignal yet), so the
-  // message intentionally avoids claiming a forcible cancellation.
-  const safety = createSafetyTimer({
+  // BEAUDIT A12: one lifecycle for async discovery and async ingest. The
+  // run-wide AbortController in run-discovery.ts (run-abort.ts) ends the run
+  // at maxRunDurationMs and writes the real terminal status; the lifecycle's
+  // safety timer is only a STATUS backstop and fires after a grace window, so
+  // it no longer races that real abort path. The lifecycle's own
+  // AbortSignal (cancel, A21) is linked into runDiscovery's abortSignal.
+  runAsyncLifecycle({
     runId,
     runMode: "async",
     maxRunDurationMs,
     runStatusStore: dependencies.runStatusStore,
-    acceptedStatus: runningStatus,
+    runningStatus,
     now,
     log: dependencies.log,
-    onForceTerminal: writeHistoryFromStatus,
-  });
-  safety.schedule();
-
-  void dependencies
-    .runDiscovery(requestForRun, dispatchTrigger, dispatchDependencies)
-    .then((result) => {
-      if (safety.isTerminalStatusWritten()) {
-        dependencies.log?.("discovery.run.late_completion_ignored", {
-          runId,
-          mode: runMode,
-          reason: "terminal_status_already_written",
-        });
-        return;
-      }
-      safety.markTerminal();
-      safety.clear();
-      dependencies.runStatusStore?.put(
-        buildCompletedRunStatus(result, {
-          acceptedAt,
-          startedAt,
-        }),
-      );
+    eventPrefix: "discovery.run",
+    cancelRegistry: dependencies.cancelRegistry,
+    work: (signal, writes) =>
+      dependencies.runDiscovery(requestForRun, dispatchTrigger, {
+        ...dispatchDependencies,
+        // A21: once cancelled, no Sheet write of this run may start.
+        ...(dispatchDependencies.pipelineWriter
+          ? {
+              pipelineWriter: guardWriterWithSignal(
+                dispatchDependencies.pipelineWriter,
+                signal,
+                writes,
+              ),
+            }
+          : {}),
+        abortSignal: dispatchDependencies.abortSignal
+          ? AbortSignal.any([dispatchDependencies.abortSignal, signal])
+          : signal,
+      }),
+    buildTerminalStatus: (result) =>
+      buildCompletedRunStatus(result, {
+        acceptedAt,
+        startedAt,
+      }),
+    onTerminal: (status, source) => {
+      // A completed run already wrote its own DiscoveryRuns row through the
+      // finalizer; every other terminal source writes it from the status.
+      if (source !== "completed") writeHistoryFromStatus(status);
+    },
+    onCompleted: (result) => {
       dependencies.log?.("discovery.run.completed", {
         runId,
         mode: runMode,
@@ -497,46 +537,17 @@ export async function handleDiscoveryWebhook(
           ...(entry.warnings.length ? { warnings: entry.warnings } : {}),
         })),
       });
-    })
-    .catch((error) => {
-      if (safety.isTerminalStatusWritten()) {
-        dependencies.log?.("discovery.run.late_failure_ignored", {
-          runId,
-          mode: runMode,
-          reason: "terminal_status_already_written",
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return;
-      }
-      safety.markTerminal();
-      safety.clear();
+    },
+    onFailed: (error) => {
       const message = error instanceof Error ? error.message : String(error);
-      const failedStatus = buildFailedRunStatus(
-        buildRunningRunStatus(acceptedStatus, startedAt),
-        error,
-        now().toISOString(),
-      );
-      try {
-        dependencies.runStatusStore?.put(failedStatus);
-      } catch (statusError) {
-        dependencies.log?.("discovery.run_status.terminal_write_failed", {
-          runId,
-          mode: runMode,
-          status: "failed",
-          error:
-            statusError instanceof Error
-              ? statusError.message
-              : String(statusError),
-        });
-      }
-      writeHistoryFromStatus(failedStatus);
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,
         error: message,
       });
       console.error("[browser-use-discovery] async discovery failed:", message);
-    });
+    },
+  });
 
   return jsonResponse(202, {
     ok: true,
@@ -558,6 +569,30 @@ type DiscoveryPreflightFailure = {
   detail?: string;
   remediation?: string;
 };
+
+/**
+ * BEAUDIT A7: the published request schema is enforced, not just documented.
+ * The hand checks below run first (their messages are precise and tested);
+ * the schema then runs as the final gate so the schema and the parser accept
+ * and reject exactly the same bodies. The only parser-only rule is blank
+ * effective intent, which JSON Schema cannot express.
+ */
+const DISCOVERY_WEBHOOK_SCHEMA_PATH = join(
+  dirname(fileURLToPath(import.meta.url)),
+  "..",
+  "..",
+  "..",
+  "..",
+  "schemas",
+  "discovery-webhook-request.v1.schema.json",
+);
+const webhookSchemaAjv = new Ajv2020({ allErrors: true, strict: false });
+addFormatsModule.default(webhookSchemaAjv);
+const validateWebhookRequestSchema = webhookSchemaAjv.compile(
+  JSON.parse(readFileSync(DISCOVERY_WEBHOOK_SCHEMA_PATH, "utf8")),
+);
+
+const MAX_IDEMPOTENCY_KEY_LENGTH = 200;
 
 /** A Sheet id that is actually configured — the shipped placeholder is not. */
 function normalizeConfiguredSheetId(raw: unknown): string {
@@ -1019,6 +1054,35 @@ function parseWebhookRequest(
     trigger = payload.trigger as DiscoveryRunTrigger;
   }
 
+  // BEAUDIT A20 (webhook v1.1): optional client idempotency key.
+  let idempotencyKey: string | undefined;
+  if (payload.idempotencyKey !== undefined) {
+    const raw = payload.idempotencyKey;
+    if (
+      typeof raw !== "string" ||
+      !raw.trim() ||
+      raw.length > MAX_IDEMPOTENCY_KEY_LENGTH
+    ) {
+      return {
+        ok: false,
+        message: `idempotencyKey must be a non-blank string of at most ${MAX_IDEMPOTENCY_KEY_LENGTH} characters when present.`,
+      };
+    }
+    idempotencyKey = raw.trim();
+  }
+
+  if (!validateWebhookRequestSchema(payload)) {
+    return {
+      ok: false,
+      message: "Request body does not match discovery-webhook-request.v1.",
+      detail: webhookSchemaAjv.errorsText(validateWebhookRequestSchema.errors, {
+        dataVar: "body",
+      }),
+      remediation:
+        "Validate the body against schemas/discovery-webhook-request.v1.schema.json (see AGENT_CONTRACT.md).",
+    };
+  }
+
   return {
     ok: true,
     request: {
@@ -1032,6 +1096,7 @@ function parseWebhookRequest(
         : {}),
       ...(googleAccessToken ? { googleAccessToken } : {}),
       ...(trigger ? { trigger } : {}),
+      ...(idempotencyKey ? { idempotencyKey } : {}),
       ...(companyAllowlist.length ? { companyAllowlist } : {}),
       ...(companyBlocklist.length ? { companyBlocklist } : {}),
       ...(mergedUserProfile ? { mergedUserProfile } : {}),
@@ -1060,15 +1125,28 @@ const MERGED_PROFILE_SECRET_KEYS = new Set([
   "secret",
 ]);
 
+// BEAUDIT A15: strip secret keys at every depth, not only the top level, so a
+// nested `identity.apiKey` or `resume.text` never reaches the run.
+function stripMergedProfileSecrets(value: unknown, depth: number): unknown {
+  if (depth > 20) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripMergedProfileSecrets(entry, depth + 1));
+  }
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (MERGED_PROFILE_SECRET_KEYS.has(key)) continue;
+    out[key] = stripMergedProfileSecrets(entry, depth + 1);
+  }
+  return out;
+}
+
 function sanitizeMergedUserProfile(
   raw: Record<string, unknown>,
 ): NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (MERGED_PROFILE_SECRET_KEYS.has(key)) continue;
-    out[key] = value;
-  }
-  return out as NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]>;
+  return stripMergedProfileSecrets(raw, 0) as NonNullable<
+    DiscoveryWebhookRequestV1["mergedUserProfile"]
+  >;
 }
 
 function parseCompanyList(
@@ -1410,7 +1488,20 @@ export function deriveIdempotentRunId(request: {
   sheetId?: string;
   variationKey?: string;
   requestedAt?: string;
+  idempotencyKey?: string;
 }): string | null {
+  // BEAUDIT A20: a client-supplied key names the logical action (one click,
+  // one scheduler slot), so it replaces variationKey + requestedAt, which a
+  // second click re-stamps. Namespaced so it can never equal a v1 identity.
+  const idempotencyKey = String(request.idempotencyKey || "").trim();
+  if (idempotencyKey) {
+    const keyed = [
+      "idempotency-key-v1",
+      String(request.sheetId || "").trim(),
+      idempotencyKey,
+    ].join("\n");
+    return `run_${createHash("sha256").update(keyed).digest("hex").slice(0, 32)}`;
+  }
   const requestedAt = String(request.requestedAt || "").trim();
   if (!requestedAt || Number.isNaN(Date.parse(requestedAt))) return null;
   const identity = [

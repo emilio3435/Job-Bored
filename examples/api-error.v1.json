@@ -1,0 +1,9 @@
+{
+  "ok": false,
+  "message": "Discovery worker has no Google Sheets credential configured.",
+  "error": "Discovery worker has no Google Sheets credential configured.",
+  "code": "sheets_credential_missing",
+  "reason": "sheets_credential_missing",
+  "nextStep": "Sign in with Google in the dashboard, or set BROWSER_USE_DISCOVERY_GOOGLE_SERVICE_ACCOUNT_FILE on the worker.",
+  "retryable": false
+}

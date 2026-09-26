@@ -1,0 +1,32 @@
+{
+  "ok": true,
+  "runId": "run_4f2c9a1b7d3e4c5f8a9b0c1d2e3f4a5b",
+  "status": "completed",
+  "terminal": true,
+  "message": "Discovery completed \u2014 worker processed the run.",
+  "trigger": "manual",
+  "request": {
+    "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+    "variationKey": "example-variation-key",
+    "requestedAt": "2026-04-08T12:00:00.000Z"
+  },
+  "acceptedAt": "2026-04-08T12:00:00.100Z",
+  "startedAt": "2026-04-08T12:00:00.120Z",
+  "completedAt": "2026-04-08T12:03:10.000Z",
+  "updatedAt": "2026-04-08T12:03:10.000Z",
+  "warnings": [],
+  "sources": [
+    {
+      "sourceId": "greenhouse",
+      "warnings": []
+    }
+  ],
+  "writeResult": {
+    "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+    "appended": 3,
+    "updated": 1,
+    "skippedDuplicates": 0,
+    "skippedBlacklist": 0,
+    "warnings": []
+  }
+}

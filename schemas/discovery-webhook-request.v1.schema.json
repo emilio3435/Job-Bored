@@ -2,14 +2,13 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "https://github.com/job-bored/command-center/schemas/discovery-webhook-request.v1.schema.json",
   "title": "Command Center discovery webhook (POST body)",
-  "description": "Sent by the dashboard when the user clicks Run discovery. schemaVersion 1.",
+  "description": "Sent by the dashboard when the user clicks Run discovery. schemaVersion 1; contract revision v1.1 adds the optional idempotencyKey. The worker validates every request against this schema after its field checks (BEAUDIT A7), so schema and parser accept and reject the same payloads; the one parser-only rule (blank effective intent) is documented in AGENT_CONTRACT.md.",
   "$comment": "Transport, not body: a Cloudflare relay deployed with npm run cloudflare-relay:deploy answers 401 unless the request carries the per-dashboard relay token as Authorization: Bearer <RELAY_TOKEN> (kept in .jobbored-relay/credential.json). This body and schemaVersion 1 are unchanged. See AGENT_CONTRACT.md receiver checklist and examples/README.md.",
   "type": "object",
   "additionalProperties": true,
   "required": [
     "event",
     "schemaVersion",
-    "sheetId",
     "variationKey",
     "requestedAt"
   ],
@@ -18,26 +17,59 @@
       "type": "string",
       "const": "command-center.discovery"
     },
-    "schemaVersion": { "type": "integer", "const": 1 },
-    "sheetId": { "type": "string", "minLength": 10 },
-    "variationKey": { "type": "string", "minLength": 4 },
-    "requestedAt": { "type": "string", "format": "date-time" },
+    "schemaVersion": {
+      "type": "integer",
+      "const": 1
+    },
+    "sheetId": {
+      "type": "string",
+      "description": "Target spreadsheet ID. May be empty or omitted for a local-mode worker, which then falls back to the sheetId in its worker config; a hosted worker requires it (400)."
+    },
+    "variationKey": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "\\S",
+      "description": "Non-blank per-run seed for query variation."
+    },
+    "requestedAt": {
+      "type": "string",
+      "format": "date-time",
+      "description": "RFC 3339 / ISO 8601 date-time, e.g. 2026-09-25T10:00:00.000Z."
+    },
     "discoveryProfile": {
       "type": "object",
       "additionalProperties": true,
       "properties": {
         "sourcePreset": {
           "type": "string",
-          "enum": ["browser_only", "ats_only", "browser_plus_ats"],
+          "enum": [
+            "browser_only",
+            "ats_only",
+            "browser_plus_ats"
+          ],
           "description": "Canonical source selection preset. When omitted the worker resolves a deterministic fallback from stored config and legacy enabledSources."
         },
-        "targetRoles": { "type": "string" },
-        "locations": { "type": "string" },
-        "remotePolicy": { "type": "string" },
-        "seniority": { "type": "string" },
-        "keywordsInclude": { "type": "string" },
-        "keywordsExclude": { "type": "string" },
-        "maxLeadsPerRun": { "type": "string" },
+        "targetRoles": {
+          "type": "string"
+        },
+        "locations": {
+          "type": "string"
+        },
+        "remotePolicy": {
+          "type": "string"
+        },
+        "seniority": {
+          "type": "string"
+        },
+        "keywordsInclude": {
+          "type": "string"
+        },
+        "keywordsExclude": {
+          "type": "string"
+        },
+        "maxLeadsPerRun": {
+          "type": "string"
+        },
         "groundedWebEnabled": {
           "type": "boolean",
           "description": "Per-run grounded-web opt-out. When false, effective-source resolution excludes grounded_web even if the preset would include it."
@@ -47,10 +79,19 @@
           "description": "Optional non-secret snapshot of the profile/resume/preferences/schedule state used to build this run. Raw resume text is not included.",
           "additionalProperties": true,
           "properties": {
-            "snapshotVersion": { "type": "integer", "const": 1 },
-            "profileHash": { "type": "string" },
-            "resumeTextLength": { "type": "number" },
-            "resumeUpdatedAt": { "type": "string" }
+            "snapshotVersion": {
+              "type": "integer",
+              "const": 1
+            },
+            "profileHash": {
+              "type": "string"
+            },
+            "resumeTextLength": {
+              "type": "number"
+            },
+            "resumeUpdatedAt": {
+              "type": "string"
+            }
           }
         },
         "searchPlan": {
@@ -58,25 +99,85 @@
           "description": "Optional deterministic search facet/query bundle used by scheduled and manual runs to rotate daily discovery.",
           "additionalProperties": true,
           "properties": {
-            "planVersion": { "type": "integer", "const": 1 },
-            "generatedAt": { "type": "string", "format": "date-time" },
-            "seed": { "type": "string" },
-            "rotationKey": { "type": "string" },
+            "planVersion": {
+              "type": "integer",
+              "const": 1
+            },
+            "generatedAt": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "seed": {
+              "type": "string"
+            },
+            "rotationKey": {
+              "type": "string"
+            },
             "query": {
               "type": "object",
               "additionalProperties": true,
               "properties": {
-                "targetRoles": { "type": "string" },
-                "locations": { "type": "string" },
-                "remotePolicy": { "type": "string" },
-                "seniority": { "type": "string" },
-                "keywordsInclude": { "type": "string" },
-                "keywordsExclude": { "type": "string" },
+                "targetRoles": {
+                  "type": "string"
+                },
+                "locations": {
+                  "type": "string"
+                },
+                "remotePolicy": {
+                  "type": "string"
+                },
+                "seniority": {
+                  "type": "string"
+                },
+                "keywordsInclude": {
+                  "type": "string"
+                },
+                "keywordsExclude": {
+                  "type": "string"
+                },
                 "sourcePreset": {
                   "type": "string",
-                  "enum": ["", "browser_only", "ats_only", "browser_plus_ats"]
+                  "enum": [
+                    "",
+                    "browser_only",
+                    "ats_only",
+                    "browser_plus_ats"
+                  ]
                 }
               }
+            }
+          }
+        },
+        "ultraPlanTuning": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "multiQueryEnabled": {
+              "type": "boolean"
+            },
+            "retryBroadeningEnabled": {
+              "type": "boolean"
+            },
+            "parallelCompanyProcessingEnabled": {
+              "type": "boolean"
+            }
+          }
+        },
+        "groundedSearchTuning": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "maxResultsPerCompany": {
+              "type": "number"
+            },
+            "maxPagesPerCompany": {
+              "type": "number"
+            },
+            "maxRuntimeMs": {
+              "type": "number"
+            },
+            "maxTokensPerQuery": {
+              "type": "number"
             }
           }
         }
@@ -101,23 +202,23 @@
     },
     "companyAllowlist": {
       "type": "array",
-      "description": "Optional. Per-run company allowlist selected from the dashboard. When present and non-empty, the worker restricts this run to matching stored companies/history entries after skipped-company filtering. Empty or omitted preserves default behavior. Never persisted.",
+      "description": "Optional. Per-run company allowlist selected from the dashboard. When present and non-empty, the worker restricts this run to matching stored companies/history entries after skipped-company filtering. Empty or omitted preserves default behavior. Never persisted. Duplicates (case-insensitive) are collapsed by the worker.",
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "pattern": "\\S"
       },
-      "maxItems": 500,
-      "uniqueItems": true
+      "maxItems": 500
     },
     "companyBlocklist": {
       "type": "array",
-      "description": "Optional. When present and non-empty, suppresses listed companies from discovery results. Empty/missing means no blocklist. Strings are trimmed by the worker; entries cap at 50.",
+      "description": "Optional. When present and non-empty, suppresses listed companies from discovery results. Empty/missing means no blocklist. Strings are trimmed and duplicates (case-insensitive) collapsed by the worker; entries cap at 50.",
       "items": {
         "type": "string",
-        "minLength": 1
+        "minLength": 1,
+        "pattern": "\\S"
       },
-      "maxItems": 50,
-      "uniqueItems": true
+      "maxItems": 50
     },
     "mergedUserProfile": {
       "type": "object",
@@ -127,6 +228,13 @@
     "allowUnrestrictedFallback": {
       "type": "boolean",
       "description": "Optional. When true AND companyAllowlist matches zero catalog companies, the run may explicitly fall back to unrestricted stored-company search. Omitted or false fails closed instead of silently broadening."
+    },
+    "idempotencyKey": {
+      "type": "string",
+      "minLength": 1,
+      "maxLength": 200,
+      "pattern": "\\S",
+      "description": "Optional (contract v1.1). A client-chosen key stamped once per user action (a click, a scheduler slot). When present the worker derives the runId from sheetId + idempotencyKey instead of variationKey + requestedAt, so a retried or double-sent request with the same key resolves to the original run and never starts a second paid run. Omit it to keep v1 behavior."
     }
   }
 }

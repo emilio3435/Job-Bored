@@ -319,6 +319,12 @@ export type DiscoveryWebhookRequestV1 = {
    */
   trigger?: DiscoveryRunTrigger;
   /**
+   * Webhook v1.1 (BEAUDIT A20): optional client idempotency key, stamped once
+   * per user action. When present the runId is derived from sheetId + this
+   * key, so a retried or double-sent request resolves to the original run.
+   */
+  idempotencyKey?: string;
+  /**
    * Optional allowlist of company names/domains/keys to restrict discovery to.
    * Empty or missing means no company restriction (broad discovery).
    * Strings are trimmed by the worker; entries cap at 500.
@@ -599,6 +605,14 @@ export type IngestUrlResponseV1 =
       ok: false;
       reason: "worker_error";
       message: string;
+    }
+  | {
+      // BEAUDIT A3: answered with HTTP 409 before any extraction runs.
+      ok: false;
+      reason: "sheets_credential_missing";
+      message: string;
+      detail?: string;
+      remediation?: string;
     };
 
 export type DiscoveryProfileStatusV1 = {
@@ -1215,7 +1229,8 @@ export type SourceAdapter = {
   sourceLabel: string;
   detect(companyContext: CompanyContext): Promise<DetectionResult | null>;
   listJobs(boardContext: BoardContext): Promise<RawListing[]>;
-  normalize(raw: RawListing, run: DiscoveryRun): Promise<NormalizedLead | null>;
+  // BEAUDIT A18 (TD-008): `normalize` was declared here but no caller ever
+  // used it; leads are normalized by normalize/lead-normalizer.ts.
 };
 
 export type PlannedCompany = {

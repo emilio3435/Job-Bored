@@ -1,0 +1,7 @@
+{
+  "event": "ingest.url.request",
+  "schemaVersion": 1,
+  "url": "https://boards.greenhouse.io/example/jobs/1234567",
+  "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+  "async": true
+}

@@ -1,0 +1,30 @@
+{
+  "ok": true,
+  "sheetId": "1BxiMVs0XRA5nFMdKvBdBZjgmUUqptlbs74OgvE2up",
+  "sheetName": "Pipeline",
+  "dryRun": true,
+  "checked": 2,
+  "open": 1,
+  "needsReview": 0,
+  "skipped": 0,
+  "wouldExpire": 1,
+  "updated": 0,
+  "results": [
+    {
+      "rowNumber": 5,
+      "link": "https://boards.greenhouse.io/example/jobs/1234567",
+      "normalizedLink": "https://boards.greenhouse.io/example/jobs/1234567",
+      "previousStatus": "New",
+      "action": "would_expire",
+      "reason": "Posting returns 404."
+    },
+    {
+      "rowNumber": 6,
+      "link": "https://jobs.lever.co/example/abc",
+      "normalizedLink": "https://jobs.lever.co/example/abc",
+      "previousStatus": "Researching",
+      "action": "open",
+      "reason": "Posting is live."
+    }
+  ]
+}
