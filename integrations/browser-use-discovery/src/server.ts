@@ -62,6 +62,10 @@ import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profil
 import { handlePipelineUpdateWebhook } from "./webhook/handle-pipeline-update.ts";
 import { handleIngestUrlWebhook } from "./webhook/handle-ingest-url.ts";
 import {
+  pruneRunStatusSnapshots,
+  recoverAbandonedRuns,
+} from "./webhook/boot-recovery.ts";
+import {
   hasValidRunStatusToken,
   parseRunStatusPath,
 } from "./webhook/run-status-auth.ts";
@@ -277,18 +281,29 @@ const discoveryRunsLogger = createDiscoveryRunsLogger({
   runtimeConfig,
   log: logEvent,
 });
+// BEAUDIT A17: bound run-status retention before the store loads it.
+pruneRunStatusSnapshots(runtimeConfig.runStateDirectory, { log: logEvent });
 const runStatusStore = createDiscoveryRunStatusStore(
   runtimeConfig.runStateDirectory,
   { log: logEvent },
 );
-const abandonedRunCount = runStatusStore.markNonTerminalRunsAbandoned?.(
-  new Date().toISOString(),
-) ?? 0;
-if (abandonedRunCount > 0) {
-  logEvent("discovery.run_status.abandoned_terminalized", {
-    count: abandonedRunCount,
-  });
-}
+// BEAUDIT A5: abandoned runs are terminalized synchronously (before the
+// listener opens) and each gets its DiscoveryRuns row, best-effort.
+void recoverAbandonedRuns({
+  store: runStatusStore,
+  snapshotDirectory: runtimeConfig.runStateDirectory,
+  now: () => new Date(),
+  source: "worker@boot",
+  discoveryRunsLogger,
+  log: logEvent,
+}).then(({ abandoned, historyWritten }) => {
+  if (abandoned > 0) {
+    logEvent("discovery.run_status.abandoned_terminalized", {
+      count: abandoned,
+      historyWritten,
+    });
+  }
+});
 const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 
 const sharedRunDependencies = {

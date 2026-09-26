@@ -99,6 +99,15 @@ export type HandleWebhookDependencies = {
 // background; per-source timeouts still provide narrower stuck-lane bounds.
 const DEFAULT_MAX_RUN_DURATION_MS = 60 * 60 * 1000;
 
+/**
+ * BEAUDIT A9: the dashboard's Google Identity Services access token lives
+ * about 3600 s, which equals the default run budget, so a run authorized only
+ * by that token could not write its final DiscoveryRuns row. Such runs are
+ * capped at 50 minutes, which leaves the terminal write inside the token's
+ * life.
+ */
+export const GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS = 50 * 60 * 1000;
+
 export async function handleDiscoveryWebhook(
   request: WebhookRequestLike,
   dependencies: HandleWebhookDependencies,
@@ -238,6 +247,12 @@ export async function handleDiscoveryWebhook(
           };
           return {
             ...baseRunDependencies,
+            // BEAUDIT A9: end inside the request token's life.
+            maxRunDurationMs: Math.min(
+              baseRunDependencies.maxRunDurationMs ??
+                DEFAULT_MAX_RUN_DURATION_MS,
+              GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS,
+            ),
             runtimeConfig: overrideRuntimeConfig,
             pipelineWriter: dependencies.createPipelineWriterForRequest
               ? dependencies.createPipelineWriterForRequest(
@@ -433,8 +448,11 @@ export async function handleDiscoveryWebhook(
   });
 
   const startedAt = now().toISOString();
-  const maxRunDurationMs =
+  const configuredMaxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
+  const maxRunDurationMs = requestGoogleAccessToken
+    ? Math.min(configuredMaxRunDurationMs, GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS)
+    : configuredMaxRunDurationMs;
   const runningStatus = buildRunningRunStatus(acceptedStatus, startedAt);
   try {
     dependencies.runStatusStore?.put(runningStatus);
@@ -1036,15 +1054,28 @@ const MERGED_PROFILE_SECRET_KEYS = new Set([
   "secret",
 ]);
 
+// BEAUDIT A15: strip secret keys at every depth, not only the top level, so a
+// nested `identity.apiKey` or `resume.text` never reaches the run.
+function stripMergedProfileSecrets(value: unknown, depth: number): unknown {
+  if (depth > 20) return undefined;
+  if (Array.isArray(value)) {
+    return value.map((entry) => stripMergedProfileSecrets(entry, depth + 1));
+  }
+  if (!isPlainObject(value)) return value;
+  const out: Record<string, unknown> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (MERGED_PROFILE_SECRET_KEYS.has(key)) continue;
+    out[key] = stripMergedProfileSecrets(entry, depth + 1);
+  }
+  return out;
+}
+
 function sanitizeMergedUserProfile(
   raw: Record<string, unknown>,
 ): NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]> {
-  const out: Record<string, unknown> = {};
-  for (const [key, value] of Object.entries(raw)) {
-    if (MERGED_PROFILE_SECRET_KEYS.has(key)) continue;
-    out[key] = value;
-  }
-  return out as NonNullable<DiscoveryWebhookRequestV1["mergedUserProfile"]>;
+  return stripMergedProfileSecrets(raw, 0) as NonNullable<
+    DiscoveryWebhookRequestV1["mergedUserProfile"]
+  >;
 }
 
 function parseCompanyList(
