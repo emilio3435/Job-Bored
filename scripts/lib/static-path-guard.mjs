@@ -62,6 +62,12 @@ const DENIED_ANYWHERE_EXTENSIONS = new Set([
 // public webhook contract). Named one by one, not every root .md.
 const PUBLIC_ROOT_DOCUMENTS = new Set(["AGENT_CONTRACT.md"]);
 
+// Single files outside the public directories that the dashboard loads
+// as classic scripts. Named one by one — server/ as a whole stays dark
+// (BEAUDIT G3); only the Fit Profile share (consumed by B3's serverless
+// fallback) is public.
+const PUBLIC_FILES = new Set(["server/profile-draft-shared.js"]);
+
 function extensionOf(segment) {
   const index = segment.lastIndexOf(".");
   return index > 0 ? segment.slice(index).toLowerCase() : "";
@@ -69,8 +75,9 @@ function extensionOf(segment) {
 
 /**
  * True only for the dashboard's public files: root web assets, the public
- * asset directories, markdown docs, and the integration READMEs the wizard
- * links to. Everything else under the repo root is refused.
+ * asset directories, named single files, markdown docs, and the
+ * integration READMEs the wizard links to. Everything else under the repo
+ * root is refused.
  */
 export function isServableRelativePath(relativePath) {
   const segments = posixSegments(relativePath);
@@ -81,6 +88,7 @@ export function isServableRelativePath(relativePath) {
   const ext = extensionOf(segments[segments.length - 1]);
   if (DENIED_ANYWHERE_EXTENSIONS.has(ext)) return false;
   if (segments.some((segment) => segment.toLowerCase() === "uploads")) return false;
+  if (PUBLIC_FILES.has(joined)) return true;
   if (segments.length === 1) {
     return ROOT_FILE_EXTENSIONS.has(ext) || PUBLIC_ROOT_DOCUMENTS.has(joined);
   }
