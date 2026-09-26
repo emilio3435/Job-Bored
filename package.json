@@ -15,7 +15,7 @@
     "setup:hermes": "node scripts/setup.mjs hermes",
     "setup:all": "node scripts/setup.mjs all",
     "install:repo": "node scripts/install-repo.mjs",
-    "postinstall": "npm install --prefix ./server && node scripts/install-repo.mjs --stamp-only",
+    "postinstall": "npm ci --prefix ./server && node scripts/install-repo.mjs --stamp-only",
     "prestart": "node scripts/install-repo.mjs",
     "start": "concurrently -k -n web,scrape -c blue,magenta \"npm run start:web\" \"npm run start:scraper\"",
     "start:web": "node dev-server.mjs",

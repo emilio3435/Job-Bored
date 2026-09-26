@@ -9,7 +9,7 @@
  *   node scripts/clasp-helper.mjs deploy
  *   node scripts/clasp-helper.mjs deployments
  *
- * Requires: Node 18+; first time: npx will download @google/clasp.
+ * Requires: Node 24; first time: npx will download @google/clasp.
  */
 import { spawnSync } from "child_process";
 import { existsSync } from "fs";

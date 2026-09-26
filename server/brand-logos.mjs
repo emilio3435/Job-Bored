@@ -141,9 +141,10 @@ function isValidSlug(slug) {
  * @param {string} message
  * @param {number} statusCode
  */
-function makeError(message, statusCode) {
-  const err = /** @type {Error & { statusCode: number }} */ (new Error(message));
+function makeError(message, statusCode, code) {
+  const err = /** @type {Error & { statusCode: number, code?: string }} */ (new Error(message));
   err.statusCode = statusCode;
+  if (code) err.code = code;
   return err;
 }
 
@@ -264,6 +265,15 @@ export async function runResolver({ force = false, templateRoot } = {}) {
   if (!manifest.logos.length) return [];
 
   const script = getLogoResolverScript();
+  // BEAUDIT G15/E5: the resolver script lives outside the server-only Docker
+  // context — when it is absent, resolution is unavailable, not a failure.
+  if (!existsSync(script)) {
+    throw makeError(
+      "Logo resolution is unavailable on this host (resolver script missing).",
+      501,
+      "LOGOS_UNAVAILABLE",
+    );
+  }
   const args = [script, "--template-dir", root];
   if (force) args.push("--force");
 

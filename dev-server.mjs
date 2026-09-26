@@ -7,7 +7,7 @@ import childProcess, { spawn, spawnSync } from "node:child_process";
 import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { gzipSync } from "node:zlib";
 import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
-import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
+import { expandIndexIncludes, listIncludeTargets } from "./scripts/lib/expand-index-includes.mjs";
 import {
   decodeRequestPathname,
   parseRequestUrl,
@@ -824,6 +824,78 @@ function sendStaticBody(req, res, contentType, body, dashboardConfigPath) {
   res.end(payload);
 }
 
+// BEAUDIT G19: assembled-HTML cache. Entries are keyed by file and stay
+// valid while the index AND every transitive partial keep their mtime+size,
+// so an edit to any include invalidates. A hit stats files but reads none.
+const staticHtmlCache = new Map();
+
+function statFingerprint(path, statImpl) {
+  try {
+    const st = statImpl(path);
+    if (!st || typeof st.mtimeMs !== "number") return null;
+    return { mtimeMs: st.mtimeMs, size: st.size };
+  } catch {
+    return null;
+  }
+}
+
+async function collectTransitivePartials(source, baseDir, readFileImpl) {
+  const partials = [];
+  const seen = new Set();
+  const visit = async (text, fromDir, depth) => {
+    if (depth > 8) return;
+    for (const target of listIncludeTargets(text)) {
+      const resolved = resolvePath(fromDir, target);
+      if (seen.has(resolved)) continue;
+      seen.add(resolved);
+      partials.push(resolved);
+      try {
+        await visit(await readFileImpl(resolved, "utf8"), dirname(resolved), depth + 1);
+      } catch {
+        // The expansion itself reports unreadable partials; the cache only
+        // fingerprints what exists.
+      }
+    }
+  };
+  await visit(String(source || ""), baseDir, 0);
+  return partials;
+}
+
+function htmlCacheEntryFresh(key, entry, statImpl) {
+  const self = statFingerprint(key, statImpl);
+  if (!self || !entry.self) return false;
+  if (self.mtimeMs !== entry.self.mtimeMs || self.size !== entry.self.size) {
+    return false;
+  }
+  for (const part of entry.partials || []) {
+    const fp = statFingerprint(part.path, statImpl);
+    if (!fp || fp.mtimeMs !== part.mtimeMs || fp.size !== part.size) return false;
+  }
+  return true;
+}
+
+export async function loadStaticHtml(
+  filePath,
+  { readFileImpl = readFile, statImpl = statSync, cache = staticHtmlCache, baseDir = ROOT } = {},
+) {
+  const key = String(filePath);
+  const entry = cache.get(key);
+  if (entry && htmlCacheEntryFresh(key, entry, statImpl)) {
+    return entry.data;
+  }
+  const source = await readFileImpl(key, "utf8");
+  const data = /<!--\s*@include\s+/.test(source)
+    ? expandIndexIncludes(source, baseDir)
+    : source;
+  const partials = [];
+  for (const partialPath of await collectTransitivePartials(source, baseDir, readFileImpl)) {
+    const fp = statFingerprint(partialPath, statImpl);
+    if (fp) partials.push({ path: partialPath, ...fp });
+  }
+  cache.set(key, { self: statFingerprint(key, statImpl), partials, data });
+  return data;
+}
+
 async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
   const resolved = await resolvePublicFile(urlPath, { root: ROOT });
   if (!resolved.ok) {
@@ -841,10 +913,8 @@ async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
     // breaks .webp/.png/.ico/.woff* assets even though they exist on disk.
     // Expand includes only AFTER realpath/deny (F4-D owns expander semantics).
     if (ext === ".html") {
-      let data = await readFile(filePath, "utf8");
-      if (/<!--\s*@include\s+/.test(data)) {
-        data = expandIndexIncludes(data, ROOT);
-      }
+      // BEAUDIT G19: assembled HTML is cached by mtime (index + partials).
+      const data = await loadStaticHtml(filePath);
       sendStaticBody(req, res, ct, data, dashboardConfigPath);
       return;
     }
@@ -2685,13 +2755,36 @@ async function probeNgrokTunnel(timeoutMs, workerPort) {
  * doesn't exist yet. Mirrors the same import pattern used in
  * handleKeepAliveStatus.
  */
-async function safeKeepAliveStatus() {
+// BEAUDIT G19: keep-alive status cache. discovery-state is polled every few
+// seconds and the status shells out to launchd; a 30s TTL keeps the
+// dashboard fresh without a subprocess per poll.
+export const KEEP_ALIVE_STATUS_CACHE_TTL_MS = 30_000;
+const keepAliveStatusCache = { at: 0, value: null, filled: false };
+
+async function loadKeepAliveStatus() {
   try {
     const { getKeepAliveStatus } = await import("./scripts/install-keep-alive.mjs");
     return getKeepAliveStatus();
   } catch (_) {
     return null;
   }
+}
+
+export async function cachedKeepAliveStatus(
+  { nowMs = Date.now(), cache = keepAliveStatusCache, loadImpl = loadKeepAliveStatus } = {},
+) {
+  if (cache.filled && nowMs - cache.at < KEEP_ALIVE_STATUS_CACHE_TTL_MS) {
+    return cache.value;
+  }
+  const value = await loadImpl();
+  cache.at = nowMs;
+  cache.value = value;
+  cache.filled = true;
+  return value;
+}
+
+async function safeKeepAliveStatus() {
+  return cachedKeepAliveStatus();
 }
 
 async function handleStartDiscoveryWorker(req, res, discoveryWorkerStarter) {

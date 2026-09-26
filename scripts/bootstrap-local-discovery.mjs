@@ -219,10 +219,10 @@ function normalizeEnginePreference(raw) {
   fail("--engine must be one of: auto, browser_use_worker, hermes");
 }
 
-function ensureNode18() {
+function ensureNode24() {
   const major = Number.parseInt(String(process.versions.node || "").split(".")[0], 10);
-  if (!Number.isFinite(major) || major < 18) {
-    fail("Node 18+ required.");
+  if (!Number.isFinite(major) || major < 24) {
+    fail("Node 24 required (see engines in package.json).");
   }
 }
 
@@ -1585,7 +1585,7 @@ function writeBootstrapState(stateFile, payload) {
 }
 
 async function main() {
-  ensureNode18();
+  ensureNode24();
   const args = parseArgs(process.argv.slice(2));
   const enginePreference = normalizeEnginePreference(args.engine);
   ensureCommand("ngrok", ["version"]);
