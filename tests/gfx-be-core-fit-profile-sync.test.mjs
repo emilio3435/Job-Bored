@@ -248,3 +248,21 @@ describe("N-B4-1 · response parsing", () => {
     assert.equal(result.synced, true);
   });
 });
+
+describe("N-B4-1 · the default fetch", () => {
+  it("N-B4-1 with no fetchImpl it calls window.fetch bound to window (a detached fetch throws Illegal invocation)", async () => {
+    const calls = [];
+    // Load with a window.fetch that enforces its receiver like browsers do.
+    const window = { COMMAND_CENTER_CONFIG: {}, location: { protocol: "http:" } };
+    window.fetch = function (url) {
+      if (this !== window) throw new TypeError("Illegal invocation");
+      calls.push(url);
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
+    };
+    const ctx = vm.createContext({ window, console, setTimeout, clearTimeout });
+    vm.runInContext(readFileSync(syncPath, "utf8"), ctx, { filename: "fit-profile-sync.js" });
+    const result = plain(await window.JobBoredFitProfileSync.syncProfile(PAYLOAD));
+    assert.deepEqual(calls, ["/profile"]);
+    assert.equal(result.synced, true);
+  });
+});
