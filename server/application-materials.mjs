@@ -38,6 +38,11 @@ const ALLOWED_FILES = new Set([
   "cover-letter.txt",
   "run.json",
   "render-model.json",
+  "jd-extract.json",
+  "selection.json",
+  "outline.json",
+  "draft.json",
+  "qa.json",
 ]);
 
 /** @type {Record<string, string>} */

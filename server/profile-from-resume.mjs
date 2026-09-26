@@ -14,13 +14,13 @@
  * wizard 1 is invisible to wizard 2" bug.
  *
  * Storage locations checked (priority order — first hit wins):
- *   1. The discovery worker's `worker-config.json` at
+ *   1. ~/.jobbored/resume.txt (F11: the canonical stored resume)
+ *   2. The discovery worker's `worker-config.json` at
  *      `candidateProfile.resumeText`. Path resolved via:
  *        - BROWSER_USE_DISCOVERY_CONFIG_PATH
  *        - DISCOVERY_WORKER_CONFIG_PATH
  *        - DISCOVERY_CONFIG_PATH
  *        - default: <repo>/integrations/browser-use-discovery/state/worker-config.json
- *   2. ~/.jobbored/resume.txt
  *   3. ~/.hermes/job-hunt/profile/resume*.md (legacy)
  *
  * Provider config comes from the REQUEST BODY first (the provider the
@@ -216,13 +216,16 @@ async function readResumeFromLegacyHermes() {
 
 /**
  * Check known resume storage locations in priority order.
+ * F11: ~/.jobbored/resume.txt is the canonical stored resume — a fresh
+ * upload there wins over the worker-config snapshot, which is only a
+ * fallback for machines that never staged one.
  * Returns { text, source, path } or null when nothing is found.
  */
 export async function getStoredResumeText() {
-  const fromWorker = await readResumeFromWorkerConfig();
-  if (fromWorker) return fromWorker;
   const fromJobbored = await readResumeFromJobboredText();
   if (fromJobbored) return fromJobbored;
+  const fromWorker = await readResumeFromWorkerConfig();
+  if (fromWorker) return fromWorker;
   const fromLegacy = await readResumeFromLegacyHermes();
   if (fromLegacy) return fromLegacy;
   return null;

@@ -58,8 +58,11 @@ import {
   writeProfileAtomic,
 } from "./user-profile.mjs";
 import { migrateLegacyProfileIfPresent } from "./legacy-profile-migrator.mjs";
+import { readLedger, resolveLedgerPath } from "./materials-ledger.mjs";
+import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
   analyzeResumeToProfile,
+  getStoredResumeText,
   parseProfileProviderConfigFromBody,
   resolveResumeTextForAnalysis,
 } from "./profile-from-resume.mjs";
@@ -461,6 +464,25 @@ app.post("/profile", async (req, res) => {
   }
   try {
     const { updatedAt } = await writeProfileAtomic(candidate);
+    /* F21: rebuild the claim ledger from the saved profile + the stored
+     * resume. Best-effort like the logo refresh: a ledger failure must
+     * never fail the save (claims.load rebuilds on demand anyway). */
+    let ledger = { ok: false };
+    try {
+      const stored = await getStoredResumeText().catch(() => null);
+      const built = await ensureLedger({
+        profile: candidate,
+        resumeText: stored ? stored.text : "",
+        resumeSource: stored ? stored.source : "upload",
+      });
+      ledger = { ok: true, claims: built.claims.length, ledgerHash: built.ledgerHash };
+    } catch (ledgerErr) {
+      const code = /** @type {{ code?: unknown }} */ (ledgerErr)?.code;
+      ledger = {
+        ok: false,
+        error: typeof code === "string" && code ? code : "ledger_build_failed",
+      };
+    }
     try {
       await refreshLogosFromProfile(candidate);
     } catch (logoErr) {
@@ -472,13 +494,14 @@ app.post("/profile", async (req, res) => {
       return res.json({
         ok: true,
         updatedAt,
+        ledger,
         logoRefresh: {
           ok: false,
           error: errorMessage(logoErr, "logo refresh failed"),
         },
       });
     }
-    return res.json({ ok: true, updatedAt, logoRefresh: { ok: true } });
+    return res.json({ ok: true, updatedAt, ledger, logoRefresh: { ok: true } });
   } catch (err) {
     const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
     if (error && error.code === "INVALID_PROFILE") {
@@ -523,6 +546,31 @@ app.post("/api/brand-logos/:slug", async (req, res) => {
     res.json(result);
   } catch (e) {
     sendAppError(res, e);
+  }
+});
+
+/* F21: the claim ledger, built from resume.txt + profile.json on each
+ * profile save (see POST /profile) and read by the materials pipeline.
+ * Saved in: the ledger path. Used by: materials drafts today; rescore
+ * and interview prep are future consumers of the same store. */
+app.get("/profile/ledger", async (_req, res) => {
+  try {
+    const result = await readLedger();
+    if (!result.ok) {
+      return res.status(404).json({ ok: false, reason: result.reason });
+    }
+    return res.json({
+      ok: true,
+      ledger: result.ledger,
+      savedIn: result.path || resolveLedgerPath(),
+      usedBy: ["materials"],
+    });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      reason: "read_failed",
+      detail: errorMessage(err, "read failed"),
+    });
   }
 });
 
