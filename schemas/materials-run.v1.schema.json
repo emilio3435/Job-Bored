@@ -14,6 +14,10 @@
     "requestedAt": { "type": "string", "format": "date-time" },
     "finishedAt": { "type": "string", "format": "date-time" },
     "executor": { "enum": ["local-inprocess", "hermes-cli", "webhook"] },
+    "cacheKey": {
+      "description": "jdHash|ledgerHash|<family>@<version>|promptVersion|budgetVersion|feature. A repeat request with an unchanged key returns the published package without an LLM call.",
+      "type": "string"
+    },
     "template": {
       "description": "The template family this package was rendered in, so the package can be regenerated in another family later. Copied from the render model's template block; source says where the choice came from.",
       "type": "object",
@@ -74,6 +78,7 @@
               "intake",
               "jd.resolve",
               "jd.gate",
+              "cache.lookup",
               "jd.extract",
               "claims.load",
               "claims.score",

@@ -426,7 +426,7 @@ function onlySkippedPdfPageCount(scorecard) {
  * @param {CriticIssue[]} [args.issues]
  * @param {string[]} [args.notes]
  */
-function formatQaReport({ status, issues = [], notes = [] }) {
+export function formatQaReport({ status, issues = [], notes = [] }) {
   const lines = ["# QA report", "", `Status: ${status}`];
   if (notes.length) {
     lines.push("", ...notes);

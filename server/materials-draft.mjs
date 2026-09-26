@@ -94,6 +94,10 @@ export async function draftSlots({
   const earlierIds = Array.isArray(outline.earlier)
     ? outline.earlier.filter((id) => typeof id === "string")
     : [];
+  /* Degraded path: no pin, no model call — verbatim claim text. */
+  if (!pin) {
+    return { draft: degradedDraft({ extract, ledger, featuredIds, earlierIds }), degraded: true };
+  }
   const claimText = (/** @type {string} */ id) => {
     const claim = claimById(ledger, id);
     return claim && typeof claim.text === "string" ? claim.text : "";

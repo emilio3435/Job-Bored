@@ -101,6 +101,11 @@ export async function selectClaims({ extract, shortlist, ledger, letterWords = [
     return claim && typeof claim.employerId === "string" ? claim.employerId : "";
   };
 
+  /* Degraded path: no pin, no model call — deterministic ranks. */
+  if (!pin) {
+    return { selection: deterministicSelection({ extract, shortlist, ledger, letterWords }), degraded: true };
+  }
+
   let picked = null;
   try {
     const userText = [

@@ -203,6 +203,8 @@ const EXTRACT_SYSTEM_PROMPT = [
  */
 export async function extractJd({ jdText, company, title, gate, source, pin, fetchImpl }) {
   const base = deterministicExtract({ jdText, company, title, gate, source });
+  /* Degraded path: no pin, no model call — the deterministic half. */
+  if (!pin) return { extract: base, degraded: true };
   const nounList = base.nouns.map((n) => n.term).join(", ");
   let fill = null;
   try {
