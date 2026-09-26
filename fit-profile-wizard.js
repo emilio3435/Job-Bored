@@ -441,25 +441,19 @@
   }
 
   /**
-   * Client-side warnings. NOT authoritative — the server's ajv pass is.
-   * Returns [] when nothing to warn about.
+   * Client-side gate: every schema rule from fit-profile-schema.js (the
+   * mirror of the server's ajv contract, N-B4-2) plus one soft warning.
+   * Returns [] when nothing to warn about. Without the schema module it
+   * fails closed rather than letting an unchecked profile through.
    */
   function validateClientSide(payload) {
-    var problems = [];
-    if (!payload.identity || !Array.isArray(payload.identity.targetRoles) ||
-        payload.identity.targetRoles.length === 0) {
-      problems.push("Add at least one target role.");
+    var schema = window.JobBoredFitProfileSchema;
+    if (!schema || typeof schema.validateProfile !== "function") {
+      return ["JobBored's profile rules didn't load. Reload the page and try again."];
     }
-    var narr = String(payload.identity && payload.identity.primaryNarrative || "");
-    if (narr.length < NARRATIVE_MIN) {
-      problems.push("Narrative is too short — aim for at least " + NARRATIVE_MIN + " characters.");
-    }
-    if (narr.length > NARRATIVE_MAX) {
-      problems.push("Narrative is too long — keep under " + NARRATIVE_MAX + " characters.");
-    }
-    if (!Array.isArray(payload.strengths) || payload.strengths.length === 0) {
-      problems.push("Add at least one strength.");
-    }
+    var problems = schema.validateProfile(payload).errors.map(function (e) {
+      return e.message;
+    });
     var hc = payload.hardConstraints || {};
     if (hc.workMode !== "remote_only" &&
         hc.acceptableLocations &&
