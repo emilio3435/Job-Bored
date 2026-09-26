@@ -1,0 +1,16 @@
+{
+  "blocking": [],
+  "nonBlocking": [
+    {
+      "file": "templates/github-actions/command-center-discovery.yml",
+      "line": 101,
+      "issue": "Confirmed incomplete fix: `2??) ;;` accepts Apps Script application failures such as HTTP 200 with `{\"ok\":false,\"error\":\"busy\"}` (returned by integrations/apps-script/Code.gs:18). Check the response's failure indicator before declaring success. Local probes confirmed both base and candidate exit zero, so this is non-blocking under your rule."
+    },
+    {
+      "file": "tests/relay-github-actions-refusal.test.mjs",
+      "line": 179,
+      "issue": "Confirmed implementation pin: `assert.equal(read(REPO_WORKFLOW_PATH), read(TEMPLATE_PATH))` fails on harmless comment or formatting differences despite identical behavior. The adjacent generated-workflow equality test has the same limitation. Prefer exercising the behavioral cases against all three workflow variants."
+    }
+  ],
+  "confidence": "High for static review and focused probes. Contract checks, seven retirement tests, filtered VAL-ROUTE-010, nine workflow probes, payload validation, and template parity passed. No unlisted fence edits or contract/security regressions found. Full suites, the new filesystem-writing suite, and live GitHub Actions were not run. No files changed."
+}

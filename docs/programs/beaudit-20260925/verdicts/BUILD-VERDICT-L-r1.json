@@ -1,0 +1,167 @@
+{
+  "claims": [
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a2-lifecycle.mts  # adapted probes/A/lifecycle.mts P2 [stuck]",
+      "excerpt": "[stuck-all-throw] memoryStatus=running terminal=false events=terminal_write_failed,terminal_write_failed,terminal_write_failed (completion attempt, fallback attempt, backstop firing at deadline; no premature clear, no late_failure_ignored) | [transient] status=failed terminal=true historyRows=1. Audit showed stuck running + late_failure_ignored with safety cleared.",
+      "id": "A2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/ingest-order.mts  # adapted probes/A/ingest-order.mts",
+      "excerpt": "[A3-sync] status=409 reason=sheets_credential_missing extraction={greenhouse:0,gemini:0,browserUse:0,scrape:0} fetch=0 | [A3-async] status=409, all extraction counts 0. Audit spent 1 greenhouse + 1 gemini call, then HANDLER THREW.",
+      "id": "A3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/ingest-order.mts  # adapted probes/A/ingest-order.mts, A4 half: writer.write rejects",
+      "excerpt": "[A4] status=500 body={\"ok\":false,\"reason\":\"worker_error\",\"message\":\"EIO: simulated Sheet write failure\"} \u2014 rejection caught inside handler, reason present (audit: escaped \u2192 generic 500, no reason). Both sites are `return await writeLeadAndRespond` (handle-ingest-url.ts:321,503).",
+      "id": "A4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a5-restart.mts  # adapted probes/A/lifecycle.mts P3 [restart] via recoverAbandonedRuns (server.ts boot path)",
+      "excerpt": "[restart] before restart: running \u2192 abandoned=1 status=failed terminal=true historyRowsWritten=1 reportedHistory=1. Audit: historyRowsWritten=0. Wired at server.ts:285 before the listener opens.",
+      "id": "A5",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/schema-drift.mts  # probes/A/schema-drift.mts with imports repointed at bbuild-l",
+      "excerpt": "discovery: 12/13 same; only DRIFT is the documented parser-only blank-intent rule; all 3 examples schema=valid parser=accept. Audit had 8 discovery DRIFTs. Residual: pipeline-update 'sheetId short' still DRIFT (schema=reject parser=accept; that parser is owned by lane S).",
+      "id": "A7",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a9-a15.mts  # audit had no runnable probe (INFERRED); harness mirrors request-hardening.test.ts",
+      "excerpt": "[A9] token-run maxRunDurationMs=3000000 = GOOGLE_ACCESS_TOKEN_SAFE_RUN_MS < tokenLife 3600000, capped=true | worker-credential run keeps 3600000. Residual (REVIEW-L): the cap ignores token age, so an already-old token can still expire mid-run.",
+      "id": "A9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types --test --test-name-pattern=A12 integrations/browser-use-discovery/tests/webhook/run-async-lifecycle.test.ts && grep -l runAsyncLifecycle integrations/browser-use-discovery/src/webhook/handle-discovery-webhook.ts integrations/browser-use-discovery/src/webhook/handle-ingest-url.ts && HOME=$(mktemp -d) node --experimental-strip-types -e \"import('\u2026/run-async-lifecycle.ts').then(m=>console.log(m.computeSafetyDelayMs(200),m.computeSafetyDelayMs(3600000)))\"",
+      "excerpt": "A12 tests 2/2 pass; runAsyncLifecycle is used by both handle-discovery-webhook.ts and handle-ingest-url.ts; computeSafetyDelayMs: 200\u2192210, 3600000\u21923630000 (5% grace, \u226430s); stale 'no run-wide AbortSignal yet' comment is gone.",
+      "id": "A12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/boot-recovery.test.ts integrations/browser-use-discovery/tests/webhook/webhook-schema-parity.test.ts && grep -n '\"include\"' integrations/browser-use-discovery/tsconfig.json  # plus worker-router.test.ts 9/9 and run-async-lifecycle.test.ts 9/9",
+      "excerpt": "boot-recovery + webhook-schema-parity: 31/31 pass; worker-router.test.ts 9/9 (mounts the side-effect-free listener on port 0); lifecycle 9/9 covers throwing terminal put. Residual, documented in BUILD-REPORT-L: tsconfig include is still [\"src/**/*.ts\"] (tests not type-checked).",
+      "id": "A14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a9-a15.mts  # audit had no runnable probe; nested-identity profile through the real handler",
+      "excerpt": "[A15] leaks=none (nested apiKey sk-nested, resume text, password, secret all stripped at depth) keepsLegitFields=true (name Ada, updatedAt kept). Audit: nested identity.apiKey passed through.",
+      "id": "A15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a16-race.mts  # LANE-REPORT-A \u00a75 command: concurrent upserts, tmp config path",
+      "excerpt": "[A16] 4 overlapping upserts with disjoint fields \u2192 missing=none allFourSurvive=true. Audit \u00a75: one key missing (last rename won).",
+      "id": "A16",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a17-prune.mts  # seed 2 old terminal + 1 recent terminal + 1 live, prune with defaults",
+      "excerpt": "[A17] before=live-1,old-1,old-2,recent-1 pruned=2 after=live-1,recent-1 liveKept=true recentKept=true. pruneRunStatusSnapshots runs at server.ts:278 boot before the store loads.",
+      "id": "A17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && grep -rn normalize integrations/browser-use-discovery/src/contracts.ts integrations/browser-use-discovery/src/browser/source-adapters.ts; ls schemas/ | grep -E 'run-status|ingest-url|cleanup-expired|api-error'; HOME=$(mktemp -d) node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/worker-contract-schemas.test.ts",
+      "excerpt": "SourceAdapter.normalize dropped (only an explanatory comment + unrelated 'normalized*' words remain); 6 new v1 schemas present (run-status, ingest-url-request/response, cleanup-expired-request/response, api-error); AGENT_CONTRACT.md gained ingest-url/cleanup/runs sections; worker-contract-schemas.test.ts 4/4.",
+      "id": "A18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a20-idempotency.mts  # same idempotencyKey, re-stamped requestedAt+variationKey (second click)",
+      "excerpt": "[A20] first=accepted_async/run_f92da42e15551dd32384edc76be8838a second=accepted_async/run_f92da42e15551dd32384edc76be8838a sameRunId=true runDiscoveryCalls=1. Schema accepts idempotencyKey (minLength 1, maxLength 200); runId = sha256(sheetId, key).",
+      "id": "A20",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types --test integrations/browser-use-discovery/tests/webhook/run-async-lifecycle.test.ts && bash /tmp/probes/worker-live.sh  # 9/9 in-process + live worker 127.0.0.1:19050, HOME=lane HOME",
+      "excerpt": "lifecycle 9/9: post-cancel writes refused, cancel resolves after the run stops, too-late cancel reports real completed (cancelled:false). Live :19050: cancel w/o secret\u2192401 {auth+code:unauthorized}; unknown run\u2192404 run_not_found; registry.cancel is async and awaited by the route.",
+      "id": "A21",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --test tests/api-error-envelope.test.mjs && bash /tmp/probes/e7-errshape.sh  # promoted probe (6/6) + adapted probes/E/probe-e-errshape.sh on 127.0.0.1:19056, HOME=lane HOME",
+      "excerpt": "envelope test 6/6. Live: scrape 400s\u2192{code:BAD_REQUEST,retryable:false}; ATS 503\u2192{code:SERVICE_UNAVAILABLE,retryable:true}; 413 route-neutral 'Request body is too large.'; /nope\u2192JSON 404 NOT_FOUND (audit: bare {error}, ATS-named 413, HTML 404). Note: llm_unconfigured/llm_invalid codes stay lowercase vs the doc's UPPER_SNAKE.",
+      "id": "E7",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "cd /Users/emilionunezgarcia/Job-Bored.worktrees/bbuild-l && HOME=$(mktemp -d) node --experimental-strip-types /tmp/probes/a13-shape.mts && live :19050 ingest-url 409 from worker-live.sh",
+      "excerpt": "ingest no-credential \u2192 409 reason+code=sheets_credential_missing (audit: HTTP 200 ok:false); legacy {ok:false} \u2192 envelope {code,retryable} (e.g. internal_error/true); live 409 shows code end-to-end; remaining 200 ok:false outcomes are documented soft outcomes with code=reason. Residual: pipeline-update 401 still omits auth (file owned by lane S); envelope adds code=unauthorized.",
+      "id": "A13",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "eslint clean; lint:skills OK integrations/openclaw-command-center/SKILL.md; lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "typecheck:browser-use-discovery (tsc strict) + typecheck:server + ~70 node --check files, all silent; RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "\u2139 tests 3741 \u2139 pass 3733 \u2139 fail 0 \u2139 todo 8; RC=0 (full log /tmp/floor-npm-test.log)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 869 \u2139 pass 869 \u2139 fail 0; RC=0. BUILD-REPORT-L's known-flaky VAL-ROUTE-010 (12s runDiscovery timeout, outside lane fence) passed on this run, so the 868/869 single-failure did not reproduce. Full log /tmp/floor-bud.log.",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "12 OK lines (contract 5, ats 4, pipeline 1, pipeline-update 1, skills 1); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "24 passed (33.1s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "33 passed (46.2s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-onboarding",
+      "excerpt": "7 passed (15.2s); RC=0",
+      "passed": true
+    }
+  ],
+  "head": "4c0122b1cb194a2f9e18b81677964c3f8883b131",
+  "lane": "L",
+  "summary": "Lane L at 4c0122b1: all 8 floor commands green with fresh HOME (notably test:browser-use-discovery 869/869 \u2014 the known-flaky VAL-ROUTE-010 passed this run); both A21 repair tests green (9/9 file) with the red premise confirmed in red-a21-cancel-write-race.log (actual:false); all 16 claims FIXED via adapted audit reproducers. Disclosed residuals: pipeline-update sheetId-minLength drift + 401 auth category (lane S owns that parser), A14 tsconfig still src-only (documented), A9 cap ignores token age, E7 llm_* codes stay lowercase. Repo untouched: git status clean, lane HOME byte-identical after live probes, 19050/19056 free; one pre-existing user worker (pid 53719, started before this session) left running.",
+  "tests": [
+    {
+      "excerpt": "\u2714 A2 \u00d73, \u2714 A12 \u00d72, \u2714 A21: cancelling a live run\u2026 (changed async shape), \u2714 A21 repair: \u2026cancel resolves only after the run stopped, \u2714 A21 repair: \u2026finishes before it sees the abort\u2026, \u2714 A21: a finished run leaves the cancel registry | \u2139 tests 9 \u2139 pass 9 \u2139 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-async-lifecycle.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "--test-name-pattern 'cancel resolves only after the run stopped': \u2714 1/1 pass. Red premise confirmed in .lane-evidence/logs/red-a21-cancel-write-race.log: 'cancel resolves only after the run has stopped', actual:false expected:true.",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-async-lifecycle.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "--test-name-pattern 'finishes before it sees the abort': \u2714 1/1 pass (cancelled:false, real completed status reported).",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-async-lifecycle.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "9/9 pass incl. \u2714 A21: POST /runs/:id/cancel requires the secret, cancels a live run, and refuses a finished one. Changed behavior confirmed by grep: `await registry.cancel(runId)` and handler shape { cancelled, status } in both files.",
+      "file": "integrations/browser-use-discovery/tests/webhook/worker-router.test.ts",
+      "passed": true
+    }
+  ]
+}

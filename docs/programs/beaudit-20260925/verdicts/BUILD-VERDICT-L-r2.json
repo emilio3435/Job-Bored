@@ -1,0 +1,202 @@
+{
+  "claims": [
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/lifecycle.mts (adapted from beaudit-integration/.../probes/A/lifecycle.mts)",
+      "excerpt": "[stuck] runId=run_b1808... status=running terminal=false events=discovery.run_status.terminal_write_failed x3 (was late_failure_ignored); safety stays armed and retries. run-async-lifecycle.test.ts fallback to failed 9/9.",
+      "id": "A2",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/ingest-order.mts (adapted from beaudit-integration/.../probes/A/ingest-order.mts)",
+      "excerpt": "status=409 body={ok:false,reason:sheets_credential_missing...} extraction {greenhouse:0,gemini:0,browserUse:0,scrape:0} (was status=-1 HANDLER THREW, greenhouse:1 gemini:1).",
+      "id": "A3",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/ingest-order.mts (adapted from beaudit-integration/.../probes/A/ingest-order.mts)",
+      "excerpt": "Same run: handler returns 409 with reason, not HANDLER THREW to generic 500. ingest-url-order.test.ts A4 rejected-write keeps reason 5/5.",
+      "id": "A4",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/a5-recover.mts (recoverAbandonedRuns; original lifecycle.mts [restart] still 0 by design)",
+      "excerpt": "Original [restart] historyRowsWritten=0 (direct markNonTerminalRunsAbandoned). Via recoverAbandonedRuns: abandoned=1 status=failed terminal=true historyWritten=1 historyRows=1.",
+      "id": "A5",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/schema-drift.mts (adapted from beaudit-integration/.../probes/A/schema-drift.mts)",
+      "excerpt": "discovery: 12 same, 1 DRIFT blank-intent (documented parser-only); was 8 DRIFT. 3/3 examples valid+accept. Pipeline sheetId-short still DRIFT (lane S fence).",
+      "id": "A7",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/a9-cap.mts + request-hardening.test.ts",
+      "excerpt": "SAFE_MS=3000000 mins=50 below60=true; handle-discovery-webhook.ts:116,461 Math.min(configured,SAFE). Test: token run capped, worker cred keeps duration 3/3.",
+      "id": "A9",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "grep runAsyncLifecycle handle-discovery-webhook.ts handle-ingest-url.ts run-async-lifecycle.ts",
+      "excerpt": "run-async-lifecycle.ts 17K exists; both handlers import runAsyncLifecycle; computeSafetyDelayMs=base+min(30s,5%); stale comment gone. A12 tests 2/2.",
+      "id": "A12",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node /tmp/beaudit-verify/sec05-raw-paths.mjs 19050 (adapted probes/A/sec05-raw-paths.mjs) + worker-router.test.ts",
+      "excerpt": "// -> 400 malformed_url health=200 (was DOWN); /nope 404 envelope; router boots on port 0 server.listen(0). Tests 10/10.",
+      "id": "A14",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/a15b.mts",
+      "excerpt": "mergedUserProfile identity {name:Ada} apiKey stripped, leaked_nested=NO (was top-level only). stripMergedProfileSecrets recursive. Test nested stripped 3/3.",
+      "id": "A15",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/a16b.mts (LANE-REPORT-A section 5 inline)",
+      "excerpt": "hasStaff=true hasDist=true (both kept, was last-wins). workerConfigWriteChains Map per-path, re-reads inside lock. Tests 2/2.",
+      "id": "A16",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "boot-recovery.test.ts A17 + grep pruneRunStatusSnapshots server.ts",
+      "excerpt": "Prune drops aged+beyond-keep never live 3/3. server.ts:278 pruneRunStatusSnapshots(runStateDirectory) at boot; keeps 30d/newest 200.",
+      "id": "A17",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "ls schemas/*v1.schema.json + grep SourceAdapter contracts.ts + worker-contract-schemas.test.ts",
+      "excerpt": "6 schemas exist (run-status, ingest-url x2, cleanup x2, api-error). SourceAdapter.normalize removed (comment 1232). Examples validate 4/4.",
+      "id": "A18",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "node --experimental-strip-types /tmp/beaudit-verify/a20-key.mts",
+      "excerpt": "a=run_f92da... b=run_f92da... same=true calls=1 (different requestedAt/variationKey, same idempotencyKey). Schema+parser+payload agree. Tests 2/2.",
+      "id": "A20",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "run-cancel-truth.test.ts + live curl POST /runs/:id/cancel 19050",
+      "excerpt": "Live: no secret 401 unauthorized, unknown 404 run_not_found. In-process: in-flight waited, unconfirmed at deadline, real runner cancelled not partial, unsaved->503+retry 4/4; router 503 case 10/10.",
+      "id": "A21",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "curl errshape suite 19051 (adapted from beaudit-integration/.../probes/E/probe-e-errshape.sh)",
+      "excerpt": "scrape 400 BAD_REQUEST+retryable, INVALID_JSON+retryable, ats 503 SERVICE_UNAVAILABLE+retryable, /nope JSON 404 NOT_FOUND, 413 route-neutral PAYLOAD_TOO_LARGE+nextStep, 403 FORBIDDEN+retryable (was bare/HTML/ATS-named).",
+      "id": "E7",
+      "verdict": "FIXED"
+    },
+    {
+      "command": "live curl worker 19050 /nope // /pipeline-update + worker-router.test.ts",
+      "excerpt": "/nope 404 not_found+retryable, // 400 malformed_url, pipeline 401 has auth missing_secret_header+unauthorized, ingest 409 sheets_credential_missing+code, webhook 400 invalid_request+code (was no code/retryable, 401 omits auth).",
+      "id": "A13",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "eslint . clean; OK integrations/openclaw-command-center/SKILL.md; lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "typecheck:browser-use-discovery (tsc --noEmit) + typecheck:server + 80x node --check; RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "tests 3741 suites 912 pass 3733 fail 0 todo 8 duration_ms 14904; RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "tests 874 suites 2 pass 874 fail 0 duration_ms 3393; RC=0 (VAL-ROUTE-010 passed this run)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "12 OK lines (contract 5, ats 4, pipeline 1, pipeline-update 1, skills 1); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "24 passed (33.6s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "33 passed (43.8s); RC=0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-onboarding",
+      "excerpt": "7 passed (13.6s); RC=0",
+      "passed": true
+    }
+  ],
+  "head": "2d02ec9708b86f3f65bd2a34519f64fe09634556",
+  "lane": "L",
+  "summary": "Floor 8/8 green with fresh HOME. 11/11 added test files green (4/4,10/10,9/9,1/1,5/5,3/3,3/3,28/28,2/2,4/4,6/6). 16/16 claims FIXED via adapted audit probes + live worker 19050/API 19051. Notes: A7 pipeline sheetId-short drift remains (lane S); A13 200 ok:false retained but now has code+retryable. Git status clean.",
+  "tests": [
+    {
+      "excerpt": "A21 in-flight waited (204ms), unconfirmed at deadline (236ms), real runner cancelled not partial (16ms), unsaved->not_saved+retry (7ms); tests 4 pass 4 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-cancel-truth.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A14/A1 // 400 survives, 404, aliases, 405+401, 413 neutral, 500 survives, E7/A13 envelope, GET /runs/:id, A21 cancel, A21 503 not_saved; tests 10 pass 10 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/worker-router.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A2 fallback failed, safety stays armed retries, ingest fallback, A12 grace, real outcome, A21 cancel+history, write-race, completed-not-cancelled, registry leaves; tests 9 pass 9 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/run-async-lifecycle.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A2 failed disk write leaves memory unchanged, retry lands; tests 1 pass 1 fail 0",
+      "file": "integrations/browser-use-discovery/tests/state/run-status-store-write-order.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A3 409 before extraction, async 409, token satisfies, A4 rejected write keeps reason x2; tests 5 pass 5 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/ingest-url-order.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A5 terminalizes+1 history row each, logger failure never blocks, A17 prune drops aged+beyond-cap never live; tests 3 pass 3 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/boot-recovery.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A9 token run capped below life, worker cred keeps duration, A15 nested secrets stripped; tests 3 pass 3 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/request-hardening.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A7 parity 26 cases + A20 idempotencyKey decides runId + second POST resolves to first; tests 28 pass 28 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/webhook-schema-parity.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A16 four overlapping keep field, concurrent different fields keep both; tests 2 pass 2 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/worker-config-write-lock.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "A18 examples validate, run-status validates, ingest-url shapes validate, cleanup shapes validate; tests 4 pass 4 fail 0",
+      "file": "integrations/browser-use-discovery/tests/webhook/worker-contract-schemas.test.ts",
+      "passed": true
+    },
+    {
+      "excerpt": "validation envelope, INVALID_JSON+retryable, JSON 404, 413 neutral, origin envelope, success alone; tests 6 pass 6 fail 0",
+      "file": "tests/api-error-envelope.test.mjs",
+      "passed": true
+    }
+  ]
+}

@@ -1,0 +1,67 @@
+{
+  "claims": [
+    {
+      "command": "node --test tests/relay-github-actions-retired.test.mjs && node --test tests/relay-github-actions-refusal.test.mjs (RGHA has no audit reproducer per task)",
+      "excerpt": "retired: ℹ tests 7 ℹ pass 7 ℹ fail 0 EXIT:0 (relay rejects GitHub Actions + migrate wording in 3 docs, secret table). refusal: ℹ tests 14 ℹ pass 14 ℹ fail 0 EXIT:0 — exercises claim: workers.dev exits non-zero pre-POST (any case/path/port), relay-auth 401 + relay_token_not_configured exit non-zero with migration note, non-relay worker/Apps Script posted once + 2xx succeeds, worker's own 401 fails without relay claim, template byte-identical to repo workflow, Settings/wizard/docs copy.",
+      "id": "RGHA",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "npm run lint:repo",
+      "excerpt": "eslint clean; OK integrations/openclaw-command-center/SKILL.md; lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run typecheck:repo",
+      "excerpt": "tsc --noEmit browser-use-discovery OK, tsc --noEmit server OK, all node --check files OK (no errors); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm test",
+      "excerpt": "ℹ tests 3749 ℹ pass 3741 ℹ fail 0 EXIT:0 (two runs; ✖ lines are the 8 lane-L E7 todo tests, fail stays 0)",
+      "passed": true
+    },
+    {
+      "command": "npm run test:browser-use-discovery",
+      "excerpt": "ℹ tests 805 ℹ suites 2 ℹ pass 805 ℹ fail 0 ℹ cancelled 0 ℹ skipped 0 ℹ todo 0; EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:contract:all",
+      "excerpt": "12 OK lines (5 contract + 4 ats + 1 pipeline + 1 pipeline-update + 1 skills), 0 FAIL; EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-smoke",
+      "excerpt": "24 passed (38.4s); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-journey",
+      "excerpt": "33 passed (1.1m); EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "npm run test:e2e-onboarding",
+      "excerpt": "7 passed (15.9s) — VAL-ONEFLOW-001 + E1-E6; EXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "be8087c31c71dbec0c12c50864eab6d19eae9baf",
+  "lane": "Y",
+  "summary": "All 8 floor commands passed with fresh HOME (lint, typecheck, 3749-test unit suite fail 0, 805/805 discovery, 12/12 contracts, 24 smoke, 33 journey, 7 onboarding). Both changed tests green: refusal 14/14, VAL-ROUTE-010 isolated 1/1 and 10/10 loop with fetch stub confirmed at routing-enforcement.test.ts:1102-1118. Claim RGHA FIXED via retired 7/7 + refusal 14/14 exercising relay refusal, migration note, and retired-path copy. Tree left clean at be8087c3.",
+  "tests": [
+    {
+      "excerpt": "✔ RGHA relay-refused (4) + still-posts (4) + Settings/wizard/docs copy (4) + template-identity/portability suites; ℹ tests 14 ℹ suites 4 ℹ pass 14 ℹ fail 0; EXIT:0 (fresh HOME, fake curl/node, no network)",
+      "file": "tests/relay-github-actions-refusal.test.mjs",
+      "passed": true
+    },
+    {
+      "excerpt": "VAL-ROUTE-010 isolated: ✔ modifier-driven grounded query (11ms); ℹ tests 1 ℹ pass 1 ℹ fail 0 EXIT:0; 10x loop: pass_runs=10 fail_runs=0. Stub verified: globalThis.fetch returns 200 HTML job page, restored in finally (lines 1102-1118), assertions unchanged.",
+      "file": "integrations/browser-use-discovery/tests/webhook/routing-enforcement.test.ts",
+      "passed": true
+    }
+  ]
+}

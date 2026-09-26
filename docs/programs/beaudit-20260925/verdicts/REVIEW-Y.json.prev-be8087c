@@ -1,0 +1,22 @@
+{
+  "blocking": [
+    {
+      "file": "templates/github-actions/command-center-discovery.yml",
+      "line": 78,
+      "issue": "[P2] Handle Apps Script redirects before rejecting non-2xx responses. The new `2??)` / `exit 1` check rejects successful Apps Script ContentService calls because curl does not follow their content redirect. [Google documents this redirect](https://developers.google.com/apps-script/guides/content#redirects). A stubbed HTTP 302 produced exit 0 on base and exit 1 on candidate, including the Settings-generated workflow. Handle the redirect safely and test this advertised target with a realistic response."
+    },
+    {
+      "file": "templates/github-actions/command-center-discovery.yml",
+      "line": 55,
+      "issue": "[P2] Limit refusal to identified JobBored relays. `workers.dev|*.workers.dev) relay_refused ;;` rejects every endpoint on Cloudflare Workers, including user-owned discovery handlers that accept the existing POST contract. A probe targeting `https://custom-discovery.account.workers.dev/webhook` with a successful receiver response changed from one POST and exit 0 on base to zero POSTs and exit 1 on candidate. A shared hosting suffix does not identify the retired relay."
+    }
+  ],
+  "nonBlocking": [
+    {
+      "file": "tests/relay-github-actions-refusal.test.mjs",
+      "line": 251,
+      "issue": "[P3] Exercise the generated wizard prompt. `read(\"discovery-wizard-relay.js\")` followed by a source regex pins implementation text without verifying the returned prompt. Confirmed with an in-memory mutation: moving the warning into a comment preserves this assertion while removing the warning from the generated prompt. Call `buildCloudflareRelayAgentPrompt` and assert its output."
+    }
+  ],
+  "confidence": "High for the reported findings; shell regressions were compared against base using stubbed responses. Contract checks, typechecking, 103 Settings/wizard tests, seven retirement tests, and isolated VAL-ROUTE-010 passed. The new refusal suite was blocked by read-only scratch-directory creation; lint was blocked by a missing ESLint formatter. Full suites, browser behavior, and live Actions execution remain unverified. No additional security, contract-companion, or unlisted fence violations found. No files changed."
+}

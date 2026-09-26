@@ -1,0 +1,62 @@
+{
+  "claims": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright node --test tests/relay-github-actions-retired.test.mjs tests/relay-github-actions-refusal.test.mjs",
+      "excerpt": "\u2714 GitHub Actions to the Cloudflare relay is retired (7/7)\n\u2714 RGHA: the three discovery workflows are one workflow (2/2)\n\u2714 RGHA: a relay webhook URL is refused with the migration note (6/6)\n\u2714 RGHA: a non-relay webhook URL still posts (10/10)\n\u2714 RGHA: Settings and the wizard stop offering the relay (4/4)\n\u2139 tests 29\n\u2139 suites 5\n\u2139 pass 29\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\nEXIT:0\nRetired 7/7 alone also EXIT:0. Exercises RGHA: JobBored relay names refused with migration note before POST, custom workers.dev posted, Apps Script 302 POST-then-GET without secret/-d, echo-500 fails, foreign 302 not followed.",
+      "id": "RGHA",
+      "verdict": "FIXED"
+    }
+  ],
+  "floor": [
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+      "excerpt": "> eslint .\n> node scripts/lint-integration-skills.mjs\nOK integrations/openclaw-command-center/SKILL.md\n> node tools/lint-tokens.mjs\nlint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+      "excerpt": "> tsc --noEmit --project integrations/browser-use-discovery/tsconfig.json\n> tsc --noEmit --project server/tsconfig.json\n+ node --check (app.js, discovery-*, settings-*, scripts/*, pipeline/dawn/today/scribe/oneflow, ~80 files)\nEXIT:0 (no errors)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+      "excerpt": "\u2139 tests 3757\n\u2139 suites 915\n\u2139 pass 3749\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 8\n\u2139 duration_ms 14616.304292\nEXIT:0 (first run also EXIT:0; 8 todo are lane-L E7 envelope, incl. submission-record-audit)",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+      "excerpt": "\u2139 tests 805\n\u2139 suites 2\n\u2139 pass 805\n\u2139 fail 0\n\u2139 cancelled 0\n\u2139 skipped 0\n\u2139 todo 0\n\u2139 duration_ms 14859.612542\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+      "excerpt": "OK schema: examples/discovery-webhook-request.v1.json\nOK schema: examples/discovery-webhook-request.v1-with-profile.json\nOK schema: examples/discovery-webhook-request.v1-preview-parity.json\nOK discovery-payload.js covers schema properties\nOK discovery-readiness.js delegates to discovery-payload.js\nOK schema (ATS request/response) x2 + builder x2\nOK schemas/pipeline-row.v1.json \u2194 README \u2194 app-config-core \u2194 pipeline-render\nOK schema (pipeline-update request)\nOK integrations/openclaw-command-center/SKILL.md\n12 OK total, EXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+      "excerpt": "Running 24 tests using 1 worker\n\u2713 board-apply (6), boot-smoke (6), case-dossier (4), dossier-layout (2), hermetic-fence (2), pipeline-rendered-event (4)\n24 passed (31.9s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+      "excerpt": "\u2713 critical-journey (15), shell-today (13), ux01-f-states-settings (5)\n33 passed (44.7s)\nEXIT:0",
+      "passed": true
+    },
+    {
+      "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-onboarding",
+      "excerpt": "Running 7 tests using 1 worker\n\u2713 VAL-ONEFLOW-001: six beats reach the payoff (5.1s)\n\u2713 E1 Beat 3 gated on Beat 2, E2 resume survives Escape+reload, E3 Drawer\u2192OneFlow, E4 Beat 1 never punts, E5 honest payoff, E6 Settings receipts\n7 passed (14.2s)\nEXIT:0",
+      "passed": true
+    }
+  ],
+  "head": "17e74660f7002888cae0b0728d102a88f3574dc8",
+  "lane": "Y",
+  "summary": "Lane Y at 17e74660: all 8 floor checks pass with fresh HOME (lint, typecheck, npm test 3749/3757+8 todo, browser 805/805, contract 12 OK, e2e 24+33+7). Refusal suite 22/22 green: JobBored-only relay refusal, custom workers.dev posted, Apps Script 302 POST-then-GET without secret/-d, echo-500 fails, foreign 302 unfollowed, Settings-generated covers all three. Retired 7/7 green. RGHA FIXED. Tree left clean.",
+  "tests": [
+    {
+      "excerpt": "\u2714 the repo workflow is byte-identical to the template\n\u2714 the Settings-generated workflow embeds the template verbatim\n\u2714 the JobBored relay worker https://jobbored-discovery-relay-main.someone.workers.dev/ exits non-zero before any POST\n\u2714 the JobBored relay worker https://jobbored-discovery-relay.someone.workers.dev/ exits non-zero before any POST\n\u2714 the JobBored relay worker https://command-center-forward.someone.workers.dev/ exits non-zero before any POST\n\u2714 https://custom-discovery.account.workers.dev/webhook is posted once and the job succeeds on 2xx\n\u2714 https://my-discovery.jobbored-discovery-relay.workers.dev/webhook is posted once and the job succeeds on 2xx\n\u2714 an Apps Script 302 to its content echo succeeds and reads the result by GET (Moved Temporarily+echo Location, exit 0, POST then GET, no -d/POST or secret on GET)\n\u2714 the Settings-generated workflow handles the Apps Script 302 and a custom workers.dev handler (+relay refused, calls 2/1/0)\n\u2714 an Apps Script echo that fails still fails the job (500)\n\u2714 a 302 to any other host fails the job and is not followed (calls 1)\n\u2139 tests 22\n\u2139 suites 4\n\u2139 pass 22\n\u2139 fail 0\nEXIT:0\nRed log .lane-evidence/rgha-repair2-red.txt: pass 18 fail 4 (the 2 custom URLs + Apps Script 302 + Settings-generated). Commit 17e74660 body documents the workers.dev\u2192JobBored-names behavior change.",
+      "file": "tests/relay-github-actions-refusal.test.mjs",
+      "passed": true
+    }
+  ]
+}

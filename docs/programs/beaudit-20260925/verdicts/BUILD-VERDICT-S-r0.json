@@ -1,0 +1,209 @@
+{
+ "claims": [
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p01-concurrent-append-dup.mjs (adapted probes/D/p01 + batchGet shim + mutex barrier)",
+   "excerpt": "run1 {\"appended\":1,\"updated\":0}\nrun2 {\"appended\":0,\"updated\":1}\npipeline data rows: 1 links: https://boards.greenhouse.io/acme/jobs/1\nno duplicate",
+   "id": "D1",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p02-rowdrift-writer.mjs (adapted probes/D/p02, delete after snapshot before re-read)",
+   "excerpt": "{\"title\":\"Beta role\",\"link\":\"https://beta.example/jobs/2\",\"status\":\"Interviewing\"}\n{\"title\":\"Gamma role\",\"link\":\"https://gamma.example/jobs/3\",\"status\":\"New\"}\nGamma intact",
+   "id": "D2",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p03-cleanup-stale-overwrite.mjs",
+   "excerpt": "cleanup result: {\"checked\":2,\"updated\":1,\"postingFetches\":2}\nrow X after: {\"status\":\"Applied\",\"notes\":\"old note\\nuser: applied today, ref #123\",\"followUp\":\"2026-10-01\"}\nno overwrite",
+   "id": "D3",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p05-rediscovery-overwrites-user-columns.mjs",
+   "excerpt": "Source Manual->Manual Priority \ud83d\udd25 top preserved Tags preserved Fit Assessment preserved Talking Points preserved\nSalary $150k-> $120k overwritten (deferred: stays under Edit Lock) Fit Score 9->6 (discovery-owned, by design)\nwrite range: Pipeline!G2 (changed-cells-only, not A2:Y2)",
+   "id": "D4",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p06-formula-injection.mjs",
+   "excerpt": "cells B,C sent: [\"'=HYPERLINK(...\",\"'=IMAGE(...\"]\nescaped",
+   "id": "D5",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p08-patcher-header-drift.mjs",
+   "excerpt": "PipelineHeaderMismatchError: Pipeline header mismatch: column F is 'Referral?'; expected 'Source'.\ncode: 'header_mismatch', column: 'F', expected: 'Source', found: 'Referral?'",
+   "id": "D6",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p09-pipeline-update-applied-and-note-race.mjs (barrier fixed for B2:E/batchGet + mutex)",
+   "excerpt": "notes after two concurrent appends: \"[2026-09-25] Hermes follow-up sent\\n[2026-09-25] recruiter emailed\\n[2026-09-25] Applied\\nseed\"\nboth kept",
+   "id": "D8",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p04-cleanup-all-or-nothing.mjs (30 rows, concurrency 1)",
+   "excerpt": "Sheet writes already flushed at each posting fetch: [0x25,1,1,1,1,1]\ntotal batchUpdate calls: 2\nFIXED: first 25 rows flushed before row 26 fetched (2 batchUpdates total)",
+   "id": "D9",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p12-half-written.mjs (5x503 to exhaust retries, retryBaseMs 1)",
+   "excerpt": "(1) update 503x5 -> SheetWriteError phase=update partialResult={\"appended\":1,\"updated\":0} | append attempted: true | rows: 2\n(2) append 500x1 -> retried ok appended=1 updated=1 rows=2\n(3) append response lost -> SheetWriteError isSheetWriteError=true uncertain=true phase=append | rows: 2\n(3b) retry -> {\"appended\":0,\"updated\":2} rows: 2",
+   "id": "D12",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p10-runs-writer-edges.mjs",
+   "excerpt": "(a) 429 header read -> {\"ok\":false,\"reason\":\"header read HTTP 429 - RESOURCE_EXHAUSTED\"} calls: values.get\n(b) legacy tab header: Run At|Trigger|Status|Duration|Companies Seen|Leads New|Leads Updated|Source|Variation Key|Error\nold row -> Leads Updated= \"\" Source= \"worker\" Error= \"Gemini key missing\"",
+   "id": "D13",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p11-call-count.mjs",
+   "excerpt": "preflight token:1 /health token:0 pipeline write token:0 DiscoveryRuns token:0\nTOTAL per run: token exchanges 0 (excl. /health) (was 3)",
+   "id": "D16",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types -e check writer read ranges (fake + SA cred)",
+   "excerpt": "reads: [\"values.get:Pipeline!A1:Y1\",\"values.get:Blacklist!A2:A\",\"values.batchGet:Pipeline!B2:F|Pipeline!W2:Y\",\"values.get:Pipeline!E2:E\"]\nhas A2:Y? NO FIXED",
+   "id": "D17",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "ls sheets-client.ts + pipeline-columns.generated.ts; grep withSheetLock/resolveRowsByLink/sheets-client imports; grep cleanup private helpers",
+   "excerpt": "sheets-client.ts 25673B pipeline-columns.generated.ts 3234B\nwithSheetLock + resolveRowsByLink exported; writer/patcher/cleanup import from sheets-client.ts\ncleanup private getSheetValues/batchUpdateCells: none (only columnIndexToLetter for error text)",
+   "id": "D18",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types --test pipeline-columns-contract.test.ts; node scripts/test-pipeline-contract.mjs; node -e header diff",
+   "excerpt": "\u2714 D19 headerRow equals schema \u2714 generated map equals schema \u2714 merge rule \u2714 planner letters match (4 pass)\nOK schemas/pipeline-row.v1.json \u2194 README \u2194 app-config-core \u2194 pipeline-render\nlengths 25 25 diffs 0",
+   "id": "D19",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types -e 3x validateSheetsCredentialReadiness with cacheTtlMs 60000 vs no TTL",
+   "excerpt": "3x /health with TTL: fetch calls = 2 FIXED (1 token + 1 sheets, cached)\n3x preflight no TTL: fetch calls = 3 (live every time, by design)\nserver.ts:731 cacheTtlMs: 60_000",
+   "id": "A8",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types /tmp/s-verify/p09-pipeline-update-applied-and-note-race.mjs",
+   "excerpt": "after stage=Applied: {\"status\":\"Applied\",\"appliedDate\":\"2026-09-25\",\"followUp\":\"2026-10-02\"}\nside effects applied",
+   "id": "D7",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --experimental-strip-types -e patcher Expired + cleanup Expired cell sets; node p13 (browser deferred)",
+   "excerpt": "patcher Expired: {\"M\":\"Expired\",\"P\":\"\",\"O\":\"[2026-09-25] Marked Expired\\nmine\"}\ncleanup Expired: {\"M\":\"Expired\",\"P\":\"\",\"O\":\"mine\\n[JobBored 2026-09-25] Marked Expired because the job page says the role is closed. Was: Researching.\"}\nFIXED: worker M+P+O agree",
+   "id": "D10",
+   "verdict": "FIXED"
+  },
+  {
+   "command": "node --test tests/apps-script-stub-secret.test.mjs; grep WEBHOOK_SECRET Code.gs",
+   "excerpt": "\u2714 D20 logs only event+variationKey \u2714 POST without secret refused \u2714 test rows need secret \u2714 deduped by URL (4 pass)\nWEBHOOK_SECRET gates POSTs; Logger.log event + variationKey only",
+   "id": "D20",
+   "verdict": "FIXED"
+  }
+ ],
+ "floor": [
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run lint:repo",
+   "excerpt": "eslint clean; lint:skills OK; lint:tokens ok: 34 sheet(s), 0 new finding(s), 0 brace error(s)\nEXIT:0",
+   "passed": true
+  },
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run typecheck:repo",
+   "excerpt": "typecheck:browser-use-discovery + typecheck:server + node --check (all files)\nEXIT:0",
+   "passed": true
+  },
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm test",
+   "excerpt": "\u2139 tests 3740 \u2139 pass 3732 \u2139 fail 0 \u2139 cancelled 0 \u2139 skipped 0 \u2139 todo 8\nEXIT:0",
+   "passed": true
+  },
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:browser-use-discovery",
+   "excerpt": "\u2714 VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grounded query (15.3ms)\n\u2139 tests 856 \u2139 pass 856 \u2139 fail 0\nEXIT:0",
+   "passed": true
+  },
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:contract:all",
+   "excerpt": "OK discovery x5; OK ats x4; OK pipeline-contract; OK pipeline-update v1+v2 + 6 v2 rejections; OK skills (19 OK)\nEXIT:0",
+   "passed": true
+  },
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-smoke",
+   "excerpt": "Running 24 tests using 1 worker\n24 passed (40.1s)\nEXIT:0",
+   "passed": true
+  },
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-journey",
+   "excerpt": "Running 33 tests using 1 worker\n33 passed (1.1m)\nEXIT:0",
+   "passed": true
+  },
+  {
+   "command": "HOME=$(mktemp -d) PLAYWRIGHT_BROWSERS_PATH=/Users/emilionunezgarcia/Library/Caches/ms-playwright npm run test:e2e-onboarding",
+   "excerpt": "Running 7 tests using 1 worker\n7 passed (17.6s)\nEXIT:0",
+   "passed": true
+  }
+ ],
+ "head": "acb4f9eca0b69d39071ffc6d0594e89a35130326",
+ "lane": "S",
+ "summary": "HEAD acb4f9ec: all 8 floor commands green under fresh HOME (VAL-ROUTE-010 stub fixed: 856/856). All 10 lane S test files pass (56 tests). All 18 worker halves FIXED via adapted D probes (mutex, Link re-resolve, fill-if-empty, escaping, header 409, Applied side-effects, flush/25, uncertain SheetWriteError, 429 handling, token cache, B2:F batchGet, sheets-client, schema binding, 60s /health cache, M+P+O, secret stub). Accepted deferrals only: D2 browser/F16, D6/D10 browser, D18/D19 browser+runs-rewrite, D4 salary G lockable. No repo writes.",
+ "tests": [
+  {
+   "excerpt": "fake-sheets load ok: HEADER,createFakeSheets,lead,pipelineRow,runtimeConfig\nEXIT:0",
+   "file": "integrations/browser-use-discovery/tests/sheets/fake-sheets.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D1 x2 \u2714 D2 x2 \u2714 D4 x3 \u2714 D5 x2 \u2714 D17 \u2714 D12 x3\n\u2139 tests 13 \u2139 pass 13 \u2139 fail 0",
+   "file": "integrations/browser-use-discovery/tests/sheets/pipeline-writer-integrity.test.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D6 \u2714 D7 x2 \u2714 D8 \u2714 D2 moved \u2714 ambiguous \u2714 D10 \u2714 D5\n\u2139 tests 8 \u2139 pass 8 \u2139 fail 0",
+   "file": "integrations/browser-use-discovery/tests/sheets/pipeline-patcher-integrity.test.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D3 \u2714 D10 \u2714 D2 \u2714 D9 x3 \u2714 D5\n\u2139 tests 7 \u2139 pass 7 \u2139 fail 0",
+   "file": "integrations/browser-use-discovery/tests/sheets/expired-cleanup-integrity.test.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D13 429/401/403/503 not missing \u2714 400 creates \u2714 legacy readable\n\u2139 tests 6 \u2139 pass 6 \u2139 fail 0",
+   "file": "integrations/browser-use-discovery/tests/sheets/discovery-runs-writer-edges.test.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D16 token once/hour \u2714 changed cred \u2714 A8 TTL cached \u2714 no TTL live\n\u2139 tests 4 \u2139 pass 4 \u2139 fail 0",
+   "file": "integrations/browser-use-discovery/tests/sheets/credential-cache.test.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D19 headerRow \u2714 generated map \u2714 merge rule \u2714 planner letters\n\u2139 tests 4 \u2139 pass 4 \u2139 fail 0",
+   "file": "integrations/browser-use-discovery/tests/sheets/pipeline-columns-contract.test.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 v2 accept \u2714 v2 400 \u2714 YYYY-MM-DD \u2714 v2-only source \u2714 v1 ok \u2714 409 header \u2714 409 ambiguous \u2714 502 \u2714 404\n\u2139 tests 9 \u2139 pass 9 \u2139 fail 0",
+   "file": "integrations/browser-use-discovery/tests/webhook/handle-pipeline-update-v2.test.ts",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D20 log minimal \u2714 secret refused \u2714 test rows need secret \u2714 deduped\n\u2139 tests 4 \u2139 pass 4 \u2139 fail 0",
+   "file": "tests/apps-script-stub-secret.test.mjs",
+   "passed": true
+  },
+  {
+   "excerpt": "\u2714 D5/F5 rescore Fit Assessment + Talking Points escaped\n\u2139 tests 1 \u2139 pass 1 \u2139 fail 0",
+   "file": "tests/profile-rescore-formula-escape.test.mjs",
+   "passed": true
+  }
+ ]
+}
