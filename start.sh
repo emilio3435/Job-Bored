@@ -6,7 +6,9 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$ROOT"
 
 # --- B5 Option 4 start opener (SPEC-FIXED C1 + C4) ---
-# C1 deep link: ?beat=discovery (param `beat`, value `discovery`).
+# C1 deep link: ?beat=discovery&returnTo=close — returnTo closes the flow
+# after the beat instead of walking on into B6 (GFX-N5). A user who already
+# finished onboarding gets the dashboard: the controller ignores the link.
 # C4 flag: JB_SKIP_BROWSER_OPEN=1 skips the browser open.
 # Defaults: open ON for interactive/double-click; OFF under CI or headless
 # with no TTY unless JB_FORCE_BROWSER_OPEN=1.
@@ -16,7 +18,7 @@ if [ -n "${COMMAND_CENTER_TLS:-}" ] || [ -n "${HTTPS:-}" ]; then
 else
   JB_DASHBOARD_SCHEME="http"
 fi
-JB_BEAT_URL="${JB_DASHBOARD_SCHEME}://localhost:${JB_DASHBOARD_PORT}/?beat=discovery"
+JB_BEAT_URL="${JB_DASHBOARD_SCHEME}://localhost:${JB_DASHBOARD_PORT}/?beat=discovery&returnTo=close"
 JB_OPEN_MAX_WAIT_SECS="${JB_OPEN_MAX_WAIT_SECS:-30}"
 
 jb_skip_reason() {

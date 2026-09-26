@@ -929,10 +929,21 @@
    * returnTo=close is honored exactly like the Settings handoff: the shell
    * closes where the link opened it. Answers the render, or null when there
    * was nothing to route.
+   *
+   * GFX-N5: start.sh opens ?beat=discovery on every interactive launch, so a
+   * user who already finished onboarding must not be marched back into it.
+   * A completed flow (after the stale-completion check, so a flow with no
+   * sheet still reopens) consumes and strips the link and routes nothing.
    */
   async function openFromDeepLink() {
     const deep = parseBeatDeepLink();
     if (!deep) return null;
+    await hydrate(true);
+    await reconcileStaleCompletion();
+    if (state.completed) {
+      stripBeatDeepLinkParams();
+      return null;
+    }
     const valid =
       deep.beat &&
       getRegisteredBeats().some((beat) => beat.id === deep.beat)

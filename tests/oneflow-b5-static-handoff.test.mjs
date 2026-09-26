@@ -972,3 +972,47 @@ describe("GFX-N3 · any JSON ping answer proves the server; the POST decides", (
     assert.doesNotMatch(text, /ping failed/);
   });
 });
+
+// ---------------------------------------------------------------
+// GFX-N5: a finished onboarding is never re-opened by ?beat=
+// ---------------------------------------------------------------
+
+describe("GFX-N5 · ?beat= is ignored once onboarding is complete", () => {
+  async function finishedEnv() {
+    const env = loadDiscoveryBeat();
+    // Discovery is the only registered beat here, so completing it runs
+    // finishFlow and writes completed: true.
+    await env.flow.open("discovery");
+    await env.flow.completeBeat("discovery");
+    assert.equal(env.flow.getState().completed, true);
+    assert.equal(env.flow.isOpen(), false);
+    return env;
+  }
+
+  it("GFX-N5: a completed flow ignores ?beat=discovery and still strips it", async () => {
+    const env = await finishedEnv();
+    const opensBefore = env.events.filter(
+      (e) => e.detail && e.detail.step === "beat_opened",
+    ).length;
+    const link = fakeLocation("?beat=discovery&returnTo=close&setup=x");
+    env.window.location = link.location;
+    env.window.history = link.history;
+    assert.equal(await env.flow.openFromDeepLink(), null);
+    assert.equal(env.flow.isOpen(), false, "a finished user is not pushed back into setup");
+    assert.equal(
+      env.events.filter((e) => e.detail && e.detail.step === "beat_opened").length,
+      opensBefore,
+    );
+    assert.equal(link.calls.length, 1, "the ignored link is still consumed");
+    assert.equal(link.calls[0][2], "/?setup=x");
+  });
+
+  it("GFX-N5: an unfinished flow still honors ?beat=discovery", async () => {
+    const env = loadDiscoveryBeat();
+    const link = fakeLocation("?beat=discovery&returnTo=close");
+    env.window.location = link.location;
+    env.window.history = link.history;
+    assert.ok(await env.flow.openFromDeepLink());
+    assert.equal(env.flow.isOpen(), true);
+  });
+});
