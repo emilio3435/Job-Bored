@@ -531,6 +531,14 @@ body.jb-v2 [data-region="role"] .case .case__provenance {
 }
 body.jb-v2 [data-region="role"] .case .case__provenance b { font-weight: 600; color: var(--jb-ink, inherit); }
 
+/* Slice 3b: the package's template family and "Regenerate in…". */
+body.jb-v2 [data-region="role"] .case .case__template {
+  margin: 0 0 8px; font-family: var(--jb-font-body, inherit); font-size: var(--jb-text-sm, 13px);
+  color: var(--jb-ink-2, inherit); overflow-wrap: anywhere;
+}
+body.jb-v2 [data-region="role"] .case .case__template b { font-weight: 600; color: var(--jb-ink, inherit); }
+body.jb-v2 [data-region="role"] .case .case__template-regen { margin-left: 6px; }
+
 /* C11 + C12: the resume gate and the server-down state share one block. */
 body.jb-v2 [data-region="role"] .case .case__gate {
   display: grid; gap: 6px; padding: 12px 14px; border-radius: var(--jb-radius-md, 10px);

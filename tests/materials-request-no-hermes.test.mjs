@@ -13,3 +13,10 @@ describe("materials-request no longer spawns Hermes", () => {
     assert.equal(source.includes("materials-request.sh"), false);
   });
 });
+
+describe("materials-request validates the template family at the boundary", () => {
+  it("should resolve template ids through the registry", () => {
+    assert.match(source, /from "\.\/materials-templates\.mjs"/);
+    assert.match(source, /resolveFamily\(/);
+  });
+});

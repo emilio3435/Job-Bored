@@ -861,6 +861,29 @@ describe("materials rows in the case mount", () => {
     assert.doesNotMatch(rowsHtml(host), /case__hint--error/, "an empty shelf is not an error");
   });
 
+  it("should name the package's template and offer Regenerate in… for the other families", () => {
+    const host = makeCaseMount();
+    const { pending: _pending, ...published } = CASE_MANIFEST;
+    api.renderManifest(host, {
+      ...published,
+      template: { family: "dossier", version: "1.0", templateIds: { resume: "dossier.resume" }, source: "preference" },
+    }, "http://127.0.0.1:3847");
+    const html = rowsHtml(host);
+    assert.match(html, /class="case__template" data-template-family="dossier">Template: <b>Dossier<\/b>/);
+    const offered = [...html.matchAll(/data-action="materials-regenerate" data-template="([a-z]+)"/g)].map((m) => m[1]);
+    assert.deepEqual(offered, ["signal", "editorial"]);
+  });
+
+  it("should hide Regenerate in… while a draft is running or before any template is recorded", () => {
+    const pendingHost = makeCaseMount();
+    api.renderManifest(pendingHost, { ...CASE_MANIFEST, template: { family: "signal", version: "1.0", source: "default" } }, "http://127.0.0.1:3847");
+    assert.doesNotMatch(rowsHtml(pendingHost), /materials-regenerate/);
+    const legacyHost = makeCaseMount();
+    const { pending: _pending, ...published } = CASE_MANIFEST;
+    api.renderManifest(legacyHost, published, "http://127.0.0.1:3847");
+    assert.doesNotMatch(rowsHtml(legacyHost), /case__template/);
+  });
+
   it("falls back to the legacy panel in a brief-only mount", () => {
     const brief = makeElement("div", { "data-mount": "brief" });
     api.renderManifest(brief, CASE_MANIFEST, "http://127.0.0.1:3847");

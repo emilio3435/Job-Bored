@@ -130,3 +130,41 @@ describe("spawnMaterialsRequest", () => {
     );
   });
 });
+
+describe("normalizeRequestBody — template family (slice 3b)", () => {
+  const base = {
+    slug: "acme-ops-analyst",
+    company: "Acme",
+    title: "Ops Analyst",
+    feature: "both",
+    resume: { source: "portfolio", filename: "r.pdf", addedAt: "", text: "Sample Candidate\nAnalyst" },
+  };
+
+  it("should pass a registry family through as template", () => {
+    const out = normalizeRequestBody({ ...base, template: "editorial" });
+    assert.equal(out.template, "editorial");
+    assert.equal(out.preferredTemplate, undefined);
+  });
+
+  it("should pass the saved preference through as preferredTemplate", () => {
+    const out = normalizeRequestBody({ ...base, preferredTemplate: "dossier" });
+    assert.equal(out.preferredTemplate, "dossier");
+    assert.equal(out.template, undefined);
+  });
+
+  it("should leave both out when omitted, so the drafter falls back to the default", () => {
+    const out = normalizeRequestBody(base);
+    assert.equal("template" in out, false);
+    assert.equal("preferredTemplate" in out, false);
+  });
+
+  it("should 400 an unknown template with the list of valid ids, before the resume check", () => {
+    for (const body of [{ ...base, template: "volt" }, { ...base, preferredTemplate: "ember" }, { ...base, resume: null, template: "nope" }]) {
+      assert.throws(
+        () => normalizeRequestBody(body),
+        (e) => e.statusCode === 400 && e.code === "unknown_template"
+          && Array.isArray(e.validTemplates) && e.validTemplates.join() === "signal,dossier,editorial",
+      );
+    }
+  });
+});

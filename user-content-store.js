@@ -244,7 +244,46 @@
     profileMergePreference: "merge",
     /** Keep in sync with visual-themes.js default id. */
     visualThemeId: "classic",
+    /** Materials template family (server/materials-templates.mjs DEFAULT_FAMILY). */
+    materialsTemplate: "signal",
   };
+
+  /**
+   * The materials template registry as the browser bundles it, for the
+   * Profile & Materials select when the local server is not running. Keep in
+   * sync with templates/materials/<family>/family.json (a test enforces it).
+   */
+  const MATERIALS_TEMPLATE_FAMILIES = Object.freeze([
+    Object.freeze({
+      id: "signal",
+      label: "Signal",
+      description:
+        "The default. A Volt name band with a graduated scale, a strip of verified figures, and a logo-labelled log.",
+      default: true,
+    }),
+    Object.freeze({
+      id: "dossier",
+      label: "Dossier",
+      description:
+        "Every proof point at once. A rail that indexes each employer, and bullets hung on their lead figure.",
+      default: false,
+    }),
+    Object.freeze({
+      id: "editorial",
+      label: "Editorial",
+      description:
+        "A magazine profile. Bodoni display type, the statement as a pull quote, and a logo-anchored timeline.",
+      default: false,
+    }),
+  ]);
+
+  /** @param {unknown} value */
+  function normalizeMaterialsTemplate(value) {
+    const id = String(value == null ? "" : value).trim();
+    return MATERIALS_TEMPLATE_FAMILIES.some((f) => f.id === id)
+      ? id
+      : DEFAULT_PREFERENCES.materialsTemplate;
+  }
   const LINKEDIN_PROFILE_MAX_CHARS = 24000;
   const ADDITIONAL_CONTEXT_MAX_CHARS = 40000;
 
@@ -1222,6 +1261,7 @@
       merged.profileMergePreference =
         DEFAULT_PREFERENCES.profileMergePreference;
     }
+    merged.materialsTemplate = normalizeMaterialsTemplate(merged.materialsTemplate);
     return merged;
   }
 
@@ -1238,7 +1278,16 @@
     ) {
       mergePref = DEFAULT_PREFERENCES.profileMergePreference;
     }
-    const next = { ...cur, ...partial, profileMergePreference: mergePref };
+    const next = {
+      ...cur,
+      ...partial,
+      profileMergePreference: mergePref,
+      materialsTemplate: normalizeMaterialsTemplate(
+        partial && partial.materialsTemplate != null
+          ? partial.materialsTemplate
+          : cur.materialsTemplate,
+      ),
+    };
     await setSetting("preferences", next);
     return next;
   }
@@ -1404,6 +1453,8 @@
     getPreferences,
     savePreferences,
     DEFAULT_PREFERENCES,
+    MATERIALS_TEMPLATE_FAMILIES,
+    normalizeMaterialsTemplate,
     LINKEDIN_PROFILE_MAX_CHARS,
     normalizeLinkedInProfile,
     getLinkedInProfile,

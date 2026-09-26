@@ -48,6 +48,8 @@ import {
   saveUpload,
 } from "./brand-logos.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
+import { regeneratePackage } from "./materials-regenerate.mjs";
+import { listFamilies } from "./materials-templates.mjs";
 import {
   buildStarterTemplate,
   listStarterTemplateIds,
@@ -693,11 +695,13 @@ function sendAppError(res, err) {
   const error = /** @type {{ statusCode?: unknown, code?: unknown } | null | undefined} */ (err);
   const status = Number(error && error.statusCode);
   const message = errorMessage(err, "Application materials error");
-  /** @type {{ error: string, code?: string }} */
+  /** @type {{ error: string, code?: string, validTemplates?: string[] }} */
   const body = { error: message };
   if (error && typeof error.code === "string" && error.code) {
     body.code = error.code;
   }
+  const valid = error && /** @type {{ validTemplates?: unknown }} */ (error).validTemplates;
+  if (Array.isArray(valid)) body.validTemplates = valid.map(String);
   res.status(Number.isFinite(status) ? status : 500).json(body);
 }
 
@@ -717,6 +721,17 @@ app.get("/api/applications/queue", async (_req, res) => {
   try {
     const queue = await listPendingQueue();
     res.json({ queue, fetchedAt: new Date().toISOString() });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* Materials template registry (visual spec §9): the families the Profile &
+ * Materials select offers. The browser falls back to its bundled list when
+ * this server is not running. */
+app.get("/api/materials/templates", (_req, res) => {
+  try {
+    res.json({ templates: listFamilies() });
   } catch (e) {
     sendAppError(res, e);
   }
@@ -757,9 +772,34 @@ app.post("/api/applications/:slug/repair", async (req, res) => {
       jobUrl: body.jobUrl || body.job_url,
       notes: body.notes,
     });
-    const payload = normalizeRequestBody(rawPayload);
+    /* A repair keeps the package's family unless the request names one. */
+    const manifestTemplate = manifest && manifest.template && typeof manifest.template === "object"
+      ? /** @type {{ family?: unknown }} */ (manifest.template).family
+      : undefined;
+    const payload = normalizeRequestBody({
+      ...rawPayload,
+      template: body.template,
+      preferredTemplate: body.preferredTemplate || manifestTemplate,
+    });
     const result = await spawnMaterialsRequest(payload);
     res.json({ ...result, repair });
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* Re-renders the published package in another template family from its
+ * stored render model: fit → render → qa only, no LLM call. Body:
+ * { template: "<family>", from?: "<runId>" }. Unknown family → 400. */
+app.post("/api/applications/:slug/regenerate", async (req, res) => {
+  try {
+    const body = isRecord(req.body) ? req.body : {};
+    const result = await regeneratePackage({
+      slug: req.params.slug,
+      template: body.template,
+      from: typeof body.from === "string" ? body.from : undefined,
+    });
+    res.json(result);
   } catch (e) {
     sendAppError(res, e);
   }

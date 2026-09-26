@@ -9,6 +9,7 @@
 import { join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { createMaterialsDrafter } from "./materials-drafter.mjs";
+import { resolveFamily } from "./materials-templates.mjs";
 import {
   normalizeResumeSource,
   readResumeSnapshot,
@@ -32,6 +33,10 @@ const MAX_NOTES_LEN = 4000;
  * @property {"snapshot"} [resumeFrom]
  *   Set by the repair path: redraft from the resume the role's last
  *   draft used (resume-source.json). Still 422s when there is none.
+ * @property {string} [template] a template registry family named by this
+ *   request (source "request")
+ * @property {string} [preferredTemplate] the user's saved materialsTemplate
+ *   preference (source "preference"); used when `template` is absent
  */
 
 /**
@@ -52,8 +57,21 @@ function trimString(value, max) {
 }
 
 /**
+ * An optional family id: absent → undefined; present → must be a registry
+ * family, else a 400 `unknown_template` listing the valid ids.
+ * @param {unknown} value
+ * @returns {string | undefined}
+ */
+function optionalFamily(value) {
+  if (value === undefined || value === null || value === "") return undefined;
+  const id = typeof value === "string" ? value.trim() : value;
+  return resolveFamily(id).id;
+}
+
+/**
  * Validate and normalise a materials request body. Throws with
- * .statusCode = 400 when the body is unusable, and 422
+ * .statusCode = 400 when the body is unusable (including an unknown
+ * `template` / `preferredTemplate`, code `unknown_template`), and 422
  * { code: "resume_required" } when it carries no resume text.
  * @param {Record<string, unknown> | null | undefined} body
  * @returns {MaterialsRequestPayload}
@@ -93,6 +111,8 @@ export function normalizeRequestBody(body) {
   }
   const jobUrl = trimString(body && body.jobUrl, 1000);
   const notes = trimString(body && body.notes, MAX_NOTES_LEN);
+  const template = optionalFamily(body && body.template);
+  const preferredTemplate = optionalFamily(body && body.preferredTemplate);
   const resume = normalizeResumeSource(body && body.resume);
   const resumeFrom = body && body.resumeFrom === "snapshot" ? "snapshot" : undefined;
   if (!resume && !resumeFrom) {
@@ -101,6 +121,8 @@ export function normalizeRequestBody(body) {
   /** @type {MaterialsRequestPayload} */
   const payload = { slug, company, title, feature, jobUrl, notes, resume };
   if (resumeFrom && !resume) payload.resumeFrom = resumeFrom;
+  if (template) payload.template = template;
+  if (preferredTemplate) payload.preferredTemplate = preferredTemplate;
   return payload;
 }
 
