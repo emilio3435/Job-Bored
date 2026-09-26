@@ -5,7 +5,16 @@
 import { describe, it } from "node:test";
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import {
+  chmodSync,
+  copyFileSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  readdirSync,
+  rmSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -16,6 +25,7 @@ import {
   tlsCacheDir,
 } from "../scripts/lib/paths.mjs";
 import { runDoctor } from "../scripts/doctor.mjs";
+import { runSetup } from "../scripts/setup.mjs";
 
 const REPO = join(dirname(fileURLToPath(import.meta.url)), "..");
 const DESKTOP = { JOBBORED_DESKTOP: "1", JOBBORED_HOME: "/Users/x/.jobbored" };
@@ -140,6 +150,28 @@ describe("GFX-DESK-B F3 every bootstrap reader and writer uses the resolver", ()
       assert.match(relay.message, /desk-b-relay/);
     } finally {
       rmSync(home, { recursive: true, force: true });
+    }
+  });
+});
+
+describe("GFX-DESK-B R23 setup seeds config.js outside a read-only bundle", () => {
+  it("desktop mode writes ~/.jobbored/desktop/config.js and nothing in the app root", async () => {
+    const root = mkdtempSync(join(tmpdir(), "gfx-desk-b-setup-"));
+    const app = join(root, "app");
+    const home = join(root, "home");
+    mkdirSync(app);
+    copyFileSync(join(REPO, "config.example.js"), join(app, "config.example.js"));
+    chmodSync(app, 0o555);
+    try {
+      const env = { JOBBORED_DESKTOP: "1", JOBBORED_HOME: join(home, ".jobbored") };
+      const report = await runSetup({ mode: "dashboard", repoRoot: app, env, skipInstall: true });
+      const seeded = join(home, ".jobbored", "desktop", "config.js");
+      assert.equal(readFileSync(seeded, "utf8"), readFileSync(join(REPO, "config.example.js"), "utf8"));
+      assert.deepEqual(readdirSync(app), ["config.example.js"]);
+      assert.ok(report.steps.some((s) => s.name === "config.js"));
+    } finally {
+      chmodSync(app, 0o755);
+      rmSync(root, { recursive: true, force: true });
     }
   });
 });
