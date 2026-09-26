@@ -133,7 +133,6 @@ describe("C8 · every owned host-mutation site asks first (source pins)", () => 
     ["discovery-wizard-ui.js", "/__proxy/fix-setup"],
     ["discovery-wizard-ui.js", "/__proxy/full-boot"],
     ["oneflow-beat-discovery.js", "/__proxy/discovery-env-key"],
-    ["oneflow-beat-ai.js", "DISCOVERY_ENV_ENDPOINT, {"],
   ];
   for (const [file, needle] of sites) {
     it(`${file} asks before ${needle}`, () => {
@@ -143,6 +142,15 @@ describe("C8 · every owned host-mutation site asks first (source pins)", () => 
       assert.ok(at >= 0);
     });
   }
+
+  // GFX B2-5: B2 asks inline ("Save it" / "Not now") instead of through a
+  // native confirm(); the behaviour is pinned in gfx-fe-b2b3-beat-ai.test.mjs.
+  it("oneflow-beat-ai.js asks inline before DISCOVERY_ENV_ENDPOINT, never with confirm()", () => {
+    const src = readRepoFile("oneflow-beat-ai.js");
+    assert.ok(src.includes("DISCOVERY_ENV_ENDPOINT, {"));
+    assert.ok(src.includes('"ai_consent_save"'));
+    assert.ok(!/window\.confirm|askHostChange\(/.test(src));
+  });
 
   it("opening the wizard only looks — autodetect never repairs on open", () => {
     const src = readRepoFile("discovery-wizard-ui.js");

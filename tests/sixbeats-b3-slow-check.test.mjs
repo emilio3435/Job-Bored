@@ -112,6 +112,8 @@ describe("C6 · B2 Check & continue — the clock on a slow check (spec §5 B2)"
     await sleep(FAST.stalledAfterMs + FAST.tickMs * 3);
     hang.resolve({ ok: true, provider: "gemini", model: "gemini-flash", ms: 900 });
     await running;
+    // GFX B2-4: a passed check asks before saving on this computer.
+    await env.beats.ai.handleAction("ai_consent_skip");
     assert.ok(
       env.flow.getState().completedBeats.includes("ai"),
       "the affordance is an offer, not a timeout — the answer still counts",
@@ -135,6 +137,8 @@ describe("C6 · B2 Check & continue — the clock on a slow check (spec §5 B2)"
     // the attempt the user started, so the stale verdict must not land on it.
     second.resolve({ ok: true, provider: "gemini", model: "gemini-flash", ms: 30 });
     await retried;
+    // GFX B2-4: a passed check asks before saving on this computer.
+    await env.beats.ai.handleAction("ai_consent_skip");
     first.resolve({ ok: false, message: "stale verdict from the superseded check" });
     await running;
     assert.ok(env.flow.getState().completedBeats.includes("ai"));

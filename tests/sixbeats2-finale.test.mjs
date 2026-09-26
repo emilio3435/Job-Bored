@@ -266,6 +266,8 @@ describe("NEW-4 — B2 holds its success line before advancing (spec §5 B2)", (
       "the ✓ Connected line is on screen while B2 is still the beat",
     );
     await pending;
+    // GFX B2-4: a passed check asks before saving on this computer.
+    await ai.handleAction("ai_consent_skip");
     assert.equal(
       env.flow.getState().beat,
       "resume",
