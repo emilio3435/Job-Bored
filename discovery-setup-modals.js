@@ -167,6 +167,11 @@ function initDiscoverySetupGuide() {
  * button's full path in one window.
  */
 function openDiscoverySetupBeat(options = {}) {
+  // The drawer otherwise remains above the setup shell and traps focus,
+  // making a successful open look like a dead button.
+  if (typeof window.closeDiscoveryDrawer === "function") {
+    window.closeDiscoveryDrawer();
+  }
   const entryPoint =
     options && typeof options.entryPoint === "string" && options.entryPoint
       ? options.entryPoint

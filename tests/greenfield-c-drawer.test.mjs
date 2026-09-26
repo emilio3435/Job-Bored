@@ -57,6 +57,13 @@ function loadSetupModals({ oneFlow } = {}) {
 }
 
 describe("GREENFIELD C1 · the drawer's setup button opens the six-beat flow", () => {
+  it("closes the covering drawer before opening setup", () => {
+    const events = [];
+    const env = loadSetupModals({ oneFlow: { open() { events.push("open"); } } });
+    env.win.closeDiscoveryDrawer = () => events.push("close");
+    env.button.dispatch("click");
+    assert.deepEqual(events, ["close", "open"]);
+  });
   it("opens the flow at the discovery beat instead of the legacy wizard", () => {
     const openCalls = [];
     const env = loadSetupModals({

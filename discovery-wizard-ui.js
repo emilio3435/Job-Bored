@@ -2753,7 +2753,8 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
       originsWrote = false;
     }
   }
-  if (!workerUp || (secretInfo && secretInfo.wrote) || originsWrote) {
+  const workerBooted = !workerUp || !!(secretInfo && secretInfo.wrote) || originsWrote;
+  if (workerBooted) {
     setAuto("running", "Starting the discovery worker…");
     setDiscoveryWizardMessage("Starting the discovery worker…", "info");
     try {
@@ -2856,7 +2857,39 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
   setDiscoveryWizardMessage("Verifying the connection…", "info");
   // Shared verification: persists URL (+ the secret draft) and advances to
   // Done on success — identical to the manual "Save and verify" path.
-  const result = await verify(endpointUrl, "test_webhook");
+  let result = await verify(endpointUrl, "test_webhook");
+  const initialVerification = (host().getDiscoveryWizardRuntime() || {}).lastVerificationResult;
+  // A previous secret refresh may have persisted the secret AFTER the
+  // worker started. wrote:false and a healthy process do not prove that
+  // the running worker loaded it. Under the setup's restart consent, heal
+  // this specific auth failure once; never restart for transport failures
+  // or replace a secret the user supplied.
+  if (
+    !workerBooted && secretInfo &&
+    (!typedSecret || typedSecret === secretInfo.secret) &&
+    initialVerification && !initialVerification.ok &&
+    initialVerification.kind === "auth_required"
+  ) {
+    reportStage("worker", "active");
+    setAuto("running", "Reloading the discovery connection…");
+    setDiscoveryWizardMessage("Reloading the discovery connection…", "info");
+    try {
+      const response = await fetchImpl(
+        `/__proxy/full-boot?port=${DISCOVERY_TAILSCALE_WORKER_PORT}&skip_tunnel=1&force_restart=1`,
+        { method: "POST", headers: { "Content-Type": "application/json" }, body: "{}" },
+      );
+      const body = await response.json().catch(() => ({}));
+      if (!response.ok || !body.ok) {
+        return stop("failed", (body.message || "Couldn't reload the discovery worker. Try again.") + failedTunnelNote, "warning", "worker");
+      }
+    } catch (_) {
+      return stop("failed", "Couldn't reload the discovery worker. Try again." + failedTunnelNote, "warning", "worker");
+    }
+    reportStage("worker", "done");
+    reportStage("verify", "active");
+    setDiscoveryWizardMessage("Verifying the connection…", "info");
+    result = await verify(endpointUrl, "test_webhook");
+  }
   // Reconcile the status card with the verification outcome — a failed
   // verify must surface honestly, never hang on "Working on it…".
   const after = host().getDiscoveryWizardRuntime() || {};
