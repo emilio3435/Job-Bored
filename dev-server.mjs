@@ -4,9 +4,24 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync } from "node:fs";
+import {
+  closeSync,
+  constants as fsConstants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+} from "node:fs";
 import { gzipSync } from "node:zlib";
-import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
+import {
+  bootstrapStatePath,
+  dashboardConfigPath as resolveDashboardConfigFile,
+  isDesktopRuntime,
+  resolveJobBoredPaths,
+  tlsCacheDir,
+} from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes } from "./scripts/lib/expand-index-includes.mjs";
 import {
   decodeRequestPathname,
@@ -46,9 +61,19 @@ import {
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
-const TLS_CACHE_DIR = join(ROOT, "node_modules", ".cache", "command-center-dev-server");
-const TLS_CERT_PATH = join(TLS_CACHE_DIR, "localhost-cert.pem");
-const TLS_KEY_PATH = join(TLS_CACHE_DIR, "localhost-key.pem");
+
+/**
+ * The self-signed localhost cert cache: node_modules/.cache in a checkout,
+ * ~/.jobbored/tls in the desktop app, whose bundle is read-only (GFX R23).
+ */
+export function resolveTlsPaths(env = process.env) {
+  const dir = tlsCacheDir({ env, repoRoot: ROOT });
+  return {
+    dir,
+    cert: join(dir, "localhost-cert.pem"),
+    key: join(dir, "localhost-key.pem"),
+  };
+}
 const TLS_CERT_SUBJECT = "/CN=localhost";
 const TLS_CERT_SAN = "subjectAltName=DNS:localhost,IP:127.0.0.1";
 const DEFAULT_DISCOVERY_WORKER_PORT = 8644;
@@ -789,7 +814,48 @@ function sendStaticBody(req, res, contentType, body, dashboardConfigPath) {
   res.end(payload);
 }
 
+/**
+ * A missing config.js is an empty 404 *script*: the dashboard boots without
+ * one, and a 403 text/plain made the browser log a MIME error (GFX S3).
+ */
+function writeMissingConfigScript(res) {
+  res.writeHead(404, {
+    "content-type": "text/javascript; charset=utf-8",
+    "cache-control": "no-cache",
+    ...STATIC_SECURITY_HEADERS,
+  });
+  res.end("");
+}
+
+/**
+ * /config.js. With `dashboardConfigPath` (the desktop app passes
+ * ~/.jobbored/desktop/config.js) that file is served. Without one, a
+ * checkout's own config.js stays private, as BEAUDIT G3 made it.
+ */
+async function serveDashboardConfig(req, res, dashboardConfigPath) {
+  if (!dashboardConfigPath) {
+    if (existsSync(join(ROOT, "config.js"))) {
+      writeStaticGuardResponse(res, 403);
+    } else {
+      writeMissingConfigScript(res);
+    }
+    return;
+  }
+  let data;
+  try {
+    data = await readFile(dashboardConfigPath);
+  } catch {
+    writeMissingConfigScript(res);
+    return;
+  }
+  sendStaticBody(req, res, MIME[".js"], data, dashboardConfigPath);
+}
+
 async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
+  if (urlPath === "/config.js") {
+    await serveDashboardConfig(req, res, dashboardConfigPath);
+    return;
+  }
   const resolved = await resolvePublicFile(urlPath, { root: ROOT });
   if (!resolved.ok) {
     writeStaticGuardResponse(res, resolved.status || 404);
@@ -859,8 +925,32 @@ function resolveDashboardOrigin(req, currentPort) {
   return `http://127.0.0.1:${normalizePort(currentPort)}`;
 }
 
+/**
+ * GET /discovery-local-bootstrap.json from wherever the state lives
+ * (~/.jobbored in the desktop app, GFX F3), so the dashboard's same-origin
+ * fetch (settings-profile-tab.js) needs no change. It carries the webhook
+ * secret, so only the dashboard's own loopback origin gets it; the static
+ * guard still refuses the repo-root file.
+ */
+async function handleBootstrapStateFile(req, res) {
+  if (!isLocalOrigin(req)) {
+    denyNonLocalControl(res);
+    return;
+  }
+  let data;
+  try {
+    data = await readFile(bootstrapStatePath({ repoRoot: ROOT }));
+  } catch {
+    res.writeHead(404, { ...jsonCorsHeaders(req), "cache-control": "no-store" });
+    res.end(JSON.stringify({ ok: false, reason: "not_found" }));
+    return;
+  }
+  res.writeHead(200, { ...jsonCorsHeaders(req), "cache-control": "no-store" });
+  res.end(data);
+}
+
 function readBootstrapJson() {
-  const filePath = join(ROOT, "discovery-local-bootstrap.json");
+  const filePath = bootstrapStatePath({ repoRoot: ROOT });
   if (!existsSync(filePath)) return null;
   try {
     return JSON.parse(readFileSync(filePath, "utf8"));
@@ -2062,12 +2152,27 @@ async function handleTailscaleServe(req, res) {
   res.end(JSON.stringify(result));
 }
 
+/**
+ * R10/R12: under the desktop app (JOBBORED_DESKTOP=1) the app is the only
+ * supervisor, kept alive as a login item. The keep-alive and worker-autostart
+ * endpoints then install, remove and probe nothing: no plist, no launchctl.
+ * `managedBy` is the contract auth-session.js installKeepAliveOnce keys on.
+ */
+function answerManagedByDesktop(req, res, body) {
+  res.writeHead(200, jsonCorsHeaders(req));
+  res.end(JSON.stringify({ ...body, managedBy: "desktop" }));
+}
+
 // Owner: Backend Worker B
 async function handleInstallKeepAlive(req, res) {
   const corsHeaders = jsonCorsHeaders(req);
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true });
     return;
   }
   let body = {};
@@ -2110,6 +2215,10 @@ async function handleUninstallKeepAlive(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true, removed: false });
+    return;
+  }
   try {
     const { uninstallKeepAlive } = await import("./scripts/uninstall-keep-alive.mjs");
     const result = uninstallKeepAlive();
@@ -2127,6 +2236,10 @@ async function handleKeepAliveStatus(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { installed: false });
     return;
   }
   try {
@@ -2152,6 +2265,10 @@ async function handleInstallWorkerAutostart(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true });
     return;
   }
   let body = {};
@@ -2203,6 +2320,10 @@ async function handleUninstallWorkerAutostart(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true, removed: false });
+    return;
+  }
   try {
     const { uninstallDiscoveryWorkerAutostart } = await import(
       "./scripts/uninstall-discovery-worker-autostart.mjs"
@@ -2221,6 +2342,10 @@ async function handleWorkerAutostartStatus(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { installed: false });
     return;
   }
   try {
@@ -2686,8 +2811,13 @@ function normalizeBooleanFlag(value) {
 }
 
 function ensureLocalTlsMaterial() {
-  if (!existsSync(TLS_CERT_PATH) || !existsSync(TLS_KEY_PATH)) {
-    mkdirSync(TLS_CACHE_DIR, { recursive: true });
+  const {
+    dir: tlsDir,
+    cert: tlsCertPath,
+    key: tlsKeyPath,
+  } = resolveTlsPaths();
+  if (!existsSync(tlsCertPath) || !existsSync(tlsKeyPath)) {
+    mkdirSync(tlsDir, { recursive: true });
     const result = spawnSync(
       "openssl",
       [
@@ -2696,9 +2826,9 @@ function ensureLocalTlsMaterial() {
         "-newkey",
         "rsa:2048",
         "-keyout",
-        TLS_KEY_PATH,
+        tlsKeyPath,
         "-out",
-        TLS_CERT_PATH,
+        tlsCertPath,
         "-sha256",
         "-days",
         "365",
@@ -2726,10 +2856,10 @@ function ensureLocalTlsMaterial() {
   }
 
   return {
-    key: readFileSync(TLS_KEY_PATH),
-    cert: readFileSync(TLS_CERT_PATH),
-    keyPath: TLS_KEY_PATH,
-    certPath: TLS_CERT_PATH,
+    key: readFileSync(tlsKeyPath),
+    cert: readFileSync(tlsCertPath),
+    keyPath: tlsKeyPath,
+    certPath: tlsCertPath,
   };
 }
 
@@ -3123,6 +3253,17 @@ function createRequestHandler({
     const ts = new Date().toLocaleTimeString();
     log(`  HTTP  ${ts} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
 
+    if (req.method === "GET" && pathname === "/discovery-local-bootstrap.json") {
+      handleBootstrapStateFile(req, res).catch((err) => {
+        logError("  Bootstrap-state error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, jsonCorsHeaders(req));
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
     serveStatic(pathname, res, { req, dashboardConfigPath }).then(() => {
       log(`  HTTP  ${ts} ${req.socket.remoteAddress} Returned ${res.statusCode} in ${0} ms`);
     });
@@ -3189,7 +3330,7 @@ export function startDevServer({
       const displayHost = listenHost.includes(":") ? `[${listenHost}]` : listenHost;
       log(`  Dev server listening on ${useTls ? "https" : "http"}://${displayHost}:${actualPort}`);
       if (useTls) {
-        log(`  Local TLS certificate: ${TLS_CERT_PATH}`);
+        log(`  Local TLS certificate: ${resolveTlsPaths().cert}`);
       }
       const workerPort = resolveDiscoveryWorkerPort();
       log(`  Proxying /__proxy/local-health → 127.0.0.1:${workerPort}/health`);
@@ -3202,6 +3343,25 @@ export function startDevServer({
   });
 }
 
+/**
+ * The desktop app's config.js lives at ~/.jobbored/desktop/config.js,
+ * seeded once from the bundle's config.example.js and never overwritten.
+ * Returns the path to serve, or undefined in a checkout (GFX R23).
+ */
+export function prepareDesktopDashboardConfig(env = process.env) {
+  if (!isDesktopRuntime(env)) return undefined;
+  const target = resolveDashboardConfigFile({ env, repoRoot: ROOT });
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(join(ROOT, "config.example.js"), target, fsConstants.COPYFILE_EXCL);
+  } catch (err) {
+    if (!err || err.code !== "EEXIST") {
+      console.warn(`  Could not seed ${target}: ${err && err.message ? err.message : err}`);
+    }
+  }
+  return target;
+}
+
 const isMainModule = process.argv[1]
   ? resolvePath(process.argv[1]) === fileURLToPath(import.meta.url)
   : false;
@@ -3211,6 +3371,7 @@ if (isMainModule) {
   startDevServer({
     port: process.env.PORT || DEFAULT_PORT,
     tls: process.env.COMMAND_CENTER_TLS || process.env.HTTPS,
+    dashboardConfigPath: prepareDesktopDashboardConfig(),
   }).then((server) => {
     runningServer = server;
     return runningServer;
