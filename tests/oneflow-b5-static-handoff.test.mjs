@@ -98,6 +98,20 @@ function fakeLocation(search) {
 // Static-host detection: 404/405/HTML vs fetch throw
 // ---------------------------------------------------------------
 
+
+/**
+ * GFX D2: a hosted page never reaches B5 through flow.open() — the pre-flow
+ * gate hands it B1's route-to-local screen instead. B5's own hosted-page
+ * handling is now defense in depth, so the flow opens B5 on loopback and the
+ * hosted address is put back before the check, which reads it at call time.
+ */
+async function openB5(env) {
+  const page = env.window.location;
+  env.window.location = { ...(page || {}), hostname: "localhost" };
+  await env.flow.open("discovery");
+  env.window.location = page;
+}
+
 describe("B5 handoff · the check tells a static host from a dead server", () => {
   it("a 404 check answer renders static_host with the route to B1, not the launcher fix", async () => {
     const env = loadDiscoveryBeat({
@@ -584,7 +598,7 @@ describe("GFX-N2 · a 404/405/HTML answer on a loopback page is a stale server",
     });
     onPage(env, "emilio3435.github.io");
     try {
-      await env.flow.open("discovery");
+      await openB5(env);
       await failFuel(env);
       assert.equal(env.beat._internal.fuelReason(), "static_host");
       assert.equal(messageSlot(env).textContent, STATIC_HOST_MESSAGE);
@@ -664,7 +678,7 @@ describe("GFX-N3 · any JSON ping answer proves the server; the POST decides", (
       })),
     });
     onPage(env, "my-mac.tailnet.ts.net");
-    await env.flow.open("discovery");
+    await openB5(env);
     await failFuel(env);
     assert.equal(env.beat._internal.fuelReason(), "wrong_origin");
     assert.equal(messageSlot(env).textContent, WRONG_ORIGIN_MESSAGE);
