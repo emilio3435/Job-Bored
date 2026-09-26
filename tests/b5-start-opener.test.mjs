@@ -108,6 +108,15 @@ describe("B5 start opener · JB_START_DRY_RUN flag matrix (no servers, no open)"
     assert.match(r.stdout, /SKIP reason=flag/);
   });
 
+  it("GFX-N5: the opened URL carries returnTo=close so the beat closes where it opened", () => {
+    const r = runStartSh(noCi({ JB_START_DRY_RUN: "1", JB_FORCE_BROWSER_OPEN: "1" }));
+    assert.equal(r.status, 0);
+    assert.match(
+      r.stdout,
+      /OPEN url=http:\/\/localhost:8080\/\?beat=discovery&returnTo=close /,
+    );
+  });
+
   it("respects PORT for the deep-link host port", () => {
     const r = runStartSh(
       noCi({ JB_START_DRY_RUN: "1", JB_FORCE_BROWSER_OPEN: "1", PORT: "9123" }),
