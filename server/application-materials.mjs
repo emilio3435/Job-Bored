@@ -822,9 +822,11 @@ function normalizePendingProgress(rawProgress, feature, requestedAt) {
   if (!rawProgress || typeof rawProgress !== "object") return null;
   const progress = /** @type {Record<string, unknown>} */ (rawProgress);
   const phase = typeof progress.phase === "string" ? progress.phase : "";
+  const code = typeof progress.code === "string" ? progress.code : "";
   return {
     phase,
     message: normalizeProgressMessage(progress.message, feature, phase),
+    ...(code ? { code } : {}),
     startedAt: effectiveStartedAt(
       typeof progress.started_at === "string" ? progress.started_at : "",
       /** @type {string} */ (requestedAt),

@@ -282,6 +282,31 @@ describe("createMaterialsDrafter", () => {
     assert.equal(typeof pending.debug.llm.resolvedModel, "string");
   });
 
+  it("F13: failed pending carries a neutral code, never raw model internals", async () => {
+    const { WriterJsonError } = await import("../server/materials-writer.mjs");
+    const drafter = createMaterialsDrafter(
+      baseDeps(dir, {
+        writer: async () => {
+          throw new WriterJsonError("WriterJsonError: JSON parse failed at offset 12");
+        },
+      }),
+    );
+    await drafter.enqueue({
+      resume: SAMPLE_RESUME,
+      slug: "eab-role",
+      company: "EAB",
+      title: "Director",
+      feature: "both",
+      jobUrl: "https://example.com/job",
+      notes: "",
+    });
+    await drafter.runUntilIdle();
+    const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
+    assert.equal(pending.progress.phase, "failed");
+    assert.equal(pending.progress.code, "materials_generation_failed");
+    assert.doesNotMatch(pending.progress.message, /WriterJsonError|offset/);
+  });
+
   it("fills nested letter chrome slots and keeps .dot children", async () => {
     const nestedLetter = `<html><head><style>.x{}</style></head><body>
       <p data-slot="hook">old <span class="it">I'd like to bring both to <span class="target" data-slot="company-mention">[Company]</span>.</span></p>

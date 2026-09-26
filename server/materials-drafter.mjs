@@ -75,6 +75,7 @@ const PARENT_LETTER_SLOTS = [
  * @typedef {object} PendingProgress
  * @property {string} phase
  * @property {string} message
+ * @property {string} [code] neutral failure code (F13); never raw internals
  * @property {string} started_at
  * @property {string} updated_at
  * @property {number} attempt
@@ -576,11 +577,51 @@ export function createMaterialsDrafter(deps = {}) {
   }
 
   /**
+   * F13: map a failure to a neutral user-facing code + message. Raw model
+   * and provider internals stay in the server log, never in pending.json.
+   * @param {unknown} err
+   * @returns {{ code: string, message: string }}
+   */
+  function failureFor(err) {
+    const error = /** @type {{ name?: unknown, code?: unknown, message?: unknown }} */ (
+      err && typeof err === "object" ? err : null
+    );
+    const name = String(error?.name || "");
+    const errCode = String(error?.code || "");
+    /* First-class resumable states keep their own neutral message. */
+    if (errCode === "jd_unusable" && typeof error?.message === "string") {
+      return { code: "jd_unusable", message: error.message };
+    }
+    if (name === "WriterJsonError" || errCode === "writer_json_error") {
+      return {
+        code: "materials_generation_failed",
+        message: "The model returned an unusable draft. Try again.",
+      };
+    }
+    if (
+      errCode === "llm_http_error" ||
+      errCode === "provider_error" ||
+      errCode === "schema_violation" ||
+      /HTTP \d{3}|fetch failed|provider|timeout|timed out/i.test(String(error?.message || ""))
+    ) {
+      return {
+        code: "materials_provider_error",
+        message: "The AI provider failed. Try again.",
+      };
+    }
+    return {
+      code: "materials_failed",
+      message: "Draft failed before any files were produced.",
+    };
+  }
+
+  /**
    * @param {PendingRecord} record
    * @param {string} phase
    * @param {string} [message]
+   * @param {string} [code]
    */
-  function withPhase(record, phase, message) {
+  function withPhase(record, phase, message, code) {
     const t = isoNow();
     const started = phase === "drafting"
       ? (record.progress && record.progress.started_at) || t
@@ -590,6 +631,7 @@ export function createMaterialsDrafter(deps = {}) {
       progress: {
         phase,
         message: message || defaultProgressMessage(phase, record.feature),
+        ...(code ? { code } : {}),
         started_at: started,
         updated_at: t,
         attempt: (record.progress && record.progress.attempt) || 1,
@@ -634,12 +676,11 @@ export function createMaterialsDrafter(deps = {}) {
    * @param {unknown} err
    */
   async function failJob(job, err) {
-    const error = /** @type {{ message?: unknown }} */ (err);
-    const record = withPhase(
-      job.record,
-      "failed",
-      error && error.message ? String(error.message) : "Draft failed before any files were produced.",
-    );
+    const failure = failureFor(err);
+    // Raw detail stays server-side for debugging; pending.json is UI surface.
+    // eslint-disable-next-line no-console
+    console.error(`[materials] slug=${job.payload.slug} ${failure.code}:`, err);
+    const record = withPhase(job.record, "failed", failure.message, failure.code);
     job.record = record;
     await writePending(job.pendingPath, record);
   }
@@ -726,7 +767,7 @@ export function createMaterialsDrafter(deps = {}) {
         formatQaReport({ status: "REVIEW", issues: [jdIssue] }),
         "utf8",
       );
-      await failJob(job, { message: jdIssue.message });
+      await failJob(job, { code: "jd_unusable", message: jdIssue.message });
       return;
     }
 
