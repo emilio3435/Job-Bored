@@ -502,8 +502,12 @@ async function stageHarnessAuth(page) {
   // Lane C's Beat 1 detour is the ONLY visible route to a Client ID on a
   // fresh install, and lane F made saving one run the first-time GIS init.
   const detour = page.locator("#oneFlowMount details.oneflow-google__detour");
-  // The detour nests C7's "Having trouble?" details; open the detour itself.
-  await detour.locator("summary.oneflow-google__detour-summary").click();
+  // GFX G1: with no Client ID the detour starts open, so a summary click
+  // would CLOSE it. Open it only if it isn't already. (It nests C7's
+  // "Having trouble?" details; this targets the detour itself.)
+  if (!(await detour.evaluate((node) => node.open))) {
+    await detour.locator("summary.oneflow-google__detour-summary").click();
+  }
   await page.locator("#oneFlowOauthClientIdInput").fill(CLIENT_ID);
   await page.getByRole("button", { name: "Save Client ID" }).click();
   await expect(

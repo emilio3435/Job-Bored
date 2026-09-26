@@ -33,10 +33,10 @@ describe("C7 · B1 copy is plain and true (FR-12, FR-14)", () => {
   it("leads the detour with what a Client ID is for", async () => {
     const env = await openGoogle();
     const text = renderedText(env.mount());
-    assert.ok(text.includes("First time? You'll need a free Google app key"));
+    assert.ok(text.includes("First time? Make a free Google Client ID"));
     assert.match(text, /proves this copy of JobBored is yours/);
     const input = env.mount().querySelector("#oneFlowOauthClientIdInput");
-    assert.equal(input.getAttribute("aria-label"), "Your Google app key (Client ID)");
+    assert.equal(input.getAttribute("aria-label"), "Your Google Client ID");
   });
 
   it("names Google's unverified-app screen instead of promising it away", async () => {
