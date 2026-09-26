@@ -310,5 +310,4 @@ li:last-child { margin-bottom: 0; }
 
 /* Rule 6: every block box positioned, so paint order (and PDF text order)
    follows DOM order and the masthead extracts first. */
-.sheet :is(header, footer, section, article, aside, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3, address) { position: relative; }
-.sheet .visually-dup { position: absolute !important; }
+.sheet :is(header, footer, section, article, aside, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3, address), .role > * { position: relative; }

@@ -453,9 +453,12 @@ const BASE_CSS = `
 article.page:not([data-fit-verified]) { height: auto !important; min-height: 11in; overflow: visible !important; }
 article.page[data-fit-verified] { height: 11in; overflow: hidden; }
 /* A wordmark already spells the employer's name, so the h2.company-name
-   beside it is hidden visually but kept, unclipped, in the text layer for
-   ATS extraction (clipping it to 1px drops it from the PDF). */
-.visually-dup { position: absolute !important; left: 0; top: 0; margin: 0 !important; white-space: pre; color: transparent !important; pointer-events: none; user-select: none; }
+   beside it is hidden visually but kept in the text layer for ATS. It stays
+   in flow, in its own 1px-type box beside the logo, so its glyphs never share
+   page coordinates with anything else (an absolutely positioned copy stacked
+   on the logo interleaved letter by letter in extraction), and it is painted
+   in DOM order. Clipping it (1px box + overflow hidden) drops it from the PDF. */
+.visually-dup { position: relative !important; flex: none; margin: 0 !important; padding: 0 !important; font-size: 1px !important; line-height: 1 !important; letter-spacing: 0 !important; white-space: pre; color: transparent !important; pointer-events: none; user-select: none; }
 `;
 
 /** @param {string} value */

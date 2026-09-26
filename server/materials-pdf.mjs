@@ -1,5 +1,5 @@
-/* measureInPage and the fonts wait run inside the Playwright page. */
-/* global document, NodeFilter */
+/* measureInPage, the fonts wait and rasterize run inside the Playwright page. */
+/* global document, NodeFilter, Image */
 const PDF_TIMEOUT_MS = 30_000;
 
 /**
@@ -83,6 +83,7 @@ export async function renderPdfIfPossible(html, outPath, options = {}) {
  * @typedef {object} PdfSession
  * @property {(html: string, opts?: { bottomMarginIn?: number }) => Promise<LayoutMeasurement>} measure
  * @property {(html: string, outPath: string) => Promise<{ path: string, pages: number, blockedRequests: number }>} pdf
+ * @property {(src: string) => Promise<string>} rasterize an SVG data: URI as a PNG data: URI
  * @property {() => Promise<void>} close
  */
 
@@ -146,6 +147,8 @@ export async function openPdfSession(options = {}) {
     return null;
   }
   const launched = /** @type {{ newPage: Function, close: Function }} */ (browser);
+  /** @type {Map<string, string>} */
+  const rasterCache = new Map();
 
   /**
    * @param {string} html
@@ -196,6 +199,38 @@ export async function openPdfSession(options = {}) {
         const pages = pdfPageCount(await readFile(outPath));
         return { path: outPath, pages, blockedRequests: blocked.count };
       })(), timeoutMs);
+    },
+    /* Chrome prints an SVG <img> as vectors, <text> included, so a
+       generated monogram or wordmark would put its letters into the PDF
+       text layer beside the employer's real name. Logos contribute no text:
+       an SVG mark is drawn to a canvas at 4x its largest print size and
+       embedded as a PNG, same pixels, no glyphs. */
+    async rasterize(src) {
+      if (!/^data:image\/svg\+xml/i.test(src)) return src;
+      const cached = rasterCache.get(src);
+      if (cached) return cached;
+      const page = await launched.newPage();
+      try {
+        const png = await withTimeout(page.evaluate(async (/** @type {string} */ svg) => {
+          const img = new Image();
+          img.src = svg;
+          await img.decode();
+          const w = img.naturalWidth || 300;
+          const h = img.naturalHeight || 150;
+          const scale = 384 / h;
+          const canvas = document.createElement("canvas");
+          canvas.width = Math.max(1, Math.round(w * scale));
+          canvas.height = 384;
+          const ctx = canvas.getContext("2d");
+          if (!ctx) return svg;
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          return canvas.toDataURL("image/png");
+        }, src), timeoutMs);
+        rasterCache.set(src, png);
+        return png;
+      } finally {
+        await page.close();
+      }
     },
     async close() {
       try {

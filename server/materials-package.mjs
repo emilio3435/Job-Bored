@@ -79,6 +79,34 @@ export function materialsCacheKey({ jdText, resumeText: resume, family }) {
 }
 
 /**
+ * The model with every SVG logo swapped for its PNG rendering, so no logo
+ * adds glyphs to the PDF text layer. The stored render-model.json keeps the
+ * resolver's original marks; this copy is only what gets printed.
+ *
+ * @param {RenderModel} model
+ * @param {(src: string) => Promise<string>} rasterize
+ * @returns {Promise<RenderModel>}
+ */
+export async function rasterizeLogos(model, rasterize) {
+  /** @type {RenderModel} */
+  const out = JSON.parse(JSON.stringify(model));
+  /** @type {{ src: string }[]} */
+  const logos = [];
+  for (const section of out.documents.resume?.sections || []) {
+    for (const entry of section.entries || []) if (entry.logo) logos.push(entry.logo);
+    for (const line of section.lines || []) if (line.logo) logos.push(line.logo);
+  }
+  for (const logo of logos) {
+    try {
+      logo.src = await rasterize(logo.src);
+    } catch {
+      /* keep the original mark; QA's text-layer check will say so */
+    }
+  }
+  return out;
+}
+
+/**
  * Fit and render the documents a feature asks for. With a PDF session the
  * layout is measured and PDFs are written; without one, the HTML renders
  * unclipped and the fit is recorded as unmeasured.
@@ -90,8 +118,11 @@ export function materialsCacheKey({ jdText, resumeText: resume, family }) {
  * @param {{ resumePdfPath?: string, coverLetterPdfPath?: string }} [input.pdfPaths]
  * @returns {Promise<RenderedPackage & { pdf: { resume?: { pages: number, blockedRequests: number }, coverLetter?: { pages: number, blockedRequests: number } } }>}
  */
-export async function renderPackage({ model, feature, session = null, pdfPaths = {} }) {
+export async function renderPackage({ model: input, feature, session = null, pdfPaths = {} }) {
   const measure = session ? session.measure.bind(session) : null;
+  const model = session && typeof session.rasterize === "function"
+    ? await rasterizeLogos(input, session.rasterize.bind(session))
+    : input;
   /** @type {RenderedPackage & { pdf: Record<string, { pages: number, blockedRequests: number }> }} */
   const out = { fit: {}, issues: [], notes: [], pdf: {} };
   const family = resolveFamily(model.template.family);

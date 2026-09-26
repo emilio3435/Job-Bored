@@ -207,6 +207,8 @@ body {
   letter-spacing: -0.005em;
 }
 .seat { font-size: 9.3pt; color: var(--graphite); }
+/* the hidden ATS copy of a wordmark's name takes no visible gap */
+.sheet .head .visually-dup { margin-left: -8pt !important; }
 ul { margin: 0; padding: 0; list-style: none; }
 li {
   padding-left: 11pt;
@@ -356,4 +358,3 @@ li::before {
    layer, in DOM order, so ATS extraction reads the header first. Inline runs
    stay in flow so metric spans extract inside their sentence. */
 .sheet :is(header, footer, section, article, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3), .head > * { position: relative; }
-.sheet .visually-dup { position: absolute !important; }

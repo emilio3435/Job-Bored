@@ -403,5 +403,4 @@ li::before {
 
 /* Rule 6: every block box positioned, so paint order (and PDF text order)
    follows DOM order and the name extracts first. */
-.sheet :is(header, footer, section, article, aside, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3, blockquote) { position: relative; }
-.sheet .visually-dup { position: absolute !important; }
+.sheet :is(header, footer, section, article, aside, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3, blockquote), .org > * { position: relative; }
