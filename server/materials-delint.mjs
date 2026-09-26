@@ -20,6 +20,7 @@
 import { readFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import { callJsonStage } from "./materials-writer.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const VOICE_PACK_PATH = join(__dirname, "materials-voice.json");
@@ -313,4 +314,51 @@ export function delint({ fields = {}, bullets = [], letterText = "", jdText = ""
     llmRewriteNeeded: spans.length > 0,
     counts,
   };
+}
+
+export const DELINT_REWRITE_MAX_OUTPUT_TOKENS = 1500;
+
+const DELINT_REWRITE_SYSTEM_PROMPT = [
+  "You rewrite resume and cover-letter fields to remove AI tells. Return JSON only:",
+  "an object mapping each listed field name to its rewritten text.",
+  "Keep every fact, number, name, and date exactly. Match the voice samples when given.",
+  "Short sentences, concrete nouns, no new claims. Rewrite only the listed fields.",
+].join(" ");
+
+/**
+ * Conditional LLM half of delint: rewrite only the flagged fields. The
+ * posting is withheld on purpose — the prepass already checked echo, and
+ * the rewrite must not pull new phrasing from it.
+ * @param {object} input
+ * @param {VoicePack} input.pack
+ * @param {Record<string, string>} input.fields
+ * @param {DelintSpan[]} input.spans
+ * @param {string[]} [input.voice]
+ * @param {import("./materials-writer.mjs").WriterPin} input.pin
+ * @param {(input: string | URL, init?: RequestInit) => Promise<import("./materials-writer.mjs").HttpResponseLike>} input.fetchImpl
+ * @returns {Promise<{ fields: Record<string, string> }>}
+ */
+export async function rewriteFlagged({ fields, spans, voice = [], pin, fetchImpl }) {
+  const flagged = [...new Set(spans.map((s) => s.field).filter((f) => typeof fields[f] === "string"))];
+  const lines = [];
+  for (const field of flagged) {
+    const notes = [...new Set(spans.filter((s) => s.field === field).map((s) => s.note || s.code))];
+    lines.push(`## ${field} (fix: ${notes.join("; ")})`, fields[field].slice(0, 2000), "");
+  }
+  if (voice.length) {
+    lines.push("Voice (match it, never quote it):", ...voice.slice(0, 3).map((v) => `- ${v.slice(0, 400)}`));
+  }
+  const rewritten = await callJsonStage({
+    pin,
+    systemPrompt: DELINT_REWRITE_SYSTEM_PROMPT,
+    userText: lines.join("\n"),
+    maxOutputTokens: DELINT_REWRITE_MAX_OUTPUT_TOKENS,
+    fetchImpl,
+  });
+  const out = { ...fields };
+  for (const field of flagged) {
+    const text = rewritten[field];
+    if (typeof text === "string" && text.trim()) out[field] = text.trim().slice(0, 2000);
+  }
+  return { fields: out };
 }
