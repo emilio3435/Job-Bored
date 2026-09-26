@@ -599,6 +599,14 @@ export type IngestUrlResponseV1 =
       ok: false;
       reason: "worker_error";
       message: string;
+    }
+  | {
+      // BEAUDIT A3: answered with HTTP 409 before any extraction runs.
+      ok: false;
+      reason: "sheets_credential_missing";
+      message: string;
+      detail?: string;
+      remediation?: string;
     };
 
 export type DiscoveryProfileStatusV1 = {

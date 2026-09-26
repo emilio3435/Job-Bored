@@ -100,6 +100,9 @@ export function createSafetyTimer(
         });
       }
     }, options.maxRunDurationMs);
+    // BEAUDIT A2: a backstop left armed after a failed terminal write must not
+    // hold a process open by itself; the worker's listener keeps it alive.
+    safetyTimer.unref?.();
   };
 
   const clear = () => {

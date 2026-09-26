@@ -207,10 +207,11 @@ export function createDiscoveryRunStatusStore(
         : {}),
     };
     const wireSafePayload = toWireSafeRunStatus(merged);
-    statuses.set(runId, wireSafePayload);
+    // BEAUDIT A2: disk first, so a failed write never leaves memory terminal.
     if (persistenceEnabled) {
       writeRunStatusSnapshot(resolvedDirectory, wireSafePayload);
     }
+    statuses.set(runId, wireSafePayload);
   }
 
   return {

@@ -38,7 +38,10 @@ import {
   appendRunStatusToken,
   createRunStatusToken,
 } from "./run-status-auth.ts";
-import { createSafetyTimer } from "./safety-timer.ts";
+import {
+  runAsyncLifecycle,
+  type RunCancelRegistry,
+} from "./run-async-lifecycle.ts";
 
 export type WebhookRequestLike = {
   method: string;
@@ -85,6 +88,11 @@ export type HandleWebhookDependencies = {
    * This guarantees that async runs cannot stall indefinitely in running state.
    */
   maxRunDurationMs?: number;
+  /**
+   * BEAUDIT A21: registry of live async runs that `POST /runs/:id/cancel`
+   * can abort. When omitted, async runs are not cancellable.
+   */
+  cancelRegistry?: RunCancelRegistry;
 };
 
 // Default maximum async run duration: 60 minutes. Discovery runs in the
@@ -444,43 +452,40 @@ export async function handleDiscoveryWebhook(
     });
   }
 
-  // Safety backstop for the run STATUS. The run itself is bounded by the
-  // in-loop budget tracker (also keyed to maxRunDurationMs) and per-source
-  // timeouts; this timer only guarantees the status row becomes terminal so
-  // pollers never hang if a late `.then`/`.catch` is delayed. It does not
-  // cancel in-flight work (there is no run-wide AbortSignal yet), so the
-  // message intentionally avoids claiming a forcible cancellation.
-  const safety = createSafetyTimer({
+  // BEAUDIT A12: one lifecycle for async discovery and async ingest. The
+  // run-wide AbortController in run-discovery.ts (run-abort.ts) ends the run
+  // at maxRunDurationMs and writes the real terminal status; the lifecycle's
+  // safety timer is only a STATUS backstop and fires after a grace window, so
+  // it no longer races that real abort path. The lifecycle's own
+  // AbortSignal (cancel, A21) is linked into runDiscovery's abortSignal.
+  runAsyncLifecycle({
     runId,
     runMode: "async",
     maxRunDurationMs,
     runStatusStore: dependencies.runStatusStore,
-    acceptedStatus: runningStatus,
+    runningStatus,
     now,
     log: dependencies.log,
-    onForceTerminal: writeHistoryFromStatus,
-  });
-  safety.schedule();
-
-  void dependencies
-    .runDiscovery(requestForRun, dispatchTrigger, dispatchDependencies)
-    .then((result) => {
-      if (safety.isTerminalStatusWritten()) {
-        dependencies.log?.("discovery.run.late_completion_ignored", {
-          runId,
-          mode: runMode,
-          reason: "terminal_status_already_written",
-        });
-        return;
-      }
-      safety.markTerminal();
-      safety.clear();
-      dependencies.runStatusStore?.put(
-        buildCompletedRunStatus(result, {
-          acceptedAt,
-          startedAt,
-        }),
-      );
+    eventPrefix: "discovery.run",
+    cancelRegistry: dependencies.cancelRegistry,
+    work: (signal) =>
+      dependencies.runDiscovery(requestForRun, dispatchTrigger, {
+        ...dispatchDependencies,
+        abortSignal: dispatchDependencies.abortSignal
+          ? AbortSignal.any([dispatchDependencies.abortSignal, signal])
+          : signal,
+      }),
+    buildTerminalStatus: (result) =>
+      buildCompletedRunStatus(result, {
+        acceptedAt,
+        startedAt,
+      }),
+    onTerminal: (status, source) => {
+      // A completed run already wrote its own DiscoveryRuns row through the
+      // finalizer; every other terminal source writes it from the status.
+      if (source !== "completed") writeHistoryFromStatus(status);
+    },
+    onCompleted: (result) => {
       dependencies.log?.("discovery.run.completed", {
         runId,
         mode: runMode,
@@ -497,46 +502,17 @@ export async function handleDiscoveryWebhook(
           ...(entry.warnings.length ? { warnings: entry.warnings } : {}),
         })),
       });
-    })
-    .catch((error) => {
-      if (safety.isTerminalStatusWritten()) {
-        dependencies.log?.("discovery.run.late_failure_ignored", {
-          runId,
-          mode: runMode,
-          reason: "terminal_status_already_written",
-          error: error instanceof Error ? error.message : String(error),
-        });
-        return;
-      }
-      safety.markTerminal();
-      safety.clear();
+    },
+    onFailed: (error) => {
       const message = error instanceof Error ? error.message : String(error);
-      const failedStatus = buildFailedRunStatus(
-        buildRunningRunStatus(acceptedStatus, startedAt),
-        error,
-        now().toISOString(),
-      );
-      try {
-        dependencies.runStatusStore?.put(failedStatus);
-      } catch (statusError) {
-        dependencies.log?.("discovery.run_status.terminal_write_failed", {
-          runId,
-          mode: runMode,
-          status: "failed",
-          error:
-            statusError instanceof Error
-              ? statusError.message
-              : String(statusError),
-        });
-      }
-      writeHistoryFromStatus(failedStatus);
       dependencies.log?.("discovery.run.failed", {
         runId,
         mode: runMode,
         error: message,
       });
       console.error("[browser-use-discovery] async discovery failed:", message);
-    });
+    },
+  });
 
   return jsonResponse(202, {
     ok: true,
