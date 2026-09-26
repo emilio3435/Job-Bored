@@ -143,7 +143,9 @@ describe("B6 card 1 — Your search (spec §5 B6)", () => {
       container.querySelector(".oneflow-payoff__now"),
       "the receipt still renders — a dead /profile is not a dead payoff",
     );
-    assert.ok(textOf(container).includes(env.payoff.ETA_LINE));
+    // GFX FE-B5 (N8): with no roles the run can't happen, so the receipt
+    // says so instead of promising tomorrow's matches.
+    assert.ok(textOf(container).includes(env.payoff.NOT_ARMED_LINE));
   });
 });
 

@@ -491,7 +491,11 @@
       list.appendChild(li);
     }
 
-    addRow(list, "oneflow-payoff__row--eta", ETA_LINE);
+    // Only a run that can happen gets a promised time (GFX-N8): not armed,
+    // or the connection skipped, and "first matches tomorrow" is a claim.
+    if (armed && !state.skippedConnect) {
+      addRow(list, "oneflow-payoff__row--eta", ETA_LINE);
+    }
     card.appendChild(list);
     return card;
   }

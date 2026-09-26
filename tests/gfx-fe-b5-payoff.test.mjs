@@ -9,7 +9,7 @@
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { loadPayoff } from "./oneflow-l4-harness.mjs";
+import { loadPayoff, textOf } from "./oneflow-l4-harness.mjs";
 
 function ctxFor(sink) {
   return {
@@ -95,5 +95,35 @@ describe("GFX-P1 · B6's ○ rows are soft and honest", () => {
     }
     assert.match(env.payoff.SKIPPED_LINE, /banner below/);
     assert.match(env.payoff.AI_UNVERIFIED_LINE, /Settings/);
+  });
+});
+
+describe("GFX-N8 · the ETA promise shows only when a run can happen", () => {
+  async function render(env, flowState = {}) {
+    const state = await env.payoff.resolvePayoffState({
+      state: { skipped: {}, completedBeats: [], ...flowState },
+      runtime: {},
+    });
+    const container = env.document.createElement("div");
+    env.payoff.renderPayoff(container, state);
+    return textOf(container);
+  }
+
+  it("GFX-N8: armed → the ETA line", async () => {
+    const env = loadPayoff();
+    assert.ok((await render(env)).includes(env.payoff.ETA_LINE));
+  });
+
+  it("GFX-N8: no sheet → no 'first matches land tomorrow' claim", async () => {
+    const env = loadPayoff({ sheetId: "" });
+    const text = await render(env);
+    assert.ok(text.includes(env.payoff.NOT_ARMED_LINE));
+    assert.ok(!text.includes(env.payoff.ETA_LINE));
+  });
+
+  it("GFX-N8: skipped connect → no ETA either", async () => {
+    const env = loadPayoff();
+    const text = await render(env, { skipped: { discoveryConnect: true } });
+    assert.ok(!text.includes(env.payoff.ETA_LINE));
   });
 });
