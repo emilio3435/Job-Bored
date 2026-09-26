@@ -739,7 +739,7 @@ function applyOAuthClientChange(clientId) {
     clearPersistedOAuthSession();
     accessToken = null;
     tokenExpiresAt = 0;
-    grantedOauthScopes = [];
+    grantedOauthScopes = "";
     tokenClient = google.accounts.oauth2.initTokenClient({
       client_id: cid,
       scope: GOOGLE_SIGNIN_SCOPES,
@@ -997,10 +997,19 @@ async function fetchUserEmail() {
   }
 }
 
+/**
+ * B1-N3: true once the GIS token client exists. Beat 1 reads it right after
+ * the GIS script should have loaded, so a blocked script (an ad-blocker) is
+ * named at once instead of after a long wait.
+ */
+function isGoogleSignInReady() {
+  return !!tokenClient;
+}
+
 function signIn(options = {}) {
   if (!tokenClient) {
     showToast(
-      "Google sign-in is not ready yet. Save your OAuth client and reload first.",
+      "Google sign-in isn't ready yet. Reload the page and press Continue with Google again.",
       "error",
       true,
     );
@@ -1284,6 +1293,21 @@ if (typeof window !== "undefined") {
 }
 
 const KEEP_ALIVE_INSTALLED_KEY = "jb:install-keep-alive:installedAt";
+// R10: the desktop app keeps the stack alive itself and answers
+// { ok:true, managedBy:"desktop" } without installing anything. That is not
+// an install, so it never sets installedAt (which would stop every later
+// attempt); it is recorded so the pill can name who keeps JobBored alive.
+const KEEP_ALIVE_MANAGED_BY_KEY = "jb:install-keep-alive:managedBy";
+
+function readKeepAliveManagedBy() {
+  try {
+    return typeof localStorage !== "undefined"
+      ? localStorage.getItem(KEEP_ALIVE_MANAGED_BY_KEY) || ""
+      : "";
+  } catch (_) {
+    return "";
+  }
+}
 
 async function installKeepAliveOnce() {
   if (!localProxyEndpointsPossible()) return;
@@ -1301,6 +1325,17 @@ async function installKeepAliveOnce() {
     });
     if (!resp.ok) return;
     const body = await resp.json().catch(() => ({}));
+    if (body && body.ok && body.managedBy === "desktop") {
+      try {
+        if (typeof localStorage !== "undefined") {
+          localStorage.setItem(KEEP_ALIVE_MANAGED_BY_KEY, "desktop");
+        }
+      } catch (_) {}
+      if (typeof window !== "undefined") {
+        window.keepAliveStatusState = { installed: false, managedBy: "desktop" };
+      }
+      return;
+    }
     if (body && body.ok) {
       try {
         if (typeof localStorage !== "undefined") {
@@ -1308,6 +1343,7 @@ async function installKeepAliveOnce() {
             KEEP_ALIVE_INSTALLED_KEY,
             body.installedAt || new Date().toISOString(),
           );
+          localStorage.removeItem(KEEP_ALIVE_MANAGED_BY_KEY);
         }
       } catch (_) {}
       if (typeof window !== "undefined") {
@@ -1349,7 +1385,14 @@ async function refreshKeepAlivePill() {
       window.keepAliveStatusState = body;
     }
     pill.hidden = false;
-    if (body && body.installed) {
+    if (
+      body.managedBy === "desktop" ||
+      (!body.installed && readKeepAliveManagedBy() === "desktop")
+    ) {
+      pill.textContent = "Managed by JobBored app";
+      pill.classList.add("doctor-keep-alive-pill--on");
+      pill.classList.remove("doctor-keep-alive-pill--off");
+    } else if (body && body.installed) {
       pill.textContent = "Auto-healing on";
       pill.classList.add("doctor-keep-alive-pill--on");
       pill.classList.remove("doctor-keep-alive-pill--off");
@@ -1647,6 +1690,7 @@ function isSignedIn() {
     handleTokenResponse,
     fetchUserEmail,
     signIn,
+    isGoogleSignInReady,
     signOut,
     setupAuthUI,
     closeAuthUserMenu,
