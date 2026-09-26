@@ -139,17 +139,21 @@ Older automations that ignore `schemaVersion`, `discoveryProfile`, `companyAllow
 
 ---
 
-## Pipeline update (`POST /pipeline-update`, schemaVersion 1)
+## Pipeline update (`POST /pipeline-update`, schemaVersion 2)
 
 An external agent advances an existing Pipeline row from inbound signals. Local-first: authenticated with `x-discovery-secret`; the worker writes with its own Google credential (no token in the request).
 
 - `event`: `"command-center.pipeline-update"` (const)
-- `schemaVersion`: `1` (const)
+- `schemaVersion`: `2` (const). Version `1` bodies are still accepted; they cannot send `source`, and `stage: "Applied"` without a date defaults Applied Date to today.
 - `sheetId`: target Google Sheet (required)
 - `job`: row identity — `url` (preferred), or both `company` and `title`
-- `fields` (at least one): `stage` (one of: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, Expired), `contact`, `note` (appended as a dated, deduped line), `lastContact`, `appliedDate`, `didTheyReply` (Yes | No | Unknown)
+- `fields` (at least one): `stage` (one of: New, Researching, Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, Expired), `contact`, `note` (prepended as a dated, deduped line), `lastContact` and `appliedDate` (dates as `YYYY-MM-DD`), `didTheyReply` (Yes | No | Unknown), and `source` (v2: where an application went in).
+- **Applied (v2):** `stage: "Applied"` requires `appliedDate` and a non-blank `source`. The worker writes Status (M), Applied Date (N), a Follow-up Date (P) 7 days later when the row has none, and a Notes line `[today] Applied via <source>: <note>`.
+- **Other stage side effects** (a TS port of `pipeline-transitions.js`): Phone Screen and Interviewing backfill Applied Date to today and set Follow-up +3 / +5 days; Offer, Rejected, Passed and Expired clear Follow-up; Expired adds `Marked Expired` when no note is sent; New clears Applied Date and Follow-up. Re-sending the row's current stage changes nothing but the other fields.
 
-Matching is by normalized job URL, falling back to company+title. Unknown rows return `404` (this contract updates existing rows only; discovery creates rows). Schema: `schemas/pipeline-update-request.v1.schema.json`; fixture: `examples/pipeline-update-request.v1.json`.
+Matching is by normalized job URL, falling back to company+title. The worker checks row 1 against `schemas/pipeline-row.v1.json`, holds its per-Sheet lock, re-reads the matched row by Link before writing, and writes only changed cells (text is formula-escaped).
+
+Responses: `200 {ok, updated, matched, matchedBy, row, rowNumber}`. Errors carry the `api-error.v1` fields `{error, code, detail?, nextStep, retryable}` (plus `ok: false` and `message` for v1 callers): `400 invalid_request`, `401 unauthorized`, `404 not_found` (this contract updates existing rows only; discovery creates rows), `409 header_mismatch` (a Pipeline column moved; nothing written), `409 ambiguous_match` (the job matches more than one row; nothing written), `502 sheet_write_failed` (`retryable: true`). Schemas: `schemas/pipeline-update-request.v2.schema.json` (current), `schemas/pipeline-update-request.v1.schema.json`; fixtures: `examples/pipeline-update-request.v2.json`, `examples/pipeline-update-request.v1.json`.
 
 ---
 

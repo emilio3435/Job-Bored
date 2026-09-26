@@ -602,9 +602,8 @@ export async function appendSheetValues(
 /* ------------------------------------------------------------------ */
 
 /**
- * Turn the cells that differ between `current` and `next` into A1 ranges,
- * one per run of adjacent changed columns, so a write never touches a cell
- * it did not mean to change.
+ * Turn the cells that differ between `current` and `next` into one A1 range
+ * per changed cell, so a write never touches a cell it did not mean to change.
  */
 export function changedCellRanges(
   sheetName: string,
@@ -613,24 +612,14 @@ export function changedCellRanges(
   next: string[],
 ): Array<{ range: string; values: string[][] }> {
   const out: Array<{ range: string; values: string[][] }> = [];
-  let start = -1;
-  const flush = (end: number) => {
-    if (start < 0) return;
-    const first = pipelineLetter(start);
-    const last = pipelineLetter(end);
-    out.push({
-      range: `${sheetName}!${first}${rowNumber}${first === last ? "" : `:${last}${rowNumber}`}`,
-      values: [next.slice(start, end + 1)],
-    });
-    start = -1;
-  };
   const width = Math.max(current.length, next.length);
   for (let index = 0; index < width; index += 1) {
-    const changed = (current[index] || "") !== (next[index] || "");
-    if (changed && start < 0) start = index;
-    if (!changed) flush(index - 1);
+    if ((current[index] || "") === (next[index] || "")) continue;
+    out.push({
+      range: `${sheetName}!${pipelineLetter(index)}${rowNumber}`,
+      values: [[next[index] || ""]],
+    });
   }
-  flush(width - 1);
   return out;
 }
 
