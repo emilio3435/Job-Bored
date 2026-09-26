@@ -127,10 +127,23 @@ fi
 # else is named (never killed, PLAN R22) so the user knows what to quit.
 
 # "pid command" of the process listening on the port, or nothing.
+# lsof's command field is the thread name on Linux (Node 24's main thread
+# reports "MainThread"), so the program is named from its command line
+# instead; lsof's name is only the fallback.
 jb_port_holder() {
   command -v lsof >/dev/null 2>&1 || return 0
-  lsof -nP -iTCP:"$JB_DASHBOARD_PORT" -sTCP:LISTEN -Fpc 2>/dev/null |
-    awk '/^p/ { pid = substr($0, 2) } /^c/ { print pid, substr($0, 2); exit }'
+  local line pid name args
+  line="$(lsof -nP -iTCP:"$JB_DASHBOARD_PORT" -sTCP:LISTEN -Fpc 2>/dev/null |
+    awk '/^p/ { pid = substr($0, 2) } /^c/ { print pid, substr($0, 2); exit }')"
+  [ -n "$line" ] || return 0
+  pid="${line%% *}"
+  name="${line#* }"
+  args="$(ps -o args= -p "$pid" 2>/dev/null || true)"
+  if [ -n "$args" ]; then
+    args="${args%% *}"
+    name="${args##*/}"
+  fi
+  printf '%s %s\n' "$pid" "$name"
 }
 
 jb_curl() {
