@@ -6,7 +6,12 @@ import { dirname, join, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { installRepo } from "./install-repo.mjs";
-import { displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
+import {
+  dashboardConfigPath,
+  displayPath,
+  isDesktopRuntime,
+  resolveJobBoredPaths,
+} from "./lib/paths.mjs";
 import { resolveNpmInvocation } from "./lib/spawn-npm.mjs";
 
 const REPO_ROOT = resolvePath(fileURLToPath(new URL("..", import.meta.url)));
@@ -75,10 +80,13 @@ async function writeFileIfMissing(pathname, contents, { force = false } = {}) {
   return true;
 }
 
-async function ensureConfigJs(repoRoot, { force = false } = {}) {
-  const target = join(repoRoot, "config.js");
+// The desktop app's bundle is read-only: its config.js is
+// ~/.jobbored/desktop/config.js, which dev-server serves (GFX R23).
+async function ensureConfigJs(repoRoot, { force = false, env = process.env } = {}) {
+  const target = dashboardConfigPath({ env, repoRoot });
+  const label = isDesktopRuntime(env) ? displayPath(target) : "config.js";
   if (existsSync(target) && !force) {
-    return step("ok", "config.js", "config.js already exists.");
+    return step("ok", "config.js", `${label} already exists.`);
   }
   const source = join(repoRoot, "config.example.js");
   const contents = await readFile(source, "utf8");
@@ -86,7 +94,7 @@ async function ensureConfigJs(repoRoot, { force = false } = {}) {
   return step(
     force ? "ok" : "info",
     "config.js",
-    `${force ? "Refreshed" : "Created"} config.js from config.example.js with placeholders.`,
+    `${force ? "Refreshed" : "Created"} ${label} from config.example.js with placeholders.`,
   );
 }
 
@@ -210,7 +218,7 @@ async function setupDashboard({
       `Local JobBored state directory is ${displayPath(paths.jobBoredHome)}.`,
     ),
   );
-  steps.push(await ensureConfigJs(repoRoot, { force: false }));
+  steps.push(await ensureConfigJs(repoRoot, { force: false, env }));
   return { paths, steps };
 }
 

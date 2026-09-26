@@ -6,7 +6,7 @@ import net from "node:net";
 import { join, resolve } from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import { displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
+import { bootstrapStatePath, displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REQUIRED_NODE_MAJOR = 24;
@@ -818,7 +818,10 @@ async function runDoctor(options = {}) {
     );
   }
 
-  const bootstrapState = await readTextIfExists(repoRoot, "discovery-local-bootstrap.json");
+  const bootstrapStateFile = bootstrapStatePath({ env, repoRoot });
+  const bootstrapState = existsSync(bootstrapStateFile)
+    ? await readFile(bootstrapStateFile, "utf8")
+    : "";
   if (bootstrapState) {
     try {
       const parsed = JSON.parse(bootstrapState);
