@@ -82,6 +82,7 @@ function scratchRepo() {
   for (const rel of [
     ["scripts", "deploy-cloudflare-relay.mjs"],
     ["scripts", "lib", "spawn-npm.mjs"],
+    ["scripts", "lib", "paths.mjs"],
     ["templates", "cloudflare-worker", "worker.js"],
   ]) {
     copyFileSync(join(repoRoot, ...rel), join(root, ...rel));
