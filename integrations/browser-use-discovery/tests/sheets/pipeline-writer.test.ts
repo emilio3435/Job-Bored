@@ -3,6 +3,7 @@ import test from "node:test";
 
 import { PIPELINE_HEADER_ROW } from "../../src/contracts.ts";
 import { SheetWriteError, createPipelineWriter } from "../../src/sheets/pipeline-writer.ts";
+import { createFakeSheets } from "./fake-sheets.ts";
 
 // COLUMN_COUNT is derived (PIPELINE_HEADER_ROW.length). The Edit-Lock work
 // widens the header to include column Y (sheetIndex 24), so the count must be
@@ -66,6 +67,11 @@ function normalizeHeaders(headersInit) {
   return Object.fromEntries(headers.entries());
 }
 
+// Backed by the in-memory Sheets fake, so tests assert what lands in the
+// Sheet rather than which encoded range string a request used. `responses`
+// scripts the POST calls in order: a non-2xx entry fails that call without
+// touching the Sheet; a token-endpoint entry is returned as-is; any other
+// entry lets the fake apply the write.
 function createMockFetch({
   headerRows,
   blacklistRows = [],
@@ -73,6 +79,10 @@ function createMockFetch({
   dataRows,
   responses,
 }) {
+  const sheet = createFakeSheets({
+    Pipeline: [...headerRows, ...(dataRows || [])],
+    Blacklist: [["URL"], ...blacklistRows],
+  });
   const calls = [];
   let responseIndex = 0;
 
@@ -85,40 +95,29 @@ function createMockFetch({
       headers: normalizeHeaders(init.headers),
       body: init.body ? String(init.body) : "",
     });
-
     if (
-      url.pathname.includes("/values/") &&
+      blacklistReadError &&
       method === "GET" &&
-      url.href.includes(`A1%3A${LAST_COLUMN_LETTER}1`)
+      decodeURIComponent(url.pathname).includes("/values/Blacklist!")
     ) {
-      return responseJson({ values: headerRows });
+      return new Response(String(blacklistReadError.body || "read error"), {
+        status: Number(blacklistReadError.status || 400),
+      });
     }
-    if (
-      url.pathname.includes("/values/") &&
-      method === "GET" &&
-      url.href.includes("Blacklist!A2%3AA")
-    ) {
-      if (blacklistReadError) {
-        return new Response(String(blacklistReadError.body || "read error"), {
-          status: Number(blacklistReadError.status || 400),
-        });
-      }
-      return responseJson({ values: blacklistRows });
+    if (method === "POST") {
+      const scripted = responses[responseIndex];
+      responseIndex += 1;
+      if (scripted && !scripted.ok) return scripted;
+      if (scripted && url.hostname === "oauth2.googleapis.com") return scripted;
     }
-    if (
-      url.pathname.includes("/values/") &&
-      method === "GET" &&
-      url.href.includes(`A2%3A${LAST_COLUMN_LETTER}`)
-    ) {
-      return responseJson({ values: dataRows });
-    }
-
-    const response = responses[responseIndex] || responseJson({}, 200);
-    responseIndex += 1;
-    return response;
+    return sheet.fetchImpl(input, init);
   };
 
-  return { fetchImpl, calls };
+  return { fetchImpl, calls, sheet };
+}
+
+function writes(calls) {
+  return calls.filter((c) => c.method === "POST" && c.url.includes("sheets.googleapis.com"));
 }
 
 function makeLead(overrides = {}) {
@@ -190,7 +189,7 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
     responseJson({ updatedRows: 1 }),
     responseJson({ appendedRows: 1 }),
   ];
-  const { fetchImpl, calls } = createMockFetch({
+  const { fetchImpl, calls, sheet } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
     dataRows: [existingRow, duplicateRow],
     responses,
@@ -290,30 +289,21 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.equal(result.warnings.length, 1);
   assert.match(result.warnings[0], /duplicate existing Pipeline rows/i);
 
-  assert.equal(calls.length, 5);
+  // Only the matched row's changed cells are written (BEAUDIT D2/D4); the
+  // CRM columns (M, N, O, P, R, S) are never part of the update.
+  const [batchUpdateCall, appendCall] = writes(calls);
+  assert.match(batchUpdateCall.url, /values:batchUpdate$/);
   assert.match(
-    calls[0].url,
-    new RegExp(`values/Pipeline!A1%3A${LAST_COLUMN_LETTER}1`),
-  );
-  assert.match(calls[1].url, /values\/Blacklist!A2%3AA/);
-  assert.match(
-    calls[2].url,
-    new RegExp(`values/Pipeline!A2%3A${LAST_COLUMN_LETTER}`),
-  );
-  assert.equal(calls[3].method, "POST");
-  assert.match(calls[3].url, /values:batchUpdate$/);
-  assert.equal(calls[4].method, "POST");
-  assert.match(
-    calls[4].url,
+    appendCall.url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
   );
-
-  const batchUpdateBody = JSON.parse(calls[3].body);
+  const batchUpdateBody = JSON.parse(batchUpdateCall.body);
   assert.equal(batchUpdateBody.valueInputOption, "USER_ENTERED");
-  assert.equal(batchUpdateBody.data.length, 1);
-  assert.equal(batchUpdateBody.data[0].range, `Pipeline!A2:${LAST_COLUMN_LETTER}2`);
+  for (const entry of batchUpdateBody.data) {
+    assert.doesNotMatch(entry.range, /![MNOPRS]\d/, `CRM column written: ${entry.range}`);
+  }
 
-  const updatedRow = batchUpdateBody.data[0].values[0];
+  const updatedRow = sheet.tabs.get("Pipeline")[1];
   assert.equal(updatedRow[1], "Senior Backend Engineer");
   assert.equal(updatedRow[12], "Applied");
   assert.equal(updatedRow[13], "2026-04-02");
@@ -323,7 +313,7 @@ test("createPipelineWriter updates existing rows and appends new ones", async ()
   assert.equal(updatedRow[17], "2026-04-05");
   assert.equal(updatedRow[18], "No");
 
-  const appendBody = JSON.parse(calls[4].body);
+  const appendBody = JSON.parse(appendCall.body);
   assert.equal(appendBody.values.length, 1);
   const appendedRow = appendBody.values[0];
   assert.equal(appendedRow[1], "Data Engineer");
@@ -401,7 +391,7 @@ test("createPipelineWriter writes favorite=★ and dismissedAt to columns V and 
 
   assert.equal(result.appended, 1);
   assert.equal(result.skippedBlacklist, 0);
-  const appendBody = JSON.parse(calls[3].body);
+  const appendBody = JSON.parse(writes(calls).find((c) => /:append/.test(c.url)).body);
   const appendedRow = appendBody.values[0];
   assert.equal(appendedRow[21], "★");
   assert.equal(appendedRow[22], dismissedAt);
@@ -532,7 +522,7 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
   assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW);
   assert.match(calls[2].url, /values\/Blacklist!A2%3AA/);
   assert.match(
-    calls[4].url,
+    writes(calls).at(-1).url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
   );
 });
@@ -703,14 +693,14 @@ test("SheetWriteError preserves canonical link and source attribution (VAL-DATA-
   const { fetchImpl, calls } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
     dataRows: [],
-    responses: [
-      responseJson({ error: "Server Error" }, 500),
-    ],
+    // 5xx is retried now (BEAUDIT D12), so every attempt fails here.
+    responses: Array.from({ length: 4 }, () => responseJson({ error: "Server Error" }, 500)),
   });
 
   const writer = createPipelineWriter(runtimeConfig, {
     fetchImpl,
     now: () => new Date("2026-04-09T12:00:00.000Z"),
+    retryBaseMs: 1,
   });
 
   const sheetId = "canonical-sheet-123";
@@ -824,7 +814,7 @@ async function mergedRowFor(
   existingRow: string[],
   lead: ReturnType<typeof makeLead>,
 ): Promise<string[]> {
-  const { fetchImpl, calls } = createMockFetch({
+  const { fetchImpl, calls, sheet } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
     dataRows: [existingRow],
     responses: [responseJson({ updatedRows: 1 })],
@@ -837,7 +827,10 @@ async function mergedRowFor(
   assert.equal(result.updated, 1, "the existing row must be matched + updated");
   const batchCall = calls.find((c) => c.method === "POST" && /values:batchUpdate$/.test(c.url));
   assert.ok(batchCall, "a batchUpdate call must be issued for the matched row");
-  return JSON.parse(batchCall.body).data[0].values[0];
+  // The writer sends only changed cells now; read the merged row back.
+  const merged = [...sheet.tabs.get("Pipeline")[1]];
+  while (merged.length < COLUMN_COUNT) merged.push("");
+  return merged;
 }
 
 test("mergeExistingRow with Edit Lock 'title,salary' keeps user title+salary but takes discovery company+location", async () => {
@@ -972,7 +965,7 @@ test("F1D-PIPE07-ID merges alternate ATS URLs for the same provider job id", asy
     "https://boards.greenhouse.io/acme/jobs/12345?gh_src=linkedin",
     "Greenhouse",
   ]);
-  const { fetchImpl, calls } = createMockFetch({
+  const { fetchImpl, calls, sheet } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
     dataRows: [existingRow],
     responses: [responseJson({ updatedRows: 1 })],
@@ -1006,7 +999,7 @@ test("F1D-PIPE07-ID merges alternate ATS URLs for the same provider job id", asy
   assert.equal(result.appended, 0);
   const updateCall = calls.find((call) => /values:batchUpdate$/.test(call.url));
   assert.ok(updateCall, "provider identity match must update the existing row");
-  const updatedRow = JSON.parse(updateCall.body).data[0].values[0];
+  const updatedRow = sheet.tabs.get("Pipeline")[1];
   assert.equal(
     updatedRow[4],
     "https://job-boards.greenhouse.io/acme/jobs/12345",

@@ -1099,7 +1099,24 @@ test("VAL-ROUTE-010: browser_only with empty companies uses modifier-driven grou
     randomId: () => "run_modifier_driven_test",
   };
 
-  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+  // Strict preflight fetches each candidate URL. Stub fetch so the test never
+  // reaches the network: a live request to example.com sometimes outlasted
+  // the source timeout, aborted the grounded search, and emptied querySummary.
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = (async (input: string | URL | Request) =>
+    new Response(
+      "<html><head><title>Senior Software Engineer</title></head><body><h1>Senior Software Engineer</h1><p>Example Corp. Remote. Build software. Apply now.</p></body></html>",
+      {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      },
+    )) as typeof fetch;
+  let result;
+  try {
+    result = await runDiscovery(makeRequest(), "manual", dependencies);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
 
   // grounded_web should have executed with modifier-driven query
   const groundedEntry = result.sourceSummary.find((s) => s.sourceId === "grounded_web");

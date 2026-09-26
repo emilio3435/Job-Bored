@@ -509,6 +509,7 @@
       "3. Return the deployed open `workers.dev` URL only.",
       "4. Do not use `/forward` in the dashboard path, and keep Cloudflare Access disabled on the open `workers.dev` URL.",
       `5. ${verifyLine}`,
+      "6. Do not point a GitHub Actions workflow at the relay: it answers 401 without the dashboard's bearer. Scheduled relay runs come from its own Cloudflare Cron (deploy with `--sheet-id`).",
       "",
       "If Wrangler stops at a one-time `workers.dev` subdomain prompt, tell me whether I need to answer it in the browser-login path or rerun with an API token.",
     ].join("\n");

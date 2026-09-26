@@ -52,8 +52,17 @@ function makeRequest(bodyOverrides: Record<string, unknown> = {}) {
   };
 }
 
+// BEAUDIT A3: the handler now proves a Sheets credential before extracting.
+// These tests pin extraction behavior, so they stub that check as satisfied;
+// tests/webhook/ingest-url-order.test.ts pins the check itself.
+const credentialReady = async () => ({
+  configured: true,
+  source: "access_token" as const,
+});
+
 function makeDependencies(overrides: Record<string, unknown> = {}) {
   return {
+    checkSheetsCredential: credentialReady,
     runtimeConfig: makeRuntimeConfig(),
     pipelineWriter: {
       write: async () => ({

@@ -1,0 +1,108 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/job-bored/command-center/schemas/cleanup-expired-response.v1.schema.json",
+  "title": "Expired-job cleanup pass (POST /cleanup-expired 200 answer)",
+  "description": "Counts and per-row results of one cleanup pass. Failures answer api-error.v1 (400 missing sheetId or bad JSON, 401, 500 `Cleanup failed.`).",
+  "type": "object",
+  "additionalProperties": true,
+  "required": [
+    "ok",
+    "sheetId",
+    "sheetName",
+    "dryRun",
+    "checked",
+    "open",
+    "needsReview",
+    "skipped",
+    "wouldExpire",
+    "updated",
+    "results"
+  ],
+  "properties": {
+    "ok": {
+      "const": true
+    },
+    "sheetId": {
+      "type": "string"
+    },
+    "sheetName": {
+      "type": "string"
+    },
+    "dryRun": {
+      "type": "boolean"
+    },
+    "checked": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "open": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "needsReview": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "skipped": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "wouldExpire": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "updated": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "results": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": true,
+        "required": [
+          "rowNumber",
+          "link",
+          "normalizedLink",
+          "previousStatus",
+          "action",
+          "reason"
+        ],
+        "properties": {
+          "rowNumber": {
+            "type": "integer"
+          },
+          "link": {
+            "type": "string"
+          },
+          "normalizedLink": {
+            "type": "string"
+          },
+          "previousStatus": {
+            "type": "string"
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "would_expire",
+              "expired",
+              "open",
+              "needs_review",
+              "skipped"
+            ]
+          },
+          "classification": {
+            "type": "object",
+            "additionalProperties": true
+          },
+          "reason": {
+            "type": "string"
+          },
+          "auditNote": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  }
+}

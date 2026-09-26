@@ -33,8 +33,6 @@ import {
 } from "./discovery/company-planner.ts";
 import type { RankedPlannedCompany } from "./discovery/company-planner.ts";
 import { createGroundedSearchClient } from "./grounding/grounded-search.ts";
-import { buildCorsHeaders, isOriginAllowed } from "./http/origin-guard.ts";
-import { checkLoopbackRequestHost } from "../../../server/security-boundaries.mjs";
 import { createWorkerChatMatchClient } from "./match/job-matcher.ts";
 import {
   runDiscovery,
@@ -53,18 +51,17 @@ import {
 } from "./state/run-status-store.ts";
 import { createDiscoveryMemoryStore } from "./state/discovery-memory-store.ts";
 import { createRunDiscoveryMemoryStore } from "./state/run-discovery-memory-store.ts";
-import {
-  handleDiscoveryWebhook,
-  hasValidWebhookSecret,
-} from "./webhook/handle-discovery-webhook.ts";
+import { handleDiscoveryWebhook } from "./webhook/handle-discovery-webhook.ts";
+import { createRunCancelRegistry } from "./webhook/run-async-lifecycle.ts";
+import { createWorkerRequestListener } from "./webhook/worker-router.ts";
 import { handleCleanupExpiredWebhook } from "./webhook/handle-cleanup-webhook.ts";
 import { handleDiscoveryProfileWebhook } from "./webhook/handle-discovery-profile.ts";
 import { handlePipelineUpdateWebhook } from "./webhook/handle-pipeline-update.ts";
 import { handleIngestUrlWebhook } from "./webhook/handle-ingest-url.ts";
 import {
-  hasValidRunStatusToken,
-  parseRunStatusPath,
-} from "./webhook/run-status-auth.ts";
+  pruneRunStatusSnapshots,
+  recoverAbandonedRuns,
+} from "./webhook/boot-recovery.ts";
 import { createBrowserUseSessionManager } from "./browser/session.ts";
 
 const runtimeConfig = loadRuntimeConfig(process.env);
@@ -277,18 +274,29 @@ const discoveryRunsLogger = createDiscoveryRunsLogger({
   runtimeConfig,
   log: logEvent,
 });
+// BEAUDIT A17: bound run-status retention before the store loads it.
+pruneRunStatusSnapshots(runtimeConfig.runStateDirectory, { log: logEvent });
 const runStatusStore = createDiscoveryRunStatusStore(
   runtimeConfig.runStateDirectory,
   { log: logEvent },
 );
-const abandonedRunCount = runStatusStore.markNonTerminalRunsAbandoned?.(
-  new Date().toISOString(),
-) ?? 0;
-if (abandonedRunCount > 0) {
-  logEvent("discovery.run_status.abandoned_terminalized", {
-    count: abandonedRunCount,
-  });
-}
+// BEAUDIT A5: abandoned runs are terminalized synchronously (before the
+// listener opens) and each gets its DiscoveryRuns row, best-effort.
+void recoverAbandonedRuns({
+  store: runStatusStore,
+  snapshotDirectory: runtimeConfig.runStateDirectory,
+  now: () => new Date(),
+  source: "worker@boot",
+  discoveryRunsLogger,
+  log: logEvent,
+}).then(({ abandoned, historyWritten }) => {
+  if (abandoned > 0) {
+    logEvent("discovery.run_status.abandoned_terminalized", {
+      count: abandoned,
+      historyWritten,
+    });
+  }
+});
 const RUN_STATUS_TEMPLATE = "/runs/{runId}";
 
 const sharedRunDependencies = {
@@ -628,46 +636,6 @@ function createDiscoveryRunsLoggerForRequest(
   });
 }
 
-function getHeaderValue(header: string | string[] | undefined): string {
-  if (Array.isArray(header)) {
-    return header[0] || "";
-  }
-  return String(header || "");
-}
-
-function requestHeadersForAuth(
-  headers: import("node:http").IncomingHttpHeaders,
-): Record<string, string | string[] | undefined> {
-  return Object.fromEntries(
-    Object.entries(headers).map(([key, value]) => [
-      key,
-      Array.isArray(value) ? value : (value ?? undefined),
-    ]),
-  );
-}
-
-// Body cap + reader live in a side-effect-free module so unit tests can
-// exercise them without booting the live HTTP server.
-import {
-  BodyTooLargeError,
-  MAX_BODY_BYTES,
-  readBody,
-} from "./http/body-limit.ts";
-
-function sendJson(
-  response: import("node:http").ServerResponse,
-  status: number,
-  body: unknown,
-  extraHeaders: Record<string, string> = {},
-): void {
-  response.statusCode = status;
-  setHeaders(response, {
-    "content-type": "application/json; charset=utf-8",
-    ...extraHeaders,
-  });
-  response.end(JSON.stringify(body));
-}
-
 function logEvent(event: string, details: Record<string, unknown>): void {
   console.log(
     `[browser-use-discovery] ${JSON.stringify({
@@ -681,15 +649,6 @@ function logEvent(event: string, details: Record<string, unknown>): void {
 function formatError(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
-}
-
-function setHeaders(
-  response: import("node:http").ServerResponse,
-  headers: Record<string, string>,
-): void {
-  for (const [key, value] of Object.entries(headers)) {
-    response.setHeader(key, value);
-  }
 }
 
 async function buildHealthPayload() {
@@ -727,6 +686,8 @@ async function buildHealthPayload() {
   const sheetsCredentialReadiness =
     await validateSheetsCredentialReadiness(runtimeConfig, {
       sheetId: String(storedConfig?.sheetId || "").trim(),
+      // BEAUDIT A8/D16: /health polling reuses a result for a minute.
+      cacheTtlMs: 60_000,
     });
   const localInteractiveSheetsReady =
     runtimeConfig.runMode === "local" &&
@@ -1014,462 +975,39 @@ function hasNonBlankStringValue(value: unknown): boolean {
   return Boolean(String(value || "").trim());
 }
 
-/**
- * BEAUDIT A1 (SEC-05): `new URL("//", base)` throws ERR_INVALID_URL. Parse
- * inside a guard so a raw path is a 400, never an unhandled rejection that
- * kills the worker and every in-flight run.
- */
-export function parseWorkerRequestUrl(rawUrl: string | undefined): URL | null {
-  // A request target must be origin-form. `//host/path` would otherwise be
-  // read as a network-path reference that swaps the authority.
-  if (String(rawUrl || "/").startsWith("//")) return null;
-  try {
-    return new URL(rawUrl || "/", "http://127.0.0.1");
-  } catch {
-    return null;
-  }
-}
+// BEAUDIT A21: live async discovery runs that POST /runs/:id/cancel can abort.
+const runCancelRegistry = createRunCancelRegistry();
 
-const server = createServer((request, response) => {
-  handleWorkerRequest(request, response).catch((error: unknown) => {
-    // Catch-all: a handler bug answers 500 and never rethrows.
-    console.error(
-      "[browser-use-discovery] request handler failed:",
-      error instanceof Error ? error.message : String(error),
-    );
-    try {
-      if (!response.headersSent) {
-        response.writeHead(500, { "Content-Type": "application/json" });
-        response.end(JSON.stringify({ ok: false, message: "Internal error." }));
-      } else {
-        response.end();
-      }
-    } catch {
-      // The socket is already gone; nothing left to answer.
-    }
-  });
-});
-
-async function handleWorkerRequest(
-  request: import("node:http").IncomingMessage,
-  response: import("node:http").ServerResponse,
-): Promise<void> {
-  const requestId = randomUUID().slice(0, 8);
-  const startedAt = Date.now();
-  const origin = getHeaderValue(request.headers.origin);
-  const corsHeaders = buildCorsHeaders(runtimeConfig.allowedOrigins, origin);
-  // BEAUDIT E1: the shared loopback Host guard. A DNS-rebound page reaches
-  // 127.0.0.1 with its own name in Host; only loopback names on this port and
-  // the configured tunnel hosts get through.
-  // Tunnel names extend loopback only. The guard applies to the local run mode
-  // (the loopback-bound worker on the user's machine); a hosted worker sits
-  // behind a reverse proxy that connects over 127.0.0.1 with its public Host,
-  // and the webhook secret gates it instead.
-  const hostCheck =
-    runtimeConfig.runMode === "local"
-      ? checkLoopbackRequestHost(request, {
-          tunnelHosts: runtimeConfig.allowedHosts || [],
-        })
-      : ({ ok: true } as const);
-  if (!hostCheck.ok) {
-    response.writeHead(hostCheck.status, { "Content-Type": "application/json" });
-    response.end(
-      JSON.stringify({ ok: false, code: hostCheck.code, message: hostCheck.error }),
-    );
-    return;
-  }
-  const requestUrl = parseWorkerRequestUrl(request.url);
-  if (!requestUrl) {
-    response.writeHead(400, { "Content-Type": "application/json", ...corsHeaders });
-    response.end(JSON.stringify({ ok: false, message: "Malformed request URL." }));
-    return;
-  }
-  const requestPath = requestUrl.pathname;
-  const method = (request.method || "GET").toUpperCase();
-
-  logEvent("http.request.received", {
-    requestId,
-    method,
-    path: requestPath,
-    origin: origin || undefined,
-  });
-
-  const finishJson = (
-    status: number,
-    body: unknown,
-    extraHeaders: Record<string, string> = {},
-  ): void => {
-    logEvent("http.request.completed", {
-      requestId,
-      method,
-      path: requestPath,
-      status,
-      durationMs: Date.now() - startedAt,
-    });
-    sendJson(response, status, body, extraHeaders);
-  };
-
-  if (origin && !isOriginAllowed(runtimeConfig.allowedOrigins, origin)) {
-    finishJson(
-      403,
-      {
-        ok: false,
-        message: "Origin not allowed for browser access.",
-      },
-      corsHeaders,
-    );
-    return;
-  }
-
-  if (method === "OPTIONS") {
-    logEvent("http.request.completed", {
-      requestId,
-      method,
-      path: requestPath,
-      status: 204,
-      durationMs: Date.now() - startedAt,
-    });
-    response.statusCode = 204;
-    setHeaders(response, corsHeaders);
-    response.end();
-    return;
-  }
-
-  if (requestPath === "/health") {
-    finishJson(200, await buildHealthPayload(), corsHeaders);
-    return;
-  }
-
-  if (requestPath.startsWith("/runs/")) {
-    if (method !== "GET") {
-      finishJson(
-        405,
-        {
-          ok: false,
-          message: "Method not allowed",
-        },
-        {
-          ...corsHeaders,
-          allow: "GET,OPTIONS",
-        },
-      );
-      return;
-    }
-
-    const parsedRunStatusPath = parseRunStatusPath(requestPath);
-    if (!parsedRunStatusPath.ok) {
-      finishJson(
-        parsedRunStatusPath.status,
-        parsedRunStatusPath.body,
-        corsHeaders,
-      );
-      return;
-    }
-    const { runId } = parsedRunStatusPath;
-    if (runtimeConfig.runMode === "hosted") {
-      const tokenAuthorized = hasValidRunStatusToken({
-        webhookSecret: runtimeConfig.webhookSecret,
-        runId,
-        providedToken:
-          requestUrl.searchParams.get("statusToken") ||
-          getHeaderValue(request.headers["x-run-status-token"]),
-      });
-      const secretAuthorized = hasValidWebhookSecret(
-        runtimeConfig.webhookSecret,
-        requestHeadersForAuth(request.headers),
-      ).valid;
-      if (!tokenAuthorized && !secretAuthorized) {
-        finishJson(
-          401,
-          {
-            ok: false,
-            message: "Unauthorized run status request.",
-          },
-          corsHeaders,
-        );
-        return;
-      }
-    }
-
-    const payload = runStatusStore.get(runId);
-    if (!payload) {
-      finishJson(
-        404,
-        {
-          ok: false,
-          message: "Run not found",
-        },
-        corsHeaders,
-      );
-      return;
-    }
-
-    finishJson(
-      200,
-      {
-        ok: true,
-        ...payload,
-      },
-      corsHeaders,
-    );
-    return;
-  }
-
-  if (
-    !["/", "/webhook", "/discovery", "/discovery-profile", "/pipeline-update", "/ingest-url", "/cleanup-expired"].includes(
-      requestPath,
-    )
-  ) {
-    finishJson(
-      404,
-      {
-        ok: false,
-        message: "Not found",
-      },
-      corsHeaders,
-    );
-    return;
-  }
-
-  if (method !== "POST") {
-    finishJson(
-      405,
-      {
-        ok: false,
-        message: "Method not allowed",
-      },
-      {
-        ...corsHeaders,
-        allow: "POST,OPTIONS",
-      },
-    );
-    return;
-  }
-
-  const preAuth = hasValidWebhookSecret(
-    runtimeConfig.webhookSecret,
-    requestHeadersForAuth(request.headers),
-  );
-  if (!preAuth.valid) {
-    logEvent("http.request.unauthorized", {
-      requestId,
-      method,
-      path: requestPath,
-      category: preAuth.category,
-    });
-    finishJson(
-      401,
-      {
-        ok: false,
-        message: preAuth.detail || "Unauthorized",
-        auth: {
-          category: preAuth.category,
-          detail: preAuth.detail,
-          ...(preAuth.remediation ? { remediation: preAuth.remediation } : {}),
-        },
-      },
-      corsHeaders,
-    );
-    return;
-  }
-
-  // Feature B / Layer 5 — profile-driven company discovery endpoint. Uses the
-  // same x-discovery-secret auth as the main webhook; never persists raw
-  // resume text; optionally writes the inferred companies to worker-config.
-  if (requestPath === "/discovery-profile") {
-    try {
-      const bodyText = await readBody(request);
-      logEvent("http.request.body", {
-        requestId,
-        method,
-        path: requestPath,
-        bytes: Buffer.byteLength(bodyText, "utf8"),
-        contentType:
-          getHeaderValue(request.headers["content-type"]) || undefined,
-      });
-      const result = await handleDiscoveryProfileWebhook(
-        {
-          method,
-          headers: Object.fromEntries(
-            Object.entries(request.headers).map(([key, value]) => [
-              key,
-              Array.isArray(value) ? value : (value ?? undefined),
-            ]),
-          ),
-          bodyText,
-        },
-        {
+// BEAUDIT A14: the router lives in a side-effect-free module (tested on
+// node:http port 0); this file only wires the live collaborators into it.
+const server = createServer(
+  createWorkerRequestListener({
+    runtimeConfig,
+    runStatusStore,
+    cancelRegistry: runCancelRegistry,
+    buildHealthPayload,
+    logEvent,
+    handlers: {
+      discoveryProfile: (request, log) =>
+        handleDiscoveryProfileWebhook(request, {
           runtimeConfig,
           upsertStoredWorkerConfig,
           loadStoredWorkerConfig: (sheetId: string) =>
             loadStoredWorkerConfig(runtimeConfig, sheetId),
           discoveryRunsLogger,
           discoveryRunsSource: "worker@profile",
-          log: (event, details) =>
-            logEvent(event, {
-              requestId,
-              method,
-              path: requestPath,
-              ...details,
-            }),
-        },
-      );
-      logEvent("http.request.completed", {
-        requestId,
-        method,
-        path: requestPath,
-        status: result.status,
-        durationMs: Date.now() - startedAt,
-      });
-      response.statusCode = result.status;
-      setHeaders(response, {
-        ...corsHeaders,
-        ...result.headers,
-      });
-      response.end(result.body);
-    } catch (error) {
-      if (error instanceof BodyTooLargeError) {
-        logEvent("http.request.rejected", {
-          requestId,
-          method,
-          path: requestPath,
-          reason: "body_too_large",
-          limit: MAX_BODY_BYTES,
-        });
-        finishJson(
-          413,
-          { ok: false, message: "Request body exceeds the configured limit." },
-          corsHeaders,
-        );
-        return;
-      }
-      logEvent("http.request.failed", {
-        requestId,
-        method,
-        path: requestPath,
-        durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      finishJson(
-        500,
-        {
-          ok: false,
-          message: "Internal error handling discovery-profile request.",
-          detail: error instanceof Error ? error.message : String(error),
-        },
-        corsHeaders,
-      );
-    }
-    return;
-  }
-
-  if (requestPath === "/pipeline-update") {
-    try {
-      const bodyText = await readBody(request);
-      logEvent("http.request.body", {
-        requestId,
-        method,
-        path: requestPath,
-        bytes: Buffer.byteLength(bodyText, "utf8"),
-        contentType:
-          getHeaderValue(request.headers["content-type"]) || undefined,
-      });
-      const patcher = createPipelinePatcher(runtimeConfig);
-      const result = await handlePipelineUpdateWebhook(
-        {
-          method,
-          headers: Object.fromEntries(
-            Object.entries(request.headers).map(([key, value]) => [
-              key,
-              Array.isArray(value) ? value : (value ?? undefined),
-            ]),
-          ),
-          bodyText,
-        },
-        {
+          log,
+        }),
+      pipelineUpdate: (request, log) => {
+        const patcher = createPipelinePatcher(runtimeConfig);
+        return handlePipelineUpdateWebhook(request, {
           runtimeConfig,
           patchPipeline: (sheetId, input) => patcher.patch(sheetId, input),
-          log: (event, details) =>
-            logEvent(event, {
-              requestId,
-              method,
-              path: requestPath,
-              ...details,
-            }),
-        },
-      );
-      logEvent("http.request.completed", {
-        requestId,
-        method,
-        path: requestPath,
-        status: result.status,
-        durationMs: Date.now() - startedAt,
-      });
-      response.statusCode = result.status;
-      setHeaders(response, {
-        ...corsHeaders,
-        ...result.headers,
-      });
-      response.end(result.body);
-    } catch (error) {
-      if (error instanceof BodyTooLargeError) {
-        logEvent("http.request.rejected", {
-          requestId,
-          method,
-          path: requestPath,
-          reason: "body_too_large",
-          limit: MAX_BODY_BYTES,
+          log,
         });
-        finishJson(
-          413,
-          { ok: false, message: "Request body exceeds the configured limit." },
-          corsHeaders,
-        );
-        return;
-      }
-      logEvent("http.request.failed", {
-        requestId,
-        method,
-        path: requestPath,
-        durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      finishJson(
-        500,
-        {
-          ok: false,
-          message: "Internal error handling pipeline-update request.",
-          detail: error instanceof Error ? error.message : String(error),
-        },
-        corsHeaders,
-      );
-    }
-    return;
-  }
-
-  if (requestPath === "/ingest-url") {
-    try {
-      const bodyText = await readBody(request);
-      logEvent("http.request.body", {
-        requestId,
-        method,
-        path: requestPath,
-        bytes: Buffer.byteLength(bodyText, "utf8"),
-        contentType:
-          getHeaderValue(request.headers["content-type"]) || undefined,
-      });
-      const result = await handleIngestUrlWebhook(
-        {
-          method,
-          headers: Object.fromEntries(
-            Object.entries(request.headers).map(([key, value]) => [
-              key,
-              Array.isArray(value) ? value : (value ?? undefined),
-            ]),
-          ),
-          bodyText,
-        },
-        {
+      },
+      ingestUrl: (request, log) =>
+        handleIngestUrlWebhook(request, {
           runtimeConfig,
           pipelineWriter,
           loadStoredWorkerConfig: (sheetId: string) =>
@@ -1481,231 +1019,27 @@ async function handleWorkerRequest(
           now: () => new Date(),
           randomId: (prefix: string) =>
             `${prefix}_${randomUUID().replace(/-/g, "")}`,
-          log: (event, details) =>
-            logEvent(event, {
-              requestId,
-              method,
-              path: requestPath,
-              ...details,
-            }),
-        },
-      );
-      logEvent("http.request.completed", {
-        requestId,
-        method,
-        path: requestPath,
-        status: result.status,
-        durationMs: Date.now() - startedAt,
-      });
-      response.statusCode = result.status;
-      setHeaders(response, {
-        ...corsHeaders,
-        ...result.headers,
-      });
-      response.end(result.body);
-    } catch (error) {
-      if (error instanceof BodyTooLargeError) {
-        logEvent("http.request.rejected", {
-          requestId,
-          method,
-          path: requestPath,
-          reason: "body_too_large",
-          limit: MAX_BODY_BYTES,
-        });
-        finishJson(
-          413,
-          { ok: false, message: "Request body exceeds the configured limit." },
-          corsHeaders,
-        );
-        return;
-      }
-      logEvent("http.request.failed", {
-        requestId,
-        method,
-        path: requestPath,
-        durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      finishJson(
-        500,
-        {
-          ok: false,
-          message: "Internal error handling ingest-url request.",
-          detail: error instanceof Error ? error.message : String(error),
-        },
-        corsHeaders,
-      );
-    }
-    return;
-  }
-
-  if (requestPath === "/cleanup-expired") {
-    try {
-      const bodyText = await readBody(request);
-      logEvent("http.request.body", {
-        requestId,
-        method,
-        path: requestPath,
-        bytes: Buffer.byteLength(bodyText, "utf8"),
-        contentType:
-          getHeaderValue(request.headers["content-type"]) || undefined,
-      });
-      const result = await handleCleanupExpiredWebhook(
-        {
-          method,
-          headers: Object.fromEntries(
-            Object.entries(request.headers).map(([key, value]) => [
-              key,
-              Array.isArray(value) ? value : (value ?? undefined),
-            ]),
-          ),
-          bodyText,
-        },
-        {
-          runtimeConfig,
-          log: (event, details) =>
-            logEvent(event, {
-              requestId,
-              method,
-              path: requestPath,
-              ...details,
-            }),
-        },
-      );
-      logEvent("http.request.completed", {
-        requestId,
-        method,
-        path: requestPath,
-        status: result.status,
-        durationMs: Date.now() - startedAt,
-      });
-      response.statusCode = result.status;
-      setHeaders(response, {
-        ...corsHeaders,
-        ...result.headers,
-      });
-      response.end(result.body);
-    } catch (error) {
-      if (error instanceof BodyTooLargeError) {
-        logEvent("http.request.rejected", {
-          requestId,
-          method,
-          path: requestPath,
-          reason: "body_too_large",
-          limit: MAX_BODY_BYTES,
-        });
-        finishJson(
-          413,
-          { ok: false, message: "Request body exceeds the configured limit." },
-          corsHeaders,
-        );
-        return;
-      }
-      logEvent("http.request.failed", {
-        requestId,
-        method,
-        path: requestPath,
-        durationMs: Date.now() - startedAt,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      finishJson(
-        500,
-        {
-          ok: false,
-          message: "Internal error handling cleanup-expired request.",
-          detail: error instanceof Error ? error.message : String(error),
-        },
-        corsHeaders,
-      );
-    }
-    return;
-  }
-
-  try {
-    const bodyText = await readBody(request);
-    logEvent("http.request.body", {
-      requestId,
-      method,
-      path: requestPath,
-      bytes: Buffer.byteLength(bodyText, "utf8"),
-      contentType: getHeaderValue(request.headers["content-type"]) || undefined,
-    });
-    const result = await handleDiscoveryWebhook(
-      {
-        method,
-        headers: Object.fromEntries(
-          Object.entries(request.headers).map(([key, value]) => [
-            key,
-            Array.isArray(value) ? value : (value ?? undefined),
-          ]),
-        ),
-        bodyText,
-      },
-      {
-        runSynchronously: !runtimeConfig.asyncAckByDefault,
-        runStatusPathForRun: buildRunStatusPath,
-        runStatusStore,
-        runDiscovery,
-        runDependencies: sharedRunDependencies,
-        createPipelineWriterForRequest,
-        createDiscoveryRunsLoggerForRequest,
-        includeRunStatusToken: runtimeConfig.runMode === "hosted",
-        log: (event, details) =>
-          logEvent(event, {
-            requestId,
-            method,
-            path: requestPath,
-            ...details,
-          }),
-        maxRunDurationMs: runtimeConfig.maxRunDurationMs,
-      },
-    );
-    logEvent("http.request.completed", {
-      requestId,
-      method,
-      path: requestPath,
-      status: result.status,
-      durationMs: Date.now() - startedAt,
-    });
-    response.statusCode = result.status;
-    setHeaders(response, {
-      ...corsHeaders,
-      ...result.headers,
-    });
-    response.end(result.body);
-  } catch (error) {
-    if (error instanceof BodyTooLargeError) {
-      logEvent("http.request.rejected", {
-        requestId,
-        method,
-        path: requestPath,
-        reason: "body_too_large",
-        limit: MAX_BODY_BYTES,
-      });
-      finishJson(
-        413,
-        { ok: false, message: "Request body exceeds the configured limit." },
-        corsHeaders,
-      );
-      return;
-    }
-    logEvent("http.request.failed", {
-      requestId,
-      method,
-      path: requestPath,
-      durationMs: Date.now() - startedAt,
-      error: error instanceof Error ? error.message : String(error),
-    });
-    finishJson(
-      500,
-      {
-        ok: false,
-        message: error instanceof Error ? error.message : String(error),
-      },
-      corsHeaders,
-    );
-  }
-}
+          log,
+        }),
+      cleanupExpired: (request, log) =>
+        handleCleanupExpiredWebhook(request, { runtimeConfig, log }),
+      discovery: (request, log) =>
+        handleDiscoveryWebhook(request, {
+          runSynchronously: !runtimeConfig.asyncAckByDefault,
+          runStatusPathForRun: buildRunStatusPath,
+          runStatusStore,
+          runDiscovery,
+          runDependencies: sharedRunDependencies,
+          createPipelineWriterForRequest,
+          createDiscoveryRunsLoggerForRequest,
+          includeRunStatusToken: runtimeConfig.runMode === "hosted",
+          cancelRegistry: runCancelRegistry,
+          log,
+          maxRunDurationMs: runtimeConfig.maxRunDurationMs,
+        }),
+    },
+  }),
+);
 
 server.listen(runtimeConfig.port, runtimeConfig.host, () => {
   const host =

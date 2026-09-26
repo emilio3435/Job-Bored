@@ -24,6 +24,7 @@ import {
   createRunStatusToken,
   hasValidRunStatusToken,
 } from "../../src/webhook/run-status-auth.ts";
+import { computeSafetyDelayMs } from "../../src/webhook/run-async-lifecycle.ts";
 import {
   buildRunningRunStatus,
   createDiscoveryRunStatusStore,
@@ -4273,7 +4274,8 @@ test("F1B-RUN05-FINAL: watchdog timeout writes one durable history row and stays
     dependencies,
   );
   assert.equal(response.status, 202);
-  t.mock.timers.tick(15);
+  // BEAUDIT A12: the status backstop fires a grace window after maxRunDurationMs.
+  t.mock.timers.tick(computeSafetyDelayMs(15));
   await historyWritten;
   assert.equal(rows.length, 1);
   assert.equal(rows[0].status, "partial");

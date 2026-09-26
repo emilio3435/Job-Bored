@@ -7,7 +7,14 @@
  *
  * Script properties (Project settings > Script properties):
  *   SHEET_ID   — required to append rows (your copy of the template)
- *   ENABLE_TEST_ROW — set to "true" to append one Pipeline row per valid POST (for smoke tests)
+ *   WEBHOOK_SECRET — shared secret. When set, every POST must carry it as the
+ *                    ?secret= query parameter of the /exec URL you paste into
+ *                    the dashboard. Test rows are only written when it is set.
+ *   ENABLE_TEST_ROW — set to "true" to append one Pipeline test row (deduped
+ *                     by URL) per valid, authenticated POST (for smoke tests)
+ *
+ * The web app is public ("Anyone"), so it logs only the event name and
+ * variationKey, never the request body.
  *
  * @see ../AGENT_CONTRACT.md (repo root) — discovery webhook JSON v1
  */
@@ -31,9 +38,17 @@ function doPost(e) {
       return jsonOut_({ ok: false, error: "unknown event" });
     }
 
-    Logger.log("command-center.discovery " + JSON.stringify(body));
-
     var props = PropertiesService.getScriptProperties();
+    var secret = props.getProperty("WEBHOOK_SECRET") || "";
+    var sentSecret = (e && e.parameter && e.parameter.secret) || "";
+    if (secret && !secretsMatch_(String(sentSecret), String(secret))) {
+      return jsonOut_({ ok: false, error: "unauthorized" });
+    }
+
+    Logger.log(
+      "command-center.discovery variationKey=" + String(body.variationKey || ""),
+    );
+
     var sheetId = props.getProperty("SHEET_ID");
     if (sheetId && body.sheetId && String(body.sheetId) !== String(sheetId)) {
       Logger.log("sheetId mismatch: expected " + sheetId);
@@ -41,8 +56,11 @@ function doPost(e) {
     }
 
     if (props.getProperty("ENABLE_TEST_ROW") === "true" && sheetId) {
-      appendTestRow_(sheetId, body);
-      appendedTestRow = true;
+      if (!secret) {
+        Logger.log("ENABLE_TEST_ROW is ignored until WEBHOOK_SECRET is set");
+      } else {
+        appendedTestRow = appendTestRow_(sheetId, body);
+      }
     }
 
     return jsonOut_({
@@ -80,30 +98,43 @@ function doGet(e) {
   return jsonOut_(payload);
 }
 
+function secretsMatch_(a, b) {
+  if (a.length !== b.length) return false;
+  var diff = 0;
+  for (var i = 0; i < a.length; i++) {
+    diff |= a.charCodeAt(i) ^ b.charCodeAt(i);
+  }
+  return diff === 0;
+}
+
+/** Appends one test row per variationKey; returns false when it already exists. */
 function appendTestRow_(sheetId, body) {
   var ss = SpreadsheetApp.openById(sheetId);
   var sh = ss.getSheetByName("Pipeline");
   if (!sh) {
     throw new Error('Sheet "Pipeline" not found');
   }
-  var profile = body.discoveryProfile || {};
-  var note =
-    "Test row from Apps Script stub. variationKey=" +
-    String(body.variationKey || "") +
-    " targetRoles=" +
-    String(profile.targetRoles || "").slice(0, 80);
+  var variationKey = String(body.variationKey || "x").replace(/[^A-Za-z0-9._-]/g, "").slice(0, 80) || "x";
+  var link = "https://example.com/command-center-stub-" + variationKey;
+  var lastRow = sh.getLastRow();
+  if (lastRow >= 2) {
+    var links = sh.getRange(2, 5, lastRow - 1, 1).getValues();
+    for (var i = 0; i < links.length; i++) {
+      if (String(links[i][0]) === link) return false;
+    }
+  }
   sh.appendRow([
     new Date(),
     "[CC test] Discovery ping",
     "Apps Script stub",
     "",
-    "https://example.com/command-center-stub-" + String(body.variationKey || "x"),
+    link,
     "Apps Script",
     "",
     "5",
     "\u2014",
     "test",
-    note,
+    "Test row from Apps Script stub. variationKey=" + variationKey,
     "",
     "New",
     "",
@@ -111,6 +142,7 @@ function appendTestRow_(sheetId, body) {
     "",
     "",
   ]);
+  return true;
 }
 
 function jsonOut_(obj) {

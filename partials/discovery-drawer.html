@@ -721,7 +721,12 @@
                   <li>
                     Add the repo secrets
                     <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_URL</code> and
-                    <code>COMMAND_CENTER_SHEET_ID</code>. Add
+                    <code>COMMAND_CENTER_SHEET_ID</code>. The webhook URL is
+                    your worker's public URL or an Apps Script
+                    <code>/exec</code> URL, not a Cloudflare relay
+                    (<code>workers.dev</code>): the relay rejects GitHub
+                    Actions, so schedule a relay with its own Cloudflare Cron
+                    (redeploy it with <code>--sheet-id</code>). Add
                     <code>COMMAND_CENTER_DISCOVERY_WEBHOOK_SECRET</code> only
                     if your endpoint enforces <code>x-discovery-secret</code> —
                     optionally add
