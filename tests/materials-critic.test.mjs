@@ -64,6 +64,54 @@ describe("critiqueMaterials", () => {
     assert.equal(out.issues.some((i) => i.code === "banned_filler"), true);
   });
 
+  it("slice 5: filler detection is pack-driven, not the five-phrase regex", async () => {
+    const out = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Northwind</section><section data-section=\"experience\">Northwind</section>",
+      jdText: jd,
+      masterResumeHtml: "",
+      keptEmployers: ["Northwind"],
+      writerJson: { letter: { hook: "I am excited to apply for this distinctive opportunity." }, resume: { roles: [] } },
+    });
+    assert.equal(out.issues.some((i) => i.code === "banned_filler"), true);
+  });
+
+  it("slice 5: frozen facts narrow to kept claims, without an owner hardcode", async () => {
+    const missing = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Work</section><section data-section=\"experience\">Work</section>",
+      jdText: jd,
+      masterResumeHtml: "",
+      keptEmployers: ["Northwind"],
+      writerJson: { letter: { hook: "Clean." }, resume: { roles: [] } },
+    });
+    assert.equal(missing.issues.some((i) => i.code === "frozen_fact_broken"), true);
+    const bareMaster = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Work</section><section data-section=\"experience\">Work</section>",
+      jdText: jd,
+      masterResumeHtml: "Audacy",
+      writerJson: { letter: { hook: "Clean." }, resume: { roles: [] } },
+    });
+    assert.equal(bareMaster.issues.some((i) => i.code === "frozen_fact_broken"), false);
+  });
+
+  it("slice 5: numerals outside the ledger metrics are invented facts", async () => {
+    const out = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Northwind</section><section data-section=\"experience\">Northwind</section>",
+      jdText: jd,
+      masterResumeHtml: "",
+      keptEmployers: ["Northwind"],
+      ledgerMetrics: ["$10M+"],
+      writerJson: {
+        letter: { hook: "Clean." },
+        resume: { roles: [{ bullets: ["Grew the book 99% in a quarter."] }] },
+      },
+    });
+    assert.equal(out.issues.some((i) => i.code === "invented_fact"), true);
+  });
+
   it("fails HTML smuggled in a slot", async () => {
     const out = await critiqueMaterials({
       letterHtml: letterOf(360),
