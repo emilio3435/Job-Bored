@@ -164,7 +164,7 @@ describe("SIXBEATS2 NEW-3 · the fuel check contacts SerpApi before it claims an
     );
     assert.match(
       messageOf(env).textContent,
-      /local server/,
+      /JobBored server on this computer/,
       "a dead dev-server is a different problem from a dead key",
     );
   });

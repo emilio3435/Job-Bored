@@ -44,8 +44,8 @@ const FAILED_TUNNEL_NOTE =
   "when the tunnel restarts, so pressing Set it up for me again mints " +
   "you a stable address that doesn't expire.";
 const FUEL_NO_SERVER_MESSAGE =
-  "Couldn't reach the local server (ping failed). Start it with the start " +
-  "command, then press Save & verify.";
+  "Couldn't reach the JobBored server on this computer. To start it, run " +
+  "npm start in the JobBored folder, then press Save & verify.";
 
 // ---------------------------------------------------------------
 // The Tailscale auto path, driven the way B5 drives it.
@@ -534,7 +534,7 @@ describe("B5 C2 · the keyless ping gates the keyed check", () => {
       }),
     );
     assert.match(slotOf(env).textContent, /Couldn't reach SerpApi/);
-    assert.doesNotMatch(slotOf(env).textContent, /ping failed/);
+    assert.doesNotMatch(slotOf(env).textContent, /JobBored server on this computer/);
     assert.match(slotOf(env).textContent, /Save & verify/);
   });
 
