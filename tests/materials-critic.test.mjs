@@ -18,6 +18,19 @@ function letterOf(words) {
 }
 
 describe("critiqueMaterials", () => {
+  it("F20: a clean letter passes the critic with no issues", async () => {
+    const words = (n) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
+    const out = await critiqueMaterials({
+      letterHtml: letterOf(200),
+      resumeHtml: `<section data-section="summary">${words(35)}</section><section data-section="experience">${words(120)}</section><section data-section="education">${words(20)}</section>`,
+      jdText: jd,
+      masterResumeHtml: "Audacy",
+      writerJson: { letter: { hook: "word" }, resume: { roles: [] } },
+    });
+    assert.deepEqual(out.issues, []);
+    assert.equal(out.status, "pass");
+  });
+
   it("slice 2: a 200-word letter passes, a 100-word letter is too short", async () => {
     const base = {
       resumeHtml: "<section data-section=\"summary\">x</section><section data-section=\"experience\">y</section>",
