@@ -645,7 +645,9 @@ function upsertBrowserUseDiscoveryEnvValue(
   const hadKey = re.test(existing);
   let next;
   if (hadKey) {
-    next = existing.replace(re, line.trimEnd());
+    // BEAUDIT G14: replacement is a function so `$'`/`$&` in the value stay
+    // literal instead of expanding to the match context.
+    next = existing.replace(re, () => line.trimEnd());
   } else {
     next = existing.endsWith("\n") ? `${existing}${line}` : `${existing}\n${line}`;
   }

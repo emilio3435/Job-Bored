@@ -5,6 +5,7 @@ import {
   decideAfterChildExit,
   decideExistingWorkerAction,
   decideHeldWorkerAction,
+  HELD_WORKER_RESPAWN_CONSECUTIVE_FAILURES,
   parseStarterOptions,
 } from "./lib/discovery-worker-policy.mjs";
 import { join, resolve } from "node:path";
@@ -270,6 +271,43 @@ async function probeExistingWorker(host, port) {
   }
 }
 
+/**
+ * BEAUDIT G5: is anything at all answering on the worker port? Any HTTP
+ * response — even a 404 from a Hermes gateway — means the port is bound and
+ * spawning would die with EADDRINUSE. A refused connection means free. A
+ * timeout means something is there but wedged: bound, not free.
+ */
+async function isPortBound(host, port) {
+  const signal = createTimeoutSignal(1000);
+  try {
+    await fetch(`http://${host}:${port}/health`, {
+      method: "GET",
+      signal: signal || undefined,
+    });
+    return true;
+  } catch (err) {
+    const code = String((err && err.cause && err.cause.code) || (err && err.code) || "");
+    if (code === "ECONNREFUSED") return false;
+    // Timeouts, resets, aborts: a listener exists but misbehaves. Treat as
+    // bound — spawning into it is the EADDRINUSE exit G5 removes.
+    return true;
+  }
+}
+
+/**
+ * BEAUDIT G12: spawn the Node that runs this starter, not whatever `node`
+ * happens to be on PATH (dev-server.mjs already does this).
+ */
+function buildWorkerSpawnCommand() {
+  return {
+    command: process.execPath,
+    args: [
+      "--experimental-strip-types",
+      "integrations/browser-use-discovery/src/server.ts",
+    ],
+  };
+}
+
 const DEFAULT_HOLD_PROBE_MS = 5_000;
 
 /**
@@ -290,9 +328,16 @@ function holdProcessOpenForExistingWorker(host, port, options = {}) {
     Number.isFinite(probeIntervalMs) && probeIntervalMs > 0
       ? probeIntervalMs
       : DEFAULT_HOLD_PROBE_MS;
+  const probe = typeof options.probeExistingWorker === "function"
+    ? options.probeExistingWorker
+    : probeExistingWorker;
+  const boundProbe =
+    typeof options.isPortBound === "function" ? options.isPortBound : isPortBound;
   let shuttingDown = false;
   let finished = false;
   let inFlight = false;
+  let consecutiveFailures = 0;
+  let portBusyNoted = false;
 
   const finish = (next) => {
     if (finished) return;
@@ -312,10 +357,26 @@ function holdProcessOpenForExistingWorker(host, port, options = {}) {
     if (finished || inFlight) return;
     inFlight = true;
     try {
-      const healthy = await probeExistingWorker(host, port);
+      const healthy = await probe(host, port);
+      consecutiveFailures = healthy ? 0 : consecutiveFailures + 1;
+      if (healthy) portBusyNoted = false;
+      // BEAUDIT G6 residual: only ask about the port once the failure count
+      // could actually respawn — every earlier miss just keeps holding.
+      let portFree = true;
+      if (!healthy && consecutiveFailures >= HELD_WORKER_RESPAWN_CONSECUTIVE_FAILURES) {
+        portFree = !(await boundProbe(host, port));
+        if (!portFree && !portBusyNoted) {
+          portBusyNoted = true;
+          console.warn(
+            `[start:discovery-worker] reused worker at http://${host}:${port} is gone but the port is still held; waiting for it to free instead of respawning into EADDRINUSE.`,
+          );
+        }
+      }
       const action = decideHeldWorkerAction({
         heldWorkerHealthy: healthy,
         shuttingDown,
+        consecutiveFailures,
+        portFree,
       });
       if (action === "exit") {
         finish(() => process.exit(0));
@@ -343,6 +404,88 @@ function holdProcessOpenForExistingWorker(host, port, options = {}) {
   }, intervalMs);
   process.on("SIGINT", onSignal);
   process.on("SIGTERM", onSignal);
+}
+
+/**
+ * BEAUDIT G5: hold the process open while a FOREIGN listener (not the
+ * worker) owns the port. Exiting would tear web+scraper down under
+ * `concurrently -k`; instead wait for the port to free (then onPortFree
+ * spawns) or for a real worker to appear (then onWorkerHealthy reuses it).
+ *
+ * @param {string} host
+ * @param {number} port
+ * @param {{ ownerLines?: string[], onPortFree?: () => void, onWorkerHealthy?: () => void, probeIntervalMs?: number, probeExistingWorker?: Function, isPortBound?: Function }} [options]
+ * @returns {{ stop: () => void }}
+ */
+function holdProcessOpenForForeignListener(host, port, options = {}) {
+  for (const line of options.ownerLines || []) {
+    console.info(`[start:discovery-worker] ${line}`);
+  }
+  console.info(
+    `[start:discovery-worker] Set BROWSER_USE_DISCOVERY_PORT to use another worker port, or move the Hermes webhook to 8645 — holding so the dev stack survives.`,
+  );
+  const probeIntervalMs = Number(options.probeIntervalMs);
+  const intervalMs =
+    Number.isFinite(probeIntervalMs) && probeIntervalMs > 0
+      ? probeIntervalMs
+      : DEFAULT_HOLD_PROBE_MS;
+  const probe = typeof options.probeExistingWorker === "function"
+    ? options.probeExistingWorker
+    : probeExistingWorker;
+  const boundProbe =
+    typeof options.isPortBound === "function" ? options.isPortBound : isPortBound;
+  let finished = false;
+  let inFlight = false;
+
+  const finish = (next) => {
+    if (finished) return;
+    finished = true;
+    clearInterval(interval);
+    process.off("SIGINT", onSignal);
+    process.off("SIGTERM", onSignal);
+    if (typeof next === "function") next();
+  };
+
+  const onSignal = () => {
+    finish(() => process.exit(0));
+  };
+
+  const tick = async () => {
+    if (finished || inFlight) return;
+    inFlight = true;
+    try {
+      if (await probe(host, port)) {
+        console.info(
+          `[start:discovery-worker] a discovery worker appeared at http://${host}:${port}; reusing it.`,
+        );
+        finish(() => {
+          if (typeof options.onWorkerHealthy === "function") {
+            options.onWorkerHealthy();
+          }
+        });
+        return;
+      }
+      if (!(await boundProbe(host, port))) {
+        console.info(
+          `[start:discovery-worker] port ${port} is free now; starting the worker.`,
+        );
+        finish(() => {
+          if (typeof options.onPortFree === "function") {
+            options.onPortFree();
+          }
+        });
+      }
+    } finally {
+      inFlight = false;
+    }
+  };
+
+  const interval = setInterval(() => {
+    void tick();
+  }, intervalMs);
+  process.on("SIGINT", onSignal);
+  process.on("SIGTERM", onSignal);
+  return { stop: () => finish() };
 }
 
 function sleep(ms) {
@@ -385,6 +528,47 @@ function isProcessAlive(pid) {
   } catch {
     return false;
   }
+}
+
+function getProcessCommand(pid) {
+  try {
+    const output = execFileSync("ps", ["-p", String(pid), "-o", "command="], {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "ignore"],
+    });
+    return String(output || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/**
+ * BEAUDIT G5: describe who owns the worker port for the hold message.
+ * PURE apart from the injected inspectors (default: lsof + ps).
+ * Returns { bound: true|false|null, pids, lines } — bound null means the
+ * port could not be inspected at all (lsof missing), so the caller must not
+ * claim it is free.
+ */
+function describePortOwner(
+  port,
+  { listPids = listListeningPids, getCommand = getProcessCommand } = {},
+) {
+  const pids = listPids(port);
+  if (pids === null || pids === undefined) {
+    return {
+      bound: null,
+      pids: [],
+      lines: ["owner lookup unavailable (lsof not found on this system)."],
+    };
+  }
+  if (!pids.length) {
+    return { bound: false, pids: [], lines: [] };
+  }
+  const lines = pids.map((pid) => {
+    const command = getCommand(pid);
+    return command ? `pid ${pid}: ${command}` : `pid ${pid}: (command unknown)`;
+  });
+  return { bound: true, pids, lines };
 }
 
 /**
@@ -490,10 +674,28 @@ async function main() {
   if (Number.isFinite(port) && port > 0) {
     const existingHealthy = await probeExistingWorker(host, port);
     const { restartExisting } = parseStarterOptions(process.argv.slice(2), runtimeEnv);
-    const action = decideExistingWorkerAction({ existingHealthy, restartExisting });
+    // BEAUDIT G5: the port may answer without being the worker. Ask over
+    // HTTP (works without lsof) whether anything is bound before spawning.
+    const portBound = existingHealthy ? true : await isPortBound(host, port);
+    const action = decideExistingWorkerAction({ existingHealthy, restartExisting, portBound });
     if (action === "reuse") {
       holdProcessOpenForExistingWorker(host, port, {
         onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+      });
+      return;
+    }
+    if (action === "hold_foreign") {
+      const owner = describePortOwner(port);
+      console.warn(
+        `[start:discovery-worker] port ${port} is held by another process, not the discovery worker — spawning would die with EADDRINUSE.`,
+      );
+      holdProcessOpenForForeignListener(host, port, {
+        ownerLines: owner.lines,
+        onPortFree: () => superviseWorker(runtimeEnv, host, port),
+        onWorkerHealthy: () =>
+          holdProcessOpenForExistingWorker(host, port, {
+            onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+          }),
       });
       return;
     }
@@ -555,21 +757,44 @@ function superviseWorker(runtimeEnv, host, port) {
   process.on("SIGTERM", () => forwardSignal("SIGTERM"));
 
   const spawnOnce = () => {
-    const child = spawn(
-      "node",
-      [
-        "--experimental-strip-types",
-        "integrations/browser-use-discovery/src/server.ts",
-      ],
-      {
-        cwd: repoRoot,
-        env: runtimeEnv,
-        stdio: "inherit",
-      },
-    );
+    const { command, args } = buildWorkerSpawnCommand();
+    const child = spawn(command, args, {
+      cwd: repoRoot,
+      env: runtimeEnv,
+      stdio: "inherit",
+    });
     current = child;
     if (child.pid) updateBootstrapWorkerPid(child.pid);
     child.on("exit", async (code, signal) => {
+      // BEAUDIT G5 race fallback: the port may have been taken between the
+      // pre-spawn check and this spawn. A crash exit with a foreign listener
+      // on the port holds (never the EADDRINUSE exit that kills the stack).
+      if (!shuttingDown && !signal && code) {
+        const foreignBound =
+          !(await probeExistingWorker(host, port)) &&
+          (await isPortBound(host, port));
+        if (foreignBound) {
+          const owner = describePortOwner(port);
+          console.warn(
+            `[start:discovery-worker] worker exited (code=${code}) and port ${port} is held by another process, not the discovery worker.`,
+          );
+          holdProcessOpenForForeignListener(host, port, {
+            ownerLines: owner.lines,
+            onPortFree: () => {
+              respawns = 0;
+              spawnOnce();
+            },
+            onWorkerHealthy: () =>
+              holdProcessOpenForExistingWorker(host, port, {
+                onWorkerGone: () => {
+                  respawns = 0;
+                  spawnOnce();
+                },
+              }),
+          });
+          return;
+        }
+      }
       console.warn(
         `[start:discovery-worker] worker exited (code=${code === null ? "null" : code}, signal=${signal || "none"})${shuttingDown ? "" : " — something else terminated the listener on port " + port + "."}`,
       );
@@ -651,4 +876,10 @@ if (__invokedAsCli) {
 // Test-only exports. Keep the surface narrow — these are not a stable public
 // API; they exist so tests can exercise the PID-sync path without running the
 // starter pipeline.
-export { resolveLiveListenerOwnerPid, resolveWorkerPidRecord };
+export {
+  buildWorkerSpawnCommand,
+  describePortOwner,
+  holdProcessOpenForForeignListener,
+  resolveLiveListenerOwnerPid,
+  resolveWorkerPidRecord,
+};
