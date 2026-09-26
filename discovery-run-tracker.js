@@ -117,6 +117,385 @@
     };
   }
 
+  /* ------------------------------------------------------------------
+     Live run progress — the reader side of the AGREED CONTRACT between
+     UXD-FE and UXD-BE (2026-09-26). GET /runs/:id carries `progress`
+     { phase, sequence, checkpointedAt, heartbeatAt?, counters?, current?,
+     sources? }. Absent fields mean "no data", never zero, so every surface
+     renders only what the worker sent. One view-model, three homes: the
+     Runs live row, the discovery drawer card and #discoveryBtn's label.
+     ------------------------------------------------------------------ */
+
+  const RUN_PROGRESS_COUNTER_KEYS = [
+    "companiesTotal",
+    "companiesDone",
+    "boardsDetected",
+    "listingsSeen",
+    "listingsProcessed",
+    "leadsQualified",
+    "matcherCalls",
+    "queriesTotal",
+    "queriesDone",
+  ];
+  const RUN_PROGRESS_CURRENT_KINDS = ["company", "source", "query"];
+  const RUN_PROGRESS_SOURCE_STATES = ["pending", "running", "done", "skipped"];
+  const RUN_PROGRESS_MAX_SOURCES = 8;
+  const RUN_PROGRESS_MAX_LABEL = 80;
+  // Reader-clock bands from the contract: <=30s working, 30–120s quiet,
+  // >120s "may have stopped" (only for heartbeat-bearing workers).
+  const RUN_PROGRESS_FRESH_MS = 30 * 1000;
+  const RUN_PROGRESS_STALL_MS = 120 * 1000;
+
+  const RUN_PROGRESS_STEPS = [
+    { key: "scout", label: "Search" },
+    { key: "score", label: "Score" },
+    { key: "exploit", label: "Refine" },
+    { key: "write", label: "Save" },
+    { key: "learn", label: "Learn" },
+  ];
+  const RUN_PROGRESS_PHASE_HEADLINES = {
+    initializing: "Getting started",
+    scout: "Looking for jobs",
+    score: "Scoring what turned up",
+    exploit: "Picking the strongest matches",
+    write: "Saving to your Pipeline",
+    learn: "Tuning the next search",
+  };
+  const RUN_PROGRESS_SOURCE_LABELS = {
+    ats: "Company job boards",
+    serpapi_google_jobs: "Google Jobs",
+    greenhouse: "Greenhouse",
+    lever: "Lever",
+    ashby: "Ashby",
+    workday: "Workday",
+    smartrecruiters: "SmartRecruiters",
+    grounded_web: "Web search",
+    grounded_search: "Web search",
+  };
+  const RUN_PROGRESS_COUNTER_LABELS = [
+    ["listingsSeen", "Listings found"],
+    ["listingsProcessed", "Listings checked"],
+    ["leadsQualified", "Leads kept"],
+    ["boardsDetected", "Job boards"],
+    ["matcherCalls", "AI checks"],
+  ];
+
+  function cleanRunProgressLabel(value) {
+    if (typeof value !== "string") return "";
+    const text = value.replace(/\s+/g, " ").trim();
+    if (!text || text.length > RUN_PROGRESS_MAX_LABEL) return "";
+    // The contract promises no URLs; refuse one rather than print it.
+    if (/:\/\/|^www\./i.test(text)) return "";
+    return text;
+  }
+
+  function cleanRunProgressCount(value) {
+    return Number.isInteger(value) && value >= 0 ? value : null;
+  }
+
+  /** Keep only contract fields, typed and bounded. Null when unusable. */
+  function sanitizeRunProgress(raw) {
+    if (!raw || typeof raw !== "object") return null;
+    const sequence = Number(raw.sequence);
+    if (!Number.isInteger(sequence) || sequence < 1) return null;
+    const out = {
+      phase: typeof raw.phase === "string" ? raw.phase.slice(0, 40) : "",
+      sequence,
+      checkpointedAt: typeof raw.checkpointedAt === "string" ? raw.checkpointedAt : "",
+      heartbeatAt: typeof raw.heartbeatAt === "string" ? raw.heartbeatAt : "",
+      counters: {},
+      current: null,
+      sources: [],
+    };
+    const counters = raw.counters && typeof raw.counters === "object" ? raw.counters : {};
+    for (const key of RUN_PROGRESS_COUNTER_KEYS) {
+      const n = cleanRunProgressCount(counters[key]);
+      if (n !== null) out.counters[key] = n;
+    }
+    const current = raw.current && typeof raw.current === "object" ? raw.current : null;
+    if (current && RUN_PROGRESS_CURRENT_KINDS.includes(current.kind)) {
+      const label = cleanRunProgressLabel(current.label);
+      if (label) out.current = { kind: current.kind, label };
+    }
+    if (Array.isArray(raw.sources)) {
+      for (const entry of raw.sources) {
+        if (out.sources.length >= RUN_PROGRESS_MAX_SOURCES) break;
+        if (!entry || typeof entry !== "object") continue;
+        const id = cleanRunProgressLabel(entry.id);
+        if (!id || !RUN_PROGRESS_SOURCE_STATES.includes(entry.state)) continue;
+        const source = { id, state: entry.state };
+        const done = cleanRunProgressCount(entry.done);
+        const total = cleanRunProgressCount(entry.total);
+        if (done !== null) source.done = done;
+        if (total !== null) source.total = total;
+        out.sources.push(source);
+      }
+    }
+    return out;
+  }
+
+  function formatRunDuration(ms) {
+    const total = Math.max(0, Math.floor((Number(ms) || 0) / 1000));
+    const h = Math.floor(total / 3600);
+    const m = Math.floor((total % 3600) / 60);
+    const s = total % 60;
+    if (h > 0) return `${h}h ${m}m`;
+    if (m > 0) return `${m}m ${s}s`;
+    return `${s}s`;
+  }
+
+  function runSourceLabel(id) {
+    if (RUN_PROGRESS_SOURCE_LABELS[id]) return RUN_PROGRESS_SOURCE_LABELS[id];
+    const words = String(id).replace(/[_-]+/g, " ").trim();
+    return words ? words.charAt(0).toUpperCase() + words.slice(1) : "";
+  }
+
+  function runLaneText(done, total, state) {
+    if (total !== undefined && total !== null) {
+      return `${done !== undefined && done !== null ? done : 0} of ${total}`;
+    }
+    if (state === "pending") return "Waiting";
+    if (state === "skipped") return "Skipped";
+    if (state === "done") return "Done";
+    if (done !== undefined && done !== null) return `${done} so far`;
+    return "Running";
+  }
+
+  function buildRunLanes(progress) {
+    if (progress.sources.length > 0) {
+      return progress.sources.map((source) => ({
+        label: runSourceLabel(source.id),
+        state: source.state,
+        done: source.done,
+        total: source.total,
+        text: runLaneText(source.done, source.total, source.state),
+      }));
+    }
+    const c = progress.counters;
+    const lanes = [];
+    if (c.companiesTotal !== undefined) {
+      lanes.push({
+        label: "Companies",
+        state: "running",
+        done: c.companiesDone,
+        total: c.companiesTotal,
+        text:
+          c.companiesDone !== undefined
+            ? `${c.companiesDone} of ${c.companiesTotal}`
+            : `${c.companiesTotal} to check`,
+      });
+    }
+    if (c.queriesTotal !== undefined) {
+      lanes.push({
+        label: "Google Jobs searches",
+        state: "running",
+        done: c.queriesDone,
+        total: c.queriesTotal,
+        text:
+          c.queriesDone !== undefined
+            ? `${c.queriesDone} of ${c.queriesTotal}`
+            : `${c.queriesTotal} planned`,
+      });
+    }
+    return lanes;
+  }
+
+  function runHeadline(progress) {
+    const current = progress.current;
+    if (current) {
+      if (current.kind === "company") return `Checking ${current.label}`;
+      if (current.kind === "source") return `Reading ${runSourceLabel(current.label)}`;
+      if (current.kind === "query") return `Searching for ${current.label}`;
+    }
+    return RUN_PROGRESS_PHASE_HEADLINES[progress.phase] || "Working";
+  }
+
+  /**
+   * Pure: tracker state + reader time → what every live surface shows.
+   * mode "hidden" (idle/terminal), "legacy" (no progress object — relay,
+   * Apps Script, older worker) or "live".
+   */
+  function deriveLiveRunView(state, nowMs) {
+    const s = state || {};
+    const status = String(s.status || "idle");
+    const hidden = {
+      mode: "hidden",
+      steps: [],
+      lanes: [],
+      counters: [],
+      headline: "",
+      health: { key: "none", text: "" },
+      elapsedText: "",
+      summary: "",
+    };
+    if (!["pending", "running", "polling_error"].includes(status)) return hidden;
+    const now = Number.isFinite(nowMs) ? nowMs : Date.now();
+    const startMs = Date.parse(s.startedAt || s.initiatedAt || "");
+    const elapsedText = Number.isFinite(startMs) ? formatRunDuration(now - startMs) : "";
+    // Re-sanitize: state may come from storage written by another build.
+    const progress = sanitizeRunProgress(s.progress);
+
+    let health;
+    if (status === "polling_error") {
+      health = s.statusEndpointTerminal
+        ? { key: "lost", text: "Discovery can't report this run." }
+        : Number(s.pollErrorCount) >= MAX_POLL_ERRORS
+          ? {
+              key: "lost",
+              text: "We stopped getting updates. The search may still be running.",
+            }
+          : { key: "reconnecting", text: "Reconnecting to the search…" };
+    }
+
+    if (!progress) {
+      if (!health) {
+        health =
+          status === "pending"
+            ? { key: "starting", text: "Starting the search…" }
+            : s.statusUnavailable
+              ? { key: "unknown", text: "This setup can't send live updates." }
+              : {
+                  key: "unknown",
+                  text: "This discovery setup doesn't send step-by-step progress.",
+                };
+      }
+      return {
+        ...hidden,
+        mode: "legacy",
+        headline: "Searching for new roles",
+        health,
+        elapsedText,
+        summary: `Discovery running${elapsedText ? ` for ${elapsedText}` : ""}. ${health.text}`,
+      };
+    }
+
+    if (!health) {
+      const observedMs = Date.parse(s.progressObservedAt || "");
+      const ageMs = Number.isFinite(observedMs) ? Math.max(0, now - observedMs) : 0;
+      const age = formatRunDuration(ageMs);
+      if (ageMs <= RUN_PROGRESS_FRESH_MS) {
+        health = {
+          key: "working",
+          text: ageMs < 1000 ? "Updated just now" : `Updated ${age} ago`,
+        };
+      } else if (!s.progressHeartbeatSeen) {
+        health = { key: "quiet", text: `No new step for ${age}` };
+      } else if (ageMs <= RUN_PROGRESS_STALL_MS) {
+        health = { key: "quiet", text: `Still working — nothing new for ${age}` };
+      } else {
+        health = {
+          key: "stalled",
+          text: `No word from the worker for ${age}. It may have stopped.`,
+        };
+      }
+    }
+
+    const phaseIndex = RUN_PROGRESS_STEPS.findIndex((step) => step.key === progress.phase);
+    const steps = RUN_PROGRESS_STEPS.map((step, i) => ({
+      key: step.key,
+      label: step.label,
+      state: phaseIndex < 0 ? "todo" : i < phaseIndex ? "done" : i === phaseIndex ? "current" : "todo",
+    }));
+    const counters = [];
+    for (const [key, label] of RUN_PROGRESS_COUNTER_LABELS) {
+      if (progress.counters[key] !== undefined) {
+        counters.push({ key, label, value: progress.counters[key] });
+      }
+    }
+    const headline = runHeadline(progress);
+    const found = progress.counters.listingsSeen;
+    const summary =
+      `Discovery running: ${headline.charAt(0).toLowerCase()}${headline.slice(1)}.` +
+      (found !== undefined
+        ? ` ${found} ${found === 1 ? "listing" : "listings"} found so far.`
+        : "") +
+      ` ${health.text}.`.replace(/\.\.$/, ".");
+    return {
+      mode: "live",
+      phaseKey: progress.phase,
+      phaseHeadline: RUN_PROGRESS_PHASE_HEADLINES[progress.phase] || "",
+      steps,
+      lanes: buildRunLanes(progress),
+      counters,
+      headline,
+      health,
+      elapsedText,
+      summary,
+    };
+  }
+
+  function escapeRunProgressHtml(value) {
+    return String(value)
+      .replace(/&/g, "&amp;")
+      .replace(/</g, "&lt;")
+      .replace(/>/g, "&gt;")
+      .replace(/"/g, "&quot;")
+      .replace(/'/g, "&#39;");
+  }
+
+  /**
+   * One markup for every home. Deliberately NOT a live region: it re-renders
+   * every second. Phase changes and stalls are announced separately.
+   */
+  function renderLiveRunProgressHtml(view, options) {
+    if (!view || view.mode === "hidden") return "";
+    const esc = escapeRunProgressHtml;
+    const variant = options && options.variant === "row" ? "row" : "card";
+    const parts = [
+      `<div class="jb-live-run jb-live-run--${variant}" data-mode="${esc(view.mode)}" data-health="${esc(view.health.key)}">`,
+      '<div class="jb-live-run__head">',
+      '<span class="jb-live-run__dot" aria-hidden="true"></span>',
+      `<p class="jb-live-run__headline">${esc(view.headline)}</p>`,
+      '<p class="jb-live-run__meta">',
+      view.elapsedText
+        ? `<span class="jb-live-run__elapsed">Running ${esc(view.elapsedText)}</span>`
+        : "",
+      `<span class="jb-live-run__health">${esc(view.health.text)}</span>`,
+      "</p>",
+      "</div>",
+    ];
+    if (view.steps.length) {
+      parts.push('<ol class="jb-live-run__steps" aria-label="Discovery steps">');
+      for (const step of view.steps) {
+        const stateText =
+          step.state === "done" ? " (done)" : step.state === "current" ? " (now)" : "";
+        parts.push(
+          `<li class="jb-live-run__step" data-state="${esc(step.state)}"` +
+            (step.state === "current" ? ' aria-current="step"' : "") +
+            `>${esc(step.label)}<span class="jb-a11y-visually-hidden">${stateText}</span></li>`,
+        );
+      }
+      parts.push("</ol>");
+    }
+    if (view.lanes.length) {
+      parts.push('<ul class="jb-live-run__lanes">');
+      for (const lane of view.lanes) {
+        const bar =
+          lane.total !== undefined && lane.total !== null && lane.total > 0
+            ? `<progress class="jb-live-run__bar" max="${lane.total}" value="${Math.min(lane.done || 0, lane.total)}" aria-hidden="true"></progress>`
+            : '<span class="jb-live-run__bar jb-live-run__bar--open" aria-hidden="true"></span>';
+        parts.push(
+          `<li class="jb-live-run__lane" data-state="${esc(lane.state)}">` +
+            `<span class="jb-live-run__lane-label">${esc(lane.label)}</span>` +
+            bar +
+            `<span class="jb-live-run__lane-value">${esc(lane.text)}</span></li>`,
+        );
+      }
+      parts.push("</ul>");
+    }
+    if (view.counters.length) {
+      parts.push('<dl class="jb-live-run__counters">');
+      for (const counter of view.counters) {
+        parts.push(
+          `<div class="jb-live-run__counter"><dt>${esc(counter.label)}</dt><dd>${esc(counter.value)}</dd></div>`,
+        );
+      }
+      parts.push("</dl>");
+    }
+    parts.push("</div>");
+    return parts.join("");
+  }
+
   function dispatchDiscoveryRunTrackerEvent(state) {
     try {
       if (typeof document === "undefined") return;
@@ -202,6 +581,9 @@
           pollGeneration: Number.isFinite(parsed.pollGeneration)
             ? parsed.pollGeneration
             : 0,
+          progress: sanitizeRunProgress(parsed.progress),
+          progressObservedAt: parsed.progressObservedAt || "",
+          progressHeartbeatSeen: !!parsed.progressHeartbeatSeen,
         };
       } catch (_) {
         return this._idle();
@@ -243,6 +625,9 @@
         statusEndpointTerminal: false,
         terminalAcknowledged: false,
         pollGeneration: 0,
+        progress: null,
+        progressObservedAt: "",
+        progressHeartbeatSeen: false,
       };
     }
 
@@ -298,9 +683,33 @@
         statusEndpointTerminal: false,
         terminalAcknowledged: false,
         pollGeneration,
+        progress: null,
+        progressObservedAt: "",
+        progressHeartbeatSeen: false,
       };
       this._persist(this._state);
       return this;
+    }
+
+    _now() {
+      return Date.now();
+    }
+
+    /**
+     * Keep the worker's progress object (AGREED CONTRACT, UXD-FE/UXD-BE
+     * 2026-09-26). Freshness is measured on OUR clock: progressObservedAt
+     * moves only when a poll sees a new `sequence` (heartbeats bump it too),
+     * so worker/browser clock skew can never fake a stall or hide one.
+     */
+    _absorbProgress(rawProgress) {
+      const next = sanitizeRunProgress(rawProgress);
+      if (!next) return;
+      const prev = this._state.progress;
+      if (!prev || prev.sequence !== next.sequence || !this._state.progressObservedAt) {
+        this._state.progressObservedAt = new Date(this._now()).toISOString();
+      }
+      if (next.heartbeatAt) this._state.progressHeartbeatSeen = true;
+      this._state.progress = next;
     }
 
     /** Transition from pending → running on first poll confirmation */
@@ -366,6 +775,7 @@
       if (Number.isFinite(writeResult.updated)) {
         this._state.leadsUpdated = writeResult.updated;
       }
+      this._absorbProgress(statusData.progress);
       if (isTerminal) {
         this._state.status = runStatus; // completed | empty | partial | failed
         this._state.terminalAt = new Date().toISOString();
@@ -567,5 +977,9 @@
     discoveryRunTracker,
     dispatchDiscoveryRunTrackerEvent,
     createAbortablePollSession,
+    sanitizeRunProgress,
+    deriveLiveRunView,
+    renderLiveRunProgressHtml,
+    formatRunDuration,
   });
 })();
