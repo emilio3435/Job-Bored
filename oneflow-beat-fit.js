@@ -723,6 +723,24 @@
     return fallback(url, init);
   }
 
+  function profileApiConfigured() {
+    const config = window.COMMAND_CENTER_CONFIG || {};
+    return Boolean(text(config.jobBoredApiUrl || config.jobPostingScrapeUrl));
+  }
+
+  function noteLocalOnlySave(detail) {
+    if (
+      typeof console !== "undefined" &&
+      console &&
+      typeof console.info === "function"
+    ) {
+      console.info(
+        "[JobBored] Fit profile saved on this device; server sync skipped" +
+          (detail ? ` (${detail}).` : "."),
+      );
+    }
+  }
+
   async function postFitProfile(payload) {
     if (typeof window.fetch !== "function") {
       throw new Error("The JobBored profile API is unavailable.");
@@ -782,10 +800,22 @@
       { label: "Saving your fit profile…", state: "active" },
     ]);
     try {
-      await Promise.all([
-        store.saveDiscoveryProfile(discoveryPayload(record.model)),
-        postFitProfile(payload),
-      ]);
+      // The on-device store is the source of truth for the flow — only its
+      // failure blocks the beat. The server sync is best-effort: hosted
+      // static deployments have no /profile endpoint (POST → 405), and a
+      // failed sync must not strand the user on this beat.
+      await store.saveDiscoveryProfile(discoveryPayload(record.model));
+      let serverSynced = false;
+      if (profileApiConfigured()) {
+        try {
+          await postFitProfile(payload);
+          serverSynced = true;
+        } catch (error) {
+          noteLocalOnlySave(text(error && error.message));
+        }
+      } else {
+        noteLocalOnlySave("no profile API configured");
+      }
       ctx.clearBusy();
       // B6's "Your search" card prefers the profile the flow just saved
       // over a second GET /profile (spec §5 B6): leave it on the runtime
@@ -793,6 +823,7 @@
       if (ctx.runtime) ctx.runtime.fitProfile = payload;
       await ctx.completeBeat({
         edited: JSON.stringify(payload) !== record.originalPayload,
+        serverSynced,
       });
     } catch (error) {
       ctx.clearBusy();

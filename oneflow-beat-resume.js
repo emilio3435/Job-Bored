@@ -536,7 +536,11 @@
   /**
    * `locked` marks the one failure whose fix is Beat 2 rather than a retry.
    *
-   * @returns {Promise<{ok: true, profile: object} | {ok: false, message: string, missing: boolean, locked?: boolean}>}
+   * @returns {Promise<{ok: true, profile: object} | {ok: false, message: string, missing: boolean, locked?: boolean, directFallback?: boolean}>}
+   * directFallback marks transport absence (no endpoint here at all —
+   * 405, unreachable) as opposed to a bad resume or bad key. Only those
+   * outcomes may retry straight from the browser; provider errors must
+   * surface, not silently re-attempt.
    */
   async function draftOnServer(text) {
     const provider = verifiedProviderConfig();
@@ -557,9 +561,11 @@
       return {
         ok: false,
         missing: false,
+        directFallback: true,
         message:
-          "Couldn't reach the local server. Make sure JobBored is still " +
-          `running on this computer (npm run dev), then try again. (${String((err && err.message) || err || "")})`,
+          "Couldn't reach the JobBored app on this computer — double-click " +
+          "start.command in the JobBored folder to start it, then try again. " +
+          `(${String((err && err.message) || err || "")})`,
       };
     }
     const data = res ? await res.json().catch(() => null) : null;
@@ -572,6 +578,23 @@
         message:
           "The server couldn't read your resume — nothing came through. Try " +
           "the upload again, or paste the text instead.",
+      };
+    }
+    // A 405 means the page answering us has no drafting endpoint at all —
+    // the signature of the static hosted site, where /profile/from-resume
+    // hits the file host instead of the local API server. That is a
+    // missing-server situation, not a broken resume: name the template
+    // escape hatch (always on screen) instead of a retry that cannot help.
+    if (res && res.status === 405) {
+      return {
+        ok: false,
+        missing: false,
+        directFallback: true,
+        message:
+          "This page can't draft your resume by itself — drafting runs in " +
+          "the JobBored app on your computer. Press 'I'd rather start from " +
+          "a template' below (everything stays editable on the next " +
+          "screen), or open your local JobBored and try again.",
       };
     }
     if (!res || !res.ok || !data || data.ok !== true) {
@@ -596,6 +619,43 @@
       };
     }
     return { ok: true, profile: data.profile };
+  }
+
+  /**
+   * Serverless drafting for pages with no API server (the hosted site) or
+   * a down local server. Drafts straight from the browser through the same
+   * provider call the generation features use, with the shared prompt and
+   * clamp — the profile B4 receives is shaped exactly like a server
+   * draft. Never throws: { ok:false } falls through to the server
+   * message, which already names the template escape.
+   */
+  async function draftDirectFromResume(resumeText) {
+    try {
+      const provider = verifiedProviderConfig();
+      const api = window.CommandCenterResumeGenerate;
+      const shared = window.JobBoredProfileDraft;
+      if (!provider || provider.provider === "webhook") return { ok: false };
+      if (!api || typeof api.callConfiguredAi !== "function") return { ok: false };
+      if (
+        !shared ||
+        typeof shared.buildUserPrompt !== "function" ||
+        typeof shared.parseJsonSafe !== "function" ||
+        typeof shared.clampToUserProfile !== "function"
+      ) {
+        return { ok: false };
+      }
+      const text = await api.callConfiguredAi(
+        shared.SYSTEM_PROMPT,
+        shared.buildUserPrompt(resumeText),
+        { json: true, maxOutputTokens: 8192 },
+      );
+      return {
+        ok: true,
+        profile: shared.clampToUserProfile(shared.parseJsonSafe(text)),
+      };
+    } catch (_) {
+      return { ok: false };
+    }
   }
 
   async function ingest(text, source, ctx) {
@@ -629,7 +689,15 @@
     }
 
     setStage(context, 1);
-    const drafted = await draftOnServer(clean);
+    let drafted = await draftOnServer(clean);
+    if (!drafted.ok && drafted.directFallback) {
+      // No drafting endpoint answered (static host, or the local server
+      // is down) — draft straight from the browser with the B2-verified
+      // provider before giving up. A direct failure keeps the server
+      // message below, which already names the template escape.
+      const direct = await draftDirectFromResume(clean);
+      if (direct.ok) drafted = { ok: true, profile: direct.profile };
+    }
     if (!drafted.ok) {
       clearStages(context);
       // A locked draft is not a failure to retry — retrying without a

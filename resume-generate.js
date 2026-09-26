@@ -305,7 +305,9 @@
   }
 
   async function callGemini(bundle, apiKey, model) {
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const resolvedModel = resolveGeminiFlashAlias(model);
+    if (resolvedModel !== model) repairStoredGeminiModel(resolvedModel);
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
     const body = {
@@ -331,9 +333,9 @@
       const msg =
         data.error?.message || JSON.stringify(data) || `HTTP ${resp.status}`;
       const fallback = isGeminiModelNotFound(msg) ? GEMINI_FLASH_PINNED_FALLBACK : "";
-      if (fallback && model !== fallback) {
+      if (fallback && resolvedModel !== fallback) {
         console.warn(
-          `[JobBored] Gemini model "${model}" was rejected; retrying with ${fallback}.`,
+          `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${fallback}.`,
         );
         const insights = await callGemini(bundle, apiKey, fallback);
         repairStoredGeminiModel(fallback);
@@ -341,7 +343,7 @@
       }
       throw new Error(msg);
     }
-    lastGeminiModelUsed = model;
+    lastGeminiModelUsed = resolvedModel;
     const parts = data.candidates?.[0]?.content?.parts;
     const text = parts?.map((p) => p.text || "").join("") || "";
     if (!text.trim()) throw new Error("Empty response from Gemini");
@@ -366,6 +368,17 @@
 
   function wantsJsonResponse(opts) {
     return !!(opts && (opts.json || wantsParsedJson(opts)));
+  }
+
+  // opts.maxOutputTokens lets a caller with a big JSON shape (B3's Fit
+  // Profile drafts run past 3,500 tokens) raise the ceiling; anything
+  // else falls back to the per-call default. Additive — existing callers
+  // that never pass it behave exactly as before.
+  function jsonLimit(opts, fallback) {
+    const override = opts && opts.maxOutputTokens;
+    return Number.isFinite(override) && override > 0
+      ? Math.floor(override)
+      : fallback;
   }
 
   function parseConfiguredAiJson(raw) {
@@ -405,7 +418,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.5,
-      max_tokens: wantJson ? 4096 : 2048,
+      max_tokens: jsonLimit(opts, wantJson ? 4096 : 2048),
     };
     const headers = { "Content-Type": "application/json" };
     if (apiKey) headers.Authorization = `Bearer ${apiKey}`;
@@ -454,7 +467,7 @@
         { role: "user", content: user },
       ],
       temperature: 0.5,
-      [limitKey]: wantsJsonResponse(opts) ? 4096 : 2048,
+      [limitKey]: jsonLimit(opts, wantsJsonResponse(opts) ? 4096 : 2048),
     };
     let resp;
     try {
@@ -490,7 +503,7 @@
         },
         body: JSON.stringify({
           model: model || "claude-sonnet-4-6",
-          max_tokens: wantsJsonResponse(opts) ? 4096 : 2048,
+          max_tokens: jsonLimit(opts, wantsJsonResponse(opts) ? 4096 : 2048),
           system,
           messages: [{ role: "user", content: user }],
         }),
@@ -513,6 +526,19 @@
 
   const GEMINI_FLASH_FAMILY = "gemini-flash";
   const GEMINI_FLASH_PINNED_FALLBACK = "gemini-3.7-flash";
+
+  /** Map the "gemini-flash" family alias (and a blank model) to the pinned
+   *  concrete id BEFORE any network call. Google has no literal
+   *  `gemini-flash` model, so sending the alias burns a 404 + retry on
+   *  every default-config install. Explicit pins pass through untouched;
+   *  the 404 retry net below stays as the safety net for ids that go
+   *  stale later. Shared with the drawer/insights call sites via
+   *  `window.JobBoredResolveGeminiFlashAlias`. */
+  function resolveGeminiFlashAlias(model) {
+    const id = String(model || "").trim().toLowerCase();
+    if (!id || id === GEMINI_FLASH_FAMILY) return GEMINI_FLASH_PINNED_FALLBACK;
+    return model;
+  }
   /** The Gemini model that last answered — the live check reports this,
    *  not the configured id, so a repaired fallback shows the truth. */
   let lastGeminiModelUsed = "";
@@ -538,13 +564,14 @@
   }
 
   async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
-    const resolvedModel = model || GEMINI_FLASH_FAMILY;
+    const resolvedModel = resolveGeminiFlashAlias(model);
+    if (resolvedModel !== model) repairStoredGeminiModel(resolvedModel);
     const wantJson = wantsJsonResponse(opts);
     const isThinkingModel =
       resolvedModel === GEMINI_FLASH_FAMILY ||
       /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
     const generationConfig = {
-      maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
+      maxOutputTokens: jsonLimit(opts, isThinkingModel || wantJson ? 8192 : 2048),
       temperature: 0.5,
     };
     if (wantJson) generationConfig.responseMimeType = "application/json";
@@ -1053,6 +1080,7 @@
   };
 
   window.CommandCenterBrowserAiProvider = browserAiProvider;
+  window.JobBoredResolveGeminiFlashAlias = resolveGeminiFlashAlias;
   window.CommandCenterResumeGenerate = {
     getResumeGenerationConfig,
     generateFromBundle,

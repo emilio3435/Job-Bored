@@ -1404,6 +1404,11 @@
     <script src="onboarding-flow.js" defer></script>
     <script src="oneflow-beat-google.js" defer></script>
     <script src="oneflow-beat-ai.js" defer></script>
+    <!-- Shared Fit Profile drafting (prompt + parser + clamp), consumed by
+         B3's serverless fallback and by POST /profile/from-resume. Lives
+         in server/ so the Docker image carries it; must precede the
+         resume beat. -->
+    <script src="server/profile-draft-shared.js" defer></script>
     <script src="oneflow-beat-resume.js" defer></script>
     <script src="oneflow-beat-fit.js" defer></script>
     <script src="oneflow-beat-discovery.js" defer></script>

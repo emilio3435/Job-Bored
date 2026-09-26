@@ -1412,8 +1412,16 @@ function resolveGeminiModel(explicit) {
 
 async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   const resolvedModel = resolveGeminiModel(model);
+  // Resolve the "gemini-flash" family alias to a concrete id before the
+  // wire call (Google 404s the literal alias). Shared with
+  // resume-generate.js; passthrough when it hasn't loaded.
+  const wireModel =
+    typeof window !== "undefined" &&
+    typeof window.JobBoredResolveGeminiFlashAlias === "function"
+      ? window.JobBoredResolveGeminiFlashAlias(resolvedModel)
+      : resolvedModel;
   // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
-  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;
+  const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(wireModel)}:generateContent`;
   // Detect thinking models (gemini-flash family alias and 2.5+/3.x snapshots).
   // Those models burn "thinking tokens" against the output budget, so a
   // 2048-cap on a long-system-prompt JSON response can silently produce
@@ -1423,8 +1431,8 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   // prose responses that have to be regex-extracted later.
   const wantJson = !!(opts && opts.json);
   const isThinkingModel =
-    resolvedModel === "gemini-flash" ||
-    /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
+    wireModel === "gemini-flash" ||
+    /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(wireModel);
   const generationConfig = {
     maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
     temperature: 0.5,
