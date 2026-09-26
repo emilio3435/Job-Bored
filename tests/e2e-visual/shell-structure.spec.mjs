@@ -258,8 +258,12 @@ test.describe("the one shell on a phone — claim C7", () => {
         `beat "${beat}" must dock its footer on a phone`,
       ).toBeVisible();
 
+      // GFX D1: a blocked beat hides its gated, disabled controls so exactly
+      // one fix is on offer (B5 before the key passes). A hidden, disabled
+      // button is not an action the visitor could reach, so the claim is
+      // held over what is rendered: at least one, and every one on screen.
       const buttons = page.locator(
-        `${SHELL} .discovery-setup-wizard__actions button`,
+        `${SHELL} .discovery-setup-wizard__actions button:visible`,
       );
       const count = await buttons.count();
       expect(count, `beat "${beat}" must offer at least one action`).toBeGreaterThan(0);
