@@ -463,13 +463,61 @@ export function loadShell({ mountIds = ["discoverySetupWizardMount"] } = {}) {
   };
 }
 
-/** user-content-store.js against a fresh in-memory IndexedDB. */
-export function loadStore() {
+/**
+ * sessionStorage subset for the B5 pending-fuel slot. `seen` records the
+ * operation and the STORAGE KEY of every access — never any stored value,
+ * which may hold an (unverified, fake-in-tests) API key draft.
+ */
+export function makeFakeSessionStorage({ throwing = false } = {}) {
+  const data = new Map();
+  const seen = [];
+  const maybeThrow = () => {
+    if (throwing) throw new Error("SecurityError: sessionStorage is blocked");
+  };
+  return {
+    seen,
+    getItem(key) {
+      maybeThrow();
+      seen.push(["get", String(key)]);
+      const k = String(key);
+      return data.has(k) ? data.get(k) : null;
+    },
+    setItem(key, value) {
+      maybeThrow();
+      seen.push(["set", String(key)]);
+      data.set(String(key), String(value));
+    },
+    removeItem(key) {
+      maybeThrow();
+      seen.push(["remove", String(key)]);
+      data.delete(String(key));
+    },
+    clear() {
+      maybeThrow();
+      data.clear();
+    },
+    get length() {
+      return data.size;
+    },
+  };
+}
+
+/**
+ * user-content-store.js against a fresh in-memory IndexedDB. Pass
+ * `sessionStorage` (see makeFakeSessionStorage) to give the B5
+ * pending-fuel slot a backend; omit it and the slot degrades to
+ * null/false no-ops, exactly like a browser with storage blocked.
+ */
+export function loadStore({ sessionStorage } = {}) {
   const doc = makeFakeDocument();
   const win = {};
   const ctx = baseSandbox(doc, win);
   ctx.indexedDB = makeFakeIndexedDb();
   ctx.crypto = { randomUUID: () => `uuid-${Math.random().toString(16).slice(2)}` };
+  if (sessionStorage) {
+    ctx.sessionStorage = sessionStorage;
+    win.sessionStorage = sessionStorage;
+  }
   vm.createContext(ctx);
   vm.runInContext(readRepoFile("user-content-store.js"), ctx, {
     filename: "user-content-store.js",

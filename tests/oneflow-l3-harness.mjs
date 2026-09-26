@@ -26,10 +26,11 @@ import {
   FakeNode,
   makeFakeDocument,
   makeFakeIndexedDb,
+  makeFakeSessionStorage,
   readRepoFile,
 } from "./oneflow-l0-harness.mjs";
 
-export { readRepoFile };
+export { makeFakeSessionStorage, readRepoFile };
 
 function baseSandbox(doc, win) {
   return {
@@ -74,7 +75,7 @@ function baseSandbox(doc, win) {
  * exported bridge — pass a stub to drive the connect panel without booting
  * the whole wizard module.
  */
-export function loadDiscoveryBeat({ fetchImpl, wizardUi } = {}) {
+export function loadDiscoveryBeat({ fetchImpl, wizardUi, sessionStorage } = {}) {
   const doc = makeFakeDocument();
   doc.register("oneFlowMount");
   doc.register("discoverySetupWizardMount");
@@ -84,6 +85,12 @@ export function loadDiscoveryBeat({ fetchImpl, wizardUi } = {}) {
   ctx.crypto = {
     randomUUID: () => `uuid-${Math.random().toString(16).slice(2)}`,
   };
+  // The B5 pending-fuel slot backend. One stub shared across two loads is
+  // a tab surviving a reload past the server gap.
+  if (sessionStorage) {
+    ctx.sessionStorage = sessionStorage;
+    win.sessionStorage = sessionStorage;
+  }
   ctx.CustomEvent = FakeCustomEvent;
   win.CustomEvent = FakeCustomEvent;
   const fetchCalls = [];

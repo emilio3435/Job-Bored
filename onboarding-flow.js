@@ -816,6 +816,140 @@
     return first ? first.id : "";
   }
 
+  // ---------------------------------------------------------------
+  // Deep links (?beat=<id>[&returnTo=close]) — the B5 handoff back in
+  // ---------------------------------------------------------------
+
+  /**
+   * The query string as [key, value] pairs, form-decoded. Hand-rolled
+   * instead of URLSearchParams: the controller also loads in runtimes
+   * without it (the vm harnesses), and the deep link must parse there too.
+   * Never throws; never logs the URL (§4.1 — only beat/returnTo are read,
+   * and the key must never appear in a query string).
+   */
+  function readQueryPairs() {
+    try {
+      const loc = window.location;
+      if (!loc || typeof loc.search !== "string" || !loc.search) return [];
+      const query =
+        loc.search.charAt(0) === "?" ? loc.search.slice(1) : loc.search;
+      if (!query) return [];
+      return query.split("&").map((part) => {
+        const eq = part.indexOf("=");
+        const rawKey = eq < 0 ? part : part.slice(0, eq);
+        const rawVal = eq < 0 ? "" : part.slice(eq + 1);
+        let key = rawKey;
+        let value = rawVal;
+        try {
+          key = decodeURIComponent(rawKey.replace(/\+/g, " "));
+        } catch (_) {
+          // A malformed escape keeps its raw text; it still won't match.
+        }
+        try {
+          value = decodeURIComponent(rawVal.replace(/\+/g, " "));
+        } catch (_) {
+          // Same: an undecodable value never validates as a beat id.
+        }
+        return [key, value];
+      });
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * The deep link on this load, or null when no beat/returnTo key is
+   * present. `beat` is the raw ask — validation against the registry
+   * happens in openFromDeepLink, never here.
+   */
+  function parseBeatDeepLink() {
+    const pairs = readQueryPairs();
+    if (!pairs.length) return null;
+    let beat = "";
+    let returnTo = "";
+    let present = false;
+    for (const [key, value] of pairs) {
+      if (key === "beat") {
+        present = true;
+        if (!beat) beat = String(value == null ? "" : value).trim();
+      } else if (key === "returnTo") {
+        present = true;
+        if (!returnTo) returnTo = String(value == null ? "" : value).trim();
+      }
+    }
+    if (!present) return null;
+    return { beat, returnTo };
+  }
+
+  /**
+   * Consume-and-strip the deep-link keys after routing, mirroring the
+   * ?setup=discovery handoff's strip: beat/returnTo go, every other key
+   * (?setup, ?sheet, ?flow, …) stays by value. Never logs the URL.
+   */
+  function stripBeatDeepLinkParams() {
+    let loc = null;
+    try {
+      loc = window.location;
+    } catch (_) {
+      return;
+    }
+    if (!loc || typeof loc.search !== "string") return;
+    const pairs = readQueryPairs();
+    if (!pairs.some(([key]) => key === "beat" || key === "returnTo")) return;
+    let hist = null;
+    try {
+      hist = window.history;
+    } catch (_) {
+      return;
+    }
+    if (!hist || typeof hist.replaceState !== "function") return;
+    const kept = pairs.filter(([key]) => key !== "beat" && key !== "returnTo");
+    const q = kept
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join("&");
+    let pathname = "";
+    let hash = "";
+    try {
+      pathname = loc.pathname || "";
+      hash = loc.hash || "";
+    } catch (_) {
+      // A location that won't name its path keeps the stripped query off it.
+    }
+    try {
+      hist.replaceState(null, "", pathname + (q ? "?" + q : "") + hash);
+    } catch (_) {
+      // The URL stays as-is; the link simply won't re-trigger.
+    }
+  }
+
+  /**
+   * Open the flow at the deep-linked beat, if this load carries one.
+   * Unknown beat ids are ignored (boot normally, no error UI — an unknown
+   * param is not a user error), and an already-open flow is never yanked.
+   * returnTo=close is honored exactly like the Settings handoff: the shell
+   * closes where the link opened it. Answers the render, or null when there
+   * was nothing to route.
+   */
+  async function openFromDeepLink() {
+    const deep = parseBeatDeepLink();
+    if (!deep) return null;
+    const valid =
+      deep.beat &&
+      getRegisteredBeats().some((beat) => beat.id === deep.beat)
+        ? deep.beat
+        : "";
+    if (!valid || isOpen()) {
+      stripBeatDeepLinkParams();
+      return null;
+    }
+    const rendered = await open(
+      valid,
+      deep.returnTo === "close" ? { returnTo: "close" } : undefined,
+    );
+    stripBeatDeepLinkParams();
+    return rendered;
+  }
+
   /**
    * Open the flow. With no argument this RESUMES: the saved beat wins, so
    * a refresh or a re-entry from the S0 card never restarts the deal.
@@ -1068,6 +1202,7 @@
     readDraftMirror,
     maybeStart,
     open,
+    openFromDeepLink,
     goToBeat,
     completeBeat,
     skipBeat,
@@ -1078,4 +1213,30 @@
     revealRealBoard,
     resumeLabel,
   });
+
+  // B5 deep-link boot (?beat=<id>[&returnTo=close]): a cold load lands on
+  // the named beat through the registered chain. Deferred scripts — every
+  // beat — run before DOMContentLoaded, so the registry is complete here;
+  // without the param this is a no-op, and an open flow is never yanked.
+  // No index.html change: the controller boots its own param.
+  try {
+    if (
+      typeof document !== "undefined" &&
+      document &&
+      typeof document.addEventListener === "function"
+    ) {
+      document.addEventListener("DOMContentLoaded", () => {
+        try {
+          const pending = openFromDeepLink();
+          if (pending && typeof pending.catch === "function") {
+            pending.catch(() => {});
+          }
+        } catch (_) {
+          // The deep link is best-effort; normal boot continues.
+        }
+      });
+    }
+  } catch (_) {
+    // Non-DOM runtimes boot without deep links.
+  }
 })();

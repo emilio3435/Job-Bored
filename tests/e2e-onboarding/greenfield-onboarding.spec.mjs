@@ -245,6 +245,11 @@ async function installHermeticBoundaries(page) {
       return;
     }
 
+    if (url.origin === baseUrl && url.pathname === "/__proxy/ping") {
+      await fulfillJson(route, { ok: true });
+      return;
+    }
+
     if (url.origin === baseUrl && url.pathname.startsWith("/__proxy/")) {
       await fulfillJson(route, {
         ok: false,

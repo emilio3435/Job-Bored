@@ -1003,7 +1003,7 @@ function appendTailscaleAutoSetupStatus(container, runtime) {
     appendWizardCallout(
       container,
       runtime.drafts.tailscaleAutoDetail ||
-        "Couldn't reach JobBored's local server — double-click start.command in the JobBored folder to start it, then Re-check.",
+        "Couldn't reach JobBored's local server — on the hosted page, open your local setup instead; otherwise double-click start.command in the JobBored folder to start it, then Re-check.",
     );
     return;
   }
@@ -2629,7 +2629,7 @@ async function runDiscoveryTailscaleAutoSetup(deps = {}) {
     // Tailscale was not installed while it was running).
     return stop(
       "needs_server",
-      "Couldn't reach JobBored's local server — double-click start.command in the JobBored folder to start it, then Re-check." +
+      "Couldn't reach JobBored's local server — on the hosted page, open your local setup instead; otherwise double-click start.command in the JobBored folder to start it, then Re-check." +
         blockedTunnelNote,
       "warning",
       "machine",

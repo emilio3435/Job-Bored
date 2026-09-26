@@ -29,6 +29,9 @@ function makeFetch({ check, envOk = true, bootOk = true } = {}) {
     check === undefined ? { ok: true, plan: "Free", searchesLeft: 97 } : check;
   return async (url) => {
     const u = String(url);
+    if (u.includes("__proxy/ping")) {
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
+    }
     if (u.includes("serpapi-check")) {
       return { ok: true, status: 200, json: async () => answer };
     }

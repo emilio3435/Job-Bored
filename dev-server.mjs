@@ -1730,6 +1730,64 @@ async function handleDiscoveryEnvKey(req, res) {
 }
 
 /**
+ * B5 presence probe (spec C2): keyless `GET /__proxy/ping` answers
+ * `{ ok: true }` so the fuel check can tell "the local server is down" from
+ * "SerpApi is unhappy" before spending the key. The shared Host gate at the
+ * top of the request handler runs first and is unchanged; the Origin posture
+ * is the local allowlist PLUS the exact hosted Pages origin from ./CNAME
+ * (a Pages dashboard on this machine still talks to its loopback dev
+ * server). The allowed origin is echoed back exactly — never `*`, never a
+ * reflection of an arbitrary Origin.
+ */
+function isPingAllowedOrigin(req) {
+  if (isLocalOrigin(req)) return true;
+  const peer = req && req.socket ? req.socket.remoteAddress : "";
+  if (!isLoopbackPeer(peer)) return false;
+  const headers = (req && req.headers) || {};
+  const origin = String(headers.origin || headers.Origin || "").trim();
+  if (!origin) return false;
+  const pages = pagesHostedOriginFromCnameText(readPagesCnameFile());
+  return !!pages && origin === pages;
+}
+
+function pingCorsHeaders(req, extra = {}) {
+  if (isLocalOrigin(req)) return buildLocalControlCorsHeaders(req, extra);
+  const headers = { vary: "Origin", ...extra };
+  if (isPingAllowedOrigin(req)) {
+    const headersIn = (req && req.headers) || {};
+    headers["access-control-allow-origin"] = String(
+      headersIn.origin || headersIn.Origin || "",
+    ).trim();
+  }
+  return headers;
+}
+
+function pingPreflightHeaders(req) {
+  return pingCorsHeaders(req, {
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+  });
+}
+
+function handlePing(req, res) {
+  if (!isPingAllowedOrigin(req)) {
+    denyNonLocalControl(res);
+    return;
+  }
+  if (req.method !== "GET") {
+    res.writeHead(405, {
+      ...pingCorsHeaders(req, { "content-type": "application/json" }),
+      allow: "GET, OPTIONS",
+    });
+    res.end(JSON.stringify({ ok: false, reason: "method_not_allowed" }));
+    return;
+  }
+  res.writeHead(200, pingCorsHeaders(req, { "content-type": "application/json" }));
+  res.end(JSON.stringify({ ok: true }));
+}
+
+/**
  * Localhost-only: ask SerpApi whether a key is real, and what it can still do.
  *
  * SIXBEATS2 NEW-3. Beat 5 used to report "Google Jobs index connected" after
@@ -2675,6 +2733,23 @@ function createRequestHandler({
       // (only static files were logged), which hid a self-repair full-boot
       // that restarted the dev worker (2026-09-02). Name them.
       log(`  HTTP  ${new Date().toLocaleTimeString()} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
+    }
+
+    // B5 presence probe (spec C2): keyless, local origins plus the exact
+    // Pages origin. Runs before the generic /__proxy/* guard, which only
+    // knows local origins — the Host gate above already ran.
+    if (pathname === "/__proxy/ping") {
+      if (req.method === "OPTIONS") {
+        if (!isPingAllowedOrigin(req)) {
+          denyNonLocalControl(res);
+          return;
+        }
+        res.writeHead(204, pingPreflightHeaders(req));
+        res.end();
+        return;
+      }
+      handlePing(req, res);
+      return;
     }
 
     if (pathname.startsWith("/__proxy/")) {

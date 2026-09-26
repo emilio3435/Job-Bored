@@ -32,8 +32,9 @@ const NEEDS_INSTALL_BASE =
 const NEEDS_LOGIN_BASE =
   "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check.";
 const NEEDS_SERVER_BASE =
-  "Couldn't reach JobBored's local server — double-click start.command " +
-  "in the JobBored folder to start it, then Re-check.";
+  "Couldn't reach JobBored's local server — on the hosted page, open " +
+  "your local setup instead; otherwise double-click start.command in " +
+  "the JobBored folder to start it, then Re-check.";
 const BLOCKED_TUNNEL_NOTE =
   " Your saved address was a temporary tunnel link — those stop working " +
   "when the tunnel restarts, so Re-check mints you a stable address " +
@@ -43,9 +44,8 @@ const FAILED_TUNNEL_NOTE =
   "when the tunnel restarts, so pressing Set it up for me again mints " +
   "you a stable address that doesn't expire.";
 const FUEL_NO_SERVER_MESSAGE =
-  "Couldn't reach JobBored's local server to check your key — " +
-  "double-click start.command in the JobBored folder to start it, " +
-  "then press Save & verify.";
+  "Couldn't reach the local server (ping failed). Start it with the start " +
+  "command, then press Save & verify.";
 
 // ---------------------------------------------------------------
 // The Tailscale auto path, driven the way B5 drives it.
@@ -338,8 +338,12 @@ describe("LANE B · needs_server names the launcher, never the terminal", () => 
 // B5: the four stage lines, the message slot, the fuel error
 // ---------------------------------------------------------------
 
-function makeFuelFetch({ checkImpl } = {}) {
+function makeFuelFetch({ checkImpl, pingImpl } = {}) {
   return async (url) => {
+    if (String(url).includes("__proxy/ping")) {
+      if (typeof pingImpl === "function") return pingImpl();
+      return { ok: true, json: async () => ({ ok: true }) };
+    }
     if (String(url).includes("serpapi-check")) {
       if (typeof checkImpl === "function") return checkImpl();
       return {
@@ -418,10 +422,10 @@ describe("LANE B · B5 keeps its four stage lines and its message slot", () => {
     );
   });
 
-  it("a fuel check with no local server names the launcher and its next action", async () => {
+  it("a fuel check with no local server names the ping failure and its next action", async () => {
     const env = loadDiscoveryBeat({
       fetchImpl: makeFuelFetch({
-        checkImpl: () => {
+        pingImpl: () => {
           throw new TypeError("Failed to fetch");
         },
       }),
@@ -437,5 +441,111 @@ describe("LANE B · B5 keeps its four stage lines and its message slot", () => {
       "a failed check reads as a failure",
     );
     assert.match(slot.textContent, /Save & verify/);
+    assert.ok(
+      !env.fetchCalls.some((c) => c.url.includes("serpapi-check")),
+      "a failed ping spends no key",
+    );
+  });
+});
+
+// ---------------------------------------------------------------
+// B5 C2: the keyless ping gates the keyed check
+// ---------------------------------------------------------------
+
+describe("B5 C2 · the keyless ping gates the keyed check", () => {
+  async function saveAndVerify(fetchImpl) {
+    const env = loadDiscoveryBeat({ fetchImpl });
+    await env.flow.open("discovery");
+    env.beat._internal.setKeyDraft("serp-key-123");
+    await env.act(FUEL_ACTION);
+    return env;
+  }
+
+  const slotOf = (env) =>
+    env.mount.querySelector(".discovery-setup-wizard__message");
+
+  function assertNoKeyedPost(env) {
+    assert.ok(
+      !env.fetchCalls.some((c) => c.url.includes("serpapi-check")),
+      "a failed ping must never POST the key",
+    );
+  }
+
+  it("a non-2xx ping short-circuits to no_local_server without POSTing the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        pingImpl: async () => ({
+          ok: false,
+          status: 502,
+          json: async () => ({}),
+        }),
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
+    assert.match(slotOf(env).textContent, /Save & verify/);
+    assertNoKeyedPost(env);
+  });
+
+  it("a ping with a non-object body short-circuits without POSTing the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        pingImpl: async () => ({ ok: true, json: async () => null }),
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
+    assertNoKeyedPost(env);
+  });
+
+  it("a ping 200 without ok fails closed without POSTing the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        pingImpl: async () => ({ ok: true, json: async () => ({}) }),
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
+    assertNoKeyedPost(env);
+  });
+
+  it("ping ok + bad key spends the check exactly once and names the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        checkImpl: async () => ({
+          ok: true,
+          json: async () => ({ ok: false, reason: "invalid_key" }),
+        }),
+      }),
+    );
+    assert.match(slotOf(env).textContent, /SerpApi didn't recognise that key/);
+    assert.match(slotOf(env).textContent, /Save & verify/);
+    assert.equal(
+      env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
+      1,
+      "a live server earns exactly one keyed check",
+    );
+  });
+
+  it("ping ok + SerpApi down reports unreachable, never no_local_server", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        checkImpl: async () => ({
+          ok: true,
+          json: async () => ({ ok: false, reason: "unreachable" }),
+        }),
+      }),
+    );
+    assert.match(slotOf(env).textContent, /Couldn't reach SerpApi/);
+    assert.doesNotMatch(slotOf(env).textContent, /ping failed/);
+    assert.match(slotOf(env).textContent, /Save & verify/);
+  });
+
+  it("a check that throws after a good ping still reads as no_local_server", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        checkImpl: () => {
+          throw new TypeError("Failed to fetch");
+        },
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
   });
 });
