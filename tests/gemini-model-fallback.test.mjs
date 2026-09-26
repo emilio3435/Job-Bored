@@ -1,10 +1,15 @@
 /**
- * A stale or mistyped Gemini model id in the stored config (seen 2026-09-01:
- * `gemini-flash`) must not brick Beat 2's live check or resume drafting.
- * Google answers such ids with 404 "models/<id> is not found for API version
- * v1beta, or is not supported for generateContent". The provider layer
- * retries ONCE with the catalog default, repairs the stored setting, and
- * reports the model that actually answered. Any other error is not retried.
+ * The `gemini-flash` family alias is the default model, but Google has no
+ * literal model by that id — it 404s. The provider layer pre-resolves the
+ * alias to the pinned concrete id BEFORE the wire call (no 404 hop, no
+ * wasted round trip) and repairs the stored setting so the fix sticks.
+ *
+ * A genuinely stale or mistyped model id must still not brick Beat 2's live
+ * check or resume drafting. Google answers such ids with 404
+ * "models/<id> is not found for API version v1beta, or is not supported for
+ * generateContent". The provider layer retries ONCE with the pinned id,
+ * repairs the stored setting, and reports the model that actually answered.
+ * Any other error is not retried.
  */
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
@@ -16,8 +21,9 @@ import vm from "node:vm";
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
 const resumeGenerateJs = readFileSync(join(repoRoot, "resume-generate.js"), "utf8");
 
-const NOT_FOUND =
-  "models/gemini-flash is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.";
+const notFoundFor = (id) =>
+  `models/${id} is not found for API version v1beta, or is not supported for generateContent. Call ListModels to see the list of available models and their supported methods.`;
+const NOT_FOUND = notFoundFor("gemini-flash");
 
 function load({ model, fetchImpl }) {
   const calls = [];
@@ -43,7 +49,7 @@ function load({ model, fetchImpl }) {
   };
   vm.createContext(ctx);
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
-  return { rg: ctx.window.CommandCenterResumeGenerate, calls, patches };
+  return { rg: ctx.window.CommandCenterResumeGenerate, win: ctx.window, calls, patches };
 }
 
 const json = (status, body) => ({
@@ -53,11 +59,47 @@ const json = (status, body) => ({
 });
 
 describe("Gemini model fallback — a not-found model id self-heals", () => {
-  it("retries once with gemini-3.7-flash and repairs the stored model", async () => {
+  it("pre-resolves the gemini-flash alias with no 404 hop and repairs the stored model", async () => {
     const { rg, calls, patches } = load({
       model: "gemini-flash",
       fetchImpl: async (url) => {
-        if (url.includes("models/gemini-flash:")) return json(404, { error: { message: NOT_FOUND } });
+        assert.ok(
+          !url.includes("models/gemini-flash:"),
+          `alias must never reach the wire, got ${url}`,
+        );
+        return json(200, { candidates: [{ content: { parts: [{ text: "ok" }] } }] });
+      },
+    });
+    const reply = await rg.callConfiguredAi("sys", "user", {});
+    assert.equal(reply, "ok");
+    assert.equal(calls.length, 1, "no wasted 404 round trip");
+    assert.ok(calls[0].url.includes("models/gemini-3.7-flash:"));
+    assert.deepEqual(JSON.parse(JSON.stringify(patches)), [{ resumeGeminiModel: "gemini-3.7-flash" }]);
+  });
+
+  it("exposes the alias resolver for the other Gemini call sites", async () => {
+    const { win } = load({
+      model: "gemini-3.7-flash",
+      fetchImpl: async () => json(200, {}),
+    });
+    const resolve = win.JobBoredResolveGeminiFlashAlias;
+    assert.equal(typeof resolve, "function");
+    assert.equal(resolve("gemini-flash"), "gemini-3.7-flash");
+    assert.equal(resolve("  Gemini-Flash  "), "gemini-3.7-flash");
+    assert.equal(resolve(""), "gemini-3.7-flash");
+    assert.equal(resolve(undefined), "gemini-3.7-flash");
+    assert.equal(resolve("gemini-3.5-flash"), "gemini-3.5-flash");
+    assert.equal(resolve("gemini-2.5-pro"), "gemini-2.5-pro");
+  });
+
+  it("retries once with gemini-3.7-flash and repairs the stored model", async () => {
+    const stale = "gemini-1.5-flash";
+    const { rg, calls, patches } = load({
+      model: stale,
+      fetchImpl: async (url) => {
+        if (url.includes(`models/${stale}:`)) {
+          return json(404, { error: { message: notFoundFor(stale) } });
+        }
         if (url.includes("models/gemini-3.7-flash:")) {
           return json(200, { candidates: [{ content: { parts: [{ text: "ok" }] } }] });
         }

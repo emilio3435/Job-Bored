@@ -328,6 +328,20 @@
     return window.CommandCenterResumeGenerate.getResumeGenerationConfig();
   }
 
+  // Resolve the "gemini-flash" family alias to a concrete id before the
+  // wire call (Google 404s the literal alias). Shared with
+  // resume-generate.js; passthrough when it hasn't loaded.
+  function resolveGeminiWireModel(model) {
+    if (
+      typeof window !== "undefined" &&
+      window &&
+      typeof window.JobBoredResolveGeminiFlashAlias === "function"
+    ) {
+      return window.JobBoredResolveGeminiFlashAlias(model);
+    }
+    return model;
+  }
+
   function wrapFetchFailure(err, label, corsBlocked) {
     const m = err && err.message ? String(err.message) : "";
     if (err && err.name === "TypeError" && /fail|fetch|network/i.test(m)) {
@@ -449,8 +463,9 @@
   }
 
   async function callGeminiJson(userPrompt, apiKey, model) {
+    const wireModel = resolveGeminiWireModel(model);
     // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
-    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`;
+    const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(wireModel)}:generateContent`;
     const body = {
       systemInstruction: { parts: [{ text: SYSTEM }] },
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
@@ -750,6 +765,7 @@
     if (/^gemini-1\.|^models\/gemini-1\./i.test(model)) {
       model = "gemini-flash";
     }
+    model = resolveGeminiWireModel(model);
     // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(
       model,
