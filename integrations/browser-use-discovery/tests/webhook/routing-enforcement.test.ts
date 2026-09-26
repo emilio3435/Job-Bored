@@ -199,8 +199,9 @@ test("runDiscovery with browser_only preset excludes ATS adapters (VAL-ROUTE-001
   assert.ok(greenhouseEntry, "greenhouse should have skip evidence (excluded by preset)");
   assert.match(greenhouseEntry.warnings.join(" "), /excluded by preset.*browser_only/i);
 
-  // State is 'partial' because grounded_web returned no candidates (no warnings from our mock, but lifecycle is still partial due to empty leads)
-  assert.equal(result.lifecycle.state, "partial");
+  // B6: a zero-lead run whose only warnings are informational
+  // (excluded-by-preset) is 'empty', not 'partial'.
+  assert.equal(result.lifecycle.state, "empty");
 });
 
 test("runDiscovery with ats_only preset excludes grounded_web (VAL-ROUTE-002)", async () => {

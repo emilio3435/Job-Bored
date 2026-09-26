@@ -45,8 +45,12 @@
     let summary = legacyMessage;
     let detail = String(data.detail || "").trim();
     let nextStep = String(data.nextStep || "").trim();
+    // W2SQ-E: the server now answers lower_snake_case codes; the retired
+    // UPSTREAM_ERROR still matches older servers and cached payloads.
     if (
-      (!data.code || data.code === "UPSTREAM_ERROR") &&
+      (!data.code ||
+        data.code === "upstream_error" ||
+        data.code === "UPSTREAM_ERROR") &&
       (upstreamStatus === 401 || upstreamStatus === 403)
     ) {
       summary = "The job site blocked automated access.";
@@ -141,6 +145,15 @@ let discoveryRunProfileState = {
   fetchedAt: null,
 };
 
+/* E4: the JobBored API transport. Attaches the hosted token when
+   hosted-api-auth.js is loaded; plain fetch otherwise. */
+function apiFetch(url, init) {
+  const scope = typeof window !== "undefined" ? window : null;
+  const auth = scope && scope.JobBoredHostedApiAuth;
+  if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+  return fetch(url, init);
+}
+
 function profileApiPath(path) {
   const api =
     (typeof window !== "undefined" &&
@@ -172,7 +185,7 @@ function profileApiPath(path) {
  */
 async function loadMasterFitProfile() {
   try {
-    const resp = await fetch(profileApiPath("/profile"), { method: "GET" });
+    const resp = await apiFetch(profileApiPath("/profile"), { method: "GET" });
     if (resp && resp.ok) {
       const data = await resp.json().catch(() => null);
       if (data && data.ok && data.profile) {
@@ -1911,7 +1924,7 @@ function initDiscoveryDrawer() {
       try {
         const ctrl = new AbortController();
         timer = setTimeout(() => ctrl.abort(), 45_000);
-        const res = await fetch(`${base}/api/scrape-job`, {
+        const res = await apiFetch(`${base}/api/scrape-job`, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ url }),

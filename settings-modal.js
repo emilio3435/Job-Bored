@@ -313,6 +313,15 @@ function resolveJobBoredApiUrl() {
   return "http://127.0.0.1:3847";
 }
 
+/* E4: the JobBored API transport. Attaches the hosted token when
+   hosted-api-auth.js is loaded; plain fetch otherwise. */
+function apiFetch(url, init) {
+  const scope = typeof window !== "undefined" ? window : null;
+  const auth = scope && scope.JobBoredHostedApiAuth;
+  if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+  return fetch(url, init);
+}
+
 async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
   const p = String(provider || "").trim();
   const m = String(model || "").trim();
@@ -320,7 +329,7 @@ async function postLlmConfigPin({ provider, model, apiKey, baseUrl }) {
   if (typeof fetch !== "function") return;
   const jobBoredApiUrl = resolveJobBoredApiUrl();
   try {
-    const resp = await fetch(jobBoredApiUrl + "/api/llm-config", {
+    const resp = await apiFetch(jobBoredApiUrl + "/api/llm-config", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({

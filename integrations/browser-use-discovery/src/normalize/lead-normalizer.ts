@@ -1,4 +1,8 @@
 import { createHash } from "node:crypto";
+import { normalizeCompanyKey } from "../discovery/company-keys.ts";
+
+// B18: re-exported from the single home so existing importers keep working.
+export { normalizeCompanyKey };
 
 import {
   DEFAULT_STATUS,
@@ -42,6 +46,7 @@ export type LeadNormalizationResult = {
 
 export type NormalizeLeadOptions = {
   enforceRelevanceFilters?: boolean;
+  signal?: AbortSignal;
 };
 
 export type LeadFingerprintBasis =
@@ -273,6 +278,7 @@ export async function normalizeLeadWithDiagnostics(
     const outcome = await scoreListingForProfile(rawListing, userProfile, {
       runtimeConfig: profileRuntimeConfig,
       cache: run.config.listingScoreCache,
+      signal: options.signal,
     });
     if (outcome.ok) {
       // Trust the LLM score directly. Previously we did Math.max(keywordScore,
@@ -436,12 +442,6 @@ function normalizeTimestamp(input: string): string {
   return Number.isNaN(parsed.getTime())
     ? new Date().toISOString()
     : parsed.toISOString();
-}
-
-export function normalizeCompanyKey(input: string): string {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
 }
 
 function findCompanyConfig(

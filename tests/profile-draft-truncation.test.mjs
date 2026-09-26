@@ -43,7 +43,7 @@ describe("profile drafter — output cap and truncation", () => {
     await assert.rejects(
       () => mod.analyzeResumeToProfile(RESUME, { config: { provider: "gemini", apiKey: "k", model: "gemini-3.5-flash" } }),
       (err) => {
-        assert.match(String(err.code || ""), /TRUNCATED/, `code was ${err.code}`);
+        assert.match(String(err.code || ""), /truncated/, `code was ${err.code}`);
         assert.doesNotMatch(String(err.message), /non-JSON/);
         assert.match(String(err.message), /cut off|output limit|too long/i);
         return true;
@@ -55,7 +55,7 @@ describe("profile drafter — output cap and truncation", () => {
     const calls = stubFetch(() => json({ choices: [{ finish_reason: "length", message: { content: CUT_JSON } }] }));
     await assert.rejects(
       () => mod.analyzeResumeToProfile(RESUME, { config: { provider: "openrouter", apiKey: "k", model: "openai/gpt-oss-120b", baseUrl: "https://openrouter.ai/api/v1" } }),
-      (err) => { assert.match(String(err.code || ""), /TRUNCATED/, `code was ${err.code}`); return true; },
+      (err) => { assert.match(String(err.code || ""), /truncated/, `code was ${err.code}`); return true; },
     );
     const cap = calls[0].body.max_tokens ?? calls[0].body.max_completion_tokens;
     assert.ok(cap >= 8192, `cap was ${cap}`);

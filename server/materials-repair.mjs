@@ -1,3 +1,5 @@
+import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
+
 const REPAIRABLE_FEATURES = new Set(["resume", "cover_letter"]);
 /** @type {RepairFeature[]} */
 const FEATURE_ORDER = ["resume", "cover_letter"];
@@ -17,7 +19,7 @@ const COVER_COLLAPSE_CODES = new Set([
 ]);
 
 /** @typedef {"resume" | "cover_letter"} RepairFeature */
-/** @typedef {"collapse" | "expand" | "expand_or_collapse" | "regenerate"} RepairStrategy */
+/** @typedef {"collapse" | "expand" | "expand_or_collapse"} RepairStrategy */
 /** @typedef {{ code: string, message?: unknown }} RepairIssue */
 /** @typedef {{ pageCount?: unknown, words?: unknown, pageWords?: unknown[], issues?: unknown[] }} RepairQuality */
 /**
@@ -102,6 +104,8 @@ function resolveRepairFeature(manifest, requestedFeature) {
  */
 function strategyFor(feature, issues) {
   const codes = new Set(issues.map((item) => item.code));
+  /* Slice 2: collapse is the default strategy. An unknown issue still
+   * yields a bounded repair instead of an open-ended regenerate. */
   if (feature === "resume") {
     if (codes.has("resume_page_count_high")) return "collapse";
     if ([...RESUME_SPARSE_CODES].some((code) => codes.has(code))) {
@@ -110,11 +114,11 @@ function strategyFor(feature, issues) {
     if ([...RESUME_EXPAND_CODES].some((code) => codes.has(code))) {
       return "expand";
     }
-    return "regenerate";
+    return "collapse";
   }
   if ([...COVER_COLLAPSE_CODES].some((code) => codes.has(code))) return "collapse";
   if ([...COVER_EXPAND_CODES].some((code) => codes.has(code))) return "expand";
-  return "regenerate";
+  return "collapse";
 }
 
 /** @param {RepairFeature} feature */
@@ -153,12 +157,6 @@ function issueLines(issues) {
  */
 function directionLines(feature, strategy) {
   if (feature === "resume") {
-    if (strategy === "collapse") {
-      return [
-        "- Collapse the resume to an intentional one-page or two-page version that does not overflow.",
-        "- Preserve the strongest verified evidence and remove lower-signal repetition.",
-      ];
-    }
     if (strategy === "expand") {
       return [
         "- Expand the resume with relevant verified education, capabilities, and role evidence.",
@@ -172,27 +170,25 @@ function directionLines(feature, strategy) {
         "- Restore missing education and capabilities sections when source material supports them.",
       ];
     }
+    /* Collapse is the default, including the fallthrough. */
     return [
-      "- Regenerate the resume against the quality contract and current job description.",
-      "- Keep the final layout intentional: one full page or two full pages.",
+      "- Collapse the resume to an intentional one-page or two-page version that does not overflow.",
+      "- Preserve the strongest verified evidence and remove lower-signal repetition.",
     ];
   }
 
-  if (strategy === "collapse") {
-    return [
-      "- Tighten the cover letter to one polished page.",
-      "- Preserve the strongest role-specific evidence and remove repetition.",
-    ];
-  }
   if (strategy === "expand") {
+    /* A short letter expands toward the band floor, never the old 325. */
+    const [bandMin] = MATERIALS_BUDGETS.letter.bodyWords;
     return [
-      "- Expand the cover letter into one polished page with specific role evidence.",
+      `- Expand the cover letter toward ${bandMin} body words with specific role evidence.`,
       "- Use the job description and profile evidence to add substance without padding.",
     ];
   }
+  /* Collapse is the default, including the fallthrough. */
   return [
-    "- Regenerate the cover letter against the quality contract and current job description.",
-    "- Keep the final output to one polished page.",
+    "- Tighten the cover letter to one polished page.",
+    "- Preserve the strongest role-specific evidence and remove repetition.",
   ];
 }
 

@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type {
   AtsSourceId,
   BrowserUseExtractionResult,
@@ -34,12 +35,16 @@ import {
   resolveDiscoveryRunLogError,
 } from "../sheets/discovery-runs-writer.ts";
 import type { ResolvedRunSettings, WorkerRuntimeConfig } from "../config.ts";
-import { effectiveAtsCompanySeeds } from "../discovery/company-keys.ts";
+import { effectiveAtsCompanySeeds, normalizeCompanyKey } from "../discovery/company-keys.ts";
 import { resolveEffectiveCompanyPools } from "../discovery/effective-intent.ts";
 import type { BrowserUseSessionManager } from "../browser/session.ts";
 import type { DiscoveryMemoryStore } from "../contracts.ts";
+import type { ListingScoreCache } from "../state/listing-score-cache.ts";
 import type { SourceAdapterRegistry } from "../browser/source-adapters.ts";
-import { buildBoardContext } from "../browser/source-adapters.ts";
+import {
+  buildBoardContext,
+  collectBoardListingsSettled,
+} from "../browser/source-adapters.ts";
 import {
   collectGroundedWebListings,
   describeGroundedSearchScope,
@@ -51,7 +56,13 @@ import {
   collectSerpApiGoogleJobsListings,
   SERPAPI_GOOGLE_JOBS_SOURCE_ID,
 } from "../sources/serpapi-google-jobs.ts";
-import { ATS_HOST_SIGNATURES } from "../sources/host-signatures.ts";
+import {
+  ATS_HOST_SIGNATURES,
+} from "../sources/host-signatures.ts";
+import {
+  hasRegisteredAtsExecutionLane,
+  selectRegisteredAtsSources,
+} from "../sources/ats-public-fetchers.ts";
 import { classifyCareerSurfaceSourcePolicy } from "../discovery/career-surface-resolver.ts";
 import {
   normalizeLeadWithDiagnostics,
@@ -68,6 +79,7 @@ import {
   type DiscoveryMatchClient,
   type MatchDecision,
 } from "../match/job-matcher.ts";
+import { runPreFilter } from "../normalize/profile-aware-scorer.ts";
 import { SheetWriteError, type PipelineWriter } from "../sheets/pipeline-writer.ts";
 import {
   createBudgetTracker,
@@ -86,17 +98,12 @@ import type {
   DiscoveryRunProgressPhase,
 } from "./run-progress.ts";
 import {
-  companyToFrontierCandidate,
-  leadToFrontierCandidate,
-  selectExploitTargets,
-  sortFrontierCandidates,
-  isCandidateSelected,
   createExplorationBudgetTracker,
+  leadToFrontierCandidate,
+  matchOverallScoreToMatchScore,
+  selectExploitTargets,
   DEFAULT_EXPLORATION_BUDGET,
-  type ExplorationBudget,
-  type ExploitTarget,
   type FrontierCandidate,
-  type ExploitSelectionResult,
 } from "./frontier-scorer.ts";
 
 // Default maximum run duration: 60 minutes. Async discovery runs are background
@@ -123,6 +130,12 @@ export type RunDiscoveryDependencies = {
   matchClient?: DiscoveryMatchClient | null;
   pipelineWriter: PipelineWriter;
   discoveryMemoryStore?: DiscoveryMemoryStore | null;
+  /**
+   * Optional cross-run cache for profile LLM scores. runDiscovery copies it
+   * onto config.listingScoreCache so the profile scorer consults it; the
+   * server opens one next to the memory store and shares it across runs.
+   */
+  listingScoreCache?: ListingScoreCache | null;
   /**
    * Optional appender that writes one row to the DiscoveryRuns sheet tab when
    * the run completes. Best-effort: failures are logged but never fail the
@@ -225,15 +238,45 @@ function wrapGroundedSearchClientForExploit(
           candidates: (cached.searchResult.candidates || []).filter((candidate) =>
             selectedUrls.has(candidate.url),
           ),
+          // RUN-09/B3: a rejected company keeps zero candidates. Its cached
+          // conversational rawText must not leak into exploit, or prose
+          // recovery (Call 1.5) re-extracts the rejected URLs and the company
+          // burns structuring plus deep extraction after losing selection.
+          rawText: "",
         };
       },
     },
   };
 }
 
+/**
+ * RUN-09/B3: whether an exploit-phase company still owns a selected URL.
+ * Companies whose scout returned candidates but lost every one at selection
+ * are skipped before processSingleCompany. Companies with no scout record,
+ * or with an empty scout result, keep flowing: the former preserves
+ * scout-failure evidence, the latter propagates scout warnings (e.g.
+ * "Grounded search returned no usable candidate links") at ~zero cost,
+ * since the exploit wrapper blanks rawText and empty results skip prose
+ * recovery, structuring, and preflight on their own.
+ */
+function companyHasExploitTargets(
+  companyName: string,
+  cache: Array<{ company: CompanyTarget; searchResult: GroundedSearchResult }>,
+  selectedUrls: Set<string>,
+): boolean {
+  const cached = cache.find((entry) => entry.company.name === companyName);
+  if (!cached) return true;
+  const cachedCandidates = cached.searchResult.candidates || [];
+  if (cachedCandidates.length === 0) return true;
+  return cachedCandidates.some((candidate) =>
+    candidate.url ? selectedUrls.has(candidate.url) : false,
+  );
+}
+
 function groundedCandidateToFrontierCandidate(
   candidate: GroundedSearchCandidate,
   observedAt: string,
+  priorAcceptedYield?: number,
 ): FrontierCandidate {
   return leadToFrontierCandidate(
     {
@@ -244,7 +287,9 @@ function groundedCandidateToFrontierCandidate(
       location: "",
       url: candidate.url,
       compensationText: "",
-      fitScore: 0.7,
+      // Production fit scale is 1-10 (see fitScoreToRoleFit); an unscored
+      // scout hit centers at 7, matching the old 0.7 * 100 roleFit.
+      fitScore: 7,
       matchScore: null,
       favorite: false,
       dismissedAt: null,
@@ -268,6 +313,7 @@ function groundedCandidateToFrontierCandidate(
       },
     },
     "grounded_web",
+    priorAcceptedYield == null ? undefined : { priorAcceptedYield },
   );
 }
 
@@ -388,6 +434,11 @@ export async function runDiscovery(
   if (request.mergedUserProfile && resolvedUserProfile) {
     config.runtimeConfig = dependencies.runtimeConfig;
   }
+  // B8: wire the injected score cache into the run config so the profile
+  // scorer consults it. A config-provided cache wins over the injected one.
+  if (!config.listingScoreCache && dependencies.listingScoreCache) {
+    config.listingScoreCache = dependencies.listingScoreCache;
+  }
 
   const run: DiscoveryRun = {
     runId,
@@ -428,6 +479,22 @@ export async function runDiscovery(
     if (!hasModifierIntent || !canRunUnrestricted) {
       warnings.push("No companies are configured for this discovery run.");
     }
+  }
+
+  // DISC-06/B13: a mixed allowlist keeps the known entries and drops the
+  // unknown ones. Say so in the run warnings (and the run log) so a typo
+  // cannot silently narrow the run.
+  const allowlistUnknown = config.allowlistResolution?.mode === "restricted"
+    ? [...(config.allowlistResolution.unknown || [])]
+    : [];
+  if (allowlistUnknown.length > 0) {
+    warnings.push(
+      `Unknown companyAllowlist entries ignored: ${allowlistUnknown.join(", ")}.`,
+    );
+    dependencies.log?.("discovery.run.allowlist_unknown_entries", {
+      runId,
+      unknown: allowlistUnknown,
+    });
   }
 
   const adapterMap = new Map(
@@ -480,6 +547,10 @@ export async function runDiscovery(
     duplicateSuppressions: 0,
     crossLaneDuplicates: 0,
   };
+  // B7: per-company seen/accepted/rejected counts keyed by
+  // normalizeCompanyKey(company). Feeds intent coverage and per-company
+  // exploit outcomes in the learn stage.
+  const companyLaneCounts = new Map<string, CompanyLaneCount>();
 
   // Use configured timeouts or defaults
   const sourceTimeoutMs = dependencies.sourceTimeoutMs ?? DEFAULT_SOURCE_TIMEOUT_MS;
@@ -489,17 +560,26 @@ export async function runDiscovery(
   // use an empty placeholder company to allow ATS detection to attempt
   // execution in unrestricted scope. This ensures ats_only and browser_plus_ats
   // presets execute ATS lanes even without configured company targets.
-  const atsSourceIds = ["greenhouse", "lever", "ashby"] as const;
-  const hasAtsLanes = config.effectiveSources.some((sid) =>
-    atsSourceIds.some((atsSourceId) => atsSourceId === sid),
+  // RUN-07/C3: the ATS lane gates on the registered provider set (all 14
+  // ATS ids), not a hardcoded Greenhouse/Lever/Ashby triple. No adapter
+  // registry is passed here on purpose: injected stub registries carry no
+  // adapters, and per-source adapter presence is already handled where
+  // listings are collected.
+  const { selected: atsSourceIds } = selectRegisteredAtsSources(
+    config.effectiveSources,
   );
+  const hasAtsLanes = hasRegisteredAtsExecutionLane(config.effectiveSources);
 
   // VAL-LOOP-ATS-001/002: Load memory snapshot for ATS seed channels
   // Memory provides company registry and career surface records that can seed ATS detection
-  // even when no companies are explicitly configured.
+  // even when no companies are explicitly configured. B12 also reads intent
+  // coverage from the snapshot to order grounded scouts, so the snapshot
+  // loads whenever a memory store is present, not only for ATS lanes.
   let memorySnapshot: DiscoveryMemorySnapshot | null = null;
-  if (hasAtsLanes && dependencies.discoveryMemoryStore) {
-    const intentKey = `run:${runId}`;
+  // B7: one stable intent key for every memory read and write in this run.
+  const memoryIntentKey = buildStableIntentKey(config);
+  if (dependencies.discoveryMemoryStore) {
+    const intentKey = memoryIntentKey;
     memorySnapshot = await Promise.resolve(
       dependencies.discoveryMemoryStore.loadSnapshot({ run, intentKey }),
     ).catch((error) => {
@@ -600,7 +680,17 @@ export async function runDiscovery(
   // This is the "host search fallback" for ATS seeding
   let atsHostSearchCandidates: GroundedSearchCandidate[] = [];
   const groundedSearchClient = dependencies.groundedSearchClient;
-  if (hasAtsLanes && !hasSeedSufficiency && groundedSearchClient?.searchAtsHosts) {
+  // DISC-05/B11: the ATS host-search fallback is a Gemini grounded call. A
+  // per-run groundedWebEnabled:false opts out of every grounded call, so the
+  // fallback stays dark even when ATS lanes have no seeds.
+  const groundedWebOptedOut =
+    request.discoveryProfile?.groundedWebEnabled === false;
+  if (
+    hasAtsLanes &&
+    !hasSeedSufficiency &&
+    !groundedWebOptedOut &&
+    groundedSearchClient?.searchAtsHosts
+  ) {
     dependencies.log?.("discovery.run.ats_host_search_fallback_started", {
       runId,
       reason: "seed_sufficiency_not_met",
@@ -636,15 +726,12 @@ export async function runDiscovery(
       // Build ATS companies from host search results
       for (const candidate of atsHostSearchCandidates) {
         const host = candidate.sourceDomain || new URL(candidate.url).hostname;
-        // Determine ATS source ID from URL patterns
-        let atsSourceId: AtsSourceId = "greenhouse";
-        if (candidate.url.includes("boards.greenhouse.io") || candidate.url.includes("boards.eu.greenhouse.io")) {
-          atsSourceId = "greenhouse";
-        } else if (candidate.url.includes("jobs.lever.co")) {
-          atsSourceId = "lever";
-        } else if (candidate.url.includes("ashbyhq.com") || candidate.url.includes("ashby.io")) {
-          atsSourceId = "ashby";
-        }
+        // Determine ATS source ID from the shared anchored host table,
+        // falling back to the first registered ATS lane of this run.
+        const atsSourceId = inferAtsSourceIdFromUrl(
+          candidate.url,
+          atsSourceIds[0] || "greenhouse",
+        );
 
         // Extract company name from "Role at Company" title pattern,
         // falling back to the host domain if no pattern matches.
@@ -694,9 +781,9 @@ export async function runDiscovery(
   atsCompaniesToSearch = runtimeAtsPools.atsCompanies;
 
   // Only iterate ATS detection when an ATS lane is actually active. Browser-only
-  // runs (sourcePreset === "browser_only") exclude greenhouse/lever/ashby via
-  // effectiveSources, so iterating here would waste a Browser Use call per company
-  // and inflate loopCounters.atsScoutCount, which causes classifyFailureReason to
+  // runs exclude every registered ATS source via effectiveSources, so iterating
+  // here would waste a Browser Use call per company and inflate
+  // loopCounters.atsScoutCount, which causes classifyFailureReason to
   // incorrectly tag zero-result browser_only runs as weak_ats_seed_quality.
   if (hasAtsLanes) {
   for (const company of atsCompaniesToSearch) {
@@ -712,10 +799,12 @@ export async function runDiscovery(
         "board_detection",
         "ats_sources",
         sourceTimeoutMs,
-        () =>
+        (signal) =>
           dependencies.sourceAdapterRegistry.detectBoards(
             { company, run },
             config.effectiveSources,
+            undefined,
+            signal,
           ),
         runSignal,
       ).catch((error) => {
@@ -765,34 +854,45 @@ export async function runDiscovery(
           let rawListings: RawListing[] = [];
           
           if (adapter) {
-            // Use adapter.listJobs for each board context (adapter-based implementation)
-            const listingResults = await Promise.all(
-              boardContexts.map((boardContext) =>
-                withTimeout(
-                  `listing_collection[${sourceId}]`,
-                  sourceId,
-                  sourceTimeoutMs,
-                  () => adapter.listJobs(boardContext),
-                  runSignal,
-                ).catch((error) => {
-                  if (error instanceof TimeoutError) {
-                    return [];
-                  }
-                  throw error;
-                }),
-              ),
+            // RUN-10/C4: collect every board settled, so one throwing board
+            // keeps its siblings' listings. Per-board timeouts still resolve
+            // to no listings; other failures are attributed below.
+            const settled = await collectBoardListingsSettled(
+              boardContexts.map((boardContext) => ({
+                sourceId,
+                sourceLabel: adapter.sourceLabel,
+                boardUrl: boardContext.boardUrl,
+                listJobs: () =>
+                  withTimeout(
+                    `listing_collection[${sourceId}]`,
+                    sourceId,
+                    sourceTimeoutMs,
+                    (signal) => adapter.listJobs(boardContext, signal),
+                    runSignal,
+                  ).catch((error) => {
+                    if (error instanceof TimeoutError) {
+                      return [];
+                    }
+                    throw error;
+                  }),
+              })),
             );
-            rawListings = listingResults.flat();
+            rawListings = settled.listings;
+            for (const failure of settled.failures) {
+              const message = `Listing collection failed for ${failure.sourceId} board ${failure.boardUrl}: ${failure.message}`;
+              extractionResult.warnings.push(message);
+            }
           } else if (dependencies.sourceAdapterRegistry.collectListings) {
             // Fall back to registry.collectListings (for test mocks and legacy support)
             rawListings = await withTimeout(
               `listing_collection[${sourceId}]`,
               sourceId,
               sourceTimeoutMs,
-              () =>
+              (signal) =>
                 dependencies.sourceAdapterRegistry.collectListings!(
                   run,
                   sourceDetections,
+                  signal,
                 ),
               runSignal,
             ).catch((error) => {
@@ -826,7 +926,14 @@ export async function runDiscovery(
               dependencies,
               matchingState,
               matcherTimeoutMs,
+              abortSignal: runSignal,
             });
+            trackCompanyLaneCount(
+              companyLaneCounts,
+              sourceId,
+              rawListing.company || normalized.lead?.company || "",
+              normalized.lead ? null : normalized.rejection || { reason: "unknown" },
+            );
             if (normalized.matchUsedAi) {
               matchingState.aiMatchCallsUsed += 1;
             }
@@ -852,6 +959,25 @@ export async function runDiscovery(
         }
 
         extractionResultsBySource.set(sourceId, extractionResult);
+      }
+
+      // B7: successful ATS detection writes the company and its boards back
+      // to memory so the next run seeds from them. Best-effort.
+      if (detections.length > 0 && dependencies.discoveryMemoryStore) {
+        try {
+          await recordAtsCompanyMemory(
+            dependencies.discoveryMemoryStore,
+            company,
+            detections,
+            dependencies.now().toISOString(),
+          );
+        } catch (error) {
+          dependencies.log?.("discovery.run.memory_company_write_failed", {
+            runId,
+            company: company.name,
+            error: formatError(error),
+          });
+        }
       }
     } catch (error) {
       warnings.push(
@@ -924,14 +1050,29 @@ export async function runDiscovery(
 
       // RUN-08: lightweight scout (search only). Deep extract waits for score.
       if (dependencies.groundedSearchClient) {
-        const companiesToSearch =
+        const configuredScoutCompanies =
           config.companies.length > 0
             ? config.companies
             : [{ name: "" } as CompanyTarget];
+        // B12: order scouts by prior memory yield (highest first, stable) so
+        // the maxScoutSurfaces cap below skips the least promising companies.
+        const scoutYield = buildScoutYieldMap(memorySnapshot);
+        const companiesToSearch = [...configuredScoutCompanies].sort(
+          (left, right) =>
+            scoutYieldScore(right, scoutYield) - scoutYieldScore(left, scoutYield),
+        );
+        const scoutBudget = createExplorationBudgetTracker(
+          DEFAULT_EXPLORATION_BUDGET,
+        );
+        const scoutBudgetSkipped: string[] = [];
         const scoutOne = async (company: CompanyTarget) => {
           const skipDiagnostic = budgetTracker.checkCompanySkip(company.name);
           if (skipDiagnostic) {
             warnings.push(`Budget skip: ${skipDiagnostic.context}`);
+            return;
+          }
+          if (!scoutBudget.recordScoutSurface()) {
+            scoutBudgetSkipped.push(company.name);
             return;
           }
           try {
@@ -975,6 +1116,19 @@ export async function runDiscovery(
             const chunk = companiesToSearch.slice(i, i + scoutCap);
             await Promise.all(chunk.map((company) => scoutOne(company)));
           }
+        }
+        if (scoutBudgetSkipped.length > 0) {
+          const maxScoutSurfaces = scoutBudget.getMaxScoutSurfaces();
+          warnings.push(
+            `Scout budget suppressed ${scoutBudgetSkipped.length} ${scoutBudgetSkipped.length === 1 ? "company" : "companies"} ` +
+              `(maxScoutSurfaces=${maxScoutSurfaces}; skipped lowest memory yield first).`,
+          );
+          dependencies.log?.("discovery.run.scout_budget_exhausted", {
+            runId,
+            skipped: scoutBudgetSkipped.length,
+            maxScoutSurfaces,
+            skippedCompanies: [...scoutBudgetSkipped].sort(),
+          });
         }
       }
       pendingGroundedExploit = true;
@@ -1042,7 +1196,14 @@ export async function runDiscovery(
             dependencies,
             matchingState,
             matcherTimeoutMs,
+            abortSignal: runSignal,
           });
+          trackCompanyLaneCount(
+            companyLaneCounts,
+            SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+            rawListing.company || normalized.lead?.company || "",
+            normalized.lead ? null : normalized.rejection || { reason: "unknown" },
+          );
           if (normalized.matchUsedAi) {
             matchingState.aiMatchCallsUsed += 1;
           }
@@ -1087,17 +1248,22 @@ export async function runDiscovery(
   // VAL-LOOP-SCORE-001/003/005: Apply frontier scoring and exploit target selection
   // before deep extraction. This ensures only selected exploit targets receive
   // deep extraction work, and exploration budgets are enforced.
+  //
+  // RUN-08/B2: the exploit budget gates un-extracted grounded scout candidates
+  // only. ATS and SerpApi leads are already extracted, normalized and scored
+  // when they reach this stage, so they bypass selection entirely and flow to
+  // selectLeadsForWrite, where maxLeadsPerRun caps the write set.
   const groundedScoutCandidates = groundedScoutCache.flatMap(
     (entry) => entry.searchResult.candidates || [],
   );
   let selectedGroundedUrls = new Set<string>();
-  if (normalizedLeads.length > 0 || groundedScoutCandidates.length > 0) {
+  if (groundedScoutCandidates.length > 0) {
     // VAL-LOOP-CORE-008: Emit score stage (frontier scoring begins)
     stageOrder.push(nextStage("score"));
 
     // Build DiscoveryIntent from config for scoring
     const intent: DiscoveryIntent = {
-      intentKey: `run:${run.runId}`,
+      intentKey: memoryIntentKey,
       targetRoles: config.targetRoles || [],
       includeKeywords: config.includeKeywords || [],
       excludeKeywords: config.excludeKeywords || [],
@@ -1107,20 +1273,35 @@ export async function runDiscovery(
       sourcePreset: config.sourcePreset,
     };
 
-    // Build frontier candidates from normalized leads and lightweight scout hits
-    const frontierCandidates: FrontierCandidate[] = [];
-    for (const lead of normalizedLeads) {
-      const sourceLane = determineLeadSourceLane(lead);
-      const candidate = leadToFrontierCandidate(lead, sourceLane);
-      frontierCandidates.push(candidate);
+    // B7: resolve each scout hit's company yield from intent coverage so
+    // prior runs bias frontier selection toward proven companies.
+    const frontierYields = buildScoutYieldMap(memorySnapshot);
+    const scoutCompanyByUrl = new Map<string, CompanyTarget>();
+    for (const entry of groundedScoutCache) {
+      for (const candidate of entry.searchResult.candidates || []) {
+        if (candidate.url && !scoutCompanyByUrl.has(candidate.url)) {
+          scoutCompanyByUrl.set(candidate.url, entry.company);
+        }
+      }
     }
+
+    // Build frontier candidates from lightweight scout hits only
+    const frontierCandidates: FrontierCandidate[] = [];
     for (const scoutCandidate of groundedScoutCandidates) {
       if (!scoutCandidate.url) continue;
       if (frontierCandidates.some((candidate) => candidate.url === scoutCandidate.url)) {
         continue;
       }
+      const scoutCompany = scoutCompanyByUrl.get(scoutCandidate.url);
+      const priorAcceptedYield = scoutCompany
+        ? frontierPriorYield(scoutCompany, frontierYields)
+        : undefined;
       frontierCandidates.push(
-        groundedCandidateToFrontierCandidate(scoutCandidate, startedAt),
+        groundedCandidateToFrontierCandidate(
+          scoutCandidate,
+          startedAt,
+          priorAcceptedYield,
+        ),
       );
     }
 
@@ -1141,17 +1322,11 @@ export async function runDiscovery(
       selectionResult.telemetry.budgetRejectedCount +
       selectionResult.telemetry.qualityRejectedCount;
 
-    // VAL-LOOP-SCORE-005: Filter leads to only selected exploit targets
-    const selectedCandidateIds = new Set(
-      selectionResult.selectedTargets.map((t) => t.candidateId),
-    );
+    // VAL-LOOP-SCORE-005: only selected exploit targets receive deep extraction
     selectedGroundedUrls = new Set(
       selectionResult.selectedTargets
         .map((target) => target.url)
         .filter((url): url is string => Boolean(url)),
-    );
-    const suppressedCandidateIds = new Set(
-      selectionResult.rejectedCandidates.map((c) => c.candidateId),
     );
 
     // Build suppression diagnostics for rejected candidates
@@ -1184,24 +1359,24 @@ export async function runDiscovery(
       finalBudgetUsage: selectionResult.finalBudgetUsage,
     });
 
-    // Filter normalizedLeads to only those from selected candidates
-    // VAL-LOOP-SCORE-005: No non-selected target receives deep extraction work
-    // Note: leadToFrontierCandidate uses 'lead:' prefix for all candidates
-    const filteredNormalizedLeads = normalizedLeads.filter((lead) => {
-      const candidateId = `lead:${lead.url}`;
-      return selectedCandidateIds.has(candidateId);
-    });
-
     dependencies.log?.("discovery.run.frontier_filtering", {
       runId,
-      originalLeadCount: normalizedLeads.length,
-      selectedLeadCount: filteredNormalizedLeads.length,
-      suppressedCount: normalizedLeads.length - filteredNormalizedLeads.length,
+      originalCandidateCount: frontierCandidates.length,
+      selectedCandidateCount: selectionResult.telemetry.selectedCount,
+      suppressedCount: selectionResult.telemetry.budgetRejectedCount +
+        selectionResult.telemetry.qualityRejectedCount,
+      bypassedLeadCount: normalizedLeads.length,
     });
 
-    // Update normalizedLeads to only selected leads
-    normalizedLeads.length = 0;
-    normalizedLeads.push(...filteredNormalizedLeads);
+    // B2: exploit-budget suppression is no longer silent. ATS/SerpApi leads
+    // bypass selection, so any suppression here is a grounded scout candidate
+    // that will not be deep-extracted.
+    if (selectionResult.telemetry.budgetRejectedCount > 0) {
+      warnings.push(
+        `Exploit budget suppressed ${selectionResult.telemetry.budgetRejectedCount} grounded candidate(s) ` +
+          `(${selectionResult.telemetry.selectedCount} selected of ${selectionResult.telemetry.totalCandidates} scouted).`,
+      );
+    }
   } else if (pendingGroundedExploit) {
     // No scouted candidates to rank; still emit exploit so deep extract can
     // attribute empty/unavailable grounded work.
@@ -1222,6 +1397,15 @@ export async function runDiscovery(
       matchingState,
       { sourceTimeoutMs, matcherTimeoutMs, abortSignal: runSignal },
       budgetTracker,
+      {
+        exploitCompanyFilter: (company) =>
+          companyHasExploitTargets(
+            company.name,
+            groundedScoutCache,
+            selectedGroundedUrls,
+          ),
+        companyLaneCounts,
+      },
     ).catch((error) => {
       if (error instanceof TimeoutError) {
         const message = `Grounded web discovery timed out after ${error.timeoutMs}ms: ${error.message}`;
@@ -1456,21 +1640,49 @@ export async function runDiscovery(
     );
     const learnRoleFamilyFromLead =
       discoveryMemoryStore.learnRoleFamilyFromLead?.bind(discoveryMemoryStore);
-    const intentKey = `run:${runId}`;
+    const intentKey = memoryIntentKey;
     let persistedOutcomeCount = 0;
     let skippedOutcomeCount = 0;
+
+    // B7: one exploit outcome row per (source, company) so each row is
+    // attributed to the company it describes instead of the source's first
+    // lead. Per-company counts come from the lane tracking above.
+    const leadsBySourceCompany = new Map<
+      string,
+      {
+        sourceId: string;
+        companyKey: string;
+        leads: NormalizedLead[];
+        firstLead: NormalizedLead;
+      }
+    >();
+    for (const [sourceId, extractionResult] of extractionResultsBySource) {
+      for (const lead of extractionResult.leads) {
+        const companyKey = normalizeCompanyKey(lead.company || "");
+        if (!companyKey) continue;
+        const key = `${sourceId} ${companyKey}`;
+        const group = leadsBySourceCompany.get(key);
+        if (group) {
+          group.leads.push(lead);
+        } else {
+          leadsBySourceCompany.set(key, {
+            sourceId,
+            companyKey,
+            leads: [lead],
+            firstLead: lead,
+          });
+        }
+      }
+    }
 
     // Persist exploit outcome for each source that produced results
     for (const [sourceId, extractionResult] of extractionResultsBySource) {
       const rejectionSummary = rejectionSummaryBySource.get(sourceId);
-      const firstLead = extractionResult.leads[0];
-      const companyKey = firstLead?.metadata?.companyKey || "unknown";
-      const surfaceId = firstLead?.metadata?.surfaceId || sourceId;
-      const sourceLane = firstLead?.metadata?.sourceLane || determineSourceLaneFromId(sourceId);
-      const surfaceType = determineSurfaceTypeFromSourceId(sourceId);
-      const canonicalUrl = String(firstLead?.url || "").trim();
+      const groups = [...leadsBySourceCompany.values()].filter(
+        (group) => group.sourceId === sourceId,
+      );
 
-      if (!canonicalUrl) {
+      if (groups.length === 0) {
         skippedOutcomeCount += 1;
         extractionResult.diagnostics = [
           ...(extractionResult.diagnostics || []),
@@ -1493,46 +1705,127 @@ export async function runDiscovery(
 
       if (!writeExploitOutcome) continue;
 
-      try {
-        writeExploitOutcome({
-          runId,
-          intentKey,
-          surfaceId,
-          companyKey,
-          sourceId,
-          sourceLane,
-          surfaceType,
-          canonicalUrl,
-          observedAt: completedAt,
-          listingsSeen: extractionResult.stats.leadsSeen,
-          listingsAccepted: extractionResult.stats.leadsAccepted,
-          listingsRejected: rejectionSummary?.totalRejected || 0,
-          listingsWritten: leadsToWrite.filter((l) => l.sourceId === sourceId).length,
-          rejectionReasons: rejectionSummary?.rejectionReasons || {},
-          rejectionSamples: rejectionSummary?.rejectionSamples || [],
-        });
-        persistedOutcomeCount += 1;
-      } catch (error) {
-        skippedOutcomeCount += 1;
-        const errorMessage = formatError(error);
-        const warning =
-          `Exploit outcome memory persistence skipped for ${sourceId}: ${errorMessage}`;
-        extractionResult.warnings.push(warning);
-        extractionResult.diagnostics = [
-          ...(extractionResult.diagnostics || []),
-          {
-            context:
-              `Exploit outcome memory persistence skipped for ${sourceId}: ${errorMessage}`,
-            ...(canonicalUrl ? { url: canonicalUrl } : {}),
-          },
-        ];
-        dependencies.log?.("discovery.run.memory_persistence_failed", {
-          runId,
-          intentKey,
-          sourceId,
-          canonicalUrl,
-          error: errorMessage,
-        });
+      for (const group of groups) {
+        const { companyKey, firstLead } = group;
+        const surfaceId = firstLead?.metadata?.surfaceId || sourceId;
+        const sourceLane =
+          firstLead?.metadata?.sourceLane || determineSourceLaneFromId(sourceId);
+        const surfaceType = determineSurfaceTypeFromSourceId(sourceId);
+        const canonicalUrl = String(firstLead?.url || "").trim();
+
+        if (!canonicalUrl) {
+          skippedOutcomeCount += 1;
+          continue;
+        }
+
+        const counts = companyLaneCounts.get(
+          companyLaneCountKey(sourceId, companyKey),
+        );
+        const samples = (rejectionSummary?.rejectionSamples || []).filter(
+          (sample) => normalizeCompanyKey(sample.company || "") === companyKey,
+        );
+        try {
+          await writeExploitOutcome({
+            runId,
+            intentKey,
+            surfaceId,
+            companyKey,
+            sourceId,
+            sourceLane,
+            surfaceType,
+            canonicalUrl,
+            observedAt: completedAt,
+            listingsSeen: counts?.seen ?? group.leads.length,
+            listingsAccepted: counts?.accepted ?? group.leads.length,
+            listingsRejected: counts?.rejected ?? 0,
+            listingsWritten: leadsToWrite.filter(
+              (lead) =>
+                lead.sourceId === sourceId &&
+                normalizeCompanyKey(lead.company || "") === companyKey,
+            ).length,
+            rejectionReasons: counts ? { ...counts.reasons } : {},
+            rejectionSamples: samples,
+          });
+          persistedOutcomeCount += 1;
+        } catch (error) {
+          skippedOutcomeCount += 1;
+          const errorMessage = formatError(error);
+          const warning =
+            `Exploit outcome memory persistence skipped for ${sourceId}/${companyKey}: ${errorMessage}`;
+          extractionResult.warnings.push(warning);
+          extractionResult.diagnostics = [
+            ...(extractionResult.diagnostics || []),
+            {
+              context:
+                `Exploit outcome memory persistence skipped for ${sourceId}/${companyKey}: ${errorMessage}`,
+              ...(canonicalUrl ? { url: canonicalUrl } : {}),
+            },
+          ];
+          dependencies.log?.("discovery.run.memory_persistence_failed", {
+            runId,
+            intentKey,
+            sourceId,
+            companyKey,
+            canonicalUrl,
+            error: errorMessage,
+          });
+        }
+      }
+    }
+
+    // B7: intent coverage per company — the yield channel behind scout
+    // ordering (B12) and frontier priors. Keyed by the stable intent key so
+    // the next identical run reads this run's coverage.
+    const recordCoverage = discoveryMemoryStore.recordIntentCoverage?.bind(
+      discoveryMemoryStore,
+    );
+    let coverageCount = 0;
+    if (recordCoverage) {
+      const writtenByCompany = new Map<string, number>();
+      for (const lead of leadsToWrite) {
+        const key = normalizeCompanyKey(lead.company || "");
+        if (key) writtenByCompany.set(key, (writtenByCompany.get(key) || 0) + 1);
+      }
+      const seenByCompany = new Map<
+        string,
+        { seen: number; lane: DiscoverySourceLane }
+      >();
+      for (const [key, counts] of companyLaneCounts) {
+        const separator = key.indexOf("\0");
+        const sourceId = separator >= 0 ? key.slice(0, separator) : "";
+        const companyKey = separator >= 0 ? key.slice(separator + 1) : key;
+        if (!companyKey) continue;
+        const lane = determineSourceLaneFromId(sourceId);
+        const entry = seenByCompany.get(companyKey);
+        if (entry) {
+          entry.seen += counts.seen;
+          if (counts.seen > 0) entry.lane = lane;
+        } else {
+          seenByCompany.set(companyKey, { seen: counts.seen, lane });
+        }
+      }
+      for (const [companyKey, entry] of seenByCompany) {
+        try {
+          await recordCoverage({
+            intentKey,
+            companyKey,
+            runId,
+            sourceLane: entry.lane,
+            surfacesSeen: 0,
+            listingsSeen: entry.seen,
+            listingsWritten: writtenByCompany.get(companyKey) || 0,
+            startedAt,
+            completedAt,
+          });
+          coverageCount += 1;
+        } catch (error) {
+          dependencies.log?.("discovery.run.memory_coverage_failed", {
+            runId,
+            intentKey,
+            companyKey,
+            error: formatError(error),
+          });
+        }
       }
     }
 
@@ -1556,6 +1849,7 @@ export async function runDiscovery(
       intentKey,
       outcomeCount: persistedOutcomeCount,
       skippedOutcomeCount,
+      coverageCount,
       roleFamiliesLearned: leadsToWrite.length,
     });
   }
@@ -1658,6 +1952,19 @@ export async function runDiscovery(
   };
 }
 
+function inferAtsSourceIdFromUrl(url: string, fallback: AtsSourceId): AtsSourceId {
+  let hostname = "";
+  try {
+    hostname = new URL(String(url || "")).hostname.toLowerCase();
+  } catch {
+    return fallback;
+  }
+  for (const signature of ATS_HOST_SIGNATURES) {
+    if (signature.match.test(hostname)) return signature.provider;
+  }
+  return fallback;
+}
+
 function isSharedAtsCompanyDomain(value: string): boolean {
   const raw = String(value || "").trim();
   if (!raw) return false;
@@ -1714,6 +2021,7 @@ function normalizeRawListing(
       aiMatchCallsUsed: number;
     };
     matcherTimeoutMs?: number;
+    abortSignal?: AbortSignal;
   },
 ): Promise<
   Awaited<ReturnType<typeof normalizeLeadWithDiagnostics>> & {
@@ -1721,30 +2029,60 @@ function normalizeRawListing(
   }
 > {
   const baseline = scoreListingMatch(rawListing, run);
+  const parentSignal = input.abortSignal ?? input.dependencies.abortSignal;
+  // B9: the deterministic profile pre-filter runs before the AI matcher, so
+  // listings the profile already rules out never spend an LLM call. The
+  // rejection shape mirrors normalizeLeadWithDiagnostics' pre-filter branch.
+  const userProfile = run.config.userProfile;
+  if (userProfile) {
+    const preFilter = runPreFilter(rawListing, userProfile);
+    if (!preFilter.pass) {
+      return Promise.resolve({
+        lead: null,
+        rejection: {
+          reason: "excluded_keyword",
+          detail: preFilter.detail,
+        },
+        matchUsedAi: false,
+      });
+    }
+  }
   const canUseAi =
     !!input.dependencies.matchClient &&
     shouldUseAiMatcher(baseline, run, input.matchingState.aiMatchCallsUsed);
 
   if (!canUseAi) {
-    return Promise.resolve(finalizeMatchDecision(rawListing, run, baseline, false));
+    return Promise.resolve(
+      finalizeMatchDecision(rawListing, run, baseline, false, parentSignal),
+    );
   }
 
-  const matcherPromise = input.dependencies.matchClient!.evaluate({
-    rawListing,
-    run,
-    baseline,
-  });
-
+  // RUN-12/B4: evaluate inside the timeout as a factory so the matcher LLM
+  // call receives the composed signal (matcher timeout + run cap) instead of
+  // racing a promise that can outlive both.
+  const matchClient = input.dependencies.matchClient!;
   const timeoutMs = input.matcherTimeoutMs ?? DEFAULT_MATCHER_TIMEOUT_MS;
   return withTimeout(
     `ai_matching[${rawListing.sourceId}]`,
     rawListing.sourceId,
     timeoutMs,
-    matcherPromise,
-    input.dependencies.abortSignal,
+    (signal) =>
+      matchClient.evaluate({
+        rawListing,
+        run,
+        baseline,
+        signal,
+      }),
+    parentSignal,
   )
     .then((decision) =>
-      finalizeMatchDecision(rawListing, run, decision || baseline, true),
+      finalizeMatchDecision(
+        rawListing,
+        run,
+        decision || baseline,
+        true,
+        parentSignal,
+      ),
     )
     .catch((error) => {
       if (error instanceof TimeoutError) {
@@ -1754,9 +2092,9 @@ function normalizeRawListing(
           sourceId: rawListing.sourceId,
           timeoutMs: error.timeoutMs,
         });
-        return finalizeMatchDecision(rawListing, run, baseline, false);
+        return finalizeMatchDecision(rawListing, run, baseline, false, parentSignal);
       }
-      return finalizeMatchDecision(rawListing, run, baseline, false);
+      return finalizeMatchDecision(rawListing, run, baseline, false, parentSignal);
     });
 }
 
@@ -1791,6 +2129,7 @@ async function finalizeMatchDecision(
   run: DiscoveryRun,
   decision: MatchDecision,
   matchUsedAi: boolean,
+  abortSignal?: AbortSignal,
 ): Promise<Awaited<ReturnType<typeof normalizeLeadWithDiagnostics>> & { matchUsedAi: boolean }> {
   // Hybrid matcher gate: only "reject" drops the listing. "uncertain" flows
   // through to the sheet — the Match Score column lets the user sort and
@@ -1805,6 +2144,7 @@ async function finalizeMatchDecision(
 
   const normalized = await normalizeLeadWithDiagnostics(rawListing, run, {
     enforceRelevanceFilters: false,
+    signal: abortSignal,
   });
   if (!normalized.lead) {
     return {
@@ -1823,9 +2163,7 @@ async function finalizeMatchDecision(
   // sheet writer can surface it in its new column. Keeps the deterministic
   // fitScore untouched. Guarded by the `if (!normalized.lead)` check above so
   // we never spread a null lead into a truthy placeholder.
-  const matchScore = Number.isFinite(decision.overallScore)
-    ? Math.round(Math.max(0, Math.min(1, decision.overallScore)) * 10)
-    : null;
+  const matchScore = matchOverallScoreToMatchScore(decision.overallScore);
 
   return {
     ...normalized,
@@ -2254,6 +2592,10 @@ async function runGroundedWebDiscovery(
     abortSignal?: AbortSignal;
   },
   budgetTracker?: BudgetTracker,
+  options?: {
+    exploitCompanyFilter?: (company: CompanyTarget) => boolean;
+    companyLaneCounts?: Map<string, CompanyLaneCount>;
+  },
 ): Promise<{
   extractionResult: BrowserUseExtractionResult | null;
   normalizedLeads: NormalizedLead[];
@@ -2315,10 +2657,28 @@ async function runGroundedWebDiscovery(
   // run unrestricted grounded discovery using just the intent fields.
   // This supports browser_only and browser_plus_ats presets with empty company scope
   // without injecting legacy fixed-company defaults (Scale AI/Figma/Notion).
-  const companiesToSearch =
+  const configuredCompanies =
     run.config.companies.length > 0
       ? run.config.companies
       : [{ name: "" }]; // Unrestricted search with empty company name
+  // RUN-09/B3: in exploit, skip companies whose scout succeeded but lost
+  // every candidate at selection. Skipping is by design (no warning), and
+  // stays visible in the run log.
+  const companiesToSearch = options?.exploitCompanyFilter
+    ? configuredCompanies.filter(options.exploitCompanyFilter)
+    : configuredCompanies;
+  if (
+    options?.exploitCompanyFilter &&
+    companiesToSearch.length < configuredCompanies.length
+  ) {
+    dependencies.log?.("discovery.run.exploit_company_skip", {
+      runId: run.runId,
+      skipped: configuredCompanies.length - companiesToSearch.length,
+      skippedCompanies: configuredCompanies
+        .filter((company) => !options.exploitCompanyFilter!(company))
+        .map((company) => company.name),
+    });
+  }
 
   // VAL-ROUTE-015: Create concurrency tracker to monitor in-flight processing
   const parallelEnabled = run.config.ultraPlanTuning?.parallelCompanyProcessingEnabled ?? false;
@@ -2358,7 +2718,16 @@ async function runGroundedWebDiscovery(
           dependencies,
           matchingState,
           matcherTimeoutMs,
+          abortSignal: timeouts?.abortSignal,
         });
+        if (options?.companyLaneCounts) {
+          trackCompanyLaneCount(
+            options.companyLaneCounts,
+            "grounded_web",
+            rawListing.company || normalized.lead?.company || "",
+            normalized.lead ? null : normalized.rejection || { reason: "unknown" },
+          );
+        }
         if (normalized.matchUsedAi) {
           matchingState.aiMatchCallsUsed += 1;
         }
@@ -2476,50 +2845,19 @@ function buildSourceSummary(
   });
 }
 
-/**
- * Determines the source lane for a normalized lead based on its sourceId.
- * Used for frontier candidate building and exploit target selection.
- */
-function determineLeadSourceLane(lead: NormalizedLead): DiscoverySourceLane {
-  // Check metadata.sourceLane first if available
-  if (lead.metadata?.sourceLane) {
-    return lead.metadata.sourceLane as DiscoverySourceLane;
-  }
-
-  // Infer from sourceId for ATS providers
-  const atsSourceIds: readonly string[] = [
-    "greenhouse",
-    "lever",
-    "ashby",
-    "smartrecruiters",
-    "workday",
-    "icims",
-    "jobvite",
-    "taleo",
-    "successfactors",
-    "workable",
-    "breezy",
-    "recruitee",
-    "teamtailor",
-    "personio",
-  ];
-
-  if (atsSourceIds.includes(lead.sourceId)) {
-    return "ats_provider";
-  }
-
-  // Default to grounded_web for browser-discovered leads
-  return "grounded_web";
-}
-
 function determineLifecycleState(
   normalizedLeadCount: number,
   warnings: string[],
 ): DiscoveryLifecycleState {
   if (normalizedLeadCount === 0) {
-    // No leads written: preserve existing semantics — any warning => partial,
-    // otherwise empty. We only relax the rule once a run actually produced leads.
-    return warnings.length > 0 ? "partial" : "empty";
+    // No leads written: only real degradations force partial. Informational
+    // warnings (a source the preset deliberately excluded, no configured
+    // companies, an unavailable optional Google tool) describe a run that
+    // finished as designed, so the state is empty.
+    const significantWarnings = warnings.filter(
+      (warning) => !isInformationalLifecycleWarning(warning),
+    );
+    return significantWarnings.length > 0 ? "partial" : "empty";
   }
   // Leads were written: informational warnings don't make the run "partial" —
   // a source the preset deliberately excluded never ran by design, and "no
@@ -2796,10 +3134,200 @@ function priorityRank(priority: NormalizedLead["priority"]): number {
   return { "🔥": 0, "⚡": 1, "—": 2, "↓": 3, "": 4 }[priority] ?? 4;
 }
 
-function normalizeCompanyKey(input: string): string {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
+/**
+ * B12: prior write yield per company key from the memory snapshot's intent
+ * coverage (listings written per listing seen). Companies with no coverage
+ * row score 0, keeping config order among themselves via the stable sort.
+ */
+/**
+ * B7: stable intent key for memory reads and writes. Identical runs (same
+ * preset, sources, roles, keywords, locations, policy, seniority, and
+ * company set) share one key, so intent coverage, exploit outcomes, and
+ * frontier yield accumulate across runs instead of stranding one row per
+ * run id. Volatile fields (run id, timestamps, sheet id) stay out.
+ */
+export function buildStableIntentKey(config: ResolvedRunSettings): string {
+  const words = (values: Array<string | undefined | null>) =>
+    [...(values || [])]
+      .map((value) => String(value || "").trim().toLowerCase())
+      .filter(Boolean)
+      .sort();
+  const seed = {
+    preset: String(config.sourcePreset || ""),
+    sources: [...(config.effectiveSources || [])].sort(),
+    roles: words(config.targetRoles),
+    include: words(config.includeKeywords),
+    exclude: words(config.excludeKeywords),
+    locations: words(config.locations),
+    remotePolicy: String(config.remotePolicy || "").trim().toLowerCase(),
+    seniority: String(config.seniority || "").trim().toLowerCase(),
+    companies: [...(config.companies || [])]
+      .map((company) => normalizeCompanyKey(company.name))
+      .filter(Boolean)
+      .sort(),
+  };
+  return `intent:${createHash("sha256").update(JSON.stringify(seed)).digest("hex").slice(0, 16)}`;
+}
+
+function buildScoutYieldMap(
+  memorySnapshot: DiscoveryMemorySnapshot | null,
+): Map<string, number> {
+  const yields = new Map<string, number>();
+  for (const row of memorySnapshot?.intentCoverage || []) {
+    const companyKey = String(row.companyKey || "").trim();
+    if (!companyKey || yields.has(companyKey)) continue;
+    const seen = Math.max(1, Number(row.listingsSeen) || 0);
+    yields.set(companyKey, (Number(row.listingsWritten) || 0) / seen);
+  }
+  return yields;
+}
+
+function scoutCompanyKeys(company: CompanyTarget): string[] {
+  return [
+    String(company.companyKey || "").trim(),
+    normalizeCompanyKey(company.name),
+    String(company.name || "").trim().toLowerCase(),
+  ].filter(Boolean);
+}
+
+function scoutYieldScore(
+  company: CompanyTarget,
+  yields: Map<string, number>,
+): number {
+  for (const key of scoutCompanyKeys(company)) {
+    const score = yields.get(key);
+    if (score != null) return score;
+  }
+  return 0;
+}
+
+/**
+ * B7: memory-fed frontier prior (0-100) for a scout company, or undefined
+ * when no coverage row exists so the caller keeps the static default.
+ */
+function frontierPriorYield(
+  company: CompanyTarget,
+  yields: Map<string, number>,
+): number | undefined {
+  const keys = scoutCompanyKeys(company);
+  if (!keys.some((key) => yields.has(key))) return undefined;
+  return scoutYieldScore(company, yields) * 100;
+}
+
+export type CompanyLaneCount = {
+  seen: number;
+  accepted: number;
+  rejected: number;
+  reasons: Record<string, number>;
+};
+
+function companyLaneCountKey(sourceId: string, companyName: string): string {
+  return `${String(sourceId || "")}\0${normalizeCompanyKey(companyName)}`;
+}
+
+function trackCompanyLaneCount(
+  counts: Map<string, CompanyLaneCount>,
+  sourceId: string,
+  companyName: string,
+  rejection: { reason: string } | null,
+): void {
+  if (!normalizeCompanyKey(companyName)) return;
+  const key = companyLaneCountKey(sourceId, companyName);
+  const entry = counts.get(key) || {
+    seen: 0,
+    accepted: 0,
+    rejected: 0,
+    reasons: {},
+  };
+  entry.seen += 1;
+  if (!rejection) {
+    entry.accepted += 1;
+  } else {
+    entry.rejected += 1;
+    const reason = String(rejection.reason || "unknown");
+    entry.reasons[reason] = (entry.reasons[reason] || 0) + 1;
+  }
+  counts.set(key, entry);
+}
+
+/**
+ * B7: persist a successfully detected ATS company and its boards. Detection
+ * success (a probe-verified board URL) is the write trigger — the board is
+ * a discovered surface even when it currently lists zero openings. Writes
+ * are best-effort: callers catch and log, never fail the run.
+ */
+async function recordAtsCompanyMemory(
+  store: DiscoveryMemoryStore,
+  company: CompanyTarget,
+  detections: DetectionResult[],
+  observedAt: string,
+): Promise<void> {
+  const companyKey =
+    String(company.companyKey || "").trim() || normalizeCompanyKey(company.name);
+  const usable = detections.filter((detection) =>
+    String(detection.canonicalUrl || detection.boardUrl || "").trim(),
+  );
+  if (!companyKey || usable.length === 0) return;
+  const atsHints: Record<string, string> = {};
+  for (const detection of usable) {
+    const hint = String(
+      detection.boardToken || detection.canonicalUrl || detection.boardUrl || "",
+    ).trim();
+    if (hint) atsHints[detection.sourceId] = hint;
+  }
+  await store.upsertCompanyRecords?.([
+    {
+      companyKey,
+      displayName: String(company.name || companyKey),
+      normalizedName: String(
+        company.normalizedName || company.name || companyKey,
+      ).trim().toLowerCase(),
+      aliasesJson: JSON.stringify(company.aliases || []),
+      domainsJson: JSON.stringify(company.domains || []),
+      atsHintsJson: JSON.stringify(atsHints),
+      geoTagsJson: JSON.stringify(company.geoTags || []),
+      roleTagsJson: JSON.stringify(company.roleTags || []),
+      firstSeenAt: observedAt,
+      lastSeenAt: observedAt,
+      lastSuccessAt: observedAt,
+      successCount: 1,
+      failureCount: 0,
+      confidence: 1,
+      cooldownUntil: "",
+    },
+  ]);
+  await store.upsertCareerSurfaces?.(
+    usable.map((detection) => {
+      const canonicalUrl = String(
+        detection.canonicalUrl || detection.boardUrl || "",
+      ).trim();
+      let host = "";
+      try {
+        host = new URL(canonicalUrl).hostname.toLowerCase();
+      } catch {
+        host = "";
+      }
+      return {
+        surfaceId: "",
+        companyKey,
+        surfaceType: "provider_board" as const,
+        providerType: detection.sourceId,
+        canonicalUrl,
+        host,
+        finalUrl: String(detection.finalUrl || canonicalUrl),
+        boardToken: String(detection.boardToken || ""),
+        sourceLane: "ats_provider" as const,
+        verifiedStatus: "verified" as const,
+        lastVerifiedAt: observedAt,
+        lastSuccessAt: observedAt,
+        lastFailureAt: "",
+        failureReason: "",
+        failureStreak: 0,
+        cooldownUntil: "",
+        metadataJson: JSON.stringify({ origin: "ats_detection" }),
+      };
+    }),
+  );
 }
 
 function uniqueJoin(values: string[]): string {

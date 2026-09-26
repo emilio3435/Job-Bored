@@ -14,8 +14,8 @@
     },
     "code": {
       "type": "string",
-      "pattern": "^[A-Za-z][A-Za-z0-9_.-]*$",
-      "description": "Stable machine code for the failure. The worker uses lower_snake_case (for example `invalid_request`, `sheets_credential_missing`, `run_not_found`); the local API uses UPPER_SNAKE_CASE (for example `INVALID_JSON`, `PAYLOAD_TOO_LARGE`, `NOT_FOUND`)."
+      "pattern": "^[a-z][a-z0-9_]*$",
+      "description": "Stable machine code for the failure. The worker and the local API both use lower_snake_case (for example `invalid_request`, `sheets_credential_missing`, `run_not_found`, `invalid_json`, `payload_too_large`, `not_found`)."
     },
     "detail": {
       "type": "string",

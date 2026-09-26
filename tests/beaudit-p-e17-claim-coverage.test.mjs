@@ -40,6 +40,7 @@ import { basename, dirname, join } from "node:path";
 import { after, before, describe, it } from "node:test";
 import { setTimeout as sleep } from "node:timers/promises";
 import { fileURLToPath } from "node:url";
+import vm from "node:vm";
 
 import { scrapeJobPosting } from "../server/shared/job-scraper-core.mjs";
 
@@ -149,15 +150,53 @@ describe("BEAUDIT E17/E4 hosted-auth caller coverage", () => {
     assert.match(indexHtml, /<script src="hosted-api-auth\.js"/);
   });
 
-  // Scaffolding only; this claims no coverage. The owning lane (wave-2 lane
-  // B, E4: one apiFetch()) replaces it with a behavior test: drive each caller
-  // from packagedBrowserApiCallers() against a recording fetch with a hosted
-  // token configured and assert the outgoing request carries X-Api-Token (or
-  // Authorization: Bearer); as the negative control, with no token configured
-  // the same request carries neither header.
-  it.todo(
-    "every packaged API caller attaches the hosted token to its outgoing request (lane B)",
-  );
+  // Wave-2 lane B (E4: one apiFetch()) owns this behavior test. The one
+  // helper is driven against a recording fetch, token configured and not;
+  // every packaged caller from the scan above is pinned to that helper, so a
+  // future bare fetch() to an API route fails here. Per-site pins live in
+  // tests/w2sq-b-apifetch-coverage.test.mjs.
+  it("every packaged API caller attaches the hosted token to its outgoing request (lane B)", async () => {
+    const helperSource = readFileSync(join(REPO_ROOT, "hosted-api-auth.js"), "utf8");
+    const drive = (config) => {
+      const calls = [];
+      const windowTarget = { COMMAND_CENTER_CONFIG: config };
+      const sandbox = {
+        window: windowTarget,
+        fetch: async (input, init) => {
+          calls.push({ input, init });
+          return { ok: true, status: 200 };
+        },
+      };
+      vm.runInNewContext(helperSource, sandbox, { filename: "hosted-api-auth.js" });
+      return { auth: windowTarget.JobBoredHostedApiAuth, calls };
+    };
+    const authed = drive({ jobBoredApiToken: "lane-b-token" });
+    await authed.auth.apiFetch("http://127.0.0.1:3847/profile", { method: "GET" });
+    assert.equal(authed.calls.length, 1);
+    assert.equal(authed.calls[0].init.headers["X-Api-Token"], "lane-b-token");
+    assert.equal(authed.calls[0].init.headers.Authorization, "Bearer lane-b-token");
+    const bare = drive({});
+    await bare.auth.apiFetch("http://127.0.0.1:3847/profile", { method: "GET" });
+    assert.equal(bare.calls.length, 1);
+    assert.equal(bare.calls[0].init.headers["X-Api-Token"], undefined);
+    assert.equal(bare.calls[0].init.headers.Authorization, undefined);
+
+    for (const name of packagedBrowserApiCallers()) {
+      const source = readFileSync(join(REPO_ROOT, name), "utf8");
+      assert.ok(
+        source.includes("function apiFetch(url, init)"),
+        `${name} defines the apiFetch alias`,
+      );
+      assert.ok(
+        source.includes("JobBoredHostedApiAuth"),
+        `${name} delegates to the hosted helper`,
+      );
+      const calls = source
+        .replace("function apiFetch(url, init)", "")
+        .match(/[^a-zA-Z]apiFetch\(/g) || [];
+      assert.ok(calls.length >= 1, `${name} calls through apiFetch`);
+    }
+  });
 });
 
 // ---------------------------------------------------------------- E2
@@ -293,12 +332,16 @@ describe("BEAUDIT E17/E5 the server/ image layout boots", () => {
       const templateRes = await fetch(`${api.baseUrl}/profile/template/engineer`, {
         method: "POST",
       });
-      const template = await templateRes.text();
-      assert.equal(templateRes.status, 200, template.slice(0, 300));
+      const templateText = await templateRes.text();
+      assert.equal(templateRes.status, 200, templateText.slice(0, 300));
+      // POST /profile takes the profile object, not the {ok, template}
+      // transport envelope — the wizard unwraps data.template before saving,
+      // and the schema requires top-level version/identity/strengths.
+      const { template } = JSON.parse(templateText);
       const res = await fetch(`${api.baseUrl}/profile`, {
         method: "POST",
         headers: { "content-type": "application/json" },
-        body: template,
+        body: JSON.stringify(template),
       });
       const { text } = await readJson(res);
       assert.doesNotMatch(text, new RegExp(ctx.root.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")));
@@ -309,7 +352,7 @@ describe("BEAUDIT E17/E5 the server/ image layout boots", () => {
 
   it(
     "the logo routes answer without a 500 when the resolver is absent",
-    target("wave-2 lane O (E5: 501 LOGOS_UNAVAILABLE or ship python3)"),
+    target("wave-2 lane O (E5: 501 logos_unavailable or ship python3)"),
     async () => {
       const res = await fetch(`${api.baseUrl}/api/brand-logos`);
       const { text } = await readJson(res);

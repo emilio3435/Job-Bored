@@ -184,3 +184,4 @@ jobs:
           node-version: '24'
           cache: 'npm'
       - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --omit=dev --audit-level=high --prefix server

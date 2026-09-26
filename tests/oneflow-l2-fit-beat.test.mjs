@@ -192,6 +192,8 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
       return payload;
     };
     env.window.COMMAND_CENTER_CONFIG = {};
+    // A hosted static copy (GitHub Pages): no URL and not the local dashboard.
+    env.window.location = { hostname: "example.github.io", port: "" };
     env.window.fetch = async (url, options) => {
       requests.push({ url, options });
       throw new Error("must not fetch without a configured API");
@@ -203,6 +205,44 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     assert.equal(requests.length, 0);
     assert.equal(env.completions.length, 1);
     assert.equal(env.completions[0].serverSynced, false);
+  });
+
+  it("L2-FIT-LOCAL-DASHBOARD: with no URL on the local dashboard, one same-origin POST /profile goes through apiFetch", async () => {
+    const env = renderBeat();
+    const discoveryWrites = [];
+    const requests = [];
+    env.window.CommandCenterUserContent.saveDiscoveryProfile = async (payload) => {
+      discoveryWrites.push(payload);
+      return payload;
+    };
+    env.window.COMMAND_CENTER_CONFIG = {};
+    // A fresh install: the dev-server proxies same-origin /profile to the
+    // local API (SIXBEATS C3), so an empty jobBoredApiUrl still has an API.
+    env.window.location = { hostname: "127.0.0.1", port: "8080" };
+    env.window.fetch = async () => {
+      throw new Error("the POST must route through the hosted-auth apiFetch");
+    };
+    env.window.JobBoredHostedApiAuth = {
+      async apiFetch(url, options) {
+        requests.push({ url, options });
+        return {
+          ok: true,
+          status: 200,
+          async json() {
+            return { ok: true };
+          },
+        };
+      },
+    };
+
+    await env.beat.onAction("confirm-fit", env.ctx);
+
+    assert.equal(discoveryWrites.length, 1);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/profile");
+    assert.equal(requests[0].options.method, "POST");
+    assert.equal(env.completions.length, 1);
+    assert.equal(env.completions[0].serverSynced, true);
   });
 
   it("L2-FIT-LOCAL-SOURCE-OF-TRUTH: a failed local save still blocks the beat", async () => {

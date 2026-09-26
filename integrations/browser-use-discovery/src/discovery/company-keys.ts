@@ -13,6 +13,35 @@ export function companyFilterKey(company: CompanyTarget): string {
   return String(key || "").trim().toLowerCase();
 }
 
+/**
+ * B18: the single home for string company keys. Two historical semantics
+ * existed across six file-local copies; both live here now with distinct
+ * names so call sites keep their exact behavior while sharing code.
+ */
+
+/** Lowercase with every non-alphanumeric stripped (normalizer, grounded, run). */
+export function normalizeCompanyKey(value: unknown): string {
+  return String(value || "")
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "");
+}
+
+function cleanKeyString(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" && Number.isFinite(value)) return String(value);
+  return value == null ? "" : String(value).trim();
+}
+
+/** Lowercase dash-joined slug (config, planner, profile-to-companies). */
+export function slugifyCompanyKey(value: unknown): string {
+  return cleanKeyString(value)
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, " ")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/\s+/g, "-");
+}
+
 export function filterSkippedCompanies(
   companies: CompanyTarget[] | undefined,
   negativeCompanyKeys: unknown,

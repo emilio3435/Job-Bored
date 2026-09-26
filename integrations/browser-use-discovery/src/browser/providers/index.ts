@@ -55,7 +55,8 @@ export function createAtsProviderRegistry(
     getProvider(sourceId) {
       return providerMap.get(sourceId);
     },
-    async detectSurfaces(company, effectiveSources, memory) {
+    async detectSurfaces(company, effectiveSources, memory, signal) {
+      signal?.throwIfAborted?.();
       const enabledProviders = effectiveSources
         .map((sourceId) => providerMap.get(sourceId))
         .filter((provider): provider is AtsProvider => !!provider);
@@ -66,6 +67,7 @@ export function createAtsProviderRegistry(
               company,
               buildDetectionHints(company, provider.id),
               memory,
+              signal,
             ),
             detectionTimeoutMs,
           ),

@@ -285,16 +285,16 @@ describe("scribe — toolbar actions bridge to the legacy modal controls", () =>
   // rejected / no-change / API-absent) is covered by
   // tests/scribe-refine-async-truth.test.mjs.
 
-  it("the Appearance select mirrors the legacy theme options and pushes changes back with a change event (the legacy renderer listens for it)", () => {
-    const env = loadScribe({ withThemeSelect: true });
+  it("the Appearance select mirrors the legacy template options and pushes changes back with a change event (the legacy renderer listens for it)", () => {
+    const env = loadScribe({ withTemplateSelect: true });
     const sel = env.byId("scribeAppearance");
-    assert.equal(sel.querySelectorAll("option").length, 2, "options copied from the legacy select");
-    assert.equal(sel.value, "mono", "current legacy theme preselected");
+    assert.equal(sel.querySelectorAll("option").length, 3, "options copied from the legacy select");
+    assert.equal(sel.value, "dossier", "current legacy template preselected");
     const themeEvents = [];
-    env.els.theme.addEventListener("change", () => themeEvents.push(1));
-    sel.value = "classic";
+    env.els.template.addEventListener("change", () => themeEvents.push(1));
+    sel.value = "signal";
     sel.dispatchEvent(new FakeEvent("change", { bubbles: true }));
-    assert.equal(env.els.theme.value, "classic", "theme choice must reach the legacy select");
+    assert.equal(env.els.template.value, "signal", "template choice must reach the legacy select");
     assert.equal(themeEvents.length, 1, "legacy change listeners must re-render the preview");
   });
 });

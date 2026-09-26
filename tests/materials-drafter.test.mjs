@@ -4,109 +4,132 @@ import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
+import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
 
-const letterTpl = `<html><head><style>.x{}</style></head><body><p data-slot="hook">old</p><p data-slot="why-them"></p><p data-slot="why-me"></p><p data-slot="why-now"></p><p data-slot="closing"></p></body></html>`;
-const resumeTpl = `<html><head><style>.x{}</style></head><body><section data-section="summary">s</section><article data-role="audacy-dsm"><ul><li>b</li></ul></article><section data-section="experience">e</section></body></html>`;
+/* C11: every draft carries the user's resume; Jordan Rivera stands in. */
+const USER_RESUME_TEXT = [
+  "Jordan Rivera",
+  "Austin, TX · jordan.rivera@example.com · 555-010-2030",
+  "Northwind — Digital Sales Manager, 2021–2026",
+  "- Grew Austin to a top-3 national ranking on a $10M+ book with Google Ads.",
+  "- Drove 130% YoY paid-search conversion growth on a flagship account.",
+  "Example App — Founder, 2024–present",
+  "- Shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline.",
+  "- Built streaming ingestion for analytics events with Kafka and Postgres.",
+].join("\n");
 
-/* C11: every draft carries the user's resume; this one is a stand-in. */
-const SAMPLE_RESUME = {
-  source: "portfolio",
-  filename: "sample-resume.txt",
-  addedAt: "2026-09-20T00:00:00.000Z",
-  text: "Sample Candidate\nAudacy — Digital Sales Manager, 2016–2024\n- Grew Denver to top-3 nationally.",
-};
-
-const goodJson = {
-  letter: {
-    hook: "I ship paid spend toward marginal ROAS for advancement teams.",
-    whyThem: "EAB already owns the university relationships I have spent a decade earning.",
-    whyMe: "At Audacy I ran a 10M digital P and L and took Denver to a top-3 national rank.",
-    whyNow: "I want to point that operator-builder mix at alumni growth.",
-    closing: "Happy to walk through the forecast stack.",
-    company: "EAB",
-    role: "Senior Director",
-  },
-  resume: {
-    summary: { opener: "Operator.", body: "Paid media plus AI systems." },
-    roles: [{ id: "audacy-dsm", bullets: ["Grew Denver to top-3 nationally on a 10M book."] }],
-  },
+const USER_RESUME = {
+  source: "upload",
+  filename: "resume.txt",
+  addedAt: "2026-09-26T00:00:00.000Z",
+  text: USER_RESUME_TEXT,
 };
 
 const pin = {
-  provider: "gemini",
-  model: "gemini-3.7-flash",
-  apiKey: "k",
-  baseUrl: "",
+  provider: "local",
+  model: "stub",
+  apiKey: "",
+  baseUrl: "http://127.0.0.1:9/v1",
 };
 
+const JD_TEXT = [
+  "Data Platform Engineer at Acme Analytics in Austin, TX. This role builds warehouse",
+  "pipelines and streaming ingestion for analytics events, owns observability dashboards,",
+  "and partners with analysts on pipeline math and spend reporting.",
+  "Requirements: five years with warehouse modeling, streaming ingestion, Python, SQL,",
+  "orchestration with Airflow, observability, and cloud platforms. You have shipped",
+  "production data systems with clear reliability practices and documentation. The",
+  "team values operators who read the source, trace failures to their root cause,",
+  "and write plain-language runbooks so on-call rotations stay calm during incidents.",
+  "Compensation includes base salary, equity, and an annual learning stipend.",
+].join("\n");
+
 function baseDeps(dir, extra = {}) {
+  const stub = scriptedPipelineFetch();
   return {
     applicationsRoot: dir,
     loadPin: () => pin,
-    resolvePin: async (loaded) => ({ ...loaded, resolvedModel: "gemini-3.7-flash" }),
-    scrapeJob: async () => ({ description: "digital marketing strategy advancement ".repeat(40) }),
-    readMasterLetter: async () => letterTpl,
-    readMasterResume: async () => resumeTpl,
-    writer: async () => goodJson,
-    editor: async () => goodJson,
-    critic: async () => ({ status: "pass", issues: [] }),
-    pdfRenderer: async () => ({ skipped: true, note: "pdf_skipped" }),
+    resolvePin: async (loaded) => ({ ...loaded, resolvedModel: "stub" }),
+    scrapeJob: async () => ({ description: JD_TEXT }),
+    fetchImpl: stub.fetchImpl,
+    openSession: null,
+    logoLoader: async () => [],
     ...extra,
+  };
+}
+
+function request(overrides = {}) {
+  return {
+    resume: USER_RESUME,
+    slug: "eab-role",
+    company: "EAB",
+    title: "Director",
+    feature: "both",
+    jobUrl: "https://example.com/job",
+    notes: "",
+    ...overrides,
   };
 }
 
 describe("createMaterialsDrafter", () => {
   let dir;
+  let priorHome;
+  let priorProfile;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "jb-draft-"));
+    priorHome = process.env.HOME;
+    priorProfile = process.env.JOBBORED_PROFILE_PATH;
+    process.env.HOME = dir;
+    process.env.USERPROFILE = dir;
+    process.env.JOBBORED_PROFILE_PATH = join(dir, "profile.json");
   });
   afterEach(async () => {
+    process.env.HOME = priorHome;
+    process.env.USERPROFILE = priorHome;
+    if (priorProfile === undefined) delete process.env.JOBBORED_PROFILE_PATH;
+    else process.env.JOBBORED_PROFILE_PATH = priorProfile;
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("409s without a pin and does not write pending", async () => {
+  it("publishes a degraded REVIEW package without a pin instead of 409", async () => {
     const drafter = createMaterialsDrafter({
-      applicationsRoot: dir,
+      ...baseDeps(dir),
       loadPin: () => null,
+      fetchImpl: async () => {
+        throw new Error("must not call");
+      },
     });
-    await assert.rejects(
-      () =>
-        drafter.enqueue({
-      resume: SAMPLE_RESUME,
-          slug: "eab-role",
-          company: "EAB",
-          title: "Director",
-          feature: "both",
-          jobUrl: "https://example.com/job",
-          notes: "",
-        }),
-      (err) => err.statusCode === 409 && err.code === "llm_unconfigured",
-    );
+    const result = await drafter.enqueue(request());
+    assert.equal(result.ok, true);
+    await drafter.runUntilIdle();
+    const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
+    assert.match(report, /^Status:\s*REVIEW/im);
+    assert.match(report, /llm_unconfigured/);
+    await readFile(join(dir, "eab-role", "resume.html"), "utf8");
     await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
+  });
+
+  it("fails ledger_empty when the resume carries no facts", async () => {
+    const drafter = createMaterialsDrafter(baseDeps(dir));
+    await drafter.enqueue(request({
+      resume: { ...USER_RESUME, text: "Jordan Rivera\nNo experience listed." },
+    }));
+    await drafter.runUntilIdle();
+    const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
+    assert.equal(pending.progress.phase, "failed");
+    assert.equal(pending.progress.code, "ledger_empty");
   });
 
   it("writes REVIEW with jd_unusable when scrape fails on a blurb", async () => {
     const drafter = createMaterialsDrafter({
-      applicationsRoot: dir,
-      loadPin: () => ({ provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "" }),
-      resolvePin: async (pin) => ({ ...pin, resolvedModel: "gemini-3.7-flash" }),
+      ...baseDeps(dir),
       scrapeJob: async () => {
         throw new Error("nope");
       },
-      readMasterLetter: async () => letterTpl,
-      readMasterResume: async () => resumeTpl,
     });
     await mkdir(join(dir, "eab-role"), { recursive: true });
     await writeFile(join(dir, "eab-role", "job-description.md"), "Low fit — 4.7/10");
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
+    await drafter.enqueue(request());
     await drafter.runUntilIdle();
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
     assert.match(report, /jd_unusable/);
@@ -118,93 +141,9 @@ describe("createMaterialsDrafter", () => {
     await assert.rejects(readFile(join(dir, "eab-role", "cover-letter.html")));
   });
 
-  it("loops the editor once then READY when the second critic passes", async () => {
-    let writerCalls = 0;
-    let editorCalls = 0;
-    let criticCalls = 0;
-    const drafter = createMaterialsDrafter({
-      applicationsRoot: dir,
-      loadPin: () => ({ provider: "gemini", model: "gemini-3.7-flash", apiKey: "k", baseUrl: "" }),
-      resolvePin: async (pin) => ({ ...pin, resolvedModel: "gemini-3.7-flash" }),
-      scrapeJob: async () => ({ description: "digital marketing strategy advancement ".repeat(40) }),
-      readMasterLetter: async () => letterTpl,
-      readMasterResume: async () => resumeTpl,
-      writer: async () => {
-        writerCalls += 1;
-        return goodJson;
-      },
-      editor: async () => {
-        editorCalls += 1;
-        return goodJson;
-      },
-      critic: async () => {
-        criticCalls += 1;
-        if (criticCalls === 1) {
-          return { status: "review", issues: [{ code: "keyword_coverage_low", message: "thin", severity: "review" }] };
-        }
-        return { status: "pass", issues: [] };
-      },
-      pdfRenderer: async () => ({ skipped: true }),
-    });
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
-    await drafter.runUntilIdle();
-    assert.equal(writerCalls, 1);
-    assert.equal(editorCalls, 1);
-    const html = await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
-    assert.match(html, /EAB|hook|marginal ROAS|advancement/i);
-  });
-
-  it("stops after two editor loops at REVIEW, never READY", async () => {
-    let editorCalls = 0;
-    const drafter = createMaterialsDrafter({
-      applicationsRoot: dir,
-      loadPin: () => ({ provider: "gemini", model: "gemini-3.7-flash", apiKey: "k", baseUrl: "" }),
-      resolvePin: async (pin) => ({ ...pin, resolvedModel: "gemini-3.7-flash" }),
-      scrapeJob: async () => ({ description: "digital marketing strategy advancement ".repeat(40) }),
-      readMasterLetter: async () => letterTpl,
-      readMasterResume: async () => resumeTpl,
-      writer: async () => goodJson,
-      editor: async () => {
-        editorCalls += 1;
-        return goodJson;
-      },
-      critic: async () => ({ status: "fail", issues: [{ code: "banned_filler", message: "x", severity: "fail" }] }),
-      pdfRenderer: async () => ({ skipped: true }),
-    });
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
-    await drafter.runUntilIdle();
-    assert.equal(editorCalls, 2);
-    const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
-    assert.match(report, /banned_filler|REVIEW|review/i);
-  });
-
-  it("returns accepted pending fields and deletes pending.json on READY", async () => {
+  it("returns accepted pending fields and deletes pending.json on publish", async () => {
     const drafter = createMaterialsDrafter(baseDeps(dir));
-    const result = await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
+    const result = await drafter.enqueue(request());
     assert.equal(result.ok, true);
     assert.equal(result.accepted, true);
     assert.equal(result.slug, "eab-role");
@@ -213,143 +152,52 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
-    assert.match(report, /READY|pass/i);
+    assert.match(report, /READY|REVIEW/);
+    const run = JSON.parse(await readFile(join(dir, "eab-role", "run.json"), "utf8"));
+    assert.ok(run.stages.some((s) => s.stage === "draft" && s.llm === true));
   });
 
   it("returns the existing pending for the same in-flight slug", async () => {
-    let writerCalls = 0;
-    let releaseWriter;
-    const hold = new Promise((resolve) => {
-      releaseWriter = resolve;
+    let release;
+    const gate = new Promise((resolve) => {
+      release = resolve;
     });
-    const drafter = createMaterialsDrafter(
-      baseDeps(dir, {
-        writer: async () => {
-          writerCalls += 1;
-          await hold;
-          return goodJson;
-        },
-      }),
-    );
-    const first = await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "first",
-    });
-    const second = await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "second should not start",
-    });
+    const stub = scriptedPipelineFetch({ gate });
+    const drafter = createMaterialsDrafter(baseDeps(dir, { fetchImpl: stub.fetchImpl }));
+    const first = await drafter.enqueue(request({ notes: "first" }));
+    const second = await drafter.enqueue(request({ notes: "second should not start" }));
     assert.equal(second.pending_path, first.pending_path);
     assert.equal(second.requested_at, first.requested_at);
-    assert.ok(writerCalls <= 1, "duplicate enqueue must not start a second writer");
-    releaseWriter();
+    release();
     await drafter.runUntilIdle();
-    assert.equal(writerCalls, 1);
+    assert.ok(stub.calls.length <= 4, `duplicate enqueue must not start a second run (saw ${stub.calls.length} calls)`);
   });
 
-  it("keeps failed pending.json when the writer crashes", async () => {
+  it("F13: failed pending carries a neutral code, never raw internals", async () => {
     const drafter = createMaterialsDrafter(
       baseDeps(dir, {
-        writer: async () => {
-          throw new Error("gemini down");
+        resolvePin: async () => {
+          throw new Error("boom: internal-secret-xyz");
         },
       }),
     );
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
+    await drafter.enqueue(request());
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    // Debug LLM model resolution should be present for dogfood verification.
+    assert.ok(pending.progress.code, "a neutral code is present");
+    assert.doesNotMatch(pending.progress.message, /secret|boom/);
     assert.ok(pending.debug && pending.debug.llm, "pending.json should include llm debug info");
-    assert.equal(typeof pending.debug.llm.resolvedModel, "string");
   });
 
-  it("fills nested letter chrome slots and keeps .dot children", async () => {
-    const nestedLetter = `<html><head><style>.x{}</style></head><body>
-      <p data-slot="hook">old <span class="it">I'd like to bring both to <span class="target" data-slot="company-mention">[Company]</span>.</span></p>
-      <p data-slot="why-them"><span class="target" data-slot="company-mention-2">[Company]</span> and <strong data-slot="role-keyword">[role]</strong></p>
-      <p data-slot="why-me"></p>
-      <p data-slot="why-now"><span data-slot="company-mention-3">[Company]</span></p>
-      <p data-slot="closing">see <em data-slot="closing-hook">[hook]</em></p>
-      <p data-slot="flourish">line<span class="dot"></span></p>
-    </body></html>`;
-    const drafter = createMaterialsDrafter(
-      baseDeps(dir, {
-        readMasterLetter: async () => nestedLetter,
-      }),
-    );
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
+  it("passes payload.notes into the draft prompt as voice", async () => {
+    const stub = scriptedPipelineFetch();
+    const drafter = createMaterialsDrafter(baseDeps(dir, { fetchImpl: stub.fetchImpl }));
+    await drafter.enqueue(request({ notes: "write like a human operator" }));
     await drafter.runUntilIdle();
-    const html = await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
-    assert.match(html, /marginal ROAS/);
-    assert.match(html, /university relationships/);
-    assert.match(html, /operator-builder mix/);
-    assert.match(html, /forecast stack/);
-    assert.match(html, /data-slot="company-mention"[^>]*>EAB/);
-    assert.match(html, /data-slot="company-mention-2"[^>]*>EAB/);
-    assert.match(html, /data-slot="company-mention-3"[^>]*>EAB/);
-    assert.match(html, /data-slot="role-keyword"[^>]*>Senior Director/);
-    assert.match(html, /class="dot"/);
-    assert.match(
-      html,
-      /class="it"[^>]*>[\s\S]*class="target"[^>]*data-slot="company-mention"|class="it"[^>]*>[\s\S]*data-slot="company-mention"[^>]*class="target"/,
-    );
-    assert.match(
-      html,
-      /<span class="it">[\s\S]*data-slot="company-mention"[\s\S]*EAB/,
-    );
-    assert.doesNotMatch(html, /data-slot="hook"[^>]*>[\s\S]*?<\/p>\s*<span class="it"/);
-  });
-
-  it("passes payload.notes into the writer as voice samples", async () => {
-    /** @type {unknown} */
-    let seen;
-    const drafter = createMaterialsDrafter(
-      baseDeps(dir, {
-        writer: async (input) => {
-          seen = input.voiceSamples;
-          return goodJson;
-        },
-      }),
-    );
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "write like a human operator",
-    });
-    await drafter.runUntilIdle();
-    assert.ok(Array.isArray(seen));
-    assert.ok(seen.includes("write like a human operator"));
+    const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
+    assert.ok(draftCall, "draft call issued");
+    assert.match(draftCall.user, /write like a human operator/);
   });
 
   it("uses a usable JD provided in the request without scraping", async () => {
@@ -362,96 +210,40 @@ describe("createMaterialsDrafter", () => {
         },
       }),
     );
-    const providedJd = ("responsibility ".repeat(100)).trim();
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-      jdText: providedJd,
-    });
+    await drafter.enqueue(request({ jdText: JD_TEXT }));
     await drafter.runUntilIdle();
-    // HTML artifacts should exist even though scrape always fails.
     await readFile(join(dir, "eab-role", "resume.html"), "utf8");
     await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
     assert.ok(scraped <= 1, "scrape should not be required when a usable JD is provided");
   });
 
-  it("treats resume_page_count_high as review when PDF is skipped so HTML still lands", async () => {
-    let editorCalls = 0;
-    const drafter = createMaterialsDrafter(
-      baseDeps(dir, {
-        editor: async () => {
-          editorCalls += 1;
-          return goodJson;
-        },
-        critic: async () => ({
-          status: "fail",
-          issues: [{ code: "resume_page_count_high", message: "3 pages", severity: "fail" }],
-        }),
-      }),
-    );
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
-    await drafter.runUntilIdle();
-    await readFile(join(dir, "eab-role", "resume.html"), "utf8");
-    await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
-    const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
-    assert.match(report, /resume_page_count_high/);
-    assert.match(report, /^Status:\s*REVIEW/im);
-    assert.doesNotMatch(report, /^Status:\s*READY/im);
-    assert.doesNotMatch(report, /^Status:\s*FAIL/im);
-    await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
-    assert.equal(editorCalls, 0);
-  });
+  it("F8: a snapshot repair edits the current draft with the notes as instructions", async () => {
+    const first = createMaterialsDrafter(baseDeps(dir));
+    await first.enqueue(request());
+    await first.runUntilIdle();
+    const before = JSON.parse(await readFile(join(dir, "eab-role", "draft.json"), "utf8"));
+    assert.ok(before.statement, "first run stores its draft JSON beside resume.html");
 
-  it("keeps the pre-merge scorecard when PDF page-count audit throws", async () => {
-    const drafter = createMaterialsDrafter(
-      baseDeps(dir, {
-        pdfRenderer: async ({ resumePdfPath }) => {
-          await mkdir(String(resumePdfPath), { recursive: true });
-          return { skipped: false };
-        },
-      }),
+    const stub = scriptedPipelineFetch();
+    const repair = createMaterialsDrafter(baseDeps(dir, { fetchImpl: stub.fetchImpl }));
+    await repair.enqueue(request({ resumeFrom: "snapshot", notes: "Fix the Córdoba typo" }));
+    await repair.runUntilIdle();
+    const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
+    assert.ok(draftCall, "draft call issued");
+    assert.match(draftCall.user, /REPAIR: edit the current draft/);
+    assert.match(draftCall.user, /Instructions: Fix the Córdoba typo/);
+    assert.match(draftCall.user, /Current draft:/);
+    assert.doesNotMatch(draftCall.user, /Voice \(match it, never quote it\)/);
+    const run = JSON.parse(await readFile(join(dir, "eab-role", "run.json"), "utf8"));
+    assert.ok(
+      (run.repairs || []).some((r) => r.code === "repair" && r.reenteredAt === "draft"),
+      "run.json records the draft re-entry",
     );
-    await drafter.enqueue({
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    });
-    await drafter.runUntilIdle();
-    await readFile(join(dir, "eab-role", "resume.html"), "utf8");
-    await readFile(join(dir, "eab-role", "cover-letter.html"), "utf8");
-    const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
-    assert.match(report, /READY|pass/i);
-    await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
   });
 
   it("reserves the same slug before any await so a concurrent enqueue is a no-op", async () => {
     const drafter = createMaterialsDrafter(baseDeps(dir));
-    const payload = {
-      resume: SAMPLE_RESUME,
-      slug: "eab-role",
-      company: "EAB",
-      title: "Director",
-      feature: "both",
-      jobUrl: "https://example.com/job",
-      notes: "",
-    };
+    const payload = request();
     const [first, second] = await Promise.all([
       drafter.enqueue(payload),
       drafter.enqueue({ ...payload, notes: "loser" }),

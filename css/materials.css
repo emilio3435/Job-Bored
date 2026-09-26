@@ -1123,22 +1123,30 @@ body.jb-v2 .expired-review-item__link {
   margin-bottom: 0;
 }
 
-/* Visual themes: data-visual-theme on #resumeGeneratePreview — preview/print only */
+/* Preview appearance: data-family / data-accent / data-density on
+   #resumeGeneratePreview — preview/print only. The base is the signal family
+   (templates/materials/signal/signal.css tokens); the BYOK preview is plain
+   paragraphs, so each family override captures its faces, ink and accent
+   rather than its full layout. */
 .doc-preview {
   --doc-preview-bg: #ffffff;
-  --doc-preview-fg: #1c1917;
-  --doc-accent: #006482;
-  --doc-section-border: rgba(89, 203, 137, 0.2);
-  --doc-letter-font-family: "Lora", Georgia, "Times New Roman", serif;
+  --doc-preview-fg: var(--jb-materials-signal-ink);
+  --doc-accent: var(--jb-materials-volt);
+  --doc-section-border: var(--jb-materials-volt-line);
+  --doc-letter-font-family: "Archivo", "Source Sans 3", Inter, system-ui, sans-serif;
   --doc-letter-font-size: 1.0625rem;
   --doc-letter-line-height: 1.75;
   --doc-letter-p-margin: 0 0 1.1em;
-  --doc-resume-font-family: "Source Sans 3", Inter, system-ui, sans-serif;
+  --doc-resume-font-family: "Archivo", "Source Sans 3", Inter, system-ui, sans-serif;
   --doc-resume-font-size: 0.9375rem;
   --doc-resume-line-height: 1.55;
   --doc-section-margin-top: 1.35em;
   --doc-section-margin-bottom: 0.45em;
+  --doc-section-font-family: "Archivo", "Source Sans 3", Inter, system-ui, sans-serif;
   --doc-section-font-size: 0.72rem;
+  --doc-section-font-style: normal;
+  --doc-section-font-weight: 700;
+  --doc-section-text-transform: uppercase;
   --doc-section-letter-spacing: 0.12em;
   --doc-section-padding-bottom: 0.25em;
   --doc-resume-line-margin: 0 0 0.35em;
@@ -1158,7 +1166,68 @@ body.jb-v2 .expired-review-item__link {
   text-align: left;
 }
 
-.doc-preview[data-visual-theme="compact"] {
+.doc-preview[data-family="signal"] {
+  /* The base custom properties above already are signal. */
+}
+
+.doc-preview[data-family="dossier"] {
+  --doc-preview-fg: var(--jb-materials-dossier-ink);
+  --doc-section-border: var(--jb-materials-volt-line);
+  --doc-letter-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --doc-resume-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --doc-section-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --doc-section-text-transform: none;
+  --doc-section-font-size: 0.85rem;
+  --doc-section-letter-spacing: 0.02em;
+}
+
+.doc-preview[data-family="editorial"] {
+  --doc-preview-fg: var(--jb-materials-editorial-ink);
+  --doc-section-border: var(--jb-materials-volt-line);
+  --doc-letter-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --doc-resume-font-family: "Source Sans 3", "Helvetica Neue", Arial, sans-serif;
+  --doc-section-font-family: "Bodoni Moda", "Bodoni 72", Didot, Georgia, serif;
+  --doc-section-font-style: italic;
+  --doc-section-font-weight: 600;
+  --doc-section-text-transform: none;
+  --doc-section-font-size: 1.05rem;
+  --doc-section-letter-spacing: 0.01em;
+}
+
+/* Rule 10: the ink accent prints in grayscale with no information lost.
+   One rule per family, mirroring each family's .sheet[data-accent="ink"]. */
+.doc-preview[data-accent="ink"] {
+  --doc-accent: var(--jb-materials-signal-ink);
+  --doc-section-border: var(--jb-materials-signal-line);
+}
+
+.doc-preview[data-family="signal"][data-accent="ink"] {
+  --doc-accent: var(--jb-materials-signal-ink);
+  --doc-section-border: var(--jb-materials-signal-line);
+}
+
+.doc-preview[data-family="dossier"][data-accent="ink"] {
+  --doc-accent: var(--jb-materials-dossier-ink);
+  --doc-section-border: var(--jb-materials-dossier-line);
+}
+
+.doc-preview[data-family="editorial"][data-accent="ink"] {
+  --doc-accent: var(--jb-materials-editorial-ink);
+  --doc-section-border: var(--jb-materials-editorial-line);
+}
+
+/* Density is standard in every family.json today; air and tight stay dormant
+   until a family lists them. */
+.doc-preview[data-density="air"] {
+  --doc-letter-line-height: 1.85;
+  --doc-resume-line-height: 1.65;
+  --doc-letter-p-margin: 0 0 1.3em;
+  --doc-gap-height: 0.85em;
+  --doc-section-margin-top: 1.6em;
+  --doc-resume-line-margin: 0 0 0.45em;
+}
+
+.doc-preview[data-density="tight"] {
   --doc-letter-line-height: 1.55;
   --doc-resume-line-height: 1.45;
   --doc-preview-pad-y: clamp(1.25rem, 3vw, 1.75rem);
@@ -1167,24 +1236,6 @@ body.jb-v2 .expired-review-item__link {
   --doc-gap-height: 0.45em;
   --doc-section-margin-top: 1.1em;
   --doc-resume-line-margin: 0 0 0.28em;
-}
-
-.doc-preview[data-visual-theme="serif_emphasis"] {
-  --doc-letter-font-size: 1.125rem;
-  --doc-letter-line-height: 1.78;
-  --doc-resume-line-height: 1.6;
-}
-
-.doc-preview[data-visual-theme="muted"] {
-  --doc-accent: #57534e;
-  --doc-section-border: rgba(68, 64, 60, 0.22);
-}
-
-.doc-preview[data-visual-theme="high_contrast"] {
-  --doc-preview-fg: #0a0a0a;
-  --doc-accent: #0d47a1;
-  --doc-section-border: rgba(13, 71, 161, 0.35);
-  --doc-preview-border: 1px solid rgba(0, 0, 0, 0.2);
 }
 
 .doc-preview--letter {
@@ -1210,10 +1261,12 @@ body.jb-v2 .expired-review-item__link {
 
 .doc-preview--resume .doc-preview__section {
   margin: var(--doc-section-margin-top) 0 var(--doc-section-margin-bottom);
+  font-family: var(--doc-section-font-family);
   font-size: var(--doc-section-font-size);
-  font-weight: 700;
+  font-style: var(--doc-section-font-style);
+  font-weight: var(--doc-section-font-weight);
   letter-spacing: var(--doc-section-letter-spacing);
-  text-transform: uppercase;
+  text-transform: var(--doc-section-text-transform);
   color: var(--doc-accent);
   border-bottom: 1px solid var(--doc-section-border);
   padding-bottom: var(--doc-section-padding-bottom);

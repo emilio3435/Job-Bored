@@ -4,6 +4,21 @@ import { fileURLToPath } from "node:url";
 
 const INCLUDE_RE = /<!--\s*@include\s+([^\s>]+)\s*-->/g;
 
+/**
+ * List the `<!-- @include rel/path -->` targets in a source, in order.
+ * BEAUDIT G19: the dev-server's HTML cache fingerprints every transitive
+ * partial so an edit to any include invalidates the entry. PURE.
+ */
+export function listIncludeTargets(source) {
+  const targets = [];
+  INCLUDE_RE.lastIndex = 0;
+  let match;
+  while ((match = INCLUDE_RE.exec(String(source || ""))) !== null) {
+    targets.push(match[1]);
+  }
+  return targets;
+}
+
 function defaultResolveIncludePath(relPath, fromDir) {
   return resolve(fromDir, relPath);
 }

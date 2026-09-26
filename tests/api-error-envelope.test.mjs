@@ -105,7 +105,7 @@ describe("BEAUDIT E7 — local API error envelope", () => {
     assert.equal(body.retryable, false);
   });
 
-  it("malformed JSON keeps INVALID_JSON and gains retryable", async () => {
+  it("malformed JSON keeps invalid_json and gains retryable", async () => {
     const res = await fetch(`${handle.baseUrl}/api/scrape-job`, {
       method: "POST",
       headers: { "content-type": "application/json" },
@@ -114,7 +114,7 @@ describe("BEAUDIT E7 — local API error envelope", () => {
     assert.equal(res.status, 400);
     const body = await res.json();
     assertEnvelope(body, "malformed JSON");
-    assert.equal(body.code, "INVALID_JSON");
+    assert.equal(body.code, "invalid_json");
   });
 
   it("an unknown route is a JSON 404, not an HTML page", async () => {
@@ -123,7 +123,7 @@ describe("BEAUDIT E7 — local API error envelope", () => {
     assert.match(res.headers.get("content-type") || "", /application\/json/);
     const body = await res.json();
     assertEnvelope(body, "unknown route");
-    assert.equal(body.code, "NOT_FOUND");
+    assert.equal(body.code, "not_found");
   });
 
   it("an oversized body is a 413 whose text names no single route", async () => {
@@ -135,7 +135,7 @@ describe("BEAUDIT E7 — local API error envelope", () => {
     assert.equal(res.status, 413);
     const body = await res.json();
     assertEnvelope(body, "413");
-    assert.equal(body.code, "PAYLOAD_TOO_LARGE");
+    assert.equal(body.code, "payload_too_large");
     assert.doesNotMatch(body.error, /ATS/);
   });
 

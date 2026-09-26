@@ -1,6 +1,15 @@
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
 import { describe, it } from "node:test";
+import { fileURLToPath } from "node:url";
 import { critiqueMaterials } from "../server/materials-critic.mjs";
+
+const here = dirname(fileURLToPath(import.meta.url));
+const coverTemplate = readFileSync(
+  join(here, "..", "integrations", "hermes-job-hunt", "cover-letter-template", "cover-letter.html"),
+  "utf8",
+);
 
 const jd = `${"digital marketing strategy advancement alumni pipeline ".repeat(20)} unique-keyword-xyz`;
 
@@ -9,15 +18,30 @@ function letterOf(words) {
 }
 
 describe("critiqueMaterials", () => {
-  it("fails a 200-word letter", async () => {
+  it("F20: a clean letter passes the critic with no issues", async () => {
+    const words = (n) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ");
     const out = await critiqueMaterials({
       letterHtml: letterOf(200),
-      resumeHtml: "<section data-section=\"summary\">x</section><section data-section=\"experience\">y</section>",
+      resumeHtml: `<section data-section="summary">${words(35)}</section><section data-section="experience">${words(120)}</section><section data-section="education">${words(20)}</section>`,
       jdText: jd,
       masterResumeHtml: "Audacy",
       writerJson: { letter: { hook: "word" }, resume: { roles: [] } },
     });
-    assert.equal(out.issues.some((i) => i.code === "cover_letter_too_short"), true);
+    assert.deepEqual(out.issues, []);
+    assert.equal(out.status, "pass");
+  });
+
+  it("slice 2: a 200-word letter passes, a 100-word letter is too short", async () => {
+    const base = {
+      resumeHtml: "<section data-section=\"summary\">x</section><section data-section=\"experience\">y</section>",
+      jdText: jd,
+      masterResumeHtml: "Audacy",
+      writerJson: { letter: { hook: "word" }, resume: { roles: [] } },
+    };
+    const passing = await critiqueMaterials({ ...base, letterHtml: letterOf(200) });
+    assert.equal(passing.issues.some((i) => /cover_letter_too/.test(i.code)), false);
+    const short = await critiqueMaterials({ ...base, letterHtml: letterOf(100) });
+    assert.equal(short.issues.some((i) => i.code === "cover_letter_too_short"), true);
   });
 
   it("flags banned filler", async () => {
@@ -30,6 +54,77 @@ describe("critiqueMaterials", () => {
       writerJson: { letter: { hook: "I am passionate about leverage." }, resume: { roles: [] } },
     });
     assert.equal(out.issues.some((i) => i.code === "banned_filler"), true);
+  });
+
+  it("F2: template guidance comments never trip banned_filler", async () => {
+    assert.match(coverTemplate, /proven track record/);
+    const out = await critiqueMaterials({
+      letterHtml: coverTemplate,
+      resumeHtml: "<section data-section=\"summary\">Audacy</section><section data-section=\"experience\">Audacy</section>",
+      jdText: jd,
+      masterResumeHtml: "Audacy",
+      writerJson: { letter: { hook: "Clean prose with concrete nouns." }, resume: { roles: [] } },
+    });
+    assert.equal(out.issues.some((i) => i.code === "banned_filler"), false);
+  });
+
+  it("F2: filler in the writer letter still trips banned_filler", async () => {
+    const out = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Audacy</section><section data-section=\"experience\">Audacy</section>",
+      jdText: jd,
+      masterResumeHtml: "Audacy",
+      writerJson: { letter: { hook: "I have a proven track record of wins." }, resume: { roles: [] } },
+    });
+    assert.equal(out.issues.some((i) => i.code === "banned_filler"), true);
+  });
+
+  it("slice 5: filler detection is pack-driven, not the five-phrase regex", async () => {
+    const out = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Northwind</section><section data-section=\"experience\">Northwind</section>",
+      jdText: jd,
+      masterResumeHtml: "",
+      keptEmployers: ["Northwind"],
+      writerJson: { letter: { hook: "I am excited to apply for this distinctive opportunity." }, resume: { roles: [] } },
+    });
+    assert.equal(out.issues.some((i) => i.code === "banned_filler"), true);
+  });
+
+  it("slice 5: frozen facts narrow to kept claims, without an owner hardcode", async () => {
+    const missing = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Work</section><section data-section=\"experience\">Work</section>",
+      jdText: jd,
+      masterResumeHtml: "",
+      keptEmployers: ["Northwind"],
+      writerJson: { letter: { hook: "Clean." }, resume: { roles: [] } },
+    });
+    assert.equal(missing.issues.some((i) => i.code === "frozen_fact_broken"), true);
+    const bareMaster = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Work</section><section data-section=\"experience\">Work</section>",
+      jdText: jd,
+      masterResumeHtml: "Audacy",
+      writerJson: { letter: { hook: "Clean." }, resume: { roles: [] } },
+    });
+    assert.equal(bareMaster.issues.some((i) => i.code === "frozen_fact_broken"), false);
+  });
+
+  it("slice 5: numerals outside the ledger metrics are invented facts", async () => {
+    const out = await critiqueMaterials({
+      letterHtml: letterOf(360),
+      resumeHtml: "<section data-section=\"summary\">Northwind</section><section data-section=\"experience\">Northwind</section>",
+      jdText: jd,
+      masterResumeHtml: "",
+      keptEmployers: ["Northwind"],
+      ledgerMetrics: ["$10M+"],
+      writerJson: {
+        letter: { hook: "Clean." },
+        resume: { roles: [{ bullets: ["Grew the book 99% in a quarter."] }] },
+      },
+    });
+    assert.equal(out.issues.some((i) => i.code === "invented_fact"), true);
   });
 
   it("fails HTML smuggled in a slot", async () => {

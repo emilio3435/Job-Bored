@@ -462,7 +462,7 @@ export function loadScribe({
   withOutput = true,
   withFeedback = true,
   buttons = ALL_LEGACY_BUTTONS,
-  withThemeSelect = false,
+  withTemplateSelect = false,
   withDraftTabs = false,
   modules = ["scribe.js"],
   jobBoredApp = null,
@@ -503,21 +503,22 @@ export function loadScribe({
     body.appendChild(btn);
     els[id] = btn;
   }
-  if (withThemeSelect) {
+  if (withTemplateSelect) {
     const legacySel = new FakeElement("select");
-    legacySel.id = "resumeGenerateVisualTheme";
+    legacySel.id = "resumeGenerateTemplate";
     legacySel.options = [
-      ["classic", "Classic"],
-      ["mono", "Mono"],
+      ["signal", "Signal"],
+      ["dossier", "Dossier"],
+      ["editorial", "Editorial"],
     ].map(([value, label]) => {
       const o = new FakeElement("option");
       o.value = value;
       o.textContent = label;
       return o;
     });
-    legacySel.value = "mono";
+    legacySel.value = "dossier";
     body.appendChild(legacySel);
-    els.theme = legacySel;
+    els.template = legacySel;
   }
   if (withDraftTabs) {
     for (const feature of ["cover_letter", "resume_update"]) {

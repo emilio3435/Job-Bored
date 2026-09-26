@@ -618,12 +618,20 @@ function extractPostedAt(raw: SerpApiJobsResult): string | undefined {
 }
 
 function inferProviderType(
-  via: string | undefined,
+  _via: string | undefined,
   applyUrl: string,
 ): AtsSourceId | undefined {
-  const haystack = `${via || ""} ${applyUrl || ""}`;
+  // Hostname only: the anchored ATS signatures match real board domains, and
+  // the free-text `via` field ("via Clever", "via Greenhouse") is not ground
+  // truth for where the apply URL actually points.
+  let host = "";
+  try {
+    host = new URL(applyUrl).hostname.toLowerCase();
+  } catch {
+    return undefined;
+  }
   for (const signature of ATS_HOST_SIGNATURES) {
-    if (signature.match.test(haystack)) {
+    if (signature.match.test(host)) {
       if ((ATS_SOURCE_IDS as readonly string[]).includes(signature.provider)) {
         return signature.provider;
       }

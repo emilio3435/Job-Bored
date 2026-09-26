@@ -540,6 +540,19 @@ describe("discovery drawer scrape failure copy", () => {
     assert.match(message, /Next: Open one specific job/);
   });
 
+  it("upgrades the server's generic upstream_error response (W2SQ-E convention)", () => {
+    const drawer = loadDrawer();
+    const message = drawer.formatScrapeFailure(
+      { error: "HTTP 403", code: "upstream_error" },
+      502,
+      "https://wellfound.com/jobs/123-product-designer",
+    );
+
+    assert.match(message, /^The job site blocked automated access\./);
+    assert.match(message, /Why: wellfound\.com returned HTTP 403/);
+    assert.match(message, /Next: Open one specific job/);
+  });
+
   it("gives a safe default for an empty failure response", () => {
     const drawer = loadDrawer();
     const message = drawer.formatScrapeFailure(

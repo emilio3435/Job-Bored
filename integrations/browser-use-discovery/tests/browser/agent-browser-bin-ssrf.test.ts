@@ -179,7 +179,7 @@ for (const url of [
           lookupImpl: async () => [{ address: "8.8.8.8", family: 4 }],
         }),
       (error: { code?: string; message?: string }) =>
-        error.code === "SSRF_BLOCKED" && /private-network/.test(String(error.message)),
+        error.code === "ssrf_blocked" && /private-network/.test(String(error.message)),
     );
   });
 }

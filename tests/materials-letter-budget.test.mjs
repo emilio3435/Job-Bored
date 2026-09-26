@@ -18,6 +18,7 @@ import { renderDocument } from "../server/materials-render.mjs";
 import { letterWordBand, resolveFamily, validateFamily } from "../server/materials-templates.mjs";
 import { callWriter } from "../server/materials-writer.mjs";
 import { EXAMPLE_RESUME_SOURCE, EXAMPLE_RESUME_TEXT, EXAMPLE_WRITER_JSON } from "./fixtures/materials-example-writer.mjs";
+import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
 
 const FAMILIES = ["signal", "dossier", "editorial"];
 
@@ -82,10 +83,16 @@ describe("cover letter length QA for template letters", () => {
     assert.ok(long.issues.some((i) => i.code === "cover_letter_too_long"));
   });
 
-  it("should keep the legacy whole-page 325–475 rule for a letter with no band", async () => {
-    const legacy = `<html><body><article class="page"><p>${words(250)}</p></article></body></html>`;
-    const result = await audit(legacy);
-    assert.ok(result.issues.some((i) => i.code === "cover_letter_too_short"));
+  it("should judge a letter with no band whole-page against the budget band", async () => {
+    const inBand = `<html><body><article class="page"><p>${words(250)}</p></article></body></html>`;
+    assert.deepEqual(
+      (await audit(inBand)).issues.filter((i) => /cover_letter_too/.test(i.code)),
+      [],
+    );
+    const short = `<html><body><article class="page"><p>${words(120)}</p></article></body></html>`;
+    const tooShort = (await audit(short)).issues.find((i) => i.code === "cover_letter_too_short");
+    assert.ok(tooShort);
+    assert.match(tooShort.message, /120 words \(target 180–260\)/);
   });
 });
 
@@ -106,25 +113,23 @@ describe("the writer is asked for the family's band", () => {
     assert.match(sent, /total 180–260 words/);
   });
 
-  it("should pass the band from the drafter to the writer for a registry draft", async () => {
+  it("should carry the family's letter band into the draft call for a registry draft", async () => {
     const dir = await mkdtemp(join(tmpdir(), "jb-letter-writer-"));
     try {
-      let seen = null;
+      const stub = scriptedPipelineFetch();
       const drafter = createMaterialsDrafter({
         applicationsRoot: dir,
         loadPin: () => ({ provider: "gemini", model: "m", apiKey: "k", baseUrl: "" }),
         resolvePin: async (pin) => ({ ...pin, resolvedModel: "m" }),
-        writer: async (input) => {
-          seen = input.letterWords;
-          return EXAMPLE_WRITER_JSON;
-        },
-        critic: async () => ({ status: "pass", issues: [] }),
-        pdfRenderer: async () => ({ skipped: true }),
+        fetchImpl: stub.fetchImpl,
+        openSession: null,
         logoLoader: async () => [],
       });
       await drafter.enqueue({ slug: "acme-band", company: "Acme", title: "Ops", feature: "both", jobUrl: "", notes: "", jobDescription: "operations analytics carrier scorecard forecasting ".repeat(30), resume: EXAMPLE_RESUME_SOURCE, template: "dossier" });
       await drafter.runUntilIdle();
-      assert.deepEqual(seen, [180, 260]);
+      const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
+      assert.ok(draftCall, "draft call issued");
+      assert.match(draftCall.system, /180-260 words/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

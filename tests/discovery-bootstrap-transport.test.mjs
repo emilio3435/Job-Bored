@@ -6,6 +6,7 @@ import {
   TRANSPORT_CLOUDFLARE_NAMED,
   TRANSPORT_CLOUDFLARE_QUICK,
   TRANSPORT_NGROK,
+  TRANSPORT_TAILSCALE,
 } from "../scripts/lib/discovery-transport.mjs";
 
 test("buildTransportState marks only the named tunnel stable and persists its name", () => {
@@ -44,6 +45,18 @@ test("buildTransportState keeps ngrok rotating and tolerates a missing URL", () 
     kind: TRANSPORT_NGROK,
     publicUrl: "",
     stable: false,
+  });
+});
+
+test("G9: buildTransportState records tailscale as stable", () => {
+  const tailscale = buildTransportState({
+    kind: TRANSPORT_TAILSCALE,
+    publicUrl: "https://mac.tail1234.ts.net",
+  });
+  assert.deepEqual(tailscale, {
+    kind: TRANSPORT_TAILSCALE,
+    publicUrl: "https://mac.tail1234.ts.net",
+    stable: true,
   });
 });
 

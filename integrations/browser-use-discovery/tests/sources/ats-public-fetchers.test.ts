@@ -5,10 +5,8 @@ import { ATS_SOURCE_IDS } from "../../src/contracts.ts";
 import { createAtsProviderRegistry } from "../../src/browser/providers/index.ts";
 import {
   fetchAshbyJob,
-  fetchAtsJobByRegistry,
   fetchGreenhouseJob,
   fetchLeverJob,
-  resolveAtsPublicExecution,
   selectRegisteredAtsSources,
 } from "../../src/sources/ats-public-fetchers.ts";
 
@@ -180,37 +178,6 @@ test("F4A-RUN07-REG: production gating uses the 14-provider registry, not Greenh
   assert.equal(allRequested.selected.length, 14);
 });
 
-test("F4A-RUN07-REG: public fetchers execute GH/Lever/Ashby and mark other registry providers unsupported", async () => {
-  const greenhouse = resolveAtsPublicExecution("greenhouse");
-  assert.equal(greenhouse.status, "executable");
-  assert.equal(greenhouse.sourceId, "greenhouse");
-
-  const workday = resolveAtsPublicExecution("workday");
-  assert.equal(workday.status, "unsupported");
-  if (workday.status !== "unsupported") return;
-  assert.equal(workday.sourceId, "workday");
-  assert.match(workday.reason, /unsupported|no public/i);
-
-  const unknown = resolveAtsPublicExecution("not_a_board");
-  assert.equal(unknown.status, "unknown");
-  if (unknown.status !== "unknown") return;
-  assert.match(unknown.reason, /not a registered/i);
-
-  for (const sourceId of ATS_SOURCE_IDS) {
-    const resolved = resolveAtsPublicExecution(sourceId);
-    assert.notEqual(
-      resolved.status,
-      "unknown",
-      `${sourceId} is in the 14-provider registry and must not be unknown`,
-    );
-  }
-
-  const fetched = await fetchAtsJobByRegistry(
-    { provider: "workday", slug: "acme", jobId: "JR-1" },
-    { fetchImpl: fetchReturning({}) },
-  );
-  assert.equal(fetched.ok, false);
-  if (fetched.ok) return;
-  assert.equal(fetched.reason, "unsupported");
-  assert.match(fetched.message, /workday/i);
-});
+// C13: resolveAtsPublicExecution and fetchAtsJobByRegistry were deleted with
+// this test — their only caller was this file, and single-job dispatch
+// stays in handle-ingest-url's fetchFromAts.

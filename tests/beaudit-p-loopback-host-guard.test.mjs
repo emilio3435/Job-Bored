@@ -8,7 +8,7 @@
  * page could read and rewrite ~/.jobbored/llm.json and the profile.
  *
  * The guard: on a loopback listener, Host must be 127.0.0.1, localhost or
- * [::1] with the listener's own port; anything else is 403 HOST_NOT_ALLOWED.
+ * [::1] with the listener's own port; anything else is 403 host_not_allowed.
  */
 import assert from "node:assert/strict";
 import { spawn } from "node:child_process";
@@ -115,7 +115,7 @@ describe("BEAUDIT G2 — dev-server refuses a rebound Host", () => {
         headers: { host: evilHost, "sec-fetch-site": "same-origin" },
       });
       assert.equal(read.status, 403);
-      assert.match(read.text, /HOST_NOT_ALLOWED/);
+      assert.match(read.text, /host_not_allowed/);
       const write = await send(port, {
         path: "/profile",
         method: "POST",
@@ -184,7 +184,7 @@ describe("BEAUDIT E1 — API refuses a rebound Host", () => {
         headers: { host: evil, origin: `http://${evil}` },
       });
       assert.equal(read.status, 403);
-      assert.match(read.text, /HOST_NOT_ALLOWED/);
+      assert.match(read.text, /host_not_allowed/);
       assert.doesNotMatch(read.text, /probe-model/);
       const write = await send(port, {
         path: "/api/llm-config",
@@ -271,7 +271,7 @@ describe("BEAUDIT E1 repair — hosted API behind a loopback reverse proxy", () 
         },
       });
       assert.notEqual(authed.status, 403, `hosted request refused: ${authed.text}`);
-      assert.doesNotMatch(authed.text, /HOST_NOT_ALLOWED/);
+      assert.doesNotMatch(authed.text, /host_not_allowed/);
       const anon = await send(port, {
         path: "/api/llm-config",
         headers: { host: "api.example.com", origin: "https://app.example.com" },
@@ -300,7 +300,7 @@ describe("BEAUDIT E1 repair — hosted API behind a loopback reverse proxy", () 
         headers: { host: "rebind.attacker.test", "x-api-token": "probe-hosted-token" },
       });
       assert.equal(other.status, 403);
-      assert.match(other.text, /HOST_NOT_ALLOWED/);
+      assert.match(other.text, /host_not_allowed/);
     } finally {
       stop();
     }

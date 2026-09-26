@@ -1,4 +1,5 @@
 import { URL } from "node:url";
+import { normalizeCompanyKey } from "../discovery/company-keys.ts";
 
 import type { BrowserUseSessionManager } from "../browser/session.ts";
 import type { WorkerRuntimeConfig } from "../config.ts";
@@ -3933,12 +3934,6 @@ function mentionsCompany(url: string, title: string, companyName: string): boole
     .split(/[^a-z0-9]+/)
     .filter((entry) => entry.length >= 3)
     .some((token) => haystack.includes(token));
-}
-
-function normalizeCompanyKey(input: string): string {
-  return String(input || "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "");
 }
 
 function isLikelyJobLink(url: string): boolean {

@@ -289,21 +289,103 @@ export function installDiscoveryWorkerAutostart(options = {}) {
   return { ok: false, reason: "unsupported_platform" };
 }
 
+function resolveStatusUid(options = {}) {
+  if (options.uid !== undefined && options.uid !== null) {
+    return String(options.uid);
+  }
+  if (typeof process.getuid === "function") {
+    try {
+      return String(process.getuid());
+    } catch (_) {
+      return "";
+    }
+  }
+  return "";
+}
+
+/**
+ * BEAUDIT G8: worker-autostart status is the BACKEND truth, not "plist file
+ * exists" — mirroring getKeepAliveStatus. A junk file never loaded by
+ * launchd reports installed:false. options.spawnSyncImpl and options.uid
+ * keep this testable without touching the real launchd/systemd.
+ */
 export function getDiscoveryWorkerAutostartStatus(options = {}) {
   const platform = options.platform || osPlatform();
   const paths = getWorkerAutostartPaths(options);
-  const installed =
+  const spawnSyncImpl = options.spawnSyncImpl || spawnSync;
+  const artifactPresent =
     platform === "darwin"
       ? existsSync(paths.launchAgentPath)
       : platform === "linux"
         ? existsSync(paths.systemdServicePath)
         : false;
-  const status = { installed };
+  let active = false;
+  let backendIdentityMatches = false;
+  if (artifactPresent && platform === "darwin") {
+    const uid = resolveStatusUid(options);
+    const printed = uid
+      ? spawnSyncImpl("launchctl", ["print", `gui/${uid}/${WORKER_AUTOSTART_LABEL}`], {
+          encoding: "utf8",
+        })
+      : null;
+    active = !!(printed && printed.status === 0);
+    backendIdentityMatches =
+      active && String(printed.stdout || "").includes(WORKER_AUTOSTART_LABEL);
+  } else if (artifactPresent && platform === "linux") {
+    const listed = spawnSyncImpl(
+      "systemctl",
+      ["--user", "is-active", `${WORKER_AUTOSTART_LABEL}.service`],
+      { encoding: "utf8" },
+    );
+    const text = String((listed && listed.stdout) || "").trim();
+    active = !!(listed && listed.status === 0 && text === "active");
+    backendIdentityMatches = active;
+  }
+  const installed = artifactPresent && active && backendIdentityMatches;
+  const status = { installed, artifactPresent, active };
   if (installed) {
     status.jobLabel = WORKER_AUTOSTART_LABEL;
     status.port = resolveConfiguredWorkerPort(paths.bootstrapStatePath);
   }
   return status;
+}
+
+function isWorkerHealthPayload(payload) {
+  return (
+    !!payload &&
+    typeof payload === "object" &&
+    String(payload.status || "").toLowerCase() === "ok" &&
+    String(payload.service || "").toLowerCase() === "browser-use-discovery-worker"
+  );
+}
+
+/**
+ * BEAUDIT G8: the sync status plus the last successful /health from the
+ * job's worker. Probes the configured port once: workerUp tells whether the
+ * job's worker answers now, lastHealthyAt stamps that success (null when
+ * the worker is down — there is no older success on record).
+ */
+export async function getDiscoveryWorkerAutostartStatusAsync(options = {}) {
+  const status = getDiscoveryWorkerAutostartStatus(options);
+  const fetchImpl = options.fetchImpl || globalThis.fetch;
+  const port = status.port || resolveConfiguredWorkerPort(
+    getWorkerAutostartPaths(options).bootstrapStatePath,
+  );
+  let workerUp = false;
+  if (typeof fetchImpl === "function") {
+    try {
+      const res = await fetchImpl(`http://127.0.0.1:${port}/health`);
+      const payload = await res.json().catch(() => null);
+      workerUp = !!(res && res.ok && isWorkerHealthPayload(payload));
+    } catch (_) {
+      workerUp = false;
+    }
+  }
+  return {
+    ...status,
+    workerUp,
+    lastHealthyAt: workerUp ? options.nowIso || new Date().toISOString() : null,
+  };
 }
 
 function main() {

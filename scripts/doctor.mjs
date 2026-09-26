@@ -7,6 +7,7 @@ import { join, resolve } from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
 import { displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
+import { resolveLayeredEnvSources } from "./lib/env-file-merge.mjs";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REQUIRED_NODE_MAJOR = 24;
@@ -336,6 +337,47 @@ function collectPathChecks(repoRoot, env) {
   };
 }
 
+/**
+ * BEAUDIT G11: the worker env layer stack in precedence order, with the
+ * winning file per resolved key — the same map the starter logs and
+ * discovery-state serves. Key names and paths only, never values.
+ */
+async function collectWorkerEnvSourceChecks(repoRoot, env, paths) {
+  const layerPaths = [
+    join(repoRoot, "integrations", "browser-use-discovery", ".env"),
+    join(repoRoot, "server", ".env"),
+    paths.workerEnv,
+  ].filter((path, index, all) => path && all.indexOf(path) === index);
+  const layers = [];
+  for (const path of layerPaths) {
+    const text = existsSync(path)
+      ? await readFile(path, "utf8").catch(() => "")
+      : "";
+    layers.push({ path, present: existsSync(path), values: parseEnvText(text) });
+  }
+  const { sources } = resolveLayeredEnvSources(
+    layers.map((layer) => layer.values),
+    { paths: layers.map((layer) => layer.path), processEnv: env },
+  );
+  const keyCount = Object.keys(sources).length;
+  const chain = [...layerPaths.map((path) => displayPath(path)), "process env"].join(" < ");
+  return [
+    check(
+      "info",
+      "worker env sources",
+      `Worker env precedence: ${chain} (${keyCount} key${keyCount === 1 ? "" : "s"} resolved from files).`,
+      {
+        layers: layers.map((layer) => ({
+          path: layer.path,
+          present: layer.present,
+          keys: Object.keys(layer.values).length,
+        })),
+        sources,
+      },
+    ),
+  ];
+}
+
 async function collectDiscoveryPackagingChecks(repoRoot, paths, spawnSyncImpl) {
   const checks = [];
   checks.push(
@@ -629,6 +671,7 @@ async function runDoctor(options = {}) {
   );
 
   checks.push(...pathReport.checks);
+  checks.push(...(await collectWorkerEnvSourceChecks(repoRoot, env, paths)));
   checks.push(...(await collectTrackedConfigChecks(repoRoot, spawnSyncImpl)));
 
   const config = await loadConfig(repoRoot);
