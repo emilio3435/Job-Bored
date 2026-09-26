@@ -450,6 +450,12 @@ export function inlineFontCss(fontNames) {
  */
 const BASE_CSS = `
 @page { size: letter; margin: 0; }
+/* ATS text layer: on Linux, Chrome's default text rendering hints glyphs to
+   whole pixels, so each glyph lands off its font advance and Skia writes a
+   positioning jump into the PDF text run; pdf.js then reads the jumps as word
+   breaks ("Manag er", "Int ellig ence"). geometricPrecision lays glyphs out at
+   their unhinted font advances on every platform, so words extract whole. */
+article.page, article.page * { text-rendering: geometricPrecision; }
 article.page:not([data-fit-verified]) { height: auto !important; min-height: 11in; overflow: visible !important; }
 article.page[data-fit-verified] { height: 11in; overflow: hidden; }
 /* A wordmark already spells the employer's name, so the h2.company-name

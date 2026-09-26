@@ -8,7 +8,9 @@
  *           not data:/about: is aborted and counted)
  *   rule 6  PDF text extraction starts with the name
  *   rule 7  editorial's two-line name extracts with its space
- *   ATS     every employer, title, bullet and letter paragraph extracts
+ *   ATS     every content word extracts whole on Linux and macOS (Linux
+ *           Chrome's hinted glyph positions once split "Manag er"), and
+ *           every employer, title, bullet and letter paragraph extracts
  *           contiguous and in reading order, and no logo or hidden copy
  *           interleaves its letters with the page's text
  *   rule 10 the ink accent renders
@@ -115,6 +117,39 @@ function assertReadingOrder(text, model, doc, where) {
   }
 }
 
+/**
+ * Every word (four letters or more) of the document's content: title,
+ * statement, employers, titles, bullets, lines, letter paragraphs.
+ * @param {import("../../server/materials-render.mjs").RenderModel} model
+ * @param {"resume" | "coverLetter"} doc
+ */
+function contentWords(model, doc) {
+  /** @type {string[]} */
+  const parts = [model.identity.target];
+  if (doc === "coverLetter") {
+    for (const p of model.documents.coverLetter.paragraphs) parts.push(p.text);
+  } else {
+    parts.push(runsText(model.documents.resume.statement.runs));
+    for (const section of model.documents.resume.sections) {
+      for (const entry of section.entries || []) {
+        parts.push(entry.org, runsText(entry.seat), entry.line || "");
+        for (const bullet of entry.bullets || []) parts.push(runsText(bullet.runs));
+      }
+    }
+  }
+  return [...new Set(parts.join(" ").normalize("NFKC").match(/\p{L}{4,}/gu) || [])];
+}
+
+/**
+ * Words that do not extract whole: a word split by a stray space, or glued.
+ * @param {string} text
+ * @param {string[]} words
+ */
+function splitWords(text, words) {
+  const flat = text.normalize("NFKC");
+  return words.filter((word) => !new RegExp(`(?<!\\p{L})${word}(?!\\p{L})`, "u").test(flat));
+}
+
 /** @param {string} family */
 function exampleModel(family) {
   return buildRenderModelFromWriter({
@@ -162,6 +197,7 @@ for (const family of FAMILIES) {
         const text = raw.replace(/\s+/g, " ").trim();
         expect(text.startsWith(model.identity.name), `${path} opens on "${text.slice(0, 50)}"`).toBe(true);
         expect(interleavedLines(raw), `${family} ${doc}: no interleaved glyphs`).toEqual([]);
+        expect(splitWords(raw, contentWords(rendered.fit[doc].model, doc)), `${family} ${label} ${doc}: words that do not extract whole`).toEqual([]);
         /* Fit may trim a bullet; check the model as rendered. */
         assertReadingOrder(raw, rendered.fit[doc].model, doc, `${family} ${label} ${doc}`);
         await testInfo.attach(`${family}-${doc}.txt`, { body: raw, contentType: "text/plain" });
@@ -176,6 +212,15 @@ for (const family of FAMILIES) {
     const volt = await page.evaluate(() => getComputedStyle(document.querySelector("article.page")).getPropertyValue("--volt").trim());
     expect(volt.toLowerCase()).not.toBe("#4a24ff");
     expect(volt).toMatch(/^#1[0-9a-f]{5}$/i);
+  });
+}
+
+for (const family of FAMILIES) {
+  test(`${family}: known words extract whole (Manager, Intelligence, forecaster, Analytics)`, async ({ page }, testInfo) => {
+    const out = testInfo.outputPath(`${family}-words.pdf`);
+    await session.pdf(renderDocument(fullRenderModel(family), "resume", { fitVerified: true }), out);
+    const raw = await pdfText(page, readFileSync(out));
+    expect(splitWords(raw, ["Manager", "Intelligence", "forecaster", "Analytics", "Marketing", "Suite"])).toEqual([]);
   });
 }
 
