@@ -348,7 +348,7 @@ describe("integration: the skipped-connect end state (spec §5 B5/B6)", () => {
     assert.equal(env.openBeat(), "payoff");
     assert.match(
       env.text(),
-      /Connection is off/,
+      /Discovery isn't connected yet/,
       "B6 must render the skipped variant, not the armed one",
     );
 
