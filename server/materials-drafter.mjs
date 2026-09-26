@@ -3,7 +3,7 @@
  * One draft at a time. Does not talk to Hermes or Telegram.
  */
 
-import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import * as cheerio from "cheerio";
@@ -40,6 +40,82 @@ const PAGE_COUNT_CODES = new Set([
 
 
 const MAX_EDITOR_LOOPS = 2;
+/* F14: a non-terminal pending with no heartbeat for this long belongs to
+ * a dead process (the live drafter heartbeats every minute). */
+const ORPHANED_PENDING_MS = 5 * 60 * 1000;
+const NON_TERMINAL_PHASES = new Set(["queued", "drafting"]);
+
+/**
+ * F14: at boot, the in-process FIFO is empty but pre-restart pending.json
+ * files still say queued/drafting. Mark the orphaned ones failed with a
+ * retry prompt instead of leaving eternal spinners. Fresh pending (under
+ * ORPHANED_PENDING_MS) is left alone — it may belong to another live
+ * server sharing the root.
+ * @param {{ applicationsRoot?: string, nowMs?: number, orphanMs?: number }} [options]
+ * @returns {Promise<{ scanned: number, reconciled: number }>}
+ */
+export async function reconcileOrphanedPending(options = {}) {
+  const root =
+    typeof options.applicationsRoot === "string" && options.applicationsRoot
+      ? options.applicationsRoot
+      : getApplicationsRoot();
+  const nowMs = typeof options.nowMs === "number" ? options.nowMs : Date.now();
+  const orphanMs = typeof options.orphanMs === "number" ? options.orphanMs : ORPHANED_PENDING_MS;
+  let names;
+  try {
+    names = await readdir(root);
+  } catch {
+    return { scanned: 0, reconciled: 0 };
+  }
+  let scanned = 0;
+  let reconciled = 0;
+  const finishedAt = new Date(nowMs).toISOString();
+  for (const name of names) {
+    const pendingPath = join(root, name, "pending.json");
+    let raw;
+    try {
+      raw = await readFile(pendingPath, "utf8");
+    } catch {
+      continue;
+    }
+    let record;
+    try {
+      record = JSON.parse(raw);
+    } catch {
+      continue;
+    }
+    scanned += 1;
+    const progress = record && record.progress && typeof record.progress === "object"
+      ? record.progress
+      : null;
+    if (!progress || !NON_TERMINAL_PHASES.has(String(progress.phase || ""))) continue;
+    const heartbeat = Date.parse(String(progress.updated_at || progress.updatedAt || ""));
+    if (Number.isFinite(heartbeat) && nowMs - heartbeat <= orphanMs) continue;
+    const started = typeof progress.started_at === "string" ? progress.started_at : "";
+    await writeFile(
+      pendingPath,
+      `${JSON.stringify(
+        {
+          ...record,
+          progress: {
+            phase: "failed",
+            message: "Drafting stopped when the server restarted. Try again.",
+            code: "materials_interrupted",
+            started_at: started,
+            updated_at: finishedAt,
+            attempt: typeof progress.attempt === "number" ? progress.attempt : 1,
+            elapsed_seconds: elapsedSeconds(started || finishedAt, finishedAt),
+          },
+        },
+        null,
+        2,
+      )}\n`,
+      "utf8",
+    );
+    reconciled += 1;
+  }
+  return { scanned, reconciled };
+}
 const NESTED_LETTER_SLOTS = {
   company: ["company-mention", "company-mention-2", "company-mention-3"],
   role: ["role-keyword"],
@@ -464,6 +540,8 @@ async function defaultPdfRenderer(input = {}) {
  *   instead of the template registry (one-release fallback; also
  *   JOBBORED_MATERIALS_LEGACY_RENDER=1)
  * @property {() => Date | string | number} [now]
+ * @property {number} [heartbeatMs] F14: queued-job heartbeat interval
+ *   (default 60s; tests use a shorter one)
  */
 
 /**
@@ -560,6 +638,56 @@ export function createMaterialsDrafter(deps = {}) {
   /** @type {Array<() => void>} */
   const idleWaiters = [];
   let running = false;
+  /** @type {{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord } | null} */
+  let activeJob = null;
+  /** @type {ReturnType<typeof setInterval> | null} */
+  let heartbeatTimer = null;
+  const heartbeatMs =
+    typeof deps.heartbeatMs === "number" && Number.isFinite(deps.heartbeatMs) && deps.heartbeatMs > 0
+      ? deps.heartbeatMs
+      : 60_000;
+
+  /* F14: touch every queued (and the active) job's pending heartbeat so a
+   * long queue never trips the 30-minute stale rule, and so a restart can
+   * tell live pending from orphaned pending. Best-effort; never throws. */
+  async function heartbeatOnce() {
+    const t = isoNow();
+    const jobs = activeJob ? [...queue, activeJob] : [...queue];
+    await Promise.all(jobs.map(async (job) => {
+      try {
+        const progress = job.record && job.record.progress ? job.record.progress : null;
+        if (!progress || !NON_TERMINAL_PHASES.has(String(progress.phase || ""))) return;
+        const started = typeof progress.started_at === "string" ? progress.started_at : "";
+        job.record = {
+          ...job.record,
+          progress: {
+            ...progress,
+            updated_at: t,
+            elapsed_seconds: elapsedSeconds(started || t, t),
+          },
+        };
+        await writePending(job.pendingPath, job.record);
+      } catch {
+        // ignore — the next heartbeat or phase write covers it
+      }
+    }));
+    if (queue.length === 0 && !activeJob) stopHeartbeat();
+  }
+
+  function startHeartbeat() {
+    if (heartbeatTimer) return;
+    heartbeatTimer = setInterval(() => {
+      void heartbeatOnce();
+    }, heartbeatMs);
+    if (typeof heartbeatTimer.unref === "function") heartbeatTimer.unref();
+  }
+
+  function stopHeartbeat() {
+    if (heartbeatTimer) {
+      clearInterval(heartbeatTimer);
+      heartbeatTimer = null;
+    }
+  }
 
   function isoNow() {
     const value = now();
@@ -656,18 +784,23 @@ export function createMaterialsDrafter(deps = {}) {
       while (queue.length > 0) {
         const job = queue.shift();
         if (!job) continue;
+        activeJob = job;
         try {
           await runJob(job);
         } catch (err) {
           await failJob(job, err);
         } finally {
+          activeJob = null;
           inFlight.delete(job.payload.slug);
         }
       }
     } finally {
       running = false;
       if (queue.length > 0) kick();
-      else flushIdleWaiters();
+      else {
+        stopHeartbeat();
+        flushIdleWaiters();
+      }
     }
   }
 
@@ -1165,6 +1298,7 @@ export function createMaterialsDrafter(deps = {}) {
         pendingPath,
         record,
       });
+      startHeartbeat();
       kick();
       return {
         ok: true,

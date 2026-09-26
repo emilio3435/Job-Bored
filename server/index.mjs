@@ -47,6 +47,7 @@ import {
   runResolver,
   saveUpload,
 } from "./brand-logos.mjs";
+import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import { regeneratePackage } from "./materials-regenerate.mjs";
 import { listFamilies } from "./materials-templates.mjs";
@@ -1080,4 +1081,11 @@ app.listen(PORT, HOST, () => {
     console.warn(`[ats-scorecard] not configured: ${ats.reason}`);
   }
   void migrateHermesApplicationsIfNeeded();
+  /* F14: pre-restart queued/drafting pending belongs to a dead FIFO. */
+  void reconcileOrphanedPending().then(
+    (out) => {
+      if (out.reconciled) console.log(`[materials] reconciled ${out.reconciled} orphaned pending`);
+    },
+    (err) => console.warn("[materials] orphan reconcile failed:", err),
+  );
 });
