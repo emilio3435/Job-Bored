@@ -1,0 +1,304 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Emilio Nunez-Garcia, Cover letter, 3E AI &amp; Marketing Analytics Manager</title>
+<!--
+  Take A: operator dossier, letter.
+  Shares the resume's masthead, rail and ledger gutter.
+  Rail restates metadata and letter figures only; it carries no unique claim.
+  Gutter figures are CSS-generated from data-k, so the letter's text layer
+  never duplicates a number.
+-->
+<link rel="stylesheet" href="../../../../../vendor/fonts/fonts.css" />
+<style>
+  :root {
+    --paper: #ffffff;
+    --ink: #17152a;
+    --ink-2: #3a384f;
+    --ink-3: #6a6882;
+    --hair: #dedcec;
+    --volt: #4a24ff;
+    --text: "Source Sans 3", "Source Sans Pro", "Helvetica Neue", Arial, sans-serif;
+    --mono: "JetBrains Mono", ui-monospace, Menlo, monospace;
+    --hand: "Caveat", "Bradley Hand", cursive;
+    --rail: 1.74in;
+    --gap: 0.24in;
+    --gutter: 0.54in;
+  }
+
+  @page { size: letter; margin: 0; }
+
+  * { box-sizing: border-box; }
+
+  html, body { margin: 0; background: #e9e8f0; }
+
+  body {
+    font-family: var(--text);
+    color: var(--ink);
+    -webkit-font-smoothing: antialiased;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+    font-kerning: normal;
+  }
+
+  .sheet {
+    width: 8.5in;
+    height: 11in;
+    margin: 24px auto;
+    padding: 0.4in 0.5in 0.3in;
+    background: var(--paper);
+    display: flex;
+    flex-direction: column;
+  }
+
+  @media print {
+    html, body { background: var(--paper); }
+    .sheet { margin: 0; }
+  }
+
+  a { color: inherit; text-decoration: none; }
+
+  /* ---------- masthead (identical to the resume) ---------- */
+
+  .masthead {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    align-items: baseline;
+    column-gap: 0.3in;
+    padding-bottom: 7pt;
+    border-bottom: 1.25pt solid var(--ink);
+  }
+
+  .name {
+    margin: 0;
+    font-size: 25pt;
+    font-weight: 700;
+    line-height: 1;
+    letter-spacing: -0.018em;
+  }
+
+  .target {
+    margin: 0;
+    font-size: 11.5pt;
+    font-weight: 600;
+    color: var(--volt);
+  }
+
+  /* ---------- ledger grid ---------- */
+
+  .ledger {
+    flex: 1;
+    display: grid;
+    grid-template-columns: var(--rail) 1fr;
+    grid-template-rows: auto 1fr;
+    column-gap: var(--gap);
+  }
+
+  .row { display: contents; }
+
+  .rail, .main { padding: 6.5pt 0 7pt; }
+
+  .row-first .rail, .row-first .main { border-bottom: 0.6pt solid var(--hair); }
+
+  .rail {
+    font-size: 8.6pt;
+    line-height: 1.38;
+    color: var(--ink-2);
+  }
+
+  .contact { margin: 0; font-style: normal; }
+  .contact span { display: block; }
+  .mono { font-family: var(--mono); font-size: 8.5pt; letter-spacing: -0.01em; }
+
+  /* rail blocks: each opens on the same indigo tick as a resume row */
+  .blk { position: relative; padding-top: 7pt; margin-top: 9pt; border-top: 0.6pt solid var(--hair); }
+  .blk::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    top: -0.6pt;
+    width: 0.36in;
+    height: 2pt;
+    background: var(--volt);
+  }
+  .blk:first-child { margin-top: 2pt; }
+  .blk-h { margin: 0 0 2pt; font-size: 8.6pt; font-weight: 600; color: var(--volt); }
+  .blk p { margin: 0; }
+
+  .proof { margin: 0; padding: 0; list-style: none; }
+  .proof li + li { margin-top: 9pt; }
+  .proof img { display: block; margin-bottom: 3pt; }
+  .proof .elio { width: 0.5in; height: 0.5in; margin: -3pt 0 0 -3pt; }
+  .proof .audacy { width: 1in; height: auto; margin-top: 2pt; margin-bottom: 4pt; }
+  .proof .prm { width: 0.38in; height: 0.38in; }
+  .proof b { font-weight: 700; color: var(--ink); }
+  .proof .k { font-family: var(--mono); font-size: 8.6pt; font-weight: 600; letter-spacing: -0.03em; color: var(--volt); }
+
+  /* ---------- letter ---------- */
+
+  .subject {
+    margin: 0;
+    padding-left: var(--gutter);
+    font-size: 10.2pt;
+    line-height: 1.42;
+  }
+  .subject b { font-weight: 700; }
+  .subject .date { display: block; font-family: var(--mono); font-size: 8.5pt; color: var(--ink-3); }
+
+  .letter { padding-top: 30pt; }
+
+  .letter p {
+    position: relative;
+    margin: 0 0 13pt;
+    padding-left: var(--gutter);
+    font-size: 11.2pt;
+    line-height: 1.64;
+    color: var(--ink-2);
+    max-width: 5.5in;
+  }
+
+  .letter .salute { font-weight: 600; color: var(--ink); margin-bottom: 12pt; }
+
+  /* flair 1: the opening sentence is the lede */
+  .letter .lede {
+    margin-bottom: 18pt;
+    font-size: 16pt;
+    font-weight: 600;
+    line-height: 1.32;
+    letter-spacing: -0.012em;
+    color: var(--ink);
+  }
+
+  /* flair 2: the resume's ledger gutter, carried into prose */
+  .letter p[data-k]::before {
+    content: attr(data-k);
+    position: absolute;
+    left: 0;
+    top: 0.12em;
+    font-family: var(--mono);
+    font-size: 10pt;
+    font-weight: 600;
+    letter-spacing: -0.035em;
+    color: var(--volt);
+  }
+
+  .n {
+    font-family: var(--mono);
+    font-size: 0.92em;
+    font-weight: 500;
+    letter-spacing: -0.03em;
+    color: var(--ink);
+  }
+
+  /* flair 3: a hand signature in the brand indigo */
+  .sign { margin-top: 26pt; padding-left: var(--gutter); }
+  .sign p { padding-left: 0; max-width: none; }
+  .sign .off { margin: 0; font-size: 11.2pt; color: var(--ink-2); }
+  .sign .hand {
+    display: block;
+    margin: 0 0 -2pt;
+    font-family: var(--hand);
+    font-size: 34pt;
+    font-weight: 600;
+    line-height: 1.05;
+    color: var(--volt);
+    transform: rotate(-3deg);
+    transform-origin: left center;
+  }
+  .sign .who { margin: 0; font-size: 11pt; font-weight: 700; }
+  .sign .how { margin: 2pt 0 0; font-size: 8.6pt; color: var(--ink-3); }
+
+  .foot {
+    display: flex;
+    justify-content: space-between;
+    padding-top: 6pt;
+    border-top: 0.6pt solid var(--hair);
+    font-size: 8.5pt;
+    color: var(--ink-3);
+  }
+</style>
+</head>
+<body>
+<article class="sheet page" data-page="1" data-doc="cover-letter" data-take="A">
+
+  <header class="masthead">
+    <h1 class="name">Emilio Nunez-Garcia</h1>
+    <p class="target">AI &amp; Marketing Analytics Manager</p>
+  </header>
+
+  <div class="ledger">
+
+    <div class="row row-first">
+      <div class="rail">
+        <address class="contact">
+          <span>Denver, CO</span>
+          <span class="mono">501.366.2080</span>
+          <span><a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a></span>
+          <span><a href="https://emiliobuilds.com">emiliobuilds.com</a></span>
+          <span><a href="https://www.linkedin.com/in/emiliobuilds">linkedin.com/in/emiliobuilds</a></span>
+        </address>
+      </div>
+      <div class="main">
+        <p class="subject">
+          <span class="date">September 17, 2026</span>
+          <b>Re: AI &amp; Marketing Analytics Manager, 3E</b>
+        </p>
+      </div>
+    </div>
+
+    <div class="row">
+      <aside class="rail">
+        <div class="blk">
+          <p class="blk-h">To</p>
+          <p>Hiring team, 3E<br />Bethesda, MD<br />Eastern remote</p>
+        </div>
+        <div class="blk">
+          <p class="blk-h">From the letter</p>
+          <ul class="proof">
+            <li>
+              <img class="audacy" src="../../assets/logos/audacy.svg" alt="Audacy logo" />
+              <b>Audacy</b>, 2017 – 2026<br />
+              <span class="k">$10M+</span> digital book<br />
+              <span class="k">top-3</span> from a <span class="k">#19</span> market
+            </li>
+            <li>
+              <img class="elio" src="../../assets/logos/elio.png" alt="Elio Intelligence Suite logo" />
+              <b>Elio Intelligence Suite</b>, 2024 – present<br />
+              <span class="k">21</span> scenarios on <span class="k">$2.4M</span> of pipeline
+            </li>
+            <li>
+              <img class="prm" src="../../assets/logos/prm-apple-touch.png" alt="Primary Residential Mortgage logo" />
+              <b>Primary Residential Mortgage</b>, 2015 – 2016<br />
+              SEM &amp; web programs
+            </li>
+          </ul>
+        </div>
+      </aside>
+
+      <div class="main letter">
+        <p class="salute">Dear hiring team,</p>
+        <p class="lede">You are hiring someone to keep a live Claude operating model honest and to make marketing spend explain itself to a pipeline. For me, those are already the same week.</p>
+        <p data-k="$10M+">At Audacy I carried a <span class="n">$10M+</span> digital book in Denver and the argument that came with it: which channels moved buying stage, which were last-click theater, what we stopped funding. The framework I wrote is the one account executives defended in QBRs after I stopped sitting in them. A <span class="n">#19</span> market ranked <span class="n">top-3</span> nationally because the readouts were honest, not because the media plan was clever.</p>
+        <p data-k="21">The other half I built. Elio routes across Claude, Gemini, GPT, Grok, and Llama on Cloud Run with grounded retrieval and live data connections, and the forecaster inside it ran <span class="n">21</span> scenarios against <span class="n">$2.4M</span> of real pipeline. I hold the keys, the service accounts, and the schedules. That is the shape of <span class="n">25</span> skills and <span class="n">15</span> connections, and it is not prompting.</p>
+        <p>I would start by sitting in on one Demand Gen readout and tracing a single skill from the CRM to the sentence someone acts on. Power BI would be new; Looker Studio, GA4, and SQL are not. Easy to reach either way.</p>
+
+        <div class="sign">
+          <p class="off">Best,</p>
+          <span class="hand" aria-hidden="true">Emilio</span>
+          <p class="who">Emilio Nunez-Garcia</p>
+          <p class="how">501.366.2080 · emilio3435@gmail.com · emiliobuilds.com</p>
+        </div>
+      </div>
+    </div>
+
+  </div>
+
+  <footer class="foot">
+    <span>Emilio Nunez-Garcia · AI &amp; Marketing Analytics Manager</span>
+    <span>Cover letter for 3E</span>
+  </footer>
+</article>
+</body>
+</html>

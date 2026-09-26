@@ -1,0 +1,98 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-claim-ledger.v1.schema.json",
+  "title": "materials.claim-ledger.v1",
+  "description": "Normalized store of verified resume facts. Built once per profile change, never per draft. This is the only place candidate facts live; templates and prompts carry none.",
+  "type": "object",
+  "required": ["contract", "ledgerHash", "employers", "claims"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": { "const": "materials.claim-ledger.v1" },
+    "ledgerHash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+    "builtAt": { "type": "string", "format": "date-time" },
+    "note": { "type": "string" },
+    "sources": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "kind"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "kind": { "enum": ["resume", "linkedin", "profile", "manual", "context-dump"] },
+          "hash": { "type": "string" },
+          "ingestedAt": { "type": "string", "format": "date-time" }
+        }
+      }
+    },
+    "employers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "name"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "name": { "type": "string", "minLength": 1 },
+          "title": { "type": "string" },
+          "location": { "type": "string" },
+          "start": { "type": ["string", "null"] },
+          "end": { "type": ["string", "null"] },
+          "scope": { "type": "string" },
+          "site": { "type": "string" }
+        }
+      }
+    },
+    "claims": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["id", "kind", "text", "verified"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string", "minLength": 1 },
+          "employerId": { "type": ["string", "null"] },
+          "kind": { "enum": ["achievement", "system", "operations", "role", "credential", "education"] },
+          "text": { "type": "string", "minLength": 1 },
+          "metrics": {
+            "description": "Tokens exactly as they may appear in output. The metric tagger only emphasizes numerals that match one of these.",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["token"],
+              "additionalProperties": false,
+              "properties": {
+                "token": { "type": "string", "minLength": 1 },
+                "unit": { "type": "string" }
+              }
+            }
+          },
+          "tools": { "type": "array", "items": { "type": "string" } },
+          "outcomes": { "type": "array", "items": { "type": "string" } },
+          "clears": {
+            "description": "Ids of jd-extract `bars` this claim clears.",
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "sourceRefs": { "type": "array", "items": { "type": "string" } },
+          "verified": { "type": "boolean" }
+        }
+      }
+    },
+    "toolInventory": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["tool", "level"],
+        "additionalProperties": false,
+        "properties": {
+          "tool": { "type": "string", "minLength": 1 },
+          "level": { "enum": ["owned", "adjacent", "none"] },
+          "evidence": { "type": ["string", "null"] },
+          "transferFrom": { "type": "array", "items": { "type": "string" } }
+        }
+      }
+    }
+  }
+}

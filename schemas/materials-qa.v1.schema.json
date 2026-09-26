@@ -1,0 +1,91 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-qa.v1.schema.json",
+  "title": "materials.qa.v1",
+  "description": "Machine-readable QA result for one materials run. READY requires status `pass` and rubric score >= threshold; anything else publishes as REVIEW with the scorecard attached.",
+  "type": "object",
+  "required": ["contract", "status", "disposition", "measurements", "rubric", "checks"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": { "const": "materials.qa.v1" },
+    "runId": { "type": "string" },
+    "status": { "enum": ["pass", "review", "fail"] },
+    "disposition": { "enum": ["READY", "REVIEW"] },
+    "dispositionReason": { "type": "string" },
+    "measurements": {
+      "type": "object",
+      "additionalProperties": true,
+      "properties": {
+        "resumePages": { "type": "integer", "minimum": 0 },
+        "resumePageBudget": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "resumeVisibleWords": { "type": "integer", "minimum": 0 },
+        "resumeFeaturedBullets": { "type": "array", "items": { "type": "integer" } },
+        "letterPages": { "type": "integer", "minimum": 0 },
+        "letterBodyWords": { "type": "integer", "minimum": 0 },
+        "letterParagraphs": { "type": "integer", "minimum": 0 },
+        "nounCoverage": { "type": "number", "minimum": 0, "maximum": 1 },
+        "bannedHits": { "type": "integer", "minimum": 0 },
+        "cadenceFlags": { "type": "integer", "minimum": 0 },
+        "atsTextParity": { "type": "number", "minimum": 0, "maximum": 1 },
+        "fitSolverIterations": { "type": "integer", "minimum": 0 }
+      }
+    },
+    "rubric": {
+      "type": "object",
+      "required": ["score", "max", "threshold", "rows"],
+      "additionalProperties": false,
+      "properties": {
+        "score": { "type": "integer", "minimum": 0 },
+        "max": { "type": "integer", "minimum": 1 },
+        "threshold": { "type": "integer", "minimum": 0 },
+        "rows": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["id", "score"],
+            "additionalProperties": false,
+            "properties": {
+              "id": {
+                "enum": [
+                  "thesis",
+                  "differentiator",
+                  "outcome-ladder",
+                  "noun-coverage",
+                  "reporting-line",
+                  "constraints"
+                ]
+              },
+              "score": { "type": "integer", "minimum": 0, "maximum": 2 },
+              "note": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "checks": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["code", "severity", "message"],
+        "additionalProperties": false,
+        "properties": {
+          "code": { "type": "string", "minLength": 1 },
+          "severity": { "enum": ["pass", "note", "review", "fail"] },
+          "stage": { "type": "string" },
+          "message": { "type": "string" }
+        }
+      }
+    },
+    "cache": {
+      "type": "object",
+      "required": ["key", "hit"],
+      "additionalProperties": false,
+      "properties": {
+        "key": { "type": "string" },
+        "hit": { "type": "boolean" }
+      }
+    }
+  }
+}

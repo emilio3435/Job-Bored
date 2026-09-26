@@ -1,0 +1,123 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-selection.v1.schema.json",
+  "title": "materials.selection.v1",
+  "description": "Recorded claim selection for one run. Written before any prose exists. A claim absent from `kept` cannot appear in the draft; an omitted employer must appear in `omittedEmployers` to avoid an omission_justified failure.",
+  "type": "object",
+  "required": ["contract", "jdHash", "ledgerHash", "budget", "kept"],
+  "additionalProperties": false,
+  "properties": {
+    "contract": { "const": "materials.selection.v1" },
+    "jdHash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+    "ledgerHash": { "type": "string", "pattern": "^sha256:[0-9a-f]+$" },
+    "budget": {
+      "type": "object",
+      "required": ["pages"],
+      "additionalProperties": false,
+      "properties": {
+        "pages": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "pagesReason": { "type": "string" },
+        "featuredEmployers": { "type": "integer", "minimum": 1, "maximum": 3 },
+        "bulletsPerFeatured": { "type": "integer", "minimum": 2, "maximum": 4 },
+        "earlierLines": { "type": "integer", "minimum": 0, "maximum": 3 },
+        "tokens": { "type": "integer", "minimum": 8, "maximum": 13 },
+        "letterWords": {
+          "type": "array",
+          "minItems": 2,
+          "maxItems": 2,
+          "items": { "type": "integer" }
+        }
+      },
+      "allOf": [
+        {
+          "if": { "properties": { "pages": { "const": 2 } }, "required": ["pages"] },
+          "then": { "required": ["pagesReason"] }
+        }
+      ]
+    },
+    "kept": {
+      "type": "array",
+      "minItems": 1,
+      "items": {
+        "type": "object",
+        "required": ["claimId", "rank", "slot", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "claimId": { "type": "string", "minLength": 1 },
+          "rank": { "type": "integer", "minimum": 1 },
+          "slot": { "type": "string", "minLength": 1 },
+          "score": { "type": "object", "additionalProperties": { "type": "number" } },
+          "mapsTo": { "type": "array", "items": { "type": "string" } },
+          "clears": { "type": "array", "items": { "type": "string" } },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "dropped": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["claimId", "code", "reason"],
+        "additionalProperties": false,
+        "properties": {
+          "claimId": { "type": "string" },
+          "code": { "enum": ["no_jd_mapping", "low_signal", "duplicate_signal", "budget", "unverified"] },
+          "reason": { "type": "string", "minLength": 1 }
+        }
+      }
+    },
+    "omittedEmployers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["employerId", "reason", "justified"],
+        "additionalProperties": false,
+        "properties": {
+          "employerId": { "type": "string" },
+          "reason": { "type": "string" },
+          "justified": { "type": "boolean" }
+        }
+      }
+    },
+    "transfers": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["id", "from", "to", "allowed"],
+        "additionalProperties": false,
+        "properties": {
+          "id": { "type": "string" },
+          "from": { "type": "array", "items": { "type": "string" } },
+          "to": { "type": "string" },
+          "allowed": { "const": "prose-only" },
+          "note": { "type": "string" }
+        }
+      }
+    },
+    "letter": {
+      "type": "object",
+      "required": ["analyticsProof", "aiOpsProof"],
+      "additionalProperties": false,
+      "properties": {
+        "analyticsProof": { "type": "string" },
+        "aiOpsProof": { "type": "string" },
+        "differentiatorClaim": { "type": "string" },
+        "close": { "type": "string" }
+      }
+    },
+    "unmatchedJdNouns": { "type": "array", "items": { "type": "string" } },
+    "constraintsForQa": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "required": ["code"],
+        "additionalProperties": false,
+        "properties": {
+          "type": { "type": "string" },
+          "code": { "type": "string" },
+          "detail": { "type": "string" }
+        }
+      }
+    }
+  }
+}

@@ -1,0 +1,38 @@
+EMILIO NUNEZ-GARCIA
+AI & Marketing Analytics Manager
+Denver, CO | 501.366.2080 | emilio3435@gmail.com | emiliobuilds.com
+
+September 17, 2026
+
+Hiring team
+3E
+Bethesda, MD / Eastern remote
+
+Re: AI & Marketing Analytics Manager
+
+Dear hiring team,
+
+You are hiring someone to keep a live Claude operating model honest and to
+make marketing spend explain itself to a pipeline. Those are the same week
+for me, already.
+
+At Audacy I carried a $10M digital book in Denver and the argument that came
+with it: which channels moved buying stage, which were last-click theater,
+what we stopped funding. The framework I wrote is the one account executives
+defended in QBRs after I stopped sitting in them. A #19 market ranked top-3
+nationally because the readouts were honest, not because the media plan was
+clever.
+
+The other half I built. Elio routes across Claude, Gemini, GPT, Grok, and
+Llama on Cloud Run with grounded retrieval and live data connections, and the
+forecaster inside it ran 21 scenarios against $2.4M of real pipeline. I hold
+the keys, the service accounts, and the schedules. That is the shape of 25
+skills and 15 connections, and it is not prompting.
+
+I would start by sitting in on one Demand Gen readout and tracing a single
+skill from the CRM to the sentence someone acts on. Power BI would be new;
+Looker Studio, GA4, and SQL are not. Easy to reach either way.
+
+Best,
+Emilio Nunez-Garcia
+501.366.2080 | emilio3435@gmail.com | emiliobuilds.com

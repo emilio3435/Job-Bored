@@ -1,0 +1,290 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-render-model.v1.schema.json",
+  "title": "materials.render-model.v1",
+  "description": "The only input a materials template reads. Every family in the template registry (signal, dossier, editorial; see the visual spec §9) is a dumb renderer over this model. Templates carry no facts and accept no markup: emphasis is expressed as typed runs, produced deterministically by the metric tagger from ledger-verified tokens. Fields a family does not use are ignored by that family, never required by it.",
+  "type": "object",
+  "required": ["contract", "template", "identity", "documents"],
+  "additionalProperties": false,
+  "$defs": {
+    "run": {
+      "type": "object",
+      "minProperties": 1,
+      "maxProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "t": { "description": "Plain text.", "type": "string" },
+        "n": { "description": "Metric run. Must match a claim-ledger metric token.", "type": "string" },
+        "hl": { "description": "Highlighted clause. Statement only.", "type": "string" }
+      }
+    },
+    "runs": { "type": "array", "minItems": 1, "items": { "$ref": "#/$defs/run" } },
+    "textOrRuns": { "oneOf": [{ "type": "string" }, { "$ref": "#/$defs/runs" }] },
+    "family": {
+      "description": "Template registry family. Adding a family adds a value here, a folder under templates/materials/<family>/, and a reference fixture under docs/materials-v3/mocks/.",
+      "enum": ["signal", "dossier", "editorial"]
+    },
+    "logo": {
+      "description": "An employer or school mark. Always produced by the brand-logo resolver (upload, then favicon, then monogram) and rendered unaltered: no recolouring, cropping, filters or stretching. Templates never embed their own logo files.",
+      "type": "object",
+      "required": ["src", "alt"],
+      "additionalProperties": false,
+      "properties": {
+        "src": { "type": "string", "minLength": 1 },
+        "alt": { "type": "string", "minLength": 1 },
+        "shape": { "description": "Optical-size class the template uses to size the mark.", "enum": ["mark", "wordmark", "lockup"] },
+        "source": { "enum": ["upload", "favicon", "monogram"] }
+      }
+    },
+    "readout": {
+      "description": "One verified figure shown as a large reading (the signal strip, the dossier gutter). The figure must be a claim-ledger metric token of claimId.",
+      "type": "object",
+      "required": ["n", "caption", "claimId"],
+      "additionalProperties": false,
+      "properties": {
+        "n": { "type": "string", "minLength": 1 },
+        "caption": { "type": "string", "minLength": 1 },
+        "claimId": { "type": "string", "minLength": 1 },
+        "employerId": { "type": "string" }
+      }
+    }
+  },
+  "allOf": [
+    {
+      "if": { "properties": { "template": { "properties": { "family": { "const": "signal" } } } } },
+      "then": { "properties": { "documents": { "properties": { "resume": { "properties": { "templateId": { "const": "signal.resume" } } }, "coverLetter": { "properties": { "templateId": { "const": "signal.letter" } } } } } } }
+    },
+    {
+      "if": { "properties": { "template": { "properties": { "family": { "const": "dossier" } } } } },
+      "then": { "properties": { "documents": { "properties": { "resume": { "properties": { "templateId": { "const": "dossier.resume" } } }, "coverLetter": { "properties": { "templateId": { "const": "dossier.letter" } } } } } } }
+    },
+    {
+      "if": { "properties": { "template": { "properties": { "family": { "const": "editorial" } } } } },
+      "then": { "properties": { "documents": { "properties": { "resume": { "properties": { "templateId": { "const": "editorial.resume" } } }, "coverLetter": { "properties": { "templateId": { "const": "editorial.letter" } } } } } } }
+    }
+  ],
+  "properties": {
+    "contract": { "const": "materials.render-model.v1" },
+    "note": { "type": "string" },
+    "template": {
+      "type": "object",
+      "required": ["family", "version", "pageBudget"],
+      "additionalProperties": false,
+      "properties": {
+        "family": { "$ref": "#/$defs/family", "default": "signal" },
+        "version": { "description": "The family's own version, from templates/materials/<family>/family.json. Part of the cache key as <family>@<version>.", "type": "string" },
+        "pageBudget": { "type": "integer", "minimum": 1, "maximum": 2 },
+        "accent": { "description": "Optional. Only values listed in the family's family.json are accepted; ink is the grayscale and plain-print fallback every initial family supports.", "enum": ["volt", "ink"] },
+        "density": { "description": "Optional. Only values listed in the family's family.json are accepted; the three initial families are tuned to fill one page and list standard only.", "enum": ["air", "standard", "tight"] }
+      }
+    },
+    "provenance": {
+      "type": "object",
+      "additionalProperties": { "type": "string" }
+    },
+    "identity": {
+      "type": "object",
+      "required": ["name", "target", "contact"],
+      "additionalProperties": false,
+      "properties": {
+        "name": { "type": "string", "minLength": 1 },
+        "target": { "type": "string", "minLength": 1 },
+        "contact": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["kind", "text"],
+            "additionalProperties": false,
+            "properties": {
+              "kind": { "enum": ["location", "phone", "email", "site", "linkedin", "other"] },
+              "text": { "type": "string" },
+              "href": { "type": "string" }
+            }
+          }
+        }
+      }
+    },
+    "documents": {
+      "type": "object",
+      "minProperties": 1,
+      "additionalProperties": false,
+      "properties": {
+        "resume": {
+          "type": "object",
+          "required": ["templateId", "statement", "sections"],
+          "additionalProperties": false,
+          "properties": {
+            "templateId": { "description": "<family>.resume, matching template.family.", "type": "string", "pattern": "^(signal|dossier|editorial)\\.resume$" },
+            "statement": {
+              "type": "object",
+              "required": ["runs"],
+              "additionalProperties": false,
+              "properties": {
+                "runs": { "$ref": "#/$defs/runs" },
+                "words": { "type": "integer", "minimum": 20, "maximum": 55 }
+              }
+            },
+            "intro": {
+              "description": "Optional profile paragraph (editorial). Drafted like any slot and delinted; every fact in it must trace to claimIds, and it counts toward the visible-word budget.",
+              "type": "object",
+              "required": ["runs", "claimIds"],
+              "additionalProperties": false,
+              "properties": {
+                "runs": { "$ref": "#/$defs/runs" },
+                "claimIds": { "type": "array", "minItems": 1, "items": { "type": "string" } }
+              }
+            },
+            "sections": {
+              "type": "array",
+              "minItems": 1,
+              "items": {
+                "type": "object",
+                "required": ["kind", "label"],
+                "additionalProperties": false,
+                "properties": {
+                  "kind": { "enum": ["experience", "earlier", "tokens", "readouts", "ventures", "toolkit", "credentials"] },
+                  "label": { "type": "string", "minLength": 1 },
+                  "entries": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["employerId", "meta", "org"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "employerId": { "type": "string" },
+                        "claimId": { "description": "For one-line entries (ventures, earlier roles) that render a single claim through line.", "type": "string" },
+                        "logo": { "$ref": "#/$defs/logo" },
+                        "meta": { "type": "array", "items": { "type": "string" } },
+                        "org": { "type": "string", "minLength": 1 },
+                        "seat": { "$ref": "#/$defs/textOrRuns" },
+                        "line": { "type": "string" },
+                        "bullets": {
+                          "type": "array",
+                          "minItems": 2,
+                          "maxItems": 4,
+                          "items": {
+                            "type": "object",
+                            "required": ["claimId", "runs"],
+                            "additionalProperties": false,
+                            "properties": {
+                              "claimId": { "type": "string", "minLength": 1 },
+                              "runs": { "$ref": "#/$defs/runs" }
+                            }
+                          }
+                        }
+                      }
+                    }
+                  },
+                  "tokens": {
+                    "type": "array",
+                    "minItems": 1,
+                    "maxItems": 13,
+                    "items": { "type": "string" }
+                  },
+                  "excluded": { "type": "array", "items": { "type": "string" } },
+                  "excludedReason": { "type": "string" },
+                  "readouts": { "type": "array", "minItems": 1, "maxItems": 6, "items": { "$ref": "#/$defs/readout" } },
+                  "groups": {
+                    "description": "toolkit rows. Only tools a claim lists or toolInventory rates owned; a tool rated none or adjacent may appear only in a row whose label says so (for example Ramping).",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["label", "items"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "label": { "type": "string", "minLength": 1 },
+                        "items": { "type": "array", "items": { "type": "string" } }
+                      }
+                    }
+                  },
+                  "lines": {
+                    "description": "credentials lines, each traced to a claim.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["runs"],
+                      "additionalProperties": false,
+                      "properties": {
+                        "claimId": { "type": "string" },
+                        "logo": { "$ref": "#/$defs/logo" },
+                        "runs": { "$ref": "#/$defs/runs" }
+                      }
+                    }
+                  }
+                }
+              }
+            },
+            "foot": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        },
+        "coverLetter": {
+          "type": "object",
+          "required": ["templateId", "salutation", "paragraphs"],
+          "additionalProperties": false,
+          "properties": {
+            "templateId": { "description": "<family>.letter, matching template.family.", "type": "string", "pattern": "^(signal|dossier|editorial)\\.letter$" },
+            "index": { "type": "array", "items": { "type": "string" } },
+            "headline": { "description": "Optional display line (editorial). Derived from the resume statement, never new wording that adds a claim.", "type": "string" },
+            "pullQuote": {
+              "description": "Optional margin quote (editorial). text must be a verbatim sentence of the paragraph it names, so the plain-text twin loses nothing.",
+              "type": "object",
+              "required": ["text", "fromParagraph"],
+              "additionalProperties": false,
+              "properties": {
+                "text": { "type": "string", "minLength": 1 },
+                "fromParagraph": { "type": "string", "minLength": 1 }
+              }
+            },
+            "readouts": { "description": "Optional footer strip (signal). Figures must appear in the letter body.", "type": "array", "minItems": 1, "maxItems": 6, "items": { "$ref": "#/$defs/readout" } },
+            "rail": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": ["label", "lines"],
+                "additionalProperties": false,
+                "properties": {
+                  "label": { "type": "string" },
+                  "lines": { "type": "array", "items": { "type": "string" } }
+                }
+              }
+            },
+            "railRule": { "const": "restated-metadata-only" },
+            "salutation": { "type": "string", "minLength": 1 },
+            "paragraphs": {
+              "type": "array",
+              "minItems": 3,
+              "maxItems": 4,
+              "items": {
+                "type": "object",
+                "required": ["id", "beat", "text"],
+                "additionalProperties": false,
+                "properties": {
+                  "id": { "type": "string" },
+                  "beat": { "enum": ["thesis", "analytics-proof", "ai-ops-proof", "next-step"] },
+                  "claimId": { "type": "string" },
+                  "supportClaimIds": { "type": "array", "items": { "type": "string" } },
+                  "transferId": { "type": "string" },
+                  "words": { "type": "integer" },
+                  "text": { "type": "string", "minLength": 1 }
+                }
+              }
+            },
+            "bodyWords": { "type": "integer", "minimum": 150, "maximum": 280 },
+            "signoff": { "type": "string" },
+            "foot": { "type": "object", "additionalProperties": { "type": "string" } }
+          }
+        }
+      }
+    },
+    "atsText": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "wrap": { "type": "integer", "minimum": 72, "maximum": 88 },
+        "bulletMarker": { "type": "string" },
+        "headings": { "enum": ["upper", "title"] }
+      }
+    }
+  }
+}

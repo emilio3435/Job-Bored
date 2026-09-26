@@ -22,6 +22,9 @@ server/.env
 # evidence IS the deliverable, so its screenshots are tracked despite the
 # blanket *.png rule above. Regenerate with the two scripts in audit/.
 !docs/redesign/dossier-2026-09/screenshots/*.png
+# Materials v3 reference-fixture logos (the official marks the registry mocks
+# render unaltered); the blanket *.png rule above would drop them.
+!docs/materials-v3/mocks/assets/logos/*.png
 .gstack/
 discovery-local-bootstrap.json
 integrations/browser-use-discovery/state/*
