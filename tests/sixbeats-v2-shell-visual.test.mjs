@@ -309,8 +309,8 @@ const LEGACY_DEFAULT_BLUEPRINT = `div.discovery-setup-wizard aria-describedby="d
         span.discovery-setup-wizard__seg-label "Status"
       button.discovery-setup-wizard__seg aria-label="Path. Available." data:stepId="path_select" data:wizardAction="step"
         span.discovery-setup-wizard__seg-label "Path"
-      button.discovery-setup-wizard__seg discovery-setup-wizard__seg--locked aria-label="Manual. Locked." data:stepId="no_webhook" data:wizardAction="step" [disabled]
-        span.discovery-setup-wizard__seg-label "Manual"
+      button.discovery-setup-wizard__seg discovery-setup-wizard__seg--locked aria-label="Skip. Locked." data:stepId="no_webhook" data:wizardAction="step" [disabled]
+        span.discovery-setup-wizard__seg-label "Skip"
       button.discovery-setup-wizard__seg discovery-setup-wizard__seg--locked aria-label="Endpoint. Locked." data:stepId="existing_endpoint" data:wizardAction="step" [disabled]
         span.discovery-setup-wizard__seg-label "Endpoint"
       button.discovery-setup-wizard__seg discovery-setup-wizard__seg--locked aria-label="Config. Locked." data:stepId="bootstrap" data:wizardAction="step" [disabled]
@@ -323,14 +323,12 @@ const LEGACY_DEFAULT_BLUEPRINT = `div.discovery-setup-wizard aria-describedby="d
         span.discovery-setup-wizard__seg-label "Relay"
       button.discovery-setup-wizard__seg discovery-setup-wizard__seg--locked aria-label="Test. Locked." data:stepId="verify" data:wizardAction="step" [disabled]
         span.discovery-setup-wizard__seg-label "Test"
-      button.discovery-setup-wizard__seg discovery-setup-wizard__seg--locked aria-label="Done. Locked." data:stepId="ready" data:wizardAction="step" [disabled]
+      button.discovery-setup-wizard__seg discovery-setup-wizard__seg--last discovery-setup-wizard__seg--locked aria-label="Done. Locked." data:stepId="ready" data:wizardAction="step" [disabled]
         span.discovery-setup-wizard__seg-label "Done"
-      button.discovery-setup-wizard__seg discovery-setup-wizard__seg--last discovery-setup-wizard__seg--locked aria-label="Stub. Locked." data:stepId="stub_only" data:wizardAction="step" [disabled]
-        span.discovery-setup-wizard__seg-label "Stub"
     div.discovery-setup-wizard__body
       section.discovery-setup-wizard__frame aria-live="polite"
         div.discovery-setup-wizard__step-kicker
-          p.discovery-setup-wizard__step-kicker-text "Step 1 of 11"
+          p.discovery-setup-wizard__step-kicker-text "Step 1 of 10"
         h3#discoverySetupWizardStepTitle.discovery-setup-wizard__step-title "Current setup status."
         p.discovery-setup-wizard__step-lede "Shows what's already connected and what still needs work."
         div.discovery-setup-wizard__default-body discovery-setup-wizard__step-content
