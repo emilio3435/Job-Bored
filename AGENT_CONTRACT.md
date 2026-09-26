@@ -47,6 +47,8 @@ Hermes, n8n, or your agent **writes** these cells; the dashboard **reads** them 
 
 Expired cleanup is a safe move, not deletion: write `Expired` to column M only when the posting is confirmed closed, and append an audit line to Notes with timestamp, previous status, checked URL, evidence, confidence, and source. Column E remains the row identity. Cleanup agents should default to blank/New/Researching rows; Applied, Phone Screen, Interviewing, Offer, Rejected, Passed, and already Expired rows are protected unless a human deliberately handles them. HTTP 403, captchas, timeouts, network failures, and ambiguous pages must be reported as needs-review/unknown, not auto-expired.
 
+The worker's cleanup writes one cell set per expired row: Status (M) `Expired`, Follow-up Date (P) cleared, and an audit line appended to Notes (O), the same set `/pipeline-update` writes for `stage: "Expired"`. It checks four postings at a time, writes every 25 rows (a pass killed by the scheduler keeps what it wrote), skips rows whose Notes carry a `[JobBored YYYY-MM-DD]` check from the last 7 days, and re-reads each row by Link right before writing: a row a user moved out of New/Researching during the pass is left alone (`status_changed`), and a row that vanished is skipped (`row_moved_or_removed`).
+
 Scheduled expired cleanup is separate from scheduled discovery refresh. Its default mode is dry-run and its logs/report counts must make checked, open, needs-review, skipped, and would-expire outcomes clear. Automatic writes require explicit `--write`.
 
 The dashboard surfaces review work through one top-bar review control and a single modal. Do not add per-card expired-review badges; the modal lists the active postings to check and links directly to each job listing.
