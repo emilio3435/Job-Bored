@@ -28,6 +28,10 @@ interface TestRunProgress {
   phase: "exploit" | "write";
   sequence: number;
   checkpointedAt: string;
+  heartbeatAt?: string;
+  counters?: { companiesDone: number; listingsProcessed: number };
+  current?: { kind: "company"; label: string };
+  sources?: Array<{ id: string; state: "running"; done: number; total: number }>;
   budget?: {
     capturedAt?: string;
     totalMs: number;
@@ -102,6 +106,10 @@ test("run status snapshots rehydrate complete phase and budget state in a fresh 
         phase: "exploit",
         sequence: 4,
         checkpointedAt: "2026-08-30T12:00:04.000Z",
+        heartbeatAt: "2026-08-30T12:00:04.000Z",
+        counters: { companiesDone: 1, listingsProcessed: 25 },
+        current: { kind: "company", label: "Company 2 of 3" },
+        sources: [{ id: "ats", state: "running", done: 1, total: 3 }],
         budget: {
           capturedAt: "2026-08-30T12:00:03.000Z",
           totalMs: 60_000,

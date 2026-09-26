@@ -15,6 +15,27 @@
   "completedAt": "2026-04-08T12:03:10.000Z",
   "updatedAt": "2026-04-08T12:03:10.000Z",
   "warnings": [],
+  "progress": {
+    "phase": "learn",
+    "sequence": 14,
+    "checkpointedAt": "2026-04-08T12:03:09.000Z",
+    "heartbeatAt": "2026-04-08T12:03:09.000Z",
+    "counters": {
+      "companiesTotal": 3,
+      "companiesDone": 3,
+      "boardsDetected": 12,
+      "listingsSeen": 214,
+      "listingsProcessed": 214,
+      "leadsQualified": 4,
+      "matcherCalls": 8,
+      "queriesTotal": 5,
+      "queriesDone": 5
+    },
+    "sources": [
+      { "id": "ats", "state": "done", "done": 3, "total": 3 },
+      { "id": "serpapi_google_jobs", "state": "done", "done": 5, "total": 5 }
+    ]
+  },
   "sources": [
     {
       "sourceId": "greenhouse",

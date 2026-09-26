@@ -310,6 +310,116 @@ test("runDiscovery checkpoints every phase and includes the active budget state"
   );
 });
 
+test("UXD-BE-1: a 500-listing ATS scout publishes bounded, cumulative progress", async () => {
+  const { dependencies } = createGroundedTimeoutDependencies();
+  const checkpoints: Array<Record<string, any>> = [];
+  const events: string[] = [];
+  const listings = Array.from({ length: 500 }, (_, index) => ({
+    sourceId: "greenhouse",
+    sourceLabel: "Greenhouse",
+    title: "Backend Engineer",
+    company: "Acme",
+    location: "Remote",
+    url: `https://jobs.example.com/${index}`,
+    descriptionText: "Build Node services in TypeScript.",
+    tags: ["node"],
+  }));
+  Object.assign(dependencies, {
+    sourceAdapterRegistry: {
+      adapters: [{ sourceId: "greenhouse", listJobs: async () => listings }],
+      detectBoards: async ({ company }: any) => [{
+        matched: true, sourceId: "greenhouse", sourceLabel: "Greenhouse",
+        boardUrl: `https://boards.greenhouse.io/${company.name.toLowerCase()}`,
+        confidence: 1, warnings: [],
+      }],
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123", mode: "hosted", timezone: "UTC",
+      companies: [{ name: "Acme" }], atsCompanies: [{ name: "Acme" }],
+      includeKeywords: ["node"], excludeKeywords: [], targetRoles: ["Backend Engineer"],
+      locations: ["Remote"], remotePolicy: "remote", seniority: "",
+      maxLeadsPerRun: 5, enabledSources: ["greenhouse"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: any, request: any) => ({
+      ...stored, sheetId: request.sheetId, variationKey: request.variationKey,
+      requestedAt: request.requestedAt, sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
+    }),
+    checkpointRunProgress: (value: Record<string, any>) => checkpoints.push(value),
+    log: (event: string) => events.push(event),
+  });
+  await runDiscovery(makeRequest(), "manual", dependencies as any);
+  const listingProgress = checkpoints.filter((entry) =>
+    entry.phase === "scout" && (entry.counters?.listingsProcessed ?? 0) > 0);
+  assert.ok(listingProgress.length >= 20);
+  assert.ok(listingProgress.length <= 25, "500 listings should not cause a checkpoint for every listing");
+  assert.ok(listingProgress.every((entry, index) =>
+    index === 0 || entry.counters.listingsProcessed - listingProgress[index - 1].counters.listingsProcessed <= 25));
+  assert.equal(listingProgress.at(-1)?.counters?.listingsProcessed, 500);
+  assert.equal(listingProgress.at(-1)?.counters?.listingsSeen, 500);
+  assert.equal(listingProgress.at(-1)?.counters?.companiesDone, 1);
+  assert.ok(listingProgress.every((entry) => entry.heartbeatAt === entry.checkpointedAt));
+  assert.ok(events.includes("discovery.run.ats_company_started"));
+  assert.ok(events.includes("discovery.run.ats_company_completed"));
+});
+
+test("UXD-BE-2: empty scout still checkpoints score and exploit and ignores observer failure", async () => {
+  const { dependencies } = createGroundedTimeoutDependencies();
+  const phases: string[] = [];
+  Object.assign(dependencies, {
+    groundedSearchClient: undefined,
+    checkpointRunProgress(progress: { phase: string }) {
+      phases.push(progress.phase);
+      if (progress.phase === "scout") throw new Error("observer down");
+    },
+  });
+  const result = await runDiscovery(makeGroundedTimeoutRequest(), "manual", dependencies as any);
+  assert.equal(result.lifecycle.state, "partial");
+  assert.deepEqual([...new Set(phases)], ["initializing", "scout", "score", "exploit", "write", "learn"]);
+});
+
+test("UXD-BE-3: active scout heartbeats while a search is awaiting I/O", async () => {
+  const { dependencies } = createGroundedTimeoutDependencies();
+  const checkpoints: Array<Record<string, any>> = [];
+  let enterSearch!: () => void;
+  let releaseSearch!: () => void;
+  const entered = new Promise<void>((resolve) => { enterSearch = resolve; });
+  const pendingSearch = new Promise<any>((resolve) => {
+    releaseSearch = () => resolve({ searchQueries: [], candidates: [], warnings: [] });
+  });
+  dependencies.groundedSearchClient.search = async () => {
+    enterSearch();
+    return pendingSearch;
+  };
+  Object.assign(dependencies, {
+    checkpointRunProgress: (progress: Record<string, any>) => checkpoints.push(progress),
+    sourceTimeoutMs: 5_000,
+  });
+  const originalSetInterval = globalThis.setInterval;
+  let heartbeat: (() => void) | undefined;
+  globalThis.setInterval = ((handler: () => void, delay?: number) => {
+    if (delay === 15_000) heartbeat = handler;
+    return originalSetInterval(handler, delay);
+  }) as typeof setInterval;
+  try {
+    const run = runDiscovery(makeGroundedTimeoutRequest(), "manual", dependencies as any);
+    await entered;
+    const before = checkpoints.at(-1)?.sequence || 0;
+    assert.ok(heartbeat, "a live worker has a scheduled heartbeat");
+    heartbeat();
+    const latest = checkpoints.at(-1);
+    assert.equal(latest?.phase, "scout");
+    assert.ok(latest?.sequence > before);
+    assert.equal(latest?.heartbeatAt, latest?.checkpointedAt);
+    releaseSearch();
+    await run;
+  } finally {
+    globalThis.setInterval = originalSetInterval;
+    releaseSearch?.();
+  }
+});
+
 test("runDiscovery composes config, adapters, normalizer, and writer", async () => {
   const calls = {
     loadStoredWorkerConfig: 0,
@@ -1101,6 +1211,7 @@ test("runDiscovery ranks and diversifies leads before truncating", async () => {
 test("runDiscovery hybrid mode surfaces matcher-accepted listings with Match Score", async () => {
   const writtenLeads: Array<Record<string, unknown>> = [];
   const logs: Array<{ event: string; details: Record<string, unknown> }> = [];
+  const checkpoints: Array<Record<string, any>> = [];
   const dependencies = {
     runtimeConfig: {
       stateDatabasePath: "",
@@ -1202,6 +1313,7 @@ test("runDiscovery hybrid mode surfaces matcher-accepted listings with Match Sco
     log: (event: string, details: Record<string, unknown>) => {
       logs.push({ event, details });
     },
+    checkpointRunProgress: (progress: Record<string, any>) => checkpoints.push(progress),
     now: (() => {
       let index = 0;
       const dates = [
@@ -1240,6 +1352,7 @@ test("runDiscovery hybrid mode surfaces matcher-accepted listings with Match Sco
   assert.equal(result.lifecycle.normalizedLeadCount, 1);
   assert.equal(writtenLeads.length, 1);
   assert.equal(writtenLeads[0].matchScore, 9); // 0.91 rounded to 9/10
+  assert.equal(checkpoints.at(-1)?.counters?.matcherCalls, 1);
 });
 
 test("runDiscovery applies company, source, and similar-title caps before writing", async () => {
@@ -4280,6 +4393,7 @@ test("VAL-LOOP-ATS-007: ATS timeout/error branches do not stall the run lifecycl
   // to completion without indefinite hang. This test verifies that the run reaches
   // a terminal state (completed/partial) even when ATS operations fail.
   const writtenLeads: Array<Record<string, unknown>> = [];
+  const checkpoints: string[] = [];
   let collectListingsCalls = 0;
   
   const dependencies = {
@@ -4404,6 +4518,7 @@ test("VAL-LOOP-ATS-007: ATS timeout/error branches do not stall the run lifecycl
     }),
     now: () => new Date("2026-04-14T00:00:00.000Z"),
     randomId: (prefix: string) => `${prefix}_resilience_test`,
+    checkpointRunProgress: (progress: { phase: string }) => checkpoints.push(progress.phase),
   };
 
   // Set a very short source timeout to trigger timeout behavior
@@ -4426,6 +4541,7 @@ test("VAL-LOOP-ATS-007: ATS timeout/error branches do not stall the run lifecycl
     result.run.runId.startsWith("run_resilience_test"),
     "Run should complete with valid runId",
   );
+  assert.deepEqual([...new Set(checkpoints)], ["initializing", "scout", "score", "exploit", "write", "learn"]);
 });
 
 test("VAL-LOOP-ATS-007: ATS collection completes and lifecycle progresses with mixed success/error companies", async () => {
@@ -5784,6 +5900,10 @@ test("runDiscovery serpapi_google_jobs lane writes only allowlisted companies", 
     },
   };
 
+  const checkpoints: Array<Record<string, any>> = [];
+  Object.assign(dependencies, {
+    checkpointRunProgress: (progress: Record<string, any>) => checkpoints.push(progress),
+  });
   const result = await runDiscovery(request, "manual", dependencies as any);
 
   // Lane may land "completed" or "partial" depending on other warnings in
@@ -5803,4 +5923,8 @@ test("runDiscovery serpapi_google_jobs lane writes only allowlisted companies", 
   );
   const leadCompanies = new Set(serpLeads.map((l) => l.company));
   assert.deepEqual([...leadCompanies], ["Notion"]);
+  const queryCheckpoints = checkpoints.filter((progress) => progress.counters?.queriesTotal > 0);
+  assert.ok(queryCheckpoints.length >= 10, "each SerpApi query has start and settled checkpoints");
+  assert.equal(queryCheckpoints.at(-1)?.counters?.queriesDone, 5);
+  assert.equal(queryCheckpoints.at(-1)?.sources?.find((source: any) => source.id === "serpapi_google_jobs")?.state, "done");
 });

@@ -313,6 +313,19 @@ export async function runDiscovery(
   let progressSequence = 0;
   let latestBudgetProgress: DiscoveryRunBudgetProgress | undefined;
   let currentProgressPhase: DiscoveryRunProgressPhase = "initializing";
+  const progressCounters: NonNullable<DiscoveryRunProgress["counters"]> = {};
+  const matchingState = { aiMatchCallsUsed: 0, aiMatchAttempts: 0 };
+  let currentProgress: DiscoveryRunProgress["current"];
+  const progressSources = new Map<string, NonNullable<DiscoveryRunProgress["sources"]>[number]>();
+  let lastListingCheckpointCount = 0;
+  let lastListingCheckpointAt = Date.now();
+  function logProgress(event: string, details: Record<string, unknown>): void {
+    try {
+      dependencies.log?.(event, details);
+    } catch {
+      // An observer must never change run behavior.
+    }
+  }
   const maxRunDurationMs =
     dependencies.maxRunDurationMs ?? DEFAULT_MAX_RUN_DURATION_MS;
   const runAbort = createRunAbortController(
@@ -332,12 +345,36 @@ export async function runDiscovery(
         capturedAt: checkpointedAt,
       };
     }
-    dependencies.checkpointRunProgress?.({
-      phase,
-      sequence: ++progressSequence,
-      checkpointedAt,
-      ...(latestBudgetProgress ? { budget: latestBudgetProgress } : {}),
-    });
+    try {
+      dependencies.checkpointRunProgress?.({
+        phase,
+        sequence: ++progressSequence,
+        checkpointedAt,
+        heartbeatAt: checkpointedAt,
+        counters: {
+          ...progressCounters,
+          ...(progressCounters.matcherCalls !== undefined
+            ? { matcherCalls: matchingState.aiMatchAttempts }
+            : {}),
+        },
+        ...(currentProgress ? { current: currentProgress } : {}),
+        sources: [...progressSources.values()].map((source) => ({ ...source })),
+        ...(latestBudgetProgress ? { budget: latestBudgetProgress } : {}),
+      });
+    } catch (error) {
+      logProgress("discovery.run.progress_observer_failed", {
+        runId, phase, error: error instanceof Error ? error.name : "unknown",
+      });
+    }
+  }
+  function checkpointListings(): void {
+    const processed = progressCounters.listingsProcessed || 0;
+    const nowMs = Date.now();
+    if (processed - lastListingCheckpointCount >= 25 || nowMs - lastListingCheckpointAt >= 5_000) {
+      checkpointRunProgress(currentProgressPhase);
+      lastListingCheckpointCount = processed;
+      lastListingCheckpointAt = nowMs;
+    }
   }
   // RUN-08: budgets start at run entry, not after extraction.
   const budgetTracker = createBudgetTracker({
@@ -357,6 +394,9 @@ export async function runDiscovery(
     },
     startedAt,
   );
+  const heartbeatTimer = setInterval(() => checkpointRunProgress(currentProgressPhase), 15_000);
+  heartbeatTimer.unref?.();
+  try {
   const storedConfig = await dependencies.loadStoredWorkerConfig(request.sheetId);
   const config = dependencies.mergeDiscoveryConfig(storedConfig, request);
 
@@ -444,9 +484,6 @@ export async function runDiscovery(
   const normalizedLeads: NormalizedLead[] = [];
   let detectionCount = 0;
   let listingCount = 0;
-  const matchingState = {
-    aiMatchCallsUsed: 0,
-  };
 
   // Stage progress tracking for routing assertions evidence
   const stageProgress = {
@@ -463,6 +500,7 @@ export async function runDiscovery(
   function nextStage(phase: DiscoveryPhase): LoopStageEvidence {
     const stageStartedAt = dependencies.now().toISOString();
     checkpointRunProgress(phase, undefined, stageStartedAt);
+    logProgress("discovery.run.phase_started", { runId, phase });
     return { sequence: ++stageSequence, phase, startedAt: stageStartedAt };
   }
   const stageOrder: LoopStageEvidence[] = [];
@@ -692,6 +730,16 @@ export async function runDiscovery(
     companyBlocklist: request.companyBlocklist,
   });
   atsCompaniesToSearch = runtimeAtsPools.atsCompanies;
+  if (hasAtsLanes) {
+    progressCounters.companiesTotal = atsCompaniesToSearch.length;
+    progressCounters.companiesDone = 0;
+    progressCounters.boardsDetected = 0;
+    progressCounters.listingsSeen = 0;
+    progressCounters.listingsProcessed = 0;
+    progressCounters.leadsQualified = 0;
+    progressCounters.matcherCalls = 0;
+    progressSources.set("ats", { id: "ats", state: "running", done: 0, total: atsCompaniesToSearch.length });
+  }
 
   // Only iterate ATS detection when an ATS lane is actually active. Browser-only
   // runs (sourcePreset === "browser_only") exclude greenhouse/lever/ashby via
@@ -700,10 +748,14 @@ export async function runDiscovery(
   // incorrectly tag zero-result browser_only runs as weak_ats_seed_quality.
   if (hasAtsLanes) {
   for (const company of atsCompaniesToSearch) {
+    const companyOrdinal = (progressCounters.companiesDone || 0) + 1;
     // VAL-LOOP-CORE-008: Emit scout stage start (first ATS company iteration)
     if (!stageProgress.detectStarted) {
       stageOrder.push(nextStage("scout"));
     }
+    currentProgress = { kind: "company", label: `Company ${companyOrdinal} of ${atsCompaniesToSearch.length}` };
+    checkpointRunProgress("scout");
+    logProgress("discovery.run.ats_company_started", { runId, companyOrdinal });
     try {
       stageProgress.detectStarted = true;
       // VAL-LOOP-OBS-001: Increment ATS scout count for this company detection
@@ -733,6 +785,11 @@ export async function runDiscovery(
       });
       stageProgress.detectCompleted = true;
       detectionCount += detections.length;
+      progressCounters.boardsDetected = detectionCount;
+      checkpointRunProgress("scout");
+      logProgress("discovery.run.ats_detect_completed", {
+        runId, companyOrdinal, boardsDetected: detections.length,
+      });
 
       // Group detections by sourceId for efficient listing collection
       const detectionsBySource = new Map<AtsSourceId, DetectionResult[]>();
@@ -761,6 +818,11 @@ export async function runDiscovery(
 
         try {
           stageProgress.listStarted = true;
+          currentProgress = { kind: "source", label: sourceId };
+          checkpointRunProgress("scout");
+          logProgress("discovery.run.ats_list_started", {
+            runId, companyOrdinal, sourceId, boardsDetected: sourceDetections.length,
+          });
           
           let rawListings: RawListing[] = [];
           
@@ -776,6 +838,7 @@ export async function runDiscovery(
                   runSignal,
                 ).catch((error) => {
                   if (error instanceof TimeoutError) {
+                    logProgress("discovery.run.ats_list_timeout", { runId, companyOrdinal, sourceId, timeoutMs: error.timeoutMs });
                     return [];
                   }
                   throw error;
@@ -815,6 +878,11 @@ export async function runDiscovery(
 
           stageProgress.listCompleted = true;
           listingCount += rawListings.length;
+          progressCounters.listingsSeen = listingCount;
+          checkpointRunProgress("scout");
+          logProgress("discovery.run.ats_list_completed", {
+            runId, companyOrdinal, sourceId, listingsSeen: rawListings.length,
+          });
           extractionResult.querySummary = uniqueJoin(
             boardContexts.map((bc) => bc.boardUrl),
           );
@@ -830,6 +898,8 @@ export async function runDiscovery(
             if (normalized.matchUsedAi) {
               matchingState.aiMatchCallsUsed += 1;
             }
+            progressCounters.matcherCalls = matchingState.aiMatchAttempts;
+            progressCounters.listingsProcessed = (progressCounters.listingsProcessed || 0) + 1;
             if (!normalized.lead) {
               if (normalized.rejection) {
                 recordRejection(
@@ -839,16 +909,20 @@ export async function runDiscovery(
                   normalized.rejection,
                 );
               }
+              checkpointListings();
               continue;
             }
             normalizedLeads.push(normalized.lead);
             extractionResult.leads.push(normalized.lead);
             extractionResult.stats.leadsAccepted += 1;
+            progressCounters.leadsQualified = (progressCounters.leadsQualified || 0) + 1;
+            checkpointListings();
           }
         } catch (error) {
           const message = `Listing collection failed for ${sourceId}: ${error}`;
           extractionResult.warnings.push(message);
           warnings.push(message);
+          logProgress("discovery.run.ats_list_failed", { runId, companyOrdinal, sourceId, error: error instanceof Error ? error.name : "unknown" });
         }
 
         extractionResultsBySource.set(sourceId, extractionResult);
@@ -857,6 +931,21 @@ export async function runDiscovery(
       warnings.push(
         `Company detection failed for ${company.name}: ${formatError(error)}`,
       );
+    } finally {
+      progressCounters.companiesDone = (progressCounters.companiesDone || 0) + 1;
+      progressSources.set("ats", {
+        id: "ats", state: progressCounters.companiesDone === atsCompaniesToSearch.length ? "done" : "running",
+        done: progressCounters.companiesDone, total: atsCompaniesToSearch.length,
+      });
+      currentProgress = undefined;
+      checkpointRunProgress("scout");
+      logProgress("discovery.run.ats_company_completed", {
+        runId, companyOrdinal, companiesDone: progressCounters.companiesDone,
+        listingsSeen: progressCounters.listingsSeen || 0,
+        listingsProcessed: progressCounters.listingsProcessed || 0,
+        matcherCalls: progressCounters.matcherCalls || 0,
+        elapsedMs: Date.now() - Date.parse(startedAt),
+      });
     }
   }
   }
@@ -890,6 +979,9 @@ export async function runDiscovery(
   }
 
   if (config.effectiveSources.includes("grounded_web")) {
+    progressSources.set("grounded_web", { id: "grounded_web", state: "running" });
+    progressCounters.leadsQualified ??= 0;
+    progressCounters.matcherCalls ??= 0;
     // Skip grounded_web dispatch when there is literally nothing to search for:
     // no seed companies AND no role/keyword/location/remote/seniority intent.
     // Without this guard the placeholder-company substitution at line 1620 still
@@ -910,6 +1002,7 @@ export async function runDiscovery(
       const skipResult = createExtractionResult(runId, "grounded_web", "");
       skipResult.warnings.push(skipMessage);
       extractionResultsBySource.set("grounded_web", skipResult);
+      progressSources.set("grounded_web", { id: "grounded_web", state: "skipped" });
     } else {
       stageProgress.groundedStarted = true;
       // VAL-LOOP-CORE-008: Emit scout stage for browser discovery (if not already emitted)
@@ -986,6 +1079,8 @@ export async function runDiscovery(
   // SerpApi response is already structured JobPosting data. Listings flow
   // through the same normalize/matcher/rank pipeline as other lanes.
   if (config.effectiveSources.includes(SERPAPI_GOOGLE_JOBS_SOURCE_ID)) {
+    progressSources.set(SERPAPI_GOOGLE_JOBS_SOURCE_ID, { id: SERPAPI_GOOGLE_JOBS_SOURCE_ID, state: "running" });
+    checkpointRunProgress("scout");
     const extractionResult = createExtractionResult(
       runId,
       SERPAPI_GOOGLE_JOBS_SOURCE_ID,
@@ -1004,6 +1099,7 @@ export async function runDiscovery(
         runId,
         reason: "missing_api_key",
       });
+      progressSources.set(SERPAPI_GOOGLE_JOBS_SOURCE_ID, { id: SERPAPI_GOOGLE_JOBS_SOURCE_ID, state: "skipped" });
     } else {
       try {
         const serpResult = await collectSerpApiGoogleJobsListings({
@@ -1017,9 +1113,25 @@ export async function runDiscovery(
           runtimeConfig: dependencies.runtimeConfig,
           log: dependencies.log,
           querySeed: request.variationKey || runId,
+          onQueryProgress: ({ state, done, total }) => {
+            progressCounters.queriesTotal = total;
+            progressCounters.queriesDone = done;
+            currentProgress = state === "running"
+              ? { kind: "query", label: `Query ${done + 1} of ${total}` }
+              : undefined;
+            progressSources.set(SERPAPI_GOOGLE_JOBS_SOURCE_ID, {
+              id: SERPAPI_GOOGLE_JOBS_SOURCE_ID, state: "running", done, total,
+            });
+            checkpointRunProgress("scout");
+          },
         });
         extractionResult.warnings.push(...serpResult.warnings);
         extractionResult.stats.leadsSeen = serpResult.rawListings.length;
+        progressCounters.listingsSeen = (progressCounters.listingsSeen || 0) + serpResult.rawListings.length;
+        progressCounters.listingsProcessed ??= 0;
+        progressCounters.leadsQualified ??= 0;
+        progressCounters.matcherCalls ??= 0;
+        checkpointRunProgress("scout");
         let serpHintOnlySkipped = 0;
         for (const rawListing of serpResult.rawListings) {
           // Enforce the hint-only invariant on the SerpApi lane: only direct
@@ -1036,6 +1148,8 @@ export async function runDiscovery(
               url: rawListing.url,
               sourcePolicy,
             });
+            progressCounters.listingsProcessed += 1;
+            checkpointListings();
             continue;
           }
           const normalized = await normalizeRawListing(rawListing, run, {
@@ -1046,6 +1160,8 @@ export async function runDiscovery(
           if (normalized.matchUsedAi) {
             matchingState.aiMatchCallsUsed += 1;
           }
+          progressCounters.matcherCalls = matchingState.aiMatchAttempts;
+          progressCounters.listingsProcessed += 1;
           if (!normalized.lead) {
             if (normalized.rejection) {
               recordRejection(
@@ -1055,11 +1171,14 @@ export async function runDiscovery(
                 normalized.rejection,
               );
             }
+            checkpointListings();
             continue;
           }
           normalizedLeads.push(normalized.lead);
           extractionResult.leads.push(normalized.lead);
           extractionResult.stats.leadsAccepted += 1;
+          progressCounters.leadsQualified += 1;
+          checkpointListings();
         }
         if (serpHintOnlySkipped > 0) {
           extractionResult.warnings.push(
@@ -1078,6 +1197,14 @@ export async function runDiscovery(
         });
       }
     }
+    currentProgress = undefined;
+    progressSources.set(SERPAPI_GOOGLE_JOBS_SOURCE_ID, {
+      id: SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+      state: progressSources.get(SERPAPI_GOOGLE_JOBS_SOURCE_ID)?.state === "skipped" ? "skipped" : "done",
+      ...(progressCounters.queriesDone !== undefined ? { done: progressCounters.queriesDone } : {}),
+      ...(progressCounters.queriesTotal !== undefined ? { total: progressCounters.queriesTotal } : {}),
+    });
+    checkpointRunProgress("scout");
     extractionResultsBySource.set(
       SERPAPI_GOOGLE_JOBS_SOURCE_ID,
       extractionResult,
@@ -1202,10 +1329,15 @@ export async function runDiscovery(
     // Update normalizedLeads to only selected leads
     normalizedLeads.length = 0;
     normalizedLeads.push(...filteredNormalizedLeads);
-  } else if (pendingGroundedExploit) {
-    // No scouted candidates to rank; still emit exploit so deep extract can
-    // attribute empty/unavailable grounded work.
-    stageOrder.push(nextStage("exploit"));
+  } else {
+    checkpointRunProgress("score");
+    if (pendingGroundedExploit) {
+      // No scouted candidates to rank; still emit exploit so deep extract can
+      // attribute empty/unavailable grounded work.
+      stageOrder.push(nextStage("exploit"));
+    } else {
+      checkpointRunProgress("exploit");
+    }
   }
 
   if (pendingGroundedExploit) {
@@ -1247,6 +1379,10 @@ export async function runDiscovery(
       );
     }
     normalizedLeads.push(...groundedResult.normalizedLeads);
+    progressCounters.leadsQualified = (progressCounters.leadsQualified || 0) + groundedResult.normalizedLeads.length;
+    progressSources.set("grounded_web", { id: "grounded_web", state: "done" });
+    currentProgress = undefined;
+    checkpointRunProgress("exploit");
   }
 
   // Add skip evidence for sources excluded by the preset (VAL-ROUTE-006)
@@ -1629,7 +1765,6 @@ export async function runDiscovery(
     }
   }
 
-  runAbort.clear();
   return {
     run,
     lifecycle: {
@@ -1656,6 +1791,10 @@ export async function runDiscovery(
     writeResult,
     warnings,
   };
+  } finally {
+    clearInterval(heartbeatTimer);
+    runAbort.clear();
+  }
 }
 
 function isSharedAtsCompanyDomain(value: string): boolean {
@@ -1712,6 +1851,7 @@ function normalizeRawListing(
     dependencies: RunDiscoveryDependencies;
     matchingState: {
       aiMatchCallsUsed: number;
+      aiMatchAttempts?: number;
     };
     matcherTimeoutMs?: number;
   },
@@ -1729,6 +1869,7 @@ function normalizeRawListing(
     return Promise.resolve(finalizeMatchDecision(rawListing, run, baseline, false));
   }
 
+  input.matchingState.aiMatchAttempts = (input.matchingState.aiMatchAttempts || 0) + 1;
   const matcherPromise = input.dependencies.matchClient!.evaluate({
     rawListing,
     run,
