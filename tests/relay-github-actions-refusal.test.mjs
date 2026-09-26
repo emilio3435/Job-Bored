@@ -96,8 +96,10 @@ function writeExecutable(path, text) {
     join(binDir, "node"),
     '#!/bin/bash\necho \'{"event":"command-center.discovery","schemaVersion":1,"trigger":"scheduled-github"}\'\n',
   );
-  // Fake curl: logs its argv, honours -o and -w "%{http_code}", and answers
-  // with FAKE_STATUS / FAKE_BODY.
+  // Fake curl: logs its argv, honours -o and -w ("%{http_code}" and
+  // "%{redirect_url}"), and answers the first call with FAKE_STATUS /
+  // FAKE_BODY / FAKE_REDIRECT and any later call with FAKE_STATUS_2 /
+  // FAKE_BODY_2.
   writeExecutable(
     join(binDir, "curl"),
     [
@@ -112,17 +114,34 @@ function writeExecutable(path, text) {
       '    *) shift ;;',
       '  esac',
       'done',
-      'if [ -n "$out" ]; then printf "%s" "$FAKE_BODY" > "$out"; else printf "%s" "$FAKE_BODY"; fi',
-      'if [ -n "$fmt" ]; then printf "%s" "${fmt//%\\{http_code\\}/$FAKE_STATUS}"; fi',
+      'n="$(grep -c -- "--END--" "$FAKE_CURL_LOG")"',
+      'status="$FAKE_STATUS"; body="$FAKE_BODY"; redirect="${FAKE_REDIRECT:-}"',
+      'if [ "$n" -ge 2 ]; then status="${FAKE_STATUS_2:-500}"; body="${FAKE_BODY_2:-}"; redirect=""; fi',
+      'if [ -n "$out" ]; then printf "%s" "$body" > "$out"; else printf "%s" "$body"; fi',
+      'case "$fmt" in',
+      '  "%{http_code} %{redirect_url}") printf "%s %s" "$status" "$redirect" ;;',
+      '  "%{http_code}") printf "%s" "$status" ;;',
+      '  "") ;;',
+      '  *) echo "fake curl: unsupported -w $fmt" >&2; exit 2 ;;',
+      'esac',
       "exit 0",
       "",
     ].join("\n"),
   );
 }
 
-function runWorkflow({ url, status = "202", body = '{"ok":true}' }) {
+function runWorkflow({
+  url,
+  status = "202",
+  body = '{"ok":true}',
+  redirect = "",
+  status2 = "",
+  body2 = "",
+  secret = "",
+  yaml = read(TEMPLATE_PATH),
+}) {
   const scriptPath = join(scratch, "run.sh");
-  writeFileSync(scriptPath, extractRunScript(read(TEMPLATE_PATH)));
+  writeFileSync(scriptPath, extractRunScript(yaml));
   rmSync(curlLog, { force: true });
   const res = spawnSync("bash", [scriptPath], {
     cwd: scratch,
@@ -132,10 +151,13 @@ function runWorkflow({ url, status = "202", body = '{"ok":true}' }) {
       HOME: scratch,
       WEBHOOK_URL: url,
       SHEET_ID: "sheet-example-123",
-      WEBHOOK_SECRET: "",
+      WEBHOOK_SECRET: secret,
       FAKE_CURL_LOG: curlLog,
       FAKE_STATUS: status,
       FAKE_BODY: body,
+      FAKE_REDIRECT: redirect,
+      FAKE_STATUS_2: status2,
+      FAKE_BODY_2: body2,
     },
   });
   const calls = existsSync(curlLog)
@@ -172,15 +194,23 @@ describe("RGHA: the three discovery workflows are one workflow", () => {
 });
 
 describe("RGHA: a relay webhook URL is refused with the migration note", () => {
-  it("a workers.dev URL exits non-zero before any POST", () => {
-    const r = runWorkflow({ url: "https://jobbored-relay.someone.workers.dev/" });
-    assert.notEqual(r.code, 0, r.output);
-    assertMigrationNote(r.output);
-    assert.equal(r.calls.length, 0, "no POST is sent to a known relay host");
-  });
+  for (const url of [
+    "https://jobbored-discovery-relay-main.someone.workers.dev/",
+    "https://jobbored-discovery-relay.someone.workers.dev/",
+    "https://command-center-forward.someone.workers.dev/",
+  ]) {
+    it(`the JobBored relay worker ${url} exits non-zero before any POST`, () => {
+      const r = runWorkflow({ url });
+      assert.notEqual(r.code, 0, r.output);
+      assertMigrationNote(r.output);
+      assert.equal(r.calls.length, 0, "no POST is sent to a known relay host");
+    });
+  }
 
-  it("a workers.dev host in any case, with a path and port, is still a relay", () => {
-    const r = runWorkflow({ url: "https://Relay.Example.WORKERS.dev:443/webhook?x=1" });
+  it("a relay host in any case, with a path and port, is still a relay", () => {
+    const r = runWorkflow({
+      url: "https://JobBored-Discovery-Relay-Main.Example.WORKERS.dev:443/webhook?x=1",
+    });
     assert.notEqual(r.code, 0, r.output);
     assertMigrationNote(r.output);
   });
@@ -211,6 +241,8 @@ describe("RGHA: a non-relay webhook URL still posts", () => {
     "https://worker.example-tailnet.ts.net/webhook",
     "https://script.google.com/macros/s/EXAMPLE/exec",
     "https://workers.dev.example.com/webhook",
+    "https://custom-discovery.account.workers.dev/webhook",
+    "https://my-discovery.jobbored-discovery-relay.workers.dev/webhook",
   ]) {
     it(`${url} is posted once and the job succeeds on 2xx`, () => {
       const r = runWorkflow({ url });
@@ -223,6 +255,89 @@ describe("RGHA: a non-relay webhook URL still posts", () => {
       assert.doesNotMatch(r.output, /Cloudflare Cron/);
     });
   }
+
+  // Apps Script web apps answer a POST with 302 to a one-time
+  // script.googleusercontent.com/macros/echo URL once doPost has run; the
+  // response body lives behind that GET. This is what a real deployment sends.
+  const APPS_SCRIPT_URL = "https://script.google.com/macros/s/EXAMPLE/exec";
+  const ECHO_URL =
+    "https://script.googleusercontent.com/macros/echo?user_content_key=EXAMPLE_KEY&lib=EXAMPLE_LIB";
+  const MOVED_BODY =
+    '<HTML><HEAD><TITLE>Moved Temporarily</TITLE></HEAD><BODY><H1>Moved Temporarily</H1>The document has moved <A HREF="' +
+    ECHO_URL.replace(/&/g, "&amp;") +
+    '">here</A>.</BODY></HTML>';
+
+  it("an Apps Script 302 to its content echo succeeds and reads the result by GET", () => {
+    const r = runWorkflow({
+      url: APPS_SCRIPT_URL,
+      status: "302",
+      body: MOVED_BODY,
+      redirect: ECHO_URL,
+      status2: "200",
+      body2: '{"ok":true,"event":"command-center.discovery"}',
+      secret: "example-secret-value",
+    });
+    assert.equal(r.code, 0, r.output);
+    assert.equal(r.calls.length, 2, "one POST, then one GET of the echo URL");
+    const post = r.calls[0].split("\n");
+    assert.ok(post.includes(APPS_SCRIPT_URL) && post.includes("POST"));
+    const get = r.calls[1].split("\n");
+    assert.ok(get.includes(ECHO_URL), "follows the Location it was given");
+    assert.ok(!get.includes("POST") && !get.includes("-d"), "the echo is read by GET, never re-posted");
+    assert.ok(
+      !get.some((a) => a.includes("example-secret-value")),
+      "the webhook secret is not sent to the redirect target",
+    );
+    assert.match(r.output, /"event":"command-center\.discovery"/);
+  });
+
+  it("the Settings-generated workflow handles the Apps Script 302 and a custom workers.dev handler", () => {
+    const yaml = loadSettingsSchedule().buildGithubActionsYaml(9, 30);
+    const apps = runWorkflow({
+      yaml,
+      url: APPS_SCRIPT_URL,
+      status: "302",
+      body: MOVED_BODY,
+      redirect: ECHO_URL,
+      status2: "200",
+      body2: '{"ok":true}',
+    });
+    assert.equal(apps.code, 0, apps.output);
+    assert.equal(apps.calls.length, 2);
+    const custom = runWorkflow({ yaml, url: "https://custom-discovery.account.workers.dev/webhook" });
+    assert.equal(custom.code, 0, custom.output);
+    assert.equal(custom.calls.length, 1);
+    const relay = runWorkflow({ yaml, url: "https://jobbored-discovery-relay-main.acct.workers.dev/" });
+    assert.notEqual(relay.code, 0, relay.output);
+    assert.equal(relay.calls.length, 0);
+  });
+
+  it("an Apps Script echo that fails still fails the job", () => {
+    const r = runWorkflow({
+      url: APPS_SCRIPT_URL,
+      status: "302",
+      body: MOVED_BODY,
+      redirect: ECHO_URL,
+      status2: "500",
+      body2: "boom",
+    });
+    assert.notEqual(r.code, 0, r.output);
+  });
+
+  it("a 302 to any other host fails the job and is not followed", () => {
+    const r = runWorkflow({
+      url: "https://worker.example-tailnet.ts.net/webhook",
+      status: "302",
+      body: "",
+      redirect: "https://elsewhere.example.com/login",
+      status2: "200",
+      body2: '{"ok":true}',
+      secret: "example-secret-value",
+    });
+    assert.notEqual(r.code, 0, r.output);
+    assert.equal(r.calls.length, 1, "the redirect is not followed");
+    assert.doesNotMatch(r.output, /Cloudflare Cron/);
+  });
 
   it("a worker's own 401 fails the job without claiming it is a relay", () => {
     const r = runWorkflow({

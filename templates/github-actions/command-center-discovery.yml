@@ -46,13 +46,18 @@ jobs:
             echo "See templates/github-actions/README.md, section \"GitHub Actions and the Cloudflare relay\"."
             exit 1
           }
-          WEBHOOK_HOST="${WEBHOOK_URL#*://}"
-          WEBHOOK_HOST="${WEBHOOK_HOST%%/*}"
-          WEBHOOK_HOST="${WEBHOOK_HOST%%\?*}"
-          WEBHOOK_HOST="${WEBHOOK_HOST##*@}"
-          WEBHOOK_HOST="$(printf '%s' "${WEBHOOK_HOST%%:*}" | tr '[:upper:]' '[:lower:]')"
-          case "$WEBHOOK_HOST" in
-            workers.dev|*.workers.dev) relay_refused ;;
+          url_host() {
+            local host="${1#*://}"
+            host="${host%%/*}"
+            host="${host%%\?*}"
+            host="${host##*@}"
+            printf '%s' "${host%%:*}" | tr '[:upper:]' '[:lower:]'
+          }
+          # Only JobBored's own relay worker names are refused up front; any other
+          # workers.dev handler gets the POST. A relay under another name is still
+          # caught by its relay-auth 401 below.
+          case "$(url_host "$WEBHOOK_URL")" in
+            jobbored-discovery-relay.*.workers.dev|jobbored-discovery-relay-*.workers.dev|command-center-forward.*.workers.dev) relay_refused ;;
           esac
           BODY="$(node scripts/run-scheduled-discovery.mjs \
             --trigger scheduled-github \
@@ -63,19 +68,42 @@ jobs:
             SECRET_HEADER=(-H "x-discovery-secret: ${WEBHOOK_SECRET}")
           fi
           RESP_FILE="$(mktemp)"
-          HTTP_CODE="$(curl -sS -X POST "$WEBHOOK_URL" \
+          HTTP_RESULT="$(curl -sS -X POST "$WEBHOOK_URL" \
             -o "$RESP_FILE" \
-            -w "%{http_code}" \
+            -w "%{http_code} %{redirect_url}" \
             -H "Content-Type: application/json" \
             ${SECRET_HEADER[@]+"${SECRET_HEADER[@]}"} \
             -d "$BODY")"
+          HTTP_CODE="${HTTP_RESULT%% *}"
+          REDIRECT_URL="${HTTP_RESULT#* }"
+          if [ "$HTTP_CODE" = "401" ] && grep -Eq '"error"[[:space:]]*:[[:space:]]*"(Unauthorized|relay_token_not_configured)"' "$RESP_FILE"; then
+            cat "$RESP_FILE"
+            echo
+            relay_refused
+          fi
+          # An Apps Script web app runs doPost, then answers 302 to a one-time
+          # script.googleusercontent.com echo URL that holds its response. Read
+          # that by GET, without the webhook secret. Any other redirect is not
+          # followed: re-posting or dropping to GET elsewhere could fake success.
+          case "$HTTP_CODE" in
+            302|303)
+              if [ -n "$REDIRECT_URL" ] && [ "$(url_host "$REDIRECT_URL")" = "script.googleusercontent.com" ]; then
+                echo "Apps Script accepted the POST (HTTP $HTTP_CODE); reading its response."
+                HTTP_CODE="$(curl -sS "$REDIRECT_URL" -o "$RESP_FILE" -w "%{http_code}")"
+                REDIRECT_URL=""
+              fi
+              ;;
+          esac
           cat "$RESP_FILE"
           echo
           echo "HTTP $HTTP_CODE"
-          if [ "$HTTP_CODE" = "401" ] && grep -Eq '"error"[[:space:]]*:[[:space:]]*"(Unauthorized|relay_token_not_configured)"' "$RESP_FILE"; then
-            relay_refused
-          fi
           case "$HTTP_CODE" in
             2??) ;;
-            *) echo "::error::Discovery webhook answered HTTP $HTTP_CODE."; exit 1 ;;
+            *)
+              echo "::error::Discovery webhook answered HTTP $HTTP_CODE."
+              if [ -n "$REDIRECT_URL" ]; then
+                echo "It redirected to $(url_host "$REDIRECT_URL"); point COMMAND_CENTER_DISCOVERY_WEBHOOK_URL at the final URL."
+              fi
+              exit 1
+              ;;
           esac
