@@ -319,7 +319,7 @@ describe("discovery-wizard-ui — runDiscoveryTailscaleAutoSetup (one-click Tail
     });
     await env.run();
     assert.equal(env.getDrafts().tailscaleAutoState, "needs_server");
-    assert.match(env.getDrafts().tailscaleAutoDetail, /local server|npm run dev/i);
+    assert.match(env.getDrafts().tailscaleAutoDetail, /Couldn't reach JobBored on this computer/);
     assert.doesNotMatch(env.getDrafts().tailscaleAutoDetail, /isn't installed/);
   });
 
@@ -486,8 +486,9 @@ describe("discovery-wizard-ui — detect checklist is flow-conditional (P1)", ()
     assert.match(body, /isExternalFlow/, "the builder must know the active flow");
     const guardIdx = body.indexOf("if (!isExternalFlow)");
     assert.ok(guardIdx !== -1, "tunnel/relay rows must sit behind a non-external guard");
-    const ngrokIdx = body.indexOf("No ngrok tunnel running");
-    const relayIdx = body.indexOf("Cloudflare relay deployed");
+    // GFX FE-B5 (D5): the rows are plain words now.
+    const ngrokIdx = body.indexOf("The public link to this computer isn't running");
+    const relayIdx = body.indexOf("Permanent address set up");
     assert.ok(ngrokIdx > guardIdx, "ngrok row inside the guard");
     assert.ok(relayIdx > guardIdx, "relay row inside the guard");
   });
@@ -631,7 +632,8 @@ describe("discovery endpoint step — say-it-once copy diet (delight pass)", () 
       "the step description + primary button already say this — the body must not repeat it",
     );
     assert.match(body, /createWizardNode\("details", "discovery-wizard-manual"\)/, "manual setup is a collapsed disclosure");
-    assert.match(body, /Prefer manual setup/, "the disclosure invites, the open body doesn't lecture");
+    // GFX FE-B5 (D6): the disclosure is named for its path.
+    assert.match(body, /DISCOVERY_PATH_NAMES\.own_endpoint/, "the disclosure invites, the open body doesn't lecture");
     assert.ok(!body.includes("fail-closes"), "worker-internals jargon removed from the hint");
   });
 });

@@ -14,7 +14,6 @@
     "relay_deploy",
     "verify",
     "ready",
-    "stub_only",
   ]);
 
   const DEFAULT_STEP_BLUEPRINTS = Object.freeze([
@@ -34,9 +33,10 @@
     },
     {
       id: "no_webhook",
-      label: "Manual",
-      title: "Keep discovery manual.",
-      description: "Add jobs via automation or manually — no webhook needed.",
+      label: "Skip",
+      title: "Skip connecting for now.",
+      description:
+        "Jobs won't arrive on their own until you connect — you can still add them yourself.",
       tone: "muted",
     },
     {
@@ -44,7 +44,7 @@
       label: "Endpoint",
       title: "Connect a stable URL (Tailscale).",
       description:
-        "Set up Tailscale below and paste its stable URL — or any public HTTPS endpoint you already control.",
+        "Set up Tailscale below and paste its stable URL — or a web address you already own.",
       tone: "info",
     },
     {
@@ -90,13 +90,6 @@
       title: "You're all set.",
       description: "Discovery is connected and ready to use.",
       tone: "success",
-    },
-    {
-      id: "stub_only",
-      label: "Stub",
-      title: "Test-only mode.",
-      description: "Confirms wiring works but won't produce real results.",
-      tone: "warning",
     },
   ]);
 
@@ -302,7 +295,7 @@
       ),
       recommendedFlow: normalizeEnum(
         raw.recommendedFlow,
-        ["local_agent", "external_endpoint", "no_webhook", "stub_only"],
+        ["local_agent", "external_endpoint", "no_webhook"],
         "local_agent",
       ),
       recommendedReason: asString(raw.recommendedReason),
@@ -341,7 +334,7 @@
       version: 1,
       flow: normalizeEnum(
         raw.flow,
-        ["local_agent", "external_endpoint", "no_webhook", "stub_only"],
+        ["local_agent", "external_endpoint", "no_webhook"],
         "local_agent",
       ),
       currentStep: asString(raw.currentStep, "detect"),
@@ -382,10 +375,10 @@
       }[snapshot.appsScriptState] || snapshot.appsScriptState;
     const flowLabel =
       {
-        local_agent: "Local worker",
-        external_endpoint: "Webhook",
-        no_webhook: "Manual",
-        stub_only: "Stub",
+        // D6: one name per path, the same as the wizard's cards and B5.
+        local_agent: "Just this computer",
+        external_endpoint: "Stable URL · Tailscale",
+        no_webhook: "Skip for now",
       }[snapshot.recommendedFlow] || snapshot.recommendedFlow;
     return [
       { label: "Path", value: flowLabel, tone: "info" },

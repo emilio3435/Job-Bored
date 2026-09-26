@@ -430,7 +430,7 @@
     // retry here can never pass, so Save & verify steps aside for the
     // in-panel route to B1.
     ACTIONS[0].disabled = lastFuelReason === "static_host";
-    ACTIONS[1].label = blocked ? "Re-check" : "Set it up for me";
+    ACTIONS[1].label = blocked ? "Check again" : "Set it up for me";
     ACTIONS[1].disabled = !state.fuelPassed;
     ACTIONS[2].disabled = !state.fuelPassed;
     // The stall escape hatch is appended, never woven in: the three

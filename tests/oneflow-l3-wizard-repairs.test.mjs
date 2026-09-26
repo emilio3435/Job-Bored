@@ -271,7 +271,7 @@ describe("ONEFLOW L3 · runTailscaleAutoSetup exposes the sequence with stage ca
     });
     assert.equal(outcome.ok, false);
     assert.equal(outcome.state, "needs_install");
-    assert.match(outcome.message, /Tailscale isn't installed yet — grab it below, then Re-check\./);
+    assert.match(outcome.message, /Tailscale isn't installed yet — grab it below, then press Check again\./);
     assert.deepEqual(seen, ["machine:active", "machine:failed"]);
   });
 

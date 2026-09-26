@@ -28,16 +28,17 @@ const FUEL_ACTION = "oneflow_discovery_save_verify";
 const CONNECT_ACTION = "oneflow_discovery_connect";
 
 const NEEDS_INSTALL_BASE =
-  "Tailscale isn't installed yet — grab it below, then Re-check.";
+  "Tailscale isn't installed yet — grab it below, then press Check again.";
 const NEEDS_LOGIN_BASE =
-  "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check.";
+  "Tailscale is installed but not signed in — open the Tailscale app, sign in, then press Check again.";
+// GFX FE-B5 (S10, D1): the start sentence is localServerHint (no navigator
+// here, so ./start.sh), and the retry is Check again.
 const NEEDS_SERVER_BASE =
-  "Couldn't reach JobBored's local server — on the hosted page, open " +
-  "your local setup instead; otherwise double-click start.command in " +
-  "the JobBored folder to start it, then Re-check.";
+  "Couldn't reach JobBored on this computer. To start it, run " +
+  "./start.sh in the JobBored folder, then press Check again.";
 const BLOCKED_TUNNEL_NOTE =
   " Your saved address was a temporary tunnel link — those stop working " +
-  "when the tunnel restarts, so Re-check mints you a stable address " +
+  "when the tunnel restarts, so Check again mints you a stable address " +
   "that doesn't expire.";
 const FAILED_TUNNEL_NOTE =
   " Your saved address was a temporary tunnel link — those stop working " +
@@ -308,7 +309,7 @@ describe("LANE B · the auto path heals a worker that rejects the dashboard orig
 // ---------------------------------------------------------------
 
 describe("LANE B · needs_server names the launcher, never the terminal", () => {
-  it("the Tailscale machine probe points at start.command", async () => {
+  it("the Tailscale machine probe names the platform's launcher", async () => {
     const env = healingWizardEnv({
       tailscaleProbe: () => {
         throw new TypeError("Failed to fetch");
@@ -378,7 +379,7 @@ describe("LANE B · B5 keeps its four stage lines and its message slot", () => {
     assert.equal(labels.verify, "Verifying the connection");
   });
 
-  it("a blocked connect carrying the dead-tunnel sentence renders it with Re-check", async () => {
+  it("a blocked connect carrying the dead-tunnel sentence renders it with Check again", async () => {
     const message = NEEDS_INSTALL_BASE + BLOCKED_TUNNEL_NOTE;
     const wizardUi = {
       async runTailscaleAutoSetup({ onStage } = {}) {
@@ -414,8 +415,8 @@ describe("LANE B · B5 keeps its four stage lines and its message slot", () => {
     const slot = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(slot, "a blocked state must reach the message slot, not a toast");
     assert.match(slot.textContent, /temporary tunnel link/);
-    assert.match(slot.textContent, /Re-check/);
-    assert.equal(env.button(CONNECT_ACTION).textContent, "Re-check");
+    assert.match(slot.textContent, /Check again/);
+    assert.equal(env.button(CONNECT_ACTION).textContent, "Check again");
     assert.ok(
       !env.flow.getState().completedBeats.includes("discovery"),
       "a blocked connect never counts as done",

@@ -217,6 +217,27 @@
     })();
   }
 
+  /**
+   * The readiness module's recommendation (D4), or its no-Tailscale answer
+   * when readiness hasn't loaded (a probe harness, an early call).
+   */
+  function recommendFlow(signals) {
+    try {
+      const readiness =
+        window.JobBoredDiscovery && window.JobBoredDiscovery.readiness;
+      if (readiness && typeof readiness.recommendDiscoveryFlow === "function") {
+        return readiness.recommendDiscoveryFlow(signals);
+      }
+    } catch (_) {
+      /* fall through */
+    }
+    return {
+      recommendedFlow: "local_agent",
+      recommendedReason:
+        "Tailscale isn't installed, so discovery runs on this computer. You can add Tailscale later.",
+    };
+  }
+
   function normalizeDiscoveryEngineState(raw) {
     const value =
       typeof raw === "string"
@@ -899,26 +920,18 @@
       }
     }
 
-    // Default to the stable-URL (Tailscale) path — it's the recommended way to
-    // reach the worker reliably and is the OSS default. The local-agent path is
-    // still available as an option, just not the recommendation.
-    let recommendedFlow = "existing_endpoint";
-    let recommendedReason =
-      "Connect a stable public URL — Tailscale is the recommended way to reach your worker reliably.";
-    if (
-      hasSavedExternalEndpoint ||
-      engineState === DISCOVERY_ENGINE_STATE_CONNECTED
-    ) {
-      recommendedFlow = "existing_endpoint";
-      recommendedReason =
-        savedWebhookKind === SAVED_WEBHOOK_KIND_WORKER
-          ? "JobBored already has a Cloudflare Worker URL saved as the browser-facing webhook."
-          : "JobBored already has a public HTTPS webhook saved.";
-    } else if (hasSavedStubEndpoint) {
-      recommendedFlow = "stub_only";
-      recommendedReason =
-        "The only saved browser-facing webhook is the Apps Script stub, which is fine for smoke tests only.";
-    }
+    // R9 / D4: one recommendation, owned by discovery-readiness.js (which
+    // also knows whether Tailscale is installed and re-stamps this snapshot
+    // on the way out). Never the stub_only flow (D2): a saved Apps Script
+    // stub is an engine state, not a path anyone is offered.
+    const recommendation = recommendFlow({
+      savedWebhookKind,
+      engineState,
+      localWebhookUrl,
+      tunnelPublicUrl,
+    });
+    const recommendedFlow = recommendation.recommendedFlow;
+    const recommendedReason = recommendation.recommendedReason;
 
     let blockingIssue = "";
     if (!config.sheetId) {
