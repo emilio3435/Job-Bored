@@ -34,7 +34,9 @@ import {
   migrateHermesApplicationsIfNeeded,
 } from "./application-materials.mjs";
 import { existsSync } from "node:fs";
-import { join } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import {
   normalizeRequestBody,
   spawnMaterialsRequest,
@@ -184,6 +186,26 @@ function isRecord(value) {
 function errorMessage(error, fallback) {
   const errorLike = /** @type {{ message?: unknown } | null | undefined} */ (error);
   return String(errorLike && errorLike.message ? errorLike.message : fallback);
+}
+
+const SERVER_DIR = dirname(fileURLToPath(import.meta.url));
+
+/**
+ * BEAUDIT E5: hosted error details must never carry container/host fs paths.
+ * Redacts the server dir, the home dir, and any remaining quoted or bare
+ * absolute-path-looking token. URLs are never touched.
+ */
+function redactFsPaths(text) {
+  let out = String(text ?? "");
+  for (const root of [SERVER_DIR, homedir()].filter(Boolean)) {
+    out = out.split(root).join("[redacted]");
+  }
+  out = out.replace(/['"]((?:\/[^'"]*)|[A-Za-z]:\\[^'"]*)['"]/g, "'[redacted]'");
+  out = out.replace(
+    /(?<![\w/:.-])\/(?:[A-Za-z0-9_.-]+\/)+[A-Za-z0-9_.-]+/g,
+    "[redacted]",
+  );
+  return out;
 }
 
 /**
@@ -435,7 +457,7 @@ app.get("/profile", async (_req, res) => {
     return res.status(500).json({
       ok: false,
       reason: "read_failed",
-      detail: errorMessage(err, "read failed"),
+      detail: redactFsPaths(errorMessage(err, "read failed")),
     });
   }
 });
@@ -464,7 +486,7 @@ app.post("/profile", async (req, res) => {
         updatedAt,
         logoRefresh: {
           ok: false,
-          error: errorMessage(logoErr, "logo refresh failed"),
+          error: redactFsPaths(errorMessage(logoErr, "logo refresh failed")),
         },
       });
     }
@@ -481,7 +503,7 @@ app.post("/profile", async (req, res) => {
     return res.status(500).json({
       ok: false,
       reason: "write_failed",
-      detail: errorMessage(err, "write failed"),
+      detail: redactFsPaths(errorMessage(err, "write failed")),
     });
   }
 });
@@ -762,13 +784,16 @@ app.post("/profile/rescore", async (req, res) => {
  * @param {unknown} err
  */
 function sendAppError(res, err) {
-  const error = /** @type {{ statusCode?: unknown, code?: unknown } | null | undefined} */ (err);
+  const error = /** @type {{ statusCode?: unknown, code?: unknown, retryable?: unknown } | null | undefined} */ (err);
   const status = Number(error && error.statusCode);
   const message = errorMessage(err, "Application materials error");
-  /** @type {{ error: string, code?: string, validTemplates?: string[] }} */
+  /** @type {{ error: string, code?: string, retryable?: boolean, validTemplates?: string[] }} */
   const body = { error: message };
   if (error && typeof error.code === "string" && error.code) {
     body.code = error.code;
+  }
+  if (error && typeof error.retryable === "boolean") {
+    body.retryable = error.retryable;
   }
   const valid = error && /** @type {{ validTemplates?: unknown }} */ (error).validTemplates;
   if (Array.isArray(valid)) body.validTemplates = valid.map(String);

@@ -1,4 +1,6 @@
 FROM node:24-alpine
+# BEAUDIT E5: the brand-logo resolver shells out to python3.
+RUN apk add --no-cache python3
 WORKDIR /app
 
 COPY package.json package-lock.json* ./
