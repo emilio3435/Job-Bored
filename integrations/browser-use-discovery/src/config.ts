@@ -912,7 +912,14 @@ export async function loadStoredWorkerConfig(
  * If no config file exists yet, one is created from the caller's mutations
  * plus the default shape produced by `buildDefaultStoredWorkerConfig`.
  */
-export async function upsertStoredWorkerConfig(
+// BEAUDIT A16: upserts are a read-modify-write of one file; two overlapping
+// calls read the same document and the last rename dropped the other's
+// change. Writes to one path are serialized in-process, and each re-reads the
+// file inside the lock. (A concurrent write from another process, such as the
+// dev-server, is not covered by this lock.)
+const workerConfigWriteChains = new Map<string, Promise<unknown>>();
+
+export function upsertStoredWorkerConfig(
   runtimeConfig: WorkerRuntimeConfig,
   input: {
     sheetId: string;
@@ -921,10 +928,34 @@ export async function upsertStoredWorkerConfig(
 ): Promise<StoredWorkerConfig> {
   const pathname = runtimeConfig.workerConfigPath;
   if (!pathname) {
-    throw new Error(
-      "upsertStoredWorkerConfig: runtimeConfig.workerConfigPath is empty.",
+    return Promise.reject(
+      new Error(
+        "upsertStoredWorkerConfig: runtimeConfig.workerConfigPath is empty.",
+      ),
     );
   }
+  const previous = workerConfigWriteChains.get(pathname) || Promise.resolve();
+  const next = previous
+    .catch(() => undefined)
+    .then(() => upsertStoredWorkerConfigUnlocked(runtimeConfig, pathname, input));
+  workerConfigWriteChains.set(pathname, next);
+  const release = () => {
+    if (workerConfigWriteChains.get(pathname) === next) {
+      workerConfigWriteChains.delete(pathname);
+    }
+  };
+  next.then(release, release);
+  return next;
+}
+
+async function upsertStoredWorkerConfigUnlocked(
+  runtimeConfig: WorkerRuntimeConfig,
+  pathname: string,
+  input: {
+    sheetId: string;
+    mutations: Partial<StoredWorkerConfig>;
+  },
+): Promise<StoredWorkerConfig> {
   const raw = await readJsonIfExists(pathname);
   const existingPayload = raw ? pickSheetConfigPayload(raw, input.sheetId) : null;
   const existing = existingPayload && typeof existingPayload === "object"
