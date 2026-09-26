@@ -3,6 +3,14 @@ import { describe, it } from "node:test";
 
 import { loadCutover, readRepoFile, settle } from "./oneflow-l6-harness.mjs";
 
+// GFX FE-B4 (B4-6): B4 no longer prints the raw profile JSON, which is
+// where these names used to surface as text. They live in the fields.
+function fitFieldText(root) {
+  return [root.textContent]
+    .concat(root.querySelectorAll(".oneflow-fit-tag__input").map((i) => i.value))
+    .join(" ");
+}
+
 /* ============================================================
    ONEFLOW L7 — the three decisions L6 routed here.
 
@@ -114,11 +122,11 @@ describe("routed 8 · one draft key — `profileDraft` is the canon (spec §5 B3
 
     assert.equal(env.openBeat(), "fit");
     assert.match(
-      env.text(),
+      fitFieldText(env.mount()),
       /Staff Platform Engineer/,
       "B4 shows what B3 drafted; an empty B4 is the resume-first premise dying",
     );
-    assert.match(env.text(), /Denver/);
+    assert.match(fitFieldText(env.mount()), /Denver/);
   });
 
   it("neither beat file mentions the retired alias", () => {

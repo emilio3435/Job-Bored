@@ -3,6 +3,14 @@ import { describe, it } from "node:test";
 import { loadOneFlow } from "./oneflow-l0-harness.mjs";
 import { loadCutover, settle } from "./oneflow-l6-harness.mjs";
 
+// GFX FE-B4 (B4-6): B4 no longer prints the raw profile JSON, which is
+// where these names used to surface as text. They live in the fields.
+function fitFieldText(root) {
+  return [root.textContent]
+    .concat(root.querySelectorAll(".oneflow-fit-tag__input").map((i) => i.value))
+    .join(" ");
+}
+
 /* ============================================================
    SIXBEATS-2 lane draft-persistence — NEW-14, NEW-7, NEW-6.
 
@@ -220,11 +228,11 @@ describe("SB2 NEW-14 — Beat 4 survives a refresh (BLOCKER)", () => {
       async completeBeat() {},
     });
     assert.match(
-      container.textContent,
+      fitFieldText(container),
       /Staff Engineer/,
       "NEW-14: after a refresh the persisted draft is the ONLY draft there is",
     );
-    assert.match(container.textContent, /Distributed systems/);
+    assert.match(fitFieldText(container), /Distributed systems/);
   });
 
   it("SB2-FIT-DRAFT-WRITE: editing a field in B4 persists the corrected draft (spec §3.2 'B4 edits')", () => {
@@ -277,7 +285,7 @@ describe("SB2 NEW-14 — Beat 4 survives a refresh (BLOCKER)", () => {
     await settle();
     assert.equal(second.openBeat(), "fit", "resume lands on the saved beat");
     assert.match(
-      second.text(),
+      fitFieldText(second.mount()),
       /Staff Engineer/,
       "NEW-14: Beat 4 came back EMPTY on cf0da4d",
     );
