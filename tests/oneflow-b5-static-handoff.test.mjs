@@ -1016,3 +1016,95 @@ describe("GFX-N5 · ?beat= is ignored once onboarding is complete", () => {
     assert.equal(env.flow.isOpen(), true);
   });
 });
+
+// ---------------------------------------------------------------
+// GFX-N7: the presence poll dies with the beat
+// ---------------------------------------------------------------
+
+describe("GFX-N7 · the presence poll stops when B5 is left or the flow closes", () => {
+  const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  /** Hosted page, local app never answers: the poll would run 50 ticks. */
+  function unansweredEnv() {
+    const env = loadDiscoveryBeat({
+      fetchImpl: async (url) => {
+        const u = String(url);
+        if (u === "http://localhost:8080/__proxy/ping") {
+          throw new TypeError("Failed to fetch");
+        }
+        if (u.includes("__proxy/ping")) {
+          return { ok: false, status: 404, headers: staticHtmlHeaders(), json: async () => null };
+        }
+        return { ok: false, json: async () => ({}) };
+      },
+    });
+    const timings = env.beat._internal.pollTimings;
+    const saved = { ...timings };
+    timings.intervalMs = 5;
+    timings.maxPolls = 50;
+    env.restore = () => {
+      timings.intervalMs = saved.intervalMs;
+      timings.maxPolls = saved.maxPolls;
+      env.beat._internal.stopLocalServerPoll();
+    };
+    env.localCalls = () =>
+      env.fetchCalls.filter((c) => c.url.includes("localhost:8080")).length;
+    return env;
+  }
+
+  async function waitForPolls(env, n) {
+    const deadline = Date.now() + 2000;
+    while (env.localCalls() < n) {
+      if (Date.now() > deadline) throw new Error(`timed out waiting for ${n} polls`);
+      await tick();
+    }
+  }
+
+  it("GFX-N7: closing the flow stops the poll", async () => {
+    const env = unansweredEnv();
+    try {
+      await env.flow.open("discovery");
+      await failFuel(env);
+      await waitForPolls(env, 1);
+      env.flow.close("close");
+      await sleep(5);
+      const after = env.localCalls();
+      await sleep(50);
+      assert.equal(env.localCalls(), after, "no probe fires after the flow closes");
+    } finally {
+      env.restore();
+    }
+  });
+
+  it("GFX-N7: moving on to another beat stops the poll", async () => {
+    const env = unansweredEnv();
+    try {
+      env.flow.registerBeat({ id: "payoff", order: 6, render() {}, actions: [] });
+      await env.flow.open("discovery");
+      await failFuel(env);
+      await waitForPolls(env, 1);
+      await env.flow.goToBeat("payoff");
+      assert.equal(env.flow.getState().beat, "payoff");
+      await sleep(5);
+      const after = env.localCalls();
+      await sleep(50);
+      assert.equal(env.localCalls(), after, "no probe fires once B5 is left");
+    } finally {
+      env.restore();
+    }
+  });
+
+  it("GFX-N7: a tick bails when B5 is no longer the open beat", async () => {
+    const env = unansweredEnv();
+    try {
+      await env.flow.open("discovery");
+      await failFuel(env);
+      // No hook ran — the flow simply stopped reporting B5 as open.
+      env.flow.isOpen = () => false;
+      await sleep(50);
+      assert.equal(env.localCalls(), 0, "the first tick checks the beat before probing");
+    } finally {
+      env.restore();
+    }
+  });
+});

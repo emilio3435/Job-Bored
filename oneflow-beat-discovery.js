@@ -774,10 +774,27 @@
   }
 
   /**
-   * Watch for the local dashboard while the handoff is on screen. Keyless
-   * by construction — the probe carries no body at all. Stops on found, on
-   * a new check (the generation moves on), when the handoff leaves the
-   * screen, or after maxPolls unanswered ticks: never a forever timer.
+   * True while the flow is open on this beat. The poll's own guard, so a
+   * tick never announces on a screen B5 no longer owns even if the leave
+   * hook was missed (GFX-N7). Unreadable reads as "not ours".
+   */
+  function beatIsActive() {
+    try {
+      if (typeof flow.isOpen !== "function" || !flow.isOpen()) return false;
+      const snapshot = typeof flow.getState === "function" ? flow.getState() : null;
+      return !!(snapshot && snapshot.beat === "discovery");
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /**
+   * Watch for the local dashboard while the static-host answer stands.
+   * Keyless by construction — the probe carries no body at all. Stops on
+   * found, on a new check or a pass (the generation moves on), when the
+   * flow leaves B5 or closes (the onLeave hook, plus a per-tick
+   * beatIsActive check), or after maxPolls unanswered ticks: never a
+   * forever timer.
    */
   function scheduleLocalServerPoll(ctx) {
     stopLocalServerPoll();
@@ -788,6 +805,7 @@
       localPollTimer = null;
       if (gen !== localPollGen) return;
       if (lastFuelReason !== "static_host" || state.localServerFound) return;
+      if (!beatIsActive()) return;
       localPolls += 1;
       let found = false;
       try {
@@ -795,7 +813,7 @@
       } catch (_) {
         found = false;
       }
-      if (gen !== localPollGen) return;
+      if (gen !== localPollGen || !beatIsActive()) return;
       if (found) {
         state.localServerFound = true;
         // Re-render through the message slot: the handoff below reads
@@ -1346,6 +1364,11 @@
     },
     onAction(actionId, ctx) {
       return dispatch(actionId, ctx);
+    },
+    // GFX-N7: leaving B5 (next beat, finish, pause) ends the presence poll,
+    // so no tick fires setMessage on a screen this beat no longer owns.
+    onLeave() {
+      stopLocalServerPoll();
     },
   });
 
