@@ -25,7 +25,7 @@
 | G | `Leads Updated` | `10` | Integer — existing Pipeline rows updated this run. |
 | H | `Source` | `worker@v0.4.1` | Free-form; worker sets. |
 | I | `Variation Key` | `gh-1234-abcd` | Existing concept from `DiscoveryWebhookRequestV1.variationKey`. |
-| J | `Error` | `timeout on acme.com` | Blank when `status=success`. Short (< 200 chars). |
+| J | `Error` | `timeout on acme.com` | Blank when `status=success`. For `partial` / `failure`, a short reason (write error, classified `reasonMessage`, or first warning). Truncated to 200 chars. |
 
 Add a `PIPELINE_DEDUPE_HEADER`-style constant to `contracts.ts`:
 
@@ -98,7 +98,7 @@ The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` help
 | --- | --- | --- |
 | `Leads New` | `writeResult.appended` (real Pipeline count) | Always `0` — this endpoint enriches companies, it doesn't write leads. |
 | `Leads Updated` | `writeResult.updated` (real Pipeline row updates) | Always `0` — this endpoint enriches companies, it doesn't write leads. |
-| `Companies Seen` | `config.companies.length` | `companies.length` returned by `discoverCompaniesForProfile()`. |
+| `Companies Seen` | unique count of `config.companies` + `config.atsCompanies` | `companies.length` returned by `discoverCompaniesForProfile()`. |
 | `Source` | `discoveryRunsSource` (defaults to `worker`) | `worker@profile` (override via `discoveryRunsSource`). |
 | `Variation Key` | `request.variationKey` | `sheetId` as fallback (the endpoint has no variationKey concept). |
 | `Trigger` | `request.trigger` else derived from the dispatcher arg | `request.trigger` else `"cli"` for refresh, `"manual"` otherwise. |

@@ -180,6 +180,47 @@ export function parseDiscoveryRunsCells(
   };
 }
 
+/**
+ * Fill DiscoveryRuns.Error for non-success rows.
+ *
+ * Partial is a first-class status (warnings / no writeable leads), not a
+ * crash, so `status.error` is often empty. The contract still wants a short
+ * Error cell — use writeError, an explicit error, the classified
+ * reasonMessage, or the first warning. Success stays blank.
+ */
+export function resolveDiscoveryRunLogError(input: {
+  status: string;
+  writeError?: { phase?: string; message?: string } | null;
+  error?: string | null;
+  reasonMessage?: string | null;
+  warnings?: readonly string[] | null;
+}): string {
+  const normalized = String(input.status || "").toLowerCase();
+  if (
+    normalized === "success" ||
+    normalized === "completed" ||
+    normalized === "empty"
+  ) {
+    return "";
+  }
+  if (input.writeError?.message) {
+    const phase = String(input.writeError.phase || "").trim();
+    const message = String(input.writeError.message);
+    return phase
+      ? `Sheet write failed during ${phase} phase: ${message}`
+      : message;
+  }
+  const explicit = String(input.error || "").trim();
+  if (explicit) return explicit;
+  const reason = String(input.reasonMessage || "").trim();
+  if (reason) return reason;
+  for (const warning of input.warnings || []) {
+    const text = String(warning || "").trim();
+    if (text) return text;
+  }
+  return "";
+}
+
 export function buildDiscoveryRunLogRowFromStatus(
   status: DiscoveryRunStatusPayload,
   extras: {
@@ -208,18 +249,13 @@ export function buildDiscoveryRunLogRowFromStatus(
     leadsUpdated: Number(status.writeResult?.updated) || 0,
     source: extras.source || "worker",
     variationKey: String(status.request?.variationKey || ""),
-    // Small UX: when non-success states lack an explicit `error`, surface the
-    // lifecycle.reasonMessage or the first warning as a human-readable hint.
-    error:
-      logStatus === "success"
-        ? ""
-        : String(
-            status.error ||
-              status.lifecycle?.reasonMessage ||
-              (Array.isArray(status.warnings) && status.warnings.length
-                ? status.warnings[0]
-                : ""),
-          ),
+    error: resolveDiscoveryRunLogError({
+      status: logStatus,
+      writeError: status.writeResult?.writeError,
+      error: status.error,
+      reasonMessage: status.lifecycle?.reasonMessage,
+      warnings: status.warnings,
+    }),
   };
 }
 
