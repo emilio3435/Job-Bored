@@ -450,7 +450,111 @@
       progressHeartbeatSeen: !!o.progressHeartbeatSeen,
       pollErrorCount: toInt(o.pollErrorCount),
       statusEndpointTerminal: !!o.statusEndpointTerminal,
+      // DISCAT D9: lifecycle.filterStats from the run status (absent on
+      // runs from before DISCAT).
+      filterStats: o.filterStats && typeof o.filterStats === "object" ? o.filterStats : null,
     };
+  }
+
+  // DISCAT D9: name the exclude keyword when it alone removed at least a
+  // quarter of the listings a run saw. States the fact; changes nothing.
+  var FILTER_HINT_MIN_SHARE = 0.25;
+
+  function formatCount(n) {
+    try {
+      return Number(n).toLocaleString("en-US");
+    } catch (_) {
+      return String(n);
+    }
+  }
+
+  // DISCAT Fix-B: plain-language cause for each backend rejection reason
+  // code. excluded_keyword is absent on purpose: a keyword hint must name the
+  // keyword (byExcludeKeyword), and older runs mislabelled other drops as it.
+  var FILTER_REASON_LABELS = {
+    remote_unknown: "their remote status was unknown",
+    remote_policy_mismatch: "they did not match your remote preference",
+    location_mismatch: "their location was outside the places you listed",
+    skip_title: "their title contained one of your skip-title phrases",
+    work_auth_mismatch: "they said they would not sponsor a work visa",
+    salary_below_floor: "their published salary was below your floor",
+    salary_missing: "they did not publish a salary and you require one",
+    headline_mismatch: "their title did not match your target roles",
+    missing_required_fields: "they were missing a title, company or link",
+    matcher_rejected: "the matcher judged them a poor fit",
+  };
+
+  function positiveCount(value) {
+    var n = Number(value);
+    return Number.isFinite(n) && n > 0 ? n : 0;
+  }
+
+  /**
+   * Up to two lines, larger cause first: the largest precise reason and the
+   * largest exclude keyword, each stated only when it alone removed at least
+   * 25% of the listings the run saw, so a large reason never hides a
+   * keyword hint. Lines are joined with "\n". Changes nothing.
+   */
+  function filterHintText(filterStats) {
+    if (!filterStats || typeof filterStats !== "object") return "";
+    var seen = Number(filterStats.listingsSeen);
+    if (!Number.isFinite(seen) || seen <= 0) return "";
+    var topKeyword = null;
+    var keywords = Array.isArray(filterStats.byExcludeKeyword) ? filterStats.byExcludeKeyword : [];
+    for (var i = 0; i < keywords.length; i++) {
+      var entry = keywords[i];
+      if (!entry || typeof entry.keyword !== "string" || !entry.keyword.trim()) continue;
+      var count = positiveCount(entry.count);
+      if (count && (!topKeyword || count > topKeyword.count)) {
+        topKeyword = { keyword: entry.keyword.trim(), count: count };
+      }
+    }
+    var topReason = null;
+    var reasons = filterStats.byReason && typeof filterStats.byReason === "object" ? filterStats.byReason : {};
+    for (var code in reasons) {
+      if (!Object.prototype.hasOwnProperty.call(reasons, code)) continue;
+      if (!Object.prototype.hasOwnProperty.call(FILTER_REASON_LABELS, code)) continue;
+      var reasonCount = positiveCount(reasons[code]);
+      if (reasonCount && (!topReason || reasonCount > topReason.count)) {
+        topReason = { reason: code, count: reasonCount };
+      }
+    }
+    var causes = [topReason, topKeyword].filter(function (cause) {
+      return cause && cause.count / seen >= FILTER_HINT_MIN_SHARE;
+    });
+    causes.sort(function (a, b) {
+      return b.count - a.count;
+    });
+    return causes
+      .map(function (cause) {
+        var share = Math.round((cause.count / seen) * 100);
+        if (cause.keyword) {
+          return (
+            'Your exclude keyword "' + cause.keyword + '" filtered out ' +
+            formatCount(cause.count) + " of " + formatCount(seen) + " listings (" +
+            share + "%)."
+          );
+        }
+        return (
+          formatCount(cause.count) + " of " + formatCount(seen) + " listings (" + share +
+          "%) were dropped because " + FILTER_REASON_LABELS[cause.reason] + "."
+        );
+      })
+      .join("\n");
+  }
+
+  function filterHintRowHtml(text) {
+    if (!text) return "";
+    return (
+      '<tr class="runs-filter-hint-row"><td colspan="' + VISIBLE_COLUMNS + '">' +
+        String(text)
+          .split("\n")
+          .map(function (line) {
+            return '<p class="runs-filter-hint">' + escapeHtml(line) + "</p>";
+          })
+          .join("") +
+      "</td></tr>"
+    );
   }
 
   function liveRunTracker() {
@@ -646,6 +750,7 @@
             newRolesCellHtml(r.leadsWritten, r.leadsWrittenAvailability) +
             whyCellHtml(r.status, r.error) +
           "</tr>" +
+          filterHintRowHtml(filterHintText(r.filterStats)) +
           detailRowHtml(detailId, details[key] || renderCoarseDetailHtml(r), open)
         );
       }
@@ -696,6 +801,7 @@
           : '<td class="runs-new-cell"><span class="runs-dash">—</span></td>') +
         whyCellHtml(terminal ? status : "", errorText) +
       "</tr>" +
+      (terminal ? filterHintRowHtml(filterHintText(run && run.filterStats)) : "") +
       (progressCell
         ? '<tr class="runs-live-progress-row" data-live-run-progress="1"><td colspan="' +
           VISIBLE_COLUMNS + '">' + progressCell + "</td></tr>"
@@ -807,6 +913,9 @@
       statusPath: String(s.statusPath || ""),
       workerStatus: String(s.status || ""),
       origin: "worker",
+      // DISCAT D9: the summary's filterStats (absent on runs from before
+      // DISCAT) drive the filter hint under the run's row.
+      filterStats: s.filterStats && typeof s.filterStats === "object" ? s.filterStats : null,
     };
   }
 
@@ -848,6 +957,7 @@
       var merged = Object.assign({}, existing, {
         statusPath: w.statusPath,
         workerStatus: w.workerStatus,
+        filterStats: w.filterStats,
         origin: "both",
       });
       if (w.runAt) merged.runAt = w.runAt;
@@ -1020,6 +1130,14 @@
     duplicate: "Duplicate listing",
     low_quality_extraction: "Listing couldn’t be read",
     blocked_aggregator: "Aggregator site skipped",
+    // DISCAT Fix-B: the precise codes the worker now records.
+    skip_title: "Title is on your skip list",
+    excluded_keyword: "Matched an exclude keyword",
+    remote_unknown: "Remote status unknown",
+    remote_policy_mismatch: "Not remote",
+    salary_missing: "No salary listed",
+    missing_required_fields: "Missing title, company or link",
+    matcher_rejected: "Judged a poor fit",
   };
   var PHASE_LABELS = {
     initializing: "Start",
@@ -2004,6 +2122,7 @@
       initRunsTab: initRunsTab,
       whyText: whyText,
       triggerLabel: triggerLabel,
+      filterHintText: filterHintText,
       describeRunsFailure: describeRunsFailure,
     },
   };

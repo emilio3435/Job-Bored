@@ -202,6 +202,7 @@ test("discovery memory store reports table counts for planner and dedupe health"
       scoutObservations: 0,
       exploitOutcomes: 0,
       roleFamilies: 0,
+      candidateCatalog: 0,
     });
 
     store.upsertCompany({
@@ -265,6 +266,7 @@ test("discovery memory store reports table counts for planner and dedupe health"
       scoutObservations: 0,
       exploitOutcomes: 0,
       roleFamilies: 0,
+      candidateCatalog: 0,
     });
 
     store.close();
@@ -447,6 +449,7 @@ test("scout observations persist with run/surface identity and are queryable", a
       scoutObservations: 3,
       exploitOutcomes: 0,
       roleFamilies: 0,
+      candidateCatalog: 0,
     });
 
     // Query by runId

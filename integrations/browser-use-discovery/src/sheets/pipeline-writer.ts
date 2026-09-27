@@ -3,6 +3,7 @@ import {
   DEFAULT_BLACKLIST_SHEET_NAME,
   PIPELINE_HEADER_ROW,
   type NormalizedLead,
+  type PipelineSkippedLink,
   type PipelineWriteResult,
 } from "../contracts.ts";
 import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
@@ -295,6 +296,8 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
 function dedupeIncomingLeads(leads: NormalizedLead[]): {
   leads: NormalizedLead[];
   skippedDuplicates: number;
+  /** Normalized links of in-batch duplicates folded into a kept twin. */
+  droppedLinks: string[];
 } {
   const cleaned = leads
     .map((lead) => {
@@ -303,10 +306,19 @@ function dedupeIncomingLeads(leads: NormalizedLead[]): {
     })
     .filter((lead): lead is NormalizedLead => !!lead);
   const deduped = dedupeFingerprintListings(cleaned);
+  const kept = new Set(deduped.uniqueItems);
+  const keptLinks = new Set(deduped.uniqueItems.map((lead) => lead.url));
   return {
     leads: deduped.uniqueItems,
     skippedDuplicates:
       deduped.duplicateCount + Math.max(0, leads.length - cleaned.length),
+    droppedLinks: [
+      ...new Set(
+        cleaned
+          .filter((lead) => !kept.has(lead) && !keptLinks.has(lead.url))
+          .map((lead) => lead.url),
+      ),
+    ],
   };
 }
 
@@ -480,6 +492,13 @@ export function createPipelineWriter(
     const pendingByRow = new Map<number, PendingUpdate>();
     const appends: string[][] = [];
     const skippedBlacklist: Array<{ url: string; title: string }> = [];
+    // DISCAT C1: per-lead fate, by normalized link.
+    const skippedLinks: PipelineSkippedLink[] = deduped.droppedLinks.map((url) => ({
+      url,
+      reason: "duplicate",
+    }));
+    let updatedLinks: string[] = [];
+    let appendedLinks: string[] = [];
     let skippedDuplicates = deduped.skippedDuplicates;
     const warnings: string[] = existingDuplicateCount
       ? [
@@ -501,10 +520,12 @@ export function createPipelineWriter(
         const match = identityHit.match;
         if (match.row[PIPELINE_COL.dismissedAt]) {
           skippedBlacklist.push({ url: link, title: lead.title || "" });
+          skippedLinks.push({ url: link, reason: "blacklisted" });
           continue;
         }
         if (identityHit.decision.action === "review") {
           skippedDuplicates += 1;
+          skippedLinks.push({ url: link, reason: "identity_collision" });
           warnings.push(
             `Merge review: semantic identity collision for ${link} with Pipeline row ${match.rowNumber}.`,
           );
@@ -527,6 +548,7 @@ export function createPipelineWriter(
       }
       if (blacklistedUrls.has(link)) {
         skippedBlacklist.push({ url: link, title: lead.title || "" });
+        skippedLinks.push({ url: link, reason: "blacklisted" });
         continue;
       }
       appends.push(leadRow);
@@ -558,6 +580,7 @@ export function createPipelineWriter(
         });
         const data: Array<{ range: string; values: string[][] }> = [];
         let matched = 0;
+        const matchedLinks: string[] = [];
         resolved.forEach((result, index) => {
           const entry = pending[index];
           if (result.status !== "found") {
@@ -570,12 +593,16 @@ export function createPipelineWriter(
           }
           if (result.row[PIPELINE_COL.dismissedAt]) {
             skippedBlacklist.push({ url: entry.link, title: result.row[PIPELINE_COL.title] || "" });
+            for (const leadRow of entry.leadRows) {
+              skippedLinks.push({ url: leadRow[PIPELINE_COL.link], reason: "blacklisted" });
+            }
             return;
           }
           let merged = result.row;
           for (const leadRow of entry.leadRows) merged = mergeExistingRow(merged, leadRow);
           data.push(...changedCellRanges(sheetName, result.rowNumber, result.row, merged));
           matched += entry.leadRows.length;
+          for (const leadRow of entry.leadRows) matchedLinks.push(leadRow[PIPELINE_COL.link]);
         });
         if (data.length) {
           const response = await batchUpdateSheetValues(
@@ -597,6 +624,7 @@ export function createPipelineWriter(
           }
         }
         updated = matched;
+        updatedLinks = matchedLinks;
       } catch (error) {
         updateError =
           error instanceof SheetWriteError
@@ -623,6 +651,8 @@ export function createPipelineWriter(
           skippedDuplicates: skippedDuplicates + existingDuplicateCount,
           skippedBlacklist: skippedBlacklist.length,
           warnings: [...warnings],
+          writtenLinks: [...updatedLinks],
+          skippedLinks: [...skippedLinks],
         });
         let present: Set<string>;
         try {
@@ -646,6 +676,11 @@ export function createPipelineWriter(
         }
         const fresh = appends.filter((row) => !present.has(row[PIPELINE_COL.link]));
         const already = appends.length - fresh.length;
+        for (const row of appends) {
+          if (present.has(row[PIPELINE_COL.link])) {
+            skippedLinks.push({ url: row[PIPELINE_COL.link], reason: "duplicate" });
+          }
+        }
         if (already) {
           skippedDuplicates += already;
           warnings.push(
@@ -677,6 +712,7 @@ export function createPipelineWriter(
         }
         if (response.ok) {
           appended = appends.length;
+          appendedLinks = appends.map((row) => row[PIPELINE_COL.link]);
           break;
         }
         const body = await response.text().catch(() => "");
@@ -702,6 +738,8 @@ export function createPipelineWriter(
       skippedDuplicates: skippedDuplicates + existingDuplicateCount,
       skippedBlacklist: skippedBlacklist.length,
       warnings,
+      writtenLinks: [...updatedLinks, ...appendedLinks],
+      skippedLinks,
     };
     if (updateError) {
       throw new SheetWriteError({

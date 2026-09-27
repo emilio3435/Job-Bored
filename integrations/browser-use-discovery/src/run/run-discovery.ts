@@ -67,6 +67,7 @@ import {
 import { classifyCareerSurfaceSourcePolicy } from "../discovery/career-surface-resolver.ts";
 import {
   normalizeLeadWithDiagnostics,
+  preFilterRejection,
   type LeadNormalizationRejection,
 } from "../normalize/lead-normalizer.ts";
 import { dedupeLeadsForProductionRun } from "../normalize/intake-identity.ts";
@@ -108,6 +109,30 @@ import {
   type FrontierCandidate,
 } from "./frontier-scorer.ts";
 import { buildRunStats } from "./run-stats.ts";
+import {
+  createRunCandidateLedger,
+  leadFingerprintKey,
+  findPreviouslyWrittenLeads,
+  persistRunCandidateCatalog,
+  resolveLeadWriteFates,
+  selectBacklogPromotions,
+  type RunCandidateLedger,
+} from "./candidate-catalog.ts";
+import { compareNormalizedLeads } from "./lead-ranking.ts";
+import {
+  atsBoardKey,
+  atsCompanyIdentityKey,
+  buildCompanyYieldStats,
+  companyYieldKeys,
+  mergeAtsCompanyTargets,
+  planAtsCompanyOrder,
+} from "./ats-yield-steering.ts";
+import {
+  buildRunFilterStats,
+  recordFilterSignals,
+  selectNearMissListings,
+  type RejectedListingRef,
+} from "./filter-stats.ts";
 
 // Default maximum run duration: 60 minutes. Async discovery runs are background
 // work; source and matcher timeouts still keep individual lanes bounded.
@@ -183,7 +208,12 @@ export type RunDiscoveryResult = {
   runStats?: DiscoveryRunStats;
 };
 
-type RejectionSummary = DiscoveryRejectionSummary;
+// DISCAT D8/D9: run-internal extras beside the contract summary. They feed
+// lifecycle.filterStats and near-miss learning and never reach sources[].
+type RejectionSummary = DiscoveryRejectionSummary & {
+  excludeKeywordCounts?: Record<string, number>;
+  headlineMismatches?: RejectedListingRef[];
+};
 
 /**
  * Wraps work with a timeout AbortSignal linked to the active run signal.
@@ -464,6 +494,10 @@ export async function runDiscovery(
   );
   const heartbeatTimer = setInterval(() => checkpointRunProgress(currentProgressPhase), 15_000);
   heartbeatTimer.unref?.();
+  // DISCAT Fix-A: a failed, aborted or cancelled run still keeps what it
+  // saw. Set once the ledger and intent key exist; cleared by the normal
+  // end-of-run persistence.
+  let flushCatalogOnFailure: (() => Promise<void>) | null = null;
   try {
   const storedConfig = await dependencies.loadStoredWorkerConfig(request.sheetId);
   const config = dependencies.mergeDiscoveryConfig(storedConfig, request);
@@ -570,6 +604,8 @@ export async function runDiscovery(
     BrowserUseExtractionResult
   >();
   const rejectionSummaryBySource = new Map<string, RejectionSummary>();
+  // DISCAT C1: every unique listing's fate, persisted at the end of the run.
+  const candidateLedger = createRunCandidateLedger();
   const normalizedLeads: NormalizedLead[] = [];
   let detectionCount = 0;
   let listingCount = 0;
@@ -606,6 +642,9 @@ export async function runDiscovery(
     junkHostSuppressions: 0,
     duplicateSuppressions: 0,
     crossLaneDuplicates: 0,
+    atsBoardDuplicatesSkipped: 0,
+    atsTargetsMerged: 0,
+    atsCompaniesCooledDown: 0,
   };
   // B7: per-company seen/accepted/rejected counts keyed by
   // normalizeCompanyKey(company). Feeds intent coverage and per-company
@@ -638,6 +677,33 @@ export async function runDiscovery(
   let memorySnapshot: DiscoveryMemorySnapshot | null = null;
   // B7: one stable intent key for every memory read and write in this run.
   const memoryIntentKey = buildStableIntentKey(config);
+  // Qualified leads known so far; companyScopedLeads once the scope filter ran.
+  let qualifiedLeadsForCatalog: NormalizedLead[] = normalizedLeads;
+  // Set as soon as the Sheet write returns: records each selected lead's
+  // actual fate in the ledger and returns the promoted keys the Sheet wrote.
+  let recordWriteFatesInLedger: (() => string[]) | null = null;
+  flushCatalogOnFailure = () => {
+    // After the write returned, a later failure (memory learning, say) must
+    // not demote leads the Sheet already holds, so the captured fates win.
+    // Before it, no write was confirmed, so the qualified leads are backlog:
+    // a later run revalidates them and the Sheet dedupes any that did land.
+    let promotedKeys: string[] = [];
+    if (recordWriteFatesInLedger) {
+      promotedKeys = recordWriteFatesInLedger();
+    } else {
+      candidateLedger.addLeads(qualifiedLeadsForCatalog, "backlog");
+    }
+    return persistRunCandidateCatalog({
+      store: dependencies.discoveryMemoryStore,
+      ledger: candidateLedger,
+      runId,
+      sheetId: config.sheetId,
+      intentKey: memoryIntentKey,
+      observedAt: dependencies.now().toISOString(),
+      promotedKeys,
+      log: dependencies.log,
+    });
+  };
   if (dependencies.discoveryMemoryStore) {
     const intentKey = memoryIntentKey;
     memorySnapshot = await Promise.resolve(
@@ -839,7 +905,34 @@ export async function runDiscovery(
     companyBlocklist: request.companyBlocklist,
   });
   atsCompaniesToSearch = runtimeAtsPools.atsCompanies;
+  // DISCAT C2 (D7): each board is listed at most once per run. Targets for
+  // one company fold together first; listedAtsBoards then catches the same
+  // (sourceId, board token) reached through different company keys.
+  const listedAtsBoards = new Set<string>();
+  const skippedAtsBoards: string[] = [];
+  let mergedAtsTargets = 0;
   if (hasAtsLanes) {
+    const mergedAts = mergeAtsCompanyTargets(atsCompaniesToSearch);
+    mergedAtsTargets = mergedAts.mergedCount;
+    // DISCAT C2 (D6): highest past yield first; proven zero-yield
+    // companies cool down, one of them explored per run.
+    const atsPlan = planAtsCompanyOrder(
+      mergedAts.companies,
+      buildCompanyYieldStats(memorySnapshot?.intentCoverage || []),
+      dependencies.now().getTime(),
+    );
+    atsCompaniesToSearch = atsPlan.companies;
+    loopCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
+    if (atsPlan.cooledDown.length > 0) {
+      dependencies.log?.("discovery.run.ats_company_cooldown", {
+        runId,
+        skipped: atsPlan.cooledDown.map(atsCompanyIdentityKey),
+        explorationAdmitted: atsPlan.explorationAdmitted
+          ? atsCompanyIdentityKey(atsPlan.explorationAdmitted)
+          : null,
+      });
+      progressCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
+    }
     progressCounters.companiesTotal = atsCompaniesToSearch.length;
     progressCounters.companiesDone = 0;
     progressCounters.boardsDetected = 0;
@@ -921,8 +1014,19 @@ export async function runDiscovery(
       }
 
       // Process each source's detections
-      for (const [sourceId, sourceDetections] of detectionsBySource) {
+      for (const [sourceId, detectedBoards] of detectionsBySource) {
         const adapter = adapterMap.get(sourceId);
+        const sourceDetections = detectedBoards.filter((detection) => {
+          const boardKey = atsBoardKey(detection);
+          if (!boardKey) return true;
+          if (listedAtsBoards.has(boardKey)) {
+            skippedAtsBoards.push(boardKey);
+            return false;
+          }
+          listedAtsBoards.add(boardKey);
+          return true;
+        });
+        if (sourceDetections.length === 0) continue;
         
         // Build board contexts for all detections from this source
         const boardContexts = sourceDetections.map((detection) =>
@@ -1045,12 +1149,14 @@ export async function runDiscovery(
                   sourceId,
                   rawListing,
                   normalized.rejection,
+                  candidateLedger,
                 );
               }
               checkpointListings();
               continue;
             }
             normalizedLeads.push(normalized.lead);
+            candidateLedger.noteDescription(normalized.lead, rawListing.descriptionText);
             extractionResult.leads.push(normalized.lead);
             extractionResult.stats.leadsAccepted += 1;
             progressCounters.leadsQualified = (progressCounters.leadsQualified || 0) + 1;
@@ -1105,6 +1211,23 @@ export async function runDiscovery(
       });
     }
   }
+  }
+  // Only boards actually skipped as already listed count; targets folded
+  // together are reported on their own (two targets of one company can
+  // point at two distinct boards, both listed).
+  loopCounters.atsBoardDuplicatesSkipped = skippedAtsBoards.length;
+  loopCounters.atsTargetsMerged = mergedAtsTargets;
+  if (loopCounters.atsBoardDuplicatesSkipped > 0) {
+    progressCounters.atsBoardDuplicatesSkipped =
+      loopCounters.atsBoardDuplicatesSkipped;
+  }
+  if (loopCounters.atsBoardDuplicatesSkipped > 0 || mergedAtsTargets > 0) {
+    dependencies.log?.("discovery.run.ats_board_duplicate_skipped", {
+      runId,
+      count: loopCounters.atsBoardDuplicatesSkipped,
+      mergedTargets: mergedAtsTargets,
+      skippedBoards: [...new Set(skippedAtsBoards)],
+    });
   }
 
   // VAL-ROUTE-008/009: For unrestricted scope (empty companies with ATS lanes),
@@ -1340,6 +1463,12 @@ export async function runDiscovery(
           );
           if (sourcePolicy !== "extractable") {
             serpHintOnlySkipped += 1;
+            candidateLedger.addRejected({
+              sourceId: SERPAPI_GOOGLE_JOBS_SOURCE_ID,
+              listing: rawListing,
+              reason: "non_extractable",
+              detail: sourcePolicy,
+            });
             dependencies.log?.("discovery.run.serpapi_non_extractable_skipped", {
               runId,
               url: rawListing.url,
@@ -1373,12 +1502,14 @@ export async function runDiscovery(
                 SERPAPI_GOOGLE_JOBS_SOURCE_ID,
                 rawListing,
                 normalized.rejection,
+                candidateLedger,
               );
             }
             checkpointListings();
             continue;
           }
           normalizedLeads.push(normalized.lead);
+          candidateLedger.noteDescription(normalized.lead, rawListing.descriptionText);
           extractionResult.leads.push(normalized.lead);
           extractionResult.stats.leadsAccepted += 1;
           progressCounters.leadsQualified += 1;
@@ -1580,6 +1711,7 @@ export async function runDiscovery(
             selectedGroundedUrls,
           ),
         companyLaneCounts,
+        candidateLedger,
       },
     ).catch((error) => {
       if (error instanceof TimeoutError) {
@@ -1629,7 +1761,9 @@ export async function runDiscovery(
     }
   }
 
-  const [dedupedLeads, crossLaneDuplicates, duplicateGroups] = dedupeNormalizedLeads(normalizedLeads);
+  const [dedupedLeads, crossLaneDuplicates, duplicateGroups, duplicateLeads] =
+    dedupeNormalizedLeads(normalizedLeads);
+  candidateLedger.addLeads(duplicateLeads, "duplicate");
   loopCounters.crossLaneDuplicates = crossLaneDuplicates;
   loopCounters.duplicateSuppressions = normalizedLeads.length - dedupedLeads.length;
   const restrictedCompanyAllowlist =
@@ -1649,26 +1783,35 @@ export async function runDiscovery(
   const hasCompanyRestrictions =
     Boolean(restrictedCompanyAllowlist?.length) ||
     Boolean(request.companyBlocklist?.length);
+  const isLeadInCompanyScope = (lead: NormalizedLead): boolean => {
+    if (!hasCompanyRestrictions) return true;
+    let domain = "";
+    try {
+      domain = new URL(lead.url).hostname;
+    } catch {
+      domain = "";
+    }
+    return resolveEffectiveCompanyPools({
+      companies: [{
+        name: lead.company,
+        companyKey: lead.metadata.companyKey,
+        domains: domain ? [domain] : [],
+      }],
+      companyAllowlist: restrictedCompanyAllowlist,
+      companyBlocklist: request.companyBlocklist,
+    }).companies.length > 0;
+  };
   const companyScopedLeads = hasCompanyRestrictions
-    ? dedupedLeads.filter((lead) => {
-        let domain = "";
-        try {
-          domain = new URL(lead.url).hostname;
-        } catch {
-          domain = "";
-        }
-        return resolveEffectiveCompanyPools({
-          companies: [{
-            name: lead.company,
-            companyKey: lead.metadata.companyKey,
-            domains: domain ? [domain] : [],
-          }],
-          companyAllowlist: restrictedCompanyAllowlist,
-          companyBlocklist: request.companyBlocklist,
-        }).companies.length > 0;
-      })
+    ? dedupedLeads.filter(isLeadInCompanyScope)
     : dedupedLeads;
+  qualifiedLeadsForCatalog = companyScopedLeads;
   if (companyScopedLeads.length !== dedupedLeads.length) {
+    const scoped = new Set(companyScopedLeads);
+    candidateLedger.addLeads(
+      dedupedLeads.filter((lead) => !scoped.has(lead)),
+      "rejected",
+      "company_restricted",
+    );
     dependencies.log?.("discovery.run.company_restrictions_filtered", {
       runId,
       suppressedCount: dedupedLeads.length - companyScopedLeads.length,
@@ -1676,7 +1819,27 @@ export async function runDiscovery(
       blocklistRestricted: Boolean(request.companyBlocklist?.length),
     });
   }
-  let leadsToWrite = selectLeadsForWrite(companyScopedLeads, config);
+  // DISCAT Fix-A: a listing this sheet already holds must not crowd out new
+  // ones. Slots fill in tiers: novel fresh leads, then eligible backlog, then
+  // re-sightings of written rows (which still refresh their Sheet row when a
+  // slot is left).
+  const previouslyWritten = await findPreviouslyWrittenLeads({
+    store: dependencies.discoveryMemoryStore,
+    runId,
+    sheetId: config.sheetId,
+    leads: companyScopedLeads,
+    log: dependencies.log,
+  });
+  const novelLeads = companyScopedLeads.filter(
+    (lead) => !previouslyWritten.has(lead),
+  );
+  const reseenLeads = companyScopedLeads.filter((lead) =>
+    previouslyWritten.has(lead),
+  );
+  let leadsToWrite =
+    config.maxLeadsPerRun > 0
+      ? selectLeadsForWrite(novelLeads, config)
+      : selectLeadsForWrite(companyScopedLeads, config);
   const maxLeadCapApplied =
     config.maxLeadsPerRun > 0 && companyScopedLeads.length > config.maxLeadsPerRun;
   if (maxLeadCapApplied) {
@@ -1686,6 +1849,64 @@ export async function runDiscovery(
       dedupedLeadCount: companyScopedLeads.length,
       leadsToWriteCount: leadsToWrite.length,
       suppressedByCap: companyScopedLeads.length - leadsToWrite.length,
+    });
+  }
+  // DISCAT D3: qualified leads the cap (or the concentration limits) left out
+  // are backlog; free write slots fill from earlier runs' fresh backlog.
+  const selectedForWrite = new Set(leadsToWrite);
+  const backlogLeads = companyScopedLeads.filter(
+    (lead) => !selectedForWrite.has(lead),
+  );
+  const backlogPromotion = await selectBacklogPromotions({
+    store: dependencies.discoveryMemoryStore,
+    runId,
+    sheetId: config.sheetId,
+    // A backlog lead is promoted only under the filters it passed, and it is
+    // revalidated against today's exclude keywords and profile prefilter.
+    intentKey: memoryIntentKey,
+    userProfile: config.userProfile,
+    excludeKeywordsFor: (lead) => {
+      const companyKey = normalizeCompanyKey(lead.company || "");
+      return [
+        ...(config.excludeKeywords || []),
+        ...config.companies
+          .filter((company) => normalizeCompanyKey(company.name) === companyKey)
+          .flatMap((company) => company.excludeKeywords || []),
+      ];
+    },
+    now: dependencies.now().toISOString(),
+    slots:
+      config.maxLeadsPerRun > 0
+        ? config.maxLeadsPerRun - leadsToWrite.length
+        : 0,
+    excludeFingerprintKeys: [
+      ...candidateLedger.entries().map((entry) => entry.fingerprintKey),
+      ...normalizedLeads.map(leadFingerprintKey),
+    ],
+    accept: isLeadInCompanyScope,
+    log: dependencies.log,
+  });
+  if (backlogPromotion.leads.length > 0) {
+    leadsToWrite = [...leadsToWrite, ...backlogPromotion.leads];
+    dependencies.log?.("discovery.run.backlog_promoted", {
+      runId,
+      sheetId: config.sheetId,
+      count: backlogPromotion.leads.length,
+    });
+  }
+  if (config.maxLeadsPerRun > 0 && reseenLeads.length > 0) {
+    const beforeReseen = leadsToWrite.length;
+    if (beforeReseen < config.maxLeadsPerRun) {
+      leadsToWrite = selectLeadsForWrite(reseenLeads, config, leadsToWrite);
+    }
+    dependencies.log?.("discovery.run.write_selection_novelty", {
+      runId,
+      sheetId: config.sheetId,
+      novel: novelLeads.length,
+      novelSelected: beforeReseen - backlogPromotion.leads.length,
+      backlogPromoted: backlogPromotion.leads.length,
+      reseenWritten: reseenLeads.length,
+      reseenSelected: leadsToWrite.length - beforeReseen,
     });
   }
   dependencies.log?.("discovery.run.write_started", {
@@ -1734,6 +1955,12 @@ export async function runDiscovery(
           updated: partialResult?.updated ?? 0,
           skippedDuplicates: partialResult?.skippedDuplicates ?? 0,
           skippedBlacklist: partialResult?.skippedBlacklist ?? 0,
+          ...(partialResult?.writtenLinks
+            ? {
+                writtenLinks: partialResult.writtenLinks,
+                skippedLinks: partialResult.skippedLinks || [],
+              }
+            : {}),
           warnings: [
             ...(partialResult?.warnings ?? []),
             `Sheet write failed during ${error.phase} phase: ${error.message}`,
@@ -1750,6 +1977,28 @@ export async function runDiscovery(
       }
     }
   }
+  // DISCAT C1: what the Sheet actually did with each selected lead. Only
+  // leads the Sheet appended or updated count as written; a blacklisted lead
+  // is rejected, a skipped duplicate is a duplicate, and a lead the write
+  // never landed stays backlog so a later run can retry it.
+  const leadWriteFates = resolveLeadWriteFates(leadsToWrite, writeResult);
+  recordWriteFatesInLedger = () => {
+    const promotedLeads = new Set(backlogPromotion.leads);
+    candidateLedger.addLeads(backlogLeads, "backlog");
+    for (const lead of leadsToWrite) {
+      const fate = leadWriteFates.get(lead) || { status: "backlog", reason: "" };
+      // A promoted lead is already a backlog row: written becomes `promoted`
+      // below, and an unlanded one simply stays backlog.
+      if (promotedLeads.has(lead) && (fate.status === "written" || fate.status === "backlog")) {
+        continue;
+      }
+      candidateLedger.addLeads([lead], fate.status, fate.reason);
+    }
+    return backlogPromotion.fingerprintKeys.filter(
+      (_key, index) =>
+        leadWriteFates.get(backlogPromotion.leads[index])?.status === "written",
+    );
+  };
   dependencies.log?.("discovery.run.write_completed", {
     runId,
     sheetId: config.sheetId,
@@ -1822,6 +2071,8 @@ export async function runDiscovery(
     );
     const learnRoleFamilyFromLead =
       discoveryMemoryStore.learnRoleFamilyFromLead?.bind(discoveryMemoryStore);
+    const learnRoleFamilyNearMisses =
+      discoveryMemoryStore.learnRoleFamilyNearMisses?.bind(discoveryMemoryStore);
     const intentKey = memoryIntentKey;
     let persistedOutcomeCount = 0;
     let skippedOutcomeCount = 0;
@@ -1963,8 +2214,12 @@ export async function runDiscovery(
     );
     let coverageCount = 0;
     if (recordCoverage) {
+      // DISCAT C2: only leads the Sheet appended or updated count as
+      // written, so a failed or skipped write cannot dodge the zero-yield
+      // cooldown.
       const writtenByCompany = new Map<string, number>();
       for (const lead of leadsToWrite) {
+        if (leadWriteFates.get(lead)?.status !== "written") continue;
         const key = normalizeCompanyKey(lead.company || "");
         if (key) writtenByCompany.set(key, (writtenByCompany.get(key) || 0) + 1);
       }
@@ -2026,6 +2281,28 @@ export async function runDiscovery(
       }
     }
 
+    // DISCAT D8: headline mismatches that share a role family with the
+    // target roles count as near misses, once per family per run. The
+    // filters themselves stay as configured.
+    let nearMissFamilies = 0;
+    if (learnRoleFamilyNearMisses) {
+      const nearMisses = selectNearMissListings(
+        rejectionSummaryBySource.values(),
+        run.config.targetRoles || [],
+      );
+      if (nearMisses.length > 0) {
+        try {
+          const learned = await learnRoleFamilyNearMisses({ listings: nearMisses });
+          nearMissFamilies = learned.familiesIncremented;
+        } catch (error) {
+          dependencies.log?.("discovery.run.near_miss_learning_failed", {
+            runId,
+            error: formatError(error),
+          });
+        }
+      }
+    }
+
     dependencies.log?.("discovery.run.memory_persistence_completed", {
       runId,
       intentKey,
@@ -2033,8 +2310,22 @@ export async function runDiscovery(
       skippedOutcomeCount,
       coverageCount,
       roleFamiliesLearned: leadsToWrite.length,
+      nearMissFamilies,
     });
   }
+
+  // DISCAT C1: catalog every unique listing with its fate.
+  flushCatalogOnFailure = null;
+  await persistRunCandidateCatalog({
+    store: dependencies.discoveryMemoryStore,
+    ledger: candidateLedger,
+    runId,
+    sheetId: config.sheetId,
+    intentKey: memoryIntentKey,
+    observedAt: completedAt,
+    promotedKeys: recordWriteFatesInLedger(),
+    log: dependencies.log,
+  });
 
   const sourceSummary = buildSourceSummary(
     extractionResultsBySource,
@@ -2209,6 +2500,11 @@ export async function runDiscovery(
       loopCounters,
       // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
       ...failureAttribution,
+      // DISCAT D9: which filter removed how many of the listings seen.
+      filterStats: buildRunFilterStats(
+        rejectionSummaryBySource.values(),
+        listingCount,
+      ),
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,
@@ -2216,6 +2512,16 @@ export async function runDiscovery(
     warnings,
     ...(runStats ? { runStats } : {}),
   };
+  } catch (error) {
+    const flush = flushCatalogOnFailure;
+    if (flush) {
+      try {
+        await flush();
+      } catch {
+        // Best-effort: the run's own error is what the caller must see.
+      }
+    }
+    throw error;
   } finally {
     clearInterval(heartbeatTimer);
     runAbort.clear();
@@ -2308,12 +2614,11 @@ function normalizeRawListing(
   if (userProfile) {
     const preFilter = runPreFilter(rawListing, userProfile);
     if (!preFilter.pass) {
+      // DISCAT Fix-B: name what the pre-filter decided (remote status,
+      // location, salary...) instead of reporting every miss as a keyword.
       return Promise.resolve({
         lead: null,
-        rejection: {
-          reason: "excluded_keyword",
-          detail: preFilter.detail,
-        },
+        rejection: preFilterRejection(preFilter),
         matchUsedAi: false,
       });
     }
@@ -2351,7 +2656,15 @@ function normalizeRawListing(
       finalizeMatchDecision(
         rawListing,
         run,
-        decision || baseline,
+        decision
+          ? {
+              ...decision,
+              // DISCAT D9: the AI matcher does not report which exclude
+              // keyword it weighed; keep the deterministic matches.
+              excludeKeywordMatches:
+                decision.excludeKeywordMatches ?? baseline.excludeKeywordMatches,
+            }
+          : baseline,
         true,
         parentSignal,
       ),
@@ -2375,7 +2688,14 @@ function recordRejection(
   sourceId: string,
   rawListing: RawListing,
   rejection: LeadNormalizationRejection,
+  ledger?: RunCandidateLedger,
 ): void {
+  ledger?.addRejected({
+    sourceId,
+    listing: rawListing,
+    reason: rejection.reason,
+    detail: rejection.detail,
+  });
   const entry = summaries.get(sourceId) || {
     totalRejected: 0,
     rejectionReasons: {},
@@ -2384,6 +2704,7 @@ function recordRejection(
   entry.totalRejected += 1;
   entry.rejectionReasons[rejection.reason] =
     (entry.rejectionReasons[rejection.reason] || 0) + 1;
+  recordFilterSignals(entry, rawListing, rejection);
   if (entry.rejectionSamples.length < 5) {
     entry.rejectionSamples.push({
       reason: rejection.reason,
@@ -2444,15 +2765,22 @@ async function finalizeMatchDecision(
   };
 }
 
-function matchDecisionToRejection(
+export function matchDecisionToRejection(
   decision: MatchDecision,
   rawListing: RawListing,
   run: DiscoveryRun,
 ): LeadNormalizationRejection {
+  const matchedKeywords = decision.excludeKeywordMatches?.length
+    ? { matchedKeywords: [...decision.excludeKeywordMatches] }
+    : {};
+  // DISCAT Fix-B: excluded_keyword only when a configured keyword matched;
+  // an AI hard reject without one is the matcher's judgment.
+  const keywordHit = !!decision.excludeKeywordMatches?.length;
   if (decision.hardRejectReason) {
     return {
-      reason: "excluded_keyword",
+      reason: keywordHit ? "excluded_keyword" : "matcher_rejected",
       detail: `${decision.hardRejectReason} [matcher=${decision.modelVersion}]`,
+      ...matchedKeywords,
     };
   }
 
@@ -2476,8 +2804,9 @@ function matchDecisionToRejection(
   }
   if (strongestComponent === "negative") {
     return {
-      reason: "excluded_keyword",
+      reason: keywordHit ? "excluded_keyword" : "matcher_rejected",
       detail: `${reasons} ${suffix}`.trim(),
+      ...matchedKeywords,
     };
   }
 
@@ -2870,6 +3199,7 @@ async function runGroundedWebDiscovery(
   options?: {
     exploitCompanyFilter?: (company: CompanyTarget) => boolean;
     companyLaneCounts?: Map<string, CompanyLaneCount>;
+    candidateLedger?: RunCandidateLedger;
   },
 ): Promise<{
   extractionResult: BrowserUseExtractionResult | null;
@@ -3018,11 +3348,13 @@ async function runGroundedWebDiscovery(
               "grounded_web",
               rawListing,
               normalized.rejection,
+              options?.candidateLedger,
             );
           }
           continue;
         }
         normalizedLeads.push(normalized.lead);
+        options?.candidateLedger?.noteDescription(normalized.lead, rawListing.descriptionText);
         extractionResult.leads.push(normalized.lead);
         extractionResult.stats.leadsAccepted += 1;
         totalLeadsAccepted++;
@@ -3076,21 +3408,25 @@ async function runGroundedWebDiscovery(
  * VAL-LOOP-CROSS-004: Cross-lane duplicates (same opportunity from ATS+browser)
  * are collapsed and counted in the returned crossLaneDuplicates value.
  *
- * @returns Tuple of [deduplicated leads, cross-lane duplicate count, duplicate groups]
+ * @returns Tuple of [deduplicated leads, cross-lane duplicate count, duplicate groups, dropped duplicate leads]
  */
 function dedupeNormalizedLeads(
   leads: NormalizedLead[],
-): [NormalizedLead[], number, ListingDuplicateGroup[]] {
+): [NormalizedLead[], number, ListingDuplicateGroup[], NormalizedLead[]] {
   const result = dedupeLeadsForProductionRun(leads);
   let crossLaneDuplicates = 0;
+  const droppedLeads: NormalizedLead[] = [];
   for (const group of result.duplicateGroups) {
+    for (const index of group.droppedIndices) {
+      if (leads[index]) droppedLeads.push(leads[index]);
+    }
     const lanes = new Set<string>();
     for (const index of [group.keptIndex, ...group.droppedIndices]) {
       lanes.add(String(leads[index]?.metadata?.sourceLane || "unknown"));
     }
     if (lanes.size > 1) crossLaneDuplicates += 1;
   }
-  return [result.uniqueItems, crossLaneDuplicates, result.duplicateGroups];
+  return [result.uniqueItems, crossLaneDuplicates, result.duplicateGroups, droppedLeads];
 }
 
 function buildSourceSummary(
@@ -3201,19 +3537,30 @@ function isGroundedRecoveredRegexFallbackWarning(warning: string): boolean {
   return /^Regex URL fallback used: grounded output was non-JSON or conversational; URLs recovered via pattern matching\.$/i.test(warning);
 }
 
+/**
+ * Picks up to maxLeadsPerRun leads by rank under the concentration limits.
+ * `initialSelected` are already committed to the write (earlier tiers) and
+ * count toward the cap and the limits; the result starts with them.
+ */
 function selectLeadsForWrite(
   leads: NormalizedLead[],
   config: ResolvedRunSettings,
+  initialSelected: NormalizedLead[] = [],
 ): NormalizedLead[] {
   const ranked = [...leads].sort(compareNormalizedLeads);
-  if (config.maxLeadsPerRun <= 0 || ranked.length <= config.maxLeadsPerRun) {
-    return ranked;
+  if (
+    config.maxLeadsPerRun <= 0 ||
+    initialSelected.length + ranked.length <= config.maxLeadsPerRun
+  ) {
+    return [...initialSelected, ...ranked];
   }
-  const strictLimits = buildSelectionLimits(ranked, config.maxLeadsPerRun, 1);
+  const pool = [...initialSelected, ...ranked];
+  const strictLimits = buildSelectionLimits(pool, config.maxLeadsPerRun, 1);
   const selected = selectRankedLeads(
     ranked,
     config.maxLeadsPerRun,
     strictLimits,
+    initialSelected,
   );
   if (selected.length >= config.maxLeadsPerRun) {
     return selected;
@@ -3222,7 +3569,7 @@ function selectLeadsForWrite(
   return selectRankedLeads(
     ranked,
     config.maxLeadsPerRun,
-    buildSelectionLimits(ranked, config.maxLeadsPerRun, 2),
+    buildSelectionLimits(pool, config.maxLeadsPerRun, 2),
     selected,
   );
 }
@@ -3392,29 +3739,6 @@ function tokenizeTitleForSimilarity(title: string): string[] {
     );
 }
 
-function compareNormalizedLeads(
-  left: NormalizedLead,
-  right: NormalizedLead,
-): number {
-  const fitDelta = (right.fitScore ?? -1) - (left.fitScore ?? -1);
-  if (fitDelta !== 0) return fitDelta;
-
-  const priorityDelta = priorityRank(left.priority) - priorityRank(right.priority);
-  if (priorityDelta !== 0) return priorityDelta;
-
-  const tagDelta = (right.tags?.length || 0) - (left.tags?.length || 0);
-  if (tagDelta !== 0) return tagDelta;
-
-  const companyDelta = (left.company || "").localeCompare(right.company || "");
-  if (companyDelta !== 0) return companyDelta;
-
-  return (left.title || "").localeCompare(right.title || "");
-}
-
-function priorityRank(priority: NormalizedLead["priority"]): number {
-  return { "🔥": 0, "⚡": 1, "—": 2, "↓": 3, "": 4 }[priority] ?? 4;
-}
-
 /**
  * B12: prior write yield per company key from the memory snapshot's intent
  * coverage (listings written per listing seen). Companies with no coverage
@@ -3453,22 +3777,18 @@ export function buildStableIntentKey(config: ResolvedRunSettings): string {
 function buildScoutYieldMap(
   memorySnapshot: DiscoveryMemorySnapshot | null,
 ): Map<string, number> {
+  // DISCAT C2: the same per-company aggregate that steers the ATS lane.
   const yields = new Map<string, number>();
-  for (const row of memorySnapshot?.intentCoverage || []) {
-    const companyKey = String(row.companyKey || "").trim();
-    if (!companyKey || yields.has(companyKey)) continue;
-    const seen = Math.max(1, Number(row.listingsSeen) || 0);
-    yields.set(companyKey, (Number(row.listingsWritten) || 0) / seen);
+  for (const [companyKey, stats] of buildCompanyYieldStats(
+    memorySnapshot?.intentCoverage || [],
+  )) {
+    yields.set(companyKey, stats.yield);
   }
   return yields;
 }
 
 function scoutCompanyKeys(company: CompanyTarget): string[] {
-  return [
-    String(company.companyKey || "").trim(),
-    normalizeCompanyKey(company.name),
-    String(company.name || "").trim().toLowerCase(),
-  ].filter(Boolean);
+  return companyYieldKeys(company);
 }
 
 function scoutYieldScore(

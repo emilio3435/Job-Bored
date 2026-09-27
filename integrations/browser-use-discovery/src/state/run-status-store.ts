@@ -13,6 +13,7 @@ import {
 import { join } from "node:path";
 
 import type {
+  DiscoveryRunFilterStats,
   DiscoveryRunLifecycle,
   DiscoveryRunStatus,
   DiscoveryRunStatusPayload,
@@ -73,6 +74,12 @@ export type DiscoveryRunListSummary = {
   durationMs?: number;
   statusPath: string;
   headline: { written?: number; updated?: number; candidates?: number; fitAvg?: number };
+  /**
+   * DISCAT D9: lifecycle.filterStats from the snapshot (top 20 keywords), so
+   * the Runs panel can state what the filters removed without a detail fetch.
+   * Absent on runs from before DISCAT.
+   */
+  filterStats?: DiscoveryRunFilterStats;
 };
 
 export type DiscoveryRunListPage = {
@@ -330,6 +337,7 @@ function summarizeRun(status: DurableDiscoveryRunStatusPayload): DiscoveryRunLis
         ? { candidates: funnel?.candidates ?? status.lifecycle?.normalizedLeadCount } : {}),
       ...(status.runStats?.fit?.avg !== undefined ? { fitAvg: status.runStats.fit.avg } : {}),
     },
+    ...(status.lifecycle?.filterStats ? { filterStats: status.lifecycle.filterStats } : {}),
   };
 }
 

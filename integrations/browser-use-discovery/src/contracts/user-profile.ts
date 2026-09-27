@@ -127,6 +127,13 @@ export type PreFilterResult =
         | "salary_missing_but_required";
       /** Human-readable detail surfaced in the rejection summary. */
       detail: string;
+      /** DISCAT D9: the skip phrase that matched (skip_title_match only). */
+      matchedPhrase?: string;
+      /**
+       * DISCAT Fix-B: the remote bucket the pre-filter decided on
+       * (work_mode_mismatch only), so "unknown" is not reported as "onsite".
+       */
+      remoteBucket?: string;
     };
 
 /**

@@ -444,7 +444,9 @@ test("B9: the deterministic pre-filter runs before the AI matcher, not after", a
   );
   assert.ok(summary, "greenhouse source summary present");
   assert.equal(
-    summary.rejectionSummary?.rejectionReasons?.excluded_keyword,
+    // DISCAT Fix-B: a known-onsite listing under a remote_only profile is a
+    // remote-policy miss, not an exclude keyword.
+    summary.rejectionSummary?.rejectionReasons?.remote_policy_mismatch,
     1,
     `pre-filter rejection must be recorded (summary=${JSON.stringify(summary.rejectionSummary)})`,
   );

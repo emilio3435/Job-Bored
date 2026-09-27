@@ -4,6 +4,12 @@ import type { IncomingMessage, ServerResponse } from "node:http";
 import { checkLoopbackRequestHost } from "../../../../server/security-boundaries.mjs";
 import type { WorkerRuntimeConfig } from "../config.ts";
 import {
+  CANDIDATE_CATALOG_STATUSES,
+  type CandidateCatalogListQuery,
+  type CandidateCatalogListResult,
+  type CandidateCatalogStatus,
+} from "../contracts.ts";
+import {
   BodyTooLargeError,
   MAX_BODY_BYTES,
   readBody as defaultReadBody,
@@ -56,6 +62,10 @@ export interface WorkerRouterDependencies {
   runStatusStore: Pick<DiscoveryRunStatusStore, "get"> & Partial<Pick<DiscoveryRunStatusStore, "list">>;
   cancelRegistry?: RunCancelRegistry;
   buildHealthPayload(): Promise<unknown>;
+  /** DISCAT D5: read surface for `GET /candidates`. */
+  candidateCatalog?: {
+    listCandidates(query: CandidateCatalogListQuery): CandidateCatalogListResult;
+  };
   handlers: WorkerRouteHandlers;
   logEvent(event: string, details: Record<string, unknown>): void;
   readBody?(request: IncomingMessage): Promise<string>;
@@ -75,6 +85,14 @@ export const WORKER_POST_ROUTES: Readonly<
 };
 
 const RUN_CANCEL_PATH = /^\/runs\/([^/]+)\/cancel$/;
+const CANDIDATES_PATH = "/candidates";
+const CANDIDATES_DEFAULT_LIMIT = 100;
+const CANDIDATES_MAX_LIMIT = 1000;
+const CANDIDATE_STATUS_SET = new Set<string>(CANDIDATE_CATALOG_STATUSES);
+
+function isCandidateStatus(value: string): value is CandidateCatalogStatus {
+  return CANDIDATE_STATUS_SET.has(value);
+}
 
 /**
  * BEAUDIT A1 (SEC-05): `new URL("//", base)` throws ERR_INVALID_URL. Parse
@@ -302,6 +320,11 @@ async function handleWorkerRequest(
   const cancelMatch = RUN_CANCEL_PATH.exec(requestPath);
   if (cancelMatch) {
     await handleRunCancel(deps, request, method, cancelMatch[1], finishJson, corsHeaders);
+    return;
+  }
+
+  if (requestPath === CANDIDATES_PATH) {
+    handleCandidates(deps, request, method, requestUrl, finishJson, corsHeaders);
     return;
   }
 
@@ -590,6 +613,103 @@ async function handleRunCancel(
       cancelled: outcome.cancelled,
       stopConfirmed: outcome.stopConfirmed,
       run: outcome.status || deps.runStatusStore.get(runId),
+    },
+    corsHeaders,
+  );
+}
+
+/**
+ * DISCAT D5: `GET /candidates?status=&limit=&sheetId=`. Same guard as
+ * `GET /runs/:id`: the global Host and Origin checks, plus the webhook secret
+ * on a hosted worker (there is no per-run token to accept here).
+ */
+function handleCandidates(
+  deps: WorkerRouterDependencies,
+  request: IncomingMessage,
+  method: string,
+  requestUrl: URL,
+  finishJson: (status: number, body: unknown, extraHeaders?: Record<string, string>) => void,
+  corsHeaders: Record<string, string>,
+): void {
+  if (method !== "GET") {
+    finishJson(
+      405,
+      { ok: false, message: "Method not allowed" },
+      { ...corsHeaders, allow: "GET,OPTIONS" },
+    );
+    return;
+  }
+  if (deps.runtimeConfig.runMode === "hosted") {
+    const auth = hasValidWebhookSecret(
+      deps.runtimeConfig.webhookSecret,
+      headersForHandler(request.headers),
+    );
+    if (!auth.valid) {
+      finishJson(
+        401,
+        { ok: false, message: "Unauthorized candidates request." },
+        corsHeaders,
+      );
+      return;
+    }
+  }
+  const rawStatus = String(requestUrl.searchParams.get("status") || "").trim();
+  if (rawStatus && !isCandidateStatus(rawStatus)) {
+    finishJson(
+      400,
+      {
+        ok: false,
+        code: "invalid_status",
+        message: `Unknown candidate status "${rawStatus}".`,
+        nextStep: `Use one of: ${CANDIDATE_CATALOG_STATUSES.join(", ")}.`,
+      },
+      corsHeaders,
+    );
+    return;
+  }
+  const rawLimit = String(requestUrl.searchParams.get("limit") || "").trim();
+  const parsedLimit = rawLimit ? Number(rawLimit) : CANDIDATES_DEFAULT_LIMIT;
+  if (!Number.isInteger(parsedLimit) || parsedLimit < 1) {
+    finishJson(
+      400,
+      {
+        ok: false,
+        code: "invalid_limit",
+        message: "limit must be a positive integer.",
+        nextStep: `Send a limit between 1 and ${CANDIDATES_MAX_LIMIT}.`,
+      },
+      corsHeaders,
+    );
+    return;
+  }
+  if (!deps.candidateCatalog) {
+    finishJson(
+      503,
+      {
+        ok: false,
+        code: "candidate_catalog_unavailable",
+        message: "The candidate catalog is not available on this worker.",
+      },
+      corsHeaders,
+    );
+    return;
+  }
+  const status: CandidateCatalogStatus | null =
+    rawStatus && isCandidateStatus(rawStatus) ? rawStatus : null;
+  const sheetId = String(requestUrl.searchParams.get("sheetId") || "").trim() || null;
+  const result = deps.candidateCatalog.listCandidates({
+    status,
+    limit: Math.min(parsedLimit, CANDIDATES_MAX_LIMIT),
+    sheetId,
+  });
+  finishJson(
+    200,
+    {
+      ok: true,
+      counts: result.counts,
+      total: result.total,
+      // Lead payloads are the worker's own write material; keep them local.
+      rows: result.rows.map(({ leadPayload: _leadPayload, ...row }) => row),
     },
     corsHeaders,
   );

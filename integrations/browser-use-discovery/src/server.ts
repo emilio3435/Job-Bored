@@ -249,25 +249,8 @@ const discoveryMemoryStore: RuntimeDiscoveryMemoryStore = {
     });
     return record ? toRunListingFingerprintRecord(record) : null;
   },
-  upsertListingFingerprints(records: Array<Record<string, unknown>>) {
-    for (const record of records) {
-      rawDiscoveryMemoryStore.upsertListingFingerprint({
-        companyKey: String(record.companyKey || ""),
-        titleKey: String(record.titleKey || ""),
-        locationKey: String(record.locationKey || ""),
-        canonicalUrlKey: nullableString(record.canonicalUrlKey),
-        externalJobId: nullableString(record.externalJobId),
-        remoteBucket: String(record.remoteBucket || "unknown"),
-        employmentType: nullableString(record.employmentType),
-        contentHash: nullableString(record.contentHash),
-        seenAt: nullableString(record.lastSeenAt),
-        writtenAt: nullableString(record.lastWrittenAt),
-        runId: nullableString(record.lastRunId),
-        sheetId: nullableString(record.lastSheetId),
-        sourceIds: parseJsonArray(record.sourceIdsJson),
-      });
-    }
-  },
+  // upsertListingFingerprints and the candidate catalog methods come from
+  // createRunDiscoveryMemoryStore (DISCAT C1: one transaction per run).
   recordIntentCoverage(record: Record<string, unknown>) {
     rawDiscoveryMemoryStore.writeIntentCoverage({
       intentKey: String(record.intentKey || ""),
@@ -1003,6 +986,9 @@ const server = createServer(
     runStatusStore,
     cancelRegistry: runCancelRegistry,
     buildHealthPayload,
+    candidateCatalog: {
+      listCandidates: (query) => rawDiscoveryMemoryStore.listCandidates(query),
+    },
     logEvent,
     handlers: {
       discoveryProfile: (request, log) =>

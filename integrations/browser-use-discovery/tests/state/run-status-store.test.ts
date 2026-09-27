@@ -175,6 +175,41 @@ test("RUNHIST list orders runs newest first, pages by opaque cursor, and survive
   }
 });
 
+test("DISCAT D9 list summaries carry lifecycle.filterStats across a restart, and omit it when absent", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+  const filterStats = {
+    listingsSeen: 1994,
+    listingsRejected: 1665,
+    byReason: { remote_unknown: 1181, headline_mismatch: 484 },
+    byExcludeKeyword: [{ keyword: "sales engineer", count: 612 }],
+  };
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    for (const [runId, acceptedAt, stats] of [
+      ["run_before_discat", "2026-09-27T00:00:00.000Z", undefined],
+      ["run_with_stats", "2026-09-27T00:01:00.000Z", filterStats],
+    ] as const) {
+      const accepted = buildAcceptedRunStatus({
+        runId, trigger: "manual", acceptedAt,
+        request: { sheetId: "sheet_123", variationKey: "", requestedAt: acceptedAt },
+      });
+      writer.put({
+        ...accepted,
+        ...(stats ? { lifecycle: { ...(accepted.lifecycle || {}), filterStats: stats } } : {}),
+      } as DiscoveryRunStatusPayload);
+    }
+    writer.close();
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    const page = restarted.list({ limit: 5 });
+    assert.deepEqual(page?.runs.map((run) => run.runId), ["run_with_stats", "run_before_discat"]);
+    assert.deepEqual(page?.runs[0].filterStats, filterStats);
+    assert.equal("filterStats" in (page?.runs[1] || {}), false);
+    restarted.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 test("RUNHIST failed discovery status records only measured duration", () => {
   const accepted = buildAccepted("run_failed");
   const failed = buildFailedRunStatus(accepted, new Error("worker failed"), "2026-08-30T12:00:05.000Z");
