@@ -59,9 +59,9 @@ describe("G10 · the permission table has the optional Apps Script row", () => {
 });
 
 describe("G17 · the blank-sheet path lists the starter headers", () => {
-  it("SETUP.md carries all 25 headers, in order, from app-config-core.js", () => {
+  it("SETUP.md carries all 26 headers, in order, from app-config-core.js", () => {
     const list = headers();
-    assert.equal(list.length, 25);
+    assert.equal(list.length, 26);
     assert.ok(setup().includes(list.join("\t")), "one tab-separated row, pasteable into row 1");
   });
 });

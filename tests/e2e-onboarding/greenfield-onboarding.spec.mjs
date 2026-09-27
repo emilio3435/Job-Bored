@@ -56,6 +56,7 @@ const STARTER_HEADERS = [
   "Dismissed At",
   "Approval Status",
   "Edit Lock",
+  "Work Mode",
 ];
 const STARTER_PROFILE = {
   version: 1,
@@ -365,13 +366,13 @@ async function installHermeticBoundaries(page) {
         const range = decodeURIComponent(encodedRange);
         const body = request.postDataJSON();
         calls.sheetsHeaders.push(body);
-        if (range !== "Pipeline!A1:Y1") {
+        if (range !== "Pipeline!A1:Z1") {
           calls.violations.push(`starter header URL range ${range || "missing"}`);
         }
         if (url.searchParams.get("valueInputOption") !== "RAW") {
           calls.violations.push("starter header valueInputOption");
         }
-        if (body?.range !== "Pipeline!A1:Y1") {
+        if (body?.range !== "Pipeline!A1:Z1") {
           calls.violations.push(`starter header range ${body?.range || "missing"}`);
         }
         if (JSON.stringify(body?.values?.[0]) !== JSON.stringify(STARTER_HEADERS)) {
@@ -385,7 +386,7 @@ async function installHermeticBoundaries(page) {
           return;
         }
         await fulfillJson(route, {
-          updatedRange: "Pipeline!A1:Y1",
+          updatedRange: "Pipeline!A1:Z1",
           updatedRows: 1,
           updatedColumns: STARTER_HEADERS.length,
           updatedCells: STARTER_HEADERS.length,

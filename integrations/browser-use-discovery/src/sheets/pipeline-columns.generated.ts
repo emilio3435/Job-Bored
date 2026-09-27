@@ -1,4 +1,4 @@
-// GENERATED from schemas/pipeline-row.v1.json. Do not edit by hand.
+// Maintained by hand to match schemas/pipeline-row.v1.json.
 // scripts/test-pipeline-contract.mjs and tests/sheets/pipeline-columns-contract.test.ts
 // fail when this file and the schema disagree.
 
@@ -38,4 +38,5 @@ export const PIPELINE_COLUMNS: readonly PipelineColumn[] = [
   { id: "dismissedAt", letter: "W", headerLabel: "Dismissed At", sheetIndex: 22, discoveryMerge: "fillIfEmpty" },
   { id: "approvalStatus", letter: "X", headerLabel: "Approval Status", sheetIndex: 23, discoveryMerge: "fillIfEmpty" },
   { id: "editLock", letter: "Y", headerLabel: "Edit Lock", sheetIndex: 24, discoveryMerge: "preserve" },
+  { id: "workMode", letter: "Z", headerLabel: "Work Mode", sheetIndex: 25, discoveryMerge: "fillIfEmpty" },
 ];

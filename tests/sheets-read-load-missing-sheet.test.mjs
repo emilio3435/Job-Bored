@@ -160,3 +160,33 @@ describe("sheets-read-load missing Sheet ID guard", () => {
     assert.equal(calls.revealSetupScreenAfterAuth, 1);
   });
 });
+
+describe("Pipeline Work Mode reading", () => {
+  it("parses location signals and leaves unknown blank", () => {
+    const { sheetsRead } = createHarness({ activeSheetId: null });
+    for (const [location, expected] of [
+      ["Remote - US", "remote"], ["work from home", "remote"],
+      ["Hybrid - Austin", "hybrid"], ["On-site", "onsite"],
+      ["in office", "onsite"], ["Austin, TX", ""],
+    ]) assert.equal(sheetsRead.parseWorkModeFromLocation(location), expected);
+  });
+
+  it("records Work Mode provenance from Z, Location, or neither", () => {
+    const { sheetsRead } = createHarness({ activeSheetId: null });
+    const parse = (location, workMode) => {
+      const row = Array(26).fill("");
+      row[1] = "Engineer"; row[2] = "Acme"; row[3] = location; row[25] = workMode;
+      return sheetsRead.parsePipelineCSV([[], row])[0];
+    };
+    for (const [location, column, mode, source] of [
+      ["Remote", "hybrid", "hybrid", "column"],
+      ["Remote", "", "remote", "location"],
+      ["On-site", "unknown", "onsite", "location"],
+      ["Austin", "", "", ""],
+    ]) {
+      const job = parse(location, column);
+      assert.equal(job.workMode, mode);
+      assert.equal(job.workModeSource, source);
+    }
+  });
+});

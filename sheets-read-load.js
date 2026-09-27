@@ -757,6 +757,14 @@
     return s;
   }
 
+  function parseWorkModeFromLocation(text) {
+    const location = String(text || "").toLowerCase();
+    if (/\b(remote|remote-first|distributed|work from home|wfh|anywhere)\b/.test(location)) return "remote";
+    if (/\bhybrid\b/.test(location)) return "hybrid";
+    if (/\b(on[\s-]?site|in[\s-]?office|office-based)\b/.test(location)) return "onsite";
+    return "";
+  }
+
   function parsePipelineCSV(rows) {
     if (!rows || rows.length < 2) return [];
 
@@ -785,6 +793,10 @@
         if (!isNaN(d.getTime())) dateFound = d;
       }
 
+      const columnWorkMode = String(row[25] || "").trim();
+      const hasColumnWorkMode = ["remote", "hybrid", "onsite"].includes(columnWorkMode);
+      const locationWorkMode = hasColumnWorkMode ? "" : parseWorkModeFromLocation(row[3]);
+
       results.push({
         _rawIndex: i,
         dateFound: dateFound,
@@ -792,6 +804,8 @@
         title: title ? title.trim() : null,
         company: company,
         location: row[3] || null,
+        workMode: hasColumnWorkMode ? columnWorkMode : locationWorkMode,
+        workModeSource: hasColumnWorkMode ? "column" : locationWorkMode ? "location" : "",
         link: row[4] || null,
         source: row[5] || null,
         salary: row[6] || null,
@@ -1018,6 +1032,7 @@
   Object.assign(sheetsRead, {
     parseCSV,
     parsePipelineCSV,
+    parseWorkModeFromLocation,
     fetchSheetCSV,
     getUsedPublicSheetFallback,
     setUsedPublicSheetFallback,

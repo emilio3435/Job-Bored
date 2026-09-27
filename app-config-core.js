@@ -267,6 +267,7 @@
     "Dismissed At",
     "Approval Status",
     "Edit Lock",
+    "Work Mode",
   ];
   const STARTER_PIPELINE_HEADER_RANGE = `Pipeline!A1:${String.fromCharCode("A".charCodeAt(0) + STARTER_PIPELINE_HEADERS.length - 1)}1`;
 

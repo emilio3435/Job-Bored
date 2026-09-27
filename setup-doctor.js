@@ -338,6 +338,7 @@
       "Dismissed At",
       "Approval Status",
       "Edit Lock",
+      "Work Mode",
     ],
     "statuses": [
       "New",
@@ -411,8 +412,8 @@
 
   function headersMatchCanonical(headers, canonicalHeaders) {
     if (!Array.isArray(headers) || !Array.isArray(canonicalHeaders)) return false;
-    if (headers.length < canonicalHeaders.length) return false;
-    for (let i = 0; i < canonicalHeaders.length; i += 1) {
+    if (headers.length < 25) return false;
+    for (let i = 0; i < 25; i += 1) {
       if (
         String(headers[i] || "").trim().toLowerCase() !==
         String(canonicalHeaders[i] || "").trim().toLowerCase()
@@ -566,7 +567,7 @@
         const headers = await fetchPipelineHeaders(sheetId, token);
         if (headers == null) return false;
         if (headers.length === 0) return true;
-        return !headersMatchCanonical(headers, contract.headerRow);
+        return !headersMatchCanonical(headers, contract.headerRow) || !String(headers[25] || "").trim();
       } catch (_) {
         return false;
       }
@@ -578,29 +579,33 @@
       const token = getAccessToken();
       if (!sheetId || !token) return { ok: false };
       const contract = await getPipelineContract();
-      const writeResp = await doFetch(
-        "https://sheets.googleapis.com/v4/spreadsheets/" +
-          encodeURIComponent(sheetId) +
-          "/values/Pipeline!A1?valueInputOption=RAW",
-        {
-          method: "PUT",
-          headers: {
-            Authorization: "Bearer " + token,
-            "Content-Type": "application/json",
+      const headers = await fetchPipelineHeaders(sheetId, token);
+      if (headers == null) return { ok: false, error: "header read failed" };
+      async function writeHeaderRange(range, values) {
+        const writeResp = await doFetch(
+          "https://sheets.googleapis.com/v4/spreadsheets/" +
+            encodeURIComponent(sheetId) +
+            "/values/" + range + "?valueInputOption=RAW",
+          {
+            method: "PUT",
+            headers: {
+              Authorization: "Bearer " + token,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify({ range, majorDimension: "ROWS", values: [values] }),
           },
-          body: JSON.stringify({
-            range: "Pipeline!A1",
-            majorDimension: "ROWS",
-            values: [contract.headerRow],
-          }),
-        },
-      );
-      if (!writeResp.ok) {
+        );
+        if (writeResp.ok) return null;
         const err = await writeResp.json().catch(() => ({}));
-        return {
-          ok: false,
-          error: (err.error && err.error.message) || "header write failed",
-        };
+        return (err.error && err.error.message) || "header write failed";
+      }
+      if (!headersMatchCanonical(headers, contract.headerRow)) {
+        const error = await writeHeaderRange("Pipeline!A1:Y1", contract.headerRow.slice(0, 25));
+        if (error) return { ok: false, error };
+      }
+      if (!String(headers[25] || "").trim()) {
+        const error = await writeHeaderRange("Pipeline!Z1", ["Work Mode"]);
+        if (error) return { ok: false, error };
       }
       return { ok: true };
     },
