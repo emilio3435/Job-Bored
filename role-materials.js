@@ -1001,8 +1001,8 @@
       + '</details>';
   }
 
-  /* C13 (TA-11): the QA report and the checklist open inline. C14 (TA-10):
-     a written resume or letter opens in Scribe for refining. */
+  /* C13 (TA-11): the QA report and the checklist open inline. EDITOR F1:
+     a written resume or letter opens in Scribe v2 for editing. */
   function extraDocActions(type, doc) {
     var files = doc && Array.isArray(doc.files) ? doc.files : [];
     var out = [];
@@ -1017,7 +1017,7 @@
       var html = files.filter(function (f) { return f && /\.html$/i.test(String(f.filename || "")); })[0];
       if (html && ALLOWED_FILES[html.filename]) {
         out.push('<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-edit"'
-          + ' data-feature="' + escapeHtml(type) + '" data-filename="' + escapeHtml(html.filename) + '">Edit</button>');
+          + ' data-feature="' + escapeHtml(type) + '" data-filename="' + escapeHtml(html.filename) + '" aria-haspopup="dialog">Edit</button>');
       }
     }
     return out;
@@ -1353,11 +1353,6 @@
     } else if (lastPaint.kind === "resume-gate") {
       renderResumeGate(host);
     }
-    /* C14: a render replaced the Scribe slot too; put the workspace back. */
-    var scribe = root.JB_SCRIBE;
-    if (scribe && typeof scribe.remount === "function") {
-      try { scribe.remount(); } catch (e) { /* Scribe is optional */ }
-    }
   }
 
   function wireSection(briefEl) {
@@ -1426,7 +1421,7 @@
           }
           if (action === "materials-edit") {
             if (typeof e.preventDefault === "function") e.preventDefault();
-            editInScribe(t, section);
+            openScribe(t, section);
             return;
           }
           if (action === "materials-repair") {
@@ -1495,42 +1490,40 @@
     });
   }
 
-  function htmlToText(html) {
-    var raw = String(html || "");
-    if (typeof root.DOMParser === "function") {
-      try {
-        var parsed = new root.DOMParser().parseFromString(raw, "text/html");
-        var scrub = parsed.querySelectorAll("script, style, head");
-        for (var i = 0; i < scrub.length; i++) scrub[i].parentNode.removeChild(scrub[i]);
-        var blocks = parsed.querySelectorAll("p, li, h1, h2, h3, h4, div, br");
-        for (var j = 0; j < blocks.length; j++) blocks[j].appendChild(parsed.createTextNode("\n"));
-        return String(parsed.body ? parsed.body.textContent : "").replace(/[ \t]+\n/g, "\n").replace(/\n{3,}/g, "\n\n").trim();
-      } catch (e) { /* fall through */ }
-    }
-    return raw.replace(/<style[\s\S]*?<\/style>|<script[\s\S]*?<\/script>/gi, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  }
-
-  /* C14 (TA-08/10): a written document opens in Scribe, bound to this role. */
-  function editInScribe(btn, section) {
-    var scribe = root.JB_SCRIBE;
-    if (!scribe || typeof scribe.openDocument !== "function") return;
+  /* EDITOR F1: Edit opens Scribe v2 bound to this role's server package
+     (docs/programs/editor-20260927/SPEC.md §1). The desk reads the package
+     itself; nothing is flattened to text here. */
+  function openScribe(btn, section) {
+    var desk = root.JB_SCRIBE_V2;
+    if (!desk || typeof desk.open !== "function") return;
     var slug = section.getAttribute("data-slug") || "";
-    var filename = btn.getAttribute("data-filename") || "";
     var feature = btn.getAttribute("data-feature") || "";
-    if (!slug || !ALLOWED_FILES[filename]) return;
+    if (!slug || (feature !== "resume" && feature !== "cover_letter")) return;
     var jobKey = openRoleKey() || (currentContext && currentContext.jobKey) || "";
     var job = getMaterialsJob(jobKey) || {};
-    fetchText(fileUrl(materialsBase(), slug, filename)).then(function (html) {
-      scribe.openDocument({
-        jobKey: String(jobKey),
-        feature: feature,
-        company: String(job.company || ""),
-        title: String(job.role || job.title || ""),
-        filename: filename,
-        text: htmlToText(html),
-      });
-    }).catch(function (err) {
-      toast("Couldn\u2019t open the " + featureLabel(feature) + " for editing: " + ((err && err.message) || "unknown error"), "error");
+    var manifest = currentManifest && currentManifest.manifest;
+    var family = manifest && manifest.template && manifest.template.family ? String(manifest.template.family) : "";
+    desk.open({
+      slug: slug,
+      doc: feature,
+      base: materialsBase(),
+      opener: btn,
+      /* A manifest poll can repaint the rows while the desk is open; focus
+         then returns to the live Edit button for the same document. */
+      findOpener: function () {
+        var doc = root.document;
+        if (!doc) return null;
+        var buttons = doc.querySelectorAll('[data-action="materials-edit"]');
+        for (var i = 0; i < buttons.length; i++) {
+          var b = buttons[i];
+          var host = b.closest ? b.closest("." + SECTION_CLASS) : null;
+          if (b.getAttribute("data-feature") === feature && host && host.getAttribute("data-slug") === slug) return b;
+        }
+        return null;
+      },
+      title: String(job.role || job.title || (manifest && manifest.title) || ""),
+      company: String(job.company || (manifest && manifest.company) || ""),
+      family: family,
     });
   }
 

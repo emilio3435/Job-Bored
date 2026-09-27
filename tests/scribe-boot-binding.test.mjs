@@ -158,7 +158,8 @@ describe("scribe boot — the role label binds to the live generation session (S
 // ============================================================
 // SCRIBE-01b — the F2-A remount contract must actually reach scribe.
 //
-// jb-v2-boot-contract.js:58's default "scribe" adapter is:
+// jb-v2-boot-contract.js's default "scribe" adapter WAS (until EDITOR F1,
+// which points it at JB_SCRIBE_V2 — see the flag-flip test below):
 //     mount: function () {
 //       var api = root.JB_SCRIBE;
 //       if (api && typeof api.boot === "function") api.boot();
@@ -187,19 +188,21 @@ describe("scribe boot — the F2-A remount contract is not a silent no-op (SCRIB
     );
   });
 
-  it("mounts the workspace when the contract remounts on a flag flip the deferred script never saw", () => {
-    // readyState "loading": scribe is parked on DOMContentLoaded and has NOT
-    // installed its own body observer, so the contract is the only live path.
+  // EDITOR F1 (2026-09-27): the pinned behaviour moved. index.html no longer
+  // loads scribe.js, and the contract's scribe adapter now boots Scribe v2
+  // (scribe-v2.js), which mounts only when a role's Edit button binds it to
+  // a package (recon R1). A flag flip must reach JB_SCRIBE_V2.boot and must
+  // no longer mount the legacy workspace. X1 retires this file with scribe.js.
+  it("boots Scribe v2, not the legacy workspace, when the contract remounts on a flag flip", () => {
     const env = loadScribe({ modules: BOOT_CONTRACT_MODULES, v2: false, readyState: "loading" });
+    let v2Boots = 0;
+    env.window.JB_SCRIBE_V2 = { boot: () => { v2Boots += 1; return true; }, closeAll: () => {} };
     assert.equal(env.byId("scribeEditor"), null, "nothing is mounted yet");
 
     env.body.classList.add("jb-v2");
 
-    assert.ok(
-      env.byId("scribeEditor"),
-      "the remount contract must actually mount scribe, not just report that it did",
-    );
-    assert.equal(env.rq("[data-scribe-status]").textContent, "idle");
+    assert.ok(v2Boots >= 1, "the remount contract must reach Scribe v2's boot");
+    assert.equal(env.byId("scribeEditor"), null, "the contract no longer mounts the legacy workspace");
   });
 
   it("is safe to call repeatedly — boot is guarded by the rendered flag", () => {
