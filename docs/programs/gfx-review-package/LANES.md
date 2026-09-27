@@ -12,4 +12,4 @@
 - Sol: family persistence/wire resolution, five worker edges, current-main conflict resolution, narrow-stage retry/block handling, and deterministic fixture corrections complete.
 - Grok: family and integrated diff PASS; source and fixture reviews in reports/FLASH-REVIEW-GROK-final.md and reports/FLASH-INTEGRATION-GROK.md.
 - Muse: final integrated lint, typecheck, root and repository floors pass; browser visuals 56/56.
-- Main advanced to 5d5b9a59; the candidate includes it. Existing main stack remains in workspace:162 / surface:315 until visual verification completes.
+- Main advanced to 5d5b9a59; the candidate includes it. Verified candidate now runs in workspace:162 / surface:315; all three HTTP health checks pass and served source hashes match.

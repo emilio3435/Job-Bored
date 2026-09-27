@@ -5,9 +5,9 @@ Success means: a real discovery run shows moving elapsed time and truthful progr
 Stop when: the checklist passes or a reproducible issue is recorded before publication.
 
 ## Candidate
-`feat/gfx-review-package` in `/private/tmp/jobbored-review-package` combines PR 133 with the writer JSON repair. PR 133 also retains owner-only Tailscale setup. PR 133 merged upstream during this task. The local candidate adds the writer repair, two reviewed worker progress corrections, and the Flash-family repair. It is being integrated with main `5d5b9a59`, including the v3 materials pipeline; those candidate corrections remain unpublished.
+`feat/gfx-review-package` in `/private/tmp/jobbored-review-package` combines PR 133 with the writer JSON repair. PR 133 also retains owner-only Tailscale setup. PR 133 merged upstream during this task. The local candidate adds the writer repair, two reviewed worker progress corrections, and the Flash-family repair. It is integrated with main `5d5b9a59`, including the v3 materials pipeline; those candidate corrections remain unpublished.
 
-## Test after the final localhost switch
+## Test now: final localhost switch confirmed
 1. Reload http://localhost:8080/ in the same browser you normally use.
 2. Retry onboarding resume import with your existing text. The old app-generated `gemini-3.7-flash` preference now follows the Flash family; it sends `gemini-flash-latest`. A provider capacity error may still require retrying later.
 3. Start discovery. Reopen the discovery drawer and Runs: elapsed time advances, the phase dot animates, counters reflect actual observations, and terminal results replace the live view.

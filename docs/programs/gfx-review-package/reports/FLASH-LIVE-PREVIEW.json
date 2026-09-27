@@ -1,0 +1,25 @@
+{
+  "commit": "7185deb9acc8823c1a9448cee358e0837108a1e1",
+  "ports": {
+    "8080": {
+      "pid": 77202,
+      "cwd": "/private/tmp/jobbored-review-package",
+      "http": 200
+    },
+    "3847": {
+      "pid": 77248,
+      "cwd": "/private/tmp/jobbored-review-package/server",
+      "http": 200
+    },
+    "8644": {
+      "pid": 77207,
+      "cwd": "/private/tmp/jobbored-review-package",
+      "http": 200
+    }
+  },
+  "source": {
+    "resume-generate.js": "1a1d6e51fcf2f19663f211836e6255d2fcd012a04829545cf0c608d4635c6221",
+    "config-overrides.js": "bd7a9ef3797ce152cfcdbd4047341b1b6668855c8f5ebdcc6f5a08e510cf3a92",
+    "discovery-run-tracker.js": "8af7f7a0769ca9dd106d8a5dffb101a875ddaf546704adb6d9a1b4c7e14ba921"
+  }
+}

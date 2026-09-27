@@ -114,3 +114,15 @@ Seven existing TODOs are not passes. `npm run test:repo` passed its contract gat
 ```
 
 `npm run test:e2e-visual` completed: **56 passed (1.5m)**. The final required automated gates pass. Grok reviewed the integrated diff; Muse ran all five floor commands independently. No live AI request, user resume submission, CI run, or signed Mac build of this candidate was performed.
+
+## Final local preview handoff
+
+Code merge `7185deb9` is running in workspace:162 / surface:315. The previous main stack stopped; its remaining worker PID was checked against its checkout and terminated. All three ports were empty before starting the candidate. The main checkout and its configuration contents were not edited.
+
+```text
+Dashboard 8080: HTTP 200, PID 77202, cwd /private/tmp/jobbored-review-package
+API 3847: HTTP 200, PID 77248, cwd /private/tmp/jobbored-review-package/server
+Worker 8644: HTTP 200, PID 77207, cwd /private/tmp/jobbored-review-package
+```
+
+Served SHA-256 values for `resume-generate.js`, `config-overrides.js`, and `discovery-run-tracker.js` exactly match local candidate files; see reports/FLASH-LIVE-PREVIEW.json. No browser reload or live resume submission was performed. Emilio can refresh his existing localhost tab and retry. No push, PR, deployment, or release build occurred.
