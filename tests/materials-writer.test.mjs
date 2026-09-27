@@ -306,29 +306,6 @@ describe("callWriter truncation", () => {
     assert.deepEqual(budgets, [8192, 16384]);
   });
 
-  it("requests Gemini JSON mode with a letter+resume schema", async () => {
-    const calls = [];
-    const fetchImpl = async (url, init) => {
-      calls.push({ url: String(url), init });
-      return {
-        ok: true,
-        json: async () => ({
-          candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(valid) }] } }],
-        }),
-      };
-    };
-    await callWriter({
-      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
-      jdText: "x",
-      masterResumeHtml: "y",
-      voiceSamples: [],
-      fetchImpl,
-    });
-    const body = JSON.parse(calls[0].init.body);
-    assert.equal(body.generationConfig.responseMimeType, "application/json");
-    assert.deepEqual(body.generationConfig.responseSchema.required, ["letter", "resume"]);
-  });
-
   it("names finish_reason=length and sends json_object for first-party OpenAI", async () => {
     const calls = [];
     const fetchImpl = async (_url, init) => {
@@ -437,5 +414,161 @@ describe("callWriter truncation", () => {
     assert.ok(err, "expected callWriter to reject");
     assert.match(err.message, /unterminated JSON object/);
     assert.deepEqual(budgets, [8192, 16384]);
+  });
+});
+
+/* Grok finding 1: generateContent's responseSchema rejects property-less
+ * OBJECT nodes, so the writer must send responseMimeType WITHOUT a schema.
+ * The prompt keeps the facts; these locks prove no invalid schema rides the
+ * wire and nested facts survive the round trip. Synthetic fixtures only. */
+describe("callWriter gemini JSON mode without responseSchema", () => {
+  it("sends responseMimeType and no responseSchema", async () => {
+    const calls = [];
+    const fetchImpl = async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(valid) }] } }],
+        }),
+      };
+    };
+    await callWriter({
+      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    });
+    assert.equal(calls[0].generationConfig.responseMimeType, "application/json");
+    assert.ok(!("responseSchema" in calls[0].generationConfig), "must not send responseSchema");
+  });
+
+  it("representative nested facts survive the writer round trip", async () => {
+    const nested = {
+      letter: {
+        hook: "Example Systems needs example widgets at scale",
+        whyThem: "Category-defining fictional reach",
+        whyMe: "I ran it at Example Systems",
+        whyNow: "The example quarter is now",
+        closing: "Let's talk",
+        company: "Example Systems",
+        role: "Example Manager",
+      },
+      resume: {
+        header: { name: "Example Candidate", headline: "Fictional leader", contact: ["candidate@example.com"] },
+        summary: { opener: "Twelve synthetic years", body: "Example acquisition" },
+        roles: [
+          {
+            id: "example-systems-em",
+            company: "Example Systems",
+            title: "Example Manager",
+            dates: "2001–2003 (synthetic)",
+            bullets: ["Raised example throughput 12% in fixtures", "Managed 3 example regions (synthetic)"],
+          },
+        ],
+        education: ["Example College — B.A. Examples, 2001 (synthetic)"],
+        skills: ["Example Ads", "fixture modeling"],
+      },
+    };
+    const fetchImpl = async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(nested) }] } }],
+      }),
+    });
+    const out = await callWriter({
+      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    });
+    assert.deepEqual(out.letter, nested.letter);
+    assert.deepEqual(out.resume, nested.resume);
+  });
+});
+
+/* Grok finding 4: non-budget Gemini stops must keep their reason and fail on
+ * the first attempt; thought-marked parts must be skipped defensively; and a
+ * MAX_TOKENS body must stay rejected even when it happens to parse. */
+describe("callWriter blocked stops and thought parts", () => {
+  it("fails fast with the reason on blocked finishReasons", async () => {
+    for (const reason of ["SAFETY", "RECITATION", "BLOCKLIST", "PROHIBITED_CONTENT", "MALFORMED_RESPONSE"]) {
+      let calls = 0;
+      const fetchImpl = async () => {
+        calls += 1;
+        return {
+          ok: true,
+          json: async () => ({
+            candidates: [{ finishReason: reason, content: { parts: [{ text: "" }] } }],
+          }),
+        };
+      };
+      const err = await callWriter({
+        pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+        jdText: "x",
+        masterResumeHtml: "y",
+        voiceSamples: [],
+        fetchImpl,
+      }).then(
+        () => null,
+        (e) => e,
+      );
+      assert.ok(err, `expected rejection for ${reason}`);
+      assert.match(err.message, /stopped the draft before completion/, reason);
+      assert.match(err.message, new RegExp(reason), reason);
+      assert.equal(err.code, "writer_blocked", reason);
+      assert.equal(err.finishReason, reason, reason);
+      assert.equal(calls, 1, `${reason} must not spend a second attempt`);
+    }
+  });
+
+  it("skips thought-marked parts instead of parsing them", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [
+          {
+            finishReason: "STOP",
+            content: {
+              parts: [
+                { thought: true, text: '{"scratch":"drop the 1843 date"}' },
+                { text: JSON.stringify(valid) },
+              ],
+            },
+          },
+        ],
+      }),
+    });
+    const out = await callWriter({
+      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    });
+    assert.equal(out.letter.company, "EAB");
+  });
+
+  it("still rejects a parseable body stopped at MAX_TOKENS", async () => {
+    const fetchImpl = async () => ({
+      ok: true,
+      json: async () => ({
+        candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: JSON.stringify(valid) }] } }],
+      }),
+    });
+    const err = await callWriter({
+      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    }).then(
+      () => null,
+      (e) => e,
+    );
+    assert.ok(err, "expected rejection: parsable does not mean complete");
+    assert.equal(err.code, "writer_truncated");
   });
 });

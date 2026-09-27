@@ -46,20 +46,6 @@ const WRITER_SYSTEM_PROMPT = [
 ].join(" ");
 
 /**
- * Minimal Gemini responseSchema: requires only the two top-level objects the
- * parser needs. Sub-fields stay unrestricted so frozen resume facts and the
- * candidate's voice pass through untouched.
- */
-const WRITER_RESPONSE_SCHEMA = {
-  type: "object",
-  properties: {
-    letter: { type: "object" },
-    resume: { type: "object" },
-  },
-  required: ["letter", "resume"],
-};
-
-/**
  * @typedef {object} LetterJson
  * @property {string} [date]
  * @property {string} [company]
@@ -148,7 +134,7 @@ export class WriterJsonError extends Error {
   constructor(message, options) {
     super(message, options);
     this.name = "WriterJsonError";
-    /** @type {string | undefined} machine-readable failure class (`writer_truncated`) */
+    /** @type {string | undefined} machine-readable failure class (`writer_truncated` | `writer_blocked`) */
     this.code = undefined;
     /** @type {string | undefined} normalized provider that produced the failure */
     this.provider = undefined;
@@ -305,6 +291,45 @@ function truncatedWriterError(provider, signalName, signalValue) {
 }
 
 /**
+ * Non-budget Gemini stops that fail fast: retrying a block is pointless.
+ * Unknown or empty finishes still take the parse path so tolerant providers
+ * and older doubles keep working.
+ */
+const GEMINI_BLOCKED_FINISH_REASONS = new Set([
+  "SAFETY",
+  "RECITATION",
+  "BLOCKLIST",
+  "PROHIBITED_CONTENT",
+  "MALFORMED_RESPONSE",
+]);
+
+/**
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @param {string} finish the raw finish/stop signal, or "" when none was sent
+ * @returns {string} the blocking signal, or "" when the stop was not a block
+ */
+function blockedSignal(provider, finish) {
+  if (provider === "gemini") return GEMINI_BLOCKED_FINISH_REASONS.has(finish) ? finish : "";
+  return "";
+}
+
+/**
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @param {string} signalName
+ * @param {string} signalValue
+ * @returns {WriterJsonError}
+ */
+function blockedWriterError(provider, signalName, signalValue) {
+  const err = new WriterJsonError(
+    `WriterJsonError: ${writerProviderLabel(provider)} stopped the draft before completion (${signalName} ${signalValue}). Rephrase the inputs and retry, or pick another model in Settings.`,
+  );
+  err.code = "writer_blocked";
+  err.provider = provider;
+  err.finishReason = signalValue;
+  return err;
+}
+
+/**
  * @param {unknown} err
  * @returns {boolean}
  */
@@ -369,8 +394,11 @@ function textFromGeminiResponse(data) {
   if (!isPlainObject(content)) return { text: "", finish };
   const parts = content.parts;
   if (!Array.isArray(parts)) return { text: "", finish };
+  // Ignore thought-marked parts so only answer text reaches the draft parser.
   const text = parts
-    .map((part) => (isPlainObject(part) && typeof part.text === "string" ? part.text : ""))
+    .map((part) =>
+      isPlainObject(part) && part.thought !== true && typeof part.text === "string" ? part.text : "",
+    )
     .join("");
   return { text, finish };
 }
@@ -476,11 +504,14 @@ async function generateGemini(input, extraUserText, maxTokens) {
   const body = {
     systemInstruction: { parts: [{ text: WRITER_SYSTEM_PROMPT }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(input, extraUserText) }] }],
+    // responseMimeType without responseSchema: property-less OBJECT nodes
+    // are rejected by the generateContent validator, and an open object
+    // cannot be expressed on that field — JSON syntax comes from the mime
+    // type, shape from the prompt plus the parser.
     generationConfig: {
       temperature: TEMPERATURE,
       maxOutputTokens: maxTokens,
       responseMimeType: "application/json",
-      responseSchema: WRITER_RESPONSE_SCHEMA,
     },
   };
   const resp = await input.fetchImpl(url, {
@@ -629,7 +660,8 @@ async function generateContent(input, extraUserText, maxTokens) {
  * Two attempts, bounded: a truncation signal — or unterminated JSON with no
  * signal, the probable-truncation case — escalates the second attempt to the
  * hard cap, since an identical retry would re-truncate deterministically.
- * Anything else retries identically, as before.
+ * A blocking stop throws on the first attempt without retry. Anything else
+ * retries identically, as before.
  *
  * @param {WriterInput} input
  * @param {string} extraUserText
@@ -642,6 +674,10 @@ async function callWithRetry(input, extraUserText) {
   const provider = normalizeWriterProvider(input.pin.provider);
   for (let attempt = 0; attempt < 2; attempt += 1) {
     const { text, finish } = await generateContent(input, extraUserText, budget);
+    const blocked = blockedSignal(provider, finish);
+    if (blocked) {
+      throw blockedWriterError(provider, finishSignalName(provider), blocked);
+    }
     const signal = truncationSignal(provider, finish);
     if (signal) {
       lastError = truncatedWriterError(provider, finishSignalName(provider), signal);
