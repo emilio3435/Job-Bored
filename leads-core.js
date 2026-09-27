@@ -38,11 +38,20 @@
     return isWorkMode(bucket) ? bucket : "";
   }
 
+  /**
+   * The bucket column Z holds, or "". parsePipelineCSV also fills
+   * `workMode` from the location when Z is blank, so only a row whose
+   * `workModeSource` is "column" carries an explicit bucket.
+   */
+  function columnWorkMode(row) {
+    if (!row || row.workModeSource !== "column") return "";
+    const column = String(row.workMode || "").trim().toLowerCase();
+    return isWorkMode(column) ? column : "";
+  }
+
   /** Column Z when it holds a known word, otherwise the location text. */
   function workModeFor(row) {
-    const column = String((row && row.workMode) || "").trim().toLowerCase();
-    if (isWorkMode(column)) return column;
-    return parseLocation(row && row.location);
+    return columnWorkMode(row) || parseLocation(row && row.location);
   }
 
   /**
@@ -51,8 +60,8 @@
    * profile layer does too.
    */
   function remoteBucketFor(row) {
-    const column = String((row && row.workMode) || "").trim().toLowerCase();
-    if (isWorkMode(column)) return column;
+    const column = columnWorkMode(row);
+    if (column) return column;
     const haystack = [
       row && row.location,
       descriptionOf(row),
@@ -401,10 +410,15 @@
     return typeof value === "number" && Number.isFinite(value) ? value : null;
   }
 
+  /** Trimmed and lower-cased, so filters match the values facetCounts shows. */
+  function facetKey(value) {
+    return String(value || "").trim().toLowerCase();
+  }
+
   function inList(list, value) {
     if (!list.length) return true;
-    const lower = String(value || "").toLowerCase();
-    return list.some((item) => String(item || "").toLowerCase() === lower);
+    const key = facetKey(value);
+    return list.some((item) => facetKey(item) === key);
   }
 
   /**
@@ -451,8 +465,9 @@
   /**
    * Both layers applied.
    * @returns {{ rows: object[], hidden: {row: object, reason: string, detail: string}[] }}
-   *   `rows` is visible and sorted; with `showHidden` it also holds the
-   *   hidden rows, each marked `_hiddenReason`. `hidden` lists the rows the
+   *   `rows` is visible and sorted; with `showHidden` it also holds copies
+   *   of the hidden rows, each marked `_hiddenReason` and pointing at the
+   *   original through `_source`. `hidden` lists the rows the
    *   profile hides that the view and lens would otherwise show.
    */
   function filterLeads(rows, profile, view, options) {
@@ -475,9 +490,12 @@
     if (opts.showHidden) {
       out = visible.concat(
         hidden.map((entry) =>
+          // A copy, so the markers never land on the sheet row; row
+          // actions write through `_source`, the original object.
           Object.assign({}, entry.row, {
             _hiddenReason: entry.reason,
             _hiddenDetail: entry.detail,
+            _source: entry.row,
           }),
         ),
       );
@@ -618,9 +636,14 @@
       }) || byFit(a, b),
   };
 
+  // The mockup's key for Newest.
+  SORTS.new = SORTS.newest;
+
+  /** An unknown key keeps the input order, so a bad value stays visible. */
   function sortLeads(rows, sort) {
-    const compare = SORTS[sort] || SORTS.fit;
-    return (rows || []).slice().sort(compare);
+    const out = (rows || []).slice();
+    const compare = Object.prototype.hasOwnProperty.call(SORTS, sort) ? SORTS[sort] : null;
+    return compare ? out.sort(compare) : out;
   }
 
   /* ------------------------------------------------------------------
@@ -668,10 +691,23 @@
       if (!idb) return Promise.reject(new Error("IndexedDB is not available."));
       dbPromise = new Promise((resolve, reject) => {
         const req = idb.open(DB_NAME, DB_VERSION);
-        const watchdog = setTimeout(() => {
+        // Fail loud instead of hanging: a pending deleteDatabase in another
+        // tab queues this open indefinitely (user-content-store.js does the
+        // same). A success that arrives after we gave up is closed.
+        let gaveUp = false;
+        const giveUp = (message) => {
+          if (gaveUp) return;
+          gaveUp = true;
+          clearTimeout(watchdog);
           dbPromise = null;
-          reject(new Error("Leads DB open timed out. Close other JobBored tabs and retry."));
-        }, timeoutMs);
+          reject(new Error(message));
+        };
+        const watchdog = setTimeout(
+          () => giveUp("Leads DB open timed out. Close other JobBored tabs and retry."),
+          timeoutMs,
+        );
+        req.onblocked = () =>
+          giveUp("Leads DB is blocked by another JobBored tab. Close other JobBored tabs and retry.");
         req.onupgradeneeded = (event) => {
           const db = event.target.result;
           if (!db.objectStoreNames.contains(STORE)) {
@@ -679,10 +715,31 @@
           }
         };
         req.onsuccess = () => {
+          const db = req.result;
+          // Release the connection when another tab deletes or upgrades the
+          // DB, so that tab's request is never stranded behind this one.
+          db.onversionchange = () => {
+            try {
+              db.close();
+            } catch (_) {
+              /* already closing */
+            }
+            dbPromise = null;
+          };
+          if (gaveUp) {
+            try {
+              db.close();
+            } catch (_) {
+              /* ignore */
+            }
+            return;
+          }
           clearTimeout(watchdog);
-          resolve(req.result);
+          resolve(db);
         };
         req.onerror = () => {
+          if (gaveUp) return;
+          gaveUp = true;
           clearTimeout(watchdog);
           dbPromise = null;
           reject(req.error);

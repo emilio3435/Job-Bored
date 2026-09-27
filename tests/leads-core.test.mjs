@@ -119,14 +119,14 @@ describe("leads-core: module shape", () => {
 describe("leads-core: work mode", () => {
   it("should use column Z when it holds remote, hybrid or onsite", () => {
     const { core } = loadCore();
-    assert.equal(core.workModeFor(row({ workMode: "hybrid", location: "Remote" })), "hybrid");
-    assert.equal(core.workModeFor(row({ workMode: "ONSITE", location: "Remote" })), "onsite");
+    assert.equal(core.workModeFor(row({ workMode: "hybrid", workModeSource: "column", location: "Remote" })), "hybrid");
+    assert.equal(core.workModeFor(row({ workMode: "ONSITE", workModeSource: "column", location: "Remote" })), "onsite");
   });
 
   it("should parse the location when column Z is blank or a foreign word", () => {
     const { core } = loadCore();
     assert.equal(core.workModeFor(row({ workMode: "", location: "Hybrid - Austin" })), "hybrid");
-    assert.equal(core.workModeFor(row({ workMode: "unknown", location: "On-site, NYC" })), "onsite");
+    assert.equal(core.workModeFor(row({ workMode: "unknown", workModeSource: "column", location: "On-site, NYC" })), "onsite");
     assert.equal(core.workModeFor(row({ workMode: "", location: "Chicago, IL" })), "");
   });
 
@@ -163,7 +163,23 @@ describe("leads-core: profile layer mirrors runPreFilter", () => {
     const r = row({ location: "United States", title: "Director, Revenue Operations (Remote)" });
     assert.equal(core.hideReason(r, remoteOnly), null);
     // Column Z wins over the text.
-    assert.equal(core.hideReason(row({ workMode: "onsite", location: "Remote" }), remoteOnly).reason, "work_mode_mismatch");
+    assert.equal(core.hideReason(row({ workMode: "onsite", workModeSource: "column", location: "Remote" }), remoteOnly).reason, "work_mode_mismatch");
+  });
+
+  it("should not treat K0's location-parsed workMode as column Z (LC-BUCKET)", () => {
+    const { core } = loadCore();
+    // The row K0's parsePipelineCSV emits for a blank Z: workMode already
+    // holds the location parse. inferRemoteBucket checks remote before
+    // hybrid over location + title, so the worker keeps this lead.
+    const blankZ = row({
+      location: "Hybrid - Austin",
+      title: "Director, Revenue Operations (Remote)",
+      workMode: "hybrid",
+      workModeSource: "location",
+    });
+    assert.equal(core.hideReason(blankZ, profileWith({ workMode: "remote_only" })), null);
+    // The facet still reads the location only.
+    assert.equal(core.workModeFor(blankZ), "hybrid");
   });
 
   it("should constrain location for hybrid_ok and onsite_ok when acceptableLocations is set", () => {
@@ -254,6 +270,15 @@ describe("leads-core: hidden rows carry reasons and show-hidden re-includes them
     const cheap = out.rows.find((r) => r.company === "Cheap");
     assert.equal(cheap._hiddenReason, "salary_below_floor");
     assert.equal(rows[2]._hiddenReason, undefined, "input rows are not mutated");
+  });
+
+  it("should point each revealed copy at the original row (SHOW-COPY)", () => {
+    const { core } = loadCore();
+    const out = core.filterLeads(rows, p, { lens: "all" }, { showHidden: true });
+    const cheap = out.rows.find((r) => r.company === "Cheap");
+    assert.notEqual(cheap, rows[2]);
+    assert.equal(cheap._source, rows[2], "a star or stage write goes through _source");
+    assert.equal(out.rows.find((r) => r.company === "Acme")._source, undefined);
   });
 
   it("should drop dismissed rows from both layers", () => {
@@ -402,6 +427,15 @@ describe("leads-core: facet counts", () => {
     same(f.stages, { Applied: 1, New: 1 });
   });
 
+  it("should keep a padded cell selectable after counting it (FACET-TRIM)", () => {
+    const { core } = loadCore();
+    const rows = [row({ company: "Acme " }), row({ company: "Zed" })];
+    const f = core.facetCounts(rows, PROFILE, { lens: "all" });
+    assert.equal(f.companies.Acme, 1);
+    const picked = core.filterLeads(rows, PROFILE, { lens: "all", companies: ["Acme"] }).rows;
+    same(picked.map((r) => r.company), ["Acme "]);
+  });
+
   it("should give lens counts and fit bands, and leave hidden rows out unless shown", () => {
     const { core } = loadCore();
     const rows = [
@@ -440,6 +474,11 @@ describe("leads-core: sorts", () => {
     assert.equal(order("salary"), "bCda");
     assert.equal(order("match"), "daCb");
     assert.equal(order("company"), "abCd");
+  });
+  it("should take 'new' as newest and keep the order for an unknown key (SORT-KEY)", () => {
+    assert.equal(order("new"), "dCba");
+    assert.equal(order("bogus"), "baCd");
+    assert.equal(order(undefined), "baCd");
   });
   it("should never pin a favoured company", () => {
     const p = Object.assign({}, PROFILE, { tieBreakers: { favoredCompanies: ["d"] } });
@@ -494,5 +533,41 @@ describe("leads-core: IndexedDB records store", () => {
     const { core } = loadCore();
     const store = core.createStore({ indexedDB: { open() { throw new Error("blocked"); } } });
     await assert.rejects(store.listViews(), /blocked/);
+  });
+
+  it("should reject on onblocked, close a late success, and drop the handle on versionchange (IDB-OPEN)", async () => {
+    const { core } = loadCore();
+    const requests = [];
+    const fakeDb = () => ({
+      closed: false,
+      close() { this.closed = true; },
+      objectStoreNames: { contains: () => true },
+      transaction() {
+        return { objectStore: () => ({ getAll() { const r = {}; queueMicrotask(() => { r.result = []; r.onsuccess(); }); return r; } }) };
+      },
+    });
+    const factory = { open() { const req = {}; requests.push(req); return req; } };
+    const store = core.createStore({ indexedDB: factory });
+
+    const first = store.listViews();
+    requests[0].onblocked();
+    await assert.rejects(first, /blocked by another JobBored tab/);
+    const late = fakeDb();
+    requests[0].result = late;
+    requests[0].onsuccess();
+    assert.equal(late.closed, true, "a success after giving up is closed");
+
+    const second = store.listViews();
+    const live = fakeDb();
+    requests[1].result = live;
+    requests[1].onsuccess();
+    same(await second, []);
+    live.onversionchange();
+    assert.equal(live.closed, true);
+    const third = store.listViews();
+    assert.equal(requests.length, 3, "the next call opens a fresh connection");
+    requests[2].result = fakeDb();
+    requests[2].onsuccess();
+    await third;
   });
 });
