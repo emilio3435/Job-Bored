@@ -43,7 +43,7 @@ describe("callWriter", () => {
     assert.match(calls[0].url, /gemini-3\.7-flash/);
     const body = JSON.parse(calls[0].init.body);
     assert.equal(body.generationConfig.temperature, 0.4);
-    assert.equal(body.generationConfig.maxOutputTokens, 4096);
+    assert.equal(body.generationConfig.maxOutputTokens, 8192);
     assert.match(body.systemInstruction.parts[0].text, /Rewrite.*for this JD/i);
     assert.match(body.systemInstruction.parts[0].text, /Freeze employers, titles, dates, and metrics/i);
     assert.match(body.systemInstruction.parts[0].text, /JSON only matching the spec schema/i);
@@ -238,5 +238,204 @@ describe("callEditor", () => {
     assert.match(userText, /cover_letter_too_short/);
     assert.match(userText, /"hook":"Old"/);
     assert.doesNotMatch(JSON.stringify(calls[0].init), /"k"/);
+  });
+});
+
+/* Truncation handling: a model that is cut off at its output limit returns a
+ * finish/stop signal plus clipped JSON. The writer must say the output was
+ * truncated (naming the signal) instead of reporting a bare JSON parse
+ * failure, and its one retry must carry a larger budget — an identical
+ * retry re-truncates deterministically. Synthetic fixtures only. */
+const CLIPPED = JSON.stringify(valid).slice(0, 100);
+
+function geminiTruncatedClipped() {
+  return {
+    ok: true,
+    json: async () => ({
+      candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: CLIPPED }] } }],
+    }),
+  };
+}
+
+describe("callWriter truncation", () => {
+  it("names the finishReason and escalates the budget when Gemini truncates twice", async () => {
+    const budgets = [];
+    const fetchImpl = async (_url, init) => {
+      budgets.push(JSON.parse(init.body).generationConfig.maxOutputTokens);
+      return geminiTruncatedClipped();
+    };
+    const err = await callWriter({
+      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    }).then(
+      () => null,
+      (e) => e,
+    );
+    assert.ok(err, "expected callWriter to reject");
+    assert.match(err.message, /cut the draft off at its output limit/);
+    assert.match(err.message, /MAX_TOKENS/);
+    assert.equal(err.code, "writer_truncated");
+    assert.deepEqual(budgets, [8192, 16384]);
+  });
+
+  it("recovers when the escalated retry completes", async () => {
+    const budgets = [];
+    let n = 0;
+    const fetchImpl = async (_url, init) => {
+      budgets.push(JSON.parse(init.body).generationConfig.maxOutputTokens);
+      n += 1;
+      if (n === 1) return geminiTruncatedClipped();
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(valid) }] } }],
+        }),
+      };
+    };
+    const out = await callWriter({
+      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    });
+    assert.equal(out.letter.company, "EAB");
+    assert.deepEqual(budgets, [8192, 16384]);
+  });
+
+  it("requests Gemini JSON mode with a letter+resume schema", async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(valid) }] } }],
+        }),
+      };
+    };
+    await callWriter({
+      pin: { provider: "gemini", resolvedModel: "gemini-3.8-flash", apiKey: "k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    });
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.generationConfig.responseMimeType, "application/json");
+    assert.deepEqual(body.generationConfig.responseSchema.required, ["letter", "resume"]);
+  });
+
+  it("names finish_reason=length and sends json_object for first-party OpenAI", async () => {
+    const calls = [];
+    const fetchImpl = async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ finish_reason: "length", message: { content: CLIPPED } }],
+        }),
+      };
+    };
+    const err = await callWriter({
+      pin: { provider: "openai", resolvedModel: "gpt-4o-mini", apiKey: "sk-test", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    }).then(
+      () => null,
+      (e) => e,
+    );
+    assert.ok(err, "expected callWriter to reject");
+    assert.match(err.message, /cut the draft off at its output limit/);
+    assert.match(err.message, /length/);
+    assert.equal(err.code, "writer_truncated");
+    assert.deepEqual(calls[0].response_format, { type: "json_object" });
+    assert.deepEqual(
+      calls.map((b) => b.max_tokens),
+      [8192, 16384],
+    );
+  });
+
+  it("names stop_reason=max_tokens for Anthropic", async () => {
+    const calls = [];
+    const fetchImpl = async (_url, init) => {
+      calls.push(JSON.parse(init.body));
+      return {
+        ok: true,
+        json: async () => ({
+          stop_reason: "max_tokens",
+          content: [{ type: "text", text: CLIPPED }],
+        }),
+      };
+    };
+    const err = await callWriter({
+      pin: { provider: "anthropic", resolvedModel: "claude-sonnet-4-6", apiKey: "ant-k", baseUrl: "" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    }).then(
+      () => null,
+      (e) => e,
+    );
+    assert.ok(err, "expected callWriter to reject");
+    assert.match(err.message, /cut the draft off at its output limit/);
+    assert.match(err.message, /max_tokens/);
+    assert.equal(err.code, "writer_truncated");
+    assert.deepEqual(
+      calls.map((b) => b.max_tokens),
+      [8192, 16384],
+    );
+  });
+
+  it("keeps OpenRouter and local requests plain JSON (no response_format)", async () => {
+    for (const pin of [
+      { provider: "openrouter", resolvedModel: "openai/gpt-oss-120b:free", apiKey: "sk-or-test", baseUrl: "" },
+      { provider: "local", resolvedModel: "gemma4:e2b", apiKey: "", baseUrl: "http://127.0.0.1:11434/v1" },
+    ]) {
+      const calls = [];
+      const fetchImpl = async (_url, init) => {
+        calls.push(JSON.parse(init.body));
+        return {
+          ok: true,
+          json: async () => ({
+            choices: [{ finish_reason: "stop", message: { content: JSON.stringify(valid) } }],
+          }),
+        };
+      };
+      await callWriter({ pin, jdText: "x", masterResumeHtml: "y", voiceSamples: [], fetchImpl });
+      assert.ok(!("response_format" in calls[0]), `${pin.provider} must stay plain JSON`);
+    }
+  });
+
+  it("escalates once on unterminated JSON even without a stop signal", async () => {
+    const budgets = [];
+    const fetchImpl = async (_url, init) => {
+      budgets.push(JSON.parse(init.body).max_tokens);
+      return {
+        ok: true,
+        json: async () => ({
+          choices: [{ message: { content: CLIPPED } }],
+        }),
+      };
+    };
+    const err = await callWriter({
+      pin: { provider: "local", resolvedModel: "gemma4:e2b", apiKey: "", baseUrl: "http://127.0.0.1:11434/v1" },
+      jdText: "x",
+      masterResumeHtml: "y",
+      voiceSamples: [],
+      fetchImpl,
+    }).then(
+      () => null,
+      (e) => e,
+    );
+    assert.ok(err, "expected callWriter to reject");
+    assert.match(err.message, /unterminated JSON object/);
+    assert.deepEqual(budgets, [8192, 16384]);
   });
 });
