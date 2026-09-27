@@ -15,7 +15,7 @@
  * ledger_empty before any call.
  */
 
-import { writeFile, readFile } from "node:fs/promises";
+import { copyFile, mkdtemp, rm, writeFile, readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { homedir } from "node:os";
 import { join } from "node:path";
@@ -33,6 +33,7 @@ import { extractJd, hashJd } from "./materials-jd-extract.mjs";
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { renderPackage, writePackageRecords } from "./materials-package.mjs";
+import { withPackagePublishClaim } from "./materials-regenerate.mjs";
 import { scoreRubric } from "./materials-rubric.mjs";
 import { selectClaims } from "./materials-select.mjs";
 import {
@@ -148,7 +149,19 @@ function applyDelintFields(draft, fields) {
  * @param {string} [input.repairInstructions] F8 repair: editor instructions
  * @param {string} [input.executor]
  */
-export async function runPipeline({
+export async function runPipeline(input) {
+  const previous = await readFile(join(input.dir, "run.json"), "utf8")
+    .then((raw) => String(JSON.parse(raw)?.runId || ""))
+    .catch(() => "");
+  return withPackagePublishClaim(input.dir, previous, async (assertBase) => {
+    const stagingDir = await mkdtemp(join(input.dir, ".render-"));
+    try { return await runPipelineBody(input, assertBase, stagingDir); }
+    finally { await rm(stagingDir, { recursive: true, force: true }); }
+  }, { allowPending: true });
+}
+
+/** @param {Parameters<typeof runPipeline>[0]} input @param {() => Promise<void>} assertBase @param {string} stagingDir */
+async function runPipelineBody({
   dir,
   payload,
   pin,
@@ -167,7 +180,7 @@ export async function runPipeline({
   current,
   repairInstructions = "",
   executor = "local-inprocess",
-}) {
+}, assertBase, stagingDir) {
   const startedAt = now instanceof Date ? now : new Date(now || Date.now());
   const isoNow = () => new Date().toISOString();
   /** @type {Array<{ stage: string, status: "ok" | "skipped" | "review" | "failed", ms?: number, llm?: boolean, out?: string[], detail?: string }>} */
@@ -393,8 +406,8 @@ export async function runPipeline({
 
   /* render: fit + HTML + PDFs. */
   const session = openSession ? await openSession() : null;
-  const resumePdfPath = join(dir, "resume.html").replace(/resume\.html$/, "resume.pdf");
-  const coverLetterPdfPath = join(dir, "cover-letter.html").replace(/cover-letter\.html$/, "cover-letter.pdf");
+  const resumePdfPath = join(stagingDir, "resume.pdf");
+  const coverLetterPdfPath = join(stagingDir, "cover-letter.pdf");
   let rendered;
   try {
     rendered = await renderPackage({
@@ -527,17 +540,6 @@ export async function runPipeline({
     ...(payload.resume ? [formatProvenanceLine(payload.resume)] : []),
     ...degraded.map((d) => `degraded: ${d}`),
   ];
-  if (payload.feature !== "cover_letter" && resumeHtml) {
-    await writeFile(join(dir, "resume.html"), resumeHtml, "utf8");
-  }
-  if (payload.feature !== "resume" && letterHtml) {
-    await writeFile(join(dir, "cover-letter.html"), letterHtml, "utf8");
-  }
-  await writeFile(
-    join(dir, "qa-report.md"),
-    formatQaReport({ status: disposition, issues, notes }),
-    "utf8",
-  );
   /** @type {Record<string, number>} */
   const pages = {};
   if (rendered.pdf?.resume) pages["resume.pdf"] = rendered.pdf.resume.pages;
@@ -546,6 +548,12 @@ export async function runPipeline({
   const pinBlock = pin && (pin.provider || pin.resolvedModel)
     ? { provider: pin.provider, requestedModel: pin.model, resolvedModel: pin.resolvedModel }
     : undefined;
+  await assertBase();
+  if (payload.feature !== "cover_letter" && resumeHtml) await writeFile(join(dir, "resume.html"), resumeHtml, "utf8");
+  if (payload.feature !== "resume" && letterHtml) await writeFile(join(dir, "cover-letter.html"), letterHtml, "utf8");
+  if (rendered.pdf?.resume) await copyFile(resumePdfPath, join(dir, "resume.pdf"));
+  if (rendered.pdf?.coverLetter) await copyFile(coverLetterPdfPath, join(dir, "cover-letter.pdf"));
+  await writeFile(join(dir, "qa-report.md"), formatQaReport({ status: disposition, issues, notes }), "utf8");
   record({ stage: "publish", status: "ok", llm: false, out: ["manifest.json", "run.json"] });
   await writePackageRecords({
     dir,

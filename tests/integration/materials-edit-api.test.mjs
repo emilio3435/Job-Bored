@@ -98,8 +98,8 @@ function fakeStream() {
     end() { if (this.writableEnded) return; this.writableEnded = true; this.emit("end"); },
   });
 }
-async function readyProposal(svc, pkg) {
-  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten the resume", scope: "all", lockFacts: true });
+async function readyProposal(svc, pkg, scope = "all") {
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten the resume", scope, lockFacts: true });
   const res = fakeStream();
   const ended = once(res, "end");
   await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
@@ -239,6 +239,57 @@ it("B2-7 keeps v0 pinned without calling it starred", async () => {
   const list = await service.versions(await service.dirFor(pkg.slug), "resume");
   assert.equal(list.versions[0].pinned, true);
   assert.equal(list.versions[0].starred, false);
+});
+
+it("B2-8 lets only one of a racing reject and accept finish", async () => {
+  for (let attempt = 0; attempt < 4; attempt++) {
+    const pkg = await seed();
+    const id = await readyProposal(service, pkg);
+    const outcomes = await Promise.allSettled([
+      service.reject(pkg.slug, id),
+      service.accept(pkg.slug, id, { accept: ["o1"], confirmUnverified: [] }),
+    ]);
+    assert.equal(outcomes.filter((outcome) => outcome.status === "fulfilled").length, 1);
+    assert.equal((await service.versions(await service.dirFor(pkg.slug), "resume")).versions.length, outcomes[1].status === "fulfilled" ? 2 : 1);
+  }
+});
+
+it("B2-9 validates the proposal and manual edit as one shape-valid batch", async () => {
+  const pkg = await seed();
+  const svc = createMaterialsVersionService({
+    applicationsRoot: root,
+    pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    propose: async () => ({ ops: [{ opId: "o1", op: "remove", node: "b:acme:c19" }], blocked: [], summary: { changes: 1, removals: 1, wordsDelta: -8, lossPct: 10, pages: 1, unverified: 0 } }),
+    commit,
+  });
+  const id = await readyProposal(svc, pkg, ["b:acme:c19"]);
+  const manual = { opId: "m1", op: "insert", after: "b:acme:c14", claimId: "replacement-claim", text: "Documented the team handoff process." };
+  const result = await svc.accept(pkg.slug, id, { accept: ["o1"], manualOps: [manual], confirmUnverified: ["m1"] });
+  assert.equal(result.statusCode, 200);
+  const saved = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+  assert.deepEqual(saved.documents.resume.sections[0].entries[0].bullets.map((bullet) => bullet.claimId), ["c14", "replacement-claim"]);
+  const outside = await seed();
+  const outsideId = await readyProposal(svc, outside, ["b:acme:c14"]);
+  await assert.rejects(svc.accept(outside.slug, outsideId, { accept: ["o1"], manualOps: [manual], confirmUnverified: ["m1"] }), { statusCode: 400, code: "out_of_scope" });
+});
+
+it("B2-10 rejects a moved base after the publish claim is first read", async () => {
+  const pkg = await seed();
+  const id = await readyProposal(service, pkg);
+  const entered = deferred();
+  const release = deferred();
+  commitHold = { entered: entered.resolve, wait: release.promise };
+  let accepting;
+  try {
+    accepting = service.accept(pkg.slug, id, { accept: ["o1"], confirmUnverified: [] });
+    await entered.promise;
+    const current = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+    await writeFile(join(pkg.dir, "run.json"), JSON.stringify({ ...current, runId: "moved-during-render" }));
+    release.resolve();
+    await assert.rejects(accepting, { statusCode: 409, code: "stale_base" });
+    assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).runId, "moved-during-render");
+    assert.equal(await readFile(join(pkg.dir, "resume.pdf"), "utf8"), "old PDF");
+  } finally { release.resolve(); if (accepting) await accepting.catch(() => {}); commitHold = null; }
 });
 
 async function request(path, method = "GET", body) {

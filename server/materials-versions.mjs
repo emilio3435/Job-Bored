@@ -266,15 +266,16 @@ export function createMaterialsVersionService(deps = {}) {
   };
   /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] */
   const commit = async (dir, model, current, source, edit, restoredFrom) => {
-    return withPackagePublishClaim(dir, current.runId, async () => {
+    return withPackagePublishClaim(dir, current.runId, async (assertBase) => {
       const input = { dir, model, feature: current.feature || "both", source, parentRunId: restoredFrom || current.runId, ...(edit ? { edit } : {}) };
       try {
-        const result = await (deps.commit || commitModelAsRun)(input, { pdfSession: deps.pdfSession });
+        const result = await (deps.commit || commitModelAsRun)(input, { pdfSession: deps.pdfSession, assertBase });
         return { runId: result.runId, pdf: "ready", stale: false };
       } catch (error) {
         if (/** @type {any} */ (error).code !== "browser_unavailable") throw error;
         // Text is still publishable. The old PDF belongs to the prior immutable run.
         const rendered = await renderPackage({ model, feature: input.feature, session: null });
+        await assertBase();
         if (rendered.resumeHtml) await writeFile(join(dir, "resume.html"), rendered.resumeHtml, "utf8");
         if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
         await rm(join(dir, "resume.pdf"), { force: true });
@@ -432,11 +433,13 @@ export function createMaterialsVersionService(deps = {}) {
         if (checked.some((op) => op.flags?.includes("unverified") && !confirmed.includes(op.opId))) throw failure("Confirm each unverified edit", 400, "unverified_confirmation_required");
         let candidate;
         try {
-          candidate = applyOps(base, checked.slice(0, selectedProposal.length), { scope: proposal?.scope || "all" });
-          candidate = applyOps(candidate, checked.slice(selectedProposal.length));
+          const proposalScope = proposal?.scope || "all";
+          if (proposalScope !== "all" && selectedProposal.some((op) => !proposalScope.includes(op.op === "insert" ? op.after : op.node))) throw new MaterialsEditError("out_of_scope", "Proposal edit targets a node outside its scope");
+          candidate = applyOps(base, checked);
         }
         catch (error) { if (error instanceof MaterialsEditError) throw failure(error.detail, 400, error.reason); throw error; }
         const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };
+        if (proposal && (proposal.status !== "accepting" || (await json(proposalPath(proposal)))?.status !== "accepting")) throw failure("Proposal is no longer accepting", 409, "proposal_not_ready");
         const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit);
         if (proposal) { proposal.status = "accepted"; await writeJson(proposalPath(proposal), persisted(proposal)); }
         const listed = await versions(dir, doc);
@@ -452,12 +455,14 @@ export function createMaterialsVersionService(deps = {}) {
     },
     /** @param {string} slug @param {string} id */
     async reject(slug, id) {
-      const dir = await dirFor(slug); pendingGuard(dir);
-      if (reserved.has(dir)) throw failure("An edit is already in progress", 409, "materials_pending");
-      const proposal = await loadProposal(dir, id);
-      proposal.status = "rejected";
-      await rm(proposalPath(proposal), { force: true });
-      live.delete(id);
+      const dir = await dirFor(slug); claimEdit(dir);
+      try {
+        const proposal = await loadProposal(dir, id);
+        if (proposal.status === "accepting") throw failure("Proposal is being accepted", 409, "materials_pending");
+        proposal.status = "rejected";
+        await rm(proposalPath(proposal), { force: true });
+        live.delete(id);
+      } finally { reserved.delete(dir); }
     },
     /** @param {string} slug @param {string} id */
     async restore(slug, id) {
