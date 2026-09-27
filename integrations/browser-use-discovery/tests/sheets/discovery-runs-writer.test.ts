@@ -44,6 +44,7 @@ function makeRuntimeConfig(
 
 function makeRow(overrides: Partial<DiscoveryRunLogRow> = {}): DiscoveryRunLogRow {
   return {
+    runId: "run_test",
     runAt: "2026-04-21T15:12:03.000Z",
     trigger: "manual",
     status: "success",
@@ -111,10 +112,10 @@ test("appendDiscoveryRunRow appends when the tab already exists with the expecte
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`)}`),
       response: () =>
         okJson({
-          range: `${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`,
+          range: `${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`,
           majorDimension: "ROWS",
           values: [
             [
@@ -128,6 +129,7 @@ test("appendDiscoveryRunRow appends when the tab already exists with the expecte
               "Source",
               "Variation Key",
               "Error",
+              "Run ID",
             ],
           ],
         }),
@@ -161,6 +163,7 @@ test("appendDiscoveryRunRow appends when the tab already exists with the expecte
       "worker@test",
       "var-1234",
       "",
+      "run_test",
     ],
   ]);
   assert.equal(appendCall.headers["authorization"], "Bearer direct-token");
@@ -172,12 +175,12 @@ test("appendDiscoveryRunRow creates the tab + header when the sheet has no Disco
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`)}`),
       response: () =>
         errorJson(400, {
           error: {
             code: 400,
-            message: "Unable to parse range: DiscoveryRuns!A1:J1",
+            message: "Unable to parse range: DiscoveryRuns!A1:K1",
           },
         }),
     },
@@ -188,8 +191,8 @@ test("appendDiscoveryRunRow creates the tab + header when the sheet has no Disco
     {
       match: (c) =>
         c.method === "PUT" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
-      response: () => okJson({ updatedRange: "DiscoveryRuns!A1:J1" }),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`)}`),
+      response: () => okJson({ updatedRange: "DiscoveryRuns!A1:K1" }),
     },
     {
       match: (c) => c.method === "POST" && c.url.includes(":append"),
@@ -213,7 +216,7 @@ test("appendDiscoveryRunRow returns ok:false when the append request fails (does
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`)}`),
       response: () =>
         okJson({
           values: [
@@ -228,6 +231,7 @@ test("appendDiscoveryRunRow returns ok:false when the append request fails (does
               "Source",
               "Variation Key",
               "Error",
+              "Run ID",
             ],
           ],
         }),
@@ -256,7 +260,7 @@ test("appendDiscoveryRunRow truncates long error strings to <=200 chars", async 
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`)}`),
       response: () =>
         okJson({
           values: [
@@ -271,6 +275,7 @@ test("appendDiscoveryRunRow truncates long error strings to <=200 chars", async 
               "Source",
               "Variation Key",
               "Error",
+              "Run ID",
             ],
           ],
         }),
@@ -317,7 +322,7 @@ test("appendDiscoveryRunRow success case leaves error column blank even when row
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`)}`),
       response: () =>
         okJson({
           values: [
@@ -332,6 +337,7 @@ test("appendDiscoveryRunRow success case leaves error column blank even when row
               "Source",
               "Variation Key",
               "Error",
+              "Run ID",
             ],
           ],
         }),
@@ -363,7 +369,7 @@ test("createDiscoveryRunsLogger returns a bound append function that shares the 
     {
       match: (c) =>
         c.method === "GET" &&
-        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:J1`)}`),
+        c.url.includes(`/values/${encodeURIComponent(`${DISCOVERY_RUNS_SHEET_NAME}!A1:K1`)}`),
       response: () =>
         okJson({
           values: [
@@ -378,6 +384,7 @@ test("createDiscoveryRunsLogger returns a bound append function that shares the 
               "Source",
               "Variation Key",
               "Error",
+              "Run ID",
             ],
           ],
         }),

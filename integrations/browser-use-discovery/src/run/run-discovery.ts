@@ -17,6 +17,7 @@ import type {
   DiscoverySourceLane,
   DiscoverySourceSummary,
   DiscoveryRun,
+  DiscoveryRunStats,
   DiscoveryWebhookRequestV1,
   DeadLinkRecord,
   ExtractionDiagnostic,
@@ -69,6 +70,7 @@ import {
   type LeadNormalizationRejection,
 } from "../normalize/lead-normalizer.ts";
 import { dedupeLeadsForProductionRun } from "../normalize/intake-identity.ts";
+import type { ListingDuplicateGroup } from "../discovery/listing-fingerprint.ts";
 import {
   loadUserProfile,
   validateProfileCandidate,
@@ -105,6 +107,7 @@ import {
   DEFAULT_EXPLORATION_BUDGET,
   type FrontierCandidate,
 } from "./frontier-scorer.ts";
+import { buildRunStats } from "./run-stats.ts";
 
 // Default maximum run duration: 60 minutes. Async discovery runs are background
 // work; source and matcher timeouts still keep individual lanes bounded.
@@ -177,6 +180,7 @@ export type RunDiscoveryResult = {
   sourceSummary: DiscoverySourceSummary[];
   writeResult: PipelineWriteResult;
   warnings: string[];
+  runStats?: DiscoveryRunStats;
 };
 
 type RejectionSummary = DiscoveryRejectionSummary;
@@ -361,6 +365,21 @@ export async function runDiscovery(
   let currentProgressPhase: DiscoveryRunProgressPhase = "initializing";
   const progressCounters: NonNullable<DiscoveryRunProgress["counters"]> = {};
   const matchingState = { aiMatchCallsUsed: 0, aiMatchAttempts: 0 };
+  const statsTimeline: Array<{ phase: string; startedAt: string }> = [];
+  const atsSearchedCompanies = new Set<string>();
+  const groundedSearchedCompanies = new Set<string>();
+  const searchedQueries: string[] = [];
+  let searchedQueriesOverflow = false;
+  const timeoutCounts = { ats: 0, grounded_web: 0 };
+  let groundedQueryCount = 0;
+  let serpQueryCount: number | undefined;
+  let groundedProcessedCount = 0;
+  function observeQueryLabels(queries: string[]): void {
+    for (const query of queries) {
+      if (searchedQueries.length < 51) searchedQueries.push(query);
+      else searchedQueriesOverflow = true;
+    }
+  }
   let currentProgress: DiscoveryRunProgress["current"];
   const progressSources = new Map<string, NonNullable<DiscoveryRunProgress["sources"]>[number]>();
   let lastListingCheckpointCount = 0;
@@ -385,6 +404,9 @@ export async function runDiscovery(
     checkpointedAt = dependencies.now().toISOString(),
   ): void {
     currentProgressPhase = phase;
+    if (statsTimeline.at(-1)?.phase !== phase) {
+      statsTimeline.push({ phase, startedAt: checkpointedAt });
+    }
     if (budget) {
       latestBudgetProgress = {
         ...budget,
@@ -835,6 +857,7 @@ export async function runDiscovery(
   // incorrectly tag zero-result browser_only runs as weak_ats_seed_quality.
   if (hasAtsLanes) {
   for (const company of atsCompaniesToSearch) {
+    if (company.name) atsSearchedCompanies.add(company.name);
     const companyOrdinal = (progressCounters.companiesDone || 0) + 1;
     // VAL-LOOP-CORE-008: Emit scout stage start (first ATS company iteration)
     if (!stageProgress.detectStarted) {
@@ -861,6 +884,7 @@ export async function runDiscovery(
         runSignal,
       ).catch((error) => {
         if (error instanceof TimeoutError) {
+          timeoutCounts.ats += 1;
           const message = `Board detection timed out after ${error.timeoutMs}ms for ${company.name}: ${error.message}`;
           warnings.push(message);
           dependencies.log?.("discovery.run.detect_timeout", {
@@ -933,6 +957,7 @@ export async function runDiscovery(
                     runSignal,
                   ).catch((error) => {
                     if (error instanceof TimeoutError) {
+                      timeoutCounts.ats += 1;
                       logProgress("discovery.run.ats_list_timeout", { runId, companyOrdinal, sourceId, timeoutMs: error.timeoutMs });
                       return [];
                     }
@@ -960,6 +985,7 @@ export async function runDiscovery(
               runSignal,
             ).catch((error) => {
               if (error instanceof TimeoutError) {
+                timeoutCounts.ats += 1;
                 const message = `Listing collection timed out for ${sourceId} after ${error.timeoutMs}ms: ${error.message}`;
                 extractionResult.warnings.push(message);
                 warnings.push(message);
@@ -1168,6 +1194,7 @@ export async function runDiscovery(
             scoutBudgetSkipped.push(company.name);
             return;
           }
+          if (company.name) groundedSearchedCompanies.add(company.name);
           try {
             const searchResult = await withTimeout(
               `grounded_scout[${describeGroundedSearchScope(company)}]`,
@@ -1180,9 +1207,14 @@ export async function runDiscovery(
               runSignal,
             );
             groundedScoutCache.push({ company, searchResult });
+            if (Array.isArray(searchResult.searchQueries)) {
+              groundedQueryCount += searchResult.searchQueries.length;
+              observeQueryLabels(searchResult.searchQueries);
+            }
           } catch (error) {
             groundedScoutFailures.set(company.name, error);
             if (error instanceof TimeoutError) {
+              timeoutCounts.grounded_web += 1;
               const message = `Grounded web scout timed out after ${error.timeoutMs}ms: ${error.message}`;
               warnings.push(message);
               dependencies.log?.("discovery.run.grounded_scout_timeout", {
@@ -1279,6 +1311,12 @@ export async function runDiscovery(
             checkpointRunProgress("scout");
           },
         });
+        serpQueryCount = serpResult.stats.queryCount;
+        if (Array.isArray(serpResult.listings)) {
+          observeQueryLabels(serpResult.listings
+            .map((listing) => listing?.query)
+            .filter((query): query is string => typeof query === "string"));
+        }
         extractionResult.warnings.push(...serpResult.warnings);
         extractionResult.stats.leadsSeen = serpResult.rawListings.length;
         progressCounters.listingsSeen = (progressCounters.listingsSeen || 0) + serpResult.rawListings.length;
@@ -1550,12 +1588,15 @@ export async function runDiscovery(
           extractionResult: createExtractionResult(run.runId, "grounded_web", ""),
           normalizedLeads: [],
           listingCount: 0,
+          timeoutCount: 1,
         };
       }
       throw error;
     });
     stageProgress.groundedCompleted = true;
     listingCount += groundedResult.listingCount;
+    groundedProcessedCount = groundedResult.listingCount;
+    timeoutCounts.grounded_web += groundedResult.timeoutCount;
     if (groundedResult.extractionResult) {
       extractionResultsBySource.set(
         "grounded_web",
@@ -1583,7 +1624,7 @@ export async function runDiscovery(
     }
   }
 
-  const [dedupedLeads, crossLaneDuplicates] = dedupeNormalizedLeads(normalizedLeads);
+  const [dedupedLeads, crossLaneDuplicates, duplicateGroups] = dedupeNormalizedLeads(normalizedLeads);
   loopCounters.crossLaneDuplicates = crossLaneDuplicates;
   loopCounters.duplicateSuppressions = normalizedLeads.length - dedupedLeads.length;
   const restrictedCompanyAllowlist =
@@ -1994,6 +2035,89 @@ export async function runDiscovery(
     extractionResultsBySource,
     rejectionSummaryBySource,
   );
+  let runStats: DiscoveryRunStats | undefined;
+  try {
+    const duplicatesBySource = new Map<string, number>();
+    for (const group of duplicateGroups) {
+      for (const index of group.droppedIndices) {
+        const sourceId = normalizedLeads[index]?.sourceId || "";
+        const id = isAtsSourceId(sourceId) ? "ats" : sourceId;
+        duplicatesBySource.set(id, (duplicatesBySource.get(id) || 0) + 1);
+      }
+    }
+    const rejectionReasons: Record<string, number> = {};
+    for (const source of sourceSummary) {
+      for (const [reason, count] of Object.entries(source.rejectionSummary?.rejectionReasons || {})) {
+        rejectionReasons[reason] = (rejectionReasons[reason] || 0) + count;
+      }
+    }
+    const statSources: NonNullable<DiscoveryRunStats["sources"]> = [];
+    const atsSources = sourceSummary.filter((source) =>
+      isAtsSourceId(source.sourceId) && config.effectiveSources.includes(source.sourceId));
+    if (hasAtsLanes) {
+      statSources.push({
+        id: "ats", label: "Company boards",
+        searched: { companies: atsSearchedCompanies.size, boards: detectionCount },
+        seen: atsSources.reduce((sum, source) => sum + source.leadsSeen, 0),
+        accepted: atsSources.reduce((sum, source) => sum + source.leadsAccepted, 0),
+        rejected: atsSources.reduce((sum, source) => sum + source.leadsRejected, 0),
+        duplicates: duplicatesBySource.get("ats") || 0,
+        timeouts: timeoutCounts.ats,
+        state: timeoutCounts.ats || atsSources.some((source) => source.warnings.length) ? "partial" : "done",
+      });
+    }
+    for (const [id, label, queryCount, searchedCompanies] of [
+      ["grounded_web", "Grounded web", groundedQueryCount, groundedSearchedCompanies.size],
+      [SERPAPI_GOOGLE_JOBS_SOURCE_ID, "Google Jobs", serpQueryCount, undefined],
+    ] as const) {
+      if (!config.effectiveSources.includes(id)) continue;
+      const source = sourceSummary.find((entry) => entry.sourceId === id);
+      const state = progressSources.get(id)?.state;
+      const timeouts = id === "grounded_web" ? timeoutCounts.grounded_web : undefined;
+      statSources.push({
+        id, label,
+        searched: {
+          ...(searchedCompanies !== undefined ? { companies: searchedCompanies } : {}),
+          ...(queryCount !== undefined ? { queries: queryCount } : {}),
+        },
+        ...(source ? {
+          seen: source.leadsSeen,
+          accepted: source.leadsAccepted,
+          rejected: source.leadsRejected,
+        } : {}),
+        duplicates: duplicatesBySource.get(id) || 0,
+        ...(timeouts !== undefined ? { timeouts } : {}),
+        state: state === "skipped" ? "skipped" : timeouts || source?.warnings.length ? "partial" : "done",
+      });
+    }
+    runStats = buildRunStats({
+      startedAt,
+      completedAt,
+      funnel: {
+        companiesSearched: new Set([...atsSearchedCompanies, ...groundedSearchedCompanies]).size,
+        boardsDetected: detectionCount,
+        ...(serpQueryCount !== undefined || groundedQueryCount > 0
+          ? { queriesRun: groundedQueryCount + (serpQueryCount || 0) } : {}),
+        listingsSeen: listingCount,
+        listingsProcessed: (progressCounters.listingsProcessed || 0) + groundedProcessedCount,
+        duplicatesInRun: loopCounters.duplicateSuppressions,
+        rejected: sourceSummary.reduce((sum, source) => sum + source.leadsRejected, 0),
+        candidates: leadsToWrite.length,
+        written: writeResult.appended,
+        updated: writeResult.updated,
+      },
+      rejectionReasons,
+      candidateFitScores: leadsToWrite.map((lead) => lead.fitScore),
+      sources: statSources,
+      timeline: statsTimeline,
+      matcherCalls: matchingState.aiMatchAttempts,
+      searchedCompanies: [...atsSearchedCompanies, ...groundedSearchedCompanies],
+      searchedQueries,
+      searchedTruncated: searchedQueriesOverflow,
+    });
+  } catch (error) {
+    logProgress("discovery.run.stats_failed", { runId, error: error instanceof Error ? error.name : "unknown" });
+  }
   const companyCount = countConfiguredCompanies(config);
   const logStatus = mapLifecycleStateToLogStatus(lifecycleState, writeResult);
   const failureAttribution = classifyFailureReason(
@@ -2025,6 +2149,7 @@ export async function runDiscovery(
         ),
       );
       const logRow: DiscoveryRunLogRow = {
+        runId,
         runAt: completedAt,
         trigger: resolveDiscoveryRunTrigger(request.trigger, trigger),
         status: logStatus,
@@ -2084,6 +2209,7 @@ export async function runDiscovery(
     sourceSummary,
     writeResult,
     warnings,
+    ...(runStats ? { runStats } : {}),
   };
   } finally {
     clearInterval(heartbeatTimer);
@@ -2382,6 +2508,7 @@ type CompanyProcessingResult = {
   pagesVisited: number;
   leadsSeen: number;
   leadsAccepted: number;
+  timeoutCount: number;
   /** True if this company's processing failed with an error. */
   failed: boolean;
   /** Error message if failed. */
@@ -2570,6 +2697,7 @@ async function processSingleCompany(
     pagesVisited: 0,
     leadsSeen: 0,
     leadsAccepted: 0,
+    timeoutCount: 0,
     failed: false,
   };
 
@@ -2635,6 +2763,7 @@ async function processSingleCompany(
       timeouts.abortSignal,
     ).catch((error) => {
       if (error instanceof TimeoutError) {
+        result.timeoutCount += 1;
         const message = `Grounded collection timed out after ${error.timeoutMs}ms for ${companyLabel}`;
         result.companyWarnings.push(message);
         result.companyDiagnostics.push({
@@ -2741,6 +2870,7 @@ async function runGroundedWebDiscovery(
   extractionResult: BrowserUseExtractionResult | null;
   normalizedLeads: NormalizedLead[];
   listingCount: number;
+  timeoutCount: number;
 }> {
   const extractionResult = createExtractionResult(
     run.runId,
@@ -2750,6 +2880,7 @@ async function runGroundedWebDiscovery(
   const warnings: string[] = [];
   const normalizedLeads: NormalizedLead[] = [];
   let listingCount = 0;
+  let timeoutCount = 0;
 
   if (!dependencies.groundedSearchClient) {
     const message = formatGroundedGoogleSearchUnavailableWarning(
@@ -2767,6 +2898,7 @@ async function runGroundedWebDiscovery(
       extractionResult,
       normalizedLeads,
       listingCount,
+      timeoutCount,
     };
   }
 
@@ -2779,6 +2911,7 @@ async function runGroundedWebDiscovery(
       extractionResult,
       normalizedLeads,
       listingCount,
+      timeoutCount,
     };
   }
 
@@ -2844,6 +2977,7 @@ async function runGroundedWebDiscovery(
   let totalLeadsAccepted = 0;
 
   for (const companyResult of companyResults) {
+    timeoutCount += companyResult.timeoutCount;
     // VAL-ROUTE-016: Emit company-attributed failure evidence for failed companies
     if (companyResult.failed) {
       extractionResult.warnings.push(...companyResult.companyWarnings);
@@ -2925,6 +3059,7 @@ async function runGroundedWebDiscovery(
     extractionResult,
     normalizedLeads,
     listingCount,
+    timeoutCount,
   };
 }
 
@@ -2936,11 +3071,11 @@ async function runGroundedWebDiscovery(
  * VAL-LOOP-CROSS-004: Cross-lane duplicates (same opportunity from ATS+browser)
  * are collapsed and counted in the returned crossLaneDuplicates value.
  *
- * @returns Tuple of [deduplicated leads, cross-lane duplicate count]
+ * @returns Tuple of [deduplicated leads, cross-lane duplicate count, duplicate groups]
  */
 function dedupeNormalizedLeads(
   leads: NormalizedLead[],
-): [NormalizedLead[], number] {
+): [NormalizedLead[], number, ListingDuplicateGroup[]] {
   const result = dedupeLeadsForProductionRun(leads);
   let crossLaneDuplicates = 0;
   for (const group of result.duplicateGroups) {
@@ -2950,7 +3085,7 @@ function dedupeNormalizedLeads(
     }
     if (lanes.size > 1) crossLaneDuplicates += 1;
   }
-  return [result.uniqueItems, crossLaneDuplicates];
+  return [result.uniqueItems, crossLaneDuplicates, result.duplicateGroups];
 }
 
 function buildSourceSummary(

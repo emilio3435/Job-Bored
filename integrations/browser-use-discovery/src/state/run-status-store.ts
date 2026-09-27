@@ -58,9 +58,27 @@ export interface DiscoveryRunStatusStoreOptions {
 export interface DiscoveryRunStatusStore {
   put(payload: DurableDiscoveryRunStatusPayload): void;
   get(runId: string): DurableDiscoveryRunStatusPayload | null;
+  list(options?: { limit?: number; before?: string }): DiscoveryRunListPage | null;
   markNonTerminalRunsAbandoned?(abandonedAt: string): number;
   close(): void;
 }
+
+export type DiscoveryRunListSummary = {
+  runId: string;
+  status: DiscoveryRunStatus;
+  sheetStatus?: "success" | "partial" | "failure";
+  trigger: TriggerKind;
+  startedAt?: string;
+  completedAt?: string;
+  durationMs?: number;
+  statusPath: string;
+  headline: { written?: number; updated?: number; candidates?: number; fitAvg?: number };
+};
+
+export type DiscoveryRunListPage = {
+  runs: DiscoveryRunListSummary[];
+  nextBefore: string | null;
+};
 
 export interface RunStatusSnapshotV1 {
   schemaVersion: typeof RUN_STATUS_SNAPSHOT_SCHEMA_VERSION;
@@ -146,6 +164,7 @@ export function buildCompletedRunStatus(
       startedAt: timing.startedAt,
     },
     writeResult: result.writeResult,
+    ...(result.runStats ? { runStats: result.runStats } : {}),
     warnings: [...result.warnings],
     ...(error ? { error } : {}),
     sources: result.sourceSummary.map(cloneSourceSummary),
@@ -163,6 +182,9 @@ export function buildFailedRunStatus(
   error: unknown,
   failedAt: string,
 ): DiscoveryRunStatusPayload {
+  const startedMs = Date.parse(current.startedAt || current.acceptedAt);
+  const failedMs = Date.parse(failedAt);
+  const discoveryRun = current.request.variationKey !== "ingest_url" && !current.runId.startsWith("ingest_");
   return {
     ...current,
     status: "failed",
@@ -171,6 +193,9 @@ export function buildFailedRunStatus(
     completedAt: failedAt,
     updatedAt: failedAt,
     error: formatError(error),
+    ...(discoveryRun && Number.isFinite(startedMs) && Number.isFinite(failedMs)
+      ? { runStats: { schemaVersion: 1 as const, durationMs: Math.max(0, failedMs - startedMs) } }
+      : {}),
   };
 }
 
@@ -227,6 +252,28 @@ export function createDiscoveryRunStatusStore(
     get(runId) {
       return statuses.get(String(runId || "").trim()) || null;
     },
+    list({ limit = 25, before = "" } = {}) {
+      if (!Number.isInteger(limit) || limit < 1 || limit > 100) return null;
+      const cursor = before ? decodeRunListCursor(before) : null;
+      if (before && !cursor) return null;
+      const ordered = [...statuses.values()]
+        .filter((status) => status.request.variationKey !== "ingest_url" && !status.runId.startsWith("ingest_"))
+        .map((status) => ({
+          status,
+          at: Date.parse(status.startedAt || status.acceptedAt) || 0,
+        }))
+        .sort((left, right) => right.at - left.at || right.status.runId.localeCompare(left.status.runId));
+      const remaining = cursor
+        ? ordered.filter(({ status, at }) => at < cursor.at || (at === cursor.at && status.runId < cursor.runId))
+        : ordered;
+      const page = remaining.slice(0, limit);
+      return {
+        runs: page.map(({ status }) => summarizeRun(status)),
+        nextBefore: remaining.length > limit && page.length
+          ? encodeRunListCursor(page[page.length - 1].at, page[page.length - 1].status.runId)
+          : null,
+      };
+    },
     markNonTerminalRunsAbandoned(abandonedAt) {
       const recoveredAt =
         String(abandonedAt || "").trim() || new Date().toISOString();
@@ -256,6 +303,50 @@ export function createDiscoveryRunStatusStore(
     },
     close() {},
   };
+}
+
+function summarizeRun(status: DurableDiscoveryRunStatusPayload): DiscoveryRunListSummary {
+  const startedMs = Date.parse(status.startedAt || status.acceptedAt);
+  const completedMs = Date.parse(status.completedAt || "");
+  const measuredDuration = status.runStats?.durationMs ??
+    (Number.isFinite(startedMs) && Number.isFinite(completedMs)
+      ? Math.max(0, completedMs - startedMs) : undefined);
+  const funnel = status.runStats?.funnel;
+  return {
+    runId: status.runId,
+    status: status.status,
+    ...(status.terminal ? { sheetStatus: status.status === "partial" ? "partial" : status.status === "failed" ? "failure" : "success" } : {}),
+    trigger: status.trigger,
+    ...(status.startedAt ? { startedAt: status.startedAt } : {}),
+    ...(status.completedAt ? { completedAt: status.completedAt } : {}),
+    ...(measuredDuration !== undefined ? { durationMs: measuredDuration } : {}),
+    statusPath: buildRunStatusPath(status.runId),
+    headline: {
+      ...((funnel?.written ?? status.writeResult?.appended) !== undefined
+        ? { written: funnel?.written ?? status.writeResult?.appended } : {}),
+      ...((funnel?.updated ?? status.writeResult?.updated) !== undefined
+        ? { updated: funnel?.updated ?? status.writeResult?.updated } : {}),
+      ...((funnel?.candidates ?? status.lifecycle?.normalizedLeadCount) !== undefined
+        ? { candidates: funnel?.candidates ?? status.lifecycle?.normalizedLeadCount } : {}),
+      ...(status.runStats?.fit?.avg !== undefined ? { fitAvg: status.runStats.fit.avg } : {}),
+    },
+  };
+}
+
+function encodeRunListCursor(at: number, runId: string): string {
+  return Buffer.from(JSON.stringify({ at, runId }), "utf8").toString("base64url");
+}
+
+function decodeRunListCursor(value: string): { at: number; runId: string } | null {
+  if (value.length > 512) return null;
+  try {
+    const parsed: unknown = JSON.parse(Buffer.from(value, "base64url").toString("utf8"));
+    if (!isRecord(parsed) || !Number.isFinite(parsed.at) || typeof parsed.runId !== "string" || !parsed.runId) return null;
+    return encodeRunListCursor(parsed.at as number, parsed.runId) === value
+      ? { at: parsed.at as number, runId: parsed.runId } : null;
+  } catch {
+    return null;
+  }
 }
 
 /**

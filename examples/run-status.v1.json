@@ -32,8 +32,18 @@
       "queriesDone": 5
     },
     "sources": [
-      { "id": "ats", "state": "done", "done": 3, "total": 3 },
-      { "id": "serpapi_google_jobs", "state": "done", "done": 5, "total": 5 }
+      {
+        "id": "ats",
+        "state": "done",
+        "done": 3,
+        "total": 3
+      },
+      {
+        "id": "serpapi_google_jobs",
+        "state": "done",
+        "done": 5,
+        "total": 5
+      }
     ]
   },
   "sources": [
@@ -49,5 +59,85 @@
     "skippedDuplicates": 0,
     "skippedBlacklist": 0,
     "warnings": []
+  },
+  "runStats": {
+    "schemaVersion": 1,
+    "durationMs": 189880,
+    "funnel": {
+      "companiesSearched": 3,
+      "boardsDetected": 12,
+      "queriesRun": 5,
+      "listingsSeen": 214,
+      "listingsProcessed": 214,
+      "duplicatesInRun": 0,
+      "rejected": 210,
+      "rejectedTopReasons": [
+        {
+          "reason": "title_mismatch",
+          "count": 160
+        }
+      ],
+      "candidates": 4,
+      "written": 3,
+      "updated": 1
+    },
+    "fit": {
+      "scored": 4,
+      "avg": 7,
+      "median": 7,
+      "min": 5,
+      "max": 9,
+      "scale": 10,
+      "histogram": [
+        0,
+        0,
+        0,
+        0,
+        0,
+        1,
+        0,
+        2,
+        0,
+        1,
+        0
+      ]
+    },
+    "sources": [
+      {
+        "id": "ats",
+        "label": "Company boards",
+        "searched": {
+          "companies": 3,
+          "boards": 12
+        },
+        "seen": 214,
+        "accepted": 4,
+        "rejected": 210,
+        "timeouts": 0,
+        "state": "done"
+      }
+    ],
+    "timeline": [
+      {
+        "phase": "scout",
+        "startedAt": "2026-04-08T12:00:00.120Z",
+        "durationMs": 180000
+      },
+      {
+        "phase": "write",
+        "startedAt": "2026-04-08T12:03:00.120Z",
+        "durationMs": 9880
+      }
+    ],
+    "matcherCalls": 8,
+    "searched": {
+      "companies": [
+        "Figma",
+        "Notion",
+        "Acme"
+      ],
+      "queries": [],
+      "truncated": false
+    }
   }
 }

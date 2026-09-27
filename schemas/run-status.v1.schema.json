@@ -129,24 +129,64 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "companiesTotal": { "type": "integer", "minimum": 0 },
-            "companiesDone": { "type": "integer", "minimum": 0 },
-            "boardsDetected": { "type": "integer", "minimum": 0 },
-            "listingsSeen": { "type": "integer", "minimum": 0 },
-            "listingsProcessed": { "type": "integer", "minimum": 0 },
-            "leadsQualified": { "type": "integer", "minimum": 0 },
-            "matcherCalls": { "type": "integer", "minimum": 0 },
-            "queriesTotal": { "type": "integer", "minimum": 0 },
-            "queriesDone": { "type": "integer", "minimum": 0 }
+            "companiesTotal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "companiesDone": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "boardsDetected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listingsSeen": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listingsProcessed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "leadsQualified": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "matcherCalls": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "queriesTotal": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "queriesDone": {
+              "type": "integer",
+              "minimum": 0
+            }
           }
         },
         "current": {
           "type": "object",
           "additionalProperties": false,
-          "required": ["kind", "label"],
+          "required": [
+            "kind",
+            "label"
+          ],
           "properties": {
-            "kind": { "type": "string", "enum": ["company", "source", "query"] },
-            "label": { "type": "string", "maxLength": 120 }
+            "kind": {
+              "type": "string",
+              "enum": [
+                "company",
+                "source",
+                "query"
+              ]
+            },
+            "label": {
+              "type": "string",
+              "maxLength": 120
+            }
           }
         },
         "sources": {
@@ -155,12 +195,31 @@
           "items": {
             "type": "object",
             "additionalProperties": false,
-            "required": ["id", "state"],
+            "required": [
+              "id",
+              "state"
+            ],
             "properties": {
-              "id": { "type": "string" },
-              "state": { "type": "string", "enum": ["pending", "running", "done", "skipped"] },
-              "done": { "type": "integer", "minimum": 0 },
-              "total": { "type": "integer", "minimum": 0 }
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "pending",
+                  "running",
+                  "done",
+                  "skipped"
+                ]
+              },
+              "done": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "total": {
+                "type": "integer",
+                "minimum": 0
+              }
             }
           }
         }
@@ -189,6 +248,271 @@
     },
     "searchPlan": {
       "type": "object"
+    },
+    "runStats": {
+      "type": "object",
+      "description": "Measured terminal discovery statistics. Absent on old or non-terminal runs. Every metric key is optional: absence means not measured, never zero.",
+      "additionalProperties": true,
+      "required": [
+        "schemaVersion"
+      ],
+      "properties": {
+        "schemaVersion": {
+          "const": 1
+        },
+        "durationMs": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "funnel": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "companiesSearched": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "boardsDetected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "queriesRun": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listingsSeen": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "listingsProcessed": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "duplicatesInRun": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "duplicatesVsSheet": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rejected": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "candidates": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "written": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "updated": {
+              "type": "integer",
+              "minimum": 0
+            },
+            "rejectedTopReasons": {
+              "type": "array",
+              "maxItems": 8,
+              "items": {
+                "type": "object",
+                "additionalProperties": false,
+                "required": [
+                  "reason",
+                  "count"
+                ],
+                "properties": {
+                  "reason": {
+                    "type": "string",
+                    "minLength": 1
+                  },
+                  "count": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              }
+            }
+          }
+        },
+        "fit": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "scored",
+            "avg",
+            "median",
+            "min",
+            "max",
+            "scale",
+            "histogram"
+          ],
+          "properties": {
+            "scored": {
+              "type": "integer",
+              "minimum": 1
+            },
+            "avg": {
+              "type": "number",
+              "minimum": 0
+            },
+            "median": {
+              "type": "number",
+              "minimum": 0
+            },
+            "min": {
+              "type": "number",
+              "minimum": 0
+            },
+            "max": {
+              "type": "number",
+              "minimum": 0
+            },
+            "scale": {
+              "const": 10
+            },
+            "histogram": {
+              "type": "array",
+              "minItems": 11,
+              "maxItems": 11,
+              "items": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "description": "Counts for rounded score buckets 0 through 10."
+            }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "id",
+              "label"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "searched": {
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                  "companies": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "boards": {
+                    "type": "integer",
+                    "minimum": 0
+                  },
+                  "queries": {
+                    "type": "integer",
+                    "minimum": 0
+                  }
+                }
+              },
+              "seen": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "accepted": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "rejected": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "duplicates": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "timeouts": {
+                "type": "integer",
+                "minimum": 0
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "done",
+                  "partial",
+                  "failed",
+                  "skipped"
+                ]
+              }
+            }
+          }
+        },
+        "timeline": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": [
+              "phase",
+              "startedAt"
+            ],
+            "properties": {
+              "phase": {
+                "type": "string"
+              },
+              "label": {
+                "type": "string"
+              },
+              "startedAt": {
+                "type": "string",
+                "format": "date-time"
+              },
+              "durationMs": {
+                "type": "integer",
+                "minimum": 0
+              }
+            }
+          }
+        },
+        "matcherCalls": {
+          "type": "integer",
+          "minimum": 0
+        },
+        "searched": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": [
+            "companies",
+            "queries",
+            "truncated"
+          ],
+          "properties": {
+            "companies": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "maxLength": 120
+              }
+            },
+            "queries": {
+              "type": "array",
+              "maxItems": 50,
+              "items": {
+                "type": "string",
+                "maxLength": 120
+              }
+            },
+            "truncated": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
     }
   }
 }
