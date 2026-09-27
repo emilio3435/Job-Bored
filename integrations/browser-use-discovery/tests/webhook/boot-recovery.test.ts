@@ -129,3 +129,24 @@ test("A17: boot prune drops terminal snapshots past the age limit and beyond the
     rmSync(dir, { recursive: true, force: true });
   }
 });
+
+test("RUNHIST default boot retention is 90 days and 500 terminal runs", () => {
+  const dir = mkdtempSync(join(tmpdir(), "boot-runhist-retention-"));
+  try {
+    const store = createDiscoveryRunStatusStore(dir);
+    store.put(terminal("run_aged", "2026-06-01T00:00:00.000Z") as never);
+    for (let i = 0; i < 501; i += 1) {
+      store.put(terminal(`run_recent_${String(i).padStart(3, "0")}`, "2026-09-26T00:00:00.000Z") as never);
+    }
+    store.put(running("run_live") as never);
+    const removed = pruneRunStatusSnapshots(dir, { now: () => new Date("2026-09-27T00:00:00.000Z") });
+    assert.equal(removed, 2);
+    const restarted = createDiscoveryRunStatusStore(dir);
+    assert.equal(restarted.get("run_aged"), null);
+    assert.ok(restarted.get("run_live"));
+    assert.equal(restarted.list()?.runs.length, 25);
+    assert.equal(readdirSync(dir).length, 501);
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});

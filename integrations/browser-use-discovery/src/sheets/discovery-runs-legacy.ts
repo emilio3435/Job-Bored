@@ -1,11 +1,9 @@
 /**
  * DiscoveryRuns legacy-tab migration (BEAUDIT D13).
  *
- * The first DiscoveryRuns header had 9 columns ("Leads Written", no "Leads
- * Updated"). Rewriting only the header put the new 10-column labels above
- * 9-cell rows, so every old row read "worker" as Leads Updated. This moves
- * each legacy row into the new layout (an empty Leads Updated at G) and writes
- * the new header in the same values batchUpdate.
+ * The first header had 9 columns (no Leads Updated); the next had 10 (no
+ * Run ID). Preserve A–J values when adding K, and insert a blank G for the
+ * nine-column layout before appending K.
  */
 import { DISCOVERY_RUNS_HEADER_ROW, DISCOVERY_RUNS_SHEET_NAME } from "../contracts.ts";
 import {
@@ -16,35 +14,37 @@ import {
 } from "./sheets-client.ts";
 
 const LEGACY_WIDTH = 9;
+const PRE_RUN_ID_WIDTH = 10;
 const LEADS_UPDATED_INDEX = 6;
 
-/** A 9-column header from before "Leads Updated" existed. */
+/** Either published header from before Run ID existed. */
 export function isLegacyDiscoveryRunsHeader(header: unknown[]): boolean {
   const cells = header.map((cell) => String(cell ?? "").trim());
-  if (cells.includes("Leads Updated")) return false;
   if (cells.length < LEGACY_WIDTH) return false;
-  return (
+  const common = (
     cells[0] === DISCOVERY_RUNS_HEADER_ROW[0] &&
     cells[4] === DISCOVERY_RUNS_HEADER_ROW[4] &&
-    (cells[5] === "Leads Written" || cells[5] === "Leads New") &&
-    cells[6] === "Source"
+    (cells[5] === "Leads Written" || cells[5] === "Leads New")
   );
+  return common && !cells.includes("Run ID") &&
+    (cells[6] === "Source" ||
+      (cells[6] === "Leads Updated" && cells[9] === "Error"));
 }
 
-export function legacyRunCellsToCurrent(cells: string[]): string[] {
-  const padded = cells.slice(0, LEGACY_WIDTH);
-  while (padded.length < LEGACY_WIDTH) padded.push("");
-  return [
-    ...padded.slice(0, LEADS_UPDATED_INDEX),
-    "",
-    ...padded.slice(LEADS_UPDATED_INDEX),
-  ];
+export function legacyRunCellsToCurrent(cells: string[], nineColumnHeader = true): string[] {
+  const padded = cells.slice(0, nineColumnHeader ? LEGACY_WIDTH : PRE_RUN_ID_WIDTH);
+  while (padded.length < (nineColumnHeader ? LEGACY_WIDTH : PRE_RUN_ID_WIDTH)) padded.push("");
+  const tenCells = nineColumnHeader
+    ? [...padded.slice(0, LEADS_UPDATED_INDEX), "", ...padded.slice(LEADS_UPDATED_INDEX)]
+    : padded;
+  return [...tenCells, ""];
 }
 
 export async function migrateLegacyDiscoveryRunsTab(
   sheetId: string,
   token: string,
   fetchImpl: FetchLike,
+  legacyHeader: unknown[] = [],
 ): Promise<{ ok: true } | { ok: false; reason: string }> {
   const width = DISCOVERY_RUNS_HEADER_ROW.length;
   const last = columnIndexToLetter(width);
@@ -55,9 +55,8 @@ export async function migrateLegacyDiscoveryRunsTab(
       token,
       fetchImpl,
     );
-    const migrated = rows.map((cells) =>
-      cells.length > LEGACY_WIDTH ? cells.slice(0, width) : legacyRunCellsToCurrent(cells),
-    );
+    const nineColumnHeader = String(legacyHeader[6] || "").trim() === "Source";
+    const migrated = rows.map((cells) => legacyRunCellsToCurrent(cells, nineColumnHeader));
     const data: Array<{ range: string; values: string[][] }> = [
       {
         range: `${DISCOVERY_RUNS_SHEET_NAME}!A1:${last}1`,

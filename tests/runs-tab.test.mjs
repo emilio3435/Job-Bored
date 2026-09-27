@@ -504,7 +504,7 @@ describe("fetchDiscoveryRuns", () => {
     assert.equal(result.reason, "unauthorized");
   });
 
-  it("sends Bearer token and hits the DiscoveryRuns!A2:J range with UNFORMATTED_VALUE", async () => {
+  it("sends Bearer token and hits the DiscoveryRuns!A1:K range (header + Run ID) with UNFORMATTED_VALUE", async () => {
     const mod = await loadRunsTab();
     let seen = null;
     await mod.fetchDiscoveryRuns("sheet-abc", "tok-xyz", {
@@ -516,8 +516,9 @@ describe("fetchDiscoveryRuns", () => {
     assert.ok(seen);
     assert.match(seen.url, /\/spreadsheets\/sheet-abc\/values\//);
     // `!` is an unreserved char per encodeURIComponent, so the range stays as
-    // "DiscoveryRuns!A2%3AJ" (colon is percent-encoded, bang is not).
-    assert.match(seen.url, /DiscoveryRuns!A2%3AJ/);
+    // "DiscoveryRuns!A1%3AK" (colon is percent-encoded, bang is not). RUNHIST
+    // reads from the header row so the appended Run ID column maps by name.
+    assert.match(seen.url, /DiscoveryRuns!A1%3AK/);
     assert.match(seen.url, /valueRenderOption=UNFORMATTED_VALUE/);
     assert.equal(seen.headers.Authorization, "Bearer tok-xyz");
   });

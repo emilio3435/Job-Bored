@@ -9,6 +9,7 @@
  * discovery run itself. Callers receive a result object that reports success,
  * skipped (tab auto-created), or failure — but never throws.
  */
+import { randomUUID } from "node:crypto";
 
 import type { WorkerRuntimeConfig } from "../config.ts";
 import {
@@ -135,6 +136,7 @@ export function parseDiscoveryRunsCells(
       source: String(cellAt("Source", 7) ?? ""),
       variationKey: String(cellAt("Variation Key", 8) ?? ""),
       error: String(cellAt("Error", 9) ?? ""),
+      runId: String(cellAt("Run ID", 10) ?? ""),
     };
   }
 
@@ -150,6 +152,7 @@ export function parseDiscoveryRunsCells(
       source: String(cells[7] ?? ""),
       variationKey: String(cells[8] ?? ""),
       error: String(cells[9] ?? ""),
+      runId: String(cells[10] ?? ""),
     };
   }
 
@@ -244,6 +247,7 @@ export function buildDiscoveryRunLogRowFromStatus(
       ? Math.max(0, Math.round((endedMs - startedMs) / 1000))
       : 0);
   return {
+    runId: status.runId,
     runAt: String(status.completedAt || status.updatedAt || ""),
     trigger: mapTriggerToLogCell(extras.trigger || status.trigger),
     status: logStatus,
@@ -342,7 +346,9 @@ export async function appendDiscoveryRunRow(
     return { ok: false, reason: `token resolution failed: ${message}` };
   }
 
-  const values = [rowToCells(row)];
+  // Profile-refresh history does not have a worker run-status snapshot, but
+  // still gets a stable row identity for the Sheet-side history join.
+  const values = [rowToCells({ ...row, runId: row.runId || `profile_${randomUUID()}` })];
   const created = await ensureTabExists(
     sheetId,
     token,
@@ -401,6 +407,7 @@ function rowToCells(row: DiscoveryRunLogRow): string[] {
     String(row.source || ""),
     String(row.variationKey || ""),
     row.status === "success" ? "" : error,
+    String(row.runId || ""),
   ];
 }
 
@@ -450,7 +457,7 @@ async function ensureTabExists(
     if (headerMatches) return { ok: true, created: false };
     // BEAUDIT D13: a legacy 9-column tab moves its rows with the header.
     if (isLegacyDiscoveryRunsHeader(existingRow)) {
-      const migrated = await migrateLegacyDiscoveryRunsTab(sheetId, token, fetchImpl);
+      const migrated = await migrateLegacyDiscoveryRunsTab(sheetId, token, fetchImpl, existingRow);
       if (!migrated.ok) return migrated;
       return { ok: true, created: false };
     }

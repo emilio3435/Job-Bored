@@ -1,8 +1,8 @@
 # Interface contract — Discovery Runs Log
 
-**Status:** authoritative contract for the `feat/discovery-runs-log` workspace. All persistence lives in the user's Google Sheet; **no new SQLite columns, no new local files, no new hidden state.**
+**Status:** RUNHIST 2026-09-27 contract. The worker keeps per-run JSON status snapshots; the user-owned Google Sheet is a history fallback. No new SQLite columns.
 
-**Scope:** a new `DiscoveryRuns` tab in the Sheet + a worker-side append hook at every discovery run completion + a new dashboard tab/panel that reads and renders those rows.
+**Scope:** worker `GET /runs` summaries and `GET /runs/:id` measured detail, joined to `DiscoveryRuns` rows by Run ID. The Sheet supplies coarse history for older or remote runs.
 
 **Token boundary:** local interactive requests may carry a transient `googleAccessToken` so the user-owned worker can write Pipeline and DiscoveryRuns rows as that user. That token is per-run input only: strip it before persisting run config/state, do not write it to `DiscoveryRuns`, and do not log it raw.
 
@@ -26,6 +26,7 @@
 | H | `Source` | `worker@v0.4.1` | Free-form; worker sets. |
 | I | `Variation Key` | `gh-1234-abcd` | Existing concept from `DiscoveryWebhookRequestV1.variationKey`. |
 | J | `Error` | `timeout on acme.com` | Blank when `status=success`. For `partial` / `failure`, a short reason (write error, classified `reasonMessage`, or first warning). Truncated to 200 chars. |
+| K | `Run ID` | `run_abc` | Joins to worker status. Old rows remain blank after migration; profile-only rows get a `profile_` ID without worker detail. |
 
 Add a `PIPELINE_DEDUPE_HEADER`-style constant to `contracts.ts`:
 
@@ -42,12 +43,13 @@ export const DISCOVERY_RUNS_HEADER_ROW = [
   "Source",
   "Variation Key",
   "Error",
+  "Run ID",
 ] as const;
 ```
 
 The worker ensures the tab + header exist on first append (create-if-missing). Reuse the Sheets API client that already writes Pipeline.
 
-Only a `400` "Unable to parse range" on the header read means the tab is missing; a `401`, `403`, `429` or `5xx` is reported as a failed log write and never creates a tab. A tab that still carries the first 9-column header (`Leads Written`, no `Leads Updated`) is migrated in one write: the new header, and each old row with an empty `Leads Updated` at G, so old rows keep reading correctly (BEAUDIT D13).
+Only a `400` "Unable to parse range" on the header read means the tab is missing; a `401`, `403`, `429` or `5xx` is reported as a failed log write and never creates a tab. A tab with the first 9-column header (`Leads Written`, no `Leads Updated`) is migrated in one write: each old row gets an empty `Leads Updated` at G and `Run ID` at K. A 10-column tab keeps every A–J value and gets a blank K. Old 10-column readers remain compatible (BEAUDIT D13 / RUNHIST).
 
 ---
 
@@ -90,7 +92,7 @@ The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` help
 
 **Where NOT to write:**
 - Do not write during partial progress. One row per run, at completion only.
-- Do not write to SQLite. All run history lives in the Sheet.
+- Do not write to SQLite. Worker status snapshots live in the existing run-state directory; the Sheet remains the fallback.
 - Do not write per-lead events. Only run-level summaries.
 - Do **not** log from the non-run `/discovery-profile` modes: `skip_company`, `status`, `schedule-save`, `schedule-status`. Those manage config, not discovery runs.
 
@@ -110,12 +112,12 @@ The row is constructed via the shared `appendDiscoveryRunRow(sheetId, row)` help
 
 ## 4. Dashboard read path
 
-**Direct Sheets read, no new webhook.** The dashboard already has OAuth and a Sheets API client (it reads Pipeline to render Kanban). Add a sibling read for `DiscoveryRuns`:
+**Worker list with Sheet fallback.** The dashboard fetches paged `GET /runs` summaries (25 by default, up to 100) and joins them to `DiscoveryRuns` by Run ID. It also reads the Sheet directly through its existing OAuth client to show older or remote runs:
 
 ```js
 async function fetchDiscoveryRuns(sheetId) {
-  // GET ...values/DiscoveryRuns!A2:J?valueRenderOption=UNFORMATTED_VALUE
-  // Parse each row into { runAt, trigger, status, durationS, companiesSeen, leadsWritten, leadsUpdated, source, variationKey, error }.
+  // GET ...values/DiscoveryRuns!A1:K?valueRenderOption=UNFORMATTED_VALUE
+  // Map columns by header, including Run ID at K; legacy A–J rows stay readable.
   // Return newest-first (sort descending by runAt).
 }
 ```
@@ -134,16 +136,16 @@ b. **Section inside Discovery drawer → History**, near the run-history control
 **Default recommendation:** (a) — the log is a primary user surface, not a setting.
 
 **Render:**
-- Sortable table, 10 columns matching the schema.
+- Sortable table, 11 columns matching the Sheet header.
 - Default sort: newest first.
 - Client-side filter chips: trigger (All / Manual / Scheduled) + status (All / Success / Failure).
 - Empty state when tab is missing or row-less.
 - Auto-refresh every 60s (or on tab focus) so a scheduled run that fires while the user is looking shows up without reload.
 
 **Not in scope:**
-- Drill-down into a single run's detailed logs (that's future).
+- Per-listing provenance in the dossier is a separate research lane.
 - Exporting runs to CSV (user can open the Sheet directly).
-- Pagination (limit to 200 most recent rows for now).
+- Sheet fallback still limits to its 200 most recent rows; worker history pages through `nextBefore`.
 
 ---
 
@@ -160,3 +162,9 @@ b. **Section inside Discovery drawer → History**, near the run-history control
 ## 7. Change-control
 
 Any change to this spec during implementation: stop, ping the orchestrator, wait for updated doc. Workspaces do not amend the contract unilaterally.
+
+## 8. RUNHIST worker history and statistics
+
+`GET /runs?limit=25&before=<opaque cursor>` returns newest-first worker summaries and `nextBefore` (null at the end). The limit is 1–100. Hosted workers require `x-discovery-secret` for the list and return a `statusPath` per summary with the run's status token; local workers use the existing Host/origin guard. `GET /runs/:id` returns the durable full status. The worker prunes terminal snapshots at boot after 90 days or beyond the newest 500; active runs stay.
+
+Terminal discovery statuses may include `runStats` ([schema](../schemas/run-status.v1.schema.json), [example](../examples/run-status.v1.json)): measured funnel counts, candidate fit distribution on 0–10 (histogram buckets 0–10), grouped source counts and timeouts, phase timing, matcher calls, and sanitized searched labels. Every metric is optional; missing means not measured. `duplicatesVsSheet` is currently absent because `writeResult.skippedDuplicates` combines multiple causes. Stats failures never affect matching, writes, or run outcome. The Sheet history remains usable when a worker snapshot is unavailable.

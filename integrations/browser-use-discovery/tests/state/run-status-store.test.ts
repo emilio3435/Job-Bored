@@ -17,6 +17,7 @@ import type { DiscoveryRunStatusPayload } from "../../src/contracts.ts";
 import {
   buildAcceptedRunStatus,
   buildCompletedRunStatus,
+  buildFailedRunStatus,
   buildRunningRunStatus,
   createDiscoveryRunStatusStore,
   listRunStatusSnapshots,
@@ -143,6 +144,45 @@ test("run status snapshots rehydrate complete phase and budget state in a fresh 
   } finally {
     await rm(tempDirectory, { recursive: true, force: true });
   }
+});
+
+test("RUNHIST list orders runs newest first, pages by opaque cursor, and survives restart", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+  try {
+    const writer = createDiscoveryRunStatusStore(runDirectory);
+    for (const [runId, acceptedAt] of [
+      ["run_old", "2026-09-27T00:00:00.000Z"],
+      ["run_middle", "2026-09-27T00:01:00.000Z"],
+      ["run_new", "2026-09-27T00:02:00.000Z"],
+    ]) {
+      writer.put(buildAcceptedRunStatus({
+        runId, trigger: "manual", acceptedAt,
+        request: { sheetId: "sheet_123", variationKey: "", requestedAt: acceptedAt },
+      }));
+    }
+    writer.close();
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    const first = restarted.list({ limit: 2 });
+    assert.deepEqual(first?.runs.map((run) => run.runId), ["run_new", "run_middle"]);
+    assert.equal(typeof first?.nextBefore, "string");
+    const second = restarted.list({ limit: 2, before: first?.nextBefore || "" });
+    assert.deepEqual(second?.runs.map((run) => run.runId), ["run_old"]);
+    assert.equal(second?.nextBefore, null);
+    assert.equal(restarted.list({ before: "invalid!" }), null);
+    restarted.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
+test("RUNHIST failed discovery status records only measured duration", () => {
+  const accepted = buildAccepted("run_failed");
+  const failed = buildFailedRunStatus(accepted, new Error("worker failed"), "2026-08-30T12:00:05.000Z");
+  assert.deepEqual(failed.runStats, { schemaVersion: 1, durationMs: 4000 });
+  const ingest = buildFailedRunStatus({
+    ...accepted, runId: "ingest_failed", request: { ...accepted.request, variationKey: "ingest_url" },
+  }, new Error("ingest failed"), "2026-08-30T12:00:05.000Z");
+  assert.equal(ingest.runStats, undefined);
 });
 
 test("worker restart terminalizes an in-flight write checkpoint as an explicit failed status", async () => {

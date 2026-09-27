@@ -5,6 +5,7 @@ import test from "node:test";
 import { DISCOVERY_RUNS_HEADER_ROW } from "../../src/contracts.ts";
 import {
   appendDiscoveryRunRow,
+  discoveryRunsRowToCells,
   parseDiscoveryRunsCells,
 } from "../../src/sheets/discovery-runs-writer.ts";
 import { createFakeSheets, runtimeConfig } from "./fake-sheets.ts";
@@ -62,4 +63,29 @@ test("D13: a legacy 9-column tab keeps its old rows readable after the header up
   assert.equal(parsed.variationKey, "v0");
   assert.equal(parsed.error, "Gemini key missing");
   assert.equal(tab.length, 3, "the new run is appended below the migrated row");
+});
+
+test("RUNHIST appends Run ID at K and migrates a ten-column tab without changing old cells", async () => {
+  const oldHeader = ["Run At", "Trigger", "Status", "Duration (s)", "Companies Seen", "Leads New", "Leads Updated", "Source", "Variation Key", "Error"];
+  const oldRow = ["2026-09-26T00:00:00Z", "manual", "partial", "30", "4", "2", "1", "worker", "v0", "timed out"];
+  const sheet = createFakeSheets({ DiscoveryRuns: [oldHeader, oldRow] });
+  const result = await appendDiscoveryRunRow("fake-sheet", { ...row, runId: "run_new" }, {
+    runtimeConfig, fetchImpl: sheet.fetchImpl,
+  });
+  assert.equal(result.ok, true);
+  const tab = sheet.tabs.get("DiscoveryRuns")!;
+  assert.deepEqual(tab[0], [...oldHeader, "Run ID"]);
+  assert.deepEqual(tab[1].slice(0, 10), oldRow);
+  assert.equal(tab[1][10] || "", "");
+  assert.equal(tab[2][10], "run_new");
+  assert.equal(parseDiscoveryRunsCells(tab[2], tab[0])?.runId, "run_new");
+  assert.equal(parseDiscoveryRunsCells(oldRow, oldHeader)?.source, "worker", "old ten-column readers retain A–J");
+  assert.equal(discoveryRunsRowToCells({ ...row, runId: "run_new" }).length, 11);
+});
+
+test("RUNHIST profile-only history rows receive a distinct Sheet Run ID", async () => {
+  const sheet = createFakeSheets({ DiscoveryRuns: [RUNS] });
+  const result = await appendDiscoveryRunRow("fake-sheet", row, { runtimeConfig, fetchImpl: sheet.fetchImpl });
+  assert.equal(result.ok, true);
+  assert.match(sheet.tabs.get("DiscoveryRuns")![1][10], /^profile_[0-9a-f-]+$/);
 });
