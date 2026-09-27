@@ -3,14 +3,19 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Emilio Nunez-Garcia — Resume</title>
+<title>Jordan Rivera — Resume</title>
 
 <!--
   ============================================================
-  BASE TEMPLATE — Emilio Nunez-Garcia
+  NEUTRAL EXAMPLE — Jordan Rivera (fictional)
   ============================================================
+  An ingest source and labelled sample, NOT a compose target: the
+  materials v3 pipeline (server/materials-*.mjs) drafts from the user's
+  own resume and profile via the claim ledger, and the template registry
+  (templates/materials/*) renders every production package. Real user
+  values live in gitignored files per §0.2 and never in this file.
 
-  This file is the canonical master. To customize for a specific job:
+  To customize for a specific job:
 
   1. KEEP the design exactly as-is. Do not change CSS, color tokens,
      fonts, spacing, or the section number / header structure. The
@@ -30,7 +35,7 @@
 
   3. TWO-PAGE HARD CAP. If trimming makes it one page, that is fine.
      If it overflows, cut the lowest-priority bullets from §02 founder
-     work first, then earliest Audacy bullets.
+     work first, then earliest Northwind bullets.
 
   4. AFTER EDITING: run `python3 build.py`. The PDF regenerates.
 
@@ -55,7 +60,7 @@
 
 <style>
   /* =========================================================
-     TOKENS — sampled from emiliobuilds.com
+     TOKENS — sampled from example.com
      ========================================================= */
   :root {
     --cream:      #FAF4E6;
@@ -755,9 +760,8 @@
   body.density-tight .project { margin-top: 4pt; }
   body.density-tight .lang-cert ul { line-height: 1.35; font-size: 8.4pt; }
 
-  /* Hide tweaks panel + screen-only chrome in print. */
+  /* Hide screen-only chrome in print. */
   @media print {
-    #tweaks-root { display: none !important; }
   }
 </style>
 </head>
@@ -784,18 +788,18 @@
 
   <!-- ================== HEADER / MASTHEAD ================== -->
   <header class="masthead">
-    <a class="masthead-link" href="https://emiliobuilds.com" target="_blank" rel="noopener" aria-label="emiliobuilds.com">
+    <a class="masthead-link" href="https://example.com" target="_blank" rel="noopener" aria-label="example.com">
       <span class="mh-label">portfolio</span>
-      <img class="mh-mark" src="assets/emiliobuilds-wordmark.svg" alt="emiliobuilds.com" onerror="this.remove()" />
+      <img class="mh-mark" src="assets/example-wordmark.svg" alt="example.com" onerror="this.remove()" />
     </a>
-    <h1 class="name">Emilio Nunez-Garcia</h1>
+    <h1 class="name">Jordan Rivera</h1>
 
     <!-- TAGLINE: single text flow with italic span. ATS reads as one line. -->
     <p class="tagline">Performance marketing leader<span class="dot" aria-hidden="true"></span><span class="it">and the systems behind it.</span></p>
 
     <!-- CONTACT: single text flow with gold-dot separators. -->
     <p class="contact">
-      Denver, CO<span class="dot" aria-hidden="true"></span>501.366.2080<span class="dot" aria-hidden="true"></span><a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a><span class="dot" aria-hidden="true"></span><a href="https://emiliobuilds.com">emiliobuilds.com</a><span class="dot" aria-hidden="true"></span><a href="https://linkedin.com/in/emilio-nunez-garcia">linkedin.com/in/emilio-nunez-garcia</a>
+      Austin, CO<span class="dot" aria-hidden="true"></span>555-010-2030<span class="dot" aria-hidden="true"></span><a href="mailto:jordan.rivera@example.com">jordan.rivera@example.com</a><span class="dot" aria-hidden="true"></span><a href="https://example.com">example.com</a><span class="dot" aria-hidden="true"></span><a href="https://linkedin.com/in/jordan-rivera">linkedin.com/in/jordan-rivera</a>
     </p>
 
     <div class="rule-pair" aria-hidden="true">
@@ -818,7 +822,7 @@
 
     <p class="opener">Ten years in performance marketing. <span class="it">One thesis: ship paid spend toward marginal ROAS.</span></p>
 
-    <p class="body">Performance marketer and AI product builder with 10+ years across paid acquisition, sales leadership, and the systems behind both. Eight years at Audacy (formerly Entercom) growing a $10M+ Denver digital book to a top-3 national ranking in a #19-sized market — owning CAC, ROAS, and LTV optimization, advanced bidding strategy, and full-funnel testing for hundreds of advertisers across home services, financial services, healthcare, hospitality, retail, dental, and automotive. Math Econ background; fluent in unit economics, payback modeling, and channel forecasting. Founder of elioai.app, a production multi-model AI platform on GCP that automates campaign forecasting, client briefings, and reporting workflows. Bilingual English / Spanish; proficient French and Italian.</p>
+    <p class="body">Performance marketer and AI product builder with 10+ years across paid acquisition, sales leadership, and the systems behind both. Eight years at Northwind (formerly Northwind Radio) growing a $10M+ Austin digital book to a top-3 national ranking in a #19-sized market — owning CAC, ROAS, and LTV optimization, advanced bidding strategy, and full-funnel testing for hundreds of advertisers across home services, financial services, healthcare, hospitality, retail, dental, and automotive. Math Econ background; fluent in unit economics, payback modeling, and channel forecasting. Founder of example.app, a production multi-model AI platform on GCP that automates campaign forecasting, client briefings, and reporting workflows. Bilingual English / Spanish; proficient French and Italian.</p>
   </section>
 
   <!-- ================== §01 EXPERIENCE ================== -->
@@ -833,29 +837,29 @@
       <span class="rule-thin"></span>
     </div>
 
-    <!-- COMPANY: Audacy -->
-    <div class="company" data-company="audacy">
+    <!-- COMPANY: Northwind -->
+    <div class="company" data-company="northwind">
       <div class="company-head">
-        <img class="company-mark" src="assets/logo-audacy.png" alt="Audacy" onerror="this.remove()" />
-        <h2 class="company-name">Audacy <span class="it">(formerly Entercom)</span></h2>
+        <img class="company-mark" src="assets/logo-northwind.png" alt="Northwind" onerror="this.remove()" />
+        <h2 class="company-name">Northwind <span class="it">(formerly Northwind Radio)</span></h2>
       </div>
       <p class="company-meta">Sep 2017 — 2026<span class="dot" aria-hidden="true"></span>eight years<span class="dot" aria-hidden="true"></span>four progressive roles</p>
 
       <!-- ROLE: DSM -->
-      <article class="role" data-role="audacy-dsm">
+      <article class="role" data-role="northwind-dsm">
         <header>
           <h3>Digital Sales Manager</h3>
           <span class="dates">May 2021 — 2026</span>
         </header>
         <ul class="bullets">
-          <li data-tags="pnl,portfolio,roas,bidding,channels">Owned a $10M+ annual digital media P&amp;L; drove Denver to a consistent top-3 ranking in Digital Marketing Solutions revenue across Audacy's national footprint (Denver = #19 U.S. market) by dynamically reallocating spend across Google Ads, Meta, OTT/CTV, programmatic, and streaming audio toward marginal ROAS.</li>
+          <li data-tags="pnl,portfolio,roas,bidding,channels">Owned a $10M+ annual digital media P&amp;L; drove Austin to a consistent top-3 ranking in Digital Marketing Solutions revenue across Northwind's national footprint (Austin = #19 U.S. market) by dynamically reallocating spend across Google Ads, Meta, OTT/CTV, programmatic, and streaming audio toward marginal ROAS.</li>
           <li data-tags="sem,bidding,cro,case-study">Delivered 130% YoY paid-search conversion growth and 13% YoY new-user lift on a flagship financial-services account through a bid-strategy overhaul, audience-signal layering, and landing-page CRO.</li>
           <li data-tags="leadership,transformation,enablement">Led the market's transformation from broadcast-dominant to ~60% digital revenue mix — built the playbook, the pitch system, and the seller training that moved the business.</li>
           <li data-tags="bidding,attribution,channels,ai-search">Architected an advanced bidding and attribution framework spanning Google Ads (Search, YouTube, PMax), Meta Ads, Amazon DSP, and programmatic display — including AI-search readiness (AIO/GEO, hub-and-spoke content architecture) ahead of peer markets.</li>
           <li data-tags="enablement,coaching,ops">Ran 20+ tracked pitches per month via Advisr while coaching 10 AE desks; built and led the Digital Café and Happy Half-Hour enablement series on bidding strategy, attribution modeling, creative testing, and platform-algorithm shifts.</li>
           <li data-tags="leadership,vendors,operations">Managed a rotating team of up to three Digital Campaign Managers plus Internal Media Specialists, creative and agency partners, and platform vendors to launch and optimize campaigns against client KPIs (CPA, ROAS, lead volume, booked revenue).</li>
           <li data-tags="client,verticals,retention">Owned end-to-end client strategy across home services, financial services, healthcare, dental, hospitality, retail, and automotive — high-stakes pitches, QBRs, mid-year reviews, attribution disputes, and retention through complex situations.</li>
-          <li data-tags="ai-search,thought-leadership">Became the market's go-to client-facing strategist and presenter, leading attribution and AI-search disruption conversations (AI Overviews, GEO/AIO readiness, shadow sites vs. hub-and-spoke) that positioned Denver ahead of peer markets.</li>
+          <li data-tags="ai-search,thought-leadership">Became the market's go-to client-facing strategist and presenter, leading attribution and AI-search disruption conversations (AI Overviews, GEO/AIO readiness, shadow sites vs. hub-and-spoke) that positioned Austin ahead of peer markets.</li>
         </ul>
       </article>
 
@@ -866,7 +870,7 @@
 
   <!-- ================== PAGE 1 FOOTER ================== -->
   <footer class="pagefoot">
-    <span class="colophon"><span style="font-style:normal;">—</span> Emilio Nunez-Garcia<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>emiliobuilds.com</span>
+    <span class="colophon"><span style="font-style:normal;">—</span> Jordan Rivera<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>example.com</span>
     <span class="pagenum"><span class="dot" aria-hidden="true"></span>01 / 03</span>
   </footer>
 </article>
@@ -888,34 +892,34 @@
       <span class="rule-thin"></span>
     </div>
 
-    <div class="company" data-company="audacy-cont">
+    <div class="company" data-company="northwind-cont">
       <div class="company-head">
-        <img class="company-mark" src="assets/logo-audacy.png" alt="Audacy" onerror="this.remove()" />
-        <h2 class="company-name">Audacy <span class="it">(cont.)</span></h2>
+        <img class="company-mark" src="assets/logo-northwind.png" alt="Northwind" onerror="this.remove()" />
+        <h2 class="company-name">Northwind <span class="it">(cont.)</span></h2>
       </div>
 
       <!-- ROLE: Senior KAM / KAM -->
-      <article class="role" data-role="audacy-kam">
+      <article class="role" data-role="northwind-kam">
         <header>
           <h3>Senior Key Account Manager <span class="alt">/ Key Account Manager</span></h3>
           <span class="dates">May 2019 — May 2021</span>
         </header>
         <ul class="bullets">
-          <li data-tags="retention,sme,channels">Retained and grew a portfolio of strategic Denver accounts as the digital SME, paired with AEs on SEM, Paid Social, OTT/CTV, and Streaming Audio strategy.</li>
-          <li data-tags="promotion,growth">Promoted to Senior KAM on the strength of account retention and digital revenue growth; promoted again into Digital Sales Manager at the Audacy rebrand in May 2021.</li>
+          <li data-tags="retention,sme,channels">Retained and grew a portfolio of strategic Austin accounts as the digital SME, paired with AEs on SEM, Paid Social, OTT/CTV, and Streaming Audio strategy.</li>
+          <li data-tags="promotion,growth">Promoted to Senior KAM on the strength of account retention and digital revenue growth; promoted again into Digital Sales Manager at the Northwind rebrand in May 2021.</li>
           <li data-tags="cross-channel,proposals">Built cross-platform proposals integrating broadcast audio, streaming audio, OTT, and digital — the foundation of the market's later digital-first motion.</li>
         </ul>
       </article>
 
       <!-- ROLE: Digital Campaign Manager -->
-      <article class="role" data-role="audacy-dcm">
+      <article class="role" data-role="northwind-dcm">
         <header>
           <h3>Digital Campaign Manager</h3>
           <span class="dates">Sep 2017 — Apr 2019</span>
         </header>
         <ul class="bullets">
           <li data-tags="platforms,trafficking,reporting">Hands-on setup, trafficking, optimization, and reporting across Google Ads, Meta, OTT/CTV, and programmatic display for local and regional advertisers — the platform-level fluency that still underwrites every strategy call I make.</li>
-          <li data-tags="dashboards,ops">Built reporting dashboards and pacing systems used across the Denver market for client performance reviews.</li>
+          <li data-tags="dashboards,ops">Built reporting dashboards and pacing systems used across the Austin market for client performance reviews.</li>
         </ul>
       </article>
     </div>
@@ -933,10 +937,10 @@
       <span class="rule-thin"></span>
     </div>
 
-    <article class="project" data-project="elio">
+    <article class="project" data-project="example">
       <header>
-        <h3><img class="project-mark" src="assets/logo-elio.png" alt="" onerror="this.remove()" />Elio Intelligence Suite <span class="it">— elioai.app</span></h3>
-        <span class="meta">Founder &amp; AI Engineer<span class="dot" aria-hidden="true"></span>Denver<span class="dot" aria-hidden="true"></span>2024 — Present</span>
+        <h3><img class="project-mark" src="assets/logo-example.png" alt="" onerror="this.remove()" />Example Intelligence Suite <span class="it">— example.app</span></h3>
+        <span class="meta">Founder &amp; AI Engineer<span class="dot" aria-hidden="true"></span>Austin<span class="dot" aria-hidden="true"></span>2024 — Present</span>
       </header>
       <ul class="bullets">
         <li data-tags="ai,gcp,multi-model,rag">Designed, built, and deployed a production multi-model AI platform on GCP Cloud Run routing across Claude, GPT, Gemini, Grok, and Llama based on task-fit, latency, and cost; backed by Vertex AI Search RAG pipelines and Google Chirp 3 HD text-to-speech.</li>
@@ -946,13 +950,13 @@
       </ul>
     </article>
 
-    <article class="project" data-project="hormiga">
+    <article class="project" data-project="sample">
       <header>
-        <h3><img class="project-mark" src="assets/logo-hormiga.png" alt="" onerror="this.remove()" />Hormiga Dormida</h3>
-        <span class="meta">Founder<span class="dot" aria-hidden="true"></span>Denver<span class="dot" aria-hidden="true"></span>2024 — Present</span>
+        <h3><img class="project-mark" src="assets/logo-sample.png" alt="" onerror="this.remove()" />Sample Project</h3>
+        <span class="meta">Founder<span class="dot" aria-hidden="true"></span>Austin<span class="dot" aria-hidden="true"></span>2024 — Present</span>
       </header>
       <ul class="bullets">
-        <li data-tags="agency,automation,smb">Automated AI agency delivering marketing and ops workflows to SMB clients on the Elio Intelligence Suite stack.</li>
+        <li data-tags="agency,automation,smb">Automated AI agency delivering marketing and ops workflows to SMB clients on the Example Intelligence Suite stack.</li>
         <li data-tags="playbook,sales-ops,content">Authored an 18-idea automation playbook spanning client intelligence, sales ops, content production, lead gen, and reporting.</li>
       </ul>
     </article>
@@ -960,7 +964,7 @@
     <article class="project" data-project="jobbored">
       <header>
         <h3><img class="project-mark" src="assets/logo-jobbored.png" alt="" onerror="this.remove()" />JobBored</h3>
-        <span class="meta">Founder<span class="dot" aria-hidden="true"></span>Denver<span class="dot" aria-hidden="true"></span>2024 — Present</span>
+        <span class="meta">Founder<span class="dot" aria-hidden="true"></span>Austin<span class="dot" aria-hidden="true"></span>2024 — Present</span>
       </header>
       <ul class="bullets">
         <li data-tags="product,react,agent">Brand system, React dashboard, and Hermes agent for an AI-assisted job-search product — scheduled job-board scans, resume tailoring, Telegram notifications.</li>
@@ -973,7 +977,7 @@
         <span class="meta">2015 — 2017</span>
       </header>
       <ul class="bullets">
-        <li data-tags="cofounder,paid-social,paid-search">Cofounder, Bucketz (2016–2017) — automated focus-group recruitment for mid-sized market-research firms via paid social and paid search.</li>
+        <li data-tags="cofounder,paid-social,paid-search">Cofounder, SampleApp (2016–2017) — automated focus-group recruitment for mid-sized market-research firms via paid social and paid search.</li>
         <li data-tags="sem,wordpress,mortgage">Digital Marketing Strategist, Primary Residential Mortgage Inc. (2015–2016) — built and optimized SEM and WordPress content programs across 8 states for mortgage and real-estate partners.</li>
       </ul>
     </article>
@@ -999,7 +1003,7 @@
 
   <!-- ================== PAGE 2 FOOTER ================== -->
   <footer class="pagefoot">
-    <span class="colophon"><span style="font-style:normal;">—</span> Emilio Nunez-Garcia<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>emiliobuilds.com</span>
+    <span class="colophon"><span style="font-style:normal;">—</span> Jordan Rivera<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>example.com</span>
     <span class="pagenum"><span class="dot" aria-hidden="true"></span>02 / 03</span>
   </footer>
 </article>
@@ -1023,7 +1027,7 @@
 
     <dl class="rows">
       <dt>Paid Media</dt>
-      <dd>Google Ads (Search, Display, YouTube, PMax, Demand Gen, App), Meta Ads (Facebook, Instagram, Reels, Advantage+), Amazon DSP, programmatic display, OTT/CTV (DV360, The Trade Desk), SEM, paid social, streaming audio (Spotify, Pandora, Audacy O&amp;O), native, retargeting.</dd>
+      <dd>Google Ads (Search, Display, YouTube, PMax, Demand Gen, App), Meta Ads (Facebook, Instagram, Reels, Advantage+), Amazon DSP, programmatic display, OTT/CTV (DV360, The Trade Desk), SEM, paid social, streaming audio (Spotify, Pandora, Northwind O&amp;O), native, retargeting.</dd>
 
       <dt>Bidding &amp; Optimization</dt>
       <dd>Advanced bidding strategies (tCPA, tROAS, Max Conversions, manual CPC), audience-signal layering, lookalikes / custom audiences, exclusion lists, dayparting, geo-modifier strategy, auction-time learnings, smart-bidding migrations, portfolio bid strategies.</dd>
@@ -1107,7 +1111,7 @@
 
   <!-- ================== PAGE 2 FOOTER ================== -->
   <footer class="pagefoot">
-    <span class="colophon"><span style="font-style:normal;">—</span> Emilio Nunez-Garcia<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>emiliobuilds.com</span>
+    <span class="colophon"><span style="font-style:normal;">—</span> Jordan Rivera<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>example.com</span>
     <span class="pagenum"><span class="dot" aria-hidden="true"></span>03 / 03</span>
   </footer>
 
@@ -1115,126 +1119,8 @@
 
 </div>
 
-<!-- ============================================================
-     TWEAKS PANEL — toggle from the toolbar to reshape the feel.
-     Hidden in print; the underlying classes/vars persist into the PDF.
-     ============================================================ -->
-<div id="tweaks-root"></div>
-
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-<script type="text/babel" src="tweaks-panel.jsx"></script>
-
-<script type="text/babel">
-  /* =========================================================
-     Resume Tweaks App
-     Three expressive controls that reshape feel, not pixels:
-       • accent   — swap the signature gold for another restrained ink
-       • voice    — Restrained / Editorial / Quiet (italic register)
-       • density  — Open / Standard / Tight (rhythm)
-     ========================================================= */
-
-  // Accent palette: each option = [gold, gold-soft]. gold-soft is the
-  // 18%-alpha wash for company-name backgrounds.
-  const ACCENTS = {
-    gold:  { gold: '#FFB703', soft: 'rgba(255, 183, 3, 0.18)' },
-    coral: { gold: '#EB4D56', soft: 'rgba(235, 77, 86, 0.16)' },
-    teal:  { gold: '#12A89C', soft: 'rgba(18, 168, 156, 0.18)' },
-    mono:  { gold: '#093444', soft: 'rgba(9, 52, 68, 0.10)' },
-  };
-  const ACCENT_LABELS = { gold: 'Gold', coral: 'Coral', teal: 'Teal', mono: 'Mono' };
-
-  function applyAccent(key) {
-    const a = ACCENTS[key] || ACCENTS.gold;
-    document.documentElement.style.setProperty('--gold', a.gold);
-    document.documentElement.style.setProperty('--gold-soft', a.soft);
-  }
-
-  function applyVoice(value) {
-    const b = document.body;
-    b.classList.remove('voice-restrained', 'voice-editorial', 'voice-quiet');
-    b.classList.add('voice-' + value);
-  }
-
-  function applyDensity(value) {
-    const b = document.body;
-    b.classList.remove('density-open', 'density-standard', 'density-tight');
-    b.classList.add('density-' + value);
-  }
-
-  function ResumeTweaks() {
-    const [t, setTweak] = useTweaks(window.TWEAK_DEFAULTS);
-
-    // Live-apply on every change
-    React.useEffect(() => { applyAccent(t.accent); },   [t.accent]);
-    React.useEffect(() => { applyVoice(t.voice); },     [t.voice]);
-    React.useEffect(() => { applyDensity(t.density); }, [t.density]);
-
-    return (
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="Signature accent" />
-        <TweakColor
-          label="Accent"
-          value={ACCENTS[t.accent].gold}
-          options={Object.values(ACCENTS).map(a => a.gold)}
-          onChange={(hex) => {
-            const k = Object.keys(ACCENTS).find(k => ACCENTS[k].gold === hex) || 'gold';
-            setTweak('accent', k);
-          }}
-        />
-        <div style={{
-          fontSize: 10.5, color: 'rgba(41,38,27,.55)',
-          marginTop: -2, lineHeight: 1.35,
-        }}>
-          {ACCENT_LABELS[t.accent]} — replaces the signature gold across
-          rules, bullets, dots, and folios.
-        </div>
-
-        <TweakSection label="Editorial voice" />
-        <TweakRadio
-          label="Voice"
-          value={t.voice}
-          options={['restrained', 'editorial', 'quiet']}
-          onChange={(v) => setTweak('voice', v)}
-        />
-        <div style={{
-          fontSize: 10.5, color: 'rgba(41,38,27,.55)',
-          marginTop: -2, lineHeight: 1.35,
-        }}>
-          {t.voice === 'restrained' && 'Italic Fraunces shows up only in the tagline, opener, and closing line.'}
-          {t.voice === 'editorial'  && 'Section labels, role titles, and dates lean into Fraunces italic — magazine spread.'}
-          {t.voice === 'quiet'      && 'All roman, no italic. Reads as a clean serious technical doc.'}
-        </div>
-
-        <TweakSection label="Rhythm" />
-        <TweakRadio
-          label="Density"
-          value={t.density}
-          options={['open', 'standard', 'tight']}
-          onChange={(v) => setTweak('density', v)}
-        />
-        <div style={{
-          fontSize: 10.5, color: 'rgba(41,38,27,.55)',
-          marginTop: -2, lineHeight: 1.35,
-        }}>
-          {t.density === 'open'     && 'More breathing room. Expect 4 pages on the master superset.'}
-          {t.density === 'standard' && 'Default rhythm — 3-page master / 2-page per-job target.'}
-          {t.density === 'tight'    && 'Compressed line-heights and margins. Pushes toward 2 pages.'}
-        </div>
-      </TweaksPanel>
-    );
-  }
-
-  // Apply persisted defaults before mounting so the page looks "right"
-  // even if the user never opens the panel.
-  applyAccent(window.TWEAK_DEFAULTS.accent);
-  applyVoice(window.TWEAK_DEFAULTS.voice);
-  applyDensity(window.TWEAK_DEFAULTS.density);
-
-  const root = ReactDOM.createRoot(document.getElementById('tweaks-root'));
-  root.render(<ResumeTweaks />);
-</script>
+<!-- TWEAKS PANEL retired (materials v3 slice 8): the React panel and
+     its unpkg scripts were removed so no leftover run can fetch a CDN. -->
 
 </body>
 </html>

@@ -398,6 +398,47 @@ test("runKeepAliveCheck no-ops on a stable transport without probing or redeploy
   }
 });
 
+test("G9: runKeepAliveCheck skips resync on a Tailscale (*.ts.net) target", async () => {
+  const homeDir = tempHome();
+  const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));
+  try {
+    // The audit probe's state: a ts.net target with no recorded transport.
+    // The keep-alive used to fall through to the ngrok API and report
+    // ngrok_api_down every tick; a tailnet hostname never rotates, so the
+    // relay target cannot go stale and there is nothing to resync.
+    const bootstrapStatePath = join(workDir, "discovery-local-bootstrap.json");
+    writeFileSync(
+      bootstrapStatePath,
+      JSON.stringify({
+        localPort: 8644,
+        publicTargetUrl: "https://mac.tail1234.ts.net/webhook",
+      }),
+      "utf8",
+    );
+    const recorder = spawnRecorder();
+    const fetchImpl = async (url) => {
+      throw new Error(`fetch should not be called for a tailscale target: ${url}`);
+    };
+    const result = await runKeepAliveCheck({
+      homeDir,
+      bootstrapStatePath,
+      fetchImpl,
+      spawnSyncImpl: recorder.spawnSyncImpl,
+      nowIso: "2026-09-26T00:00:00.000Z",
+    });
+    assert.deepEqual(result, {
+      ok: true,
+      redeployed: false,
+      reason: "stable_transport",
+    });
+    assert.equal(recorder.calls.length, 0);
+    assert.equal(existsSync(getKeepAlivePaths({ homeDir }).statePath), false);
+  } finally {
+    cleanup(homeDir);
+    cleanup(workDir);
+  }
+});
+
 test("runKeepAliveCheck still resyncs a rotating cloudflare_quick transport", async () => {
   const homeDir = tempHome();
   const workDir = mkdtempSync(join(tmpdir(), "jobbored-bootstrap-test-"));

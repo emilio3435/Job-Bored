@@ -102,6 +102,8 @@ export type UserProfile = {
   strengths: ProfileStrength[];
   wants?: string[];
   avoids?: string[];
+  /** Short excerpts in the user's own voice for materials drafting. */
+  writingSamples?: string[];
   hardConstraints: ProfileHardConstraints;
   tieBreakers?: ProfileTieBreakers;
 };

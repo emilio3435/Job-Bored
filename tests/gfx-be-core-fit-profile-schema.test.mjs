@@ -64,6 +64,7 @@ const LIMIT_SOURCES = {
   salaryFloor: [`${P}/hardConstraints/${P}/salaryFloor`],
   acceptableLocations: [`${P}/hardConstraints/${P}/acceptableLocations`, "items"],
   skipTitles: [`${P}/hardConstraints/${P}/skipTitles`, "items"],
+  writingSamples: [`${P}/writingSamples`, "items"],
 };
 const KEYWORDS = ["minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum"];
 

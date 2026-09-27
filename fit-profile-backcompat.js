@@ -38,6 +38,15 @@
     return path;
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    var scope = typeof window !== "undefined" ? window : null;
+    var auth = scope && scope.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   function el(tag, attrs, children) {
     var node = document.createElement(tag);
     if (attrs) {
@@ -78,7 +87,7 @@
       button.disabled = true;
       status.textContent = "Working…";
       try {
-        var resp = await fetch(profileApiPath("/profile/rescore"), { method: "POST" });
+        var resp = await apiFetch(profileApiPath("/profile/rescore"), { method: "POST" });
         var data = await resp.json();
         if (data && data.ok) {
           status.textContent = data.message || "Done.";
@@ -109,7 +118,7 @@
     var host = document.querySelector(".fp-wizard-empty, .fp-onboarding-empty, #onboarding-empty-state");
     if (!host || host.dataset.bcReady === "1") return;
 
-    fetch(profileApiPath("/profile"), { method: "GET" })
+    apiFetch(profileApiPath("/profile"), { method: "GET" })
       .then(function (r) { return r.json(); })
       .then(function (data) {
         if (data && data.ok && data.profile) return; // already has profile
@@ -128,7 +137,7 @@
           btn.disabled = true;
           btn.textContent = "Importing…";
           try {
-            var resp = await fetch(profileApiPath("/profile/migrate"), { method: "POST" });
+            var resp = await apiFetch(profileApiPath("/profile/migrate"), { method: "POST" });
             var result = await resp.json();
             if (result && result.ok && result.migrated) {
               // Reload so the wizard re-fetches and shows the imported profile

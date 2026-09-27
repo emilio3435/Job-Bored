@@ -136,6 +136,68 @@ test("collectSerpApiGoogleJobsListings happy path returns 3 listings with mapped
   );
 });
 
+test("C10: lookalike hosts do not skew apply-URL ranking or providerType", async () => {
+  const canned = {
+    jobs_results: [
+      {
+        title: "Backend Engineer",
+        company_name: "Clever",
+        location: "Remote",
+        description: "Clever is hiring a backend engineer.",
+        via: "via Clever",
+        job_id: "clever-1",
+        apply_options: [
+          { title: "Apply", link: "https://clever.com/careers/backend-engineer" },
+          { title: "Apply", link: "https://jobs.lever.co/clever/backend-engineer" },
+        ],
+      },
+      {
+        title: "Support Engineer",
+        company_name: "Honest",
+        location: "Remote",
+        description: "Honest is hiring a support engineer.",
+        via: "via Greenhouse",
+        job_id: "honest-1",
+        apply_options: [
+          { title: "Apply", link: "https://www.greenhouse-careers-scam.com/jobs/1" },
+          { title: "Apply", link: "https://boards.greenhouse.io/honest/jobs/1" },
+        ],
+      },
+      {
+        title: "Data Engineer",
+        company_name: "Solo",
+        location: "Remote",
+        description: "Solo is hiring a data engineer.",
+        via: "via Clever",
+        job_id: "solo-1",
+        apply_options: [
+          { title: "Apply", link: "https://clever.com/careers/data-engineer" },
+        ],
+      },
+    ],
+  };
+  const result = await collectSerpApiGoogleJobsListings({
+    profile: { targetRoles: ["Engineer"], locations: ["Remote"] },
+    runtimeConfig: makeRuntimeConfig(),
+    fetchImpl: fetchReturning(canned),
+  });
+
+  // Real ATS URLs outrank lookalikes that used to score as ATS.
+  const clever = result.listings.find((l) => l.company === "Clever");
+  assert.ok(clever, "Clever listing present");
+  assert.equal(clever!.url, "https://jobs.lever.co/clever/backend-engineer");
+  assert.equal(clever!.providerType, "lever");
+
+  const honest = result.listings.find((l) => l.company === "Honest");
+  assert.ok(honest, "Honest listing present");
+  assert.equal(honest!.url, "https://boards.greenhouse.io/honest/jobs/1");
+  assert.equal(honest!.providerType, "greenhouse");
+
+  const solo = result.listings.find((l) => l.company === "Solo");
+  assert.ok(solo, "Solo listing present");
+  assert.equal(solo!.providerType, undefined);
+});
+
 test("collectSerpApiGoogleJobsListings skips gracefully when API key is unset", async () => {
   let fetchCallCount = 0;
   const trackingFetch: typeof globalThis.fetch = async () => {

@@ -77,6 +77,19 @@
   --jb-dossier-amber:     #E7B549;
   --jb-crimson:           #B23A48;
 
+  /* Materials families (materials slice 7) — Volt is the one accent every
+     family shares; each family defines its own ink. css/materials.css reads
+     these for the BYOK preview; templates/materials/<family>/*.css keep
+     their own copies because the server renders them standalone. */
+  --jb-materials-volt:          #4A24FF;
+  --jb-materials-volt-line:     rgba(74, 36, 255, 0.28);
+  --jb-materials-signal-ink:    #15112E;
+  --jb-materials-signal-line:   rgba(21, 17, 46, 0.3);
+  --jb-materials-dossier-ink:   #17152A;
+  --jb-materials-dossier-line:  rgba(23, 21, 42, 0.3);
+  --jb-materials-editorial-ink:  #15142A;
+  --jb-materials-editorial-line: rgba(21, 20, 42, 0.3);
+
   /* ========================================================
      TIER 2 — SEMANTIC (aliases of tier 1, plus status values)
      ======================================================== */

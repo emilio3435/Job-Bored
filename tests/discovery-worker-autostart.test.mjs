@@ -16,6 +16,7 @@ import {
   DEFAULT_WORKER_PORT,
   getWorkerAutostartPaths,
   getDiscoveryWorkerAutostartStatus,
+  getDiscoveryWorkerAutostartStatusAsync,
   installDiscoveryWorkerAutostart,
   resolveConfiguredWorkerPort,
 } from "../scripts/install-discovery-worker-autostart.mjs";
@@ -190,10 +191,18 @@ test("getDiscoveryWorkerAutostartStatus reports installed and not-installed stat
   const homeDir = tempHome();
   const repoRoot = tempRepo();
   try {
+    // No artifact: nothing installed, and no backend query is attempted.
+    const recorder = spawnRecorder();
     assert.deepEqual(
-      getDiscoveryWorkerAutostartStatus({ platform: "darwin", homeDir, repoRoot }),
-      { installed: false },
+      getDiscoveryWorkerAutostartStatus({
+        platform: "darwin",
+        homeDir,
+        repoRoot,
+        spawnSyncImpl: recorder.spawnSyncImpl,
+      }),
+      { installed: false, artifactPresent: false, active: false },
     );
+    assert.deepEqual(recorder.calls, []);
 
     writeFileSync(
       join(repoRoot, "discovery-local-bootstrap.json"),
@@ -204,10 +213,153 @@ test("getDiscoveryWorkerAutostartStatus reports installed and not-installed stat
     mkdirSync(join(homeDir, "Library", "LaunchAgents"), { recursive: true });
     writeFileSync(paths.launchAgentPath, "plist", "utf8");
 
+    // BEAUDIT G8: a plist file alone is NOT installed — launchd must report
+    // the job loaded. A junk file never loaded reports installed:false.
+    const loaded = spawnRecorder({
+      status: 0,
+      stdout: `gui/501/${WORKER_AUTOSTART_LABEL} = {\n\tactive count = 1\n};\n`,
+      stderr: "",
+    });
     assert.deepEqual(
-      getDiscoveryWorkerAutostartStatus({ platform: "darwin", homeDir, repoRoot }),
-      { installed: true, jobLabel: WORKER_AUTOSTART_LABEL, port: "8644" },
+      getDiscoveryWorkerAutostartStatus({
+        platform: "darwin",
+        homeDir,
+        repoRoot,
+        uid: 501,
+        spawnSyncImpl: loaded.spawnSyncImpl,
+      }),
+      {
+        installed: true,
+        artifactPresent: true,
+        active: true,
+        jobLabel: WORKER_AUTOSTART_LABEL,
+        port: "8644",
+      },
     );
+    assert.deepEqual(
+      loaded.calls.map((call) => [call.command, call.args]),
+      [["launchctl", ["print", `gui/501/${WORKER_AUTOSTART_LABEL}`]]],
+    );
+  } finally {
+    cleanup(homeDir);
+    cleanup(repoRoot);
+  }
+});
+
+test("G8: a plist never loaded by launchd reports installed:false", () => {
+  const homeDir = tempHome();
+  const repoRoot = tempRepo();
+  try {
+    const paths = getWorkerAutostartPaths({ homeDir, repoRoot });
+    mkdirSync(join(homeDir, "Library", "LaunchAgents"), { recursive: true });
+    writeFileSync(paths.launchAgentPath, "not a plist, never loaded\n", "utf8");
+    const unloaded = spawnRecorder({ status: 1, stdout: "", stderr: "No such process" });
+    assert.deepEqual(
+      getDiscoveryWorkerAutostartStatus({
+        platform: "darwin",
+        homeDir,
+        repoRoot,
+        uid: 501,
+        spawnSyncImpl: unloaded.spawnSyncImpl,
+      }),
+      { installed: false, artifactPresent: true, active: false },
+    );
+  } finally {
+    cleanup(homeDir);
+    cleanup(repoRoot);
+  }
+});
+
+test("G8: linux status follows systemctl --user is-active", () => {
+  const homeDir = tempHome();
+  const repoRoot = tempRepo();
+  try {
+    const paths = getWorkerAutostartPaths({ homeDir, repoRoot });
+    mkdirSync(join(homeDir, ".config", "systemd", "user"), { recursive: true });
+    writeFileSync(paths.systemdServicePath, "service", "utf8");
+    const active = spawnRecorder({ status: 0, stdout: "active\n", stderr: "" });
+    assert.deepEqual(
+      getDiscoveryWorkerAutostartStatus({
+        platform: "linux",
+        homeDir,
+        repoRoot,
+        spawnSyncImpl: active.spawnSyncImpl,
+      }),
+      {
+        installed: true,
+        artifactPresent: true,
+        active: true,
+        jobLabel: WORKER_AUTOSTART_LABEL,
+        port: DEFAULT_WORKER_PORT,
+      },
+    );
+    assert.deepEqual(
+      active.calls.map((call) => [call.command, call.args]),
+      [["systemctl", ["--user", "is-active", `${WORKER_AUTOSTART_LABEL}.service`]]],
+    );
+    const inactive = spawnRecorder({ status: 3, stdout: "inactive\n", stderr: "" });
+    assert.deepEqual(
+      getDiscoveryWorkerAutostartStatus({
+        platform: "linux",
+        homeDir,
+        repoRoot,
+        spawnSyncImpl: inactive.spawnSyncImpl,
+      }),
+      { installed: false, artifactPresent: true, active: false },
+    );
+  } finally {
+    cleanup(homeDir);
+    cleanup(repoRoot);
+  }
+});
+
+test("G8: async status adds last successful worker /health from the job", async () => {
+  const homeDir = tempHome();
+  const repoRoot = tempRepo();
+  try {
+    const paths = getWorkerAutostartPaths({ homeDir, repoRoot });
+    mkdirSync(join(homeDir, "Library", "LaunchAgents"), { recursive: true });
+    writeFileSync(paths.launchAgentPath, "plist", "utf8");
+    const loaded = spawnRecorder({
+      status: 0,
+      stdout: `gui/501/${WORKER_AUTOSTART_LABEL} = {};\n`,
+      stderr: "",
+    });
+    const fetched = [];
+    const up = await getDiscoveryWorkerAutostartStatusAsync({
+      platform: "darwin",
+      homeDir,
+      repoRoot,
+      uid: 501,
+      nowIso: "2026-09-26T00:00:00.000Z",
+      spawnSyncImpl: loaded.spawnSyncImpl,
+      fetchImpl: async (url) => {
+        fetched.push(String(url));
+        return {
+          ok: true,
+          json: async () => ({ status: "ok", service: "browser-use-discovery-worker" }),
+        };
+      },
+    });
+    assert.equal(up.installed, true);
+    assert.equal(up.workerUp, true);
+    assert.equal(up.lastHealthyAt, "2026-09-26T00:00:00.000Z");
+    assert.deepEqual(fetched, ["http://127.0.0.1:8644/health"]);
+
+    const down = await getDiscoveryWorkerAutostartStatusAsync({
+      platform: "darwin",
+      homeDir,
+      repoRoot,
+      uid: 501,
+      nowIso: "2026-09-26T00:00:00.000Z",
+      spawnSyncImpl: loaded.spawnSyncImpl,
+      fetchImpl: async () => {
+        throw new TypeError("connect ECONNREFUSED 127.0.0.1:8644");
+      },
+    });
+    assert.equal(down.installed, true);
+    assert.equal(down.workerUp, false);
+    assert.equal(down.lastHealthyAt, null);
   } finally {
     cleanup(homeDir);
     cleanup(repoRoot);

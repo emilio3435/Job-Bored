@@ -1,7 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 
-import { mergeEnvFileValues, parseEnvFileText } from "../scripts/lib/env-file-merge.mjs";
+import {
+  mergeEnvFileValues,
+  mergeEnvFileValuesWithSources,
+  parseEnvFileText,
+  resolveLayeredEnvSources,
+} from "../scripts/lib/env-file-merge.mjs";
 
 /* ============================================================
    An empty placeholder must never erase a configured value.
@@ -68,5 +73,46 @@ describe("parseEnvFileText — the shape the starter has always parsed", () => {
 
   it("keeps '=' characters inside a value", () => {
     assert.equal(parseEnvFileText("K=a=b=c").K, "a=b=c");
+  });
+});
+
+describe("mergeEnvFileValuesWithSources — BEAUDIT G11 provenance", () => {
+  it("reports the winning layer index per key", () => {
+    const { values, sources } = mergeEnvFileValuesWithSources([
+      { A: "repo", B: "repo" },
+      { B: "server", C: "server" },
+      { C: "" },
+    ]);
+    assert.deepEqual({ ...values }, { A: "repo", B: "server", C: "server" });
+    assert.deepEqual({ ...sources }, { A: 0, B: 1, C: 1 });
+  });
+
+  it("keeps the earlier layer when a later file leaves the key empty", () => {
+    const { sources } = mergeEnvFileValuesWithSources([
+      { [KEY]: "/repo/key.json" },
+      { [KEY]: "" },
+    ]);
+    assert.equal(sources[KEY], 0);
+  });
+});
+
+describe("resolveLayeredEnvSources — BEAUDIT G11 key-to-file map", () => {
+  const paths = ["/repo/integrations/browser-use-discovery/.env", "/repo/server/.env", "/home/.jobbored/.env"];
+
+  it("maps each resolved key to its winning file (never the value)", () => {
+    const { values, sources } = resolveLayeredEnvSources(
+      [{ A: "repo", B: "repo" }, { B: "server" }, { C: "home" }],
+      { paths, processEnv: {} },
+    );
+    assert.deepEqual({ ...values }, { A: "repo", B: "server", C: "home" });
+    assert.deepEqual({ ...sources }, { A: paths[0], B: paths[1], C: paths[2] });
+  });
+
+  it("marks process env wins as 'process', mirroring the {...files, ...process} spread", () => {
+    const { sources } = resolveLayeredEnvSources([{ A: "repo" }, { B: "server" }], {
+      paths,
+      processEnv: { B: "exported", PATH: "/bin" },
+    });
+    assert.deepEqual({ ...sources }, { A: paths[0], B: "process" });
   });
 });

@@ -43,7 +43,8 @@ export function createHeuristicProvider(
   const provider: AtsProvider = {
     id: config.id,
     label: config.label,
-    async detectSurfaces(company, hints, memory) {
+    async detectSurfaces(company, hints, memory, signal) {
+      signal?.throwIfAborted?.();
       const surfaces: ProviderSurface[] = [];
       const pushSurface = (
         rawUrl: string,
@@ -80,7 +81,7 @@ export function createHeuristicProvider(
         memory,
       );
       for (const url of explicitTokenUrls) {
-        if (config.preflightTokens && !(await preflight(url, config.detectMarkers))) {
+        if (config.preflightTokens && !(await preflight(url, config.detectMarkers, signal))) {
           continue;
         }
         pushSurface(url, "hint_token", 0.78);
@@ -93,7 +94,7 @@ export function createHeuristicProvider(
           memory,
         );
         for (const url of companyTokenUrls) {
-          if (config.preflightTokens && !(await preflight(url, config.detectMarkers))) {
+          if (config.preflightTokens && !(await preflight(url, config.detectMarkers, signal))) {
             continue;
           }
           pushSurface(url, "company_token", 0.6, [
@@ -104,13 +105,15 @@ export function createHeuristicProvider(
 
       return dedupeSurfaces(surfaces, provider.scoreSurface);
     },
-    async enumerateListings(surface, sessionManager) {
+    async enumerateListings(surface, sessionManager, signal) {
+      signal?.throwIfAborted?.();
       const targetUrl = surface.finalUrl || surface.canonicalUrl || surface.boardUrl;
       const sessionResult = await sessionManager.run({
         url: targetUrl,
         instruction:
           config.browserInstruction || DEFAULT_PROVIDER_BROWSER_INSTRUCTION,
         timeoutMs: 20_000,
+        abortSignal: signal,
       });
       const payload = tryParseJson(sessionResult.text);
       const structured = extractStructuredListings(
@@ -171,8 +174,9 @@ export function createHeuristicProvider(
 async function preflight(
   url: string,
   markers: Array<string | RegExp>,
+  signal?: AbortSignal,
 ): Promise<boolean> {
-  const result = await fetchText(url);
+  const result = await fetchText(url, { signal });
   if (!result.ok) return false;
   return looksLikeProviderMarkup(result.text, markers);
 }

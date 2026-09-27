@@ -4,7 +4,7 @@
  * 1. Worker: the loopback Host guard belongs to the local run mode only. A
  *    hosted worker (RUN_MODE=hosted, HOST=0.0.0.0) sits behind a reverse proxy
  *    that connects over 127.0.0.1 with the public Host; it must reach the
- *    webhook-secret gate instead of a 403 HOST_NOT_ALLOWED. A local worker
+ *    webhook-secret gate instead of a 403 host_not_allowed. A local worker
  *    still refuses a rebound Host (see beaudit-p-worker-host-guard.test.mjs).
  * 2. API: a Host named in JOBBORED_API_ALLOWED_HOSTS passes the Host gate on a
  *    loopback listener, so its exact same-origin Origin (scheme and port
@@ -73,7 +73,7 @@ async function startChild(args, port, env) {
 }
 
 describe("BEAUDIT E1 repair — a hosted worker behind a loopback reverse proxy", () => {
-  it("reaches the webhook-secret gate with its public Host instead of HOST_NOT_ALLOWED", async () => {
+  it("reaches the webhook-secret gate with its public Host instead of host_not_allowed", async () => {
     const port = 19000;
     const stop = await startChild(
       ["--experimental-strip-types", join(REPO_ROOT, "integrations/browser-use-discovery/src/server.ts")],
@@ -89,7 +89,7 @@ describe("BEAUDIT E1 repair — a hosted worker behind a loopback reverse proxy"
     try {
       const health = await send(port, { path: "/health", headers: { host: "worker.example.com" } });
       assert.notEqual(health.status, 403, `hosted /health refused: ${health.text}`);
-      assert.doesNotMatch(health.text, /HOST_NOT_ALLOWED/);
+      assert.doesNotMatch(health.text, /host_not_allowed/);
 
       // The secret gate, not the Host guard, answers an unauthenticated run
       // status request on the public name.
@@ -97,14 +97,14 @@ describe("BEAUDIT E1 repair — a hosted worker behind a loopback reverse proxy"
         path: "/runs/run-probe",
         headers: { host: "worker.example.com" },
       });
-      assert.doesNotMatch(anon.text, /HOST_NOT_ALLOWED/);
+      assert.doesNotMatch(anon.text, /host_not_allowed/);
       assert.equal(anon.status, 401, `expected the secret gate: ${anon.status} ${anon.text}`);
 
       const authed = await send(port, {
         path: "/runs/run-probe",
         headers: { host: "worker.example.com", "x-discovery-secret": "probe-secret" },
       });
-      assert.doesNotMatch(authed.text, /HOST_NOT_ALLOWED/);
+      assert.doesNotMatch(authed.text, /host_not_allowed/);
       assert.equal(authed.status, 404, `a valid secret gets past both gates: ${authed.text}`);
     } finally {
       stop();

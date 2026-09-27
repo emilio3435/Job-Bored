@@ -6,9 +6,9 @@ Output:
   1. iCloud canonical path:
        ~/Library/Mobile Documents/com~apple~iCloud~CloudDocs/
          Personal Info/Personal Work/Professional Documents/Resumes/2026/
-         Emilio_Nunez-Garcia_Resume_BASE.pdf
+         Jordan_Rivera_Resume_BASE.pdf
   2. Desktop convenience copy:
-       ~/Desktop/Emilio_Nunez-Garcia_Resume_BASE.pdf
+       ~/Desktop/Jordan_Rivera_Resume_BASE.pdf
 
 Requirements:
     pip install playwright
@@ -45,8 +45,8 @@ ICLOUD_DIR = (
     / "Personal Info/Personal Work/Professional Documents/Resumes/2026"
 )
 DESKTOP_DIR = Path.home() / "Desktop"
-PDF_NAME       = "Emilio_Nunez-Garcia_Resume_BASE.pdf"
-COVER_PDF_NAME = "Emilio_Nunez-Garcia_CoverLetter_BASE.pdf"
+PDF_NAME       = "Jordan_Rivera_Resume_BASE.pdf"
+COVER_PDF_NAME = "Jordan_Rivera_CoverLetter_BASE.pdf"
 
 ICLOUD_PDF        = ICLOUD_DIR / PDF_NAME
 DESKTOP_PDF       = DESKTOP_DIR / PDF_NAME
@@ -134,12 +134,12 @@ def quick_pdf_sanity(pdf_path: Path) -> None:
 
         # Spot-check that key terms made it into the text layer.
         must_have = [
-            "Emilio Nunez-Garcia",
+            "Jordan Rivera",
             "Performance marketing leader",
             "Digital Sales Manager",
             "Google Ads",
             "ROAS",
-            "elioai.app",
+            "example.app",
             "Mathematical Economics",
         ]
         missing = [k for k in must_have if k not in text]

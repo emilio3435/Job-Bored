@@ -1,7 +1,7 @@
 /**
  * BEAUDIT E1 (worker half) — the discovery worker on 127.0.0.1:8644 shares the
  * loopback Host guard. A DNS-rebound page sends its own name in Host and gets
- * 403 HOST_NOT_ALLOWED. Tunnels (Tailscale funnel, ngrok, cloudflared) forward
+ * 403 host_not_allowed. Tunnels (Tailscale funnel, ngrok, cloudflared) forward
  * to loopback with their public Host, so the worker also admits the tunnel
  * provider suffixes (DNS an attacker cannot point at 127.0.0.1) and any host
  * named in BROWSER_USE_DISCOVERY_ALLOWED_HOSTS.
@@ -105,7 +105,7 @@ describe("BEAUDIT E1 — worker refuses a rebound Host", () => {
 
       const rebound = await get("/health", { host: `rebind.attacker.test:${PORT}` });
       assert.equal(rebound.status, 403, "rebound Host must be refused");
-      assert.match(rebound.text, /HOST_NOT_ALLOWED/);
+      assert.match(rebound.text, /host_not_allowed/);
 
       const wrongPort = await get("/health", { host: "127.0.0.1:9999" });
       assert.equal(wrongPort.status, 403, "loopback name on another port must be refused");

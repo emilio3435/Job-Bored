@@ -157,6 +157,11 @@ describe("rescoreAllPipelineRows provider behavior", () => {
       calls.push({ href, method, headers: options.headers || {}, body: options.body || "" });
 
       if (href.includes("sheets.googleapis.com") && method === "GET") {
+        // F16: a single-cell Link re-read answers with a single cell, as
+        // the real API does; the snapshot read answers with full rows.
+        if (/%21E\d+|!E\d+/.test(href)) {
+          return jsonResponse({ values: [[pipelineRow()[4]]] });
+        }
         return jsonResponse({ values: [pipelineRow()] });
       }
       if (href.includes("sheets.googleapis.com") && href.includes("/values:batchUpdate")) {

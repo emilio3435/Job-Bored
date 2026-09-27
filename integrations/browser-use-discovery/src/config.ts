@@ -19,7 +19,7 @@ import {
   type SupportedSourceId,
   type UltraPlanTuning,
 } from "./contracts.ts";
-import { effectiveAtsCompanySeeds } from "./discovery/company-keys.ts";
+import { effectiveAtsCompanySeeds, slugifyCompanyKey } from "./discovery/company-keys.ts";
 import {
   applySheetConfigMutation,
   buildEffectiveIntent,
@@ -1484,7 +1484,7 @@ function normalizeCompanyTarget(input: unknown): CompanyTarget | null {
     return name
       ? {
           name,
-          companyKey: normalizeCompanyKey(name),
+          companyKey: slugifyCompanyKey(name),
           normalizedName: normalizeCompanyName(name),
         }
       : null;
@@ -1502,7 +1502,7 @@ function normalizeCompanyTarget(input: unknown): CompanyTarget | null {
   return {
     name,
     companyKey:
-      cleanString(input.companyKey) || normalizeCompanyKey(name),
+      cleanString(input.companyKey) || slugifyCompanyKey(name),
     normalizedName:
       cleanString(input.normalizedName) || normalizeCompanyName(name),
     ...(aliases.length ? { aliases } : {}),
@@ -1617,10 +1617,6 @@ function normalizeCompanyName(value: string): string {
     .replace(/[^a-z0-9]+/g, " ")
     .replace(/\s+/g, " ")
     .trim();
-}
-
-function normalizeCompanyKey(value: string): string {
-  return normalizeCompanyName(value).replace(/\s+/g, "-");
 }
 
 function normalizeDomain(value: string): string {

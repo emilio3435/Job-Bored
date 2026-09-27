@@ -29,6 +29,14 @@
 
   if (!root || typeof root !== "object") return;
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    var auth = root && root.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   var REGION_SELECTOR = '[data-region="role"]';
   var BRIEF_SELECTOR = '[data-mount="brief"]';
   var MATERIALS_MOUNT_SELECTOR = '[data-mount="materials"]';
@@ -1446,7 +1454,7 @@
 
   function fetchText(url) {
     if (typeof fetch !== "function") return Promise.reject(new Error("fetch unavailable"));
-    return fetch(url, { credentials: "omit", cache: "no-store" }).then(function (res) {
+    return apiFetch(url, { credentials: "omit", cache: "no-store" }).then(function (res) {
       if (!res.ok) throw new Error("Materials server returned " + res.status);
       return res.text();
     });
@@ -1677,7 +1685,7 @@
     if (typeof fetch !== "function") {
       return Promise.reject(new Error("fetch unavailable"));
     }
-    return fetch(url, { credentials: "omit", cache: "no-store" }).then(function (res) {
+    return apiFetch(url, { credentials: "omit", cache: "no-store" }).then(function (res) {
       if (!res.ok) {
         var err = new Error("Materials server returned " + res.status);
         err.status = res.status;
@@ -1697,7 +1705,7 @@
     if (typeof fetch !== "function") {
       return Promise.reject(new Error("fetch unavailable"));
     }
-    return fetch(url, {
+    return apiFetch(url, {
       method: "POST",
       credentials: "omit",
       cache: "no-store",
@@ -2856,7 +2864,7 @@
     var slugEnc = encodeURIComponent(slug);
     var url = base + "/api/applications/" + slugEnc + "/job-description";
     if (typeof fetch !== "function") return Promise.reject(new Error("fetch unavailable"));
-    return fetch(url, {
+    return apiFetch(url, {
       method: "PUT",
       credentials: "omit",
       cache: "no-store",

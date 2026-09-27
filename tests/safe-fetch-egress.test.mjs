@@ -209,10 +209,10 @@ describe("C9 safeFetch streaming body cap", () => {
     assert.equal(response.url, "https://jobs.example.com/b");
   });
 
-  it("tags blocked targets with code SSRF_BLOCKED", async () => {
+  it("tags blocked targets with code ssrf_blocked", async () => {
     await assert.rejects(
       () => safeFetch("http://127.0.0.1:9/", {}, { fetchImpl: async () => new Response("x") }),
-      (error) => error.code === "SSRF_BLOCKED" && PRIVATE_NETWORK.test(error.message),
+      (error) => error.code === "ssrf_blocked" && PRIVATE_NETWORK.test(error.message),
     );
   });
 });
@@ -472,7 +472,7 @@ describe("IPv6 literal targets keep their brackets out of IP classification", ()
           fetchImpl: async () => new Response("leak"),
           lookupImpl: async () => [{ address: "8.8.8.8", family: 4 }],
         }),
-        (error) => error.code === "SSRF_BLOCKED",
+        (error) => error.code === "ssrf_blocked",
       );
     });
   }

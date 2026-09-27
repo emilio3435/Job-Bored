@@ -246,7 +246,8 @@ export function createAtsProvider(
   const provider: AtsProvider = {
     id: config.id,
     label: config.sourceLabel,
-    async detectSurfaces(company, hints, memory) {
+    async detectSurfaces(company, hints, memory, signal) {
+      signal?.throwIfAborted?.();
       const surfaces: ProviderSurface[] = [];
       const pushSurface = (
         rawUrl: string,
@@ -289,10 +290,11 @@ export function createAtsProvider(
           .flatMap((value) => extractBoardHintCandidates(value)),
       ]);
       for (const hint of probeHints) {
+        signal?.throwIfAborted?.();
         const isExplicit = hints.explicitTokens.includes(hint);
         let matched = false;
         for (const url of config.buildPublicApiProbeUrls(hint)) {
-          const response = await fetchJson(url);
+          const response = await fetchJson(url, { signal });
           if (!response.ok) continue;
           pushSurface(
             config.normalizeBoardUrl(hint),
@@ -309,7 +311,7 @@ export function createAtsProvider(
           config.normalizeBoardUrl(hint),
           ...config.buildPublicFeedProbeUrls(hint),
         ])) {
-          const response = await fetchText(url);
+          const response = await fetchText(url, { signal });
           if (
             !response.ok ||
             !looksLikeProviderMarkup(response.text, [
@@ -334,7 +336,8 @@ export function createAtsProvider(
 
       return dedupeSurfaces(surfaces, provider.scoreSurface);
     },
-    async enumerateListings(surface, sessionManager) {
+    async enumerateListings(surface, sessionManager, signal) {
+      signal?.throwIfAborted?.();
       const probeTargets = uniqueStrings([
         ...config.buildPublicApiProbeUrls(surface.boardToken || surface.boardUrl),
         ...config.buildPublicFeedProbeUrls(surface.boardToken || surface.boardUrl),
@@ -343,7 +346,7 @@ export function createAtsProvider(
       ]);
 
       for (const target of probeTargets) {
-        const response = await fetchJson(target);
+        const response = await fetchJson(target, { signal });
         if (!response.ok || response.data == null) continue;
         const listings = config.extractListingsFromPayload(response.data, {
           boardUrl: surface.canonicalUrl || surface.boardUrl,
@@ -356,6 +359,7 @@ export function createAtsProvider(
         url: surface.finalUrl || surface.canonicalUrl || surface.boardUrl,
         instruction: DEFAULT_PROVIDER_BROWSER_INSTRUCTION,
         timeoutMs: 20_000,
+        abortSignal: signal,
       });
       const payload = tryParseJson(sessionResult.text);
       const structured = config.extractListingsFromPayload(
@@ -520,13 +524,18 @@ export function createListing(input: {
 
 export async function fetchJson(
   url: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ ok: boolean; data?: unknown; status: number }> {
   try {
-    const response = await fetchWithTimeout(url, {
-      headers: {
-        accept: "application/json,text/plain;q=0.9,*/*;q=0.8",
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          accept: "application/json,text/plain;q=0.9,*/*;q=0.8",
+        },
       },
-    });
+      options.signal,
+    );
     const text = await response.text();
     const data = tryParseJson(text);
     return { ok: response.ok, data: data ?? text, status: response.status };
@@ -537,13 +546,18 @@ export async function fetchJson(
 
 export async function fetchText(
   url: string,
+  options: { signal?: AbortSignal } = {},
 ): Promise<{ ok: boolean; text: string; status: number }> {
   try {
-    const response = await fetchWithTimeout(url, {
-      headers: {
-        accept: "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",
+    const response = await fetchWithTimeout(
+      url,
+      {
+        headers: {
+          accept: "text/html,application/json,text/plain;q=0.9,*/*;q=0.8",
+        },
       },
-    });
+      options.signal,
+    );
     return {
       ok: response.ok,
       text: await response.text(),
@@ -561,9 +575,22 @@ export async function fetchText(
 async function fetchWithTimeout(
   url: string,
   options: RequestInit,
+  parentSignal?: AbortSignal,
 ): Promise<Response> {
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), PROVIDER_HTTP_TIMEOUT_MS);
+  // RUN-11/C5: link the run/timeout signal so a run cap or source timeout
+  // aborts in-flight provider probes instead of letting them dangle.
+  const abortFromParent = () => {
+    if (!controller.signal.aborted) {
+      controller.abort(parentSignal?.reason);
+    }
+  };
+  if (parentSignal?.aborted) {
+    controller.abort(parentSignal.reason);
+  } else {
+    parentSignal?.addEventListener("abort", abortFromParent, { once: true });
+  }
   try {
     return await safeFetch(url, {
       ...options,
@@ -571,6 +598,7 @@ async function fetchWithTimeout(
     });
   } finally {
     clearTimeout(timer);
+    parentSignal?.removeEventListener("abort", abortFromParent);
   }
 }
 

@@ -11,6 +11,7 @@ import {
   type SourcePreset,
 } from "../contracts.ts";
 import type { RoleFamilyRecord } from "../state/discovery-memory-store.ts";
+import { slugifyCompanyKey } from "./company-keys.ts";
 
 const DEFAULT_SOURCE_PRESET: SourcePreset = "browser_plus_ats";
 const DEFAULT_MAX_COMPANIES = 50;
@@ -425,7 +426,7 @@ function upsertCandidate(input: {
   companyRecord?: CompanyRegistryRecord | null;
   freshnessAt?: string;
 }) {
-  const key = cleanString(input.companyKey) || normalizeCompanyKey(input.displayName);
+  const key = cleanString(input.companyKey) || slugifyCompanyKey(input.displayName);
   if (!key) return;
 
   const existing =
@@ -499,7 +500,7 @@ function resolveCompanyKey(
   const normalizedName =
     cleanString(company.normalizedName) || normalizeCompanyName(company.name);
   const registryMatch = registryByNormalizedName.get(normalizedName);
-  return registryMatch?.companyKey || normalizeCompanyKey(company.name);
+  return registryMatch?.companyKey || slugifyCompanyKey(company.name);
 }
 
 function rankCandidate(
@@ -1141,10 +1142,6 @@ function normalizePhrase(value: unknown): string {
 
 function normalizeCompanyName(value: unknown): string {
   return normalizePhrase(value);
-}
-
-function normalizeCompanyKey(value: unknown): string {
-  return normalizeCompanyName(value).replace(/\s+/g, "-");
 }
 
 function normalizeDomain(value: unknown): string {

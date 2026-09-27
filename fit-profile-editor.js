@@ -88,6 +88,15 @@
     return FP && typeof FP.profileUrl === "function" ? FP.profileUrl(path) : path;
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    var scope = typeof window !== "undefined" ? window : null;
+    var auth = scope && scope.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   function isValidLogoSlug(value) {
     return /^[a-z0-9][a-z0-9-]{0,127}$/.test(String(value || ""));
   }
@@ -141,7 +150,7 @@
   }
 
   async function fetchBrandLogos() {
-    var res = await fetch(profileApiPath("/api/brand-logos"), { method: "GET" });
+    var res = await apiFetch(profileApiPath("/api/brand-logos"), { method: "GET" });
     var data = await res.json().catch(function () { return null; });
     if (!res.ok || !data || data.ok !== true) {
       throw new Error((data && data.error) || "brand logo fetch failed");
@@ -150,7 +159,7 @@
   }
 
   async function postResolveBrandLogos(force) {
-    var res = await fetch(profileApiPath("/api/brand-logos/resolve"), {
+    var res = await apiFetch(profileApiPath("/api/brand-logos/resolve"), {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ force: !!force }),
@@ -169,7 +178,7 @@
     row.item.logoUpload = "uploads/logo-" + row.slug + ".png";
     var form = new FormData();
     form.append("file", file);
-    var res = await fetch(profileApiPath("/api/brand-logos/" + encodeURIComponent(row.slug)), {
+    var res = await apiFetch(profileApiPath("/api/brand-logos/" + encodeURIComponent(row.slug)), {
       method: "POST",
       body: form,
     });

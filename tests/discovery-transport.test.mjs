@@ -5,6 +5,7 @@ import {
   TRANSPORT_CLOUDFLARE_NAMED,
   TRANSPORT_CLOUDFLARE_QUICK,
   TRANSPORT_NGROK,
+  TRANSPORT_TAILSCALE,
   normalizeTransportPreference,
   detectCloudflared,
   parseQuickTunnelUrl,
@@ -98,6 +99,25 @@ test("isStableTransport is true only for the named tunnel", () => {
   assert.equal(isStableTransport(TRANSPORT_CLOUDFLARE_NAMED), true);
   assert.equal(isStableTransport(TRANSPORT_CLOUDFLARE_QUICK), false);
   assert.equal(isStableTransport(TRANSPORT_NGROK), false);
+});
+
+test("G9: tailscale is a stable transport kind inferred from *.ts.net", () => {
+  assert.equal(TRANSPORT_TAILSCALE, "tailscale");
+  assert.equal(normalizeTransportPreference("tailscale"), TRANSPORT_TAILSCALE);
+  assert.equal(normalizeTransportPreference("Tailscale"), TRANSPORT_TAILSCALE);
+  assert.equal(isStableTransport(TRANSPORT_TAILSCALE), true);
+  assert.equal(
+    inferTransportKindFromUrl("https://mac.tail1234.ts.net/webhook"),
+    TRANSPORT_TAILSCALE,
+  );
+  assert.equal(
+    inferTransportKindFromUrl("https://mac.tail1234.ts.net"),
+    TRANSPORT_TAILSCALE,
+  );
+  assert.equal(
+    selectTransport({ preference: "tailscale", cloudflaredInstalled: true }),
+    TRANSPORT_TAILSCALE,
+  );
 });
 
 test("buildQuickTunnelCommand builds correct argv and rejects bad ports", () => {

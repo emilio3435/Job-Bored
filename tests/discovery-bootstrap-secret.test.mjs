@@ -236,6 +236,32 @@ describe("bootstrap env-key writer control characters", () => {
   });
 });
 
+describe("bootstrap env-key writer dollar sequences (BEAUDIT G14)", () => {
+  it("upsertBrowserUseDiscoveryEnvValue writes $' and $& literally, without String.replace expansion", () => {
+    const dir = mkdtempSync(join(tmpdir(), "boot-env-dollar-"));
+    const envFilePath = join(dir, "worker.env");
+    try {
+      writeFileSync(
+        envFilePath,
+        "SERPAPI_API_KEY=old\nBROWSER_USE_DISCOVERY_WEBHOOK_SECRET=probe-secret\n",
+        "utf8",
+      );
+      upsertBrowserUseDiscoveryEnvValue("SERPAPI_API_KEY", "probe$'", envFilePath);
+      assert.equal(
+        readFileSync(envFilePath, "utf8"),
+        "SERPAPI_API_KEY=probe$'\nBROWSER_USE_DISCOVERY_WEBHOOK_SECRET=probe-secret\n",
+      );
+      upsertBrowserUseDiscoveryEnvValue("SERPAPI_API_KEY", "a$&b", envFilePath);
+      assert.equal(
+        readFileSync(envFilePath, "utf8"),
+        "SERPAPI_API_KEY=a$&b\nBROWSER_USE_DISCOVERY_WEBHOOK_SECRET=probe-secret\n",
+      );
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+});
+
 describe("bootstrap ngrok tunnel selection", () => {
   it("selects the https tunnel whose config.addr matches the worker port", () => {
     const selected = pickNgrokPublicUrl(

@@ -11,11 +11,19 @@
  */
 
 /**
- * @param {{ existingHealthy: boolean, restartExisting: boolean }} input
- * @returns {"start" | "reuse" | "restart"}
+ * @param {{ existingHealthy: boolean, restartExisting: boolean, portBound?: boolean, foreignCheckout?: boolean }} input
+ * @returns {"start" | "reuse" | "restart" | "hold_foreign"}
  */
-export function decideExistingWorkerAction({ existingHealthy, restartExisting }) {
-  if (!existingHealthy) return "start";
+export function decideExistingWorkerAction({ existingHealthy, restartExisting, portBound = false, foreignCheckout = false }) {
+  // BEAUDIT G7: a healthy worker from another checkout is never reused or
+  // restarted from here — hold and report it.
+  if (existingHealthy && foreignCheckout) return "hold_foreign";
+  if (!existingHealthy) {
+    // BEAUDIT G5: the port answers but it is not the worker (Hermes
+    // gateway, another checkout). Spawning anyway dies with EADDRINUSE and
+    // exits 1, and concurrently -k takes web+scraper down — hold instead.
+    return portBound ? "hold_foreign" : "start";
+  }
   return restartExisting ? "restart" : "reuse";
 }
 
@@ -55,6 +63,13 @@ export function decideAfterChildExit({ signal, initiatedByUs, replacementHealthy
 }
 
 /**
+ * Consecutive missed hold-probes before the starter takes the port back.
+ * BEAUDIT G6 residual: a single missed 1s probe from a busy worker used to
+ * trigger a respawn that hit EADDRINUSE, exited 1, and tore the stack down.
+ */
+export const HELD_WORKER_RESPAWN_CONSECUTIVE_FAILURES = 3;
+
+/**
  * After the starter starts holding for an existing worker (reuse, failed
  * restart, or a healthy replacement after our child was SIGTERM'd), each
  * health probe must decide whether to keep holding or take the port back.
@@ -64,10 +79,24 @@ export function decideAfterChildExit({ signal, initiatedByUs, replacementHealthy
  * (observed 2026-09-16 — starter alive for hours, no child, connection
  * refused). Our own Ctrl-C / concurrently teardown still exits.
  *
- * @param {{ heldWorkerHealthy: boolean, shuttingDown: boolean }} input
+ * A single missed probe never respawns (see above): only
+ * HELD_WORKER_RESPAWN_CONSECUTIVE_FAILURES consecutive misses do, and only
+ * when the port is free — respawning into an occupied port is the EADDRINUSE
+ * exit this policy exists to prevent.
+ *
+ * @param {{ heldWorkerHealthy: boolean, shuttingDown: boolean, consecutiveFailures?: number, portFree?: boolean }} input
  * @returns {"keep_holding" | "respawn" | "exit"}
  */
-export function decideHeldWorkerAction({ heldWorkerHealthy, shuttingDown }) {
+export function decideHeldWorkerAction({
+  heldWorkerHealthy,
+  shuttingDown,
+  consecutiveFailures = 1,
+  portFree = true,
+}) {
   if (shuttingDown) return "exit";
-  return heldWorkerHealthy ? "keep_holding" : "respawn";
+  if (heldWorkerHealthy) return "keep_holding";
+  if (consecutiveFailures < HELD_WORKER_RESPAWN_CONSECUTIVE_FAILURES) {
+    return "keep_holding";
+  }
+  return portFree ? "respawn" : "keep_holding";
 }

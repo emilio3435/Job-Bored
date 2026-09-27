@@ -37,14 +37,17 @@ export type SourceAdapterRegistry = {
     companyContext: CompanyContext,
     effectiveSources: SupportedSourceId[],
     memory?: ProviderMemorySnapshot,
+    signal?: AbortSignal,
   ): Promise<DetectionResult[]>;
   collectListings(
     run: DiscoveryRun,
     detections: DetectionResult[],
+    signal?: AbortSignal,
   ): Promise<RawListing[]>;
   collectListingsSettled(
     run: DiscoveryRun,
     detections: DetectionResult[],
+    signal?: AbortSignal,
   ): Promise<BoardCollectionResult>;
 };
 
@@ -101,6 +104,7 @@ export function createSourceAdapterRegistry(
   async function collectFromDetections(
     run: DiscoveryRun,
     detections: DetectionResult[],
+    signal?: AbortSignal,
   ): Promise<BoardCollectionResult> {
     const enabled = new Set(run.config.enabledSources);
     const tasks: Array<{
@@ -139,7 +143,7 @@ export function createSourceAdapterRegistry(
         sourceId: detection.sourceId,
         sourceLabel: detection.sourceLabel,
         boardUrl: boardContext.boardUrl,
-        listJobs: () => adapter.listJobs(boardContext),
+        listJobs: () => adapter.listJobs(boardContext, signal),
       });
     }
     const settled = await collectBoardListingsSettled(tasks);
@@ -151,7 +155,7 @@ export function createSourceAdapterRegistry(
 
   return {
     adapters,
-    async detectBoards(companyContext, effectiveSources, memory) {
+    async detectBoards(companyContext, effectiveSources, memory, signal) {
       const atsSources = effectiveSources.filter((sourceId): sourceId is AtsSourceId =>
         !!providerRegistry.getProvider(sourceId as AtsSourceId),
       );
@@ -159,14 +163,15 @@ export function createSourceAdapterRegistry(
         companyContext.company,
         atsSources,
         memory,
+        signal,
       );
     },
-    async collectListings(run, detections) {
-      const result = await collectFromDetections(run, detections);
+    async collectListings(run, detections, signal) {
+      const result = await collectFromDetections(run, detections, signal);
       return result.listings;
     },
-    async collectListingsSettled(run, detections) {
-      return collectFromDetections(run, detections);
+    async collectListingsSettled(run, detections, signal) {
+      return collectFromDetections(run, detections, signal);
     },
   };
 }
@@ -198,14 +203,23 @@ function createCompatSourceAdapter(
   return {
     sourceId: provider.id,
     sourceLabel: provider.label,
-    async detect(companyContext) {
+    async detect(companyContext, signal) {
       const hints = buildDetectionHints(companyContext.company, provider.id);
-      const surfaces = await provider.detectSurfaces(companyContext.company, hints);
+      const surfaces = await provider.detectSurfaces(
+        companyContext.company,
+        hints,
+        undefined,
+        signal,
+      );
       return surfaces[0] || null;
     },
-    async listJobs(boardContext) {
+    async listJobs(boardContext, signal) {
       const surface = boardContextToSurface(provider, boardContext);
-      const listings = await provider.enumerateListings(surface, sessionManager);
+      const listings = await provider.enumerateListings(
+        surface,
+        sessionManager,
+        signal,
+      );
       return listings.map((listing) => {
         const canonicalUrl = provider.canonicalizeUrl(listing.url) || normalizeLeadUrl(listing.url);
         const externalJobId =

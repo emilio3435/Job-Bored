@@ -12,6 +12,9 @@
 //                        ROTATES on every restart. Default for greenfield users
 //                        when cloudflared is installed.
 //   - ngrok             Existing behavior. FALLBACK only.
+//   - tailscale         STABLE tailnet hostname (*.ts.net) via `tailscale
+//                        serve`. No rotation, so no keepalive resync. Reached
+//                        by explicit preference or inferred from the URL.
 //
 // Selection priority:
 //   explicit preference > cloudflare_named (if configured)
@@ -25,11 +28,13 @@ import { spawnSync } from "node:child_process";
 export const TRANSPORT_CLOUDFLARE_NAMED = "cloudflare_named";
 export const TRANSPORT_CLOUDFLARE_QUICK = "cloudflare_quick";
 export const TRANSPORT_NGROK = "ngrok";
+export const TRANSPORT_TAILSCALE = "tailscale";
 
 export const TRANSPORT_KINDS = Object.freeze([
   TRANSPORT_CLOUDFLARE_NAMED,
   TRANSPORT_CLOUDFLARE_QUICK,
   TRANSPORT_NGROK,
+  TRANSPORT_TAILSCALE,
 ]);
 
 /**
@@ -48,6 +53,7 @@ export function normalizeTransportPreference(raw) {
   if (value === TRANSPORT_CLOUDFLARE_NAMED) return TRANSPORT_CLOUDFLARE_NAMED;
   if (value === TRANSPORT_CLOUDFLARE_QUICK) return TRANSPORT_CLOUDFLARE_QUICK;
   if (value === TRANSPORT_NGROK) return TRANSPORT_NGROK;
+  if (value === TRANSPORT_TAILSCALE) return TRANSPORT_TAILSCALE;
   return "";
 }
 
@@ -127,7 +133,8 @@ export function selectTransport({
   if (
     normalized === TRANSPORT_CLOUDFLARE_NAMED ||
     normalized === TRANSPORT_CLOUDFLARE_QUICK ||
-    normalized === TRANSPORT_NGROK
+    normalized === TRANSPORT_NGROK ||
+    normalized === TRANSPORT_TAILSCALE
   ) {
     return normalized;
   }
@@ -139,11 +146,13 @@ export function selectTransport({
 
 /**
  * A transport is "stable" when its public hostname does NOT rotate across
- * restarts, so the keepalive resync can be skipped. Only the Cloudflare NAMED
- * tunnel is stable. PURE.
+ * restarts, so the keepalive resync can be skipped. The Cloudflare NAMED
+ * tunnel and Tailscale serve hostnames are stable. PURE.
  */
 export function isStableTransport(kind) {
-  return kind === TRANSPORT_CLOUDFLARE_NAMED;
+  return (
+    kind === TRANSPORT_CLOUDFLARE_NAMED || kind === TRANSPORT_TAILSCALE
+  );
 }
 
 /**
@@ -171,6 +180,10 @@ export function inferTransportKindFromUrl(raw) {
     hostname.endsWith(".ngrok.io")
   ) {
     return TRANSPORT_NGROK;
+  }
+  // BEAUDIT G9: a tailnet hostname is the Tailscale transport, never ngrok.
+  if (hostname === "ts.net" || hostname.endsWith(".ts.net")) {
+    return TRANSPORT_TAILSCALE;
   }
   return "";
 }

@@ -84,3 +84,33 @@ Final lint/typecheck exited 0. Muse independently verified the Sol worker correc
 PR 133 merged at 2026-09-27 03:48:11 UTC; origin/main is now 0ea077df. Its discovery animation and owner-only setup are already upstream. The remaining local code diff is three writer/worker correction commits. Initial evidence was collected against dddaddcf; no claim is made that this task merged PR 133. A single follow-up PR can contain the remaining corrections after user acceptance.
 
 No push, PR mutation, upstream merge, or deployment was performed by this task.
+
+## Flash-family repair and current-main integration (2026-09-27)
+
+The Flash repair is checkpointed at `062cad14`. The integrated candidate incorporates main `5d5b9a59`, including its v3 materials pipeline. Grok reviewed the combined source and the two deterministic fixture corrections: PASS. Muse independently verifies `/private/tmp/jobbored-flash-integrated`, with a matching source manifest and new main files staged so the desktop selftest includes them. Server dependencies were installed from the updated lockfile.
+
+The first integrated run was invalidated by two snapshot setup errors: global bootstrap/worker directory overrides interfered with fixture paths, and new main files were untracked in the snapshot, so the desktop selftest did not copy them. Neither required a production code correction. A remaining main test omitted an ownership double and probed live port 8644 despite using synthetic process IDs; its ownership result is now injected. Production foreign-checkout guards are unchanged. Original failed logs are retained.
+
+Final verification uses only test-specific `JOBBORED_LLM_CONFIG_PATH` and `JOBBORED_PROFILE_PATH` overrides; HOME is unchanged and other fixtures use their own paths. Lint and typecheck exit 0. Full `npm test`:
+
+```text
+ℹ tests 4898
+ℹ pass 4891
+ℹ fail 0
+ℹ todo 7
+```
+
+Seven existing TODOs are not passes. `npm run test:repo` passed its contract gates, root subset and worker suite:
+
+```text
+ℹ tests 4865
+ℹ pass 4858
+ℹ fail 0
+ℹ todo 7
+ℹ tests 995
+ℹ pass 995
+ℹ fail 0
+ℹ todo 0
+```
+
+`npm run test:e2e-visual` completed: **56 passed (1.5m)**. The final required automated gates pass. Grok reviewed the integrated diff; Muse ran all five floor commands independently. No live AI request, user resume submission, CI run, or signed Mac build of this candidate was performed.

@@ -72,4 +72,15 @@ describe("F2D-AUTH01-CSP browser policy module", () => {
     assert.equal(csp.includes("data:text/html"), false);
     assert.ok(csp.includes("https://ok.example"));
   });
+
+  it("G13: the meta variant drops frame-ancestors (ignored in a meta tag) and keeps the rest", () => {
+    const header = buildContentSecurityPolicy();
+    const meta = buildContentSecurityPolicy({ forMeta: true });
+    assert.match(header, /frame-ancestors 'none'/);
+    assert.doesNotMatch(meta, /frame-ancestors/);
+    for (const directive of ["default-src 'self'", "script-src", "style-src", "connect-src", "img-src", "font-src", "frame-src"]) {
+      assert.ok(meta.includes(directive), `meta policy must keep ${directive}`);
+    }
+    assert.equal(meta.includes('"'), false, "the policy must survive a double-quoted content attribute");
+  });
 });

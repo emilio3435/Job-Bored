@@ -236,6 +236,31 @@ export const DEFAULT_EXPLORATION_BUDGET: ExplorationBudget = {
   maxScoutListingsPerSurface: 20,
 };
 
+// === Score-unit conversions ===
+
+/**
+ * Converts a production fit score (1-10 scale from the normalizer and LLM
+ * scorer) to a 0-100 frontier component. A missing score means "no signal",
+ * which centers at 50 rather than flooring or saturating the composite.
+ */
+export function fitScoreToRoleFit(
+  fitScore: number | null | undefined,
+): number {
+  if (fitScore == null || !Number.isFinite(fitScore)) return 50;
+  return Math.min(100, Math.max(0, fitScore * 10));
+}
+
+/**
+ * Converts a matcher overall score (0-1) to a 0-10 Match Score for the
+ * sheet. Lives here so every score-unit conversion shares one home.
+ */
+export function matchOverallScoreToMatchScore(
+  overallScore: number,
+): number | null {
+  if (!Number.isFinite(overallScore)) return null;
+  return Math.round(Math.max(0, Math.min(1, overallScore)) * 10);
+}
+
 // === Score Computation ===
 
 /**
@@ -370,10 +395,10 @@ export function companyToFrontierCandidate(
 export function leadToFrontierCandidate(
   lead: NormalizedLead,
   sourceLane: DiscoverySourceLane,
+  memory?: { priorAcceptedYield?: number },
 ): FrontierCandidate {
   // Extract role/geo fit from lead metadata where available
-  const fitScore = lead.fitScore ?? 50;
-  const roleFit = fitScore * 100;
+  const roleFit = fitScoreToRoleFit(lead.fitScore);
   const geoFit = lead.metadata?.sourceLane === "ats_provider" ? 70 : 60;
 
   // Infer remote fit from lead's remoteBucket metadata
@@ -385,7 +410,15 @@ export function leadToFrontierCandidate(
   const tagCount = lead.tags?.length || 0;
   const hasPriority = lead.priority === "🔥" || lead.priority === "⚡";
   const recentHiringEvidence = Math.min(100, 40 + tagCount * 10 + (hasPriority ? 30 : 0));
-  const priorAcceptedYield = hasPriority ? 70 : 50;
+  // B7: a memory-fed prior yield overrides the static default when the
+  // caller resolved one from intent coverage.
+  const memoryYield = memory?.priorAcceptedYield;
+  const priorAcceptedYield =
+    typeof memoryYield === "number" && Number.isFinite(memoryYield)
+      ? Math.min(100, Math.max(0, memoryYield))
+      : hasPriority
+        ? 70
+        : 50;
   const surfaceHealth = 60 + tagCount * 5;
   const diversity = 50;
   const freshness = 70;

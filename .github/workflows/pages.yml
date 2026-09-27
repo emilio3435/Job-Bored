@@ -26,21 +26,8 @@ jobs:
         with:
           node-version-file: .nvmrc
 
-      - name: Assemble dashboard HTML
-        run: node scripts/assemble-index.mjs --write
-
       - name: Build Pages artifact
-        run: |
-          mkdir _site
-          rsync -a \
-            --exclude '.git/' \
-            --exclude '.github/' \
-            --exclude '_site/' \
-            --exclude 'index.html' \
-            --exclude 'index.assembled.html' \
-            ./ _site/
-          cp index.assembled.html _site/index.html
-          cp config.example.js _site/config.js
+        run: node scripts/assemble-index.mjs --build-site _site
 
       - name: Verify deployed assets match the deployed HTML
         run: node scripts/assemble-index.mjs --verify-site _site

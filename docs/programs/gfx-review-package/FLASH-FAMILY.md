@@ -33,3 +33,9 @@ Grok independently reviewed the implementation and returned PASS. Muse ran repos
 The broader host `test:repo` passed contracts and its root subset (4,621 pass, eight TODOs), then reported 945/946 worker tests passing. `VAL-ROUTE-016` depended on external preflight timing and overwrote its captured company failure. The test now uses synthetic HTML, restores fetch in finally, and checks all captured failures while retaining the named-company diagnostic and warning assertions. Grok reviewed that correction; the complete worker rerun passed 946/946. These are checkpoint results, not a claim that the final integrated candidate passed.
 
 While verification ran, main advanced to `5d5b9a59` and another session switched localhost back to main. The candidate will integrate that revision and repeat the required floors before any localhost switch. No owner credential file was opened by this task.
+
+## Final integrated result
+
+Main `5d5b9a59` is integrated with the Flash fix. The v3 stage calls preserve their own prompts and starting budgets, retry truncation once at a bounded larger budget, and stop immediately on provider blocking. Main's grounded-only frontier behavior is preserved.
+
+Independent Grok review PASS. Independent Muse final floors: lint/typecheck exit 0; `npm test` 4,891 pass, seven existing TODOs; `test:repo` contracts plus 4,858 root pass/seven TODOs and 995 worker pass; browser visuals 56/56. See VERIFICATION.md for failed-attempt explanations and reports/FLASH-INTEGRATION-MUSE.md for command outputs. All source paths match the tested snapshot. Local preview handoff is recorded in VERIFICATION.md after startup.

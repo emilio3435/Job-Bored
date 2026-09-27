@@ -83,6 +83,17 @@ describe("F2B-PROFILE02-RESUME — resolveResumeTextForAnalysis", () => {
   it("falls back to stored resume when the body has no staged text", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jobbored-f2b-resume-stored-"));
     temps.push(dir);
+    /* F11: ~/.jobbored/resume.txt is the canonical stored resume and wins
+     * over the worker-config snapshot (pinned in
+     * tests/materials-ledger.test.mjs). An empty HOME here exercises the
+     * worker-config fallback leg deterministically. */
+    const homeDir = mkdtempSync(join(tmpdir(), "jobbored-f2b-stored-home-"));
+    temps.push(homeDir);
+    const priorHome = process.env.HOME;
+    const priorProfile = process.env.USERPROFILE;
+    const priorWorker = process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH;
+    process.env.HOME = homeDir;
+    process.env.USERPROFILE = homeDir;
     const workerPath = join(dir, "worker-config.json");
     writeFileSync(
       workerPath,
@@ -92,10 +103,19 @@ describe("F2B-PROFILE02-RESUME — resolveResumeTextForAnalysis", () => {
       "utf8",
     );
     process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH = workerPath;
-    const mod = await loadModule();
-    const result = await mod.resolveResumeTextForAnalysis({});
-    assert.equal(result.source, "worker_config");
-    assert.match(result.text, /Stored worker resume text/);
+    try {
+      const mod = await loadModule();
+      const result = await mod.resolveResumeTextForAnalysis({});
+      assert.equal(result.source, "worker_config");
+      assert.match(result.text, /Stored worker resume text/);
+    } finally {
+      if (priorHome === undefined) delete process.env.HOME;
+      else process.env.HOME = priorHome;
+      if (priorProfile === undefined) delete process.env.USERPROFILE;
+      else process.env.USERPROFILE = priorProfile;
+      if (priorWorker === undefined) delete process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH;
+      else process.env.BROWSER_USE_DISCOVERY_CONFIG_PATH = priorWorker;
+    }
   });
 
   it("ignores secret-looking body fields and never treats them as resume text", async () => {

@@ -371,18 +371,23 @@ test("UXD-BE-1: a 500-listing ATS scout publishes bounded, cumulative progress",
   assert.ok(listingProgress.every((entry) => entry.heartbeatAt === entry.checkpointedAt));
   assert.ok(events.some(({ event }) => event === "discovery.run.ats_company_started"));
   assert.ok(events.some(({ event }) => event === "discovery.run.ats_company_completed"));
-  const filtered = events.find(({ event }) => event === "discovery.run.frontier_filtering")?.details;
-  assert.equal(filtered?.originalLeadCount, 500);
-  assert.equal(filtered?.selectedLeadCount, 18, "the frontier budget keeps 18 of 500 accepted leads");
+  assert.ok(
+    !events.some(({ event }) => event === "discovery.run.frontier_filtering"),
+    "ATS leads bypass grounded scout frontier selection",
+  );
+  const writeStarted = events.find(({ event }) => event === "discovery.run.write_started")?.details;
+  assert.equal(writeStarted?.normalizedLeadCount, 500);
+  assert.equal(writeStarted?.dedupedLeadCount, 1, "identical fixture listings collapse before write");
+  assert.equal(writeStarted?.leadsToWriteCount, 1);
   assert.equal(
     checkpoints.find((entry) => entry.phase === "write")?.counters?.leadsQualified,
-    filtered?.selectedLeadCount,
-    "the saving checkpoint counts retained leads, not all matcher-accepted listings",
+    500,
+    "the saving checkpoint retains the cumulative accepted-listing count",
   );
   assert.equal(
     checkpoints.find((entry) => entry.phase === "learn")?.counters?.leadsQualified,
-    filtered?.selectedLeadCount,
-    "the retained count stays truthful after writing",
+    500,
+    "the accepted-listing count stays truthful after writing",
   );
 });
 
@@ -2154,7 +2159,7 @@ test("runDiscovery times out grounded collection when source timeout fires", asy
   );
 });
 
-test("runDiscovery marks grounded source readiness problems as partial outcomes with explicit warnings", async () => {
+test("runDiscovery marks grounded source readiness problems as empty outcomes with explicit warnings", async () => {
   let writeCalls = 0;
   const dependencies = {
     runtimeConfig: {
@@ -2232,7 +2237,9 @@ test("runDiscovery marks grounded source readiness problems as partial outcomes 
   const result = await runDiscovery(makeRequest(), "manual", dependencies);
 
   assert.equal(writeCalls, 0);
-  assert.equal(result.lifecycle.state, "partial");
+  // B6: the only warning is informational (an unavailable optional Google
+  // tool), so a zero-lead run is empty rather than partial.
+  assert.equal(result.lifecycle.state, "empty");
   assert.equal(result.lifecycle.normalizedLeadCount, 0);
   assert.equal(result.sourceSummary.length, 1);
   assert.equal(result.sourceSummary[0].sourceId, "grounded_web");

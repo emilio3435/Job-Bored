@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { callWriter, callEditor, parseWriterJson } from "../server/materials-writer.mjs";
+import { callWriter, callEditor, callJsonStage, parseStageJson, parseWriterJson } from "../server/materials-writer.mjs";
 
 const valid = {
   letter: { hook: "Hello", whyThem: "Them", whyMe: "Me", whyNow: "Now", closing: "Bye", company: "EAB", role: "Dir" },
@@ -570,5 +570,112 @@ describe("callWriter blocked stops and thought parts", () => {
     );
     assert.ok(err, "expected rejection: parsable does not mean complete");
     assert.equal(err.code, "writer_truncated");
+  });
+});
+
+describe("callJsonStage (v3 narrow calls)", () => {
+  const pin = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
+
+  it("posts the narrow prompt with JSON mode and a stage cap", async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return { ok: true, json: async () => ({ choices: [{ message: { content: '{"ids":["a"]}' } }] }) };
+    };
+    const out = await callJsonStage({
+      pin,
+      systemPrompt: "You pick claim ids. Return JSON only.",
+      userText: "Shortlist: a, b.",
+      maxOutputTokens: 1000,
+      fetchImpl,
+    });
+    assert.deepEqual(out, { ids: ["a"] });
+    assert.equal(calls.length, 1);
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.messages[0].content, "You pick claim ids. Return JSON only.");
+    assert.equal(body.messages[1].content, "Shortlist: a, b.");
+    assert.equal(body.max_tokens, 1000);
+    assert.deepEqual(body.response_format, { type: "json_object" });
+  });
+
+  it("requests JSON mime on Gemini", async () => {
+    const calls = [];
+    const fetchImpl = async (url, init) => {
+      calls.push({ url: String(url), init });
+      return { ok: true, json: async () => ({ candidates: [{ content: { parts: [{ text: '{"ok":true}' }] } }] }) };
+    };
+    await callJsonStage({
+      pin: { provider: "gemini", resolvedModel: "gemini-flash", apiKey: "k", baseUrl: "" },
+      systemPrompt: "s",
+      userText: "u",
+      maxOutputTokens: 500,
+      fetchImpl,
+    });
+    const body = JSON.parse(calls[0].init.body);
+    assert.equal(body.generationConfig.responseMimeType, "application/json");
+    assert.equal(body.generationConfig.maxOutputTokens, 500);
+  });
+
+  it("retries once on invalid JSON then throws", async () => {
+    let n = 0;
+    const fetchImpl = async () => {
+      n += 1;
+      return { ok: true, json: async () => ({ choices: [{ message: { content: "nope" } }] }) };
+    };
+    await assert.rejects(() => callJsonStage({ pin, systemPrompt: "s", userText: "u", fetchImpl }));
+    assert.equal(n, 2);
+  });
+
+  it("doubles a narrow Gemini cap once after MAX_TOKENS and parses the completed retry", async () => {
+    const budgets = [];
+    const fetchImpl = async (_url, init) => {
+      budgets.push(JSON.parse(init.body).generationConfig.maxOutputTokens);
+      return {
+        ok: true,
+        json: async () => ({
+          candidates: [{
+            finishReason: budgets.length === 1 ? "MAX_TOKENS" : "STOP",
+            content: { parts: [{ text: budgets.length === 1 ? '{"ids":[' : '{"ids":["a"]}' }] },
+          }],
+        }),
+      };
+    };
+    const out = await callJsonStage({
+      pin: { provider: "gemini", resolvedModel: "gemini-flash", apiKey: "k", baseUrl: "" },
+      systemPrompt: "Select ids.",
+      userText: "a",
+      maxOutputTokens: 500,
+      fetchImpl,
+    });
+    assert.deepEqual(out, { ids: ["a"] });
+    assert.deepEqual(budgets, [500, 1000]);
+  });
+
+  it("reports a blocked stage with the provider reason without retry", async () => {
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      return {
+        ok: true,
+        json: async () => ({ candidates: [{ finishReason: "SAFETY", content: { parts: [] } }] }),
+      };
+    };
+    const err = await callJsonStage({
+      pin: { provider: "gemini", resolvedModel: "gemini-flash", apiKey: "k", baseUrl: "" },
+      systemPrompt: "Select ids.",
+      userText: "a",
+      maxOutputTokens: 500,
+      fetchImpl,
+    }).then(() => null, (error) => error);
+    assert.ok(err, "expected a blocked-stage error");
+    assert.equal(err.code, "writer_blocked");
+    assert.match(err.message, /SAFETY/);
+    assert.equal(calls, 1);
+  });
+
+  it("parseStageJson extracts the first object and requires a plain object", () => {
+    assert.deepEqual(parseStageJson('prefix {"a":1} suffix'), { a: 1 });
+    assert.throws(() => parseStageJson("[1,2]"), /WriterJsonError/);
+    assert.throws(() => parseStageJson("nope"), /WriterJsonError/);
   });
 });

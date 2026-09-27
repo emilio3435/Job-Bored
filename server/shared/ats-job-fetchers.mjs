@@ -184,7 +184,9 @@ export async function fetchAtsJobPosting(rawUrl, options = {}) {
   /** @type {typeof globalThis.fetch} */
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   if (!identity) {
-    return fetchGenericCareerFeed(rawUrl, fetchImpl);
+    // C18: no speculative feed probes here; the caller fetches the page
+    // first and probes feeds only for SPA shells.
+    return null;
   }
   switch (identity.provider) {
     case "greenhouse":
@@ -261,7 +263,8 @@ export async function fetchAtsJobPosting(rawUrl, options = {}) {
         ? fetchHomerunJob({ slug: identity.slug, jobId: identity.jobId }, fetchImpl)
         : null;
     default:
-      return fetchGenericCareerFeed(rawUrl, fetchImpl);
+      // C18: see above — generic feeds are shell-gated by the caller.
+      return null;
   }
 }
 
@@ -963,14 +966,43 @@ function homerunMatches(href, entryId, jobId) {
   }
 }
 
+const SPA_SHELL_MARKERS = [
+  /id=["']?(root|app|__next)["']?[\s>]/i,
+  /__NEXT_DATA__/,
+  /ng-app/i,
+  /data-reactroot/i,
+  /\/_next\/static\//i,
+  /<script[^>]+src=["'][^"']+\.js/i,
+];
+
+/**
+ * C18: true when the fetched page HTML looks like a JS-app shell (thin
+ * visible text plus a client-render marker) rather than a readable posting.
+ * Generic feeds are probed only for shells, never speculatively.
+ * @param {unknown} html
+ */
+export function looksLikeSpaShellHtml(html) {
+  const source = typeof html === "string" ? html : "";
+  if (!source) return false;
+  const visibleText = source
+    .replace(/<script[\s\S]*?<\/script\s*>/gi, " ")
+    .replace(/<style[\s\S]*?<\/style\s*>/gi, " ")
+    .replace(/<[^>]+>/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (visibleText.length >= 500) return false;
+  return SPA_SHELL_MARKERS.some((marker) => marker.test(source));
+}
+
 /**
  * Same-origin public feeds used by Teamtailor custom domains, Recruitee
  * custom domains, Pinpoint clones, and any JSON Feed 1.1 career site.
  * This is how unknown boards keep working without a new fetcher.
+ * Call only after the page itself is fetched and looks like an SPA shell.
  * @param {string} rawUrl
  * @param {typeof globalThis.fetch} fetchImpl
  */
-async function fetchGenericCareerFeed(rawUrl, fetchImpl) {
+export async function fetchGenericCareerFeed(rawUrl, fetchImpl) {
   if (!looksLikeCareerJobUrl(rawUrl)) return null;
   let parsed;
   try {

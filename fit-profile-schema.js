@@ -43,6 +43,7 @@
     salaryFloor: Object.freeze({ minimum: 0 }),
     acceptableLocations: Object.freeze({ maxItems: 20, itemMinLength: 2, itemMaxLength: 80 }),
     skipTitles: Object.freeze({ maxItems: 30, itemMinLength: 2, itemMaxLength: 80 }),
+    writingSamples: Object.freeze({ maxItems: 8, itemMinLength: 1, itemMaxLength: 2000 }),
   });
 
   // additionalProperties:false objects — the server rejects any other key.
@@ -50,7 +51,7 @@
     root: [
       "version", "createdAt", "updatedAt", "starterTemplate", "identity",
       "strengths", "wants", "avoids", "experiences", "projects",
-      "hardConstraints", "tieBreakers",
+      "hardConstraints", "tieBreakers", "writingSamples",
     ],
     identity: ["targetRoles", "targetSeniority", "yearsRelevantExperience", "primaryNarrative"],
     strength: ["name", "rank", "evidence", "keywords"],
@@ -198,6 +199,9 @@
 
     if (has(profile, "wants")) checkList(profile.wants, LIMITS.wants, "wants", "Wants", "want");
     if (has(profile, "avoids")) checkList(profile.avoids, LIMITS.avoids, "avoids", "Avoids", "avoid");
+    if (has(profile, "writingSamples")) {
+      checkList(profile.writingSamples, LIMITS.writingSamples, "writingSamples", "Writing samples", "writing sample");
+    }
     ["experiences", "projects"].forEach(function (key) {
       if (!has(profile, key)) return;
       if (!Array.isArray(profile[key])) fail(key, key + " must be a list.");

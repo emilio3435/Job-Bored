@@ -6,7 +6,7 @@
 
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildRenderModelFromWriter, classifyContact, matchMark, tagMetrics } from "../server/materials-render-model-adapter.mjs";
+import { buildRenderModelFromWriter, buildRenderModelFromDraft, classifyContact, matchMark, tagMetrics } from "../server/materials-render-model-adapter.mjs";
 import { renderDocument, runsToText, validateRenderModel } from "../server/materials-render.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 import { EXAMPLE_MARKS, EXAMPLE_RESUME_TEXT, EXAMPLE_WRITER_JSON } from "./fixtures/materials-example-writer.mjs";
@@ -113,5 +113,94 @@ describe("render-model adapter", () => {
     });
     assert.equal(model.identity.name, "Sam Example");
     assert.ok(renderDocument(model, "resume").includes("Solo Co"));
+  });
+});
+
+describe("render-model adapter from pipeline draft", () => {
+  const ledger = {
+    contract: "materials.claim-ledger.v1",
+    ledgerHash: "sha256:aa",
+    employers: [
+      { id: "northwind-logistics", name: "Northwind Logistics", title: "Senior Operations Analyst" },
+      { id: "contoso-labs", name: "Contoso Labs", title: "Data Analyst" },
+    ],
+    claims: [
+      { id: "resume-b1", employerId: "northwind-logistics", text: "Cut late shipments 18% by rebuilding the carrier scorecard.", metrics: [{ token: "18%" }], tools: ["SQL"] },
+      { id: "resume-b2", employerId: "northwind-logistics", text: "Owned a $4.2M freight budget.", metrics: [{ token: "$4.2M" }], tools: [] },
+      { id: "resume-b3", employerId: "contoso-labs", text: "Modeled demand for 140 SKUs and cut stockouts 25%.", metrics: [{ token: "140" }, { token: "25%" }], tools: ["Looker"] },
+    ],
+    toolInventory: [
+      { tool: "SQL", level: "owned" },
+      { tool: "Looker", level: "adjacent" },
+    ],
+  };
+  const outline = {
+    featured: [
+      { employerId: "northwind-logistics", claimIds: ["resume-b1", "resume-b2"] },
+      { employerId: "contoso-labs", claimIds: ["resume-b3"] },
+    ],
+    earlier: [],
+    toolsLine: ["SQL", "Looker"],
+    letterBeats: { thesis: "resume-b1", analyticsProof: "resume-b1", aiOpsProof: "resume-b2", nextStep: "" },
+  };
+  const draft = {
+    contract: "materials.draft.v1",
+    jdHash: "sha256:bb",
+    ledgerHash: "sha256:aa",
+    statement: "Operations analytics lead who turns carrier data into decisions.",
+    bullets: [
+      { claimId: "resume-b1", text: "Cut late shipments 18% by rebuilding the carrier scorecard around on-time pickup." },
+      { claimId: "resume-b2", text: "Owned a $4.2M freight budget and moved 30% of lanes." },
+      { claimId: "resume-b3", text: "Modeled demand for 140 SKUs and cut stockouts 25%." },
+    ],
+    earlier: [],
+    letter: {
+      thesis: "You are hiring someone to make a fulfillment network explain itself every Monday, and that is the job I have done for four years now.",
+      analyticsProof: "At Northwind Logistics I rebuilt the carrier scorecard and cut late shipments 18% on a $4.2M freight budget with clear weekly readouts.",
+      aiOpsProof: "At Contoso Labs I modeled demand for 140 SKUs and cut stockouts 25% with a Looker dashboard the floor trusted.",
+      nextStep: "I would start by tracing one late order from scan to report, and I would be glad to walk through the scorecard.",
+    },
+  };
+
+  function buildDraft(family = "signal") {
+    return buildRenderModelFromDraft({
+      draft,
+      outline,
+      ledger,
+      resumeText: EXAMPLE_RESUME_TEXT,
+      request: { company: "Acme Robotics", title: "Operations Analytics Manager" },
+      family: resolveFamily(family),
+      marks: EXAMPLE_MARKS,
+      nowIso: "2026-09-25T12:00:00.000Z",
+    });
+  }
+
+  it("should produce a valid materials.render-model.v1 from the draft in every family", () => {
+    for (const family of ["signal", "dossier", "editorial"]) {
+      const model = buildDraft(family);
+      const result = validateRenderModel(model);
+      assert.equal(result.ok, true, `${family}: ${result.errors.join("; ")}`);
+    }
+  });
+
+  it("should carry real claim ids and ledger-traced metric runs", () => {
+    const model = buildDraft();
+    const experience = model.documents.resume.sections.find((s) => s.kind === "experience");
+    assert.deepEqual(experience.entries.map((e) => e.org), ["Northwind Logistics", "Contoso Labs"]);
+    assert.equal(experience.entries[0].bullets[0].claimId, "resume-b1");
+    const figures = JSON.stringify(model.documents.resume).match(/"n":"([^"]+)"/g).map((m) => m.slice(5, -1));
+    assert.ok(figures.includes("18%") && figures.includes("$4.2M"), `metric runs: ${figures}`);
+    assert.equal(figures.includes("30%"), false, "untraced 30% is not a metric run");
+  });
+
+  it("should fold the draft letter into four beats and render both documents", () => {
+    const model = buildDraft();
+    assert.deepEqual(
+      model.documents.coverLetter.paragraphs.map((p) => p.beat),
+      ["thesis", "analytics-proof", "ai-ops-proof", "next-step"],
+    );
+    assert.equal(model.identity.name, "Alex Rivera");
+    assert.match(renderDocument(model, "resume"), /Northwind Logistics/);
+    assert.match(renderDocument(model, "coverLetter"), /Monday/);
   });
 });
