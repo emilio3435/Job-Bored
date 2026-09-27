@@ -1,11 +1,12 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it, beforeEach, afterEach } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
+import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
 
 const RESUME_TEXT = [
   "Jordan Rivera",
@@ -164,6 +165,45 @@ describe("materials pipeline", () => {
     assert.ok(run.stages.some((s) => s.stage === "draft" && s.llm === true));
     assert.match(run.cacheKey, /\|both$/);
     assert.equal(out.qa.status === "pass" || out.qa.status === "review", true);
+  });
+
+  it("B2-10 shares the publish claim with the drafter", async () => {
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "r0" }));
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    let entered;
+    const claimed = new Promise((resolve) => { entered = resolve; });
+    const writer = withPackagePublishClaim(dir, "r0", async () => { entered(); await held; });
+    try {
+      await claimed;
+      const { fetchImpl } = scriptedFetch(stageScripts());
+      await assert.rejects(runPipeline({ ...base(), fetchImpl }), { statusCode: 409, code: "materials_pending" });
+      assert.equal(JSON.parse(await readFile(join(dir, "run.json"), "utf8")).runId, "r0");
+    } finally { release(); await writer; }
+  });
+
+  it("B2-11 leaves the published stage JSON untouched when the base moves during render", async () => {
+    const paths = ["jd-extract.json", "selection.json", "outline.json", "draft.json", "qa.json"];
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "r0" }));
+    for (const name of paths) await writeFile(join(dir, name), JSON.stringify({ priorRunId: "r0", name }));
+    let moved = false;
+    const openSession = async () => ({
+      measure: async () => ({ fits: true, scrollHeight: 1056, clientHeight: 1056, lastTextBottom: 1000, limit: 1027, blockedRequests: 0 }),
+      pdf: async (_html, path) => {
+        await writeFile(path, "%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n");
+        if (!moved) {
+          moved = true;
+          await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "moved-during-render" }));
+        }
+        return { path, pages: 1, blockedRequests: 0 };
+      },
+      close: async () => {},
+    });
+    const { fetchImpl } = scriptedFetch(stageScripts());
+    await assert.rejects(runPipeline({ ...base(), fetchImpl, openSession }), { statusCode: 409, code: "stale_base" });
+    assert.equal(moved, true);
+    for (const name of paths) assert.deepEqual(JSON.parse(await readFile(join(dir, name), "utf8")), { priorRunId: "r0", name });
+    assert.equal(JSON.parse(await readFile(join(dir, "run.json"), "utf8")).runId, "moved-during-render");
   });
 
   it("returns the cached package with zero LLM calls on a repeat key", async () => {
