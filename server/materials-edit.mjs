@@ -7,13 +7,68 @@ import { callJsonStage, EDIT_SYSTEM_PROMPT, WriterJsonError } from "./materials-
 const words = (text) => String(text || "").trim().split(/\s+/).filter(Boolean);
 /** @param {Array<{text:string}>} nodes */
 const count = (nodes) => nodes.reduce((sum, node) => sum + words(node.text).length, 0);
-/** @param {unknown} text */
-const factTokens = (text) => String(text || "").match(/(?:[$#]|top-)?\d[\d,.]*(?:[–-]\d[\d,.]*)?(?:%|x\b|[kKmMbB]\+?|\+)?|[\p{L}][\p{L}\p{M}\d]*(?:[-'][\p{L}\p{M}\d]+)*/gu) || [];
-const ordinaryWords = new Set(["a", "an", "and", "are", "as", "at", "by", "for", "from", "i", "in", "into", "is", "it", "my", "of", "on", "or", "our", "the", "their", "this", "to", "was", "we", "were", "who", "with", "you", "your"]);
+const numericToken = /(?<![\p{L}\p{N}])(?:[$#]|top[-–])?\d(?:[\d,]*\d)?(?:\.\d+)?(?:[-–]\d(?:[\d,]*\d)?(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?(?![\p{L}\p{N}])/gu;
+const wordToken = /[\p{L}][\p{L}\p{M}\d]*(?:[-'’][\p{L}\p{M}\d]+)*/gu;
+const months = new Set(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]);
+const numberWords = new Set(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million", "billion"]);
+const toolNames = new Set(["aws", "azure", "docker", "github", "kafka", "kubernetes", "linux", "postgres", "python", "salesforce", "sql", "tableau", "terraform"]);
+const titleFunctionWords = new Set(["of", "for", "the"]);
+const titleStopWords = new Set(["a", "an", "and", "as", "at", "by", "in", "into", "of", "on", "or", "the", "to", "with"]);
+const roleWords = new Set(["administrator", "analyst", "architect", "associate", "assistant", "consultant", "coordinator", "designer", "developer", "director", "engineer", "lead", "manager", "officer", "specialist"]);
+/** @param {string} token */
+const normalizedToken = (token) => token.toLocaleLowerCase().replace(/[’‘]/g, "'").replace(/[–‐‑]/g, "-").replace(/[.,;:!?]+$/g, "");
+/** @param {string} token */
+const numberWord = (token) => token.toLocaleLowerCase().split(/[-–]/).every((part) => numberWords.has(part));
+/** @param {unknown} value */
+function factTokens(value) {
+  const text = String(value || "");
+  const found = [...text.matchAll(numericToken)].map((match) => ({ token: match[0], index: match.index }));
+  const wordMatches = [...text.matchAll(wordToken)];
+  for (let i = 0; i < wordMatches.length; i += 1) {
+    const match = wordMatches[i];
+    const token = match[0];
+    const lower = normalizedToken(token);
+    if (numberWord(token)) {
+      let end = i;
+      while (end + 1 < wordMatches.length && numberWord(wordMatches[end + 1][0]) && /^\s+$/.test(text.slice(wordMatches[end].index + wordMatches[end][0].length, wordMatches[end + 1].index))) end += 1;
+      found.push({ token: text.slice(match.index, wordMatches[end].index + wordMatches[end][0].length), index: match.index });
+      i = end;
+      continue;
+    }
+    if (months.has(lower) && (lower !== "may" || token === "May") || toolNames.has(lower)) {
+      found.push({ token, index: match.index });
+      continue;
+    }
+    const sentenceStart = !text.slice(0, match.index).trim() || /[.!?]\s*$/.test(text.slice(0, match.index));
+    if (!sentenceStart && /^[\p{Lu}]/u.test(token)) found.push({ token, index: match.index });
+  }
+  return found.sort((a, b) => a.index - b.index).map(({ token }) => token);
+}
 /** @param {string} text */
-const normalizedPhrase = (text) => (text.toLocaleLowerCase().match(/[\p{L}\p{M}\d]+/gu) || []).join(" ");
-/** @param {string} text */
-const titlePhrases = (text) => text.match(/\b[A-Z][\p{L}\p{M}\d]*(?:\s+[A-Z][\p{L}\p{M}\d]*)+\b/gu) || [];
+const normalizedPhrase = (text) => (text.toLocaleLowerCase().match(/[\p{L}\p{M}\d]+/gu) || []).filter((word) => !titleFunctionWords.has(word)).join(" ");
+/** @param {string} text @param {Set<string>} titleWords */
+function titlePhrases(text, titleWords) {
+  const found = [];
+  const matches = [...text.matchAll(wordToken)];
+  for (let i = 0; i < matches.length - 1; i += 1) {
+    const left = matches[i];
+    let j = i + 1;
+    if (titleFunctionWords.has(matches[j][0].toLocaleLowerCase())) j += 1;
+    if (j >= matches.length) continue;
+    const right = matches[j];
+    if (!/^\s+$/.test(text.slice(left.index + left[0].length, matches[i + 1].index)) || !/^\s+$/.test(text.slice(matches[j - 1].index + matches[j - 1][0].length, right.index))) continue;
+    const first = normalizedToken(left[0]);
+    const second = normalizedToken(right[0]);
+    if (titleStopWords.has(first) || titleStopWords.has(second)) continue;
+    if (!roleWords.has(first) && !roleWords.has(second)) continue;
+    const prior = matches[i - 1]?.[0].toLocaleLowerCase();
+    const bothKnown = titleWords.has(first) && titleWords.has(second);
+    const titleCased = /^[\p{Lu}]/u.test(left[0]) && /^[\p{Lu}]/u.test(right[0]);
+    if (!bothKnown && !titleCased && prior !== "as" && prior !== "role" && prior !== "position") continue;
+    found.push(text.slice(left.index, right.index + right[0].length));
+  }
+  return found;
+}
 /** @param {string} name @param {unknown} value */
 const dataBlock = (name, value) => `<untrusted-data name="${name}">\n${JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")}\n</untrusted-data>`;
 
@@ -23,6 +78,7 @@ function trustedFacts(ledger, model, nodes) {
   const employers = Array.isArray(ledger?.employers) ? ledger.employers : [];
   const tools = Array.isArray(ledger?.toolInventory) ? ledger.toolInventory : [];
   const entries = (model.documents?.resume?.sections || []).flatMap((section) => section.entries || []);
+  const titles = [model.identity?.target, ...entries.map((entry) => Array.isArray(entry.seat) ? entry.seat.map((run) => run.t ?? run.n ?? run.hl ?? "").join("") : entry.seat), ...employers.map((/** @type {any} */ employer) => employer.title)].filter(Boolean).map(String);
   const sourceParts = [
     JSON.stringify(model.identity),
     ...nodes.map((node) => node.text),
@@ -31,9 +87,15 @@ function trustedFacts(ledger, model, nodes) {
     ...employers.flatMap((/** @type {any} */ employer) => [employer.name, employer.title, employer.start, employer.end, employer.location]),
     ...tools.map((/** @type {any} */ tool) => tool.tool),
   ].filter(Boolean).map(String);
+  const tokens = new Set(factTokens(sourceParts.join(" ")).map(normalizedToken));
+  for (const token of [...tokens]) {
+    const range = token.match(/^(\d[\d,.]*)-(\d[\d,.]*)(%|x|[kmb]\+?|\+)?$/);
+    if (range) { tokens.add(range[1]); tokens.add(range[2] + (range[3] || "")); }
+  }
   return {
-    tokens: new Set(factTokens(sourceParts.join(" ")).map((token) => token.toLocaleLowerCase())),
+    tokens,
     phrases: sourceParts.map(normalizedPhrase),
+    titleWords: new Set(titles.flatMap((title) => normalizedPhrase(title).split(" "))),
   };
 }
 
@@ -42,10 +104,10 @@ function trustedFacts(ledger, model, nodes) {
  */
 function unverifiedFacts(op, beforeText, trusted, ledger, writtenText) {
   if (op.op === "remove") return [];
-  const prior = new Set(factTokens(beforeText).map((token) => token.toLocaleLowerCase()));
-  const candidates = factTokens(writtenText).filter((token) => !prior.has(token.toLocaleLowerCase()) && !ordinaryWords.has(token.toLocaleLowerCase()));
-  const missing = candidates.filter((token) => !trusted.tokens.has(token.toLocaleLowerCase()));
-  for (const phrase of titlePhrases(writtenText)) {
+  const prior = new Set(factTokens(beforeText).map(normalizedToken));
+  const candidates = factTokens(writtenText).filter((token) => !prior.has(normalizedToken(token)));
+  const missing = candidates.filter((token) => !trusted.tokens.has(normalizedToken(token)));
+  for (const phrase of titlePhrases(writtenText, trusted.titleWords)) {
     const normalized = normalizedPhrase(phrase);
     if (!trusted.phrases.some((source) => (` ${source} `).includes(` ${normalized} `))) missing.push(phrase);
   }

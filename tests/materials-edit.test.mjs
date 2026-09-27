@@ -62,6 +62,55 @@ describe("materials edit proposal", () => {
     }
   });
 
+  it("flags title phrases regardless of case or function words", async () => {
+    for (const title of ["operations coordinator", "Operations coordinator", "Coordinator of Operations"]) {
+      const result = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text: `Tracked daily shipments as ${title} and resolved exceptions.` }] });
+      assert.ok(result.ops[0].facts?.includes(title), `${title}: ${JSON.stringify(result.ops[0])}`);
+    }
+    const trusted = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text: "Tracked daily shipments as Operations Analyst and resolved exceptions." }] });
+    assert.equal(trusted.summary.unverified, 0, JSON.stringify(trusted.ops[0]));
+    const titleLedger = { ...ledger, employers: [{ name: "Other Example", title: "Operations Coordinator" }] };
+    const ledgerTrusted = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text: "Tracked daily shipments as operations coordinator and resolved exceptions." }] }, { ledger: titleLedger });
+    assert.equal(ledgerTrusted.summary.unverified, 0, JSON.stringify(ledgerTrusted.ops[0]));
+  });
+
+  it("leaves ordinary paraphrase words and inflections unflagged", async () => {
+    for (const text of [
+      "Also tracked shipments quickly and resolved exceptions.",
+      "Tracked shipments that may be late; it's worth resolving quickly.",
+      "Tracking shipments and resolving exceptions also helped.",
+      "The analyst quickly tracked shipments.",
+    ]) {
+      const result = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text }] });
+      assert.equal(result.summary.unverified, 0, JSON.stringify(result.ops[0]));
+    }
+    for (const [text, fact] of [
+      ["Tracked daily shipments in march and resolved exceptions.", "march"],
+      ["Tracked daily shipments in May and resolved exceptions.", "May"],
+      ["Tracked forty-two daily shipments and resolved exceptions.", "forty-two"],
+      ["Tracked forty two daily shipments and resolved exceptions.", "forty two"],
+      ["Tracked daily shipments with kubernetes and resolved exceptions.", "kubernetes"],
+    ]) {
+      const result = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text }] });
+      assert.ok(result.ops[0].facts?.includes(fact), `${fact}: ${JSON.stringify(result.ops[0])}`);
+    }
+  });
+
+  it("normalizes numeric punctuation, ranges and curly apostrophes", async () => {
+    const trustedLedger = { ...ledger, claims: [...ledger.claims, { id: "c-names", text: "Used O'Reilly data and processed 1,200 records." }] };
+    for (const text of [
+      "Tracked shipments in 2021.",
+      "Tracked shipments in 2019-2021.",
+      "Tracked shipments and processed 1,200.",
+      "Tracked shipments for O’Reilly.",
+    ]) {
+      const result = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text }] }, { ledger: trustedLedger });
+      assert.equal(result.summary.unverified, 0, JSON.stringify(result.ops[0]));
+    }
+    const novel = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text: "Tracked shipments in 2025." }] });
+    assert.ok(novel.ops[0].facts?.includes("2025"), JSON.stringify(novel.ops[0]));
+  });
+
   it("checks the plain text that applyOps stores", async () => {
     const result = await propose({ ops: [{ opId: "o1", op: "replace", node: "line:beta", text: "Tracked 1**0% daily shipments and resolved exceptions." }] });
     assert.ok(result.ops[0].facts?.includes("10%"), JSON.stringify(result.ops[0]));
