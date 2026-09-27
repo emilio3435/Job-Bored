@@ -92,7 +92,7 @@ async function scoreListingWithLlm(
 ): Promise<LlmFitScoreResult>
 ```
 
-- Model: `gemini-flash` (family; resolved to the latest stable at call time).
+- Model: `gemini-flash` (family preference; calls use Google's moving `gemini-flash-latest` alias, which may follow a stable, preview, or experimental release).
 - Mode: structured output, JSON Schema = `LlmFitScoreResult` (see TS file).
 - System prompt embeds `profile.identity.primaryNarrative`, then enumerates strengths (rank-ordered, with evidence + keywords if present), wants, avoids, and tieBreakers.
 - User prompt is the listing: title, company, location, compensationText, descriptionText (truncated to 6k chars).

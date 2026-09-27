@@ -15,6 +15,16 @@
   }
 
   const COMMAND_CENTER_CONFIG_OVERRIDE_KEY = "command_center_config_overrides";
+  const GEMINI_FLASH_FAMILY = "gemini-flash";
+
+  function normalizeGeminiFlashPreference(model) {
+    const id = String(model || "").trim();
+    const bare = id.replace(/^models\//i, "").toLowerCase();
+    return !id || bare === GEMINI_FLASH_FAMILY ||
+      bare === "gemini-flash-latest" || bare === "gemini-3.7-flash"
+      ? GEMINI_FLASH_FAMILY
+      : id;
+  }
   const DISCOVERY_TRANSPORT_SETUP_KEY =
     "command_center_discovery_transport_setup";
   const DISCOVERY_LOCAL_BOOTSTRAP_STATE_PATH = "discovery-local-bootstrap.json";
@@ -93,7 +103,20 @@
       const raw = localStorage.getItem(COMMAND_CENTER_CONFIG_OVERRIDE_KEY);
       if (!raw) return {};
       const parsed = JSON.parse(raw);
-      return parsed && typeof parsed === "object" ? parsed : {};
+      if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+      if (Object.prototype.hasOwnProperty.call(parsed, "resumeGeminiModel")) {
+        const normalized = normalizeGeminiFlashPreference(parsed.resumeGeminiModel);
+        if (normalized !== parsed.resumeGeminiModel) {
+          parsed.resumeGeminiModel = normalized;
+          // A full or blocked store must not erase a successful read in memory.
+          try {
+            localStorage.setItem(COMMAND_CENTER_CONFIG_OVERRIDE_KEY, JSON.stringify(parsed));
+          } catch (writeError) {
+            console.warn("[JobBored] Gemini model migration write:", writeError);
+          }
+        }
+      }
+      return parsed;
     } catch (e) {
       console.warn("[JobBored] Stored config overrides:", e);
       return {};
@@ -111,13 +134,18 @@
     const src = overrides && typeof overrides === "object" ? overrides : {};
     for (const k of COMMAND_CENTER_OVERRIDE_KEYS) {
       if (Object.prototype.hasOwnProperty.call(src, k) && src[k] != null) {
-        base[k] = src[k];
+        base[k] = k === "resumeGeminiModel"
+          ? normalizeGeminiFlashPreference(src[k])
+          : src[k];
       }
     }
   }
 
   function writeStoredConfigOverrides(overrides) {
-    const next = overrides && typeof overrides === "object" ? overrides : {};
+    const next = overrides && typeof overrides === "object" ? { ...overrides } : {};
+    if (Object.prototype.hasOwnProperty.call(next, "resumeGeminiModel")) {
+      next.resumeGeminiModel = normalizeGeminiFlashPreference(next.resumeGeminiModel);
+    }
     localStorage.setItem(
       COMMAND_CENTER_CONFIG_OVERRIDE_KEY,
       JSON.stringify(next),

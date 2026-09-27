@@ -73,7 +73,7 @@ window.COMMAND_CENTER_CONFIG = {
   //
   // For "Draft cover letter" and "Tailor resume" on job cards you must configure ONE of:
   // - Gemini (recommended default): resumeProvider "gemini" + resumeGeminiApiKey from https://aistudio.google.com/app/apikey
-  //   Model alias "gemini-flash" resolves at call time to the newest stable Flash.
+  //   "gemini-flash" uses Google's moving "gemini-flash-latest" alias, which may follow a stable, preview, or experimental release.
   // - OpenRouter (free tier): resumeProvider "openrouter" + a FREE resumeOpenRouterApiKey
   //   from https://openrouter.ai/keys — no paid plan needed. CORS-friendly from the browser.
   // - Local: resumeProvider "local" + resumeLocalBaseUrl (e.g. Ollama on http://127.0.0.1:11434/v1)

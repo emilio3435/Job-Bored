@@ -57,7 +57,7 @@
   const GEMINI_FLASH_OPTION = {
     value: "gemini-flash",
     label: "Gemini Flash (latest)",
-    description: "Newest stable Flash. Resolves at call time.",
+    description: "Google's moving Flash alias; may use a stable, preview, or experimental release.",
   };
 
   const WEAK_EXACT = new Set([

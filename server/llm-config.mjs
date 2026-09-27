@@ -1,4 +1,4 @@
-import { createHash, randomBytes } from "node:crypto";
+import { randomBytes } from "node:crypto";
 import {
   existsSync,
   mkdirSync,
@@ -10,17 +10,11 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
-  GEMINI_API_BASE,
-  geminiHeaders,
   isHttpUrl,
   normalizeProvider,
   providerAlias,
 } from "./ai/provider.mjs";
-import {
-  GEMINI_FLASH_FALLBACK,
-  isGeminiFlashFamily,
-  pickStableGeminiFlash,
-} from "./model-family.mjs";
+import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlashWireModel } from "./model-family.mjs";
 
 /**
  * @typedef {object} LlmConfig
@@ -116,7 +110,7 @@ function normalizeLlmConfig(config) {
   /** @type {LlmConfig} */
   const out = {
     provider: canonical || parsed.provider,
-    model: parsed.model,
+    model: canonical === "gemini" ? normalizeGeminiFlashPreference(parsed.model) : parsed.model,
     apiKey: parsed.apiKey,
     baseUrl: parsed.baseUrl,
     updatedAt: new Date().toISOString(),
@@ -159,7 +153,14 @@ export function loadLlmConfig(env) {
   const path = llmConfigPath(env);
   try {
     const raw = readFileSync(path, "utf8");
-    return asLlmConfig(JSON.parse(raw));
+    const config = asLlmConfig(JSON.parse(raw));
+    if (!config) return null;
+    // Exact 3.7 was the old generated Flash default. Preserve other pins.
+    const bare = config.model.replace(/^models\//i, "").toLowerCase();
+    if (normalizeProvider(config.provider) !== "gemini" || bare !== "gemini-3.7-flash") {
+      return config;
+    }
+    return { ...config, model: GEMINI_FLASH_FAMILY };
   } catch {
     return null;
   }
@@ -263,95 +264,18 @@ export function redactLlmConfig(config) {
 }
 
 /**
- * @param {unknown} value
- * @returns {value is Record<string, unknown>}
- */
-function isPlainObject(value) {
-  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
-}
-
-/**
  * @param {LlmConfig} config
- * @param {unknown} fetchImpl
- * @returns {Promise<string[]>}
- */
-async function defaultListGeminiModels(config, fetchImpl) {
-  const doFetch = typeof fetchImpl === "function" ? fetchImpl : globalThis.fetch;
-  if (typeof doFetch !== "function") return [];
-  const apiKey = asString(config && config.apiKey);
-  // The key rides in a header, never the URL (E14, B17).
-  const resp = await doFetch(`${GEMINI_API_BASE}/models`, {
-    method: "GET",
-    headers: geminiHeaders(apiKey),
-    signal: AbortSignal.timeout(10_000),
-  });
-  const data =
-    resp && typeof resp.json === "function"
-      ? await resp.json().catch(() => ({}))
-      : {};
-  const list = isPlainObject(data) && Array.isArray(data.models) ? data.models : [];
-  /** @type {string[]} */
-  const ids = [];
-  for (const entry of list) {
-    const name = isPlainObject(entry) ? asString(entry.name).replace(/^models\//, "") : "";
-    if (name) ids.push(name);
-  }
-  return ids;
-}
-
-const RESOLVED_FLASH_TTL_MS = 60 * 60 * 1000;
-/** @type {Map<string, { model: string, at: number }>} */
-const resolvedFlashCache = new Map();
-
-/** Test hook: forget every cached `gemini-flash` resolution. */
-export function clearResolvedFlashCache() {
-  resolvedFlashCache.clear();
-}
-
-/** @param {string} apiKey */
-function flashCacheKey(apiKey) {
-  return createHash("sha256").update(apiKey).digest("hex");
-}
-
-/**
- * @param {LlmConfig} config
- * @param {{ fetchImpl?: unknown, listGeminiModels?: () => Promise<unknown> }} [options]
  * @returns {Promise<ActivePin>}
  */
-export async function resolveActivePin(config, options) {
-  let resolvedModel = asString(config && config.model);
-  if (isGeminiFlashFamily(resolvedModel)) {
-    const provider = normalizeProvider(config && config.provider);
-    const injected = options && typeof options.listGeminiModels === "function";
-    const listGeminiModels = injected
-      ? /** @type {() => Promise<unknown>} */ (options && options.listGeminiModels)
-      : provider === "gemini"
-        ? () => defaultListGeminiModels(config, options && options.fetchImpl)
-        : null;
-    // E18: one models.list per key per hour, not one per ATS call.
-    const cacheKey = !injected && listGeminiModels ? flashCacheKey(asString(config && config.apiKey)) : "";
-    const cached = cacheKey ? resolvedFlashCache.get(cacheKey) : undefined;
-    if (cached && Date.now() - cached.at < RESOLVED_FLASH_TTL_MS) {
-      resolvedModel = cached.model;
-    } else {
-      /** @type {unknown} */
-      let ids = [];
-      try {
-        ids = listGeminiModels ? await listGeminiModels() : [];
-      } catch {
-        ids = [];
-      }
-      const picked = pickStableGeminiFlash(ids);
-      resolvedModel = picked || GEMINI_FLASH_FALLBACK;
-      if (cacheKey && picked) resolvedFlashCache.set(cacheKey, { model: picked, at: Date.now() });
-    }
-  }
+export async function resolveActivePin(config) {
+  const provider = normalizeProvider(config && config.provider) || asString(config && config.provider);
+  const model = asString(config && config.model);
   return {
-    provider: normalizeProvider(config && config.provider) || asString(config && config.provider),
-    model: asString(config && config.model),
+    provider,
+    model,
     apiKey: asString(config && config.apiKey),
     baseUrl: asString(config && config.baseUrl),
-    resolvedModel,
+    resolvedModel: provider === "gemini" ? resolveGeminiFlashWireModel(model) : model,
   };
 }
 

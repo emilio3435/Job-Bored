@@ -5,6 +5,8 @@ import type { WorkerRuntimeConfig } from "../config.ts";
 import { chat as sharedChat, MAX_PROVIDER_TIMEOUT_MS, normalizeProvider } from "../../../../server/ai/provider.mjs";
 // @ts-expect-error JS provider module has JSDoc, no sibling .d.mts (server typecheck covers it)
 export { chat, normalizeProvider, PROVIDERS, ProviderApiError, providerHttpError, providerRequestError, resolveProvider } from "../../../../server/ai/provider.mjs";
+// @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
+import { resolveGeminiFlashWireModel } from "../../../../server/model-family.mjs";
 
 export type WorkerChatProviderName =
   | "gemini"
@@ -179,7 +181,7 @@ function buildProvider(
       "geminiApiKey",
     ]);
     if (!apiKey) return null;
-    const model =
+    const model = resolveGeminiFlashWireModel(
       readRuntimeConfigString(runtimeConfig, [
         ...(options.modelKeys || []),
         "llmModel",
@@ -187,7 +189,8 @@ function buildProvider(
         "companyJudgeGeminiModel",
         "companyScoringGeminiModel",
         "geminiModel",
-      ]) || "gemini-3.7-flash";
+      ]),
+    );
     return {
       provider,
       model,

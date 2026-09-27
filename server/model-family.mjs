@@ -1,5 +1,26 @@
 export const GEMINI_FLASH_FAMILY = "gemini-flash";
-export const GEMINI_FLASH_FALLBACK = "gemini-3.7-flash";
+export const GEMINI_FLASH_FALLBACK = "gemini-flash-latest";
+
+/**
+ * The old browser automatically saved 3.7 when the user chose the Flash
+ * family. There is no provenance for that exact id, so migrate it as the
+ * generated default; other explicit versions and families stay pinned.
+ * @param {unknown} model
+ */
+export function normalizeGeminiFlashPreference(model) {
+  const id = String(model || "").trim();
+  const bare = id.replace(/^models\//i, "").toLowerCase();
+  return !id || bare === GEMINI_FLASH_FAMILY ||
+    bare === GEMINI_FLASH_FALLBACK || bare === "gemini-3.7-flash"
+    ? GEMINI_FLASH_FAMILY
+    : id;
+}
+
+/** @param {unknown} model */
+export function resolveGeminiFlashWireModel(model) {
+  const preference = normalizeGeminiFlashPreference(model);
+  return preference === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_FALLBACK : preference;
+}
 
 const WEAK_EXACT = new Set([
   "openai/gpt-oss-120b:free",

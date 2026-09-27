@@ -24,10 +24,10 @@ test("llm.json wins over BROWSER_USE_DISCOVERY_GEMINI_MODEL", async () => {
       BROWSER_USE_DISCOVERY_GEMINI_MODEL: "gemini-3.5-flash",
       BROWSER_USE_DISCOVERY_GEMINI_API_KEY: "env-key",
     });
-    assert.equal(cfg.geminiModel, "gemini-3.7-flash");
+    assert.equal(cfg.geminiModel, "gemini-flash-latest");
     assert.equal(cfg.geminiApiKey, "pin-key");
     assert.equal(cfg.llmProvider, "gemini");
-    assert.equal(cfg.llmModel, "gemini-3.7-flash");
+    assert.equal(cfg.llmModel, "gemini-flash-latest");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -86,10 +86,30 @@ test("gemini-flash pin resolves to GEMINI_FLASH_FALLBACK without a live list", a
       BROWSER_USE_DISCOVERY_GEMINI_MODEL: "gemini-3.5-flash",
       BROWSER_USE_DISCOVERY_GEMINI_API_KEY: "env-key",
     });
-    assert.equal(cfg.geminiModel, "gemini-3.7-flash");
-    assert.equal(cfg.llmModel, "gemini-3.7-flash");
+    assert.equal(cfg.geminiModel, "gemini-flash-latest");
+    assert.equal(cfg.llmModel, "gemini-flash-latest");
     assert.equal(cfg.geminiApiKey, "pin-key");
     assert.equal(cfg.llmApiKey, "pin-key");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("explicit Gemini versions and families in llm.json remain pinned", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "jb-disc-pin-"));
+  const path = join(dir, "llm.json");
+  try {
+    for (const model of [
+      "gemini-2.5-pro",
+      "gemini-flash-lite",
+      "gemini-3.5-flash",
+      "gemini-3.7-flash-preview",
+    ]) {
+      await writeFile(path, JSON.stringify({ provider: "gemini", model, apiKey: "pin-key" }));
+      const cfg = loadRuntimeConfig({ JOBBORED_LLM_CONFIG_PATH: path });
+      assert.equal(cfg.geminiModel, model);
+      assert.equal(cfg.llmModel, model);
+    }
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

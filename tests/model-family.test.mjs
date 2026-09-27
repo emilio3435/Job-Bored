@@ -5,6 +5,8 @@ import {
   isGeminiFlashFamily,
   isWeakMaterialsModel,
   GEMINI_FLASH_FALLBACK,
+  normalizeGeminiFlashPreference,
+  resolveGeminiFlashWireModel,
 } from "../server/model-family.mjs";
 
 describe("pickStableGeminiFlash", () => {
@@ -24,7 +26,23 @@ describe("pickStableGeminiFlash", () => {
 
   it("returns null on an empty list so callers can use GEMINI_FLASH_FALLBACK", () => {
     assert.equal(pickStableGeminiFlash([]), null);
-    assert.equal(GEMINI_FLASH_FALLBACK, "gemini-3.7-flash");
+    assert.equal(GEMINI_FLASH_FALLBACK, "gemini-flash-latest");
+  });
+});
+
+describe("Gemini Flash family boundary", () => {
+  it("stores the logical family and resolves it to the moving provider alias", () => {
+    for (const input of ["", "gemini-flash", " GEMINI-FLASH ", "gemini-flash-latest", "models/gemini-3.7-flash", " GEMINI-3.7-FLASH "]) {
+      assert.equal(normalizeGeminiFlashPreference(input), "gemini-flash");
+      assert.equal(resolveGeminiFlashWireModel(input), "gemini-flash-latest");
+    }
+  });
+
+  it("preserves other explicit versions and families", () => {
+    for (const id of ["gemini-3.5-flash", "gemini-3.8-flash", "gemini-3.7-flash-preview", "gemini-flash-lite", "gemini-2.5-pro"]) {
+      assert.equal(normalizeGeminiFlashPreference(id), id);
+      assert.equal(resolveGeminiFlashWireModel(id), id);
+    }
   });
 });
 

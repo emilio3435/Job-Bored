@@ -12,7 +12,6 @@ import {
   loadLlmConfig,
   resolveActivePin,
   writeLlmConfig,
-  clearResolvedFlashCache,
 } from "../server/llm-config.mjs";
 
 function mockRes() {
@@ -65,7 +64,7 @@ describe("POST /api/llm-config", () => {
     assert.equal(res.statusCode, 200);
     assert.equal(res.body.keyPresent, true);
     assert.equal(loadLlmConfig(env).apiKey, "stored-secret");
-    assert.equal(loadLlmConfig(env).model, "gemini-3.7-flash");
+    assert.equal(loadLlmConfig(env).model, "gemini-flash");
   });
 
   it("E12 clears the key when Settings sends an emptied apiKey field", async () => {
@@ -135,9 +134,7 @@ describe("E14 llm.json is written atomically at 0600", () => {
 });
 
 describe("E14/E18 Gemini flash resolution", () => {
-  beforeEach(() => clearResolvedFlashCache());
-
-  it("lists models with the key in a header and caches the resolved id per process", async () => {
+  it("uses a provider alias without storing or caching a concrete id", async () => {
     const calls = [];
     const fetchImpl = async (url, init = {}) => {
       calls.push({ url: String(url), init });
@@ -149,10 +146,10 @@ describe("E14/E18 Gemini flash resolution", () => {
     const pin = { provider: "gemini", model: "gemini-flash", apiKey: "k1", baseUrl: "", updatedAt: "" };
     const a = await resolveActivePin(pin, { fetchImpl });
     const b = await resolveActivePin(pin, { fetchImpl });
-    assert.equal(a.resolvedModel, "gemini-3.9-flash");
-    assert.equal(b.resolvedModel, "gemini-3.9-flash");
-    assert.equal(calls.length, 1, "second resolve must hit the cache");
-    assert.doesNotMatch(calls[0].url, /key=/);
-    assert.equal(calls[0].init.headers["x-goog-api-key"], "k1");
+    assert.equal(a.resolvedModel, "gemini-flash-latest");
+    assert.equal(b.resolvedModel, "gemini-flash-latest");
+    assert.equal(a.model, "gemini-flash");
+    assert.equal(b.model, "gemini-flash");
+    assert.equal(calls.length, 0);
   });
 });

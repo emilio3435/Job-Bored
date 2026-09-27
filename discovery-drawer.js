@@ -1429,9 +1429,20 @@ function parseJsonSafeForSuggestions(raw) {
  * default. Every Gemini call site must route through here — do not embed
  * model name strings or "gemini-…" fallbacks elsewhere in app.js.
  */
+function normalizeDiscoveryGeminiModel(model) {
+  const normalize = typeof window !== "undefined" && window.JobBoredNormalizeGeminiFlashPreference;
+  if (typeof normalize === "function") return normalize(model);
+  const id = String(model || "").trim();
+  const bare = id.replace(/^models\//i, "").toLowerCase();
+  return !id || bare === "gemini-flash" ||
+    bare === "gemini-flash-latest" || bare === "gemini-3.7-flash"
+    ? "gemini-flash"
+    : id;
+}
+
 function resolveGeminiModel(explicit) {
   if (explicit && typeof explicit === "string" && explicit.trim()) {
-    return explicit.trim();
+    return normalizeDiscoveryGeminiModel(explicit);
   }
   try {
     const overrides =
@@ -1439,28 +1450,28 @@ function resolveGeminiModel(explicit) {
         ? readStoredConfigOverrides()
         : {};
     if (overrides && typeof overrides.resumeGeminiModel === "string" && overrides.resumeGeminiModel.trim()) {
-      return overrides.resumeGeminiModel.trim();
+      return normalizeDiscoveryGeminiModel(overrides.resumeGeminiModel);
     }
   } catch (_) {
     /* localStorage may be unavailable in private/embedded contexts. */
   }
   const cfg = (typeof window !== "undefined" && window.COMMAND_CENTER_CONFIG) || {};
   if (typeof cfg.resumeGeminiModel === "string" && cfg.resumeGeminiModel.trim()) {
-    return cfg.resumeGeminiModel.trim();
+    return normalizeDiscoveryGeminiModel(cfg.resumeGeminiModel);
   }
   return "gemini-flash";
 }
 
 async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   const resolvedModel = resolveGeminiModel(model);
-  // Resolve the "gemini-flash" family alias to a concrete id before the
+  // Resolve the "gemini-flash" family preference to Google's moving alias before the
   // wire call (Google 404s the literal alias). Shared with
   // resume-generate.js; passthrough when it hasn't loaded.
   const wireModel =
     typeof window !== "undefined" &&
     typeof window.JobBoredResolveGeminiFlashAlias === "function"
       ? window.JobBoredResolveGeminiFlashAlias(resolvedModel)
-      : resolvedModel;
+      : resolvedModel === "gemini-flash" ? "gemini-flash-latest" : resolvedModel;
   // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(wireModel)}:generateContent`;
   // Detect thinking models (gemini-flash family alias and 2.5+/3.x snapshots).
@@ -1472,7 +1483,7 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
   // prose responses that have to be regex-extracted later.
   const wantJson = !!(opts && opts.json);
   const isThinkingModel =
-    wireModel === "gemini-flash" ||
+    wireModel === "gemini-flash-latest" ||
     /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(wireModel);
   const generationConfig = {
     maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,

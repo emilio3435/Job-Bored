@@ -49,13 +49,13 @@ describe("ATS respects llm.json over ATS_GEMINI_MODEL", () => {
     assert.equal(status.configured, true);
     assert.equal(status.provider, "gemini");
     assert.notEqual(status.model, "gemini-2.5-flash");
-    assert.equal(status.model, "gemini-3.7-flash");
+    assert.equal(status.model, "gemini-flash");
   });
 
   it("profile extract reads the pin, not ATS_GEMINI_MODEL", () => {
     const profile = getProfileProviderConfig();
     assert.equal(profile.provider, "gemini");
-    assert.equal(profile.model, "gemini-3.7-flash");
+    assert.equal(profile.model, "gemini-flash");
     assert.equal(profile.apiKey, "pin-key");
   });
 });
@@ -210,7 +210,7 @@ const VALID_SCORECARD = {
     },
   ],
   confidence: 0.86,
-  model: "gemini-3.7-flash",
+  model: "gemini-flash-latest",
 };
 
 describe("analyze-time pin resolution uses resolvedModel and pin key", () => {
@@ -240,7 +240,7 @@ describe("analyze-time pin resolution uses resolvedModel and pin key", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("ATS Gemini HTTP uses gemini-3.7-flash and pin-key, not the env snapshot", async () => {
+  it("ATS Gemini HTTP uses gemini-flash-latest and pin-key, not the env snapshot", async () => {
     const originalFetch = globalThis.fetch;
     let call;
     globalThis.fetch = async (url, init) => {
@@ -258,7 +258,7 @@ describe("analyze-time pin resolution uses resolvedModel and pin key", () => {
           "This cover letter contains more than twenty characters so ATS validation can run.",
         job: { title: "Frontend Engineer", company: "Example Co" },
       });
-      assert.match(call.url, /models\/gemini-3\.7-flash:generateContent/);
+      assert.match(call.url, /models\/gemini-flash-latest:generateContent/);
       // BEAUDIT B17/E14: the key rides in x-goog-api-key, never the URL.
       assert.doesNotMatch(call.url, /[?&]key=/);
       assert.equal(call.init.headers["x-goog-api-key"], "pin-key");
@@ -269,7 +269,7 @@ describe("analyze-time pin resolution uses resolvedModel and pin key", () => {
     }
   });
 
-  it("profile extract Gemini HTTP uses gemini-3.7-flash and pin-key", async () => {
+  it("profile extract Gemini HTTP uses gemini-flash-latest and pin-key", async () => {
     const originalFetch = globalThis.fetch;
     let call;
     globalThis.fetch = async (url, init) => {
@@ -291,7 +291,7 @@ describe("analyze-time pin resolution uses resolvedModel and pin key", () => {
       await analyzeResumeToProfile(
         "Frontend engineer with eight years of React and TypeScript product work.",
       );
-      assert.match(call.url, /models\/gemini-3\.7-flash:generateContent/);
+      assert.match(call.url, /models\/gemini-flash-latest:generateContent/);
       // BEAUDIT B17: the key moved from the ?key= URL to the x-goog-api-key header.
       assert.doesNotMatch(call.url, /[?&]key=/);
       assert.equal(new Headers(call.init.headers).get("x-goog-api-key"), "pin-key");

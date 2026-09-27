@@ -9,15 +9,12 @@ import {
   migrateLlmConfigFromEnv,
   redactLlmConfig,
   resolveActivePin,
-  clearResolvedFlashCache,
 } from "../server/llm-config.mjs";
 
 let dir;
 let env;
 
 beforeEach(async () => {
-  // resolveActivePin caches the gemini-flash resolution per key (BEAUDIT E18).
-  clearResolvedFlashCache();
   dir = await mkdtemp(join(tmpdir(), "jb-llm-"));
   env = { JOBBORED_LLM_CONFIG_PATH: join(dir, "llm.json") };
 });
@@ -81,32 +78,35 @@ describe("llm.json", () => {
 });
 
 describe("resolveActivePin", () => {
-  it("resolves gemini-flash via injected list", async () => {
+  it("resolves the stored family to the provider alias without a catalog request", async () => {
+    let catalogCalls = 0;
     const pin = await resolveActivePin(
       { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
-      { listGeminiModels: async () => ["gemini-3.5-flash", "gemini-3.7-flash", "gemini-3.7-flash-preview"] },
+      { listGeminiModels: async () => { catalogCalls += 1; return ["gemini-3.8-flash"]; } },
     );
-    assert.equal(pin.resolvedModel, "gemini-3.7-flash");
+    assert.equal(pin.resolvedModel, "gemini-flash-latest");
     assert.equal(pin.model, "gemini-flash");
+    assert.equal(catalogCalls, 0);
   });
 
-  it("falls back to gemini-3.7-flash when the list is empty", async () => {
+  it("uses the moving alias when the catalog is empty", async () => {
     const pin = await resolveActivePin(
       { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
       { listGeminiModels: async () => [] },
     );
-    assert.equal(pin.resolvedModel, "gemini-3.7-flash");
+    assert.equal(pin.resolvedModel, "gemini-flash-latest");
   });
 
-  it("keeps an exact snapshot id", async () => {
+  it("maps the old app-generated snapshot without changing the pin's stored id", async () => {
     const pin = await resolveActivePin(
       { provider: "gemini", model: "gemini-3.7-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
       { listGeminiModels: async () => ["gemini-3.8-flash"] },
     );
-    assert.equal(pin.resolvedModel, "gemini-3.7-flash");
+    assert.equal(pin.resolvedModel, "gemini-flash-latest");
+    assert.equal(pin.model, "gemini-3.7-flash");
   });
 
-  it("lists Gemini models via fetchImpl when listGeminiModels is omitted", async () => {
+  it("ignores stale model-list responses and never sends a catalog request", async () => {
     const calls = [];
     const pin = await resolveActivePin(
       { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
@@ -126,14 +126,11 @@ describe("resolveActivePin", () => {
         },
       },
     );
-    assert.equal(pin.resolvedModel, "gemini-3.8-flash");
-    assert.equal(calls.length, 1);
-    // BEAUDIT E14/B17: the key travels in x-goog-api-key, never the URL.
-    assert.equal(calls[0].url, "https://generativelanguage.googleapis.com/v1beta/models");
-    assert.equal(calls[0].init.headers["x-goog-api-key"], "k");
+    assert.equal(pin.resolvedModel, "gemini-flash-latest");
+    assert.equal(calls.length, 0);
   });
 
-  it("falls back when the default Gemini list throws", async () => {
+  it("does not depend on catalog availability", async () => {
     const pin = await resolveActivePin(
       { provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
       {
@@ -142,6 +139,14 @@ describe("resolveActivePin", () => {
         },
       },
     );
-    assert.equal(pin.resolvedModel, "gemini-3.7-flash");
+    assert.equal(pin.resolvedModel, "gemini-flash-latest");
+  });
+
+  it("preserves an explicit nonlegacy model", async () => {
+    const pin = await resolveActivePin(
+      { provider: "gemini", model: "gemini-3.5-flash", apiKey: "k", baseUrl: "", updatedAt: "" },
+    );
+    assert.equal(pin.model, "gemini-3.5-flash");
+    assert.equal(pin.resolvedModel, "gemini-3.5-flash");
   });
 });

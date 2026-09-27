@@ -2070,8 +2070,7 @@ test("VAL-ROUTE-016: one-company failure does not abort other companies", async 
 test("VAL-ROUTE-016: company failure emits explicit company-attributed failure evidence", async () => {
   // Company failures should emit structured diagnostic context that names
   // the failed company, providing company-scoped failure attribution.
-  let failedWithAttribution = false;
-  let attributionContext = "";
+  const companyFailureContexts: string[] = [];
 
   const dependencies = {
     runtimeConfig: {
@@ -2189,23 +2188,46 @@ test("VAL-ROUTE-016: company failure emits explicit company-attributed failure e
     }),
     log: (event: string, details: Record<string, unknown>) => {
       if (event === "discovery.run.company_failed") {
-        failedWithAttribution = true;
-        attributionContext = JSON.stringify(details);
+        companyFailureContexts.push(JSON.stringify(details));
       }
     },
     now: () => new Date("2026-04-10T03:00:00.000Z"),
     randomId: () => "run_attribution_test",
   };
 
-  const result = await runDiscovery(makeRequest(), "manual", dependencies);
+  // GoodCompany reaches strict URL preflight. Keep that path deterministic so
+  // an unrelated network timeout cannot emit a later company_failed event.
+  const originalFetch = globalThis.fetch;
+  const preflightUrls: string[] = [];
+  globalThis.fetch = (async (input: string | URL | Request) => {
+    preflightUrls.push(String(input));
+    return new Response(
+      "<html><head><title>Software Engineer</title></head><body><h1>Software Engineer</h1><p>GoodCompany. Remote. Build software. Apply now.</p></body></html>",
+      {
+        status: 200,
+        headers: { "content-type": "text/html; charset=utf-8" },
+      },
+    );
+  }) as typeof fetch;
+  let result;
+  try {
+    result = await runDiscovery(makeRequest(), "manual", dependencies);
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+
+  assert.ok(
+    preflightUrls.some((url) => url.toLowerCase().includes("goodcompany.com/careers")),
+    `GoodCompany should exercise strict URL preflight through the synthetic response: ${preflightUrls.join(", ")}`,
+  );
 
   // Company failure should be logged with attribution
   assert.ok(
-    failedWithAttribution,
+    companyFailureContexts.length > 0,
     "Company failure should be logged with attribution",
   );
   assert.ok(
-    attributionContext.includes("FailingCompany"),
+    companyFailureContexts.some((context) => context.includes("FailingCompany")),
     "Failure attribution should name the failed company",
   );
 
