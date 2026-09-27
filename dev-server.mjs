@@ -45,6 +45,7 @@ import {
 } from "./scripts/bootstrap-local-discovery.mjs";
 import {
   authorizeLocalControlRequest,
+  bindTailnetStatusResolver,
   buildLocalControlCorsHeaders,
   isLoopbackPeer,
   localControlPreflightHeaders,
@@ -253,6 +254,14 @@ function isProfileApiPath(pathname) {
  */
 function isSameOriginProfileRequest(req) {
   if (isLocalOrigin(req)) return true;
+  // The legacy no-Origin profile fallback predates Serve. It must not let a
+  // second tailnet user bypass the owner check with Sec-Fetch-Site alone.
+  const host = String(req?.headers?.host || "")
+    .toLowerCase()
+    .replace(/:\d+$/, "");
+  if (host.endsWith(".ts.net")) {
+    return false;
+  }
   if (!isLoopbackPeer(req && req.socket ? req.socket.remoteAddress : "")) {
     return false;
   }
@@ -908,12 +917,13 @@ function isLocalOrigin(req) {
   return authorizeLocalControlRequest(req).ok;
 }
 
-function denyNonLocalControl(res) {
+function denyNonLocalControl(res, reason = "forbidden") {
   res.writeHead(403, {
     "content-type": "application/json",
+    "cache-control": "no-store",
     vary: "Origin",
   });
-  res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+  res.end(JSON.stringify({ ok: false, reason }));
 }
 
 function resolveDashboardOrigin(req, currentPort) {
@@ -1923,13 +1933,18 @@ function isPagesPingOrigin(req, pagesOrigin) {
   return !!origin && origin === pagesOrigin;
 }
 
-function isPingAllowedOrigin(req, pagesOrigin) {
-  return isLocalOrigin(req) || isPagesPingOrigin(req, pagesOrigin);
+function pingAuthorization(req, pagesOrigin) {
+  const local = authorizeLocalControlRequest(req);
+  if (local.ok || isPagesPingOrigin(req, pagesOrigin)) {
+    return { ok: true, tailnetOwner: local.tailnetOwner === true };
+  }
+  return local;
 }
 
 function pingCorsHeaders(req, pagesOrigin, extra = {}) {
-  if (isLocalOrigin(req)) return buildLocalControlCorsHeaders(req, extra);
-  const headers = { vary: "Origin", ...extra };
+  const headers = { "cache-control": "no-store", ...extra };
+  if (isLocalOrigin(req)) return buildLocalControlCorsHeaders(req, headers);
+  headers.vary = "Origin";
   if (isPagesPingOrigin(req, pagesOrigin)) {
     headers["access-control-allow-origin"] = pagesOrigin;
   }
@@ -1953,8 +1968,14 @@ function pingPreflightHeaders(req, pagesOrigin) {
 }
 
 function handlePing(req, res, pagesOrigin, pingBody) {
-  if (!isPingAllowedOrigin(req, pagesOrigin)) {
-    denyNonLocalControl(res);
+  const auth = pingAuthorization(req, pagesOrigin);
+  if (!auth.ok) {
+    denyNonLocalControl(
+      res,
+      auth.reason === "tailscale_unavailable" || auth.reason === "tailnet_owner_required"
+        ? auth.reason
+        : "forbidden",
+    );
     return;
   }
   if (req.method !== "GET") {
@@ -1969,7 +1990,7 @@ function handlePing(req, res, pagesOrigin, pingBody) {
     200,
     pingCorsHeaders(req, pagesOrigin, { "content-type": "application/json" }),
   );
-  res.end(JSON.stringify(pingBody));
+  res.end(JSON.stringify(auth.tailnetOwner ? { ...pingBody, tailnetOwner: true } : pingBody));
 }
 
 /**
@@ -2913,6 +2934,7 @@ function createRequestHandler({
   logger,
   discoveryWorkerStarter,
   dashboardConfigPath,
+  tailnetStatusResolver,
 }) {
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
@@ -2927,6 +2949,7 @@ function createRequestHandler({
   const pagesOrigin = pagesHostedOriginFromCnameText(readPagesCnameFile());
   const pingBody = buildPingBody();
   return (req, res) => {
+    bindTailnetStatusResolver(req, tailnetStatusResolver);
     // BEAUDIT E1/G2/G3: one Host gate for every route. A DNS-rebound page
     // connects to loopback with its own name in Host; it gets nothing here,
     // not the /profile proxy, not /__proxy/*, not a static file.
@@ -2969,8 +2992,14 @@ function createRequestHandler({
     // knows local origins — the Host gate above already ran.
     if (pathname === "/__proxy/ping") {
       if (req.method === "OPTIONS") {
-        if (!isPingAllowedOrigin(req, pagesOrigin)) {
-          denyNonLocalControl(res);
+        const auth = pingAuthorization(req, pagesOrigin);
+        if (!auth.ok) {
+          denyNonLocalControl(
+            res,
+            auth.reason === "tailscale_unavailable" || auth.reason === "tailnet_owner_required"
+              ? auth.reason
+              : "forbidden",
+          );
           return;
         }
         res.writeHead(204, pingPreflightHeaders(req, pagesOrigin));
@@ -3302,6 +3331,7 @@ export function createDevServer({
   tls = false,
   discoveryWorkerStarter,
   dashboardConfigPath,
+  tailnetStatusResolver,
 } = {}) {
   const currentPort = normalizePort(port);
   const useTls = normalizeBooleanFlag(tls);
@@ -3310,6 +3340,7 @@ export function createDevServer({
     logger,
     discoveryWorkerStarter,
     dashboardConfigPath,
+    tailnetStatusResolver,
   });
 
   if (useTls) {
@@ -3333,6 +3364,7 @@ export function startDevServer({
   tls = false,
   discoveryWorkerStarter,
   dashboardConfigPath,
+  tailnetStatusResolver,
 } = {}) {
   const requestedPort = normalizePort(port);
   const listenHost = resolveListenHost({ host });
@@ -3347,6 +3379,7 @@ export function startDevServer({
       tls: useTls,
       discoveryWorkerStarter,
       dashboardConfigPath,
+      tailnetStatusResolver,
     });
     server.once("error", reject);
     server.listen(requestedPort, listenHost, () => {

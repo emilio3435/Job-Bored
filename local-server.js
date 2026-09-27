@@ -101,6 +101,32 @@
     }
   }
 
+  /**
+   * A non-loopback page earns local-control status from its own server's
+   * authenticated ping. The hostname alone grants nothing.
+   */
+  async function inspectLocalControlPage(location) {
+    if (isLoopbackPage(location)) return { trusted: true, reason: "loopback" };
+    let loc;
+    try {
+      loc = location === undefined ? window.location : location;
+      if (!loc || !loc.hostname || loc.protocol === "file:") {
+        return { trusted: false, reason: "unverified" };
+      }
+    } catch (_) {
+      return { trusted: false, reason: "unverified" };
+    }
+    const ping = await pingLocalServer({ base: "" });
+    return {
+      trusted: ping.status === 200 && ping.tailnetOwner === true,
+      reason: ping.reason || "unverified",
+    };
+  }
+
+  async function isLocalControlPage(location) {
+    return (await inspectLocalControlPage(location)).trusted;
+  }
+
   function currentPageHostname() {
     try {
       const loc = window.location;
@@ -243,6 +269,8 @@
       routes: [],
       desktopVersion: "",
       aborted: false,
+      tailnetOwner: false,
+      reason: "",
     };
     const doFetch =
       typeof opts.fetchImpl === "function"
@@ -295,6 +323,11 @@
         return result;
       }
       if (body.ok !== true) {
+        if (body.reason === "tailnet_owner_required" || body.reason === "tailscale_unavailable") {
+          result.outcome = body.reason;
+          result.reason = body.reason;
+          return result;
+        }
         // A JSON 403 still proves a server is up; the keyed POST decides.
         if (body.reason === "forbidden") {
           result.outcome = "forbidden";
@@ -310,6 +343,9 @@
       }
       result.version = typeof body.version === "string" ? body.version : "";
       result.runtime = typeof body.runtime === "string" ? body.runtime : "";
+      result.tailnetOwner =
+        body.tailnetOwner === true &&
+        (result.runtime === "source" || result.runtime === "desktop");
       result.routes = Array.isArray(body.routes)
         ? body.routes.filter((route) => typeof route === "string")
         : [];
@@ -439,6 +475,8 @@
     checkSerpApiKey,
     localServerHint,
     isLoopbackPage,
+    isLocalControlPage,
+    inspectLocalControlPage,
     isLoopbackHostname,
     jobBoredOpenUrl,
   });

@@ -21,6 +21,7 @@ const CURRENT_PING = {
   runtime: "source",
   routes: ["serpapi-check"],
 };
+const LOCAL_PING_URL = "http://localhost:8080/__proxy/ping";
 
 let live = [];
 
@@ -35,6 +36,10 @@ function load(options) {
   Object.assign(env.routeLocal.TIMINGS, { pollMs: 5, windowMs: 60, pingTimeoutMs: 20 });
   live.push(env);
   return env;
+}
+
+function localPings(env) {
+  return env.fetchCalls.filter((call) => call.url === LOCAL_PING_URL);
 }
 
 function spyStore(env) {
@@ -108,6 +113,35 @@ describe("D2 / R11 · a hosted page gets the route-to-local screen before any be
       assert.equal(body.includes("JobBored runs on your computer."), false, hostname);
     }
   });
+
+  it("an owner-marked same-origin tailnet ping goes straight to Beat 1", async () => {
+    const env = load({
+      location: {
+        protocol: "https:",
+        hostname: "mac.tailnet.ts.net",
+        origin: "https://mac.tailnet.ts.net",
+      },
+      ping: () => ({ ...CURRENT_PING, tailnetOwner: true }),
+    });
+    await env.flow.open();
+    assert.ok(text(env.mount()).includes("Your pipeline lives in a Google Sheet you own."));
+    assert.deepEqual(env.fetchCalls.map((call) => call.url), ["/__proxy/ping"]);
+    assert.equal(localPings(env).length, 0, "no localhost handoff on the owner's tailnet page");
+  });
+
+  it("a tailnet ping without the owner marker still routes to local", async () => {
+    const env = load({
+      location: {
+        protocol: "https:",
+        hostname: "mac.tailnet.ts.net",
+        origin: "https://mac.tailnet.ts.net",
+      },
+      ping: () => CURRENT_PING,
+    });
+    await env.flow.open();
+    assert.ok(text(env.mount()).includes("JobBored runs on your computer."));
+    assert.equal(env.flow.getState().startedAt, "", "no onboarding state is written");
+  });
 });
 
 describe("D8 · the ladder: Open, Download for Mac, Copy setup command", () => {
@@ -148,11 +182,12 @@ describe("D8 · the ladder: Open, Download for Mac, Copy setup command", () => {
 });
 
 describe("R4 / R21 · Open JobBored, then detect — only after the click", () => {
-  it("never pings before the click", async () => {
+  it("never pings localhost before the click", async () => {
     const env = load({ ping: () => CURRENT_PING });
     await env.flow.open();
     await new Promise((r) => setTimeout(r, 20));
-    assert.equal(env.fetchCalls.length, 0, "Chrome LNA: the ping must follow a gesture");
+    assert.deepEqual(env.fetchCalls.map((call) => call.url), ["/__proxy/ping"]);
+    assert.equal(localPings(env).length, 0, "Chrome LNA: the localhost ping must follow a gesture");
   });
 
   it("opens jobbored://open with no beat and no returnTo", async () => {
@@ -167,8 +202,8 @@ describe("R4 / R21 · Open JobBored, then detect — only after the click", () =
     const env = load({ ping: () => CURRENT_PING });
     await env.flow.open();
     await env.routeLocal.handleAction("route_local_open");
-    assert.equal(env.fetchCalls[0].url, "http://localhost:8080/__proxy/ping");
-    assert.equal(env.fetchCalls[0].init.body, undefined, "the ping is keyless");
+    assert.equal(localPings(env)[0].url, LOCAL_PING_URL);
+    assert.equal(localPings(env)[0].init.body, undefined, "the ping is keyless");
     assert.ok(text(env.mount()).includes("JobBored is running on this computer."));
     const go = action(env.mount(), "route_local_go");
     assert.equal(hrefOf(go), "http://localhost:8080/");
@@ -189,7 +224,7 @@ describe("R4 / R21 · Open JobBored, then detect — only after the click", () =
     );
     const download = action(env.mount(), "route_local_download");
     assert.ok(download.classList.contains("discovery-setup-wizard__btn--primary"));
-    assert.ok(env.fetchCalls.length >= 2, "it kept polling until the window closed");
+    assert.ok(localPings(env).length >= 2, "it kept polling until the window closed");
     assert.equal(env.routeLocal.isDetecting(), false, "and stopped at the timeout");
   });
 
@@ -207,14 +242,14 @@ describe("R4 / R21 · Open JobBored, then detect — only after the click", () =
     env.routeLocal.TIMINGS.windowMs = 5000;
     await env.flow.open();
     const pending = env.routeLocal.handleAction("route_local_open");
-    await until(() => env.fetchCalls.length >= 1);
+    await until(() => localPings(env).length >= 1);
     assert.equal(env.window.listenerCount("blur"), 1);
     env.window.JobBoredDiscoveryWizard.shell.closeWizardShell("close-button");
     await pending;
-    const seen = env.fetchCalls.length;
+    const seen = localPings(env).length;
     answer = () => CURRENT_PING;
     await new Promise((r) => setTimeout(r, 30));
-    assert.equal(env.fetchCalls.length, seen, "no ping after leaving the screen");
+    assert.equal(localPings(env).length, seen, "no localhost ping after leaving the screen");
     assert.equal(env.routeLocal.isDetecting(), false);
     assert.equal(env.window.listenerCount("blur"), 0);
     assert.equal(env.document.listenerCount("visibilitychange"), 0);
@@ -226,7 +261,7 @@ describe("R4 / R21 · Open JobBored, then detect — only after the click", () =
     Object.assign(env.routeLocal.TIMINGS, { pollMs: 10000, windowMs: 20000 });
     await env.flow.open();
     const pending = env.routeLocal.handleAction("route_local_open");
-    await until(() => env.fetchCalls.length === 1);
+    await until(() => localPings(env).length === 1);
     env.window.fire("blur");
     up = true;
     env.window.fire("focus");

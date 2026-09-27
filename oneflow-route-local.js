@@ -57,6 +57,16 @@
     "This website can't hold your setup: your Google sign-in, your Sheet " +
     "link and your keys stay with JobBored on your computer. Open it there " +
     "to start.";
+  const TAILNET_FAILURES = Object.freeze({
+    tailnet_owner_required: {
+      title: "This JobBored belongs to another Tailscale user",
+      fix: "Sign in to Tailscale with the owner's account, then reload JobBored.",
+    },
+    tailscale_unavailable: {
+      title: "Tailscale isn't answering on this computer",
+      fix: "Start Tailscale on this computer, then reload JobBored.",
+    },
+  });
 
   const COPY = Object.freeze({
     checking: "Looking for JobBored on this computer…",
@@ -166,6 +176,16 @@
   function syncActions() {
     ACTIONS.length = 0;
     switch (state.phase) {
+      case "tailnet_owner_required":
+      case "tailscale_unavailable":
+        ACTIONS.push({
+          id: "route_local_reload",
+          label: "Reload JobBored",
+          variant: "primary",
+          href: String(window.location?.href || "/"),
+          target: "_self",
+        });
+        return;
       case "running":
         ACTIONS.push({
           id: "route_local_go",
@@ -250,6 +270,13 @@
   }
 
   function render(container) {
+    if (TAILNET_FAILURES[state.phase]) {
+      const body = el("div", "oneflow-route-local oneflow-route-local--fallback");
+      body.dataset.phase = state.phase;
+      body.appendChild(el("p", "oneflow-route-local__note", { role: "note" }, TAILNET_FAILURES[state.phase].fix));
+      container.appendChild(body);
+      return;
+    }
     const prominent = state.phase === "unknown" || state.phase === "stale";
     const body = el(
       "div",
@@ -306,13 +333,16 @@
     syncActions();
     const flow = window.JobBoredOneFlow;
     const mountId = options.mountId || (flow && flow.MOUNT_ID) || "oneFlowMount";
+    const failure = TAILNET_FAILURES[state.phase];
+    const title = failure ? failure.title : TITLE;
+    const lede = failure ? "" : LEDE;
     try {
       return sh.renderWizardShell({
         mountId,
         variant: "generic",
         headerTitle: HEADER_TITLE,
-        title: TITLE,
-        lede: LEDE,
+        title,
+        lede,
         // The one-flow chassis keys its look off a spine; this screen comes
         // BEFORE the six beats, so its single segment is hidden by CSS.
         spine: { beats: [{ id: "local", label: HEADER_TITLE }], current: "local" },
@@ -320,8 +350,8 @@
           {
             id: "local",
             label: HEADER_TITLE,
-            title: TITLE,
-            description: LEDE,
+            title,
+            description: lede,
             actions: ACTIONS,
             render() {
               const container = document.createElement("div");
@@ -581,7 +611,9 @@
   /** Paint the screen. Writes no onboarding state. */
   function show(options = {}) {
     stop();
-    state.phase = "idle";
+    state.phase = TAILNET_FAILURES[options.tailnetFailure]
+      ? options.tailnetFailure
+      : "idle";
     state.handoffSeen = false;
     state.outdated = false;
     state.version = "";

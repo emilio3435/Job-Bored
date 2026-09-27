@@ -598,17 +598,17 @@
    * Harnesses and partial boots with no readable address are not hosted —
    * only a page whose hostname is known and non-loopback is.
    */
-  function hostedPage() {
+  async function hostedPage() {
     const ls = window.JobBoredLocalServer;
-    if (!ls || typeof ls.isLoopbackPage !== "function") return false;
+    if (!ls || typeof ls.inspectLocalControlPage !== "function") return { hosted: false };
     let loc = null;
     try {
       loc = window.location || null;
     } catch (e) {
-      return false;
+      return { hosted: false };
     }
-    if (!loc) return false;
-    if (String(loc.protocol || "") === "file:") return true;
+    if (!loc) return { hosted: false };
+    if (String(loc.protocol || "") === "file:") return { hosted: true };
     let hostname = asString(loc.hostname);
     if (!hostname && loc.origin) {
       try {
@@ -617,15 +617,19 @@
         hostname = "";
       }
     }
-    if (!hostname) return false;
-    return !ls.isLoopbackPage({ hostname });
+    if (!hostname) return { hosted: false };
+    const result = await ls.inspectLocalControlPage({
+      hostname,
+      protocol: String(loc.protocol || ""),
+    });
+    return { hosted: !result.trusted, reason: result.reason };
   }
 
   /** Paint the route-to-local screen; null when it is not loaded. */
-  function showRouteToLocal() {
+  function showRouteToLocal(reason) {
     const screen = window.JobBoredOneFlowRouteLocal;
     if (!screen || typeof screen.show !== "function") return null;
-    return screen.show({ mountId: MOUNT_ID });
+    return screen.show({ mountId: MOUNT_ID, tailnetFailure: reason });
   }
 
   /**
@@ -637,7 +641,7 @@
   async function maybeStart() {
     // D2: a hosted page always "starts" — open() shows it the route to
     // JobBored on this computer — and never reads or writes flow state.
-    if (hostedPage()) return true;
+    if ((await hostedPage()).hosted) return true;
     await hydrate();
     // Only a host that CAN answer "no sheet" makes a completion stale.
     const stale = sheetConfigured() === false;
@@ -1011,7 +1015,8 @@
    */
   async function open(beatId, options) {
     // D2 / R11: before ANY beat, and before anything below writes state.
-    if (hostedPage()) return showRouteToLocal();
+    const page = await hostedPage();
+    if (page.hosted) return showRouteToLocal(page.reason);
     // S0 reads once to label its invitation, but state may have changed in
     // storage since that paint (for example, another entry point saved a
     // beat). Re-read on entry so the saved target and its gate use current
