@@ -793,7 +793,7 @@
         if (!isNaN(d.getTime())) dateFound = d;
       }
 
-      const columnWorkMode = String(row[25] || "").trim();
+      const columnWorkMode = String(row[25] || "").trim().toLowerCase();
       const hasColumnWorkMode = ["remote", "hybrid", "onsite"].includes(columnWorkMode);
       const locationWorkMode = hasColumnWorkMode ? "" : parseWorkModeFromLocation(row[3]);
 
