@@ -15,9 +15,12 @@ import { action, loadRouteLocal, text, until } from "./gfx-fe-b1-harness.mjs";
    a real button, and never writes onboarding state.
    ============================================================ */
 
+/** The ping of a build that matches this page: read from package.json, so a release bump never breaks it. */
+const PAGE_BUILD_VERSION = JSON.parse(readFileSync(join(repoRoot, "package.json"), "utf8")).version;
+
 const CURRENT_PING = {
   ok: true,
-  version: "0.1.0",
+  version: PAGE_BUILD_VERSION,
   runtime: "source",
   routes: ["serpapi-check"],
 };
