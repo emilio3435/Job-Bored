@@ -439,6 +439,13 @@ export async function installHermeticNetworkFence(page, options = {}) {
       return;
     }
 
+    // RUNHIST: the Runs view lists history from GET /runs. The hermetic worker
+    // holds no past runs; the live row still comes from the tracker.
+    if (url.origin === discoveryOrigin && url.pathname === "/runs" && method === "GET") {
+      await fulfillJson(route, { ok: true, runs: [], nextBefore: null });
+      return;
+    }
+
     const runId = options.runId || RUN_ID;
     if (url.origin === discoveryOrigin && url.pathname === `/runs/${runId}`) {
       const responseIndex = statusResponseIndex++;
