@@ -444,6 +444,27 @@ test("should view, compare and bring back versions at 1440 and 390", async ({ pa
   await expect(viewing).toBeHidden();
   await expect(desk.getByRole("button", { name: "View v1, read-only" })).toBeFocused();
 
+  /* Grok F3-rebind: View → Compare with current hands page A the srcdoc it
+     already holds, so no load fires. Tab and Esc from it must still reach
+     the desk, and the page must not stay dimmed as busy. */
+  await desk.getByRole("button", { name: "View v1, read-only" }).click();
+  await expect(viewing).toContainText("Viewing v1");
+  await viewing.getByRole("button", { name: "Compare with current" }).click();
+  const rebound = desk.getByRole("region", { name: /^Comparing resume v1 with v3/ });
+  await expect(rebound).toBeVisible();
+  await expect(rebound.locator(".scribe__compare-fig--a .scribe__compare-sheet")).toHaveAttribute("aria-busy", "false");
+  const pageA = rebound.locator(".scribe__compare-fig--a iframe");
+  await pageA.click({ position: { x: 60, y: 60 } });
+  await page.keyboard.press("Tab");
+  await expect(rebound.getByRole("combobox", { name: "Version A" })).toBeFocused();
+  await pageA.click({ position: { x: 60, y: 60 } });
+  await page.keyboard.press("Escape");
+  await expectNoScribe(page);
+  await expect(editResume).toBeFocused();
+  await editResume.click();
+  await settleDesk(page);
+  await desk.getByRole("tab", { name: "Versions" }).click();
+
   /* Bring back asks first, then appends. */
   await desk.getByRole("button", { name: "Bring back v1 as a new version" }).click();
   const ask = desk.getByRole("group", { name: "Bring back v1" });

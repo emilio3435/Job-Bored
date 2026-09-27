@@ -129,7 +129,7 @@ function versionRows() {
   ];
 }
 
-function scriptedApi({ restoreFails = false } = {}) {
+function scriptedApi({ restoreFails = false, previewFails = [] } = {}) {
   const calls = [];
   const store = { resume: versionRows(), cover_letter: [{ runId: "l0", n: 0, createdAt: "2026-09-25T16:00:00.000Z", source: "draft", label: "Drafted", pinned: true, pages: 1, words: 210, family: "signal" }] };
   const api = {
@@ -140,6 +140,7 @@ function scriptedApi({ restoreFails = false } = {}) {
     },
     preview: (body) => {
       calls.push(["preview", body.doc, body.baseRunId]);
+      if (previewFails.includes(body.baseRunId)) return Promise.reject(new Error("The preview did not load (500)."));
       return Promise.resolve({ html: `<html><body><main data-page="1">${body.baseRunId} render</main></body></html>`, words: 2, pageBudget: 1 });
     },
     getModel: (runId) => { calls.push(["getModel", runId]); return Promise.resolve({ model: {}, nodes: plain(MODELS[runId] || []) }); },
@@ -423,5 +424,91 @@ describe("Bring back and an open proposal (F3-discard)", () => {
     assert.deepEqual(order, ["restore", "rejectEdit"]);
     assert.deepEqual(calls.find((c) => c[0] === "rejectEdit"), ["rejectEdit", "p1"]);
     assert.equal(ctl.state.proposal, null);
+  });
+});
+
+/* Grok F3-rebind: a frame given the srcdoc it already has keeps its
+   document and never fires load (HTML spec: the attribute is unchanged,
+   so nothing navigates). These frames follow that rule themselves; no
+   test calls onload by hand. */
+function emulateFrames(host) {
+  for (const frame of host.querySelectorAll(".scribe__compare-frame")) {
+    if (frame.__emulated) continue;
+    frame.__emulated = true;
+    let value = "";
+    Object.defineProperty(frame, "srcdoc", {
+      configurable: true,
+      get: () => value,
+      set: (next) => {
+        next = String(next);
+        if (next === value) return;
+        value = next;
+        const inner = fakeFrameDoc();
+        inner.readyState = "loading";
+        frame.contentDocument = inner;
+        setImmediate(() => { inner.readyState = "complete"; if (typeof frame.onload === "function") frame.onload(); });
+      },
+    });
+  }
+}
+
+const shownDoc = (host, which) => pane(host).querySelector(`.scribe__compare-fig--${which} .scribe__compare-frame`).contentDocument;
+const sheetBusy = (host, which) => pane(host).querySelector(`.scribe__compare-fig--${which} .scribe__compare-sheet`).getAttribute("aria-busy");
+
+describe("A page given the same document again (F3-rebind)", () => {
+  it("should keep forwarding keys when View becomes Compare on the same render", async () => {
+    const { host, win } = await openDesk();
+    click(act(host, "view", "r1"));
+    emulateFrames(host);
+    await settle();
+    const viewed = shownDoc(host, "a");
+    assert.equal(viewed.keys(), 1, "the viewed page forwards keys");
+    click(pane(host).querySelector('[data-cmp-act="compare"]'));
+    emulateFrames(host);
+    await settle();
+    assert.equal(shownDoc(host, "a"), viewed, "page A kept its document: same srcdoc, no load");
+    assert.equal(viewed.keys(), 1, "and still forwards keys");
+    assert.equal(sheetBusy(host, "a"), "false", "page A is not left busy");
+    assert.equal(shownDoc(host, "b").keys(), 1, "page B loaded and forwards keys");
+    viewed.press("Escape");
+    assert.equal(win.document.body.querySelectorAll("jb-scribe").length, 0, "Esc from page A closes the desk");
+    assert.equal(viewed.keys(), 0);
+  });
+
+  it("should keep the page still shown listening when a preview fails", async () => {
+    const { host } = await openDesk({ previewFails: ["r0"] });
+    click(act(host, "compare", "r1"));
+    emulateFrames(host);
+    await settle();
+    const shown = shownDoc(host, "a");
+    assert.equal(shown.keys(), 1);
+    const selA = pane(host).querySelector('[data-cmp-pick="A"]');
+    selA.value = "r0";
+    pane(host).dispatchEvent({ type: "change", target: selA });
+    await settle();
+    assert.equal(shownDoc(host, "a"), shown, "the previous page stays up");
+    assert.equal(shown.keys(), 1, "and keeps forwarding keys");
+    assert.equal(sheetBusy(host, "a"), "false");
+    assert.match(pane(host).querySelector(".scribe__compare-fig--a .scribe__compare-cap").textContent, /did not load/);
+  });
+});
+
+describe("A kept page with the last comparison's marks (F3-rebind)", () => {
+  it("should reload the page rather than keep stale marks", async () => {
+    const { host } = await openDesk();
+    click(act(host, "compare", "r1"));
+    emulateFrames(host);
+    await settle();
+    const marked = shownDoc(host, "b");
+    marked.querySelector = (sel) => (sel === "[data-scribe-cmp]" ? {} : null);
+    const selA = pane(host).querySelector('[data-cmp-pick="A"]');
+    selA.value = "r0";
+    pane(host).dispatchEvent({ type: "change", target: selA });
+    await settle();
+    const fresh = shownDoc(host, "b");
+    assert.notEqual(fresh, marked, "page B got a fresh document");
+    assert.equal(marked.keys(), 0, "the marked document stopped forwarding");
+    assert.equal(fresh.keys(), 1, "the fresh one forwards keys");
+    assert.equal(sheetBusy(host, "b"), "false");
   });
 });

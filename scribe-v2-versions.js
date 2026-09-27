@@ -462,22 +462,43 @@
       unwatchFig(figs.B);
     }
 
+    /* Setting srcdoc to the string it already holds keeps the document and
+       fires no load (Grok F3-rebind): View → Compare on the same run, or a
+       re-picked version with the same render. So the listener is dropped
+       only when the document really changes, and a page that stays is
+       re-armed at once. */
     function loadFig(fig, runId, side, token) {
       fig.runId = runId;
       fig.box.setAttribute("aria-busy", "true");
-      unwatchFig(fig);
       return previewHtml(runId).then(function (html) {
         if (token !== ui.token) return;
-        fig.frame.onload = function () {
+        function ready() {
           if (token !== ui.token) return;
           watchFig(fig);
           fig.box.setAttribute("aria-busy", "false");
           fitFig(fig);
           if (ui.mode === "compare" && ui.diff) markFrame(fig, ui.diff, side);
-        };
+        }
+        fig.frame.onload = ready;
+        if (fig.frame.srcdoc === html) {
+          var inner = frameDoc(fig);
+          var marked = false;
+          try { marked = !!(inner && typeof inner.querySelector === "function" && inner.querySelector("[data-scribe-cmp]")); } catch (e) { marked = false; }
+          if (!marked) {
+            /* Still loading from the last assignment: that load runs ready. */
+            if (!inner || inner.readyState == null || inner.readyState === "complete") ready();
+            return;
+          }
+          /* The kept page carries the last comparison's marks: start clean. */
+          unwatchFig(fig);
+          fig.frame.srcdoc = "";
+        }
+        unwatchFig(fig);
         fig.frame.srcdoc = html;
       }, function (err) {
         if (token !== ui.token) return;
+        /* The page already shown stays up; keep it listening. */
+        watchFig(fig);
         fig.box.setAttribute("aria-busy", "false");
         fig.caption.textContent += " — " + ((err && err.message) || "this version did not load.");
       });
