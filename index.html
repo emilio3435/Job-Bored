@@ -220,7 +220,7 @@
     <link rel="stylesheet" href="role-case.css" />
     <link rel="stylesheet" href="recruiter-strip.css">
     <link rel="stylesheet" href="materials-queue.css" />
-    <link rel="stylesheet" href="scribe.css" />
+    <link rel="stylesheet" href="scribe-v2.css" />
     <link rel="stylesheet" href="fit-profile.css" />
     <!-- One-flow onboarding (docs/ONE-FLOW-ONBOARDING-SPEC.md). Loads after
          the legacy wizard sheets so it extends the shared shell chassis
@@ -253,9 +253,9 @@
     <script src="submission-flow.js" defer></script>
     <script src="recruiter-strip.js" defer></script>
     <script src="flowing-writes.js" defer></script>
-    <script src="scribe-state.js" defer></script>
     <script src="scribe-score-adapter.js" defer></script>
-    <script src="scribe.js" defer></script>
+    <script src="scribe-v2-api.js" defer></script>
+    <script src="scribe-v2.js" defer></script>
     <script src="pipeline-transition-adapter.js" defer></script>
     <script src="jb-v2-boot-contract.js" defer></script>
     <script>
@@ -462,23 +462,13 @@
       are no longer loaded by index.html.
     -->
 
-    <!-- region:scribe:start -->
-    <!-- SCRIBE owns this block: ATS scorecard + cover letter draft modal. -->
+    <!-- region:scribe:removed -->
     <!--
-      Phase 3 · Scribe — split-pane workspace (editor | scorecard) with a
-      docked refine strip. Renders only when body.jb-v2 is set; otherwise
-      the legacy modal (further down in this file, ids resumeGenerate*)
-      remains the sole authoring surface. scribe.js mirrors edits into
-      #resumeGenerateOutput so the existing ATS pipeline keeps owning the
-      real scorecard numbers, and reuses the legacy buttons by id so no
-      data-action attribute names change.
+      EDITOR F1 (2026-09-27): the page-bottom Scribe region is gone.
+      Scribe v2 (scribe-v2.js) has no static region: a role's Edit
+      button appends one <jb-scribe> to <body> and removes it on close,
+      so nothing renders until a materials package binds it (recon R1).
     -->
-    <section
-      data-region="scribe"
-      class="jb-scribe-region"
-      aria-label="Cover letter and ATS workspace"
-    ></section>
-    <!-- region:scribe:end -->
 
     <!-- region:welcome:start -->
     <!-- WELCOME owns this block: Onboarding step + first-run empty state. -->

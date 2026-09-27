@@ -65,7 +65,6 @@ body.jb-v2 [data-region="dawn"],
 body.jb-v2 [data-region="today"],
 body.jb-v2 [data-region="pipeline"],
 body.jb-v2 [data-region="role"],
-body.jb-v2 [data-region="scribe"],
 body.jb-v2 [data-region="welcome"] {
   display: none !important;
 }
@@ -80,8 +79,7 @@ body.jb-v2:has(#dashboard:not([style*="display: none"])) .page-top {
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="dawn"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="today"],
 body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="pipeline"],
-body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="role"],
-body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="scribe"] {
+body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="role"] {
   display: block !important;
 }
 
@@ -99,9 +97,9 @@ body.jb-v2:has(#dashboard:not([style*="display: none"])) [data-region="welcome"]
    ------------------------------------------------------------
    The legacy cover-letter authoring surface is the
    `#resumeGenerateModal` overlay (`.modal-overlay.doc-output-modal`).
-   Scribe (region:scribe) replaces it. Hidden whenever
+   Scribe v2 (scribe-v2.js) replaces it. Hidden whenever
    body.jb-v2 is set — the legacy modal must never co-exist with
-   Scribe, since both bind to the same #resumeGenerate* ids.
+   Scribe as a second editing surface.
 
    DS-08: the separate #pipelineSection and .pipeline-board hide
    rules are gone. Under body.jb-v2 pipeline-render.js builds no
