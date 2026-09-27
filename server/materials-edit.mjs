@@ -8,8 +8,14 @@ const words = (text) => String(text || "").trim().split(/\s+/).filter(Boolean);
 /** @param {Array<{text:string}>} nodes */
 const count = (nodes) => nodes.reduce((sum, node) => sum + words(node.text).length, 0);
 /** @param {unknown} text */
-const factTokens = (text) => String(text || "").match(/(?:[$#]|top-)?\d[\d,.]*(?:[–-]\d[\d,.]*)?(?:%|x\b|[kKmMbB]\+?|\+)?|\b[A-Z][\p{L}\p{M}\d]*(?:[-'][A-Z][\p{L}\p{M}\d]*)?\b/gu) || [];
-const ordinaryStarts = new Set(["A", "An", "And", "As", "At", "By", "For", "From", "I", "In", "It", "My", "Of", "On", "Our", "The", "To", "We", "With"]);
+const factTokens = (text) => String(text || "").match(/(?:[$#]|top-)?\d[\d,.]*(?:[–-]\d[\d,.]*)?(?:%|x\b|[kKmMbB]\+?|\+)?|[\p{L}][\p{L}\p{M}\d]*(?:[-'][\p{L}\p{M}\d]+)*/gu) || [];
+const ordinaryWords = new Set(["a", "an", "and", "are", "as", "at", "by", "for", "from", "i", "in", "into", "is", "it", "my", "of", "on", "or", "our", "the", "their", "this", "to", "was", "we", "were", "who", "with", "you", "your"]);
+/** @param {string} text */
+const normalizedPhrase = (text) => (text.toLocaleLowerCase().match(/[\p{L}\p{M}\d]+/gu) || []).join(" ");
+/** @param {string} text */
+const titlePhrases = (text) => text.match(/\b[A-Z][\p{L}\p{M}\d]*(?:\s+[A-Z][\p{L}\p{M}\d]*)+\b/gu) || [];
+/** @param {string} name @param {unknown} value */
+const dataBlock = (name, value) => `<untrusted-data name="${name}">\n${JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")}\n</untrusted-data>`;
 
 /** @param {any} ledger @param {import('./materials-render.mjs').RenderModel} model @param {Array<{text:string}>} nodes */
 function trustedFacts(ledger, model, nodes) {
@@ -17,25 +23,32 @@ function trustedFacts(ledger, model, nodes) {
   const employers = Array.isArray(ledger?.employers) ? ledger.employers : [];
   const tools = Array.isArray(ledger?.toolInventory) ? ledger.toolInventory : [];
   const entries = (model.documents?.resume?.sections || []).flatMap((section) => section.entries || []);
-  const source = [
+  const sourceParts = [
     JSON.stringify(model.identity),
     ...nodes.map((node) => node.text),
     ...entries.flatMap((entry) => [entry.org, ...(entry.meta || [])]),
     ...claims.flatMap((/** @type {any} */ claim) => [claim.text, ...(claim.metrics || []).map((/** @type {any} */ metric) => metric.token), ...(claim.tools || [])]),
     ...employers.flatMap((/** @type {any} */ employer) => [employer.name, employer.title, employer.start, employer.end, employer.location]),
     ...tools.map((/** @type {any} */ tool) => tool.tool),
-  ].filter(Boolean).join(" ");
-  return new Set(factTokens(source).map((token) => token.toLocaleLowerCase()));
+  ].filter(Boolean).map(String);
+  return {
+    tokens: new Set(factTokens(sourceParts.join(" ")).map((token) => token.toLocaleLowerCase())),
+    phrases: sourceParts.map(normalizedPhrase),
+  };
 }
 
 /** Newly introduced fact-like tokens absent from the candidate source facts.
- * @param {any} op @param {string} beforeText @param {Set<string>} trusted @param {any} ledger
+ * @param {any} op @param {string} beforeText @param {ReturnType<typeof trustedFacts>} trusted @param {any} ledger @param {string} writtenText
  */
-function unverifiedFacts(op, beforeText, trusted, ledger) {
+function unverifiedFacts(op, beforeText, trusted, ledger, writtenText) {
   if (op.op === "remove") return [];
   const prior = new Set(factTokens(beforeText).map((token) => token.toLocaleLowerCase()));
-  const candidates = factTokens(op.text).filter((token) => !prior.has(token.toLocaleLowerCase()) && !ordinaryStarts.has(token));
-  const missing = candidates.filter((token) => !trusted.has(token.toLocaleLowerCase()));
+  const candidates = factTokens(writtenText).filter((token) => !prior.has(token.toLocaleLowerCase()) && !ordinaryWords.has(token.toLocaleLowerCase()));
+  const missing = candidates.filter((token) => !trusted.tokens.has(token.toLocaleLowerCase()));
+  for (const phrase of titlePhrases(writtenText)) {
+    const normalized = normalizedPhrase(phrase);
+    if (!trusted.phrases.some((source) => (` ${source} `).includes(` ${normalized} `))) missing.push(phrase);
+  }
   if (op.op === "insert" && !claimById(ledger, op.claimId)) missing.push(`claimId:${op.claimId}`);
   return [...new Set(missing)];
 }
@@ -46,7 +59,14 @@ function unverifiedFacts(op, beforeText, trusted, ledger) {
 export async function proposeEdits({ model, nodes, instruction, scope = "all", lockFacts = true, jdExtract = {}, ledger = {}, pin, fetchImpl }) {
   const baseNodes = deriveNodes(model);
   const suppliedNodes = Array.isArray(nodes) ? nodes : baseNodes;
-  const userText = JSON.stringify({ instruction, scope, lockFacts, nodes: suppliedNodes, jdExtract, ledgerClaims: ledger?.claims || [], toolInventory: ledger?.toolInventory || [] });
+  const userText = [
+    `<instruction>\n${JSON.stringify(instruction)}\n</instruction>`,
+    `<constraints>\n${JSON.stringify({ scope, lockFacts })}\n</constraints>`,
+    dataBlock("nodes", suppliedNodes),
+    dataBlock("job_posting", jdExtract),
+    dataBlock("ledger_claims", ledger?.claims || []),
+    dataBlock("tool_inventory", ledger?.toolInventory || []),
+  ].join("\n");
   let response;
   try {
     response = await callJsonStage({ pin, systemPrompt: EDIT_SYSTEM_PROMPT, userText, maxOutputTokens: 4096, fetchImpl });
@@ -66,11 +86,17 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
   for (const proposed of response.ops) {
     const op = proposed && typeof proposed === "object" && !Array.isArray(proposed) ? { ...proposed } : proposed;
     const id = op?.op === "insert" ? op.after : op?.node;
-    const before = deriveNodes(candidate).find((node) => node.id === id)?.text || "";
+    const candidateNodes = deriveNodes(candidate);
+    const before = candidateNodes.find((node) => node.id === id)?.text || "";
+    const baseBefore = baseNodes.find((node) => node.id === id)?.text || "";
     try {
       if (seen.has(op?.opId)) throw new MaterialsEditError("invalid_model", "duplicate edit opId");
-      applyOps(candidate, [op], { scope });
-      const facts = unverifiedFacts(op, before, trusted, ledger);
+      const next = applyOps(candidate, [op], { scope });
+      const nextNodes = deriveNodes(next);
+      const writtenText = op.op === "insert"
+        ? nextNodes.find((node) => !candidateNodes.some((prior) => prior.id === node.id))?.text || ""
+        : nextNodes.find((node) => node.id === id)?.text || "";
+      const facts = unverifiedFacts(op, baseBefore, trusted, ledger, writtenText);
       if (facts.length) {
         op.flags = [...new Set([...(op.flags || []), "unverified"])];
         op.facts = [...new Set([...(op.facts || []), ...facts])];
