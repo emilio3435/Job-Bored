@@ -45,6 +45,15 @@ const WRITER_SYSTEM_PROMPT = [
   }),
 ].join(" ");
 
+export const EDIT_SYSTEM_PROMPT = [
+  "materials.edit.v1: propose small, independent edits to the supplied materials render model.",
+  "Return JSON only: {\"ops\":[edit-op objects]}. Each op needs a unique opId and follows materials.edit-op.v1.",
+  "Use replace or remove with node, or insert with after, claimId and text. Use only supplied node ids and ledger claim ids.",
+  "Respect the requested scope and locked facts. Never change employers, titles, dates, degrees or locked metric spans.",
+  "Use the ledger and source material for facts; do not invent names, numbers, tools or claims.",
+  "Text must be plain, without HTML or Markdown. Keep the model's statement, bullet and letter paragraph limits.",
+].join(" ");
+
 /**
  * @typedef {object} LetterJson
  * @property {string} [date]
