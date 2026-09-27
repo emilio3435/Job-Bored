@@ -263,7 +263,7 @@ async function runPipelineBody({
     )
   );
   if (extractDegraded) degraded.push("jd.extract: deterministic half");
-  await writeJson(join(dir, "jd-extract.json"), extract);
+  await writeJson(join(stagingDir, "jd-extract.json"), extract);
   record({
     stage: "jd.extract",
     status: extractDegraded ? "review" : "ok",
@@ -290,7 +290,7 @@ async function runPipelineBody({
     )
   );
   if (selectDegraded) degraded.push("claims.select: deterministic ranks");
-  await writeJson(join(dir, "selection.json"), selection);
+  await writeJson(join(stagingDir, "selection.json"), selection);
   record({
     stage: "claims.select",
     status: selectDegraded ? "review" : "ok",
@@ -302,7 +302,7 @@ async function runPipelineBody({
 
   /* outline (deterministic) */
   const outline = buildOutline({ selection, ledger, feature: payload.feature });
-  await writeJson(join(dir, "outline.json"), outline);
+  await writeJson(join(stagingDir, "outline.json"), outline);
   record({ stage: "outline", status: "ok", llm: false, out: ["outline.json"], detail: `${outline.featured.length} featured, ${outline.earlier.length} earlier` });
 
   /* draft */
@@ -372,7 +372,7 @@ async function runPipelineBody({
       pack,
     });
   }
-  await writeJson(join(dir, "draft.json"), draft);
+  await writeJson(join(stagingDir, "draft.json"), draft);
   record({
     stage: "delint",
     status: delintResult.clean ? "ok" : "review",
@@ -526,7 +526,7 @@ async function runPipelineBody({
       ? issues.map((i) => ({ code: i.code, severity: i.severity, stage: "qa", message: i.message }))
       : [{ code: "qa_clean", severity: "pass", stage: "qa", message: `rubric ${rubric.total}/12, no issues` }],
   };
-  await writeJson(join(dir, "qa.json"), qaRecord);
+  await writeJson(join(stagingDir, "qa.json"), qaRecord);
   record({
     stage: "qa",
     status: qaStatus === "pass" ? "ok" : qaStatus === "fail" ? "failed" : "review",
@@ -549,6 +549,9 @@ async function runPipelineBody({
     ? { provider: pin.provider, requestedModel: pin.model, resolvedModel: pin.resolvedModel }
     : undefined;
   await assertBase();
+  for (const name of ["jd-extract.json", "selection.json", "outline.json", "draft.json", "qa.json"]) {
+    await copyFile(join(stagingDir, name), join(dir, name));
+  }
   if (payload.feature !== "cover_letter" && resumeHtml) await writeFile(join(dir, "resume.html"), resumeHtml, "utf8");
   if (payload.feature !== "resume" && letterHtml) await writeFile(join(dir, "cover-letter.html"), letterHtml, "utf8");
   if (rendered.pdf?.resume) await copyFile(resumePdfPath, join(dir, "resume.pdf"));

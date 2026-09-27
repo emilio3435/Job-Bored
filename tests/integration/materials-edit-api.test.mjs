@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { randomUUID } from "node:crypto";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { request as httpRequest } from "node:http";
@@ -290,6 +291,21 @@ it("B2-10 rejects a moved base after the publish claim is first read", async () 
     assert.equal(JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8")).runId, "moved-during-render");
     assert.equal(await readFile(join(pkg.dir, "resume.pdf"), "utf8"), "old PDF");
   } finally { release.resolve(); if (accepting) await accepting.catch(() => {}); commitHold = null; }
+});
+
+it("B2-12 preserves a stranded accepting status until rejection removes it", async () => {
+  const pkg = await seed();
+  const id = randomUUID();
+  await mkdir(join(pkg.dir, "proposals"));
+  const path = join(pkg.dir, "proposals", `${id}.json`);
+  await writeFile(path, JSON.stringify({ id, doc: "resume", baseRunId: "r0", status: "accepting", createdAt: new Date().toISOString(), ops: [], events: [] }));
+  const cold = createMaterialsVersionService({ applicationsRoot: root, pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" }, fetchImpl, commit });
+  await assert.rejects(cold.accept(pkg.slug, id, { accept: ["o1"], confirmUnverified: [] }), { statusCode: 409, code: "proposal_not_ready" });
+  assert.equal(JSON.parse(await readFile(path, "utf8")).status, "accepting");
+  await cold.reject(pkg.slug, id);
+  await assert.rejects(readFile(path, "utf8"), { code: "ENOENT" });
+  const next = await cold.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten the resume", scope: "all", lockFacts: true });
+  assert.ok(next.proposalId);
 });
 
 async function request(path, method = "GET", body) {

@@ -399,13 +399,15 @@ export function createMaterialsVersionService(deps = {}) {
       /** @type {Record<string, any> | null} */
       let proposal = null;
       let priorStatus = "";
+      let markedAccepting = false;
       try {
         const current = await currentRun(dir);
         if (!manual) {
           proposal = await loadProposal(dir, id);
-          if (!["ready", "partial"].includes(proposal.status)) throw failure("Proposal is not ready", 409, "proposal_not_ready");
           priorStatus = proposal.status;
+          if (!["ready", "partial"].includes(priorStatus)) throw failure("Proposal is not ready", 409, "proposal_not_ready");
           proposal.status = "accepting";
+          markedAccepting = true;
           await writeJson(proposalPath(proposal), persisted(proposal));
         }
         await assertCurrent(dir, manual ? body.baseRunId : proposal?.baseRunId);
@@ -446,7 +448,7 @@ export function createMaterialsVersionService(deps = {}) {
         const row = listed.versions.find((v) => v.runId === committed.runId);
         return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, pages: row?.pages ?? candidate.template.pageBudget, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser." } : {}) } };
       } catch (error) {
-        if (proposal?.status === "accepting") {
+        if (markedAccepting && proposal?.status === "accepting") {
           proposal.status = priorStatus;
           await writeJson(proposalPath(proposal), persisted(proposal));
         }
@@ -458,7 +460,6 @@ export function createMaterialsVersionService(deps = {}) {
       const dir = await dirFor(slug); claimEdit(dir);
       try {
         const proposal = await loadProposal(dir, id);
-        if (proposal.status === "accepting") throw failure("Proposal is being accepted", 409, "materials_pending");
         proposal.status = "rejected";
         await rm(proposalPath(proposal), { force: true });
         live.delete(id);

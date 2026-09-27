@@ -182,6 +182,30 @@ describe("materials pipeline", () => {
     } finally { release(); await writer; }
   });
 
+  it("B2-11 leaves the published stage JSON untouched when the base moves during render", async () => {
+    const paths = ["jd-extract.json", "selection.json", "outline.json", "draft.json", "qa.json"];
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "r0" }));
+    for (const name of paths) await writeFile(join(dir, name), JSON.stringify({ priorRunId: "r0", name }));
+    let moved = false;
+    const openSession = async () => ({
+      measure: async () => ({ fits: true, scrollHeight: 1056, clientHeight: 1056, lastTextBottom: 1000, limit: 1027, blockedRequests: 0 }),
+      pdf: async (_html, path) => {
+        await writeFile(path, "%PDF-1.4\n1 0 obj << /Type /Page >> endobj\n");
+        if (!moved) {
+          moved = true;
+          await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "moved-during-render" }));
+        }
+        return { path, pages: 1, blockedRequests: 0 };
+      },
+      close: async () => {},
+    });
+    const { fetchImpl } = scriptedFetch(stageScripts());
+    await assert.rejects(runPipeline({ ...base(), fetchImpl, openSession }), { statusCode: 409, code: "stale_base" });
+    assert.equal(moved, true);
+    for (const name of paths) assert.deepEqual(JSON.parse(await readFile(join(dir, name), "utf8")), { priorRunId: "r0", name });
+    assert.equal(JSON.parse(await readFile(join(dir, "run.json"), "utf8")).runId, "moved-during-render");
+  });
+
   it("returns the cached package with zero LLM calls on a repeat key", async () => {
     const first = scriptedFetch(stageScripts());
     const one = await runPipeline({ ...base(), fetchImpl: first.fetchImpl });
