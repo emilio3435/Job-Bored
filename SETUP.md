@@ -26,6 +26,37 @@ For a phased roadmap, see **[AUTOMATION_PLAN.md](AUTOMATION_PLAN.md)**. Full doc
 
 ---
 
+## Get JobBored
+
+JobBored runs on your computer. The hosted website can't hold your setup, so
+it points you here.
+
+- **On a Mac:** [Download JobBored for Mac](https://github.com/emilio3435/jobbored-desktop/releases/latest).
+  The app carries everything it needs (no git, Node or Terminal). Open it, and
+  it opens JobBored in your browser. Until the first app release is published,
+  use the command below and double-click `start.command` in the JobBored folder.
+- **On Windows or Linux, or to run it from source:** install git and Node.js
+  24.x, then run:
+
+  ```bash
+  git clone https://github.com/emilio3435/Job-Bored.git && cd Job-Bored && ./start.sh
+  ```
+
+  `./start.sh` starts the dashboard, the scraper and the discovery worker, and
+  opens JobBored when it's ready.
+
+Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet.
+
+### Set up from your phone over Tailscale
+
+With Tailscale Serve forwarding this computer's JobBored dashboard, open
+`https://<this-machine>.<your-tailnet>.ts.net` on a phone signed in to Tailscale
+as the **same user who owns this computer's Tailscale node**. Add that exact
+HTTPS address to your Google OAuth client's authorized JavaScript origins for
+the Google sign-in step. Onboarding and Settings then use this computer's local
+JobBored services through Serve. Other tailnet users cannot use those setup
+controls; if Tailscale is stopped on this computer, start it and reload.
+
 ## Quick Start
 
 Use **Node.js 24.x** with npm 11.x for local scripts and the Browser Use discovery worker. The repo includes `.nvmrc` and `.node-version`. For what works on macOS / Linux / native Windows, see the **[OS support matrix](README.md#os-support)** in the README.
@@ -54,9 +85,7 @@ npm install
 npm start
 ```
 
-Open `http://localhost:8080` and follow the on-screen setup — the login gate
-walks you through Google sign-in, and the first-run wizard connects your Sheet
-and AI provider. No manual Settings edits needed. Discovery worker can be
+Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet. No manual Settings edits needed. Discovery worker can be
 absent; the dashboard remains useful for reading/writing your `Pipeline`
 Sheet. (`npm run web-only` serves the dashboard alone, without the scraper.)
 
@@ -104,45 +133,67 @@ dependencies, worker config, Sheet-read readiness when you provide
 `JOBBORED_DOCTOR_GOOGLE_ACCESS_TOKEN`, and materials folders. Automated form
 submit remains shelved unless Emilio explicitly asks `ASSIST APPLY <company>`.
 
-### 1. Create or copy the starter sheet
+### 1. Create a Google Client ID
 
-Recommended in the app: sign in on the login gate, then let the first-run wizard create a **blank starter sheet** in your own Google Drive with just the `Pipeline` headers.
+Google calls it a Client ID. It takes about 10 minutes, and you only do it
+once. Step 1 of the setup flow shows these same steps, each with a link.
 
-Manual fallback: [Click here to copy →](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
+1. [Create a project](https://console.cloud.google.com/projectcreate) in Google
+   Cloud Console. Any name works.
+2. [Set up the OAuth consent screen](https://console.cloud.google.com/apis/credentials/consent):
+   pick **External**, name the app **JobBored**, and add your email. Under
+   **Audience**, add yourself as a test user.
+3. Under [**Data access**](https://console.cloud.google.com/auth/scopes), add
+   the scope `https://www.googleapis.com/auth/spreadsheets`.
+4. [Enable the Google Sheets API](https://console.cloud.google.com/apis/library/sheets.googleapis.com).
+5. [Create an OAuth client ID](https://console.cloud.google.com/apis/credentials/oauthclient)
+   with application type **Web application**. Under **Authorized JavaScript
+   origins**, add `http://localhost:8080` (and your deployment URL, if you
+   deploy one). Leave redirect URIs empty.
+6. Click **Create** and copy the **Client ID** (it ends in
+   `.apps.googleusercontent.com`).
 
-Google’s make-a-copy flow duplicates **every row that exists in the source template** (including any sample or stale job rows), so that manual fallback may not start blank.
+Google treats `localhost` and `127.0.0.1` as different addresses. Add the one
+in your address bar, or add both.
 
-**Start with an empty Pipeline:** open your copy → **Pipeline** tab → select all rows **below the header** (row 2 downward) → delete.
+When you sign in, Google says **"Google hasn't verified this app"**. It's your
+own app: click **Advanced → Go to JobBored (unsafe)**. If Google shows
+**Error 403: access_denied**, your account isn't a test user yet (step 2).
 
-**Maintainers:** the public template spreadsheet should keep the Pipeline sheet **header-only** (no job rows), so “Copy template” ships empty for everyone.
+**What JobBored asks Google for**
 
-### 2. Create Google OAuth Credentials
+| Permission | Why | When |
+| --- | --- | --- |
+| See, edit, create and delete your Google Sheets (`…/auth/spreadsheets`) | Read and write your Pipeline sheet. Google's permission covers all your sheets; JobBored only opens the sheet it creates or the one you paste. | Always |
+| Your name and email (`userinfo.email`, `userinfo.profile`) | Show who is signed in and greet you by name | Always |
+| Optional: Apps Script webhook (`script.projects`, `script.deployments`, plus the [Apps Script API](https://script.google.com/home/usersettings) turned on) | Deploy the Apps Script discovery stub from the Discovery drawer | Only if you choose that path |
 
-1. Go to [Google Cloud Console](https://console.cloud.google.com/apis/credentials)
-2. Create a new project (or select an existing one)
-3. Enable the **Google Sheets API**:
-   - Go to **APIs & Services → Library**
-   - Search for "Google Sheets API"
-   - Click **Enable**
-4. Configure the OAuth consent screen:
-   - Go to **APIs & Services → OAuth consent screen**
-   - Choose **External** (unless you have a Workspace org)
-   - Fill in app name, support email, and developer email
-   - Add scope: `https://www.googleapis.com/auth/spreadsheets`
-   - Add yourself as a test user (required while app is in "Testing" status)
-5. Create OAuth 2.0 Client ID:
-   - Go to **APIs & Services → Credentials**
-   - Click **Create Credentials → OAuth client ID**
-   - Choose **Web application**
-   - Add your deployment URL to **Authorized JavaScript Origins** (e.g., `https://yourdomain.com`)
-   - For local development, also add `http://localhost:8080` (or whichever port you use)
-   - Copy the **Client ID** (ends in `.apps.googleusercontent.com`)
+### 2. Create or connect your Sheet
+
+- **Create new (recommended):** step 1 of the setup flow creates a sheet named
+  "JobBored Pipeline {date}" in your Google Drive, owned by you, with only the
+  `Pipeline` headers.
+- **Connect existing:** in step 1, choose **Connect an existing sheet
+  instead** and paste its link. It needs a tab named `Pipeline` with the
+  headers below in row 1.
+
+**Blank sheet by hand:** create a new Google Sheet, rename the first tab to
+`Pipeline`, and paste these 25 headers into row 1 (columns A–Y), then connect
+it as an existing sheet:
+
+```text
+Date Found	Title	Company	Location	Link	Source	Salary	Fit Score	Priority	Tags	Fit Assessment	Contact	Status	Applied Date	Notes	Follow-up Date	Talking Points	Last contact	Did they reply?	Logo URL	Match Score	Favorite	Dismissed At	Approval Status	Edit Lock
+```
+
+**Copy the template:** [Make a copy →](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy).
+Google's Make a copy duplicates every row in the template, so delete any rows below the header before you connect it.
 
 ### 3. Finish setup in the dashboard
 
-Open `http://localhost:8080` and follow the on-screen flow. Paste the OAuth
-Client ID and your Sheet URL when prompted; the app stores both in this browser,
-so the normal setup path needs no manual `config.js` edits.
+Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet.
+Paste your Client ID when it asks. Your sign-in lasts for this tab only; your
+Client ID and Sheet link are saved in this browser, so the normal setup path
+needs no manual `config.js` edits.
 
 Your Sheet ID is the long segment in the spreadsheet URL (between `/d/` and `/edit`). You can paste **either** the full URL **or** the ID alone into the dashboard — the app extracts the ID automatically.
 
@@ -257,7 +308,7 @@ The bootstrap exposes your local worker through one of three transports. Pick wi
 
 ### Resume Updater & Cover Letter Writer (optional)
 
-- **First visit:** a **step-by-step onboarding** runs before you can use the dashboard (welcome, upload or paste resume, tone, length, optional voice notes, then confirm). You add **one resume**; writing samples and fields like industries / phrases to avoid are available in **Profile** after setup. Until you finish onboarding, the main UI stays behind the wizard.
+- **First visit:** step 3 of the setup flow asks for your resume (upload a PDF or `.docx`, or paste the text) and drafts your fit profile from it; step 4 has you confirm that profile. You add **one resume**; writing samples, tone and phrases to avoid are in **Profile** after setup.
 - **Profile** (header button) stores that single resume, writing samples, and full preferences in **IndexedDB** in this browser. Replacing the resume overwrites the previous file. Nothing is written to your Google Sheet. If you already had resume data from an older version of the app, you are not forced through onboarding again.
 - Open a job card’s **Details** to use **Draft cover letter** or **Tailor resume**. The app combines the Pipeline row with your resume and samples, then calls your chosen provider. Your chosen AI provider receives resume, profile, and job context for that request. OAuth access tokens live in tab-scoped `sessionStorage`, not process memory-only.
 - In **Profile → AI draft preferences**, choose **Cover letter layout** and **Résumé layout** to steer structure (paragraphs vs bullets, section order, and similar). Those choices are saved in IndexedDB and are merged into the model’s system prompt as “Template requirements,” and appear on webhook payloads as `template`.
@@ -265,7 +316,7 @@ The bootstrap exposes your local worker through one of three transports. Pick wi
 - **Generic AI providers**: use any configured provider. Gemini Flash is the recommended pin from setup/Settings; Local, OpenRouter, OpenAI, Anthropic, and Webhook are alternatives. Drafts run on the local scraper server with the model you picked at setup.
 - **OpenRouter (free tier)**: paste a free key from [https://openrouter.ai/keys](https://openrouter.ai/keys) into `resumeOpenRouterApiKey` (or Settings) — no paid plan needed. The free model `openai/gpt-oss-120b:free` is an option, not the default writer. OpenRouter is CORS-friendly from the browser.
 - **Local**: set `resumeProvider` to `"local"` for a fully offline path. Defaults: `resumeLocalBaseUrl: "http://127.0.0.1:11434/v1"` (Ollama), `resumeLocalModel: "gemma4:e2b"`. Settings also offers `gemma4:e2b-mlx` (Apple Silicon, text-only). `resumeLocalApiKey` is optional — Ollama ignores it; it is only sent as `Authorization` when set. Pull the model first (e.g. `ollama pull gemma4:e2b`) or use the in-app **Download model** control in Settings → Resume.
-- **Gemini**: set `resumeProvider` to `"gemini"` and add an API key from [Google AI Studio](https://aistudio.google.com/) as `resumeGeminiApiKey`. Do not commit real keys to a public repository.
+- **Gemini**: set `resumeProvider` to `"gemini"` and add an API key from [Google AI Studio](https://aistudio.google.com/app/apikey) as `resumeGeminiApiKey`. Do not commit real keys to a public repository.
 - **OpenAI**: set `resumeProvider` to `"openai"` and add `resumeOpenAIApiKey`. **This dashboard runs in the browser** — OpenAI’s API does **not** allow direct `fetch` from web pages (CORS), so cover letter / resume generation will fail with a network error. Use **OpenRouter**, **Gemini**, **Local**, or **Webhook** and call OpenAI from your own server.
 - **Anthropic (Claude)**: same **CORS** limitation as OpenAI for in-browser apps. Use **OpenRouter**, **Gemini**, **Local**, or **Webhook** unless you proxy requests server-side.
 - **Webhook**: set `resumeProvider` to `"webhook"` and `resumeGenerationWebhookUrl` to your HTTPS endpoint. Your server runs the LLM and returns the draft text.

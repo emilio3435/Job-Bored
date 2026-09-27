@@ -851,6 +851,7 @@ async function startDiscoveryStatusPolling(webhookUrl) {
       tracker.updateFromStatusResponse(statusData);
       surfacePreFilterRejectionsFromStatus(statusData);
     }
+    syncDiscoveryLiveProgress();
 
     const updated = tracker.getState();
 
@@ -1182,6 +1183,74 @@ function renderDiscoveryRunStatus() {
       host().showToast(statusMessage, statusTone, sticky, retryAction);
     }
   }
+  syncDiscoveryLiveProgress();
+}
+
+/**
+ * UXD-FE: keep #discoveryBtn honest between toasts. Its label and title carry
+ * the live view's one sentence (phase, count, heartbeat); data-run-health
+ * lets CSS stop the pulse when the worker has gone quiet for too long.
+ * Phase changes and stalls go to the polite live region once each — the
+ * sentence itself changes every poll and must never be announced per poll.
+ */
+let liveProgressAnnounced = { runId: "", phase: "", stalled: false };
+
+function announceLiveProgress(message) {
+  const a11y = window.JobBoredA11y;
+  if (a11y && a11y.live && typeof a11y.live.announce === "function") {
+    a11y.live.announce(message);
+  }
+}
+
+function syncDiscoveryLiveProgress() {
+  const rt = window.JobBoredDiscovery && window.JobBoredDiscovery.runTracker;
+  if (!rt || typeof rt.deriveLiveRunView !== "function") return;
+  const state = runTracker().getState() || {};
+  const view = rt.deriveLiveRunView(state, Date.now());
+  const openBtn = document.getElementById("discoveryBtn");
+  if (view.mode === "hidden") {
+    if (openBtn) {
+      openBtn.removeAttribute("data-run-health");
+      const idleTitle = openBtn.getAttribute("data-idle-title");
+      if (idleTitle !== null) {
+        openBtn.setAttribute("title", idleTitle);
+        openBtn.removeAttribute("data-idle-title");
+      }
+    }
+    liveProgressAnnounced = { runId: "", phase: "", stalled: false };
+    return;
+  }
+  if (openBtn) {
+    openBtn.setAttribute("data-run-health", view.health.key);
+    // Legacy runs (no progress object) keep renderDiscoveryRunStatus's
+    // label: there is nothing truer to say than it already does.
+    if (view.mode === "live") {
+      if (openBtn.getAttribute("data-idle-title") === null) {
+        openBtn.setAttribute("data-idle-title", openBtn.getAttribute("title") || "");
+      }
+      openBtn.setAttribute("aria-label", view.summary);
+      openBtn.setAttribute("title", view.summary);
+    }
+  }
+  const runId = String(state.runId || "");
+  if (liveProgressAnnounced.runId !== runId) {
+    liveProgressAnnounced = { runId, phase: "", stalled: false };
+  }
+  if (view.phaseHeadline && view.phaseKey !== liveProgressAnnounced.phase) {
+    liveProgressAnnounced.phase = view.phaseKey;
+    announceLiveProgress(
+      "Discovery: " + view.phaseHeadline.charAt(0).toLowerCase() + view.phaseHeadline.slice(1) + ".",
+    );
+  }
+  const stalled = view.health.key === "stalled";
+  if (stalled !== liveProgressAnnounced.stalled) {
+    liveProgressAnnounced.stalled = stalled;
+    announceLiveProgress(
+      stalled
+        ? "Discovery: " + view.health.text.charAt(0).toLowerCase() + view.health.text.slice(1)
+        : "Discovery is sending updates again.",
+    );
+  }
 }
 
 /**
@@ -1454,6 +1523,7 @@ function resetPostAccessBootstrap() {
 }
 
   Object.assign(status, {
+    syncDiscoveryLiveProgress,
     isManagedAppsScriptDeployState: isManagedAppsScriptDeployState,
     isAppsScriptPublicAccessReady: isAppsScriptPublicAccessReady,
     getAppsScriptEditorUrl: getAppsScriptEditorUrl,

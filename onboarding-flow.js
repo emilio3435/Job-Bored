@@ -55,6 +55,9 @@
    */
   const BEAT_PREREQS = Object.freeze({
     resume: ["ai"],
+    // GFX R4: discovery scores every job against the fit profile, so a cold
+    // ?beat=discovery (or jobbored://open?beat=discovery) lands on Beat 4.
+    discovery: ["fit"],
     payoff: ["google"],
   });
 
@@ -62,6 +65,7 @@
   const GATE_NOTES = Object.freeze({
     ai: "Connect an AI provider first \u2014 your resume is drafted with it.",
     google: "Connect Google first \u2014 your board lives in that Sheet.",
+    fit: "Set your fit profile first \u2014 discovery scores every job against it.",
   });
 
   /** Spoken when a deep link (§4.1 returnTo) closes where it opened. */
@@ -588,12 +592,56 @@
   }
 
   /**
+   * GFX D2 / R11: is this page served from somewhere other than this
+   * computer (the hosted site, a file:// copy)? Such a page gets the
+   * route-to-local screen instead of Beat 1 and writes no onboarding state.
+   * Harnesses and partial boots with no readable address are not hosted —
+   * only a page whose hostname is known and non-loopback is.
+   */
+  async function hostedPage() {
+    const ls = window.JobBoredLocalServer;
+    if (!ls || typeof ls.inspectLocalControlPage !== "function") return { hosted: false };
+    let loc = null;
+    try {
+      loc = window.location || null;
+    } catch (e) {
+      return { hosted: false };
+    }
+    if (!loc) return { hosted: false };
+    if (String(loc.protocol || "") === "file:") return { hosted: true };
+    let hostname = asString(loc.hostname);
+    if (!hostname && loc.origin) {
+      try {
+        hostname = new URL(String(loc.origin)).hostname;
+      } catch (e) {
+        hostname = "";
+      }
+    }
+    if (!hostname) return { hosted: false };
+    const result = await ls.inspectLocalControlPage({
+      hostname,
+      protocol: String(loc.protocol || ""),
+    });
+    return { hosted: !result.trusted, reason: result.reason };
+  }
+
+  /** Paint the route-to-local screen; null when it is not loaded. */
+  function showRouteToLocal(reason) {
+    const screen = window.JobBoredOneFlowRouteLocal;
+    if (!screen || typeof screen.show !== "function") return null;
+    return screen.show({ mountId: MOUNT_ID, tailnetFailure: reason });
+  }
+
+  /**
    * Should the one-flow run for this profile? Resolves false for anyone
    * who already finished setup under the legacy chain (or under this
    * flow), recording the completion so the question is only asked once.
    * Renders nothing either way.
    */
   async function maybeStart() {
+    // D2: a hosted page always "starts" — open() shows it the route to
+    // JobBored on this computer — and never reads or writes flow state.
+    if ((await hostedPage()).hosted) return true;
     await hydrate();
     // Only a host that CAN answer "no sheet" makes a completion stale.
     const stale = sheetConfigured() === false;
@@ -816,11 +864,159 @@
     return first ? first.id : "";
   }
 
+  // ---------------------------------------------------------------
+  // Deep links (?beat=<id>[&returnTo=close]) — the B5 handoff back in
+  // ---------------------------------------------------------------
+
+  /**
+   * The query string as [key, value] pairs, form-decoded. Hand-rolled
+   * instead of URLSearchParams: the controller also loads in runtimes
+   * without it (the vm harnesses), and the deep link must parse there too.
+   * Never throws; never logs the URL (§4.1 — only beat/returnTo are read,
+   * and the key must never appear in a query string).
+   */
+  function readQueryPairs() {
+    try {
+      const loc = window.location;
+      if (!loc || typeof loc.search !== "string" || !loc.search) return [];
+      const query =
+        loc.search.charAt(0) === "?" ? loc.search.slice(1) : loc.search;
+      if (!query) return [];
+      return query.split("&").map((part) => {
+        const eq = part.indexOf("=");
+        const rawKey = eq < 0 ? part : part.slice(0, eq);
+        const rawVal = eq < 0 ? "" : part.slice(eq + 1);
+        let key = rawKey;
+        let value = rawVal;
+        try {
+          key = decodeURIComponent(rawKey.replace(/\+/g, " "));
+        } catch (_) {
+          // A malformed escape keeps its raw text; it still won't match.
+        }
+        try {
+          value = decodeURIComponent(rawVal.replace(/\+/g, " "));
+        } catch (_) {
+          // Same: an undecodable value never validates as a beat id.
+        }
+        return [key, value];
+      });
+    } catch (_) {
+      return [];
+    }
+  }
+
+  /**
+   * The deep link on this load, or null when no beat/returnTo key is
+   * present. `beat` is the raw ask — validation against the registry
+   * happens in openFromDeepLink, never here.
+   */
+  function parseBeatDeepLink() {
+    const pairs = readQueryPairs();
+    if (!pairs.length) return null;
+    let beat = "";
+    let returnTo = "";
+    let present = false;
+    for (const [key, value] of pairs) {
+      if (key === "beat") {
+        present = true;
+        if (!beat) beat = String(value == null ? "" : value).trim();
+      } else if (key === "returnTo") {
+        present = true;
+        if (!returnTo) returnTo = String(value == null ? "" : value).trim();
+      }
+    }
+    if (!present) return null;
+    return { beat, returnTo };
+  }
+
+  /**
+   * Consume-and-strip the deep-link keys after routing, mirroring the
+   * ?setup=discovery handoff's strip: beat/returnTo go, every other key
+   * (?setup, ?sheet, ?flow, …) stays by value. Never logs the URL.
+   */
+  function stripBeatDeepLinkParams() {
+    let loc = null;
+    try {
+      loc = window.location;
+    } catch (_) {
+      return;
+    }
+    if (!loc || typeof loc.search !== "string") return;
+    const pairs = readQueryPairs();
+    if (!pairs.some(([key]) => key === "beat" || key === "returnTo")) return;
+    let hist = null;
+    try {
+      hist = window.history;
+    } catch (_) {
+      return;
+    }
+    if (!hist || typeof hist.replaceState !== "function") return;
+    const kept = pairs.filter(([key]) => key !== "beat" && key !== "returnTo");
+    const q = kept
+      .map(([key, value]) => `${encodeURIComponent(key)}=${encodeURIComponent(value)}`)
+      .join("&");
+    let pathname = "";
+    let hash = "";
+    try {
+      pathname = loc.pathname || "";
+      hash = loc.hash || "";
+    } catch (_) {
+      // A location that won't name its path keeps the stripped query off it.
+    }
+    try {
+      hist.replaceState(null, "", pathname + (q ? "?" + q : "") + hash);
+    } catch (_) {
+      // The URL stays as-is; the link simply won't re-trigger.
+    }
+  }
+
+  /**
+   * Open the flow at the deep-linked beat, if this load carries one.
+   * Unknown beat ids are ignored (boot normally, no error UI — an unknown
+   * param is not a user error), and an already-open flow is never yanked.
+   * returnTo=close is honored exactly like the Settings handoff: the shell
+   * closes where the link opened it. Answers the render, or null when there
+   * was nothing to route.
+   *
+   * GFX-N5: start.sh opens ?beat=discovery on every interactive launch, so a
+   * user who already finished onboarding must not be marched back into it.
+   * A completed flow (after the stale-completion check, so a flow with no
+   * sheet still reopens) consumes and strips the link and routes nothing.
+   */
+  async function openFromDeepLink() {
+    const deep = parseBeatDeepLink();
+    if (!deep) return null;
+    await hydrate(true);
+    await reconcileStaleCompletion();
+    if (state.completed) {
+      stripBeatDeepLinkParams();
+      return null;
+    }
+    const valid =
+      deep.beat &&
+      getRegisteredBeats().some((beat) => beat.id === deep.beat)
+        ? deep.beat
+        : "";
+    if (!valid || isOpen()) {
+      stripBeatDeepLinkParams();
+      return null;
+    }
+    const rendered = await open(
+      valid,
+      deep.returnTo === "close" ? { returnTo: "close" } : undefined,
+    );
+    stripBeatDeepLinkParams();
+    return rendered;
+  }
+
   /**
    * Open the flow. With no argument this RESUMES: the saved beat wins, so
    * a refresh or a re-entry from the S0 card never restarts the deal.
    */
   async function open(beatId, options) {
+    // D2 / R11: before ANY beat, and before anything below writes state.
+    const page = await hostedPage();
+    if (page.hosted) return showRouteToLocal(page.reason);
     // S0 reads once to label its invitation, but state may have changed in
     // storage since that paint (for example, another entry point saved a
     // beat). Re-read on entry so the saved target and its gate use current
@@ -1068,6 +1264,7 @@
     readDraftMirror,
     maybeStart,
     open,
+    openFromDeepLink,
     goToBeat,
     completeBeat,
     skipBeat,
@@ -1078,4 +1275,30 @@
     revealRealBoard,
     resumeLabel,
   });
+
+  // B5 deep-link boot (?beat=<id>[&returnTo=close]): a cold load lands on
+  // the named beat through the registered chain. Deferred scripts — every
+  // beat — run before DOMContentLoaded, so the registry is complete here;
+  // without the param this is a no-op, and an open flow is never yanked.
+  // No index.html change: the controller boots its own param.
+  try {
+    if (
+      typeof document !== "undefined" &&
+      document &&
+      typeof document.addEventListener === "function"
+    ) {
+      document.addEventListener("DOMContentLoaded", () => {
+        try {
+          const pending = openFromDeepLink();
+          if (pending && typeof pending.catch === "function") {
+            pending.catch(() => {});
+          }
+        } catch (_) {
+          // The deep link is best-effort; normal boot continues.
+        }
+      });
+    }
+  } catch (_) {
+    // Non-DOM runtimes boot without deep links.
+  }
 })();

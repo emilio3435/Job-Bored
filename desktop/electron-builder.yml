@@ -1,0 +1,85 @@
+# JobBored for Mac (GFX DESK-A, R20/R24). Local builds are UNSIGNED:
+#   npm run dist:unsigned   (CSC_IDENTITY_AUTO_DISCOVERY=false)
+# Signing and notarization happen only in CI with Emilio's secrets (D10,
+# DESK-D); nothing here names an identity.
+appId: app.elioai.jobbored
+productName: JobBored
+copyright: Copyright © 2026 Elio AI LLC
+
+directories:
+  output: dist
+  buildResources: build
+
+# The Electron app itself: main process modules only.
+files:
+  - package.json
+  - "*.mjs"
+  - "!test/**"
+  - "!scripts/**"
+  - "!app-bundle/**"
+  - "!dist/**"
+
+# The read-only JobBored app the three servers run from (scripts/stage.mjs).
+# Outside the asar: children run it with Electron-as-Node (SPIKE S1).
+extraResources:
+  - from: app-bundle
+    to: app-bundle
+    filter:
+      - "**/*"
+  # electron-builder always drops the top-level node_modules of a copy
+  # source (app-builder-lib util/filter.js), so the worker's deps (zod, ajv,
+  # browser-use-sdk) need their own entry. server/node_modules is nested and
+  # survives the first one.
+  - from: app-bundle/node_modules
+    to: app-bundle/node_modules
+    filter:
+      - "**/*"
+
+asar: true
+
+protocols:
+  - name: JobBored
+    schemes:
+      - jobbored
+
+mac:
+  target:
+    - target: dmg
+      arch: universal
+    - target: zip
+      arch: universal
+  category: public.app-category.productivity
+  hardenedRuntime: true
+  gatekeeperAssess: false
+  entitlements: entitlements.mac.plist
+  entitlementsInherit: entitlements.mac.plist
+  # Menu-bar only: no Dock icon.
+  extendInfo:
+    LSUIElement: true
+  # app-bundle is identical JS in both slices; no Mach-O inside to lipo.
+  x64ArchFiles: "Contents/Resources/app-bundle/**"
+
+dmg:
+  writeUpdateInfo: false
+
+# RunAsNode stays ON: the children are this binary under
+# ELECTRON_RUN_AS_NODE=1 (S1). See SECURITY.md for the tradeoff.
+electronFuses:
+  runAsNode: true
+  enableCookieEncryption: true
+  enableNodeOptionsEnvironmentVariable: false
+  enableNodeCliInspectArguments: false
+  enableEmbeddedAsarIntegrityValidation: true
+  onlyLoadAppFromAsar: true
+  grantFileProtocolExtraPrivileges: false
+  # Flipping fuses rewrites Electron Framework; on Apple Silicon an unsigned
+  # local build is killed at launch unless its ad-hoc signature is redone.
+  # No identity is involved; CI's real signing replaces it.
+  resetAdHocDarwinSignature: true
+
+# Embeds app-update.yml for electron-updater (D11). `--publish never` in
+# every local build; CI drafts releases, Emilio publishes.
+publish:
+  provider: github
+  owner: emilio3435
+  repo: jobbored-desktop

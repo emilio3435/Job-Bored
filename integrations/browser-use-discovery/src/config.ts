@@ -806,23 +806,13 @@ function mergeRuntimeEnvWithDotEnv(env: RuntimeEnv): RuntimeEnv {
   const envFilePath = resolveRuntimeEnvFilePath(env);
   if (!envFilePath) return env;
 
-  const parsed = readRuntimeEnvFile(envFilePath, {
-    required: hasExplicitRuntimeEnvFile(env),
-  });
+  const parsed = readRuntimeEnvFile(envFilePath);
   if (!parsed) return env;
 
   return {
     ...parsed,
     ...env,
   };
-}
-
-function hasExplicitRuntimeEnvFile(env: RuntimeEnv): boolean {
-  return !!readFirst(env, [
-    "BROWSER_USE_DISCOVERY_WORKER_ENV",
-    "BROWSER_USE_DISCOVERY_ENV_FILE",
-    "DISCOVERY_ENV_FILE",
-  ]);
 }
 
 function resolveRuntimeEnvFilePath(env: RuntimeEnv): string {
@@ -837,22 +827,18 @@ function resolveRuntimeEnvFilePath(env: RuntimeEnv): string {
   return env === process.env ? defaultRuntimeEnvFilePath : "";
 }
 
-function readRuntimeEnvFile(
-  pathname: string,
-  options: { required?: boolean } = {},
-): RuntimeEnv | null {
+// R24 F1: a missing env file — even an explicitly named one — is an empty
+// file. The desktop app and a greenfield install point at ~/.jobbored/...
+// before anything has written it, and the worker must still boot. A file
+// that exists but cannot be read (permissions, a directory) stays fatal.
+function readRuntimeEnvFile(pathname: string): RuntimeEnv | null {
   if (!pathname) return null;
-  if (!existsSync(pathname)) {
-    if (options.required) {
-      throw new Error(`Runtime env file does not exist at ${pathname}.`);
-    }
-    return null;
-  }
+  if (!existsSync(pathname)) return null;
   try {
     return parseRuntimeEnvFile(readFileSync(pathname, "utf8"));
   } catch (error) {
     throw new Error(
-      `Failed to read runtime env file at ${pathname}: ${formatError(error)}`,
+      `Runtime env file at ${pathname} exists but could not be read: ${formatError(error)}. Check its permissions.`,
     );
   }
 }

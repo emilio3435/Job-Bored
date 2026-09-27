@@ -366,10 +366,9 @@ describe("openrouter config wiring across files", () => {
     assert.match(configExampleJs, /resumeProvider:\s*"gemini"/);
     assert.match(configExampleJs, /resumeGeminiModel:\s*"gemini-flash"/);
     assert.match(configExampleJs, /resumeOpenRouterApiKey:\s*""/);
-    assert.match(
-      configExampleJs,
-      /resumeOpenRouterModel:\s*"openai\/gpt-oss-120b:free"/,
-    );
+    // N-B2-2: empty, so the app's catalog default applies (a pinned model
+    // here overrode it for every greenfield config.js).
+    assert.match(configExampleJs, /resumeOpenRouterModel:\s*""/);
     assert.match(
       configExampleJs,
       /resumeOpenRouterBaseUrl:\s*"https:\/\/openrouter\.ai\/api\/v1"/,

@@ -29,6 +29,9 @@ function makeFetch({ check, envOk = true, bootOk = true } = {}) {
     check === undefined ? { ok: true, plan: "Free", searchesLeft: 97 } : check;
   return async (url) => {
     const u = String(url);
+    if (u.includes("__proxy/ping")) {
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
+    }
     if (u.includes("serpapi-check")) {
       return { ok: true, status: 200, json: async () => answer };
     }
@@ -145,8 +148,9 @@ describe("SIXBEATS2 NEW-3 · the fuel check contacts SerpApi before it claims an
       }),
     );
     const text = messageOf(env).textContent;
-    assert.match(text, /Couldn't reach SerpApi/);
-    assert.match(text, /internet connection/, "the next action is not 'retype your key'");
+    // GFX FE-B5 (S9): the frozen `unreachable` copy.
+    assert.match(text, /SerpApi didn't answer/);
+    assert.match(text, /check your internet/, "the next action is not 'retype your key'");
     assert.doesNotMatch(text, /didn't recognise/);
   });
 
@@ -161,7 +165,7 @@ describe("SIXBEATS2 NEW-3 · the fuel check contacts SerpApi before it claims an
     );
     assert.match(
       messageOf(env).textContent,
-      /local server/,
+      /JobBored server on this computer/,
       "a dead dev-server is a different problem from a dead key",
     );
   });

@@ -125,7 +125,7 @@ describe("E4 every API fetch site routes through apiFetch", () => {
     ["fit-profile-editor.js", 'apiFetch(profileApiPath("/api/brand-logos")'],
     ["fit-profile-editor.js", 'apiFetch(profileApiPath("/api/brand-logos/resolve")'],
     ["fit-profile-editor.js", 'apiFetch(profileApiPath("/api/brand-logos/"'],
-    ["oneflow-beat-fit.js", "apiFetch(profileUrl()"],
+    ["fit-profile-sync.js", "return apiFetch(url, init)"],
     ["settings-modal.js", 'apiFetch(jobBoredApiUrl + "/api/llm-config"'],
     ["discovery-drawer.js", 'apiFetch(profileApiPath("/profile")'],
     ["discovery-drawer.js", "apiFetch(`${base}/api/scrape-job`"],

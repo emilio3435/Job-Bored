@@ -1,4 +1,5 @@
 import { spawn } from "node:child_process";
+import { existsSync } from "node:fs";
 
 import type {
   BrowserUseSessionRequest,
@@ -60,6 +61,25 @@ export function createBrowserUseSessionManager(
   };
 }
 
+/**
+ * `browserUseCommand` is a shell command line (users set things like
+ * `browser-use --headless`). When the whole value is an existing file, it is
+ * one path: quote it so a HOME or app folder with a space still runs it
+ * (GFX R18). Anything else, including the pre-quoted line the desktop app
+ * builds, goes to the shell unchanged.
+ */
+export function browserCommandShellLine(
+  command: string,
+  fileExists: (path: string) => boolean = existsSync,
+  platform: NodeJS.Platform = process.platform,
+): string {
+  const value = String(command || "").trim();
+  if (!value || !/[\s'"$`\\&;|<>()]/.test(value) || !fileExists(value)) return value;
+  // cmd.exe has no single quotes; a Windows path cannot contain `"`.
+  if (platform === "win32") return `"${value}"`;
+  return `'${value.replaceAll("'", `'\\''`)}'`;
+}
+
 async function runCommandSession(
   command: string,
   request: BrowserUseSessionRequest,
@@ -76,7 +96,7 @@ async function runCommandSession(
         reject(createAbortError());
         return;
       }
-      const child = spawn(command, [], {
+      const child = spawn(browserCommandShellLine(command), [], {
         shell: true,
         stdio: ["pipe", "pipe", "pipe"],
       });

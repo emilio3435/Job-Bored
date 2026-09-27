@@ -6,13 +6,12 @@ import net from "node:net";
 import { join, resolve } from "node:path";
 import vm from "node:vm";
 import { fileURLToPath } from "node:url";
-import { displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
+import { bootstrapStatePath, dashboardConfigPath, displayPath, resolveJobBoredPaths } from "./lib/paths.mjs";
 import { resolveLayeredEnvSources } from "./lib/env-file-merge.mjs";
 
 const REPO_ROOT = resolve(fileURLToPath(new URL("..", import.meta.url)));
 const REQUIRED_NODE_MAJOR = 24;
 const PIPELINE_SCHEMA_PATH = "schemas/pipeline-row.v1.json";
-const CONFIG_PATH = "config.js";
 const CONFIG_EXAMPLE_PATH = "config.example.js";
 const WORKER_ENV_PATH = "integrations/browser-use-discovery/.env";
 const INTEGRATION_LOCK_PATH = "integrations/browser-use-discovery/package-lock.json";
@@ -117,17 +116,18 @@ function readConfigObject(source) {
   return config && typeof config === "object" ? config : {};
 }
 
-async function loadConfig(repoRoot) {
-  const configPath = join(repoRoot, CONFIG_PATH);
-  const path = existsSync(configPath) ? CONFIG_PATH : CONFIG_EXAMPLE_PATH;
-  const source = await readTextIfExists(repoRoot, path);
+async function loadConfig(repoRoot, env = process.env) {
+  const configPath = dashboardConfigPath({ env, repoRoot });
+  const exists = existsSync(configPath);
+  const path = exists ? configPath : join(repoRoot, CONFIG_EXAMPLE_PATH);
+  const source = existsSync(path) ? await readFile(path, "utf8") : "";
   if (!source) return { path, exists: false, config: {} };
   try {
-    return { path, exists: path === CONFIG_PATH, config: readConfigObject(source) };
+    return { path, exists, config: readConfigObject(source) };
   } catch (error) {
     return {
       path,
-      exists: path === CONFIG_PATH,
+      exists,
       config: {},
       error: error && error.message ? error.message : String(error),
     };
@@ -674,7 +674,7 @@ async function runDoctor(options = {}) {
   checks.push(...(await collectWorkerEnvSourceChecks(repoRoot, env, paths)));
   checks.push(...(await collectTrackedConfigChecks(repoRoot, spawnSyncImpl)));
 
-  const config = await loadConfig(repoRoot);
+  const config = await loadConfig(repoRoot, env);
   if (config.error) {
     checks.push(check("fail", "config.js", `Could not parse ${config.path}: ${config.error}`));
   } else if (config.exists) {
@@ -861,7 +861,10 @@ async function runDoctor(options = {}) {
     );
   }
 
-  const bootstrapState = await readTextIfExists(repoRoot, "discovery-local-bootstrap.json");
+  const bootstrapStateFile = bootstrapStatePath({ env, repoRoot });
+  const bootstrapState = existsSync(bootstrapStateFile)
+    ? await readFile(bootstrapStateFile, "utf8")
+    : "";
   if (bootstrapState) {
     try {
       const parsed = JSON.parse(bootstrapState);
@@ -945,4 +948,4 @@ if (process.argv[1] && resolve(process.argv[1]) === fileURLToPath(import.meta.ur
   }
 }
 
-export { formatDoctorReport, runDoctor };
+export { formatDoctorReport, loadConfig, runDoctor };

@@ -107,8 +107,18 @@ export default [
       // tracked from before the ignore rule — don't lint throwaways.
       "tmp/**",
       ".lane-evidence/**",
+      // GFX-X2: nested git worktrees and Muse lane state are other
+      // checkouts, not this one — linting them fails lint:repo on code
+      // this tree does not own.
+      ".worktrees/**",
+      ".muse/**",
       // Workflow-tool scripts: a top-level `return` is legal in that runner, not in ESM.
       "docs/programs/**/*.workflow.js",
+      // GFX DESK-A: the desktop app's staged bundle and build output are
+      // generated copies; desktop/*.mjs itself is linted as Node ESM below.
+      "desktop/app-bundle/**",
+      "desktop/dist/**",
+      "desktop/node_modules/**",
     ],
   },
   {

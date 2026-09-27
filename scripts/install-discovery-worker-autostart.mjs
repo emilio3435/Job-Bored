@@ -20,6 +20,7 @@ import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { homedir, platform as osPlatform } from "node:os";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
+import { bootstrapStatePath } from "./lib/paths.mjs";
 
 export const WORKER_AUTOSTART_LABEL = "ai.jobbored.discovery.worker";
 export const DEFAULT_WORKER_PORT = "8644";
@@ -30,12 +31,13 @@ const defaultRepoRoot = resolve(__dirname, "..");
 export function getWorkerAutostartPaths({
   homeDir = homedir(),
   repoRoot = defaultRepoRoot,
+  env = process.env,
 } = {}) {
   const jobboredDir = join(homeDir, ".jobbored");
   return {
     repoRoot,
     scriptPath: join(repoRoot, "scripts", "start-discovery-worker-local.mjs"),
-    bootstrapStatePath: join(repoRoot, "discovery-local-bootstrap.json"),
+    bootstrapStatePath: bootstrapStatePath({ env, repoRoot }),
     logPath: join(jobboredDir, "logs", "discovery-worker.log"),
     launchAgentDir: join(homeDir, "Library", "LaunchAgents"),
     launchAgentPath: join(

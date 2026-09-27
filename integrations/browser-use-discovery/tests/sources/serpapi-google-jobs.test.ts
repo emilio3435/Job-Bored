@@ -228,6 +228,7 @@ test("collectSerpApiGoogleJobsListings skips gracefully when API key is unset", 
 
 test("collectSerpApiGoogleJobsListings surfaces HTTP failures as warnings without throwing", async () => {
   const logSink: Array<[string, Record<string, unknown>]> = [];
+  const queryProgress: Array<{ state: string; done: number; total: number }> = [];
   const result = await collectSerpApiGoogleJobsListings({
     profile: {
       targetRoles: ["Designer"],
@@ -237,11 +238,13 @@ test("collectSerpApiGoogleJobsListings surfaces HTTP failures as warnings withou
     runtimeConfig: makeRuntimeConfig(),
     fetchImpl: fetchReturning({}, { status: 429 }),
     log: (event, details) => logSink.push([event, details]),
+    onQueryProgress: (progress) => queryProgress.push(progress),
   });
   assert.deepEqual(result.listings, []);
   assert.ok(result.stats.queryCount >= 1);
   assert.equal(result.stats.httpFailureCount, result.stats.queryCount);
   assert.equal(result.warnings.length, result.stats.queryCount);
+  assert.equal(queryProgress.at(-1)?.done, result.stats.queryCount);
   assert.ok(result.warnings.every((warning) => warning === "http_429"));
   assert.ok(
     logSink.some(([event]) => event === "discovery.run.serpapi_google_jobs_query_failed"),
@@ -250,6 +253,7 @@ test("collectSerpApiGoogleJobsListings surfaces HTTP failures as warnings withou
 });
 
 test("collectSerpApiGoogleJobsListings handles empty jobs_results with no warnings", async () => {
+  const queryProgress: Array<{ state: string; done: number; total: number }> = [];
   const result = await collectSerpApiGoogleJobsListings({
     profile: {
       targetRoles: ["Engineer"],
@@ -258,6 +262,7 @@ test("collectSerpApiGoogleJobsListings handles empty jobs_results with no warnin
     },
     runtimeConfig: makeRuntimeConfig(),
     fetchImpl: fetchReturning({ jobs_results: [] }),
+    onQueryProgress: (progress) => queryProgress.push(progress),
   });
   assert.deepEqual(result.listings, []);
   assert.deepEqual(result.warnings, []);
@@ -265,6 +270,8 @@ test("collectSerpApiGoogleJobsListings handles empty jobs_results with no warnin
   // broadening ladder, so the count increases from the original 1.
   assert.ok(result.stats.queryCount >= 1, `Expected >= 1 query, got ${result.stats.queryCount}`);
   assert.equal(result.stats.httpFailureCount, 0);
+  assert.equal(queryProgress.at(-1)?.done, result.stats.queryCount);
+  assert.equal(queryProgress.at(-1)?.total, result.stats.queryCount);
 });
 
 test("collectSerpApiGoogleJobsListings broadens no-location role queries to avoid zero-result dead ends", async () => {

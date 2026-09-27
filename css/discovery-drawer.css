@@ -463,3 +463,22 @@
   font-size: var(--text-xs);
   color: var(--text-muted);
 }
+
+/* Live run card (UXD-FE): shown above the form when the drawer is reopened
+   mid-run. Component styles live with the Runs block in runs-log.css. */
+.dp-live-run {
+  margin: var(--jb-space-4) var(--jb-space-4) 0;
+  padding: var(--jb-space-4);
+  border: 1px solid var(--jb-line);
+  border-radius: var(--jb-radius-md);
+  background: var(--jb-paper-2);
+}
+
+.dp-live-run[hidden] {
+  display: none;
+}
+
+.dp-live-run:has(.jb-live-run[data-health="stalled"]) {
+  border-color: var(--jb-warn);
+  background: var(--jb-warn-tint);
+}

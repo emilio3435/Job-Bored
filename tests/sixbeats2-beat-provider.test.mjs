@@ -88,28 +88,29 @@ async function openResume(options = {}) {
   return env;
 }
 
-describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () => {
-  it("lists OpenRouter first and pre-selects it", async () => {
+// GFX §0 D3 (locked) supersedes NEW-11: Gemini is first and pre-selected.
+describe("GFX D3 — Beat 2 recommends Gemini (supersedes SIXBEATS-2 NEW-11)", () => {
+  it("lists Gemini first and pre-selects it", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
     const providers = env
       .mount()
       .querySelectorAll("[data-provider]")
       .map((el) => el.dataset.provider);
-    assert.deepEqual(providers, ["openrouter", "gemini", "openai", "anthropic", "local"]);
+    assert.deepEqual(providers, ["gemini", "openrouter", "openai", "anthropic", "local"]);
     assert.equal(
-      env.mount().querySelector('[data-provider="openrouter"]').dataset.selected,
+      env.mount().querySelector('[data-provider="gemini"]').dataset.selected,
       "true",
     );
-    assert.equal(env.beats.ai.getSelectedProvider(), "openrouter");
+    assert.equal(env.beats.ai.getSelectedProvider(), "gemini");
   });
 
-  it("puts `Recommended` on the OpenRouter card and nowhere else", async () => {
+  it("puts `Recommended` on the Gemini card and nowhere else", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
     const cardFor = (id) => env.mount().querySelector(`[data-provider="${id}"]`).textContent;
-    assert.match(cardFor("openrouter"), /Recommended/);
-    for (const id of ["gemini", "openai", "anthropic", "local"]) {
+    assert.match(cardFor("gemini"), /Recommended/);
+    for (const id of ["openrouter", "openai", "anthropic", "local"]) {
       assert.equal(
         /Recommended/.test(cardFor(id)),
         false,
@@ -118,7 +119,7 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
     }
   });
 
-  it("names OpenRouter's paid default in the B2 sub-line", async () => {
+  it("names the free Gemini key in the B2 sub-line", async () => {
     const env = loadArrival({});
     await env.flow.open("ai");
     assert.ok(
@@ -126,8 +127,7 @@ describe("SIXBEATS-2 NEW-11 — Beat 2 recommends OpenRouter (spec §5 B2)", () 
         "One AI key powers everything personal here: it drafts your fit " +
           "profile from your resume on the next screen, scores every job " +
           "discovery finds, and writes your tailored resumes and cover " +
-          "letters. An OpenRouter account takes about two minutes; the " +
-          "recommended model uses paid credit.",
+          "letters. A free Gemini key takes about two minutes.",
       ),
     );
   });
@@ -159,6 +159,8 @@ describe("SIXBEATS-2 NEW-8 — Beat 2 defaults Gemini to the Flash family", () =
     env.mount().querySelector('[data-provider="gemini"]').dispatch("click");
     env.mount().querySelector("#oneFlowAiKeyInput").value = "AIzaSyTestKeyValue1234567";
     await env.beats.ai.handleAction("ai_check");
+    // GFX B2-4: the pin waits for "Save it".
+    await env.beats.ai.handleAction("ai_consent_save");
     const pin = env.fetchImpl.calls.find((c) => c.url.includes("/api/llm-config"));
     assert.ok(pin, "the beat pins the verified provider server-side");
     assert.equal(pin.body.model, "gemini-flash");

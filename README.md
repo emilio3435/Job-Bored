@@ -23,6 +23,18 @@ JobBored is a local-first job-search dashboard: track your pipeline in your own
 Google Sheet, draft tailored resumes/cover letters, and optionally run automated
 job discovery.
 
+**Get JobBored**
+
+JobBored runs on your computer; the hosted website only points you here.
+
+- **Mac:** [Download JobBored for Mac](https://github.com/emilio3435/jobbored-desktop/releases/latest)
+  (until the first app release is published, use the command below).
+- **Windows, Linux, or from source:**
+  `git clone https://github.com/emilio3435/Job-Bored.git && cd Job-Bored && ./start.sh`
+  (on a Mac, double-click `start.command` instead).
+
+Full details: [SETUP.md → Get JobBored](SETUP.md#get-jobbored).
+
 **Prerequisites**
 
 - **Node.js 24.x** and **npm 11.x** (see `.nvmrc` / `.node-version`). With nvm:
@@ -38,10 +50,9 @@ npm install   # installs dashboard + server deps
 npm start     # dashboard + job scraper → http://localhost:8080
 ```
 
-Then open **http://localhost:8080** and follow the on-screen setup — the
-**login gate** walks you through Google sign-in (including a guided path to
-create an OAuth Client ID if you don't have one), and the **first-run wizard**
-connects your Sheet and AI provider. No manual Settings edits needed.
+Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet.
+It walks you through making a Google Client ID if you don't have one. No manual
+Settings edits needed.
 
 Two variants of the start command:
 
@@ -177,22 +188,26 @@ For **static hosting only** without Fetch posting, deploy the files as usual; th
 
 ## Setup reference
 
-The login gate and first-run wizard do all of this in-app — these sections are
-the manual reference for what they set up (and for deploying beyond localhost).
+The setup flow does all of this in-app — these sections are the manual
+reference for what it sets up (and for deploying beyond localhost).
+Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet.
 
 ### 1. Create or copy a starter Google Sheet
 
-Recommended in the app: sign in on the login gate, then let the **first-run
-wizard** create a **blank starter sheet** in your own Google Drive with just the
-required `Pipeline` headers (or paste the ID of a sheet you already have).
+- **Create new (recommended):** step 1 of the setup flow creates a sheet named
+  "JobBored Pipeline {date}" in your Google Drive with only the `Pipeline`
+  headers.
+- **Connect existing:** in step 1, choose **Connect an existing sheet instead**
+  and paste its link. It needs a `Pipeline` tab; the 25 headers are listed in
+  [SETUP.md](SETUP.md#2-create-or-connect-your-sheet).
 
 Manual fallback: [**→ Copy Template Sheet**](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
 
-Google’s make-a-copy flow duplicates **every row** in the source template. If you use that fallback and see sample jobs, open the **Pipeline** tab and delete all rows **below the header** to start blank.
+Google's Make a copy duplicates every row in the template, so delete any rows below the header before you connect it.
 
 After copying:
 
-- **Recommended:** sign in with Google on the login gate — your sheet can stay **private**; the dashboard reads it via the Sheets API (no publish step).
+- **Recommended:** sign in with Google in step 1 of the setup flow — your sheet can stay **private**; the dashboard reads it via the Sheets API (no publish step).
 - **Alternative (no OAuth):** publish or share the sheet for public read — **File → Publish to web**, or **Share → Anyone with the link can view**
 
 ### 2. Create Google OAuth credentials
@@ -250,11 +265,11 @@ folder into Netlify leaves the partial-backed dialogs and wizards out of the pag
 #### Just open it locally
 
 The dashboard is composed at request time from HTML partials under
-`partials/` (first-run wizard, discovery drawer, settings modal, etc.) via
+`partials/` (setup flow, discovery drawer, settings modal, etc.) via
 `<!-- @include -->` directives. Only the bundled dev server expands those
 includes — `file://` (`open index.html`) and naive static servers like
 `python3 -m http.server` do **not**, so the page renders half-empty and the
-first-run wizard never appears. Always start the dev server:
+setup flow never appears. Always start the dev server:
 
 ```bash
 # Clone and run
@@ -268,14 +283,14 @@ npm start              # → http://localhost:8080  (dashboard + scraper)
 
 No-Node fallback: `python3 -m http.server 8080` is fine for browsing the
 markup, but it does **not** expand the `<!-- @include -->` partials, so the
-first-run wizard, discovery drawer, and settings modal will be missing. Use
+setup flow, discovery drawer, and settings modal will be missing. Use
 `npm start` (or `npm run dev` / `npm run web-only`) for a working full
 dashboard.
 
 ### Manual / advanced configuration
 
-You normally don't need any of this — the login gate and first-run wizard
-collect the same values in-app and store them in this browser. Use a `config.js`
+You normally don't need any of this — the setup flow collects the same values
+in-app and stores them in this browser. Use a `config.js`
 file when you want credentials baked into a deployment (e.g. a private fork on
 GitHub Pages) or want to preconfigure advanced keys.
 

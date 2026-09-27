@@ -175,6 +175,12 @@ override the default as the project grows. If you're adding a new
 top-level directory or major subsystem, propose a CODEOWNERS update in
 the same PR.
 
+### Public template sheet
+
+The template linked from SETUP.md ("Make a copy") must keep its `Pipeline`
+tab **header-only**, with no job rows. Google's Make a copy duplicates every
+row, so any row left in the template lands in every new user's sheet.
+
 ## How code is organized
 
 ```

@@ -1,0 +1,296 @@
+# Desktop (macOS): build a universal JobBored.app; sign, notarize and draft
+# a release only on a manual dispatch with Emilio's secrets present.
+#
+# - pull_request (desktop paths only): unsigned build + smoke test. Never
+#   touches a secret, never releases.
+# - workflow_dispatch: same build; when MAC_CSC_LINK is set it signs with the
+#   Developer ID, notarizes with the App Store Connect API key, staples, and
+#   uploads a DRAFT release `desktop-v<version>` to emilio3435/jobbored-desktop.
+#   Emilio publishes that draft by hand; publishing is the moment users update.
+#
+# NOT a required check: it is not in ci.yml's list or the main ruleset, and it
+# must stay that way (it only runs on desktop paths, and signing is manual).
+# Runbook: docs/DESKTOP-RELEASE.md.
+
+name: Desktop (macOS)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version, semver without the leading v (e.g. 1.0.0)"
+        required: true
+        type: string
+  pull_request:
+    paths:
+      - "desktop/**"
+      - ".github/workflows/desktop-mac.yml"
+      - "scripts/lib/runtime-env.mjs"
+
+concurrency:
+  group: desktop-mac-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+permissions:
+  contents: read
+
+jobs:
+  build-mac:
+    runs-on: macos-15
+    timeout-minutes: 60
+    outputs:
+      sign: ${{ steps.gate.outputs.sign }}
+      version: ${{ steps.gate.outputs.version }}
+    steps:
+      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: |
+            package-lock.json
+            desktop/package-lock.json
+
+      # SIGN is true only for a manual dispatch with the certificate present.
+      # PR builds (including forks, which see no secrets) stay unsigned.
+      - name: Decide signing and version
+        id: gate
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          EVENT: ${{ github.event_name }}
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ -n "$MAC_CSC_LINK" ] && [ "$EVENT" = "workflow_dispatch" ]; then
+            echo "sign=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "sign=false" >> "$GITHUB_OUTPUT"
+          fi
+          if [ "$EVENT" = "workflow_dispatch" ]; then
+            if ! printf '%s' "$INPUT_VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$'; then
+              echo "::error::version must be semver without a leading v, got '$INPUT_VERSION'"
+              exit 1
+            fi
+            echo "version=$INPUT_VERSION" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=$(node -p 'require("./desktop/package.json").version')" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Install root dependencies
+        run: npm ci
+
+      - name: Install desktop dependencies
+        run: npm ci --prefix desktop
+
+      - name: Stage the runtime bundle
+        run: npm run stage --prefix desktop
+
+      - name: Check the stage holds no excluded files
+        run: |
+          bundle=desktop/app-bundle
+          test -d "$bundle" || { echo "::error::$bundle missing after stage"; exit 1; }
+          bad=$(
+            {
+              for d in tests docs coverage screenshots .lane-evidence; do
+                [ -e "$bundle/$d" ] && echo "$bundle/$d"
+              done
+              [ -e "$bundle/config.js" ] && echo "$bundle/config.js"
+              find "$bundle" -path '*/node_modules/.cache' -prune -print
+              find "$bundle" -path '*/node_modules' -prune -o \
+                \( -name '.env' -o -name '.env.*' -o -name '*.p12' -o -name '*.p8' \
+                   -o -name '*.pem' -o -name '*.key' -o -name '*token*.json' \) -print
+            } || true
+          )
+          if [ -n "$bad" ]; then
+            echo "::error::excluded files present in the stage:"
+            echo "$bad"
+            exit 1
+          fi
+          echo "stage clean"
+
+      # Temp keychain under RUNNER_TEMP; electron-builder finds the Developer
+      # ID identity through the user search list. The .p12 exists only for
+      # the import and is deleted at once.
+      - name: Import signing certificate
+        if: steps.gate.outputs.sign == 'true'
+        env:
+          MAC_CSC_LINK: ${{ secrets.MAC_CSC_LINK }}
+          MAC_CSC_KEY_PASSWORD: ${{ secrets.MAC_CSC_KEY_PASSWORD }}
+        run: |
+          set +x
+          umask 077
+          keychain="$RUNNER_TEMP/jobbored-signing.keychain-db"
+          p12="$RUNNER_TEMP/jobbored-signing.p12"
+          kc_pass="$(openssl rand -base64 32)"
+          echo "::add-mask::$kc_pass"
+          printf '%s' "$MAC_CSC_LINK" | base64 --decode > "$p12"
+          security create-keychain -p "$kc_pass" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$kc_pass" "$keychain"
+          security import "$p12" -k "$keychain" -f pkcs12 -P "$MAC_CSC_KEY_PASSWORD" \
+            -T /usr/bin/codesign -T /usr/bin/security >/dev/null
+          rm -f "$p12"
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$kc_pass" "$keychain" >/dev/null
+          # shellcheck disable=SC2046
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          security find-identity -v -p codesigning "$keychain" | grep -q "Developer ID Application" \
+            || { echo "::error::no Developer ID Application identity in MAC_CSC_LINK"; exit 1; }
+
+      - name: Write the notarization API key
+        if: steps.gate.outputs.sign == 'true'
+        env:
+          APPLE_API_KEY: ${{ secrets.APPLE_API_KEY }}
+        run: |
+          set +x
+          umask 077
+          printf '%s\n' "$APPLE_API_KEY" > "$RUNNER_TEMP/jobbored-AuthKey.p8"
+          chmod 600 "$RUNNER_TEMP/jobbored-AuthKey.p8"
+
+      # Unsigned (every PR, and a dispatch without secrets): identity
+      # discovery off, no notarization env at all.
+      - name: Build universal dmg + zip (unsigned)
+        if: steps.gate.outputs.sign != 'true'
+        working-directory: desktop
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "false"
+        run: |
+          npx --no-install electron-builder --mac dmg zip --universal --publish never \
+            -c.extraMetadata.version="$VERSION"
+          ls -la dist
+
+      # Signed: electron-builder signs with the hardened runtime, notarizes
+      # the .app with the API key (APPLE_API_KEY is the .p8 path) and staples
+      # it before packing dmg + zip; dmg.sign=true signs the DMG container.
+      - name: Build universal dmg + zip (signed, notarized)
+        if: steps.gate.outputs.sign == 'true'
+        working-directory: desktop
+        env:
+          VERSION: ${{ steps.gate.outputs.version }}
+          CSC_IDENTITY_AUTO_DISCOVERY: "true"
+          APPLE_API_KEY: ${{ runner.temp }}/jobbored-AuthKey.p8
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+        run: |
+          set +x
+          npx --no-install electron-builder --mac dmg zip --universal --publish never \
+            -c.extraMetadata.version="$VERSION" -c.dmg.sign=true
+          ls -la dist
+
+      # The DMG is a separate container: sign it (above), then notarize and
+      # staple it here, and re-verify everything Gatekeeper will check.
+      - name: Notarize and staple the DMG, verify Gatekeeper
+        if: steps.gate.outputs.sign == 'true'
+        env:
+          APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+          APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
+        run: |
+          set +x
+          app=$(find desktop/dist -maxdepth 2 -name 'JobBored.app' -type d | head -1)
+          dmg=$(find desktop/dist -maxdepth 1 -name '*.dmg' | head -1)
+          [ -n "$app" ] && [ -n "$dmg" ] || { echo "::error::app or dmg missing"; exit 1; }
+          result=$(xcrun notarytool submit "$dmg" --key "$RUNNER_TEMP/jobbored-AuthKey.p8" \
+            --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" \
+            --wait --timeout 30m --output-format json)
+          status=$(printf '%s' "$result" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).status))')
+          id=$(printf '%s' "$result" | node -e 'let s="";process.stdin.on("data",d=>s+=d).on("end",()=>console.log(JSON.parse(s).id))')
+          if [ "$status" != "Accepted" ]; then
+            echo "::error::notarization $status (submission $id)"
+            xcrun notarytool log "$id" --key "$RUNNER_TEMP/jobbored-AuthKey.p8" \
+              --key-id "$APPLE_API_KEY_ID" --issuer "$APPLE_API_ISSUER" || true
+            exit 1
+          fi
+          xcrun stapler staple "$dmg"
+          xcrun stapler staple "$app"
+          xcrun stapler validate "$dmg"
+          codesign --verify --deep --strict --verbose=2 "$app"
+          spctl -a -vvv -t exec "$app"
+          spctl -a -vvv -t open --context context:primary-signature "$dmg"
+          # Stapling rewrote the DMG, so refresh its sha512/size in the feed.
+          node - "$dmg" desktop/dist/latest-mac.yml <<'JS'
+          const fs = require("fs"), crypto = require("crypto"), path = require("path");
+          const [dmg, yml] = process.argv.slice(2);
+          const buf = fs.readFileSync(dmg);
+          const sha = crypto.createHash("sha512").update(buf).digest("base64");
+          const name = path.basename(dmg);
+          let cur = null;
+          const out = fs.readFileSync(yml, "utf8").split("\n").map((l) => {
+            const u = l.match(/^\s*-\s+url:\s*(.+)$/);
+            if (u) { cur = u[1].trim(); return l; }
+            if (/^\S/.test(l)) cur = null;
+            if (cur === name && /^\s+sha512:/.test(l)) return l.replace(/sha512:.*/, `sha512: ${sha}`);
+            if (cur === name && /^\s+size:/.test(l)) return l.replace(/size:.*/, `size: ${buf.length}`);
+            return l;
+          });
+          fs.writeFileSync(yml, out.join("\n"));
+          JS
+
+      # Launches the packaged app headless: it boots dashboard, API and worker
+      # on the ports below, checks health and exits 0/1. Never the live ports.
+      - name: Smoke-test the packaged app
+        timeout-minutes: 10
+        env:
+          JOBBORED_DESKTOP_SMOKE: "1"
+          JOBBORED_SMOKE_DASHBOARD_PORT: "18580"
+          JOBBORED_SMOKE_API_PORT: "18581"
+          JOBBORED_SMOKE_WORKER_PORT: "18582"
+        run: |
+          app=$(find desktop/dist -maxdepth 2 -name 'JobBored.app' -type d | head -1)
+          [ -n "$app" ] || { echo "::error::JobBored.app missing"; exit 1; }
+          perl -e 'alarm shift; exec @ARGV' 300 "$app/Contents/MacOS/JobBored"
+
+      - name: Upload build artifacts
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: jobbored-mac-${{ steps.gate.outputs.version }}
+          if-no-files-found: error
+          retention-days: 14
+          path: |
+            desktop/dist/*.dmg
+            desktop/dist/*.zip
+            desktop/dist/latest-mac.yml
+
+      - name: Remove key material
+        if: always()
+        run: |
+          rm -f "$RUNNER_TEMP/jobbored-AuthKey.p8" "$RUNNER_TEMP/jobbored-signing.p12"
+          if [ -f "$RUNNER_TEMP/jobbored-signing.keychain-db" ]; then
+            security delete-keychain "$RUNNER_TEMP/jobbored-signing.keychain-db" || true
+          fi
+
+  # Drafts only. The PAT is scoped to the feed repo; nothing here writes to
+  # this repository, pushes a tag, or publishes a release.
+  draft-release:
+    needs: build-mac
+    if: github.event_name == 'workflow_dispatch' && needs.build-mac.outputs.sign == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093 # v4.3.0
+        with:
+          name: jobbored-mac-${{ needs.build-mac.outputs.version }}
+          path: release
+
+      - name: Create or update the draft release in the feed repo
+        env:
+          GH_TOKEN: ${{ secrets.DESKTOP_RELEASES_TOKEN }}
+          VERSION: ${{ needs.build-mac.outputs.version }}
+          FEED_REPO: emilio3435/jobbored-desktop
+        run: |
+          [ -n "$GH_TOKEN" ] || { echo "::error::DESKTOP_RELEASES_TOKEN is not set"; exit 1; }
+          tag="desktop-v$VERSION"
+          files=$(ls release/*.dmg release/*.zip release/latest-mac.yml)
+          if gh release view "$tag" -R "$FEED_REPO" >/dev/null 2>&1; then
+            draft=$(gh release view "$tag" -R "$FEED_REPO" --json isDraft -q .isDraft)
+            if [ "$draft" != "true" ]; then
+              echo "::error::$tag is already published in $FEED_REPO; bump the version instead"
+              exit 1
+            fi
+            # shellcheck disable=SC2086
+            gh release upload "$tag" $files -R "$FEED_REPO" --clobber
+          else
+            # shellcheck disable=SC2086
+            gh release create "$tag" $files -R "$FEED_REPO" --draft --title "JobBored $VERSION" \
+              --notes "Signed and notarized macOS build from $GITHUB_REPOSITORY@$GITHUB_SHA. Draft: publish by hand."
+          fi
+          echo "Draft ready: https://github.com/$FEED_REPO/releases (tag $tag, unpublished)"

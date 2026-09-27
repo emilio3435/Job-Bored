@@ -61,7 +61,7 @@ const RESUME_FIT = "Resume setup — Your fit";
 const BEAT_ONE = {
   headline: "Your pipeline lives in a Google Sheet you own.",
   sub:
-    "Sign in and we'll create it for you. Nothing is stored on our side — there is no 'our side.'",
+    "Sign in and we'll create it for you. JobBored has no server that sees your data.",
 };
 
 /** Spec §3.5.1 — the six spine segments, in order. */
@@ -762,10 +762,12 @@ test("should pause to a live corner pill for a visitor who poked around first", 
   await expect(pill).toBeVisible();
   await pill.click();
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toBeVisible();
-  await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("discovery"));
+  // GFX R4: a cold visitor is gated off discovery (it now requires fit), so
+  // the pause-keeps-the-beat claim is pinned on a beat with no prerequisites.
+  await page.evaluate(() => globalThis.JobBoredOneFlow.goToBeat("ai"));
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
     "data-beat-id",
-    "discovery",
+    "ai",
   );
 
   await page.keyboard.press("Escape");
@@ -778,7 +780,7 @@ test("should pause to a live corner pill for a visitor who poked around first", 
   await pill.click();
   await expect(page.locator(`${FLOW_MOUNT} .oneflow-beat`)).toHaveAttribute(
     "data-beat-id",
-    "discovery",
+    "ai",
   );
 
   expect(fence.unexpectedExternal).toEqual([]);

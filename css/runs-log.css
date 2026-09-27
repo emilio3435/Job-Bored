@@ -448,3 +448,245 @@
     max-width: 12rem;
   }
 }
+
+/* ------------------------------------------------------------------
+   Live run progress (UXD-FE). One component, `.jb-live-run`, rendered by
+   discovery-run-tracker.js renderLiveRunProgressHtml into two homes: the
+   Runs live row (here) and the discovery drawer card (.dp-live-run in
+   discovery-drawer.css). Every rule is scoped under one of those roots so
+   the jb-v2 type ramp never out-ranks it.
+
+   The phase line is the one expressive element: five labelled segments on a
+   3px rule — done in ink, now in mint with a slow breathing dot, ahead as a
+   hairline. Everything else is quiet text and tabular numbers.
+   ------------------------------------------------------------------ */
+.runs-table tbody tr.runs-row--in-progress:has(+ .runs-live-progress-row) td {
+  border-bottom: 0;
+}
+
+.runs-table tbody tr.runs-live-progress-row td,
+.runs-table tbody tr.runs-live-progress-row:hover td,
+.runs-table tbody tr.runs-live-progress-row:nth-child(even) td {
+  padding: 0 var(--jb-space-3) var(--jb-space-4);
+  background: var(--jb-paper-2);
+  font-style: normal;
+  font-weight: 400;
+  white-space: normal;
+  color: var(--jb-ink);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run {
+  --jb-live-run-dot: var(--jb-mint-deep);
+  display: grid;
+  gap: var(--jb-space-3);
+  font-family: var(--jb-font-body);
+  color: var(--jb-ink);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="quiet"],
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="unknown"],
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="starting"] {
+  --jb-live-run-dot: var(--jb-ink-3);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="stalled"],
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="reconnecting"],
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="lost"] {
+  --jb-live-run-dot: var(--jb-amber);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__head {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: var(--jb-space-2);
+  align-items: baseline;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__dot {
+  grid-row: 1;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--jb-live-run-dot);
+  align-self: center;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="working"] .jb-live-run__dot {
+  animation: jb-live-run-breathe 2.4s var(--jb-ease, ease-in-out) infinite;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__headline {
+  margin: 0;
+  font-size: var(--jb-text-md);
+  font-weight: 600;
+  line-height: 1.3;
+  color: var(--jb-ink);
+  overflow-wrap: anywhere;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__meta {
+  grid-column: 2;
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jb-space-1) var(--jb-space-3);
+  font-size: var(--jb-text-sm);
+  line-height: 1.4;
+  color: var(--jb-ink-3);
+  font-variant-numeric: tabular-nums;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="stalled"] .jb-live-run__health,
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="lost"] .jb-live-run__health {
+  color: var(--jb-warn);
+  font-weight: 600;
+}
+
+/* The phase line. */
+:is(.runs-modal, .dp-live-run) .jb-live-run__steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: var(--jb-space-1);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__step {
+  position: relative;
+  padding-top: var(--jb-space-2);
+  border-top: 3px solid var(--jb-line);
+  font-size: var(--jb-text-xs);
+  line-height: 1.3;
+  color: var(--jb-ink-3);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__step[data-state="done"] {
+  border-top-color: var(--jb-ink-2);
+  color: var(--jb-ink-2);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__step[data-state="current"] {
+  border-top-color: var(--jb-mint-deep);
+  color: var(--jb-ink);
+  font-weight: 600;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run[data-health="stalled"] .jb-live-run__step[data-state="current"] {
+  border-top-color: var(--jb-amber);
+}
+
+/* Per-lane mini progress: label | bar | n of N. */
+:is(.runs-modal, .dp-live-run) .jb-live-run__lanes {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  max-width: 40rem;
+  display: grid;
+  gap: var(--jb-space-1);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__lane {
+  display: grid;
+  grid-template-columns: minmax(8rem, 11rem) minmax(3rem, 1fr) auto;
+  align-items: center;
+  gap: var(--jb-space-3);
+  font-size: var(--jb-text-sm);
+  color: var(--jb-ink-2);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__lane[data-state="skipped"],
+:is(.runs-modal, .dp-live-run) .jb-live-run__lane[data-state="pending"] {
+  color: var(--jb-ink-3);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__lane-value {
+  font-variant-numeric: tabular-nums;
+  color: var(--jb-ink);
+  text-align: right;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__bar {
+  display: block;
+  width: 100%;
+  height: 4px;
+  border: 0;
+  border-radius: var(--jb-radius-pill);
+  background: var(--jb-line-soft);
+  overflow: hidden;
+  appearance: none;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__bar::-webkit-progress-bar {
+  background: var(--jb-line-soft);
+  border-radius: var(--jb-radius-pill);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__bar::-webkit-progress-value {
+  background: var(--jb-mint-deep);
+  border-radius: var(--jb-radius-pill);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__bar::-moz-progress-bar {
+  background: var(--jb-mint-deep);
+  border-radius: var(--jb-radius-pill);
+}
+
+/* No total from the worker: an honest open track, never a fake fill. */
+:is(.runs-modal, .dp-live-run) .jb-live-run__bar--open {
+  background: none;
+  border-top: 1px dashed var(--jb-line);
+  height: 0;
+  border-radius: 0;
+}
+
+/* Counters: the number leads, the plain label follows. */
+:is(.runs-modal, .dp-live-run) .jb-live-run__counters {
+  margin: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--jb-space-2) var(--jb-space-6);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__counter {
+  display: flex;
+  flex-direction: column-reverse;
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__counter dt {
+  font-size: var(--jb-text-xs);
+  color: var(--jb-ink-3);
+}
+
+:is(.runs-modal, .dp-live-run) .jb-live-run__counter dd {
+  margin: 0;
+  font-size: var(--jb-text-lg);
+  font-weight: 600;
+  line-height: 1.2;
+  font-variant-numeric: tabular-nums;
+  color: var(--jb-ink);
+}
+
+@keyframes jb-live-run-breathe {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.75); }
+}
+
+@media (max-width: 560px) {
+  :is(.runs-modal, .dp-live-run) .jb-live-run__lane {
+    grid-template-columns: 1fr auto;
+  }
+  :is(.runs-modal, .dp-live-run) .jb-live-run__lane .jb-live-run__bar {
+    grid-column: 1 / -1;
+    grid-row: 2;
+  }
+  :is(.runs-modal, .dp-live-run) .jb-live-run__steps {
+    gap: 2px;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  :is(.runs-modal, .dp-live-run) .jb-live-run[data-health="working"] .jb-live-run__dot {
+    animation: none;
+  }
+}

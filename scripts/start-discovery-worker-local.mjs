@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import {
   decideAfterChildExit,
   decideExistingWorkerAction,
@@ -8,60 +8,48 @@ import {
   HELD_WORKER_RESPAWN_CONSECUTIVE_FAILURES,
   parseStarterOptions,
 } from "./lib/discovery-worker-policy.mjs";
-import { join, resolve } from "node:path";
+import { homedir } from "node:os";
+import { dirname, join } from "node:path";
 import { pathToFileURL } from "node:url";
 import { execFileSync, spawn } from "node:child_process";
-import { resolveJobBoredPaths } from "./lib/paths.mjs";
-import {
-  mergeEnvFileValues,
-  parseEnvFileText,
-  resolveLayeredEnvSources,
-} from "./lib/env-file-merge.mjs";
-import { applyDiscoveryWorkerLlmAliases } from "./lib/llm-env.mjs";
+import { bootstrapStatePath as resolveBootstrapStatePath, resolveJobBoredPaths } from "./lib/paths.mjs";
+import { parseEnvFileText, resolveLayeredEnvSources } from "./lib/env-file-merge.mjs";
+import { resolveWorkerEnv } from "./lib/runtime-env.mjs";
 
 const repoRoot = process.cwd();
-const initialPaths = resolveJobBoredPaths({ env: process.env, repoRoot });
-const envFilePaths = [
-  join(repoRoot, "integrations", "browser-use-discovery", ".env"),
-  join(repoRoot, "server", ".env"),
-  initialPaths.workerEnv,
-].filter((path, index, all) => path && all.indexOf(path) === index);
-const bootstrapStatePath = join(repoRoot, "discovery-local-bootstrap.json");
-const browserCommandEnvKeys = [
-  "BROWSER_USE_DISCOVERY_BROWSER_COMMAND",
-  "BROWSER_USE_COMMAND",
-  "DISCOVERY_BROWSER_COMMAND",
-];
-const bundledBrowserUseCommandPath = join(
-  repoRoot,
-  "integrations",
-  "browser-use-discovery",
-  "bin",
-  "browser-use-agent-browser.mjs",
-);
+// ~/.jobbored in desktop mode (read-only bundle), the repo root from source.
+const bootstrapStatePath = resolveBootstrapStatePath({ env: process.env, repoRoot });
 
 
-function readEnvFileLayers() {
-  const layers = [];
-  for (const path of envFilePaths) {
-    if (!existsSync(path)) continue;
-    try {
-      layers.push({ path, values: parseEnvFileText(readFileSync(path, "utf8")) });
-    } catch (err) {
-      console.warn(
-        `[start:discovery-worker] could not read ${path}: ${
-          err && err.message ? err.message : String(err)
-        }`,
-      );
-    }
-  }
-  return layers;
+/**
+ * How to spawn the worker: scripts/lib/runtime-env.mjs, the same resolver the
+ * desktop supervisor uses, so the two can't drift (GFX R14). Env files layer
+ * there; the process env wins. execPath is always this starter's own Node
+ * (BEAUDIT G12), never whatever `node` is first on PATH.
+ */
+function resolveWorkerSpawnSpec() {
+  const desktop = String(process.env.JOBBORED_DESKTOP || "").trim() === "1";
+  return resolveWorkerEnv({
+    appRoot: repoRoot,
+    baseEnv: process.env,
+    warn: (message) => console.warn(`[start:discovery-worker] ${message}`),
+    execPath: process.execPath,
+    ...(desktop ? { home: homedir() } : {}),
+  });
 }
 
-function readEnvFiles() {
-  // Later files override earlier ones, but a present-but-EMPTY value never
-  // erases a configured one — see scripts/lib/env-file-merge.mjs.
-  return mergeEnvFileValues(readEnvFileLayers().map((layer) => layer.values));
+/** The env files runtime-env layers, in the same order (later wins). */
+function workerEnvFilePaths() {
+  const desktop = String(process.env.JOBBORED_DESKTOP || "").trim() === "1";
+  const workerEnv = resolveJobBoredPaths({ env: process.env, repoRoot }).workerEnv;
+  const files = desktop
+    ? [workerEnv]
+    : [
+        join(repoRoot, "integrations", "browser-use-discovery", ".env"),
+        join(repoRoot, "server", ".env"),
+        workerEnv,
+      ];
+  return files.filter((path, index, all) => path && all.indexOf(path) === index);
 }
 
 /**
@@ -69,7 +57,15 @@ function readEnvFiles() {
  * used to be silent. Paths and the word "process", never values.
  */
 function logEnvSources() {
-  const layers = readEnvFileLayers();
+  const layers = [];
+  for (const path of workerEnvFilePaths()) {
+    if (!existsSync(path)) continue;
+    try {
+      layers.push({ path, values: parseEnvFileText(readFileSync(path, "utf8")) });
+    } catch {
+      // runtime-env already warns about an unreadable file.
+    }
+  }
   const { sources } = resolveLayeredEnvSources(
     layers.map((layer) => layer.values),
     { paths: layers.map((layer) => layer.path), processEnv: process.env },
@@ -77,81 +73,6 @@ function logEnvSources() {
   for (const [key, source] of Object.entries(sources)) {
     console.info(`[start:discovery-worker] env ${key} <- ${source || "(unknown)"}`);
   }
-}
-
-function readFirstEnvValue(source, keys) {
-  for (const key of keys) {
-    const value = String(source[key] || "").trim();
-    if (value) return value;
-  }
-  return "";
-}
-
-function isPathLikeCommand(command) {
-  return (
-    String(command || "").includes("/") || String(command || "").includes("\\")
-  );
-}
-
-function commandPathExists(command) {
-  if (!isPathLikeCommand(command)) return true;
-  return existsSync(resolve(repoRoot, command));
-}
-
-function resolveBrowserUseCommand(fromFiles) {
-  const processCommand = readFirstEnvValue(process.env, browserCommandEnvKeys);
-  if (processCommand) return processCommand;
-
-  const fileCommand = readFirstEnvValue(fromFiles, browserCommandEnvKeys);
-  if (fileCommand && commandPathExists(fileCommand)) return fileCommand;
-
-  if (fileCommand) {
-    console.warn(
-      `[start:discovery-worker] ignoring stale browser command from env file because it does not exist: ${fileCommand}`,
-    );
-  }
-  return bundledBrowserUseCommandPath;
-}
-
-function resolveRuntimeEnv() {
-  const fromFiles = readEnvFiles();
-  const env = { ...fromFiles, ...process.env };
-  const paths = resolveJobBoredPaths({ env, repoRoot });
-  const fallbackGemini =
-    String(env.BROWSER_USE_DISCOVERY_GEMINI_API_KEY || "").trim() ||
-    String(env.ATS_GEMINI_API_KEY || "").trim() ||
-    String(env.GEMINI_API_KEY || "").trim();
-  const runtimeEnv = {
-    ...env,
-    BROWSER_USE_DISCOVERY_RUN_MODE:
-      String(env.BROWSER_USE_DISCOVERY_RUN_MODE || "").trim() || "local",
-    BROWSER_USE_DISCOVERY_HOST:
-      String(env.BROWSER_USE_DISCOVERY_HOST || "").trim() || "127.0.0.1",
-    BROWSER_USE_DISCOVERY_PORT:
-      String(env.BROWSER_USE_DISCOVERY_PORT || "").trim() || "8644",
-    BROWSER_USE_DISCOVERY_CONFIG_PATH:
-      String(env.BROWSER_USE_DISCOVERY_CONFIG_PATH || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_WORKER_CONFIG || "").trim() ||
-      paths.workerConfig,
-    BROWSER_USE_DISCOVERY_WORKER_CONFIG:
-      String(env.BROWSER_USE_DISCOVERY_WORKER_CONFIG || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_CONFIG_PATH || "").trim() ||
-      paths.workerConfig,
-    BROWSER_USE_DISCOVERY_ENV_FILE:
-      String(env.BROWSER_USE_DISCOVERY_ENV_FILE || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_WORKER_ENV || "").trim() ||
-      paths.workerEnv,
-    BROWSER_USE_DISCOVERY_WORKER_ENV:
-      String(env.BROWSER_USE_DISCOVERY_WORKER_ENV || "").trim() ||
-      String(env.BROWSER_USE_DISCOVERY_ENV_FILE || "").trim() ||
-      paths.workerEnv,
-    BROWSER_USE_DISCOVERY_STATE_DB_PATH:
-      String(env.BROWSER_USE_DISCOVERY_STATE_DB_PATH || "").trim() ||
-      paths.workerStateDb,
-    BROWSER_USE_DISCOVERY_BROWSER_COMMAND: resolveBrowserUseCommand(fromFiles),
-    BROWSER_USE_DISCOVERY_GEMINI_API_KEY: fallbackGemini,
-  };
-  return applyDiscoveryWorkerLlmAliases(runtimeEnv);
 }
 
 function createTimeoutSignal(ms) {
@@ -236,6 +157,7 @@ function writeLocalBootstrapState(runtimeEnv, host, port) {
     },
   };
   try {
+    mkdirSync(dirname(bootstrapStatePath), { recursive: true });
     writeFileSync(bootstrapStatePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
   } catch (err) {
     console.warn(
@@ -716,7 +638,7 @@ async function terminateWorkerListenersOnPort(port) {
  * the process (G5).
  */
 function holdForForeignListener(
-  runtimeEnv,
+  spawnSpec,
   host,
   port,
   { checkoutRepoRoot = "", checkoutVersion = "" } = {},
@@ -745,16 +667,17 @@ function holdForForeignListener(
   holdProcessOpenForForeignListener(host, port, {
     ownerLines,
     ...(probeOurs ? { probeExistingWorker: probeOurs } : {}),
-    onPortFree: () => superviseWorker(runtimeEnv, host, port),
+    onPortFree: () => superviseWorker(spawnSpec, host, port),
     onWorkerHealthy: () =>
       holdProcessOpenForExistingWorker(host, port, {
-        onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+        onWorkerGone: () => superviseWorker(spawnSpec, host, port),
       }),
   });
 }
 
 async function main() {
-  const runtimeEnv = resolveRuntimeEnv();
+  const spawnSpec = resolveWorkerSpawnSpec();
+  const runtimeEnv = spawnSpec.env;
   logEnvSources();
   const host = String(runtimeEnv.BROWSER_USE_DISCOVERY_HOST || "127.0.0.1");
   const port = Number.parseInt(
@@ -778,12 +701,12 @@ async function main() {
     const action = decideExistingWorkerAction({ existingHealthy, restartExisting, portBound, foreignCheckout });
     if (action === "reuse") {
       holdProcessOpenForExistingWorker(host, port, {
-        onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+        onWorkerGone: () => superviseWorker(spawnSpec, host, port),
       });
       return;
     }
     if (action === "hold_foreign") {
-      holdForForeignListener(runtimeEnv, host, port, {
+      holdForForeignListener(spawnSpec, host, port, {
         checkoutRepoRoot: foreignCheckout ? identity.repoRoot : "",
         checkoutVersion: foreignCheckout ? identity.version : "",
       });
@@ -799,7 +722,7 @@ async function main() {
           `[start:discovery-worker] could not terminate listener(s) on port ${port}; keeping existing worker.`,
         );
         holdProcessOpenForExistingWorker(host, port, {
-          onWorkerGone: () => superviseWorker(runtimeEnv, host, port),
+          onWorkerGone: () => superviseWorker(spawnSpec, host, port),
         });
         return;
       }
@@ -807,7 +730,7 @@ async function main() {
     }
   }
 
-  superviseWorker(runtimeEnv, host, port);
+  superviseWorker(spawnSpec, host, port);
 }
 
 /** Poll /health until a worker answers or the deadline passes. */
@@ -827,7 +750,7 @@ async function waitForHealthyWorker(host, port, timeoutMs) {
  * `concurrently -k` child and its exit tears web + scraper down (2026-09-02).
  * Policy: scripts/lib/discovery-worker-policy.mjs decideAfterChildExit.
  */
-function superviseWorker(runtimeEnv, host, port) {
+function superviseWorker(spawnSpec, host, port) {
   const MAX_RESPAWNS = 3;
   let current = null;
   let shuttingDown = false;
@@ -847,10 +770,9 @@ function superviseWorker(runtimeEnv, host, port) {
   process.on("SIGTERM", () => forwardSignal("SIGTERM"));
 
   const spawnOnce = () => {
-    const { command, args } = buildWorkerSpawnCommand();
-    const child = spawn(command, args, {
-      cwd: repoRoot,
-      env: runtimeEnv,
+    const child = spawn(spawnSpec.cmd, spawnSpec.args, {
+      cwd: spawnSpec.cwd,
+      env: spawnSpec.env,
       stdio: "inherit",
     });
     current = child;
@@ -869,7 +791,7 @@ function superviseWorker(runtimeEnv, host, port) {
           console.warn(
             `[start:discovery-worker] worker exited (code=${code}); holding for the foreign listener on port ${port}.`,
           );
-          holdForForeignListener(runtimeEnv, host, port, {
+          holdForForeignListener(spawnSpec, host, port, {
             checkoutRepoRoot: foreignCheckout ? identity.repoRoot : "",
             checkoutVersion: foreignCheckout ? identity.version : "",
           });

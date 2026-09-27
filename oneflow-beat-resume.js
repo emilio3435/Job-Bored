@@ -33,7 +33,7 @@
   const flow = window.JobBoredOneFlow;
   if (!flow || typeof flow.registerBeat !== "function") return;
 
-  const HEADLINE = "Drop in your resume. We'll do the typing.";
+  const HEADLINE = "Drop in your resume. AI drafts your profile from it.";
 
   const SUB =
     "From this one file we'll draft your whole fit profile — target " +
@@ -60,13 +60,35 @@
   const FILE_INPUT_ID = "oneFlowResumeFile";
   const PASTE_INPUT_ID = "oneFlowResumePaste";
 
-  /** Spec §5 B3: the stage list is normative. */
-  const STAGE_LABELS = [
-    "Reading your resume ✓",
-    "Drafting target roles & strengths…",
-    "Writing your first-person narrative…",
-    "Draft ready ✓",
-  ];
+  /**
+   * GFX N-B3-2 / B3-9: the two stages that really happen, with no glyph
+   * baked in — the shell draws ✓ from `state: "done"`.
+   */
+  const STAGE_LABELS = ["Reading your resume", "Drafting your profile"];
+
+  /**
+   * GFX B3-4: the clock on a draft, ported from B2's CHECK_TIMINGS. Past
+   * `slowAfterMs` the drafting stage counts seconds; past `stalledAfterMs`
+   * the message slot says the wait is normal for free tiers and names the
+   * exit; at `abortAfterMs` both the server fetch and the browser-direct
+   * call are abandoned. Mutable so tests run it in milliseconds.
+   */
+  const DRAFT_TIMINGS = {
+    slowAfterMs: 2000,
+    tickMs: 1000,
+    stalledAfterMs: 30000,
+    abortAfterMs: 90000,
+  };
+
+  const STALLED_MESSAGE =
+    "Still waiting on your AI provider — free tiers can be slow. Leave it " +
+    "running, or start from a template.";
+
+  /** Resolves the draft race when the deadline wins. */
+  const TIMED_OUT = { timedOut: true };
+
+  /** Where "JobBored on this computer" lives for a page that isn't it. */
+  const LOCAL_JOBBORED_URL = "http://localhost:8080/";
 
   /**
    * The four starter templates, copied from fit-profile-wizard.js rather
@@ -113,6 +135,14 @@
     draft: null,
     // True while the only useful next step is Beat 2 (GREENFIELD A3/A4).
     providerLocked: false,
+    // Seconds the draft has been running, once past the slow threshold.
+    draftSeconds: null,
+    // The draft that owns the screen; a template pick or a newer draft
+    // bumps it and the older answer is dropped.
+    ingestRun: 0,
+    // Body copy that a message-slot string can't carry: the start link
+    // (B3-7) and the raw error behind "Technical detail" (B3-6).
+    notice: null, // { link: boolean, technical: string }
   };
 
   const fields = { paste: null };
@@ -302,8 +332,8 @@
     ACTIONS.length = 0;
     // The template grid used to be a one-way door: it replaced the dropzone
     // and the paste box, so the only route back was a reload — which also
-    // threw away whatever had been pasted. A template is a seed, not a lock
-    // (spec §5 B3), and looking at one must cost nothing.
+    // threw away whatever had been pasted. Looking at a template must cost
+    // nothing (spec §5 B3).
     if (state.mode === "templates") {
       ACTIONS.push({
         id: ACTION_BACK,
@@ -312,24 +342,22 @@
       });
       return;
     }
-    if (state.mode === "intake") {
-      ACTIONS.push({
-        id: ACTION_USE_TEXT,
-        label: "Draft from this text",
-        variant: "primary",
-      });
-    }
-    // GREENFIELD A3/A4: when there is no provider to draft with, the only
-    // action that changes the outcome is the one that connects one.
+    // GFX N-B3-3: one primary per state. GREENFIELD A3/A4: with no provider
+    // to draft with, the only action that changes the outcome connects one.
     if (state.providerLocked) {
       ACTIONS.push({
         id: ACTION_CONNECT_AI,
         label: CONNECT_AI_LABEL,
         variant: "primary",
       });
-    }
-    if (state.failed) {
+    } else if (state.failed) {
       ACTIONS.push({ id: ACTION_RETRY, label: "Try again", variant: "primary" });
+    } else {
+      ACTIONS.push({
+        id: ACTION_USE_TEXT,
+        label: "Build my profile from this text",
+        variant: "primary",
+      });
     }
     ACTIONS.push({
       id: ACTION_TEMPLATE,
@@ -350,7 +378,10 @@
   /** Advance the normative stage list to `index` (everything before is done). */
   function setStage(ctx, index) {
     state.stages = STAGE_LABELS.map((label, i) => ({
-      label,
+      label:
+        i === index && i === 1 && state.draftSeconds != null
+          ? `${label} — ${state.draftSeconds} s`
+          : label,
       state: i < index ? "done" : i === index ? "active" : "todo",
     }));
     if (index >= STAGE_LABELS.length) {
@@ -366,6 +397,85 @@
     if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
   }
 
+  let draftWatch = null;
+
+  function abortControllerCtor() {
+    if (typeof window !== "undefined" && typeof window.AbortController === "function") {
+      return window.AbortController;
+    }
+    return typeof AbortController === "function" ? AbortController : null;
+  }
+
+  /** Stop the clock; `abort` also cancels whatever request is in flight. */
+  function stopDraftWatch(abort) {
+    const watch = draftWatch;
+    draftWatch = null;
+    state.draftSeconds = null;
+    if (!watch) return;
+    for (const timer of watch.timers) clearTimeout(timer);
+    if (abort && watch.controller) {
+      try {
+        watch.controller.abort();
+      } catch (_) {
+        /* the race below already settled */
+      }
+    }
+  }
+
+  /**
+   * GFX B3-4. Start the draft's clock: a seconds counter, the stall line,
+   * and a deadline that resolves TIMED_OUT and aborts the fetch.
+   */
+  function startDraftWatch(ctx) {
+    stopDraftWatch(false);
+    const Ctor = abortControllerCtor();
+    const watch = {
+      controller: Ctor ? new Ctor() : null,
+      timers: [],
+      stalled: false,
+      deadline: null,
+    };
+    const startedAt = Date.now();
+    watch.deadline = new Promise((resolve) => {
+      watch.timers.push(
+        setTimeout(() => {
+          if (watch.controller) {
+            try {
+              watch.controller.abort();
+            } catch (_) {
+              /* resolving below is what ends the wait */
+            }
+          }
+          resolve(TIMED_OUT);
+        }, DRAFT_TIMINGS.abortAfterMs),
+      );
+    });
+    const tick = () => {
+      if (draftWatch !== watch) return;
+      const elapsed = Date.now() - startedAt;
+      state.draftSeconds = Math.floor(elapsed / 1000);
+      setStage(ctx, 1);
+      if (!watch.stalled && elapsed >= DRAFT_TIMINGS.stalledAfterMs) {
+        watch.stalled = true;
+        if (ctx && typeof ctx.setMessage === "function") {
+          ctx.setMessage(STALLED_MESSAGE, "info");
+        }
+      }
+      watch.timers.push(setTimeout(tick, DRAFT_TIMINGS.tickMs));
+    };
+    watch.timers.push(setTimeout(tick, DRAFT_TIMINGS.slowAfterMs));
+    draftWatch = watch;
+    return watch;
+  }
+
+  /** How to start JobBored here — the one sentence (GFX X1). */
+  function startHint() {
+    const api = window.JobBoredLocalServer;
+    return api && typeof api.localServerHint === "function"
+      ? api.localServerHint({})
+      : "start JobBored on this computer";
+  }
+
   // ---------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------
@@ -379,13 +489,14 @@
         "p",
         "oneflow-resume__drop-lede",
         {},
-        "Drag your resume here — PDF, Word, or plain text.",
+        "Drag your resume here — PDF, Word (.docx) or plain text.",
       ),
     );
     const input = el("input", "oneflow-resume__file", {
       id: FILE_INPUT_ID,
       type: "file",
-      accept: ".pdf,.doc,.docx,.txt,.md",
+      // GFX B3-2: no .doc — there is no parser for it.
+      accept: ".pdf,.docx,.txt,.md",
       "aria-label": "Choose a resume file",
     });
     input.addEventListener("change", () => {
@@ -419,7 +530,7 @@
         "label",
         "oneflow-resume__paste-label",
         { htmlFor: PASTE_INPUT_ID },
-        "…or paste the text instead",
+        "Or paste the text",
       ),
     );
     const box = el("textarea", "oneflow-resume__paste-field", {
@@ -463,8 +574,8 @@
         "p",
         "oneflow-resume__templates-lede",
         {},
-        "Pick the closest starting point. Everything is editable on the next " +
-          "screen — a template is a seed, not a lock.",
+        "Pick the closest starting point. You can change everything on the " +
+          "next screen.",
       ),
     );
     const grid = el("div", "oneflow-resume__template-grid");
@@ -488,6 +599,38 @@
     return wrap;
   }
 
+  /**
+   * What a failed draft needs beyond one message line: B3-7's link to
+   * JobBored on this computer, and B3-6's raw error kept out of the
+   * sentence, behind "Technical detail".
+   */
+  function renderNotice(notice) {
+    const wrap = el("div", "oneflow-resume__notice");
+    if (notice.link) {
+      const line = el("p", "oneflow-resume__notice-line");
+      line.appendChild(el("span", "", {}, "Drafting works in "));
+      line.appendChild(
+        el(
+          "a",
+          "oneflow-resume__open-local",
+          { href: LOCAL_JOBBORED_URL, target: "_blank", rel: "noopener" },
+          "JobBored on this computer",
+        ),
+      );
+      line.appendChild(el("span", "", {}, `. To start it, ${startHint()}.`));
+      wrap.appendChild(line);
+    }
+    if (notice.technical) {
+      const details = el("details", "oneflow-resume__tech");
+      details.appendChild(
+        el("summary", "oneflow-resume__tech-summary", {}, "Technical detail"),
+      );
+      details.appendChild(el("p", "oneflow-resume__tech-body", {}, notice.technical));
+      wrap.appendChild(details);
+    }
+    return wrap;
+  }
+
   function render(container, ctx) {
     lastCtx = ctx;
     fields.paste = null;
@@ -500,6 +643,7 @@
     }
     body.appendChild(renderDropzone(ctx));
     body.appendChild(renderPasteBox(ctx));
+    if (state.notice) body.appendChild(renderNotice(state.notice));
     body.appendChild(
       el(
         "p",
@@ -542,7 +686,7 @@
    * outcomes may retry straight from the browser; provider errors must
    * surface, not silently re-attempt.
    */
-  async function draftOnServer(text) {
+  async function draftOnServer(text, signal) {
     const provider = verifiedProviderConfig();
     // GREENFIELD A3: no usable provider means no request. The server would
     // only answer with an error, and an error the browser could have
@@ -552,20 +696,22 @@
     const payload = { resumeText: text, ...provider };
     let res;
     try {
-      res = await apiFetch(profileUrl("/profile/from-resume"), {
+      const init = {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
-      });
+      };
+      if (signal) init.signal = signal;
+      res = await apiFetch(profileUrl("/profile/from-resume"), init);
     } catch (err) {
       return {
         ok: false,
         missing: false,
         directFallback: true,
         message:
-          "Couldn't reach the JobBored app on this computer — double-click " +
-          "start.command in the JobBored folder to start it, then try again. " +
-          `(${String((err && err.message) || err || "")})`,
+          "Couldn't reach JobBored on this computer to draft your resume. " +
+          `To start it, ${startHint()}, then press Try again.`,
+        notice: { link: false, technical: String((err && err.message) || err || "") },
       };
     }
     const data = res ? await res.json().catch(() => null) : null;
@@ -591,10 +737,9 @@
         missing: false,
         directFallback: true,
         message:
-          "This page can't draft your resume by itself — drafting runs in " +
-          "the JobBored app on your computer. Press 'I'd rather start from " +
-          "a template' below (everything stays editable on the next " +
-          "screen), or open your local JobBored and try again.",
+          "This page can't draft your resume by itself. Press 'I'd rather " +
+          "start from a template', or draft it in JobBored on this computer.",
+        notice: { link: true, technical: "HTTP 405 from /profile/from-resume" },
       };
     }
     if (!res || !res.ok || !data || data.ok !== true) {
@@ -626,8 +771,9 @@
    * a down local server. Drafts straight from the browser through the same
    * provider call the generation features use, with the shared prompt and
    * clamp — the profile B4 receives is shaped exactly like a server
-   * draft. Never throws: { ok:false } falls through to the server
-   * message, which already names the template escape.
+   * draft. Never throws. GFX N-B3-1: when the provider itself refused
+   * (429, bad key), `message` carries its words; a bare { ok:false } means
+   * the browser could not try, and the server's message stands.
    */
   async function draftDirectFromResume(resumeText) {
     try {
@@ -644,11 +790,17 @@
       ) {
         return { ok: false };
       }
-      const text = await api.callConfiguredAi(
-        shared.SYSTEM_PROMPT,
-        shared.buildUserPrompt(resumeText),
-        { json: true, maxOutputTokens: 8192 },
-      );
+      let text;
+      try {
+        text = await api.callConfiguredAi(
+          shared.SYSTEM_PROMPT,
+          shared.buildUserPrompt(resumeText),
+          { json: true, maxOutputTokens: 8192 },
+        );
+      } catch (err) {
+        const message = String((err && err.message) || "").trim();
+        return message ? { ok: false, message } : { ok: false };
+      }
       return {
         ok: true,
         profile: shared.clampToUserProfile(shared.parseJsonSafe(text)),
@@ -671,10 +823,12 @@
       return;
     }
 
+    const run = (state.ingestRun += 1);
     state.lastText = clean;
     state.lastSource = source;
     state.failed = false;
     state.providerLocked = false;
+    state.notice = null;
     state.writeOrder = [];
     saveDraft(context, "resumeText", clean);
     setStage(context, 0);
@@ -688,15 +842,38 @@
       return;
     }
 
+    if (run !== state.ingestRun) return;
     setStage(context, 1);
-    let drafted = await draftOnServer(clean);
-    if (!drafted.ok && drafted.directFallback) {
-      // No drafting endpoint answered (static host, or the local server
-      // is down) — draft straight from the browser with the B2-verified
-      // provider before giving up. A direct failure keeps the server
-      // message below, which already names the template escape.
-      const direct = await draftDirectFromResume(clean);
-      if (direct.ok) drafted = { ok: true, profile: direct.profile };
+    const watch = startDraftWatch(context);
+    let drafted;
+    try {
+      drafted = await Promise.race([
+        draftOnServer(clean, watch.controller ? watch.controller.signal : null),
+        watch.deadline,
+      ]);
+      if (drafted !== TIMED_OUT && !drafted.ok && drafted.directFallback) {
+        // No drafting endpoint answered (static host, or the local server
+        // is down) — draft straight from the browser with the B2-verified
+        // provider before giving up, on the same deadline.
+        const direct = await Promise.race([draftDirectFromResume(clean), watch.deadline]);
+        if (direct === TIMED_OUT) drafted = TIMED_OUT;
+        else if (direct.ok) drafted = { ok: true, profile: direct.profile };
+        // GFX N-B3-1: the provider answered with a refusal — its words beat
+        // a guess about the server.
+        else if (direct.message) drafted = { ok: false, missing: false, message: direct.message };
+      }
+    } finally {
+      if (draftWatch === watch) stopDraftWatch(false);
+    }
+    if (run !== state.ingestRun) return;
+    if (drafted === TIMED_OUT) {
+      drafted = {
+        ok: false,
+        missing: false,
+        message:
+          `Your AI provider didn't answer in ${Math.round(DRAFT_TIMINGS.abortAfterMs / 1000)} ` +
+          "seconds. Press Try again, or start from a template.",
+      };
     }
     if (!drafted.ok) {
       clearStages(context);
@@ -704,11 +881,11 @@
       // provider lands in exactly the same place. Offer the fix instead.
       state.providerLocked = !!drafted.locked;
       state.failed = !drafted.locked;
+      state.notice = drafted.notice || null;
       repaint(context, drafted.message, "error");
       return;
     }
 
-    setStage(context, 2);
     state.draft = { profile: drafted.profile, source, starterTemplate: "custom" };
     if (context && context.runtime) context.runtime.profileDraft = state.draft;
     saveDraft(context, "profileDraft", state.draft);
@@ -738,10 +915,12 @@
     } catch (err) {
       clearStages(context);
       state.failed = true;
+      // GFX N-B3-4: the reader's own errors often already point at the
+      // paste box; say it once.
+      const reason = String((err && err.message) || err || "Couldn't read that file.");
       repaint(
         context,
-        String((err && err.message) || err || "Couldn't read that file.") +
-          " You can paste the text instead.",
+        /paste/i.test(reason) ? reason : `${reason} You can paste the text instead.`,
         "error",
       );
       return;
@@ -791,23 +970,37 @@
   // Dispatch
   // ---------------------------------------------------------------
 
+  function supersedeDraft() {
+    state.ingestRun += 1;
+    stopDraftWatch(true);
+  }
+
   async function handleAction(actionId, ctx) {
     const context = ctx || lastCtx;
     if (!context) return undefined;
     switch (actionId) {
       case ACTION_USE_TEXT:
         return ingest(readPaste(), "paste", context);
-      case ACTION_RETRY:
-        if (state.lastText) return ingest(state.lastText, state.lastSource, context);
+      case ACTION_RETRY: {
+        // Text edited in the box since the failure is what the user means.
+        const text =
+          state.lastSource === "paste" ? readPaste() || state.lastText : state.lastText;
+        if (text) return ingest(text, state.lastSource || "paste", context);
         state.failed = false;
         repaint(context, "");
         return undefined;
+      }
       case ACTION_CONNECT_AI:
+        supersedeDraft();
         if (typeof context.goToBeat === "function") return context.goToBeat("ai");
         return undefined;
       case ACTION_TEMPLATE:
+        // The stall line offers this exit mid-draft: the draft in flight
+        // is dropped so it can't overwrite the template's profile later.
+        supersedeDraft();
         state.mode = "templates";
         state.failed = false;
+        state.notice = null;
         clearStages(context);
         repaint(context, "");
         return undefined;
@@ -866,6 +1059,13 @@
     },
     getDraft() {
       return state.draft;
+    },
+    // Test seam: the B3-4 clock, and the footer's current actions.
+    _internal: {
+      timings: DRAFT_TIMINGS,
+      actions() {
+        return ACTIONS.slice();
+      },
     },
   };
 })();

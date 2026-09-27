@@ -36,7 +36,7 @@
   const FOOTER_LINE =
     "More power-ups — URL import, grounded search, other devices — live in Settings → Upgrades, each one click, none required.";
   const SKIPPED_LINE =
-    "○ Connection is off — your AI and Google-index keys are saved; connect anytime from the banner below";
+    "○ Discovery isn't connected yet — your keys are saved, and the banner below connects it when you're ready";
   /** GREENFIELD-SPEC §4.3 — the first "What happens now" line when B6 is
       not actually armed. Locked copy. */
   const NOT_ARMED_LINE =
@@ -48,9 +48,9 @@
    * verified. Stored config alone is a claim, so it renders as ○.
    */
   const AI_UNVERIFIED_LINE =
-    "○ AI isn't checked yet — go back to the AI step to connect it";
+    "○ AI isn't connected yet — add it any time in Settings";
   const DISCOVERY_UNVERIFIED_LINE =
-    "○ Job search isn't set up — you can track jobs without it";
+    "○ Job search isn't connected yet — you can track jobs by hand meanwhile";
   /** UX01 C6 (FR-10): once a Sheet exists, manual tracking can start here. */
   const TRACK_JOB_ACTION = Object.freeze({
     id: "payoff_track_job",
@@ -491,7 +491,11 @@
       list.appendChild(li);
     }
 
-    addRow(list, "oneflow-payoff__row--eta", ETA_LINE);
+    // Only a run that can happen gets a promised time (GFX-N8): not armed,
+    // or the connection skipped, and "first matches tomorrow" is a claim.
+    if (armed && !state.skippedConnect) {
+      addRow(list, "oneflow-payoff__row--eta", ETA_LINE);
+    }
     card.appendChild(list);
     return card;
   }
@@ -654,6 +658,25 @@
     });
   }
 
+  /**
+   * N8: why the first run didn't start, in the user's words. Keys are the
+   * reasons triggerDiscoveryRun answers (and triggerRun's own two).
+   */
+  const RUN_FAILURE_REASONS = Object.freeze({
+    no_url: "discovery isn't connected yet",
+    blank_intent: "your search has no target roles yet",
+    stub_only: "the saved address is a test address that can't search",
+    network_error: "the discovery connection didn't answer",
+    unavailable: "the discovery runner didn't load",
+  });
+
+  function runFailureMessage(result) {
+    const key = String((result && (result.reason || result.kind)) || "");
+    const reason =
+      RUN_FAILURE_REASONS[key] || "the discovery connection hit an error";
+    return `The first run didn't start — ${reason}. Try again.`;
+  }
+
   async function runNow(ctx) {
     const ok = await assertIntent();
     if (!ok) {
@@ -668,11 +691,17 @@
       { label: "Discovery is looking", state: "todo" },
       { label: "First matches land on your board", state: "todo" },
     ]);
+    // N8: wait for the run to START, not to finish. A run that never left
+    // stays on B6 with its reason; the celebration already played, so it
+    // must not also close as if discovery were running. Once accepted, the
+    // run tracker's toast + poll carry it onto the live board (§5 B6).
+    const started = await triggerRun();
+    if (!started || started.ok !== true) {
+      ctx.clearBusy();
+      ctx.setMessage(runFailureMessage(started), "error");
+      return null;
+    }
     armFirstResults();
-    // Fire and let it stream: the shell closes on completeBeat, and the
-    // existing run tracker's toast + poll carry the run from there onto
-    // the live board behind it (spec §5 B6 Actions).
-    void triggerRun();
     const result = await ctx.completeBeat({ beat: "payoff", ran: true });
     // Land where the dashboard's own Run button shows a run: the drawer.
     // Only once the flow has relinquished the surface — opened under a

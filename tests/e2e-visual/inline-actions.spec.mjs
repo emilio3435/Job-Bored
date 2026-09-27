@@ -72,6 +72,9 @@ for (const viewport of [DESKTOP, PHONE]) {
         const buttons = await labelGeometry(page, BEAT_BUTTONS);
         for (const button of buttons) {
           if (!button.text || /\s/.test(button.text)) continue;
+          // A control inside a collapsed disclosure (B4's Preferences, GFX
+          // FE-B4) renders no box at all, so it has no line to break.
+          if (!button.width && !button.height) continue;
           inspected += 1;
           expect(
             button.lines,
@@ -109,10 +112,14 @@ for (const viewport of [DESKTOP, PHONE]) {
 
       const adds = (
         await labelGeometry(page, `${SHELL} .oneflow-fit-link-button`)
-      ).filter((button) => button.text === "Add");
+      ).filter(
+        // GFX FE-B4: Preferences (More of / Less of / Skip titles) is
+        // collapsed by default, so its Adds render no box until opened.
+        (button) => button.text === "Add" && (button.width || button.height),
+      );
       expect(
         adds.length,
-        "beat 4 offers an Add beside roles, strengths, and each lean list",
+        "beat 4 offers an Add beside roles and strengths",
       ).toBeGreaterThanOrEqual(2);
 
       for (const add of adds) {

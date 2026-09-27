@@ -1,0 +1,30 @@
+{
+  "name": "jobbored-desktop",
+  "productName": "JobBored",
+  "version": "0.1.0",
+  "private": true,
+  "description": "JobBored for Mac: a menu-bar app that runs the local JobBored stack.",
+  "author": "Elio AI LLC",
+  "license": "MIT",
+  "type": "module",
+  "main": "main.mjs",
+  "engines": {
+    "node": ">=24 <25"
+  },
+  "scripts": {
+    "start": "electron .",
+    "smoke": "JOBBORED_DESKTOP_SMOKE=1 electron .",
+    "test": "node --test test/*.test.mjs",
+    "stage": "node scripts/stage.mjs",
+    "dist:unsigned": "node scripts/stage.mjs && CSC_IDENTITY_AUTO_DISCOVERY=false electron-builder --mac --universal --publish never",
+    "typecheck": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "electron-updater": "6.8.9"
+  },
+  "devDependencies": {
+    "electron": "44.4.5",
+    "electron-builder": "26.15.3",
+    "typescript": "7.0.2"
+  }
+}

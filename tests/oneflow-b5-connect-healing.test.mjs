@@ -28,24 +28,25 @@ const FUEL_ACTION = "oneflow_discovery_save_verify";
 const CONNECT_ACTION = "oneflow_discovery_connect";
 
 const NEEDS_INSTALL_BASE =
-  "Tailscale isn't installed yet — grab it below, then Re-check.";
+  "Tailscale isn't installed yet — grab it below, then press Check again.";
 const NEEDS_LOGIN_BASE =
-  "Tailscale is installed but not signed in — open the Tailscale app, sign in, then Re-check.";
+  "Tailscale is installed but not signed in — open the Tailscale app, sign in, then press Check again.";
+// GFX FE-B5 (S10, D1): the start sentence is localServerHint (no navigator
+// here, so ./start.sh), and the retry is Check again.
 const NEEDS_SERVER_BASE =
-  "Couldn't reach JobBored's local server — double-click start.command " +
-  "in the JobBored folder to start it, then Re-check.";
+  "Couldn't reach JobBored on this computer. To start it, run " +
+  "./start.sh in the JobBored folder, then press Check again.";
 const BLOCKED_TUNNEL_NOTE =
   " Your saved address was a temporary tunnel link — those stop working " +
-  "when the tunnel restarts, so Re-check mints you a stable address " +
+  "when the tunnel restarts, so Check again mints you a stable address " +
   "that doesn't expire.";
 const FAILED_TUNNEL_NOTE =
   " Your saved address was a temporary tunnel link — those stop working " +
   "when the tunnel restarts, so pressing Set it up for me again mints " +
   "you a stable address that doesn't expire.";
 const FUEL_NO_SERVER_MESSAGE =
-  "Couldn't reach JobBored's local server to check your key — " +
-  "double-click start.command in the JobBored folder to start it, " +
-  "then press Save & verify.";
+  "Couldn't reach the JobBored server on this computer. To start it, run " +
+  "./start.sh in the JobBored folder, then press Save & verify.";
 
 // ---------------------------------------------------------------
 // The Tailscale auto path, driven the way B5 drives it.
@@ -58,6 +59,7 @@ function healingWizardEnv({
   serve = { ok: true, url: "https://mac.tailnet.ts.net" },
   secret = null,
   verifyResult = { ok: true, message: "Connected." },
+  verifyImpl,
   envKeyImpl,
   bootImpl,
   savedDraftEndpoint = "",
@@ -116,39 +118,117 @@ function healingWizardEnv({
     });
     if (String(url).includes("tailscale-state")) {
       if (typeof tailscaleProbe === "function") return tailscaleProbe();
-      return { ok: true, json: async () => tailscale };
+      return { ok: true, status: 200, json: async () => tailscale };
     }
     if (String(url).includes("discovery-webhook-secret")) {
       return secret
-        ? { ok: true, json: async () => secret }
+        ? { ok: true, status: 200, json: async () => secret }
         : { ok: false, json: async () => ({}) };
     }
     if (String(url).includes("discovery-state")) {
-      return { ok: true, json: async () => ({ ok: true, worker: workerState }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, worker: workerState }) };
     }
     if (String(url).includes("discovery-env-key")) {
       if (typeof envKeyImpl === "function") return envKeyImpl(url, opts);
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
     if (String(url).includes("full-boot")) {
       if (typeof bootImpl === "function") return bootImpl(url, opts);
-      return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, phases: [] }) };
     }
     if (String(url).includes("tailscale-serve")) {
-      return { ok: true, json: async () => serve };
+      return { ok: true, status: 200, json: async () => serve };
     }
     return { ok: false, json: async () => ({}) };
   };
   const deps = {
     fetchImpl,
     verify: async () => {
-      runtime.lastVerificationResult = verifyResult;
-      return verifyResult;
+      runtime.lastVerificationResult = verifyImpl
+        ? await verifyImpl(runtime)
+        : verifyResult;
+      return runtime.lastVerificationResult;
     },
     render: () => null,
   };
   return { ui, window, deps, fetched, runtime };
 }
+
+describe("persisted secret not loaded by an already running worker", () => {
+  const secret = { ok: true, secret: "synthetic-worker-secret", wrote: false };
+  const denied = { ok: false, kind: "auth_required", message: "Authentication required." };
+
+  it("reloads the worker once and repeats the handshake after an auth failure", async () => {
+    let loaded = false;
+    let checks = 0;
+    const env = healingWizardEnv({
+      secret,
+      bootImpl: async () => {
+        loaded = true;
+        return { ok: true, json: async () => ({ ok: true }) };
+      },
+      verifyImpl: async () => {
+        checks += 1;
+        return loaded ? { ok: true, message: "Connected." } : denied;
+      },
+    });
+    const outcome = await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(outcome.ok, true);
+    assert.equal(checks, 2);
+    const boots = env.fetched.filter((r) => r.url.includes("full-boot"));
+    assert.equal(boots.length, 1);
+    assert.match(boots[0].url, /skip_tunnel=1&force_restart=1/);
+  });
+
+  for (const kind of ["network_error", "cors_blocked"]) {
+    it(`does not restart for ${kind}`, async () => {
+      const env = healingWizardEnv({ secret, verifyResult: { ...denied, kind } });
+      assert.equal((await env.ui.runTailscaleAutoSetup(env.deps)).ok, false);
+      assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 0);
+    });
+  }
+
+  it("does not restart without a resolved local secret", async () => {
+    const env = healingWizardEnv({ verifyResult: denied });
+    await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 0);
+  });
+
+  it("stops after one retry if authentication still fails", async () => {
+    let checks = 0;
+    const env = healingWizardEnv({ secret, verifyImpl: async () => { checks += 1; return denied; } });
+    assert.equal((await env.ui.runTailscaleAutoSetup(env.deps)).ok, false);
+    assert.equal(checks, 2);
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 1);
+  });
+
+  it("does not retry authentication when restart fails", async () => {
+    let checks = 0;
+    const env = healingWizardEnv({
+      secret,
+      bootImpl: async () => ({ ok: false, json: async () => ({ ok: false, message: "Worker is externally owned." }) }),
+      verifyImpl: async () => { checks += 1; return denied; },
+    });
+    const outcome = await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(outcome.ok, false);
+    assert.match(outcome.message, /externally owned/);
+    assert.equal(checks, 1);
+  });
+
+  it("does not restart twice when this setup already loaded a new secret", async () => {
+    const env = healingWizardEnv({ secret: { ...secret, wrote: true }, verifyResult: denied });
+    await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 1);
+  });
+
+  it("preserves a manually supplied secret without restarting the worker", async () => {
+    const env = healingWizardEnv({ secret, verifyResult: denied });
+    env.runtime.drafts.endpointSecret = "synthetic-manual-secret";
+    await env.ui.runTailscaleAutoSetup(env.deps);
+    assert.equal(env.runtime.drafts.endpointSecret, "synthetic-manual-secret");
+    assert.equal(env.fetched.filter((r) => r.url.includes("full-boot")).length, 0);
+  });
+});
 
 // ---------------------------------------------------------------
 // A saved endpoint on a dead quick-tunnel/ngrok host
@@ -308,7 +388,7 @@ describe("LANE B · the auto path heals a worker that rejects the dashboard orig
 // ---------------------------------------------------------------
 
 describe("LANE B · needs_server names the launcher, never the terminal", () => {
-  it("the Tailscale machine probe points at start.command", async () => {
+  it("the Tailscale machine probe names the platform's launcher", async () => {
     const env = healingWizardEnv({
       tailscaleProbe: () => {
         throw new TypeError("Failed to fetch");
@@ -338,20 +418,25 @@ describe("LANE B · needs_server names the launcher, never the terminal", () => 
 // B5: the four stage lines, the message slot, the fuel error
 // ---------------------------------------------------------------
 
-function makeFuelFetch({ checkImpl } = {}) {
+function makeFuelFetch({ checkImpl, pingImpl } = {}) {
   return async (url) => {
+    if (String(url).includes("__proxy/ping")) {
+      if (typeof pingImpl === "function") return pingImpl();
+      return { ok: true, status: 200, json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }) /* GFX §R3 ping */ };
+    }
     if (String(url).includes("serpapi-check")) {
       if (typeof checkImpl === "function") return checkImpl();
       return {
         ok: true,
+        status: 200,
         json: async () => ({ ok: true, plan: "Free", searchesLeft: 97 }),
       };
     }
     if (String(url).includes("discovery-env-key")) {
-      return { ok: true, json: async () => ({ ok: true }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true }) };
     }
     if (String(url).includes("full-boot")) {
-      return { ok: true, json: async () => ({ ok: true, phases: [] }) };
+      return { ok: true, status: 200, json: async () => ({ ok: true, phases: [] }) };
     }
     return { ok: false, json: async () => ({}) };
   };
@@ -374,7 +459,7 @@ describe("LANE B · B5 keeps its four stage lines and its message slot", () => {
     assert.equal(labels.verify, "Verifying the connection");
   });
 
-  it("a blocked connect carrying the dead-tunnel sentence renders it with Re-check", async () => {
+  it("a blocked connect carrying the dead-tunnel sentence renders it with Check again", async () => {
     const message = NEEDS_INSTALL_BASE + BLOCKED_TUNNEL_NOTE;
     const wizardUi = {
       async runTailscaleAutoSetup({ onStage } = {}) {
@@ -410,18 +495,18 @@ describe("LANE B · B5 keeps its four stage lines and its message slot", () => {
     const slot = env.mount.querySelector(".discovery-setup-wizard__message");
     assert.ok(slot, "a blocked state must reach the message slot, not a toast");
     assert.match(slot.textContent, /temporary tunnel link/);
-    assert.match(slot.textContent, /Re-check/);
-    assert.equal(env.button(CONNECT_ACTION).textContent, "Re-check");
+    assert.match(slot.textContent, /Check again/);
+    assert.equal(env.button(CONNECT_ACTION).textContent, "Check again");
     assert.ok(
       !env.flow.getState().completedBeats.includes("discovery"),
       "a blocked connect never counts as done",
     );
   });
 
-  it("a fuel check with no local server names the launcher and its next action", async () => {
+  it("a fuel check with no local server names the ping failure and its next action", async () => {
     const env = loadDiscoveryBeat({
       fetchImpl: makeFuelFetch({
-        checkImpl: () => {
+        pingImpl: () => {
           throw new TypeError("Failed to fetch");
         },
       }),
@@ -437,5 +522,113 @@ describe("LANE B · B5 keeps its four stage lines and its message slot", () => {
       "a failed check reads as a failure",
     );
     assert.match(slot.textContent, /Save & verify/);
+    assert.ok(
+      !env.fetchCalls.some((c) => c.url.includes("serpapi-check")),
+      "a failed ping spends no key",
+    );
+  });
+});
+
+// ---------------------------------------------------------------
+// B5 C2: the keyless ping gates the keyed check
+// ---------------------------------------------------------------
+
+describe("B5 C2 · the keyless ping gates the keyed check", () => {
+  async function saveAndVerify(fetchImpl) {
+    const env = loadDiscoveryBeat({ fetchImpl });
+    await env.flow.open("discovery");
+    env.beat._internal.setKeyDraft("serp-key-123");
+    await env.act(FUEL_ACTION);
+    return env;
+  }
+
+  const slotOf = (env) =>
+    env.mount.querySelector(".discovery-setup-wizard__message");
+
+  function assertNoKeyedPost(env) {
+    assert.ok(
+      !env.fetchCalls.some((c) => c.url.includes("serpapi-check")),
+      "a failed ping must never POST the key",
+    );
+  }
+
+  it("a non-2xx ping short-circuits to no_local_server without POSTing the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        pingImpl: async () => ({
+          ok: false,
+          status: 502,
+          json: async () => ({}),
+        }),
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
+    assert.match(slotOf(env).textContent, /Save & verify/);
+    assertNoKeyedPost(env);
+  });
+
+  it("a ping with a non-object body short-circuits without POSTing the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        pingImpl: async () => ({ ok: true, status: 200, json: async () => null }),
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
+    assertNoKeyedPost(env);
+  });
+
+  it("a ping 200 without ok fails closed without POSTing the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        pingImpl: async () => ({ ok: true, status: 200, json: async () => ({}) }),
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
+    assertNoKeyedPost(env);
+  });
+
+  it("ping ok + bad key spends the check exactly once and names the key", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        checkImpl: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: false, reason: "invalid_key" }),
+        }),
+      }),
+    );
+    assert.match(slotOf(env).textContent, /SerpApi didn't recognise that key/);
+    assert.match(slotOf(env).textContent, /Save & verify/);
+    assert.equal(
+      env.fetchCalls.filter((c) => c.url.includes("serpapi-check")).length,
+      1,
+      "a live server earns exactly one keyed check",
+    );
+  });
+
+  it("ping ok + SerpApi down reports unreachable, never no_local_server", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        checkImpl: async () => ({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: false, reason: "unreachable" }),
+        }),
+      }),
+    );
+    assert.match(slotOf(env).textContent, /SerpApi didn't answer/);
+    assert.doesNotMatch(slotOf(env).textContent, /JobBored server on this computer/);
+    assert.match(slotOf(env).textContent, /Save & verify/);
+  });
+
+  it("a check that throws after a good ping still reads as no_local_server", async () => {
+    const env = await saveAndVerify(
+      makeFuelFetch({
+        checkImpl: () => {
+          throw new TypeError("Failed to fetch");
+        },
+      }),
+    );
+    assert.equal(slotOf(env).textContent, FUEL_NO_SERVER_MESSAGE);
   });
 });

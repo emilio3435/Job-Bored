@@ -4,10 +4,26 @@ import { readFile } from "node:fs/promises";
 import { dirname, join, extname, resolve as resolvePath } from "node:path";
 import { fileURLToPath } from "node:url";
 import childProcess, { spawn, spawnSync } from "node:child_process";
-import { closeSync, existsSync, mkdirSync, openSync, readFileSync, statSync, writeFileSync } from "node:fs";
+import {
+  closeSync,
+  constants as fsConstants,
+  copyFileSync,
+  existsSync,
+  mkdirSync,
+  openSync,
+  readFileSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { gzipSync } from "node:zlib";
-import { resolveJobBoredPaths } from "./scripts/lib/paths.mjs";
+import {
+  bootstrapStatePath,
+  dashboardConfigPath as resolveDashboardConfigFile,
+  isDesktopRuntime,
+  resolveJobBoredPaths,
+  tlsCacheDir,
+} from "./scripts/lib/paths.mjs";
 import { expandIndexIncludes, listIncludeTargets } from "./scripts/lib/expand-index-includes.mjs";
 import {
   decodeRequestPathname,
@@ -32,6 +48,7 @@ import {
 } from "./scripts/bootstrap-local-discovery.mjs";
 import {
   authorizeLocalControlRequest,
+  bindTailnetStatusResolver,
   buildLocalControlCorsHeaders,
   isLoopbackPeer,
   localControlPreflightHeaders,
@@ -48,9 +65,19 @@ import {
 
 export const DEFAULT_PORT = 8080;
 const ROOT = fileURLToPath(new URL(".", import.meta.url));
-const TLS_CACHE_DIR = join(ROOT, "node_modules", ".cache", "command-center-dev-server");
-const TLS_CERT_PATH = join(TLS_CACHE_DIR, "localhost-cert.pem");
-const TLS_KEY_PATH = join(TLS_CACHE_DIR, "localhost-key.pem");
+
+/**
+ * The self-signed localhost cert cache: node_modules/.cache in a checkout,
+ * ~/.jobbored/tls in the desktop app, whose bundle is read-only (GFX R23).
+ */
+export function resolveTlsPaths(env = process.env) {
+  const dir = tlsCacheDir({ env, repoRoot: ROOT });
+  return {
+    dir,
+    cert: join(dir, "localhost-cert.pem"),
+    key: join(dir, "localhost-key.pem"),
+  };
+}
 const TLS_CERT_SUBJECT = "/CN=localhost";
 const TLS_CERT_SAN = "subjectAltName=DNS:localhost,IP:127.0.0.1";
 const DEFAULT_DISCOVERY_WORKER_PORT = 8644;
@@ -230,6 +257,14 @@ function isProfileApiPath(pathname) {
  */
 function isSameOriginProfileRequest(req) {
   if (isLocalOrigin(req)) return true;
+  // The legacy no-Origin profile fallback predates Serve. It must not let a
+  // second tailnet user bypass the owner check with Sec-Fetch-Site alone.
+  const host = String(req?.headers?.host || "")
+    .toLowerCase()
+    .replace(/:\d+$/, "");
+  if (host.endsWith(".ts.net")) {
+    return false;
+  }
   if (!isLoopbackPeer(req && req.socket ? req.socket.remoteAddress : "")) {
     return false;
   }
@@ -603,7 +638,7 @@ export function resolveDiscoveryWorkerLogPath(workerEnvPath = PACKAGED_PATHS.wor
 }
 
 /**
- * stdio for a detached worker that keeps writing after we unref it: stdout
+ * stdio for a worker that writes to the log: stdout
  * and stderr appended to the worker log, so the worker the DASHBOARD starts
  * leaves the same trail the starter and the keep-alive do. This spawn used
  * `stdio: "ignore"`, and every Beat 5 save force-restarts through it — so
@@ -641,6 +676,11 @@ export function buildDiscoveryWorkerSpawnEnv(port, baseEnv = process.env) {
   });
 }
 
+export function discoveryWorkerSpawnMode(env = process.env) {
+  const detached = !isDesktopRuntime(env);
+  return { detached, unref: detached };
+}
+
 async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
   const resolvedPort = normalizeDiscoveryWorkerPort(port);
   const before = await probeDiscoveryWorkerHealth(resolvedPort);
@@ -669,17 +709,18 @@ async function defaultDiscoveryWorkerStarter({ port = 8644 } = {}) {
   }
 
   const workerLog = openDiscoveryWorkerLogStdio(resolveDiscoveryWorkerLogPath());
+  const spawnMode = discoveryWorkerSpawnMode();
   const child = spawn(
     process.execPath,
     ["--experimental-strip-types", DISCOVERY_WORKER_SCRIPT],
     {
       cwd: ROOT,
-      detached: true,
+      detached: spawnMode.detached,
       stdio: workerLog.stdio,
       env: buildDiscoveryWorkerSpawnEnv(resolvedPort),
     },
   );
-  child.unref();
+  if (spawnMode.unref) child.unref();
   workerLog.close();
 
   for (let attempt = 0; attempt < 12; attempt += 1) {
@@ -897,7 +938,60 @@ export async function loadStaticHtml(
   return data;
 }
 
+/**
+ * A missing config.js is an empty 404 *script*: the dashboard boots without
+ * one, and a 403 text/plain made the browser log a MIME error (GFX S3).
+ */
+function writeMissingConfigScript(res) {
+  res.writeHead(404, {
+    "content-type": "text/javascript; charset=utf-8",
+    "cache-control": "no-cache",
+    ...STATIC_SECURITY_HEADERS,
+  });
+  res.end("");
+}
+
+/**
+ * /config.js. With `dashboardConfigPath` (the desktop app passes
+ * ~/.jobbored/desktop/config.js) that file is served. Without one, a
+ * checkout's own config.js stays private, as BEAUDIT G3 made it.
+ */
+async function serveDashboardConfig(req, res, dashboardConfigPath) {
+  if (!dashboardConfigPath) {
+    if (existsSync(join(ROOT, "config.js"))) {
+      writeStaticGuardResponse(res, 403);
+    } else {
+      writeMissingConfigScript(res);
+    }
+    return;
+  }
+  let data;
+  try {
+    data = await readFile(dashboardConfigPath);
+  } catch {
+    writeMissingConfigScript(res);
+    return;
+  }
+  if (process.env.JOBBORED_DESKTOP === "1") {
+    data = Buffer.concat([Buffer.from(data), Buffer.from(DESKTOP_RUNTIME_MARKER)]);
+  }
+  sendStaticBody(req, res, MIME[".js"], data, dashboardConfigPath);
+}
+
+/**
+ * GFX R13: the page can only learn it runs inside the desktop app from its
+ * own config — when no server answers, there is no ping to ask. Appended
+ * to the served desktop config.js (never written to the user's file), and
+ * it leaves an explicit user value alone. local-server.js reads it.
+ */
+const DESKTOP_RUNTIME_MARKER =
+  '\n;(function () { var c = window.COMMAND_CENTER_CONFIG; if (c && !c.jobBoredRuntime) c.jobBoredRuntime = "desktop"; })();\n';
+
 async function serveStatic(urlPath, res, { req, dashboardConfigPath } = {}) {
+  if (urlPath === "/config.js") {
+    await serveDashboardConfig(req, res, dashboardConfigPath);
+    return;
+  }
   const resolved = await resolvePublicFile(urlPath, { root: ROOT });
   if (!resolved.ok) {
     writeStaticGuardResponse(res, resolved.status || 404);
@@ -930,12 +1024,13 @@ function isLocalOrigin(req) {
   return authorizeLocalControlRequest(req).ok;
 }
 
-function denyNonLocalControl(res) {
+function denyNonLocalControl(res, reason = "forbidden") {
   res.writeHead(403, {
     "content-type": "application/json",
+    "cache-control": "no-store",
     vary: "Origin",
   });
-  res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+  res.end(JSON.stringify({ ok: false, reason }));
 }
 
 function resolveDashboardOrigin(req, currentPort) {
@@ -965,8 +1060,32 @@ function resolveDashboardOrigin(req, currentPort) {
   return `http://127.0.0.1:${normalizePort(currentPort)}`;
 }
 
+/**
+ * GET /discovery-local-bootstrap.json from wherever the state lives
+ * (~/.jobbored in the desktop app, GFX F3), so the dashboard's same-origin
+ * fetch (settings-profile-tab.js) needs no change. It carries the webhook
+ * secret, so only the dashboard's own loopback origin gets it; the static
+ * guard still refuses the repo-root file.
+ */
+async function handleBootstrapStateFile(req, res) {
+  if (!isLocalOrigin(req)) {
+    denyNonLocalControl(res);
+    return;
+  }
+  let data;
+  try {
+    data = await readFile(bootstrapStatePath({ repoRoot: ROOT }));
+  } catch {
+    res.writeHead(404, { ...jsonCorsHeaders(req), "cache-control": "no-store" });
+    res.end(JSON.stringify({ ok: false, reason: "not_found" }));
+    return;
+  }
+  res.writeHead(200, { ...jsonCorsHeaders(req), "cache-control": "no-store" });
+  res.end(data);
+}
+
 function readBootstrapJson() {
-  const filePath = join(ROOT, "discovery-local-bootstrap.json");
+  const filePath = bootstrapStatePath({ repoRoot: ROOT });
   if (!existsSync(filePath)) return null;
   try {
     return JSON.parse(readFileSync(filePath, "utf8"));
@@ -1031,6 +1150,11 @@ async function handleFixSetup(req, res, options = {}) {
   }
 
   const corsHeaders = jsonCorsHeaders(req);
+  if (isDesktopRuntime()) {
+    res.writeHead(409, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "desktop_managed", message: "Discovery is managed by the JobBored app." }));
+    return;
+  }
 
   // Allow callers (e.g. handleFullBoot) to inject earlier phases so the
   // dashboard sees one continuous timeline.
@@ -1054,7 +1178,6 @@ async function handleFixSetup(req, res, options = {}) {
   if (!bootstrapResult.ok) {
     emit("bootstrap_failed", {
       message: "Bootstrap script failed.",
-      detail: bootstrapResult.stderr.slice(0, 500),
     });
     res.writeHead(500, corsHeaders);
     res.end(JSON.stringify({ ok: false, phases }));
@@ -1163,7 +1286,6 @@ async function handleFixSetup(req, res, options = {}) {
 
     emit("relay_deploy_failed", {
       message: "Relay deploy failed.",
-      detail: deployResult.stderr.slice(0, 500),
     });
     res.writeHead(500, corsHeaders);
     res.end(JSON.stringify({
@@ -1473,6 +1595,11 @@ async function handleFullBoot(req, res, discoveryWorkerStarter, options = {}) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, message: "Localhost only." }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    res.writeHead(409, corsHeaders);
+    res.end(JSON.stringify({ ok: false, reason: "desktop_managed", message: "Discovery is managed by the JobBored app." }));
     return;
   }
 
@@ -1924,6 +2051,144 @@ async function handleDiscoveryEnvKey(req, res) {
 }
 
 /**
+ * The /__proxy routes this build serves, as `GET /__proxy/ping` advertises
+ * them (PLAN §R3). A client that needs a route missing here — or a server
+ * whose ping has no `routes` at all — reads the server as stale. Pinned
+ * against the handler's own route literals by
+ * tests/gfx-be-fuel-ping-contract.test.mjs.
+ */
+const PING_ROUTES = Object.freeze(
+  [
+    "discovery-env-key",
+    "discovery-health",
+    "discovery-relay-token",
+    "discovery-state",
+    "discovery-webhook-secret",
+    "fix-setup",
+    "full-boot",
+    "install-doctor",
+    "install-keep-alive",
+    "install-worker-autostart",
+    "kill-stale",
+    "local-health",
+    "ngrok-tunnels",
+    "ping",
+    "serpapi-check",
+    "start-discovery-worker",
+    "tailscale-serve",
+    "tailscale-state",
+  ].sort(),
+);
+
+function readPackageVersion() {
+  try {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8"));
+    return typeof pkg.version === "string" ? pkg.version : "";
+  } catch (_) {
+    return "";
+  }
+}
+
+/**
+ * The §R3 ping body. `runtime` is "desktop" only under the desktop app
+ * (JOBBORED_DESKTOP=1); `desktopVersion` appears only when the app says
+ * which it is. Computed once per server: none of it changes while the
+ * process lives.
+ */
+export function buildPingBody(env = process.env, version = readPackageVersion()) {
+  const desktop = String((env && env.JOBBORED_DESKTOP) || "") === "1";
+  const desktopVersion = String((env && env.JOBBORED_DESKTOP_VERSION) || "").trim();
+  return {
+    ok: true,
+    version,
+    runtime: desktop ? "desktop" : "source",
+    routes: [...PING_ROUTES],
+    ...(desktopVersion ? { desktopVersion } : {}),
+  };
+}
+
+/**
+ * B5 presence probe (spec C2, PLAN §R3): keyless `GET /__proxy/ping`
+ * answers the build's version, runtime and routes, so a client can tell
+ * "the local server is down" from "the local server is too old" before
+ * spending the key. The shared Host gate at the top of the request handler
+ * runs first and is unchanged; the Origin posture is the local allowlist
+ * PLUS the exact hosted Pages origin from ./CNAME, over a loopback peer (a
+ * Pages dashboard on this machine still talks to its loopback dev server).
+ * The allowed origin is echoed back exactly — never `*`, never a
+ * reflection of an arbitrary Origin. `pagesOrigin` is read from ./CNAME
+ * once, when the server starts.
+ */
+function isPagesPingOrigin(req, pagesOrigin) {
+  if (!pagesOrigin) return false;
+  const peer = req && req.socket ? req.socket.remoteAddress : "";
+  if (!isLoopbackPeer(peer)) return false;
+  const headers = (req && req.headers) || {};
+  const origin = String(headers.origin || headers.Origin || "").trim();
+  return !!origin && origin === pagesOrigin;
+}
+
+function pingAuthorization(req, pagesOrigin) {
+  const local = authorizeLocalControlRequest(req);
+  if (local.ok || isPagesPingOrigin(req, pagesOrigin)) {
+    return { ok: true, tailnetOwner: local.tailnetOwner === true };
+  }
+  return local;
+}
+
+function pingCorsHeaders(req, pagesOrigin, extra = {}) {
+  const headers = { "cache-control": "no-store", ...extra };
+  if (isLocalOrigin(req)) return buildLocalControlCorsHeaders(req, headers);
+  headers.vary = "Origin";
+  if (isPagesPingOrigin(req, pagesOrigin)) {
+    headers["access-control-allow-origin"] = pagesOrigin;
+  }
+  return headers;
+}
+
+function pingPreflightHeaders(req, pagesOrigin) {
+  const extra = {
+    "access-control-allow-methods": "GET, OPTIONS",
+    "access-control-allow-headers": "content-type",
+    "access-control-max-age": "86400",
+  };
+  // Chrome's Private Network Access preflight: a public page (the exact
+  // Pages origin) reaching loopback must be told yes explicitly. Local
+  // origins are not crossing into a more private network, so they never
+  // get it.
+  if (!isLocalOrigin(req) && isPagesPingOrigin(req, pagesOrigin)) {
+    extra["access-control-allow-private-network"] = "true";
+  }
+  return pingCorsHeaders(req, pagesOrigin, extra);
+}
+
+function handlePing(req, res, pagesOrigin, pingBody) {
+  const auth = pingAuthorization(req, pagesOrigin);
+  if (!auth.ok) {
+    denyNonLocalControl(
+      res,
+      auth.reason === "tailscale_unavailable" || auth.reason === "tailnet_owner_required"
+        ? auth.reason
+        : "forbidden",
+    );
+    return;
+  }
+  if (req.method !== "GET") {
+    res.writeHead(405, {
+      ...pingCorsHeaders(req, pagesOrigin, { "content-type": "application/json" }),
+      allow: "GET, OPTIONS",
+    });
+    res.end(JSON.stringify({ ok: false, reason: "method_not_allowed" }));
+    return;
+  }
+  res.writeHead(
+    200,
+    pingCorsHeaders(req, pagesOrigin, { "content-type": "application/json" }),
+  );
+  res.end(JSON.stringify(auth.tailnetOwner ? { ...pingBody, tailnetOwner: true } : pingBody));
+}
+
+/**
  * Localhost-only: ask SerpApi whether a key is real, and what it can still do.
  *
  * SIXBEATS2 NEW-3. Beat 5 used to report "Google Jobs index connected" after
@@ -2170,11 +2435,22 @@ async function handleTailscaleServe(req, res) {
       workerPort,
     });
     if (transport) {
-      writeBootstrapTransport(join(ROOT, "discovery-local-bootstrap.json"), transport);
+      writeBootstrapTransport(bootstrapStatePath({ repoRoot: ROOT }), transport);
     }
   }
   res.writeHead(200, corsHeaders);
   res.end(JSON.stringify(result));
+}
+
+/**
+ * R10/R12: under the desktop app (JOBBORED_DESKTOP=1) the app is the only
+ * supervisor, kept alive as a login item. The keep-alive and worker-autostart
+ * endpoints then install, remove and probe nothing: no plist, no launchctl.
+ * `managedBy` is the contract auth-session.js installKeepAliveOnce keys on.
+ */
+function answerManagedByDesktop(req, res, body) {
+  res.writeHead(200, jsonCorsHeaders(req));
+  res.end(JSON.stringify({ ...body, managedBy: "desktop" }));
 }
 
 // Owner: Backend Worker B
@@ -2183,6 +2459,10 @@ async function handleInstallKeepAlive(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true });
     return;
   }
   let body = {};
@@ -2225,6 +2505,10 @@ async function handleUninstallKeepAlive(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true, removed: false });
+    return;
+  }
   try {
     const { uninstallKeepAlive } = await import("./scripts/uninstall-keep-alive.mjs");
     const result = uninstallKeepAlive();
@@ -2242,6 +2526,10 @@ async function handleKeepAliveStatus(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { installed: false });
     return;
   }
   try {
@@ -2267,6 +2555,10 @@ async function handleInstallWorkerAutostart(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true });
     return;
   }
   let body = {};
@@ -2318,6 +2610,10 @@ async function handleUninstallWorkerAutostart(req, res) {
     res.end(JSON.stringify({ ok: false, reason: "forbidden" }));
     return;
   }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { ok: true, removed: false });
+    return;
+  }
   try {
     const { uninstallDiscoveryWorkerAutostart } = await import(
       "./scripts/uninstall-discovery-worker-autostart.mjs"
@@ -2336,6 +2632,10 @@ async function handleWorkerAutostartStatus(req, res) {
   if (!isLocalOrigin(req)) {
     res.writeHead(403, corsHeaders);
     res.end(JSON.stringify({ installed: false, reason: "forbidden" }));
+    return;
+  }
+  if (isDesktopRuntime()) {
+    answerManagedByDesktop(req, res, { installed: false });
     return;
   }
   try {
@@ -2876,8 +3176,13 @@ function normalizeBooleanFlag(value) {
 }
 
 function ensureLocalTlsMaterial() {
-  if (!existsSync(TLS_CERT_PATH) || !existsSync(TLS_KEY_PATH)) {
-    mkdirSync(TLS_CACHE_DIR, { recursive: true });
+  const {
+    dir: tlsDir,
+    cert: tlsCertPath,
+    key: tlsKeyPath,
+  } = resolveTlsPaths();
+  if (!existsSync(tlsCertPath) || !existsSync(tlsKeyPath)) {
+    mkdirSync(tlsDir, { recursive: true });
     const result = spawnSync(
       "openssl",
       [
@@ -2886,9 +3191,9 @@ function ensureLocalTlsMaterial() {
         "-newkey",
         "rsa:2048",
         "-keyout",
-        TLS_KEY_PATH,
+        tlsKeyPath,
         "-out",
-        TLS_CERT_PATH,
+        tlsCertPath,
         "-sha256",
         "-days",
         "365",
@@ -2916,10 +3221,10 @@ function ensureLocalTlsMaterial() {
   }
 
   return {
-    key: readFileSync(TLS_KEY_PATH),
-    cert: readFileSync(TLS_CERT_PATH),
-    keyPath: TLS_KEY_PATH,
-    certPath: TLS_CERT_PATH,
+    key: readFileSync(tlsKeyPath),
+    cert: readFileSync(tlsCertPath),
+    keyPath: tlsKeyPath,
+    certPath: tlsCertPath,
   };
 }
 
@@ -2947,6 +3252,7 @@ function createRequestHandler({
   logger,
   discoveryWorkerStarter,
   dashboardConfigPath,
+  tailnetStatusResolver,
 }) {
   const log =
     logger && typeof logger.log === "function" ? logger.log.bind(logger) : () => {};
@@ -2956,7 +3262,12 @@ function createRequestHandler({
       : () => {};
 
   const dashboardAllowedHosts = readDashboardAllowedHosts();
+  // Read once per server (GFX-N-stale): the ping is polled, and neither the
+  // CNAME nor the build's version changes while the process lives.
+  const pagesOrigin = pagesHostedOriginFromCnameText(readPagesCnameFile());
+  const pingBody = buildPingBody();
   return (req, res) => {
+    bindTailnetStatusResolver(req, tailnetStatusResolver);
     // BEAUDIT E1/G2/G3: one Host gate for every route. A DNS-rebound page
     // connects to loopback with its own name in Host; it gets nothing here,
     // not the /profile proxy, not /__proxy/*, not a static file.
@@ -2992,6 +3303,29 @@ function createRequestHandler({
       // (only static files were logged), which hid a self-repair full-boot
       // that restarted the dev worker (2026-09-02). Name them.
       log(`  HTTP  ${new Date().toLocaleTimeString()} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
+    }
+
+    // B5 presence probe (spec C2): keyless, local origins plus the exact
+    // Pages origin. Runs before the generic /__proxy/* guard, which only
+    // knows local origins — the Host gate above already ran.
+    if (pathname === "/__proxy/ping") {
+      if (req.method === "OPTIONS") {
+        const auth = pingAuthorization(req, pagesOrigin);
+        if (!auth.ok) {
+          denyNonLocalControl(
+            res,
+            auth.reason === "tailscale_unavailable" || auth.reason === "tailnet_owner_required"
+              ? auth.reason
+              : "forbidden",
+          );
+          return;
+        }
+        res.writeHead(204, pingPreflightHeaders(req, pagesOrigin));
+        res.end();
+        return;
+      }
+      handlePing(req, res, pagesOrigin, pingBody);
+      return;
     }
 
     if (pathname.startsWith("/__proxy/")) {
@@ -3292,6 +3626,17 @@ function createRequestHandler({
     const ts = new Date().toLocaleTimeString();
     log(`  HTTP  ${ts} ${req.socket.remoteAddress} ${req.method} ${pathname}`);
 
+    if (req.method === "GET" && pathname === "/discovery-local-bootstrap.json") {
+      handleBootstrapStateFile(req, res).catch((err) => {
+        logError("  Bootstrap-state error:", err);
+        if (!res.headersSent) {
+          res.writeHead(500, jsonCorsHeaders(req));
+          res.end(JSON.stringify({ ok: false, reason: "internal_error" }));
+        }
+      });
+      return;
+    }
+
     serveStatic(pathname, res, { req, dashboardConfigPath }).then(() => {
       log(`  HTTP  ${ts} ${req.socket.remoteAddress} Returned ${res.statusCode} in ${0} ms`);
     });
@@ -3304,6 +3649,7 @@ export function createDevServer({
   tls = false,
   discoveryWorkerStarter,
   dashboardConfigPath,
+  tailnetStatusResolver,
 } = {}) {
   const currentPort = normalizePort(port);
   const useTls = normalizeBooleanFlag(tls);
@@ -3312,6 +3658,7 @@ export function createDevServer({
     logger,
     discoveryWorkerStarter,
     dashboardConfigPath,
+    tailnetStatusResolver,
   });
 
   if (useTls) {
@@ -3335,6 +3682,7 @@ export function startDevServer({
   tls = false,
   discoveryWorkerStarter,
   dashboardConfigPath,
+  tailnetStatusResolver,
 } = {}) {
   const requestedPort = normalizePort(port);
   const listenHost = resolveListenHost({ host });
@@ -3349,6 +3697,7 @@ export function startDevServer({
       tls: useTls,
       discoveryWorkerStarter,
       dashboardConfigPath,
+      tailnetStatusResolver,
     });
     server.once("error", reject);
     server.listen(requestedPort, listenHost, () => {
@@ -3358,7 +3707,7 @@ export function startDevServer({
       const displayHost = listenHost.includes(":") ? `[${listenHost}]` : listenHost;
       log(`  Dev server listening on ${useTls ? "https" : "http"}://${displayHost}:${actualPort}`);
       if (useTls) {
-        log(`  Local TLS certificate: ${TLS_CERT_PATH}`);
+        log(`  Local TLS certificate: ${resolveTlsPaths().cert}`);
       }
       const workerPort = resolveDiscoveryWorkerPort();
       log(`  Proxying /__proxy/local-health → 127.0.0.1:${workerPort}/health`);
@@ -3371,6 +3720,25 @@ export function startDevServer({
   });
 }
 
+/**
+ * The desktop app's config.js lives at ~/.jobbored/desktop/config.js,
+ * seeded once from the bundle's config.example.js and never overwritten.
+ * Returns the path to serve, or undefined in a checkout (GFX R23).
+ */
+export function prepareDesktopDashboardConfig(env = process.env) {
+  if (!isDesktopRuntime(env)) return undefined;
+  const target = resolveDashboardConfigFile({ env, repoRoot: ROOT });
+  try {
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(join(ROOT, "config.example.js"), target, fsConstants.COPYFILE_EXCL);
+  } catch (err) {
+    if (!err || err.code !== "EEXIST") {
+      console.warn(`  Could not seed ${target}: ${err && err.message ? err.message : err}`);
+    }
+  }
+  return target;
+}
+
 const isMainModule = process.argv[1]
   ? resolvePath(process.argv[1]) === fileURLToPath(import.meta.url)
   : false;
@@ -3380,6 +3748,7 @@ if (isMainModule) {
   startDevServer({
     port: process.env.PORT || DEFAULT_PORT,
     tls: process.env.COMMAND_CENTER_TLS || process.env.HTTPS,
+    dashboardConfigPath: prepareDesktopDashboardConfig(),
   }).then((server) => {
     runningServer = server;
     return runningServer;

@@ -26,7 +26,11 @@ import {
 } from "fs";
 import { dirname, join, resolve } from "path";
 import { fileURLToPath } from "url";
-import { resolveJobBoredPaths } from "./lib/paths.mjs";
+import {
+  bootstrapStatePath,
+  dashboardConfigPath,
+  resolveJobBoredPaths,
+} from "./lib/paths.mjs";
 import {
   detectCloudflared,
   parseLastQuickTunnelUrl,
@@ -43,7 +47,8 @@ import { detectTailscale } from "./lib/tailscale.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const repoRoot = join(__dirname, "..");
-const defaultStateFile = join(repoRoot, "discovery-local-bootstrap.json");
+// ~/.jobbored in desktop mode (read-only bundle, GFX F3), else the repo root.
+const defaultStateFile = bootstrapStatePath({ repoRoot });
 const browserUseDiscoveryDir = join(
   repoRoot,
   "integrations",
@@ -268,7 +273,7 @@ function parseGoogleSheetId(raw) {
 }
 
 function readSheetIdFromConfig() {
-  const configPath = join(repoRoot, "config.js");
+  const configPath = dashboardConfigPath({ repoRoot });
   if (!existsSync(configPath)) return "";
   try {
     const text = readFileSync(configPath, "utf8");
@@ -1581,6 +1586,7 @@ function buildTransportState({ kind, publicUrl, tunnelName }) {
 }
 
 function writeBootstrapState(stateFile, payload) {
+  mkdirSync(dirname(stateFile), { recursive: true });
   writeFileSync(stateFile, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
 }
 

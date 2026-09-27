@@ -1,6 +1,19 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { loadOneFlow } from "./oneflow-l0-harness.mjs";
+import { loadOneFlow, readRepoFile } from "./oneflow-l0-harness.mjs";
+
+// GFX FE-B4: the beat validates through fit-profile-schema.js and saves
+// through fit-profile-sync.js, which index.html loads after
+// profile-api-base.js. Load the same three against the sandbox window.
+function loadProfileModules(win) {
+  for (const file of [
+    "profile-api-base.js",
+    "fit-profile-schema.js",
+    "fit-profile-sync.js",
+  ]) {
+    new Function("window", readRepoFile(file))(win);
+  }
+}
 
 function draft(overrides = {}) {
   const base = {
@@ -39,6 +52,7 @@ function draft(overrides = {}) {
 
 function renderBeat(profileDraft = draft()) {
   const env = loadOneFlow({ beatFiles: true });
+  loadProfileModules(env.window);
   const beat = env.flow.getBeat("fit");
   const runtime = { profileDraft };
   const messages = [];
@@ -61,9 +75,12 @@ function renderBeat(profileDraft = draft()) {
 }
 
 describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
-  it("L2-FIT-LAYOUT: renders three review cards, human seniority, conditional locations, and raw JSON details", () => {
+  it("L2-FIT-LAYOUT: renders the grouped sections, human seniority, conditional locations, and no raw JSON", () => {
+    // GFX FE-B4 (B4-1/9, B4-6): three cards + "Edit details" + raw JSON
+    // became five sections; the hard filters are no longer behind a
+    // disclosure and the raw JSON left onboarding.
     const env = renderBeat();
-    assert.equal(env.container.querySelectorAll(".oneflow-fit-card").length, 3);
+    assert.equal(env.container.querySelectorAll(".oneflow-fit-section").length, 5);
     assert.match(env.container.querySelector(".oneflow-fit-seniority").textContent, /Staff/);
     assert.doesNotMatch(
       env.container.querySelector(".oneflow-fit-seniority").textContent,
@@ -74,13 +91,11 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
       true,
       "workMode=any must not render location controls that cannot constrain scoring",
     );
-    assert.ok(env.container.querySelector(".oneflow-fit-json"));
+    assert.equal(env.container.querySelector(".oneflow-fit-json"), null);
     assert.equal(
-      Array.from(
-        env.container.querySelectorAll(".oneflow-fit-details__summary"),
-      ).filter((node) => node.textContent === "Edit details").length,
+      env.container.querySelectorAll(".oneflow-fit-prefs__summary").length,
       1,
-      "the details disclosure must have one accessible summary",
+      "the Preferences disclosure has one accessible summary",
     );
     assert.doesNotMatch(env.container.textContent, /yearsRelevantExperience|starterTemplate/);
   });
@@ -95,7 +110,7 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     await env.beat.onAction("confirm-fit", env.ctx);
     assert.match(
       env.container.querySelector(".oneflow-fit-error--roles").textContent,
-      /at least one target role/i,
+      /at least 1 target role/i,
     );
     assert.match(
       env.container.querySelector(".oneflow-fit-error--strengths").textContent,
@@ -103,7 +118,7 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     );
     assert.match(
       env.container.querySelector(".oneflow-fit-error--narrative").textContent,
-      /20.*1200/,
+      /at least 20 characters/,
     );
     assert.equal(env.completions.length, 0);
   });
@@ -183,7 +198,10 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     );
   });
 
-  it("L2-FIT-LOCAL-ONLY: with no profile API configured the beat completes without any server call", async () => {
+  it("L2-FIT-LOCAL-ONLY: with no profile API configured the beat still POSTs same-origin, and completes when nothing answers", async () => {
+    // GFX N-B4-1 / R7: an empty config used to skip the POST, so a
+    // greenfield install never wrote ~/.jobbored/profile.json. "" now means
+    // same-origin; a network failure is a local-only save, not a block.
     const env = renderBeat();
     const discoveryWrites = [];
     const requests = [];
@@ -196,13 +214,14 @@ describe("ONEFLOW L2 — Beat 4 confirm-don't-compose review", () => {
     env.window.location = { hostname: "example.github.io", port: "" };
     env.window.fetch = async (url, options) => {
       requests.push({ url, options });
-      throw new Error("must not fetch without a configured API");
+      throw new TypeError("Failed to fetch");
     };
 
     await env.beat.onAction("confirm-fit", env.ctx);
 
     assert.equal(discoveryWrites.length, 1);
-    assert.equal(requests.length, 0);
+    assert.equal(requests.length, 1);
+    assert.equal(requests[0].url, "/profile");
     assert.equal(env.completions.length, 1);
     assert.equal(env.completions[0].serverSynced, false);
   });

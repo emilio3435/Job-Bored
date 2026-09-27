@@ -22,32 +22,44 @@
 
   const HEADLINE = "Now give it a brain.";
 
-  /** Names the pre-selected card and its actual paid model (UX01 C7). */
+  /** Names the pre-selected card and what it costs (UX01 C7, GFX D3). */
   const SUB =
     "One AI key powers everything personal here: it drafts your fit " +
     "profile from your resume on the next screen, scores every job " +
     "discovery finds, and writes your tailored resumes and cover " +
-    "letters. An OpenRouter account takes about two minutes; the " +
-    "recommended model uses paid credit.";
+    "letters. A free Gemini key takes about two minutes.";
 
   const WEAK_MATERIALS_MODEL_WARNING =
     "This model is too weak for tailored letters. Use Gemini Flash unless you are only testing.";
 
   const ACTION_CHECK = "ai_check";
   const ACTION_RETRY_CHECK = "ai_retry_check";
+  const ACTION_CONSENT_SAVE = "ai_consent_save";
+  const ACTION_CONSENT_SKIP = "ai_consent_skip";
+  const ACTION_CONTINUE = "ai_continue";
   const KEY_INPUT_ID = "oneFlowAiKeyInput";
   const BASE_URL_INPUT_ID = "oneFlowAiBaseUrlInput";
 
   const DISCOVERY_ENV_ENDPOINT = "/__proxy/discovery-env-key";
   const GEMINI_ENV_KEY = "BROWSER_USE_DISCOVERY_GEMINI_API_KEY";
 
-  /** Normative line for the automatic Gemini bonus (spec §5 B2). */
+  /**
+   * GFX B2-3: the Gemini key's second use, announced before the ask that
+   * follows the check — never promised as already done.
+   */
   const GEMINI_BONUS_LINE =
-    "Your Gemini key also unlocks URL import and grounded search — done, " +
-    "no extra step.";
+    "Discovery search can use this key too. After the check, JobBored asks " +
+    "before saving it on this computer.";
 
-  /** Inline note on the two providers a browser cannot call directly. */
-  const CORS_NOTE = "runs through the local server — keep npm run dev running";
+  /**
+   * GFX B2-6: what each provider's keys start with. A mismatch is a soft
+   * warning under the field, never a block — prefixes change.
+   */
+  const KEY_PREFIXES = {
+    gemini: "AIza",
+    openrouter: "sk-or-",
+    anthropic: "sk-ant-",
+  };
 
   /**
    * The clock on a slow check. A free tier under throttle takes seconds,
@@ -97,55 +109,52 @@
    */
   const PROVIDERS = [
     {
-      id: "openrouter",
-      // UX01 C7 (FR-07): the recommended card used to pin a `:free` model
-      // the app itself flags as too weak for tailored letters, so everyone
-      // who followed the recommendation got weak drafts. The default is now
-      // a capable model; free models stay one Settings pick away.
-      label: "OpenRouter",
-      note:
-        "Recommended. One key for many models, works straight from the " +
-        "browser. The default writes letters well; it's pay-as-you-go, so " +
-        "add a few dollars of credit.",
-      keyField: "resumeOpenRouterApiKey",
-      modelField: "resumeOpenRouterModel",
-      keyPlaceholder: "sk-or-…",
-      signupUrl: "https://openrouter.ai/keys",
-      signupLabel: "Create a free OpenRouter account ↗",
-      cors: false,
-    },
-    {
+      // GFX D3: Gemini is first and pre-selected — free with no card, and
+      // the one key discovery search can reuse.
       id: "gemini",
       label: "Gemini",
-      note: "Free tier, and it lights up URL import and grounded search.",
+      note:
+        "Recommended. Free tier — no card needed. Also powers job-link " +
+        "import and discovery search.",
       keyField: "resumeGeminiApiKey",
       modelField: "resumeGeminiModel",
       keyPlaceholder: "AIza…",
       signupUrl: "https://aistudio.google.com/app/apikey",
       signupLabel: "Create a free Gemini key ↗",
-      cors: false,
     },
     {
+      // UX01 C7 (FR-07): the default model is a capable paid one; free
+      // models stay one Settings pick away. GFX N-B2-1: one paid story.
+      id: "openrouter",
+      label: "OpenRouter",
+      note: "Many models, one key. Pay-as-you-go.",
+      keyField: "resumeOpenRouterApiKey",
+      modelField: "resumeOpenRouterModel",
+      keyPlaceholder: "sk-or-…",
+      signupUrl: "https://openrouter.ai/keys",
+      signupLabel: "Create an OpenRouter key ↗",
+    },
+    {
+      // GFX B2-7: OpenAI and Anthropic are called straight from the
+      // browser (resume-generate.js), so there is no server to keep running.
       id: "openai",
       label: "OpenAI",
-      note: `Paid. It ${CORS_NOTE}.`,
+      note: "Paid. Uses your OpenAI API credit.",
       keyField: "resumeOpenAIApiKey",
       modelField: "resumeOpenAIModel",
       keyPlaceholder: "sk-…",
       signupUrl: "https://platform.openai.com/api-keys",
       signupLabel: "Create an OpenAI key ↗",
-      cors: true,
     },
     {
       id: "anthropic",
       label: "Anthropic",
-      note: `Paid. It ${CORS_NOTE}.`,
+      note: "Paid. Uses your Anthropic API credit.",
       keyField: "resumeAnthropicApiKey",
       modelField: "resumeAnthropicModel",
       keyPlaceholder: "sk-ant-…",
       signupUrl: "https://console.anthropic.com/settings/keys",
       signupLabel: "Create an Anthropic key ↗",
-      cors: true,
     },
     {
       id: "local",
@@ -155,7 +164,6 @@
       modelField: "resumeLocalModel",
       baseUrlField: "resumeLocalBaseUrl",
       baseUrlPlaceholder: "http://127.0.0.1:11434/v1",
-      cors: false,
     },
   ];
 
@@ -168,8 +176,8 @@
   // ---------------------------------------------------------------
 
   const state = {
-    // OpenRouter is the pre-selected card (SIXBEATS-2 NEW-11).
-    provider: "openrouter",
+    // GFX D3: Gemini is the pre-selected card.
+    provider: "gemini",
     keyDraft: "",
     baseUrlDraft: "",
     stages: [],
@@ -180,6 +188,14 @@
     // rather than allowed to complete the beat behind the newer attempt.
     checkRun: 0,
     stalled: false,
+    // "key" (pick + paste + check) → "consent" (Save it / Not now, GFX
+    // B2-4) → "saved" (only when a save on this computer failed, so the
+    // user reads why before moving on).
+    phase: "key",
+    // The passed check waiting on the consent answer: { def, value, ms,
+    // run, successAt, runtime }.
+    pending: null,
+    consentShown: false,
   };
 
   const fields = { value: null };
@@ -245,6 +261,18 @@
 
   function syncActions() {
     ACTIONS.length = 0;
+    // One decision on screen at a time: while the save question is open,
+    // its two answers are the only actions.
+    if (state.phase === "consent") {
+      ACTIONS.push({ id: ACTION_CONSENT_SAVE, label: "Save it", variant: "primary" });
+      ACTIONS.push({ id: ACTION_CONSENT_SKIP, label: "Not now", variant: "ghost" });
+      return;
+    }
+    if (state.phase === "saved") {
+      ACTIONS.push({ id: ACTION_CONTINUE, label: "Continue", variant: "primary" });
+      ACTIONS.push({ id: ACTION_CONSENT_SAVE, label: "Try saving again", variant: "ghost" });
+      return;
+    }
     ACTIONS.push({ id: ACTION_CHECK, label: "Check & continue", variant: "primary" });
     // Only once the check has outstayed its welcome: an escape hatch offered
     // up front reads as a warning about the product.
@@ -336,6 +364,8 @@
         state.provider = def.id;
         state.lastFailure = null;
         state.geminiWroteThrough = false;
+        state.phase = "key";
+        state.pending = null;
         // Drafts are per-provider: an OpenRouter key left sitting in the
         // field after switching to Gemini would be checked against the
         // wrong provider and fail for a reason the copy can't explain.
@@ -403,19 +433,103 @@
       value: state.keyDraft,
       "aria-label": `${def.label} API key`,
     });
-    input.addEventListener("input", () => rememberValue(input.value));
+    const shape = el("p", "oneflow-ai__shape", { role: "status" });
+    const paintShape = () => {
+      const warning = keyShapeWarning(def, input.value);
+      shape.textContent = warning;
+      shape.hidden = !warning;
+    };
+    input.addEventListener("input", () => {
+      rememberValue(input.value);
+      // Painted in place: a full repaint would steal the caret mid-paste.
+      paintShape();
+    });
+    paintShape();
     fields.value = input;
     wrap.appendChild(input);
+    wrap.appendChild(shape);
     wrap.appendChild(
       el(
         "p",
         "oneflow-ai__privacy",
         {},
-        "The key is stored in this browser and sent only to the provider you " +
-          "picked.",
+        "Your key is saved in this browser. If JobBored is running on this " +
+          "computer, it's also saved there so drafting and scoring work. " +
+          `It's only ever sent to ${def.label}.`,
       ),
     );
     return wrap;
+  }
+
+  /** GFX B2-6: "" when the key looks like the provider's, else one hint. */
+  function keyShapeWarning(def, raw) {
+    const prefix = KEY_PREFIXES[def.id];
+    const value = String(raw || "").trim();
+    if (!prefix || !value || value.startsWith(prefix)) return "";
+    return `${def.label} keys usually start with ${prefix}. Check that you copied the key from ${def.label}.`;
+  }
+
+  /**
+   * GFX B2-4 / B2-5: the one ask before the key is written anywhere on
+   * this computer. The answers are the footer's two actions; the paths
+   * sit behind "What changes" so the question itself stays one line.
+   */
+  function renderConsent() {
+    const def = state.pending ? state.pending.def : providerById(state.provider);
+    const discovery = def.id === "gemini";
+    const row = el("div", "oneflow-ai__consent", {
+      role: "group",
+      "aria-label": "Save on this computer",
+    });
+    row.appendChild(
+      el(
+        "p",
+        "oneflow-ai__consent-ask",
+        {},
+        discovery
+          ? "Also save this key on this computer so drafting, scoring and discovery can use it?"
+          : "Also save this key on this computer so drafting and scoring can use it?",
+      ),
+    );
+    const details = el("details", "oneflow-ai__consent-details");
+    details.appendChild(el("summary", "oneflow-ai__consent-summary", {}, "What changes"));
+    const list = el("ul", "oneflow-ai__consent-list");
+    list.appendChild(
+      el(
+        "li",
+        "",
+        {},
+        "~/.jobbored/llm.json gets your provider, model and key, readable " +
+          "only by your account. Drafting and scoring read it.",
+      ),
+    );
+    if (discovery) {
+      list.appendChild(
+        el(
+          "li",
+          "",
+          {},
+          `integrations/browser-use-discovery/.env gets ${GEMINI_ENV_KEY}. ` +
+            "Discovery search reads it.",
+        ),
+      );
+    }
+    details.appendChild(list);
+    row.appendChild(details);
+    return row;
+  }
+
+  /** GFX B2-3: the write-through's result, from geminiWroteThrough. */
+  function renderReceipt() {
+    const ok = state.geminiWroteThrough;
+    return el(
+      "p",
+      `oneflow-ai__receipt oneflow-ai__receipt--${ok ? "ok" : "fail"}`,
+      { role: "status" },
+      ok
+        ? "✓ Discovery search can use your Gemini key."
+        : "✗ Couldn't save the key for discovery search. You can add it when you set up discovery.",
+    );
   }
 
   /**
@@ -446,17 +560,19 @@
         "",
         {},
         "Rate limit or no credit: free tiers throttle. Wait a minute and press " +
-          "Check & continue again, or switch to OpenRouter's free tier above.",
+          "Check & continue again.",
       ),
     );
+    // GFX B2-7: every provider is called straight from the browser, so the
+    // honest third case is a network that blocks it.
     list.appendChild(
       el(
         "li",
         "",
         {},
-        "Blocked by the browser: OpenAI and Anthropic refuse direct " +
-          "browser calls, so they run through the local server — keep " +
-          "JobBored running on this computer (npm run dev) and try again.",
+        "Blocked by your network: some work and school networks block AI " +
+          "providers. Try another network" +
+          (def.id === "openrouter" ? "." : ", or switch to OpenRouter above."),
       ),
     );
     if (def.signupUrl) {
@@ -481,8 +597,26 @@
     const body = el("div", "oneflow-ai");
     body.appendChild(renderProviderCards(ctx));
     body.appendChild(renderKeyPath());
-    if (state.provider === "gemini") {
+    if (state.provider === "gemini" && state.phase === "key") {
       body.appendChild(el("p", "oneflow-ai__bonus", {}, GEMINI_BONUS_LINE));
+    }
+    if (state.phase === "consent") {
+      const row = renderConsent();
+      body.appendChild(row);
+      // The question lands below the fold of a long beat, and on a phone
+      // under the action dock: bring it into view once, when it first
+      // appears, so "Save it" never shows without its question.
+      if (!state.consentShown) {
+        state.consentShown = true;
+        setTimeout(() => {
+          if (typeof row.scrollIntoView === "function") {
+            row.scrollIntoView({ block: "center" });
+          }
+        }, 0);
+      }
+    }
+    if (state.phase === "saved" && state.pending && state.pending.def.id === "gemini") {
+      body.appendChild(renderReceipt());
     }
     if (state.lastFailure) body.appendChild(renderTrouble());
     container.appendChild(body);
@@ -550,10 +684,11 @@
     if (cfg && typeof cfg === "object") Object.assign(cfg, patch);
   }
 
+  /** @returns {Promise<boolean>} whether ~/.jobbored/llm.json took the pin */
   async function postLlmConfigPin(def, value) {
     const model = resolveModel(def);
-    if (!def.id || !model) return;
-    if (typeof fetch !== "function") return;
+    if (!def.id || !model) return false;
+    if (typeof fetch !== "function") return false;
     const pin = {
       provider: def.id,
       model,
@@ -566,55 +701,19 @@
         headers: { "content-type": "application/json" },
         body: JSON.stringify(pin),
       });
-      if (!resp || resp.ok === false) {
-        const status = resp && typeof resp.status === "number" ? resp.status : 0;
-        console.warn("[JobBored] llm-config pin POST failed:", status || "network");
-      }
-    } catch (err) {
-      const message =
-        err && typeof err === "object" && "message" in err
-          ? String(err.message)
-          : String(err);
-      console.warn("[JobBored] llm-config pin POST failed:", message);
-    }
-  }
-
-
-  /**
-   * UX01 C8 (FD-19): ask before a click changes this computer. Delegates to
-   * JobBoredDiscoveryHelpers.confirmHostChange (names the change, logs it).
-   */
-  function askHostChange(opts) {
-    const helpers = window.JobBoredDiscoveryHelpers;
-    if (helpers && typeof helpers.confirmHostChange === "function") {
-      return helpers.confirmHostChange(opts);
-    }
-    if (typeof window.confirm === "function") {
-      return !!window.confirm(
-        "JobBored will " +
-          [
-            opts && opts.writesEnv ? "update integrations/browser-use-discovery/.env" : "",
-            opts && opts.restartsWorker ? "restart your local discovery worker" : "",
-          ]
-            .filter(Boolean)
-            .join(", and ") +
-          " on this computer. Continue?",
-      );
-    }
-    return true;
-  }
-
-  async function writeGeminiKeyThrough(key) {
-    // UX01 C8 (FD-19): the bonus writes into the discovery .env — ask.
-    if (
-      !askHostChange({
-        action: "Share your Gemini key with discovery",
-        writesEnv: true,
-        envKeys: [GEMINI_ENV_KEY],
-      })
-    ) {
+      return !!(resp && resp.ok !== false);
+    } catch (_) {
+      // The failure is shown on screen (GFX N-B2-3); the error itself may
+      // echo the request, so it is not logged.
       return false;
     }
+  }
+
+  /**
+   * Only ever called after "Save it" (GFX B2-4 / B2-5): the inline consent
+   * row replaced the native confirm() UX01 C8 used here.
+   */
+  async function writeGeminiKeyThrough(key) {
     try {
       const res = await fetch(DISCOVERY_ENV_ENDPOINT, {
         method: "POST",
@@ -623,9 +722,8 @@
       });
       const body = res ? await res.json().catch(() => ({})) : {};
       return !!(res && res.ok && body.ok !== false);
-    } catch (err) {
-      // A bonus that fails is still a bonus — never block the beat on it.
-      console.warn("[JobBored] one-flow B2 gemini write-through:", err);
+    } catch (_) {
+      // A bonus that fails is still a bonus — the ✗ receipt says so.
       return false;
     }
   }
@@ -720,35 +818,125 @@
     setStages(ctx, [
       { label: "Checking your key…", state: "done" },
       {
-        label: model ? `✓ Connected — ${model} responded` : "✓ Connected",
+        // The shell draws ✓ from state "done"; a baked-in one doubled it.
+        label: model ? `Connected — ${model} responded` : "Connected",
         state: "done",
       },
     ]);
     const successAt = Date.now();
 
+    const local = await probeLocalServer();
+    if (run !== state.checkRun) return;
+    state.pending = { def, value, ms, run, successAt, runtime: local.runtime };
+    // GFX N-B2-3: with no JobBored on this computer there is nothing to
+    // save to, so there is nothing to ask.
+    if (!local.present) {
+      await finish(ctx);
+      return;
+    }
+    // Local sends no key — its pin is a base URL — so there is no key to
+    // ask about (GFX non-negotiable: no local write of a KEY without consent).
+    if (def.baseUrlField) {
+      await saveOnComputer(ctx);
+      return;
+    }
+    state.phase = "consent";
+    state.consentShown = false;
+    repaint(ctx, "");
+  }
+
+  /**
+   * Is JobBored running on this computer? Asks the substrate's ping
+   * (GFX BE-FUEL). Only an answer that proves absence — nothing listening,
+   * or a hosted page — skips the ask; an unknown still asks, because the
+   * consent is what guards the write.
+   */
+  async function probeLocalServer() {
+    const api = window.JobBoredLocalServer;
+    if (!api || typeof api.pingLocalServer !== "function") {
+      return { present: true, runtime: "" };
+    }
+    try {
+      const ping = await api.pingLocalServer({});
+      const outcome = ping && ping.outcome;
+      return {
+        present: outcome !== "no_local_server" && outcome !== "static_host",
+        runtime: (ping && ping.runtime) || "",
+      };
+    } catch (_) {
+      return { present: true, runtime: "" };
+    }
+  }
+
+  /** How to start JobBored here, from the one sentence source (GFX X1). */
+  function startHint(runtime) {
+    const api = window.JobBoredLocalServer;
+    return api && typeof api.localServerHint === "function"
+      ? api.localServerHint({ runtime })
+      : "start JobBored on this computer";
+  }
+
+  /** "Save it": the llm.json pin, and for Gemini the discovery .env key. */
+  async function saveOnComputer(ctx) {
+    const pending = state.pending;
+    if (!pending) return;
+    const { def, value } = pending;
+    if (ctx && typeof ctx.setBusy === "function") {
+      ctx.setBusy(ACTION_CONSENT_SAVE, [
+        { label: "Saving on this computer…", state: "active" },
+      ]);
+    }
+    const pinned = await postLlmConfigPin(def, value);
     if (def.id === "gemini") {
       state.geminiWroteThrough = await writeGeminiKeyThrough(value);
     }
+    if (pending !== state.pending) return;
+    const envFailed = def.id === "gemini" && !state.geminiWroteThrough;
+    if (!pinned || envFailed) {
+      state.phase = "saved";
+      if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
+      repaint(
+        ctx,
+        pinned
+          ? ""
+          : "Couldn't save the key on this computer, so scoring can't use it " +
+              `yet. Check that JobBored is running (to start it, ${startHint(pending.runtime)}), ` +
+              "then press Try saving again.",
+        "warn",
+      );
+      return;
+    }
+    if (def.id === "gemini") {
+      // The ✓ receipt rides the success hold.
+      state.phase = "saved";
+      repaint(ctx, "");
+    }
+    await finish(ctx);
+  }
 
-    await postLlmConfigPin(def, value);
-
-    const pinModel = resolveModel(def);
+  /** Warn on a weak model, hold the success line, then leave the beat. */
+  async function finish(ctx) {
+    const pending = state.pending;
+    if (!pending) return;
+    const { def, ms, run, successAt } = pending;
     const catalog = window.JobBoredModelCatalog;
     const isWeak =
       catalog && typeof catalog.isWeakMaterialsModel === "function"
-        ? catalog.isWeakMaterialsModel(pinModel)
+        ? catalog.isWeakMaterialsModel(resolveModel(def))
         : false;
     if (isWeak) {
       repaint(ctx, WEAK_MATERIALS_MODEL_WARNING, "warn");
     }
-
-    state.keyDraft = "";
-    fields.value = null;
     // Let the success line be read (NEW-4). Anything the beat did after
     // painting it counts against the hold, and a newer check started
     // during it owns the screen from here.
     await wait(CHECK_TIMINGS.successHoldMs - (Date.now() - successAt));
-    if (run !== state.checkRun) return;
+    if (run !== state.checkRun || pending !== state.pending) return;
+    state.phase = "key";
+    state.pending = null;
+    state.keyDraft = "";
+    fields.value = null;
+    syncActions();
     if (ctx && typeof ctx.completeBeat === "function") {
       await ctx.completeBeat({ provider: def.id, checkMs: ms });
     }
@@ -759,6 +947,15 @@
     if (!context) return undefined;
     if (actionId === ACTION_CHECK || actionId === ACTION_RETRY_CHECK) {
       return checkAndContinue(context);
+    }
+    if (actionId === ACTION_CONSENT_SAVE && state.pending) {
+      return saveOnComputer(context);
+    }
+    if (actionId === ACTION_CONSENT_SKIP && state.pending) {
+      return finish(context);
+    }
+    if (actionId === ACTION_CONTINUE && state.pending) {
+      return finish(context);
     }
     return undefined;
   }

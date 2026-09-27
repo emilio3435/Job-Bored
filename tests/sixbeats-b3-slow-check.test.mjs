@@ -55,7 +55,7 @@ function messageText(mount) {
 
 async function openAiBeat(verifyProvider) {
   const env = loadArrival({
-    fetchImpl: makeFetchDouble(() => ({ ok: true, json: { ok: true } })),
+    fetchImpl: makeFetchDouble(() => ({ ok: true, status: 200, json: { ok: true } })),
     verifyProvider,
   });
   await env.flow.open("ai");
@@ -112,6 +112,8 @@ describe("C6 · B2 Check & continue — the clock on a slow check (spec §5 B2)"
     await sleep(FAST.stalledAfterMs + FAST.tickMs * 3);
     hang.resolve({ ok: true, provider: "gemini", model: "gemini-flash", ms: 900 });
     await running;
+    // GFX B2-4: a passed check asks before saving on this computer.
+    await env.beats.ai.handleAction("ai_consent_skip");
     assert.ok(
       env.flow.getState().completedBeats.includes("ai"),
       "the affordance is an offer, not a timeout — the answer still counts",
@@ -135,6 +137,8 @@ describe("C6 · B2 Check & continue — the clock on a slow check (spec §5 B2)"
     // the attempt the user started, so the stale verdict must not land on it.
     second.resolve({ ok: true, provider: "gemini", model: "gemini-flash", ms: 30 });
     await retried;
+    // GFX B2-4: a passed check asks before saving on this computer.
+    await env.beats.ai.handleAction("ai_consent_skip");
     first.resolve({ ok: false, message: "stale verdict from the superseded check" });
     await running;
     assert.ok(env.flow.getState().completedBeats.includes("ai"));
@@ -190,7 +194,7 @@ describe("C6 · B5 Save & verify — the clock on the fuel write (spec §5 B5)",
     const retry = env.button("oneflow_discovery_fuel_retry");
     assert.ok(retry, "the offer needs a button behind it");
     assert.equal(retry.textContent, "Try again");
-    hang.resolve({ ok: true, json: async () => ({ ok: true }) });
+    hang.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     await running;
   });
 
@@ -198,11 +202,19 @@ describe("C6 · B5 Save & verify — the clock on the fuel write (spec §5 B5)",
     const hang = deferred();
     const env = await openFuel((url) => {
       if (String(url).includes("discovery-env-key")) return hang.promise;
-      return Promise.resolve({ ok: true, json: async () => ({ ok: true }) });
+      // GFX §R3: a current build's ping names its version and routes.
+      if (String(url).includes("__proxy/ping")) {
+        return Promise.resolve({
+          ok: true,
+          status: 200,
+          json: async () => ({ ok: true, version: "0.1.0", runtime: "source", routes: ["ping", "serpapi-check"] }),
+        });
+      }
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     });
     const running = env.act("oneflow_discovery_save_verify");
     await sleep(FAST.stalledAfterMs + FAST.tickMs * 3);
-    hang.resolve({ ok: true, json: async () => ({ ok: true }) });
+    hang.resolve({ ok: true, status: 200, json: async () => ({ ok: true }) });
     await running;
     assert.equal(
       env.beat._internal.state.fuelPassed,

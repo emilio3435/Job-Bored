@@ -1140,6 +1140,7 @@ function openDiscoveryDrawer() {
     drawer.hidden = false;
     drawer.style.display = "flex";
     document.body.classList.add("detail-open");
+    syncDiscoveryDrawerLiveRun();
 
     // Load the master Fit Profile and overlay it on the drawer. When present,
     // its fields become the source of truth and the legacy IndexedDB values
@@ -1185,6 +1186,58 @@ function openDiscoveryDrawer() {
   });
 }
 
+/**
+ * UXD-FE: reopening the drawer mid-run shows that run above the form, so the
+ * button that started it never leads to a page that forgets it. Renders the
+ * tracker's shared view (discovery-run-tracker.js); ticks once a second only
+ * while the drawer is open and a run is live.
+ */
+let discoveryDrawerLiveTick = null;
+
+function syncDiscoveryDrawerLiveRun() {
+  const drawerEl = discoveryDrawerEl();
+  // Never let a progress repaint break opening or closing the drawer.
+  if (!drawerEl || typeof drawerEl.querySelector !== "function") return;
+  const rt = window.JobBoredDiscovery && window.JobBoredDiscovery.runTracker;
+  const canRender =
+    rt &&
+    typeof rt.deriveLiveRunView === "function" &&
+    rt.discoveryRunTracker &&
+    typeof rt.discoveryRunTracker.getState === "function";
+  const view = canRender
+    ? rt.deriveLiveRunView(rt.discoveryRunTracker.getState() || {}, Date.now())
+    : null;
+  const live = !!view && view.mode !== "hidden";
+  let mount = drawerEl.querySelector("[data-discovery-live-run]");
+  if (!live) {
+    if (mount) {
+      mount.hidden = true;
+      mount.innerHTML = "";
+    }
+  } else {
+    if (!mount) {
+      const head = drawerEl.querySelector(".discovery-drawer__head");
+      if (!head) return;
+      mount = document.createElement("section");
+      mount.className = "dp-live-run";
+      mount.setAttribute("data-discovery-live-run", "");
+      mount.setAttribute("aria-label", "Discovery run in progress");
+      head.insertAdjacentElement("afterend", mount);
+    }
+    mount.hidden = false;
+    // Markup comes from renderLiveRunProgressHtml, which escapes every
+    // worker-supplied string.
+    mount.innerHTML = rt.renderLiveRunProgressHtml(view, { variant: "card" });
+  }
+  const wantTick = live && isDiscoveryDrawerOpen();
+  if (wantTick && !discoveryDrawerLiveTick) {
+    discoveryDrawerLiveTick = setInterval(syncDiscoveryDrawerLiveRun, 1000);
+  } else if (!wantTick && discoveryDrawerLiveTick) {
+    clearInterval(discoveryDrawerLiveTick);
+    discoveryDrawerLiveTick = null;
+  }
+}
+
 function closeDiscoveryDrawer() {
   const drawer = discoveryDrawerEl();
   if (!drawer) return;
@@ -1192,6 +1245,7 @@ function closeDiscoveryDrawer() {
   delete drawer._jobBoredA11yHandle;
   drawer.style.display = "none";
   drawer.hidden = true;
+  syncDiscoveryDrawerLiveRun();
   if (a11yHandle && typeof a11yHandle.close === "function") {
     a11yHandle.close("programmatic");
   } else {
@@ -1797,6 +1851,10 @@ function initDiscoveryDrawer() {
   const addInstead = document.getElementById("discoveryDrawerAddInstead");
   if (addInstead) addInstead.addEventListener("click", openAddJobInstead);
 
+  document.addEventListener("jobbored:job-discovery-run-updated", () => {
+    if (isDiscoveryDrawerOpen()) syncDiscoveryDrawerLiveRun();
+  });
+
   const editProfile = document.getElementById("dpProfileEditBtn");
   if (editProfile) editProfile.addEventListener("click", expandProfileFields);
 
@@ -2229,6 +2287,7 @@ function initDiscoveryButton() {
 
   Object.assign(drawer, {
     syncDiscoveryDrawerFooter,
+    syncDiscoveryDrawerLiveRun,
     openDiscoveryDrawer,
     closeDiscoveryDrawer,
     isDiscoveryDrawerOpen,
