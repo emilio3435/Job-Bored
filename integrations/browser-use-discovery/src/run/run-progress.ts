@@ -26,4 +26,15 @@ export interface DiscoveryRunProgress {
   sequence: number;
   checkpointedAt: string;
   budget?: DiscoveryRunBudgetProgress;
+  heartbeatAt?: string;
+  counters?: Partial<Record<"companiesTotal" | "companiesDone" | "boardsDetected" |
+    "listingsSeen" | "listingsProcessed" | "leadsQualified" | "matcherCalls" |
+    "queriesTotal" | "queriesDone", number>>;
+  current?: { kind: "company" | "source" | "query"; label: string };
+  sources?: Array<{
+    id: string;
+    state: "pending" | "running" | "done" | "skipped";
+    done?: number;
+    total?: number;
+  }>;
 }
