@@ -5,11 +5,11 @@ import { mkdir, readFile, readdir, realpath, rename, rm, writeFile } from "node:
 import { join, sep } from "node:path";
 import { resolveApplicationDir } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
-import { proposeEdits } from "./materials-edit.mjs";
+import { flagUnverifiedOps, proposeEdits } from "./materials-edit.mjs";
 import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
-import { commitModelAsRun } from "./materials-regenerate.mjs";
+import { commitModelAsRun, withPackagePublishClaim } from "./materials-regenerate.mjs";
 import { renderDocument } from "./materials-render.mjs";
 
 const RUN_ID = /^[a-zA-Z0-9_-]+$/;
@@ -109,7 +109,7 @@ function version(run, n, stars, model, doc) {
   return /** @type {Record<string, any>} */ ({
     runId: run.runId, n, createdAt: run.finishedAt || run.requestedAt,
     source, label, ...(prompt ? { prompt } : {}),
-    pinned: n === 0, starred: n === 0 || stars[run.runId] === true,
+    pinned: n === 0, starred: stars[run.runId] === true,
     ...(Number.isFinite(pages) ? { pages } : {}),
     words: wordCount(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.text).join(" ")),
     family: run.template?.family || model.template?.family,
@@ -214,7 +214,7 @@ export function createMaterialsVersionService(deps = {}) {
     for (const name of await readdir(join(dir, "proposals"))) {
       if (!name.endsWith(".json")) continue;
       const row = await json(join(dir, "proposals", name));
-      if (row && ["pending", "ready", "partial"].includes(row.status)) return true;
+      if (row && ["pending", "ready", "partial", "accepting"].includes(row.status)) return true;
     }
     return false;
   };
@@ -266,39 +266,42 @@ export function createMaterialsVersionService(deps = {}) {
   };
   /** @param {string} dir @param {import('./materials-render.mjs').RenderModel} model @param {Record<string, any>} current @param {'edit'|'manual'|'restore'} source @param {any} [edit] @param {string} [restoredFrom] */
   const commit = async (dir, model, current, source, edit, restoredFrom) => {
-    const input = { dir, model, feature: current.feature || "both", source, parentRunId: restoredFrom || current.runId, ...(edit ? { edit } : {}) };
-    try {
-      const result = await (deps.commit || commitModelAsRun)(input, { pdfSession: deps.pdfSession });
-      return { runId: result.runId, pdf: "ready", stale: false };
-    } catch (error) {
-      if (/** @type {any} */ (error).code !== "browser_unavailable") throw error;
-      // Text is still publishable. The old PDF belongs to the prior immutable run.
-      const rendered = await renderPackage({ model, feature: input.feature, session: null });
-      if (rendered.resumeHtml) await writeFile(join(dir, "resume.html"), rendered.resumeHtml, "utf8");
-      if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
-      await rm(join(dir, "resume.pdf"), { force: true });
-      await rm(join(dir, "cover-letter.pdf"), { force: true });
-      const runId = newRunId(dir.split("/").at(-1) || "role", new Date().toISOString());
-      await writeFile(join(dir, "qa-report.md"), "# QA report\n\nStatus: REVIEW\n\nPDF stale: browser unavailable.\n", "utf8");
-      await writePackageRecords({ dir, rendered, model, run: {
-        runId, slug: dir.split("/").at(-1) || "role", feature: input.feature,
-        requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
-        source, ...(source === "restore" ? { restoredFrom } : {}), ...(edit ? { edit } : {}),
-        stages: [
-          { stage: "intake", status: "ok", llm: false },
-          { stage: "fit", status: "skipped", llm: false, detail: "browser unavailable" },
-          { stage: "render", status: "ok", llm: false },
-          { stage: "qa", status: "review", llm: false, detail: "PDF stale" },
-          { stage: "publish", status: "ok", llm: false },
-        ],
-      } });
-      return { runId, pdf: "stale", stale: true };
-    }
+    return withPackagePublishClaim(dir, current.runId, async () => {
+      const input = { dir, model, feature: current.feature || "both", source, parentRunId: restoredFrom || current.runId, ...(edit ? { edit } : {}) };
+      try {
+        const result = await (deps.commit || commitModelAsRun)(input, { pdfSession: deps.pdfSession });
+        return { runId: result.runId, pdf: "ready", stale: false };
+      } catch (error) {
+        if (/** @type {any} */ (error).code !== "browser_unavailable") throw error;
+        // Text is still publishable. The old PDF belongs to the prior immutable run.
+        const rendered = await renderPackage({ model, feature: input.feature, session: null });
+        if (rendered.resumeHtml) await writeFile(join(dir, "resume.html"), rendered.resumeHtml, "utf8");
+        if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
+        await rm(join(dir, "resume.pdf"), { force: true });
+        await rm(join(dir, "cover-letter.pdf"), { force: true });
+        const runId = newRunId(dir.split("/").at(-1) || "role", new Date().toISOString());
+        await writeFile(join(dir, "qa-report.md"), "# QA report\n\nStatus: REVIEW\n\nPDF stale: browser unavailable.\n", "utf8");
+        await writePackageRecords({ dir, rendered, model, run: {
+          runId, slug: dir.split("/").at(-1) || "role", feature: input.feature,
+          requestedAt: new Date().toISOString(), finishedAt: new Date().toISOString(),
+          source, ...(source === "restore" ? { restoredFrom } : {}), ...(edit ? { edit } : {}),
+          stages: [
+            { stage: "intake", status: "ok", llm: false },
+            { stage: "fit", status: "skipped", llm: false, detail: "browser unavailable" },
+            { stage: "render", status: "ok", llm: false },
+            { stage: "qa", status: "review", llm: false, detail: "PDF stale" },
+            { stage: "publish", status: "ok", llm: false },
+          ],
+        } });
+        return { runId, pdf: "stale", stale: true };
+      }
+    });
   };
   /** @param {string} dir */
-  const ensureIdle = async (dir) => {
+  const claimEdit = (dir) => {
     pendingGuard(dir);
     if (reserved.has(dir)) throw failure("An edit is already in progress", 409, "materials_pending");
+    reserved.add(dir);
   };
   return {
     dirFor, versions,
@@ -321,22 +324,21 @@ export function createMaterialsVersionService(deps = {}) {
     },
     /** @param {string} slug @param {Record<string, any>} body */
     async start(slug, body) {
-      const dir = await dirFor(slug); await ensureIdle(dir);
-      const doc = documentName(body.doc);
-      await assertCurrent(dir, body.baseRunId);
-      const instruction = body.instruction;
-      if (typeof instruction !== "string" || !instruction.trim() || instruction.length > 2000) throw failure("instruction must have 1–2000 characters", 400, "invalid_instruction");
-      if (body.lockFacts !== true) throw failure("lockFacts must be true", 400, "facts_lock_required");
-      const scope = body.scope ?? "all";
-      if (scope !== "all" && (!Array.isArray(scope) || !scope.length || !scope.every((id) => typeof id === "string"))) throw failure("Invalid scope", 400, "invalid_scope");
-      if (body.targetPages !== undefined && (!Number.isInteger(body.targetPages) || body.targetPages < 1)) throw failure("Invalid targetPages", 400, "invalid_target_pages");
-      if (body.chips !== undefined && (!Array.isArray(body.chips) || !body.chips.every((/** @type {any} */ chip) => typeof chip === "string"))) throw failure("Invalid chips", 400, "invalid_chips");
-      const { model } = await runFiles(dir, body.baseRunId);
-      if (!model.documents?.[doc]) throw failure("Document not in version", 404, "document_not_found");
-      const ids = new Set(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
-      if (scope !== "all" && !scope.every((/** @type {string} */ id) => ids.has(id))) throw failure("Scope includes a node outside this document", 400, "out_of_scope");
-      reserved.add(dir);
+      const dir = await dirFor(slug); claimEdit(dir);
       try {
+        const doc = documentName(body.doc);
+        await assertCurrent(dir, body.baseRunId);
+        const instruction = body.instruction;
+        if (typeof instruction !== "string" || !instruction.trim() || instruction.length > 2000) throw failure("instruction must have 1–2000 characters", 400, "invalid_instruction");
+        if (body.lockFacts !== true) throw failure("lockFacts must be true", 400, "facts_lock_required");
+        const scope = body.scope ?? "all";
+        if (scope !== "all" && (!Array.isArray(scope) || !scope.length || !scope.every((id) => typeof id === "string"))) throw failure("Invalid scope", 400, "invalid_scope");
+        if (body.targetPages !== undefined && (!Number.isInteger(body.targetPages) || body.targetPages < 1)) throw failure("Invalid targetPages", 400, "invalid_target_pages");
+        if (body.chips !== undefined && (!Array.isArray(body.chips) || !body.chips.every((/** @type {any} */ chip) => typeof chip === "string"))) throw failure("Invalid chips", 400, "invalid_chips");
+        const { model } = await runFiles(dir, body.baseRunId);
+        if (!model.documents?.[doc]) throw failure("Document not in version", 404, "document_not_found");
+        const ids = new Set(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
+        if (scope !== "all" && !scope.every((/** @type {string} */ id) => ids.has(id))) throw failure("Scope includes a node outside this document", 400, "out_of_scope");
         if (await openProposal(dir)) throw failure("A proposal is already open for this role", 409, "materials_pending");
         const id = randomUUID();
         const proposal = { id, dir, doc, baseRunId: body.baseRunId, instruction: instruction.trim(), scope, lockFacts: true, targetPages: body.targetPages, chips: body.chips, createdAt: new Date().toISOString(), status: "pending", ops: [], events: [] };
@@ -353,22 +355,31 @@ export function createMaterialsVersionService(deps = {}) {
       res.setHeader("Cache-Control", "no-cache, no-transform");
       res.setHeader("Connection", "keep-alive");
       res.flushHeaders();
+      let heartbeat;
+      /** @type {() => void} */
+      let close = () => {};
       /** @param {string} event @param {any} data */
       const send = (event, data) => {
         if (res.writableEnded) return;
         res.write(`event: ${event}\ndata: ${JSON.stringify(data)}\n\n`);
-        if (event === "done") res.end();
+        if (event === "done") { res.end(); close(); }
       };
       for (const row of proposal.events) send(row.event, row.data);
-      if (proposal.status !== "pending") { res.end(); return; }
+      if (res.writableEnded) return;
       let audience = listeners.get(id);
       if (!audience) { audience = new Set(); listeners.set(id, audience); }
       audience.add(send);
-      const heartbeat = setInterval(() => res.write(": ping\n\n"), 15_000);
+      heartbeat = setInterval(() => { if (!res.writableEnded) res.write(": ping\n\n"); }, 15_000);
       heartbeat.unref();
-      const close = () => { clearInterval(heartbeat); audience.delete(send); if (!audience.size) listeners.delete(id); };
-      req.on("close", close);
-      void processProposal(proposal).then(() => { if (proposal.status !== "partial" && !res.writableEnded) res.end(); if (res.writableEnded) close(); });
+      close = () => { clearInterval(heartbeat); audience.delete(send); if (!audience.size) listeners.delete(id); };
+      res.once("close", close);
+      if (!proposal.running && proposal.status === "pending") {
+        void processProposal(proposal).then(() => {
+          if (!res.writableEnded) send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
+        });
+      } else if (!proposal.running) {
+        send("done", { status: ["ready", "partial"].includes(proposal.status) ? proposal.status : "failed" });
+      }
     },
     /** @param {string} slug @param {string} id */
     async stop(slug, id) {
@@ -383,40 +394,66 @@ export function createMaterialsVersionService(deps = {}) {
     },
     /** @param {string} slug @param {string} id @param {Record<string, any>} body @param {boolean} [manual] */
     async accept(slug, id, body, manual = false) {
-      const dir = await dirFor(slug); await ensureIdle(dir);
-      reserved.add(dir);
+      const dir = await dirFor(slug); claimEdit(dir);
+      /** @type {Record<string, any> | null} */
+      let proposal = null;
+      let priorStatus = "";
       try {
         const current = await currentRun(dir);
-        const proposal = manual ? /** @type {Record<string, any>} */ ({}) : await loadProposal(dir, id);
-        if (!manual && !["ready", "partial"].includes(proposal.status)) throw failure("Proposal is not ready", 409, "proposal_not_ready");
-        await assertCurrent(dir, manual ? body.baseRunId : proposal.baseRunId);
-        const doc = documentName(manual ? body.doc : proposal.doc);
+        if (!manual) {
+          proposal = await loadProposal(dir, id);
+          if (!["ready", "partial"].includes(proposal.status)) throw failure("Proposal is not ready", 409, "proposal_not_ready");
+          priorStatus = proposal.status;
+          proposal.status = "accepting";
+          await writeJson(proposalPath(proposal), persisted(proposal));
+        }
+        await assertCurrent(dir, manual ? body.baseRunId : proposal?.baseRunId);
+        const doc = documentName(manual ? body.doc : proposal?.doc);
         const { model } = await runFiles(dir, current.runId);
-        const all = manual ? body.manualOps : proposal.ops;
-        const accepted = manual ? all?.map((/** @type {any} */ op) => op.opId) : body.accept;
-        if (!Array.isArray(all) || !Array.isArray(accepted) || !accepted.every((opId) => typeof opId === "string") || new Set(accepted).size !== accepted.length) throw failure("Invalid accepted ops", 400, "invalid_accept");
-        const ids = new Set(all.map((op) => op.opId));
-        if (!accepted.length || accepted.some((opId) => !ids.has(opId))) throw failure("Unknown accepted op", 400, "invalid_accept");
+        const base = /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model));
+        const proposed = proposal?.ops || [];
+        const manualOps = body.manualOps ?? [];
+        const acceptedProposal = manual ? [] : body.accept;
+        if (!Array.isArray(proposed) || !Array.isArray(manualOps) || !Array.isArray(acceptedProposal) || !acceptedProposal.every((opId) => typeof opId === "string")) throw failure("Invalid accepted ops", 400, "invalid_accept");
+        const proposedIds = new Set(proposed.map((/** @type {any} */ op) => op.opId));
+        if (new Set(acceptedProposal).size !== acceptedProposal.length || acceptedProposal.some((opId) => !proposedIds.has(opId))) throw failure("Unknown accepted op", 400, "invalid_accept");
+        const allIds = [...proposed.map((/** @type {any} */ op) => op.opId), ...manualOps.map((/** @type {any} */ op) => op?.opId)];
+        if (new Set(allIds).size !== allIds.length || allIds.some((opId) => typeof opId !== "string" || !opId)) throw failure("Duplicate or missing edit opId", 400, "invalid_accept");
+        const accepted = [...acceptedProposal, ...manualOps.map((/** @type {any} */ op) => op.opId)];
+        if (!accepted.length) throw failure("No accepted ops", 400, "invalid_accept");
         const confirmed = body.confirmUnverified ?? [];
         if (!Array.isArray(confirmed) || confirmed.some((opId) => !accepted.includes(opId))) throw failure("Invalid unverified confirmation", 400, "invalid_confirmation");
-        const selected = all.filter((op) => accepted.includes(op.opId));
-        if (selected.some((op) => op.flags?.includes("unverified") && !confirmed.includes(op.opId))) throw failure("Confirm each unverified edit", 400, "unverified_confirmation_required");
-        const docIds = new Set(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
+        const selectedProposal = proposed.filter((/** @type {any} */ op) => acceptedProposal.includes(op.opId));
+        const selected = [...selectedProposal, ...manualOps];
+        const docIds = new Set(deriveNodes(base).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
         if (selected.some((op) => !docIds.has(op.op === "insert" ? op.after : op.node))) throw failure("Edit targets another document", 400, "out_of_scope");
+        const ledgerResult = await readLedger();
+        const checked = flagUnverifiedOps(base, selected, ledgerResult.ok ? ledgerResult.ledger : {});
+        if (checked.some((op) => op.flags?.includes("unverified") && !confirmed.includes(op.opId))) throw failure("Confirm each unverified edit", 400, "unverified_confirmation_required");
         let candidate;
-        try { candidate = applyOps(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), selected, { scope: manual ? "all" : proposal.scope }); }
+        try {
+          candidate = applyOps(base, checked.slice(0, selectedProposal.length), { scope: proposal?.scope || "all" });
+          candidate = applyOps(candidate, checked.slice(selectedProposal.length));
+        }
         catch (error) { if (error instanceof MaterialsEditError) throw failure(error.detail, 400, error.reason); throw error; }
-        const edit = { prompt: manual ? "Manual edit" : proposal.instruction, ...(!manual ? { proposalId: proposal.id } : {}), accepted, rejected: all.filter((op) => !accepted.includes(op.opId)).map((op) => op.opId), ops: selected };
+        const edit = { prompt: manual ? "Manual edit" : proposal?.instruction, ...(proposal ? { proposalId: proposal.id } : {}), accepted, rejected: proposed.filter((/** @type {any} */ op) => !acceptedProposal.includes(op.opId)).map((/** @type {any} */ op) => op.opId), ops: checked };
         const committed = await commit(dir, candidate, current, manual ? "manual" : "edit", edit);
-        if (!manual) { proposal.status = "accepted"; await writeJson(proposalPath(proposal), persisted(proposal)); }
+        if (proposal) { proposal.status = "accepted"; await writeJson(proposalPath(proposal), persisted(proposal)); }
         const listed = await versions(dir, doc);
         const row = listed.versions.find((v) => v.runId === committed.runId);
         return { statusCode: committed.stale ? 503 : 200, body: { run: { runId: committed.runId, n: row?.n ?? 0, pages: row?.pages ?? candidate.template.pageBudget, pdf: committed.pdf }, versions: listed.versions, ...(committed.stale ? { code: "browser_unavailable", error: "HTML saved; PDF needs a browser." } : {}) } };
+      } catch (error) {
+        if (proposal?.status === "accepting") {
+          proposal.status = priorStatus;
+          await writeJson(proposalPath(proposal), persisted(proposal));
+        }
+        throw error;
       } finally { reserved.delete(dir); }
     },
     /** @param {string} slug @param {string} id */
     async reject(slug, id) {
       const dir = await dirFor(slug); pendingGuard(dir);
+      if (reserved.has(dir)) throw failure("An edit is already in progress", 409, "materials_pending");
       const proposal = await loadProposal(dir, id);
       proposal.status = "rejected";
       await rm(proposalPath(proposal), { force: true });
@@ -424,8 +461,7 @@ export function createMaterialsVersionService(deps = {}) {
     },
     /** @param {string} slug @param {string} id */
     async restore(slug, id) {
-      const dir = await dirFor(slug); await ensureIdle(dir);
-      reserved.add(dir);
+      const dir = await dirFor(slug); claimEdit(dir);
       try {
         const current = await currentRun(dir);
         const { model } = await runFiles(dir, id);

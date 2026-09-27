@@ -40,6 +40,28 @@ function unverifiedFacts(op, beforeText, trusted, ledger) {
   return [...new Set(missing)];
 }
 
+/** Recheck accepted ops against the current model and fact ledger, including
+ * direct manual edits that never passed through proposeEdits.
+ * @param {import('./materials-render.mjs').RenderModel} model
+ * @param {Array<any>} ops
+ * @param {any} ledger
+ */
+export function flagUnverifiedOps(model, ops, ledger = {}) {
+  const nodes = deriveNodes(model);
+  const byId = new Map(nodes.map((node) => [node.id, node.text]));
+  const trusted = trustedFacts(ledger, model, nodes);
+  return ops.map((source) => {
+    const op = { ...source };
+    const id = op.op === "insert" ? op.after : op.node;
+    const facts = unverifiedFacts(op, byId.get(id) || "", trusted, ledger);
+    if (facts.length) {
+      op.flags = [...new Set([...(op.flags || []), "unverified"])];
+      op.facts = [...new Set([...(op.facts || []), ...facts])];
+    }
+    return op;
+  });
+}
+
 /**
  * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl']}} input
  */

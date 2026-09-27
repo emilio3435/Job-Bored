@@ -15,7 +15,7 @@
  */
 
 import { existsSync } from "node:fs";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile, realpath, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
@@ -27,6 +27,7 @@ import { readResumeSnapshot } from "./materials-resume-source.mjs";
 import { resolveFamily } from "./materials-templates.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
+const publishing = new Set();
 
 /**
  * @param {string} message
@@ -48,6 +49,28 @@ async function readJson(path) {
     return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
   } catch {
     return null;
+  }
+}
+
+/** A single in-process writer owns a package from base recheck through
+ * publication. Every route that writes a run uses this section.
+ * @template T
+ * @param {string} dir
+ * @param {string} expectedRunId
+ * @param {() => Promise<T>} publish
+ * @returns {Promise<T>}
+ */
+export async function withPackagePublishClaim(dir, expectedRunId, publish) {
+  const key = await realpath(dir);
+  if (publishing.has(key)) throw httpError("A materials run is already publishing for this role.", 409, "materials_pending");
+  publishing.add(key);
+  try {
+    if (existsSync(join(key, "pending.json"))) throw httpError("A materials request is already running for this role.", 409, "materials_pending");
+    const current = await readJson(join(key, "run.json"));
+    if (current?.runId !== expectedRunId) throw httpError("The base version is no longer current", 409, "stale_base");
+    return await publish();
+  } finally {
+    publishing.delete(key);
   }
 }
 
@@ -91,6 +114,7 @@ export async function regeneratePackage(input, deps = {}) {
   if (existsSync(join(dir, "pending.json"))) {
     throw httpError("A materials request is already running for this role.", 409, "materials_pending");
   }
+  const currentRun = await readJson(join(dir, "run.json"));
 
   const sourceDir = input.from ? join(dir, RUNS_DIR, String(input.from).replace(/[^\w.-]/g, "")) : dir;
   const storedModel = await readJson(join(sourceDir, "render-model.json"));
@@ -110,7 +134,8 @@ export async function regeneratePackage(input, deps = {}) {
     throw httpError(`The stored render model is invalid: ${validation.errors.slice(0, 3).join("; ")}`, 422, "render_model_invalid");
   }
 
-  return commitModelAsRun({ dir, model, feature, source: "regenerate", parentRunId: regeneratedFrom }, deps);
+  return withPackagePublishClaim(dir, String(currentRun?.runId || ""), () =>
+    commitModelAsRun({ dir, model, feature, source: "regenerate", parentRunId: regeneratedFrom }, deps));
 }
 
 /**

@@ -7,7 +7,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { after, before, it } from "node:test";
 import express from "../../server/node_modules/express/index.js";
-import { commitModelAsRun } from "../../server/materials-regenerate.mjs";
+import { commitModelAsRun, regeneratePackage } from "../../server/materials-regenerate.mjs";
 import { createMaterialsVersionService, registerMaterialsEditRoutes } from "../../server/materials-versions.mjs";
 
 const model = JSON.parse(readFileSync(new URL("../../docs/programs/editor-20260927/fixtures/model.json", import.meta.url), "utf8"));
@@ -21,6 +21,7 @@ let service;
 let app;
 let browserAvailable = true;
 let releaseFetch;
+let commitHold;
 
 const fetchImpl = async (_url, init) => {
   const request = JSON.parse(init.body);
@@ -37,9 +38,12 @@ const pdfSession = async () => ({
   rasterize: async (src) => src,
   close: async () => {},
 });
-const commit = (input, deps) => browserAvailable
-  ? commitModelAsRun(input, { ...deps, pdfSession, critic: async () => ({ status: "pass", issues: [] }) })
-  : Promise.reject(Object.assign(new Error("Browser unavailable"), { statusCode: 503, code: "browser_unavailable" }));
+const commit = async (input, deps) => {
+  if (commitHold) { commitHold.entered(); await commitHold.wait; }
+  return browserAvailable
+    ? commitModelAsRun(input, { ...deps, pdfSession, critic: async () => ({ status: "pass", issues: [] }) })
+    : Promise.reject(Object.assign(new Error("Browser unavailable"), { statusCode: 503, code: "browser_unavailable" }));
+};
 
 before(async () => {
   root = await mkdtemp(join(tmpdir(), "jb-editor-api-"));
@@ -81,6 +85,161 @@ async function seed() {
   await writeFile(join(dir, "resume.pdf"), "old PDF");
   return { slug, dir, path: `/api/applications/${slug}` };
 }
+function deferred() {
+  let resolve;
+  const promise = new Promise((done) => { resolve = done; });
+  return { promise, resolve };
+}
+function fakeStream() {
+  return Object.assign(new EventEmitter(), {
+    chunks: [], writableEnded: false,
+    setHeader() {}, flushHeaders() {},
+    write(chunk) { this.chunks.push(chunk); },
+    end() { if (this.writableEnded) return; this.writableEnded = true; this.emit("end"); },
+  });
+}
+async function readyProposal(svc, pkg) {
+  const started = await svc.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten the resume", scope: "all", lockFacts: true });
+  const res = fakeStream();
+  const ended = once(res, "end");
+  await svc.stream(pkg.slug, started.proposalId, new EventEmitter(), res);
+  await ended;
+  return started.proposalId;
+}
+
+it("B2-1 claims start before yielding to a concurrent call", async () => {
+  const first = await seed();
+  const body = { doc: "resume", baseRunId: "r0", instruction: "Shorten the resume", scope: "all", lockFacts: true };
+  const starts = await Promise.allSettled([service.start(first.slug, body), service.start(first.slug, body)]);
+  assert.equal(starts.filter((result) => result.status === "fulfilled").length, 1);
+  assert.equal(starts.find((result) => result.status === "rejected")?.reason.code, "materials_pending");
+});
+
+it("B2-1 marks accept as accepting before publish and rejects a duplicate", async () => {
+  const second = await seed();
+  const id = await readyProposal(service, second);
+  const entered = deferred();
+  const release = deferred();
+  commitHold = { entered: entered.resolve, wait: release.promise };
+  let accepting;
+  try {
+    accepting = service.accept(second.slug, id, { accept: ["o1"], confirmUnverified: [] });
+    await entered.promise;
+    const stored = JSON.parse(await readFile(join(second.dir, "proposals", `${id}.json`), "utf8"));
+    assert.equal(stored.status, "accepting");
+    const duplicate = service.accept(second.slug, id, { accept: ["o1"], confirmUnverified: [] });
+    const outcome = await Promise.race([duplicate.then(() => "accepted", (error) => error.code), new Promise((resolve) => setTimeout(() => resolve("waiting"), 200))]);
+    assert.equal(outcome, "materials_pending");
+    release.resolve();
+    await accepting;
+    await duplicate.catch(() => {});
+    assert.equal((await service.versions(await service.dirFor(second.slug), "resume")).versions.length, 2);
+  } finally { release.resolve(); if (accepting) await accepting.catch(() => {}); commitHold = null; }
+});
+
+it("B2-2 shares the publish claim with regenerate during accept", async () => {
+  const pkg = await seed();
+  const id = await readyProposal(service, pkg);
+  const entered = deferred();
+  const release = deferred();
+  commitHold = { entered: entered.resolve, wait: release.promise };
+  try {
+    const accepting = service.accept(pkg.slug, id, { accept: ["o1"], confirmUnverified: [] });
+    await entered.promise;
+    await assert.rejects(regeneratePackage({ slug: pkg.slug, template: "dossier" }, { applicationsRoot: root, pdfSession, critic: async () => ({ status: "pass", issues: [] }) }), { statusCode: 409, code: "materials_pending" });
+    release.resolve();
+    await accepting;
+    assert.equal((await service.versions(await service.dirFor(pkg.slug), "resume")).versions.length, 2);
+  } finally { release.resolve(); commitHold = null; }
+});
+
+it("B2-2 rechecks the expected base inside the claimed publish section", async () => {
+  const pkg = await seed();
+  const { withPackagePublishClaim } = await import("../../server/materials-regenerate.mjs");
+  assert.equal(typeof withPackagePublishClaim, "function");
+  const current = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  await writeFile(join(pkg.dir, "run.json"), JSON.stringify({ ...current, runId: "r1" }));
+  let wrote = false;
+  await assert.rejects(withPackagePublishClaim(await service.dirFor(pkg.slug), "r0", async () => { wrote = true; }), { statusCode: 409, code: "stale_base" });
+  assert.equal(wrote, false);
+});
+
+it("B2-3 reconnects to an in-flight stream through done and cleans up on response close", async () => {
+  const pkg = await seed();
+  releaseFetch = null;
+  const started = await service.start(pkg.slug, { doc: "resume", baseRunId: "r0", instruction: "wait for stop", scope: "all", lockFacts: true });
+  const first = fakeStream();
+  const firstEnd = once(first, "end");
+  await service.stream(pkg.slug, started.proposalId, new EventEmitter(), first);
+  for (let i = 0; i < 100 && !releaseFetch; i++) await new Promise((resolve) => setTimeout(resolve, 5));
+  assert.ok(releaseFetch);
+  const second = fakeStream();
+  const secondEnd = once(second, "end");
+  try {
+    await service.stream(pkg.slug, started.proposalId, new EventEmitter(), second);
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(second.writableEnded, false);
+    assert.ok(second.listenerCount("close") > 0);
+    const disconnected = fakeStream();
+    await service.stream(pkg.slug, started.proposalId, new EventEmitter(), disconnected);
+    disconnected.emit("close");
+    assert.equal(disconnected.listenerCount("close"), 0);
+    assert.equal(disconnected.writableEnded, false);
+  } finally { releaseFetch(); releaseFetch = null; }
+  await Promise.all([firstEnd, secondEnd]);
+  assert.match(second.chunks.join(""), /event: done\ndata: {"status":"ready"}/);
+});
+
+it("B2-4 requires confirmation for manual facts absent from the ledger", async () => {
+  const pkg = await seed();
+  const invented = { opId: "m1", op: "replace", node: "line:beta", text: "Tracked 72 daily shipments for Kafka in 2025." };
+  await assert.rejects(service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [invented] }, true), { code: "unverified_confirmation_required" });
+  const committed = await service.accept(pkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [invented], confirmUnverified: ["m1"] }, true);
+  assert.equal(committed.statusCode, 200);
+  const run = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  assert.ok(run.edit.ops[0].facts.includes("72"));
+  assert.ok(run.edit.ops[0].facts.includes("Kafka"));
+  const insertPkg = await seed();
+  const inventedClaim = { opId: "m2", op: "insert", after: "b:acme:c14", claimId: "unknown-claim", text: "Built a daily exception review." };
+  await assert.rejects(service.accept(insertPkg.slug, "", { doc: "resume", baseRunId: "r0", manualOps: [inventedClaim] }, true), { code: "unverified_confirmation_required" });
+});
+
+it("B2-4 rechecks selected proposal ops even if their flags are absent", async () => {
+  const pkg = await seed();
+  const invented = { opId: "o9", op: "replace", node: "line:beta", text: "Tracked 72 daily shipments for Kafka in 2025." };
+  const svc = createMaterialsVersionService({
+    applicationsRoot: root,
+    pin: { provider: "openai", resolvedModel: "stub", apiKey: "example" },
+    propose: async () => ({ ops: [invented], blocked: [], summary: { changes: 1, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 } }),
+    commit,
+  });
+  const id = await readyProposal(svc, pkg);
+  await assert.rejects(svc.accept(pkg.slug, id, { accept: ["o9"], confirmUnverified: [] }), { code: "unverified_confirmation_required" });
+  const saved = await svc.accept(pkg.slug, id, { accept: ["o9"], confirmUnverified: ["o9"] });
+  assert.equal(saved.statusCode, 200);
+  const run = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  assert.ok(run.edit.ops[0].facts.includes("Kafka"));
+});
+
+it("B2-5 applies proposal accept manualOps in the same saved run", async () => {
+  const pkg = await seed();
+  const id = await readyProposal(service, pkg);
+  const manual = { opId: "m1", op: "replace", node: "b:acme:c14", text: "Measured carrier delays and reduced fulfillment delays 38%." };
+  const result = await service.accept(pkg.slug, id, { accept: ["o1"], manualOps: [manual], confirmUnverified: [] });
+  assert.equal(result.statusCode, 200);
+  const run = JSON.parse(await readFile(join(pkg.dir, "run.json"), "utf8"));
+  assert.deepEqual(run.edit.accepted, ["o1", "m1"]);
+  assert.deepEqual(run.edit.ops.map((entry) => entry.opId), ["o1", "m1"]);
+  const saved = JSON.parse(await readFile(join(pkg.dir, "render-model.json"), "utf8"));
+  assert.equal(saved.documents.resume.sections[0].entries[0].bullets[0].runs.map((run) => run.t ?? run.n ?? run.hl ?? "").join(""), manual.text);
+});
+
+it("B2-7 keeps v0 pinned without calling it starred", async () => {
+  const pkg = await seed();
+  const list = await service.versions(await service.dirFor(pkg.slug), "resume");
+  assert.equal(list.versions[0].pinned, true);
+  assert.equal(list.versions[0].starred, false);
+});
 
 async function request(path, method = "GET", body) {
   const response = await httpCall(path, method, body);
