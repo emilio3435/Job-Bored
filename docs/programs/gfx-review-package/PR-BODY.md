@@ -1,0 +1,5 @@
+Resume/cover-letter generation previously retried truncated JSON with the same small output budget and surfaced a parser error. The writer now requests JSON where supported, preserves provider finish reasons, retries truncation once with a bounded larger budget, and fails promptly when Gemini reports a blocked response. Gemini JSON mode leaves nested resume fields unrestricted; prompt and parser retain the expected letter/resume shape.
+
+Two corrections refine the discovery progress UI already landed in PR 133: an empty ATS source is marked skipped, and the qualified-lead counter reflects frontier-retained leads before saving rather than candidates discarded during scoring.
+
+Validation: repository lint and typecheck; 4,645 root tests passed with eight existing TODOs; contracts; 937 worker tests; nine discovery browser checks and five filtered journey checks; independent Grok review and Muse worker verification passed. Synthetic regressions cover schema compatibility, truncation, blocked responses, empty sources and frontier filtering. Live provider generation and user acceptance remain pending. No signed Mac build contains this candidate yet.
