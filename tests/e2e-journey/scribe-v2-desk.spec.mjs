@@ -364,3 +364,116 @@ test("should call the live routes, not the fixtures, when no stub flag is set", 
   expect(seen).toContain("GET /api/applications/" + HERMETIC_APPLICATION_SLUG + "/versions?doc=resume");
   expect(seen).toContain("POST /api/applications/" + HERMETIC_APPLICATION_SLUG + "/preview");
 });
+
+/* EDITOR lane F3: the versions rail. Stub transport, with the drafted
+   version's summary worded differently so Compare has something to mark
+   (the C0 stub serves one model for every run). Pinned here:
+     - Compare with current splits A | B at 1440 and marks A → B with no
+       accept controls; the `c` key toggles it; View is read-only;
+     - Bring back asks first, then appends: every older row survives;
+     - at 390 compare is an A/B toggle, one page at a time, with 44px
+       targets and no sideways scroll. */
+test("should view, compare and bring back versions at 1440 and 390", async ({ page }) => {
+  const fence = await bootSignedIn(page, { width: 1440, height: 900 });
+  await page.evaluate(() => {
+    const api = globalThis.JBScribeApi;
+    const create = api.create;
+    api.create = (opts) => {
+      const client = create(opts);
+      const getModel = client.getModel;
+      client.getModel = (runId) => getModel(runId).then((res) => {
+        if (runId !== "stub-r0") return res;
+        const stmt = res.nodes.find((n) => n.id === "stmt");
+        stmt.text = "Operations analyst who tracked fulfillment delays through careful measurement and practical process changes. Builds clear dashboards, tests assumptions, and helps teams turn reliable evidence into daily decisions.";
+        return res;
+      });
+      return client;
+    };
+  });
+  const { editResume } = await openRole(page);
+  await editResume.click();
+  const desk = page.getByRole("dialog", { name: "Scribe" });
+  await settleDesk(page);
+  await desk.getByRole("tab", { name: "Versions" }).click();
+  const versions = desk.getByRole("list", { name: "Resume versions, newest first" });
+  await expect(versions.getByRole("listitem")).toHaveCount(4);
+  await expect(versions.getByRole("listitem").first()).toContainText("Scribe edit");
+
+  /* Compare with current: A | B, marked, read-only. */
+  await desk.getByRole("button", { name: "Compare v0 with current" }).click();
+  const compare = desk.getByRole("region", { name: /^Comparing resume v0 with v3\. 1 block differ/ });
+  await expect(compare).toBeVisible();
+  await expect(desk.getByRole("button", { name: /^Compare/ }).first()).toHaveAttribute("aria-pressed", "true");
+  await expect(compare.locator(".scribe__compare-item del")).toContainText("tracked");
+  await expect(compare.locator(".scribe__compare-item ins")).toContainText("reduced");
+  await expect(compare.getByRole("button", { name: /accept|reject/i })).toHaveCount(0);
+  await expect(page.frameLocator("jb-scribe .scribe__compare-fig--b iframe").locator(`[data-family="${FAMILY}"]`)).toHaveCount(1);
+  const [boxA, boxB] = await Promise.all([
+    compare.locator(".scribe__compare-fig--a .scribe__compare-sheet").boundingBox(),
+    compare.locator(".scribe__compare-fig--b .scribe__compare-sheet").boundingBox(),
+  ]);
+  expect(boxA.x + boxA.width, "A sits left of B at 1440").toBeLessThanOrEqual(boxB.x);
+  expect(Math.abs(boxA.y - boxB.y)).toBeLessThan(2);
+  await expect(compare.getByRole("tablist", { name: "Show version" })).toBeHidden();
+  await page.screenshot({ path: join(EVIDENCE_DIR, "F3-compare-1440.png") });
+  const wide = await measureDesk(page);
+  expect(wide.small, "no text under 12px").toEqual([]);
+  expect(wide.csp).toEqual([]);
+
+  /* `c` closes compare and opens it again (current against the one before). */
+  await compare.getByRole("button", { name: "Done comparing" }).focus();
+  await page.keyboard.press("c");
+  await expect(desk.locator(".scribe__compare")).toBeHidden();
+  await page.keyboard.press("c");
+  await expect(desk.getByRole("region", { name: /^Comparing resume v2 with v3/ })).toBeVisible();
+  await desk.getByRole("button", { name: "Done comparing" }).click();
+
+  /* View is read-only and has its own way back. */
+  await desk.getByRole("button", { name: "View v1, read-only" }).click();
+  const viewing = desk.getByRole("region", { name: "Resume, version 1, read-only" });
+  await expect(viewing).toContainText("Viewing v1");
+  await viewing.getByRole("button", { name: "Back to current" }).click();
+  await expect(viewing).toBeHidden();
+  await expect(desk.getByRole("button", { name: "View v1, read-only" })).toBeFocused();
+
+  /* Bring back asks first, then appends. */
+  await desk.getByRole("button", { name: "Bring back v1 as a new version" }).click();
+  const ask = desk.getByRole("group", { name: "Bring back v1" });
+  await expect(ask).toContainText("Bring back v1 as v4? v3 and every other version stay in the list.");
+  await expect(versions.getByRole("listitem")).toHaveCount(4);
+  await ask.getByRole("button", { name: "Bring back as v4" }).press("Enter");
+  await expect(versions.getByRole("listitem")).toHaveCount(5);
+  await expect(versions.getByRole("listitem").first()).toContainText("Restored from v1");
+  await expect(versions.getByRole("listitem").first()).toContainText("Brought back");
+  await expect(versions.getByRole("listitem").first()).toHaveAttribute("aria-current", "true");
+  for (const n of ["v3", "v2", "v1", "v0"]) await expect(versions).toContainText(n);
+  /* The chat panel is behind the Versions tab here, so read the log directly. */
+  await expect(desk.locator(".scribe__log")).toContainText("Brought back v1 as v4. Nothing was deleted.");
+
+  /* 390: one page at a time behind an A/B toggle. */
+  await page.setViewportSize({ width: 390, height: 844 });
+  await desk.getByRole("tablist", { name: "View" }).getByRole("tab", { name: "Versions" }).click();
+  await desk.getByRole("button", { name: "Compare v0 with current" }).click();
+  const phone = desk.getByRole("region", { name: /^Comparing resume v0 with v4/ });
+  await expect(phone).toBeVisible();
+  await expect(desk.getByRole("tablist", { name: "View" }).getByRole("tab", { name: "Doc" })).toHaveAttribute("aria-selected", "true");
+  const ab = phone.getByRole("tablist", { name: "Show version" });
+  await expect(ab).toBeVisible();
+  await expect(phone.locator(".scribe__compare-fig--b")).toBeVisible();
+  await expect(phone.locator(".scribe__compare-fig--a")).toBeHidden();
+  await ab.getByRole("tab", { name: /^A · v0/ }).click();
+  await expect(phone.locator(".scribe__compare-fig--a")).toBeVisible();
+  await expect(phone.locator(".scribe__compare-fig--b")).toBeHidden();
+  await expect(phone.locator(".scribe__compare-item ins")).toContainText("reduced");
+  await page.screenshot({ path: join(EVIDENCE_DIR, "F3-compare-390.png") });
+  const narrow = await measureDesk(page);
+  expect(narrow.shortTargets, "44px targets on phones").toEqual([]);
+  expect(narrow.small).toEqual([]);
+  expect(narrow.pageScrollX).toBeLessThanOrEqual(0);
+  await desk.getByRole("tablist", { name: "View" }).getByRole("tab", { name: "Versions" }).click();
+  await page.screenshot({ path: join(EVIDENCE_DIR, "F3-versions-390.png") });
+  const rail = await measureDesk(page);
+  expect(rail.shortTargets, "row actions are 44px on phones").toEqual([]);
+  expect(rail.pageScrollX).toBeLessThanOrEqual(0);
+  expect(fence.unexpectedExternal).toEqual([]);
+});
