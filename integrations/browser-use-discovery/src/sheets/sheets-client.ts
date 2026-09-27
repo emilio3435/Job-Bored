@@ -7,7 +7,7 @@
  *   one at a time for a given spreadsheet id.
  * - Link re-resolution: a row number from a snapshot is re-checked against
  *   its Link right before a write, and re-found when the row moved.
- * - Column map generated from schemas/pipeline-row.v1.json.
+ * - Column map maintained alongside schemas/pipeline-row.v1.json.
  * - Formula escaping: every USER_ENTERED text cell that starts with = + - @
  *   is written with a leading apostrophe, so it is stored as text.
  * - Retry: 429 and 5xx answers are retried with exponential backoff.
@@ -34,7 +34,7 @@ export type PipelineColumnId =
   | "salary" | "fitScore" | "priority" | "tags" | "fitAssessment" | "contact"
   | "status" | "appliedDate" | "notes" | "followUpDate" | "talkingPoints"
   | "lastHeardFrom" | "responseFlag" | "logoUrl" | "matchScore" | "favorite"
-  | "dismissedAt" | "approvalStatus" | "editLock";
+  | "dismissedAt" | "approvalStatus" | "editLock" | "workMode";
 
 function buildColumnIndex(): Record<PipelineColumnId, number> {
   const out = {} as Record<PipelineColumnId, number>;
@@ -98,17 +98,22 @@ export class PipelineHeaderMismatchError extends Error {
 /**
  * Check row 1 of the Pipeline tab against the schema. Columns A..Q must sit
  * at their schema positions; optional columns may be blank (a legacy Sheet)
- * but never carry another label. Returns whether blank optional headers need
- * writing.
+ * but never carry another label. Z is a separate additive column: an empty Z
+ * can be filled, while a foreign Z is left untouched.
  */
 export function checkPipelineHeader(
   headerRow: unknown[],
   sheetName = DEFAULT_SHEET_NAME,
-): { needsUpgrade: boolean } {
+): { needsUpgrade: boolean; workModeHeader: "missing" | "ready" | "foreign" } {
   let needsUpgrade = false;
+  let workModeHeader: "missing" | "ready" | "foreign" = "missing";
   for (const column of PIPELINE_COLUMNS) {
     const raw = headerRow[column.sheetIndex];
     const found = typeof raw === "string" ? raw.trim() : "";
+    if (column.id === "workMode") {
+      workModeHeader = found === column.headerLabel ? "ready" : found ? "foreign" : "missing";
+      continue;
+    }
     if (found === column.headerLabel) continue;
     if (column.sheetIndex >= PIPELINE_REQUIRED_HEADER_COUNT && found === "") {
       needsUpgrade = true;
@@ -121,7 +126,7 @@ export function checkPipelineHeader(
       sheetName,
     });
   }
-  return { needsUpgrade };
+  return { needsUpgrade, workModeHeader };
 }
 
 /* ------------------------------------------------------------------ */

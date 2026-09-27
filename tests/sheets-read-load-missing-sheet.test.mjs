@@ -160,3 +160,27 @@ describe("sheets-read-load missing Sheet ID guard", () => {
     assert.equal(calls.revealSetupScreenAfterAuth, 1);
   });
 });
+
+describe("Pipeline Work Mode reading", () => {
+  it("parses location signals and leaves unknown blank", () => {
+    const { sheetsRead } = createHarness({ activeSheetId: null });
+    for (const [location, expected] of [
+      ["Remote - US", "remote"], ["work from home", "remote"],
+      ["Hybrid - Austin", "hybrid"], ["On-site", "onsite"],
+      ["in office", "onsite"], ["Austin, TX", ""],
+    ]) assert.equal(sheetsRead.parseWorkModeFromLocation(location), expected);
+  });
+
+  it("uses valid Z values, otherwise infers from Location", () => {
+    const { sheetsRead } = createHarness({ activeSheetId: null });
+    const parse = (location, workMode) => {
+      const row = Array(26).fill("");
+      row[1] = "Engineer"; row[2] = "Acme"; row[3] = location; row[25] = workMode;
+      return sheetsRead.parsePipelineCSV([[], row])[0].workMode;
+    };
+    assert.equal(parse("Remote", "hybrid"), "hybrid");
+    assert.equal(parse("Remote", ""), "remote");
+    assert.equal(parse("On-site", "unknown"), "onsite");
+    assert.equal(parse("Austin", ""), "");
+  });
+});

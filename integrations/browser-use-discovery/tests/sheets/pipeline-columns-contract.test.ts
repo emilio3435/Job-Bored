@@ -53,6 +53,15 @@ test("D19: every column declares a discovery merge rule", () => {
   }
 });
 
+test("Work Mode is the last, fill-if-empty Pipeline column", () => {
+  assert.equal(schema.headerRow.at(-1), "Work Mode");
+  const { id, letter, headerLabel, sheetIndex, discoveryMerge, enum: values } = schema.columns.at(-1)!;
+  assert.deepEqual({ id, letter, headerLabel, sheetIndex, discoveryMerge, values }, {
+    id: "workMode", letter: "Z", headerLabel: "Work Mode", sheetIndex: 25,
+    discoveryMerge: "fillIfEmpty", values: ["remote", "hybrid", "onsite"],
+  });
+});
+
 test("D19: the browser planner letters (pipeline-transitions.js) match the schema", () => {
   const source = readFileSync(new URL("pipeline-transitions.js", repoRoot), "utf8");
   const context: Record<string, unknown> = {};
