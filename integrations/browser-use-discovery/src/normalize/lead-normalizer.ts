@@ -481,7 +481,7 @@ function tokenizeKeywords(values: string[]): string[] {
   );
 }
 
-function findMatchedKeywords(haystack: string, keywords: string[]): string[] {
+export function findMatchedKeywords(haystack: string, keywords: string[]): string[] {
   const normalizedHaystack = normalizeWhitespace(haystack).toLowerCase();
   return tokenizeKeywords(keywords).filter((keyword) =>
     keywordMatchesHaystack(normalizedHaystack, keyword),

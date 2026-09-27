@@ -3,6 +3,20 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { DatabaseSync, type SQLInputValue } from "node:sqlite";
 
+import {
+  CANDIDATE_CATALOG_STATUSES,
+  type CandidateBacklogQuery,
+  type CandidateWrittenKeysQuery,
+  type CandidateCatalogListQuery,
+  type CandidateCatalogListResult,
+  type CandidateCatalogPruneInput,
+  type CandidateCatalogPruneResult,
+  type CandidateCatalogRecord,
+  type CandidateCatalogStatus,
+  type CandidateCatalogWrite,
+  type CandidatePromotion,
+} from "../contracts.ts";
+
 type JsonObject = Record<string, unknown>;
 type ProviderHints = Record<string, string[]>;
 
@@ -532,6 +546,7 @@ export type DiscoveryMemoryCounts = {
   scoutObservations: number;
   exploitOutcomes: number;
   roleFamilies: number;
+  candidateCatalog: number;
 };
 
 export type DiscoveryMemoryStore = {
@@ -560,6 +575,18 @@ export type DiscoveryMemoryStore = {
   upsertListingFingerprint(
     input: ListingFingerprintUpsert,
   ): ListingFingerprintRecord;
+  /** Batch upsert in one transaction; a row that fails validation is skipped. */
+  upsertListingFingerprints(
+    inputs: ListingFingerprintUpsert[],
+  ): { upserted: number; skipped: number };
+  recordCandidateCatalog(input: CandidateCatalogWrite): { recorded: number };
+  listBacklogCandidates(query: CandidateBacklogQuery): CandidateCatalogRecord[];
+  listWrittenCandidateKeys(query: CandidateWrittenKeysQuery): string[];
+  markCandidatesPromoted(input: CandidatePromotion): void;
+  pruneCandidateCatalog(
+    input: CandidateCatalogPruneInput,
+  ): CandidateCatalogPruneResult;
+  listCandidates(query?: CandidateCatalogListQuery): CandidateCatalogListResult;
   writeIntentCoverage(input: IntentCoverageWrite): IntentCoverageRecord;
   listIntentCoverage(query?: IntentCoverageQuery): IntentCoverageRecord[];
   writeScoutObservation(input: ScoutObservationRecord): ScoutObservationRecord;
@@ -745,6 +772,27 @@ export function createDiscoveryMemoryStore(
       updated_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS candidate_catalog (
+      sheet_id TEXT NOT NULL,
+      fingerprint_key TEXT NOT NULL,
+      company_key TEXT NOT NULL DEFAULT '',
+      title TEXT NOT NULL DEFAULT '',
+      url TEXT NOT NULL DEFAULT '',
+      source_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      reject_reason TEXT NOT NULL DEFAULT '',
+      reject_detail TEXT NOT NULL DEFAULT '',
+      fit_score REAL,
+      match_score REAL,
+      lead_json TEXT,
+      first_seen_at TEXT NOT NULL,
+      last_seen_at TEXT NOT NULL,
+      seen_count INTEGER NOT NULL DEFAULT 1,
+      last_run_id TEXT NOT NULL DEFAULT '',
+      intent_key TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (sheet_id, fingerprint_key)
+    );
+
     CREATE INDEX IF NOT EXISTS idx_company_registry_cooldown
       ON company_registry (cooldown_until, last_success_at);
     CREATE INDEX IF NOT EXISTS idx_company_registry_name
@@ -783,7 +831,13 @@ export function createDiscoveryMemoryStore(
       ON role_families (base_role);
     CREATE INDEX IF NOT EXISTS idx_role_families_company
       ON role_families (company_key);
+    CREATE INDEX IF NOT EXISTS idx_candidate_catalog_status
+      ON candidate_catalog (sheet_id, status, last_seen_at);
+    CREATE INDEX IF NOT EXISTS idx_candidate_catalog_last_seen
+      ON candidate_catalog (last_seen_at);
   `);
+  ensureCandidateCatalogIntentKeyColumn(database);
+  const candidateCatalog = createCandidateCatalogMethods(database);
 
   const getCompanyStatement = database.prepare(`
     SELECT *
@@ -1215,8 +1269,32 @@ export function createDiscoveryMemoryStore(
         scoutObservations: readCount(countScoutObservationsStatement),
         exploitOutcomes: readCount(countExploitOutcomesStatement),
         roleFamilies: readCount(countRoleFamiliesStatement),
+        candidateCatalog: candidateCatalog.count(),
       };
     },
+
+    upsertListingFingerprints(inputs) {
+      let upserted = 0;
+      let skipped = 0;
+      withTransaction(database, () => {
+        for (const input of inputs) {
+          try {
+            this.upsertListingFingerprint(input);
+            upserted += 1;
+          } catch {
+            skipped += 1;
+          }
+        }
+      });
+      return { upserted, skipped };
+    },
+
+    recordCandidateCatalog: candidateCatalog.record,
+    listBacklogCandidates: candidateCatalog.listBacklog,
+    listWrittenCandidateKeys: candidateCatalog.listWrittenKeys,
+    markCandidatesPromoted: candidateCatalog.markPromoted,
+    pruneCandidateCatalog: candidateCatalog.prune,
+    listCandidates: candidateCatalog.list,
 
     upsertCompany(input) {
       const now = normalizeTimestamp(input.lastSeenAt, new Date().toISOString());
@@ -2808,4 +2886,341 @@ function buildInClause(
     params.push(value);
   }
   return `${column} IN (${normalized.map(() => "?").join(", ")})`;
+}
+
+/**
+ * Runs `fn` inside one SQLite transaction (BEGIN IMMEDIATE ... COMMIT), or
+ * inline when a transaction is already open. Rolls back and rethrows on error.
+ */
+function withTransaction<T>(database: DatabaseSync, fn: () => T): T {
+  if (database.isTransaction) return fn();
+  database.exec("BEGIN IMMEDIATE");
+  try {
+    const result = fn();
+    database.exec("COMMIT");
+    return result;
+  } catch (error) {
+    try {
+      database.exec("ROLLBACK");
+    } catch {
+      // The transaction is already gone; surface the original error.
+    }
+    throw error;
+  }
+}
+
+type CandidateCatalogRow = {
+  sheet_id: string;
+  fingerprint_key: string;
+  company_key: string;
+  title: string;
+  url: string;
+  source_id: string;
+  status: string;
+  reject_reason: string;
+  reject_detail: string;
+  fit_score: number | null;
+  match_score: number | null;
+  lead_json: string | null;
+  first_seen_at: string;
+  last_seen_at: string;
+  seen_count: number;
+  last_run_id: string;
+  intent_key?: string;
+};
+
+/**
+ * DISCAT C1: catalogs created before backlog rows carried their run's intent
+ * key get the column added in place. Old rows keep '' and so never match a
+ * current intent key, which keeps them out of promotion.
+ */
+function ensureCandidateCatalogIntentKeyColumn(database: DatabaseSync): void {
+  const columns = database
+    .prepare("PRAGMA table_info(candidate_catalog)")
+    .all() as Array<{ name: string }>;
+  if (columns.some((column) => column.name === "intent_key")) return;
+  database.exec(
+    "ALTER TABLE candidate_catalog ADD COLUMN intent_key TEXT NOT NULL DEFAULT ''",
+  );
+}
+
+const DAY_MS = 24 * 60 * 60 * 1000;
+const CANDIDATE_CATALOG_MAX_AGE_DAYS = 90;
+const CANDIDATE_CATALOG_MAX_ROWS = 50_000;
+const CANDIDATE_BACKLOG_MAX_AGE_DAYS = 14;
+const CANDIDATE_STATUS_SET = new Set<string>(CANDIDATE_CATALOG_STATUSES);
+
+function isCandidateCatalogStatus(value: unknown): value is CandidateCatalogStatus {
+  return typeof value === "string" && CANDIDATE_STATUS_SET.has(value);
+}
+
+function finiteOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isFinite(value) ? value : null;
+}
+
+function isoDaysBefore(now: string, days: number): string {
+  const base = Date.parse(now);
+  const anchor = Number.isFinite(base) ? base : Date.now();
+  return new Date(anchor - days * DAY_MS).toISOString();
+}
+
+function mapCandidateCatalogRow(row: CandidateCatalogRow): CandidateCatalogRecord {
+  const payload = row.lead_json ? safeParseJson(row.lead_json) : null;
+  return {
+    sheetId: row.sheet_id,
+    fingerprintKey: row.fingerprint_key,
+    companyKey: row.company_key,
+    title: row.title,
+    url: row.url,
+    sourceId: row.source_id,
+    status: isCandidateCatalogStatus(row.status) ? row.status : "rejected",
+    rejectReason: row.reject_reason,
+    rejectDetail: row.reject_detail,
+    fitScore: finiteOrNull(row.fit_score),
+    matchScore: finiteOrNull(row.match_score),
+    leadPayload:
+      payload && typeof payload === "object" && !Array.isArray(payload)
+        ? (payload as Record<string, unknown>)
+        : null,
+    firstSeenAt: row.first_seen_at,
+    lastSeenAt: row.last_seen_at,
+    seenCount: Number(row.seen_count || 0),
+    lastRunId: row.last_run_id,
+    intentKey: String(row.intent_key || ""),
+  };
+}
+
+/**
+ * DISCAT C1: the `candidate_catalog` table. One row per (sheet, listing
+ * fingerprint). Re-seeing a listing bumps last_seen/seen_count (once per run);
+ * `written` and `promoted` are terminal, every other status follows the
+ * latest observation so a backlog row re-seen as rejected stops being
+ * promotable.
+ */
+function createCandidateCatalogMethods(database: DatabaseSync) {
+  const upsertStatement = database.prepare(`
+    INSERT INTO candidate_catalog (
+      sheet_id, fingerprint_key, company_key, title, url, source_id, status,
+      reject_reason, reject_detail, fit_score, match_score, lead_json,
+      first_seen_at, last_seen_at, seen_count, last_run_id, intent_key
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)
+    ON CONFLICT(sheet_id, fingerprint_key) DO UPDATE SET
+      company_key = CASE WHEN excluded.company_key <> '' THEN excluded.company_key ELSE candidate_catalog.company_key END,
+      title = CASE WHEN excluded.title <> '' THEN excluded.title ELSE candidate_catalog.title END,
+      url = CASE WHEN excluded.url <> '' THEN excluded.url ELSE candidate_catalog.url END,
+      source_id = CASE WHEN excluded.source_id <> '' THEN excluded.source_id ELSE candidate_catalog.source_id END,
+      status = CASE WHEN candidate_catalog.status IN ('written', 'promoted') THEN candidate_catalog.status ELSE excluded.status END,
+      reject_reason = CASE WHEN candidate_catalog.status IN ('written', 'promoted') THEN candidate_catalog.reject_reason ELSE excluded.reject_reason END,
+      reject_detail = CASE WHEN candidate_catalog.status IN ('written', 'promoted') THEN candidate_catalog.reject_detail ELSE excluded.reject_detail END,
+      fit_score = COALESCE(excluded.fit_score, candidate_catalog.fit_score),
+      match_score = COALESCE(excluded.match_score, candidate_catalog.match_score),
+      lead_json = CASE
+        WHEN candidate_catalog.status IN ('written', 'promoted') THEN candidate_catalog.lead_json
+        WHEN excluded.status = 'backlog' THEN excluded.lead_json
+        ELSE NULL
+      END,
+      first_seen_at = MIN(candidate_catalog.first_seen_at, excluded.first_seen_at),
+      last_seen_at = MAX(candidate_catalog.last_seen_at, excluded.last_seen_at),
+      seen_count = candidate_catalog.seen_count +
+        CASE WHEN candidate_catalog.last_run_id = excluded.last_run_id THEN 0 ELSE 1 END,
+      last_run_id = excluded.last_run_id,
+      intent_key = CASE WHEN candidate_catalog.status IN ('written', 'promoted') THEN candidate_catalog.intent_key ELSE excluded.intent_key END
+  `);
+  const listBacklogStatement = database.prepare(`
+    SELECT *
+    FROM candidate_catalog
+    WHERE sheet_id = ? AND status = 'backlog' AND last_seen_at >= ?
+      AND lead_json IS NOT NULL AND (? IS NULL OR intent_key = ?)
+      AND (? IS NULL OR fit_score IS NULL OR fit_score >= ?)
+    ORDER BY CASE WHEN fit_score IS NULL THEN 1 ELSE 0 END, fit_score DESC,
+      COALESCE(match_score, -1) DESC, last_seen_at DESC, fingerprint_key ASC
+    LIMIT ?
+  `);
+  const selectWrittenKeyStatement = database.prepare(`
+    SELECT 1 AS hit FROM candidate_catalog
+    WHERE sheet_id = ? AND fingerprint_key = ? AND status IN ('written', 'promoted')
+  `);
+  const deleteAgedFingerprintsStatement = database.prepare(`
+    DELETE FROM listing_fingerprints WHERE last_seen_at < ?
+  `);
+  const markPromotedStatement = database.prepare(`
+    UPDATE candidate_catalog
+    SET status = 'promoted', last_run_id = ?, last_seen_at = MAX(last_seen_at, ?)
+    WHERE sheet_id = ? AND fingerprint_key = ? AND status = 'backlog'
+  `);
+  const expireBacklogStatement = database.prepare(`
+    UPDATE candidate_catalog
+    SET status = 'expired', lead_json = NULL
+    WHERE status = 'backlog' AND last_seen_at < ?
+  `);
+  const deleteAgedStatement = database.prepare(`
+    DELETE FROM candidate_catalog WHERE last_seen_at < ?
+  `);
+  const deleteOverflowStatement = database.prepare(`
+    DELETE FROM candidate_catalog
+    WHERE rowid IN (
+      SELECT rowid FROM candidate_catalog
+      ORDER BY last_seen_at ASC, rowid ASC
+      LIMIT ?
+    )
+  `);
+  const countStatement = database.prepare(`
+    SELECT COUNT(*) AS count FROM candidate_catalog
+  `);
+  const countByStatusStatement = database.prepare(`
+    SELECT status, COUNT(*) AS count
+    FROM candidate_catalog
+    WHERE (? IS NULL OR sheet_id = ?)
+    GROUP BY status
+  `);
+  const listStatement = database.prepare(`
+    SELECT *
+    FROM candidate_catalog
+    WHERE (? IS NULL OR status = ?) AND (? IS NULL OR sheet_id = ?)
+    ORDER BY last_seen_at DESC, fingerprint_key ASC
+    LIMIT ?
+  `);
+
+  const count = (): number => readCount(countStatement);
+
+  return {
+    count,
+
+    record(input: CandidateCatalogWrite): { recorded: number } {
+      const sheetId = normalizeRequiredString(input.sheetId, "sheetId");
+      const runId = normalizeRequiredString(input.runId, "runId");
+      const observedAt = normalizeTimestamp(
+        input.observedAt,
+        new Date().toISOString(),
+      );
+      let recorded = 0;
+      withTransaction(database, () => {
+        for (const entry of input.entries) {
+          const fingerprintKey = normalizeNullableString(entry.fingerprintKey);
+          if (!fingerprintKey || !isCandidateCatalogStatus(entry.status)) continue;
+          upsertStatement.run(
+            sheetId,
+            fingerprintKey,
+            String(entry.companyKey || ""),
+            String(entry.title || ""),
+            String(entry.url || ""),
+            String(entry.sourceId || ""),
+            entry.status,
+            String(entry.rejectReason || ""),
+            String(entry.rejectDetail || ""),
+            finiteOrNull(entry.fitScore),
+            finiteOrNull(entry.matchScore),
+            entry.status === "backlog" && entry.leadPayload
+              ? stringifyJson(entry.leadPayload)
+              : null,
+            observedAt,
+            observedAt,
+            runId,
+            String(input.intentKey || ""),
+          );
+          recorded += 1;
+        }
+      });
+      return { recorded };
+    },
+
+    listBacklog(query: CandidateBacklogQuery): CandidateCatalogRecord[] {
+      const limit = Math.max(0, Math.floor(Number(query.limit) || 0));
+      if (limit === 0) return [];
+      const excluded = new Set(query.excludeFingerprintKeys || []);
+      // Fetch enough rows that the exclusion filter can never starve `limit`.
+      const intentKey =
+        typeof query.intentKey === "string" ? query.intentKey : null;
+      const minFitScore = finiteOrNull(query.minFitScore);
+      const rows = listBacklogStatement.all(
+        normalizeRequiredString(query.sheetId, "sheetId"),
+        String(query.seenSince || ""),
+        intentKey,
+        intentKey,
+        minFitScore,
+        minFitScore,
+        limit + excluded.size,
+      ) as CandidateCatalogRow[];
+      return rows
+        .filter((row) => !excluded.has(row.fingerprint_key))
+        .slice(0, limit)
+        .map(mapCandidateCatalogRow);
+    },
+
+    /** Fix-A: the given keys this sheet already wrote or promoted. */
+    listWrittenKeys(query: CandidateWrittenKeysQuery): string[] {
+      const sheetId = normalizeRequiredString(query.sheetId, "sheetId");
+      const hits: string[] = [];
+      for (const key of new Set(query.fingerprintKeys || [])) {
+        if (key && selectWrittenKeyStatement.get(sheetId, key)) hits.push(key);
+      }
+      return hits;
+    },
+
+    markPromoted(input: CandidatePromotion): void {
+      const sheetId = normalizeRequiredString(input.sheetId, "sheetId");
+      const promotedAt = normalizeTimestamp(
+        input.promotedAt,
+        new Date().toISOString(),
+      );
+      withTransaction(database, () => {
+        for (const key of input.fingerprintKeys) {
+          markPromotedStatement.run(
+            String(input.runId || ""),
+            promotedAt,
+            sheetId,
+            key,
+          );
+        }
+      });
+    },
+
+    prune(input: CandidateCatalogPruneInput): CandidateCatalogPruneResult {
+      const now = normalizeTimestamp(input.now, new Date().toISOString());
+      const maxAgeDays = input.maxAgeDays ?? CANDIDATE_CATALOG_MAX_AGE_DAYS;
+      const maxRows = input.maxRows ?? CANDIDATE_CATALOG_MAX_ROWS;
+      const backlogMaxAgeDays =
+        input.backlogMaxAgeDays ?? CANDIDATE_BACKLOG_MAX_AGE_DAYS;
+      return withTransaction(database, () => {
+        const expired = Number(
+          expireBacklogStatement.run(isoDaysBefore(now, backlogMaxAgeDays))
+            .changes,
+        );
+        let deleted = Number(
+          deleteAgedStatement.run(isoDaysBefore(now, maxAgeDays)).changes,
+        );
+        const overflow = count() - Math.max(0, maxRows);
+        if (overflow > 0) {
+          deleted += Number(deleteOverflowStatement.run(overflow).changes);
+        }
+        // Fix-A: listing_fingerprints follows the catalog's age rule so the
+        // seen-listing memory stays bounded too.
+        const fingerprintsDeleted = Number(
+          deleteAgedFingerprintsStatement.run(isoDaysBefore(now, maxAgeDays))
+            .changes,
+        );
+        return { expired, deleted, fingerprintsDeleted };
+      });
+    },
+
+    list(query: CandidateCatalogListQuery = {}): CandidateCatalogListResult {
+      const status = isCandidateCatalogStatus(query.status) ? query.status : null;
+      const sheetId = normalizeNullableString(query.sheetId);
+      const limit = Math.max(1, Math.floor(Number(query.limit) || 100));
+      const rows = (
+        listStatement.all(status, status, sheetId, sheetId, limit) as CandidateCatalogRow[]
+      ).map(mapCandidateCatalogRow);
+      const counts: Partial<Record<CandidateCatalogStatus, number>> = {};
+      let total = 0;
+      for (const row of countByStatusStatement.all(sheetId, sheetId) as Array<{
+        status: string;
+        count: number;
+      }>) {
+        if (!isCandidateCatalogStatus(row.status)) continue;
+        counts[row.status] = Number(row.count || 0);
+        total += Number(row.count || 0);
+      }
+      return { rows, counts, total };
+    },
+  };
 }

@@ -11,6 +11,7 @@ import {
   type DiscoveryRoleFamilyLearnInput,
   type DiscoveryRoleFamilyRecord,
   type DiscoverySourceLane,
+  type ListingFingerprintRecord,
   type SupportedSourceId,
 } from "../contracts.ts";
 import type {
@@ -22,7 +23,16 @@ import type {
 
 type RunDiscoveryMemoryStore = Pick<
   RuntimeDiscoveryMemoryStore,
-  "loadSnapshot" | "writeExploitOutcome" | "learnRoleFamilyFromLead"
+  | "loadSnapshot"
+  | "writeExploitOutcome"
+  | "learnRoleFamilyFromLead"
+  | "upsertListingFingerprints"
+  | "recordCandidateCatalog"
+  | "listBacklogCandidates"
+  | "listWrittenCandidateKeys"
+  | "isDeadLinkCoolingDown"
+  | "markCandidatesPromoted"
+  | "pruneCandidateCatalog"
 >;
 
 const DISCOVERY_SOURCE_LANES = new Set<string>([
@@ -69,7 +79,50 @@ export function createRunDiscoveryMemoryStore(
       const record = rawDiscoveryMemoryStore.learnRoleFamilyFromLead(input);
       return record ? toRunRoleFamilyRecord(record) : null;
     },
+    // DISCAT C1: one transaction per run for the seen-listing fingerprints.
+    upsertListingFingerprints(records: ListingFingerprintRecord[]) {
+      rawDiscoveryMemoryStore.upsertListingFingerprints(
+        records.map((record) => ({
+          companyKey: record.companyKey,
+          titleKey: record.titleKey,
+          locationKey: record.locationKey,
+          canonicalUrlKey: record.canonicalUrlKey || null,
+          externalJobId: record.externalJobId || null,
+          remoteBucket: record.remoteBucket || "unknown",
+          employmentType: record.employmentType || null,
+          contentHash: record.contentHash || null,
+          seenAt: record.lastSeenAt || null,
+          writtenAt: record.lastWrittenAt || null,
+          runId: record.lastRunId || null,
+          sheetId: record.lastSheetId || null,
+          sourceIds: parseSourceIds(record.sourceIdsJson),
+        })),
+      );
+    },
+    recordCandidateCatalog: (input) =>
+      rawDiscoveryMemoryStore.recordCandidateCatalog(input),
+    listBacklogCandidates: (query) =>
+      rawDiscoveryMemoryStore.listBacklogCandidates(query),
+    listWrittenCandidateKeys: (query) =>
+      rawDiscoveryMemoryStore.listWrittenCandidateKeys(query),
+    isDeadLinkCoolingDown: (url, now) =>
+      rawDiscoveryMemoryStore.isDeadLinkCoolingDown(url, now),
+    markCandidatesPromoted: (input) =>
+      rawDiscoveryMemoryStore.markCandidatesPromoted(input),
+    pruneCandidateCatalog: (input) =>
+      rawDiscoveryMemoryStore.pruneCandidateCatalog(input),
   };
+}
+
+function parseSourceIds(value: string): string[] {
+  try {
+    const parsed: unknown = JSON.parse(String(value || "[]"));
+    return Array.isArray(parsed)
+      ? parsed.filter((entry): entry is string => typeof entry === "string")
+      : [];
+  } catch {
+    return [];
+  }
 }
 
 function toRunMemorySnapshot(
