@@ -212,7 +212,11 @@ async function captureScheduledTimeouts<T>(
 
 test("runDiscovery treats recovered grounded regex fallback as completed when leads write", async () => {
   const { dependencies, writtenLeads } = createGroundedTimeoutDependencies();
+  const checkpoints: Array<Record<string, any>> = [];
   dependencies.sourceTimeoutMs = 5_000;
+  Object.assign(dependencies, {
+    checkpointRunProgress: (progress: Record<string, any>) => checkpoints.push(progress),
+  });
   dependencies.groundedSearchClient.search = async () => ({
     searchQueries: ["TimeoutCo Backend Engineer"],
     candidates: [
@@ -247,6 +251,11 @@ test("runDiscovery treats recovered grounded regex fallback as completed when le
   assert.equal(result.lifecycle.state, "completed");
   assert.equal(result.writeResult.appended, 1);
   assert.equal(writtenLeads.length, 1);
+  assert.equal(
+    checkpoints.find((progress) => progress.phase === "write")?.counters?.leadsQualified,
+    1,
+    "the retained grounded lead must be included after frontier filtering",
+  );
   assert.ok(
     result.warnings.some((warning) =>
       warning.includes("URLs recovered via pattern matching"),
@@ -313,7 +322,7 @@ test("runDiscovery checkpoints every phase and includes the active budget state"
 test("UXD-BE-1: a 500-listing ATS scout publishes bounded, cumulative progress", async () => {
   const { dependencies } = createGroundedTimeoutDependencies();
   const checkpoints: Array<Record<string, any>> = [];
-  const events: string[] = [];
+  const events: Array<{ event: string; details: Record<string, unknown> }> = [];
   const listings = Array.from({ length: 500 }, (_, index) => ({
     sourceId: "greenhouse",
     sourceLabel: "Greenhouse",
@@ -347,7 +356,7 @@ test("UXD-BE-1: a 500-listing ATS scout publishes bounded, cumulative progress",
       effectiveSources: ["greenhouse"],
     }),
     checkpointRunProgress: (value: Record<string, any>) => checkpoints.push(value),
-    log: (event: string) => events.push(event),
+    log: (event: string, details: Record<string, unknown>) => events.push({ event, details }),
   });
   await runDiscovery(makeRequest(), "manual", dependencies as any);
   const listingProgress = checkpoints.filter((entry) =>
@@ -360,8 +369,68 @@ test("UXD-BE-1: a 500-listing ATS scout publishes bounded, cumulative progress",
   assert.equal(listingProgress.at(-1)?.counters?.listingsSeen, 500);
   assert.equal(listingProgress.at(-1)?.counters?.companiesDone, 1);
   assert.ok(listingProgress.every((entry) => entry.heartbeatAt === entry.checkpointedAt));
-  assert.ok(events.includes("discovery.run.ats_company_started"));
-  assert.ok(events.includes("discovery.run.ats_company_completed"));
+  assert.ok(events.some(({ event }) => event === "discovery.run.ats_company_started"));
+  assert.ok(events.some(({ event }) => event === "discovery.run.ats_company_completed"));
+  const filtered = events.find(({ event }) => event === "discovery.run.frontier_filtering")?.details;
+  assert.equal(filtered?.originalLeadCount, 500);
+  assert.equal(filtered?.selectedLeadCount, 18, "the frontier budget keeps 18 of 500 accepted leads");
+  assert.equal(
+    checkpoints.find((entry) => entry.phase === "write")?.counters?.leadsQualified,
+    filtered?.selectedLeadCount,
+    "the saving checkpoint counts retained leads, not all matcher-accepted listings",
+  );
+  assert.equal(
+    checkpoints.find((entry) => entry.phase === "learn")?.counters?.leadsQualified,
+    filtered?.selectedLeadCount,
+    "the retained count stays truthful after writing",
+  );
+});
+
+test("UXD-BE-4: an ATS pool emptied by company filtering is skipped through write and learn", async () => {
+  const { dependencies } = createGroundedTimeoutDependencies();
+  const checkpoints: Array<Record<string, any>> = [];
+  let detectionCalls = 0;
+  Object.assign(dependencies, {
+    groundedSearchClient: undefined,
+    sourceAdapterRegistry: {
+      adapters: [],
+      detectBoards: async () => { detectionCalls += 1; return []; },
+      collectListings: async () => [],
+    },
+    loadStoredWorkerConfig: async () => ({
+      sheetId: "sheet_123", mode: "hosted", timezone: "UTC",
+      companies: [{ name: "Acme" }], atsCompanies: [{ name: "Acme" }],
+      includeKeywords: ["node"], excludeKeywords: [], targetRoles: ["Backend Engineer"],
+      locations: ["Remote"], remotePolicy: "remote", seniority: "",
+      maxLeadsPerRun: 5, enabledSources: ["greenhouse"],
+      schedule: { enabled: false, cron: "" },
+    }),
+    mergeDiscoveryConfig: (stored: Record<string, unknown>, request: Record<string, unknown>) => ({
+      ...stored, sheetId: request.sheetId, variationKey: request.variationKey,
+      requestedAt: request.requestedAt, sourcePreset: "ats_only",
+      effectiveSources: ["greenhouse"],
+    }),
+    checkpointRunProgress: (progress: Record<string, any>) => checkpoints.push(progress),
+  });
+
+  const result = await runDiscovery(
+    { ...makeRequest(), companyBlocklist: ["Acme"] },
+    "manual",
+    dependencies as any,
+  );
+
+  assert.equal(detectionCalls, 0, "the blocked company is never scouted");
+  assert.equal(result.writeResult.appended, 0);
+  for (const phase of ["write", "learn"]) {
+    const checkpoint = checkpoints.find((entry) => entry.phase === phase);
+    assert.deepEqual(
+      checkpoint?.sources?.find((source: any) => source.id === "ats"),
+      { id: "ats", state: "skipped", done: 0, total: 0 },
+      `${phase} must not display an ATS source still running at 0 of 0`,
+    );
+    assert.equal(checkpoint?.counters?.companiesTotal, 0);
+    assert.equal(checkpoint?.counters?.companiesDone, 0);
+  }
 });
 
 test("UXD-BE-2: empty scout still checkpoints score and exploit and ignores observer failure", async () => {

@@ -738,7 +738,12 @@ export async function runDiscovery(
     progressCounters.listingsProcessed = 0;
     progressCounters.leadsQualified = 0;
     progressCounters.matcherCalls = 0;
-    progressSources.set("ats", { id: "ats", state: "running", done: 0, total: atsCompaniesToSearch.length });
+    progressSources.set("ats", {
+      id: "ats",
+      state: atsCompaniesToSearch.length === 0 ? "skipped" : "running",
+      done: 0,
+      total: atsCompaniesToSearch.length,
+    });
   }
 
   // Only iterate ATS detection when an ATS lane is actually active. Browser-only
@@ -1329,6 +1334,8 @@ export async function runDiscovery(
     // Update normalizedLeads to only selected leads
     normalizedLeads.length = 0;
     normalizedLeads.push(...filteredNormalizedLeads);
+    progressCounters.leadsQualified = normalizedLeads.length;
+    checkpointRunProgress("exploit");
   } else {
     checkpointRunProgress("score");
     if (pendingGroundedExploit) {
