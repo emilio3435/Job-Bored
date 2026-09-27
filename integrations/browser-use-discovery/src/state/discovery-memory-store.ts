@@ -607,6 +607,9 @@ export type DiscoveryMemoryStore = {
     sourceLane: string;
     accepted: boolean;
   }): RoleFamilyRecord | null;
+  learnRoleFamilyNearMisses(input: {
+    listings: Array<{ title: string; companyKey: string; sourceLane: string }>;
+  }): { familiesIncremented: number };
   close(): void;
 };
 
@@ -2281,6 +2284,28 @@ export function createDiscoveryMemoryStore(
         confirmed: input.accepted,
         nearMiss: !input.accepted,
       });
+    },
+
+    // DISCAT D8: one near miss per family per call (a call is one run), so
+    // 40 near-miss listings of one family add 1, not 40. The rejected title
+    // is not added as a role variant: the planner's role-family adjacency
+    // keeps widening only from titles the user actually got.
+    learnRoleFamilyNearMisses(input) {
+      const seen = new Set<string>();
+      let familiesIncremented = 0;
+      for (const listing of input.listings || []) {
+        const title = normalizeNullableString(listing.title);
+        const baseRole = title ? extractBaseRole(title) : null;
+        if (!baseRole) continue;
+        const companyKey = normalizeNullableString(listing.companyKey) || "global";
+        const sourceLane = normalizeNullableString(listing.sourceLane) || "unknown";
+        const key = [baseRole, companyKey, sourceLane].join("::");
+        if (seen.has(key)) continue;
+        seen.add(key);
+        this.upsertRoleFamily({ baseRole, companyKey, sourceLane, nearMiss: true });
+        familiesIncremented += 1;
+      }
+      return { familiesIncremented };
     },
 
     close() {

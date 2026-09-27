@@ -67,6 +67,7 @@ import {
 import { classifyCareerSurfaceSourcePolicy } from "../discovery/career-surface-resolver.ts";
 import {
   normalizeLeadWithDiagnostics,
+  preFilterRejection,
   type LeadNormalizationRejection,
 } from "../normalize/lead-normalizer.ts";
 import { dedupeLeadsForProductionRun } from "../normalize/intake-identity.ts";
@@ -126,6 +127,12 @@ import {
   mergeAtsCompanyTargets,
   planAtsCompanyOrder,
 } from "./ats-yield-steering.ts";
+import {
+  buildRunFilterStats,
+  recordFilterSignals,
+  selectNearMissListings,
+  type RejectedListingRef,
+} from "./filter-stats.ts";
 
 // Default maximum run duration: 60 minutes. Async discovery runs are background
 // work; source and matcher timeouts still keep individual lanes bounded.
@@ -201,7 +208,12 @@ export type RunDiscoveryResult = {
   runStats?: DiscoveryRunStats;
 };
 
-type RejectionSummary = DiscoveryRejectionSummary;
+// DISCAT D8/D9: run-internal extras beside the contract summary. They feed
+// lifecycle.filterStats and near-miss learning and never reach sources[].
+type RejectionSummary = DiscoveryRejectionSummary & {
+  excludeKeywordCounts?: Record<string, number>;
+  headlineMismatches?: RejectedListingRef[];
+};
 
 /**
  * Wraps work with a timeout AbortSignal linked to the active run signal.
@@ -2059,6 +2071,8 @@ export async function runDiscovery(
     );
     const learnRoleFamilyFromLead =
       discoveryMemoryStore.learnRoleFamilyFromLead?.bind(discoveryMemoryStore);
+    const learnRoleFamilyNearMisses =
+      discoveryMemoryStore.learnRoleFamilyNearMisses?.bind(discoveryMemoryStore);
     const intentKey = memoryIntentKey;
     let persistedOutcomeCount = 0;
     let skippedOutcomeCount = 0;
@@ -2267,6 +2281,28 @@ export async function runDiscovery(
       }
     }
 
+    // DISCAT D8: headline mismatches that share a role family with the
+    // target roles count as near misses, once per family per run. The
+    // filters themselves stay as configured.
+    let nearMissFamilies = 0;
+    if (learnRoleFamilyNearMisses) {
+      const nearMisses = selectNearMissListings(
+        rejectionSummaryBySource.values(),
+        run.config.targetRoles || [],
+      );
+      if (nearMisses.length > 0) {
+        try {
+          const learned = await learnRoleFamilyNearMisses({ listings: nearMisses });
+          nearMissFamilies = learned.familiesIncremented;
+        } catch (error) {
+          dependencies.log?.("discovery.run.near_miss_learning_failed", {
+            runId,
+            error: formatError(error),
+          });
+        }
+      }
+    }
+
     dependencies.log?.("discovery.run.memory_persistence_completed", {
       runId,
       intentKey,
@@ -2274,6 +2310,7 @@ export async function runDiscovery(
       skippedOutcomeCount,
       coverageCount,
       roleFamiliesLearned: leadsToWrite.length,
+      nearMissFamilies,
     });
   }
 
@@ -2463,6 +2500,11 @@ export async function runDiscovery(
       loopCounters,
       // VAL-LOOP-OBS-003/004: Failure reason attribution for degraded/failure states
       ...failureAttribution,
+      // DISCAT D9: which filter removed how many of the listings seen.
+      filterStats: buildRunFilterStats(
+        rejectionSummaryBySource.values(),
+        listingCount,
+      ),
     },
     extractionResults: [...extractionResultsBySource.values()],
     sourceSummary,
@@ -2572,12 +2614,11 @@ function normalizeRawListing(
   if (userProfile) {
     const preFilter = runPreFilter(rawListing, userProfile);
     if (!preFilter.pass) {
+      // DISCAT Fix-B: name what the pre-filter decided (remote status,
+      // location, salary...) instead of reporting every miss as a keyword.
       return Promise.resolve({
         lead: null,
-        rejection: {
-          reason: "excluded_keyword",
-          detail: preFilter.detail,
-        },
+        rejection: preFilterRejection(preFilter),
         matchUsedAi: false,
       });
     }
@@ -2615,7 +2656,15 @@ function normalizeRawListing(
       finalizeMatchDecision(
         rawListing,
         run,
-        decision || baseline,
+        decision
+          ? {
+              ...decision,
+              // DISCAT D9: the AI matcher does not report which exclude
+              // keyword it weighed; keep the deterministic matches.
+              excludeKeywordMatches:
+                decision.excludeKeywordMatches ?? baseline.excludeKeywordMatches,
+            }
+          : baseline,
         true,
         parentSignal,
       ),
@@ -2655,6 +2704,7 @@ function recordRejection(
   entry.totalRejected += 1;
   entry.rejectionReasons[rejection.reason] =
     (entry.rejectionReasons[rejection.reason] || 0) + 1;
+  recordFilterSignals(entry, rawListing, rejection);
   if (entry.rejectionSamples.length < 5) {
     entry.rejectionSamples.push({
       reason: rejection.reason,
@@ -2715,15 +2765,22 @@ async function finalizeMatchDecision(
   };
 }
 
-function matchDecisionToRejection(
+export function matchDecisionToRejection(
   decision: MatchDecision,
   rawListing: RawListing,
   run: DiscoveryRun,
 ): LeadNormalizationRejection {
+  const matchedKeywords = decision.excludeKeywordMatches?.length
+    ? { matchedKeywords: [...decision.excludeKeywordMatches] }
+    : {};
+  // DISCAT Fix-B: excluded_keyword only when a configured keyword matched;
+  // an AI hard reject without one is the matcher's judgment.
+  const keywordHit = !!decision.excludeKeywordMatches?.length;
   if (decision.hardRejectReason) {
     return {
-      reason: "excluded_keyword",
+      reason: keywordHit ? "excluded_keyword" : "matcher_rejected",
       detail: `${decision.hardRejectReason} [matcher=${decision.modelVersion}]`,
+      ...matchedKeywords,
     };
   }
 
@@ -2747,8 +2804,9 @@ function matchDecisionToRejection(
   }
   if (strongestComponent === "negative") {
     return {
-      reason: "excluded_keyword",
+      reason: keywordHit ? "excluded_keyword" : "matcher_rejected",
       detail: `${reasons} ${suffix}`.trim(),
+      ...matchedKeywords,
     };
   }
 

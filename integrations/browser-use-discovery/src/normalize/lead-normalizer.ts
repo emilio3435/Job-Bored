@@ -24,20 +24,86 @@ import {
 } from "./profile-aware-scorer.ts";
 import type {
   LlmFitScoreResult,
+  PreFilterResult,
 } from "../contracts/user-profile.ts";
 
 const SAFE_TRACKING_PARAM_PATTERN =
   /^(utm_.+|ref|source|src|gh_src|lever-source|fbclid|gclid|trk)$/i;
 
+/**
+ * Why a listing was dropped. Stored as a plain string in rejection
+ * summaries, filter stats and the candidate catalog, so codes are only ever
+ * added, never renamed.
+ *
+ * DISCAT Fix-B added the precise profile pre-filter and matcher codes;
+ * before that every pre-filter failure was reported as excluded_keyword.
+ */
+export type LeadNormalizationRejectionReason =
+  | "missing_required_fields"
+  /** A configured exclude keyword matched. Only real keyword hits. */
+  | "excluded_keyword"
+  | "headline_mismatch"
+  | "location_mismatch"
+  /** Remote-only profile and the listing is known not to be remote. */
+  | "remote_policy_mismatch"
+  /** Remote-only profile and the listing's remote status is unknown. */
+  | "remote_unknown"
+  /** The title contains one of the profile's skip-title phrases. */
+  | "skip_title"
+  /** Profile needs sponsorship and the listing says it will not sponsor. */
+  | "work_auth_mismatch"
+  | "salary_below_floor"
+  /** Profile requires a published salary and the listing has none. */
+  | "salary_missing"
+  /** The AI matcher rejected the listing without a keyword hit. */
+  | "matcher_rejected";
+
 export type LeadNormalizationRejection = {
-  reason:
-    | "missing_required_fields"
-    | "excluded_keyword"
-    | "headline_mismatch"
-    | "location_mismatch"
-    | "remote_policy_mismatch";
+  reason: LeadNormalizationRejectionReason;
   detail: string;
+  /**
+   * DISCAT D9: the exclude keywords (or skip-title phrases) that caused an
+   * excluded_keyword rejection, when the rejection point knows them.
+   */
+  matchedKeywords?: string[];
 };
+
+/**
+ * DISCAT Fix-B: turn a profile pre-filter failure into the rejection that
+ * names what the pre-filter actually decided.
+ */
+export function preFilterRejection(
+  preFilter: Extract<PreFilterResult, { pass: false }>,
+): LeadNormalizationRejection {
+  const detail = preFilter.detail;
+  switch (preFilter.reason) {
+    case "skip_title_match":
+      return {
+        reason: "skip_title",
+        detail,
+        ...(preFilter.matchedPhrase ? { matchedKeywords: [preFilter.matchedPhrase] } : {}),
+      };
+    case "work_mode_mismatch": {
+      const bucket = String(preFilter.remoteBucket || "unknown").trim().toLowerCase();
+      return {
+        reason: !bucket || bucket === "unknown" ? "remote_unknown" : "remote_policy_mismatch",
+        detail,
+      };
+    }
+    case "location_outside_acceptable":
+      return { reason: "location_mismatch", detail };
+    case "work_auth_mismatch":
+      return { reason: "work_auth_mismatch", detail };
+    case "salary_below_floor":
+      return { reason: "salary_below_floor", detail };
+    case "salary_missing_but_required":
+      return { reason: "salary_missing", detail };
+    default: {
+      const unreachable: never = preFilter.reason;
+      return { reason: "excluded_keyword", detail: `${detail} (${String(unreachable)})` };
+    }
+  }
+}
 
 export type LeadNormalizationResult = {
   lead: NormalizedLead | null;
@@ -181,6 +247,7 @@ export async function normalizeLeadWithDiagnostics(
       rejection: {
         reason: "excluded_keyword",
         detail: `Matched exclude keywords: ${matchedExcludeKeywords.join(", ")}.`,
+        matchedKeywords: matchedExcludeKeywords,
       },
     };
   }
@@ -297,10 +364,7 @@ export async function normalizeLeadWithDiagnostics(
     } else if (outcome.filteredBy === "pre_filter") {
       return {
         lead: null,
-        rejection: {
-          reason: "excluded_keyword",
-          detail: outcome.preFilter.detail,
-        },
+        rejection: preFilterRejection(outcome.preFilter),
       };
     } else {
       // LLM error — fall through to legacy so the listing still gets captured.

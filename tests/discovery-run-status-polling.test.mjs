@@ -329,6 +329,42 @@ describe("discovery run status polling", () => {
     assert.equal(session.isCurrent(generation), false);
   });
 
+  it("DISCAT D9: a terminal status keeps lifecycle.filterStats, and older runs have none", () => {
+    const api = loadRunTracker();
+    const tracker = new api.DiscoveryRunTracker("discat_filter_stats");
+    tracker.beginTracking({ runId: "run_fs", statusPath: "/runs/run_fs" });
+    assert.equal(tracker.getState().filterStats, null);
+    tracker.updateFromStatusResponse({
+      runId: "run_fs",
+      terminal: true,
+      status: "completed",
+      lifecycle: {
+        filterStats: {
+          listingsSeen: 1994,
+          listingsRejected: 1665,
+          byReason: { excluded_keyword: 1181 },
+          byExcludeKeyword: [{ keyword: "sales engineer", count: 612 }, { keyword: 7 }],
+        },
+      },
+    });
+    assert.deepEqual(JSON.parse(JSON.stringify(tracker.getState().filterStats)), {
+      listingsSeen: 1994,
+      listingsRejected: 1665,
+      byReason: { excluded_keyword: 1181 },
+      byExcludeKeyword: [{ keyword: "sales engineer", count: 612 }],
+    });
+
+    const legacy = new api.DiscoveryRunTracker("discat_filter_stats_legacy");
+    legacy.beginTracking({ runId: "run_old", statusPath: "/runs/run_old" });
+    legacy.updateFromStatusResponse({
+      runId: "run_old",
+      terminal: true,
+      status: "completed",
+      lifecycle: { companyCount: 3 },
+    });
+    assert.equal(legacy.getState().filterStats, null);
+  });
+
   it("F1B-RUN04-SCHEMA: success terminal must not copy the status message into error", () => {
     const api = loadRunTracker();
     const tracker = new api.DiscoveryRunTracker("f1b_success_error");

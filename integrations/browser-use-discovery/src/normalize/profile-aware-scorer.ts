@@ -67,6 +67,7 @@ export function runPreFilter(
         pass: false,
         reason: "skip_title_match",
         detail: `Title contains skip phrase "${phrase}".`,
+        matchedPhrase: String(phrase).trim(),
       };
     }
   }
@@ -88,6 +89,7 @@ export function runPreFilter(
       pass: false,
       reason: "work_mode_mismatch",
       detail: `Profile requires remote_only; listing remoteBucket=${effectiveRemoteBucket || "unknown"}.`,
+      remoteBucket: effectiveRemoteBucket || "unknown",
     };
   }
 

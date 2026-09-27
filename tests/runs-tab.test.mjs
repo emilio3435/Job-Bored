@@ -179,6 +179,7 @@ async function bootInitRunsTab({
   sheetId = "sheet-1",
   accessToken = "tok",
   storedJobRunState = null,
+  extraWindow = {},
 } = {}) {
   const source = await readFile(join(repoRoot, "runs-tab.js"), "utf8");
   const dom = makeFakeDom();
@@ -205,6 +206,7 @@ async function bootInitRunsTab({
       getSheetId: () => sheetId,
       getAccessToken: () => accessToken,
     },
+    ...extraWindow,
   };
   const timers = [];
   const context = {
@@ -706,6 +708,137 @@ describe("live job-discovery run row", () => {
   });
 });
 
+// DISCAT D9: one factual line under a finished run when a single exclude
+// keyword removed at least a quarter of the listings the run saw.
+describe("filter hint under a finished run", () => {
+  const BIG = {
+    listingsSeen: 1994,
+    listingsRejected: 1665,
+    byReason: { excluded_keyword: 1181, headline_mismatch: 484 },
+    byExcludeKeyword: [
+      { keyword: "sales engineer", count: 612 },
+      { keyword: "php", count: 40 },
+    ],
+  };
+  const SMALL = {
+    listingsSeen: 1994,
+    listingsRejected: 600,
+    byReason: { excluded_keyword: 498 },
+    byExcludeKeyword: [{ keyword: "sales engineer", count: 498 }],
+  };
+  const EXPECTED =
+    'Your exclude keyword "sales engineer" filtered out 612 of 1,994 listings (31%).';
+
+  it("states the keyword, the count and the share at or above 25%", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(mod.__test.filterHintText(BIG), EXPECTED);
+    assert.equal(
+      mod.__test.filterHintText({
+        listingsSeen: 4,
+        byExcludeKeyword: [{ keyword: "php", count: 1 }],
+      }),
+      'Your exclude keyword "php" filtered out 1 of 4 listings (25%).',
+    );
+  });
+
+  it("stays silent below 25% and when the stats are absent or malformed", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(mod.__test.filterHintText(SMALL), "");
+    assert.equal(mod.__test.filterHintText(undefined), "");
+    assert.equal(mod.__test.filterHintText(null), "");
+    assert.equal(mod.__test.filterHintText({ listingsSeen: 0, byExcludeKeyword: [] }), "");
+    assert.equal(mod.__test.filterHintText({ byExcludeKeyword: "nope" }), "");
+  });
+
+  it("renders the hint row under a finished live run and not under a running one", async () => {
+    const mod = await loadRunsTab();
+    const done = mod.__test.normalizeJobDiscoveryRunState({
+      status: "completed",
+      runId: "run_hint",
+      initiatedAt: "2026-09-27T10:00:00Z",
+      filterStats: BIG,
+    });
+    const html = mod.__test.renderLiveJobRunRowHtml(done);
+    assert.match(html, /class="runs-filter-hint-row"/);
+    assert.ok(html.includes("Your exclude keyword &quot;sales engineer&quot; filtered out 612 of 1,994 listings (31%)."), html);
+
+    const running = mod.__test.normalizeJobDiscoveryRunState({
+      status: "running",
+      runId: "run_hint",
+      initiatedAt: "2026-09-27T10:00:00Z",
+      filterStats: BIG,
+    });
+    assert.doesNotMatch(mod.__test.renderLiveJobRunRowHtml(running), /runs-filter-hint/);
+
+    const small = mod.__test.normalizeJobDiscoveryRunState({
+      status: "completed",
+      runId: "run_small",
+      initiatedAt: "2026-09-27T10:00:00Z",
+      filterStats: SMALL,
+    });
+    assert.doesNotMatch(mod.__test.renderLiveJobRunRowHtml(small), /runs-filter-hint/);
+
+    const legacy = mod.__test.normalizeJobDiscoveryRunState({
+      status: "completed",
+      runId: "run_old",
+      initiatedAt: "2026-09-27T10:00:00Z",
+    });
+    assert.doesNotMatch(mod.__test.renderLiveJobRunRowHtml(legacy), /runs-filter-hint/);
+  });
+
+  it("keeps the hint under the run's row once DiscoveryRuns logs it, from the worker history", async () => {
+    const detailCalls = [];
+    const { dom } = await bootInitRunsTab({
+      storedJobRunState: {
+        status: "completed",
+        runId: "run_logged",
+        initiatedAt: "2026-09-27T11:04:20.000Z",
+        trigger: "manual",
+        variationKey: "var-hint",
+        filterStats: BIG,
+      },
+      fetchImpl: async () =>
+        new Response(
+          JSON.stringify({
+            values: [
+              RUNS_HEADER,
+              ["2026-09-27T11:20:00.000Z", "manual", "success", 30, 2, 0, 0, "worker", "var-other", "", "run_other"],
+              ["2026-09-27T11:08:47.000Z", "manual", "success", 30, 4, 0, 0, "worker", "var-hint", "", "run_logged"],
+            ],
+          }),
+          { status: 200, headers: { "content-type": "application/json" } },
+        ),
+      extraWindow: {
+        JobBoredDiscovery: {
+          status: historyStatusStub(
+            [
+              workerSummary("run_other", "2026-09-27T11:20:00.000Z"),
+              workerSummary("run_logged", "2026-09-27T11:08:47.000Z", BIG),
+            ],
+            detailCalls,
+          ),
+        },
+      },
+    });
+    const html = dom.tbody.innerHTML;
+    assert.equal(/data-runs-live="job-discovery"/.test(html), false);
+    assert.equal((html.match(/runs-filter-hint-row/g) || []).length, 1, html);
+    assert.equal(detailCalls.length, 0, "the list summary carries filterStats; no per-run fetch");
+    // Each run is its summary <tr>, then (for the matched run) the hint, then
+    // its detail <tr> carrying the Run ID.
+    const hintAt = html.indexOf("runs-filter-hint-row");
+    const otherAt = html.indexOf('id="runs-detail-run-run_other"');
+    const matchedAt = html.indexOf('id="runs-detail-run-run_logged"');
+    assert.ok(otherAt >= 0 && otherAt < hintAt, "hint is not under the newer, unmatched run");
+    assert.ok(hintAt < matchedAt, "hint sits inside the matched run's rows");
+    assert.doesNotMatch(
+      html.slice(hintAt, matchedAt),
+      /<tr class="runs-row /,
+      "no other run row between the hint and its run",
+    );
+  });
+});
+
 describe("renderSkeletonRows", () => {
   it("writes N loading rows with runs-row--skeleton markers", async () => {
     const mod = await loadRunsTab();
@@ -1100,5 +1233,205 @@ describe("lane D · runs failure copy speaks user words (spec §8.4)", () => {
       mod.__test.describeRunsFailure("something exotic"),
       "something exotic",
     );
+  });
+});
+
+// DISCAT Fix-B: the hint names the single largest cause (a precise reason or
+// an exclude keyword) and reaches sheet rows through the Run ID column.
+describe("honest filter hint", () => {
+  it("names a precise reason when it is the largest cause", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(
+      mod.__test.filterHintText({
+        listingsSeen: 1994,
+        listingsRejected: 1500,
+        byReason: { remote_unknown: 1181, excluded_keyword: 40, headline_mismatch: 279 },
+        byExcludeKeyword: [{ keyword: "php", count: 40 }],
+      }),
+      "1,181 of 1,994 listings (59%) were dropped because their remote status was unknown.",
+    );
+    assert.equal(
+      mod.__test.filterHintText({
+        listingsSeen: 100,
+        byReason: { salary_below_floor: 30 },
+        byExcludeKeyword: [],
+      }),
+      "30 of 100 listings (30%) were dropped because their published salary was below your floor.",
+    );
+  });
+
+  it("never claims a keyword for an unattributed excluded_keyword count", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(
+      mod.__test.filterHintText({
+        listingsSeen: 1994,
+        byReason: { excluded_keyword: 1181 },
+        byExcludeKeyword: [],
+      }),
+      "",
+    );
+  });
+
+  it("ignores unknown reason codes and causes under 25%", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(
+      mod.__test.filterHintText({ listingsSeen: 100, byReason: { brand_new_code: 90 }, byExcludeKeyword: [] }),
+      "",
+    );
+    assert.equal(
+      mod.__test.filterHintText({ listingsSeen: 100, byReason: { remote_unknown: 24 }, byExcludeKeyword: [] }),
+      "",
+    );
+  });
+
+  it("has a plain-language label for every backend reason code", async () => {
+    const mod = await loadRunsTab();
+    for (const code of [
+      "remote_unknown",
+      "remote_policy_mismatch",
+      "location_mismatch",
+      "skip_title",
+      "work_auth_mismatch",
+      "salary_below_floor",
+      "salary_missing",
+      "headline_mismatch",
+      "missing_required_fields",
+      "matcher_rejected",
+    ]) {
+      const text = mod.__test.filterHintText({ listingsSeen: 4, byReason: { [code]: 2 }, byExcludeKeyword: [] });
+      assert.match(text, /^2 of 4 listings \(50%\) were dropped because .+\.$/, code);
+    }
+  });
+});
+
+// DISCAT round 3 (D9): a keyword at or above 25% is never hidden behind a
+// larger reason; the hint shows up to two lines.
+describe("two-line filter hint", () => {
+  const BOTH = {
+    listingsSeen: 100,
+    listingsRejected: 75,
+    byReason: { remote_unknown: 40, excluded_keyword: 30, headline_mismatch: 5 },
+    byExcludeKeyword: [
+      { keyword: "sales engineer", count: 30 },
+      { keyword: "php", count: 2 },
+    ],
+  };
+
+  it("names both the largest reason and the largest keyword when each reaches 25%", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(
+      mod.__test.filterHintText(BOTH),
+      "40 of 100 listings (40%) were dropped because their remote status was unknown.\n" +
+        'Your exclude keyword "sales engineer" filtered out 30 of 100 listings (30%).',
+    );
+  });
+
+  it("puts the larger cause first", async () => {
+    const mod = await loadRunsTab();
+    assert.equal(
+      mod.__test.filterHintText({
+        listingsSeen: 100,
+        byReason: { location_mismatch: 26 },
+        byExcludeKeyword: [{ keyword: "php", count: 50 }],
+      }),
+      'Your exclude keyword "php" filtered out 50 of 100 listings (50%).\n' +
+        "26 of 100 listings (26%) were dropped because their location was outside the places you listed.",
+    );
+  });
+
+  it("renders each hint line as its own paragraph", async () => {
+    const mod = await loadRunsTab();
+    const html = mod.__test.renderLiveJobRunRowHtml(
+      mod.__test.normalizeJobDiscoveryRunState({
+        status: "completed",
+        runId: "run_two",
+        initiatedAt: "2026-09-27T10:00:00Z",
+        filterStats: BOTH,
+      }),
+    );
+    assert.equal((html.match(/class="runs-filter-hint"/g) || []).length, 2, html);
+    assert.equal((html.match(/runs-filter-hint-row/g) || []).length, 1, html);
+  });
+});
+
+const RUNS_HEADER = ["Run At", "Trigger", "Status", "Duration (s)", "Companies Seen", "Leads New", "Leads Updated", "Source", "Variation Key", "Error", "Run ID"];
+
+function workerSummary(runId, completedAt, filterStats) {
+  return {
+    runId,
+    status: "partial",
+    sheetStatus: "partial",
+    trigger: "scheduled",
+    startedAt: completedAt,
+    completedAt,
+    statusPath: `/runs/${runId}`,
+    headline: { written: 0 },
+    ...(filterStats ? { filterStats } : {}),
+  };
+}
+
+// RUNHIST's worker history API surface (discovery-status-handoff.js).
+function historyStatusStub(runs, detailCalls = []) {
+  return {
+    fetchRunHistoryPage: async () => ({ ok: true, runs, nextBefore: null }),
+    fetchRunDetail: async (statusPath) => {
+      detailCalls.push(statusPath);
+      return { ok: false, reason: "unavailable" };
+    },
+  };
+}
+
+const REMOTE_STATS = {
+  listingsSeen: 1994,
+  listingsRejected: 1400,
+  byReason: { remote_unknown: 1181 },
+  byExcludeKeyword: [],
+};
+
+// DISCAT D9 on RUNHIST: GET /runs summaries carry filterStats, so the hint
+// needs no fetch of its own.
+describe("hint from the worker run history", () => {
+  it("carries filterStats from a GET /runs summary onto the Run ID-joined row", async () => {
+    const mod = await loadRunsTab();
+    const sheet = mod.parseDiscoveryRunsValues(
+      [["2026-09-27T10:00:00Z", "scheduled-local", "partial", 30, 4, 0, 0, "worker", "v1", "warn", "run_abc"]],
+      { headers: RUNS_HEADER },
+    );
+    const merged = mod.mergeRunHistory(sheet, [
+      workerSummary("run_abc", "2026-09-27T10:00:00Z", REMOTE_STATS),
+      workerSummary("run_worker_only", "2026-09-26T10:00:00Z", REMOTE_STATS),
+      workerSummary("run_pre_discat", "2026-09-25T10:00:00Z"),
+    ]);
+    assert.deepEqual(Array.from(merged, (r) => r.origin), ["both", "worker", "worker"]);
+    assert.deepEqual(asPlain(merged[0].filterStats), REMOTE_STATS);
+    assert.deepEqual(asPlain(merged[1].filterStats), REMOTE_STATS);
+    assert.equal(merged[2].filterStats, null, "runs from before DISCAT carry nothing");
+  });
+
+  it("renders the hint under a scheduled run from the history, with no per-run fetch", async () => {
+    const detailCalls = [];
+    const summaries = [];
+    for (let i = 0; i < 7; i += 1) {
+      summaries.push(workerSummary(`run_${i}`, `2026-09-2${i}T10:00:00.000Z`, i === 6 ? REMOTE_STATS : undefined));
+    }
+    const { dom } = await bootInitRunsTab({
+      fetchImpl: async (url) => {
+        if (String(url).startsWith("https://sheets.googleapis.com/")) {
+          return new Response(JSON.stringify({ values: [RUNS_HEADER] }), { status: 200 });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      },
+      extraWindow: { JobBoredDiscovery: { status: historyStatusStub(summaries, detailCalls) } },
+    });
+    const html = dom.tbody.innerHTML;
+    assert.equal(detailCalls.length, 0, detailCalls.join("\n"));
+    assert.equal((html.match(/runs-filter-hint-row/g) || []).length, 1, html);
+    assert.ok(
+      html.includes("1,181 of 1,994 listings (59%) were dropped because their remote status was unknown."),
+      html,
+    );
+    const hintAt = html.indexOf("runs-filter-hint-row");
+    assert.ok(hintAt < html.indexOf('id="runs-detail-run-run_6"'), "hint sits with the newest run's rows");
+    assert.ok(html.indexOf('id="runs-detail-run-run_5"') > hintAt, "no hint under runs without filterStats");
   });
 });

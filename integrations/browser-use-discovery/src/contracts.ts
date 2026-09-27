@@ -928,6 +928,27 @@ export type DiscoveryRunLifecycle = {
    * VAL-LOOP-OBS-004: Reason attribution differentiates dominant failure classes.
    */
   failureClass?: LoopFailureClass;
+  /**
+   * DISCAT D9: what the filters removed this run, out of listings seen.
+   * Absent on runs from before DISCAT.
+   */
+  filterStats?: DiscoveryRunFilterStats;
+};
+
+/**
+ * DISCAT D9: per-run filter attribution. A listing that matched several
+ * exclude keywords counts once toward each of them.
+ */
+export type DiscoveryRunFilterStats = {
+  listingsSeen: number;
+  listingsRejected: number;
+  /**
+   * Rejections by reason code, e.g. { remote_unknown: 1181 }. Codes are the
+   * LeadNormalizationRejectionReason union in normalize/lead-normalizer.ts.
+   */
+  byReason: Record<string, number>;
+  /** Top exclude keywords by listings removed, largest first (max 20). */
+  byExcludeKeyword: Array<{ keyword: string; count: number }>;
 };
 
 /**
@@ -1536,6 +1557,14 @@ export type DiscoveryRoleFamilyRecord = {
   updatedAt: string;
 };
 
+export type DiscoveryRoleFamilyNearMissInput = {
+  listings: Array<{
+    title: string;
+    companyKey: string;
+    sourceLane: DiscoverySourceLane | string;
+  }>;
+};
+
 export type DiscoveryRoleFamilyLearnInput = {
   title: string;
   companyKey: string;
@@ -1790,6 +1819,13 @@ export type DiscoveryMemoryStore = {
     | Promise<DiscoveryRoleFamilyRecord | null>
     | DiscoveryRoleFamilyRecord
     | null;
+  /**
+   * DISCAT D8: add one near miss per role family for this run's near-miss
+   * titles. Does not record the rejected titles as role variants.
+   */
+  learnRoleFamilyNearMisses?(
+    input: DiscoveryRoleFamilyNearMissInput,
+  ): Promise<{ familiesIncremented: number }> | { familiesIncremented: number };
   /** DISCAT C1: record every unique listing a run saw, in one transaction. */
   recordCandidateCatalog?(
     input: CandidateCatalogWrite,

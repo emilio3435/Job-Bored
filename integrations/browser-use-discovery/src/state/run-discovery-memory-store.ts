@@ -9,6 +9,7 @@ import {
   type DiscoveryMemorySnapshot,
   type DiscoveryMemoryStore as RuntimeDiscoveryMemoryStore,
   type DiscoveryRoleFamilyLearnInput,
+  type DiscoveryRoleFamilyNearMissInput,
   type DiscoveryRoleFamilyRecord,
   type DiscoverySourceLane,
   type ListingFingerprintRecord,
@@ -26,6 +27,7 @@ type RunDiscoveryMemoryStore = Pick<
   | "loadSnapshot"
   | "writeExploitOutcome"
   | "learnRoleFamilyFromLead"
+  | "learnRoleFamilyNearMisses"
   | "upsertListingFingerprints"
   | "recordCandidateCatalog"
   | "listBacklogCandidates"
@@ -78,6 +80,15 @@ export function createRunDiscoveryMemoryStore(
     learnRoleFamilyFromLead(input: DiscoveryRoleFamilyLearnInput) {
       const record = rawDiscoveryMemoryStore.learnRoleFamilyFromLead(input);
       return record ? toRunRoleFamilyRecord(record) : null;
+    },
+    learnRoleFamilyNearMisses(input: DiscoveryRoleFamilyNearMissInput) {
+      return rawDiscoveryMemoryStore.learnRoleFamilyNearMisses({
+        listings: input.listings.map((listing) => ({
+          title: listing.title,
+          companyKey: listing.companyKey,
+          sourceLane: String(listing.sourceLane || ""),
+        })),
+      });
     },
     // DISCAT C1: one transaction per run for the seen-listing fingerprints.
     upsertListingFingerprints(records: ListingFingerprintRecord[]) {
