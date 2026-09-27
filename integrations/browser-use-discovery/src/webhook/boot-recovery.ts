@@ -22,8 +22,8 @@ import {
  * pruned.
  */
 
-export const DEFAULT_RUN_STATUS_MAX_AGE_MS = 30 * 24 * 60 * 60 * 1000;
-export const DEFAULT_RUN_STATUS_KEEP = 200;
+export const DEFAULT_RUN_STATUS_MAX_AGE_MS = 90 * 24 * 60 * 60 * 1000;
+export const DEFAULT_RUN_STATUS_KEEP = 500;
 
 type RunsLogger = {
   append(sheetId: string, row: DiscoveryRunLogRow): Promise<unknown>;

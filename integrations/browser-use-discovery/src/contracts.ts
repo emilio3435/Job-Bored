@@ -14,6 +14,7 @@ export const DISCOVERY_RUNS_HEADER_ROW = [
   "Source",
   "Variation Key",
   "Error",
+  "Run ID",
 ] as const;
 export const DEFAULT_STATUS = "New";
 export const PIPELINE_DEDUPE_COLUMN = "E";
@@ -415,6 +416,8 @@ export type DiscoveryRunStatusCell = "success" | "partial" | "failure";
  * DISCOVERY_RUNS_HEADER_ROW.
  */
 export type DiscoveryRunLogRow = {
+  /** Joins a Sheet history row to its durable worker status, when available. */
+  runId?: string;
   /** ISO-8601 UTC completion timestamp. */
   runAt: string;
   trigger: DiscoveryRunTrigger;
@@ -1013,6 +1016,41 @@ export type DiscoveryRunStatus =
   | "empty"
   | "failed";
 
+export type DiscoveryRunStats = {
+  schemaVersion: 1;
+  durationMs?: number;
+  funnel?: Partial<Record<
+    "companiesSearched" | "boardsDetected" | "queriesRun" | "listingsSeen" |
+    "listingsProcessed" | "duplicatesInRun" | "duplicatesVsSheet" | "rejected" |
+    "candidates" | "written" | "updated", number>> & {
+      rejectedTopReasons?: Array<{ reason: string; count: number }>;
+    };
+  fit?: {
+    scored: number;
+    avg: number;
+    median: number;
+    min: number;
+    max: number;
+    scale: 10;
+    /** Integer-score buckets 0 through 10. */
+    histogram: number[];
+  };
+  sources?: Array<{
+    id: string;
+    label: string;
+    searched?: { companies?: number; boards?: number; queries?: number };
+    seen?: number;
+    accepted?: number;
+    rejected?: number;
+    duplicates?: number;
+    timeouts?: number;
+    state?: "done" | "partial" | "failed" | "skipped";
+  }>;
+  timeline?: Array<{ phase: string; label?: string; startedAt: string; durationMs?: number }>;
+  matcherCalls?: number;
+  searched?: { companies: string[]; queries: string[]; truncated: boolean };
+};
+
 export type DiscoveryRunStatusPayload = {
   runId: string;
   status: DiscoveryRunStatus;
@@ -1029,6 +1067,7 @@ export type DiscoveryRunStatusPayload = {
   completedAt?: string;
   lifecycle?: DiscoveryRunLifecycle;
   writeResult?: PipelineWriteResult;
+  runStats?: DiscoveryRunStats;
   warnings: string[];
   sources: DiscoverySourceSummary[];
   error?: string;

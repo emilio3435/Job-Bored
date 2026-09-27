@@ -7,6 +7,7 @@ import {
 } from "../../src/contracts.ts";
 import { mergeDiscoveryConfig } from "../../src/config.ts";
 import { runDiscovery } from "../../src/run/run-discovery.ts";
+import { buildCompletedRunStatus } from "../../src/state/run-status-store.ts";
 import { createDiscoveryMemoryStore } from "../../src/state/discovery-memory-store.ts";
 import { createRunDiscoveryMemoryStore } from "../../src/state/run-discovery-memory-store.ts";
 
@@ -650,6 +651,20 @@ test("runDiscovery composes config, adapters, normalizer, and writer", async () 
   assert.equal(calls.listJobs, 1);
   assert.equal(calls.write, 1);
   assert.equal(result.run.runId, "run_abc123");
+  assert.deepEqual(result.runStats?.funnel && {
+    boardsDetected: result.runStats.funnel.boardsDetected,
+    listingsSeen: result.runStats.funnel.listingsSeen,
+    listingsProcessed: result.runStats.funnel.listingsProcessed,
+    candidates: result.runStats.funnel.candidates,
+    written: result.runStats.funnel.written,
+    updated: result.runStats.funnel.updated,
+  }, { boardsDetected: 1, listingsSeen: 1, listingsProcessed: 1, candidates: 1, written: 1, updated: 0 });
+  assert.equal(result.runStats?.sources?.[0]?.id, "ats");
+  assert.deepEqual(result.runStats?.searched?.companies, ["Acme"]);
+  assert.deepEqual(buildCompletedRunStatus(result, {
+    acceptedAt: "2026-04-09T12:00:00.000Z",
+    startedAt: "2026-04-09T12:00:00.000Z",
+  }).runStats, result.runStats);
   assert.equal(result.run.trigger, "manual");
   assert.equal(result.run.config.variationKey, "var_123");
   assert.equal(result.run.config.requestedAt, "2026-04-09T12:00:00.000Z");
@@ -2153,6 +2168,9 @@ test("runDiscovery times out grounded collection when source timeout fires", asy
     `expected partial or empty state, got: ${result.lifecycle.state}`,
   );
   assert.equal(result.lifecycle.normalizedLeadCount, 0);
+  assert.equal(result.runStats?.funnel?.written, 0);
+  assert.equal(result.runStats?.fit, undefined);
+  assert.ok((result.runStats?.sources?.find((source) => source.id === "grounded_web")?.timeouts || 0) >= 1);
   assert.ok(
     result.warnings.some((warning) => /timed out/i.test(warning)),
     `expected timeout warning, saw: ${result.warnings.join(" | ")}`,
@@ -3128,6 +3146,11 @@ test("runDiscovery collapses semantically duplicate leads across alternate URLs 
 
   // The deduped lead count should be 1
   assert.equal(writtenLeads.length, 1, "Total written leads should be 1 after dedupe");
+  assert.ok((result.runStats?.funnel?.duplicatesInRun || 0) > 0);
+  assert.equal(
+    result.runStats?.sources?.find((source) => source.id === "ats")?.duplicates,
+    result.runStats?.funnel?.duplicatesInRun,
+  );
 
   // Log should show the dedupe happened
   const dedupeLog = result.warnings.find((w) =>
@@ -5824,6 +5847,11 @@ test("runDiscovery treats missing optional SerpApi key as unavailable without pa
 
   assert.equal(result.lifecycle.state, "empty");
   assert.deepEqual(result.warnings, []);
+  assert.equal(result.runStats?.funnel?.listingsSeen, 0);
+  assert.equal(result.runStats?.funnel?.candidates, 0);
+  assert.equal(result.runStats?.funnel?.written, 0);
+  assert.equal(result.runStats?.fit, undefined);
+  assert.equal(result.runStats?.sources?.find((source) => source.id === "serpapi_google_jobs")?.state, "skipped");
   const serpapiSource = result.sourceSummary.find(
     (entry) => entry.sourceId === "serpapi_google_jobs",
   );

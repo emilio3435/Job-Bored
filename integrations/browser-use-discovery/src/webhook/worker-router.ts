@@ -17,7 +17,7 @@ import {
   type WebhookResponseLike,
 } from "./handle-discovery-webhook.ts";
 import type { RunCancelRegistry } from "./run-async-lifecycle.ts";
-import { hasValidRunStatusToken, parseRunStatusPath } from "./run-status-auth.ts";
+import { appendRunStatusToken, createRunStatusToken, hasValidRunStatusToken, parseRunStatusPath } from "./run-status-auth.ts";
 
 /**
  * BEAUDIT A14: the worker's HTTP request listener, side-effect free.
@@ -53,7 +53,7 @@ export interface WorkerRouterDependencies {
     WorkerRuntimeConfig,
     "runMode" | "allowedOrigins" | "allowedHosts" | "webhookSecret"
   >;
-  runStatusStore: Pick<DiscoveryRunStatusStore, "get">;
+  runStatusStore: Pick<DiscoveryRunStatusStore, "get"> & Partial<Pick<DiscoveryRunStatusStore, "list">>;
   cancelRegistry?: RunCancelRegistry;
   buildHealthPayload(): Promise<unknown>;
   handlers: WorkerRouteHandlers;
@@ -264,6 +264,38 @@ async function handleWorkerRequest(
 
   if (requestPath === "/health") {
     finishJson(200, await deps.buildHealthPayload(), corsHeaders);
+    return;
+  }
+
+  if (requestPath === "/runs") {
+    if (method !== "GET") {
+      finishJson(405, { ok: false, message: "Method not allowed" }, { ...corsHeaders, allow: "GET,OPTIONS" });
+      return;
+    }
+    if (runtimeConfig.runMode === "hosted" && !hasValidWebhookSecret(
+      runtimeConfig.webhookSecret, headersForHandler(request.headers),
+    ).valid) {
+      finishJson(401, { ok: false, message: "Unauthorized run list request." }, corsHeaders);
+      return;
+    }
+    const rawLimit = requestUrl.searchParams.get("limit");
+    const limit = rawLimit === null ? 25 : Number(rawLimit);
+    const before = requestUrl.searchParams.get("before") || "";
+    const page = deps.runStatusStore.list?.({ limit, before });
+    if (!page) {
+      finishJson(400, { ok: false, message: "Invalid run list pagination." }, corsHeaders);
+      return;
+    }
+    finishJson(200, {
+      ok: true,
+      runs: page.runs.map((run) => ({
+        ...run,
+        statusPath: runtimeConfig.runMode === "hosted"
+          ? appendRunStatusToken(run.statusPath, createRunStatusToken(runtimeConfig.webhookSecret, run.runId))
+          : run.statusPath,
+      })),
+      nextBefore: page.nextBefore,
+    }, corsHeaders);
     return;
   }
 
