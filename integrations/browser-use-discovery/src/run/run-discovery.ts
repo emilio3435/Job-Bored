@@ -118,6 +118,14 @@ import {
   type RunCandidateLedger,
 } from "./candidate-catalog.ts";
 import { compareNormalizedLeads } from "./lead-ranking.ts";
+import {
+  atsBoardKey,
+  atsCompanyIdentityKey,
+  buildCompanyYieldStats,
+  companyYieldKeys,
+  mergeAtsCompanyTargets,
+  planAtsCompanyOrder,
+} from "./ats-yield-steering.ts";
 
 // Default maximum run duration: 60 minutes. Async discovery runs are background
 // work; source and matcher timeouts still keep individual lanes bounded.
@@ -622,6 +630,9 @@ export async function runDiscovery(
     junkHostSuppressions: 0,
     duplicateSuppressions: 0,
     crossLaneDuplicates: 0,
+    atsBoardDuplicatesSkipped: 0,
+    atsTargetsMerged: 0,
+    atsCompaniesCooledDown: 0,
   };
   // B7: per-company seen/accepted/rejected counts keyed by
   // normalizeCompanyKey(company). Feeds intent coverage and per-company
@@ -882,7 +893,34 @@ export async function runDiscovery(
     companyBlocklist: request.companyBlocklist,
   });
   atsCompaniesToSearch = runtimeAtsPools.atsCompanies;
+  // DISCAT C2 (D7): each board is listed at most once per run. Targets for
+  // one company fold together first; listedAtsBoards then catches the same
+  // (sourceId, board token) reached through different company keys.
+  const listedAtsBoards = new Set<string>();
+  const skippedAtsBoards: string[] = [];
+  let mergedAtsTargets = 0;
   if (hasAtsLanes) {
+    const mergedAts = mergeAtsCompanyTargets(atsCompaniesToSearch);
+    mergedAtsTargets = mergedAts.mergedCount;
+    // DISCAT C2 (D6): highest past yield first; proven zero-yield
+    // companies cool down, one of them explored per run.
+    const atsPlan = planAtsCompanyOrder(
+      mergedAts.companies,
+      buildCompanyYieldStats(memorySnapshot?.intentCoverage || []),
+      dependencies.now().getTime(),
+    );
+    atsCompaniesToSearch = atsPlan.companies;
+    loopCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
+    if (atsPlan.cooledDown.length > 0) {
+      dependencies.log?.("discovery.run.ats_company_cooldown", {
+        runId,
+        skipped: atsPlan.cooledDown.map(atsCompanyIdentityKey),
+        explorationAdmitted: atsPlan.explorationAdmitted
+          ? atsCompanyIdentityKey(atsPlan.explorationAdmitted)
+          : null,
+      });
+      progressCounters.atsCompaniesCooledDown = atsPlan.cooledDown.length;
+    }
     progressCounters.companiesTotal = atsCompaniesToSearch.length;
     progressCounters.companiesDone = 0;
     progressCounters.boardsDetected = 0;
@@ -964,8 +1002,19 @@ export async function runDiscovery(
       }
 
       // Process each source's detections
-      for (const [sourceId, sourceDetections] of detectionsBySource) {
+      for (const [sourceId, detectedBoards] of detectionsBySource) {
         const adapter = adapterMap.get(sourceId);
+        const sourceDetections = detectedBoards.filter((detection) => {
+          const boardKey = atsBoardKey(detection);
+          if (!boardKey) return true;
+          if (listedAtsBoards.has(boardKey)) {
+            skippedAtsBoards.push(boardKey);
+            return false;
+          }
+          listedAtsBoards.add(boardKey);
+          return true;
+        });
+        if (sourceDetections.length === 0) continue;
         
         // Build board contexts for all detections from this source
         const boardContexts = sourceDetections.map((detection) =>
@@ -1150,6 +1199,23 @@ export async function runDiscovery(
       });
     }
   }
+  }
+  // Only boards actually skipped as already listed count; targets folded
+  // together are reported on their own (two targets of one company can
+  // point at two distinct boards, both listed).
+  loopCounters.atsBoardDuplicatesSkipped = skippedAtsBoards.length;
+  loopCounters.atsTargetsMerged = mergedAtsTargets;
+  if (loopCounters.atsBoardDuplicatesSkipped > 0) {
+    progressCounters.atsBoardDuplicatesSkipped =
+      loopCounters.atsBoardDuplicatesSkipped;
+  }
+  if (loopCounters.atsBoardDuplicatesSkipped > 0 || mergedAtsTargets > 0) {
+    dependencies.log?.("discovery.run.ats_board_duplicate_skipped", {
+      runId,
+      count: loopCounters.atsBoardDuplicatesSkipped,
+      mergedTargets: mergedAtsTargets,
+      skippedBoards: [...new Set(skippedAtsBoards)],
+    });
   }
 
   // VAL-ROUTE-008/009: For unrestricted scope (empty companies with ATS lanes),
@@ -2134,8 +2200,12 @@ export async function runDiscovery(
     );
     let coverageCount = 0;
     if (recordCoverage) {
+      // DISCAT C2: only leads the Sheet appended or updated count as
+      // written, so a failed or skipped write cannot dodge the zero-yield
+      // cooldown.
       const writtenByCompany = new Map<string, number>();
       for (const lead of leadsToWrite) {
+        if (leadWriteFates.get(lead)?.status !== "written") continue;
         const key = normalizeCompanyKey(lead.company || "");
         if (key) writtenByCompany.set(key, (writtenByCompany.get(key) || 0) + 1);
       }
@@ -3649,22 +3719,18 @@ export function buildStableIntentKey(config: ResolvedRunSettings): string {
 function buildScoutYieldMap(
   memorySnapshot: DiscoveryMemorySnapshot | null,
 ): Map<string, number> {
+  // DISCAT C2: the same per-company aggregate that steers the ATS lane.
   const yields = new Map<string, number>();
-  for (const row of memorySnapshot?.intentCoverage || []) {
-    const companyKey = String(row.companyKey || "").trim();
-    if (!companyKey || yields.has(companyKey)) continue;
-    const seen = Math.max(1, Number(row.listingsSeen) || 0);
-    yields.set(companyKey, (Number(row.listingsWritten) || 0) / seen);
+  for (const [companyKey, stats] of buildCompanyYieldStats(
+    memorySnapshot?.intentCoverage || [],
+  )) {
+    yields.set(companyKey, stats.yield);
   }
   return yields;
 }
 
 function scoutCompanyKeys(company: CompanyTarget): string[] {
-  return [
-    String(company.companyKey || "").trim(),
-    normalizeCompanyKey(company.name),
-    String(company.name || "").trim().toLowerCase(),
-  ].filter(Boolean);
+  return companyYieldKeys(company);
 }
 
 function scoutYieldScore(

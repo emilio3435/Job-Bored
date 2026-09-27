@@ -16,6 +16,7 @@ import {
   type CandidateCatalogWrite,
   type CandidatePromotion,
 } from "../contracts.ts";
+import { normalizeCompanyKey } from "../discovery/company-keys.ts";
 
 type JsonObject = Record<string, unknown>;
 type ProviderHints = Record<string, string[]>;
@@ -379,6 +380,11 @@ export type IntentCoverageRecord = {
   listingsWritten: number;
   startedAt: string;
   completedAt: string | null;
+  /**
+   * Listings that passed the run's filters (exploit_outcomes for the same
+   * run and company). Only loadPlannerSnapshot fills it.
+   */
+  listingsAccepted?: number;
 };
 
 export type IntentCoverageWrite = {
@@ -813,6 +819,8 @@ export function createDiscoveryMemoryStore(
       ON listing_fingerprints (content_hash);
     CREATE INDEX IF NOT EXISTS idx_intent_coverage_lookup
       ON intent_coverage (intent_key, company_key, started_at);
+    CREATE INDEX IF NOT EXISTS idx_intent_coverage_started
+      ON intent_coverage (started_at);
     CREATE INDEX IF NOT EXISTS idx_scout_observations_run
       ON scout_observations (run_id);
     CREATE INDEX IF NOT EXISTS idx_scout_observations_surface
@@ -1118,6 +1126,27 @@ export function createDiscoveryMemoryStore(
       next_retry_at = excluded.next_retry_at,
       cooldown_until = excluded.cooldown_until
   `);
+  const recentCoverageByCompanyStatement = database.prepare(`
+    SELECT ranked.*,
+      (
+        SELECT COALESCE(SUM(outcomes.listings_accepted), 0)
+        FROM exploit_outcomes AS outcomes
+        WHERE outcomes.run_id = ranked.run_id
+          AND outcomes.company_key = ranked.company_key
+      ) AS listings_accepted
+    FROM (
+      SELECT intent_coverage.*,
+        ROW_NUMBER() OVER (
+          PARTITION BY company_key
+          ORDER BY started_at DESC, run_id DESC, intent_key ASC, source_lane ASC
+        ) AS company_row
+      FROM intent_coverage
+      WHERE started_at >= ?
+    ) AS ranked
+    WHERE ranked.company_row <= ?
+    ORDER BY ranked.started_at DESC, ranked.intent_key ASC,
+      ranked.company_key ASC, ranked.source_lane ASC
+  `);
   const getDeadLinkStatement = database.prepare(`
     SELECT *
     FROM dead_link_cache
@@ -1421,10 +1450,30 @@ export function createDiscoveryMemoryStore(
         excludeCoolingDown: !query.includeCoolingDownSurfaces,
         now,
       });
-      const intentCoverage = this.listIntentCoverage({
-        intentKey: query.intentKey,
-      }).filter(
-        (item) => !companyKeys.length || companyKeys.includes(item.companyKey),
+      // DISCAT C2: registry keys are slugs ("scale-ai") while intent
+      // coverage is keyed by normalizeCompanyKey ("scaleai"); compare in the
+      // normalized form or yield history silently drops out of the snapshot.
+      const coverageCompanyKeys = new Set(companyKeys.map(normalizeCompanyKey));
+      // DISCAT Fix-A: yield history is per company, not per intent. Query
+      // rotation changes the intent key every few runs, so the snapshot
+      // carries each company's most recent coverage rows across all intents,
+      // with the listings that passed the filters in each run.
+      const intentCoverage = (
+        recentCoverageByCompanyStatement.all(
+          // Bounded to recent history so the ranking never scans the whole
+          // table as coverage accumulates across intent rotations.
+          new Date(
+            Date.parse(now) - PLANNER_COVERAGE_MAX_AGE_DAYS * DAY_MS,
+          ).toISOString(),
+          PLANNER_COVERAGE_ROWS_PER_COMPANY,
+        ) as Array<IntentCoverageRow & { listings_accepted: number | null }>
+      ).map((row) => ({
+        ...mapIntentCoverageRow(row),
+        listingsAccepted: Number(row.listings_accepted || 0),
+      })).filter(
+        (item) =>
+          !companyKeys.length ||
+          coverageCompanyKeys.has(normalizeCompanyKey(item.companyKey)),
       );
 
       // VAL-LOOP-MEM-004: Include role families for planner targeting
@@ -2945,6 +2994,10 @@ function ensureCandidateCatalogIntentKeyColumn(database: DatabaseSync): void {
 }
 
 const DAY_MS = 24 * 60 * 60 * 1000;
+/** Matches ATS_YIELD_HISTORY_ROWS: the coverage rows per company yield reads. */
+const PLANNER_COVERAGE_ROWS_PER_COMPANY = 10;
+/** Coverage older than this never reaches the planner snapshot. */
+const PLANNER_COVERAGE_MAX_AGE_DAYS = 180;
 const CANDIDATE_CATALOG_MAX_AGE_DAYS = 90;
 const CANDIDATE_CATALOG_MAX_ROWS = 50_000;
 const CANDIDATE_BACKLOG_MAX_AGE_DAYS = 14;

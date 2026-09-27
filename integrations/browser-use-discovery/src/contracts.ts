@@ -1024,6 +1024,12 @@ export type LoopCounters = {
   duplicateSuppressions: number;
   /** Number of cross-lane duplicate collapses (same opportunity from ATS+browser). */
   crossLaneDuplicates: number;
+  /** DISCAT C2 (D7): boards not re-listed because this run already listed them. */
+  atsBoardDuplicatesSkipped?: number;
+  /** DISCAT C2 (D7): ATS targets folded into another target for the same company. */
+  atsTargetsMerged?: number;
+  /** DISCAT C2 (D6): ATS companies skipped this run by the zero-yield cooldown. */
+  atsCompaniesCooledDown?: number;
 };
 
 export type DiscoveryRunStatus =
@@ -1472,6 +1478,8 @@ export type IntentCoverageRecord = {
   listingsWritten: number;
   startedAt: string;
   completedAt: string;
+  /** Listings that passed the filters in this run (planner snapshot only). */
+  listingsAccepted?: number;
 };
 
 export type DiscoveryExploitOutcomeWrite = {

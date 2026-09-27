@@ -180,6 +180,7 @@ function toRunMemorySnapshot(
       surfacesSeen: Number(coverage.surfacesSeen || 0),
       listingsSeen: Number(coverage.listingsSeen || 0),
       listingsWritten: Number(coverage.listingsWritten || 0),
+      listingsAccepted: Number(coverage.listingsAccepted || 0),
       startedAt: String(coverage.startedAt || ""),
       completedAt: String(coverage.completedAt || ""),
     })),

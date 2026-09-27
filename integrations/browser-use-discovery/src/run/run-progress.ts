@@ -29,7 +29,8 @@ export interface DiscoveryRunProgress {
   heartbeatAt?: string;
   counters?: Partial<Record<"companiesTotal" | "companiesDone" | "boardsDetected" |
     "listingsSeen" | "listingsProcessed" | "leadsQualified" | "matcherCalls" |
-    "queriesTotal" | "queriesDone", number>>;
+    "queriesTotal" | "queriesDone" | "atsBoardDuplicatesSkipped" |
+    "atsCompaniesCooledDown", number>>;
   current?: { kind: "company" | "source" | "query"; label: string };
   sources?: Array<{
     id: string;
