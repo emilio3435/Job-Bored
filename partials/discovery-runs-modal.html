@@ -104,10 +104,9 @@
         </div>
         <p class="modal-lede settings-modal-lede">
           Every discovery run your workers complete — manual, scheduled, or
-          CLI — logged to the
+          CLI — from the discovery worker’s history and the
           <code class="modal-code">DiscoveryRuns</code>
-          tab of your sheet. Newest first. Auto-refreshes while this panel is
-          open.
+          tab of your sheet. Newest first. Open a run to see how it went.
         </p>
         <div class="runs-modal-actions">
           <button
@@ -198,6 +197,14 @@
             </thead>
             <tbody id="runsTableBody"></tbody>
           </table>
+        </div>
+        <div class="runs-more-row">
+          <button
+            type="button"
+            class="jb-btn jb-btn--secondary jb-btn--sm"
+            id="runsShowMoreBtn"
+            hidden
+          >Show more runs</button>
         </div>
       </div>
     </div>

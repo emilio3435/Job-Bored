@@ -54,7 +54,7 @@ describe("runhist-fe · mergeRunHistory joins by Run ID", () => {
     const log = loadRunsLog();
     const merged = log.mergeRunHistory(sheetResult(), listPage1().runs);
     assert.deepEqual(
-      merged.map((r) => r.runId || r.variationKey),
+      Array.from(merged, (r) => r.runId || r.variationKey),
       ["run_d", "run_a", "run_c", "v-old"],
     );
     const a = merged[1];

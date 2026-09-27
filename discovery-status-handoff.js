@@ -640,6 +640,106 @@ function buildDiscoveryStatusPollHeaders(statusUrl) {
   };
 }
 
+/* RUNHIST (2026-09-27): the worker's durable run history. GET /runs lists
+   newest-first summaries; GET /runs/:id (via each summary's statusPath)
+   carries runStats. Both resolve against the same worker origin the status
+   poll uses, and both settle to { ok:false, reason } instead of throwing so
+   the Runs view can fall back to the Sheet quietly. */
+const RUN_HISTORY_TIMEOUT_MS = 4000;
+
+function runHistoryFetchImpl() {
+  return window.JobBoredRelayAuth &&
+    typeof window.JobBoredRelayAuth.fetch === "function"
+    ? window.JobBoredRelayAuth.fetch
+    : fetch;
+}
+
+function runHistoryWebhookUrl() {
+  const configured =
+    typeof host().getDiscoveryWebhookUrl === "function"
+      ? host().getDiscoveryWebhookUrl()
+      : "";
+  if (!String(configured || "").trim()) return "";
+  return getDiscoveryStatusPollingWebhookUrl(configured) || "";
+}
+
+async function fetchWorkerJson(path, options) {
+  const opts = options || {};
+  const webhookUrl = runHistoryWebhookUrl();
+  const url = webhookUrl ? buildRunStatusUrl(path, webhookUrl) : "";
+  if (!url) return { ok: false, reason: "no_worker" };
+  const headers = buildDiscoveryStatusPollHeaders(url);
+  if (opts.withSecret) {
+    const core = configCore();
+    const secret =
+      core && typeof core.getDiscoveryWebhookSecret === "function"
+        ? core.getDiscoveryWebhookSecret()
+        : "";
+    if (secret) headers["x-discovery-secret"] = secret;
+  }
+  const controller = new AbortController();
+  let timedOut = false;
+  const timer = setTimeout(() => {
+    timedOut = true;
+    controller.abort();
+  }, Number.isFinite(opts.timeoutMs) ? opts.timeoutMs : RUN_HISTORY_TIMEOUT_MS);
+  let response;
+  try {
+    response = await runHistoryFetchImpl()(url, {
+      method: "GET",
+      mode: "cors",
+      headers,
+      signal: controller.signal,
+    });
+  } catch (_) {
+    return { ok: false, reason: timedOut ? "timeout" : "unreachable" };
+  } finally {
+    clearTimeout(timer);
+  }
+  if (response.status === 401 || response.status === 403) {
+    return { ok: false, reason: "unauthorized" };
+  }
+  if (response.status === 404) return { ok: false, reason: "not_found" };
+  if (!response.ok) return { ok: false, reason: `http_${response.status}` };
+  try {
+    return { ok: true, body: await response.json() };
+  } catch (_) {
+    return { ok: false, reason: "invalid" };
+  }
+}
+
+async function fetchRunHistoryPage(options) {
+  const opts = options || {};
+  const params = [`limit=${encodeURIComponent(String(opts.limit || 25))}`];
+  if (opts.before) params.push(`before=${encodeURIComponent(String(opts.before))}`);
+  const res = await fetchWorkerJson(`/runs?${params.join("&")}`, {
+    withSecret: true,
+    timeoutMs: opts.timeoutMs,
+  });
+  if (!res.ok) {
+    // An older worker has /runs/:id but no list route.
+    return { ok: false, reason: res.reason === "not_found" ? "no_history_endpoint" : res.reason };
+  }
+  const body = res.body;
+  if (!body || !Array.isArray(body.runs)) return { ok: false, reason: "invalid" };
+  return {
+    ok: true,
+    runs: body.runs.filter((run) => run && typeof run === "object" && run.runId),
+    nextBefore: typeof body.nextBefore === "string" && body.nextBefore ? body.nextBefore : null,
+  };
+}
+
+async function fetchRunDetail(statusPath, options) {
+  const path = String(statusPath || "").trim();
+  if (!path) return { ok: false, reason: "no_worker_record" };
+  const res = await fetchWorkerJson(path, (options || {}));
+  if (!res.ok) {
+    return { ok: false, reason: res.reason === "not_found" ? "run_not_found" : res.reason };
+  }
+  if (!res.body || typeof res.body !== "object") return { ok: false, reason: "invalid" };
+  return { ok: true, detail: res.body };
+}
+
 /**
  * Fetch and process a single status poll for the active run.
  * Returns the parsed status body or null on error.
@@ -758,39 +858,48 @@ const PRE_FILTER_REASON_LABELS = {
 let _lastSurfacedRejectionKey = "";
 
 /**
- * If the run status payload surfaces pre-filter rejections from the Fit
+ * Per-reason rejection counts for one run, summed across the worker's
+ * per-source summaries (sources[].rejectionSummary.rejectionReasons). Falls
+ * back to runStats.funnel.rejectedTopReasons when no source carries a map.
+ * The write result carries no rejection summary, so it is not consulted.
+ */
+function collectRunRejectionCounts(statusData) {
+  const counts = {};
+  const add = (reason, value) => {
+    const n = Number(value);
+    if (!reason || !Number.isFinite(n) || n <= 0) return;
+    counts[reason] = (counts[reason] || 0) + n;
+  };
+  const sources = statusData && Array.isArray(statusData.sources) ? statusData.sources : [];
+  for (const source of sources) {
+    const reasons =
+      source && source.rejectionSummary && source.rejectionSummary.rejectionReasons;
+    if (!reasons || typeof reasons !== "object") continue;
+    for (const [reason, count] of Object.entries(reasons)) add(reason, count);
+  }
+  if (Object.keys(counts).length > 0) return counts;
+  const top =
+    statusData &&
+    statusData.runStats &&
+    statusData.runStats.funnel &&
+    statusData.runStats.funnel.rejectedTopReasons;
+  if (Array.isArray(top)) {
+    for (const entry of top) {
+      if (entry && typeof entry === "object") add(String(entry.reason || ""), entry.count);
+    }
+  }
+  return counts;
+}
+
+/**
+ * If the run status payload carries pre-filter rejections from the Fit
  * Profile pipeline, render a one-line banner summarizing what was filtered.
- * Tolerant of the upstream shape — looks at writeResult.rejectionSummary,
- * preFilterSummary, and similar field names so it works regardless of where
- * Task #3 chooses to land the data.
  */
 function surfacePreFilterRejectionsFromStatus(statusData) {
   if (!statusData || typeof statusData !== "object") return;
-  const summary =
-    (statusData.writeResult && statusData.writeResult.rejectionSummary) ||
-    statusData.preFilterSummary ||
-    statusData.rejectionSummary ||
-    null;
-  if (!summary) return;
-
-  // Accept either a map (reason → count) or an array of {reason, count}.
   const counts = {};
-  if (Array.isArray(summary)) {
-    for (const entry of summary) {
-      if (!entry || typeof entry !== "object") continue;
-      const reason = String(entry.reason || "");
-      const count = Number(entry.count) || 1;
-      if (reason in PRE_FILTER_REASON_LABELS) {
-        counts[reason] = (counts[reason] || 0) + count;
-      }
-    }
-  } else if (typeof summary === "object") {
-    for (const [reason, count] of Object.entries(summary)) {
-      if (reason in PRE_FILTER_REASON_LABELS) {
-        const n = Number(count) || 0;
-        if (n > 0) counts[reason] = n;
-      }
-    }
+  for (const [reason, count] of Object.entries(collectRunRejectionCounts(statusData))) {
+    if (reason in PRE_FILTER_REASON_LABELS) counts[reason] = count;
   }
 
   const reasons = Object.keys(counts);
@@ -1548,6 +1657,10 @@ function resetPostAccessBootstrap() {
     classifyRunStatusPollResponse: classifyRunStatusPollResponse,
     describeTerminalRunStatusPoll: describeTerminalRunStatusPoll,
     pollRunStatus: pollRunStatus,
+    fetchRunHistoryPage: fetchRunHistoryPage,
+    fetchRunDetail: fetchRunDetail,
+    collectRunRejectionCounts: collectRunRejectionCounts,
+    surfacePreFilterRejectionsFromStatus: surfacePreFilterRejectionsFromStatus,
     retryDiscoveryStatusConnection: retryDiscoveryStatusConnection,
     shouldRefreshPipelineAfterDiscoveryRun: shouldRefreshPipelineAfterDiscoveryRun,
     refreshPipelineAfterDiscoveryRun: refreshPipelineAfterDiscoveryRun,

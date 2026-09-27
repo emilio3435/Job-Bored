@@ -82,7 +82,7 @@ describe("runhist-fe · funnel", () => {
 
   it("bars are proportional to listings seen", () => {
     const html = render(detailRunA());
-    const m = /data-runs-bar="candidates"[^>]*style="--runs-share:\s*([\d.]+)"/.exec(html);
+    const m = /data-runs-bar="candidates"[^>]*style="--runs-share:\s*([\d.]+)[;"]/.exec(html);
     assert.ok(m, "candidates bar carries its share");
     assert.equal(Number(m[1]).toFixed(3), (28 / 539).toFixed(3));
   });
@@ -259,7 +259,22 @@ describe("runhist-fe · disclosure a11y", () => {
 
 describe("runhist-fe · CSS: scoped, tabular, reduced-motion safe", () => {
   const css = read("css/runs-log.css");
-  const story = css.slice(css.indexOf("RUNHIST"));
+  const story = css.slice(css.indexOf("RUNHIST")).replace(/^[\s\S]*?\*\//, "").replace(/\/\*[\s\S]*?\*\//g, "");
+  // Split a selector list on top-level commas only (":is(a, b)" stays whole).
+  const splitSelectors = (sel) => {
+    const parts = [];
+    let depth = 0;
+    let cur = "";
+    for (const ch of sel) {
+      if (ch === "(") depth += 1;
+      if (ch === ")") depth -= 1;
+      if (ch === "," && depth === 0) {
+        parts.push(cur);
+        cur = "";
+      } else cur += ch;
+    }
+    return parts.concat(cur);
+  };
 
   it("the run-story styles exist and are scoped under the runs root", () => {
     assert.ok(css.includes("RUNHIST"), "runhist block present");
@@ -268,7 +283,7 @@ describe("runhist-fe · CSS: scoped, tabular, reduced-motion safe", () => {
       .filter((s) => /runs-(story|funnel|fit|sources|timeline|searched|more)/.test(s));
     assert.ok(selectors.length > 10);
     for (const sel of selectors) {
-      for (const part of sel.split(",")) {
+      for (const part of splitSelectors(sel)) {
         assert.match(part.trim(), /^(#runsModal|\.runs-modal)\b/, `unscoped: ${part.trim()}`);
       }
     }
