@@ -17,6 +17,9 @@
  *   - SPEC §4 at 1440 and 390: no sentence under 12px, 44px targets on a
  *     phone, no mint fill carrying ink-inverse text, no sideways scroll.
  *
+ * The stub API is opt-in, so every journey here loads `?scribe-api=stub`,
+ * except the one that proves the desk calls the live routes by default.
+ *
  * The materials API is answered here from the C0 fixture model rendered by
  * the real server renderer, layered over the hermetic fence (a route added
  * after the fence wins; anything else falls through to it).
@@ -100,8 +103,11 @@ test.afterAll(async () => {
   if (app) await app.close();
 });
 
-async function bootSignedIn(page, viewport) {
+/* The C0-fixture stub is opt-in (Grok F1-stub): these journeys ask for it,
+   because B2's routes are not in this branch. */
+async function bootSignedIn(page, viewport, { stub = true, initScript = null } = {}) {
   await page.setViewportSize(viewport);
+  if (initScript) await page.addInitScript(initScript);
   await page.addInitScript(() => {
     globalThis.__cspViolations = [];
     globalThis.document.addEventListener("securitypolicyviolation", (event) => {
@@ -111,7 +117,7 @@ async function bootSignedIn(page, viewport) {
   const fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl, pipelineStartsWithJob: true });
   await servePackage(page);
   await stageSignedInDisposableAuth(page, DISPOSABLE_AUTH);
-  await page.goto(`${app.baseUrl}/?jb-v2=1`, { waitUntil: "load" });
+  await page.goto(`${app.baseUrl}/?jb-v2=1${stub ? "&scribe-api=stub" : ""}`, { waitUntil: "load" });
   await page.evaluate(async () => {
     await globalThis.CommandCenterUserContent.completeInfraSetup();
     await globalThis.CommandCenterUserContent.completeOnboarding();
@@ -227,6 +233,24 @@ test("should open the desk from a role's Edit button and return focus on close",
   expect(m.pageScrollX).toBeLessThanOrEqual(0);
   expect(m.csp, "the desk and its srcdoc preview raise no CSP violation").toEqual([]);
 
+  /* Grok F1-trap: a click in the preview moves focus into the iframe.
+     Tab must stay in the dialog, and Esc must still close it. */
+  await desk.getByRole("tab", { name: "Chat" }).click();
+  await desk.locator("iframe").click({ position: { x: 200, y: 200 } });
+  await page.keyboard.press("Tab");
+  expect(await page.evaluate(() => {
+    const sheet = globalThis.document.querySelector("jb-scribe [role=dialog]");
+    const a = globalThis.document.activeElement;
+    return !!sheet && sheet.contains(a) && a.tagName !== "IFRAME";
+  }), "Tab from the preview lands on a dialog control").toBe(true);
+  await desk.locator("iframe").click({ position: { x: 200, y: 200 } });
+  await page.keyboard.press("Escape");
+  await expectNoScribe(page);
+  await expect(editResume).toBeFocused();
+
+  await editResume.click();
+  await expect(desk).toBeVisible();
+  await settleDesk(page);
   await desk.getByRole("button", { name: "Close Scribe" }).click();
   await expectNoScribe(page);
   await expect(editResume).toBeFocused();
@@ -240,8 +264,27 @@ test("should open the desk from a role's Edit button and return focus on close",
   expect(fence.unexpectedExternal).toEqual([]);
 });
 
+/* A stand-in visualViewport the test can "open the keyboard" on; Chromium
+   has no software keyboard to raise. */
+function fakeVisualViewport() {
+  const listeners = {};
+  const vv = {
+    height: globalThis.innerHeight,
+    offsetTop: 0,
+    width: globalThis.innerWidth,
+    addEventListener(t, fn) { (listeners[t] ||= []).push(fn); },
+    removeEventListener(t, fn) { listeners[t] = (listeners[t] || []).filter((f) => f !== fn); },
+  };
+  globalThis.__raiseKeyboard = (height) => {
+    vv.height = height;
+    for (const fn of listeners.resize || []) fn();
+  };
+  globalThis.__vvListeners = () => (listeners.resize || []).length + (listeners.scroll || []).length;
+  Object.defineProperty(globalThis, "visualViewport", { configurable: true, get: () => vv });
+}
+
 test("should fit a phone: one pane at a time, 44px targets, no sideways scroll", async ({ page }) => {
-  const fence = await bootSignedIn(page, { width: 390, height: 844 });
+  const fence = await bootSignedIn(page, { width: 390, height: 844 }, { initScript: fakeVisualViewport });
   await expectNoScribe(page);
   const { editResume } = await openRole(page);
   await editResume.click();
@@ -265,7 +308,15 @@ test("should fit a phone: one pane at a time, 44px targets, no sideways scroll",
 
   await view.getByRole("tab", { name: "Chat" }).click();
   await expect(desk.locator(".scribe__docpane")).toBeHidden();
-  await expect(desk.getByRole("textbox", { name: "Ask Scribe for a change" })).toBeVisible();
+  const composerBox = desk.getByRole("textbox", { name: "Ask Scribe for a change" });
+  await expect(composerBox).toBeVisible();
+
+  /* Grok F1-keyboard: a 340px keyboard leaves 504px; the composer must
+     sit inside that, not under the keyboard. */
+  await page.evaluate(() => globalThis.__raiseKeyboard(504));
+  const composerRect = await composerBox.boundingBox();
+  expect(composerRect.y + composerRect.height, "the composer stays above the keyboard").toBeLessThanOrEqual(504);
+  await page.evaluate(() => globalThis.__raiseKeyboard(844));
   await page.screenshot({ path: join(EVIDENCE_DIR, "F1-desk-390-chat.png") });
   const chatMetrics = await measureDesk(page);
   expect(chatMetrics.shortTargets).toEqual([]);
@@ -281,5 +332,35 @@ test("should fit a phone: one pane at a time, 44px targets, no sideways scroll",
   await desk.getByRole("button", { name: "Close Scribe" }).click();
   await expectNoScribe(page);
   await expect(editResume).toBeFocused();
+  expect(await page.evaluate(() => globalThis.__vvListeners()), "close drops the visualViewport listeners").toBe(0);
   expect(fence.unexpectedExternal).toEqual([]);
+});
+
+/* Grok F1-stub (P1): with no flag, Edit must talk to the real server and
+   never show the fixture history ("Shorter summary", "Match JD keywords"). */
+test("should call the live routes, not the fixtures, when no stub flag is set", async ({ page }) => {
+  const seen = [];
+  page.on("request", (req) => {
+    if (req.url().includes(`/api/applications/${HERMETIC_APPLICATION_SLUG}/`)) seen.push(`${req.method()} ${new URL(req.url()).pathname}${new URL(req.url()).search}`);
+  });
+  await bootSignedIn(page, { width: 1440, height: 900 }, { stub: false });
+  const prefix = `${DISPOSABLE_AUTH.materialsOrigin}/api/applications/${HERMETIC_APPLICATION_SLUG}`;
+  await page.route(`${prefix}/versions?doc=resume`, (route) => route.fulfill({
+    status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" },
+    body: JSON.stringify({ currentRunId: "live-r0", versions: [{ runId: "live-r0", n: 0, createdAt: "2026-09-27T15:00:00.000Z", source: "draft", label: "Drafted", pinned: true, starred: false, pages: 1, words: 402, family: FAMILY }] }),
+  }));
+  await page.route(`${prefix}/preview`, (route) => route.fulfill({
+    status: 200, contentType: "application/json", headers: { "Access-Control-Allow-Origin": "*" },
+    body: JSON.stringify({ html: RENDERED["resume.html"], words: 60, pageBudget: 1 }),
+  }));
+  const { editResume } = await openRole(page);
+  await editResume.click();
+  const desk = page.getByRole("dialog", { name: "Scribe" });
+  await expect(desk).toBeVisible();
+  await expect(page.frameLocator("jb-scribe iframe").locator(`[data-family="${FAMILY}"]`)).toHaveCount(1);
+  await desk.getByRole("tab", { name: "Versions" }).click();
+  await expect(desk.getByRole("list", { name: "Resume versions, newest first" }).getByRole("listitem")).toHaveCount(1);
+  await expect(desk).not.toContainText("Shorter summary");
+  expect(seen).toContain("GET /api/applications/" + HERMETIC_APPLICATION_SLUG + "/versions?doc=resume");
+  expect(seen).toContain("POST /api/applications/" + HERMETIC_APPLICATION_SLUG + "/preview");
 });

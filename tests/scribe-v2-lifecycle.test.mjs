@@ -257,3 +257,165 @@ describe("Scribe v2 close", () => {
     assert.equal(desks(env.doc).length, 0);
   });
 });
+
+/* ---------------------------------------------------------------------
+   Grok F1-trap (P1): the desk is modal for the whole time it is open.
+   Keys were bound to <jb-scribe>, so once focus fell to <body> (a click in
+   the preview, or the Stop button re-rendered away) Esc did nothing and
+   Tab walked the page under the dialog.
+   --------------------------------------------------------------------- */
+
+function drivableApi() {
+  const { api, calls } = scriptedApi();
+  const run = {};
+  api.propose = (body) => { calls.push(["propose", body.instruction]); return Promise.resolve({ proposalId: "p1", streamUrl: "/s" }); };
+  api.stream = (_id, handlers) => new Promise((resolve) => { run.emit = handlers.onEvent; run.finish = resolve; });
+  return { api, calls, run };
+}
+
+async function startRequest(env, api) {
+  env.win.JB_SCRIBE_V2.open({ slug: "acme-platform-engineer", doc: "resume", opener: env.edit, api });
+  await settle();
+  const host = desks(env.doc)[0];
+  const ta = host.querySelector("textarea");
+  ta.value = "Make the summary punchier";
+  ta.dispatchEvent(key(ta, "Enter"));
+  await settle();
+  return host;
+}
+
+describe("Scribe v2 keeps the keyboard while it is open (F1-trap)", () => {
+  it("should close on Esc even when focus has fallen to the page body", () => {
+    const env = boot();
+    openDesk(env);
+    env.doc.body.focus();
+    env.doc.body.dispatchEvent(key(env.doc.body, "Escape"));
+    assert.equal(desks(env.doc).length, 0);
+    assert.ok(env.doc.activeElement === env.edit, "focus returns to Edit");
+  });
+
+  it("should pull Tab from the page body back into the dialog", () => {
+    const env = boot();
+    openDesk(env);
+    env.doc.body.focus();
+    const ev = key(env.doc.body, "Tab");
+    env.doc.body.dispatchEvent(ev);
+    assert.equal(ev.defaultPrevented, true, "Tab must not walk the page under the dialog");
+    const sheet = desks(env.doc)[0].querySelector('[role="dialog"]');
+    let inside = false;
+    for (let n = env.doc.activeElement; n; n = n.parentNode) if (n === sheet) inside = true;
+    assert.ok(inside, "focus lands inside the dialog");
+  });
+
+  it("should stop listening on the document once closed", () => {
+    const env = boot();
+    openDesk(env);
+    env.win.JB_SCRIBE_V2.close();
+    const closes = env.events.filter((e) => e[0] === "closed").length;
+    const ev = key(env.doc.body, "Escape");
+    env.doc.body.dispatchEvent(ev);
+    assert.ok(!ev.defaultPrevented, "a closed desk claims no keys");
+    assert.equal(env.events.filter((e) => e[0] === "closed").length, closes);
+  });
+
+  it("should keep focus on Stop when a stage tick re-renders it", async () => {
+    const env = boot();
+    const { api, run } = drivableApi();
+    const host = await startRequest(env, api);
+    const stop = host.querySelector('[data-scribe="stop"]');
+    stop.focus();
+    run.emit({ event: "stage", data: { stage: "drafting" } });
+    const next = host.querySelector('[data-scribe="stop"]');
+    assert.ok(next && next !== stop, "the stage line was rebuilt");
+    assert.ok(env.doc.activeElement === next, "focus follows to the new Stop button");
+  });
+
+  it("should hand focus to the composer when the run ends under a focused Stop", async () => {
+    const env = boot();
+    const { api, run } = drivableApi();
+    const host = await startRequest(env, api);
+    host.querySelector('[data-scribe="stop"]').focus();
+    run.emit({ event: "done", data: { status: "partial" } });
+    run.finish("partial");
+    await settle();
+    assert.ok(host.querySelector('[data-scribe="stop"]') === null, "Stop is gone once the run ends");
+    assert.ok(env.doc.activeElement === host.querySelector("textarea"), "focus lands in the composer, not on body");
+  });
+
+  it("should take Esc and Tab from inside the preview iframe", async () => {
+    const env = boot();
+    openDesk(env);
+    await settle();
+    const host = desks(env.doc)[0];
+    const frame = host.querySelector("iframe");
+    const inner = { listeners: {}, addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); }, removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); } };
+    frame.contentDocument = inner;
+    frame.onload();
+    assert.equal((inner.listeners.keydown || []).length, 1, "the preview forwards keys");
+    frame.focus();
+    const tab = { key: "Tab", target: inner, preventDefault() { this.defaultPrevented = true; } };
+    inner.listeners.keydown[0](tab);
+    assert.equal(tab.defaultPrevented, true);
+    assert.ok(env.doc.activeElement !== frame, "Tab leaves the preview into the dialog's controls");
+    inner.listeners.keydown[0]({ key: "Escape", target: inner, preventDefault() {} });
+    assert.equal(desks(env.doc).length, 0);
+    assert.equal((inner.listeners.keydown || []).length, 0, "the forwarder is removed on close");
+  });
+});
+
+/* Grok F1-keyboard (P2): SPEC §1 pins the phone composer to visualViewport.
+   100dvh does not shrink for the software keyboard, which covered it. */
+describe("Scribe v2 sizes to the visual viewport on a phone (F1-keyboard)", () => {
+  function phoneEnv(width) {
+    const env = boot();
+    const vv = { height: 844, offsetTop: 0, listeners: {} };
+    vv.addEventListener = (t, fn) => { (vv.listeners[t] ||= []).push(fn); };
+    vv.removeEventListener = (t, fn) => { vv.listeners[t] = (vv.listeners[t] || []).filter((f) => f !== fn); };
+    env.win.visualViewport = vv;
+    env.win.innerHeight = 844;
+    env.win.matchMedia = (q) => ({ matches: /max-width:\s*599px/.test(q) ? width < 600 : false });
+    return { env, vv };
+  }
+
+  it("should shrink the sheet above the keyboard and follow it", () => {
+    const { env, vv } = phoneEnv(390);
+    openDesk(env);
+    const sheet = desks(env.doc)[0].querySelector('[role="dialog"]');
+    assert.equal(sheet.style.height, "844px");
+    vv.height = 500;
+    vv.offsetTop = 40;
+    for (const fn of [...(vv.listeners.resize || []), ...(vv.listeners.scroll || [])]) fn();
+    assert.equal(sheet.style.height, "500px", "the sheet ends where the keyboard begins");
+    assert.equal(sheet.style.bottom, "304px", "844 − 500 − 40: pinned to the visible area");
+  });
+
+  it("should drop its visualViewport listeners on close", () => {
+    const { env, vv } = phoneEnv(390);
+    openDesk(env);
+    assert.ok((vv.listeners.resize || []).length >= 1);
+    env.win.JB_SCRIBE_V2.close();
+    assert.equal((vv.listeners.resize || []).length, 0);
+    assert.equal((vv.listeners.scroll || []).length, 0);
+  });
+
+  it("should leave the CSS sizing alone on a wide screen", () => {
+    const { env } = phoneEnv(1440);
+    openDesk(env);
+    const sheet = desks(env.doc)[0].querySelector('[role="dialog"]');
+    assert.ok(!sheet.style.height, "92dvh from the stylesheet");
+  });
+});
+
+/* Grok F1-announce (P2): SPEC §4 has one polite status region. A live
+   transcript spoke every result twice alongside announce(). */
+describe("Scribe v2 speaks each result once (F1-announce)", () => {
+  it("should keep the transcript a log but not a second live region", () => {
+    const env = boot();
+    openDesk(env);
+    const log = desks(env.doc)[0].querySelector('[role="log"]');
+    assert.ok(log, "the transcript is still role=log");
+    assert.equal(log.getAttribute("aria-live"), null);
+    const live = desks(env.doc)[0].querySelectorAll("[aria-live]");
+    assert.equal(live.length, 1, "announce's region is the only live region");
+  });
+});

@@ -79,17 +79,25 @@ describe("scribe-v2-api stub: the C0 fixtures, not invented data", () => {
 });
 
 describe("scribe-v2-api mode flag", () => {
-  it("should default to the stub until B2's routes land", () => {
+  /* Grok F1-stub (P1): a stub default showed invented versions and a canned
+     proposal on the user's real resume for every Edit click. The real
+     server is the default; fixtures are opt-in only. */
+  it("should talk to the real server unless the stub is asked for", () => {
     const { JBScribeApi } = loadApi();
-    assert.equal(JBScribeApi.DEFAULT_MODE, "stub");
-    assert.equal(JBScribeApi.resolveMode(), "stub");
+    assert.equal(JBScribeApi.DEFAULT_MODE, "live");
+    assert.equal(JBScribeApi.resolveMode(), "live");
+    assert.equal(JBScribeApi.create({ base: BASE, slug: SLUG, fetchImpl: async () => response(200, {}) }).mode, "live");
+    const unknown = loadApi({ COMMAND_CENTER_CONFIG: { scribeV2Api: "fixtures" }, location: { search: "?scribe-api=demo" } });
+    assert.equal(unknown.JBScribeApi.resolveMode(), "live", "only the exact word stub opts in");
   });
 
-  it("should take the config value, and let the URL override it", () => {
-    const withConfig = loadApi({ COMMAND_CENTER_CONFIG: { scribeV2Api: "live" } });
-    assert.equal(withConfig.JBScribeApi.resolveMode(), "live");
-    const withUrl = loadApi({ COMMAND_CENTER_CONFIG: { scribeV2Api: "live" }, location: { search: "?jb-v2=1&scribe-api=stub" } });
+  it("should use the stub only for ?scribe-api=stub or scribeV2Api: 'stub'", () => {
+    const withConfig = loadApi({ COMMAND_CENTER_CONFIG: { scribeV2Api: "stub" } });
+    assert.equal(withConfig.JBScribeApi.resolveMode(), "stub");
+    const withUrl = loadApi({ location: { search: "?jb-v2=1&scribe-api=stub" } });
     assert.equal(withUrl.JBScribeApi.resolveMode(), "stub");
+    const urlWins = loadApi({ COMMAND_CENTER_CONFIG: { scribeV2Api: "stub" }, location: { search: "?scribe-api=live" } });
+    assert.equal(urlWins.JBScribeApi.resolveMode(), "live");
   });
 
   it("should refuse to open without a package slug", () => {

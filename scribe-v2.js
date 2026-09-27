@@ -210,7 +210,9 @@
       h("button", { type: "button", role: "tab", id: ids.stChat, "data-side": "chat", "aria-controls": ids.chat, text: "Chat" }),
       h("button", { type: "button", role: "tab", id: ids.stVersions, "data-side": "versions", "aria-controls": ids.versions, text: "Versions" }),
     ];
-    r.log = h("div", { class: "scribe__log", role: "log", "aria-live": "polite", "aria-label": "Conversation with Scribe" });
+    /* role=log without aria-live: announce() is the one live region
+       (SPEC §4), so a result is spoken once, not twice. */
+    r.log = h("div", { class: "scribe__log", role: "log", "aria-label": "Conversation with Scribe" });
     r.chatPanel = h("div", { class: "scribe__panel", id: ids.chat, role: "tabpanel", "aria-labelledby": ids.stChat }, [r.log]);
     r.versions = h("ol", { class: "scribe__versions" });
     r.versionsPanel = h("div", { class: "scribe__panel", id: ids.versions, role: "tabpanel", "aria-labelledby": ids.stVersions, hidden: true }, [
@@ -305,6 +307,11 @@
 
   function renderStage(ctl) {
     var el = ctl.refs.stage;
+    /* A focused Stop button must not drop focus to <body> when the stage
+       line is rebuilt: focus the new Stop, or the composer once the run
+       has ended. */
+    var focused = doc().activeElement;
+    var hadStop = !!(focused && focused.getAttribute && focused.getAttribute("data-scribe") === "stop" && within(el, focused));
     clear(el);
     var st = ctl.state;
     if (st.busy) {
@@ -318,9 +325,12 @@
       var now = STAGES[Math.max(0, idx)];
       el.appendChild(h("span", { class: "scribe__stage-short", text: now.label(st.doc, st.stageDetail) }));
       el.appendChild(list);
-      el.appendChild(h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-scribe": "stop", text: "Stop" }));
+      var stopBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--small", "data-scribe": "stop", text: "Stop" });
+      el.appendChild(stopBtn);
+      if (hadStop) stopBtn.focus();
       return;
     }
+    if (hadStop) ctl.refs.prompt.focus();
     var v = currentVersion(ctl);
     if (!v) {
       el.appendChild(h("span", { text: st.loading ? "Loading versions…" : "No saved versions yet." }));
@@ -430,6 +440,25 @@
     ctl.refs.send.setAttribute("aria-disabled", ctl.state.busy ? "true" : "false");
   }
 
+  /* ---------------- Phone keyboard (SPEC §1: composer pinned to
+     visualViewport) ---------------- */
+
+  /* 100dvh does not shrink for the software keyboard. Under 600px the
+     sheet takes the visual viewport's height and sits on its bottom edge,
+     so the composer stays above the keyboard. */
+  function fitViewport(ctl) {
+    var sheet = ctl.refs.sheet;
+    var vv = root.visualViewport;
+    if (!vv || !ctl.isNarrow()) {
+      sheet.style.height = "";
+      sheet.style.bottom = "";
+      return;
+    }
+    var layoutH = root.innerHeight || vv.height;
+    sheet.style.height = Math.round(vv.height) + "px";
+    sheet.style.bottom = Math.max(0, Math.round(layoutH - vv.height - (vv.offsetTop || 0))) + "px";
+  }
+
   /* ---------------- Preview (sandboxed srcdoc) ---------------- */
 
   /* The rendered page is a fixed-width sheet; scale it down to the pane
@@ -455,11 +484,30 @@
     renderPages(ctl);
   }
 
+  /* A click in the preview moves focus into the iframe's document, where
+     the page's key listeners never hear it. Forward Esc and Tab from it. */
+  function unwatchFrameKeys(ctl) {
+    if (ctl.frameDoc && typeof ctl.frameDoc.removeEventListener === "function") {
+      ctl.frameDoc.removeEventListener("keydown", ctl.onFrameKey);
+    }
+    ctl.frameDoc = null;
+  }
+
+  function watchFrameKeys(ctl) {
+    unwatchFrameKeys(ctl);
+    var inner = null;
+    try { inner = ctl.refs.frame.contentDocument; } catch (e) { inner = null; }
+    if (!inner || typeof inner.addEventListener !== "function") return;
+    ctl.frameDoc = inner;
+    inner.addEventListener("keydown", ctl.onFrameKey);
+  }
+
   function showPreview(ctl, html) {
     var frame = ctl.refs.frame;
     ctl.refs.docNote.setAttribute("hidden", "");
     ctl.refs.pageBox.removeAttribute("hidden");
     frame.onload = function () {
+      watchFrameKeys(ctl);
       fitFrame(ctl);
       ctl.refs.docscroll.setAttribute("aria-busy", "false");
     };
@@ -643,22 +691,24 @@
 
   /* ---------------- Events ---------------- */
 
+  /* Tabbable controls in DOM order. A walk rather than a selector list,
+     so a hidden pane's whole subtree is skipped at once. */
   function focusables(ctl) {
-    var sel = "button, [href], textarea, input, select, [tabindex]";
-    var all = ctl.refs.sheet.querySelectorAll(sel);
     var out = [];
-    for (var i = 0; i < all.length; i++) {
-      var el = all[i];
-      if (el.getAttribute("tabindex") === "-1") continue;
-      if (el.disabled) continue;
-      var hidden = false;
-      for (var p = el; p && p !== ctl.refs.sheet; p = p.parentNode) {
-        if (p.hasAttribute && p.hasAttribute("hidden")) { hidden = true; break; }
+    var TAGS = { button: 1, textarea: 1, input: 1, select: 1 };
+    function visit(el) {
+      var kids = el.children || [];
+      for (var i = 0; i < kids.length; i++) {
+        var node = kids[i];
+        if (node.hasAttribute && node.hasAttribute("hidden")) continue;
+        var tag = String(node.tagName || "").toLowerCase();
+        var tabindex = node.getAttribute ? node.getAttribute("tabindex") : null;
+        var candidate = (TAGS[tag] || (tag === "a" && node.hasAttribute("href")) || tabindex != null) && tabindex !== "-1" && !node.disabled;
+        if (candidate && (typeof node.getClientRects !== "function" || node.getClientRects().length)) out.push(node);
+        if (tag !== "iframe") visit(node);
       }
-      if (hidden) continue;
-      if (typeof el.getClientRects === "function" && !el.getClientRects().length) continue;
-      out.push(el);
     }
+    visit(ctl.refs.sheet);
     return out;
   }
 
@@ -680,8 +730,11 @@
 
   function onKeydown(ctl, e) {
     var r = ctl.refs;
+    if (ctl.closed) return;
     if (e.key === "Escape") {
       e.preventDefault();
+      /* The desk is modal: Esc is ours, not the page's dialog stack. */
+      if (typeof e.stopPropagation === "function") e.stopPropagation();
       if (ctl.state.busy) stop(ctl);
       else ctl.close("escape");
       return;
@@ -692,8 +745,10 @@
       var first = list[0];
       var last = list[list.length - 1];
       var activeEl = doc().activeElement;
-      if (e.shiftKey && (activeEl === first || !within(r.sheet, activeEl))) { e.preventDefault(); last.focus(); }
-      else if (!e.shiftKey && (activeEl === last || !within(r.sheet, activeEl))) { e.preventDefault(); first.focus(); }
+      /* Focus on <body> or in the preview iframe is outside the trap. */
+      var outside = !within(r.sheet, activeEl) || activeEl === r.frame;
+      if (e.shiftKey && (outside || activeEl === first)) { e.preventDefault(); last.focus(); }
+      else if (!e.shiftKey && (outside || activeEl === last)) { e.preventDefault(); first.focus(); }
       return;
     }
     if (arrowTab(e, r.docTabs, "data-doc", function (d) { ctl.setDoc(d); })) return;
@@ -839,18 +894,27 @@
     var r = this.refs;
     r.host.setAttribute("data-doc", this.state.doc);
     this.onKey = function (e) { onKeydown(self, e); };
+    this.onFrameKey = function (e) { if (e.key === "Escape" || e.key === "Tab") onKeydown(self, e); };
+    this.onViewport = function () { fitViewport(self); };
     this.onHostClick = function (e) { onClick(self, e); };
     this.onSubmit = function (e) { e.preventDefault(); send(self); };
     this.onInput = function () { autogrow(self); };
-    this.onResize = function () { fitFrame(self); };
+    this.onResize = function () { fitViewport(self); fitFrame(self); };
     this.onRoleClosed = function () { self.close("role-closed"); };
-    r.host.addEventListener("keydown", this.onKey);
+    /* Keys are heard on the document, in the capture phase, for the whole
+       life of the desk: focus that falls to <body> is still inside it. */
+    doc().addEventListener("keydown", this.onKey, true);
     r.host.addEventListener("click", this.onHostClick);
     r.composer.addEventListener("submit", this.onSubmit);
     r.prompt.addEventListener("input", this.onInput);
     root.addEventListener("resize", this.onResize);
     root.addEventListener("jb:role:closed", this.onRoleClosed);
+    if (root.visualViewport && typeof root.visualViewport.addEventListener === "function") {
+      root.visualViewport.addEventListener("resize", this.onViewport);
+      root.visualViewport.addEventListener("scroll", this.onViewport);
+    }
     doc().body.appendChild(r.host);
+    fitViewport(this);
     if (doc().documentElement && doc().documentElement.classList) doc().documentElement.classList.add("jb-scribe-open");
     logMessage(this, "note", ["Ask for a change to this " + DOC_NOUN[this.state.doc] + ". Nothing is saved until you accept it."]);
     renderAll(this);
@@ -865,7 +929,12 @@
     this.closed = true;
     var r = this.refs;
     if (this.state.busy) stop(this);
-    r.host.removeEventListener("keydown", this.onKey);
+    doc().removeEventListener("keydown", this.onKey, true);
+    unwatchFrameKeys(this);
+    if (root.visualViewport && typeof root.visualViewport.removeEventListener === "function") {
+      root.visualViewport.removeEventListener("resize", this.onViewport);
+      root.visualViewport.removeEventListener("scroll", this.onViewport);
+    }
     r.host.removeEventListener("click", this.onHostClick);
     r.composer.removeEventListener("submit", this.onSubmit);
     r.prompt.removeEventListener("input", this.onInput);

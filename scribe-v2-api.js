@@ -9,16 +9,16 @@
    `<base>/api/applications/:slug/`.
 
    Modes:
-     "live"  calls the §3.2 routes on the materials server.
+     "live"  (default) calls the §3.2 routes on the materials server.
      "stub"  answers from the C0 fixtures (fixtures/model.json and
-             fixtures/sse-transcript.json, copied below) until B2
-             lands. The preview is still the package's REAL rendered
-             document (GET …/files/<doc>.html), so the desk shows the
-             role's own template render in both modes.
+             fixtures/sse-transcript.json, copied below). Opt-in only,
+             for tests and demos: it shows invented versions and a
+             canned proposal. The preview is still the package's REAL
+             rendered document (GET …/files/<doc>.html).
 
-   The mode comes from, in order: `?scribe-api=live|stub`, then
-   `COMMAND_CENTER_CONFIG.scribeV2Api`, then DEFAULT_MODE. When B2
-   merges, DEFAULT_MODE flips to "live" and the stub can go.
+   The stub runs only for `?scribe-api=stub` or
+   `COMMAND_CENTER_CONFIG.scribeV2Api: "stub"` (`?scribe-api=live`
+   overrides the config). Anything else is live.
 
    Publishes: window.JBScribeApi = { create, createSseParser,
    ScribeApiError, resolveMode, DEFAULT_MODE, STUB_FIXTURES }.
@@ -29,7 +29,7 @@
 
   if (!root || typeof root !== "object") return;
 
-  var DEFAULT_MODE = "stub";
+  var DEFAULT_MODE = "live";
   var MAX_INSTRUCTION = 2000;
   var DOCS = { resume: "resume.html", cover_letter: "cover-letter.html" };
 
