@@ -3,14 +3,17 @@
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>Emilio Nunez-Garcia — Cover Letter</title>
+<title>Jordan Rivera — Cover Letter</title>
 
 <!--
   ============================================================
-  COVER LETTER TEMPLATE — Emilio Nunez-Garcia
+  COVER LETTER TEMPLATE — Jordan Rivera (fictional neutral example)
   ============================================================
+  A labelled sample, NOT a compose target: production letters render
+  through the template registry (templates/materials/*) from the user's
+  own resume and profile. Real values live in gitignored files per §0.2.
 
-  This file is the canonical cover-letter master. Same design
+  Same design
   language as resume.html (cream + navy + gold, Fraunces + Inter +
   JetBrains Mono, section markers + gold-circle separators).
 
@@ -29,7 +32,7 @@
     data-slot="closing"        Closing line — keep it short and concrete
 
   EDITORIAL RULES (keep these constants):
-    - Address Emilio in first person.
+    - Address the candidate in first person.
     - No fluff: avoid "leverage", "synergize", "passionate about",
       "results-driven", "proven track record".
     - Use concrete numbers: $10M book, top-3 ranking, 130% YoY,
@@ -544,8 +547,7 @@
     font-style: italic;
   }
 
-  /* Hide tweaks panel in print. */
-  @media print { #tweaks-root { display: none !important; } }
+  /* Print: screen-only chrome stays hidden. */
 </style>
 </head>
 <body>
@@ -563,14 +565,14 @@
 
   <!-- ================== MASTHEAD ================== -->
   <header class="masthead">
-    <a class="masthead-link" href="https://emiliobuilds.com" target="_blank" rel="noopener" aria-label="emiliobuilds.com">
+    <a class="masthead-link" href="https://example.com" target="_blank" rel="noopener" aria-label="example.com">
       <span class="mh-label">portfolio</span>
-      <img class="mh-mark" src="assets/emiliobuilds-wordmark.svg" alt="emiliobuilds.com" />
+      <img class="mh-mark" src="assets/example-wordmark.svg" alt="example.com" />
     </a>
-    <h1 class="name">Emilio Nunez-Garcia</h1>
+    <h1 class="name">Jordan Rivera</h1>
     <p class="tagline">Performance marketing leader<span class="dot" aria-hidden="true"></span><span class="it">and the systems behind it.</span></p>
     <p class="contact">
-      Denver, CO<span class="dot" aria-hidden="true"></span>501.366.2080<span class="dot" aria-hidden="true"></span><a href="mailto:emilio3435@gmail.com">emilio3435@gmail.com</a><span class="dot" aria-hidden="true"></span><a href="https://emiliobuilds.com">emiliobuilds.com</a><span class="dot" aria-hidden="true"></span><a href="https://www.linkedin.com/in/emiliobuilds">www.linkedin.com/in/emiliobuilds</a>
+      Austin, CO<span class="dot" aria-hidden="true"></span>555-010-2030<span class="dot" aria-hidden="true"></span><a href="mailto:jordan.rivera@example.com">jordan.rivera@example.com</a><span class="dot" aria-hidden="true"></span><a href="https://example.com">example.com</a><span class="dot" aria-hidden="true"></span><a href="https://www.linkedin.com/in/example">www.linkedin.com/in/example</a>
     </p>
     <div class="rule-pair" aria-hidden="true">
       <span class="rule-gold"></span>
@@ -623,10 +625,10 @@
     <p data-slot="why-them"><span class="target" data-slot="company-mention-2">[Company]</span> is doing the kind of work I want to be near: <em>[one specific thing about them — a product bet, a metric, a hire, an article they published, a wedge they own]</em>. The <strong data-slot="role-keyword">[role]</strong> JD reads like a list of the problems I've been quietly solving for years — <em>[1–2 specific responsibilities from the JD, paraphrased in your voice]</em> — and the rest of it sounds like the work I'd be doing on weekends anyway.</p>
 
     <!-- WHY ME — concrete wins; recycle resume specifics. -->
-    <p data-slot="why-me">For eight years at Audacy I owned a <strong>$10M+ digital media P&amp;L</strong> and drove Denver — the #19 U.S. market — to a consistent <strong>top-3 national ranking</strong> in Digital Marketing Solutions revenue. I delivered <strong>130% YoY paid-search conversion growth</strong> on a flagship financial-services account through a bidding overhaul, audience-signal layering, and landing-page CRO. I led the market's transformation to a ~60% digital revenue mix, architected an attribution and AI-search framework across Google Ads, Meta, OTT/CTV, and Amazon DSP, and trained ten AE desks to sell it. Numbers and accounts behind every claim — happy to walk you through them.</p>
+    <p data-slot="why-me">For eight years at Northwind I owned a <strong>$10M+ digital media P&amp;L</strong> and drove Austin — the #19 U.S. market — to a consistent <strong>top-3 national ranking</strong> in Digital Marketing Solutions revenue. I delivered <strong>130% YoY paid-search conversion growth</strong> on a flagship financial-services account through a bidding overhaul, audience-signal layering, and landing-page CRO. I led the market's transformation to a ~60% digital revenue mix, architected an attribution and AI-search framework across Google Ads, Meta, OTT/CTV, and Amazon DSP, and trained ten AE desks to sell it. Numbers and accounts behind every claim — happy to walk you through them.</p>
 
     <!-- WHY NOW — how I'd show up; tie to the dual track. -->
-    <p data-slot="why-now">In parallel I founded <span class="it">elioai.app</span> — a production multi-model AI platform on GCP Cloud Run routing across Claude, GPT, Gemini, Grok, and Llama, backed by Vertex AI Search RAG pipelines. I shipped an SEM Revenue Forecast tool on Gemini with live Google Search grounding that ran <strong>21+ forecasts against $2.4M of real pipeline data</strong>, plus agentic scheduled workflows operating across 8–10 API keys and 3–4 GCP service accounts. So when I talk about <em>"the systems behind performance marketing,"</em> I mean it literally: I write them, deploy them, and run them in production. That dual track — operator who can build the tooling instead of waiting for it — is what I'd bring to <span data-slot="company-mention-3">[Company]</span>.</p>
+    <p data-slot="why-now">In parallel I founded <span class="it">example.app</span> — a production multi-model AI platform on GCP Cloud Run routing across Claude, GPT, Gemini, Grok, and Llama, backed by Vertex AI Search RAG pipelines. I shipped an SEM Revenue Forecast tool on Gemini with live Google Search grounding that ran <strong>21+ forecasts against $2.4M of real pipeline data</strong>, plus agentic scheduled workflows operating across 8–10 API keys and 3–4 GCP service accounts. So when I talk about <em>"the systems behind performance marketing,"</em> I mean it literally: I write them, deploy them, and run them in production. That dual track — operator who can build the tooling instead of waiting for it — is what I'd bring to <span data-slot="company-mention-3">[Company]</span>.</p>
 
     <!-- CLOSING — short, concrete, asks for a conversation. -->
     <p data-slot="closing">I'd welcome the chance to talk about <em data-slot="closing-hook">[what specifically you want to dig into — a product area, a metric, a problem they posted]</em>. Either way, thanks for reading.</p>
@@ -636,8 +638,8 @@
   <!-- ================== SIGN-OFF ================== -->
   <div class="closing-block">
     <p class="sign-off">Best,</p>
-    <p class="signature">Emilio Nunez-Garcia</p>
-    <p class="sig-meta">Denver, CO<span class="dot" aria-hidden="true"></span>501.366.2080<span class="dot" aria-hidden="true"></span>emilio3435@gmail.com</p>
+    <p class="signature">Jordan Rivera</p>
+    <p class="sig-meta">Austin, CO<span class="dot" aria-hidden="true"></span>555-010-2030<span class="dot" aria-hidden="true"></span>jordan.rivera@example.com</p>
   </div>
 
   <!-- ================== CLOSING FLOURISH ================== -->
@@ -650,111 +652,15 @@
 
   <!-- ================== FOOTER ================== -->
   <footer class="pagefoot">
-    <span class="colophon"><span style="font-style:normal;">—</span> Emilio Nunez-Garcia<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>emiliobuilds.com</span>
+    <span class="colophon"><span style="font-style:normal;">—</span> Jordan Rivera<span class="dot" aria-hidden="true"></span>performance marketing leader<span class="dot" aria-hidden="true"></span>ai product builder<span class="dot" aria-hidden="true"></span>example.com</span>
     <span class="pagenum"><span class="dot" aria-hidden="true"></span>01 / 01</span>
   </footer>
 
 </article>
 </div>
 
-<!-- ============================================================
-     TWEAKS PANEL
-     Three expressive controls that reshape the letter's feel:
-       • accent  — swap the signature gold for coral / teal / mono
-       • voice   — restrained / editorial / quiet  (italic register)
-       • hook    — dropcap / pullquote / plain      (opening device)
-     Hidden in print.
-     ============================================================ -->
-<div id="tweaks-root"></div>
-
-<script src="https://unpkg.com/react@18.3.1/umd/react.development.js" integrity="sha384-hD6/rw4ppMLGNu3tX5cjIb+uRZ7UkRJ6BPkLpg4hAu/6onKUg4lLsHAs9EBPT82L" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/react-dom@18.3.1/umd/react-dom.development.js" integrity="sha384-u6aeetuaXnQ38mYT8rp6sbXaQe3NL9t+IBXmnYxwkUI2Hw4bsp2Wvmx4yRQF1uAm" crossorigin="anonymous"></script>
-<script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js" integrity="sha384-m08KidiNqLdpJqLq95G/LEi8Qvjl/xUYll3QILypMoQ65QorJ9Lvtp2RXYGBFj1y" crossorigin="anonymous"></script>
-<script type="text/babel" src="tweaks-panel.jsx"></script>
-
-<script type="text/babel">
-  const ACCENTS = {
-    gold:  { gold: '#FFB703', soft: 'rgba(255, 183, 3, 0.18)' },
-    coral: { gold: '#EB4D56', soft: 'rgba(235, 77, 86, 0.16)' },
-    teal:  { gold: '#12A89C', soft: 'rgba(18, 168, 156, 0.18)' },
-    mono:  { gold: '#093444', soft: 'rgba(9, 52, 68, 0.10)' },
-  };
-
-  function applyAccent(key) {
-    const a = ACCENTS[key] || ACCENTS.gold;
-    document.documentElement.style.setProperty('--gold', a.gold);
-    document.documentElement.style.setProperty('--gold-soft', a.soft);
-  }
-  function applyVoice(v) {
-    const b = document.body;
-    b.classList.remove('voice-restrained', 'voice-editorial', 'voice-quiet');
-    b.classList.add('voice-' + v);
-  }
-  function applyHook(v) {
-    const b = document.body;
-    b.classList.remove('hook-dropcap', 'hook-pullquote', 'hook-plain');
-    b.classList.add('hook-' + v);
-  }
-
-  function CoverTweaks() {
-    const [t, setTweak] = useTweaks(window.TWEAK_DEFAULTS);
-
-    React.useEffect(() => { applyAccent(t.accent); }, [t.accent]);
-    React.useEffect(() => { applyVoice(t.voice); },   [t.voice]);
-    React.useEffect(() => { applyHook(t.hook); },     [t.hook]);
-
-    return (
-      <TweaksPanel title="Tweaks">
-        <TweakSection label="Signature accent" />
-        <TweakColor
-          label="Accent"
-          value={ACCENTS[t.accent].gold}
-          options={Object.values(ACCENTS).map(a => a.gold)}
-          onChange={(hex) => {
-            const k = Object.keys(ACCENTS).find(k => ACCENTS[k].gold === hex) || 'gold';
-            setTweak('accent', k);
-          }}
-        />
-        <div style={{fontSize:10.5,color:'rgba(41,38,27,.55)',marginTop:-2,lineHeight:1.35}}>
-          Replaces gold across rules, bullets, dots, target highlights, and folio.
-        </div>
-
-        <TweakSection label="Editorial voice" />
-        <TweakRadio
-          label="Voice"
-          value={t.voice}
-          options={['restrained', 'editorial', 'quiet']}
-          onChange={(v) => setTweak('voice', v)}
-        />
-        <div style={{fontSize:10.5,color:'rgba(41,38,27,.55)',marginTop:-2,lineHeight:1.35}}>
-          {t.voice === 'restrained' && 'Italic Fraunces shows up only in the hook, salutation, and closing line.'}
-          {t.voice === 'editorial'  && 'Body type becomes Fraunces. Meta keys italicize. Section label shifts to Fraunces.'}
-          {t.voice === 'quiet'      && 'All roman, no italic. Serious technical-business register.'}
-        </div>
-
-        <TweakSection label="Opening device" />
-        <TweakRadio
-          label="Hook"
-          value={t.hook}
-          options={['dropcap', 'pullquote', 'plain']}
-          onChange={(v) => setTweak('hook', v)}
-        />
-        <div style={{fontSize:10.5,color:'rgba(41,38,27,.55)',marginTop:-2,lineHeight:1.35}}>
-          {t.hook === 'dropcap'   && 'Magazine-style drop-cap on the first letter of the hook.'}
-          {t.hook === 'pullquote' && 'Hook becomes a centered italic pullquote with oversized gold quote marks.'}
-          {t.hook === 'plain'     && 'No ornament — hook flows as quiet italic Fraunces into the body.'}
-        </div>
-      </TweaksPanel>
-    );
-  }
-
-  applyAccent(window.TWEAK_DEFAULTS.accent);
-  applyVoice(window.TWEAK_DEFAULTS.voice);
-  applyHook(window.TWEAK_DEFAULTS.hook);
-
-  const root = ReactDOM.createRoot(document.getElementById('tweaks-root'));
-  root.render(<CoverTweaks />);
-</script>
+<!-- TWEAKS PANEL retired (materials v3 slice 8): the React panel and
+     its unpkg scripts were removed so no leftover run can fetch a CDN. -->
 
 </body>
 </html>

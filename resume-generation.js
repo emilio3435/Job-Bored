@@ -141,24 +141,49 @@ function renderDraftLibraryCardHtml(job, dataIndex) {
   </section>`;
 }
 
-async function resolveVisualThemeIdForModal() {
+/**
+ * The preview renders the registry family plus the accent/density knobs
+ * (slice 7). Preferences arrive normalized; the adapter is the fallback when
+ * the store is unavailable.
+ * @returns {Promise<{ family: string, accent: string, density: string }>}
+ */
+async function resolvePreviewAppearanceForModal() {
   const VT = window.CommandCenterVisualThemes;
-  const fallback =
+  const fallbackFamily =
     VT && typeof VT.getDefaultVisualThemeId === "function"
       ? VT.getDefaultVisualThemeId()
-      : "classic";
+      : "signal";
+  const fallback = { family: fallbackFamily, accent: "volt", density: "standard" };
   try {
     const UC = materialsState().getUserContent();
     if (!UC) return fallback;
     await UC.openDb();
     const prefs = await UC.getPreferences();
-    const raw = prefs.visualThemeId || fallback;
-    return VT && typeof VT.resolveVisualTheme === "function"
-      ? VT.resolveVisualTheme(raw).id
-      : raw;
+    const raw = prefs.materialsTemplate || fallback.family;
+    const family =
+      VT && typeof VT.resolveVisualTheme === "function"
+        ? VT.resolveVisualTheme(raw).id
+        : raw;
+    return {
+      family,
+      accent: prefs.materialsAccent || fallback.accent,
+      density: prefs.materialsDensity || fallback.density,
+    };
   } catch (_) {
     return fallback;
   }
+}
+
+/**
+ * Mirror the server sheet attributes (materials-render.mjs buildView) so the
+ * preview a user sees is the same family, accent and density the server
+ * renders.
+ */
+function applyPreviewAppearance(preview, appearance) {
+  if (!preview || !appearance) return;
+  preview.setAttribute("data-family", appearance.family);
+  preview.setAttribute("data-accent", appearance.accent);
+  preview.setAttribute("data-density", appearance.density);
 }
 
 function formatCoverLetterPreviewHtml(text) {
@@ -686,9 +711,10 @@ async function openResumeGenerateModal(
   const page = document.getElementById("resumeGeneratePage");
   if (!modal || !h || !ta) return;
 
-  const themeId = await resolveVisualThemeIdForModal();
-  if (preview) preview.setAttribute("data-visual-theme", themeId);
-  host().fillVisualThemeSelect("resumeGenerateVisualTheme", themeId);
+  const appearance = await resolvePreviewAppearanceForModal();
+  applyPreviewAppearance(preview, appearance);
+  /* fillVisualThemeSelect is adapter-backed: it lists the registry families. */
+  host().fillVisualThemeSelect("resumeGenerateTemplate", appearance.family);
 
   const kind = docKind === "resume_update" ? "resume_update" : "cover_letter";
   const isLetter = kind === "cover_letter";
@@ -750,7 +776,7 @@ async function openResumeGenerateModal(
         preview.className =
           "doc-preview " +
           (isLetter ? "doc-preview--letter" : "doc-preview--resume");
-        preview.setAttribute("data-visual-theme", themeId);
+        applyPreviewAppearance(preview, appearance);
         preview.innerHTML = isLetter
           ? formatCoverLetterPreviewHtml(bodyText)
           : formatResumePreviewHtml(bodyText);
@@ -1323,19 +1349,19 @@ async function openLatestSavedDraftForJob(dataIndex, feature) {
     });
     }
 
-    const genThemeSel = document.getElementById("resumeGenerateVisualTheme");
-    if (genThemeSel) {
-    genThemeSel.addEventListener("change", async () => {
+    const genTemplateSel = document.getElementById("resumeGenerateTemplate");
+    if (genTemplateSel) {
+    genTemplateSel.addEventListener("change", async () => {
     const UC = materialsState().getUserContent();
-    const id = genThemeSel.value;
+    const id = genTemplateSel.value;
     const preview = document.getElementById("resumeGeneratePreview");
-    if (preview) preview.setAttribute("data-visual-theme", id);
+    if (preview) preview.setAttribute("data-family", id);
     if (!UC) return;
     try {
     await UC.openDb();
-    await UC.savePreferences({ visualThemeId: id });
+    await UC.savePreferences({ materialsTemplate: id });
     } catch (e) {
-    console.warn("[JobBored] save visual theme:", e);
+    console.warn("[JobBored] save materials template:", e);
     }
     });
     }
@@ -1407,7 +1433,7 @@ async function openLatestSavedDraftForJob(dataIndex, feature) {
   Object.assign(resumeGeneration, {
     renderDraftDeckPanel,
     renderDraftLibraryCardHtml,
-    resolveVisualThemeIdForModal,
+    resolvePreviewAppearanceForModal,
     formatCoverLetterPreviewHtml,
     formatResumePreviewHtml,
     formatContextDateLabel,

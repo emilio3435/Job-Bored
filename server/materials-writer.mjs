@@ -114,6 +114,9 @@ const WRITER_SYSTEM_PROMPT = [
  * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
  * @property {number} [timeoutMs]
  * @property {number[]} [letterWords] the template family's letter body band
+ * @property {string} [systemPrompt] v3 narrow calls: replaces the wide writer prompt
+ * @property {string} [userText] v3 narrow calls: replaces the assembled user prompt
+ * @property {number} [maxOutputTokens] v3 narrow calls: per-stage output cap
  */
 
 /**
@@ -179,6 +182,28 @@ function extractFirstJsonObject(text) {
 }
 
 /**
+ * Extract the first `{...}` block, parse it, and require a plain object.
+ * Each v3 stage validates the shape against its own schema after this.
+ *
+ * @param {string} text
+ * @returns {Record<string, unknown>}
+ */
+export function parseStageJson(text) {
+  const source = typeof text === "string" ? text : "";
+  const block = extractFirstJsonObject(source);
+  let parsed;
+  try {
+    parsed = JSON.parse(block);
+  } catch (cause) {
+    throw new WriterJsonError("WriterJsonError: JSON parse failed", { cause });
+  }
+  if (!isPlainObject(parsed)) {
+    throw new WriterJsonError("WriterJsonError: expected a JSON object");
+  }
+  return /** @type {Record<string, unknown>} */ (parsed);
+}
+
+/**
  * Extract the first `{...}` block, parse it, and require `letter` + `resume` objects.
  *
  * @param {string} text
@@ -201,10 +226,37 @@ export function parseWriterJson(text) {
 
 /**
  * @param {WriterInput} input
+ * @returns {string}
+ */
+function systemText(input) {
+  return typeof input.systemPrompt === "string" && input.systemPrompt
+    ? input.systemPrompt
+    : WRITER_SYSTEM_PROMPT;
+}
+
+/**
+ * @param {WriterInput} input
+ * @returns {number}
+ */
+function maxTokens(input) {
+  return typeof input.maxOutputTokens === "number" &&
+    Number.isFinite(input.maxOutputTokens) &&
+    input.maxOutputTokens > 0
+    ? Math.floor(input.maxOutputTokens)
+    : MAX_OUTPUT_TOKENS;
+}
+
+/**
+ * @param {WriterInput} input
  * @param {string} extraUserText
  * @returns {string}
  */
 function buildUserPrompt(input, extraUserText) {
+  /* v3 narrow calls compose their own user text; the legacy assembly below
+   * serves the wide writer/editor path only. */
+  if (typeof input.userText === "string") {
+    return extraUserText ? `${input.userText}\n\n${extraUserText}` : input.userText;
+  }
   const parts = [`Job description:\n${input.jdText ?? ""}`];
   if (input.resumeText) {
     parts.push(`Candidate's resume (their own words; the only source of facts):\n${input.resumeText}`);
@@ -376,11 +428,12 @@ async function generateGemini(input, extraUserText) {
   // and access logs would record it.
   const url = `${GEMINI_GENERATE_URL}/${encodeURIComponent(resolvedModel)}:generateContent`;
   const body = {
-    systemInstruction: { parts: [{ text: WRITER_SYSTEM_PROMPT }] },
+    systemInstruction: { parts: [{ text: systemText(input) }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(input, extraUserText) }] }],
     generationConfig: {
       temperature: TEMPERATURE,
-      maxOutputTokens: MAX_OUTPUT_TOKENS,
+      maxOutputTokens: maxTokens(input),
+      responseMimeType: "application/json",
     },
   };
   const resp = await input.fetchImpl(url, {
@@ -417,11 +470,12 @@ async function generateOpenAICompatible(input, extraUserText, provider) {
   const body = {
     model: resolvedModel,
     messages: [
-      { role: "system", content: WRITER_SYSTEM_PROMPT },
+      { role: "system", content: systemText(input) },
       { role: "user", content: buildUserPrompt(input, extraUserText) },
     ],
     temperature: TEMPERATURE,
-    max_tokens: MAX_OUTPUT_TOKENS,
+    max_tokens: maxTokens(input),
+    response_format: { type: "json_object" },
   };
   const resp = await input.fetchImpl(url, {
     method: "POST",
@@ -450,8 +504,8 @@ async function generateAnthropic(input, extraUserText) {
   const url = String(pin.baseUrl || "").trim() || ANTHROPIC_MESSAGES_URL;
   const body = {
     model: resolvedModel,
-    max_tokens: MAX_OUTPUT_TOKENS,
-    system: WRITER_SYSTEM_PROMPT,
+    max_tokens: maxTokens(input),
+    system: systemText(input),
     messages: [{ role: "user", content: buildUserPrompt(input, extraUserText) }],
   };
   const resp = await input.fetchImpl(url, {
@@ -481,7 +535,7 @@ async function generateWebhook(input, extraUserText) {
     throw new Error("webhook pin.baseUrl is required");
   }
   const body = {
-    system: WRITER_SYSTEM_PROMPT,
+    system: systemText(input),
     user: buildUserPrompt(input, extraUserText),
     model: String(pin.resolvedModel || pin.model || "").trim(),
   };
@@ -539,6 +593,44 @@ async function callWithRetry(input, extraUserText) {
  */
 export async function callWriter(input) {
   return callWithRetry(input, "");
+}
+
+/**
+ * One v3 narrow stage call: a small system prompt, a composed user text,
+ * a stage output cap, and structured JSON out. Retries once on invalid
+ * JSON, then throws (the stage degrades deterministically).
+ *
+ * @param {object} input
+ * @param {WriterPin} input.pin
+ * @param {string} input.systemPrompt
+ * @param {string} input.userText
+ * @param {number} [input.maxOutputTokens]
+ * @param {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} input.fetchImpl
+ * @param {number} [input.timeoutMs]
+ * @returns {Promise<Record<string, unknown>>}
+ */
+export async function callJsonStage(input) {
+  const stageInput = /** @type {WriterInput} */ ({
+    pin: input.pin,
+    jdText: "",
+    masterResumeHtml: "",
+    systemPrompt: input.systemPrompt,
+    userText: input.userText,
+    maxOutputTokens: input.maxOutputTokens,
+    fetchImpl: input.fetchImpl,
+    timeoutMs: input.timeoutMs,
+  });
+  /** @type {unknown} */
+  let lastError;
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    const text = await generateContent(stageInput, "");
+    try {
+      return parseStageJson(text);
+    } catch (err) {
+      lastError = err;
+    }
+  }
+  throw lastError;
 }
 
 /**

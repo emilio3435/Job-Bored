@@ -54,7 +54,7 @@ export function checkLoopbackRequestHost(
   options?: { allowedHosts?: unknown; tunnelHosts?: unknown },
 ):
   | { ok: true }
-  | { ok: false; status: 403; code: "HOST_NOT_ALLOWED"; error: string };
+  | { ok: false; status: 403; code: "host_not_allowed"; error: string };
 
 export function validateScrapeTarget(rawUrl: unknown): ScrapeTargetValidation;
 

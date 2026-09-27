@@ -3,7 +3,7 @@
  *
  * 1. The dashboard is published over Tailscale serve (`https://<mac>.<tailnet>.ts.net`),
  *    which forwards to the loopback dev-server with that Host. The dev-server
- *    gate refused it (403 HOST_NOT_ALLOWED) because it passed no trusted hosts.
+ *    gate refused it (403 host_not_allowed) because it passed no trusted hosts.
  *    Tailscale-owned names and JOBBORED_DASHBOARD_ALLOWED_HOSTS now pass; any
  *    other Host on loopback is still a rebinding attempt.
  * 2. A configured allowlist (JOBBORED_API_ALLOWED_HOSTS) was skipped on
@@ -54,7 +54,7 @@ describe("BEAUDIT G2 repair — dashboard behind Tailscale serve", () => {
       assert.equal(configured.status, 200, configured.text);
       const evil = await send(port, { headers: { host: `rebind.attacker.test:${port}` } });
       assert.equal(evil.status, 403);
-      assert.match(evil.text, /HOST_NOT_ALLOWED/);
+      assert.match(evil.text, /host_not_allowed/);
       const lookalike = await send(port, { headers: { host: "ts.net.attacker.test" } });
       assert.equal(lookalike.status, 403);
     } finally {
@@ -75,7 +75,7 @@ describe("BEAUDIT E1 repair — a configured Host allowlist binds on every socke
     });
     assert.equal(res.ok, false);
     assert.equal(res.status, 403);
-    assert.equal(res.code, "HOST_NOT_ALLOWED");
+    assert.equal(res.code, "host_not_allowed");
   });
 
   it("admits the trusted Host on a non-loopback socket", () => {

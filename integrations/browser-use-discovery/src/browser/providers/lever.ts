@@ -29,7 +29,8 @@ import type {
 export const leverProvider: AtsProvider = {
   id: "lever",
   label: "Lever",
-  async detectSurfaces(company, hints, memory) {
+  async detectSurfaces(company, hints, memory, signal) {
+    signal?.throwIfAborted?.();
     const surfaces: ProviderSurface[] = [];
 
     for (const url of collectMemoryUrls("lever", memory)) {
@@ -57,8 +58,9 @@ export const leverProvider: AtsProvider = {
     }
 
     for (const token of uniqueProbeTokens(hints)) {
+      signal?.throwIfAborted?.();
       const endpoint = buildLeverJobsUrl(token);
-      const payload = await fetchJson(endpoint);
+      const payload = await fetchJson(endpoint, { signal });
       if (payload.ok) {
         surfaces.push(
           buildProviderSurface("lever", "Lever", company, {
@@ -77,7 +79,7 @@ export const leverProvider: AtsProvider = {
         continue;
       }
 
-      const html = await fetchText(buildLeverBoardUrl(token));
+      const html = await fetchText(buildLeverBoardUrl(token), { signal });
       if (
         html.ok &&
         (/jobs\.lever\.co/i.test(html.text) || /"lever"/i.test(html.text))
@@ -104,11 +106,12 @@ export const leverProvider: AtsProvider = {
 
     return dedupeSurfaces(surfaces, leverProvider.scoreSurface);
   },
-  async enumerateListings(surface, sessionManager) {
+  async enumerateListings(surface, sessionManager, signal) {
+    signal?.throwIfAborted?.();
     const boardToken = surface.boardToken || extractLeverBoardToken(surface.canonicalUrl);
     if (!boardToken) return [];
     const endpoint = buildLeverJobsUrl(boardToken);
-    const payload = await fetchJson(endpoint);
+    const payload = await fetchJson(endpoint, { signal });
     if (payload.ok) {
       const listings = extractLeverListings(payload.data, surface);
       if (listings.length) return maybeFilterToDirectSurface(surface, listings);
@@ -118,6 +121,7 @@ export const leverProvider: AtsProvider = {
       url: endpoint,
       instruction: LEVER_BROWSER_INSTRUCTION,
       timeoutMs: 20_000,
+      abortSignal: signal,
     });
     const listings = extractLeverListings(sessionResult.text, surface);
     if (listings.length) return maybeFilterToDirectSurface(surface, listings);

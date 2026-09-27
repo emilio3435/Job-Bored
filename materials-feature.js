@@ -616,10 +616,9 @@
       const mergeEl = document.getElementById("prefMergePreference");
       const coverTplEl = document.getElementById("prefCoverLetterTemplate");
       const resumeTplEl = document.getElementById("prefResumeTemplate");
-      const visualThemeEl = document.getElementById("prefVisualTheme");
+      const materialsAccentEl = document.getElementById("prefMaterialsAccent");
       const materialsTemplateEl = document.getElementById("prefMaterialsTemplate");
       const DT = window.CommandCenterDocumentTemplates;
-      const VT = window.CommandCenterVisualThemes;
       const maxWords = parseInt(mwEl && mwEl.value, 10);
       await UC.savePreferences({
         tone: (toneEl && toneEl.value) || "warm",
@@ -639,16 +638,15 @@
           (DT && typeof DT.getDefaultTemplateId === "function"
             ? DT.getDefaultTemplateId("resume_update")
             : "resume_traditional_sections"),
-        visualThemeId:
-          (visualThemeEl && visualThemeEl.value) ||
-          (VT && typeof VT.getDefaultVisualThemeId === "function"
-            ? VT.getDefaultVisualThemeId()
-            : "classic"),
         /* user-content-store normalizes an unknown id back to the default. */
         materialsTemplate:
           (materialsTemplateEl && materialsTemplateEl.value) ||
           (UC.DEFAULT_PREFERENCES && UC.DEFAULT_PREFERENCES.materialsTemplate) ||
           "signal",
+        materialsAccent:
+          (materialsAccentEl && materialsAccentEl.value) ||
+          (UC.DEFAULT_PREFERENCES && UC.DEFAULT_PREFERENCES.materialsAccent) ||
+          "volt",
       });
       closeAuthUserMenu();
       showToast("Preferences saved", "success");

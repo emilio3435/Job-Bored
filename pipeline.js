@@ -164,6 +164,14 @@
   // refresh sooner than that cap.
   var MATERIALS_TTL_MS = 30 * 1000;
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    var auth = root && root.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   function pipelineBaseUrl() {
     var helper = root.getJobPostingScrapeUrl;
     if (typeof helper === "function") {
@@ -194,7 +202,7 @@
     if (materialsFetchPromise) return materialsFetchPromise;
     var base = pipelineBaseUrl();
     if (!base) return Promise.resolve(materialsBySlug);
-    materialsFetchPromise = fetch(base + "/api/applications", { credentials: "omit", cache: "no-store" })
+    materialsFetchPromise = apiFetch(base + "/api/applications", { credentials: "omit", cache: "no-store" })
       .then(function (res) { return res.ok ? res.json() : { applications: [] }; })
       .then(function (body) {
         var next = Object.create(null);

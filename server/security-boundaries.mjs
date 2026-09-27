@@ -141,7 +141,7 @@ export function isAllowedTunnelHost(hostHeader, allowedHosts) {
 const HOST_NOT_ALLOWED = /** @type {const} */ ({
   ok: false,
   status: 403,
-  code: "HOST_NOT_ALLOWED",
+  code: "host_not_allowed",
   error: "Host not allowed for this local server.",
 });
 
@@ -160,7 +160,7 @@ const HOST_NOT_ALLOWED = /** @type {const} */ ({
  *
  * @param {{ headers?: Record<string, unknown>, socket?: { localAddress?: unknown, localPort?: unknown } | null }} req
  * @param {{ allowedHosts?: unknown, tunnelHosts?: unknown }} [options] host patterns (see isAllowedTunnelHost)
- * @returns {{ ok: true } | { ok: false, status: 403, code: "HOST_NOT_ALLOWED", error: string }}
+ * @returns {{ ok: true } | { ok: false, status: 403, code: "host_not_allowed", error: string }}
  */
 export function checkLoopbackRequestHost(req, { allowedHosts = [], tunnelHosts = [] } = {}) {
   const socket = req && req.socket ? req.socket : null;
@@ -535,7 +535,7 @@ const BODY_HEADER_NAMES = new Set(["content-type", "content-length", "content-en
 /** @param {string} message */
 function blockedTargetError(message) {
   const error = /** @type {Error & { code?: string }} */ (new Error(message));
-  error.code = "SSRF_BLOCKED";
+  error.code = "ssrf_blocked";
   return error;
 }
 
@@ -589,7 +589,7 @@ function bodyTooLargeError(maxBytes) {
   const error = /** @type {Error & { code?: string }} */ (
     new Error(`Response body exceeds ${maxBytes} bytes`)
   );
-  error.code = "BODY_TOO_LARGE";
+  error.code = "body_too_large";
   return error;
 }
 

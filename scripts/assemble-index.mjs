@@ -9,14 +9,16 @@
  * the repo root.
  */
 import { createHash } from "node:crypto";
-import { readFileSync, writeFileSync } from "node:fs";
-import { dirname, join, resolve, sep } from "node:path";
+import { copyFileSync, existsSync, mkdirSync, readFileSync, readdirSync, statSync, writeFileSync } from "node:fs";
+import { dirname, join, relative, resolve, sep } from "node:path";
 import { fileURLToPath, pathToFileURL } from "node:url";
 import {
   createContainedIncludeResolver,
   expandIndexIncludes,
 } from "./lib/expand-index-includes.mjs";
 import { missingProtectedIds } from "./lib/index-protected-surface.mjs";
+import { buildContentSecurityPolicy } from "./lib/browser-csp-policy.mjs";
+import { isServableRelativePath } from "./lib/static-path-guard.mjs";
 
 export function assembleIndex(repoRoot, options = {}) {
   const indexPath = join(repoRoot, "index.html");
@@ -240,6 +242,128 @@ export function verifySiteAssets(siteDir) {
   return problems;
 }
 
+// --- G13: the Pages artifact carries its own policy and its own allowlist --
+//
+// GitHub Pages cannot set response headers, so the deployed index.html must
+// carry the CSP as a <meta> tag (built from the same browser-csp-policy
+// module the dev-server serves, minus frame-ancestors which meta ignores).
+// And the site must contain only the dashboard asset allowlist — the same
+// allowlist the dev-server serves (isServableRelativePath) — never
+// server/, scripts/, tests/ or integration sources.
+//
+// One deliberate exception (#129): server/profile-draft-shared.js is the
+// Fit Profile prompt/parse/clamp module that B3's browser-direct fallback
+// loads as a classic script, so serverless and Pages users can draft. It is
+// named alone in static-path-guard's PUBLIC_FILES; every other server/ file
+// stays out of the site. Keep this build on that one allowlist so the
+// dev-server and the Pages artifact never disagree about what is public.
+// The meta CSP needs no widening for it: script-src 'self' covers the file,
+// and the default AI origins B3 calls already sit in connect-src.
+
+const CSP_META_PATTERN = /<meta\b[^>]*http-equiv=["']Content-Security-Policy["'][^>]*>/i;
+
+/**
+ * Insert `<meta http-equiv="Content-Security-Policy" content="...">` after
+ * the charset declaration (or after <head> when there is none). Idempotent:
+ * an existing policy meta is left alone. PURE.
+ */
+export function injectContentSecurityPolicyMeta(html, policy) {
+  const text = String(html || "");
+  if (CSP_META_PATTERN.test(text)) return text;
+  const tag = `<meta http-equiv="Content-Security-Policy" content="${policy}" />`;
+  const charset = /<meta\b[^>]*charset=["']?[^"'\s>]+["']?[^>]*>/i.exec(text);
+  if (charset) {
+    const at = charset.index + charset[0].length;
+    return `${text.slice(0, at)}\n    ${tag}${text.slice(at)}`;
+  }
+  const head = /<head\b[^>]*>/i.exec(text);
+  if (head) {
+    const at = head.index + head[0].length;
+    return `${text.slice(0, at)}${tag}${text.slice(at)}`;
+  }
+  return text;
+}
+
+/**
+ * The deployable index: includes expanded, assets stamped, policy injected.
+ * CLI-path-only like stamping — assembleIndex() stays byte-identical to
+ * expandIndexIncludes() for the hermetic release gate.
+ */
+export function buildDeployableIndex(repoRoot, options = {}) {
+  const stamped = stampLocalAssetDigests(assembleIndex(repoRoot, options), repoRoot);
+  return injectContentSecurityPolicyMeta(stamped, buildContentSecurityPolicy({ forMeta: true }));
+}
+
+// Files the site builder handles specially instead of copying verbatim.
+const SITE_SPECIAL_FILES = new Set(["index.html", "config.js", "index.assembled.html"]);
+
+function collectServableFiles(repoRoot) {
+  const out = [];
+  const skipDirs = new Set(["node_modules", ".git", "_site"]);
+  const walk = (dir) => {
+    for (const entry of readdirSync(dir, { withFileTypes: true })) {
+      if (entry.name.startsWith(".")) continue;
+      const absolute = join(dir, entry.name);
+      const rel = relative(repoRoot, absolute).split(sep).join("/");
+      if (entry.isDirectory()) {
+        if (skipDirs.has(entry.name)) continue;
+        // Never descend into the site output itself, wherever it lives.
+        if (rel === "_site" || rel.startsWith("_site/")) continue;
+        walk(absolute);
+        continue;
+      }
+      if (!entry.isFile() && !entry.isSymbolicLink()) continue;
+      if (SITE_SPECIAL_FILES.has(rel)) continue;
+      if (!isServableRelativePath(rel)) continue;
+      try {
+        if (!statSync(absolute).isFile()) continue;
+      } catch {
+        continue;
+      }
+      out.push(rel);
+    }
+  };
+  walk(repoRoot);
+  return out.sort();
+}
+
+/**
+ * Build a Pages `_site` directory: the deployable index, the placeholder
+ * config.js, and exactly the dashboard asset allowlist. Returns the sorted
+ * list of site-relative files written (forward slashes).
+ */
+export function buildSite(repoRoot, siteDir) {
+  const root = resolve(repoRoot);
+  const site = resolve(siteDir);
+  mkdirSync(site, { recursive: true });
+  const written = [];
+  for (const rel of collectServableFiles(root)) {
+    const target = join(site, rel);
+    mkdirSync(dirname(target), { recursive: true });
+    copyFileSync(join(root, rel), target);
+    written.push(rel);
+  }
+  writeFileSync(join(site, "index.html"), buildDeployableIndex(root), "utf8");
+  written.push("index.html");
+  // The public artifact serves a placeholder config.js (the real one holds
+  // secrets and is gitignored); without it the page logs a 404.
+  const examplePath = join(root, "config.example.js");
+  if (existsSync(examplePath)) {
+    copyFileSync(examplePath, join(site, "config.js"));
+    written.push("config.js");
+  }
+  // Pages plumbing the asset allowlist does not cover: the custom-domain
+  // CNAME (extensionless) and .nojekyll (dotfile) ship verbatim when present.
+  for (const extra of ["CNAME", ".nojekyll"]) {
+    const extraPath = join(root, extra);
+    if (existsSync(extraPath)) {
+      copyFileSync(extraPath, join(site, extra));
+      written.push(extra);
+    }
+  }
+  return written.sort();
+}
+
 function isMainModule() {
   const entry = process.argv[1];
   if (!entry) return false;
@@ -266,11 +390,38 @@ function runVerifySite(siteDirArg) {
   );
 }
 
+function runBuildSite(siteDirArg) {
+  if (!siteDirArg || siteDirArg.startsWith("--")) {
+    console.error("assemble-index: --build-site needs a site directory");
+    process.exitCode = 1;
+    return;
+  }
+  const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
+  const assembled = assembleIndex(repoRoot);
+  const missing = missingProtectedIds(assembled);
+  if (missing.length) {
+    console.error(
+      `assemble-index: protected surface missing ids: ${missing.join(", ")}`,
+    );
+    process.exitCode = 1;
+    return;
+  }
+  const written = buildSite(repoRoot, resolve(siteDirArg));
+  console.log(
+    `assemble-index: built ${siteDirArg} (${written.length} files, allowlist only)`,
+  );
+}
+
 function runCli() {
   const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
   const verifyAt = process.argv.indexOf("--verify-site");
   if (verifyAt !== -1) {
     runVerifySite(process.argv[verifyAt + 1]);
+    return;
+  }
+  const buildAt = process.argv.indexOf("--build-site");
+  if (buildAt !== -1) {
+    runBuildSite(process.argv[buildAt + 1]);
     return;
   }
   const assembled = assembleIndex(repoRoot);
@@ -286,10 +437,10 @@ function runCli() {
     ? join(repoRoot, "index.assembled.html")
     : null;
   if (outPath) {
-    const stamped = stampLocalAssetDigests(assembled, repoRoot);
-    writeFileSync(outPath, stamped, "utf8");
+    const deployable = buildDeployableIndex(repoRoot);
+    writeFileSync(outPath, deployable, "utf8");
     console.log(
-      `assemble-index: wrote ${outPath} (${stamped.split("\n").length} lines)`,
+      `assemble-index: wrote ${outPath} (${deployable.split("\n").length} lines)`,
     );
     return;
   }

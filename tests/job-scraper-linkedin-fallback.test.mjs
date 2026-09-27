@@ -305,7 +305,9 @@ describe("job scraper LinkedIn fallback", () => {
     assert.equal(result.company, "Smadex");
     assert.equal(result.location, "United States");
     assert.equal(result.scraping?.lineage?.used, "serpapi-google-jobs");
-    assert.equal(result.scraping?.lineage?.fallbackFrom, "linkedin-direct");
+    // E3: lineage now comes from the real requested host, not hardcoded
+    // "linkedin-direct". hostnameOf normalizes www.linkedin.com.
+    assert.equal(result.scraping?.lineage?.fallbackFrom, "linkedin.com");
   });
 
   it("F1D-INGEST04-HOST omits Careers/Linkedin host placeholders instead of saving them as the employer", async () => {

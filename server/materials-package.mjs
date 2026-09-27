@@ -17,13 +17,51 @@
  */
 
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import { createHash, randomBytes } from "node:crypto";
-import { join } from "node:path";
+import { dirname, join, resolve as resolvePath } from "node:path";
+import { fileURLToPath } from "node:url";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 import { coverLetterText, resumeText } from "./materials-ats-text.mjs";
 import { fitDocument } from "./materials-fit.mjs";
 import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 import { resolveFamily, templateCacheSegment, templateIdsFor } from "./materials-templates.mjs";
+
+const __dirname = dirname(fileURLToPath(import.meta.url));
+const RUN_SCHEMA_PATH = resolvePath(__dirname, "..", "schemas", "materials-run.v1.schema.json");
+
+/** @type {import("ajv").ValidateFunction<unknown> | null} */
+let cachedRunValidator = null;
+
+function loadRunValidator() {
+  if (cachedRunValidator) return cachedRunValidator;
+  const schema = JSON.parse(readFileSync(RUN_SCHEMA_PATH, "utf8"));
+  const Ajv2020Constructor = /** @type {typeof import("ajv/dist/2020.js").default} */ (
+    /** @type {unknown} */ (Ajv2020)
+  );
+  const addFormatsPlugin = /** @type {typeof import("ajv-formats").default} */ (
+    /** @type {unknown} */ (addFormats)
+  );
+  const ajv = new Ajv2020Constructor({ allErrors: true, strict: false });
+  addFormatsPlugin(ajv);
+  cachedRunValidator = ajv.compile(schema);
+  return cachedRunValidator;
+}
+
+/** @param {unknown} candidate */
+export function validateRunRecord(candidate) {
+  const validate = loadRunValidator();
+  const ok = validate(candidate);
+  if (ok) return { ok: true, run: candidate };
+  return {
+    ok: false,
+    errors: (validate.errors || []).map((e) => ({
+      instancePath: e.instancePath || "",
+      message: e.message || "validation failed",
+    })),
+  };
+}
 
 export const RUNS_DIR = "runs";
 export const PROMPT_VERSION = "materials.writer.v2";
@@ -196,6 +234,8 @@ async function writeJson(path, value) {
  * @property {{ provider?: string, requestedModel?: string, resolvedModel?: string }} [pin]
  * @property {{ stage: string, status: "ok" | "skipped" | "review" | "failed", ms?: number, llm?: boolean, out?: string[], detail?: string }[]} stages
  * @property {{ path: string, bytes?: number, sha256?: string, pages?: number }[]} [artifacts]
+ * @property {string} [cacheKey]
+ * @property {{ code: string, reenteredAt: string, detail?: string }[]} [repairs]
  */
 
 /**
@@ -236,6 +276,8 @@ export function buildRunRecord(input) {
   };
   if (input.pin && (input.pin.provider || input.pin.resolvedModel)) run.pin = input.pin;
   if (input.artifacts && input.artifacts.length) run.artifacts = input.artifacts;
+  if (typeof input.cacheKey === "string" && input.cacheKey) run.cacheKey = input.cacheKey;
+  if (Array.isArray(input.repairs) && input.repairs.length) run.repairs = input.repairs.slice(0, 2);
   return run;
 }
 
@@ -282,6 +324,10 @@ export async function writePackageRecords({ dir, rendered, model, run, pages = {
     typeof pages[a.path] === "number" ? { ...a, pages: pages[a.path] } : a,
   );
   const record = buildRunRecord({ ...run, model, artifacts });
+  const runValidation = validateRunRecord(record);
+  if (!runValidation.ok) {
+    throw new Error(`run.json failed validation: ${JSON.stringify(runValidation.errors)}`);
+  }
   await writeJson(join(dir, "run.json"), record);
 
   const manifestPath = join(dir, "manifest.json");
@@ -305,7 +351,17 @@ export async function writePackageRecords({ dir, rendered, model, run, pages = {
 
   const runDir = join(dir, RUNS_DIR, run.runId);
   await mkdir(runDir, { recursive: true });
-  for (const name of [...packageFiles, "qa-report.md", "render-model.json", "run.json"]) {
+  for (const name of [
+    ...packageFiles,
+    "qa-report.md",
+    "qa.json",
+    "render-model.json",
+    "run.json",
+    "jd-extract.json",
+    "selection.json",
+    "outline.json",
+    "draft.json",
+  ]) {
     if (existsSync(join(dir, name))) await copyFile(join(dir, name), join(runDir, name));
   }
   return { record, manifest: nextManifest, runDir };

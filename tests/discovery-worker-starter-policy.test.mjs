@@ -63,10 +63,21 @@ describe("worker starter hold-watch — a reused worker that later dies must not
       "keep_holding",
     );
   });
-  it("respawns when the reused worker is no longer healthy", () => {
+  it("respawns when the reused worker is no longer healthy (after consecutive misses on a free port)", () => {
+    // BEAUDIT G6 residual: a single missed probe from a busy worker must not
+    // respawn (that respawn hit EADDRINUSE, exited 1, and tore the stack
+    // down). Respawn needs consecutive misses plus a free port.
     assert.equal(
-      decideHeldWorkerAction({ heldWorkerHealthy: false, shuttingDown: false }),
+      decideHeldWorkerAction({ heldWorkerHealthy: false, shuttingDown: false, consecutiveFailures: 3, portFree: true }),
       "respawn",
+    );
+    assert.equal(
+      decideHeldWorkerAction({ heldWorkerHealthy: false, shuttingDown: false, consecutiveFailures: 1, portFree: true }),
+      "keep_holding",
+    );
+    assert.equal(
+      decideHeldWorkerAction({ heldWorkerHealthy: false, shuttingDown: false, consecutiveFailures: 3, portFree: false }),
+      "keep_holding",
     );
   });
   it("exits on our own shutdown instead of respawning into a tearing-down stack", () => {

@@ -8,7 +8,7 @@
  *
  * Env (optional): DISCOVERY_WEBHOOK_URL, SHEET_ID, RELAY_TOKEN
  *
- * Requires Node 18+ (global fetch).
+ * Requires Node 24 (global fetch).
  */
 import { readFileSync } from "fs";
 import { dirname, join } from "path";
@@ -372,7 +372,7 @@ async function verifyDiscoveryEndpoint(endpoint, options) {
       kind: "network_error",
       message: "Fetch is not available in this environment.",
       detail:
-        "The verifier needs a browser or Node 18+ runtime with global fetch.",
+        "The verifier needs a browser or Node 24 runtime with global fetch.",
       layer: "browser",
     });
   }
@@ -539,9 +539,9 @@ function logResult(result, context) {
 
 async function main() {
   const major = Number(process.versions.node.split(".")[0]);
-  if (Number.isNaN(major) || major < 18) {
+  if (Number.isNaN(major) || major < 24) {
     console.error(
-      "verify-discovery-webhook: Node 18+ required (uses global fetch).",
+      "verify-discovery-webhook: Node 24 required (uses global fetch).",
     );
     process.exit(1);
   }

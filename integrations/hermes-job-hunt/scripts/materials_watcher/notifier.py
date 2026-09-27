@@ -8,8 +8,22 @@ from typing import Any
 from .manifest import PendingRequest
 
 
-CHAT_ID = -1003800236296
-THREAD_ID = 48
+# Telegram destination for MATERIALS READY/FAILED notices. Read from the
+# environment so no chat id ships in the repo (H8/F18). Example:
+#   MATERIALS_TELEGRAM_CHAT_ID=-1001234567890 MATERIALS_TELEGRAM_THREAD_ID=48
+# Sending fails closed when the chat id is unset.
+def _chat_id() -> str:
+    return os.environ.get("MATERIALS_TELEGRAM_CHAT_ID", "").strip()
+
+
+def _thread_id() -> int | None:
+    raw = os.environ.get("MATERIALS_TELEGRAM_THREAD_ID", "").strip()
+    if not raw:
+        return None
+    try:
+        return int(raw)
+    except ValueError:
+        return None
 
 SCRIPTS_DIR = Path(__file__).resolve().parents[1]
 if str(SCRIPTS_DIR) not in sys.path:
@@ -64,12 +78,17 @@ class TelegramNotifier:
         return self._send(text)
 
     def _send(self, text: str) -> dict[str, Any]:
-        return _api_call(
-            "sendMessage",
-            {
-                "chat_id": CHAT_ID,
-                "message_thread_id": THREAD_ID,
-                "text": text,
-                "disable_web_page_preview": True,
-            },
-        )
+        chat_id = _chat_id()
+        if not chat_id:
+            raise RuntimeError(
+                "MATERIALS_TELEGRAM_CHAT_ID is not set; refusing to send to a default chat"
+            )
+        payload: dict[str, Any] = {
+            "chat_id": chat_id,
+            "text": text,
+            "disable_web_page_preview": True,
+        }
+        thread_id = _thread_id()
+        if thread_id is not None:
+            payload["message_thread_id"] = thread_id
+        return _api_call("sendMessage", payload)

@@ -138,6 +138,7 @@ export type DiscoveryMatchClient = {
     rawListing: RawListing;
     run: DiscoveryRun;
     baseline: MatchDecision;
+    signal?: AbortSignal;
   }): Promise<MatchDecision>;
 };
 
@@ -294,7 +295,7 @@ export function createWorkerChatMatchClient(
 ): DiscoveryMatchClient {
   const fetchImpl = dependencies.fetchImpl || globalThis.fetch;
   return {
-    async evaluate({ rawListing, run, baseline }) {
+    async evaluate({ rawListing, run, baseline, signal }) {
       const provider = resolveWorkerChatProvider(runtimeConfig);
       if (!provider) return baseline;
 
@@ -302,6 +303,7 @@ export function createWorkerChatMatchClient(
         const result = await callWorkerChatProvider({
           provider,
           fetchImpl,
+          signal,
           temperature: 0.1,
           maxTokens: 1024,
           messages: [

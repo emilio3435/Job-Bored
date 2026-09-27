@@ -6,15 +6,6 @@ import { safeFetch } from "../net/safe-fetch.ts";
 
 type FetchImpl = typeof globalThis.fetch;
 
-export const ATS_PUBLIC_EXECUTABLE_SOURCE_IDS = [
-  "greenhouse",
-  "lever",
-  "ashby",
-] as const;
-
-export type AtsPublicExecutableSourceId =
-  (typeof ATS_PUBLIC_EXECUTABLE_SOURCE_IDS)[number];
-
 export type FetchAtsJobFailureReason =
   | "not_found"
   | "http_error"
@@ -30,11 +21,6 @@ export type FetchAtsJobResult =
       message: string;
       httpStatus?: number;
     };
-
-export type AtsPublicExecution =
-  | { status: "executable"; sourceId: AtsPublicExecutableSourceId }
-  | { status: "unsupported"; sourceId: AtsSourceId; reason: string }
-  | { status: "unknown"; sourceId: string; reason: string };
 
 export type RegisteredAtsSelection = {
   selected: AtsSourceId[];
@@ -73,49 +59,6 @@ export function hasRegisteredAtsExecutionLane(
   registry?: Pick<AtsProviderRegistry, "getProvider">,
 ): boolean {
   return selectRegisteredAtsSources(effectiveSources, registry).selected.length > 0;
-}
-
-export function resolveAtsPublicExecution(sourceId: string): AtsPublicExecution {
-  const id = String(sourceId || "").trim();
-  if ((ATS_PUBLIC_EXECUTABLE_SOURCE_IDS as readonly string[]).includes(id)) {
-    return {
-      status: "executable",
-      sourceId: id as AtsPublicExecutableSourceId,
-    };
-  }
-  if (isRegisteredAtsSourceId(id)) {
-    return {
-      status: "unsupported",
-      sourceId: id,
-      reason: `No public ATS JSON fetcher is configured for registered provider "${id}". Use the provider registry browser/public-feed lane instead.`,
-    };
-  }
-  return {
-    status: "unknown",
-    sourceId: id,
-    reason: `"${id}" is not a registered ATS provider.`,
-  };
-}
-
-export async function fetchAtsJobByRegistry(
-  input: { provider: string; slug: string; jobId: string },
-  deps: { fetchImpl?: typeof fetch } = {},
-): Promise<FetchAtsJobResult> {
-  const resolved = resolveAtsPublicExecution(input.provider);
-  if (resolved.status === "executable") {
-    if (resolved.sourceId === "greenhouse") {
-      return fetchGreenhouseJob(input, deps);
-    }
-    if (resolved.sourceId === "lever") {
-      return fetchLeverJob(input, deps);
-    }
-    return fetchAshbyJob(input, deps);
-  }
-  return {
-    ok: false,
-    reason: resolved.status,
-    message: resolved.reason,
-  };
 }
 
 export async function fetchGreenhouseJob(

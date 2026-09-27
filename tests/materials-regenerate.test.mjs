@@ -18,7 +18,8 @@ import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { materialsCacheKey } from "../server/materials-package.mjs";
 import { regeneratePackage } from "../server/materials-regenerate.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
-import { EXAMPLE_MARKS, EXAMPLE_RESUME_SOURCE, EXAMPLE_WRITER_JSON } from "./fixtures/materials-example-writer.mjs";
+import { EXAMPLE_MARKS, EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-example-writer.mjs";
+import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
 
 const RUN_SCHEMA = JSON.parse(
   await readFile(new URL("../schemas/materials-run.v1.schema.json", import.meta.url), "utf8"),
@@ -31,18 +32,16 @@ const JD = "Operations analytics manager for a growing fulfillment network. Own 
 
 /**
  * @param {string} dir
- * @param {{ writer?: Function }} [extra]
+ * @param {Record<string, unknown>} [extra]
  */
 function drafterFor(dir, extra = {}) {
+  const stub = scriptedPipelineFetch();
   return createMaterialsDrafter({
     applicationsRoot: dir,
     loadPin: () => ({ provider: "gemini", model: "gemini-flash", apiKey: "k", baseUrl: "" }),
     resolvePin: async (pin) => ({ ...pin, resolvedModel: "gemini-flash" }),
-    writer: async () => EXAMPLE_WRITER_JSON,
-    editor: async () => EXAMPLE_WRITER_JSON,
-    critic: async () => ({ status: "pass", issues: [] }),
-    pdfSession: null,
-    pdfRenderer: async () => ({ skipped: true, note: "pdf_skipped" }),
+    fetchImpl: stub.fetchImpl,
+    openSession: null,
     logoLoader: async () => EXAMPLE_MARKS,
     now: () => new Date("2026-09-25T12:00:00.000Z"),
     ...extra,
@@ -140,7 +139,7 @@ describe("each package records its template", () => {
     await draft(drafter, "acme-key", { template: "dossier" });
     const run = await readJson(join(dir, "acme-key", "run.json"));
     const intake = run.stages.find((s) => s.stage === "intake");
-    assert.match(intake.detail, /\|dossier@1\.0\|/);
+    assert.match(intake.detail, /template dossier@1\.0/);
     const a = materialsCacheKey({ jdText: JD, resumeText: "r", family: resolveFamily("signal") });
     const b = materialsCacheKey({ jdText: JD, resumeText: "r", family: resolveFamily("editorial") });
     assert.notEqual(a, b);
@@ -156,13 +155,6 @@ describe("each package records its template", () => {
     assert.equal(existsSync(join(dir, "acme-bad", "pending.json")), false);
   });
 
-  it("should keep the legacy renderer behind the flag, with no run records", async () => {
-    const drafter = drafterFor(dir, { legacyRender: true });
-    await draft(drafter, "acme-legacy");
-    const html = await readFile(join(dir, "acme-legacy", "resume.html"), "utf8");
-    assert.doesNotMatch(html, /data-family=/);
-    assert.equal(existsSync(join(dir, "acme-legacy", "run.json")), false);
-  });
 });
 
 describe("regenerate in another template", () => {

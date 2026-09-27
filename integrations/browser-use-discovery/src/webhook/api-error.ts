@@ -22,7 +22,7 @@ export interface ApiErrorV1 {
   retryable: boolean;
 }
 
-const STATUS_CODES: Record<number, string> = {
+export const STATUS_CODES: Record<number, string> = {
   400: "invalid_request",
   401: "unauthorized",
   403: "forbidden",

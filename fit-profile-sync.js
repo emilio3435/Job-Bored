@@ -84,6 +84,14 @@
     return typeof text === "string" ? text : "";
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; otherwise window.fetch, called on window. */
+  function apiFetch(url, init) {
+    var auth = root && root.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return root.fetch(url, init);
+  }
+
   async function syncProfile(payload, options) {
     var opts = options || {};
     // window.fetch must be called on window: a detached call throws
@@ -93,7 +101,7 @@
         ? opts.fetchImpl
         : root && typeof root.fetch === "function"
           ? function (url, init) {
-              return root.fetch(url, init);
+              return apiFetch(url, init);
             }
           : null;
     if (typeof fetchImpl !== "function") return localOnly(0);

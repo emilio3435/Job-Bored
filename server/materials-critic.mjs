@@ -2,13 +2,42 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
+import { loadVoicePack } from "./materials-delint.mjs";
 
-const KEYWORD_MIN_LENGTH = 5;
-const KEYWORD_MIN_HITS = 3;
 const JD_ECHO_WINDOW = 8;
-const STOP_LIST = new Set(["about", "their", "would", "should", "other", "which"]);
-const BANNED_FILLER_RE = /leverage|synergize|passionate about|results-driven|proven track record/i;
 const HTML_IN_SLOT_RE = /<[a-z]/i;
+
+/* Fallback when the voice pack cannot load; the pack (30+ patterns) is
+ * the real list. */
+const FALLBACK_FILLER = ["leverage", "synergize", "passionate about", "results-driven", "proven track record"];
+
+/** @type {RegExp | null} */
+let cachedFillerRe = null;
+
+/**
+ * Slice 5: filler detection is pack-driven. The banned patterns from
+ * materials-voice.json become one case-insensitive matcher, cached for
+ * the process.
+ */
+async function fillerPattern() {
+  if (cachedFillerRe) return cachedFillerRe;
+  let patterns = FALLBACK_FILLER;
+  try {
+    const pack = await loadVoicePack();
+    const banned = Array.isArray(pack.banned) ? pack.banned : [];
+    const listed = banned
+      .map((rule) => (rule && typeof rule.pattern === "string" ? rule.pattern.trim() : ""))
+      .filter((pattern) => pattern.length >= 3);
+    if (listed.length) patterns = listed;
+  } catch {
+    // fall back to the five phrases
+  }
+  cachedFillerRe = new RegExp(
+    `\\b(?:${patterns.map((p) => p.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")).join("|")})\\b`,
+    "i",
+  );
+  return cachedFillerRe;
+}
 
 /**
  * @typedef {object} CriticIssue
@@ -36,6 +65,14 @@ const EMPTY_AUDIT = {
  */
 function issue(code, message, severity = "review") {
   return { code, message, severity };
+}
+
+/**
+ * @param {unknown} value
+ * @returns {value is Record<string, unknown>}
+ */
+function isRecord(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 /** @param {CriticIssue[]} issues */
@@ -67,22 +104,6 @@ function tokenize(text) {
   return trimmed ? trimmed.split(/\s+/) : [];
 }
 
-/** @param {unknown} jdText */
-function jdKeywords(jdText) {
-  /** @type {string[]} */
-  const keywords = [];
-  const seen = new Set();
-  for (const raw of tokenize(jdText)) {
-    const word = raw.toLowerCase();
-    if (word.length < KEYWORD_MIN_LENGTH) continue;
-    if (STOP_LIST.has(word)) continue;
-    if (seen.has(word)) continue;
-    seen.add(word);
-    keywords.push(word);
-  }
-  return keywords;
-}
-
 /**
  * @param {unknown} value
  * @param {string[]} out
@@ -105,7 +126,6 @@ function collectStrings(value, out) {
 function extractEmployerStrings(html) {
   const source = String(html ?? "");
   const employers = new Set();
-  if (source.includes("Audacy")) employers.add("Audacy");
 
   for (const match of source.matchAll(/<!--\s*COMPANY:\s*([^>]+?)\s*-->/gi)) {
     const name = match[1].trim();
@@ -134,7 +154,7 @@ function composedEmployerStrings(html) {
 
 /**
  * Word budgets stay in materials-quality; HTML is staged so auditCoverLetter
- * / auditResume read the same 325–475 and resume section rules.
+ * / auditResume read the same budget-band and resume section rules.
  *
  * @param {string} letterHtml
  * @param {string} resumeHtml
@@ -168,6 +188,10 @@ async function auditStagedHtml(letterHtml, resumeHtml) {
  * @param {unknown} [input.sourceResumeText] the user's own resume (C11); every
  *   employer in the composed resume must appear in it
  * @param {unknown} [input.writerJson]
+ * @param {string[]} [input.keptEmployers] slice 5: employers the selection
+ *   featured — frozen_fact_broken narrows to these instead of the master
+ * @param {string[]} [input.ledgerMetrics] slice 5: metric tokens from the
+ *   ledger — any other numeral in the draft is an invented fact
  * @returns {Promise<{
  *   status: "pass" | "review" | "fail",
  *   letter: DocumentAudit,
@@ -182,6 +206,8 @@ export async function critiqueMaterials({
   masterResumeHtml,
   sourceResumeText,
   writerJson,
+  keptEmployers,
+  ledgerMetrics,
 } = {}) {
   const letterSource = typeof letterHtml === "string" ? letterHtml : "";
   const resumeSource = typeof resumeHtml === "string" ? resumeHtml : "";
@@ -191,16 +217,6 @@ export async function critiqueMaterials({
   const issues = [...(letter.issues || []), ...(resume.issues || [])];
 
   const letterText = visibleText(letterSource);
-  const resumeText = visibleText(resumeSource);
-  const combinedText = `${letterText} ${resumeText}`.toLowerCase();
-  const keywords = jdKeywords(jdText);
-  const keywordHits = keywords.filter((word) => combinedText.includes(word));
-  if (keywordHits.length < KEYWORD_MIN_HITS) {
-    issues.push(issue(
-      "keyword_coverage_low",
-      `Letter and resume use ${keywordHits.length} job-description keywords of length ≥ ${KEYWORD_MIN_LENGTH}; need at least ${KEYWORD_MIN_HITS}.`,
-    ));
-  }
 
   const jdWords = tokenize(jdText);
   if (jdWords.length >= JD_ECHO_WINDOW) {
@@ -216,14 +232,34 @@ export async function critiqueMaterials({
     }
   }
 
-  if (BANNED_FILLER_RE.test(letterSource)) {
+  /* F2: scan the writer's letter strings — never the composed HTML, whose
+   * template guidance comments list the banned phrases verbatim. Without a
+   * writer letter, fall back to visible text (comments stripped). */
+  /** @type {string[]} */
+  const letterStrings = [];
+  if (isRecord(writerJson) && writerJson.letter !== undefined) {
+    collectStrings(writerJson.letter, letterStrings);
+  }
+  const fillerHaystack = letterStrings.length
+    ? letterStrings.join("\n")
+    : visibleText(letterSource);
+  const fillerRe = await fillerPattern();
+  if (fillerRe.test(fillerHaystack)) {
     issues.push(issue(
       "banned_filler",
       "Cover letter uses banned filler phrasing.",
     ));
   }
 
-  const missingEmployers = extractEmployerStrings(masterResumeHtml).filter(
+  /* Slice 5: frozen facts narrow to the kept claims. The master-HTML path
+   * stays for the sample harness, which has no selection. */
+  const keptList = Array.isArray(keptEmployers)
+    ? keptEmployers.filter((name) => typeof name === "string" && name)
+    : [];
+  const frozenNames = keptList.length
+    ? keptList
+    : extractEmployerStrings(masterResumeHtml);
+  const missingEmployers = frozenNames.filter(
     (name) => !resumeSource.includes(name),
   );
   if (missingEmployers.length) {
@@ -232,6 +268,31 @@ export async function critiqueMaterials({
       `Composed resume dropped frozen employer fact(s): ${missingEmployers.join(", ")}.`,
       "fail",
     ));
+  }
+
+  /* Slice 5: numerals that do not trace to the ledger are invented. */
+  const ledgerTokens = Array.isArray(ledgerMetrics)
+    ? ledgerMetrics.filter((token) => typeof token === "string" && token)
+    : null;
+  if (ledgerTokens) {
+    /** @type {string[]} */
+    const slotStrings = [];
+    collectStrings(writerJson, slotStrings);
+    for (const text of slotStrings) {
+      for (const match of String(text).matchAll(/((?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:[–-]\d[\d,]*(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?)/g)) {
+        const token = match[1];
+        if (/^(?:19|20)\d\d(?:[–-](?:19|20)\d\d)?$/.test(token)) continue;
+        if (!ledgerTokens.includes(token)) {
+          issues.push(issue(
+            "invented_fact",
+            `Draft numeral ${token} does not trace to a ledger metric.`,
+            "fail",
+          ));
+          break;
+        }
+      }
+      if (issues.some((item) => item.code === "invented_fact")) break;
+    }
   }
 
   const sourceText = typeof sourceResumeText === "string" ? sourceResumeText.toLowerCase() : "";

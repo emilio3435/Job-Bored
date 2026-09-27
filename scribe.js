@@ -721,7 +721,7 @@
 
   function wireAppearance(region) {
     const sel = region.querySelector("#scribeAppearance");
-    const legacy = document.getElementById("resumeGenerateVisualTheme");
+    const legacy = document.getElementById("resumeGenerateTemplate");
     if (!sel) return;
     function copyOptions() {
       sel.innerHTML = "";

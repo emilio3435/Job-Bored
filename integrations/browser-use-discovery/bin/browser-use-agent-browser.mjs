@@ -61,7 +61,7 @@ export async function assertSafeBrowserTarget(url, options = {}) {
   const result = await validateScrapeTargetWithDns(url, options);
   if (!result.ok) {
     const error = new Error(`browser-use-agent-browser: refused ${url}: ${result.error}`);
-    error.code = "SSRF_BLOCKED";
+    error.code = "ssrf_blocked";
     throw error;
   }
   return result.url;
@@ -75,7 +75,7 @@ function assertSafeLandingUrl(url) {
     const error = new Error(
       `browser-use-agent-browser: browser landed on ${url}: ${result.error}`,
     );
-    error.code = "SSRF_BLOCKED";
+    error.code = "ssrf_blocked";
     throw error;
   }
 }

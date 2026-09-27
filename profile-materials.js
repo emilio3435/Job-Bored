@@ -42,10 +42,6 @@
     return host().fillDocumentTemplateSelect(...args);
   }
 
-  function fillVisualThemeSelect(...args) {
-    return host().fillVisualThemeSelect(...args);
-  }
-
   function scheduleCandidateProfileMatchRefresh(shouldRender) {
     return window.JobBoredApp.keywordMatch.scheduleCandidateProfileMatchRefresh(
       shouldRender,
@@ -306,8 +302,8 @@
       "resume_update",
       prefs.resumeTemplateId,
     );
-    fillVisualThemeSelect("prefVisualTheme", prefs.visualThemeId);
     fillMaterialsTemplateSelect("prefMaterialsTemplate", prefs.materialsTemplate);
+    fillMaterialsAccentSelect("prefMaterialsAccent", prefs.materialsAccent);
   }
 
   /**
@@ -331,6 +327,30 @@
       .map(
         (f) =>
           `<option value="${escapeHtml(f.id)}" title="${escapeHtml(f.description)}">${escapeHtml(f.label)}: ${escapeHtml(f.description)}</option>`,
+      )
+      .join("");
+    el.value = value;
+  }
+
+  /**
+   * One option per preview accent (label + one-line description), from the
+   * list user-content-store.js bundles; it mirrors the render-model
+   * template.accent enum gated by family.json.
+   * @param {string} id
+   * @param {string} selected
+   */
+  function fillMaterialsAccentSelect(id, selected) {
+    const el = document.getElementById(id);
+    const UC = getUserContent();
+    const accents =
+      UC && Array.isArray(UC.MATERIALS_ACCENTS) ? UC.MATERIALS_ACCENTS : [];
+    if (!el || !accents.length) return;
+    const fallback = (accents[0] || {}).id || "volt";
+    const value = accents.some((a) => a.id === selected) ? selected : fallback;
+    el.innerHTML = accents
+      .map(
+        (a) =>
+          `<option value="${escapeHtml(a.id)}" title="${escapeHtml(a.description)}">${escapeHtml(a.label)}: ${escapeHtml(a.description)}</option>`,
       )
       .join("");
     el.value = value;

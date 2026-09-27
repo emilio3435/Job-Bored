@@ -37,16 +37,52 @@ export function parseEnvFileText(text) {
  * such a placeholder blank a real credential set in an earlier file. An
  * empty value still lands when no earlier file set the key at all, so
  * "explicitly empty" survives where it is the only answer.
+ *
+ * Returns { values, sources }: sources[key] is the winning layer index, so
+ * launchers can say WHICH file supplied a key (BEAUDIT G11).
  */
-export function mergeEnvFileValues(sources) {
+export function mergeEnvFileValuesWithSources(sources) {
   const merged = {};
-  for (const source of sources || []) {
+  const provenance = {};
+  for (const [index, source] of (sources || []).entries()) {
     if (!source || typeof source !== "object") continue;
     for (const [key, value] of Object.entries(source)) {
       const next = typeof value === "string" ? value : String(value ?? "");
       if (!next.trim() && String(merged[key] ?? "").trim()) continue;
       merged[key] = next;
+      provenance[key] = index;
     }
   }
-  return merged;
+  return { values: merged, sources: provenance };
+}
+
+export function mergeEnvFileValues(sources) {
+  return mergeEnvFileValuesWithSources(sources).values;
+}
+
+/**
+ * BEAUDIT G11: per-key provenance for layered env files. `layers` are the
+ * parsed objects in precedence order, `paths[i]` is layers[i]'s file, and
+ * `processEnv` overlays exactly like the starter's
+ * `{...fromFiles, ...process.env}` spread (any present key wins, even when
+ * empty). Returns { values, sources } with sources[key] set to the winning
+ * file path, "process", or "" when the layer is unknown. Paths and the word
+ * "process" — never values.
+ */
+export function resolveLayeredEnvSources(
+  layers,
+  { paths = [], processEnv = {} } = {},
+) {
+  const { values, sources } = mergeEnvFileValuesWithSources(layers);
+  const out = {};
+  for (const key of Object.keys(values)) {
+    if (Object.prototype.hasOwnProperty.call(processEnv, key)) {
+      out[key] = "process";
+    } else {
+      const index = sources[key];
+      out[key] =
+        typeof index === "number" && paths[index] ? String(paths[index]) : "";
+    }
+  }
+  return { values, sources: out };
 }

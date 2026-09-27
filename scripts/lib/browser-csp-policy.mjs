@@ -77,7 +77,7 @@ export function originForConnectSrc(raw) {
 }
 
 /**
- * @param {{ extraConnectSrc?: unknown[] }} [options]
+ * @param {{ extraConnectSrc?: unknown[], forMeta?: boolean }} [options]
  * @returns {string}
  */
 export function buildContentSecurityPolicy(options = {}) {
@@ -95,7 +95,7 @@ export function buildContentSecurityPolicy(options = {}) {
   const connectSrc = extraOrigins.length
     ? REQUIRED_CONNECT_SRC.concat(extraOrigins)
     : REQUIRED_CONNECT_SRC;
-  return [
+  const directives = [
     "default-src 'self'",
     `script-src ${REQUIRED_SCRIPT_SRC.join(" ")}`,
     `style-src ${REQUIRED_STYLE_SRC.join(" ")}`,
@@ -103,8 +103,13 @@ export function buildContentSecurityPolicy(options = {}) {
     `font-src ${REQUIRED_FONT_SRC.join(" ")}`,
     `connect-src ${connectSrc.join(" ")}`,
     `frame-src ${REQUIRED_FRAME_SRC.join(" ")}`,
-    "frame-ancestors 'none'",
-  ].join("; ");
+  ];
+  // BEAUDIT G13: frame-ancestors is ignored inside a <meta> tag — the Pages
+  // artifact carries the policy as meta, so the meta variant drops it.
+  if (!options.forMeta) {
+    directives.push("frame-ancestors 'none'");
+  }
+  return directives.join("; ");
 }
 
 /**

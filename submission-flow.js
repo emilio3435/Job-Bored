@@ -342,7 +342,9 @@
     if (typeof writer.updateJobStatus !== "function") {
       return { ok: false, code: "writer-unavailable" };
     }
-    var succeeded = await writer.updateJobStatus(jobKey, "Applied", fromStage);
+    // D11: the fallback keeps the confirmed evidence too — the writer
+    // honors the dialog's date, follow-up and source note for Applied.
+    var succeeded = await writer.updateJobStatus(jobKey, "Applied", fromStage, evidence);
     return succeeded ? { ok: true, result: null } : { ok: false, code: "persist-failed" };
   }
 

@@ -8,7 +8,7 @@
  * Origin allowlist PLUS the exact hosted Pages origin from ./CNAME (a Pages
  * dashboard on this machine still talks to its loopback dev server). The
  * shared Host gate runs first and is unchanged: a foreign Host gets
- * HOST_NOT_ALLOWED no matter what Origin it claims.
+ * host_not_allowed no matter what Origin it claims.
  *
  * Every probe below hits a real spawned dev-server on an ephemeral port.
  */
@@ -200,7 +200,7 @@ describe("B5 C2 · GET /__proxy/ping refuses the rest", () => {
         headers: { host: `evil.example:${port}`, origin: localOrigin },
       });
       assert.equal(evil.status, 403);
-      assert.match(evil.text, /HOST_NOT_ALLOWED/);
+      assert.match(evil.text, /host_not_allowed/);
       const ok = await sendRaw(port, {
         path: "/__proxy/ping",
         headers: { host: `127.0.0.1:${port}`, origin: localOrigin },

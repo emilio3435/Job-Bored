@@ -60,6 +60,13 @@ type ProviderRule = {
   queryKeys: string[];
   pathPatterns: RegExp[];
   fallbackToLastSegment?: boolean;
+  /**
+   * How to scope the provider key to one employer. Board job ids are
+   * per-tenant (acme job 1 vs globex job 1), so the key must carry the
+   * tenant host or the board slug from the path; otherwise two different
+   * canonical URLs collapse on a bare numeric id.
+   */
+  tenantScope?: "host" | "pathSlug";
 };
 
 const REMOTE_PATTERN =
@@ -127,6 +134,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     ],
     queryKeys: ["gh_jid", "jobId", "job_id", "job"],
     pathPatterns: [/\/jobs\/([^/?#]+)/i],
+    tenantScope: "pathSlug",
   },
   {
     provider: "lever",
@@ -134,6 +142,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["postingId", "posting_id", "jobId", "job_id"],
     pathPatterns: [/\/postings\/([^/?#]+)/i, /\/[^/]+\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "pathSlug",
   },
   {
     provider: "ashby",
@@ -141,6 +150,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id"],
     pathPatterns: [/\/[^/]+\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "pathSlug",
   },
   {
     provider: "smartrecruiters",
@@ -148,6 +158,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id"],
     pathPatterns: [/\/jobs\/([^/?#]+)/i, /\/([^/?#]+)$/i],
     fallbackToLastSegment: true,
+    tenantScope: "pathSlug",
   },
   {
     provider: "workday",
@@ -162,12 +173,14 @@ const PROVIDER_RULES: ProviderRule[] = [
       /\/([^/?#]+)\/apply$/i,
     ],
     fallbackToLastSegment: true,
+    tenantScope: "host",
   },
   {
     provider: "icims",
     hostPatterns: [/(^|\.)icims\.com$/i],
     queryKeys: ["job", "jobId", "job_id"],
     pathPatterns: [/\/jobs\/([^/?#]+)/i],
+    tenantScope: "host",
   },
   {
     provider: "jobvite",
@@ -175,12 +188,14 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id"],
     pathPatterns: [/\/job\/([^/?#]+)/i, /\/jobs\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "pathSlug",
   },
   {
     provider: "taleo",
     hostPatterns: [/(^|\.)taleo\.net$/i, /(^|\.)oraclecloud\.com$/i],
     queryKeys: ["job", "jobId", "job_id", "rid"],
     pathPatterns: [],
+    tenantScope: "host",
   },
   {
     provider: "successfactors",
@@ -191,6 +206,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["career_job_req_id", "jobId", "jobReqId", "req_id"],
     pathPatterns: [/\/job\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "host",
   },
   {
     provider: "workable",
@@ -198,6 +214,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id"],
     pathPatterns: [/\/j\/([^/?#]+)/i, /\/jobs\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "pathSlug",
   },
   {
     provider: "breezy",
@@ -205,6 +222,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id"],
     pathPatterns: [/\/p\/([^/?#]+)/i, /#\/positions\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "host",
   },
   {
     provider: "recruitee",
@@ -212,6 +230,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id"],
     pathPatterns: [/\/o\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "host",
   },
   {
     provider: "teamtailor",
@@ -219,6 +238,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id"],
     pathPatterns: [/\/jobs\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "host",
   },
   {
     provider: "personio",
@@ -226,6 +246,7 @@ const PROVIDER_RULES: ProviderRule[] = [
     queryKeys: ["jobId", "job_id", "positionId", "position_id"],
     pathPatterns: [/\/job\/([^/?#]+)/i, /\/position\/([^/?#]+)/i],
     fallbackToLastSegment: true,
+    tenantScope: "host",
   },
 ];
 
@@ -350,12 +371,43 @@ export function computeListingPrimaryFingerprintKeys(
     url: canonicalUrl || input.url,
   });
   const providerJobId = computeListingProviderJobId(input);
+  const tenantScope = computeListingTenantScope(
+    providerType || normalizeSourceId(input.sourceId || ""),
+    canonicalUrl || input.url || "",
+  );
+  const providerName =
+    providerType || normalizeSourceId(input.sourceId || "") || "unknown";
   return dedupeStrings([
     canonicalUrl ? `url:${canonicalUrl}` : "",
     providerJobId
-      ? `provider:${providerType || normalizeSourceId(input.sourceId || "") || "unknown"}:${providerJobId}`
+      ? tenantScope
+        ? `provider:${providerName}:${tenantScope}:${providerJobId}`
+        : `provider:${providerName}:${providerJobId}`
       : "",
   ]);
+}
+
+/**
+ * Employer scope for a tenant-scoped board URL (B10). Returns "" when the
+ * provider uses platform-unique ids or no tenant can be read, in which case
+ * callers keep the legacy unscoped key.
+ */
+export function computeListingTenantScope(
+  providerType: string,
+  rawUrl: string,
+): string {
+  const rule = PROVIDER_RULES.find((entry) => entry.provider === providerType);
+  if (!rule?.tenantScope) return "";
+  const parsed = safeParseUrl(String(rawUrl || "").trim());
+  if (!parsed) return "";
+  if (rule.tenantScope === "host") {
+    return parsed.hostname.toLowerCase();
+  }
+  const slug = parsed.pathname
+    .split("/")
+    .map((part) => part.trim())
+    .filter(Boolean)[0] || "";
+  return normalizeProviderJobId(slug);
 }
 
 export function computeListingSemanticKey(

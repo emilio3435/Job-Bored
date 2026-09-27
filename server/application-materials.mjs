@@ -38,6 +38,11 @@ const ALLOWED_FILES = new Set([
   "cover-letter.txt",
   "run.json",
   "render-model.json",
+  "jd-extract.json",
+  "selection.json",
+  "outline.json",
+  "draft.json",
+  "qa.json",
 ]);
 
 /** @type {Record<string, string>} */
@@ -646,10 +651,11 @@ export async function buildManifest(slug, { root } = {}) {
   } catch {
     /* Quality metadata is advisory; manifest reads should stay resilient. */
   }
-  /* pending.json is written by the Hermes materials_request.py script
-   * when the user clicks "Draft cover letter" / "Tailor resume". The
-   * Hermes side deletes it once the drafts ship; until then we expose
-   * it so the UI shows a "Generating…" status on the affected cards. */
+  /* pending.json is written by the in-process materials drafter
+   * (server/materials-drafter.mjs) when the user clicks "Draft cover
+   * letter" / "Tailor resume". The drafter deletes it once the drafts
+   * ship; until then we expose it so the UI shows a "Generating…"
+   * status on the affected cards. */
   const pendingPath = join(dir, "pending.json");
   const failure = await readPendingError(dir);
   const nowMs = Date.now();
@@ -822,9 +828,11 @@ function normalizePendingProgress(rawProgress, feature, requestedAt) {
   if (!rawProgress || typeof rawProgress !== "object") return null;
   const progress = /** @type {Record<string, unknown>} */ (rawProgress);
   const phase = typeof progress.phase === "string" ? progress.phase : "";
+  const code = typeof progress.code === "string" ? progress.code : "";
   return {
     phase,
     message: normalizeProgressMessage(progress.message, feature, phase),
+    ...(code ? { code } : {}),
     startedAt: effectiveStartedAt(
       typeof progress.started_at === "string" ? progress.started_at : "",
       /** @type {string} */ (requestedAt),

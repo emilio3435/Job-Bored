@@ -122,17 +122,28 @@ it("PIPE-04 writes M+N+P once through sheets-writeback side effects", async () =
   assert.equal(fetchCalls[0].options.method, "POST");
   assert.match(fetchCalls[0].url, /\/values:batchUpdate$/);
   const body = JSON.parse(fetchCalls[0].options.body);
+  // D11: the same single batch now also carries the "Applied via …" audit
+  // note in O — the evidence the dialog collected must reach the Sheet.
   assert.deepEqual(
     body.data.map((entry) => entry.range),
-    ["Pipeline!M7", "Pipeline!N7", "Pipeline!P7"],
+    ["Pipeline!M7", "Pipeline!N7", "Pipeline!P7", "Pipeline!O7"],
   );
   assert.deepEqual(
     body.data.map((entry) => entry.values[0][0]),
-    ["Applied", "2026-08-31", "2026-09-07"],
+    [
+      "Applied",
+      "2026-08-31",
+      "2026-09-07",
+      "[2026-08-31] Applied via Company portal · receipt: Checklist complete",
+    ],
   );
   assert.equal(jobs[0].status, "Applied");
   assert.equal(jobs[0].appliedDate, "2026-08-31");
   assert.equal(jobs[0].followUpDate, "2026-09-07");
+  assert.equal(
+    jobs[0].notes,
+    "[2026-08-31] Applied via Company portal · receipt: Checklist complete",
+  );
   assert.ok(events.some((event) =>
     event.type === "jb:write:succeeded" &&
     event.detail.kind === "pipeline:move"

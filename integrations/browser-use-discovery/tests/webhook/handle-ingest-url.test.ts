@@ -1628,3 +1628,125 @@ test("terminalizes a stuck async /ingest-url run after maxRunDurationMs", async 
   assert.equal(afterLateFailure?.status, "partial");
   assert.equal(afterLateFailure?.terminal, true);
 });
+
+// ─── C6 (INGEST-01/04): scrape lineage — company/location/method ──────────
+// The worker /ingest-url must use the scraper's structured company (through
+// the shared placeholder sanitizer) and location before host inference,
+// label by the scrape method, and hand runtimeConfig.serpApiKey to the
+// scraper so the SerpApi fallback can fire.
+
+test("C6: serpapi-method scrape keeps company/location and SerpApi label", async () => {
+  let capturedLead: Record<string, unknown> | null = null;
+  const scrapeArgs: unknown[][] = [];
+  const response = await handleIngestUrlWebhook(
+    makeRequest({ url: "https://careers.acme.com/jobs/123" }),
+    makeDependencies({
+      runtimeConfig: makeRuntimeConfig({ serpApiKey: "serp_test_key" }),
+      scrapeJobPosting: async (...args: unknown[]) => {
+        scrapeArgs.push(args);
+        return {
+          url: "https://careers.acme.com/jobs/123",
+          title: "Senior Backend Engineer",
+          company: "Acme Robotics",
+          location: "Berlin, Germany",
+          description:
+            "Build and operate distributed backend services in TypeScript and Go. ".repeat(8),
+          method: "serpapi-google-jobs",
+          source: "serpapi",
+        };
+      },
+      pipelineWriter: {
+        write: async (_sheetId: string, leads: unknown[]) => {
+          capturedLead = leads[0] as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(capturedLead?.company, "Acme Robotics");
+  assert.equal(capturedLead?.location, "Berlin, Germany");
+  assert.equal(capturedLead?.sourceLabel, "Google Jobs (SerpApi)");
+  assert.equal(scrapeArgs.length, 1);
+  assert.equal(scrapeArgs[0]?.length, 2);
+  assert.equal(
+    (scrapeArgs[0]?.[1] as Record<string, unknown>)?.serpApiKey,
+    "serp_test_key",
+  );
+});
+
+test("C6: json-ld scrape keeps company/location with Company page label", async () => {
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({ url: "https://jobs.example-co.com/role/9" }),
+    makeDependencies({
+      scrapeJobPosting: async () => ({
+        url: "https://jobs.example-co.com/role/9",
+        title: "Staff Engineer",
+        company: "Example Co",
+        location: "Remote (US)",
+        description:
+          "Lead the platform team building internal developer tooling. ".repeat(8),
+        method: "json-ld",
+      }),
+      pipelineWriter: {
+        write: async (_sheetId: string, leads: unknown[]) => {
+          capturedLead = leads[0] as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(capturedLead?.company, "Example Co");
+  assert.equal(capturedLead?.location, "Remote (US)");
+  assert.equal(capturedLead?.sourceLabel, "Company page");
+});
+
+test("C6: careers-subdomain host inference yields the domain, not Careers", async () => {
+  let capturedLead: Record<string, unknown> | null = null;
+  const response = await handleIngestUrlWebhook(
+    makeRequest({ url: "https://careers.acme.com/jobs/123" }),
+    makeDependencies({
+      scrapeJobPosting: async () => ({
+        url: "https://careers.acme.com/jobs/123",
+        title: "Senior Backend Engineer",
+        description:
+          "Build and operate distributed backend services in TypeScript and Go. ".repeat(8),
+        method: "dom",
+      }),
+      pipelineWriter: {
+        write: async (_sheetId: string, leads: unknown[]) => {
+          capturedLead = leads[0] as Record<string, unknown>;
+          return {
+            sheetId: "sheet_123",
+            appended: 1,
+            updated: 0,
+            skippedDuplicates: 0,
+            skippedBlacklist: 0,
+            warnings: [],
+          };
+        },
+      },
+    }),
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(capturedLead?.company, "Acme");
+});

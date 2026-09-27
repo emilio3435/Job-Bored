@@ -634,25 +634,80 @@ function futureDateStr(daysFromNow) {
 }
 
 // Smart status transitions — each status change may auto-update related fields
-function getStatusSideEffects(newStatus, job, sheetRow) {
+function isIsoDateString(value) {
+  return /^\d{4}-\d{2}-\d{2}$/.test(String(value || "").trim());
+}
+
+/* D11: the submission dialog's evidence in the same "Applied via …" shape the
+   planner path writes (see submission-flow.js noteFor): newest entry first,
+   exact-line dedupe. Returns "" when there is nothing new to write. */
+function appliedEvidenceNote(evidence, existingNotes, today) {
+  const source =
+    evidence && evidence.source != null ? String(evidence.source).trim() : "";
+  if (!source) return "";
+  const parts = ["Applied via " + source];
+  const receipt =
+    evidence.receiptNote != null ? String(evidence.receiptNote).trim() : "";
+  if (receipt) parts.push("receipt: " + receipt);
+  if (Array.isArray(evidence.sent)) {
+    const sent = evidence.sent
+      .map((label) => String(label).trim())
+      .filter(Boolean);
+    if (sent.length) parts.push("sent: " + sent.join(", "));
+  }
+  const entry = "[" + today + "] " + parts.join(" · ");
+  const current = existingNotes == null ? "" : String(existingNotes);
+  if (!current) return entry;
+  if (current.split("\n").some((line) => line.trim() === entry)) return "";
+  return entry + "\n" + current;
+}
+
+function getStatusSideEffects(newStatus, job, sheetRow, evidence) {
   const updates = [{ range: `Pipeline!M${sheetRow}`, value: newStatus }];
   const localUpdates = { status: newStatus };
   const today = todayStr();
 
   switch (newStatus) {
-    case "Applied":
-      // Set Applied Date to today if not already set
-      if (!job.appliedDate) {
+    case "Applied": {
+      // D11: the confirmed evidence wins over the row's own values (planner
+      // parity — the dialog's date is what the person typed). Without
+      // evidence, keep today's defaults.
+      const evidenceDate =
+        evidence && isIsoDateString(evidence.appliedDate)
+          ? String(evidence.appliedDate).trim()
+          : "";
+      const evidenceFollowUp =
+        evidence && isIsoDateString(evidence.followUpDate)
+          ? String(evidence.followUpDate).trim()
+          : "";
+      if (evidenceDate) {
+        if (job.appliedDate !== evidenceDate) {
+          updates.push({ range: `Pipeline!N${sheetRow}`, value: evidenceDate });
+          localUpdates.appliedDate = evidenceDate;
+        }
+      } else if (!job.appliedDate) {
         updates.push({ range: `Pipeline!N${sheetRow}`, value: today });
         localUpdates.appliedDate = today;
       }
-      // Set Follow-up Date to 5 business days out if not already set
-      if (!job.followUpDate) {
+      if (evidenceFollowUp) {
+        if (job.followUpDate !== evidenceFollowUp) {
+          updates.push({ range: `Pipeline!P${sheetRow}`, value: evidenceFollowUp });
+          localUpdates.followUpDate = evidenceFollowUp;
+        }
+      } else if (!job.followUpDate) {
+        // Set Follow-up Date to 5 business days out if not already set
         const followUp = futureDateStr(7);
         updates.push({ range: `Pipeline!P${sheetRow}`, value: followUp });
         localUpdates.followUpDate = followUp;
       }
+      const note = appliedEvidenceNote(evidence, job.notes, today);
+      if (note) {
+        updates.push({ range: `Pipeline!O${sheetRow}`, value: note });
+        localUpdates.notes = note;
+        localUpdates._rawNotes = note;
+      }
       break;
+    }
 
     case "Phone Screen":
       // Set Applied Date if somehow skipped
@@ -737,7 +792,11 @@ function emitPipelineMoveSucceeded(jobKey, fromStage, toStage) {
   }
 }
 
-async function updateJobStatus(dataIndex, newStatus, prevStatusOverride) {
+/* D11: evidence is the submission dialog's { appliedDate, source,
+   receiptNote, followUpDate } (submission-flow.js evidenceFrom). For Applied
+   it overrides the default dates and appends the "Applied via …" note;
+   other statuses ignore it. Optional — existing 3-arg callers are unchanged. */
+async function updateJobStatus(dataIndex, newStatus, prevStatusOverride, evidence) {
   const sheetRow = getSheetRow(dataIndex);
   if (!sheetRow) {
     return false;
@@ -760,6 +819,7 @@ async function updateJobStatus(dataIndex, newStatus, prevStatusOverride) {
     newStatus,
     job,
     sheetRow,
+    newStatus === "Applied" ? evidence : undefined,
   );
 
   const success = await updateMultipleCells(updates);

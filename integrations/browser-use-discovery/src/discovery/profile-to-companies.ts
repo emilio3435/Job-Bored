@@ -27,6 +27,7 @@ import {
   type WorkerChatProviderConfig,
 } from "../ai/chat-provider.ts";
 import { collectSerpApiGoogleJobsListings } from "../sources/serpapi-google-jobs.ts";
+import { slugifyCompanyKey } from "./company-keys.ts";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
 import { GEMINI_FLASH_FAMILY, GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
 
@@ -576,13 +577,6 @@ function buildCompanyDiscoveryPrompt(
   return lines.join("\n");
 }
 
-function normalizeCompanyKey(name: string): string {
-  return name
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 function buildExcludedCompanyKeySet(input: {
   excludedCompanyKeys?: string[];
   excludedCompanyNames?: string[];
@@ -590,10 +584,10 @@ function buildExcludedCompanyKeySet(input: {
   const keys = [
     ...(Array.isArray(input.excludedCompanyKeys) ? input.excludedCompanyKeys : []),
     ...(Array.isArray(input.excludedCompanyNames)
-      ? input.excludedCompanyNames.map((name) => normalizeCompanyKey(String(name || "")))
+      ? input.excludedCompanyNames.map((name) => slugifyCompanyKey(String(name || "")))
       : []),
   ]
-    .map((value) => normalizeCompanyKey(String(value || "")))
+    .map((value) => slugifyCompanyKey(String(value || "")))
     .filter(Boolean);
   return new Set(keys);
 }
@@ -604,7 +598,7 @@ function filterExcludedCompanies(
 ): CompanyTarget[] {
   if (excludedCompanyKeys.size === 0) return companies;
   return companies.filter((company) => {
-    const key = normalizeCompanyKey(
+    const key = slugifyCompanyKey(
       String(company.companyKey || company.normalizedName || company.name || ""),
     );
     return key ? !excludedCompanyKeys.has(key) : true;
@@ -659,7 +653,7 @@ async function discoverCompaniesViaSerpApi(input: {
   const byKey = new Map<string, CompanyTarget>();
   for (const listing of result.listings) {
     const name = String(listing.company || "").trim();
-    const companyKey = normalizeCompanyKey(name);
+    const companyKey = slugifyCompanyKey(name);
     if (!name || !companyKey) continue;
     const existing = byKey.get(companyKey);
     const domain = domainFromUrl(listing.url);
@@ -750,7 +744,7 @@ function normalizeCompanyList(
     const name = String(entry.name || "").trim();
     if (!name) continue;
     if (isBlockedCompanyName(name)) continue;
-    const key = normalizeCompanyKey(name);
+    const key = slugifyCompanyKey(name);
     if (!key || seen.has(key)) continue;
     const originalDomains = cleanStringArray(entry.domains);
     const domains = sanitizeCompanyDomains(originalDomains);
@@ -935,7 +929,7 @@ function computeDeterministicCompanyScores(
   company: CompanyTarget,
   nowMs: number,
 ): { relevanceScore: number; breadthScore: number; noveltyScore: number } {
-  const companyKey = normalizeCompanyKey(
+  const companyKey = slugifyCompanyKey(
     String(company.companyKey || company.normalizedName || company.name || ""),
   );
   const roleTokens = new Set([
@@ -1021,7 +1015,7 @@ function buildCompanyJudgePrompt(
 ): string {
   const payload = companies.map((company) => ({
     name: company.name,
-    companyKey: normalizeCompanyKey(
+    companyKey: slugifyCompanyKey(
       String(company.companyKey || company.normalizedName || company.name || ""),
     ),
     domains: (company.domains || []).slice(0, 4),
@@ -1056,7 +1050,7 @@ function normalizeCompanyJudgeScores(
   const out = new Map<string, CompanyJudgeScore>();
   for (const entry of maybeScores) {
     if (!isPlainRecord(entry)) continue;
-    const key = normalizeCompanyKey(
+    const key = slugifyCompanyKey(
       String(entry.companyKey || entry.normalizedName || entry.name || ""),
     );
     if (!key || !knownCompanyKeys.has(key)) continue;
@@ -1082,7 +1076,7 @@ async function scoreCompaniesWithLlm(input: {
 }): Promise<Map<string, CompanyJudgeScore>> {
   const knownCompanyKeys = new Set(
     input.companies.map((company) =>
-      normalizeCompanyKey(String(company.companyKey || company.normalizedName || company.name || "")),
+      slugifyCompanyKey(String(company.companyKey || company.normalizedName || company.name || "")),
     ),
   );
   const prompt = buildCompanyJudgePrompt(input.profile, input.companies);
@@ -1166,7 +1160,7 @@ async function applyCompanyCandidateRanking(input: {
 
   const nowMs = Date.now();
   const ranked: RankedCompanyCandidate[] = uniqueCompanies.map((company) => {
-    const key = normalizeCompanyKey(
+    const key = slugifyCompanyKey(
       String(company.companyKey || company.normalizedName || company.name || ""),
     );
     const deterministic = computeDeterministicCompanyScores(input.profile, company, nowMs);

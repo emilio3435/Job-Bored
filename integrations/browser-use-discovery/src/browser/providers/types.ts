@@ -42,10 +42,12 @@ export type AtsProvider = {
     company: CompanyTarget,
     hints: ProviderDetectionHints,
     memory?: ProviderMemorySnapshot,
+    signal?: AbortSignal,
   ): Promise<ProviderSurface[]>;
   enumerateListings(
     surface: ProviderSurface,
     sessionManager: BrowserUseSessionManager,
+    signal?: AbortSignal,
   ): Promise<RawListing[]>;
   canonicalizeUrl(url: string): string | null;
   extractExternalJobId(url: string, payload?: unknown): string;
@@ -59,6 +61,7 @@ export type AtsProviderRegistry = {
     company: CompanyTarget,
     effectiveSources: AtsSourceId[],
     memory?: ProviderMemorySnapshot,
+    signal?: AbortSignal,
   ): Promise<ProviderSurface[]>;
 };
 

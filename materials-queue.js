@@ -40,6 +40,14 @@
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
   }
 
+  /* E4: the JobBored API transport. Attaches the hosted token when
+     hosted-api-auth.js is loaded; plain fetch otherwise. */
+  function apiFetch(url, init) {
+    var auth = root && root.JobBoredHostedApiAuth;
+    if (auth && typeof auth.apiFetch === "function") return auth.apiFetch(url, init);
+    return fetch(url, init);
+  }
+
   function getBaseUrl() {
     var helper = root.getJobPostingScrapeUrl;
     if (typeof helper === "function") {
@@ -179,7 +187,7 @@
   function fetchQueue() {
     var base = getBaseUrl();
     if (!base || typeof fetch !== "function") return Promise.resolve([]);
-    return fetch(base + "/api/applications/queue", { credentials: "omit", cache: "no-store" })
+    return apiFetch(base + "/api/applications/queue", { credentials: "omit", cache: "no-store" })
       .then(function (res) {
         if (!res.ok) throw new Error("HTTP " + res.status);
         return res.json();
@@ -229,7 +237,7 @@
     /* Optimistic: dim the row immediately so the click feels live. */
     var row = doc.querySelector(REGION_SELECTOR + ' .mq__row[data-slug="' + slug.replace(/"/g, '\\"') + '"]');
     if (row) row.style.opacity = "0.45";
-    fetch(base + "/api/applications/" + encodeURIComponent(slug) + "/dismiss", {
+    apiFetch(base + "/api/applications/" + encodeURIComponent(slug) + "/dismiss", {
       method: "POST",
       credentials: "omit",
       headers: { "Content-Type": "application/json" },

@@ -61,7 +61,7 @@ function makeNormalizedLead(overrides: Partial<NormalizedLead> & { url: string; 
     location: overrides.location || "Remote",
     url: overrides.url,
     compensationText: overrides.compensationText || "",
-    fitScore: overrides.fitScore ?? 0.75,
+    fitScore: overrides.fitScore ?? 8,
     matchScore: overrides.matchScore ?? null,
     favorite: overrides.favorite ?? false,
     dismissedAt: overrides.dismissedAt ?? null,
@@ -138,7 +138,7 @@ test("VAL-LOOP-SCORE-001: leadToFrontierCandidate converts browser/grounded lead
     url: "https://acme.com/jobs/backend-engineer",
     company: "Acme Corp",
     title: "Backend Engineer",
-    fitScore: 0.82,
+    fitScore: 8,
     tags: ["backend", "typescript", "node"],
     priority: "🔥",
     metadata: {
@@ -182,7 +182,7 @@ test("VAL-LOOP-SCORE-001: both ATS company and browser lead produce candidates i
     url: "https://acme.com/jobs/backend-engineer",
     company: "Acme Corp",
     title: "Backend Engineer",
-    fitScore: 0.75,
+    fitScore: 8,
     metadata: { runId: "test", variationKey: "test", sourceQuery: "test", sourceLane: "grounded_web" },
   });
 
@@ -617,6 +617,88 @@ test("selectExploitTargets filters non-viable candidates", () => {
   assert.equal(result.selectedTargets.length, 1);
   assert.equal(result.telemetry.qualityRejectedCount, 1);
   assert.equal(result.selectedTargets[0].candidateId, "company:c1");
+});
+
+// === B1: production fit scale is 1-10, frontier components are 0-100 ===
+
+test("B1: leadToFrontierCandidate converts the 1-10 fitScore to 0-100 roleFit without saturating", () => {
+  const at = (fitScore: number | null) =>
+    leadToFrontierCandidate(
+      makeNormalizedLead({
+        url: `https://boards.greenhouse.io/acme/jobs/${String(fitScore)}`,
+        company: "Acme",
+        title: "Backend Engineer",
+        fitScore,
+      }),
+      "ats_provider",
+    );
+
+  assert.equal(at(3).scores.roleFit, 30);
+  assert.equal(at(10).scores.roleFit, 100);
+  assert.equal(at(1).scores.roleFit, 10);
+  assert.equal(at(null).scores.roleFit, 50);
+  assert.ok(
+    at(3).compositeScore < 100,
+    `fit-3 composite must not saturate (got ${at(3).compositeScore})`,
+  );
+  assert.ok(
+    at(10).compositeScore > at(3).compositeScore,
+    "fit-10 must outrank fit-3",
+  );
+});
+
+test("B7: a memory-fed prior yield overrides the static frontier default", () => {
+  const lead = makeNormalizedLead({
+    url: "https://boards.greenhouse.io/acme/jobs/1",
+    company: "Acme",
+    title: "Backend Engineer",
+    fitScore: 8,
+  });
+  const withoutMemory = leadToFrontierCandidate(lead, "grounded_web");
+  assert.equal(withoutMemory.scores.priorAcceptedYield, 50);
+  const withMemory = leadToFrontierCandidate(lead, "grounded_web", {
+    priorAcceptedYield: 90,
+  });
+  assert.equal(withMemory.scores.priorAcceptedYield, 90);
+  assert.ok(
+    withMemory.compositeScore > withoutMemory.compositeScore,
+    "a proven company must outrank an unknown one",
+  );
+});
+
+test("B1: exploit selection drops the lowest-fit leads, not the alphabetical tail", () => {
+  const letters = "abcdefghijklmnopqrstuvwxyz".split("");
+  const leads = letters.map((letter, index) =>
+    makeNormalizedLead({
+      url: `https://boards.greenhouse.io/${letter}-co/jobs/1`,
+      company: `${letter}-co`,
+      title: "Engineer",
+      // Worst fit on "a", best fit on "z": alphabetical order opposes fit order.
+      fitScore: Math.max(1, Math.round((index / 25) * 9) + 1),
+    }),
+  );
+  const candidates = leads.map((lead) => leadToFrontierCandidate(lead, "ats_provider"));
+  const result = selectExploitTargets(
+    candidates,
+    { ...DEFAULT_EXPLORATION_BUDGET, maxExploitSurfaces: 18 },
+    makeIntent(),
+  );
+
+  const fitOf = (candidateId: string) =>
+    leads.find((lead) => `lead:${lead.url}` === candidateId)!.fitScore as number;
+  const selectedFit = result.selectedTargets.map((t) => fitOf(t.candidateId));
+  const droppedFit = result.rejectedCandidates.map((c) => fitOf(c.candidateId));
+
+  assert.equal(result.selectedTargets.length, 18);
+  assert.equal(result.rejectedCandidates.length, 8);
+  assert.ok(
+    Math.min(...selectedFit) >= Math.max(...droppedFit),
+    `selection must keep the highest-fit leads (selected min ${Math.min(...selectedFit)}, dropped max ${Math.max(...droppedFit)})`,
+  );
+  assert.ok(
+    result.selectedTargets.some((t) => t.companyKey === "z-co"),
+    "the fit-10 lead must survive the exploit budget",
+  );
 });
 
 test("selectExploitTargets tracks ATS vs browser candidate counts in telemetry", () => {
