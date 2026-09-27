@@ -1,4 +1,5 @@
 /** A proposed edit batch is validated here; it never publishes a partial model. */
+import { readFileSync } from "node:fs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { claimById } from "./materials-ledger.mjs";
 import { callJsonStage, EDIT_SYSTEM_PROMPT, WriterJsonError } from "./materials-writer.mjs";
@@ -7,78 +8,131 @@ import { callJsonStage, EDIT_SYSTEM_PROMPT, WriterJsonError } from "./materials-
 const words = (text) => String(text || "").trim().split(/\s+/).filter(Boolean);
 /** @param {Array<{text:string}>} nodes */
 const count = (nodes) => nodes.reduce((sum, node) => sum + words(node.text).length, 0);
-const numericToken = /(?<![\p{L}\p{N}])(?:[$#]|top[-–])?\d(?:[\d,]*\d)?(?:\.\d+)?(?:[-–]\d(?:[\d,]*\d)?(?:\.\d+)?)?(?:%|x\b|[kKmMbB]\+?|\+)?(?![\p{L}\p{N}])/gu;
-const wordToken = /[\p{L}][\p{L}\p{M}\d]*(?:[-'’][\p{L}\p{M}\d]+)*/gu;
-const months = new Set(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december"]);
+const commonWords = new Set(JSON.parse(readFileSync(new URL("./data/common-english.json", import.meta.url), "utf8")).words);
+const months = new Set(["january", "february", "march", "april", "may", "june", "july", "august", "september", "october", "november", "december", "jan", "feb", "mar", "apr", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec"]);
 const numberWords = new Set(["zero", "one", "two", "three", "four", "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen", "fifteen", "sixteen", "seventeen", "eighteen", "nineteen", "twenty", "thirty", "forty", "fifty", "sixty", "seventy", "eighty", "ninety", "hundred", "thousand", "million", "billion"]);
-const toolNames = new Set(["aws", "azure", "docker", "github", "kafka", "kubernetes", "linux", "postgres", "python", "salesforce", "sql", "tableau", "terraform"]);
-const titleFunctionWords = new Set(["of", "for", "the"]);
-const titleStopWords = new Set(["a", "an", "and", "as", "at", "by", "in", "into", "of", "on", "or", "the", "to", "with"]);
-const roleWords = new Set(["administrator", "analyst", "architect", "associate", "assistant", "consultant", "coordinator", "designer", "developer", "director", "engineer", "lead", "manager", "officer", "specialist"]);
+const titleFunctionWords = new Set(["a", "an", "as", "of", "for", "the", "and", "at", "in", "to"]);
+const titleLinks = new Set(["of", "for", "the"]);
+const roleWords = new Set(["administrator", "analyst", "architect", "associate", "assistant", "consultant", "coordinator", "designer", "developer", "director", "engineer", "head", "lead", "manager", "officer", "scientist", "specialist", "vp"]);
+const lexicalToken = /(?<![\p{L}\p{N}])(?:[$#]|top-)?\d[\d,]*(?:\.\d+)?(?:\s*-\s*\d[\d,]*(?:\.\d+)?)?(?:\s*%|\s*percent\b|x\b|[kmb]\+?|st\b|nd\b|rd\b|th\b)?|[\p{L}][\p{L}\p{M}\d]*(?:[-'][\p{L}\p{M}\d]+)*/giu;
+/** @param {unknown} value */
+const normalizedText = (value) => String(value || "").normalize("NFKC").replace(/[‘’]/g, "'").replace(/[‐‑‒–—−]/g, "-");
 /** @param {string} token */
-const normalizedToken = (token) => token.toLocaleLowerCase().replace(/[’‘]/g, "'").replace(/[–‐‑]/g, "-").replace(/[.,;:!?]+$/g, "");
+function tokenKey(token) {
+  return normalizedText(token).toLocaleLowerCase().replace(/,/g, "").replace(/\s*-\s*/g, "-").replace(/\s*percent\b|\s*%/g, "%").replace(/[.,;:!?]+$/g, "");
+}
 /** @param {string} token */
-const numberWord = (token) => token.toLocaleLowerCase().split(/[-–]/).every((part) => numberWords.has(part));
+function contractionKeys(token) {
+  const key = tokenKey(token);
+  const match = key.match(/^(.+)'(ve|d|ll|re|m|s)$/);
+  if (!match) return [key];
+  /** @type {Record<string, string>} */
+  const suffix = { ve: "have", d: "would", ll: "will", re: "are", m: "am", s: "is" };
+  if (match[2] === "s" && !["it", "he", "she", "that", "there", "who", "what"].includes(match[1])) return [match[1]];
+  return [match[1], suffix[match[2]]];
+}
+/** @param {string} token */
+const isNumberWords = (token) => tokenKey(token).split(/[-\s]+/).every((part) => numberWords.has(part));
+/** @param {string} key */
+function trustedKeys(key) {
+  const keys = [key];
+  const range = key.match(/^(\d[\d.]*)-(\d[\d.]*)(%|x|[kmb]\+?)?$/);
+  if (range) for (const endpoint of [range[1], range[2]]) keys.push(endpoint, endpoint + (range[3] || ""));
+  const metric = key.match(/^(\d[\d.]*)(%|x|[kmb]\+?)$/);
+  if (metric) keys.push(metric[1]);
+  return keys;
+}
+/** @param {string} key */
+function isCommon(key) {
+  if (key.length === 1 || commonWords.has(key)) return true;
+  const stems = [key];
+  for (let depth = 0; depth < 2; depth += 1) {
+    for (const word of [...stems]) {
+      for (const [suffix, replacement] of [["ies", "y"], ["ing", ""], ["ed", ""], ["es", ""], ["s", ""], ["ly", ""], ["ment", ""]]) {
+        if (word.length <= suffix.length + 2 || !word.endsWith(suffix)) continue;
+        const stem = word.slice(0, -suffix.length) + replacement;
+        if (commonWords.has(stem) || commonWords.has(stem + "e") || stem.endsWith(stem.slice(-1).repeat(2)) && commonWords.has(stem.slice(0, -1))) return true;
+        stems.push(stem);
+      }
+    }
+  }
+  return false;
+}
 /** @param {unknown} value */
 function factTokens(value) {
-  const text = String(value || "");
-  const found = [...text.matchAll(numericToken)].map((match) => ({ token: match[0], index: match.index }));
-  const wordMatches = [...text.matchAll(wordToken)];
-  for (let i = 0; i < wordMatches.length; i += 1) {
-    const match = wordMatches[i];
-    const token = match[0];
-    const lower = normalizedToken(token);
-    if (numberWord(token)) {
-      let end = i;
-      while (end + 1 < wordMatches.length && numberWord(wordMatches[end + 1][0]) && /^\s+$/.test(text.slice(wordMatches[end].index + wordMatches[end][0].length, wordMatches[end + 1].index))) end += 1;
-      found.push({ token: text.slice(match.index, wordMatches[end].index + wordMatches[end][0].length), index: match.index });
-      i = end;
-      continue;
+  const text = normalizedText(value);
+  const matches = [...text.matchAll(lexicalToken)];
+  const found = [];
+  for (let i = 0; i < matches.length; i += 1) {
+    const match = matches[i];
+    let end = i;
+    if (isNumberWords(match[0])) {
+      while (end + 1 < matches.length && isNumberWords(matches[end + 1][0]) && /^[\s-]+$/.test(text.slice(matches[end].index + matches[end][0].length, matches[end + 1].index))) end += 1;
     }
-    if (months.has(lower) && (lower !== "may" || token === "May") || toolNames.has(lower)) {
-      found.push({ token, index: match.index });
-      continue;
+    const raw = text.slice(match.index, matches[end].index + matches[end][0].length);
+    const keys = isNumberWords(raw) ? [tokenKey(raw).replace(/-/g, " ")] : contractionKeys(raw);
+    for (const key of keys) {
+      const month = months.has(key) && (key !== "may" || raw === "May");
+      found.push({ raw, key, always: /\d/.test(key) || /[\p{Ll}][\p{Lu}]/u.test(raw) || month || isNumberWords(raw) });
     }
-    const sentenceStart = !text.slice(0, match.index).trim() || /[.!?]\s*$/.test(text.slice(0, match.index));
-    if (!sentenceStart && /^[\p{Lu}]/u.test(token)) found.push({ token, index: match.index });
+    i = end;
   }
-  return found.sort((a, b) => a.index - b.index).map(({ token }) => token);
+  return found;
 }
 /** @param {string} text */
-const normalizedPhrase = (text) => (text.toLocaleLowerCase().match(/[\p{L}\p{M}\d]+/gu) || []).filter((word) => !titleFunctionWords.has(word)).join(" ");
-/** @param {string} text @param {Set<string>} titleWords */
-function titlePhrases(text, titleWords) {
+const titleWords = (text) => new Set((normalizedText(text).toLocaleLowerCase().match(/[\p{L}\p{M}]+/gu) || []).filter((word) => !titleFunctionWords.has(word)));
+/** @param {Set<string>} candidate @param {Set<string>} source */
+const subsetOf = (candidate, source) => [...candidate].every((word) => source.has(word));
+/** @param {string} value @param {Set<string>} knownTitleWords */
+function titlePhrases(value, knownTitleWords) {
+  const text = normalizedText(value);
+  const matches = [...text.matchAll(/[\p{L}][\p{L}\p{M}]*/gu)];
   const found = [];
-  const matches = [...text.matchAll(wordToken)];
-  for (let i = 0; i < matches.length - 1; i += 1) {
-    const left = matches[i];
-    let j = i + 1;
-    if (titleFunctionWords.has(matches[j][0].toLocaleLowerCase())) j += 1;
-    if (j >= matches.length) continue;
-    const right = matches[j];
-    if (!/^\s+$/.test(text.slice(left.index + left[0].length, matches[i + 1].index)) || !/^\s+$/.test(text.slice(matches[j - 1].index + matches[j - 1][0].length, right.index))) continue;
-    const first = normalizedToken(left[0]);
-    const second = normalizedToken(right[0]);
-    if (titleStopWords.has(first) || titleStopWords.has(second)) continue;
-    if (!roleWords.has(first) && !roleWords.has(second)) continue;
-    const prior = matches[i - 1]?.[0].toLocaleLowerCase();
-    const bothKnown = titleWords.has(first) && titleWords.has(second);
-    const titleCased = /^[\p{Lu}]/u.test(left[0]) && /^[\p{Lu}]/u.test(right[0]);
-    if (!bothKnown && !titleCased && prior !== "as" && prior !== "role" && prior !== "position") continue;
-    found.push(text.slice(left.index, right.index + right[0].length));
+  for (let i = 0; i < matches.length; i += 1) {
+    if (!roleWords.has(matches[i][0].toLocaleLowerCase())) continue;
+    let start = i;
+    const left = matches[i - 1];
+    const cue = matches[i - 2]?.[0].toLocaleLowerCase();
+    if (left && !titleFunctionWords.has(left[0].toLocaleLowerCase()) && /^\s+$/.test(text.slice(left.index + left[0].length, matches[i].index)) && (knownTitleWords.has(left[0].toLocaleLowerCase()) || /^[\p{Lu}]/u.test(left[0]) || ["as", "a", "an", "role", "position"].includes(cue))) start = i - 1;
+    let end = i;
+    if (titleLinks.has(matches[i + 1]?.[0].toLocaleLowerCase()) && /^\s+$/.test(text.slice(matches[i].index + matches[i][0].length, matches[i + 1].index))) {
+      let j = i + 1;
+      while (j < matches.length && titleLinks.has(matches[j][0].toLocaleLowerCase())) j += 1;
+      if (j < matches.length) {
+        end = j;
+        const next = matches[j + 1];
+        if (next && !titleFunctionWords.has(next[0].toLocaleLowerCase()) && /^\s+$/.test(text.slice(matches[j].index + matches[j][0].length, next.index))) end = j + 1;
+      }
+    }
+    const phrase = text.slice(matches[start].index, matches[end].index + matches[end][0].length);
+    found.push({ phrase, words: titleWords(phrase) });
   }
   return found;
 }
 /** @param {string} name @param {unknown} value */
 const dataBlock = (name, value) => `<untrusted-data name="${name}">\n${JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")}\n</untrusted-data>`;
 
-/** @param {any} ledger @param {import('./materials-render.mjs').RenderModel} model @param {Array<{text:string}>} nodes */
-function trustedFacts(ledger, model, nodes) {
+/** @param {unknown} value @returns {string[]} */
+function stringLeaves(value) {
+  if (typeof value === "string") return [value];
+  if (Array.isArray(value)) return value.flatMap(stringLeaves);
+  if (value && typeof value === "object") return Object.values(value).flatMap(stringLeaves);
+  return [];
+}
+/** @param {any} ledger @param {import('./materials-render.mjs').RenderModel} model @param {Array<{text:string}>} nodes @param {object} jdExtract @param {any} profile */
+function trustedFacts(ledger, model, nodes, jdExtract, profile) {
   const claims = Array.isArray(ledger?.claims) ? ledger.claims : [];
   const employers = Array.isArray(ledger?.employers) ? ledger.employers : [];
   const tools = Array.isArray(ledger?.toolInventory) ? ledger.toolInventory : [];
   const entries = (model.documents?.resume?.sections || []).flatMap((section) => section.entries || []);
-  const titles = [model.identity?.target, ...entries.map((entry) => Array.isArray(entry.seat) ? entry.seat.map((run) => run.t ?? run.n ?? run.hl ?? "").join("") : entry.seat), ...employers.map((/** @type {any} */ employer) => employer.title)].filter(Boolean).map(String);
+  const titles = [
+    model.identity?.target,
+    ...entries.map((entry) => Array.isArray(entry.seat) ? entry.seat.map((run) => run.t ?? run.n ?? run.hl ?? "").join("") : entry.seat),
+    ...employers.map((/** @type {any} */ employer) => employer.title),
+    ...stringLeaves(profile?.targetRoles),
+    ...stringLeaves(profile?.experiences).filter((title) => roleWords.has(title.toLocaleLowerCase().split(/\s+/).at(-1) || "")),
+    ...stringLeaves(profile?.employers).filter((title) => roleWords.has(title.toLocaleLowerCase().split(/\s+/).at(-1) || "")),
+  ].filter(Boolean).map(String);
   const sourceParts = [
     JSON.stringify(model.identity),
     ...nodes.map((node) => node.text),
@@ -86,16 +140,15 @@ function trustedFacts(ledger, model, nodes) {
     ...claims.flatMap((/** @type {any} */ claim) => [claim.text, ...(claim.metrics || []).map((/** @type {any} */ metric) => metric.token), ...(claim.tools || [])]),
     ...employers.flatMap((/** @type {any} */ employer) => [employer.name, employer.title, employer.start, employer.end, employer.location]),
     ...tools.map((/** @type {any} */ tool) => tool.tool),
+    ...stringLeaves(profile?.targetRoles), ...stringLeaves(profile?.strengths), ...stringLeaves(profile?.experiences), ...stringLeaves(profile?.employers),
+    ...stringLeaves(jdExtract),
   ].filter(Boolean).map(String);
-  const tokens = new Set(factTokens(sourceParts.join(" ")).map(normalizedToken));
-  for (const token of [...tokens]) {
-    const range = token.match(/^(\d[\d,.]*)-(\d[\d,.]*)(%|x|[kmb]\+?|\+)?$/);
-    if (range) { tokens.add(range[1]); tokens.add(range[2] + (range[3] || "")); }
-  }
+  const tokens = new Set(sourceParts.flatMap((part) => factTokens(part).flatMap(({ key }) => trustedKeys(key))));
+  const titleSets = titles.map(titleWords).filter((set) => set.size);
   return {
     tokens,
-    phrases: sourceParts.map(normalizedPhrase),
-    titleWords: new Set(titles.flatMap((title) => normalizedPhrase(title).split(" "))),
+    titleSets,
+    titleVocabulary: new Set(titleSets.flatMap((set) => [...set])),
   };
 }
 
@@ -104,21 +157,22 @@ function trustedFacts(ledger, model, nodes) {
  */
 function unverifiedFacts(op, beforeText, trusted, ledger, writtenText) {
   if (op.op === "remove") return [];
-  const prior = new Set(factTokens(beforeText).map(normalizedToken));
-  const candidates = factTokens(writtenText).filter((token) => !prior.has(normalizedToken(token)));
-  const missing = candidates.filter((token) => !trusted.tokens.has(normalizedToken(token)));
-  for (const phrase of titlePhrases(writtenText, trusted.titleWords)) {
-    const normalized = normalizedPhrase(phrase);
-    if (!trusted.phrases.some((source) => (` ${source} `).includes(` ${normalized} `))) missing.push(phrase);
+  const prior = new Set(factTokens(beforeText).flatMap(({ key }) => trustedKeys(key)));
+  const missing = factTokens(writtenText)
+    .filter(({ key, always }) => !prior.has(key) && !trusted.tokens.has(key) && (always || !isCommon(key)))
+    .map(({ raw }) => raw);
+  const priorTitles = titlePhrases(beforeText, trusted.titleVocabulary).map(({ words }) => words);
+  for (const { phrase, words: content } of titlePhrases(writtenText, trusted.titleVocabulary)) {
+    if (!priorTitles.some((source) => subsetOf(content, source)) && !trusted.titleSets.some((source) => subsetOf(content, source))) missing.push(phrase);
   }
   if (op.op === "insert" && !claimById(ledger, op.claimId)) missing.push(`claimId:${op.claimId}`);
   return [...new Set(missing)];
 }
 
 /**
- * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl']}} input
+ * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, profile?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl']}} input
  */
-export async function proposeEdits({ model, nodes, instruction, scope = "all", lockFacts = true, jdExtract = {}, ledger = {}, pin, fetchImpl }) {
+export async function proposeEdits({ model, nodes, instruction, scope = "all", lockFacts = true, jdExtract = {}, ledger = {}, profile = {}, pin, fetchImpl }) {
   const baseNodes = deriveNodes(model);
   const suppliedNodes = Array.isArray(nodes) ? nodes : baseNodes;
   const userText = [
@@ -139,7 +193,7 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
   if (!Array.isArray(response.ops)) {
     return { ops: [], blocked: [{ reason: "invalid_model", detail: "editor response needs an ops array" }], summary: { changes: 0, removals: 0, wordsDelta: 0, lossPct: 0, pages: model.template.pageBudget, unverified: 0 } };
   }
-  const trusted = trustedFacts(ledger, model, baseNodes);
+  const trusted = trustedFacts(ledger, model, baseNodes, jdExtract, profile);
   const ops = [];
   const blocked = [];
   const seen = new Set();
