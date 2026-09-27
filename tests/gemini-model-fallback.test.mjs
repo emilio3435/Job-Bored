@@ -1,14 +1,14 @@
 /**
  * The `gemini-flash` family alias is the default model, but Google has no
  * literal model by that id — it 404s. The provider layer pre-resolves the
- * alias to the pinned concrete id BEFORE the wire call (no 404 hop, no
- * wasted round trip) and repairs the stored setting so the fix sticks.
+ * alias to Google's moving Flash id BEFORE the wire call (no 404 hop, no
+ * wasted round trip) while keeping the saved choice as a logical family.
  *
  * A genuinely stale or mistyped model id must still not brick Beat 2's live
  * check or resume drafting. Google answers such ids with 404
  * "models/<id> is not found for API version v1beta, or is not supported for
- * generateContent". The provider layer retries ONCE with the pinned id,
- * repairs the stored setting, and reports the model that actually answered.
+ * generateContent". The provider layer retries ONCE with the provider alias,
+ * preserves deliberate version pins, and reports the model that answered.
  * Any other error is not retried.
  */
 import assert from "node:assert/strict";
@@ -59,7 +59,7 @@ const json = (status, body) => ({
 });
 
 describe("Gemini model fallback — a not-found model id self-heals", () => {
-  it("pre-resolves the gemini-flash alias with no 404 hop and repairs the stored model", async () => {
+  it("pre-resolves the family with no 404 hop and keeps the stored choice logical", async () => {
     const { rg, calls, patches } = load({
       model: "gemini-flash",
       fetchImpl: async (url) => {
@@ -73,26 +73,31 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
     const reply = await rg.callConfiguredAi("sys", "user", {});
     assert.equal(reply, "ok");
     assert.equal(calls.length, 1, "no wasted 404 round trip");
-    assert.ok(calls[0].url.includes("models/gemini-3.7-flash:"));
-    assert.deepEqual(JSON.parse(JSON.stringify(patches)), [{ resumeGeminiModel: "gemini-3.7-flash" }]);
+    assert.ok(calls[0].url.includes("models/gemini-flash-latest:"));
+    assert.deepEqual(patches, []);
+    assert.equal(JSON.parse(calls[0].init.body).generationConfig.maxOutputTokens, 8192);
   });
 
   it("exposes the alias resolver for the other Gemini call sites", async () => {
     const { win } = load({
-      model: "gemini-3.7-flash",
+      model: "gemini-3.5-flash",
       fetchImpl: async () => json(200, {}),
     });
     const resolve = win.JobBoredResolveGeminiFlashAlias;
     assert.equal(typeof resolve, "function");
-    assert.equal(resolve("gemini-flash"), "gemini-3.7-flash");
-    assert.equal(resolve("  Gemini-Flash  "), "gemini-3.7-flash");
-    assert.equal(resolve(""), "gemini-3.7-flash");
-    assert.equal(resolve(undefined), "gemini-3.7-flash");
+    assert.equal(resolve("gemini-flash"), "gemini-flash-latest");
+    assert.equal(resolve("  Gemini-Flash  "), "gemini-flash-latest");
+    assert.equal(resolve(""), "gemini-flash-latest");
+    assert.equal(resolve(undefined), "gemini-flash-latest");
+    assert.equal(resolve("models/GEMINI-3.7-FLASH"), "gemini-flash-latest");
+    assert.equal(resolve("gemini-3.5-flash"), "gemini-3.5-flash");
+    assert.equal(resolve("gemini-flash-lite"), "gemini-flash-lite");
+    assert.equal(resolve("gemini-2.5-pro"), "gemini-2.5-pro");
     assert.equal(resolve("gemini-3.5-flash"), "gemini-3.5-flash");
     assert.equal(resolve("gemini-2.5-pro"), "gemini-2.5-pro");
   });
 
-  it("retries once with gemini-3.7-flash and repairs the stored model", async () => {
+  it("retries a stale explicit pin once with latest but preserves the user's choice", async () => {
     const stale = "gemini-1.5-flash";
     const { rg, calls, patches } = load({
       model: stale,
@@ -100,7 +105,7 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
         if (url.includes(`models/${stale}:`)) {
           return json(404, { error: { message: notFoundFor(stale) } });
         }
-        if (url.includes("models/gemini-3.7-flash:")) {
+        if (url.includes("models/gemini-flash-latest:")) {
           return json(200, { candidates: [{ content: { parts: [{ text: "ok" }] } }] });
         }
         throw new Error("unexpected url " + url);
@@ -109,8 +114,8 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
     const reply = await rg.callConfiguredAi("sys", "user", {});
     assert.equal(reply, "ok");
     assert.equal(calls.length, 2, "exactly one retry");
-    assert.ok(calls[1].url.includes("models/gemini-3.7-flash:"));
-    assert.deepEqual(JSON.parse(JSON.stringify(patches)), [{ resumeGeminiModel: "gemini-3.7-flash" }]);
+    assert.ok(calls[1].url.includes("models/gemini-flash-latest:"));
+    assert.deepEqual(patches, []);
   });
 
   it("does not retry on a non-model error such as an invalid key", async () => {
@@ -124,8 +129,8 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
 
   it("does not loop when the default itself is what was configured", async () => {
     const { rg, calls } = load({
-      model: "gemini-3.7-flash",
-      fetchImpl: async () => json(404, { error: { message: NOT_FOUND.replace("gemini-flash", "gemini-3.7-flash") } }),
+      model: "gemini-flash-latest",
+      fetchImpl: async () => json(404, { error: { message: NOT_FOUND.replace("gemini-flash", "gemini-flash-latest") } }),
     });
     await assert.rejects(() => rg.callConfiguredAi("sys", "user", {}));
     assert.equal(calls.length, 1);
@@ -141,6 +146,21 @@ describe("Gemini model fallback — a not-found model id self-heals", () => {
     });
     const result = await rg.verifyResumeProviderLive();
     assert.equal(result.ok, true);
-    assert.equal(result.model, "gemini-3.7-flash");
+    assert.equal(result.model, "gemini-flash-latest");
+  });
+
+  it("does not switch models on a high-demand 503 or 429", async () => {
+    for (const [status, message] of [
+      [503, "The model is experiencing high demand. Please try again later."],
+      [429, "Resource exhausted for this model."],
+    ]) {
+      const { rg, calls, patches } = load({
+        model: "gemini-3.5-flash",
+        fetchImpl: async () => json(status, { error: { message } }),
+      });
+      await assert.rejects(() => rg.callConfiguredAi("sys", "user", {}), new RegExp(message.replace(/\./g, "\\.")));
+      assert.equal(calls.length, 1);
+      assert.deepEqual(patches, []);
+    }
   });
 });

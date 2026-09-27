@@ -42,6 +42,7 @@ import {
   resolveActivePin,
 } from "./llm-config.mjs";
 import { normalizeProvider as sharedNormalizeProvider } from "./ai/provider.mjs";
+import { normalizeGeminiFlashPreference } from "./model-family.mjs";
 
 // Drafting prompt, parser, and clamp live in the sibling shared module
 // (./profile-draft-shared.js), consumed here AND by the browser for B3's
@@ -391,9 +392,12 @@ export function parseProfileProviderConfigFromBody(body) {
   const provider = matchProvider(body.provider);
   if (!provider) return null;
   const apiKey = typeof body.apiKey === "string" ? body.apiKey.trim() : "";
-  const model = typeof body.model === "string" && body.model.trim()
+  const selectedModel = typeof body.model === "string" && body.model.trim()
     ? body.model.trim()
     : defaultModelFor(provider);
+  const model = provider === "gemini"
+    ? normalizeGeminiFlashPreference(selectedModel)
+    : selectedModel;
   const baseUrl = typeof body.baseUrl === "string" && body.baseUrl.trim()
     ? body.baseUrl.trim()
     : defaultBaseUrlFor(provider);

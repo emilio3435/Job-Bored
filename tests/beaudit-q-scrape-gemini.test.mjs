@@ -115,6 +115,24 @@ describe("E10 the Gemini lane follows the llm.json pin", () => {
     assert.equal(call.init.headers["x-goog-api-key"], "pin-key");
     assert.match(call.url, /models\/gemini-pin-model:generateContent/);
   });
+
+  it("routes an old generated Flash pin to the latest alias and preserves an explicit Pro pin", async () => {
+    for (const [stored, wire] of [
+      ["gemini-3.7-flash", "gemini-flash-latest"],
+      ["gemini-2.5-pro", "gemini-2.5-pro"],
+    ]) {
+      await pin({ provider: "gemini", model: stored, apiKey: "synthetic-key", baseUrl: "" });
+      let endpoint = "";
+      const hit = await scrapeViaGeminiUrlContext("https://jobs.example.com/roles/x", {
+        fetchImpl: async (url) => {
+          endpoint = String(url);
+          return json(CAMEL_CASE_RESPONSE);
+        },
+      });
+      assert.ok(hit);
+      assert.match(endpoint, new RegExp(`models/${wire}:generateContent`));
+    }
+  });
 });
 
 describe("E11 request cancellation reaches the provider calls", () => {

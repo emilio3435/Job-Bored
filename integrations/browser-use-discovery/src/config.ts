@@ -30,7 +30,7 @@ import {
 // @ts-expect-error JS pin store has JSDoc, no sibling .d.mts
 import { loadLlmConfig, migrateLlmConfigFromEnv } from "../../../server/llm-config.mjs";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
-import { GEMINI_FLASH_FAMILY, GEMINI_FLASH_FALLBACK, isGeminiFlashFamily } from "../../../server/model-family.mjs";
+import { GEMINI_FLASH_FAMILY, GEMINI_FLASH_FALLBACK, resolveGeminiFlashWireModel } from "../../../server/model-family.mjs";
 
 export type WorkerLlmProvider =
   | ""
@@ -508,10 +508,10 @@ function applyStoredLlmPin(
   if (!loaded) return null;
   const llmProvider = normalizeLlmProvider(loaded.provider);
   if (!llmProvider) return null;
-  const resolvedModel = isGeminiFlashFamily(loaded.model)
-    ? GEMINI_FLASH_FALLBACK
-    : String(loaded.model || "");
   const geminiPinned = llmProvider === "gemini";
+  const resolvedModel = geminiPinned
+    ? resolveGeminiFlashWireModel(loaded.model)
+    : String(loaded.model || "");
   return {
     llmProvider,
     llmApiKey: String(loaded.apiKey || ""),

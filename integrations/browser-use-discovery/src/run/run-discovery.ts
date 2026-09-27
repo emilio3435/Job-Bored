@@ -825,7 +825,12 @@ export async function runDiscovery(
     progressCounters.listingsProcessed = 0;
     progressCounters.leadsQualified = 0;
     progressCounters.matcherCalls = 0;
-    progressSources.set("ats", { id: "ats", state: "running", done: 0, total: atsCompaniesToSearch.length });
+    progressSources.set("ats", {
+      id: "ats",
+      state: atsCompaniesToSearch.length === 0 ? "skipped" : "running",
+      done: 0,
+      total: atsCompaniesToSearch.length,
+    });
   }
 
   // Only iterate ATS detection when an ATS lane is actually active. Browser-only
@@ -1796,7 +1801,7 @@ export async function runDiscovery(
       for (const lead of extractionResult.leads) {
         const companyKey = normalizeCompanyKey(lead.company || "");
         if (!companyKey) continue;
-        const key = `${sourceId} ${companyKey}`;
+        const key = `${sourceId}\u0000${companyKey}`;
         const group = leadsBySourceCompany.get(key);
         if (group) {
           group.leads.push(lead);

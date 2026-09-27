@@ -234,6 +234,9 @@ describe("full-boot stale port cleanup", () => {
       healthyDiscoveryWorkerPort: null,
       currentPid: 100,
       waitAfterKillMs: 0,
+      // Keep this listener-termination probe independent of whichever checkout
+      // owns the real worker on 8644; ownership behavior has separate tests.
+      resolveWorkerOwnership: async () => ({ foreign: false, repoRoot: "ours" }),
       findProcesses: (port) => {
         if (port === 8644) {
           return [

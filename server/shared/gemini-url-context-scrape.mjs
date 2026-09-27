@@ -4,10 +4,7 @@
  * url_context cannot be combined with responseSchema.
  */
 import { validateScrapeTarget, safeFetch } from "../security-boundaries.mjs";
-import {
-  GEMINI_FLASH_FAMILY,
-  GEMINI_FLASH_FALLBACK,
-} from "../model-family.mjs";
+import { resolveGeminiFlashWireModel } from "../model-family.mjs";
 import { loadLlmConfig } from "../llm-config.mjs";
 import {
   geminiGenerateContentUrl,
@@ -34,7 +31,7 @@ export async function scrapeViaGeminiUrlContext(rawUrl, options = {}) {
   if (!target.ok) return null;
   if (options.signal && options.signal.aborted) return null;
 
-  const model = resolveGeminiModel(credentials.model);
+  const model = resolveGeminiFlashWireModel(credentials.model);
   const apiUrl = geminiGenerateContentUrl(model);
   const fetchImpl = options.fetchImpl || globalThis.fetch;
   const timeout = AbortSignal.timeout(GEMINI_TIMEOUT_MS);
@@ -95,16 +92,6 @@ function resolveGeminiCredentials(options = {}) {
   const apiKey = String(pin.apiKey || "").trim();
   if (!apiKey) return null;
   return { apiKey, model: String(options.geminiModel || pin.model || "").trim() };
-}
-
-/** @param {string | undefined} raw */
-function resolveGeminiModel(raw) {
-  const configured = String(raw || "").trim() || GEMINI_FLASH_FALLBACK;
-  // Upgrade legacy 1.x to a modern Flash snapshot
-  if (/^gemini-1\.|^models\/gemini-1\./i.test(configured)) return GEMINI_FLASH_FALLBACK;
-  // Family alias is fine for config, but HTTP should use a pinned snapshot
-  if (configured === GEMINI_FLASH_FAMILY) return GEMINI_FLASH_FALLBACK;
-  return configured;
 }
 
 /**

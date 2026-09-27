@@ -6,7 +6,13 @@ const LOCAL_DEFAULT_BASE_URL = "http://127.0.0.1:11434/v1";
 const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 const DEFAULT_TIMEOUT_MS = 60_000;
 const TEMPERATURE = 0.4;
-const MAX_OUTPUT_TOKENS = 4096;
+// The writer emits a full cover letter plus a full tailored resume in one
+// JSON blob. 4096 truncated that routinely once the resolved model spent
+// part of the budget on thinking (the API counts thinking tokens toward
+// max_output_tokens), so the base matches the profile drafter's 8192 and a
+// single truncation retry may escalate once to the hard cap below.
+const MAX_OUTPUT_TOKENS = 8192;
+const MAX_OUTPUT_TOKENS_TRUNCATED_RETRY = 16384;
 
 const WRITER_SYSTEM_PROMPT = [
   "Rewrite the candidate's materials for this JD.",
@@ -131,6 +137,12 @@ export class WriterJsonError extends Error {
   constructor(message, options) {
     super(message, options);
     this.name = "WriterJsonError";
+    /** @type {string | undefined} machine-readable failure class (`writer_truncated` | `writer_blocked`) */
+    this.code = undefined;
+    /** @type {string | undefined} normalized provider that produced the failure */
+    this.provider = undefined;
+    /** @type {string | undefined} raw finish/stop signal when one was observed */
+    this.finishReason = undefined;
   }
 }
 
@@ -277,6 +289,107 @@ function buildUserPrompt(input, extraUserText) {
 }
 
 /**
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @returns {string}
+ */
+function writerProviderLabel(provider) {
+  if (provider === "openai") return "OpenAI";
+  if (provider === "openrouter") return "OpenRouter";
+  if (provider === "anthropic") return "Anthropic";
+  if (provider === "webhook") return "Webhook";
+  if (provider === "local") return "Local";
+  return "Gemini";
+}
+
+/**
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @param {string} finish the raw finish/stop signal, or "" when none was sent
+ * @returns {string} the truncation signal, or "" when the stop was not a budget cut
+ */
+function truncationSignal(provider, finish) {
+  if (provider === "gemini") return finish === "MAX_TOKENS" ? finish : "";
+  if (provider === "anthropic") return finish === "max_tokens" ? finish : "";
+  if (provider === "webhook") return "";
+  return finish === "length" ? finish : "";
+}
+
+/**
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @returns {string}
+ */
+function finishSignalName(provider) {
+  if (provider === "gemini") return "finishReason";
+  if (provider === "anthropic") return "stop_reason";
+  return "finish_reason";
+}
+
+/**
+ * Mirror of profile-from-resume's truncatedDraftError, keeping the writer's
+ * error class stable for existing catchers.
+ *
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @param {string} signalName
+ * @param {string} signalValue
+ * @returns {WriterJsonError}
+ */
+function truncatedWriterError(provider, signalName, signalValue) {
+  const err = new WriterJsonError(
+    `WriterJsonError: ${writerProviderLabel(provider)} cut the draft off at its output limit (${signalName} ${signalValue}). Try a shorter resume, or pick a larger model in Settings.`,
+  );
+  err.code = "writer_truncated";
+  err.provider = provider;
+  err.finishReason = signalValue;
+  return err;
+}
+
+/**
+ * Non-budget Gemini stops that fail fast: retrying a block is pointless.
+ * Unknown or empty finishes still take the parse path so tolerant providers
+ * and older doubles keep working.
+ */
+const GEMINI_BLOCKED_FINISH_REASONS = new Set([
+  "SAFETY",
+  "RECITATION",
+  "BLOCKLIST",
+  "PROHIBITED_CONTENT",
+  "MALFORMED_RESPONSE",
+]);
+
+/**
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @param {string} finish the raw finish/stop signal, or "" when none was sent
+ * @returns {string} the blocking signal, or "" when the stop was not a block
+ */
+function blockedSignal(provider, finish) {
+  if (provider === "gemini") return GEMINI_BLOCKED_FINISH_REASONS.has(finish) ? finish : "";
+  return "";
+}
+
+/**
+ * @param {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"} provider
+ * @param {string} signalName
+ * @param {string} signalValue
+ * @returns {WriterJsonError}
+ */
+function blockedWriterError(provider, signalName, signalValue) {
+  const err = new WriterJsonError(
+    `WriterJsonError: ${writerProviderLabel(provider)} stopped the draft before completion (${signalName} ${signalValue}). Rephrase the inputs and retry, or pick another model in Settings.`,
+  );
+  err.code = "writer_blocked";
+  err.provider = provider;
+  err.finishReason = signalValue;
+  return err;
+}
+
+/**
+ * @param {unknown} err
+ * @returns {boolean}
+ */
+function isUnterminatedJsonError(err) {
+  return err instanceof WriterJsonError && /unterminated JSON object/.test(err.message);
+}
+
+/**
  * @param {unknown} value
  * @returns {"gemini" | "openai" | "openrouter" | "local" | "anthropic" | "webhook"}
  */
@@ -320,65 +433,77 @@ function chatBaseUrlFor(provider, baseUrl) {
 
 /**
  * @param {unknown} data
- * @returns {string}
+ * @returns {{ text: string, finish: string }}
  */
 function textFromGeminiResponse(data) {
-  if (!isPlainObject(data)) return "";
+  if (!isPlainObject(data)) return { text: "", finish: "" };
   const candidates = data.candidates;
-  if (!Array.isArray(candidates) || !candidates.length) return "";
+  if (!Array.isArray(candidates) || !candidates.length) return { text: "", finish: "" };
   const first = candidates[0];
-  if (!isPlainObject(first)) return "";
+  if (!isPlainObject(first)) return { text: "", finish: "" };
+  const finish = typeof first.finishReason === "string" ? first.finishReason : "";
   const content = first.content;
-  if (!isPlainObject(content)) return "";
+  if (!isPlainObject(content)) return { text: "", finish };
   const parts = content.parts;
-  if (!Array.isArray(parts)) return "";
-  return parts
-    .map((part) => (isPlainObject(part) && typeof part.text === "string" ? part.text : ""))
+  if (!Array.isArray(parts)) return { text: "", finish };
+  // Ignore thought-marked parts so only answer text reaches the draft parser.
+  const text = parts
+    .map((part) =>
+      isPlainObject(part) && part.thought !== true && typeof part.text === "string" ? part.text : "",
+    )
     .join("");
+  return { text, finish };
 }
 
 /**
  * @param {unknown} data
- * @returns {string}
+ * @returns {{ text: string, finish: string }}
  */
 function textFromChatCompletions(data) {
-  if (!isPlainObject(data)) return "";
+  if (!isPlainObject(data)) return { text: "", finish: "" };
   const choices = data.choices;
-  if (!Array.isArray(choices) || !choices.length) return "";
+  if (!Array.isArray(choices) || !choices.length) return { text: "", finish: "" };
   const first = choices[0];
-  if (!isPlainObject(first)) return "";
+  if (!isPlainObject(first)) return { text: "", finish: "" };
+  const finish = typeof first.finish_reason === "string" ? first.finish_reason : "";
   const message = first.message;
-  if (!isPlainObject(message)) return "";
-  return typeof message.content === "string" ? message.content : "";
+  if (!isPlainObject(message)) return { text: "", finish };
+  const text = typeof message.content === "string" ? message.content : "";
+  return { text, finish };
 }
 
 /**
  * @param {unknown} data
- * @returns {string}
+ * @returns {{ text: string, finish: string }}
  */
 function textFromAnthropic(data) {
-  if (!isPlainObject(data) || !Array.isArray(data.content)) return "";
-  return data.content
+  if (!isPlainObject(data)) return { text: "", finish: "" };
+  const finish = typeof data.stop_reason === "string" ? data.stop_reason : "";
+  if (!Array.isArray(data.content)) return { text: "", finish };
+  const text = data.content
     .map((block) =>
       isPlainObject(block) && block.type === "text" && typeof block.text === "string"
         ? block.text
         : "",
     )
     .join("");
+  return { text, finish };
 }
 
 /**
+ * Webhooks carry no standard stop signal, so finish is always "".
+ *
  * @param {unknown} data
- * @returns {string}
+ * @returns {{ text: string, finish: string }}
  */
 function textFromWebhook(data) {
-  if (typeof data === "string") return data;
-  if (!isPlainObject(data)) return "";
-  if (typeof data.text === "string") return data.text;
+  if (typeof data === "string") return { text: data, finish: "" };
+  if (!isPlainObject(data)) return { text: "", finish: "" };
+  if (typeof data.text === "string") return { text: data.text, finish: "" };
   if (isPlainObject(data.letter) && isPlainObject(data.resume)) {
-    return JSON.stringify(data);
+    return { text: JSON.stringify(data), finish: "" };
   }
-  return "";
+  return { text: "", finish: "" };
 }
 
 /**
@@ -415,9 +540,10 @@ function throwIfHttpError(resp, label) {
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @returns {Promise<string>}
+ * @param {number} maxTokens
+ * @returns {Promise<{ text: string, finish: string }>}
  */
-async function generateGemini(input, extraUserText) {
+async function generateGemini(input, extraUserText, maxTokens) {
   const pin = input.pin;
   const resolvedModel = String(pin.resolvedModel || "").trim();
   const apiKey = String(pin.apiKey || "");
@@ -430,9 +556,13 @@ async function generateGemini(input, extraUserText) {
   const body = {
     systemInstruction: { parts: [{ text: systemText(input) }] },
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(input, extraUserText) }] }],
+    // responseMimeType without responseSchema: property-less OBJECT nodes
+    // are rejected by the generateContent validator, and an open object
+    // cannot be expressed on that field — JSON syntax comes from the mime
+    // type, shape from the prompt plus the parser.
     generationConfig: {
       temperature: TEMPERATURE,
-      maxOutputTokens: maxTokens(input),
+      maxOutputTokens: maxTokens,
       responseMimeType: "application/json",
     },
   };
@@ -451,9 +581,10 @@ async function generateGemini(input, extraUserText) {
  * @param {WriterInput} input
  * @param {string} extraUserText
  * @param {"openai" | "openrouter" | "local"} provider
- * @returns {Promise<string>}
+ * @param {number} maxTokens
+ * @returns {Promise<{ text: string, finish: string }>}
  */
-async function generateOpenAICompatible(input, extraUserText, provider) {
+async function generateOpenAICompatible(input, extraUserText, provider, maxTokens) {
   const pin = input.pin;
   const resolvedModel = String(pin.resolvedModel || "").trim();
   const apiKey = String(pin.apiKey || "");
@@ -473,9 +604,15 @@ async function generateOpenAICompatible(input, extraUserText, provider) {
       { role: "system", content: systemText(input) },
       { role: "user", content: buildUserPrompt(input, extraUserText) },
     ],
+    // Structured JSON for first-party OpenAI only; OpenRouter and local
+    // servers stay plain JSON (same policy as server/ai/provider.mjs). Plain
+    // json_object rather than a strict schema: the writer schema is
+    // intentionally loose so resume facts pass through unfiltered.
+    ...(provider === "openai" || typeof input.userText === "string"
+      ? { response_format: { type: "json_object" } }
+      : {}),
     temperature: TEMPERATURE,
-    max_tokens: maxTokens(input),
-    response_format: { type: "json_object" },
+    max_tokens: maxTokens,
   };
   const resp = await input.fetchImpl(url, {
     method: "POST",
@@ -492,9 +629,10 @@ async function generateOpenAICompatible(input, extraUserText, provider) {
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @returns {Promise<string>}
+ * @param {number} maxTokens
+ * @returns {Promise<{ text: string, finish: string }>}
  */
-async function generateAnthropic(input, extraUserText) {
+async function generateAnthropic(input, extraUserText, maxTokens) {
   const pin = input.pin;
   const resolvedModel = String(pin.resolvedModel || "").trim();
   const apiKey = String(pin.apiKey || "");
@@ -502,9 +640,12 @@ async function generateAnthropic(input, extraUserText) {
     throw new Error("pin.resolvedModel is required");
   }
   const url = String(pin.baseUrl || "").trim() || ANTHROPIC_MESSAGES_URL;
+  // Prompt-only JSON: no output_config, since the writer schema is
+  // intentionally loose and structured output for it is unverified.
+  // Truncation is still surfaced through stop_reason.
   const body = {
     model: resolvedModel,
-    max_tokens: maxTokens(input),
+    max_tokens: maxTokens,
     system: systemText(input),
     messages: [{ role: "user", content: buildUserPrompt(input, extraUserText) }],
   };
@@ -526,7 +667,7 @@ async function generateAnthropic(input, extraUserText) {
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @returns {Promise<string>}
+ * @returns {Promise<{ text: string, finish: string }>}
  */
 async function generateWebhook(input, extraUserText) {
   const pin = input.pin;
@@ -553,22 +694,29 @@ async function generateWebhook(input, extraUserText) {
 /**
  * @param {WriterInput} input
  * @param {string} extraUserText
- * @returns {Promise<string>}
+ * @param {number} maxTokens output budget for this attempt (webhooks ignore it)
+ * @returns {Promise<{ text: string, finish: string }>}
  */
-async function generateContent(input, extraUserText) {
+async function generateContent(input, extraUserText, maxTokens) {
   const fetchImpl = input.fetchImpl;
   if (typeof fetchImpl !== "function") {
     throw new Error("fetchImpl is required");
   }
   const pin = input.pin;
   const provider = normalizeWriterProvider(pin.provider);
-  if (provider === "gemini") return generateGemini(input, extraUserText);
-  if (provider === "anthropic") return generateAnthropic(input, extraUserText);
+  if (provider === "gemini") return generateGemini(input, extraUserText, maxTokens);
+  if (provider === "anthropic") return generateAnthropic(input, extraUserText, maxTokens);
   if (provider === "webhook") return generateWebhook(input, extraUserText);
-  return generateOpenAICompatible(input, extraUserText, provider);
+  return generateOpenAICompatible(input, extraUserText, provider, maxTokens);
 }
 
 /**
+ * Two attempts, bounded: a truncation signal — or unterminated JSON with no
+ * signal, the probable-truncation case — escalates the second attempt to the
+ * hard cap, since an identical retry would re-truncate deterministically.
+ * A blocking stop throws on the first attempt without retry. Anything else
+ * retries identically, as before.
+ *
  * @param {WriterInput} input
  * @param {string} extraUserText
  * @returns {Promise<WriterJson>}
@@ -576,12 +724,29 @@ async function generateContent(input, extraUserText) {
 async function callWithRetry(input, extraUserText) {
   /** @type {unknown} */
   let lastError;
+  let budget = MAX_OUTPUT_TOKENS;
+  const provider = normalizeWriterProvider(input.pin.provider);
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const text = await generateContent(input, extraUserText);
-    try {
-      return parseWriterJson(text);
-    } catch (err) {
-      lastError = err;
+    const { text, finish } = await generateContent(input, extraUserText, budget);
+    const blocked = blockedSignal(provider, finish);
+    if (blocked) {
+      throw blockedWriterError(provider, finishSignalName(provider), blocked);
+    }
+    const signal = truncationSignal(provider, finish);
+    if (signal) {
+      lastError = truncatedWriterError(provider, finishSignalName(provider), signal);
+    } else {
+      try {
+        return parseWriterJson(text);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (
+      budget < MAX_OUTPUT_TOKENS_TRUNCATED_RETRY &&
+      (signal !== "" || (isUnterminatedJsonError(lastError) && finish === ""))
+    ) {
+      budget = MAX_OUTPUT_TOKENS_TRUNCATED_RETRY;
     }
   }
   throw lastError;
@@ -622,12 +787,29 @@ export async function callJsonStage(input) {
   });
   /** @type {unknown} */
   let lastError;
+  let budget = maxTokens(stageInput);
+  const provider = normalizeWriterProvider(stageInput.pin.provider);
   for (let attempt = 0; attempt < 2; attempt += 1) {
-    const text = await generateContent(stageInput, "");
-    try {
-      return parseStageJson(text);
-    } catch (err) {
-      lastError = err;
+    const { text, finish } = await generateContent(stageInput, "", budget);
+    const blocked = blockedSignal(provider, finish);
+    if (blocked) {
+      throw blockedWriterError(provider, finishSignalName(provider), blocked);
+    }
+    const signal = truncationSignal(provider, finish);
+    if (signal) {
+      lastError = truncatedWriterError(provider, finishSignalName(provider), signal);
+    } else {
+      try {
+        return parseStageJson(text);
+      } catch (err) {
+        lastError = err;
+      }
+    }
+    if (
+      budget < MAX_OUTPUT_TOKENS_TRUNCATED_RETRY &&
+      (signal !== "" || (isUnterminatedJsonError(lastError) && finish === ""))
+    ) {
+      budget = Math.min(MAX_OUTPUT_TOKENS_TRUNCATED_RETRY, budget * 2);
     }
   }
   throw lastError;

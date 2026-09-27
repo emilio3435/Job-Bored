@@ -1,6 +1,6 @@
 /**
  * The `gemini-flash` family alias must never reach the Google API literally
- * (Google 404s it). resume-generate.js owns the pinned concrete id and
+ * (Google 404s it). resume-generate.js resolves it to the provider's moving alias and
  * exposes the resolver; the discovery drawer and posting-insights call sites
  * share it. These tests load the real files together and assert the wire URL.
  */
@@ -17,7 +17,7 @@ const drawerJs = readFileSync(join(repoRoot, "discovery-drawer.js"), "utf8");
 const jbTextJs = readFileSync(join(repoRoot, "jb-text.js"), "utf8");
 const insightsJs = readFileSync(join(repoRoot, "job-posting-insights.js"), "utf8");
 
-const PINNED = "gemini-3.7-flash";
+const FLASH_WIRE = "gemini-flash-latest";
 
 function loadDrawer(fetchImpl) {
   const calls = [];
@@ -76,7 +76,20 @@ describe("gemini-flash alias — every call site sends a concrete id", () => {
     const text = await drawer.callDiscoveryAiGemini("sys", "user", "k", "gemini-flash", {});
     assert.equal(text, "a suggestion");
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].includes(`models/${PINNED}:`), `got ${calls[0]}`);
+    assert.ok(calls[0].includes(`models/${FLASH_WIRE}:`), `got ${calls[0]}`);
+  });
+
+  it("drawer migrates exact legacy 3.7 to the family and keeps its thinking budget", async () => {
+    const bodies = [];
+    const { drawer, calls } = loadDrawer(async (_url, init) => {
+      bodies.push(JSON.parse(init.body));
+      return json(200, { candidates: [{ content: { parts: [{ text: "a suggestion" }] } }] });
+    });
+    assert.equal(drawer.resolveGeminiModel("gemini-3.7-flash"), "gemini-flash");
+    await drawer.callDiscoveryAiGemini("sys", "user", "k", "gemini-3.7-flash");
+    assert.equal(calls.length, 1);
+    assert.ok(calls[0].includes(`models/${FLASH_WIRE}:`));
+    assert.equal(bodies[0].generationConfig.maxOutputTokens, 8192);
   });
 
   it("posting-insights URL-context lane resolves the alias before the wire call", async () => {
@@ -97,6 +110,6 @@ describe("gemini-flash alias — every call site sends a concrete id", () => {
     const result = await insights.fetchViaGeminiUrlContext("https://jobs.example.com/role");
     assert.equal(result && result._scrapeSource, "gemini-url-context");
     assert.equal(calls.length, 1);
-    assert.ok(calls[0].includes(`models/${PINNED}:`), `got ${calls[0]}`);
+    assert.ok(calls[0].includes(`models/${FLASH_WIRE}:`), `got ${calls[0]}`);
   });
 });

@@ -129,7 +129,7 @@ function loadSettingsFill({ catalogModels, resumeOptions } = {}) {
               {
                 value: "gemini-flash",
                 label: "Gemini Flash (latest)",
-                description: "Newest stable Flash. Resolves at call time.",
+                description: "Google's moving Flash alias; may use a stable, preview, or experimental release.",
               },
               { value: "gemini-3.5-flash", label: "Gemini 3.5 Flash · Stable" },
             ]
@@ -219,12 +219,8 @@ describe("Settings Gemini model menu", () => {
     );
   });
 
-  it("does not preserve unsupported saved Gemini models in the dropdown", () => {
+  it("normalizes the legacy family default and preserves other explicit saved Gemini models", () => {
     assert.match(settingsModalJs, /const isGeminiSelect = selectId === "settingsResumeGeminiModel";/);
-    assert.match(
-      settingsModalJs,
-      /v && !values\.has\(v\) && \(!isGeminiSelect \|\| isGeminiFlashFamily\)/,
-    );
     const { api, geminiSelect } = loadSettingsFill({
       catalogModels: [
         { value: "gemini-flash", label: "Gemini Flash (latest)" },
@@ -238,9 +234,18 @@ describe("Settings Gemini model menu", () => {
     );
     assert.equal(
       geminiSelect.options.some((o) => o.value === "gemini-1.5-pro"),
-      false,
-      "unknown Gemini snapshot ids must not be kept as (saved) options",
+      true,
+      "an explicit Gemini snapshot stays available as a saved option",
     );
+    assert.equal(geminiSelect.value, "gemini-1.5-pro");
+    const migrated = loadSettingsFill();
+    migrated.api.fillOneResumeModelSelect(
+      "settingsResumeGeminiModel",
+      [{ value: "gemini-flash", label: "Gemini Flash (latest)" }],
+      "gemini-3.7-flash",
+    );
+    assert.equal(migrated.geminiSelect.value, "gemini-flash");
+    assert.equal(migrated.geminiSelect.options.some((o) => o.value === "gemini-3.7-flash"), false);
     api.fillOneResumeModelSelect(
       "settingsResumeGeminiModel",
       [{ value: "gemini-flash", label: "Gemini Flash (latest)" }],

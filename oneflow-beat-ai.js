@@ -655,7 +655,15 @@
       def.modelField && typeof cfg[def.modelField] === "string"
         ? cfg[def.modelField].trim()
         : "";
-    return fromCfg || defaultModelFor(def.id);
+    const selected = fromCfg || defaultModelFor(def.id);
+    if (def.id !== "gemini") return selected;
+    const normalize = window.JobBoredNormalizeGeminiFlashPreference;
+    if (typeof normalize === "function") return normalize(selected);
+    const bare = selected.replace(/^models\//i, "").toLowerCase();
+    return !selected || bare === "gemini-flash" ||
+      bare === "gemini-flash-latest" || bare === "gemini-3.7-flash"
+      ? "gemini-flash"
+      : selected;
   }
 
   function resolveJobBoredApiUrl() {

@@ -89,6 +89,17 @@ function releaseSettingsInertBackground() {
 }
 
 
+function normalizeSettingsGeminiModel(model) {
+  const normalize = window.JobBoredNormalizeGeminiFlashPreference;
+  if (typeof normalize === "function") return normalize(model);
+  const id = String(model || "").trim();
+  const bare = id.replace(/^models\//i, "").toLowerCase();
+  return !id || bare === "gemini-flash" ||
+    bare === "gemini-flash-latest" || bare === "gemini-3.7-flash"
+    ? "gemini-flash"
+    : id;
+}
+
 function fillOneResumeModelSelect(selectId, optionList, currentValue) {
   const sel = document.getElementById(selectId);
   const opts =
@@ -106,13 +117,13 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
                 : "anthropic"
       ]);
   if (!sel || sel.tagName !== "SELECT" || !Array.isArray(opts)) return;
-  const v =
+  const selected =
     currentValue != null && String(currentValue).trim() !== ""
       ? String(currentValue).trim()
       : "";
-  const values = new Set(opts.map((o) => o.value));
   const isGeminiSelect = selectId === "settingsResumeGeminiModel";
-  const isGeminiFlashFamily = isGeminiSelect && v === "gemini-flash";
+  const v = isGeminiSelect ? normalizeSettingsGeminiModel(selected) : selected;
+  const values = new Set(opts.map((o) => o.value));
   sel.innerHTML = "";
   opts.forEach((o) => {
     const opt = document.createElement("option");
@@ -121,7 +132,7 @@ function fillOneResumeModelSelect(selectId, optionList, currentValue) {
     if (o.description) opt.title = o.description;
     sel.appendChild(opt);
   });
-  if (v && !values.has(v) && (!isGeminiSelect || isGeminiFlashFamily)) {
+  if (v && !values.has(v)) {
     const opt = document.createElement("option");
     opt.value = v;
     opt.textContent = `${v} (saved)`;
@@ -237,7 +248,7 @@ function fillResumeModelSelectsFromConfig(cfg) {
   fillOneResumeModelSelect(
     "settingsResumeGeminiModel",
     geminiList,
-    cfg.resumeGeminiModel,
+    normalizeSettingsGeminiModel(cfg.resumeGeminiModel),
   );
   fillOneResumeModelSelect(
     "settingsResumeOpenAIModel",
@@ -1126,7 +1137,7 @@ async function saveCommandCenterSettingsFromForm() {
     payload,
     "resumeGeminiModel",
     "settingsResumeGeminiModel",
-    (value) => value || defaultModelFor("gemini"),
+    (value) => normalizeSettingsGeminiModel(value || defaultModelFor("gemini")),
   );
   assignOwned(payload, "resumeOpenAIApiKey", "settingsResumeOpenAIApiKey");
   assignOwned(

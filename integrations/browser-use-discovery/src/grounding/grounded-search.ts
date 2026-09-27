@@ -31,11 +31,10 @@ import { dedupeFingerprintListings } from "../discovery/listing-fingerprint.ts";
 import type { BudgetTracker } from "../run/budget-tracker.ts";
 import { applyRetryBroadeningGate } from "../run/retry-broadening.ts";
 // @ts-expect-error JS model-family has JSDoc, no sibling .d.mts
-import { GEMINI_FLASH_FAMILY, GEMINI_FLASH_FALLBACK } from "../../../../server/model-family.mjs";
+import { resolveGeminiFlashWireModel } from "../../../../server/model-family.mjs";
 
 function httpGeminiModel(model: string | undefined | null): string {
-  const id = String(model || "").trim();
-  return !id || id === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_FALLBACK : id;
+  return resolveGeminiFlashWireModel(model);
 }
 
 const SEARCH_SYSTEM_PROMPT = [

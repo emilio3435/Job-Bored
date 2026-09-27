@@ -319,7 +319,7 @@ describe("discovery-drawer callConfiguredAi — provider-agnostic routing (VAL-P
       calls[0].url,
       /^https:\/\/generativelanguage\.googleapis\.com\//,
     );
-    assert.match(calls[0].url, /models\/gemini-flash:generateContent/);
+    assert.match(calls[0].url, /models\/gemini-flash-latest:generateContent/);
     const body = JSON.parse(calls[0].init.body);
     assert.equal(
       body.generationConfig.maxOutputTokens,

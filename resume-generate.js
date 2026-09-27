@@ -57,7 +57,7 @@
         value: "gemini-flash",
         label: "Gemini Flash (latest)",
         description:
-          "Newest stable Flash family. Resolves at call time. Pro: stays current. Con: exact snapshot chosen at call time.",
+          "Google's moving Flash alias. Pro: stays current. Con: may follow a stable, preview, or experimental release.",
       },
       {
         value: "gemini-pro",
@@ -150,6 +150,11 @@
       raw === "local"
         ? raw
         : "gemini";
+    const selectedGeminiModel = String(c.resumeGeminiModel || "").trim();
+    if (provider === "gemini" &&
+        selectedGeminiModel.replace(/^models\//i, "").toLowerCase() === "gemini-3.7-flash") {
+      repairStoredGeminiModel("gemini-flash");
+    }
     /* Accept a generic *ApiKey as fallback for the resume-specific
        field. The job-posting insights flow only needs *a* Gemini key
        to work; users who set `geminiApiKey` (or the equivalent for
@@ -164,7 +169,7 @@
       resumeAnthropicApiKey:
         c.resumeAnthropicApiKey || c.anthropicApiKey || "",
       resumeOpenRouterApiKey: c.resumeOpenRouterApiKey || "",
-      resumeGeminiModel: c.resumeGeminiModel || "gemini-flash",
+      resumeGeminiModel: normalizeGeminiFlashPreference(selectedGeminiModel),
       resumeOpenAIModel: c.resumeOpenAIModel || "gpt-4o-mini",
       resumeAnthropicModel: c.resumeAnthropicModel || "claude-sonnet-4-6",
       resumeOpenRouterModel:
@@ -304,9 +309,9 @@
     return err instanceof Error ? err : new Error(String(err));
   }
 
-  async function callGemini(bundle, apiKey, model) {
+  async function callGemini(bundle, apiKey, model, isFallback = false) {
     const resolvedModel = resolveGeminiFlashAlias(model);
-    if (resolvedModel !== model) repairStoredGeminiModel(resolvedModel);
+    if (!isFallback) migrateStoredGeminiFlashPreference(model);
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(resolvedModel)}:generateContent`;
     const system = buildSystemPrompt(bundle);
     const user = buildUserPayload(bundle);
@@ -332,13 +337,12 @@
     if (!resp.ok) {
       const msg =
         data.error?.message || JSON.stringify(data) || `HTTP ${resp.status}`;
-      const fallback = isGeminiModelNotFound(msg) ? GEMINI_FLASH_PINNED_FALLBACK : "";
+      const fallback = isGeminiModelNotFound(msg) ? GEMINI_FLASH_PROVIDER_ALIAS : "";
       if (fallback && resolvedModel !== fallback) {
         console.warn(
           `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${fallback}.`,
         );
-        const insights = await callGemini(bundle, apiKey, fallback);
-        repairStoredGeminiModel(fallback);
+        const insights = await callGemini(bundle, apiKey, fallback, true);
         return insights;
       }
       throw new Error(msg);
@@ -528,19 +532,24 @@
   }
 
   const GEMINI_FLASH_FAMILY = "gemini-flash";
-  const GEMINI_FLASH_PINNED_FALLBACK = "gemini-3.7-flash";
+  const GEMINI_FLASH_PROVIDER_ALIAS = "gemini-flash-latest";
 
-  /** Map the "gemini-flash" family alias (and a blank model) to the pinned
-   *  concrete id BEFORE any network call. Google has no literal
-   *  `gemini-flash` model, so sending the alias burns a 404 + retry on
-   *  every default-config install. Explicit pins pass through untouched;
-   *  the 404 retry net below stays as the safety net for ids that go
-   *  stale later. Shared with the drawer/insights call sites via
-   *  `window.JobBoredResolveGeminiFlashAlias`. */
+  /** The previous app automatically wrote 3.7 for a Flash family choice.
+   *  Its exact id has no provenance, so migrate that one legacy default.
+   *  Other version pins and Gemini families remain explicit. */
+  function normalizeGeminiFlashPreference(model) {
+    const id = String(model || "").trim();
+    const bare = id.replace(/^models\//i, "").toLowerCase();
+    return !id || bare === GEMINI_FLASH_FAMILY ||
+      bare === GEMINI_FLASH_PROVIDER_ALIAS || bare === "gemini-3.7-flash"
+      ? GEMINI_FLASH_FAMILY
+      : id;
+  }
+
+  /** Map the logical family to Google's hot-swapped alias before HTTP. */
   function resolveGeminiFlashAlias(model) {
-    const id = String(model || "").trim().toLowerCase();
-    if (!id || id === GEMINI_FLASH_FAMILY) return GEMINI_FLASH_PINNED_FALLBACK;
-    return model;
+    const preference = normalizeGeminiFlashPreference(model);
+    return preference === GEMINI_FLASH_FAMILY ? GEMINI_FLASH_PROVIDER_ALIAS : preference;
   }
   /** The Gemini model that last answered — the live check reports this,
    *  not the configured id, so a repaired fallback shows the truth. */
@@ -554,7 +563,7 @@
     return /is not found for API version|not supported for generateContent/i.test(m);
   }
 
-  /** Repair a stored model id that Google rejected, so the fallback sticks. */
+  /** Persist only a migrated family choice, never a resolved wire id. */
   function repairStoredGeminiModel(model) {
     try {
       const app = window.JobBoredApp;
@@ -566,12 +575,19 @@
     }
   }
 
-  async function callConfiguredAiGemini(system, user, apiKey, model, opts) {
+  function migrateStoredGeminiFlashPreference(model) {
+    if (normalizeGeminiFlashPreference(model) === GEMINI_FLASH_FAMILY &&
+        String(model || "").trim() !== GEMINI_FLASH_FAMILY) {
+      repairStoredGeminiModel(GEMINI_FLASH_FAMILY);
+    }
+  }
+
+  async function callConfiguredAiGemini(system, user, apiKey, model, opts, isFallback = false) {
     const resolvedModel = resolveGeminiFlashAlias(model);
-    if (resolvedModel !== model) repairStoredGeminiModel(resolvedModel);
+    if (!isFallback) migrateStoredGeminiFlashPreference(model);
     const wantJson = wantsJsonResponse(opts);
     const isThinkingModel =
-      resolvedModel === GEMINI_FLASH_FAMILY ||
+      resolvedModel === GEMINI_FLASH_PROVIDER_ALIAS ||
       /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(resolvedModel);
     const generationConfig = {
       maxOutputTokens: jsonLimit(opts, isThinkingModel || wantJson ? 8192 : 2048),
@@ -597,13 +613,12 @@
     const data = await resp.json().catch(() => ({}));
     if (!resp.ok) {
       const message = data.error?.message || `Gemini HTTP ${resp.status}`;
-      const fallback = isGeminiModelNotFound(message) ? GEMINI_FLASH_PINNED_FALLBACK : "";
+      const fallback = isGeminiModelNotFound(message) ? GEMINI_FLASH_PROVIDER_ALIAS : "";
       if (fallback && resolvedModel !== fallback) {
         console.warn(
           `[JobBored] Gemini model "${resolvedModel}" was rejected; retrying with ${fallback}.`,
         );
-        const text = await callConfiguredAiGemini(system, user, apiKey, fallback, opts);
-        repairStoredGeminiModel(fallback);
+        const text = await callConfiguredAiGemini(system, user, apiKey, fallback, opts, true);
         return text;
       }
       throw new Error(message);
@@ -1085,6 +1100,7 @@
 
   window.CommandCenterBrowserAiProvider = browserAiProvider;
   window.JobBoredResolveGeminiFlashAlias = resolveGeminiFlashAlias;
+  window.JobBoredNormalizeGeminiFlashPreference = normalizeGeminiFlashPreference;
   window.CommandCenterResumeGenerate = {
     getResumeGenerationConfig,
     generateFromBundle,
