@@ -146,7 +146,7 @@ function scriptedApi({ restoreFails = false } = {}) {
     propose: () => new Promise(() => {}),
     stream: () => new Promise(() => {}),
     stopEdit: () => Promise.resolve({ status: "partial", ops: [] }),
-    rejectEdit: () => Promise.resolve(null),
+    rejectEdit: (id) => { calls.push(["rejectEdit", id]); return Promise.resolve(null); },
     star: () => Promise.resolve({ ok: true }),
     restore: (runId) => {
       calls.push(["restore", runId]);
@@ -327,7 +327,101 @@ describe("Bring back as new", () => {
     click(act(host, "confirm", "r1"));
     await settle();
     assert.deepEqual(host.querySelectorAll(".scribe__ver").map((r) => r.getAttribute("data-run")), ["r2", "r1", "r0"]);
-    assert.ok(spoken.some(([m, p]) => m === "The materials server is not answering." && p === "assertive"));
+    assert.ok(spoken.some(([m, p]) => m === "Bring back didn’t save: The materials server is not answering. Your versions are unchanged." && p === "assertive"), JSON.stringify(spoken));
     assert.ok(row(host, "r1").querySelector(".scribe__compare-confirm"), "the question stays open to try again");
+  });
+});
+
+/* Grok F3-trap: a click in a View or Compare page moves focus into that
+   frame's own document, where the desk's key handler never hears it. */
+function fakeFrameDoc() {
+  return {
+    listeners: {},
+    addEventListener(t, fn) { (this.listeners[t] ||= []).push(fn); },
+    removeEventListener(t, fn) { this.listeners[t] = (this.listeners[t] || []).filter((f) => f !== fn); },
+    keys() { return (this.listeners.keydown || []).length; },
+    press(key, extra = {}) {
+      const e = { key, target: this, shiftKey: false, preventDefault() { this.defaultPrevented = true; }, ...extra };
+      for (const fn of (this.listeners.keydown || []).slice()) fn(e);
+      return e;
+    },
+  };
+}
+
+function loadFrames(host) {
+  return pane(host).querySelectorAll(".scribe__compare-frame").filter((frame) => typeof frame.onload === "function").map((frame) => {
+    const inner = fakeFrameDoc();
+    frame.contentDocument = inner;
+    frame.onload();
+    return { frame, inner };
+  });
+}
+
+describe("Keys from inside a View or Compare page (F3-trap)", () => {
+  it("should take Tab, c and Esc from a compare page back to the desk", async () => {
+    const { host, doc, win } = await openDesk();
+    click(act(host, "compare", "r0"));
+    await settle();
+    const [a, b] = loadFrames(host);
+    assert.equal(a.inner.keys(), 1, "page A forwards keys");
+    assert.equal(b.inner.keys(), 1, "page B forwards keys");
+    b.frame.focus();
+    const tab = b.inner.press("Tab");
+    assert.equal(tab.defaultPrevented, true);
+    assert.ok(doc.activeElement !== b.frame && doc.activeElement.tagName !== "IFRAME", "Tab lands on a desk control");
+    assert.ok(pane(host).querySelector(".scribe__compare-bar").querySelectorAll("select").includes(doc.activeElement), "the first compare control");
+    b.frame.focus();
+    b.inner.press("c");
+    assert.equal(pane(host).hasAttribute("hidden"), true, "c from the page closes compare");
+    assert.equal(a.inner.keys() + b.inner.keys(), 0, "closing compare drops both forwarders");
+    click(act(host, "view", "r1"));
+    await settle();
+    const [v] = loadFrames(host);
+    v.inner.press("Escape");
+    assert.equal(win.document.body.querySelectorAll("jb-scribe").length, 0, "Esc from the page closes the desk");
+    assert.equal(v.inner.keys(), 0, "and drops the forwarder");
+  });
+
+  it("should unhook a page's forwarder when its frame is replaced", async () => {
+    const { host } = await openDesk();
+    click(act(host, "compare", "r0"));
+    await settle();
+    const [first] = loadFrames(host);
+    const selA = pane(host).querySelector('[data-cmp-pick="A"]');
+    selA.value = "r1";
+    pane(host).dispatchEvent({ type: "change", target: selA });
+    await settle();
+    assert.equal(first.inner.keys(), 0, "the old page A document no longer forwards");
+    const [again] = loadFrames(host);
+    assert.equal(again.inner.keys(), 1);
+  });
+});
+
+/* Grok F3-discard: the open proposal goes only once a new run exists. */
+describe("Bring back and an open proposal (F3-discard)", () => {
+  it("should keep the proposal and say so when bring back fails", async () => {
+    const { host, ctl, calls, spoken } = await openDesk({ restoreFails: true });
+    ctl.state.proposal = { id: "p1", ops: [{ opId: "o1" }], blocked: [], summary: { changes: 1 }, status: "ready", instruction: "Punchier" };
+    click(act(host, "bring", "r1"));
+    assert.match(row(host, "r1").querySelector(".scribe__compare-confirm").textContent, /The open proposal will be discarded\./);
+    click(act(host, "confirm", "r1"));
+    await settle();
+    assert.ok(!calls.some((c) => c[0] === "rejectEdit"), "the proposal is not discarded");
+    assert.equal(ctl.state.proposal && ctl.state.proposal.id, "p1", "the proposal is still open");
+    const said = spoken.find(([, p]) => p === "assertive");
+    assert.match(said[0], /^Bring back didn’t save: The materials server is not answering\. Your versions and open proposal are unchanged\.$/);
+    assert.match(host.querySelector('[role="log"]').textContent, /Bring back didn’t save/);
+  });
+
+  it("should discard the proposal only after the new run exists", async () => {
+    const { host, ctl, calls } = await openDesk();
+    ctl.state.proposal = { id: "p1", ops: [{ opId: "o1" }], blocked: [], summary: { changes: 1 }, status: "ready", instruction: "Punchier" };
+    click(act(host, "bring", "r1"));
+    click(act(host, "confirm", "r1"));
+    await settle();
+    const order = calls.filter((c) => c[0] === "restore" || c[0] === "rejectEdit").map((c) => c[0]);
+    assert.deepEqual(order, ["restore", "rejectEdit"]);
+    assert.deepEqual(calls.find((c) => c[0] === "rejectEdit"), ["rejectEdit", "p1"]);
+    assert.equal(ctl.state.proposal, null);
   });
 });

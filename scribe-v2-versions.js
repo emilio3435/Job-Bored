@@ -416,13 +416,61 @@
       return marked;
     }
 
+    /* A click in a page moves focus into the frame's own document, where
+       the desk's key handler never hears it (Grok F3-trap). Forward Esc
+       and `c` to the desk, and take Tab back to the compare controls. */
+    function barControls() {
+      var out = [];
+      (function visit(el) {
+        Array.prototype.slice.call(el.children || []).forEach(function (kid) {
+          var tag = String(kid.tagName || "").toLowerCase();
+          if (tag === "button" || tag === "select") {
+            if (!kid.hasAttribute("hidden") && (typeof kid.getClientRects !== "function" || kid.getClientRects().length)) out.push(kid);
+          } else visit(kid);
+        });
+      })(bar);
+      return out;
+    }
+
+    function onPageKey(e) {
+      if (e.key === "Tab") {
+        var list = barControls();
+        if (!list.length) return;
+        e.preventDefault();
+        list[e.shiftKey ? list.length - 1 : 0].focus();
+        return;
+      }
+      if ((e.key === "Escape" || e.key === "c" || e.key === "C") && typeof ctl.onKey === "function") ctl.onKey(e);
+    }
+
+    function unwatchFig(fig) {
+      if (fig && fig.keyDoc && typeof fig.keyDoc.removeEventListener === "function") fig.keyDoc.removeEventListener("keydown", onPageKey);
+      if (fig) fig.keyDoc = null;
+    }
+
+    function watchFig(fig) {
+      unwatchFig(fig);
+      var inner = frameDoc(fig);
+      if (!inner || typeof inner.addEventListener !== "function") return;
+      fig.keyDoc = inner;
+      inner.addEventListener("keydown", onPageKey);
+    }
+
+    function unwatchAll() {
+      if (!figs) return;
+      unwatchFig(figs.A);
+      unwatchFig(figs.B);
+    }
+
     function loadFig(fig, runId, side, token) {
       fig.runId = runId;
       fig.box.setAttribute("aria-busy", "true");
+      unwatchFig(fig);
       return previewHtml(runId).then(function (html) {
         if (token !== ui.token) return;
         fig.frame.onload = function () {
           if (token !== ui.token) return;
+          watchFig(fig);
           fig.box.setAttribute("aria-busy", "false");
           fitFig(fig);
           if (ui.mode === "compare" && ui.diff) markFrame(fig, ui.diff, side);
@@ -639,6 +687,7 @@
       ui.mode = null;
       ui.diff = null;
       root.removeEventListener("resize", fitAll);
+      unwatchAll();
       clear(pages);
       figs = null;
       render();
@@ -714,11 +763,13 @@
       if (!v || ui.restoring) return;
       ui.restoring = true;
       deps.renderVersions();
-      var p = ctl.state.proposal;
-      if (p && p.id) ctl.api.rejectEdit(p.id).catch(function () { /* the proposal was never saved */ });
       ctl.api.restore(runId).then(function (res) {
         ui.restoring = false;
         ui.confirm = null;
+        /* Only now that a new run exists is the open proposal stale; a
+           failed restore leaves it open (Grok F3-discard). */
+        var p = ctl.state.proposal;
+        if (p && p.id) ctl.api.rejectEdit(p.id).catch(function () { /* the proposal was never saved */ });
         if (ctl.closed) return null;
         var n = res && res.run && typeof res.run.n === "number" ? res.run.n : null;
         var msg = "Brought back v" + v.n + (n != null ? " as v" + n : " as a new version") + ". Nothing was deleted.";
@@ -731,7 +782,8 @@
         ui.restoring = false;
         if (ctl.closed) return;
         deps.renderVersions();
-        var msg = (err && err.message) || "Bring back did not save. Nothing changed.";
+        var msg = "Bring back didn’t save" + (err && err.message ? ": " + err.message : ".") +
+          (ctl.state.proposal ? " Your versions and open proposal are unchanged." : " Your versions are unchanged.");
         deps.logMessage("blocked", [msg]);
         announce(msg, true);
         focusIn(r.versions, '[data-ver-act="confirm"]');
@@ -844,6 +896,7 @@
     root.addEventListener("jb:scribe:closed", function onClosed() {
       root.removeEventListener("jb:scribe:closed", onClosed);
       root.removeEventListener("resize", fitAll);
+      unwatchAll();
       ui.token++;
     });
 

@@ -420,8 +420,13 @@ test("should view, compare and bring back versions at 1440 and 390", async ({ pa
   expect(wide.small, "no text under 12px").toEqual([]);
   expect(wide.csp).toEqual([]);
 
-  /* `c` closes compare and opens it again (current against the one before). */
-  await compare.getByRole("button", { name: "Done comparing" }).focus();
+  /* Grok F3-trap: after a click in a compared page, Tab comes back to the
+     compare controls and `c` still closes compare. */
+  const pageB = compare.locator(".scribe__compare-fig--b iframe");
+  await pageB.click({ position: { x: 60, y: 60 } });
+  await page.keyboard.press("Tab");
+  await expect(compare.getByRole("combobox", { name: "Version A" })).toBeFocused();
+  await pageB.click({ position: { x: 60, y: 60 } });
   await page.keyboard.press("c");
   await expect(desk.locator(".scribe__compare")).toBeHidden();
   await page.keyboard.press("c");
@@ -432,6 +437,9 @@ test("should view, compare and bring back versions at 1440 and 390", async ({ pa
   await desk.getByRole("button", { name: "View v1, read-only" }).click();
   const viewing = desk.getByRole("region", { name: "Resume, version 1, read-only" });
   await expect(viewing).toContainText("Viewing v1");
+  await viewing.locator(".scribe__compare-fig--a iframe").click({ position: { x: 60, y: 60 } });
+  await page.keyboard.press("Tab");
+  await expect(viewing.getByRole("button", { name: "Compare with current" })).toBeFocused();
   await viewing.getByRole("button", { name: "Back to current" }).click();
   await expect(viewing).toBeHidden();
   await expect(desk.getByRole("button", { name: "View v1, read-only" })).toBeFocused();
