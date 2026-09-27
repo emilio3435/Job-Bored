@@ -171,16 +171,22 @@ describe("Pipeline Work Mode reading", () => {
     ]) assert.equal(sheetsRead.parseWorkModeFromLocation(location), expected);
   });
 
-  it("uses valid Z values, otherwise infers from Location", () => {
+  it("records Work Mode provenance from Z, Location, or neither", () => {
     const { sheetsRead } = createHarness({ activeSheetId: null });
     const parse = (location, workMode) => {
       const row = Array(26).fill("");
       row[1] = "Engineer"; row[2] = "Acme"; row[3] = location; row[25] = workMode;
-      return sheetsRead.parsePipelineCSV([[], row])[0].workMode;
+      return sheetsRead.parsePipelineCSV([[], row])[0];
     };
-    assert.equal(parse("Remote", "hybrid"), "hybrid");
-    assert.equal(parse("Remote", ""), "remote");
-    assert.equal(parse("On-site", "unknown"), "onsite");
-    assert.equal(parse("Austin", ""), "");
+    for (const [location, column, mode, source] of [
+      ["Remote", "hybrid", "hybrid", "column"],
+      ["Remote", "", "remote", "location"],
+      ["On-site", "unknown", "onsite", "location"],
+      ["Austin", "", "", ""],
+    ]) {
+      const job = parse(location, column);
+      assert.equal(job.workMode, mode);
+      assert.equal(job.workModeSource, source);
+    }
   });
 });

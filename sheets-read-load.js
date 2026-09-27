@@ -793,6 +793,10 @@
         if (!isNaN(d.getTime())) dateFound = d;
       }
 
+      const columnWorkMode = String(row[25] || "").trim();
+      const hasColumnWorkMode = ["remote", "hybrid", "onsite"].includes(columnWorkMode);
+      const locationWorkMode = hasColumnWorkMode ? "" : parseWorkModeFromLocation(row[3]);
+
       results.push({
         _rawIndex: i,
         dateFound: dateFound,
@@ -800,9 +804,8 @@
         title: title ? title.trim() : null,
         company: company,
         location: row[3] || null,
-        workMode: ["remote", "hybrid", "onsite"].includes(String(row[25] || "").trim())
-          ? String(row[25]).trim()
-          : parseWorkModeFromLocation(row[3]),
+        workMode: hasColumnWorkMode ? columnWorkMode : locationWorkMode,
+        workModeSource: hasColumnWorkMode ? "column" : locationWorkMode ? "location" : "",
         link: row[4] || null,
         source: row[5] || null,
         salary: row[6] || null,
