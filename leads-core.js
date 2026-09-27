@@ -706,8 +706,9 @@
           () => giveUp("Leads DB open timed out. Close other JobBored tabs and retry."),
           timeoutMs,
         );
-        req.onblocked = () =>
-          giveUp("Leads DB is blocked by another JobBored tab. Close other JobBored tabs and retry.");
+        // Blocked means another tab is still upgrading or closing; the open
+        // usually succeeds once it does. Only the watchdog gives up.
+        req.onblocked = () => {};
         req.onupgradeneeded = (event) => {
           const db = event.target.result;
           if (!db.objectStoreNames.contains(STORE)) {

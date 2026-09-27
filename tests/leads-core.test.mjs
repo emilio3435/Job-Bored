@@ -535,7 +535,7 @@ describe("leads-core: IndexedDB records store", () => {
     await assert.rejects(store.listViews(), /blocked/);
   });
 
-  it("should reject on onblocked, close a late success, and drop the handle on versionchange (IDB-OPEN)", async () => {
+  it("should wait out onblocked, close a success after the watchdog, and drop the handle on versionchange (IDB-OPEN)", async () => {
     const { core } = loadCore();
     const requests = [];
     const fakeDb = () => ({
@@ -547,27 +547,28 @@ describe("leads-core: IndexedDB records store", () => {
       },
     });
     const factory = { open() { const req = {}; requests.push(req); return req; } };
-    const store = core.createStore({ indexedDB: factory });
+    const store = core.createStore({ indexedDB: factory, openTimeoutMs: 20 });
 
+    // Blocked, then the other tab lets go: the open succeeds and stays open.
     const first = store.listViews();
     requests[0].onblocked();
-    await assert.rejects(first, /blocked by another JobBored tab/);
-    const late = fakeDb();
-    requests[0].result = late;
+    const blockedThenOpen = fakeDb();
+    requests[0].result = blockedThenOpen;
     requests[0].onsuccess();
-    assert.equal(late.closed, true, "a success after giving up is closed");
+    same(await first, []);
+    assert.equal(blockedThenOpen.closed, false, "a blocked request that later succeeds stays open");
 
+    // versionchange closes that connection; the next call opens a new one.
+    blockedThenOpen.onversionchange();
+    assert.equal(blockedThenOpen.closed, true);
     const second = store.listViews();
-    const live = fakeDb();
-    requests[1].result = live;
+    assert.equal(requests.length, 2);
+
+    // Still pending at the watchdog: reject, then close the late success.
+    await assert.rejects(second, /timed out/);
+    const late = fakeDb();
+    requests[1].result = late;
     requests[1].onsuccess();
-    same(await second, []);
-    live.onversionchange();
-    assert.equal(live.closed, true);
-    const third = store.listViews();
-    assert.equal(requests.length, 3, "the next call opens a fresh connection");
-    requests[2].result = fakeDb();
-    requests[2].onsuccess();
-    await third;
+    assert.equal(late.closed, true, "a success after the watchdog is closed");
   });
 });
