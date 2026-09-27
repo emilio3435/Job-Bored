@@ -52,6 +52,7 @@ import {
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import { regeneratePackage } from "./materials-regenerate.mjs";
+import { registerMaterialsEditRoutes } from "./materials-versions.mjs";
 import { listFamilies } from "./materials-templates.mjs";
 import {
   buildStarterTemplate,
@@ -298,7 +299,7 @@ app.use((req, res, next) => {
     trustedHosts: API_TRUSTED_HOSTS,
   });
 
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, X-Api-Token",
@@ -959,6 +960,9 @@ app.post("/api/applications/:slug/regenerate", async (req, res) => {
     sendAppError(res, e);
   }
 });
+
+/* Scribe v2 edits and immutable version history share the materials guards. */
+registerMaterialsEditRoutes(app, { sendError: sendAppError });
 
 /* Dismisses a stuck/failed pending.json by archiving it (rename, not
  * delete) so the JobBored UI clears its FAILED card without losing
