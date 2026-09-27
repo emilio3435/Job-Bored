@@ -47,6 +47,16 @@ it points you here.
 
 Open http://localhost:8080 and follow the one setup flow — step 1 signs you in with Google and creates your Sheet.
 
+### Set up from your phone over Tailscale
+
+With Tailscale Serve forwarding this computer's JobBored dashboard, open
+`https://<this-machine>.<your-tailnet>.ts.net` on a phone signed in to Tailscale
+as the **same user who owns this computer's Tailscale node**. Add that exact
+HTTPS address to your Google OAuth client's authorized JavaScript origins for
+the Google sign-in step. Onboarding and Settings then use this computer's local
+JobBored services through Serve. Other tailnet users cannot use those setup
+controls; if Tailscale is stopped on this computer, start it and reload.
+
 ## Quick Start
 
 Use **Node.js 24.x** with npm 11.x for local scripts and the Browser Use discovery worker. The repo includes `.nvmrc` and `.node-version`. For what works on macOS / Linux / native Windows, see the **[OS support matrix](README.md#os-support)** in the README.

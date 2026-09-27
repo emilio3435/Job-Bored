@@ -70,6 +70,8 @@ export type SerpApiCollectorInput = {
   resultsPerQuery?: number;
   /** Optional deterministic seed (variation key) to rotate query subsets. */
   querySeed?: string;
+  /** Aggregate per-query observation; never receives key, URL or query text. */
+  onQueryProgress?: (progress: { state: "running" | "done"; done: number; total: number }) => void;
 };
 
 export type SerpApiListing = {
@@ -135,9 +137,17 @@ export async function collectSerpApiGoogleJobsListings(
   const resultsPerQuery = input.resultsPerQuery ?? DEFAULT_RESULTS_PER_QUERY;
 
   const listingsByUrl = new Map<string, SerpApiListing>();
+  const observeQuery = (state: "running" | "done") => {
+    try {
+      input.onQueryProgress?.({ state, done: stats.queryCount - (state === "running" ? 1 : 0), total: queries.length });
+    } catch {
+      // Progress observation cannot affect provider results.
+    }
+  };
 
   for (const query of queries) {
     stats.queryCount += 1;
+    observeQuery("running");
     input.log?.("discovery.run.serpapi_google_jobs_query_started", {
       query,
       resultsPerQuery,
@@ -177,6 +187,8 @@ export async function collectSerpApiGoogleJobsListings(
         warning,
         message,
       });
+    } finally {
+      observeQuery("done");
     }
   }
 

@@ -430,7 +430,30 @@
       leadsWritten: toInt(o.leadsWritten),
       leadsUpdated: toInt(o.leadsUpdated),
       statusUnavailable: !!o.statusUnavailable,
+      // Live progress (UXD-FE): the tracker's view-model reads these.
+      startedAt: String(o.startedAt || ""),
+      initiatedAt: String(o.initiatedAt || ""),
+      progress: o.progress && typeof o.progress === "object" ? o.progress : null,
+      progressObservedAt: String(o.progressObservedAt || ""),
+      progressHeartbeatSeen: !!o.progressHeartbeatSeen,
+      pollErrorCount: toInt(o.pollErrorCount),
+      statusEndpointTerminal: !!o.statusEndpointTerminal,
     };
+  }
+
+  function liveRunTracker() {
+    var rt = window.JobBoredDiscovery && window.JobBoredDiscovery.runTracker;
+    return rt && typeof rt.deriveLiveRunView === "function" ? rt : null;
+  }
+
+  function liveRunView(run) {
+    var rt = liveRunTracker();
+    return rt && run ? rt.deriveLiveRunView(run, Date.now()) : null;
+  }
+
+  function liveProgressCellHtml(view) {
+    var rt = liveRunTracker();
+    return rt && view ? rt.renderLiveRunProgressHtml(view, { variant: "row" }) : "";
   }
 
   function readStoredJobDiscoveryRun() {
@@ -631,6 +654,12 @@
     var leadsWritten = run && run.leadsWritten > 0 ? run.leadsWritten : 0;
     var leadsUpdated = run && run.leadsUpdated > 0 ? String(run.leadsUpdated) : "—";
     var detailId = nextDetailId();
+    var view = terminal ? null : liveRunView(run);
+    var progressCell = view ? liveProgressCellHtml(view) : "";
+    var durationHtml =
+      view && view.elapsedText
+        ? escapeHtml(view.elapsedText)
+        : '<span class="runs-dash">' + (terminal ? "Local" : "Live") + "</span>";
     return (
       '<tr class="runs-row runs-row--' + escapeHtml(terminal ? status : "in-progress") + '" data-runs-live="job-discovery">' +
         runAtToggleHtml(runAtIso, detailId) +
@@ -640,9 +669,13 @@
           : '<td class="runs-new-cell"><span class="runs-dash">—</span></td>') +
         whyCellHtml(terminal ? status : "", errorText) +
       "</tr>" +
+      (progressCell
+        ? '<tr class="runs-live-progress-row" data-live-run-progress="1"><td colspan="' +
+          VISIBLE_COLUMNS + '">' + progressCell + "</td></tr>"
+        : "") +
       detailRowHtml(detailId, [
         ["Trigger", escapeHtml(triggerLabel((run && run.trigger) || "manual"))],
-        ["Duration", '<span class="runs-dash">' + (terminal ? "Local" : "Live") + "</span>"],
+        ["Duration", durationHtml],
         ["Companies", escapeHtml(companiesSeen)],
         ["Updated", escapeHtml(leadsUpdated)],
         ["Source", "Job discovery"],
@@ -947,6 +980,34 @@
       }
     }
 
+    // Elapsed and "updated Xs ago" must keep moving between polls, so a
+    // one-second tick repaints only the live progress cell (never the table:
+    // focus and open detail rows stay put).
+    var liveTickTimer = null;
+
+    function tickLiveProgress() {
+      var cell = tbody && tbody.querySelector
+        ? tbody.querySelector("[data-live-run-progress] > td")
+        : null;
+      var view = state.liveJobRun ? liveRunView(state.liveJobRun) : null;
+      if (!cell || !view || view.mode === "hidden") return;
+      cell.innerHTML = liveProgressCellHtml(view);
+    }
+
+    function syncLiveTick() {
+      var wanted =
+        state.isOpen &&
+        !!state.liveJobRun &&
+        !isTerminalJobDiscoveryRun(state.liveJobRun) &&
+        !!liveRunTracker();
+      if (wanted && !liveTickTimer) {
+        liveTickTimer = setInterval(tickLiveProgress, 1000);
+      } else if (!wanted && liveTickTimer) {
+        clearInterval(liveTickTimer);
+        liveTickTimer = null;
+      }
+    }
+
     function openModal() {
       modal.style.display = "flex";
       modal.setAttribute("aria-hidden", "false");
@@ -954,6 +1015,7 @@
       state.liveJobRun = readStoredJobDiscoveryRun();
       loadRuns();
       startAutoRefresh();
+      syncLiveTick();
     }
 
     function closeModal() {
@@ -961,6 +1023,7 @@
       modal.setAttribute("aria-hidden", "true");
       state.isOpen = false;
       stopAutoRefresh();
+      syncLiveTick();
     }
 
     openBtn.addEventListener("click", openModal);
@@ -1102,6 +1165,7 @@
       var next = normalizeJobDiscoveryRunState(event && event.detail);
       var hadLiveRun = !!state.liveJobRun;
       state.liveJobRun = next;
+      syncLiveTick();
       if (!state.isOpen) return;
       if (state.liveJobRun) {
         rerender();

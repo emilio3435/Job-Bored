@@ -120,6 +120,49 @@
         },
         "checkpointedAt": {
           "type": "string"
+        },
+        "heartbeatAt": {
+          "type": "string",
+          "description": "Last persisted observation while the run was active; compare observed sequence changes on the reader's clock."
+        },
+        "counters": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "companiesTotal": { "type": "integer", "minimum": 0 },
+            "companiesDone": { "type": "integer", "minimum": 0 },
+            "boardsDetected": { "type": "integer", "minimum": 0 },
+            "listingsSeen": { "type": "integer", "minimum": 0 },
+            "listingsProcessed": { "type": "integer", "minimum": 0 },
+            "leadsQualified": { "type": "integer", "minimum": 0 },
+            "matcherCalls": { "type": "integer", "minimum": 0 },
+            "queriesTotal": { "type": "integer", "minimum": 0 },
+            "queriesDone": { "type": "integer", "minimum": 0 }
+          }
+        },
+        "current": {
+          "type": "object",
+          "additionalProperties": false,
+          "required": ["kind", "label"],
+          "properties": {
+            "kind": { "type": "string", "enum": ["company", "source", "query"] },
+            "label": { "type": "string", "maxLength": 120 }
+          }
+        },
+        "sources": {
+          "type": "array",
+          "maxItems": 8,
+          "items": {
+            "type": "object",
+            "additionalProperties": false,
+            "required": ["id", "state"],
+            "properties": {
+              "id": { "type": "string" },
+              "state": { "type": "string", "enum": ["pending", "running", "done", "skipped"] },
+              "done": { "type": "integer", "minimum": 0 },
+              "total": { "type": "integer", "minimum": 0 }
+            }
+          }
         }
       }
     },

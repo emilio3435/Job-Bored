@@ -152,6 +152,17 @@ body.jb-v2 .jb-mono {
   0% { background: rgba(239, 68, 68, 0.4); }
   100% { background: var(--surface, transparent); }
 }
+/* UXD-FE: syncDiscoveryLiveProgress() sets data-run-health from the live
+   run view. A worker quiet past the contract's bound stops pulsing and turns
+   amber, so the button stops claiming activity it can't see. */
+.btn-discovery.run-running[data-run-health="stalled"]::before,
+.btn-discovery.run-running[data-run-health="quiet"]::before {
+  animation: none;
+}
+.btn-discovery.run-running[data-run-health="stalled"]::before {
+  background: var(--jb-amber);
+}
+
 @media (prefers-reduced-motion: reduce) {
   .btn-discovery.run-pending::before,
   .btn-discovery.run-running::before,
