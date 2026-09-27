@@ -1,0 +1,1128 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Scribe Redesign</title>
+<link rel="preconnect" href="https://fonts.googleapis.com" />
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+<link href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Geist:wght@400;500;600;700&family=JetBrains+Mono:wght@400;600&display=swap" rel="stylesheet" />
+<style>
+/* ------------------------------------------------------------------
+   Tokens. Light values are JobBored's real tokens-v2.css values.
+   Dark values are a PROPOSAL (tokens-v2 has no dark tier; SPEC §0-6).
+   The document sheet itself always renders light, like the PDF.
+   ------------------------------------------------------------------ */
+:root {
+  --paper: #FFFEF9; --paper-2: #FBF7EE; --paper-3: #F3EEE2;
+  --line: #C9C2B0; --line-soft: #E5DFCC;
+  --ink: #1B2B33; --ink-2: #3A5566; --ink-3: #587080;
+  --action: #0E3A4E; --on-action: #FFFEF9; --action-hover: #355467;
+  --mint: #5FCB8E; --mint-soft: #DCF1E2; --on-accent: #0E3A4E; --accent-ink: #1F6F4A;
+  --err: #B4321F; --err-tint: #FBEBE8; --warn: #A15C07; --warn-tint: #FBF0DF;
+  --info-tint: #EDF2F4;
+  --scrim: rgba(15, 23, 42, 0.45);
+  --shadow-sticker: 3px 4px 0 rgba(14, 58, 78, 0.12);
+  --shadow-sheet: 0 -2px 0 rgba(14, 58, 78, 0.06), 0 -18px 40px rgba(27, 42, 78, 0.14);
+  --focus: 0 0 0 2px var(--paper), 0 0 0 4px var(--action);
+
+  /* Document (always light: it previews the PDF) */
+  --doc-paper: #FFFEF9; --doc-ink: #15112E; --doc-ink-2: #4A4766; --doc-line: rgba(21, 17, 46, 0.18);
+  --volt: #4A24FF; --volt-line: rgba(74, 36, 255, 0.28);
+  --doc-ins-bg: rgba(95, 203, 142, 0.22); --doc-ins-rule: #1F6F4A;
+  --doc-del: #B4321F; --doc-pending: #0E3A4E; --doc-accepted: #5FCB8E; --doc-warn: #A15C07; --doc-warn-bg: #FBF0DF;
+  --doc-margin-ink: #3A5566;
+
+  --f-body: "Geist", -apple-system, BlinkMacSystemFont, "Segoe UI", system-ui, sans-serif;
+  --f-hand: "Caveat", "Bradley Hand", cursive;
+  --f-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  --t-title: 1.5rem; --t-heading: 1.125rem; --t-body: 0.9375rem; --t-small: 0.8125rem; --t-label: 0.6875rem;
+  --r-sm: 6px; --r-md: 10px; --r-lg: 14px; --r-pill: 999px;
+  --d-fast: 120ms; --d-base: 200ms; --d-slow: 320ms; --ease: cubic-bezier(0.16, 1, 0.3, 1);
+  color-scheme: light;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --paper: #16242C; --paper-2: #1C2D37; --paper-3: #0F1B22;
+    --line: #3A5463; --line-soft: #263C48;
+    --ink: #EDE8DA; --ink-2: #C3CCD0; --ink-3: #9AABB3;
+    --action: #5FCB8E; --on-action: #0E3A4E; --action-hover: #7FDCA6;
+    --mint-soft: rgba(95, 203, 142, 0.18); --accent-ink: #86DDAA;
+    --err: #FF8E7C; --err-tint: rgba(180, 50, 31, 0.28); --warn: #F2B25C; --warn-tint: rgba(239, 143, 38, 0.2);
+    --info-tint: #1F3340; --scrim: rgba(3, 8, 12, 0.6);
+    --shadow-sticker: 3px 4px 0 rgba(0, 0, 0, 0.35);
+    --shadow-sheet: 0 -18px 40px rgba(0, 0, 0, 0.45);
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --paper: #16242C; --paper-2: #1C2D37; --paper-3: #0F1B22;
+  --line: #3A5463; --line-soft: #263C48;
+  --ink: #EDE8DA; --ink-2: #C3CCD0; --ink-3: #9AABB3;
+  --action: #5FCB8E; --on-action: #0E3A4E; --action-hover: #7FDCA6;
+  --mint-soft: rgba(95, 203, 142, 0.18); --accent-ink: #86DDAA;
+  --err: #FF8E7C; --err-tint: rgba(180, 50, 31, 0.28); --warn: #F2B25C; --warn-tint: rgba(239, 143, 38, 0.2);
+  --info-tint: #1F3340; --scrim: rgba(3, 8, 12, 0.6);
+  --shadow-sticker: 3px 4px 0 rgba(0, 0, 0, 0.35);
+  --shadow-sheet: 0 -18px 40px rgba(0, 0, 0, 0.45);
+  color-scheme: dark;
+}
+
+*, *::before, *::after { box-sizing: border-box; }
+html { -webkit-text-size-adjust: 100%; }
+body {
+  margin: 0; background: var(--paper-3); color: var(--ink);
+  font: 400 var(--t-body)/1.5 var(--f-body); overflow-x: hidden;
+}
+button, input, textarea, select { font: inherit; color: inherit; }
+button { cursor: pointer; }
+:focus-visible { outline: none; box-shadow: var(--focus); }
+.sr { position: absolute; width: 1px; height: 1px; overflow: hidden; clip: rect(0 0 0 0); white-space: nowrap; }
+[hidden] { display: none !important; }
+
+/* ---------- Host page (a stand-in for the Case) ---------- */
+.host { max-width: 1120px; margin: 0 auto; padding: 24px 16px 140px; }
+.host__top { display: flex; flex-wrap: wrap; gap: 8px 16px; align-items: baseline; justify-content: space-between; margin-bottom: 20px; }
+.host__role { margin: 0; font-size: var(--t-title); font-weight: 600; letter-spacing: -0.01em; }
+.host__co { color: var(--ink-2); font-size: var(--t-body); }
+.sample-note { font-size: var(--t-small); color: var(--ink-3); }
+.theme-switch { display: inline-flex; border: 1px solid var(--line); border-radius: var(--r-pill); overflow: hidden; }
+.theme-switch button { border: 0; background: transparent; padding: 4px 10px; font-size: var(--t-small); color: var(--ink-2); min-height: 32px; }
+.theme-switch button[aria-pressed="true"] { background: var(--action); color: var(--on-action); }
+
+.materials { background: var(--paper); border: 1px solid var(--line-soft); border-radius: var(--r-lg); padding: 16px 20px 20px; }
+.materials h2 { margin: 0 0 8px; font-size: var(--t-heading); font-weight: 600; }
+.doc-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 12px 0; border-top: 1px solid var(--line-soft); }
+.doc-row:first-of-type { border-top: 0; }
+.doc-row__name { font-weight: 600; }
+.doc-row__meta { color: var(--ink-3); font-size: var(--t-small); grid-column: 1; }
+.doc-row__acts { grid-row: 1 / span 2; grid-column: 2; display: flex; gap: 6px; }
+.btn {
+  display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+  min-height: 36px; padding: 0 14px; border-radius: var(--r-md);
+  border: 1px solid var(--line); background: var(--paper); color: var(--ink);
+  font-size: var(--t-small); font-weight: 500; white-space: nowrap;
+  transition: background var(--d-fast) var(--ease), border-color var(--d-fast) var(--ease);
+}
+.btn:hover { border-color: var(--ink-3); }
+.btn--primary { background: var(--action); border-color: var(--action); color: var(--on-action); }
+.btn--primary:hover { background: var(--action-hover); border-color: var(--action-hover); }
+.btn--ghost { border-color: transparent; background: transparent; color: var(--ink-2); }
+.btn--ghost:hover { background: var(--paper-2); border-color: transparent; }
+.btn[aria-disabled="true"] { opacity: 0.55; cursor: not-allowed; }
+
+/* ---------- The dock ---------- */
+.dock {
+  margin-top: 16px; background: var(--paper); border: 1px solid var(--line);
+  border-radius: var(--r-lg); box-shadow: var(--shadow-sticker); overflow: hidden;
+}
+.dock__status { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 14px; padding: 10px 14px 0; font-size: var(--t-small); color: var(--ink-2); }
+.dock__status strong { color: var(--ink); font-weight: 600; }
+.dock__ver { font-family: var(--f-mono); font-size: var(--t-small); color: var(--ink); }
+.dock__proposal {
+  margin: 10px 14px 0; padding: 10px 12px; border-radius: var(--r-md);
+  background: var(--info-tint); display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between;
+}
+.dock__proposal p { margin: 0; font-size: var(--t-small); }
+.dock__proposal .hand { font-family: var(--f-hand); font-size: 1.35rem; line-height: 1; color: var(--ink); }
+.dock__row { display: flex; gap: 8px; align-items: center; padding: 10px 10px 10px 14px; }
+.dock__input {
+  flex: 1; min-width: 0; min-height: 40px; border: 1px solid var(--line-soft); background: var(--paper-2);
+  border-radius: var(--r-md); padding: 8px 12px; font-size: var(--t-body);
+}
+.dock__input::placeholder { color: var(--ink-3); }
+
+/* ---------- Sheet ---------- */
+.scrim { position: fixed; inset: 0; background: var(--scrim); z-index: 799; opacity: 0; transition: opacity var(--d-base) var(--ease); }
+.scrim.is-open { opacity: 1; }
+.sheet {
+  position: fixed; left: 0; right: 0; bottom: 0; height: 92vh; height: 92dvh; z-index: 800;
+  background: var(--paper-3); border-radius: var(--r-lg) var(--r-lg) 0 0; box-shadow: var(--shadow-sheet);
+  display: grid; grid-template-rows: auto 1fr; overflow: hidden;
+  transform: translateY(8%); opacity: 0; transition: transform var(--d-slow) var(--ease), opacity var(--d-base) var(--ease);
+}
+.sheet.is-open { transform: none; opacity: 1; }
+@media (prefers-reduced-motion: reduce) {
+  .sheet { transform: none; transition: opacity var(--d-base) linear; }
+  * { scroll-behavior: auto !important; }
+}
+
+.sheet__head {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px;
+  padding: 10px 16px; background: var(--paper); border-bottom: 1px solid var(--line-soft);
+}
+.sheet__title { display: flex; align-items: baseline; gap: 10px; margin-right: auto; min-width: 0; }
+.sheet__title h2 { margin: 0; font-size: var(--t-heading); font-weight: 600; white-space: nowrap; }
+.sheet__title span { color: var(--ink-3); font-size: var(--t-small); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.tabs { display: inline-flex; background: var(--paper-2); border: 1px solid var(--line-soft); border-radius: var(--r-md); padding: 2px; }
+.tabs [role="tab"] { border: 0; background: transparent; border-radius: 8px; padding: 0 12px; min-height: 32px; font-size: var(--t-small); color: var(--ink-2); }
+.tabs [role="tab"][aria-selected="true"] { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line-soft); }
+.pill {
+  display: inline-flex; align-items: center; gap: 6px; min-height: 32px; padding: 0 12px;
+  border-radius: var(--r-pill); border: 1px solid var(--line-soft); background: var(--paper);
+  font-size: var(--t-small); color: var(--ink-2); white-space: nowrap;
+}
+.pill--pages { font-family: var(--f-mono); color: var(--ink); }
+.pill--lock { color: var(--accent-ink); border-color: var(--line); }
+.pill--lock svg { width: 13px; height: 13px; }
+.toggle[aria-pressed="true"] { background: var(--action); border-color: var(--action); color: var(--on-action); }
+.toggle kbd { font-family: var(--f-mono); font-size: var(--t-label); opacity: 0.8; }
+.head-group { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+
+.sheet__body { display: grid; grid-template-columns: minmax(0, 62fr) minmax(0, 38fr); min-height: 0; }
+.seg { display: none; }
+
+/* Doc pane */
+.docpane { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; min-width: 0; border-right: 1px solid var(--line-soft); }
+.stage {
+  display: flex; flex-wrap: wrap; gap: 4px 10px; align-items: center; padding: 8px 16px;
+  font-size: var(--t-small); color: var(--ink-2); background: var(--paper-2); border-bottom: 1px solid var(--line-soft);
+}
+.stage ol { list-style: none; display: flex; flex-wrap: wrap; gap: 2px 6px; margin: 0; padding: 0; }
+.stage li { display: inline-flex; align-items: center; gap: 4px; }
+.stage li + li::before { content: ""; width: 14px; height: 1px; background: var(--line); margin-right: 2px; }
+.stage li[data-s="done"] { color: var(--accent-ink); }
+.stage li[data-s="now"] { color: var(--ink); font-weight: 600; }
+.stage li[data-s="todo"] { color: var(--ink-3); }
+.stage .dot { width: 7px; height: 7px; border-radius: 50%; background: currentColor; }
+.stage__short { display: none; }
+.stage li[data-s="now"] .dot { animation: pulse 1s var(--ease) infinite alternate; }
+@keyframes pulse { from { opacity: 0.3; } to { opacity: 1; } }
+@media (prefers-reduced-motion: reduce) { .stage__short { display: none; }
+.stage li[data-s="now"] .dot { animation: none; } }
+
+.docscroll { overflow: auto; padding: 24px 16px 32px; min-height: 0; }
+.docscroll[aria-busy="true"] .page { opacity: 0.6; }
+.compare-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; align-items: start; }
+.compare-bar { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; justify-content: center; margin: 0 auto 14px; font-size: var(--t-small); color: var(--ink-2); }
+.compare-bar select { min-height: 32px; border-radius: var(--r-sm); border: 1px solid var(--line); background: var(--paper); padding: 0 8px; }
+.compare-ab { display: none; }
+
+.reviewbar {
+  display: flex; flex-wrap: wrap; gap: 8px 12px; align-items: center; justify-content: space-between;
+  padding: 10px 16px; background: var(--paper); border-top: 1px solid var(--line-soft);
+}
+.reviewbar__sum { font-size: var(--t-small); color: var(--ink-2); display: flex; flex-wrap: wrap; gap: 2px 12px; }
+.reviewbar__sum b { color: var(--ink); font-weight: 600; }
+.loss { font-family: var(--f-mono); font-size: var(--t-small); }
+.reviewbar__acts { display: flex; flex-wrap: wrap; gap: 6px; }
+
+/* ---------- The page (approximation of the Signal family) ---------- */
+.page {
+  --mw: 168px;
+  container-type: inline-size;
+  max-width: 760px; margin: 0 auto; background: var(--doc-paper); color: var(--doc-ink);
+  box-shadow: 0 1px 0 rgba(21, 17, 46, 0.08), 0 10px 30px rgba(21, 17, 46, 0.12);
+  border-radius: 3px; position: relative; font-size: 13.5px; line-height: 1.45;
+  transition: opacity var(--d-base) var(--ease);
+}
+.page__label { position: absolute; top: -20px; left: 0; font-size: var(--t-small); color: var(--ink-3); }
+.compare-grid .page { --mw: 0px; font-size: 12px; margin: 0; width: 100%; }
+.band { background: var(--volt); color: #FFFFFF; padding: 22px 28px 18px; margin-right: var(--mw); border-radius: 3px 0 0 0; }
+.band h3 { margin: 0; font-size: clamp(22px, 5.5cqi, 30px); font-weight: 700; letter-spacing: -0.02em; line-height: 1.05; }
+.band p { margin: 4px 0 0; font-size: 13px; opacity: 0.92; }
+.band__scale { display: flex; gap: 3px; margin-top: 12px; }
+.band__scale i { height: 3px; flex: 1; background: #FFFFFF; opacity: 0.25; }
+.band__scale i:nth-child(-n+3) { opacity: 0.95; } .band__scale i:nth-child(4) { opacity: 0.7; } .band__scale i:nth-child(5) { opacity: 0.45; }
+.pagebody { padding: 14px 0 26px; }
+.row { display: grid; grid-template-columns: minmax(0, 1fr) var(--mw); position: relative; }
+.row__text { padding: 3px 18px 3px 28px; border-left: 3px solid transparent; min-width: 0; }
+.row__margin { border-left: 1px dashed var(--doc-line); padding: 3px 10px; font-size: 12px; color: var(--doc-margin-ink); }
+.row--gap .row__text { padding-top: 12px; }
+.sec { font-family: var(--f-mono); font-size: 10.5px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--volt); margin: 0; }
+.stmt { font-size: 14.5px; font-weight: 500; line-height: 1.45; margin: 0; }
+.readouts { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 10px; }
+.readout { border-left: 2px solid var(--volt-line); padding-left: 8px; }
+.readout b { display: block; font-family: var(--f-mono); font-size: 20px; font-weight: 600; color: var(--volt); letter-spacing: -0.02em; }
+.readout span { font-size: 11.5px; color: var(--doc-ink-2); }
+.entry { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 12px; margin: 0; }
+.entry b { font-weight: 700; }
+.entry .seat { font-weight: 500; }
+.entry time { font-family: var(--f-mono); font-size: 11.5px; color: var(--doc-ink-2); }
+.bullet { margin: 0; padding-left: 14px; position: relative; }
+.bullet::before { content: ""; position: absolute; left: 0; top: 0.62em; width: 6px; height: 2px; background: var(--volt); }
+.plain { margin: 0; }
+.locked-mark { display: inline-flex; vertical-align: -1px; margin-left: 4px; color: var(--doc-ink-2); }
+.locked-mark svg { width: 11px; height: 11px; }
+
+/* Selectable blocks */
+.row[data-node] .row__text { cursor: text; }
+.row.is-selected .row__text { background: rgba(14, 58, 78, 0.06); border-left-color: var(--doc-ink-2); }
+
+/* Suggesting-mode marks */
+ins { text-decoration: none; background: var(--doc-ins-bg); box-shadow: inset 0 -2px 0 var(--doc-ins-rule); border-radius: 2px; padding: 0 1px; }
+del { color: var(--doc-del); text-decoration: line-through; text-decoration-thickness: 1.5px; }
+.row[data-change] .row__text { border-left-color: var(--doc-pending); }
+.row[data-state="accepted"] .row__text { border-left-color: var(--doc-accepted); }
+.row[data-state="rejected"] .row__text { border-left-color: var(--doc-line); }
+.row[data-flag="unverified"][data-state="pending"] .row__text { border-left-color: var(--doc-warn); background: var(--doc-warn-bg); }
+.row.is-focused .row__text { outline: 2px solid var(--doc-pending); outline-offset: 1px; border-radius: 2px; }
+.row.is-focused:focus-visible { box-shadow: none; }
+.row:focus { outline: none; }
+.row__stub { color: var(--doc-ink-2); font-size: 12px; font-style: italic; }
+
+.mm { display: grid; grid-template-columns: auto 1fr; gap: 0 6px; align-items: start; }
+.mm__glyph { font-family: var(--f-mono); font-weight: 600; font-size: 15px; line-height: 1.2; width: 14px; text-align: center; }
+.mm__glyph[data-g="+"] { color: var(--doc-ins-rule); } .mm__glyph[data-g="−"] { color: var(--doc-del); } .mm__glyph[data-g="~"] { color: var(--doc-pending); }
+.mm__note { font-family: var(--f-hand); font-size: 17px; line-height: 1.05; color: var(--doc-ink); }
+.mm__acts { grid-column: 1 / -1; display: flex; gap: 4px; margin-top: 4px; }
+.mm__btn {
+  min-width: 32px; min-height: 32px; padding: 0 8px; border-radius: var(--r-sm);
+  border: 1px solid var(--doc-line); background: var(--doc-paper); color: var(--doc-ink); font-size: 13px; font-weight: 600;
+}
+.mm__btn--ok:hover, .mm__btn--ok[aria-pressed="true"] { background: var(--mint); border-color: var(--mint); color: #0E3A4E; }
+.mm__btn--no:hover, .mm__btn--no[aria-pressed="true"] { background: #FBEBE8; border-color: var(--doc-del); color: var(--doc-del); }
+.mm__btn:focus-visible { box-shadow: 0 0 0 2px var(--doc-paper), 0 0 0 4px #0E3A4E; }
+.mm__flag { grid-column: 1 / -1; margin-top: 4px; font-size: 11.5px; line-height: 1.3; color: var(--doc-warn); font-weight: 600; }
+.mm__done { grid-column: 1 / -1; font-size: 12px; color: var(--doc-ink-2); }
+
+.pagebreak { margin: 0 var(--mw) 0 0; border-top: 1px dashed var(--doc-line); position: relative; height: 0; }
+.pagebreak span { position: absolute; right: 8px; top: -9px; background: var(--doc-paper); padding: 0 6px; font-family: var(--f-mono); font-size: 10.5px; color: var(--doc-ink-2); }
+
+/* Letter */
+.letter { padding: 30px 0 30px; }
+.letter .row__text { padding-left: 40px; padding-right: 36px; }
+.letter p { margin: 0 0 10px; font-size: 14px; line-height: 1.55; }
+
+/* ---------- Side pane ---------- */
+.side { display: grid; grid-template-rows: auto 1fr auto; min-height: 0; min-width: 0; background: var(--paper); }
+.side__tabs { display: flex; gap: 4px; padding: 8px 12px 0; border-bottom: 1px solid var(--line-soft); }
+.side__tabs [role="tab"] {
+  border: 0; background: transparent; padding: 8px 12px; min-height: 40px; font-size: var(--t-small); color: var(--ink-2);
+  border-bottom: 2px solid transparent; margin-bottom: -1px;
+}
+.side__tabs [role="tab"][aria-selected="true"] { color: var(--ink); font-weight: 600; border-bottom-color: var(--action); }
+.side__panel { overflow: auto; min-height: 0; padding: 16px; }
+
+.log { display: flex; flex-direction: column; gap: 12px; }
+.msg { max-width: 92%; font-size: var(--t-small); line-height: 1.5; }
+.msg--you { align-self: flex-end; background: var(--action); color: var(--on-action); padding: 8px 12px; border-radius: 12px 12px 4px 12px; }
+.msg--scribe { align-self: flex-start; background: var(--paper-2); border: 1px solid var(--line-soft); padding: 10px 12px; border-radius: 12px 12px 12px 4px; }
+.msg--scribe .hand { font-family: var(--f-hand); font-size: 1.4rem; line-height: 1.05; display: block; margin-bottom: 4px; color: var(--ink); }
+.msg--blocked { align-self: flex-start; border-left: 3px solid var(--err); background: var(--err-tint); padding: 8px 12px; border-radius: 4px 10px 10px 4px; }
+.msg--note { align-self: center; color: var(--ink-3); font-size: var(--t-small); }
+.msg time { display: block; font-size: var(--t-small); color: var(--ink-3); margin-top: 2px; }
+.msg--you time { color: inherit; opacity: 0.75; }
+.msg ul { margin: 6px 0 0; padding-left: 18px; }
+
+.composer { border-top: 1px solid var(--line-soft); padding: 10px 12px 12px; background: var(--paper); display: grid; gap: 8px; }
+.chips { display: flex; gap: 6px; overflow-x: auto; padding-bottom: 2px; scrollbar-width: thin; }
+.chip {
+  flex: none; display: inline-flex; align-items: center; gap: 4px; min-height: 32px; padding: 0 12px;
+  border-radius: var(--r-pill); border: 1px solid var(--line); background: var(--paper-2); color: var(--ink); font-size: var(--t-small);
+}
+.chip:hover { border-color: var(--ink-3); }
+.chip--term { border-style: dashed; color: var(--accent-ink); }
+.chip--edit { border-color: transparent; background: transparent; color: var(--ink-3); }
+.chip__x { margin-left: 2px; color: var(--err); font-weight: 700; }
+.chip-add { flex: none; display: inline-flex; gap: 4px; }
+.chip-add input { width: 130px; min-height: 32px; border: 1px solid var(--line); border-radius: var(--r-pill); padding: 0 10px; background: var(--paper); font-size: var(--t-small); }
+.scope { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; font-size: var(--t-small); color: var(--ink-2); }
+.scope .pill { min-height: 28px; }
+.scope .pill button { border: 0; background: none; padding: 0 0 0 4px; color: var(--ink-3); font-weight: 700; }
+.compose-box { display: flex; gap: 8px; align-items: flex-end; border: 1px solid var(--line); border-radius: var(--r-md); background: var(--paper-2); padding: 6px 6px 6px 12px; }
+.compose-box:focus-within { border-color: var(--action); }
+.compose-box textarea { flex: 1; min-width: 0; border: 0; background: transparent; resize: none; min-height: 24px; max-height: 144px; padding: 6px 0; font-size: var(--t-body); line-height: 1.5; outline: none; }
+.compose-box textarea::placeholder { color: var(--ink-3); }
+.compose-box .btn { min-height: 36px; }
+.hint { font-size: var(--t-small); color: var(--ink-3); }
+.hint kbd { font-family: var(--f-mono); font-size: var(--t-label); border: 1px solid var(--line); border-radius: 4px; padding: 0 4px; background: var(--paper-2); }
+
+/* Versions */
+.versions { list-style: none; margin: 0; padding: 0; display: grid; gap: 2px; }
+.ver { display: grid; grid-template-columns: 44px 1fr auto; gap: 2px 10px; align-items: start; padding: 10px 8px; border-radius: var(--r-md); }
+.ver:hover { background: var(--paper-2); }
+.ver[aria-current="true"] { background: var(--info-tint); }
+.ver__n { font-family: var(--f-mono); font-weight: 600; font-size: var(--t-small); padding-top: 2px; }
+.ver__what { font-size: var(--t-small); font-weight: 600; color: var(--ink); }
+.ver__what q { quotes: "\201C" "\201D"; }
+.ver__meta { grid-column: 2; font-size: var(--t-small); color: var(--ink-3); }
+.ver__acts { grid-row: 1 / span 2; grid-column: 3; display: flex; gap: 2px; }
+.ver__acts .btn { min-height: 32px; padding: 0 8px; }
+.ver--proposal { border: 1px dashed var(--action); }
+.ver .star { border: 0; background: none; color: var(--ink-3); font-size: 16px; min-width: 32px; min-height: 32px; }
+.ver .star[aria-pressed="true"] { color: var(--warn); }
+.pin { font-size: var(--t-small); color: var(--ink-3); }
+
+/* ---------- Responsive ---------- */
+@media (max-width: 1023px) {
+  .sheet__body { grid-template-columns: minmax(0, 55fr) minmax(0, 45fr); }
+  .page { --mw: 128px; }
+  .compare-grid { display: none; }
+  .compare-ab { display: flex; }
+}
+@media (max-width: 599px) {
+  .host { padding: 16px 16px 120px; }
+  .doc-row { grid-template-columns: 1fr; }
+  .doc-row__acts { grid-row: auto; grid-column: 1; }
+  .sheet { height: 100vh; height: 100dvh; border-radius: 0; grid-template-rows: auto auto 1fr; }
+  .sheet__head { padding: 8px 12px; gap: 6px 8px; }
+  .sheet__head .head-group { flex-wrap: nowrap; overflow-x: auto; max-width: 100%; }
+  .sheet__head .head-group .pill { min-height: 36px; }
+  .head-group--tools { width: 100%; }
+  .head-group--tools #closeSheet { margin-left: auto; }
+  .stage { padding: 6px 12px; }
+  .stage ol { display: none; }
+  .stage__short { display: inline; }
+  .reviewbar { padding: 8px 12px; }
+  .reviewbar__sum > span:not(.loss) { display: none; }
+  .reviewbar__acts { width: 100%; }
+  .reviewbar__acts .btn { flex: 1; padding: 0 8px; }
+  .ver { grid-template-columns: 36px 1fr; }
+  .ver__acts { grid-row: auto; grid-column: 2; }
+  .composer .hint { display: none; }
+  .sheet[data-seg="versions"] .composer { display: none; }
+  .dock__row { flex-wrap: wrap; }
+  .dock__input { flex-basis: 100%; }
+  .dock__row .btn { flex: 1; }
+  .sheet__title span { display: none; }
+  .head-group--tools .toggle kbd { display: none; }
+  .seg { display: flex; margin: 8px 12px 0; background: var(--paper-2); border: 1px solid var(--line-soft); border-radius: var(--r-md); padding: 2px; }
+  .seg button { flex: 1; border: 0; background: transparent; border-radius: 8px; min-height: 44px; font-size: var(--t-small); color: var(--ink-2); }
+  .seg button[aria-selected="true"] { background: var(--paper); color: var(--ink); font-weight: 600; box-shadow: 0 0 0 1px var(--line-soft); }
+  .sheet__body { grid-template-columns: minmax(0, 1fr); }
+  .side__tabs { display: none; }
+  .sheet[data-seg="doc"] .side { display: none; }
+  .sheet[data-seg="chat"] .docpane, .sheet[data-seg="versions"] .docpane { display: none; }
+  .docpane { border-right: 0; }
+  .docscroll { padding: 20px 8px 24px; }
+  .page { --mw: 0px; font-size: 12.5px; }
+  .row { grid-template-columns: minmax(0, 1fr); }
+  .row__text { padding-left: 16px; padding-right: 12px; }
+  .row__margin { border-left: 0; padding: 2px 12px 8px 19px; }
+  .row__margin:empty { display: none; }
+  .mm { grid-template-columns: auto 1fr auto; align-items: center; }
+  .mm__acts { grid-column: 3; grid-row: 1; margin-top: 0; }
+  .mm__btn { min-width: 44px; min-height: 44px; }
+  .band { padding: 16px 16px 14px; }
+  .readouts { grid-template-columns: 1fr 1fr 1fr; gap: 6px; }
+  .readout b { font-size: 16px; }
+  .letter .row__text { padding-left: 18px; padding-right: 14px; }
+  .reviewbar { position: sticky; bottom: 0; }
+  .reviewbar .btn { min-height: 44px; }
+  .chip, .btn { min-height: 44px; }
+}
+</style>
+</head>
+<body>
+
+<div class="host">
+  <div class="host__top">
+    <div>
+      <h1 class="host__role">Staff Software Engineer</h1>
+      <div class="host__co">Northwind Payments · Remote, US</div>
+    </div>
+    <div style="display:flex;gap:12px;align-items:center;flex-wrap:wrap">
+      <span class="sample-note">Mockup with sample data. No model is called.</span>
+      <div class="theme-switch" role="group" aria-label="Theme">
+        <button type="button" data-theme-set="auto" aria-pressed="true">Auto</button>
+        <button type="button" data-theme-set="light" aria-pressed="false">Light</button>
+        <button type="button" data-theme-set="dark" aria-pressed="false">Dark</button>
+      </div>
+    </div>
+  </div>
+
+  <section class="materials" aria-labelledby="mat-h">
+    <h2 id="mat-h">Materials</h2>
+    <div class="doc-row">
+      <span class="doc-row__name">Resume</span>
+      <span class="doc-row__meta">Signal template · v4 · 1 page · updated 2 hours ago</span>
+      <div class="doc-row__acts"><button class="btn btn--ghost" type="button">Preview</button><button class="btn" type="button">Download PDF</button></div>
+    </div>
+    <div class="doc-row">
+      <span class="doc-row__name">Cover letter</span>
+      <span class="doc-row__meta">Signal template · v2 · 1 page · updated yesterday</span>
+      <div class="doc-row__acts"><button class="btn btn--ghost" type="button">Preview</button><button class="btn" type="button">Download PDF</button></div>
+    </div>
+
+    <!-- The dock: Scribe v2 at rest -->
+    <div class="dock" id="dock">
+      <div class="dock__status">
+        <span class="dock__ver">Resume v4</span>
+        <span>1 page</span>
+        <span>Last change: <strong>“Shorter summary”</strong> 2h ago</span>
+      </div>
+      <div class="dock__proposal" id="dockProposal">
+        <p><span class="hand">4 changes are waiting</span> 1 removal · 1 needs your check · still 1 page</p>
+        <div style="display:flex;gap:6px;flex-wrap:wrap">
+          <button class="btn" type="button" data-open-sheet>Review changes</button>
+        </div>
+      </div>
+      <div class="dock__row">
+        <label for="dockInput" class="sr">Ask Scribe to change your resume</label>
+        <input id="dockInput" class="dock__input" type="text" placeholder="Ask for a change, e.g. “tighten the Parcelworks bullets”" autocomplete="off" />
+        <button class="btn btn--primary" type="button" id="dockSend">Send</button>
+        <button class="btn" type="button" data-open-sheet id="expandBtn" aria-haspopup="dialog">Expand</button>
+      </div>
+    </div>
+  </section>
+</div>
+
+<div class="scrim" id="scrim" hidden></div>
+
+<div class="sheet" id="sheet" role="dialog" aria-modal="true" aria-labelledby="sheetTitle" data-seg="doc" hidden>
+  <header class="sheet__head">
+    <div class="sheet__title">
+      <h2 id="sheetTitle">Scribe</h2>
+      <span>Staff Software Engineer · Northwind Payments</span>
+    </div>
+    <div class="tabs" role="tablist" aria-label="Document">
+      <button role="tab" id="tab-resume" aria-selected="true" aria-controls="docscroll" data-doc="resume" type="button">Resume</button>
+      <button role="tab" id="tab-letter" aria-selected="false" aria-controls="docscroll" data-doc="letter" tabindex="-1" type="button">Cover letter</button>
+    </div>
+    <div class="head-group">
+      <span class="pill pill--pages" id="pagePill" title="Measured from the preview; the PDF confirms it on save">1 page</span>
+      <span class="pill pill--lock" title="Employer, title, dates, degree and figures cannot be changed by Scribe">
+        <svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 7V5a3 3 0 1 1 6 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h1Zm1.5 0h3V5a1.5 1.5 0 1 0-3 0v2Z"/></svg>
+        Facts locked
+      </span>
+    </div>
+    <div class="head-group head-group--tools">
+      <button class="pill toggle" type="button" id="showChanges" aria-pressed="true">Show changes <kbd>D</kbd></button>
+      <button class="pill toggle" type="button" id="compareBtn" aria-pressed="false">Compare <kbd>C</kbd></button>
+      <button class="btn btn--ghost" type="button" id="closeSheet" aria-label="Close Scribe">Close</button>
+    </div>
+  </header>
+
+  <div class="seg" role="tablist" aria-label="View">
+    <button role="tab" type="button" data-seg="doc" aria-selected="true">Doc</button>
+    <button role="tab" type="button" data-seg="chat" aria-selected="false" tabindex="-1">Chat</button>
+    <button role="tab" type="button" data-seg="versions" aria-selected="false" tabindex="-1">Versions</button>
+  </div>
+
+  <div class="sheet__body">
+    <section class="docpane" aria-label="Document">
+      <div class="stage" id="stage" role="status" aria-live="polite"></div>
+      <div class="docscroll" id="docscroll" role="region" aria-label="Resume, version 4, proposal with 4 changes" tabindex="-1"></div>
+      <div class="reviewbar" id="reviewbar"></div>
+    </section>
+
+    <aside class="side" aria-label="Chat and versions">
+      <div class="side__tabs" role="tablist" aria-label="Side panel">
+        <button role="tab" type="button" id="st-chat" data-side="chat" aria-selected="true" aria-controls="panel-chat">Chat</button>
+        <button role="tab" type="button" id="st-versions" data-side="versions" aria-selected="false" aria-controls="panel-versions" tabindex="-1">Versions</button>
+      </div>
+      <div class="side__panel" id="panel-chat" role="tabpanel" aria-labelledby="st-chat">
+        <div class="log" id="log" role="log" aria-live="polite" aria-label="Conversation with Scribe"></div>
+      </div>
+      <div class="side__panel" id="panel-versions" role="tabpanel" aria-labelledby="st-versions" hidden>
+        <ol class="versions" id="versions" aria-label="Resume versions, newest first"></ol>
+      </div>
+      <form class="composer" id="composer" autocomplete="off">
+        <div class="scope" id="scope"></div>
+        <div class="chips" id="chips" aria-label="Quick requests"></div>
+        <div class="compose-box">
+          <label for="prompt" class="sr">Ask Scribe for a change</label>
+          <textarea id="prompt" rows="1" placeholder="Ask for a change…"></textarea>
+          <button class="btn btn--primary" type="submit" id="sendBtn">Send</button>
+        </div>
+        <div class="hint"><kbd>j</kbd>/<kbd>k</kbd> move · <kbd>a</kbd> accept · <kbd>r</kbd> reject · <kbd>Shift</kbd>+<kbd>A</kbd> accept all · <kbd>/</kbd> ask</div>
+      </form>
+    </aside>
+  </div>
+</div>
+
+<div class="sr" id="announcer" role="status" aria-live="polite"></div>
+
+<script>
+(function () {
+  "use strict";
+
+  /* ---------------- Sample data ---------------- */
+  var LOCK = '<span class="locked-mark" title="Locked fact"><svg viewBox="0 0 16 16" aria-hidden="true"><path fill="currentColor" d="M5 7V5a3 3 0 1 1 6 0v2h1a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V8a1 1 0 0 1 1-1h1Zm1.5 0h3V5a1.5 1.5 0 1 0-3 0v2Z"/></svg><span class="sr">locked</span></span>';
+
+  var TEXT = {
+    stmt: "Staff engineer who builds payment and logistics platforms that stay fast under load. Led the move of a 40-service monolith to event-driven services and mentors teams through large migrations.",
+    b1: "Led the migration of checkout from a shared monolith to Kafka-backed services, which improved latency for customers.",
+    b2: "Designed the idempotent payments ledger now handling 2.3M transactions a day with zero double-charges since launch.",
+    b3: "Rebuilt the carrier-rate service in Go, saving $4.1M a year in infrastructure.",
+    b4: "Owned on-call for 12 routing services and cut pages 55% with alerts tied to customer impact.",
+    b5: "Participated in hiring committees and helped with various onboarding documentation efforts."
+  };
+
+  /* The open proposal. Prompt: "Make the summary punchier and quantify the Kafka migration" */
+  var CHANGES = [
+    { id: "c1", op: "replace", node: "stmt", label: "summary", glyph: "~",
+      note: "leads with the result",
+      text: "Staff engineer who makes payment platforms fast under load: cut checkout p95 latency 38% at Lumen Freight and led a 40-service move to event-driven services." },
+    { id: "c2", op: "replace", node: "b1", label: "Lumen Freight, bullet 1", glyph: "~",
+      note: "metric first",
+      text: "Cut checkout p95 latency 38% by moving it from a shared monolith to Kafka-backed services." },
+    { id: "c3", op: "insert", after: "b2", node: "b2x", label: "Lumen Freight, new bullet", glyph: "+",
+      note: "new bullet", flag: "unverified",
+      flagText: "Unverified: “6 engineers” isn’t in your profile.",
+      text: "Mentored 6 engineers into senior roles through a weekly design review." },
+    { id: "c4", op: "remove", node: "b5", label: "Parcelworks, bullet 3", glyph: "−",
+      note: "vague, no result" }
+  ];
+
+  var VERSIONS = [
+    { n: 4, what: "“Shorter summary”", meta: "2 hours ago · −31 words · 1 page · Signal", current: true },
+    { n: 3, what: "Restored from v1", meta: "Yesterday · +18 words · 1 page · Signal" },
+    { n: 2, what: "“Match JD keywords”", meta: "Yesterday · +12 words · 1 page · Signal", star: true },
+    { n: 1, what: "Manual edit", meta: "Sep 25 · +3 words · 1 page · Signal" },
+    { n: 0, what: "Drafted", meta: "Sep 25 · 402 words · 1 page · Signal", pinned: true }
+  ];
+  /* Per-version text for the blocks that differ (compare view). */
+  var VTEXT = {
+    0: { stmt: "Software engineer with ten years of experience building payment and logistics platforms. Passionate about performance, reliability, distributed systems and helping teams grow through large, complex migrations.",
+         b1: "Led the migration of checkout from a monolith to Kafka services." },
+    1: { stmt: "Software engineer with ten years of experience building payment and logistics platforms. Passionate about performance, reliability, distributed systems and helping teams grow through large, complex migrations.",
+         b1: "Led the migration of checkout from a shared monolith to Kafka-backed services, which improved latency for customers." },
+    2: { stmt: "Staff engineer building payment and logistics platforms on Kafka, Go and PostgreSQL. Led a 40-service monolith migration to event-driven services and mentors teams through large, risky migrations.",
+         b1: "Led the migration of checkout from a shared monolith to Kafka-backed services, which improved latency for customers." },
+    3: null, 4: { stmt: TEXT.stmt, b1: TEXT.b1 }
+  };
+  VTEXT[3] = VTEXT[1];
+
+  var CHIPS = ["Punchier", "Shorter", "Fit to 1 page", "Match JD keywords", "Quantify", "More formal"];
+  var TERMS = ["PCI DSS", "gRPC"];
+
+  var LETTER = [
+    "Dear Northwind Payments hiring team,",
+    "Your checkout serves millions of payments a day, and the posting asks for someone who has made that kind of system faster without making it fragile. At Lumen Freight I moved checkout off a shared monolith onto Kafka-backed services and cut p95 latency 38%.",
+    "Before that, at Parcelworks, I rebuilt the carrier-rate service in Go and saved $4.1M a year in infrastructure. The payments ledger I designed at Lumen now handles 2.3M transactions a day with no double-charges since launch.",
+    "I would like to bring that same care to Northwind’s platform team. Thank you for reading."
+  ];
+
+  /* ---------------- State ---------------- */
+  var S = {
+    doc: "resume",
+    states: { c1: "pending", c2: "pending", c3: "pending", c4: "pending" },
+    focus: -1,
+    show: true,
+    compare: false,
+    cmpA: 2, cmpB: 4, cmpView: "B",
+    side: "chat",
+    seg: "doc",
+    selected: null,
+    editChips: false,
+    busy: false,
+    stageIdx: 4,
+    saved: false,
+    opener: null
+  };
+
+  /* ---------------- Word diff (2-level: this is the inner level) ---------------- */
+  function tok(s) { return s.split(/(\s+|[.,;:()\/])/).filter(function (t) { return t !== ""; }); }
+  function diff(a, b) {
+    var A = tok(a), B = tok(b), n = A.length, m = B.length, i, j;
+    var L = [];
+    for (i = 0; i <= n; i++) { L.push(new Array(m + 1).fill(0)); }
+    for (i = n - 1; i >= 0; i--) for (j = m - 1; j >= 0; j--)
+      L[i][j] = A[i] === B[j] ? L[i + 1][j + 1] + 1 : Math.max(L[i + 1][j], L[i][j + 1]);
+    var out = []; i = 0; j = 0;
+    while (i < n && j < m) {
+      if (A[i] === B[j]) { out.push(["eq", A[i]]); i++; j++; }
+      else if (L[i + 1][j] >= L[i][j + 1]) { out.push(["del", A[i++]]); }
+      else { out.push(["ins", B[j++]]); }
+    }
+    while (i < n) out.push(["del", A[i++]]);
+    while (j < m) out.push(["ins", B[j++]]);
+    return mergeGaps(out);
+  }
+  /* Fold unchanged gaps of <=2 words between changes into the change, so marks don't turn to confetti. */
+  function mergeGaps(ops) {
+    var res = [], k = 0;
+    while (k < ops.length) {
+      if (ops[k][0] !== "eq") { res.push(ops[k]); k++; continue; }
+      var start = k; while (k < ops.length && ops[k][0] === "eq") k++;
+      var run = ops.slice(start, k);
+      var words = run.filter(function (o) { return /\w/.test(o[1]); }).length;
+      var between = start > 0 && k < ops.length;
+      if (between && words <= 2) {
+        run.forEach(function (o) { res.push(["del", o[1]]); });
+        run.forEach(function (o) { res.push(["ins", o[1]]); });
+      } else { run.forEach(function (o) { res.push(o); }); }
+    }
+    /* group: all dels of a change cluster before its ins */
+    var grouped = [], dels = "", ins = "";
+    function flush() { if (dels) grouped.push(["del", dels]); if (ins) grouped.push(["ins", ins]); dels = ""; ins = ""; }
+    res.forEach(function (o) {
+      if (o[0] === "eq") { flush(); grouped.push(o); }
+      else if (o[0] === "del") dels += o[1]; else ins += o[1];
+    });
+    flush();
+    return grouped;
+  }
+  function esc(s) { return String(s).replace(/[&<>"]/g, function (c) { return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]; }); }
+  function marks(ops) {
+    return ops.map(function (o) {
+      var t = esc(o[1]);
+      if (o[0] === "eq") return t;
+      if (o[0] === "ins") return '<ins><span class="sr">inserted: </span>' + t + '<span class="sr"> end inserted</span></ins>';
+      return '<del><span class="sr">deleted: </span>' + t + '<span class="sr"> end deleted</span></del>';
+    }).join("");
+  }
+  function words(s) { return (s.match(/\S+/g) || []).length; }
+
+  /* ---------------- Rendering the page ---------------- */
+  function changeFor(node) { for (var i = 0; i < CHANGES.length; i++) if (CHANGES[i].node === node) return CHANGES[i]; return null; }
+  function idx(c) { return CHANGES.indexOf(c); }
+
+  function marginHtml(c) {
+    var st = S.states[c.id], n = idx(c) + 1, total = CHANGES.length;
+    var h = '<div class="mm"><span class="mm__glyph" data-g="' + c.glyph + '" aria-hidden="true">' + c.glyph + '</span>' +
+            '<span class="mm__note">' + esc(c.note) + '</span>';
+    if (st === "pending") {
+      var okLabel = c.flag ? "Confirm" : "✓";
+      h += '<span class="mm__acts">' +
+        '<button type="button" class="mm__btn mm__btn--ok" data-act="accept" data-c="' + c.id + '" aria-label="' + (c.flag ? "Confirm and accept" : "Accept") + ' change ' + n + ' of ' + total + ': ' + esc(c.label) + '">' + okLabel + '</button>' +
+        '<button type="button" class="mm__btn mm__btn--no" data-act="reject" data-c="' + c.id + '" aria-label="Reject change ' + n + ' of ' + total + ': ' + esc(c.label) + '">✗</button></span>';
+      if (c.flag) h += '<span class="mm__flag">' + esc(c.flagText) + '</span>';
+    } else {
+      h += '<span class="mm__done">' + (st === "accepted" ? "Accepted" : "Rejected") +
+        ' · <button type="button" class="mm__btn" style="min-height:24px;min-width:0;padding:0 6px;font-weight:500" data-act="undo" data-c="' + c.id + '" aria-label="Undo decision on change ' + n + '">Undo</button></span>';
+    }
+    return h + "</div>";
+  }
+
+  function blockText(node, base, withProposal) {
+    var c = withProposal ? changeFor(node) : null;
+    if (!c) return { html: esc(base), change: null };
+    var st = S.states[c.id];
+    if (c.op === "replace") {
+      if (st === "rejected") return { html: esc(base), change: c };
+      if (st === "accepted" || !S.show) return { html: esc(c.text), change: c };
+      return { html: marks(diff(base, c.text)), change: c };
+    }
+    if (c.op === "remove") {
+      if (st === "rejected") return { html: esc(base), change: c };
+      if (st === "accepted") return { html: '<span class="row__stub">Removed</span>', change: c, stub: true };
+      if (!S.show) return { html: "", change: c, hide: true };
+      return { html: marks([["del", base]]), change: c };
+    }
+    if (c.op === "insert") {
+      if (st === "rejected") return { html: '<span class="row__stub">New bullet rejected</span>', change: c, stub: true };
+      if (st === "accepted" || !S.show) return { html: esc(c.text), change: c };
+      return { html: marks([["ins", c.text]]), change: c };
+    }
+  }
+
+  function row(node, inner, opts) {
+    opts = opts || {};
+    var bt = opts.text != null ? blockText(node, opts.text, opts.proposal) : null;
+    var change = bt && bt.change;
+    if (bt && bt.hide) return "";
+    var body = bt ? (opts.wrap || "%").replace("%", bt.html) : inner;
+    if (bt && bt.stub) body = bt.html;
+    var attrs = ' data-node="' + node + '"';
+    if (change) {
+      attrs += ' data-change="' + change.id + '" data-state="' + S.states[change.id] + '" tabindex="-1"';
+      if (change.flag) attrs += ' data-flag="' + change.flag + '"';
+      if (S.focus === idx(change)) attrs += ' class="row is-focused' + (opts.gap ? " row--gap" : "") + '"';
+    }
+    var cls = "row" + (opts.gap ? " row--gap" : "") + (S.selected === node ? " is-selected" : "");
+    if (attrs.indexOf('class="') === -1) attrs += ' class="' + cls + '"';
+    return '<div' + attrs + '><div class="row__text">' + body + '</div><div class="row__margin">' +
+      (change && opts.proposal ? marginHtml(change) : "") + '</div></div>';
+  }
+
+  function resumePage(v, proposal, label) {
+    var t = { stmt: v.stmt, b1: v.b1 };
+    var h = '<article class="page" aria-label="' + esc(label || "Resume") + '">';
+    if (label) h += '<span class="page__label">' + esc(label) + '</span>';
+    h += '<div class="band"><h3>Jordan Reyes</h3><p>Staff Software Engineer · Portland, OR · jordan@example.com</p>' +
+         '<div class="band__scale" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></div></div>';
+    h += '<div class="pagebody">';
+    h += row("stmt", null, { text: t.stmt, proposal: proposal, wrap: '<p class="stmt">%</p>' });
+    h += row("readouts", '<div class="readouts"><div class="readout"><b>38%</b><span>p95 checkout latency cut · Lumen</span></div>' +
+         '<div class="readout"><b>$4.1M</b><span>yearly infra saved · Parcelworks</span></div>' +
+         '<div class="readout"><b>2.3M</b><span>ledger transactions a day</span></div></div>', { gap: true });
+    h += row("sec:experience", '<p class="sec">Experience</p>', { gap: true });
+    h += row("seat:lumen", '<p class="entry"><span><b>Lumen Freight</b> · <span class="seat">Staff Software Engineer</span>' + LOCK + '</span><time>2021 – now</time></p>', {});
+    h += row("b1", null, { text: t.b1, proposal: proposal, wrap: '<p class="bullet">%</p>' });
+    h += row("b2", null, { text: TEXT.b2, proposal: false, wrap: '<p class="bullet">%</p>' });
+    if (proposal) h += row("b2x", null, { text: "", proposal: true, wrap: '<p class="bullet">%</p>' });
+    h += row("seat:parcel", '<p class="entry"><span><b>Parcelworks</b> · <span class="seat">Senior Software Engineer</span>' + LOCK + '</span><time>2017 – 2021</time></p>', { gap: true });
+    h += row("b3", null, { text: TEXT.b3, proposal: false, wrap: '<p class="bullet">%</p>' });
+    h += row("b4", null, { text: TEXT.b4, proposal: false, wrap: '<p class="bullet">%</p>' });
+    h += row("b5", null, { text: TEXT.b5, proposal: proposal, wrap: '<p class="bullet">%</p>' });
+    h += row("line:tidepool", '<p class="entry"><span><b>Tidepool Labs</b> · Software Engineer' + LOCK + '</span><time>2014 – 2017</time></p>' +
+         '<p class="plain">Built the first real-time tide-sensor API and grew it to 30k requests a minute.</p>', { gap: true });
+    h += row("tool", '<p class="sec">Toolkit</p><p class="plain">Go · TypeScript · Kafka · PostgreSQL · Kubernetes · Terraform</p>', { gap: true });
+    h += row("cred", '<p class="sec">Education</p><p class="plain">B.S. Computer Science, Oregon State University' + LOCK + '</p>', { gap: true });
+    h += '</div><div class="pagebreak" aria-hidden="true"><span>end of page 1</span></div></article>';
+    return h;
+  }
+
+  function comparePage(a, b, label) {
+    /* B rendered with marks against A (read-only) */
+    var va = VTEXT[a], vb = VTEXT[b];
+    var saveShow = S.show;
+    var h = resumePage({ stmt: vb.stmt, b1: vb.b1 }, false, label);
+    var dS = marks(diff(va.stmt, vb.stmt)), dB = marks(diff(va.b1, vb.b1));
+    h = h.replace(esc(vb.stmt), dS).replace(esc(vb.b1), dB);
+    S.show = saveShow;
+    return h;
+  }
+
+  function letterPage() {
+    var h = '<article class="page" aria-label="Cover letter"><div class="band"><h3>Jordan Reyes</h3><p>To Northwind Payments · September 27, 2026</p></div><div class="letter">';
+    LETTER.forEach(function (p, i) { h += row(i === 0 ? "sal" : "p:" + i, "<p>" + esc(p) + "</p>", {}); });
+    h += '</div><div class="pagebreak" aria-hidden="true"><span>end of page 1</span></div></article>';
+    return h;
+  }
+
+  /* ---------------- Stage line ---------------- */
+  var STAGES = ["Reading resume", "Drafting edits", "Checking facts", "Measuring length"];
+  function renderStage() {
+    var el = document.getElementById("stage");
+    if (S.doc === "letter") { el.innerHTML = '<span>No open changes on this letter.</span>'; return; }
+    if (S.compare) { el.innerHTML = '<span>Comparing v' + S.cmpA + ' with v' + S.cmpB + '. Read-only.</span>'; return; }
+    var h = "<ol>";
+    STAGES.forEach(function (s, i) {
+      var st = i < S.stageIdx ? "done" : i === S.stageIdx ? "now" : "todo";
+      var label = s + (i === 2 && st === "done" ? " (4/4)" : i === 2 && st === "now" ? " (2/4)" : "");
+      h += '<li data-s="' + st + '"><span class="dot" aria-hidden="true"></span>' + label + "</li>";
+    });
+    h += "</ol>";
+    h += '<span class="stage__short">' + (S.busy ? STAGES[S.stageIdx] + (S.stageIdx === 2 ? " (2/4)" : "") + "…" : "Checked facts · measured length") + "</span>";
+    if (S.busy) h += '<button type="button" class="btn" id="stopBtn" style="min-height:28px;margin-left:auto">Stop</button>';
+    else h += '<span style="margin-left:auto">' + (S.saved ? "Saved as v5 · matches PDF" : "Ready · 1 blocked") + "</span>";
+    el.innerHTML = h;
+    var stop = document.getElementById("stopBtn");
+    if (stop) stop.addEventListener("click", stopRun);
+  }
+
+  /* ---------------- Review bar ---------------- */
+  function summary() {
+    var acc = 0, pend = 0, rej = 0, unv = 0, delta = 0;
+    CHANGES.forEach(function (c) {
+      var st = S.states[c.id];
+      if (st === "accepted") acc++; else if (st === "rejected") rej++; else pend++;
+      if (c.flag && st === "pending") unv++;
+      if (st === "rejected") return;
+      var before = c.op === "insert" ? 0 : words(c.node === "stmt" ? TEXT.stmt : TEXT[c.node]);
+      var after = c.op === "remove" ? 0 : words(c.text);
+      delta += after - before;
+    });
+    return { acc: acc, pend: pend, rej: rej, unv: unv, delta: delta };
+  }
+  function renderReviewbar() {
+    var el = document.getElementById("reviewbar");
+    if (S.doc === "letter" || S.compare) { el.hidden = true; return; }
+    el.hidden = false;
+    if (S.saved) {
+      el.innerHTML = '<div class="reviewbar__sum"><b>Saved as v5.</b><span>Preview, PDF and download now serve v5.</span></div>' +
+        '<div class="reviewbar__acts"><button type="button" class="btn" id="undoSave">Undo</button></div>';
+      document.getElementById("undoSave").addEventListener("click", function () { S.saved = false; announce("Restored v4 as the current version."); renderAll(); });
+      return;
+    }
+    var s = summary(), total = 402, pct = Math.round(Math.abs(Math.min(0, s.delta)) / total * 100);
+    var loss = (s.delta > 0 ? "+" : s.delta < 0 ? "−" : "±") + Math.abs(s.delta) + " words" + (s.delta < 0 ? " (" + pct + "%)" : "");
+    el.innerHTML =
+      '<div class="reviewbar__sum" aria-live="polite"><b>' + s.pend + ' of ' + CHANGES.length + ' to review</b>' +
+      '<span>' + s.acc + ' accepted · ' + s.rej + ' rejected' + (s.unv ? ' · ' + s.unv + ' unverified' : '') + '</span>' +
+      '<span class="loss" title="Words added or removed if you save now">' + loss + '</span><span>still 1 page</span></div>' +
+      '<div class="reviewbar__acts">' +
+      '<button type="button" class="btn btn--ghost" id="rejectAll">Reject all</button>' +
+      '<button type="button" class="btn' + (s.pend - s.unv > 0 ? " btn--primary" : "") + '" id="acceptAll"' + (s.pend - s.unv > 0 ? "" : ' aria-disabled="true"') + '>Accept all' + (s.unv ? " verified" : "") + '</button>' +
+      '<button type="button" class="btn' + (s.pend - s.unv > 0 ? "" : " btn--primary") + '" id="saveBtn"' + (s.acc ? "" : ' aria-disabled="true"') + '>Save as v5' + (s.acc ? " (" + s.acc + " accepted)" : "") + '</button></div>';
+    document.getElementById("rejectAll").addEventListener("click", function () { setAll("rejected"); });
+    document.getElementById("acceptAll").addEventListener("click", acceptAll);
+    document.getElementById("saveBtn").addEventListener("click", function (e) {
+      if (e.currentTarget.getAttribute("aria-disabled") === "true") { announce("Accept at least one change first."); return; }
+      S.saved = true; S.focus = -1; announce("Saved as version 5."); renderAll();
+    });
+  }
+
+  /* ---------------- Chat ---------------- */
+  var LOG = [
+    { who: "note", html: "Resume v4 · Signal template" },
+    { who: "you", html: "Make the summary punchier and quantify the Kafka migration. Also add something about mentoring.", time: "10:42" },
+    { who: "scribe", html: '<span class="hand">4 changes · 1 removal · still 1 page</span>Rewrote the summary and the first Lumen bullet around the 38% latency figure from your profile. Added a mentoring bullet — I couldn’t find the numbers in your profile, so it’s marked Unverified. Dropped a vague Parcelworks bullet to hold the length.', time: "10:43" },
+    { who: "blocked", html: "<strong>Blocked 1 edit.</strong> It would have changed your title “Staff Software Engineer” at Lumen Freight. Titles are locked while Facts locked is on." }
+  ];
+  function renderLog() {
+    var el = document.getElementById("log");
+    el.innerHTML = LOG.map(function (m) {
+      return '<div class="msg msg--' + m.who + '">' + m.html + (m.time ? "<time>" + m.time + "</time>" : "") + "</div>";
+    }).join("");
+    var panel = document.getElementById("panel-chat"); panel.scrollTop = panel.scrollHeight;
+  }
+
+  function renderScope() {
+    var el = document.getElementById("scope");
+    var label = S.selected ? (S.selected === "stmt" ? "Summary selected" : "1 bullet selected") : (S.doc === "letter" ? "Whole cover letter" : "Whole resume");
+    el.innerHTML = '<span>Scope</span><span class="pill">' + label +
+      (S.selected ? '<button type="button" id="clearScope" aria-label="Clear selection, edit whole document">×</button>' : "") + "</span>";
+    var cl = document.getElementById("clearScope");
+    if (cl) cl.addEventListener("click", function () { S.selected = null; renderAll(); });
+  }
+
+  function renderChips() {
+    var el = document.getElementById("chips");
+    var h = CHIPS.map(function (c, i) {
+      return '<button type="button" class="chip" data-chip="' + i + '">' + esc(c) + (S.editChips ? '<span class="chip__x" aria-hidden="true">×</span><span class="sr"> remove</span>' : "") + "</button>";
+    }).join("");
+    if (!S.editChips) h += TERMS.map(function (t) { return '<button type="button" class="chip chip--term" data-term="' + esc(t) + '">+ ' + esc(t) + "</button>"; }).join("");
+    if (S.editChips) h += '<span class="chip-add"><label class="sr" for="newChip">New chip</label><input id="newChip" placeholder="New chip…" /><button type="button" class="chip" id="addChip">Add</button></span>';
+    h += '<button type="button" class="chip chip--edit" id="editChips" aria-pressed="' + S.editChips + '">' + (S.editChips ? "Done" : "Edit chips") + "</button>";
+    el.innerHTML = h;
+  }
+
+  function renderVersions() {
+    var el = document.getElementById("versions");
+    var h = "";
+    if (!S.saved) h += '<li class="ver ver--proposal"><span class="ver__n">new</span><span class="ver__what">Open proposal</span>' +
+      '<span class="ver__meta">“Make the summary punchier…” · 4 changes</span><span class="ver__acts"></span></li>';
+    else h += '<li class="ver" aria-current="true"><span class="ver__n">v5</span><span class="ver__what"><q>Make the summary punchier…</q></span>' +
+      '<span class="ver__meta">Just now · ' + (function () { var s = summary(); return (s.delta >= 0 ? "+" : "−") + Math.abs(s.delta); })() + ' words · 1 page · Signal</span><span class="ver__acts"></span></li>';
+    VERSIONS.forEach(function (v) {
+      var cur = v.current && !S.saved;
+      h += '<li class="ver"' + (cur ? ' aria-current="true"' : "") + '><span class="ver__n">v' + v.n + '</span>' +
+        '<span class="ver__what">' + v.what + (cur ? " · current" : "") + '</span>' +
+        '<span class="ver__meta">' + v.meta + (v.pinned ? ' · <span class="pin">pinned original</span>' : "") + '</span>' +
+        '<span class="ver__acts">' +
+        (v.pinned ? "" : '<button type="button" class="star" aria-pressed="' + !!v.star + '" aria-label="Star v' + v.n + '" data-star="' + v.n + '">★</button>') +
+        '<button type="button" class="btn btn--ghost" data-cmp="' + v.n + '" aria-label="Compare v' + v.n + ' with current">Compare</button>' +
+        (cur ? "" : '<button type="button" class="btn btn--ghost" data-restore="' + v.n + '" aria-label="Restore v' + v.n + ' as a new version">Restore</button>') +
+        "</span></li>";
+    });
+    el.innerHTML = h;
+  }
+
+  function renderDoc() {
+    var el = document.getElementById("docscroll");
+    var busy = S.busy ? "true" : "false";
+    el.setAttribute("aria-busy", busy);
+    if (S.doc === "letter") { el.setAttribute("aria-label", "Cover letter, version 2"); el.innerHTML = letterPage(); return; }
+    if (S.compare) {
+      el.setAttribute("aria-label", "Comparing resume v" + S.cmpA + " and v" + S.cmpB);
+      var opts = function (sel) { return [0, 1, 2, 3, 4].map(function (n) { return '<option value="' + n + '"' + (n === sel ? " selected" : "") + ">v" + n + "</option>"; }).join(""); };
+      var bar = '<div class="compare-bar"><label>A <select id="cmpA">' + opts(S.cmpA) + '</select></label>' +
+        '<label>B <select id="cmpB">' + opts(S.cmpB) + '</select></label>' +
+        '<div class="tabs compare-ab" role="tablist" aria-label="Show version"><button role="tab" type="button" data-ab="A" aria-selected="' + (S.cmpView === "A") + '">A · v' + S.cmpA + '</button>' +
+        '<button role="tab" type="button" data-ab="B" aria-selected="' + (S.cmpView === "B") + '">B · v' + S.cmpB + ' with changes</button></div></div>';
+      var A = resumePage(VTEXT[S.cmpA], false, "A · v" + S.cmpA);
+      var B = comparePage(S.cmpA, S.cmpB, "B · v" + S.cmpB + ", marked against A");
+      var narrow = window.matchMedia("(max-width: 1023px)").matches;
+      el.innerHTML = bar + (narrow ? '<div style="padding-top:22px">' + (S.cmpView === "A" ? A : B) + "</div>"
+        : '<div class="compare-grid" style="padding-top:22px">' + A + B + "</div>");
+      return;
+    }
+    var s = summary();
+    el.setAttribute("aria-label", S.saved ? "Resume, version 5" : "Resume, version 4, proposal with " + s.pend + " changes to review");
+    var v = { stmt: TEXT.stmt, b1: TEXT.b1 };
+    el.innerHTML = resumePage(v, !S.saved, null);
+  }
+
+  function renderAll() {
+    document.querySelectorAll('.tabs [data-doc]').forEach(function (b) {
+      var on = b.dataset.doc === S.doc; b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1;
+    });
+    document.getElementById("showChanges").setAttribute("aria-pressed", S.show);
+    document.getElementById("compareBtn").setAttribute("aria-pressed", S.compare);
+    document.getElementById("pagePill").textContent = S.busy ? "≈1 page" : "1 page";
+    renderStage(); renderDoc(); renderReviewbar(); renderLog(); renderScope(); renderChips(); renderVersions();
+    document.getElementById("dockProposal").hidden = S.saved;
+    if (S.focus >= 0) {
+      var r = document.querySelector('.row[data-change="' + CHANGES[S.focus].id + '"]');
+      if (r) { r.focus({ preventScroll: true }); r.scrollIntoView({ block: "nearest", behavior: matchMedia("(prefers-reduced-motion: reduce)").matches ? "auto" : "smooth" }); }
+    }
+  }
+
+  /* ---------------- Actions ---------------- */
+  function announce(t) { var a = document.getElementById("announcer"); a.textContent = ""; setTimeout(function () { a.textContent = t; }, 30); }
+  function decide(id, st) {
+    if (S.saved) return;
+    S.states[id] = st;
+    var c = CHANGES.filter(function (x) { return x.id === id; })[0];
+    announce((st === "accepted" ? "Accepted" : st === "rejected" ? "Rejected" : "Reopened") + " change " + (idx(c) + 1) + ": " + c.label + ".");
+    renderAll();
+  }
+  function acceptAll() {
+    var skipped = 0;
+    CHANGES.forEach(function (c) { if (S.states[c.id] !== "pending") return; if (c.flag) { skipped++; return; } S.states[c.id] = "accepted"; });
+    announce("Accepted all verified changes." + (skipped ? " " + skipped + " unverified change needs your check." : ""));
+    renderAll();
+  }
+  function setAll(st) { CHANGES.forEach(function (c) { if (S.states[c.id] === "pending") S.states[c.id] = st; }); announce("Rejected all remaining changes."); renderAll(); }
+  function move(d) {
+    if (S.saved || S.compare || S.doc !== "resume") return;
+    var n = CHANGES.length;
+    S.focus = S.focus < 0 ? (d > 0 ? 0 : n - 1) : (S.focus + d + n) % n;
+    if (window.matchMedia("(max-width: 599px)").matches) setSeg("doc");
+    renderAll();
+    var c = CHANGES[S.focus];
+    announce("Change " + (S.focus + 1) + " of " + n + ": " + c.label + ", " + S.states[c.id] + (c.flag && S.states[c.id] === "pending" ? ", unverified" : "") + ".");
+  }
+
+  var timers = [];
+  function send(text) {
+    text = (text || "").trim();
+    if (!text || S.busy) return;
+    LOG.push({ who: "you", html: esc(text), time: new Date().toTimeString().slice(0, 5) });
+    S.busy = true; S.stageIdx = 0;
+    announce("Scribe is reading your resume.");
+    renderAll();
+    [1, 2, 3, 4].forEach(function (i) {
+      timers.push(setTimeout(function () {
+        S.stageIdx = i;
+        if (i === 4) {
+          S.busy = false;
+          LOG.push({ who: "note", html: "Mockup only: no model was called. The proposal on the page is the sample one." });
+          announce("Ready.");
+        } else announce(STAGES[i] + ".");
+        renderAll();
+      }, 900 * i));
+    });
+  }
+  function stopRun() {
+    timers.forEach(clearTimeout); timers = [];
+    S.busy = false; S.stageIdx = 4;
+    LOG.push({ who: "note", html: "Stopped. Kept the edits that had finished checking; nothing was saved." });
+    announce("Stopped."); renderAll();
+  }
+
+  /* ---------------- Sheet open/close ---------------- */
+  var sheet = document.getElementById("sheet"), scrim = document.getElementById("scrim");
+  function openSheet(opener) {
+    S.opener = opener || document.activeElement;
+    sheet.hidden = false; scrim.hidden = false;
+    requestAnimationFrame(function () { sheet.classList.add("is-open"); scrim.classList.add("is-open"); });
+    document.body.style.overflow = "hidden";
+    renderAll();
+    document.getElementById("docscroll").focus({ preventScroll: true });
+  }
+  function closeSheet() {
+    sheet.classList.remove("is-open"); scrim.classList.remove("is-open");
+    setTimeout(function () { sheet.hidden = true; scrim.hidden = true; }, 200);
+    document.body.style.overflow = "";
+    if (S.opener && S.opener.focus) S.opener.focus();
+  }
+  function setSeg(seg) {
+    S.seg = seg; sheet.dataset.seg = seg;
+    document.querySelectorAll(".seg [data-seg]").forEach(function (b) { var on = b.dataset.seg === seg; b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1; });
+    if (seg !== "doc") setSide(seg);
+  }
+  function setSide(side) {
+    S.side = side;
+    document.querySelectorAll(".side__tabs [data-side]").forEach(function (b) { var on = b.dataset.side === side; b.setAttribute("aria-selected", on); b.tabIndex = on ? 0 : -1; });
+    document.getElementById("panel-chat").hidden = side !== "chat";
+    document.getElementById("panel-versions").hidden = side !== "versions";
+  }
+
+  /* ---------------- Wiring ---------------- */
+  document.querySelectorAll("[data-open-sheet]").forEach(function (b) { b.addEventListener("click", function () { openSheet(b); }); });
+  document.getElementById("closeSheet").addEventListener("click", closeSheet);
+  scrim.addEventListener("click", closeSheet);
+  document.getElementById("dockSend").addEventListener("click", function () {
+    var v = document.getElementById("dockInput").value; document.getElementById("dockInput").value = "";
+    openSheet(document.getElementById("expandBtn")); setSeg("chat"); send(v);
+  });
+  document.getElementById("dockInput").addEventListener("keydown", function (e) { if (e.key === "Enter") { e.preventDefault(); document.getElementById("dockSend").click(); } });
+
+  document.getElementById("showChanges").addEventListener("click", function () { S.show = !S.show; renderAll(); });
+  document.getElementById("compareBtn").addEventListener("click", function () { S.compare = !S.compare; S.focus = -1; renderAll(); });
+
+  function arrowTabs(container, attr, onPick) {
+    container.addEventListener("keydown", function (e) {
+      if (e.key !== "ArrowRight" && e.key !== "ArrowLeft") return;
+      var tabs = Array.prototype.slice.call(container.querySelectorAll("[" + attr + "]"));
+      var i = tabs.indexOf(document.activeElement); if (i < 0) return;
+      var n = tabs[(i + (e.key === "ArrowRight" ? 1 : -1) + tabs.length) % tabs.length];
+      n.focus(); onPick(n.getAttribute(attr)); e.preventDefault();
+    });
+    container.addEventListener("click", function (e) { var b = e.target.closest("[" + attr + "]"); if (b) onPick(b.getAttribute(attr)); });
+  }
+  arrowTabs(document.querySelector(".sheet__head .tabs"), "data-doc", function (d) { S.doc = d; S.selected = null; S.focus = -1; S.compare = false; renderAll(); });
+  arrowTabs(document.querySelector(".seg"), "data-seg", setSeg);
+  arrowTabs(document.querySelector(".side__tabs"), "data-side", setSide);
+
+  document.getElementById("docscroll").addEventListener("click", function (e) {
+    var b = e.target.closest("[data-act]");
+    if (b) {
+      var id = b.dataset.c, act = b.dataset.act;
+      S.focus = idx(CHANGES.filter(function (c) { return c.id === id; })[0]);
+      decide(id, act === "accept" ? "accepted" : act === "reject" ? "rejected" : "pending");
+      return;
+    }
+    var ab = e.target.closest("[data-ab]");
+    if (ab) { S.cmpView = ab.dataset.ab; renderAll(); return; }
+    var r = e.target.closest(".row[data-node]");
+    if (r && !S.compare && S.doc === "resume" && !r.dataset.change) {
+      var node = r.dataset.node;
+      if (/^b\d|^stmt/.test(node)) { S.selected = S.selected === node ? null : node; renderAll(); }
+    } else if (r && r.dataset.change) {
+      S.focus = idx(CHANGES.filter(function (c) { return c.id === r.dataset.change; })[0]); renderAll();
+    }
+  });
+  document.getElementById("docscroll").addEventListener("change", function (e) {
+    if (e.target.id === "cmpA") S.cmpA = +e.target.value;
+    if (e.target.id === "cmpB") S.cmpB = +e.target.value;
+    renderAll();
+  });
+
+  document.getElementById("chips").addEventListener("click", function (e) {
+    var p = document.getElementById("prompt");
+    if (e.target.closest("#editChips")) { S.editChips = !S.editChips; renderChips(); return; }
+    if (e.target.closest("#addChip")) { var v = document.getElementById("newChip").value.trim(); if (v) CHIPS.push(v); renderChips(); return; }
+    var c = e.target.closest("[data-chip]");
+    if (c) {
+      if (S.editChips) { CHIPS.splice(+c.dataset.chip, 1); renderChips(); return; }
+      p.value = CHIPS[+c.dataset.chip] + (S.selected ? " (selected text only)" : "") + ": "; p.focus(); autogrow(); return;
+    }
+    var t = e.target.closest("[data-term]");
+    if (t) { p.value = "Work “" + t.dataset.term + "” in where it’s true for me: "; p.focus(); autogrow(); }
+  });
+
+  document.getElementById("versions").addEventListener("click", function (e) {
+    var cmp = e.target.closest("[data-cmp]"), rs = e.target.closest("[data-restore]"), st = e.target.closest("[data-star]");
+    if (cmp) { S.compare = true; S.cmpA = +cmp.dataset.cmp; S.cmpB = 4; if (S.cmpA === 4) S.cmpA = 2; S.cmpView = "B"; if (window.matchMedia("(max-width: 599px)").matches) setSeg("doc"); renderAll(); }
+    if (rs) { LOG.push({ who: "note", html: "Mockup: Restore would add v" + (S.saved ? 6 : 5) + " “Restored from v" + rs.dataset.restore + "”. Nothing is deleted." }); announce("Restore adds a new version. Nothing is deleted."); setSide("chat"); if (S.seg !== "doc") setSeg("chat"); renderAll(); }
+    if (st) { VERSIONS.forEach(function (v) { if (String(v.n) === st.dataset.star) v.star = !v.star; }); renderVersions(); }
+  });
+
+  var prompt = document.getElementById("prompt");
+  function autogrow() { prompt.style.height = "auto"; prompt.style.height = Math.min(prompt.scrollHeight, 144) + "px"; }
+  prompt.addEventListener("input", autogrow);
+  prompt.addEventListener("keydown", function (e) {
+    if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); document.getElementById("composer").requestSubmit(); }
+  });
+  document.getElementById("composer").addEventListener("submit", function (e) {
+    e.preventDefault(); var v = prompt.value; prompt.value = ""; autogrow(); send(v);
+  });
+
+  document.querySelectorAll("[data-theme-set]").forEach(function (b) {
+    b.addEventListener("click", function () {
+      var t = b.dataset.themeSet;
+      if (t === "auto") document.documentElement.removeAttribute("data-theme"); else document.documentElement.setAttribute("data-theme", t);
+      document.querySelectorAll("[data-theme-set]").forEach(function (x) { x.setAttribute("aria-pressed", x === b); });
+    });
+  });
+
+  /* Keyboard map (inactive while typing) */
+  document.addEventListener("keydown", function (e) {
+    if (sheet.hidden) return;
+    if (e.key === "Escape") { if (S.busy) stopRun(); else closeSheet(); e.preventDefault(); return; }
+    if (e.key === "Tab") { /* focus trap */
+      var f = Array.prototype.filter.call(sheet.querySelectorAll('button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'), function (x) { return !x.disabled && x.offsetParent !== null; });
+      if (!f.length) return;
+      if (e.shiftKey && document.activeElement === f[0]) { f[f.length - 1].focus(); e.preventDefault(); }
+      else if (!e.shiftKey && document.activeElement === f[f.length - 1]) { f[0].focus(); e.preventDefault(); }
+      return;
+    }
+    var tag = (e.target.tagName || "").toLowerCase();
+    if (tag === "textarea" || tag === "input" || tag === "select" || e.metaKey || e.ctrlKey || e.altKey) return;
+    var k = e.key;
+    if (k === "j") { move(1); e.preventDefault(); }
+    else if (k === "k") { move(-1); e.preventDefault(); }
+    else if (k === "a" && S.focus >= 0) { decide(CHANGES[S.focus].id, "accepted"); e.preventDefault(); }
+    else if (k === "r" && S.focus >= 0) { decide(CHANGES[S.focus].id, "rejected"); e.preventDefault(); }
+    else if (k === "A") { acceptAll(); e.preventDefault(); }
+    else if (k === "d" || k === "D") { S.show = !S.show; announce(S.show ? "Showing changes." : "Showing the clean proposed text."); renderAll(); e.preventDefault(); }
+    else if (k === "c" || k === "C") { S.compare = !S.compare; S.focus = -1; renderAll(); e.preventDefault(); }
+    else if (k === "/") { if (window.matchMedia("(max-width: 599px)").matches) setSeg("chat"); prompt.focus(); e.preventDefault(); }
+  });
+
+  window.addEventListener("resize", function () { if (!sheet.hidden && S.compare) renderDoc(); });
+
+  /* Start on the landed proposal */
+  S.stageIdx = 4;
+  if (location.hash === "#sheet") openSheet(document.getElementById("expandBtn"));
+})();
+</script>
+</body>
+</html>
