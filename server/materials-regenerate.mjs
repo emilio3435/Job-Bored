@@ -16,7 +16,7 @@
 
 import { existsSync } from "node:fs";
 import { readFile, writeFile } from "node:fs/promises";
-import { join } from "node:path";
+import { basename, join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
 import { openPdfSession } from "./materials-pdf.mjs";
@@ -110,6 +110,24 @@ export async function regeneratePackage(input, deps = {}) {
     throw httpError(`The stored render model is invalid: ${validation.errors.slice(0, 3).join("; ")}`, 422, "render_model_invalid");
   }
 
+  return commitModelAsRun({ dir, model, feature, source: "regenerate", parentRunId: regeneratedFrom }, deps);
+}
+
+/**
+ * Render, audit and publish a validated model as an immutable package run.
+ * The optional deps preserve regenerate's injectable browser, clock and critic.
+ * @param {{dir:string, model:import('./materials-render.mjs').RenderModel, feature:string, source:'regenerate'|'edit'|'manual'|'restore', parentRunId?:string, edit?:{prompt:string,proposalId?:string,accepted:string[],rejected:string[],ops:object[]}}} input
+ * @param {RegenerateDeps} [deps]
+ */
+export async function commitModelAsRun({ dir, model, feature, source, parentRunId, edit }, deps = {}) {
+  const validation = validateRenderModel(model);
+  if (!validation.ok) throw httpError(`The stored render model is invalid: ${validation.errors.slice(0, 3).join("; ")}`, 422, "render_model_invalid");
+  const slug = basename(dir);
+  if (!SLUG_PATTERN.test(slug)) throw httpError("Invalid slug", 400);
+  if (!existsSync(dir)) throw httpError("No materials package for this role", 404);
+  if (!["regenerate", "edit", "manual", "restore"].includes(source)) throw httpError("Invalid run source", 400);
+  const family = resolveFamily(model.template.family);
+  const regeneratedFrom = source === "regenerate" ? parentRunId : undefined;
   const nowIso = (deps.now ? deps.now() : new Date()).toISOString();
   const runId = newRunId(slug, nowIso);
   const resumePdfPath = join(dir, "resume.pdf");
@@ -174,10 +192,9 @@ export async function regeneratePackage(input, deps = {}) {
   }
   issues.push(...rendered.issues);
   const status = issues.some((i) => i.severity === "fail") ? "fail" : issues.length ? "review" : "pass";
-  const notes = [
-    `Regenerated in ${family.label} (${family.id}@${family.version}) from run ${regeneratedFrom}; no model was called.`,
-    ...rendered.notes,
-  ];
+  const notes = [source === "regenerate"
+    ? `Regenerated in ${family.label} (${family.id}@${family.version}) from run ${regeneratedFrom}; no model was called.`
+    : `${source} in ${family.label} (${family.id}@${family.version}) from run ${parentRunId || "unknown"}; no model was called.`, ...rendered.notes];
   await writeFile(join(dir, "qa-report.md"), qaReport({ status: status === "pass" ? "READY" : "REVIEW", issues, notes }), "utf8");
 
   /** @type {Record<string, number>} */
@@ -201,10 +218,12 @@ export async function regeneratePackage(input, deps = {}) {
       feature,
       requestedAt: nowIso,
       finishedAt: (deps.now ? deps.now() : new Date()).toISOString(),
-      source: "regenerate",
+      source,
       regeneratedFrom,
+      ...(source === "restore" && parentRunId ? { restoredFrom: parentRunId } : {}),
+      ...((source === "edit" || source === "manual") && edit ? { edit } : {}),
       stages: [
-        { stage: "intake", status: "ok", llm: false, detail: `regenerate ${regeneratedFrom} in ${family.id}@${family.version}; no LLM stages` },
+        { stage: "intake", status: "ok", llm: false, detail: `${source} ${parentRunId || ""} in ${family.id}@${family.version}; no LLM stages` },
         { stage: "claims.load", status: "skipped", llm: false, detail: "render model reused from the stored package" },
         {
           stage: "fit",
@@ -219,5 +238,5 @@ export async function regeneratePackage(input, deps = {}) {
       ],
     },
   });
-  return { ok: true, slug, runId, regeneratedFrom, template: record.template, status };
+  return { ok: true, slug, runId, ...(regeneratedFrom ? { regeneratedFrom } : {}), template: record.template, status };
 }
