@@ -173,6 +173,8 @@ export function createMaterialsVersionService(deps = {}) {
   const reserved = new Set();
   /** @type {Map<string, Record<string, any>>} */
   const live = new Map();
+  /** @type {Map<string, {ops:Array<any>,summary:Record<string,number>,factCheck:string,factCheckReason:string}>} */
+  const validated = new Map();
   /** @type {Map<string, Set<(event:string,data:any)=>void>>} */
   const listeners = new Map();
   /** @param {Record<string, any>} proposal @param {string} event @param {any} data */
@@ -238,9 +240,13 @@ export function createMaterialsVersionService(deps = {}) {
         model: /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), nodes: deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))), instruction: proposal.instruction,
         scope: proposal.scope, lockFacts: proposal.lockFacts, ledger: ledgerResult.ok ? ledgerResult.ledger : {},
         profile: profileResult.ok ? profileResult.profile : {}, jdExtract, pin, fetchImpl: deps.fetchImpl || fetch,
-        onFactCheck: () => emit(proposal, "stage", { stage: "checking facts" }),
+        onFactCheck: async (ops, summary) => {
+          validated.set(proposal.id, { ops: structuredClone(ops), summary: { ...summary }, factCheck: "fallback", factCheckReason: "Fact check stopped; token check used." });
+          await emit(proposal, "stage", { stage: "checking facts" });
+        },
       });
       if (proposal.status !== "pending") return;
+      validated.set(proposal.id, { ops: structuredClone(result.ops), summary: result.summary, factCheck: result.factCheck || "fallback", factCheckReason: result.factCheckReason || "No validated ops to check; token check used." });
       await emit(proposal, "stage", { stage: "checking", done: result.ops.length, total: result.ops.length + result.blocked.length });
       for (const op of result.ops) {
         if (proposal.status !== "pending") return;
@@ -266,6 +272,7 @@ export function createMaterialsVersionService(deps = {}) {
       await emit(proposal, "done", { status: "failed" });
     } finally {
       proposal.running = false;
+      validated.delete(proposal.id);
       if (proposal.status !== "rejected") await writeJson(proposalPath(proposal), persisted(proposal));
     }
   };
@@ -393,7 +400,19 @@ export function createMaterialsVersionService(deps = {}) {
       const proposal = await loadProposal(dir, id);
       if (proposal.status === "pending") {
         proposal.status = "partial";
-        await emit(proposal, "proposal", { summary: proposal.summary || { changes: proposal.ops.length, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 } });
+        const ready = validated.get(id);
+        if (ready) {
+          const emitted = new Set(proposal.ops.map((/** @type {any} */ op) => op.opId));
+          for (const op of ready.ops) {
+            if (emitted.has(op.opId)) continue;
+            proposal.ops.push(op);
+            await emit(proposal, "op", { op });
+          }
+          proposal.summary = ready.summary;
+          proposal.factCheck = ready.factCheck;
+          proposal.factCheckReason = ready.factCheckReason;
+        }
+        await emit(proposal, "proposal", { summary: proposal.summary || { changes: proposal.ops.length, removals: 0, wordsDelta: 0, lossPct: 0, pages: 1, unverified: 0 }, factCheck: proposal.factCheck, factCheckReason: proposal.factCheckReason });
         await emit(proposal, "done", { status: "partial" });
       } else if (proposal.status !== "partial") throw failure("Proposal is not running", 409, "proposal_not_running");
       return { status: "partial", ops: proposal.ops };

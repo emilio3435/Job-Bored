@@ -150,12 +150,11 @@ function validateFactCheck(result, ops) {
   const rows = /** @type {any} */ (result).results;
   if (!Array.isArray(rows) || rows.length !== ops.length) throw new Error("fact-check reply has the wrong op count");
   const ids = new Set(ops.map((op) => op.opId));
-  const byId = new Map(ops.map((op) => [op.opId, op]));
   const seen = new Set();
   for (const row of rows) {
     if (!row || typeof row !== "object" || Array.isArray(row) || Object.keys(row).sort().join(",") !== "opId,reason,supported" ||
       typeof row.opId !== "string" || !ids.has(row.opId) || seen.has(row.opId) ||
-      typeof row.supported !== "boolean" || byId.get(row.opId)?.op === "remove" && !row.supported ||
+      typeof row.supported !== "boolean" ||
       typeof row.reason !== "string" || !row.reason.trim() || /[\r\n]/.test(row.reason) || row.reason.length > 240) {
       throw new Error("invalid fact-check row");
     }
@@ -286,7 +285,7 @@ export function flagUnverifiedOps(model, ops, ledger = {}) {
 }
 
 /**
- * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, profile?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl'], onFactCheck?:()=>Promise<void>}} input
+ * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, profile?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl'], onFactCheck?:(ops:Array<any>,summary:Record<string,number>)=>Promise<void>}} input
  */
 export async function proposeEdits({ model, nodes, instruction, scope = "all", lockFacts = true, jdExtract = {}, ledger = {}, profile = {}, pin, fetchImpl, onFactCheck }) {
   const baseNodes = deriveNodes(model);
@@ -345,10 +344,19 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
       blocked.push({ op: proposed, reason: error.reason, detail: error.detail });
     }
   }
+  const baseWords = count(baseNodes);
+  const summary = {
+    changes: ops.length,
+    removals: ops.filter((op) => op.op === "remove").length,
+    wordsDelta: count(deriveNodes(candidate)) - baseWords,
+    lossPct: baseWords ? Math.round(removedWords / baseWords * 100) : 0,
+    pages: model.template.pageBudget,
+    unverified: ops.filter((op) => op.flags?.includes("unverified")).length,
+  };
   let factCheck = "fallback";
   let factCheckReason = "No validated ops to check; token check used.";
   if (ops.length) {
-    await onFactCheck?.();
+    await onFactCheck?.(ops, summary);
     try {
       const checked = await checkFactsWithModel({ ops, model, nodes: baseNodes, profile, ledger, jdExtract, pin, fetchImpl });
       const byId = new Map(checked.map((row) => [row.opId, row]));
@@ -357,9 +365,12 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
         delete op.facts;
         const row = byId.get(op.opId);
         if (!row) throw new Error("missing fact-check row");
-        if (!row.supported) {
+        const facts = [];
+        if (op.op !== "remove" && !row.supported) facts.push(row.reason.trim());
+        if (op.op === "insert" && !claimById(ledger, op.claimId)) facts.push(`claimId:${op.claimId}`);
+        if (facts.length) {
           op.flags = ["unverified"];
-          op.facts = [row.reason.trim()];
+          op.facts = facts;
         }
       }
       factCheck = "model";
@@ -368,14 +379,6 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
       factCheckReason = factCheckFailureReason(error);
     }
   }
-  const baseWords = count(baseNodes);
-  const wordsDelta = count(deriveNodes(candidate)) - baseWords;
-  return { ops, blocked, factCheck, factCheckReason, summary: {
-    changes: ops.length,
-    removals: ops.filter((op) => op.op === "remove").length,
-    wordsDelta,
-    lossPct: baseWords ? Math.round(removedWords / baseWords * 100) : 0,
-    pages: model.template.pageBudget,
-    unverified: ops.filter((op) => op.flags?.includes("unverified")).length,
-  } };
+  summary.unverified = ops.filter((op) => op.flags?.includes("unverified")).length;
+  return { ops, blocked, factCheck, factCheckReason, summary };
 }

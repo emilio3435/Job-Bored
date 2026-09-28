@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { randomUUID } from "node:crypto";
+import { EventEmitter, once } from "node:events";
 import { readFileSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -34,6 +35,27 @@ function stub(checks = checkRows, { editOps = [invented, ordinary], inspect } = 
 }
 const propose = (fetchImpl, extra = {}) => proposeEdits({ model, instruction: "Shorten the resume", ledger, profile: {}, jdExtract: {}, pin, fetchImpl, ...extra });
 
+async function seedRun(root, slug) {
+  const dir = join(root, slug);
+  const runDir = join(dir, "runs", "r0");
+  await mkdir(runDir, { recursive: true });
+  await mkdir(join(dir, "proposals"));
+  const run = { runId: "r0", slug, feature: "resume" };
+  await writeFile(join(dir, "run.json"), JSON.stringify(run));
+  await writeFile(join(runDir, "run.json"), JSON.stringify(run));
+  await writeFile(join(runDir, "render-model.json"), JSON.stringify(model));
+  return dir;
+}
+
+async function saveProposal(dir, ops) {
+  const id = randomUUID();
+  await writeFile(join(dir, "proposals", `${id}.json`), JSON.stringify({
+    id, doc: "resume", baseRunId: "r0", status: "ready", factCheck: "model",
+    instruction: "Shorten the resume", scope: "all", ops, events: [], createdAt: new Date().toISOString(),
+  }));
+  return id;
+}
+
 it("uses one model fact check to flag only the unsupported claim and keep ordinary words clear", async () => {
   const source = stub([checkRows]);
   const result = await propose(source.fetchImpl);
@@ -41,6 +63,33 @@ it("uses one model fact check to flag only the unsupported claim and keep ordina
   assert.equal(result.factCheck, "model");
   assert.deepEqual(result.ops.map((op) => op.flags?.includes("unverified") || false), [true, false]);
   assert.match(result.ops[0].facts.join(" "), /John at Microsoft in London/);
+  assert.equal(result.summary.unverified, 1);
+});
+
+it("B1M-CLAIMID keeps a missing insert claim unverified and requires confirmation", async () => {
+  const insert = { opId: "o3", op: "insert", after: "b:acme:c14", claimId: "not-in-ledger", text: "Built a daily exception review." };
+  const result = await propose(stub([[{ opId: "o3", supported: true, reason: "The work is described." }]], { editOps: [insert] }).fetchImpl);
+  assert.equal(result.factCheck, "model");
+  assert.ok(result.ops[0].flags?.includes("unverified"));
+  assert.ok(result.ops[0].facts?.includes("claimId:not-in-ledger"));
+  const root = await mkdtemp(join(tmpdir(), "jb-factcheck-claim-"));
+  try {
+    const slug = "missing-claim-example";
+    const dir = await seedRun(root, slug);
+    const id = await saveProposal(dir, result.ops);
+    const service = createMaterialsVersionService({ applicationsRoot: root, commit: async () => ({ runId: "r1", pdf: "ready", stale: false }) });
+    await assert.rejects(service.accept(slug, id, { accept: ["o3"], confirmUnverified: [] }), { code: "unverified_confirmation_required" });
+    const accepted = await service.accept(slug, id, { accept: ["o3"], confirmUnverified: ["o3"] });
+    assert.equal(accepted.statusCode, 200);
+  } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it("B1M-REMOVE ignores an unsupported judgment for a remove and keeps sibling judgments", async () => {
+  const remove = { opId: "o3", op: "remove", node: "intro" };
+  const source = stub([[...checkRows, { opId: "o3", supported: false, reason: "Remove has no new claim." }]], { editOps: [invented, ordinary, remove] });
+  const result = await propose(source.fetchImpl);
+  assert.equal(result.factCheck, "model");
+  assert.deepEqual(result.ops.map((op) => op.flags?.includes("unverified") || false), [true, false, false]);
   assert.equal(result.summary.unverified, 1);
 });
 
@@ -112,20 +161,9 @@ it("Accept all skips model-unverified ops while a model-supported op remains acc
   const root = await mkdtemp(join(tmpdir(), "jb-factcheck-"));
   try {
     const slug = "factcheck-example";
-    const dir = join(root, slug);
-    const runDir = join(dir, "runs", "r0");
-    await mkdir(runDir, { recursive: true });
-    await mkdir(join(dir, "proposals"));
-    const run = { runId: "r0", slug, feature: "resume" };
-    await writeFile(join(dir, "run.json"), JSON.stringify(run));
-    await writeFile(join(runDir, "run.json"), JSON.stringify(run));
-    await writeFile(join(runDir, "render-model.json"), JSON.stringify(model));
+    const dir = await seedRun(root, slug);
     const result = await propose(stub([checkRows]).fetchImpl);
-    const id = randomUUID();
-    await writeFile(join(dir, "proposals", `${id}.json`), JSON.stringify({
-      id, doc: "resume", baseRunId: "r0", status: "ready", factCheck: "model",
-      instruction: "Shorten the resume", scope: "all", ops: result.ops, events: [], createdAt: new Date().toISOString(),
-    }));
+    const id = await saveProposal(dir, result.ops);
     let committed = false;
     const service = createMaterialsVersionService({ applicationsRoot: root, commit: async () => { committed = true; return { runId: "r1", pdf: "ready", stale: false }; } });
     await assert.rejects(service.accept(slug, id, { accept: ["o1", "o2"], confirmUnverified: [] }), { code: "unverified_confirmation_required" });
@@ -134,4 +172,42 @@ it("Accept all skips model-unverified ops while a model-supported op remains acc
     assert.equal(accepted.statusCode, 200);
     assert.equal(committed, true);
   } finally { await rm(root, { recursive: true, force: true }); }
+});
+
+it("B1M-STOP streams validated token-flagged ops when stopped during fact check", async () => {
+  const root = await mkdtemp(join(tmpdir(), "jb-factcheck-stop-"));
+  let releaseCheck;
+  try {
+    const slug = "stopped-check-example";
+    await seedRun(root, slug);
+    let calls = 0;
+    const fetchImpl = async () => {
+      calls += 1;
+      if (calls === 1) return response({ ops: [{ ...invented, text: "Tracked 72 daily shipments and resolved exceptions." }] });
+      return new Promise((resolve) => { releaseCheck = () => resolve(response([{ opId: "o1", supported: true, reason: "Supported." }])); });
+    };
+    const service = createMaterialsVersionService({ applicationsRoot: root, pin, fetchImpl });
+    const started = await service.start(slug, { doc: "resume", baseRunId: "r0", instruction: "Shorten the resume", scope: "all", lockFacts: true });
+    let stopping;
+    const res = Object.assign(new EventEmitter(), {
+      chunks: [], writableEnded: false,
+      setHeader() {}, flushHeaders() {},
+      write(chunk) {
+        this.chunks.push(chunk);
+        if (chunk.includes('"stage":"checking facts"') && !stopping) stopping = service.stop(slug, started.proposalId);
+      },
+      end() { this.writableEnded = true; this.emit("end"); },
+    });
+    const ended = once(res, "end");
+    await service.stream(slug, started.proposalId, new EventEmitter(), res);
+    for (let i = 0; i < 100 && !stopping; i += 1) await new Promise((resolve) => setTimeout(resolve, 5));
+    assert.ok(stopping);
+    const partial = await stopping;
+    await ended;
+    assert.equal(partial.status, "partial");
+    assert.deepEqual(partial.ops.map((op) => op.opId), ["o1"]);
+    assert.ok(partial.ops[0].flags?.includes("unverified"));
+    assert.match(res.chunks.join(""), /event: op\ndata: .*"opId":"o1"/);
+    assert.match(res.chunks.join(""), /event: done\ndata: {"status":"partial"}/);
+  } finally { releaseCheck?.(); await rm(root, { recursive: true, force: true }); }
 });

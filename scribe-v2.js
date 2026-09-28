@@ -38,6 +38,7 @@
   var STAGES = [
     { key: "reading", label: function (doc) { return "Reading " + DOC_NOUN[doc]; } },
     { key: "drafting", label: function () { return "Drafting edits"; } },
+    { key: "checking facts", label: function () { return "Checking facts"; } },
     { key: "checking", label: function (doc, s) { return "Checking facts" + (s && s.total ? " (" + (s.done || 0) + "/" + s.total + ")" : ""); } },
     { key: "measuring", label: function () { return "Measuring length"; } },
     { key: "ready", label: function () { return "Ready"; } },
