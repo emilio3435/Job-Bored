@@ -322,11 +322,11 @@ describe("cache key and degraded runs (P-8)", () => {
     "Jordan Rivera",
     "Austin, TX · user@example.com",
     "Northwind — Digital Sales Manager, 2021–2026",
-    "- Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads.",
-    "- Drove 125% YoY paid-search conversion growth on a flagship account.",
+    "- Grew Austin to a top-3 national ranking on a $10M+ book with Google Ads.",
+    "- Drove 130% YoY paid-search conversion growth on a flagship account.",
     "- Led the market to a 60% digital revenue mix with clear weekly readouts.",
     "Example App — Founder, 2024–present",
-    "- Shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline.",
+    "- Shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline.",
     "- Built streaming ingestion for analytics events with Kafka and Postgres.",
   ].join("\n");
   const PROFILE = {

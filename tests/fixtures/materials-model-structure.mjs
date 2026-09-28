@@ -257,7 +257,7 @@ const realshapeReply = {
         claim("Moved the market's revenue mix from mostly on-air spots to roughly half digital, starting from a client base that had only tested online ads in small pilots."),
         claim("Coached 9 account-executive desks through a digital-first sales rhythm: 15+ logged pitches a week, one-on-one ride-alongs, weekly drop-in hours, and a monthly Lunch & Learn series on search, connected TV, and measurement."),
         claim("Supervised up to 4 campaign coordinators and worked with in-house producers, outside agencies, and ad-tech vendors to launch and tune campaigns against client goals such as calls, bookings, and cost per lead."),
-        claim("Became the market's go-to client-facing strategist and presenter — leading renewal meetings, quarterly reviews, and annual plans that kept anchor accounts, including 110% YoY search conversion growth and 17% YoY new-customer lift for a regional credit union."),
+        claim("Became the market's trusted client-facing strategist and speaker — leading renewal meetings, quarterly reviews, and annual plans that kept anchor accounts, including 110% YoY search conversion growth and 17% YoY new-customer lift for a regional credit union."),
         claim("Advised clients on measurement design, local search changes, and landing-page structure — helping the sales team talk about new ad products before competing stations did."),
       ]),
       role("Senior Account Executive", "Account Executive → Senior Account Executive, Tidewater Radio May 2019 – May 2021", "May 2019", "May 2021", [
@@ -267,7 +267,7 @@ const realshapeReply = {
       role("Digital Campaign Coordinator", "Digital Campaign Coordinator, Tidewater Radio Sep 2017 – Apr 2019", "Sep 2017", "Apr 2019", [
         claim("Set up, trafficked, monitored, and reported on search, social, connected TV, and display campaigns for local and regional advertisers — the platform groundwork behind every later sales role."),
       ]),
-    ], [], "Sep 2017", "2026", "Four Roles Sep 2017 – 2026"),
+    ], [], "Sep 2017", "2026", "Portland Market · Sep 2017 – 2026"),
     employer("Lumen Signal Studio", "Lumen Signal Studio", [
       role("Founder & ML Engineer", "Founder & ML Engineer | Lumen Signal Studio", "2024", "Present", [
         claim("Built and runs a small retrieval assistant on a managed cloud platform that answers questions over past proposals, call notes, and rate cards, choosing between two hosted language models by cost and response time."),

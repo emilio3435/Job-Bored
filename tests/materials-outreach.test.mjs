@@ -52,10 +52,10 @@ const VOICE_MD = [
 const NOTE = {
   greeting: "Hi Jane,",
   contactName: "Jane",
-  linkedin: "Hi Jane, I grew Austin to a top-4 national ranking on a $12M+ book and built an SEM forecast tool on Gemini. Saw Acme Analytics is hiring a Data Platform Engineer. Worth a 15-minute call?",
+  linkedin: "Hi Jane, I grew Austin to a top-3 national ranking on a $10M+ book and built an SEM forecast tool on Gemini. Saw Acme Analytics is hiring a Data Platform Engineer. Worth a 15-minute call?",
   email: {
     subject: "Pipeline math for Acme Analytics",
-    body: "Hi Jane,\n\nI grew Austin to a top-4 national ranking on a $12M+ book, and I built streaming ingestion for analytics events with Kafka and Postgres. I'd bring both to the Data Platform Engineer seat at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan",
+    body: "Hi Jane,\n\nI grew Austin to a top-3 national ranking on a $10M+ book, and I built streaming ingestion for analytics events with Kafka and Postgres. I'd bring both to the Data Platform Engineer seat at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan",
   },
 };
 
@@ -160,8 +160,8 @@ describe("outreach · greeting, rules and QA", () => {
       company: "Acme Analytics",
       title: "Data Platform Engineer",
       contact: "",
-      letter: { hook: "I grew Austin to a top-4 national ranking.", ask: "Worth a call?" },
-      claims: [{ id: "c1", text: "Grew Austin to a top-4 national ranking on a $12M+ book." }],
+      letter: { hook: "I grew Austin to a top-3 national ranking.", ask: "Worth a call?" },
+      claims: [{ id: "c1", text: "Grew Austin to a top-3 national ranking on a $10M+ book." }],
       voiceProfile: null,
       pin: PIN,
       fetchImpl,
@@ -191,11 +191,11 @@ const RESUME_TEXT = [
   "Jordan Rivera",
   "Austin, TX · jordan.rivera@example.com · 555-010-2030",
   "Northwind — Digital Sales Manager, 2021–2026",
-  "- Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads.",
-  "- Drove 125% YoY paid-search conversion growth on a flagship account.",
+  "- Grew Austin to a top-3 national ranking on a $10M+ book with Google Ads.",
+  "- Drove 130% YoY paid-search conversion growth on a flagship account.",
   "- Led the market to a 60% digital revenue mix with clear weekly readouts.",
   "Example App — Founder, 2024–present",
-  "- Shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline.",
+  "- Shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline.",
   "- Built streaming ingestion for analytics events with Kafka and Postgres.",
 ].join("\n");
 
@@ -207,7 +207,7 @@ const PROFILE = {
     primaryNarrative: "Performance marketer and AI product builder who ships measurable growth.",
     fullName: "Jordan Rivera",
   },
-  strengths: [{ name: "Growth", rank: 1, evidence: "Grew Austin to a top-4 national ranking on a $12M+ book.", keywords: ["Google Ads"] }],
+  strengths: [{ name: "Growth", rank: 1, evidence: "Grew Austin to a top-3 national ranking on a $10M+ book.", keywords: ["Google Ads"] }],
   experiences: [{ slug: "northwind", company: "Northwind", title: "Digital Sales Manager" }],
   hardConstraints: { workMode: "any" },
 };
@@ -241,10 +241,10 @@ const INTEL_NEWS = {
 const INTEL_COMPANY = { text: '```json\n{"domain":"acmeanalytics.com","products":[]}\n```', sources: [{ uri: "https://acmeanalytics.com/about", title: "acmeanalytics.com" }], supports: [] };
 
 const LETTER = {
-  hook: "I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads, and I want to run paid acquisition at Acme Analytics.",
+  hook: "I grew Austin to a top-3 national ranking on a $10M+ book with Google Ads, and I want to run paid acquisition at Acme Analytics.",
   companyInsight: "In August 2026 Acme Analytics launched Spend Graph for retail media measurement.",
-  proof1: "At Northwind I drove 125% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
-  proof2: "I also shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
+  proof1: "At Northwind I drove 130% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
+  proof2: "I also shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
   ask: "I want to own the spend reporting at Acme Analytics next. Could we compare one live account plan?",
 };
 
@@ -272,8 +272,8 @@ function stageFetch() {
     } else if (/outreach note/.test(system)) {
       calls.push("outreach");
       content = JSON.stringify({
-        linkedin: "Hi Jane, I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads. Saw Acme Analytics is hiring a Growth Marketing Lead. Worth a 15-minute call?",
-        email: { subject: "Paid acquisition at Acme Analytics", body: "Hi Jane,\n\nI grew Austin to a top-4 national ranking on a $12M+ book with Google Ads. I want to run paid acquisition at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan" },
+        linkedin: "Hi Jane, I grew Austin to a top-3 national ranking on a $10M+ book with Google Ads. Saw Acme Analytics is hiring a Growth Marketing Lead. Worth a 15-minute call?",
+        email: { subject: "Paid acquisition at Acme Analytics", body: "Hi Jane,\n\nI grew Austin to a top-3 national ranking on a $10M+ book with Google Ads. I want to run paid acquisition at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan" },
       });
     } else if (system.startsWith("Goal: Write truthful")) {
       calls.push("write");

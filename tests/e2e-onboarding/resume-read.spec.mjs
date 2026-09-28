@@ -52,7 +52,7 @@ const FACTS = {
     { text: "Operations strategy", kind: "hard", sourceQuote: "Operations strategy" },
     { text: "Process improvement", kind: "hard", sourceQuote: "Process improvement" },
     { text: "Budgeting", kind: "hard", sourceQuote: "Budgeting" },
-    { text: "Salesforce", kind: "tools", sourceQuote: "Salesforce" },
+    { text: "AtlasCRM", kind: "tools", sourceQuote: "AtlasCRM" },
     { text: "Excel", kind: "tools", sourceQuote: "Excel" },
     { text: "Leadership", kind: "soft", sourceQuote: "Leadership" },
     { text: "Negotiation", kind: "soft", sourceQuote: "Negotiation" },
