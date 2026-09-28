@@ -47,7 +47,6 @@ const windowNamespaces = {
   CommandCenterVisualThemes: "writable",
   FitProfileForm: "writable",
   JB_LATTICE: "writable",
-  JB_SCRIBE: "writable",
   JobBored: "writable",
   JobBoredApp: "writable",
   JobBoredAts: "writable",

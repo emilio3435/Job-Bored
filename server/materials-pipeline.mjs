@@ -22,7 +22,7 @@
  */
 
 import { createHash } from "node:crypto";
-import { rm, writeFile } from "node:fs/promises";
+import { copyFile, mkdtemp, readFile, readdir, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildOutline } from "./materials-outline.mjs";
 import { buildRenderModelFromDraft } from "./materials-render-model-adapter.mjs";
@@ -44,6 +44,7 @@ import { extractJd, extractQuality, hashJd } from "./materials-jd-extract.mjs";
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { numerals, tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { renderPackage, writePackageRecords } from "./materials-package.mjs";
+import { withPackagePublishClaim } from "./materials-regenerate.mjs";
 import {
   buildQaRecord,
   combinedStatus,
@@ -321,7 +322,19 @@ function applyDelintFields(draft, fields) {
  *   automatic repair of a FAIL; carries the first pass's extract,
  *   selection, outline and stage ledger so they are reused, not re-run
  */
-export async function runPipeline({
+export async function runPipeline(input) {
+  const previous = await readFile(join(input.dir, "run.json"), "utf8")
+    .then((raw) => String(JSON.parse(raw)?.runId || ""))
+    .catch(() => "");
+  return withPackagePublishClaim(input.dir, previous, async (assertBase) => {
+    const stagingDir = await mkdtemp(join(input.dir, ".render-"));
+    try { return await runPipelineBody(input, assertBase, stagingDir); }
+    finally { await rm(stagingDir, { recursive: true, force: true }); }
+  }, { allowPending: true });
+}
+
+/** @param {Parameters<typeof runPipeline>[0]} input @param {() => Promise<void>} assertBase @param {string} stagingDir */
+async function runPipelineBody({
   dir,
   payload,
   pin,
@@ -347,7 +360,7 @@ export async function runPipeline({
   requirePdf = false,
   voiceProfile,
   intel,
-}) {
+}, assertBase, stagingDir) {
   const pipelineInput = arguments[0];
   const startedAt = now instanceof Date ? now : new Date(now || Date.now());
   const isoNow = () => new Date().toISOString();
@@ -447,7 +460,7 @@ export async function runPipeline({
   /* RESJ Q3: the file keeps why the fill degraded and how much evidence
    * the extract carries, so a weak extract is visible after the fact. */
   const extractScore = extractQuality(extract, extractDegraded);
-  await writeJson(join(dir, "jd-extract.json"), {
+  await writeJson(join(stagingDir, "jd-extract.json"), {
     ...extract,
     quality: extractScore,
     ...(extractDegraded
@@ -461,7 +474,7 @@ export async function runPipeline({
       }
       : {}),
   });
-  const extractRawOut = repairPass ? [] : await writeRawReply(dir, extractRaw);
+  const extractRawOut = repairPass ? [] : await writeRawReply(stagingDir, extractRaw);
   record({
     stage: "jd.extract",
     status: extractDegraded ? "review" : "ok",
@@ -489,8 +502,8 @@ export async function runPipeline({
     )
   );
   if (selectDegraded) degraded.push(`claims.select: deterministic ranks${reasonSuffix(selectCall)}`);
-  await writeJson(join(dir, "selection.json"), selection);
-  const selectRawOut = repairPass ? [] : await writeRawReply(dir, selectRaw);
+  await writeJson(join(stagingDir, "selection.json"), selection);
+  const selectRawOut = repairPass ? [] : await writeRawReply(stagingDir, selectRaw);
   record({
     stage: "claims.select",
     status: selectDegraded ? "review" : "ok",
@@ -503,7 +516,7 @@ export async function runPipeline({
 
   /* outline (deterministic) */
   const outline = repairPass ? repairPass.outline : buildOutline({ selection, ledger, feature: payload.feature, extract });
-  await writeJson(join(dir, "outline.json"), outline);
+  await writeJson(join(stagingDir, "outline.json"), outline);
   record({ stage: "outline", status: "ok", llm: false, out: ["outline.json"], detail: `${outline.featured.length} featured, ${outline.earlier.length} earlier` });
 
   /* intel (Wave 3, C-6): the posting's About block, ≤ 2 grounded
@@ -528,7 +541,7 @@ export async function runPipeline({
       resolveBrand: intel.resolveBrand ?? null,
       fetchImpl: intel.fetchImpl,
       cacheRoot: intel.cacheRoot || "",
-      appDir: dir,
+      appDir: stagingDir,
       ...(typeof intel.budgetMs === "number" ? { budgetMs: intel.budgetMs } : {}),
       now: startedAt,
     });
@@ -573,7 +586,7 @@ export async function runPipeline({
     )
   );
   if (draftDegraded) degraded.push(`draft: verbatim claim text${reasonSuffix(draftCall)}`);
-  const draftRawOut = await writeRawReply(dir, draftRaw);
+  const draftRawOut = await writeRawReply(stagingDir, draftRaw);
   let draft = rawDraft;
   record({
     stage: "draft",
@@ -716,10 +729,10 @@ export async function runPipeline({
       ...stageCallField(checked.call),
     });
   }
-  await writeJson(join(dir, "draft.json"), draft);
+  await writeJson(join(stagingDir, "draft.json"), draft);
   /* Wave 3: the per-sentence source map (claim, voice fact, posting or
    * intel id with its URL and date), for review and the samples. */
-  if (allVerdicts) await writeJson(join(dir, "support.json"), { contract: "materials.support.v1", runId, verdicts: allVerdicts });
+  if (allVerdicts) await writeJson(join(stagingDir, "support.json"), { contract: "materials.support.v1", runId, verdicts: allVerdicts });
   record({
     stage: "delint",
     status: delintResult.clean ? "ok" : "review",
@@ -761,8 +774,8 @@ export async function runPipeline({
 
   /* render: fit + HTML + PDFs. */
   const session = openSession ? await openSession() : null;
-  const resumePdfPath = join(dir, "resume.html").replace(/resume\.html$/, "resume.pdf");
-  const coverLetterPdfPath = join(dir, "cover-letter.html").replace(/cover-letter\.html$/, "cover-letter.pdf");
+  const resumePdfPath = join(stagingDir, "resume.pdf");
+  const coverLetterPdfPath = join(stagingDir, "cover-letter.pdf");
   let rendered;
   try {
     rendered = await renderPackage({
@@ -950,7 +963,7 @@ export async function runPipeline({
       repairInstructionsFromQa(qaRecords),
       ...(keep.length ? ["", "Sentences the fact check supports (keep their facts and wording unless an issue above names them):", ...keep.map((t) => `- ${t}`)] : []),
     ].join("\n");
-    return runPipeline({
+    return runPipelineBody({
       ...pipelineInput,
       current: draft,
       repairInstructions: instructions,
@@ -972,12 +985,12 @@ export async function runPipeline({
           codes: r.checks.filter((c) => c.severity === "fail").map((c) => c.code),
         })),
       },
-    });
+    }, assertBase, stagingDir);
   }
 
-  for (const qa of qaRecords) await writeJson(join(dir, qaFileName(qa.document)), qa);
+  for (const qa of qaRecords) await writeJson(join(stagingDir, qaFileName(qa.document)), qa);
   /* qa.json: this run's combined record (the worst document wins). */
-  await writeJson(join(dir, "qa.json"), {
+  await writeJson(join(stagingDir, "qa.json"), {
     contract: "materials.qa.v1",
     runId,
     status: qaStatus,
@@ -1001,16 +1014,17 @@ export async function runPipeline({
   if (resumeChoice?.degraded) notes.push(`degraded: ${resumeChoice.degraded.code}: ${resumeChoice.degraded.message}`);
   else if (resumeChoice?.message) notes.push(resumeChoice.message);
   if (payload.feature !== "cover_letter" && resumeHtml) {
-    await writeFile(join(dir, "resume.html"), resumeHtml, "utf8");
+    await writeFile(join(stagingDir, "resume.html"), resumeHtml, "utf8");
   }
   if (payload.feature !== "resume" && letterHtml) {
-    await writeFile(join(dir, "cover-letter.html"), letterHtml, "utf8");
+    await writeFile(join(stagingDir, "cover-letter.html"), letterHtml, "utf8");
   }
   /* The report covers every document's current verdict, so a letter
    * run still shows the resume's. */
   const onDisk = await readDocumentQa(dir);
+  for (const qa of qaRecords) onDisk[qa.document] = qa;
   await writeFile(
-    join(dir, "qa-report.md"),
+    join(stagingDir, "qa-report.md"),
     formatDocumentQaReport({
       records: /** @type {import("./materials-qa.mjs").QaRecord[]} */ ([onDisk.resume, onDisk.letter].filter(Boolean)),
       notes,
@@ -1075,8 +1089,8 @@ export async function runPipeline({
       verdicts: allVerdicts,
       generatedAt: isoNow(),
     });
-    await writeJson(join(dir, "outreach.json"), outreachRec);
-    await writeFile(join(dir, "outreach.txt"), outreachText(outreachRec), "utf8");
+    await writeJson(join(stagingDir, "outreach.json"), outreachRec);
+    await writeFile(join(stagingDir, "outreach.txt"), outreachText(outreachRec), "utf8");
     extraFiles.push("outreach.json", "outreach.txt");
     manifestExtra.outreach = {
       json: "outreach.json",
@@ -1088,6 +1102,10 @@ export async function runPipeline({
       contact: outreachRec.contact.name || "",
     };
   }
+  await assertBase();
+  for (const name of await readdir(stagingDir)) await copyFile(join(stagingDir, name), join(dir, name));
+  if (payload.feature !== "cover_letter" && !rendered.pdf?.resume) await rm(join(dir, "resume.pdf"), { force: true });
+  if (payload.feature !== "resume" && !rendered.pdf?.coverLetter) await rm(join(dir, "cover-letter.pdf"), { force: true });
   await writePackageRecords({
     dir,
     rendered,

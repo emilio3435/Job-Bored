@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { buildManifest } from "../server/application-materials.mjs";
+import { critiqueMaterials } from "../server/materials-critic.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { materialsCacheKey } from "../server/materials-package.mjs";
 import { regeneratePackage } from "../server/materials-regenerate.mjs";
@@ -91,6 +92,8 @@ async function fakeSession() {
     close: async () => {},
   };
 }
+
+const noLogoLookups = { employerLogoLoader: async () => [], targetLogoLoader: async () => null };
 
 /** @param {string} path */
 async function readJson(path) {
@@ -193,7 +196,7 @@ describe("regenerate in another template", () => {
     try {
       result = await regeneratePackage(
         { slug: "acme-regen", template: "editorial" },
-        { applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T13:00:00.000Z") },
+        { ...noLogoLookups, applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T13:00:00.000Z") },
       );
     } finally {
       globalThis.fetch = realFetch;
@@ -226,6 +229,43 @@ describe("regenerate in another template", () => {
     );
   });
 
+  it("SYNC-1 scores invented employers against the chosen saved resume", async () => {
+    const garbled = await readFile(new URL("./fixtures/materials-garbled-resume.txt", import.meta.url), "utf8");
+    const saved = {
+      ...EXAMPLE_RESUME_SOURCE,
+      source: "saved",
+      filename: "resume.txt",
+      addedAt: "2026-09-28T12:00:00.000Z",
+      text: EXAMPLE_RESUME_SOURCE.text.replace("Northwind Logistics,", "Example Carrier,"),
+    };
+    for (const snapshotKind of ["missing", "garbled"]) {
+      const slug = `acme-source-${snapshotKind}`;
+      await draft(drafterFor(dir), slug);
+      const pkg = join(dir, slug);
+      const snapshotPath = join(pkg, "resume-source.json");
+      if (snapshotKind === "missing") await rm(snapshotPath);
+      else await writeFile(snapshotPath, JSON.stringify({ ...EXAMPLE_RESUME_SOURCE, text: garbled, usedAt: "2026-09-27T12:00:00.000Z" }));
+      let scoredText = "";
+      await regeneratePackage({ slug, template: "editorial" }, {
+        ...noLogoLookups,
+        applicationsRoot: dir,
+        pdfSession: fakeSession,
+        readSavedResume: async () => saved,
+        critic: async (input) => {
+          scoredText = String(input.sourceResumeText || "");
+          return critiqueMaterials(input);
+        },
+      });
+      assert.equal(scoredText, saved.text, `${snapshotKind}: the critic must score the selected source`);
+      const qa = await readJson(join(pkg, "qa.resume.json"));
+      const invented = qa.checks.find((check) => check.code === "invented_employer");
+      assert.match(invented?.message || "", /Northwind Logistics/, `${snapshotKind}: missing employer must fail QA`);
+      assert.doesNotMatch(invented.message, /Contoso Labs|Fabrikam Freight/, `${snapshotKind}: supported employers stay clear`);
+      const run = await readJson(join(pkg, "run.json"));
+      assert.equal(run.resume.reason, snapshotKind === "missing" ? "saved_only" : "request_garbled");
+    }
+  });
+
   it("should refuse without a browser and leave the package exactly as it was", async () => {
     await draft(drafterFor(dir), "acme-nobrowser");
     const pkg = join(dir, "acme-nobrowser");
@@ -244,7 +284,7 @@ describe("regenerate in another template", () => {
     };
     const before = await snapshot(pkg);
     await assert.rejects(
-      () => regeneratePackage({ slug: "acme-nobrowser", template: "editorial" }, { applicationsRoot: dir, pdfSession: async () => null }),
+      () => regeneratePackage({ slug: "acme-nobrowser", template: "editorial" }, { ...noLogoLookups, applicationsRoot: dir, pdfSession: async () => null }),
       (e) => e.statusCode === 503 && e.code === "browser_unavailable" && /npx playwright install chromium/.test(e.message),
     );
     assert.deepEqual(await snapshot(pkg), before, "nothing in the package changed");
@@ -263,7 +303,7 @@ describe("regenerate in another template", () => {
     assert.equal(run.feature, "resume");
     const result = await regeneratePackage(
       { slug: "acme-resume-only", template: "dossier" },
-      { applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T14:00:00.000Z") },
+      { ...noLogoLookups, applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T14:00:00.000Z") },
     );
     assert.equal(result.ok, true);
     assert.ok(existsSync(join(dir, "acme-resume-only", "resume.html")));
@@ -272,18 +312,18 @@ describe("regenerate in another template", () => {
   it("should 400 an unknown family and 409 a package with no stored render model or a pending draft", async () => {
     await draft(drafterFor(dir), "acme-guard");
     await assert.rejects(
-      () => regeneratePackage({ slug: "acme-guard", template: "volt" }, { applicationsRoot: dir, pdfSession: fakeSession }),
+      () => regeneratePackage({ slug: "acme-guard", template: "volt" }, { ...noLogoLookups, applicationsRoot: dir, pdfSession: fakeSession }),
       (e) => e.statusCode === 400 && e.code === "unknown_template",
     );
     await writeFile(join(dir, "acme-guard", "pending.json"), "{}");
     await assert.rejects(
-      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { applicationsRoot: dir, pdfSession: fakeSession }),
+      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { ...noLogoLookups, applicationsRoot: dir, pdfSession: fakeSession }),
       (e) => e.statusCode === 409,
     );
     await rm(join(dir, "acme-guard", "pending.json"));
     await rm(join(dir, "acme-guard", "render-model.json"));
     await assert.rejects(
-      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { applicationsRoot: dir, pdfSession: fakeSession }),
+      () => regeneratePackage({ slug: "acme-guard", template: "dossier" }, { ...noLogoLookups, applicationsRoot: dir, pdfSession: fakeSession }),
       (e) => e.statusCode === 409 && e.code === "render_model_missing",
     );
   });

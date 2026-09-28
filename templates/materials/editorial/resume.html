@@ -8,7 +8,7 @@
       <p class="deck">{{identity.target}}</p>
     </div>
     {{#if resume.statement.show}}<section class="pull-wrap" data-section="summary">
-      <blockquote class="pull">{{resume.statement.html}}</blockquote>
+      <blockquote class="pull" data-node="{{resume.statement.nodeId}}">{{resume.statement.html}}</blockquote>
     </section>{{else}}<section data-section="summary" data-omitted="repeats-headline" hidden></section>{{/if}}
   </header>
 
@@ -17,7 +17,7 @@
     {{/each}}
   </p>
 
-  {{#if resume.intro}}<p class="intro" data-claims="{{resume.intro.claimIds}}">{{resume.intro.html}}</p>{{/if}}
+  {{#if resume.intro}}<p class="intro" data-claims="{{resume.intro.claimIds}}" data-node="{{resume.intro.nodeId}}">{{resume.intro.html}}</p>{{/if}}
 
   {{#if resume.experience}}
   <h2 class="head">{{resume.experience.label}}</h2>
@@ -31,14 +31,14 @@
       <div class="story">
         <div class="org">
           <h2 class="company-name{{#if orgIsDuplicate}} visually-dup{{/if}}">{{org}}</h2>
-          {{#if hasSeat}}<span class="role">{{seatHtml}}</span>{{/if}}
+          {{#if hasSeat}}<span class="role" data-node="{{seatNodeId}}">{{seatHtml}}</span>{{/if}}
         </div>
         {{#if hasRoles}}
         {{#each roles}}
         <p class="subrole"><span class="role">{{seatHtml}}</span>{{#if dates}} <span class="subrole-when">{{dates}}</span>{{/if}}</p>
         {{#if hasBullets}}
         <ul>
-          {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+          {{#each bullets}}<li data-claim="{{claimId}}" data-node="{{nodeId}}">{{html}}</li>
           {{/each}}
         </ul>
         {{/if}}
@@ -46,11 +46,11 @@
         {{else}}
         {{#if hasBullets}}
         <ul>
-          {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+          {{#each bullets}}<li data-claim="{{claimId}}" data-node="{{nodeId}}">{{html}}</li>
           {{/each}}
         </ul>
         {{else}}
-        {{#if line}}<ul><li data-claim="{{claimId}}">{{line}}</li></ul>{{/if}}
+        {{#if line}}<ul><li data-claim="{{claimId}}" data-node="{{lineNodeId}}">{{line}}</li></ul>{{/if}}
         {{/if}}
         {{/if}}
       </div>
@@ -63,7 +63,7 @@
       </div>
       <div class="story">
         <div class="ventures">
-          {{#each resume.ventures.entries}}<p data-claim="{{claimId}}"><b>{{org}}</b>{{#if hasSeat}}, {{seatHtml}}{{/if}}{{#if dates}}, {{dates}}{{/if}}.{{#if line}} {{line}}{{/if}}</p>
+          {{#each resume.ventures.entries}}<p data-claim="{{claimId}}"><b>{{org}}</b>{{#if hasSeat}}, <span data-node="{{seatNodeId}}">{{seatHtml}}</span>{{/if}}{{#if dates}}, {{dates}}{{/if}}.{{#if line}} <span data-node="{{lineNodeId}}">{{line}}</span>{{/if}}</p>
           {{/each}}
         </div>
       </div>
@@ -78,9 +78,9 @@
       <div class="story">
         <div class="org">
           {{#if showOrg}}<h3 class="sub-org">{{org}}</h3>{{/if}}
-          {{#if hasSeat}}<span class="role">{{seatHtml}}</span>{{/if}}
+          {{#if hasSeat}}<span class="role" data-node="{{seatNodeId}}">{{seatHtml}}</span>{{/if}}
         </div>
-        {{#if line}}<ul><li data-claim="{{claimId}}">{{line}}</li></ul>{{/if}}
+        {{#if line}}<ul><li data-claim="{{claimId}}" data-node="{{lineNodeId}}">{{line}}</li></ul>{{/if}}
       </div>
     </article>
     {{/each}}
@@ -91,7 +91,7 @@
     {{#if resume.hasSkills}}
     <section data-section="skills">
       <h3>{{resume.skillsLabel}}</h3>
-      {{#each resume.toolkit.groups}}<p><b>{{label}}</b> {{itemsText}}</p>
+      {{#each resume.toolkit.groups}}<p><b>{{label}}</b> <span data-node="{{nodeId}}">{{itemsText}}</span></p>
       {{/each}}
       {{#each resume.skills}}<p>{{#if resume.showSkillLabels}}<b>{{label}}</b> {{/if}}{{itemsText}}</p>
       {{/each}}
@@ -101,7 +101,7 @@
     <section data-section="education">
       <h3>{{resume.education.label}}</h3>
       {{#if resume.education.logo}}<img class="cc" src="{{resume.education.logo.src}}" alt="{{resume.education.logo.alt}}" style="{{resume.education.logo.style}}" />{{/if}}
-      {{#each resume.education.lines}}<p{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+      {{#each resume.education.lines}}<p{{#if claimId}} data-claim="{{claimId}}"{{/if}}{{#if nodeId}} data-node="{{nodeId}}"{{/if}}>{{html}}</p>
       {{/each}}
     </section>
     {{/if}}

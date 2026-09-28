@@ -1,0 +1,52 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://github.com/emilio3435/Job-Bored/schemas/materials-edit-op.v1.schema.json",
+  "title": "materials.edit-op.v1",
+  "description": "One proposed change to an addressable materials.render-model.v1 node. Text is plain; the server removes markup before applying it.",
+  "oneOf": [
+    {
+      "type": "object",
+      "required": ["opId", "op", "node", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "opId": { "type": "string", "minLength": 1 },
+        "op": { "const": "replace" },
+        "node": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string" },
+        "flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["unverified"] } },
+        "facts": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["opId", "op", "node"],
+      "additionalProperties": false,
+      "properties": {
+        "opId": { "type": "string", "minLength": 1 },
+        "op": { "const": "remove" },
+        "node": { "type": "string", "minLength": 1 },
+        "rationale": { "type": "string" },
+        "flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["unverified"] } },
+        "facts": { "type": "array", "items": { "type": "string" } }
+      }
+    },
+    {
+      "type": "object",
+      "required": ["opId", "op", "after", "claimId", "text"],
+      "additionalProperties": false,
+      "properties": {
+        "opId": { "type": "string", "minLength": 1 },
+        "op": { "const": "insert" },
+        "after": { "type": "string", "minLength": 1 },
+        "claimId": { "type": "string", "minLength": 1 },
+        "text": { "type": "string", "minLength": 1 },
+        "paragraphId": { "description": "Optional id when inserting a letter paragraph; otherwise opId is used.", "type": "string", "minLength": 1 },
+        "beat": { "description": "Optional letter beat; otherwise the preceding paragraph's beat is used.", "enum": ["thesis", "analytics-proof", "ai-ops-proof", "next-step"] },
+        "rationale": { "type": "string" },
+        "flags": { "type": "array", "uniqueItems": true, "items": { "enum": ["unverified"] } },
+        "facts": { "type": "array", "items": { "type": "string" } }
+      }
+    }
+  ]
+}
