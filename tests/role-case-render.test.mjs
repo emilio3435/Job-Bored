@@ -869,4 +869,17 @@ describe("DFIT — the fit instrument renders one number and its evidence", () =
     assert.match(caseCssSource, /\.case__fit-cta \{[^}]*display: block;/);
     assert.match(caseCssSource, /\.case__fit-cta button \{[^}]*display: inline-block;[^}]*white-space: nowrap;/);
   });
+
+  /* DFIT-2: a closed role shows no keywords anywhere — no plate, no tile. */
+  it("a closed role without a plate shows no keywords tile", () => {
+    const html = renderHtml(dfitModel({ stage: "rejected", appliedAt: "2026-08-20", fitScore: null, enrichment: { fitAssessment: "" } }));
+    assert.equal(plate(html), "", "precondition: nothing to plate");
+    assert.doesNotMatch(html, /data-num="keywords"/);
+  });
+
+  /* DFIT-3: the readout row keeps auto-fit at every width, so a missing
+     dial or a lone readout never leaves empty fixed tracks. */
+  it("the readout row never fixes three tracks", () => {
+    assert.doesNotMatch(caseCssSource, /case__fit-readouts \{[^}]*repeat\(3/);
+  });
 });

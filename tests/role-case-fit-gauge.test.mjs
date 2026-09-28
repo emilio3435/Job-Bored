@@ -182,6 +182,26 @@ describe("DFIT — measured zeros never render as 0 or 0%", () => {
     assert.match(p, /2<small>to watch<\/small>/);
     assert.doesNotMatch(p, />0</);
   });
+
+  /* DFIT-1: drawer headings are built from the same zero-omitting strings
+     as the glance values, so "0 fits", "0 of N met" and "0%" never print. */
+  it("drawer headings omit zeros exactly like the glance values", () => {
+    const k = "Strong fit (score: 8/10). Rationale. Concerns: Late nights · Travel. Application: X.";
+    const reasonsHead = plateOf(gaugeModel({ enrichment: { fitAssessment: k } }));
+    assert.match(reasonsHead, /<p class="case__fit-panel-h">Reasons · 2 to watch<\/p>/);
+    const m = gaugeModel({ requirements: ["Alpha systems", "Beta tooling"] }, {
+      keywords: { percentage: 0, foundCount: 0, partialCount: 0,
+        missingTerms: [{ label: "Alpha systems" }, { label: "Beta tooling" }],
+        uniqueTerms: [{ label: "Alpha systems", status: "missing" }, { label: "Beta tooling", status: "missing" }],
+        byLabel: new Map() },
+    });
+    const p = plateOf(m);
+    assert.match(p, /<p class="case__fit-panel-h">Requirements · None of 2 met<\/p>/);
+    assert.match(p, /<p class="case__fit-panel-h">Keywords · &lt;1% on your resume<\/p>/);
+    assert.doesNotMatch(p, /0 fits/);
+    assert.doesNotMatch(p, /0 of \d+ met/);
+    assert.doesNotMatch(p, />0%/);
+  });
 });
 
 describe("DFIT — drawers", () => {

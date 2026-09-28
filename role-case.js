@@ -215,6 +215,20 @@
     return [+(100 + r * Math.cos(a)).toFixed(2), +(100 + r * Math.sin(a)).toFixed(2)];
   }
   function fitPlural(n, word) { return n + " " + word + (Math.abs(n) === 1 ? "" : "s"); }
+  /* DFIT-1: one builder per readout value, shared by the glance cell and
+     the drawer heading, so a zero omitted in one is omitted in both. */
+  function reasonsValueParts(r) {
+    var parts = [];
+    if (r.matches.length) parts.push({ n: r.matches.length, unit: "for", head: fitPlural(r.matches.length, "fit") });
+    if (r.concerns.length) parts.push({ n: r.concerns.length, unit: "to watch", head: r.concerns.length + " to watch" });
+    return parts;
+  }
+  function reqValueParts(req) {
+    return req.met
+      ? { head: String(req.met), tail: "of " + req.total + " met", small: true }
+      : { head: "None", tail: "of " + req.total + " met", small: false };
+  }
+  function kwValueHead(kw) { return kw.percentage ? String(kw.percentage) : "<1"; }
   function fitDial(score, dial) {
     var ticks = "";
     for (var s = 0; s <= 10; s++) {
@@ -290,7 +304,7 @@
     var head = "", body = "";
     if (key === "reasons") {
       var r = g.reasons, nF = r.matches.length, nW = r.concerns.length;
-      head = "Reasons · " + fitPlural(nF, "fit") + ", " + nW + " to watch";
+      head = "Reasons · " + reasonsValueParts(r).map(function (p) { return p.head; }).join(", ");
       var note = r.writtenAt != null && g.score
         ? '<p class="case__fit-note">These reasons were written when it scored ' + r.writtenAt + "/10. It now scores " + g.score.value + "/10.</p>" : "";
       var how = g.score
@@ -304,8 +318,8 @@
       body = '<div class="case__fit-cols case__fit-cols--why"><div><p class="case__fit-prose">' +
         esc(r.parsed ? r.rationale : r.raw) + "</p>" + note + how + "</div><div>" + lists + "</div></div>";
     } else if (key === "requirements") {
-      var req = g.requirements;
-      head = "Requirements · " + req.met + " of " + req.total + " met";
+      var req = g.requirements, rvp = reqValueParts(req);
+      head = "Requirements · " + rvp.head + " " + rvp.tail;
       var DOT = { met: "found", partial: "partial", missing: "missing" };
       var WORD = { met: "met", partial: "partial", missing: "missing" };
       var group = function (gkey, label) {
@@ -325,7 +339,7 @@
         '<div class="case__fit-actions"><a class="case__fit-all" href="#case-they-' + attr(safeId(m.jobKey)) + '">See all ' + m.theyWant.requirements.length + " in They want</a></div>";
     } else if (key === "keywords") {
       var kw = g.keywords;
-      head = "Keywords · " + kw.percentage + "% on your resume";
+      head = "Keywords · " + kwValueHead(kw) + "% on your resume";
       var chip = function (status) {
         return function (t) {
           var inner = '<span class="case__m case__m--' + status + '"></span>' + esc(t.label);
@@ -364,8 +378,7 @@
       var r = g.reasons;
       if (r.parsed) {
         var tally = tallyMeter(r);
-        var value = (r.matches.length ? r.matches.length + "<small>for</small>" : "") +
-          (r.concerns.length ? r.concerns.length + "<small>to watch</small>" : "");
+        var value = reasonsValueParts(r).map(function (p) { return p.n + "<small>" + p.unit + "</small>"; }).join("");
         var sub = "From discovery&#8217;s read of the posting" + (tally.overflow ? " · +" + tally.overflow : "");
         ro.push(fitReadout("reasons", idsFor("reasons"), "Reasons", value, tally.html, sub, open === "reasons"));
       } else {
@@ -374,9 +387,9 @@
       panels.push(fitPanel("reasons", m, open === "reasons"));
     }
     if (g.requirements) {
-      var req = g.requirements;
+      var req = g.requirements, rvp = reqValueParts(req);
       ro.push(fitReadout("requirements", idsFor("requirements"), "Requirements",
-        req.met ? req.met + "<small>of " + req.total + " met</small>" : "None of " + req.total + " met",
+        rvp.small ? rvp.head + "<small>" + rvp.tail + "</small>" : rvp.head + " " + rvp.tail,
         segmentsMeter(req),
         req.partial || req.missing
           ? [req.partial && (req.partial + " partial"), req.missing && (req.missing + " missing")].filter(Boolean).join(" · ")
@@ -385,9 +398,9 @@
       panels.push(fitPanel("requirements", m, open === "requirements"));
     }
     if (g.keywords) {
-      var kw = g.keywords;
+      var kw = g.keywords, kvh = kwValueHead(kw);
       ro.push(fitReadout("keywords", idsFor("keywords"), "Keywords",
-        kw.percentage ? kw.percentage + "<small>% on your resume</small>" : "<1<small>% on your resume</small>",
+        kvh + "<small>% on your resume</small>",
         barMeter(kw),
         kw.found + " found · " + kw.partial + " partial · " + kw.missing + " missing",
         open === "keywords"));
@@ -464,7 +477,9 @@
         (atsLow ? '<span class="case__num-v--crimson">' : "<span>") + esc(String(n.ats.value)) + "</span><small>/100</small>",
         esc(atsSub), "ai"));
     }
-    if (n.keywords && !m.fitGauge) tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
+    /* DFIT-2: a closed role shows no keywords anywhere, so the tile stays
+       down on terminal stages even when there is no plate to own it. */
+    if (n.keywords && !m.fitGauge && !(m.stage && m.stage.terminal)) tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
       '<div class="case__num-k">Keywords ' + src("derived") + '</div><div class="case__num-v">' + esc(String(n.keywords.percentage)) + "<small>%</small></div>" +
       '<div class="case__num-sub">' + esc(n.keywords.found + " found · " + n.keywords.partial + " partial · " + n.keywords.missing + " missing") + "</div></button></li>");
     /* P0-6 (spec §3, "each tile hides when its input is absent"): a role with

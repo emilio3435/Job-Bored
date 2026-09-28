@@ -736,7 +736,8 @@ body.jb-v2 [data-region="role"] .case a.case__fit-all:focus-visible { outline: 2
 }
 @container fitplate (inline-size >= 52rem) {
   body.jb-v2 [data-region="role"] .case .case__fit-grid { grid-template-columns: 14rem minmax(0, 1fr); }
-  body.jb-v2 [data-region="role"] .case ul.case__fit-readouts { grid-template-columns: repeat(3, minmax(10.5rem, 1fr)); }
+  /* DFIT-3: the readout row keeps the 40rem auto-fit here — fixed triple
+     tracks would strand a missing dial or a lone readout in emptiness. */
   body.jb-v2 [data-region="role"] .case .case__fit-cta.span { grid-column: span 2; border-top: 0; border-left: 1px dotted var(--border-strong); }
   body.jb-v2 [data-region="role"] .case .case__fit-cta.full { border-top: 0; }
 }
