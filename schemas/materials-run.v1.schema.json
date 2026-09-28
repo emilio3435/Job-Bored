@@ -75,7 +75,7 @@
       ]
     },
     "selectionSummary": {
-      "description": "Count-only partition of selected resume claims in the one-page outline.",
+      "description": "Count-only partition of selected claims in the final fitted resume.",
       "type": "object",
       "required": ["selected", "featured", "earlier", "pageBudgetExcluded"],
       "additionalProperties": false,

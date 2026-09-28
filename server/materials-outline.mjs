@@ -152,6 +152,45 @@ function summarizeSelectedResume(kept, plan) {
 }
 
 /**
+ * Count selected claims in the model that survived the final one-page fit.
+ * A fitter can retain a claimId on an entry after removing its line, so IDs
+ * count only when their bullet or line still has rendered content.
+ * @param {object} input
+ * @param {{ kept?: Array<{ claimId?: unknown }> }} input.selection
+ * @param {{ claims?: Array<{ id?: unknown }> }} input.ledger
+ * @param {import("./materials-render.mjs").RenderModel | null | undefined} input.model
+ */
+export function summarizeRenderedResumeSelection({ selection, ledger, model }) {
+  const kept = selectedResumeIds(selection, ledger);
+  const resume = model?.documents.resume;
+  if (!resume) throw new Error("selected claim accounting requires a fitted resume model");
+  const selected = new Set(kept);
+  const rendered = new Set();
+  const summary = { selected: kept.length, featured: 0, earlier: 0, pageBudgetExcluded: 0 };
+  /** @param {unknown} id @param {"featured" | "earlier"} field */
+  const mark = (id, field) => {
+    if (typeof id !== "string" || !selected.has(id)) return;
+    if (rendered.has(id)) throw new Error("selected claim accounting rendered a claim more than once");
+    rendered.add(id);
+    summary[field] += 1;
+  };
+  for (const section of resume.sections || []) {
+    const field = section.kind === "experience" ? "featured" : section.kind === "earlier" ? "earlier" : null;
+    if (!field) continue;
+    for (const entry of section.entries || []) {
+      if (typeof entry.line === "string" && entry.line.trim()) mark(entry.claimId, field);
+      for (const bullet of entry.bullets || []) {
+        const hasContent = Array.isArray(bullet.runs) && bullet.runs.some((run) =>
+          typeof run.t === "string" && run.t.trim() || typeof run.n === "string" && run.n.trim() || typeof run.hl === "string" && run.hl.trim());
+        if (hasContent) mark(bullet.claimId, field);
+      }
+    }
+  }
+  summary.pageBudgetExcluded = kept.length - rendered.size;
+  return summary;
+}
+
+/**
  * Skills line (K5 / P-13): owned tools and keywords first, ranked by how
  * many job nouns they match (stemmed, with synonyms: "OTT/CTV" meets
  * "CTV", "Programmatic Display" meets "ad tech"); then adjacent tools the

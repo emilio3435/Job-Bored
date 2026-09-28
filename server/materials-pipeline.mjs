@@ -2,7 +2,7 @@
 import { createHash } from "node:crypto";
 import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { buildOutline } from "./materials-outline.mjs";
+import { buildOutline, summarizeRenderedResumeSelection } from "./materials-outline.mjs";
 import { buildRenderModelFromDraft } from "./materials-render-model-adapter.mjs";
 import { PIPELINE_PROMPT_VERSION, findCachedPackage, pipelineCacheKey } from "./materials-cache.mjs";
 import { scoreClaims } from "./materials-claim-score.mjs";
@@ -596,6 +596,9 @@ async function runPipelineBody(input, assertBase) {
   }) || !documents.some((document) => materiallyChanged(passes[0].texts[document], chosen.texts[document])))) {
     chosen = passes[0];
   }
+  const fittedSelectionSummary = documents.includes("resume")
+    ? summarizeRenderedResumeSelection({ selection, ledger, model: chosen.rendered.fit.resume?.model })
+    : undefined;
   const parentQa = repair ? await readJson(join(dir, "runs", repair.parentRunId, `qa.${DOCUMENT_FOR[repair.feature]}.json`)) : null;
   const changed = repair ? documents.some((document) => materiallyChanged(repair.sourceText, chosen.texts[document])) : passes.length === 2
     ? documents.some((document) => materiallyChanged(passes[0].texts[document], chosen.texts[document])) : null;
@@ -646,7 +649,7 @@ async function runPipelineBody(input, assertBase) {
     try { await copyFile(source, join(runDir, name)); } catch { /* no PDF in a headless-free run */ }
   }
   /** @type {Record<string, unknown>} */
-  const manifestExtra = { selectionSummary: outline.selectionSummary };
+  const manifestExtra = { selectionSummary: fittedSelectionSummary };
   /** @type {string[]} */
   const extraFiles = ["writer-sources.json"];
   if (intelPack) {
@@ -680,7 +683,7 @@ async function runPipelineBody(input, assertBase) {
       repair: repairRecord, requestedAt: startedAt.toISOString(), finishedAt: isoNow(), source: templateSource,
       pin: pin ? { provider: pin.provider, requestedModel: pin.model, resolvedModel: pin.resolvedModel } : undefined,
       resume: resumeRecord || undefined,
-      selectionSummary: outline.selectionSummary,
+      selectionSummary: fittedSelectionSummary,
       inputs: runInputs({ resumeText: payload.resume?.text || resumeText || "", ledger, jdHash, jdText, jdSource }),
       stages, cacheKey: cacheable ? cacheKey : undefined,
     },
