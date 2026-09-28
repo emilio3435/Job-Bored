@@ -938,7 +938,10 @@ describe("the Case's in-lane enrichment skeleton — visual contract", () => {
     /* Everything the sheet can already fill keeps rendering (resilience D3). */
     assert.match(mount.innerHTML, /class="case__rail"[\s\S]*?Meridian Labs/, "the rail keeps its sheet facts");
     assert.match(mount.innerHTML, /data-action="stage-step"/, "the stepper stays mounted");
-    assert.match(mount.innerHTML, /data-num="fit"/, "the numbers band stays mounted");
+    /* DFIT: the Fit tile moved into the plate, so the mounted surface while
+       loading is the plate itself — dial plus one skeleton cell (DESIGN §5). */
+    assert.match(mount.innerHTML, /class="case__fit"[\s\S]*?<span class="case__fit-num">8<\/span>/, "the fit plate stays mounted");
+    assert.match(mount.innerHTML, /Reading the posting…[\s\S]*?case__shimmer/, "the unread slots show one skeleton cell");
     assert.match(mount.innerHTML, /Recruiter: Dana/, "notes stay mounted");
     assert.match(caseJs, /m\.loading\.enrichment && !w\.requirements\.length/);
   });

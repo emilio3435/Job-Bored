@@ -124,6 +124,8 @@ function makeElement(tagName, attributes) {
       return Object.prototype.hasOwnProperty.call(attrs, name) ? attrs[name] : null;
     },
     setAttribute(name, v) { attrs[name] = String(v); },
+    removeAttribute(name) { delete attrs[name]; },
+    hasAttribute(name) { return Object.prototype.hasOwnProperty.call(attrs, name); },
     matches(selector) {
       return compileSelector(selector).some((chain) => chain[chain.length - 1](el));
     },
@@ -473,11 +475,13 @@ describe("The Case interactions", () => {
     ]);
   });
 
-  it("the keywords tile opens the existing profile-match modal with the raw job", () => {
+  it("the keywords drawer opens the existing profile-match modal with the raw job", () => {
     const { region, profileMatchOpens } = boot();
-    const tile = region.querySelector('[data-action="open-profile-match"]');
-    assert.ok(tile, "the keywords tile is a button when a match analysis exists");
-    tile.click();
+    /* DFIT: the action moved from the retired tile into the drawer. */
+    region.querySelector('[data-action="toggle-fit-readout"][data-ro="keywords"]').click();
+    const button = region.querySelector('[data-action="open-profile-match"]');
+    assert.ok(button, "the drawer carries the full-match action when a match analysis exists");
+    button.click();
     assert.equal(profileMatchOpens.length, 1);
     assert.equal(profileMatchOpens[0].jobKey, "job-1");
   });
@@ -637,5 +641,81 @@ describe("the saved mark", () => {
     doc.dispatchEvent(new TestCustomEvent("jb:write:succeeded", { detail: { jobKey: "job-1", kind: "reply" } }));
     win.dispatchEvent(new TestCustomEvent("jb:ats:state", { detail: { jobKey: "job-1" } }));
     assert.equal(savedFor(region, "reply").textContent, "saved", "a rebuild must not swallow the confirmation");
+  });
+});
+
+/* ------------------------------------------------------------
+   DFIT — the fit instrument reveals one drawer at a time.
+   DESIGN.md §6.5 tests 16–18, written red-first.
+   ------------------------------------------------------------ */
+describe("DFIT — the fit instrument reveals one drawer at a time", () => {
+  const K = "Strong fit (score: 8/10). Deep design-systems ownership. " +
+    "Matches: Design systems · Accessibility. Concerns: No Go experience. Application: Single-step apply.";
+  function dfitBoot() {
+    const job = fixtureJob();
+    job.enrichment = { ...job.enrichment, fitAssessment: K };
+    return boot({ job });
+  }
+  function panelFor(region, button) {
+    return region.querySelector('[aria-labelledby="' + button.getAttribute("id") + '"]');
+  }
+
+  it("16. readout clicks open one drawer at a time, and re-click closes", () => {
+    const { region } = dfitBoot();
+    const req = region.querySelector('[data-action="toggle-fit-readout"][data-ro="requirements"]');
+    const kw = region.querySelector('[data-action="toggle-fit-readout"][data-ro="keywords"]');
+    assert.ok(req && kw, "precondition: both readouts render");
+    req.click();
+    assert.equal(req.getAttribute("aria-expanded"), "true");
+    assert.equal(panelFor(region, req).getAttribute("hidden"), null);
+    kw.click();
+    assert.equal(req.getAttribute("aria-expanded"), "false", "opening one closes the other");
+    assert.equal(panelFor(region, req).getAttribute("hidden"), "");
+    assert.equal(kw.getAttribute("aria-expanded"), "true");
+    assert.equal(panelFor(region, kw).getAttribute("hidden"), null);
+    kw.click();
+    assert.equal(kw.getAttribute("aria-expanded"), "false", "re-click closes");
+    assert.equal(panelFor(region, kw).getAttribute("hidden"), "");
+  });
+
+  it("17. Escape inside an open drawer closes it and returns focus to its button", () => {
+    const { region, doc } = dfitBoot();
+    const req = region.querySelector('[data-action="toggle-fit-readout"][data-ro="requirements"]');
+    req.click();
+    const panel = panelFor(region, req);
+    assert.equal(req.getAttribute("aria-expanded"), "true", "precondition: open");
+    panel.dispatchEvent({ type: "keydown", key: "Escape", target: panel, preventDefault() {} });
+    assert.equal(req.getAttribute("aria-expanded"), "false");
+    assert.equal(panel.getAttribute("hidden"), "");
+    assert.equal(doc.activeElement, req, "focus returns to the readout button");
+  });
+
+  it("18. the open drawer survives a re-render and resets for another role", () => {
+    const { region, win, setOpenKey } = dfitBoot();
+    const req = region.querySelector('[data-action="toggle-fit-readout"][data-ro="requirements"]');
+    req.click();
+    assert.equal(req.getAttribute("aria-expanded"), "true", "precondition: open");
+    /* Same role re-renders (a seam event rebuilds the mount): the drawer restores open. */
+    win.dispatchEvent(new TestCustomEvent("jb:ats:state", { detail: { jobKey: "job-1" } }));
+    const reqAfter = region.querySelector('[data-action="toggle-fit-readout"][data-ro="requirements"]');
+    assert.notEqual(reqAfter, req, "the rebuild replaced the nodes");
+    assert.equal(reqAfter.getAttribute("aria-expanded"), "true", "the open drawer restores after a re-render");
+    assert.equal(panelFor(region, reqAfter).getAttribute("hidden"), null);
+    /* Another role opens: everything starts closed. */
+    const job2 = fixtureJob();
+    job2.jobKey = "job-2";
+    job2.role = "Design Systems Lead";
+    job2.enrichment = { ...job2.enrichment, fitAssessment: K };
+    const first = fixtureJob();
+    first.enrichment = { ...first.enrichment, fitAssessment: K };
+    win.JobBoredDawn.data.getRoleViewModel = (k) => ({ job: String(k) === "job-2" ? job2 : first });
+    win.JobBoredApp.core.getJobByStableKey = (k) => (String(k) === "job-2" ? job2 : (String(k) === first.jobKey ? first : null));
+    setOpenKey("job-2");
+    win.dispatchEvent(new TestCustomEvent("jb:role:opened", { detail: { jobKey: "job-2" } }));
+    assert.equal(region.querySelector(".case__title").value, "Design Systems Lead", "precondition: role 2 rendered");
+    const req2 = region.querySelector('[data-action="toggle-fit-readout"][data-ro="requirements"]');
+    assert.ok(req2, "the second role renders its own plate");
+    assert.equal(req2.getAttribute("aria-expanded"), "false", "a new role starts closed");
+    assert.equal(region.querySelectorAll('[data-action="toggle-fit-readout"][aria-expanded="true"]').length, 0);
   });
 });

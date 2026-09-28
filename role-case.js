@@ -192,75 +192,244 @@
     if (v.gap) parts.push("<em>" + esc(v.gap) + "</em>");
     if (v.next) parts.push(esc(v.next) + ".");
     if (v.note) parts.push(esc(v.note));
+    var fit = renderFit(m);
     var numbers = renderNumbers(m);
-    var why = renderWhy(m);
-    if (!parts.length && !numbers && !why) return "";
+    if (!parts.length && !fit && !numbers) return "";
     return '<section class="case__verdict" aria-labelledby="case-verdict-h">' +
       '<h3 class="case__vh" id="case-verdict-h">Where this stands</h3>' +
       (parts.length ? '<p class="case__verdict-line">' + parts.join(" ") + "</p>" : "") +
-      numbers + why +
+      fit + numbers +
     "</section>";
   }
 
-  /* CASEWHY (DOSSIER-RECS Phase A): the reason behind the fit number, read
-     off the Pipeline row the model already holds — column K parsed into its
-     band sentence, matches and concerns, and column U as a secondary figure.
-     Each part renders only when its cell has something in it (D5): no
-     placeholder number, no empty list. A K the model could not parse is
-     shown as the person's own text. Whether prose runs past four lines is
-     measured after paint (measureFitClamp), never guessed from a character
-     count: the paragraph ships unclamped with its button hidden, so a page
-     that cannot measure still shows every word. */
-  function fmtScore(n) { return String(Math.round(Number(n) * 10) / 10); }
-  function renderWhy(m) {
-    var f = m.fitAssessment, match = m.numbers && m.numbers.matchScore;
-    if (!f && !match) return "";
-    var id = "case-fitwhy-" + safeId(m.jobKey);
-    var fit = m.numbers && m.numbers.fit;
-    var html = '<div class="case__fitwhy" role="group" aria-labelledby="' + attr(id + "-h") + '">' +
-      '<div class="case__fitwhy-head"><h4 class="case__fitwhy-h" id="' + attr(id + "-h") + '">' +
-        esc(whyHeading(f, fit)) + "</h4>" +
-        '<span class="case__fitwhy-src">from your sheet</span></div>';
-    if (f) {
-      var prose = f.parsed ? f.rationale : f.raw;
-      var lead = f.parsed && f.band ? "<b>" + esc(f.band) + " fit.</b>" + (prose ? " " : "") : "";
-      if (lead || prose) {
-        html += '<p class="case__fitwhy-text" id="' + attr(id) + '">' + lead + esc(prose) + "</p>" +
-          '<button type="button" class="case__more-btn case__fitwhy-toggle" id="' + attr(id + "-toggle") + '" data-action="toggle-fit-reason" aria-expanded="false" aria-controls="' + attr(id) + '" hidden>Show all</button>';
-      }
-      if (f.matches.length || f.concerns.length) {
-        html += '<div class="case__fitwhy-lists">' +
-          whyList("Why it fits", "fits", f.matches, id) + whyList("Watch for", "watch", f.concerns, id) +
-        "</div>";
+  /* DFIT: the fit instrument. One engraved dial carries the canonical
+     score (column H, the only fit number), and up to three strip gauges
+     beside it carry the evidence: reasons, requirements, keywords. Each
+     gauge opens one full-width drawer beneath the plate, one at a time;
+     layer 0 shows counts, layer 1 names the items, layer 2 quotes the
+     evidence — nothing duplicated between layers. An absent input hides
+     its readout; no readout ever renders 0, 0% or "Unknown" as a value. */
+  var FIT_ARC = "M 30.72 140 A 80 80 0 1 1 169.28 140";
+  function fitPoint(r, s) {
+    var a = (150 + 24 * s) * Math.PI / 180;
+    return [+(100 + r * Math.cos(a)).toFixed(2), +(100 + r * Math.sin(a)).toFixed(2)];
+  }
+  function fitPlural(n, word) { return n + " " + word + (Math.abs(n) === 1 ? "" : "s"); }
+  /* DFIT-1: one builder per readout value, shared by the glance cell and
+     the drawer heading, so a zero omitted in one is omitted in both. */
+  function reasonsValueParts(r) {
+    var parts = [];
+    if (r.matches.length) parts.push({ n: r.matches.length, unit: "for", head: fitPlural(r.matches.length, "fit") });
+    if (r.concerns.length) parts.push({ n: r.concerns.length, unit: "to watch", head: r.concerns.length + " to watch" });
+    return parts;
+  }
+  function reqValueParts(req) {
+    return req.met
+      ? { head: String(req.met), tail: "of " + req.total + " met", small: true }
+      : { head: "None", tail: "of " + req.total + " met", small: false };
+  }
+  function kwValueHead(kw) { return kw.percentage ? String(kw.percentage) : "<1"; }
+  function fitDial(score, dial) {
+    var ticks = "";
+    for (var s = 0; s <= 10; s++) {
+      var major = s === 5 || s === 8;
+      var inner = fitPoint(major ? 60 : 64, s), outer = fitPoint(69, s);
+      ticks += '<line class="case__fit-tick' + (major ? " case__fit-tick--major" : "") +
+        '" x1="' + inner[0] + '" y1="' + inner[1] + '" x2="' + outer[0] + '" y2="' + outer[1] + '"/>';
+      if (major) {
+        var at = fitPoint(50, s);
+        ticks += '<text class="case__fit-tick-label" x="' + at[0] + '" y="' + (at[1] + 3.5) + '" text-anchor="middle">' + s + "</text>";
       }
     }
-    var foot = "";
-    if (match) foot += '<p class="case__fitwhy-match"><b>Match ' + esc(fmtScore(match.value)) + " / " + match.max + "</b> " +
-      "<span>how closely discovery matched this listing to your profile</span></p>";
-    if (f && f.application) foot += '<p class="case__fitwhy-apply">Applying: ' + esc(f.application) + "</p>";
-    if (foot) html += '<div class="case__fitwhy-foot">' + foot + "</div>";
-    return html + "</div><!--/case__fitwhy-->";
+    var idx = dial.index;
+    return '<div class="case__fit-dial" role="img" aria-label="Fit score ' + score.value + " out of 10, " + esc(score.standing.toLowerCase()) + '" style="--fit-pct:' + dial.pct + '">' +
+      '<svg viewBox="0 0 200 150" aria-hidden="true" focusable="false">' +
+      '<path class="case__fit-zone case__fit-zone--low" d="' + FIT_ARC + '" pathLength="100"/>' +
+      '<path class="case__fit-zone case__fit-zone--mid" d="' + FIT_ARC + '" pathLength="100"/>' +
+      '<path class="case__fit-zone case__fit-zone--high" d="' + FIT_ARC + '" pathLength="100"/>' +
+      ticks +
+      '<path class="case__fit-fill" d="' + FIT_ARC + '" pathLength="100"/>' +
+      '<line class="case__fit-index" x1="' + idx.x1 + '" y1="' + idx.y1 + '" x2="' + idx.x2 + '" y2="' + idx.y2 + '"/>' +
+      "</svg>" +
+      '<div class="case__fit-read" aria-hidden="true"><span class="case__fit-num">' + score.value + '</span><span class="case__fit-max">/10</span><span class="case__fit-standing">' + esc(score.standing) + "</span></div></div>";
   }
-  /* The heading names a score only when the reason was written for one. K is
-     filled once while H is overwritten by every run, so a reason written for
-     another score says so rather than explaining today's number. H is stored
-     as the worker's clamped integer (pipeline-writer.ts clampScore) while K
-     keeps the model's tenth, so the two are compared the way H was written:
-     7.4 in K and 7 in H is the same score, and the tile's number is shown. */
-  function sheetScore(n) { return Math.min(10, Math.max(1, Math.round(Number(n)))); }
-  function whyHeading(f, fit) {
-    if (!f || !f.parsed || f.score == null) return "Why this fit";
-    if (!fit) return "Why it scored " + fmtScore(f.score) + "/10";
-    return sheetScore(f.score) !== Number(fit.value)
-      ? "Why it first scored " + fmtScore(f.score) + "/10"
-      : "Why it scored " + fmtScore(fit.value) + "/" + fit.max;
+  function segmentsMeter(req) {
+    if (req.total > 24) {
+      /* One continuous stacked bar, widths proportional to the counts. */
+      return '<span class="case__fit-meter case__fit-meter--stacked" aria-hidden="true">' +
+        '<i style="width:' + (req.met / req.total * 100).toFixed(1) + '%" data-status="found"></i>' +
+        '<i style="width:' + (req.partial / req.total * 100).toFixed(1) + '%" data-status="partial"></i>' +
+        '<i style="width:' + (req.missing / req.total * 100).toFixed(1) + '%" data-status="missing"></i></span>';
+    }
+    var segs = "";
+    [["found", req.met], ["partial", req.partial], ["missing", req.missing]].forEach(function (pair) {
+      for (var i = 0; i < pair[1]; i++) segs += '<i class="case__fit-seg" data-status="' + pair[0] + '"></i>';
+    });
+    return '<span class="case__fit-meter case__fit-meter--seg" aria-hidden="true">' + segs + "</span>";
   }
-  function whyList(title, kind, list, id) {
-    if (!list.length) return "";
-    var hid = id + "-" + kind;
-    return '<div class="case__fitwhy-col"><p class="case__fitwhy-sub" id="' + attr(hid) + '">' + esc(title) + "</p>" +
-      '<ul class="case__fitwhy-list case__fitwhy-list--' + kind + '" aria-labelledby="' + attr(hid) + '">' +
-      list.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul></div>";
+  function tallyMeter(reasons) {
+    /* One tick per match, then one per concern; the first twelve show and
+       the overflow count moves into the sub line. */
+    var ticks = "", shown = 0, overflow = 0;
+    reasons.matches.forEach(function () {
+      if (shown < 12) { ticks += '<i data-kind="fit"></i>'; shown++; } else overflow++;
+    });
+    reasons.concerns.forEach(function () {
+      if (shown < 12) { ticks += '<i data-kind="watch"></i>'; shown++; } else overflow++;
+    });
+    return { html: '<span class="case__fit-meter case__fit-meter--tally" aria-hidden="true">' + ticks + "</span>", overflow: overflow };
+  }
+  function barMeter(kw) {
+    var total = kw.total > 0 ? kw.total : 1;
+    return '<span class="case__fit-meter case__fit-meter--bar" aria-hidden="true">' +
+      '<i class="f" style="width:' + (kw.found / total * 100).toFixed(1) + '%"></i>' +
+      '<i class="p" style="width:' + (kw.partial / total * 100).toFixed(1) + '%"></i></span>';
+  }
+  function fitReadout(key, ids, label, valueHtml, meterHtml, subHtml, open) {
+    /* data-value mirrors data-ro so role.js focus survival (which reads
+       data-action + data-value + …) tells the three same-action buttons
+       apart across a re-render. */
+    return '<li><button type="button" class="case__fit-ro" id="' + attr(ids.bid) + '" data-ro="' + key +
+      '" data-action="toggle-fit-readout" data-value="' + key + '" aria-expanded="' + (open ? "true" : "false") + '" aria-controls="' + attr(ids.pid) + '">' +
+      '<span class="case__fit-ro-k">' + esc(label) + '</span><span class="case__fit-ro-v">' + valueHtml + "</span>" +
+      (meterHtml || "") +
+      '<span class="case__fit-ro-sub">' + subHtml + "</span></button></li>";
+  }
+  function fitQuote(snippet) {
+    return '<span class="case__fit-quote">&ldquo;' + esc(snippet) + "&rdquo;<i>from your resume</i></span>";
+  }
+  function fitPanel(key, m, open) {
+    var g = m.fitGauge, id = "case-fit-" + safeId(m.jobKey);
+    var bid = id + "-ro-" + key, pid = id + "-panel-" + key;
+    var head = "", body = "";
+    if (key === "reasons") {
+      var r = g.reasons, nF = r.matches.length, nW = r.concerns.length;
+      head = "Reasons · " + reasonsValueParts(r).map(function (p) { return p.head; }).join(", ");
+      var note = r.writtenAt != null && g.score
+        ? '<p class="case__fit-note">These reasons were written when it scored ' + r.writtenAt + "/10. It now scores " + g.score.value + "/10.</p>" : "";
+      var how = g.score
+        ? '<details class="case__fit-how"><summary>How this score was made</summary>Discovery scored this role against your fit profile: the strengths, wants and avoids you set. Re-score from Settings › Fit profile to refresh it.</details>' : "";
+      var lists = "";
+      if (nF) lists += '<p class="case__fit-group-h">Why it fits</p><ul class="case__fit-list case__fit-list--plain">' +
+        r.matches.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>";
+      if (nW) lists += '<p class="case__fit-group-h">Watch for</p><ul class="case__fit-list case__fit-list--plain case__fit-list--watch">' +
+        r.concerns.map(function (t) { return "<li>" + esc(t) + "</li>"; }).join("") + "</ul>";
+      if (r.application) lists += '<p class="case__fit-note">Applying: ' + esc(r.application) + "</p>";
+      body = '<div class="case__fit-cols case__fit-cols--why"><div><p class="case__fit-prose">' +
+        esc(r.parsed ? r.rationale : r.raw) + "</p>" + note + how + "</div><div>" + lists + "</div></div>";
+    } else if (key === "requirements") {
+      var req = g.requirements, rvp = reqValueParts(req);
+      head = "Requirements · " + rvp.head + " " + rvp.tail;
+      var DOT = { met: "found", partial: "partial", missing: "missing" };
+      var WORD = { met: "met", partial: "partial", missing: "missing" };
+      var group = function (gkey, label) {
+        var list = req.groups[gkey === "met" ? "met" : gkey];
+        if (!list.length) return "";
+        return '<div><p class="case__fit-group-h">' + label + " · " + list.length + '</p><ul class="case__fit-list">' + list.map(function (x) {
+          var dot = '<span class="case__m case__m--' + DOT[gkey] + '"></span>';
+          var st = '<span class="case__st case__st--vh"> ' + WORD[gkey] + "</span>";
+          if (x.evidence && x.evidence.snippet && gkey !== "missing") {
+            return "<li>" + dot + '<details class="case__fit-ev"><summary>' + esc(x.text) + st + "</summary>" + fitQuote(x.evidence.snippet) + "</details></li>";
+          }
+          return "<li>" + dot + "<span>" + esc(x.text) + st + "</span></li>";
+        }).join("") + "</ul></div>";
+      };
+      body = '<div class="case__fit-cols case__fit-cols--req">' +
+        group("missing", "Missing") + group("partial", "Partial") + group("met", "Met") + "</div>" +
+        '<div class="case__fit-actions"><a class="case__fit-all" href="#case-they-' + attr(safeId(m.jobKey)) + '">See all ' + m.theyWant.requirements.length + " in They want</a></div>";
+    } else if (key === "keywords") {
+      var kw = g.keywords;
+      head = "Keywords · " + kwValueHead(kw) + "% on your resume";
+      var chip = function (status) {
+        return function (t) {
+          var inner = '<span class="case__m case__m--' + status + '"></span>' + esc(t.label);
+          if (t.evidence && t.evidence.snippet) {
+            return '<details class="case__fit-ev"><summary class="case__fit-chip">' + inner + "</summary>" + fitQuote(t.evidence.snippet) + "</details>";
+          }
+          return '<span class="case__fit-chip">' + inner + "</span>";
+        };
+      };
+      var col = function (terms, label) {
+        if (!terms.length) return "";
+        return '<div><p class="case__fit-group-h">' + label + " · " + terms.length + '</p><div class="case__fit-chips">' +
+          terms.map(chip(label === "Missing" ? "missing" : "partial")).join("") + "</div></div>";
+      };
+      body = '<div class="case__fit-cols case__fit-cols--kw">' + col(kw.terms.missing, "Missing") + col(kw.terms.partial, "Partial") + "</div>";
+      if (kw.terms.found.length) {
+        body += '<details class="case__fit-found"><summary>' + kw.found + " found</summary>" +
+          '<div class="case__fit-chips">' + kw.terms.found.map(chip("found")).join("") + "</div></details>";
+      }
+      body += '<div class="case__fit-actions"><button type="button" class="case__fit-btn" data-action="open-profile-match">Open the full keyword match</button></div>';
+    }
+    return '<div class="case__fit-panel" id="' + attr(pid) + '" role="region" aria-labelledby="' + attr(bid) + '"' +
+      (open ? " data-instant" : " hidden") + '><p class="case__fit-panel-h">' + esc(head) + "</p>" + body + "</div>";
+  }
+  function renderFit(m) {
+    var g = m.fitGauge;
+    if (!g) return "";
+    var id = "case-fit-" + safeId(m.jobKey);
+    var hasDial = !!g.score;
+    var zone = m.stage && m.stage.terminal ? "closed" : (hasDial ? g.score.zone : "");
+    var open = fitUi.openJobKey === m.jobKey ? fitUi.openKey : "";
+    var sweep = hasDial && zone !== "closed" && fitUi.sweptKey !== m.jobKey;
+    var ro = [], panels = [];
+    var idsFor = function (key) { return { bid: id + "-ro-" + key, pid: id + "-panel-" + key }; };
+    if (g.reasons) {
+      var r = g.reasons;
+      if (r.parsed) {
+        var tally = tallyMeter(r);
+        var value = reasonsValueParts(r).map(function (p) { return p.n + "<small>" + p.unit + "</small>"; }).join("");
+        var sub = "From discovery&#8217;s read of the posting" + (tally.overflow ? " · +" + tally.overflow : "");
+        ro.push(fitReadout("reasons", idsFor("reasons"), "Reasons", value, tally.html, sub, open === "reasons"));
+      } else {
+        ro.push(fitReadout("reasons", idsFor("reasons"), "Reasons", "Your note", "", "Written in your sheet", open === "reasons"));
+      }
+      panels.push(fitPanel("reasons", m, open === "reasons"));
+    }
+    if (g.requirements) {
+      var req = g.requirements, rvp = reqValueParts(req);
+      ro.push(fitReadout("requirements", idsFor("requirements"), "Requirements",
+        rvp.small ? rvp.head + "<small>" + rvp.tail + "</small>" : rvp.head + " " + rvp.tail,
+        segmentsMeter(req),
+        req.partial || req.missing
+          ? [req.partial && (req.partial + " partial"), req.missing && (req.missing + " missing")].filter(Boolean).join(" · ")
+          : "All met",
+        open === "requirements"));
+      panels.push(fitPanel("requirements", m, open === "requirements"));
+    }
+    if (g.keywords) {
+      var kw = g.keywords, kvh = kwValueHead(kw);
+      ro.push(fitReadout("keywords", idsFor("keywords"), "Keywords",
+        kvh + "<small>% on your resume</small>",
+        barMeter(kw),
+        kw.found + " found · " + kw.partial + " partial · " + kw.missing + " missing",
+        open === "keywords"));
+      panels.push(fitPanel("keywords", m, open === "keywords"));
+    }
+    if (!g.requirements && !g.keywords && !m.stage.terminal) {
+      var span = g.reasons ? "span" : "full";
+      if (g.state === "loading") {
+        ro.push('<li class="case__fit-cta ' + span + '" role="status" aria-live="polite">Reading the posting…<span class="case__shimmer"></span><span class="case__shimmer case__shimmer--short"></span></li>');
+      } else if (g.state === "no-resume") {
+        var n = g.requirementsTotal;
+        ro.push('<li class="case__fit-cta ' + span + '">' +
+          (n ? "Add your resume to see which of the " + fitPlural(n, "requirement") + " you meet." : "Add your resume to see which requirements you meet.") +
+          '<br><button type="button" data-action="open-resume">Add your resume</button></li>');
+      } else if (g.state === "matching") {
+        ro.push('<li class="case__fit-cta ' + span + '" role="status" aria-live="polite">Matching against your resume…<span class="case__shimmer"></span><span class="case__shimmer case__shimmer--short"></span></li>');
+      }
+    }
+    if (!hasDial && !ro.length) return "";
+    if (sweep) fitUi.sweptKey = m.jobKey;
+    var src = m.stage.terminal ? "Scored before it closed" : (hasDial ? "Scored by discovery · from your sheet" : "From your sheet");
+    return '<section class="case__fit' + (hasDial ? "" : " case__fit--nodial") + '"' +
+      (zone ? ' data-zone="' + zone + '"' : "") + (sweep ? ' data-sweep="true"' : "") +
+      ' aria-labelledby="' + attr(id + "-h") + '"><div class="case__fit-grid">' +
+      '<div class="case__fit-head"><h4 class="case__fit-h" id="' + attr(id + "-h") + '">Why it fits</h4><span class="case__fit-src">' + src + "</span></div>" +
+      (hasDial ? fitDial(g.score, g.dial) : "") +
+      '<ul class="case__fit-readouts">' + ro.join("") + "</ul>" +
+      '<div class="case__fit-panels">' + panels.join("") + "</div>" +
+      "</div></section><!--/case__fit-->";
   }
 
   function renderStepper(m, stages) {
@@ -287,7 +456,10 @@
 
   function renderNumbers(m) {
     var n = m.numbers, tiles = [];
-    if (n.fit) tiles.push(tile("fit", "Fit", src("sheet"), esc(String(n.fit.value)) + "<small>/" + n.fit.max + "</small>", "Your agent's score", "sheet"));
+    /* DFIT: the plate owns the fit readouts, so the Fit and Keywords tiles
+       stand down whenever it renders — the dial is the Fit tile's one home
+       and the Keywords drawer carries the full-match action. */
+    if (n.fit && !m.fitGauge) tiles.push(tile("fit", "Fit", src("sheet"), esc(String(n.fit.value)) + "<small>/" + n.fit.max + "</small>", "Your agent's score", "sheet"));
     /* P2-3: "ATS" is never expanded anywhere in the product, and crimson is
        this design's missing/high-severity color — a 94/100 painted crimson
        reads as bad news. The number is named for what it is, and only a low
@@ -295,15 +467,19 @@
     if (n.ats) {
       var atsLow = Number(n.ats.value) < 70;
       /* C13 (TA-13): the score names the document it rates, and which
-         version on which day, so it can never pass for the PDF you send. */
+         version on which day, so it can never pass for the PDF you send.
+         DFIT: it rates a draft, so it says "draft score" and can never
+         pass for the fit number. */
       var atsDoc = n.ats.doc || "draft";
-      var atsKey = atsDoc.charAt(0).toUpperCase() + atsDoc.slice(1) + " score";
+      var atsKey = atsDoc === "draft" ? "Draft score" : (atsDoc.charAt(0).toUpperCase() + atsDoc.slice(1) + " draft score");
       var atsSub = "scored " + atsDoc + (n.ats.version ? " v" + n.ats.version : "") + (n.ats.scoredAt ? " · " + n.ats.scoredAt : "");
       tiles.push(tile("ats", atsKey, src("ai"),
         (atsLow ? '<span class="case__num-v--crimson">' : "<span>") + esc(String(n.ats.value)) + "</span><small>/100</small>",
         esc(atsSub), "ai"));
     }
-    if (n.keywords) tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
+    /* DFIT-2: a closed role shows no keywords anywhere, so the tile stays
+       down on terminal stages even when there is no plate to own it. */
+    if (n.keywords && !m.fitGauge && !(m.stage && m.stage.terminal)) tiles.push('<li><button type="button" class="case__num case__num--btn" data-num="keywords" data-action="open-profile-match">' +
       '<div class="case__num-k">Keywords ' + src("derived") + '</div><div class="case__num-v">' + esc(String(n.keywords.percentage)) + "<small>%</small></div>" +
       '<div class="case__num-sub">' + esc(n.keywords.found + " found · " + n.keywords.partial + " partial · " + n.keywords.missing + " missing") + "</div></button></li>");
     /* P0-6 (spec §3, "each tile hides when its input is absent"): a role with
@@ -359,14 +535,15 @@
   }
   function renderTheyWant(m) {
     var w = m.theyWant;
-    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__section case__section--they">' + sectionHead("They want") + skeletonRows(4, "Reading the posting…") + "</section>";
+    var theyId = "case-they-" + safeId(m.jobKey);
+    if (m.loading.enrichment && !w.requirements.length) return '<section class="case__section case__section--they" id="' + attr(theyId) + '">' + sectionHead("They want") + skeletonRows(4, "Reading the posting…") + "</section>";
     if (!w.requirements.length && !w.niceToHaves.length && !w.stack.length) return "";
     var h = w.hasMatchData;
     /* DOSSIER-02: a payload the pipeline had to recover, or one the validator
        sent to review, is not evidence yet. The section says so at its head and
        again over the requirements, because that list is what a hunter acts on. */
     var review = !!(m.provenance && m.provenance.needsReview);
-    var html = '<section class="case__section case__section--they">' +
+    var html = '<section class="case__section case__section--they" id="' + attr(theyId) + '">' +
       sectionHead("They want", src("scrape") + (h ? src("derived", "matched") : "") + (review ? src("review", "unverified") : ""));
     /* C11 (TA-15): the sentence that says what is missing is also the way to
        fix it. Once a resume is on file the hint says matching is on its way. */
@@ -421,67 +598,98 @@
       button.textContent = "Show fewer";
     }
   }
-  /* CASEWHY: the fit reason is never hidden, only clamped — the toggle
-     flips the clamp, not [hidden]. */
-  function toggleClamp(button, text) {
-    var expanded = button.getAttribute("aria-expanded") === "true";
-    text.setAttribute("data-clamped", expanded ? "true" : "false");
-    button.setAttribute("aria-expanded", expanded ? "false" : "true");
-    button.textContent = expanded ? "Show all" : "Show less";
+  /* DFIT: which drawer is open, and which roles have swept. Module-level,
+     keyed by jobKey: role.js rebuilds the mount node on every render
+     (renderDossier replaces region.innerHTML), so mount-carried state
+     cannot survive a re-render. One dossier is live at a time. */
+  var fitUi = { renderedJobKey: "", openJobKey: "", openKey: "", sweptKey: "" };
+  var FIT_TOGGLE_ACTIONS = { "toggle-requirements": 1, "toggle-stack": 1, "toggle-fit-readout": 1 };
+  function closestToggle(node) {
+    var t = node;
+    while (t && typeof t.getAttribute === "function") {
+      var action = t.getAttribute("data-action");
+      if (action && FIT_TOGGLE_ACTIONS[action]) return t;
+      t = t.parentNode;
+    }
+    return null;
   }
-  /* CW-3: clamp the fit reason only when four lines cannot hold it at the
-     width it actually has. Apply the clamp, compare scrollHeight with the
-     clamped box, then keep it (and show the button) or drop both. An expanded
-     reason is left alone. The measure runs after every render and again when
-     the paragraph's width changes (a 375px phone and a 1440px desk wrap the
-     same sentence very differently); height changes the clamp itself causes
-     are ignored, so the observer cannot loop. */
-  function measureFitClamp(text, button) {
-    if (!text || !button || typeof text.setAttribute !== "function" || button.getAttribute("aria-expanded") === "true") return;
-    text.setAttribute("data-clamped", "true");
-    if (Number(text.scrollHeight) > Number(text.clientHeight) + 1) {
-      button.removeAttribute("hidden");
+  function panelById(mount, id) {
+    if (!mount || typeof mount.querySelector !== "function" || !id) return null;
+    var found = null;
+    try { found = mount.querySelector("#" + id); } catch (e) { found = null; }
+    if (!found) { try { found = mount.querySelector('[id="' + id + '"]'); } catch (e2) { found = null; } }
+    return found;
+  }
+  /* The accordion: opening one readout closes the others, and clicking the
+     open one closes it. Focus stays on the button; the drawer's content
+     follows the last button in tab order. */
+  function toggleFitReadout(mount, button) {
+    var controls = button.getAttribute("aria-controls");
+    var panel = panelById(mount, controls);
+    var isOpen = button.getAttribute("aria-expanded") === "true";
+    var all = mount && typeof mount.querySelectorAll === "function"
+      ? mount.querySelectorAll('[data-action="toggle-fit-readout"]') : [];
+    for (var i = 0; i < all.length; i++) {
+      all[i].setAttribute("aria-expanded", "false");
+      var sibling = panelById(mount, all[i].getAttribute("aria-controls"));
+      if (sibling && typeof sibling.setAttribute === "function") sibling.setAttribute("hidden", "");
+    }
+    fitUi.openJobKey = fitUi.renderedJobKey;
+    if (!isOpen) {
+      button.setAttribute("aria-expanded", "true");
+      if (panel && typeof panel.removeAttribute === "function") {
+        panel.removeAttribute("hidden");
+        panel.removeAttribute("data-instant");
+      }
+      fitUi.openKey = button.getAttribute("data-ro") || "";
+      /* On a phone the drawer sits below the stacked rows, so bring it
+         into view; block:nearest is a no-op when it is already visible. */
+      if (panel && typeof panel.scrollIntoView === "function") {
+        var smooth = true;
+        try {
+          var mm = typeof window !== "undefined" && window.matchMedia
+            ? window.matchMedia("(prefers-reduced-motion: reduce)") : null;
+          if (mm && mm.matches) smooth = false;
+        } catch (e) { smooth = true; }
+        try { panel.scrollIntoView({ block: "nearest", behavior: smooth ? "smooth" : "auto" }); } catch (e2) { /* host without it */ }
+      }
     } else {
-      text.removeAttribute("data-clamped");
-      button.setAttribute("hidden", "");
+      fitUi.openKey = "";
     }
   }
-  function bindFitClamp(mount, jobKey) {
-    if (mount.__fitClampObserver) { mount.__fitClampObserver.disconnect(); mount.__fitClampObserver = null; }
-    if (typeof mount.querySelector !== "function") return;
-    var id = "case-fitwhy-" + safeId(jobKey);
-    var text = mount.querySelector("#" + id), button = mount.querySelector("#" + id + "-toggle");
-    if (!text || !button) return;
-    measureFitClamp(text, button);
-    var RO = root.ResizeObserver;
-    if (typeof RO !== "function") return;
-    var lastWidth = -1;
-    var ro = new RO(function (entries) {
-      var w = entries && entries[0] && entries[0].contentRect ? Math.round(entries[0].contentRect.width) : -1;
-      if (w === lastWidth) return;
-      lastWidth = w;
-      var raf = root.requestAnimationFrame || function (fn) { return setTimeout(fn, 0); };
-      raf(function () { measureFitClamp(text, button); });
-    });
-    ro.observe(text);
-    mount.__fitClampObserver = ro;
-  }
-  function onBoardClick(root, event) {
-    var target = event && event.target;
-    var button = target && typeof target.closest === "function"
-      ? target.closest('[data-action="toggle-requirements"], [data-action="toggle-stack"], [data-action="toggle-fit-reason"]')
-      : null;
+  function onBoardClick(mount, event) {
+    var button = closestToggle(event && event.target);
     if (!button) return;
-    var id = typeof button.getAttribute === "function" ? button.getAttribute("aria-controls") : null;
-    var panel = id && root && typeof root.querySelector === "function" ? root.querySelector("#" + id) : null;
+    if (button.getAttribute("data-action") === "toggle-fit-readout") {
+      toggleFitReadout(mount, button);
+      return;
+    }
+    var panel = panelById(mount, button.getAttribute("aria-controls"));
     if (!panel || typeof panel.removeAttribute !== "function") return;
-    if (button.getAttribute("data-action") === "toggle-fit-reason") toggleClamp(button, panel);
-    else toggleDisclosure(button, panel);
+    toggleDisclosure(button, panel);
+  }
+  function onBoardKeydown(mount, event) {
+    if (!event || event.key !== "Escape") return;
+    var target = event.target;
+    var open = mount && typeof mount.querySelectorAll === "function"
+      ? mount.querySelectorAll('[data-action="toggle-fit-readout"][aria-expanded="true"]') : [];
+    for (var i = 0; i < open.length; i++) {
+      var panel = panelById(mount, open[i].getAttribute("aria-controls"));
+      var inside = target === open[i] ||
+        (panel && typeof panel.contains === "function" && panel.contains(target));
+      if (!inside) continue;
+      open[i].setAttribute("aria-expanded", "false");
+      if (panel && typeof panel.setAttribute === "function") panel.setAttribute("hidden", "");
+      fitUi.openJobKey = fitUi.renderedJobKey;
+      fitUi.openKey = "";
+      if (typeof open[i].focus === "function") open[i].focus();
+    }
   }
   function bindBoardToggles(mountEl) {
     if (!mountEl || typeof mountEl.addEventListener !== "function" || mountEl.__caseBoardBound) return;
     mountEl.__caseBoardBound = true;
     mountEl.addEventListener("click", function (event) { onBoardClick(mountEl, event); });
+    mountEl.addEventListener("keydown", function (event) { onBoardKeydown(mountEl, event); });
   }
   /* aria-busy alone is silent: a screen reader announces nothing while the
      enrichment runs. role="status" + aria-live="polite" make the region a
@@ -628,13 +836,17 @@
     /* Spec §4 (casefit): the They-want disclosures are client-state only;
        the Case binds its own single delegated listener on the mount. */
     bindBoardToggles(mount);
+    /* DFIT: the open drawer belongs to its role — a re-render of the same
+       role restores it, and opening another role resets it. */
+    fitUi.renderedJobKey = model.jobKey || "";
+    if (fitUi.openJobKey !== fitUi.renderedJobKey) {
+      fitUi.openJobKey = fitUi.renderedJobKey;
+      fitUi.openKey = "";
+    }
     mount.innerHTML = '<div class="case">' +
       renderRail(model) + notice + renderVerdict(model) + renderDocket(model, stages) +
       '<div class="case__body">' + canvas + ledger + "</div>" +
     "</div>";
-    /* The clamp is an enhancement: a host that cannot measure (or a DOM that
-       cannot resolve the id) keeps the unclamped text and the hidden button. */
-    try { bindFitClamp(mount, model.jobKey); } catch (e) { /* unmeasured: text stays whole */ }
   }
 
   root.JobBoredCase = root.JobBoredCase || {};

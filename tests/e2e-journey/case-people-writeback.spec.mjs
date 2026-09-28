@@ -418,11 +418,11 @@ test("the Case People controls write contact, last contact, reply, and follow-up
   expect(fence.unexpectedExternal).toEqual([]);
 });
 
-/* CASEWHY: the fit number with its reason, read off the Pipeline row the
-   board already holds (K Fit Assessment, U Match Score). Stable keys are
-   Pipeline indices: role "1" (Chronicle) carries both cells, role "2"
-   carries neither and must show no block. */
-test("the Case shows why a role scored its fit, and nothing when the row has no reason", async ({
+/* DFIT: one fit number on the gauge, read off the Pipeline row the board
+   already holds (H Fit Score; U Match Score is gone from the Dossier).
+   Stable keys are Pipeline indices: role "1" (Chronicle) carries a fit
+   reason, role "2" carries neither K nor U and shows the dial alone. */
+test("the Case shows one fit number on its gauge, and no second number", async ({
   page,
 }) => {
   const { consoleErrors, fence, jobs } = await bootGreenfield(page);
@@ -441,33 +441,50 @@ test("the Case shows why a role scored its fit, and nothing when the row has no 
   });
 
   await page.evaluate(() => window.JobBoredFlowing.openRole.set("1"));
-  const why = page.locator(`${ROLE_REGION} .case .case__verdict .case__fitwhy`);
-  await expect(why).toBeVisible({ timeout: 10_000 });
-  await expect(why.locator(".case__fitwhy-h")).toHaveText("Why it scored 7/10");
-  await expect(why.locator(".case__fitwhy-text")).toContainText("Strong fit. Ran a multi-region control plane");
-  await expect(why.locator(".case__fitwhy-list--fits li")).toHaveText(["Kubernetes", "Observability", "Go"]);
-  await expect(why.locator(".case__fitwhy-list--watch li")).toHaveText(["No on-call rotation lead yet"]);
-  await expect(why.locator(".case__fitwhy-match")).toContainText("Match 6 / 10");
+  const verdict = page.locator(`${ROLE_REGION} .case .case__verdict`);
+  const plate = verdict.locator(".case__fit");
+  await expect(plate).toBeVisible({ timeout: 10_000 });
+  await expect(plate.locator(".case__fit-num")).toHaveText("7");
+  await expect(plate.locator(".case__fit-standing")).toHaveText("Solid fit");
+  await expect(plate.locator(".case__fit-dial")).toHaveAttribute(
+    "aria-label",
+    "Fit score 7 out of 10, solid fit",
+  );
+  /* U is gone: no second number anywhere in the verdict. */
+  await expect(verdict).not.toContainText("Match 6 / 10");
+  await expect(verdict).not.toContainText(/Match\s*\d/);
+  await expect(page.locator(`${ROLE_REGION} .case__fitwhy`)).toHaveCount(0);
 
-  /* Grok CW-3: the clamp is measured at the width the reason actually has.
-     About 200 characters fit in four lines on a desktop Case and do not at
-     375px, so the same sentence is whole on one and clamped on the other. */
-  const reason = why.locator(".case__fitwhy-text");
-  const toggle = why.locator(".case__fitwhy-toggle");
-  await expect(reason).not.toHaveAttribute("data-clamped", "true");
-  await expect(toggle).toBeHidden();
-  await page.setViewportSize({ width: 375, height: 800 });
-  await expect(reason).toHaveAttribute("data-clamped", "true", { timeout: 5_000 });
-  await expect(toggle).toBeVisible();
-  await expect(toggle).toHaveAttribute("aria-expanded", "false");
-  await toggle.click();
-  await expect(toggle).toHaveAttribute("aria-expanded", "true");
-  await expect(toggle).toHaveText("Show less");
-  await expect(reason).toHaveAttribute("data-clamped", "false");
+  /* The Reasons drawer reveals on demand: click opens, re-click closes. */
+  const reasons = plate.locator('[data-action="toggle-fit-readout"][data-ro="reasons"]');
+  await reasons.click();
+  await expect(reasons).toHaveAttribute("aria-expanded", "true");
+  const reasonsPanel = plate.locator("#" + (await reasons.getAttribute("aria-controls")));
+  await expect(reasonsPanel).toBeVisible();
+  await expect(reasonsPanel).toContainText("Ran a multi-region control plane");
+  await expect(reasonsPanel.locator(".case__fit-list--plain:not(.case__fit-list--watch) li")).toHaveText([
+    "Kubernetes",
+    "Observability",
+    "Go",
+  ]);
+  await expect(reasonsPanel.locator(".case__fit-list--watch li")).toHaveText([
+    "No on-call rotation lead yet",
+  ]);
+  await reasons.click();
+  await expect(reasons).toHaveAttribute("aria-expanded", "false");
+
+  /* Escape inside an open drawer closes it and returns focus to its button. */
+  await reasons.click();
+  await expect(reasons).toHaveAttribute("aria-expanded", "true");
+  await reasonsPanel.press("Escape");
+  await expect(reasons).toHaveAttribute("aria-expanded", "false");
+  await expect(reasons).toBeFocused();
 
   await page.evaluate(() => window.JobBoredFlowing.openRole.set("2"));
   await expect(page.locator(`${ROLE_REGION} .case`)).toContainText("Design Systems Lead", { timeout: 10_000 });
-  await expect(page.locator(`${ROLE_REGION} .case__fitwhy`)).toHaveCount(0);
+  const plate2 = page.locator(`${ROLE_REGION} .case .case__verdict .case__fit`);
+  await expect(plate2.locator(".case__fit-num")).toHaveText("6");
+  await expect(page.locator(`${ROLE_REGION} .case .case__verdict`)).not.toContainText(/Match\s*\d/);
 
   expect(consoleErrors, "opening the Case with a fit reason must be console-error free").toEqual([]);
   expect(fence.unexpectedExternal).toEqual([]);
