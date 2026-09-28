@@ -117,6 +117,7 @@
      into both sides (SPEC §2), so a reworded phrase reads as one change
      instead of a stutter of tiny marks. */
   function diffWords(a, b) {
+    if (root.JBScribeDiff) return root.JBScribeDiff.diffWords(a, b);
     var steps = lcsSteps(tokenize(a), tokenize(b));
     var segs = [];
     function top() { return segs[segs.length - 1]; }
