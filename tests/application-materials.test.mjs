@@ -166,6 +166,26 @@ describe("buildManifest", () => {
     const jobAnalysis = manifest.documents.find((d) => d.type === "job_analysis");
     assert.ok(jobAnalysis);
     assert.ok(manifest.updatedAt);
+    assert.equal(manifest.selectionSummary, undefined, "legacy packages omit selection accounting");
+  });
+
+  it("exposes only the current published resume run's count-only selection summary", async () => {
+    const slug = "fictional-route-analyst";
+    const dir = join(root, slug);
+    await mkdir(dir);
+    await writeFile(join(dir, "resume.pdf"), "PDF");
+    await writeFile(join(dir, "manifest.json"), JSON.stringify({ runId: "current", selectionSummary: { selected: 99, featured: 1, earlier: 0, pageBudgetExcluded: 98 } }));
+    const counts = { selected: 9, featured: 5, earlier: 0, pageBudgetExcluded: 4 };
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "current", feature: "resume", selectionSummary: counts }));
+    const manifest = await buildManifest(slug, { root });
+    assert.deepEqual(manifest.selectionSummary, counts);
+    assert.deepEqual(Object.keys(manifest.selectionSummary).sort(), Object.keys(counts).sort());
+
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "older", feature: "resume", selectionSummary: counts }));
+    assert.equal((await buildManifest(slug, { root })).selectionSummary, undefined, "stale run counts must not accompany the current manifest");
+
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "current", feature: "cover_letter", selectionSummary: counts }));
+    assert.equal((await buildManifest(slug, { root })).selectionSummary, undefined, "a letter-only current run must not reuse old resume counts");
   });
 
   it("prefers manifest.json company + title when present", async () => {

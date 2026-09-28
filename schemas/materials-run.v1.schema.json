@@ -74,6 +74,18 @@
         }, "minProperties": 1 }
       ]
     },
+    "selectionSummary": {
+      "description": "Count-only partition of selected claims in the final fitted resume.",
+      "type": "object",
+      "required": ["selected", "featured", "earlier", "pageBudgetExcluded"],
+      "additionalProperties": false,
+      "properties": {
+        "selected": { "type": "integer", "minimum": 0 },
+        "featured": { "type": "integer", "minimum": 0 },
+        "earlier": { "type": "integer", "minimum": 0 },
+        "pageBudgetExcluded": { "type": "integer", "minimum": 0 }
+      }
+    },
     "repair": {
       "type": "object", "additionalProperties": false,
       "properties": {
