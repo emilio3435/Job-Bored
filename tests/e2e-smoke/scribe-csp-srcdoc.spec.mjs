@@ -39,12 +39,7 @@ const MODEL_PATH = join(
 const EVIDENCE_DIR = join(REPO_ROOT, ".lane-evidence");
 const FRAME_NAME = "scribe-csp-probe";
 
-/** The face each family sets its body copy in; it must load in the frame. */
-const FAMILIES = [
-  { id: "signal", face: "Archivo" },
-  { id: "dossier", face: "Source Sans 3" },
-  { id: "editorial", face: "Bodoni Moda" },
-];
+const FAMILIES = ["signal", "dossier", "editorial"];
 
 /** A tiny SVG mark, inlined the way the logo resolver hands logos over. */
 const DATA_LOGO = `data:image/svg+xml;base64,${Buffer.from(
@@ -157,38 +152,49 @@ async function injectPreview(page, html) {
 }
 
 /** Measure the frame from the parent: the frame itself may run no script. */
-async function inspectPreview(page, face) {
+async function inspectPreview(page, configuredFaces) {
   return page.evaluate(
-    async ({ name, face: family }) => {
+    async ({ name, configuredFaces: configured }) => {
       const frame = document.querySelector(`iframe[name="${name}"]`);
       const doc = frame.contentDocument;
       await doc.fonts.ready;
       const sheet = doc.querySelector("[data-page]");
       frame.style.height = `${Math.max(900, doc.documentElement.scrollHeight)}px`;
-      const faces = [...doc.fonts].filter(
-        (f) => f.family.replace(/^['"]|['"]$/g, "") === family,
-      );
+      const faces = [...doc.fonts];
+      const faceName = (value) => value.trim().replace(/^['"]|['"]$/g, "");
+      const used = [...new Set([doc.body, doc.querySelector("h1")]
+        .filter(Boolean)
+        .map((element) => faceName(frame.contentWindow.getComputedStyle(element).fontFamily.split(",")[0])))];
+      const faceState = (name) => {
+        const matches = faces.filter((face) => faceName(face.family) === name);
+        return {
+          name,
+          declared: matches.length,
+          loaded: matches.filter((face) => face.status === "loaded").length,
+          check: doc.fonts.check(`16px "${name}"`),
+        };
+      };
       const logo = doc.querySelector('img[src^="data:image/svg+xml"]');
       return {
         sandbox: frame.getAttribute("sandbox"),
         hasSrcdoc: frame.hasAttribute("srcdoc"),
         url: doc.URL,
         pageScrollHeight: sheet ? sheet.scrollHeight : 0,
-        fontCheck: doc.fonts.check(`16px "${family}"`),
-        facesDeclared: faces.length,
-        facesLoaded: faces.filter((f) => f.status === "loaded").length,
+        configuredFaces: configured.map(faceState),
+        usedFaces: used.map(faceState),
         logoDecoded: Boolean(logo && logo.complete && logo.naturalWidth > 0),
         scriptsInFrame: doc.querySelectorAll("script").length,
       };
     },
-    { name: FRAME_NAME, face },
+    { name: FRAME_NAME, configuredFaces },
   );
 }
 
-for (const { id, face } of FAMILIES) {
+for (const id of FAMILIES) {
   test(`should render the ${id} resume in a sandboxed srcdoc frame with no CSP violation`, async ({
     page,
   }) => {
+    const family = resolveFamily(id);
     const html = renderDocument(probeModel(id), "resume");
     expect(html).toContain("<style>");
     expect(html).toContain("url(data:font/");
@@ -209,7 +215,7 @@ for (const { id, face } of FAMILIES) {
     });
 
     await injectPreview(page, html);
-    const probe = await inspectPreview(page, face);
+    const probe = await inspectPreview(page, family.fonts);
     // Give any deferred violation report a turn to arrive.
     await page.waitForTimeout(250);
 
@@ -218,9 +224,15 @@ for (const { id, face } of FAMILIES) {
     expect(probe.url).toBe("about:srcdoc");
     expect(probe.scriptsInFrame).toBe(0);
     expect(probe.pageScrollHeight).toBeGreaterThan(0);
-    expect(probe.facesDeclared, `${face} must be declared in the frame`).toBeGreaterThan(0);
-    expect(probe.facesLoaded, `${face} must load from its data: URI`).toBeGreaterThan(0);
-    expect(probe.fontCheck).toBe(true);
+    for (const face of probe.configuredFaces) {
+      expect(face.declared, `${face.name} from family.json must be declared in the frame`).toBeGreaterThan(0);
+    }
+    expect(probe.usedFaces.length).toBeGreaterThan(0);
+    for (const face of probe.usedFaces) {
+      expect(family.fonts, `${face.name} used by the template must be listed in family.json`).toContain(face.name);
+      expect(face.loaded, `${face.name} must load from its data: URI`).toBeGreaterThan(0);
+      expect(face.check).toBe(true);
+    }
     expect(probe.logoDecoded, "the data: logo must decode").toBe(true);
 
     const domViolations = await page.evaluate(() => window.__cspViolations);

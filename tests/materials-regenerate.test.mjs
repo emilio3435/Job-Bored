@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { buildManifest } from "../server/application-materials.mjs";
+import { critiqueMaterials } from "../server/materials-critic.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { materialsCacheKey } from "../server/materials-package.mjs";
 import { regeneratePackage } from "../server/materials-regenerate.mjs";
@@ -226,6 +227,43 @@ describe("regenerate in another template", () => {
       (await readFile(join(originalDir, "resume.txt"))).toString("utf8"),
       "the ATS twin does not change with the family",
     );
+  });
+
+  it("SYNC-1 scores invented employers against the chosen saved resume", async () => {
+    const garbled = await readFile(new URL("./fixtures/materials-garbled-resume.txt", import.meta.url), "utf8");
+    const saved = {
+      ...EXAMPLE_RESUME_SOURCE,
+      source: "saved",
+      filename: "resume.txt",
+      addedAt: "2026-09-28T12:00:00.000Z",
+      text: EXAMPLE_RESUME_SOURCE.text.replace("Northwind Logistics,", "Example Carrier,"),
+    };
+    for (const snapshotKind of ["missing", "garbled"]) {
+      const slug = `acme-source-${snapshotKind}`;
+      await draft(drafterFor(dir), slug);
+      const pkg = join(dir, slug);
+      const snapshotPath = join(pkg, "resume-source.json");
+      if (snapshotKind === "missing") await rm(snapshotPath);
+      else await writeFile(snapshotPath, JSON.stringify({ ...EXAMPLE_RESUME_SOURCE, text: garbled, usedAt: "2026-09-27T12:00:00.000Z" }));
+      let scoredText = "";
+      await regeneratePackage({ slug, template: "editorial" }, {
+        ...noLogoLookups,
+        applicationsRoot: dir,
+        pdfSession: fakeSession,
+        readSavedResume: async () => saved,
+        critic: async (input) => {
+          scoredText = String(input.sourceResumeText || "");
+          return critiqueMaterials(input);
+        },
+      });
+      assert.equal(scoredText, saved.text, `${snapshotKind}: the critic must score the selected source`);
+      const qa = await readJson(join(pkg, "qa.resume.json"));
+      const invented = qa.checks.find((check) => check.code === "invented_employer");
+      assert.match(invented?.message || "", /Northwind Logistics/, `${snapshotKind}: missing employer must fail QA`);
+      assert.doesNotMatch(invented.message, /Contoso Labs|Fabrikam Freight/, `${snapshotKind}: supported employers stay clear`);
+      const run = await readJson(join(pkg, "run.json"));
+      assert.equal(run.resume.reason, snapshotKind === "missing" ? "saved_only" : "request_garbled");
+    }
   });
 
   it("should refuse without a browser and leave the package exactly as it was", async () => {

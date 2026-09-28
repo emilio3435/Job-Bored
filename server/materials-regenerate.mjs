@@ -229,6 +229,7 @@ export async function regeneratePackage(input, deps = {}) {
       dir, model, feature, source: "regenerate", parentRunId: regeneratedFrom,
       header: input.header,
       resume: chosen ? runResumeBlock(chosen.resume, chosen.choice) : storedRun.resume,
+      sourceResumeText: chosen?.resume.text,
       inputs: storedRun.inputs,
       resumeNote: chosen?.choice.degraded
         ? `degraded: ${chosen.choice.degraded.code}: ${chosen.choice.degraded.message}`
@@ -239,10 +240,10 @@ export async function regeneratePackage(input, deps = {}) {
 /**
  * Render, audit and publish a validated model as an immutable package run.
  * The optional deps preserve regenerate's injectable browser, clock and critic.
- * @param {{dir:string, model:import('./materials-render.mjs').RenderModel, feature:string, source:'regenerate'|'edit'|'manual'|'restore', parentRunId?:string, edit?:{prompt:string,proposalId?:string,accepted:string[],rejected:string[],ops:object[]}, header?:string, resume?:unknown, inputs?:unknown, resumeNote?:string}} input
+ * @param {{dir:string, model:import('./materials-render.mjs').RenderModel, feature:string, source:'regenerate'|'edit'|'manual'|'restore', parentRunId?:string, edit?:{prompt:string,proposalId?:string,accepted:string[],rejected:string[],ops:object[]}, header?:string, resume?:unknown, sourceResumeText?:string, inputs?:unknown, resumeNote?:string}} input
  * @param {RegenerateDeps} [deps]
  */
-export async function commitModelAsRun({ dir, model, feature, source, parentRunId, edit, header, resume, inputs, resumeNote }, deps = {}) {
+export async function commitModelAsRun({ dir, model, feature, source, parentRunId, edit, header, resume, sourceResumeText, inputs, resumeNote }, deps = {}) {
   const validation = validateRenderModel(model);
   if (!validation.ok) throw httpError(`The stored render model is invalid: ${validation.errors.slice(0, 3).join("; ")}`, 422, "render_model_invalid");
   const slug = basename(dir);
@@ -301,7 +302,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
       resumeHtml: rendered.resumeHtml || "",
       jdText,
       masterResumeHtml: "",
-      sourceResumeText: snapshot ? snapshot.text : "",
+      sourceResumeText: sourceResumeText ?? (snapshot ? snapshot.text : ""),
       writerJson: {},
     });
     /** @type {{ code?: string, message?: string, severity?: string }[]} */
