@@ -215,6 +215,17 @@ describe("RESD source-backed attribution", () => {
     assert.equal(result.ingest.status, "ready", JSON.stringify(result.rejected.map((item) => item.reason)));
   });
 
+  it("R1 accepts a department title under a dated umbrella employer", async () => {
+    const source = ["EXPERIENCE", "Aster Works | 2020–2025", "Vice President, Operations | 2020–2025", "- Improved inventory forecasts for neighborhood shops using weekly sales data."].join("\n");
+    const reply = { employers: [{ name: "Aster Works", sourceQuote: "Aster Works | 2020–2025", roles: [
+      { title: "Vice President, Operations", sourceQuote: "Vice President, Operations | 2020–2025", claims: [
+        { text: "Improved inventory forecasts for neighborhood shops using weekly sales data.", sourceQuote: "Improved inventory forecasts for neighborhood shops using weekly sales data." },
+      ] },
+    ] }] };
+    const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
+    assert.equal(result.ingest.status, "ready", JSON.stringify(result.rejected.map((item) => item.reason)));
+  });
+
   it("R1 attributes a fact at its own span, not the start of a broad source quote", () => {
     const aHeader = "Aster Works — Product Analyst, 2021–2023";
     const a = "Improved inventory forecasts for neighborhood shops using weekly sales data.";
