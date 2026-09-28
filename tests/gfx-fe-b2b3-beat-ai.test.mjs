@@ -199,7 +199,7 @@ describe("GFX B2-4 · B2-5 · the key reaches this computer only after an inline
     assert.equal(actionButton(env.mount(), "ai_check"), null, "one decision on screen");
   });
 
-  it("Save it pins the key, writes discovery's key, shows ✓ and completes", async () => {
+  it("Save it pins the key, writes discovery's key, shows ✓ and offers the judge", async () => {
     const env = await openBeat({ fetchImpl: beatFetch() });
     await checkGemini(env);
     await env.beats.ai.handleAction("ai_consent_save");
@@ -212,6 +212,17 @@ describe("GFX B2-4 · B2-5 · the key reaches this computer only after an inline
     assert.equal(envWrites.length, 1);
     assert.equal(envWrites[0].body.key, "BROWSER_USE_DISCOVERY_GEMINI_API_KEY");
     assert.equal(env.beats.ai.didWriteGeminiKeyThrough(), true);
+    // The landed save earns the optional grading-model offer (with the ✓
+    // receipt riding it); the beat completes once the offer is answered.
+    assert.equal(completed(env), false);
+    assert.ok(
+      env.mount().querySelector(".oneflow-ai__receipt--ok"),
+      "the Gemini ✓ receipt rides the judge offer",
+    );
+    assert.ok(env.mount().querySelector(".oneflow-judge"), "the grading-model offer renders");
+    assert.equal(actionButton(env.mount(), "ai_judge_test").textContent, "Test judge key");
+    assert.equal(actionButton(env.mount(), "ai_judge_skip").textContent, "Skip for now");
+    await env.beats.ai.handleAction("ai_judge_skip");
     assert.ok(completed(env));
   });
 

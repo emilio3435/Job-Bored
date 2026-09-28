@@ -14,6 +14,11 @@
    check itself is resume-generate.js's verifyResumeProviderLive(), so
    the beat verifies the exact plumbing the product will use.
 
+   A landed computer save earns one more offer: the optional grading model
+   (MREV K1 judge), prefilled to OpenRouter, tested live against
+   POST /api/llm-config/judge-test, and always skippable. The offer never
+   gates the beat — Skip for now finishes exactly as "Not now" did.
+
    Classic-global IIFE, registered against window.JobBoredOneFlow.
    ============================================ */
 (function () {
@@ -37,8 +42,14 @@
   const ACTION_CONSENT_SAVE = "ai_consent_save";
   const ACTION_CONSENT_SKIP = "ai_consent_skip";
   const ACTION_CONTINUE = "ai_continue";
+  const ACTION_JUDGE_TEST = "ai_judge_test";
+  const ACTION_JUDGE_SAVE = "ai_judge_save";
+  const ACTION_JUDGE_SKIP = "ai_judge_skip";
   const KEY_INPUT_ID = "oneFlowAiKeyInput";
   const BASE_URL_INPUT_ID = "oneFlowAiBaseUrlInput";
+  const JUDGE_KEY_INPUT_ID = "oneFlowJudgeKeyInput";
+  const JUDGE_MODEL_INPUT_ID = "oneFlowJudgeModelInput";
+  const JUDGE_BASE_URL_INPUT_ID = "oneFlowJudgeBaseUrlInput";
 
   const DISCOVERY_ENV_ENDPOINT = "/__proxy/discovery-env-key";
   const GEMINI_ENV_KEY = "BROWSER_USE_DISCOVERY_GEMINI_API_KEY";
@@ -171,6 +182,93 @@
     return PROVIDERS.find((p) => p.id === id) || PROVIDERS[0];
   }
 
+  /**
+   * The optional grading model, offered after the writing key is saved on
+   * this computer. Same provider enum as Settings' judge group (MREV K1);
+   * there is no None card because Skip for now IS the None path. OpenRouter
+   * is first and pre-selected: one key, every model family, pay-as-you-go,
+   * and no endpoint to get wrong. xAI keeps its exact endpoint and a text
+   * flagship prefilled, since that is the form users got wrong in Settings.
+   */
+  const JUDGE_PROVIDERS = [
+    {
+      id: "openrouter",
+      label: "OpenRouter",
+      note: "Recommended. One key grades with any model. Pay-as-you-go.",
+      keyPlaceholder: "sk-or-…",
+      signupUrl: "https://openrouter.ai/keys",
+      signupLabel: "Create an OpenRouter key ↗",
+      keyHelp: "Pay-as-you-go — a few dollars of credit grades a lot of letters.",
+      modelHelp: "Any OpenRouter model id. Free options end in :free.",
+      modelHelpUrl: "https://openrouter.ai/models",
+      modelHelpLabel: "Browse OpenRouter models ↗",
+    },
+    {
+      id: "openai_compatible",
+      label: "Grok (xAI)",
+      note: "xAI's flagship grader — or any OpenAI-compatible endpoint.",
+      keyPlaceholder: "xai-…",
+      signupUrl: "https://console.x.ai",
+      signupLabel: "Create an xAI key ↗",
+      keyHelp: "xAI's API is prepaid: add credit first, or the test fails.",
+      defaultModel: "grok-4.7",
+      defaultBaseUrl: "https://api.x.ai/v1",
+      baseUrlField: true,
+      modelHelp: "Use a text model id — image, video and voice models can't grade.",
+      modelHelpUrl: "https://docs.x.ai/docs/models",
+      modelHelpLabel: "xAI's model list ↗",
+    },
+    {
+      id: "openai",
+      label: "OpenAI",
+      note: "Paid. Uses your OpenAI API credit.",
+      keyPlaceholder: "sk-…",
+      signupUrl: "https://platform.openai.com/api-keys",
+      signupLabel: "Create an OpenAI key ↗",
+      keyHelp: "Paid — the test fails without API credit.",
+    },
+    {
+      id: "anthropic",
+      label: "Anthropic",
+      note: "Paid. Uses your Anthropic API credit.",
+      keyPlaceholder: "sk-ant-…",
+      signupUrl: "https://console.anthropic.com/settings/keys",
+      signupLabel: "Create an Anthropic key ↗",
+      keyHelp: "Paid — the test fails without API credit.",
+    },
+    {
+      id: "gemini",
+      label: "Gemini",
+      note: "Free tier — no card needed.",
+      keyPlaceholder: "AIza…",
+      signupUrl: "https://aistudio.google.com/app/apikey",
+      signupLabel: "Create a free Gemini key ↗",
+      keyHelp: "Free tier, no card needed.",
+    },
+    {
+      id: "local",
+      label: "Local — on your machine",
+      note: "No key, no cost. Needs Ollama already running.",
+      defaultBaseUrl: "http://127.0.0.1:11434/v1",
+      baseUrlField: true,
+      keyless: true,
+      signupUrl: "https://ollama.com",
+      signupLabel: "Get Ollama ↗",
+      modelHelp: "The model name Ollama serves (ollama list shows yours).",
+    },
+  ];
+
+  const JUDGE_TITLE = "Want a second opinion on your letters?";
+  const JUDGE_LEDE =
+    "Recommended, but optional. A different model grades your resumes and " +
+    "cover letters — a second pair of eyes catches what the writer misses. " +
+    "Skip, and your writing model grades its own work. You can add one later " +
+    "in Settings.";
+
+  function judgeById(id) {
+    return JUDGE_PROVIDERS.find((p) => p.id === id) || JUDGE_PROVIDERS[0];
+  }
+
   // ---------------------------------------------------------------
   // Beat-local state (the shell rebuilds the tree on every repaint).
   // ---------------------------------------------------------------
@@ -190,15 +288,19 @@
     stalled: false,
     // "key" (pick + paste + check) → "consent" (Save it / Not now, GFX
     // B2-4) → "saved" (only when a save on this computer failed, so the
-    // user reads why before moving on).
+    // user reads why before moving on) → "judge" (the optional grading
+    // model, offered only after a save that landed).
     phase: "key",
+    // The judge offer's drafts. Null until enterJudgePhase runs; cleared by
+    // finish and by any writer-card click, which restarts writer input.
+    judge: null,
     // The passed check waiting on the consent answer: { def, value, ms,
     // run, successAt, runtime }.
     pending: null,
     consentShown: false,
   };
 
-  const fields = { value: null };
+  const fields = { value: null, judgeKey: null, judgeModel: null, judgeBaseUrl: null };
   const ACTIONS = [];
   let lastCtx = null;
 
@@ -271,6 +373,18 @@
     if (state.phase === "saved") {
       ACTIONS.push({ id: ACTION_CONTINUE, label: "Continue", variant: "primary" });
       ACTIONS.push({ id: ACTION_CONSENT_SAVE, label: "Try saving again", variant: "ghost" });
+      return;
+    }
+    if (state.phase === "judge") {
+      // A passed test swaps the primary to Save; typing afterwards re-arms
+      // the Test on the next repaint, and Save re-tests a stale form rather
+      // than trusting it, so a stale footer can never save an untested key.
+      if (judgeTestedCurrent()) {
+        ACTIONS.push({ id: ACTION_JUDGE_SAVE, label: "Save & continue", variant: "primary" });
+      } else {
+        ACTIONS.push({ id: ACTION_JUDGE_TEST, label: "Test judge key", variant: "primary" });
+      }
+      ACTIONS.push({ id: ACTION_JUDGE_SKIP, label: "Skip for now", variant: "ghost" });
       return;
     }
     ACTIONS.push({ id: ACTION_CHECK, label: "Check & continue", variant: "primary" });
@@ -366,6 +480,9 @@
         state.geminiWroteThrough = false;
         state.phase = "key";
         state.pending = null;
+        // Restarting writer input abandons the judge offer with it: the
+        // offer is only meaningful for the check that just passed.
+        state.judge = null;
         // Drafts are per-provider: an OpenRouter key left sitting in the
         // field after switching to Gemini would be checked against the
         // wrong provider and fail for a reason the copy can't explain.
@@ -467,6 +584,70 @@
     const value = String(raw || "").trim();
     if (!prefix || !value || value.startsWith(prefix)) return "";
     return `${def.label} keys usually start with ${prefix}. Check that you copied the key from ${def.label}.`;
+  }
+
+  // ---------------------------------------------------------------
+  // Judge offer (the optional grading model)
+  // ---------------------------------------------------------------
+
+  /** The live judge fields beat the remembered drafts — browser autofill needs it. */
+  function judgeReadForm() {
+    const j = state.judge || { provider: JUDGE_PROVIDERS[0].id };
+    const read = (node, draft) =>
+      node && typeof node.value === "string" ? String(node.value).trim() : String(draft || "").trim();
+    return {
+      provider: String(j.provider || JUDGE_PROVIDERS[0].id),
+      key: read(fields.judgeKey, j.keyDraft),
+      model: read(fields.judgeModel, j.modelDraft),
+      baseUrl: read(fields.judgeBaseUrl, j.baseUrlDraft),
+    };
+  }
+
+  function judgeRememberForm(form) {
+    if (!state.judge) return;
+    state.judge.keyDraft = String(form.key || "");
+    state.judge.modelDraft = String(form.model || "");
+    state.judge.baseUrlDraft = String(form.baseUrl || "");
+  }
+
+  /** The exact combination a passing test vouches for. Any edit re-arms it. */
+  function judgeCombo(form) {
+    return [form.provider, form.model, form.baseUrl, form.key].join("\n");
+  }
+
+  function judgeTestedCurrent() {
+    if (!state.judge || !state.judge.testedCombo) return false;
+    return state.judge.testedCombo === judgeCombo(judgeReadForm());
+  }
+
+  /** "" when the judge form is testable, else the one thing to fix first. */
+  function judgeFormError(def, form) {
+    if (!form.model) return "Name the judge model first — the suggestion above is a safe default.";
+    if (!def.keyless && !form.key) return `Paste your ${def.label.split(" — ")[0]} key first.`;
+    if (def.baseUrlField && !form.baseUrl) return "Paste the base URL first.";
+    if (form.baseUrl && !/^https?:\/\//i.test(form.baseUrl)) {
+      return "The base URL must start with http:// or https://.";
+    }
+    return "";
+  }
+
+  /** Plain words for a failed judge test. The server's own text is the fallback. */
+  function judgeFailureMessage(def, answer) {
+    const status = answer && typeof answer.upstreamStatus === "number" ? answer.upstreamStatus : 0;
+    if (status === 401 || status === 403) {
+      return (
+        `That key was rejected. Re-copy the whole key from ${def.label} and press Test again` +
+        (def.keyHelp && /paid|prepaid|credit/i.test(def.keyHelp)
+          ? " — paid providers also reject keys with no credit left."
+          : ".")
+      );
+    }
+    const code = answer && typeof answer.code === "string" ? answer.code : "";
+    if (code === "timeout" || code === "network_error" || /rate_limit|too_many|overloaded|unavailable/i.test(code)) {
+      return "The provider didn't answer in time. Wait a minute and press Test again.";
+    }
+    const raw = answer && typeof answer.error === "string" ? answer.error.trim() : "";
+    return raw || "That provider didn't answer. Check the form and press Test again.";
   }
 
   /**
@@ -591,9 +772,268 @@
     return details;
   }
 
+  function renderJudgeCards(ctx) {
+    const grid = el("div", "oneflow-ai__cards", {
+      role: "group",
+      "aria-label": "Grading model provider",
+    });
+    for (const def of JUDGE_PROVIDERS) {
+      const selected = state.judge && def.id === state.judge.provider;
+      const card = el("button", "oneflow-ai__card", {
+        type: "button",
+        "aria-pressed": selected ? "true" : "false",
+        dataset: { judgeProvider: def.id, selected: selected ? "true" : "false" },
+      });
+      card.appendChild(el("span", "oneflow-ai__card-label", {}, def.label));
+      card.appendChild(el("span", "oneflow-ai__card-note", {}, def.note));
+      card.addEventListener("click", () => {
+        if (!state.judge || state.judge.provider === def.id) return;
+        state.judge.provider = def.id;
+        // Drafts are per-provider here too: an xAI key left sitting in the
+        // field after switching to OpenRouter would fail for a reason the
+        // copy can't explain.
+        state.judge.keyDraft = "";
+        state.judge.modelDraft = judgeDefaultModel(def);
+        state.judge.baseUrlDraft = def.defaultBaseUrl || "";
+        state.judge.testedCombo = "";
+        state.judge.testedModel = "";
+        state.judge.failure = null;
+        repaint(ctx, "");
+      });
+      grid.appendChild(card);
+    }
+    return grid;
+  }
+
+  function renderJudgeFields() {
+    const form = judgeReadForm();
+    const def = judgeById(form.provider);
+    const wrap = el("div", "oneflow-ai__key");
+
+    const modelLabel = el("label", "oneflow-judge__field-label", { for: JUDGE_MODEL_INPUT_ID }, "Grading model");
+    wrap.appendChild(modelLabel);
+    const model = el("input", "oneflow-ai__field", {
+      id: JUDGE_MODEL_INPUT_ID,
+      type: "text",
+      autocomplete: "off",
+      spellcheck: false,
+      value: form.model || judgeDefaultModel(def),
+      "aria-label": "Grading model name",
+    });
+    model.addEventListener("input", () => {
+      if (state.judge) {
+        state.judge.modelDraft = model.value;
+        state.judge.testedCombo = "";
+      }
+    });
+    fields.judgeModel = model;
+    wrap.appendChild(model);
+    if (def.modelHelp) {
+      wrap.appendChild(el("p", "oneflow-ai__privacy", {}, def.modelHelp));
+    }
+    if (def.modelHelpUrl) {
+      const linkRow = el("p", "oneflow-judge__link-row");
+      linkRow.appendChild(
+        el(
+          "a",
+          "oneflow-ai__trouble-link",
+          { href: def.modelHelpUrl, target: "_blank", rel: "noopener" },
+          def.modelHelpLabel || "Model list ↗",
+        ),
+      );
+      wrap.appendChild(linkRow);
+    }
+
+    if (def.baseUrlField) {
+      const baseLabel = el(
+        "label",
+        "oneflow-judge__field-label",
+        { for: JUDGE_BASE_URL_INPUT_ID },
+        def.keyless ? "Model server address" : "Base URL",
+      );
+      wrap.appendChild(baseLabel);
+      const baseUrl = el("input", "oneflow-ai__field", {
+        id: JUDGE_BASE_URL_INPUT_ID,
+        type: "text",
+        autocomplete: "off",
+        spellcheck: false,
+        value: form.baseUrl || def.defaultBaseUrl || "",
+        "aria-label": def.keyless ? "Local model server base URL" : "Grading model base URL",
+      });
+      baseUrl.addEventListener("input", () => {
+        if (state.judge) {
+          state.judge.baseUrlDraft = baseUrl.value;
+          state.judge.testedCombo = "";
+        }
+      });
+      fields.judgeBaseUrl = baseUrl;
+      wrap.appendChild(baseUrl);
+    }
+
+    if (def.keyless) {
+      const row = el("p", "oneflow-judge__link-row");
+      row.appendChild(
+        el(
+          "a",
+          "oneflow-ai__trouble-link",
+          { href: def.signupUrl, target: "_blank", rel: "noopener" },
+          def.signupLabel,
+        ),
+      );
+      wrap.appendChild(row);
+      wrap.appendChild(
+        el(
+          "p",
+          "oneflow-ai__privacy",
+          {},
+          "No key is stored for a local grader — JobBored just calls your model server.",
+        ),
+      );
+      return wrap;
+    }
+
+    const list = el("ol", "oneflow-ai__steps");
+    const first = el("li");
+    first.appendChild(
+      el(
+        "a",
+        "oneflow-ai__signup",
+        { href: def.signupUrl, target: "_blank", rel: "noopener" },
+        def.signupLabel,
+      ),
+    );
+    list.appendChild(first);
+    list.appendChild(el("li", "", {}, "Copy your key."));
+    list.appendChild(el("li", "", {}, "Paste it here."));
+    wrap.appendChild(list);
+    if (def.keyHelp) {
+      wrap.appendChild(el("p", "oneflow-ai__privacy", {}, def.keyHelp));
+    }
+
+    const input = el("input", "oneflow-ai__field", {
+      id: JUDGE_KEY_INPUT_ID,
+      type: "password",
+      autocomplete: "off",
+      spellcheck: false,
+      placeholder: def.keyPlaceholder,
+      value: form.key,
+      "aria-label": `${def.label} grading-model API key`,
+    });
+    const shape = el("p", "oneflow-ai__shape", { role: "status" });
+    const paintShape = () => {
+      const warning = keyShapeWarning(def, input.value);
+      shape.textContent = warning;
+      shape.hidden = !warning;
+    };
+    input.addEventListener("input", () => {
+      if (state.judge) {
+        state.judge.keyDraft = input.value;
+        state.judge.testedCombo = "";
+      }
+      paintShape();
+    });
+    paintShape();
+    fields.judgeKey = input;
+    wrap.appendChild(input);
+    wrap.appendChild(shape);
+    wrap.appendChild(
+      el(
+        "p",
+        "oneflow-ai__privacy",
+        {},
+        "Saved on this computer in ~/.jobbored/llm.json, readable only by your " +
+          `account. It's only ever sent to ${def.label}.`,
+      ),
+    );
+    return wrap;
+  }
+
+  /**
+   * The judge's per-case recovery block. Like the writer's, it renders only
+   * AFTER a failure — never pre-emptively.
+   */
+  function renderJudgeTrouble() {
+    const failure = (state.judge && state.judge.failure) || {};
+    const def = judgeById(failure.provider || (state.judge && state.judge.provider));
+    const details = el("details", "oneflow-ai__trouble", { open: true });
+    details.appendChild(
+      el("summary", "oneflow-ai__trouble-summary", {}, "Having trouble?"),
+    );
+    const list = el("ul", "oneflow-ai__trouble-list");
+    list.appendChild(
+      el(
+        "li",
+        "",
+        {},
+        "Wrong key: keys are easy to truncate on copy. Re-copy the whole " +
+          "string from the provider's page and paste it again — nothing before " +
+          "or after it.",
+      ),
+    );
+    list.appendChild(
+      el(
+        "li",
+        "",
+        {},
+        "Rate limit or no credit: paid providers reject keys with no credit " +
+          "left, and free tiers throttle. Check your balance, wait a minute, " +
+          "and press Test again.",
+      ),
+    );
+    list.appendChild(
+      el(
+        "li",
+        "",
+        {},
+        "Wrong model or address: the model name must match the provider's " +
+          "list exactly, and a local server must actually be running.",
+      ),
+    );
+    if (def.signupUrl) {
+      const li = el("li");
+      li.appendChild(
+        el(
+          "a",
+          "oneflow-ai__trouble-link",
+          { href: def.signupUrl, target: "_blank", rel: "noopener" },
+          def.keyless ? `Get ${def.label.split(" — ")[0]} ↗` : `Check your key on ${def.label} ↗`,
+        ),
+      );
+      list.appendChild(li);
+    }
+    details.appendChild(list);
+    return details;
+  }
+
+  function renderJudge(ctx) {
+    const section = el("div", "oneflow-judge", {
+      role: "group",
+      "aria-labelledby": "oneFlowJudgeTitle",
+    });
+    section.appendChild(el("p", "oneflow-judge__title", { id: "oneFlowJudgeTitle" }, JUDGE_TITLE));
+    section.appendChild(el("p", "oneflow-judge__lede", {}, JUDGE_LEDE));
+    section.appendChild(renderJudgeCards(ctx));
+    section.appendChild(renderJudgeFields());
+    if (judgeTestedCurrent() && state.judge.testedModel) {
+      section.appendChild(
+        el(
+          "p",
+          "oneflow-judge__ok",
+          { role: "status" },
+          `✓ ${state.judge.testedModel} answered. Press Save & continue to keep it.`,
+        ),
+      );
+    }
+    if (state.judge.failure) section.appendChild(renderJudgeTrouble());
+    return section;
+  }
+
   function render(container, ctx) {
     lastCtx = ctx;
     fields.value = null;
+    fields.judgeKey = null;
+    fields.judgeModel = null;
+    fields.judgeBaseUrl = null;
     const body = el("div", "oneflow-ai");
     body.appendChild(renderProviderCards(ctx));
     body.appendChild(renderKeyPath());
@@ -615,8 +1055,27 @@
         }, 0);
       }
     }
-    if (state.phase === "saved" && state.pending && state.pending.def.id === "gemini") {
+    if (
+      (state.phase === "saved" || state.phase === "judge") &&
+      state.pending &&
+      state.pending.def.id === "gemini"
+    ) {
       body.appendChild(renderReceipt());
+    }
+    if (state.phase === "judge" && state.judge) {
+      const section = renderJudge(ctx);
+      body.appendChild(section);
+      // Like the consent row, the offer lands below the fold: bring it into
+      // view once, when it first appears, so "Test judge key" never shows
+      // without its question.
+      if (!state.judge.shown) {
+        state.judge.shown = true;
+        setTimeout(() => {
+          if (typeof section.scrollIntoView === "function") {
+            section.scrollIntoView({ block: "center" });
+          }
+        }, 0);
+      }
     }
     if (state.lastFailure) body.appendChild(renderTrouble());
     container.appendChild(body);
@@ -649,6 +1108,17 @@
     return typeof model === "string" ? model : "";
   }
 
+  /** The writer's Flash alias rule, shared with the judge default. */
+  function normalizeGeminiDefault(selected) {
+    const normalize = window.JobBoredNormalizeGeminiFlashPreference;
+    if (typeof normalize === "function") return normalize(selected);
+    const bare = String(selected || "").replace(/^models\//i, "").toLowerCase();
+    return !selected || bare === "gemini-flash" ||
+      bare === "gemini-flash-latest" || bare === "gemini-3.7-flash"
+      ? "gemini-flash"
+      : selected;
+  }
+
   function resolveModel(def) {
     const cfg = liveConfig();
     const fromCfg =
@@ -657,13 +1127,15 @@
         : "";
     const selected = fromCfg || defaultModelFor(def.id);
     if (def.id !== "gemini") return selected;
-    const normalize = window.JobBoredNormalizeGeminiFlashPreference;
-    if (typeof normalize === "function") return normalize(selected);
-    const bare = selected.replace(/^models\//i, "").toLowerCase();
-    return !selected || bare === "gemini-flash" ||
-      bare === "gemini-flash-latest" || bare === "gemini-3.7-flash"
-      ? "gemini-flash"
-      : selected;
+    return normalizeGeminiDefault(selected);
+  }
+
+  /** The prefilled judge model: the catalog default, except xAI's flagship. */
+  function judgeDefaultModel(def) {
+    if (def.defaultModel) return def.defaultModel;
+    const selected = defaultModelFor(def.id);
+    if (def.id !== "gemini") return selected;
+    return normalizeGeminiDefault(selected);
   }
 
   function resolveJobBoredApiUrl() {
@@ -914,10 +1386,178 @@
       );
       return;
     }
-    if (def.id === "gemini") {
-      // The ✓ receipt rides the success hold.
-      state.phase = "saved";
-      repaint(ctx, "");
+    // A landed save earns the judge offer (and the Gemini ✓ receipt rides it).
+    enterJudgePhase(ctx);
+  }
+
+  /**
+   * The optional grading model, offered only after the writing key is saved
+   * on this computer: with no local pin there is no server-side grading to
+   * configure, and after "Not now" offering another computer save would
+   * contradict the answer just given.
+   */
+  function enterJudgePhase(ctx) {
+    const def = judgeById("openrouter");
+    state.judge = {
+      provider: def.id,
+      keyDraft: "",
+      modelDraft: judgeDefaultModel(def),
+      baseUrlDraft: def.defaultBaseUrl || "",
+      testedCombo: "",
+      testedModel: "",
+      failure: null,
+      shown: false,
+    };
+    state.phase = "judge";
+    repaint(ctx, "");
+  }
+
+  /** Test the judge form against POST /api/llm-config/judge-test. Saves nothing. */
+  async function testJudgeKey(ctx) {
+    if (!state.judge || state.judge.testing) return;
+    state.judge.testing = true;
+    const form = judgeReadForm();
+    const def = judgeById(form.provider);
+    judgeRememberForm(form);
+    const invalid = judgeFormError(def, form);
+    if (invalid) {
+      state.judge.testing = false;
+      state.judge.failure = null;
+      repaint(ctx, invalid, "error");
+      return;
+    }
+    if (ctx && typeof ctx.setBusy === "function") {
+      ctx.setBusy(ACTION_JUDGE_TEST, [
+        { label: "Testing your judge key…", state: "active" },
+      ]);
+    }
+    const startedAt = Date.now();
+    let answer = null;
+    let unreachable = false;
+    let rejected = "";
+    try {
+      const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config/judge-test", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: def.id,
+          model: form.model,
+          baseUrl: form.baseUrl,
+          apiKey: form.key,
+        }),
+      });
+      try {
+        answer = resp ? await resp.json() : null;
+      } catch (_) {
+        answer = null;
+      }
+      if (!resp || resp.ok === false) {
+        rejected = (answer && typeof answer.error === "string" && answer.error.trim()) || "";
+      }
+    } catch (_) {
+      // The failure is shown on screen; the error itself may echo the
+      // request, so it is not logged.
+      unreachable = true;
+    }
+    if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
+    if (!state.judge) return;
+    state.judge.testing = false;
+    const ms = Date.now() - startedAt;
+    if (unreachable) {
+      emit(steps().KEY_CHECK, { beat: "ai", provider: def.id, ok: false, ms, role: "judge" });
+      state.judge.failure = { provider: def.id, message: "" };
+      repaint(
+        ctx,
+        "Couldn't reach JobBored on this computer, so the key couldn't be " +
+          "tested. Press Test again, or Skip for now — the judge can wait " +
+          "until Settings.",
+        "error",
+      );
+      return;
+    }
+    if (rejected || !answer || answer.ok !== true) {
+      emit(steps().KEY_CHECK, { beat: "ai", provider: def.id, ok: false, ms, role: "judge" });
+      const message = rejected || judgeFailureMessage(def, answer);
+      state.judge.failure = { provider: def.id, message };
+      repaint(ctx, message, "error");
+      return;
+    }
+    state.judge.failure = null;
+    state.judge.testedCombo = judgeCombo(form);
+    state.judge.testedModel = String((answer && answer.model) || form.model).trim() || form.model;
+    emit(steps().KEY_CHECK, { beat: "ai", provider: def.id, ok: true, ms, role: "judge" });
+    repaint(
+      ctx,
+      `✓ ${state.judge.testedModel} answered. Press Save & continue to keep it as your grading model.`,
+      "success",
+    );
+  }
+
+  /**
+   * Save the tested judge alongside the writer pin (MREV K1), then leave the
+   * beat. The button press IS the consent for this write (GFX B2-4): unlike
+   * the writer's save, which rides Check & continue as a side effect, saving
+   * is this button's whole job, and the privacy line above it names the file.
+   */
+  async function saveJudgeAndContinue(ctx) {
+    const pending = state.pending;
+    if (!pending || !state.judge) return;
+    // A stale footer can show Save after an edit: re-test rather than trust.
+    if (!judgeTestedCurrent()) {
+      await testJudgeKey(ctx);
+      if (!judgeTestedCurrent()) return;
+    }
+    const form = judgeReadForm();
+    const { def, value } = pending;
+    if (ctx && typeof ctx.setBusy === "function") {
+      ctx.setBusy(ACTION_JUDGE_SAVE, [
+        { label: "Saving your grading model…", state: "active" },
+      ]);
+    }
+    let saved = false;
+    let why = "";
+    try {
+      const resp = await apiFetch(resolveJobBoredApiUrl() + "/api/llm-config", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          provider: def.id,
+          model: resolveModel(def),
+          apiKey: def.baseUrlField ? "" : String(value || ""),
+          baseUrl: def.baseUrlField ? String(value || "") : "",
+          judge: {
+            provider: form.provider,
+            model: form.model,
+            baseUrl: form.baseUrl,
+            apiKey: form.key,
+          },
+        }),
+      });
+      let answer = null;
+      try {
+        answer = resp ? await resp.json() : null;
+      } catch (_) {
+        answer = null;
+      }
+      saved = !!(resp && resp.ok !== false);
+      if (!saved) {
+        why = (answer && typeof answer.error === "string" && answer.error.trim()) || "";
+      }
+    } catch (_) {
+      saved = false;
+    }
+    if (ctx && typeof ctx.clearBusy === "function") ctx.clearBusy();
+    if (!state.judge) return;
+    if (!saved) {
+      repaint(
+        ctx,
+        why
+          ? `The judge model wasn't saved: ${why} Press Save & continue to try again, or Skip for now.`
+          : "Couldn't reach JobBored on this computer, so the judge wasn't " +
+            "saved. Press Save & continue to try again, or Skip for now.",
+        "warn",
+      );
+      return;
     }
     await finish(ctx);
   }
@@ -942,6 +1582,7 @@
     if (run !== state.checkRun || pending !== state.pending) return;
     state.phase = "key";
     state.pending = null;
+    state.judge = null;
     state.keyDraft = "";
     fields.value = null;
     syncActions();
@@ -965,6 +1606,15 @@
     if (actionId === ACTION_CONTINUE && state.pending) {
       return finish(context);
     }
+    if (actionId === ACTION_JUDGE_TEST && state.pending) {
+      return testJudgeKey(context);
+    }
+    if (actionId === ACTION_JUDGE_SAVE && state.pending) {
+      return saveJudgeAndContinue(context);
+    }
+    if (actionId === ACTION_JUDGE_SKIP && state.pending) {
+      return finish(context);
+    }
     return undefined;
   }
 
@@ -986,6 +1636,8 @@
     HEADLINE,
     SUB,
     PROVIDERS,
+    JUDGE_PROVIDERS,
+    JUDGE_TITLE,
     GEMINI_BONUS_LINE,
     WEAK_MATERIALS_MODEL_WARNING,
     handleAction,

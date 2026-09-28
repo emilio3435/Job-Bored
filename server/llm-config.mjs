@@ -10,9 +10,12 @@ import {
 import { homedir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import {
+  chat,
   isHttpUrl,
   normalizeProvider,
   providerAlias,
+  resolveProvider,
+  routeDeadlineSignal,
 } from "./ai/provider.mjs";
 import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlashWireModel } from "./model-family.mjs";
 
@@ -488,4 +491,92 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
     env,
   );
   res.json(redactLlmConfig(saved));
+}
+
+/**
+ * POST /api/llm-config/judge-test.
+ *
+ * Asks a judge candidate to answer once, without saving anything. The
+ * onboarding AI beat uses it for its Test button; Settings may reuse it.
+ *
+ * - The body is a judge pin: { provider, model, baseUrl?, apiKey? }.
+ * - A malformed body is a 400. A well-formed body whose provider does not
+ *   answer is a 200 with { ok: false, ... }: the test ran, the key failed.
+ * - An omitted apiKey falls back to the stored judge key under the POST's
+ *   same-target rule, so re-testing a saved judge needs no re-typing.
+ * - The reply never carries the key: ProviderApiError's message holds only
+ *   the status, the provider code and the class.
+ * - baseUrl is caller-supplied by design (Local, xAI, self-hosted). This
+ *   route calls exactly what the grader would call later; it takes no
+ *   read of the stored pin beyond the key fallback, and writes nothing.
+ * @param {import("express").Request} req
+ * @param {import("express").Response} res
+ * @param {NodeJS.ProcessEnv} [env]
+ * @param {{ fetchImpl?: typeof globalThis.fetch }} [options]
+ */
+export async function handleJudgeTest(req, res, env = process.env, options = {}) {
+  const rawBody = req && req.body;
+  if (!rawBody || typeof rawBody !== "object" || Array.isArray(rawBody)) {
+    res.status(400).json({ error: "Body must be a JSON object.", code: "llm_invalid" });
+    return;
+  }
+  const body = /** @type {Record<string, unknown>} */ (rawBody);
+  const provider = normalizeProvider(asString(body.provider));
+  const model = asString(body.model);
+  const baseUrl = asString(body.baseUrl);
+  if (!provider) {
+    res.status(400).json({ error: "judge test needs a supported provider.", code: "llm_invalid" });
+    return;
+  }
+  if (!model || model.length > 200) {
+    res.status(400).json({ error: "judge test needs a model.", code: "llm_invalid" });
+    return;
+  }
+  if (baseUrl && (!isHttpUrl(baseUrl) || baseUrl.length > 2048)) {
+    res.status(400).json({ error: "baseUrl must be an http(s) URL.", code: "llm_invalid" });
+    return;
+  }
+  let apiKey = asString(body.apiKey);
+  if (!apiKey) {
+    const stored = loadLlmConfig(env);
+    const sameTarget =
+      stored?.judge
+      && stored.judge.provider === provider
+      && asString(stored.judge.baseUrl).replace(/\/+$/, "") === baseUrl.replace(/\/+$/, "");
+    apiKey = sameTarget && stored?.judge ? asString(stored.judge.apiKey) : "";
+  }
+  const pin = {
+    provider,
+    model: provider === "gemini" ? resolveGeminiFlashWireModel(model) : model,
+    apiKey,
+    baseUrl,
+  };
+  const resolved = resolveProvider(pin);
+  if (!resolved.configured) {
+    res.json({ ok: false, error: resolved.reason, code: "judge_unconfigured", retryable: false });
+    return;
+  }
+  const startedAt = Date.now();
+  try {
+    const answer = await chat({
+      pin,
+      messages: [{ role: "user", content: "Reply with the word ok." }],
+      signal: routeDeadlineSignal(req, res),
+      timeoutMs: 30_000,
+      ...(options && typeof options.fetchImpl === "function" ? { fetchImpl: options.fetchImpl } : {}),
+    });
+    res.json({ ok: true, provider, model: answer && answer.model ? answer.model : model, ms: Date.now() - startedAt });
+  } catch (error) {
+    const fields = error && typeof error === "object" ? /** @type {Record<string, unknown>} */ (error) : {};
+    const retryable = fields.retryable !== false;
+    const code = typeof fields.providerCode === "string" && fields.providerCode ? fields.providerCode : "judge_unavailable";
+    const upstreamStatus = typeof fields.upstreamStatus === "number" ? fields.upstreamStatus : undefined;
+    res.json({
+      ok: false,
+      error: error instanceof Error && error.message ? error.message : "The judge test failed.",
+      code,
+      retryable,
+      ...(upstreamStatus === undefined ? {} : { upstreamStatus }),
+    });
+  }
 }
