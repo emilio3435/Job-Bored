@@ -343,3 +343,70 @@ describe("P2 — the copy says what it means", () => {
     assert.match(out, /case__src--derived" aria-hidden="true">(matched here|matched|keyword match)</);
   });
 });
+
+/* ------------------------------------------------------------
+   DFIT — the instrument is operable by assistive tech.
+   DESIGN.md §6.5 tests 19–22, written red-first.
+   ------------------------------------------------------------ */
+describe("DFIT — the instrument is operable by assistive tech", () => {
+  const K = "Strong fit (score: 8/10). Deep design-systems ownership. " +
+    "Matches: Design systems · Accessibility. Concerns: No Go experience. Application: Single-step apply.";
+  function dfitHtml(patch, depsOver = {}) {
+    const base = baseDeps().vm.job;
+    return html({ ...depsOver, vmPatch: { ...patch, enrichment: { ...base.enrichment, ...((patch && patch.enrichment) || {}) } } });
+  }
+
+  it("19. every readout button controls a labelled region", () => {
+    const out = dfitHtml({ fitScore: 6, enrichment: { fitAssessment: K } });
+    const buttons = [...out.matchAll(/<button type="button" class="case__fit-ro" id="([^"]+)" data-ro="([a-z]+)"[^>]*aria-expanded="(true|false)" aria-controls="([^"]+)"/g)];
+    assert.ok(buttons.length >= 3, "three readout buttons render");
+    for (const [, id, key, , panelId] of buttons) {
+      assert.ok(new RegExp('<div class="case__fit-panel" id="' + panelId + '" role="region" aria-labelledby="' + id + '"').test(out),
+        key + " controls a labelled region");
+    }
+  });
+
+  it("20. the dial is one labelled image; its ink is hidden", () => {
+    const out = dfitHtml({ fitScore: 6, enrichment: { fitAssessment: K } });
+    assert.match(out, /<div class="case__fit-dial" role="img" aria-label="Fit score 6 out of 10, solid fit"/);
+    const svgs = (out.match(/<svg /g) || []).length;
+    const hiddenSvgs = (out.match(/<svg[^>]*aria-hidden="true"/g) || []).length;
+    assert.ok(svgs > 0 && svgs === hiddenSvgs, "every svg is aria-hidden");
+    const meters = [...out.matchAll(/<span class="case__fit-meter[^"]*"([^>]*)>/g)];
+    assert.ok(meters.length >= 3, "the meters render");
+    for (const [, attrs] of meters) assert.match(attrs, /aria-hidden="true"/, "meters are decoration");
+  });
+
+  it("21. Why it fits labels the section; ids stay unique across dossiers", () => {
+    const out = dfitHtml({ fitScore: 6, enrichment: { fitAssessment: K } });
+    assert.match(out, /<section class="case__fit"[^>]*aria-labelledby="case-fit-job-1-h"/);
+    assert.match(out, /<h4 class="case__fit-h" id="case-fit-job-1-h">Why it fits<\/h4>/);
+    const mount = { innerHTML: "" };
+    Case.render(mount, Case.model.buildCaseModel("job-2", baseDeps()));
+    assert.match(mount.innerHTML, /case-fit-job-2-h/);
+    assert.doesNotMatch(mount.innerHTML, /case-fit-job-1-/);
+    assert.doesNotMatch(out, /case-fit-job-2-/);
+  });
+
+  it("22. evidence rows are disclosures with real bodies", () => {
+    const keywords = {
+      percentage: 74, foundCount: 1, partialCount: 1, missingTerms: [{ label: "Kubernetes" }],
+      uniqueTerms: [
+        { label: "5+ years design systems", status: "found", evidence: { snippet: "Led design for seven years.", source: "resume" } },
+        { label: "React", status: "found", evidence: { snippet: "Built the component library.", source: "resume" } },
+        { label: "Kubernetes", status: "missing" },
+      ],
+      byLabel: new Map(),
+    };
+    const deps = baseDeps({ keywords, scorecard: null });
+    const base = deps.vm.job;
+    deps.vm = { job: { ...base, fitScore: 6, enrichment: { ...base.enrichment, fitAssessment: K } } };
+    const mount = { innerHTML: "" };
+    Case.render(mount, Case.model.buildCaseModel("job-1", deps));
+    const details = [...mount.innerHTML.matchAll(/<details class="case__fit-ev"[^>]*>([\s\S]*?)<\/details>/g)];
+    assert.ok(details.length >= 2, "rows with evidence disclose");
+    for (const [, body] of details) {
+      assert.match(body, /<summary>[\s\S]*?\S[\s\S]*?<\/summary>[\s\S]*?\S/, "non-empty summary, non-empty body");
+    }
+  });
+});

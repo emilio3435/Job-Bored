@@ -726,3 +726,125 @@ describe("CASEWHY — the model carries the fit reason and the match score", () 
     assert.equal(parse(42), null);
   });
 });
+
+/* ------------------------------------------------------------
+   DFIT — one canonical fit score (column H) and the gauge model.
+   DESIGN.md §6.5 tests 1–8, written red-first: every one fails
+   before the model change. Column U (Match Score) is removed from
+   the Dossier because the client cannot tell which of its two
+   writers wrote the cell; H is the only fit number.
+   ------------------------------------------------------------ */
+function loadDawn() {
+  const sandbox = { window: {} };
+  vm.runInNewContext(readFileSync(join(repoRoot, "dawn-data.js"), "utf8"), sandbox, { filename: "dawn-data.js" });
+  assert.equal(typeof sandbox.window.JobBoredDawn.data.normalizeFitUnits, "function", "dawn-data must export normalizeFitUnits");
+  return sandbox.window.JobBoredDawn.data;
+}
+const normalizeFitUnits = loadDawn().normalizeFitUnits;
+
+describe("DFIT — the canonical fit score and the fit gauge model", () => {
+  const K7 = "Interesting fit (score: 7/10). Strong design-systems ownership with real accessibility depth. " +
+    "Matches: Design systems · Accessibility. Concerns: Prototyping in code. Application: Single-step apply.";
+  function withJob(patch) {
+    const d = baseDeps();
+    d.vm = { job: { ...d.vm.job, ...patch, enrichment: { ...d.vm.job.enrichment, ...(patch.enrichment || {}) } } };
+    return build(d);
+  }
+
+  it("1. H is the only fit number: U never reaches the model", () => {
+    const m = withJob({ fitScore: 6, matchScore: 9 });
+    assert.equal(m.fitGauge.score.value, 6);
+    assert.equal(m.numbers.fit.value, 6);
+    assert.ok(!("matchScore" in m.numbers), "numbers.matchScore is removed, not nulled");
+  });
+
+  it("2. standing words nest inside the card ring zones", () => {
+    const cases = [
+      [10, "Strong fit", "high"], [8, "Strong fit", "high"],
+      [7, "Solid fit", "mid"], [6, "Solid fit", "mid"],
+      [5, "Mixed fit", "mid"],
+      [4, "Weak fit", "low"], [1, "Weak fit", "low"],
+    ];
+    for (const [fitScore, standing, zone] of cases) {
+      const score = withJob({ fitScore }).fitGauge.score;
+      assert.equal(score.standing, standing, "standing of " + fitScore);
+      assert.equal(score.zone, zone, "zone of " + fitScore);
+      assert.equal(score.max, 10);
+    }
+  });
+
+  it("3. an unscored H is null, never 0 (the Number(null) === 0 trap)", () => {
+    for (const fitScore of ["", null, undefined, false]) {
+      const m = withJob({ fitScore });
+      assert.equal(m.fitGauge.score, null, "score of " + String(fitScore));
+      assert.equal(m.numbers.fit, null, "numbers.fit of " + String(fitScore));
+    }
+  });
+
+  it("4. writtenAt names the score K was written for, compared the way H was written", () => {
+    const moved = withJob({ fitScore: 6, enrichment: { fitAssessment: K7 } });
+    assert.equal(moved.fitGauge.reasons.writtenAt, 7);
+    const same = withJob({ fitScore: 7, enrichment: { fitAssessment: "Strong fit (score: 7.4/10). Solid overlap. Matches: SQL. Concerns: None. Application: Standard." } });
+    assert.equal(same.fitGauge.reasons.writtenAt, null, "7.4 was written to H as 7");
+  });
+
+  it("5. one state per DESIGN §5 row, and null when there is nothing at all", () => {
+    const full = withJob({ enrichment: { fitAssessment: K7 } });
+    assert.equal(full.fitGauge.state, "full");
+    const noResume = build(baseDeps({ keywords: null, resume: null }));
+    assert.equal(noResume.fitGauge.state, "no-resume");
+    assert.equal(noResume.fitGauge.requirementsTotal, 2);
+    const matching = build(baseDeps({ keywords: null, keywordsPending: true, resume: { filename: "resume.pdf", addedAt: "2026-08-01" } }));
+    assert.equal(matching.fitGauge.state, "matching");
+    const loading = withJob({ enrichment: { status: "loading", mustHaves: [], niceToHaves: [], toolsAndStack: [], talkingPoints: [] } });
+    assert.equal(loading.fitGauge.state, "loading");
+    const closed = withJob({ stage: "rejected", enrichment: { fitAssessment: K7 } });
+    assert.equal(closed.fitGauge.state, "closed");
+    /* Fit missing: no dial, but the reasons stay. */
+    const missing = withJob({ fitScore: null, enrichment: { fitAssessment: K7 } });
+    assert.equal(missing.fitGauge.score, null);
+    assert.deepEqual(missing.fitGauge.reasons.matches, ["Design systems", "Accessibility"]);
+    /* Nothing at all: no H, no K, no requirements, not loading. */
+    const d = baseDeps({ keywords: null, resume: { filename: "resume.pdf", addedAt: "" } });
+    d.vm = { job: { ...d.vm.job, fitScore: null, requirements: [], skills: [], tags: [],
+      enrichment: { roleInOneLine: "", mustHaves: [], niceToHaves: [], toolsAndStack: [], talkingPoints: [], status: "ready", fitAssessment: "" } } };
+    assert.equal(build(d).fitGauge, null);
+  });
+
+  it("6. with the instrument present the verdict drops its standing clause", () => {
+    const v = withJob({ enrichment: { fitAssessment: K7 } }).verdict;
+    assert.equal(v.standing, "", "the dial is the one home of the number");
+    assert.equal(v.gap, "The cover letter is being written now.", "gap kept");
+    /* Loading and terminal rungs are unchanged. */
+    const loading = withJob({ enrichment: { status: "loading" } }).verdict;
+    assert.equal(loading.standing, "Reading the posting");
+    const terminal = withJob({ stage: "rejected", appliedAt: "2026-08-20", enrichment: { fitAssessment: K7 } }).verdict;
+    assert.equal(terminal.standing, "rejected, applied 2026-08-20");
+  });
+
+  it("7. gauge requirement counts equal the They-want lane statuses", () => {
+    const d = baseDeps({
+      keywords: { percentage: 50, foundCount: 1, partialCount: 1, missingTerms: [{ label: "Gamma stack" }],
+        byLabel: new Map([["alpha systems", "found"], ["beta tooling", "partial"], ["gamma stack", "missing"]]) },
+    });
+    d.vm = { job: { ...d.vm.job, requirements: ["Alpha systems", "Beta tooling", "Gamma stack"], skills: [], tags: [],
+      enrichment: { ...d.vm.job.enrichment, mustHaves: [] } } };
+    const m = build(d);
+    const req = m.fitGauge.requirements;
+    assert.deepEqual([req.met, req.partial, req.missing, req.total], [1, 1, 1, 3]);
+    const statuses = m.theyWant.requirements.map((r) => r.status);
+    assert.equal(statuses.filter((s) => s === "found").length, req.met);
+    assert.equal(statuses.filter((s) => s === "partial").length, req.partial);
+    assert.equal(statuses.filter((s) => s === "missing").length, req.missing);
+    assert.deepEqual([req.groups.met.length, req.groups.partial.length, req.groups.missing.length], [1, 1, 1]);
+  });
+
+  it("8. the dial value equals the card ring value for every unit shape", () => {
+    for (const raw of [6, "6", 6.4, 0.7, 64]) {
+      const expected = normalizeFitUnits(raw).value;
+      const m = withJob({ fitScore: raw });
+      assert.equal(m.fitGauge.score.value, expected, "dial of " + JSON.stringify(raw));
+      assert.equal(m.numbers.fit.value, expected, "numbers.fit of " + JSON.stringify(raw));
+    }
+  });
+});
