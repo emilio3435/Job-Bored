@@ -152,6 +152,19 @@ describe("RESD source-backed attribution", () => {
     assert.ok(result.rejected.some((item) => item.reason === "missing_source_employer" || item.reason === "partial_employer_name"));
   });
 
+  it("R2 rejects an extra shortened role beside the correctly quoted role", async () => {
+    const header = "Aster Regional Works — Senior Product Analyst, 2021–2023";
+    const claim = "Improved inventory forecasts for neighborhood shops using weekly sales data.";
+    const source = ["EXPERIENCE", header, `- ${claim}`].join("\n");
+    const reply = { employers: [{ name: "Aster Regional Works", sourceQuote: header, roles: [
+      { title: "Senior Product Analyst", sourceQuote: header, claims: [] },
+      { title: "Product Analyst", sourceQuote: header, claims: [{ text: claim, sourceQuote: claim }] },
+    ] }] };
+    const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
+    assert.equal(result.ingest.status, "failed");
+    assert.ok(result.rejected.some((item) => item.reason === "partial_role_title"));
+  });
+
   it("R1 accepts a dated umbrella employer with two grounded role lines", async () => {
     const source = [
       "EXPERIENCE",
@@ -185,6 +198,18 @@ describe("RESD source-backed attribution", () => {
       { title: "Product Analyst", sourceQuote: "Aster Works — Product Analyst, 2021–2023", claims: [
         { text: "Improved inventory forecasts for neighborhood shops using weekly sales data.", sourceQuote: "Improved inventory forecasts for neighborhood shops using weekly sales data." },
       ] },
+    ] }] };
+    const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
+    assert.equal(result.ingest.status, "ready", JSON.stringify(result.rejected.map((item) => item.reason)));
+  });
+
+  it("R1 accepts an unpunctuated umbrella bullet and a separate education role", async () => {
+    const first = "Improved inventory forecasts for neighborhood shops using weekly sales data";
+    const second = "Built a dashboard that helped store managers spot delayed deliveries.";
+    const source = ["EXPERIENCE", "Aster Works | 2020–2025", "Senior Analyst | 2020–2022", `- ${first}`, "Lead Analyst | 2022–2025", `- ${second}`, "EDUCATION", "State University", "Graduate Research Assistant | 2017–2021"].join("\n");
+    const reply = { employers: [{ name: "Aster Works", sourceQuote: "Aster Works | 2020–2025", roles: [
+      { title: "Senior Analyst", sourceQuote: "Senior Analyst | 2020–2022", claims: [{ text: first, sourceQuote: first }] },
+      { title: "Lead Analyst", sourceQuote: "Lead Analyst | 2022–2025", claims: [{ text: second, sourceQuote: second }] },
     ] }] };
     const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
     assert.equal(result.ingest.status, "ready", JSON.stringify(result.rejected.map((item) => item.reason)));

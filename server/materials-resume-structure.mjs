@@ -171,7 +171,7 @@ export function aliasesFor(name) {
  * @param {string} line trimmed line
  * @returns {"experience" | "education" | "credentials" | "skip" | "summary" | "other" | null}
  */
-function sectionKind(line) {
+export function sectionKind(line) {
   const t = line.replace(/[:\s]+$/, "");
   if (!(SECTION_CAPS_RE.test(t) || SECTION_WORDS_RE.test(t))) return null;
   if (/EDUCATION|ACADEMIC/i.test(t)) return "education";

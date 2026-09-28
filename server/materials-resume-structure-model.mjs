@@ -7,7 +7,7 @@
  */
 
 import { callJsonStage } from "./materials-writer.mjs";
-import { aliasesFor, BULLET_RE, parseHeaderLine, parseResumeStructure } from "./materials-resume-structure.mjs";
+import { aliasesFor, BULLET_RE, parseHeaderLine, parseResumeStructure, sectionKind } from "./materials-resume-structure.mjs";
 
 /** Stage name: keys run records and the llm.json per-stage fallback. */
 export const RESUME_STRUCTURE_STAGE = "resume.structure";
@@ -192,6 +192,16 @@ function validateQuotedStructure(body, resumeText) {
   }
   entries.sort((a, b) => a.at - b.at);
   const lines = String(resumeText || "").split(/\r?\n/).map((line) => line.trim());
+  const sourceLines = [];
+  let lineCursor = 0;
+  for (const line of lines) {
+    const normalized = groundedText(line);
+    if (!normalized) continue;
+    const at = source.indexOf(normalized, lineCursor);
+    if (at < 0) continue;
+    sourceLines.push({ at, end: at + normalized.length, line });
+    lineCursor = at + normalized.length;
+  }
   /** @param {string} name */
   const entryForName = (name) => {
     const expected = aliasesFor(name);
@@ -210,11 +220,17 @@ function validateQuotedStructure(body, resumeText) {
       }
     }
   }
+  let sourceSection = "other";
   for (let i = 0; i + 1 < lines.length; i += 1) {
     const candidate = lines[i];
+    const kind = sectionKind(candidate);
+    if (kind) { sourceSection = kind; continue; }
+    if (/^EXPERIENCE\b/i.test(candidate)) { sourceSection = "experience"; continue; }
+    if (sourceSection !== "experience" || BULLET_RE.test(candidate)) continue;
     const next = parseHeaderLine(lines[i + 1]);
     if (!candidate || candidate.length > 120 || /[.!?]$/.test(candidate) || !next?.title || next.name) continue;
     const candidateHeader = parseHeaderLine(candidate);
+    if (candidateHeader?.title && !candidateHeader.name) continue;
     const name = candidateHeader?.name || candidate;
     const entry = entryForName(name);
     if (!entry) {
@@ -243,6 +259,13 @@ function validateQuotedStructure(body, resumeText) {
       const title = grounded(rawRole.title, rawRole.sourceQuote, "role");
       if (!title) continue;
       if (ownerAt(title.at) !== entry) { reject("role", rawRole.title, "unsupported_employer_attribution"); continue; }
+      const sourceLine = sourceLines.find((line) => line.at <= title.at && title.at < line.end);
+      const parsedTitle = sourceLine ? parseHeaderLine(sourceLine.line)?.title : "";
+      const prefix = sourceLine ? source.slice(sourceLine.at, title.at).trim() : "";
+      if (!sourceLine || (parsedTitle && groundedText(parsedTitle) !== groundedText(title.value))
+        || (!parsedTitle && prefix && !/[-|:]\s*$/.test(prefix))) {
+        reject("role", rawRole.title, "partial_role_title"); continue;
+      }
       const index = employer.roles.length;
       employer.roles.push({ title: title.value, start: date(rawRole, "start", title.at, nextEmployerAt), end: date(rawRole, "end", title.at, nextEmployerAt) });
       entry.roles.push({ at: title.at, raw: rawRole, index });
