@@ -1,9 +1,13 @@
 import assert from "node:assert/strict";
 import { describe, it, beforeEach, afterEach } from "node:test";
-import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
+import { mkdtemp, rm, readFile, mkdir, writeFile, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
+import { buildManifest } from "../server/application-materials.mjs";
+import { buildLedger } from "../server/materials-ledger-build.mjs";
+import { resolveLedgerPath, writeLedgerAtomic } from "../server/materials-ledger.mjs";
+import { parseResumeStructure } from "../server/materials-resume-structure.mjs";
 import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../server/materials-resume-structure-model.mjs";
 
@@ -53,6 +57,20 @@ function baseDeps(dir, extra = {}) {
     resolvePin: async (loaded) => ({ ...loaded, resolvedModel: "stub" }),
     scrapeJob: async () => ({ description: JD_TEXT }),
     fetchImpl: stub.fetchImpl,
+    structureCallStage: async ({ userText }) => {
+      const source = String(userText).split("<untrusted-resume>\n")[1]?.split("\n</untrusted-resume>")[0] || "";
+      const rules = parseResumeStructure(source);
+      return { employers: rules.employers.map((employer) => ({
+        name: employer.name,
+        sourceQuote: source.split("\n").find((line) => line.includes(employer.name)) || employer.name,
+        roles: employer.roles.map((role, roleIndex) => ({
+          title: role.title,
+          sourceQuote: source.split("\n").find((line) => line.includes(role.title)) || role.title,
+          claims: employer.claims.filter((claim) => claim.roleIndex === roleIndex).map((claim) => ({ text: claim.text, sourceQuote: claim.text })),
+        })),
+        claims: employer.claims.filter((claim) => claim.roleIndex === null).map((claim) => ({ text: claim.text, sourceQuote: claim.text })),
+      })) };
+    },
     openSession: null,
     logoLoader: async () => [],
     targetLogoLoader: async () => null,
@@ -94,6 +112,43 @@ describe("createMaterialsDrafter", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
+  it("R3 keeps the last package and ledger when current-source interpretation fails", async () => {
+    const previous = ["EXPERIENCE", "Old Harbor — Analyst, 2020–2022", "- Built a weekly quality report for a fictional catalog."].join("\n");
+    await writeLedgerAtomic(buildLedger({ profile: null, resumeText: previous }));
+    const beforeLedger = await readFile(resolveLedgerPath());
+    const packageDir = join(dir, "eab-role");
+    await mkdir(packageDir, { recursive: true });
+    await writeFile(join(packageDir, "run.json"), '{"runId":"previous"}\n');
+    await writeFile(join(packageDir, "resume.html"), "<p>Previous package</p>\n");
+    await writeFile(join(packageDir, "cover-letter.html"), "<p>Previous letter</p>\n");
+    await writeFile(join(packageDir, "resume-source.json"), '{"source":"previous"}\n');
+    await writeFile(join(packageDir, "job-description.md"), "Previous posting summary.\n");
+    const oldTime = new Date("2025-01-01T00:00:00.000Z");
+    await utimes(join(packageDir, "resume.html"), oldTime, oldTime);
+    await utimes(join(packageDir, "cover-letter.html"), oldTime, oldTime);
+    let pipelineCalls = 0;
+    const drafter = createMaterialsDrafter(baseDeps(dir, {
+      fetchImpl: async () => ({ ok: false, status: 403, json: async () => ({ error: { message: "denied" } }) }),
+      structureCallStage: async () => { throw new Error("model unavailable"); },
+      pipeline: async () => { pipelineCalls += 1; throw new Error("pipeline must not run"); },
+    }));
+    await drafter.enqueue(request());
+    await drafter.runUntilIdle();
+    const pending = JSON.parse(await readFile(join(packageDir, "pending.json"), "utf8"));
+    assert.equal(pending.progress.phase, "failed");
+    assert.equal(pending.progress.code, "resume_source_review");
+    assert.match(pending.progress.message, /resume|source/i);
+    assert.equal(pipelineCalls, 0);
+    assert.deepEqual(await readFile(resolveLedgerPath()), beforeLedger);
+    assert.equal(await readFile(join(packageDir, "run.json"), "utf8"), '{"runId":"previous"}\n');
+    assert.equal(await readFile(join(packageDir, "resume.html"), "utf8"), "<p>Previous package</p>\n");
+    assert.equal(await readFile(join(packageDir, "cover-letter.html"), "utf8"), "<p>Previous letter</p>\n");
+    assert.equal(await readFile(join(packageDir, "resume-source.json"), "utf8"), '{"source":"previous"}\n');
+    assert.equal(await readFile(join(packageDir, "job-description.md"), "utf8"), "Previous posting summary.\n");
+    const manifest = await buildManifest("eab-role", { root: dir });
+    assert.equal(manifest.pending?.progress?.code, "resume_source_review", "failed pending stays visible beside older documents");
+  });
+
   it("publishes a degraded REVIEW package without a pin instead of 409", async () => {
     const drafter = createMaterialsDrafter({
       ...baseDeps(dir),
@@ -124,7 +179,7 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "ledger_empty");
+    assert.equal(pending.progress.code, "resume_source_review");
   });
 
   it("writes REVIEW with jd_unusable when scrape fails on a blurb", async () => {
