@@ -1,4 +1,5 @@
 /** The writer receives instructions here; all supplied text remains data. */
+import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
 
 /** @param {unknown} value */
 function fencedJson(value) {
@@ -16,7 +17,7 @@ export function buildRepairPrompt({ feature, instruction = "", issues = [], sour
   const shape = feature === "cover_letter"
     ? [
       "Revise the complete letter as one coherent argument in the candidate's voice.",
-      "Keep the three-paragraph structure and 120–200 body-word constraint.",
+      `Keep the three-paragraph structure and ${MATERIALS_BUDGETS.letter.bodyWords.join("–")} body-word constraint.`,
       "When the instruction or an issue targets the close, write a materially different close.",
     ]
     : [

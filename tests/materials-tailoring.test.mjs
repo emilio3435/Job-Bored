@@ -172,7 +172,7 @@ describe("claims.select proofs per pain point (K4 / P-6)", () => {
   });
 
   it("should select role proof from ranked claims without a select-model call (MREV-6)", async () => {
-    const extract = iheartExtract();
+    const extract = northwindExtract();
     const shortlist = scoreClaims({ extract, ledger: LEDGER, limit: 10 });
     const { fetchImpl, calls } = stubFetch([
       JSON.stringify({
@@ -289,7 +289,7 @@ describe("request payload carries the role's enrichment (C-4)", () => {
 
 describe("letter-only golden on the cached Northwind posting (C-1 / P-1 / K4)", () => {
   it("should give the draft prompt the company, title, outcomes, employer-bound claims and the word band", async () => {
-    const extract = iheartExtract();
+    const extract = northwindExtract();
     const { shortlist, outline } = await plan(extract, "cover_letter");
     const { fetchImpl, calls } = stubFetch([JSON.stringify(LETTER_REPLY)]);
     await draftSlots({ outline, extract, ledger: LEDGER, feature: "cover_letter", letterWords: [120, 200], rankedClaimIds: shortlist.map((item) => item.claimId), pin: PIN, fetchImpl });
@@ -299,7 +299,7 @@ describe("letter-only golden on the cached Northwind posting (C-1 / P-1 / K4)", 
     for (const o of extract.outcomes) assert.ok(user.includes(o.text), `outcome ${o.id} missing`);
     assert.ok(user.includes(`- contoso-book: ${claimOf("contoso-book").text}\n  from: Contoso · Digital Sales Manager · 2021–2026 · metrics: $12M+`), "prompt carries the exact fictional claim, employer and metric");
     assert.match(user, /Letter word band: 120-200 words/);
-    assert.match(user, /90% of Americans/, "company facts from the posting");
+    assert.match(user, /88% of Residents/, "company facts from the posting");
     assert.match(user, /Role family context \(use where the claims support it\):\n- Lead: Lead with book size/);
     assert.match(system, /Letter band: 120-200 words/);
     assert.match(system, /three short letter paragraphs/);

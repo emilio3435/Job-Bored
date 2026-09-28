@@ -17,7 +17,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { MATERIALS_BUDGETS } from "../server/materials-fit-budget.mjs";
 import { auditCoverLetter, auditResume } from "../server/materials-quality.mjs";
-import { buildRepairRequestPayload } from "../server/materials-repair.mjs";
+import { buildRepairPrompt } from "../server/materials-repair-prompt.mjs";
 import { letterWordBand, listFamilies, resolveFamily } from "../server/materials-templates.mjs";
 
 let failures = 0;
@@ -85,26 +85,11 @@ try {
     "no capabilities section is never flagged",
   );
 
-  const expand = buildRepairRequestPayload(
-    {
-      slug: "contract", company: "Co", title: "T",
-      quality: { documents: { cover_letter: { status: "review", issues: [{ code: "cover_letter_too_short" }] } } },
-    },
-    { feature: "cover_letter" },
-  );
-  check(expand.repair.strategy === "expand", "short letter repairs by expanding");
+  const repairPrompt = buildRepairPrompt({ feature: "cover_letter", sourceText: "Example letter" });
   check(
-    expand.payload.notes.includes(`toward ${bandMin} body words`),
-    `expand notes name the table floor (${bandMin})`,
+    repairPrompt.includes(`${bandMin}–${bandMax} body-word constraint`),
+    `repair prompt names the table band ${bandMin}–${bandMax}`,
   );
-  const fallback = buildRepairRequestPayload(
-    {
-      slug: "contract", company: "Co", title: "T",
-      quality: { documents: { cover_letter: { status: "review", issues: [{ code: "some_future_code" }] } } },
-    },
-    { feature: "cover_letter" },
-  );
-  check(fallback.repair.strategy === "collapse", "unknown issues collapse by default");
 
   for (const { id } of listFamilies()) {
     check(

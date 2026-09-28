@@ -242,8 +242,8 @@ const INTEL_COMPANY = { text: '```json\n{"domain":"acmeanalytics.com","products"
 const LETTER = {
   hook: "I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads, and I want to run paid acquisition at Acme Analytics.",
   companyInsight: "In August 2026 Acme Analytics launched Spend Graph for retail media measurement.",
-  proof1: "At Northwind I drove 130% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
-  proof2: "I also shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
+  proof1: "At Northwind I drove 125% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
+  proof2: "I also shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
   ask: "I want to own the spend reporting at Acme Analytics next. Could we compare one live account plan?",
 };
 
