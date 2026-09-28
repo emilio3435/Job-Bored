@@ -35,14 +35,17 @@
     }
   }
 
+  /* Pre-validates with LT's allowlist. The count of dropped suggestions goes
+     back with the kept changes, so the card can say what it left out. */
   function validatedChanges(reply, request, tune) {
     var built = tune.proposalRows(reply.changes || [], request.settings, request.view);
-    return built.rows.map(function (row, index) {
+    var changes = built.rows.map(function (row, index) {
       var change = { field: row.kind === 'view' ? 'view.' + row.key : row.path, op: 'set', value: row.after };
       if (row.note) change.note = row.note;
       if (built.mask[index] === false) change['default'] = false;
       return change;
     });
+    return { changes: changes, dropped: built.dropped };
   }
 
   async function propose(request) {
@@ -82,7 +85,8 @@
     if (!reply || reply.ok !== true || typeof reply.reply !== 'string' || !reply.reply.trim() ||
         (reply.changes !== undefined && !Array.isArray(reply.changes))) return invalidReply();
     try {
-      return { ok: true, reply: reply.reply, changes: validatedChanges(reply, request, tune) };
+      var validated = validatedChanges(reply, request, tune);
+      return { ok: true, reply: reply.reply, changes: validated.changes, dropped: validated.dropped };
     } catch (_) {
       return invalidReply();
     }

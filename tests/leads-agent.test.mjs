@@ -57,6 +57,25 @@ describe('Leads agent transport', () => {
     assert.equal(JSON.stringify(req.settings).includes('remote_only'), false);
   });
 
+  it('reports how many suggestions the allowlist dropped, so the card can say so', async () => {
+    const win = load(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, reply: 'Try remote.', changes: [
+      { field: 'hardConstraints.workMode', op: 'set', value: 'remote_only' },
+      { field: 'tieBreakers.favoredCompanies', op: 'add', value: ['Acme'] },
+      { field: 'experiences', op: 'set', value: [] },
+    ] }) }));
+    const out = await win.JobBoredLeadsAgent.propose(req);
+    assert.equal(out.ok, true);
+    assert.deepEqual(plain(out.changes.map((c) => c.field)), ['hardConstraints.workMode']);
+    assert.equal(out.dropped, 2);
+
+    const none = load(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, reply: 'Favouring Acme.', changes: [
+      { field: 'tieBreakers.favoredCompanies', op: 'add', value: ['Acme'] },
+    ] }) }));
+    const all = await none.JobBoredLeadsAgent.propose(req);
+    assert.deepEqual(plain(all.changes), []);
+    assert.equal(all.dropped, 1, 'an all-dropped reply still reports its count');
+  });
+
   it('uses hosted apiFetch so the configured API token reaches the provider route', async () => {
     const calls = [];
     const win = load(async (url, init) => {

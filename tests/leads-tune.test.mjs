@@ -435,6 +435,44 @@ describe("leads-tune: the agent transport", () => {
     assert.equal(tune.proposalImpact(bot.proposal).after, blockOnly);
   });
 
+  it("adds a pre-validating transport's dropped count to the card's left-out note", async () => {
+    const changes = [{ field: "hardConstraints.salaryFloor", op: "set", value: 150000 }];
+    const { tune, tuneApi } = await ready(null, { transport: { propose: () => Promise.resolve({ ok: true, reply: "ok", changes, dropped: 1 }) } });
+    const bot = await tune.ask("x");
+    assert.equal(bot.proposal.dropped, 1, "the transport already removed one suggestion; LT's own pass drops none");
+    assert.equal(bot.proposal.status, "open");
+    assert.match(tuneApi.render(tune).chat, /I left out 1 suggestion that isn(’|&#39;)t a setting I can change\./);
+  });
+
+  it("says nothing asked for was a setting it can change when every suggestion was dropped", async () => {
+    const { tune, tuneApi } = await ready(null, { transport: { propose: () => Promise.resolve({ ok: true, reply: "ok", changes: [], dropped: 2 }) } });
+    const bot = await tune.ask("favour Acme");
+    assert.equal(bot.proposal.status, "empty");
+    const html = tuneApi.render(tune).chat;
+    assert.match(html, /Nothing you asked for is a setting I can change, so there(’|&#39;)s nothing to apply\./);
+    assert.doesNotMatch(html, /already say/, "a refusal is not a no-op");
+  });
+
+  it("keeps 'already say this' for a pure no-op, and names both when a no-op meets a drop", async () => {
+    const noop = { field: "hardConstraints.salaryFloor", op: "set", value: 120000 };
+    const t1 = await ready(null, { transport: { propose: () => Promise.resolve({ ok: true, reply: "ok", changes: [noop] }) } });
+    await t1.tune.ask("x");
+    assert.equal(t1.tune.getState().messages[1].proposal, undefined, "a pure no-op has no card");
+    const t2 = await ready(null, { transport: { propose: () => Promise.resolve({ ok: true, reply: "ok", changes: [noop, { field: "experiences", op: "set", value: [] }] }) } });
+    const bot = await t2.tune.ask("x");
+    assert.equal(bot.proposal.allDropped, false);
+    assert.match(t2.tuneApi.render(t2.tune).chat, /I left out 1 suggestion.*Your settings already say the rest/);
+  });
+
+  it("ignores a dropped count that is not a positive integer", async () => {
+    const changes = [{ field: "hardConstraints.salaryFloor", op: "set", value: 150000 }];
+    for (const dropped of [-3, 1.5, "2", null]) {
+      const { tune } = await ready(null, { transport: { propose: () => Promise.resolve({ ok: true, reply: "ok", changes, dropped }) } });
+      const bot = await tune.ask("x");
+      assert.equal(bot.proposal.dropped, 0, `dropped ${JSON.stringify(dropped)} counts as 0`);
+    }
+  });
+
   it("turns a failed or thrown transport into the error card with Try again", async () => {
     let n = 0;
     const t = { propose: () => { n++; if (n === 1) return Promise.reject(new Error("Your AI provider returned a timeout after 30 seconds")); return Promise.resolve({ ok: false, error: { code: "http_429", message: "Rate limited", status: 429 } }); } };

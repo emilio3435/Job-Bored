@@ -615,7 +615,9 @@
         if (typeof resp.reply !== "string" || (resp.changes !== undefined && !Array.isArray(resp.changes))) {
           return { ok: false, error: { code: "invalid_reply", message: "The agent sent back something JobBored couldn't read" } };
         }
-        return { ok: true, reply: resp.reply, changes: resp.changes || [] };
+        // A transport that pre-validates (leads-agent.js) reports what it dropped.
+        var dropped = Number.isInteger(resp.dropped) && resp.dropped > 0 ? resp.dropped : 0;
+        return { ok: true, reply: resp.reply, changes: resp.changes || [], dropped: dropped };
       }, function (err) {
         return { ok: false, error: { code: String((err && err.code) || "agent_error"), message: String((err && err.message) || "The agent didn't answer") } };
       });
@@ -1079,8 +1081,14 @@
           } else {
             bot.reply = resp.reply;
             var built = proposalRows(resp.changes, state.settings, view());
-            if (built.rows.length || built.dropped) {
-              bot.proposal = { rows: built.rows, mask: built.mask, dropped: built.dropped, status: built.rows.length ? "open" : "empty", entryId: null, error: "" };
+            var dropped = built.dropped + resp.dropped;
+            if (built.rows.length || dropped) {
+              bot.proposal = {
+                rows: built.rows, mask: built.mask, dropped: dropped,
+                // Every suggestion was refused, none was merely a no-op.
+                allDropped: !built.rows.length && dropped === resp.changes.length + resp.dropped,
+                status: built.rows.length ? "open" : "empty", entryId: null, error: "",
+              };
             }
           }
           emit("chat");
@@ -1410,7 +1418,10 @@
   function proposalCard(tune, m) {
     var p = m.proposal;
     if (p.status === "empty") {
-      return '<p class="jbt-msg__said">' + (p.dropped ? leftOut(p.dropped) + " So there’s nothing to apply." : "Your settings already say this. Nothing to change.") + "</p>";
+      var said = p.allDropped ? "Nothing you asked for is a setting I can change, so there’s nothing to apply."
+        : p.dropped ? leftOut(p.dropped) + " Your settings already say the rest, so there’s nothing to apply."
+          : "Your settings already say this. Nothing to change.";
+      return '<p class="jbt-msg__said">' + said + "</p>";
     }
     var n = p.mask.filter(Boolean).length;
     var head, foot;

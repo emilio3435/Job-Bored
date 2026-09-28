@@ -406,6 +406,7 @@ test("Agent: a proposal renders, applies only on Apply, and records history", as
   // The allowlist drops favoured companies (D5): never shown, never applied.
   await expect(card).not.toContainText("Northwind");
   await expect(card).toContainText("Proposed: 2 of 2 changes");
+  await expect(card).toContainText("I left out 1 suggestion");
   expect(chatBodies).toHaveLength(1);
   expect(chatBodies[0].message).toBe("Nothing under $150k, and skip Globex");
 
@@ -435,11 +436,9 @@ test("Agent: a proposal renders, applies only on Apply, and records history", as
   expectHermetic(ctx);
 });
 
-// Q1 bug 1 (lane report): leads-agent.js pre-validates with proposalRows and
-// returns only the kept rows, so LT's own count of dropped suggestions is 0
-// and the card never says what the allowlist left out. Product code is
-// outside Q1's fence, so this stays fixme until LA or LT fixes it.
-test.fixme("Agent: the card says when the allowlist left a suggestion out", async ({ page }) => {
+// Q1 bug 1: leads-agent.js pre-validates, so it reports what it dropped and
+// the card adds that to its own left-out count.
+test("Agent: the card says when the allowlist left a suggestion out", async ({ page }) => {
   const ctx = await bootLeads(page);
   await page.route("**/api/leads/chat", (route) =>
     route.fulfill({
@@ -459,6 +458,31 @@ test.fixme("Agent: the card says when the allowlist left a suggestion out", asyn
   await page.fill("#jbtAsk", "Nothing under $150k, and favour Northwind");
   await page.locator("#jbtAsk").press("Enter");
   await expect(page.locator(".jbt-msg--bot .jbt-diff")).toContainText("I left out 1 suggestion");
+  expectHermetic(ctx);
+});
+
+test("Agent: when every suggestion is refused, the reply says none was a setting", async ({ page }) => {
+  const ctx = await bootLeads(page);
+  await page.route("**/api/leads/chat", (route) =>
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        reply: "Favouring Northwind.",
+        changes: [{ field: "tieBreakers.favoredCompanies", op: "add", value: ["Northwind Analytics"] }],
+      }),
+    }),
+  );
+  await openChat(page);
+  await page.fill("#jbtAsk", "Favour Northwind");
+  await page.locator("#jbtAsk").press("Enter");
+  const bot = page.locator(".jbt-msg--bot").last();
+  await expect(bot).toContainText("Nothing you asked for is a setting I can change");
+  await expect(bot).not.toContainText("already say");
+  await expect(bot.locator(".jbt-diff")).toHaveCount(0);
+  expect(ctx.posts).toHaveLength(0);
+  expect(await tuneHistoryLength(page)).toBe(0);
   expectHermetic(ctx);
 });
 
