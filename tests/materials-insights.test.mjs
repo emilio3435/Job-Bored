@@ -150,7 +150,9 @@ describe("U-1 · quality scorecard", () => {
     assert.match(html, /Reading the job fell back to rules: the AI’s answer was cut off\./);
     assert.match(html, /Picking your facts fell back to rules: the AI’s answer couldn’t be read\./);
     assert.match(html, /data-action="materials-open-profile" data-focus="details">Review your details</);
-    assert.match(html, /data-action="materials-repair" data-feature="resume">Repair</);
+    /* MREV D2: an old (rubric) run is read-only; Repair needs a v2 run. */
+    assert.doesNotMatch(html, /materials-repair/);
+    assert.match(html, /Graded by the old checker/);
     /* Rubric rows as pips, open on a FAIL. */
     assert.match(html, /<details class="mat-rubric" open><summary>Quality check · 6 of 12/);
     assert.match(html, /data-rubric="outcome_coverage"[\s\S]*?Job outcomes covered[\s\S]*?0 \/ 2/);

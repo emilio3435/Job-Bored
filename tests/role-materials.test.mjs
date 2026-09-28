@@ -874,6 +874,22 @@ describe("materials rows in the case mount", () => {
     assert.deepEqual(offered, ["signal", "editorial"]);
   });
 
+  it("MREV D5 · should call a template switch 'Change template', a link apart from the Repair buttons", () => {
+    const host = makeCaseMount();
+    const { pending: _pending, ...published } = CASE_MANIFEST;
+    api.renderManifest(host, {
+      ...published,
+      template: { family: "dossier", version: "1.0", templateIds: { resume: "dossier.resume" }, source: "preference" },
+    }, "http://127.0.0.1:3847");
+    const html = rowsHtml(host);
+    const at = html.indexOf('class="case__template"');
+    const bar = html.slice(at, html.indexOf("</p>", at));
+    assert.match(bar, /Change template:/);
+    assert.doesNotMatch(html, /Regenerate/);
+    assert.match(bar, /<button type="button" class="case__link" data-action="materials-regenerate" data-template="signal" aria-label="Change template to Signal">Signal<\/button>/);
+    assert.doesNotMatch(bar, /case__doc-btn|Repair/, "Repair stays a row button; the template switch is a link");
+  });
+
   it("should hide Regenerate in… while a draft is running or before any template is recorded", () => {
     const pendingHost = makeCaseMount();
     api.renderManifest(pendingHost, { ...CASE_MANIFEST, template: { family: "signal", version: "1.0", source: "default" } }, "http://127.0.0.1:3847");

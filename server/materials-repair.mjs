@@ -1,45 +1,11 @@
-import { MATERIALS_BUDGETS } from "./materials-fit-budget.mjs";
+/** Build a document-specific repair request from an immutable run source. */
+import { usableDraft } from "./materials-history.mjs";
 
-const REPAIRABLE_FEATURES = new Set(["resume", "cover_letter"]);
-/** @type {RepairFeature[]} */
-const FEATURE_ORDER = ["resume", "cover_letter"];
+const FEATURES = new Set(["resume", "cover_letter"]);
 
-const RESUME_SPARSE_CODES = new Set([
-  "resume_two_page_sparse",
-  "resume_second_page_sparse",
-]);
-const RESUME_EXPAND_CODES = new Set([
-  "resume_education_missing",
-  "resume_capabilities_missing",
-]);
-const COVER_EXPAND_CODES = new Set(["cover_letter_too_short"]);
-const COVER_COLLAPSE_CODES = new Set([
-  "cover_letter_too_long",
-  "cover_letter_page_count",
-]);
-
-/** @typedef {"resume" | "cover_letter"} RepairFeature */
-/** @typedef {"collapse" | "expand" | "expand_or_collapse"} RepairStrategy */
-/** @typedef {{ code: string, message?: unknown }} RepairIssue */
-/** @typedef {{ pageCount?: unknown, words?: unknown, pageWords?: unknown[], issues?: unknown[] }} RepairQuality */
-/**
- * @typedef {object} RepairManifest
- * @property {unknown} [pending]
- * @property {{ documents?: Partial<Record<RepairFeature, RepairQuality>> }} [quality]
- * @property {unknown} [slug]
- * @property {unknown} [company]
- * @property {unknown} [title]
- * @property {unknown} [jobUrl]
- */
-
-/**
- * @param {string} message
- * @param {number} statusCode
- */
-function httpError(message, statusCode) {
-  const err = /** @type {Error & { statusCode: number }} */ (new Error(message));
-  err.statusCode = statusCode;
-  return err;
+/** @param {string} message @param {number} statusCode @param {string} [code] */
+function httpError(message, statusCode, code) {
+  return Object.assign(new Error(message), { statusCode, ...(code ? { code } : {}) });
 }
 
 /** @param {unknown} value */
@@ -47,221 +13,80 @@ function cleanString(value) {
   return typeof value === "string" ? value.trim() : "";
 }
 
-/**
- * @param {RepairManifest} manifest
- * @param {RepairFeature} feature
- */
-function qualityFor(manifest, feature) {
-  return manifest
-    && manifest.quality
-    && manifest.quality.documents
-    && manifest.quality.documents[feature]
-    ? manifest.quality.documents[feature]
-    : null;
+/** @param {Record<string, unknown>} issue */
+function issueId(issue) {
+  return cleanString(issue.id) || cleanString(issue.code);
 }
 
 /**
- * @param {RepairManifest} manifest
- * @param {RepairFeature} feature
- * @returns {RepairIssue[]}
- */
-function issuesFor(manifest, feature) {
-  const doc = qualityFor(manifest, feature);
-  if (!doc || !Array.isArray(doc.issues)) return [];
-  return doc.issues.filter(
-    /** @returns {item is RepairIssue} */
-    (item) => {
-      const issue = /** @type {RepairIssue | null | undefined} */ (item);
-      return !!issue && typeof issue.code === "string";
-    },
-  );
-}
-
-/**
- * @param {RepairManifest} manifest
- * @param {unknown} requestedFeature
- * @returns {RepairFeature}
- */
-function resolveRepairFeature(manifest, requestedFeature) {
-  const requested = cleanString(requestedFeature);
-  if (requested) {
-    if (!REPAIRABLE_FEATURES.has(requested)) {
-      throw httpError("feature must be resume or cover_letter", 400);
-    }
-    return /** @type {RepairFeature} */ (requested);
-  }
-  const picked = FEATURE_ORDER.find((feature) => issuesFor(manifest, feature).length);
-  if (!picked) {
-    throw httpError("No review issues found to repair", 400);
-  }
-  return picked;
-}
-
-/**
- * @param {RepairFeature} feature
- * @param {RepairIssue[]} issues
- * @returns {RepairStrategy}
- */
-function strategyFor(feature, issues) {
-  const codes = new Set(issues.map((item) => item.code));
-  /* Slice 2: collapse is the default strategy. An unknown issue still
-   * yields a bounded repair instead of an open-ended regenerate. */
-  if (feature === "resume") {
-    if (codes.has("resume_page_count_high")) return "collapse";
-    if ([...RESUME_SPARSE_CODES].some((code) => codes.has(code))) {
-      return "expand_or_collapse";
-    }
-    if ([...RESUME_EXPAND_CODES].some((code) => codes.has(code))) {
-      return "expand";
-    }
-    return "collapse";
-  }
-  if ([...COVER_COLLAPSE_CODES].some((code) => codes.has(code))) return "collapse";
-  if ([...COVER_EXPAND_CODES].some((code) => codes.has(code))) return "expand";
-  return "collapse";
-}
-
-/** @param {RepairFeature} feature */
-function featureLabel(feature) {
-  return feature === "cover_letter" ? "cover letter" : "resume";
-}
-
-/** @param {RepairQuality | null} quality */
-function statsLines(quality) {
-  /** @type {string[]} */
-  const lines = [];
-  if (!quality || typeof quality !== "object") return lines;
-  if (typeof quality.pageCount === "number" && Number.isFinite(quality.pageCount)) {
-    lines.push(`- Current pages: ${quality.pageCount}`);
-  }
-  if (typeof quality.words === "number" && Number.isFinite(quality.words)) {
-    lines.push(`- Current words: ${quality.words}`);
-  }
-  if (Array.isArray(quality.pageWords) && quality.pageWords.length) {
-    lines.push(`- Current page word counts: ${quality.pageWords.join(", ")}`);
-  }
-  return lines;
-}
-
-/** @param {RepairIssue[]} issues */
-function issueLines(issues) {
-  return issues.map((item) => {
-    const message = cleanString(item.message);
-    return `- ${item.code}${message ? `: ${message}` : ""}`;
-  });
-}
-
-/**
- * @param {RepairFeature} feature
- * @param {RepairStrategy} strategy
- */
-function directionLines(feature, strategy) {
-  if (feature === "resume") {
-    if (strategy === "expand") {
-      return [
-        "- Expand the resume with relevant verified education, capabilities, and role evidence.",
-        "- Keep the final layout intentional: one full page or two full pages, with no sparse trailing page.",
-      ];
-    }
-    if (strategy === "expand_or_collapse") {
-      return [
-        "- Expand the sparse two-page draft into a complete two-page resume when the verified evidence supports it.",
-        "- Collapse the draft to one full page when the verified evidence is not enough for a strong second page.",
-        "- Restore missing education and capabilities sections when source material supports them.",
-      ];
-    }
-    /* Collapse is the default, including the fallthrough. */
-    return [
-      "- Collapse the resume to an intentional one-page or two-page version that does not overflow.",
-      "- Preserve the strongest verified evidence and remove lower-signal repetition.",
-    ];
-  }
-
-  if (strategy === "expand") {
-    /* A short letter expands toward the band floor, never the old 325. */
-    const [bandMin] = MATERIALS_BUDGETS.letter.bodyWords;
-    return [
-      `- Expand the cover letter toward ${bandMin} body words with specific role evidence.`,
-      "- Use the job description and profile evidence to add substance without padding.",
-    ];
-  }
-  /* Collapse is the default, including the fallthrough. */
-  return [
-    "- Tighten the cover letter to one polished page.",
-    "- Preserve the strongest role-specific evidence and remove repetition.",
-  ];
-}
-
-/**
- * @param {{ feature: RepairFeature, strategy: RepairStrategy, quality: RepairQuality | null, issues: RepairIssue[], userNotes?: unknown }} input
- */
-function buildRepairNotes({ feature, strategy, quality, issues, userNotes }) {
-  const label = featureLabel(feature);
-  const lines = [
-    `Goal: Repair the tailored ${label} so it intentionally fits the page target.`,
-    "",
-    "Success means:",
-    ...directionLines(feature, strategy),
-    "- Use verified profile, job-description, job-analysis, and prior draft evidence.",
-    "- Re-render the HTML and PDF artifacts for this document.",
-    "- Update qa-report.md with page count, page word distribution, evidence used, omissions, and caveats.",
-    "",
-    `Stop when: The regenerated ${label} passes the local materials quality review.`,
-    "",
-    "Current quality stats:",
-    ...statsLines(quality),
-    "",
-    "Current quality issues:",
-    ...issueLines(issues),
-  ];
-  const extra = cleanString(userNotes);
-  if (extra) {
-    lines.push("", "Additional user notes:", extra);
-  }
-  return lines.join("\n");
-}
-
-/**
- * @param {RepairManifest} manifest
- * @param {{ feature?: unknown, notes?: unknown, jobUrl?: unknown }} [options]
+ * @param {Record<string, unknown>} manifest
+ * @param {{ feature?: unknown, source?: { feature: string, parentRunId: string, sourceText: string, sourceDraft: Record<string, unknown> | null, qa: Record<string, unknown> | null }, jobUrl?: unknown, instruction?: unknown, issueIds?: unknown, baseDocumentHash?: unknown, requestId?: unknown }} options
  */
 export function buildRepairRequestPayload(manifest, options = {}) {
-  if (!manifest || typeof manifest !== "object") {
-    throw httpError("Application manifest is required", 400);
+  if (!manifest || typeof manifest !== "object") throw httpError("Application manifest is required", 400);
+  if (manifest.pending) throw httpError("A materials request is already pending for this role.", 409, "materials_pending");
+  const feature = cleanString(options.feature);
+  if (!FEATURES.has(feature)) throw httpError("feature must be resume or cover_letter", 400);
+  const source = options.source;
+  if (!source || source.feature !== feature || !usableDraft(/** @type {"resume" | "cover_letter"} */ (feature), source.sourceDraft) || !cleanString(source.sourceText)) {
+    throw httpError("The selected run has no readable document draft.", 409, "repair_source_missing");
   }
-  if (manifest.pending) {
-    throw httpError("A materials request is already pending for this role.", 409);
+  const instruction = cleanString(options.instruction);
+  if (instruction.length > 600) throw httpError("instruction must be at most 600 characters", 400, "repair_instruction_too_long");
+  const expectedHash = cleanString(options.baseDocumentHash);
+  const parentHash = cleanString(source.qa?.textHash);
+  if (expectedHash !== parentHash) {
+    throw httpError("The document changed since this repair was requested.", 409, "repair_base_stale");
   }
-  const feature = resolveRepairFeature(manifest, options.feature);
-  const quality = qualityFor(manifest, feature);
-  const issues = issuesFor(manifest, feature);
-  if (!issues.length) {
-    throw httpError(`No review issues found for ${featureLabel(feature)}`, 400);
+  const qaIssues = Array.isArray(source.qa?.issues)
+    ? source.qa.issues.filter((issue) => issue && typeof issue === "object")
+    : Array.isArray(source.qa?.checks)
+      ? source.qa.checks.filter((issue) => issue && typeof issue === "object")
+      : [];
+  const requestedIds = options.issueIds === undefined ? [] : options.issueIds;
+  if (!Array.isArray(requestedIds) || requestedIds.some((id) => typeof id !== "string" || !id.trim())) {
+    throw httpError("issueIds must be an array of issue ids", 400, "invalid_issue_ids");
   }
-  const strategy = strategyFor(feature, issues);
-  const notes = buildRepairNotes({
-    feature,
-    strategy,
-    quality,
-    issues,
-    userNotes: options.notes,
-  });
-  const jobUrl = cleanString(options.jobUrl) || cleanString(manifest.jobUrl);
+  const issueIds = [...new Set(requestedIds.map((id) => id.trim()))];
+  const byId = new Map(qaIssues.map((issue) => [issueId(issue), issue]));
+  for (const id of issueIds) {
+    if (!byId.has(id)) throw httpError(`Unknown review issue: ${id}`, 400, "invalid_issue_ids");
+  }
+  const selected = issueIds.length
+    ? issueIds.map((id) => byId.get(id))
+    : !instruction
+      ? qaIssues.filter((issue) => (issue.severity === "hard" || issue.severity === "fail") && (issue.action === "rewrite" || !issue.action))
+      : [];
+  if (!instruction && !selected.length) throw httpError("Choose a review issue or enter a repair instruction.", 400, "repair_intent_missing");
+  const resolvedIds = selected.map(issueId);
+  const requestId = cleanString(options.requestId);
+  /** @type {{ feature: "resume" | "cover_letter", instruction: string, issues: Record<string, unknown>[], issueIds: string[], parentRunId: string, sourceText: string, sourceDraft: Record<string, unknown>, requestId?: string }} */
+  const repairInput = {
+    feature: /** @type {"resume" | "cover_letter"} */ (feature),
+    instruction,
+    issues: selected,
+    issueIds: resolvedIds,
+    parentRunId: source.parentRunId,
+    sourceText: source.sourceText,
+    sourceDraft: source.sourceDraft,
+    ...(requestId ? { requestId } : {}),
+  };
   return {
     payload: {
       slug: cleanString(manifest.slug),
       company: cleanString(manifest.company),
       title: cleanString(manifest.title),
       feature,
-      jobUrl,
-      notes,
-      /* C11: redraft from the resume the role's last draft used. */
+      jobUrl: cleanString(options.jobUrl) || cleanString(manifest.jobUrl) || cleanString(manifest.job_url),
+      notes: "",
       resumeFrom: /** @type {const} */ ("snapshot"),
+      repair: repairInput,
     },
     repair: {
-      feature,
-      strategy,
-      issueCodes: issues.map((item) => item.code),
+      parentRunId: source.parentRunId,
+      instruction,
+      issueIds: resolvedIds,
+      ...(requestId ? { requestId } : {}),
     },
   };
 }

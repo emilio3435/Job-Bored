@@ -15,19 +15,24 @@
  */
 
 import { existsSync } from "node:fs";
+import { createHash } from "node:crypto";
 import { copyFile, mkdtemp, readFile, realpath, rm, writeFile } from "node:fs/promises";
 import { basename, join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { loadEmployerMarks, readTargetMark } from "./brand-logos.mjs";
+import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { critiqueMaterials } from "./materials-critic.mjs";
+import { judgeMaterials, splitSentences } from "./materials-judge.mjs";
+import { readLedger } from "./materials-ledger.mjs";
 import { targetCompanyOf } from "./materials-monogram.mjs";
 import { openPdfSession } from "./materials-pdf.mjs";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import { employersWithoutMarks, newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
 import { buildQaRecord, combinedStatus, formatDocumentQaReport, issueDocument, qaFileName, readDocumentQa } from "./materials-qa.mjs";
-import { retargetModel, validateRenderModel } from "./materials-render.mjs";
+import { retargetModel, runsToText, validateRenderModel } from "./materials-render.mjs";
 import { overlayProfileIdentity, refreshStoredModel } from "./materials-render-model-adapter.mjs";
 import { chooseResumeSource, readCanonicalResume, readResumeSnapshot, runResumeBlock } from "./materials-resume-source.mjs";
+import { runHardGates } from "./materials-rubric.mjs";
 import { resolveFamily } from "./materials-templates.mjs";
 
 const SLUG_PATTERN = /^[a-z0-9][a-z0-9-]{0,127}$/;
@@ -56,6 +61,27 @@ async function readJson(path) {
   }
 }
 
+/** @param {import("./materials-render.mjs").RenderModel} model @param {"resume" | "letter"} document */
+function documentBody(model, document) {
+  if (document === "letter") return (model.documents.coverLetter?.paragraphs || []).map((part) => String(part.text || "").trim()).filter(Boolean).join("\n\n");
+  const resume = model.documents.resume;
+  if (!resume) return "";
+  const lines = [runsToText(resume.statement?.runs).trim()];
+  for (const section of resume.sections || []) {
+    for (const entry of section.entries || []) {
+      for (const bullet of entry.bullets || []) lines.push(runsToText(bullet.runs).trim());
+      if (!(entry.bullets || []).length && entry.line) lines.push(String(entry.line).trim());
+    }
+  }
+  return lines.filter(Boolean).join("\n");
+}
+
+/** @param {string} text */
+function textHash(text) { return `sha256:${createHash("sha256").update(text).digest("hex")}`; }
+
+/** @template {Record<string, unknown>} T @param {T} result */
+export function templateRegenerateResponse(result) { return { ...result, kind: "template" }; }
+
 /** A single in-process writer owns a package from base recheck through
  * publication. Every route that writes a run uses this section.
  * @template T
@@ -83,12 +109,6 @@ export async function withPackagePublishClaim(dir, expectedRunId, publish, optio
 }
 
 /**
- * @param {object} args
- * @param {string} args.status
- * @param {{ code?: string, message?: string, severity?: string }[]} args.issues
- * @param {string[]} args.notes
- */
-/**
  * @param {{ dir: string, rendered: Awaited<ReturnType<typeof renderPackage>>, runId: string,
  *   issues: { code?: string, message?: string, severity?: string }[], notes: string[], pdfReady: boolean }} input
  */
@@ -104,10 +124,14 @@ export async function writeVersionQa({ dir, rendered, runId, issues, notes, pdfR
     docIssues.push(documentPdfReady
       ? { code: "version_qa_unscored", message: "This version was rendered from a stored model; draft evidence was not rescored.", severity: "review" }
       : { code: "pdf_unrendered", message: "PDF was not rendered for this version.", severity: "fail" });
-    const record = buildQaRecord({
-      document: /** @type {"resume" | "letter"} */ (document), runId, issues: docIssues,
-      rubric: { rows: [{ id: "version_recheck", score: 0, max: 1, note: "Draft evidence was not rescored." }], total: 0, max: 1, threshold: 1 },
-    });
+    const status = docIssues.some((issue) => issue.severity === "fail") ? "fail" : "review";
+    const record = {
+      contract: "materials.qa.v1", document: /** @type {"resume" | "letter"} */ (document), runId,
+      status, disposition: status === "fail" ? "FAIL" : "REVIEW",
+      dispositionReason: docIssues.find((issue) => issue.severity === "fail")?.message || docIssues[0]?.message || "This version needs review.",
+      rubric: { score: 0, max: 1, threshold: 1, rows: [{ id: "version_recheck", score: 0, max: 1, note: "Draft evidence was not rescored." }] },
+      checks: docIssues, measurements: {}, degraded: [],
+    };
     prior[record.document] = record;
     records.push(record);
     await writeFile(join(dir, qaFileName(record.document)), `${JSON.stringify(record, null, 2)}\n`, "utf8");
@@ -126,6 +150,72 @@ export async function writeVersionQa({ dir, rendered, runId, issues, notes, pdfR
   }, null, 2)}\n`, "utf8");
   await writeFile(join(dir, "qa-report.md"), formatDocumentQaReport({ records: [prior.resume, prior.letter].filter((record) => record !== undefined), notes }), "utf8");
   return status;
+}
+
+/** Reuse a v2 judgment only for identical fitted prose with no new deterministic issue. */
+/** @param {{ sourceDir: string, stagingDir: string, rendered: Awaited<ReturnType<typeof renderPackage>>, model: import("./materials-render.mjs").RenderModel,
+ * runId: string, issues: Array<{code?:string,message?:string,severity?:string}>, notes: string[], jdText: string,
+ * inheritedRun: Record<string, unknown> | null, deps: RegenerateDeps }} input */
+async function writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps }) {
+  const documents = /** @type {Array<"resume" | "letter">} */ ([
+    ...(rendered.resumeHtml ? ["resume"] : []), ...(rendered.letterHtml ? ["letter"] : []),
+  ]);
+  const previous = await Promise.all(documents.map((document) => readJson(join(sourceDir, qaFileName(document)))));
+  if (!documents.length || !previous.every((qa) => qa?.contract === "materials.qa.v2")) return null;
+  const tools = { runHardGates, judgeMaterials, buildQaRecord, splitSentences, ...deps.qaTools };
+  const storedLedger = deps.judgeSources ? null : await readLedger();
+  const ledger = storedLedger?.ok ? storedLedger.ledger : null;
+  const claims = /** @type {Array<{id:string,text:string,verified?:boolean}>} */ (Array.isArray(ledger?.claims) ? ledger.claims : []);
+  const sources = deps.judgeSources || {
+    posting: [{ id: "posting:1", text: jdText }],
+    claims: claims.filter((claim) => claim.verified).map((claim) => ({ id: claim.id, text: claim.text })),
+    voice: "", research: [],
+  };
+  let pin = deps.pin || null;
+  if (!pin) {
+    try {
+      const config = loadLlmConfig();
+      if (config) pin = /** @type {Record<string, unknown>} */ (/** @type {unknown} */ (await resolveActivePin(config)));
+    } catch { pin = null; }
+  }
+  /** @type {Array<any>} */
+  const records = [];
+  let judgedChange = false;
+  for (const [index, document] of documents.entries()) {
+    const fitted = rendered.fit[document === "letter" ? "coverLetter" : "resume"]?.model || model;
+    const body = documentBody(fitted, document);
+    const hash = textHash(body);
+    const localIssues = issues.filter((issue) => ["both", document].includes(issueDocument(issue)));
+    const oldQa = previous[index];
+    if (oldQa?.textHash === hash && !localIssues.length) {
+      records.push(oldQa);
+      await copyFile(join(sourceDir, qaFileName(document)), join(stagingDir, qaFileName(document)));
+      continue;
+    }
+    const draft = await readJson(join(sourceDir, document === "letter" ? "draft.cover_letter.json" : "draft.resume.json"));
+    const issueGates = localIssues.map((issue) => ({ id: String(issue.code || "version_issue"), kind: issue.severity === "fail" ? "hard" : "constraint", pass: false, reason: String(issue.message || "Version QA issue"), sentenceIds: [] }));
+    const hardGates = /** @type {Array<{id:string,kind:"hard"|"advisory"|"constraint",pass:boolean,reason:string,sentenceIds:string[]}>} */ (await tools.runHardGates({ document, finalText: body, draft: draft || {}, ledger: ledger || { claims: sources.claims }, posting: jdText }));
+    const gates = [...hardGates.filter((gate) => !issueGates.some((issue) => issue.id === gate.id)), ...issueGates];
+    const judge = await tools.judgeMaterials({
+      writer: pin || inheritedRun?.pin || null, judge: pin?.judge,
+      documents: [{ document, text: body, textHash: hash, sentences: tools.splitSentences(body, document) }], sources,
+    });
+    judgedChange = true;
+    const qa = await tools.buildQaRecord({
+      document, runId, finalText: body, textHash: hash, gates, judge, constraints: [], degraded: [],
+      repair: { attempted: false, parentRunId: null, changed: null, adopted: null, before: null, after: null },
+    });
+    records.push(qa);
+    await writeFile(join(stagingDir, qaFileName(document)), `${JSON.stringify(qa, null, 2)}\n`, "utf8");
+  }
+  const status = combinedStatus(records);
+  await writeFile(join(stagingDir, "qa.json"), `${JSON.stringify({
+    contract: "materials.qa.v2", runId, disposition: status === "pass" ? "READY" : status === "fail" ? "FAIL" : "REVIEW",
+    textHashes: Object.fromEntries(records.map((qa) => [qa.document, qa.textHash])),
+    documents: Object.fromEntries(records.map((qa) => [qa.document, qa.disposition])),
+  }, null, 2)}\n`, "utf8");
+  await writeFile(join(stagingDir, "qa-report.md"), formatDocumentQaReport({ records, notes }), "utf8");
+  return { status, judgedChange };
 }
 
 /**
@@ -148,6 +238,9 @@ export async function writeVersionQa({ dir, rendered, runId, issues, notes, pdfR
  *   The route passes it; without one the stored identity stands.
  * @property {() => Promise<import("./materials-resume-source.mjs").ResumeSource | null>} [readSavedResume]
  *   The user's saved resume (defaults to resume.txt beside profile.json)
+ * @property {{ runHardGates: Function, judgeMaterials: Function, buildQaRecord: Function, splitSentences: Function }} [qaTools]
+ * @property {Record<string, unknown>} [judgeSources]
+ * @property {Record<string, unknown>} [pin]
  */
 
 /**
@@ -254,7 +347,9 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
   const regeneratedFrom = source === "regenerate" ? parentRunId : undefined;
   const nowIso = (deps.now ? deps.now() : new Date()).toISOString();
   const runId = newRunId(slug, nowIso);
-  const inheritedRun = await readJson(parentRunId ? join(dir, RUNS_DIR, parentRunId, "run.json") : join(dir, "run.json")) || await readJson(join(dir, "run.json"));
+  const currentRun = await readJson(join(dir, "run.json"));
+  const sourceDir = !parentRunId || currentRun?.runId === parentRunId ? dir : join(dir, RUNS_DIR, parentRunId);
+  const inheritedRun = await readJson(join(sourceDir, "run.json")) || await readJson(join(dir, "run.json"));
   /* No browser, no regenerate: the fit cannot be measured and no PDF can be
      printed, and a package whose HTML and PDF disagree is worse than the
      original. Refuse before anything on disk changes. */
@@ -324,9 +419,10 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     }
     issues.push(...rendered.issues);
     const notes = [source === "regenerate"
-      ? `Regenerated in ${family.label} (${family.id}@${family.version}) from run ${regeneratedFrom}; no model was called.`
-      : `${source} in ${family.label} (${family.id}@${family.version}) from run ${parentRunId || "unknown"}; no model was called.`,
+      ? `Regenerated in ${family.label} (${family.id}@${family.version}) from run ${regeneratedFrom}.`
+      : `${source} in ${family.label} (${family.id}@${family.version}) from run ${parentRunId || "unknown"}.`,
       ...(resumeNote ? [resumeNote] : []), ...rendered.notes];
+    const judged = await writeJudgedVersionQa({ sourceDir, stagingDir, rendered, model, runId, issues, notes, jdText, inheritedRun, deps });
 
     /** @type {Record<string, number>} */
     const pages = {};
@@ -343,7 +439,12 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
     if (rendered.letterHtml) await writeFile(join(dir, "cover-letter.html"), rendered.letterHtml, "utf8");
     if (rendered.pdf.resume) await copyFile(resumePdfPath, join(dir, "resume.pdf"));
     if (rendered.pdf.coverLetter) await copyFile(coverLetterPdfPath, join(dir, "cover-letter.pdf"));
-    const status = await writeVersionQa({ dir, rendered, runId, issues, notes, pdfReady: true });
+    if (judged) {
+      for (const name of ["qa.resume.json", "qa.letter.json", "qa.json", "qa-report.md"]) {
+        if (existsSync(join(stagingDir, name))) await copyFile(join(stagingDir, name), join(dir, name));
+      }
+    }
+    const status = judged?.status || await writeVersionQa({ dir, rendered, runId, issues, notes, pdfReady: true });
     const { record } = await writePackageRecords({
       dir,
       rendered,
@@ -362,7 +463,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
         ...(source === "restore" && parentRunId ? { restoredFrom: parentRunId } : {}),
         ...((source === "edit" || source === "manual") && edit ? { edit } : {}),
         stages: [
-          { stage: "intake", status: "ok", llm: false, detail: `${source} ${parentRunId || ""} in ${family.id}@${family.version}; no LLM stages` },
+          { stage: "intake", status: "ok", llm: false, detail: `${source} ${parentRunId || ""} in ${family.id}@${family.version}` },
           { stage: "claims.load", status: "skipped", llm: false, detail: "render model reused from the stored package" },
           {
             stage: "fit",
@@ -372,7 +473,7 @@ export async function commitModelAsRun({ dir, model, feature, source, parentRunI
             detail: measured ? (applied.length ? `measured; applied ${applied.join(", ")}` : "measured; fits without trims") : "not measured (no headless browser); rendered unclipped",
           },
           { stage: "render", status: "ok", ms: renderMs, llm: false, detail: `${family.id} ${family.version}` },
-          { stage: "qa", status: status === "pass" ? "ok" : "review", llm: false, out: ["qa-report.md"], detail: `${issues.length} issue(s)` },
+          { stage: "qa", status: status === "pass" ? "ok" : "review", llm: judged?.judgedChange === true, out: ["qa-report.md"], detail: `${issues.length} deterministic issue(s)${judged?.judgedChange ? "; changed body judged" : ""}` },
           { stage: "publish", status: "ok", llm: false, out: ["manifest.json", "run.json"] },
         ],
       },

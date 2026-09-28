@@ -135,7 +135,16 @@ function readyManifest() {
   };
 }
 
+/* MREV G8: a current run records the K7 stages (prepare, write,
+   validate, render, judge, save, plus an optional repair pass). */
 const STAGES_MID_RUN = [
+  { stage: "prepare", status: "ok", ms: 40 },
+  { stage: "write", status: "review", ms: 9000, degraded: true, reason: "fell back to rules: output cut off at 1000 tokens (MAX_TOKENS) after 2 attempts" },
+  { stage: "validate", status: "ok", ms: 12 },
+];
+
+/* A run recorded before MREV keeps its old step names. */
+const LEGACY_STAGES_MID_RUN = [
   { stage: "intake", status: "ok" },
   { stage: "jd.resolve", status: "ok" },
   { stage: "jd.gate", status: "ok" },
@@ -399,7 +408,9 @@ for (const width of [1440, 390]) {
       const confirm = resume.getByRole("alertdialog");
       await expect(confirm).toBeVisible();
       await expect(confirm).toContainText("This draft failed its quality check. Download anyway?");
-      await expect(confirm.getByRole("button", { name: "Repair first" })).toBeVisible();
+      /* MREV D2: this fixture is an old rubric run, which is read-only. */
+      await expect(confirm.getByRole("button", { name: "Cancel" })).toBeVisible();
+      await expect(confirm.getByRole("button", { name: "Repair first" })).toHaveCount(0);
       expect(seen.fileDownloads, "nothing downloaded before the confirm").toEqual([]);
       await shoot(resume, testInfo, `w2-fail-confirm-${width}`);
 
@@ -416,14 +427,14 @@ for (const width of [1440, 390]) {
       const { fence, seen, section } = await openCase(page, state, { width, height: width === 390 ? 1500 : 1100 });
       const resume = section.locator('[data-doc="resume"]');
       const steps = resume.locator(".mat-tl__step");
-      await expect(steps).toHaveCount(7);
-      await expect(steps.locator(".mat-tl__label")).toContainText(["Read the job", "Load facts", "Pick facts", "Write", "Check facts", "Render", "Check quality"]);
-      await expect(resume.locator('[data-step="read"]')).toHaveAttribute("data-state", "degraded");
-      await expect(resume.locator('[data-step="read"]')).toContainText("Fallback");
-      await expect(resume.locator('[data-step="read"]')).toContainText("the AI’s answer was cut off");
-      await expect(resume.locator('[data-step="write"]')).toHaveAttribute("data-state", "running");
+      await expect(steps).toHaveCount(5);
+      await expect(steps.locator(".mat-tl__label")).toContainText(["Prepare", "Write", "Check & render", "Judge", "Save"]);
+      await expect(resume.locator('[data-step="write"]')).toHaveAttribute("data-state", "degraded");
+      await expect(resume.locator('[data-step="write"]')).toContainText("Fallback");
+      await expect(resume.locator('[data-step="write"]')).toContainText("the AI’s answer was cut off");
+      await expect(resume.locator('[data-step="check"]')).toHaveAttribute("data-state", "running");
       const text = await page.locator(ROLE).innerText();
-      expect(text).not.toMatch(/jd\.extract|claims\.select|cache\.lookup|: running|: review/);
+      expect(text).not.toMatch(/jd\.extract|claims\.select|cache\.lookup|\bvalidate\b|: running|: review/);
       await expectNoSidewaysScroll(page, width);
       await shoot(resume, testInfo, `w2-timeline-${width}`);
       expectHermetic(fence, seen, testInfo);
@@ -478,7 +489,9 @@ for (const width of [1440, 390]) {
       await list.locator('[data-item="resume"]').getByRole("link", { name: "Download" }).click();
       await expect(list.locator('[data-item="resume"]').getByRole("alertdialog")).toBeVisible();
       expect(seen.fileDownloads).toEqual([]);
-      await list.locator('[data-item="resume"]').getByRole("alertdialog").getByRole("button", { name: "Repair first" }).evaluate((b) => b.closest(".mat-confirm").remove());
+      /* MREV D2: an old rubric run is read-only, so the confirm offers Cancel. */
+      await list.locator('[data-item="resume"]').getByRole("alertdialog").getByRole("button", { name: "Cancel" }).click();
+      await expect(list.locator('[data-item="resume"]').getByRole("alertdialog")).toHaveCount(0);
 
       await expectNoSidewaysScroll(page, width);
       await shoot(row, testInfo, `w2-checklist-${width}`);
@@ -486,6 +499,17 @@ for (const width of [1440, 390]) {
     });
   });
 }
+
+test("an old run's drafting row keeps its old step names (G8)", async ({ page }, testInfo) => {
+  const state = { manifest: () => draftingManifest({ stages: LEGACY_STAGES_MID_RUN }) };
+  const { fence, seen, section } = await openCase(page, state);
+  const resume = section.locator('[data-doc="resume"]');
+  await expect(resume.locator(".mat-tl__step")).toHaveCount(7);
+  await expect(resume.locator(".mat-tl__step .mat-tl__label")).toContainText(["Read the job", "Load facts", "Pick facts", "Write", "Check facts", "Render", "Check quality"]);
+  await expect(resume.locator('[data-step="read"]')).toHaveAttribute("data-state", "degraded");
+  await expect(resume.locator('[data-step="write"]')).toHaveAttribute("data-state", "running");
+  expectHermetic(fence, seen, testInfo);
+});
 
 test("Draft both queues the resume, then the letter as its own run (U-5)", async ({ page }, testInfo) => {
   let phase = "empty";

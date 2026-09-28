@@ -4,7 +4,7 @@ import { mkdtemp, rm, readFile, mkdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
-import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../server/materials-resume-structure-model.mjs";
 
 /* C11: every draft carries the user's resume; Jordan Rivera stands in. */
@@ -109,9 +109,9 @@ describe("createMaterialsDrafter", () => {
     /* The resume degrades to REVIEW; the deterministic letter is empty,
      * so it is FAIL (never silently REVIEW) and there is no model to
      * repair it with. */
-    assert.match(report, /^## Resume: REVIEW/m);
-    assert.match(report, /^## Cover letter: FAIL/m);
-    assert.match(report, /llm_unconfigured/);
+    assert.match(report, /^## resume: REVIEW/m);
+    assert.match(report, /^## letter: FAIL/m);
+    assert.match(report, /Judge unavailable/);
     await readFile(join(dir, "eab-role", "resume.html"), "utf8");
     await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
   });
@@ -161,7 +161,7 @@ describe("createMaterialsDrafter", () => {
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
     assert.match(report, /READY|REVIEW/);
     const run = JSON.parse(await readFile(join(dir, "eab-role", "run.json"), "utf8"));
-    assert.ok(run.stages.some((s) => s.stage === "draft" && s.llm === true));
+    assert.ok(run.stages.some((s) => s.stage === "write" && s.llm === true));
   });
 
   it("returns the existing pending for the same in-flight slug", async () => {
@@ -179,7 +179,7 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     /* The one-time resume.structure call (L1) builds the ledger, not a run. */
     const runCalls = stub.calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT);
-    /* One run is at most six calls (extract, select, draft, delint rewrite, support, repair); a second run would double it. */
+    /* One run has an extract, a write and a judge for each document; a second run would double it. */
     assert.ok(runCalls.length <= 6, `duplicate enqueue must not start a second run (saw ${runCalls.length} calls)`);
   });
 
@@ -205,7 +205,7 @@ describe("createMaterialsDrafter", () => {
     const drafter = createMaterialsDrafter(baseDeps(dir, { fetchImpl: stub.fetchImpl }));
     await drafter.enqueue(request({ notes: "write like a human operator" }));
     await drafter.runUntilIdle();
-    const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
+    const draftCall = stub.calls.find((c) => c.system.startsWith("Goal: Write truthful"));
     assert.ok(draftCall, "draft call issued");
     assert.match(draftCall.user, /write like a human operator/);
   });
@@ -227,28 +227,68 @@ describe("createMaterialsDrafter", () => {
     assert.ok(scraped <= 1, "scrape should not be required when a usable JD is provided");
   });
 
-  it("F8: a snapshot repair edits the current draft with the notes as instructions", async () => {
-    const first = createMaterialsDrafter(baseDeps(dir));
-    await first.enqueue(request());
-    await first.runUntilIdle();
-    const before = JSON.parse(await readFile(join(dir, "eab-role", "draft.json"), "utf8"));
-    assert.ok(before.statement, "first run stores its draft JSON beside resume.html");
-
-    const stub = scriptedPipelineFetch();
-    const repair = createMaterialsDrafter(baseDeps(dir, { fetchImpl: stub.fetchImpl }));
-    await repair.enqueue(request({ resumeFrom: "snapshot", notes: "Fix the Córdoba typo" }));
+  it("C4 and C7: sends repair on the pipeline's single object and keeps the other artifact", async () => {
+    const appDir = join(dir, "eab-role");
+    await mkdir(appDir, { recursive: true });
+    await writeFile(join(appDir, "cover-letter.txt"), "Other document stays\n");
+    await writeFile(join(appDir, "run.json"), JSON.stringify({ runId: "parent", cacheKey: "matching-cache-key" }));
+    const parentDir = join(appDir, "runs", "parent");
+    await mkdir(parentDir, { recursive: true });
+    await writeFile(join(parentDir, "run.json"), JSON.stringify({ runId: "parent", feature: "resume" }));
+    await writeFile(join(parentDir, "resume.txt"), "Original resume\n");
+    const repairInput = {
+      feature: "resume", parentRunId: "parent", instruction: "Fix the typo",
+      issues: [{ id: "i1", reason: "Typo", severity: "note" }], issueIds: ["i1"],
+      sourceText: "Original resume\n", sourceDraft: { statement: "Original resume", bullets: [] },
+    };
+    const seen = [];
+    const repair = createMaterialsDrafter(baseDeps(dir, {
+      pipeline: async (input) => {
+        seen.push(input);
+        if (!input.current) return { outcome: "cached", runId: "parent" };
+        const runDir = join(input.dir, "runs", input.runId);
+        await mkdir(runDir, { recursive: true });
+        await writeFile(join(runDir, "run.json"), JSON.stringify({ runId: input.runId, feature: "resume" }));
+        await writeFile(join(runDir, "resume.txt"), "Revised resume\n");
+        return { outcome: "published", runId: input.runId, repair: { adopted: true, reason: "candidate accepted" } };
+      },
+    }));
+    await repair.enqueue(request({ feature: "resume", resumeFrom: "snapshot", repair: repairInput }));
     await repair.runUntilIdle();
-    const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
-    assert.ok(draftCall, "draft call issued");
-    assert.match(draftCall.user, /REPAIR: rewrite the WHOLE letter \(all five beats\) as one piece, in one voice/);
-    assert.match(draftCall.user, /Instructions: Fix the Córdoba typo/);
-    assert.match(draftCall.user, /Current draft:/);
-    assert.doesNotMatch(draftCall.user, /Voice \(match it, never quote it\)/);
-    const run = JSON.parse(await readFile(join(dir, "eab-role", "run.json"), "utf8"));
-    assert.ok(
-      (run.repairs || []).some((r) => r.code === "repair" && r.reenteredAt === "draft"),
-      "run.json records the draft re-entry",
-    );
+    assert.equal(seen.length, 1, "matching package cache still reaches the pipeline");
+    assert.deepEqual(seen[0].repair, repairInput);
+    assert.deepEqual(seen[0].current, repairInput.sourceDraft, "a repair must bypass the parent cache");
+    assert.equal(await readFile(join(appDir, "cover-letter.txt"), "utf8"), "Other document stays\n");
+    const run = JSON.parse(await readFile(join(appDir, "runs", seen[0].runId, "run.json"), "utf8"));
+    assert.equal(run.repair.changed, true);
+    assert.equal(run.repair.adopted, true);
+  });
+
+  for (const [caseName, pipelineResult] of [
+    ["a cached parent result", { outcome: "cached", runId: "parent" }],
+    ["a parent run ID marked published", { outcome: "published", runId: "parent" }],
+  ]) it(`P1: ${caseName} never rewrites the parent's repair record`, async () => {
+    const appDir = join(dir, "eab-role");
+    const parentDir = join(appDir, "runs", "parent");
+    await mkdir(parentDir, { recursive: true });
+    const parent = JSON.stringify({ runId: "parent", feature: "resume", repair: { prior: true } });
+    await writeFile(join(parentDir, "run.json"), parent);
+    await writeFile(join(parentDir, "resume.txt"), "Original resume\n");
+    await writeFile(join(appDir, "run.json"), parent);
+    const drafter = createMaterialsDrafter(baseDeps(dir, {
+      pipeline: async () => pipelineResult,
+    }));
+    await drafter.enqueue(request({
+      feature: "resume",
+      repair: {
+        feature: "resume", parentRunId: "parent", instruction: "Tighten",
+        issues: [], issueIds: [], sourceText: "Original resume\n",
+        sourceDraft: { statement: "Original resume", bullets: [] },
+      },
+    }));
+    await drafter.runUntilIdle();
+    assert.equal(await readFile(join(parentDir, "run.json"), "utf8"), parent);
+    assert.equal(await readFile(join(appDir, "run.json"), "utf8"), parent);
   });
 
   it("reserves the same slug before any await so a concurrent enqueue is a no-op", async () => {

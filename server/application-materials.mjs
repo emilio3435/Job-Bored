@@ -42,6 +42,8 @@ const ALLOWED_FILES = new Set([
   "selection.json",
   "outline.json",
   "draft.json",
+  "draft.cover_letter.json",
+  "draft.resume.json",
   "qa.json",
   "qa.resume.json",
   "qa.letter.json",

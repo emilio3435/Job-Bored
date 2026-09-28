@@ -74,8 +74,7 @@ const MAX_CLAIM_TEXT = 2000;
  * "— formerly X —" header segment is the employer's former name. */
 /* 8: model labels resolve only to parsed employers, roles, dates and claims;
  * rebuild ledgers that may contain a model-invented employer. */
-export const LEDGER_BUILDER_VERSION = 8;
-const MAX_INVENTORY = 40;
+export const LEDGER_BUILDER_VERSION = 9;
 
 /* Numerals that may appear as emphasized metric runs. Years and year
  * ranges are dates, not metrics. */
@@ -94,7 +93,7 @@ const STOPWORDS = new Set(
 );
 
 /* Resume-mentioned tools ship as adjacent; profile keywords are owned. */
-const TOOL_LEXICON = [
+export const TOOL_LEXICON = [
   "Looker Studio", "Vertex AI Search", "Cloud Run", "Google Ads", "Amazon DSP",
   "Trade Desk", "DV360", "BigQuery", "Snowflake", "PostgreSQL", "Power BI",
   "Tableau", "Salesforce", "HubSpot", "TypeScript", "JavaScript", "Python",
@@ -504,7 +503,7 @@ export function buildLedger({
     sources,
     employers,
     claims,
-    toolInventory: [...inventory.values()].slice(0, MAX_INVENTORY),
+    toolInventory: [...inventory.values()],
   };
   ledger.ledgerHash = hashLedger(ledger);
   return ledger;

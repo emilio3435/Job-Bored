@@ -114,12 +114,44 @@
     { id: "render", label: "Render", stages: ["fit", "render"] },
     { id: "quality", label: "Check quality", stages: ["qa", "publish"] },
   ];
-  var MODEL_STAGES = { "jd.extract": 1, "claims.select": 1, draft: 1 };
+  /* K7 (MREV): prepare → write → validate/render → judge → save, plus an
+     optional repair pass. A run that recorded any pre-MREV stage keeps the
+     table above, so old run records keep their old labels. */
+  var K7_STAGE_ORDER = ["prepare", "write", "validate", "render", "judge", "repair", "save"];
+  var K7_TIMELINE_STEPS = [
+    { id: "prepare", label: "Prepare", stages: ["prepare"] },
+    { id: "write", label: "Write", stages: ["write"] },
+    { id: "check", label: "Check & render", stages: ["validate", "render"] },
+    { id: "judge", label: "Judge", stages: ["judge"] },
+    { id: "repair", label: "Repair pass", stages: ["repair"] },
+    { id: "save", label: "Save", stages: ["save"] },
+  ];
+  var MODEL_STAGES = { "jd.extract": 1, "claims.select": 1, draft: 1, write: 1 };
 
-  function stageApplies(stage, feature) {
+  /* `render` is in both tables; any other old id marks an old record. A
+     run with no stages yet is a current one. */
+  function isLegacyProgress(entries) {
+    for (var i = 0; i < entries.length; i++) {
+      var s = entries[i] && entries[i].stage;
+      if (STAGE_ORDER.indexOf(s) >= 0 && K7_STAGE_ORDER.indexOf(s) < 0) return true;
+    }
+    return false;
+  }
+
+  function stageApplies(stage, feature, recorded) {
     /* The letter's fact check only runs when a letter is drafted. */
     if (stage === "support") return feature !== "resume";
+    /* The repair pass shows only once the run made one. */
+    if (stage === "repair") return !!(recorded && recorded.repair);
     return true;
+  }
+
+  function isDegraded(rec) {
+    return rec.status === "review" || !!rec.degraded;
+  }
+
+  function stageReason(rec) {
+    return String(rec.reason || (typeof rec.degraded === "string" ? rec.degraded : "") || rec.detail || "");
   }
 
   /**
@@ -131,24 +163,31 @@
   function stageTimeline(progress, feature) {
     var phase = String((progress && progress.phase) || "queued").toLowerCase();
     var entries = progress && Array.isArray(progress.stages) ? progress.stages : [];
+    var legacy = isLegacyProgress(entries);
+    var order = legacy ? STAGE_ORDER : K7_STAGE_ORDER;
+    var table = legacy ? TIMELINE_STEPS : K7_TIMELINE_STEPS;
     var recorded = {};
     var lastIdx = -1;
     for (var i = 0; i < entries.length; i++) {
       var e = entries[i];
       if (!e || typeof e.stage !== "string") continue;
-      var idx = STAGE_ORDER.indexOf(e.stage);
+      var idx = order.indexOf(e.stage);
       if (idx < 0) continue;
       recorded[e.stage] = e;
-      if (idx > lastIdx) lastIdx = idx;
+      /* A repair record can land before the pass it starts; it never
+         marks the steps after it as done. */
+      if (e.stage !== "repair" && idx > lastIdx) lastIdx = idx;
     }
     var nextStage = "";
-    for (var j = lastIdx + 1; j < STAGE_ORDER.length; j++) {
-      if (!recorded[STAGE_ORDER[j]] && stageApplies(STAGE_ORDER[j], feature)) { nextStage = STAGE_ORDER[j]; break; }
+    for (var j = lastIdx + 1; j < order.length; j++) {
+      if (!recorded[order[j]] && stageApplies(order[j], feature, recorded)) { nextStage = order[j]; break; }
     }
     var failedRun = phase === "failed";
     var queued = phase === "queued" || (!entries.length && phase !== "drafting" && !failedRun);
     var stoppedMarked = false;
-    return TIMELINE_STEPS.map(function (step) {
+    return table.filter(function (step) {
+      return step.stages.some(function (s) { return stageApplies(s, feature, recorded) || recorded[s]; });
+    }).map(function (step) {
       var passed = 0;
       /* Stages that really happened (or were passed over): a step whose
          only "passed" stage does not apply to this document has not begun. */
@@ -161,11 +200,11 @@
           passed += 1;
           touched += 1;
           if (rec.status === "failed" && !failed) failed = rec;
-          if (rec.status === "review" && !degraded) degraded = rec;
-        } else if (STAGE_ORDER.indexOf(s) < lastIdx) {
+          if (isDegraded(rec) && !degraded) degraded = rec;
+        } else if (order.indexOf(s) < lastIdx && stageApplies(s, feature, recorded)) {
           passed += 1;
           touched += 1;
-        } else if (!stageApplies(s, feature)) {
+        } else if (!stageApplies(s, feature, recorded)) {
           passed += 1;
         }
       });
@@ -175,21 +214,21 @@
       var reason = "";
       if (failed) {
         state = "failed";
-        reason = failed.reason || "";
+        reason = stageReason(failed);
       } else if (failedRun && !done && !stoppedMarked && (holdsNext || touched > 0)) {
         state = "failed";
         stoppedMarked = true;
         reason = String((progress && progress.message) || "");
       } else if (done && degraded) {
         state = "degraded";
-        reason = degraded.reason || "";
+        reason = stageReason(degraded);
       } else if (done) {
         state = "done";
       } else if (queued || failedRun) {
         state = "next";
       } else if (holdsNext || touched > 0) {
         state = degraded ? "degraded" : "running";
-        if (degraded) reason = degraded.reason || "";
+        if (degraded) reason = stageReason(degraded);
       } else {
         state = "next";
       }
@@ -245,8 +284,23 @@
     return RUBRIC_LABELS[id] || cap(String(id || "").replace(/_/g, " "));
   }
 
+  /* 1 for an old run's rubric record (materials.qa.v1), 2 for the judge's
+     K3 record (materials.qa.v2), 0 for no verdict. The manifest may copy a
+     v2 record without its contract field, so the fields decide. */
+  function qaVersion(qa) {
+    if (!qa || typeof qa !== "object") return 0;
+    if (qa.rubric && typeof qa.rubric === "object") return 1;
+    if (qa.contract === "materials.qa.v2" || (qa.quality && typeof qa.quality === "object") || Array.isArray(qa.gates)) return 2;
+    return 0;
+  }
+
   function qaOf(qualityDoc) {
-    return qualityDoc && qualityDoc.qa && qualityDoc.qa.rubric ? qualityDoc.qa : null;
+    var qa = qualityDoc && qualityDoc.qa;
+    return qaVersion(qa) ? qa : null;
+  }
+
+  function v2Score(qa) {
+    return qa && qa.quality && typeof qa.quality.score === "number" ? qa.quality.score : null;
   }
 
   function dispositionOf(qualityDoc) {
@@ -267,6 +321,10 @@
     var qa = qaOf(qualityDoc);
     var d = dispositionOf(qualityDoc);
     if (!d) return "";
+    if (qaVersion(qa) === 2) {
+      var score = v2Score(qa);
+      return d + (score == null ? "" : " · " + score + " / 100");
+    }
     return d + (qa && typeof qa.rubric.score === "number" && typeof qa.rubric.max === "number"
       ? " · " + qa.rubric.score + " / " + qa.rubric.max
       : "");
@@ -275,11 +333,24 @@
   var DETAILS_CODES = /experience_missing|underfill|omission|summary_missing|statement_missing|education_missing|ledger|transfer_overclaim|invented_employer|frozen_fact|metric_dropped|proof_density|outcome_coverage/;
   var VOICE_CODES = /sounds_machine|sounds_human|banned_filler|delint|jd_echo|voice/;
 
+  /* An old run is read-only: its run folder has no per-document draft for
+     Repair to rewrite from (SPEC G3), so only a v2 verdict or none offers it. */
+  function canRepair(qualityDoc) {
+    return qaVersion(qualityDoc && qualityDoc.qa) !== 1;
+  }
+
   /* The fix a verdict points at, most useful first. */
   function fixActions(qualityDoc, type) {
     var d = dispositionOf(qualityDoc);
-    if (d !== "FAIL" && d !== "REVIEW") return [];
     var qa = qaOf(qualityDoc);
+    if (qaVersion(qa) === 2) {
+      var issues = Array.isArray(qa.issues) ? qa.issues : [];
+      var acts = [{ action: "materials-repair", feature: type, label: "Repair" }];
+      if (issues.some(function (i) { return i && i.action === "needs_evidence"; })) acts.push({ action: "materials-open-profile", focus: "details", label: "Review your details" });
+      if (issues.some(function (i) { return i && i.kind === "voice"; })) acts.push({ action: "materials-open-profile", focus: "voice", label: "Add a voice guide" });
+      return acts;
+    }
+    if (d !== "FAIL" && d !== "REVIEW") return [];
     var codes = [];
     (qualityDoc && Array.isArray(qualityDoc.issues) ? qualityDoc.issues : []).forEach(function (i) {
       if (i && i.code) codes.push(String(i.code));
@@ -291,8 +362,18 @@
     var out = [];
     if (DETAILS_CODES.test(all)) out.push({ action: "materials-open-profile", focus: "details", label: "Review your details" });
     if (VOICE_CODES.test(all)) out.push({ action: "materials-open-profile", focus: "voice", label: "Add a voice guide" });
-    out.push({ action: "materials-repair", feature: type, label: "Repair" });
+    if (canRepair(qualityDoc)) out.push({ action: "materials-repair", feature: type, label: "Repair" });
     return out;
+  }
+
+  function actionsHtml(list) {
+    return list.map(function (a, i) {
+      return '<button type="button" class="case__doc-btn ' + (i === 0 ? "case__doc-btn--primary" : "case__doc-btn--ghost") + '"'
+        + ' data-action="' + esc(a.action) + '"'
+        + (a.focus ? ' data-focus="' + esc(a.focus) + '"' : "")
+        + (a.feature ? ' data-feature="' + esc(a.feature) + '"' : "")
+        + ">" + esc(a.label) + "</button>";
+    }).join("");
   }
 
   function pipsHtml(score, max) {
@@ -327,6 +408,7 @@
   function scorecardHtml(qualityDoc, type) {
     var qa = qaOf(qualityDoc);
     if (!qa) return "";
+    if (qaVersion(qa) === 2) return scorecardV2Html(qualityDoc, qa, type);
     var d = dispositionOf(qualityDoc);
     var tone = d === "FAIL" ? "fail" : (d === "REVIEW" ? "review" : "ready");
     var banner = "";
@@ -341,13 +423,7 @@
         ? '<p class="mat-banner__sub">We already ran one automatic repair' + (qa.repair.before
           ? " (it was " + esc(qa.repair.before.score + " / " + qa.repair.before.max) + " before)." : ".") + "</p>"
         : "";
-      var actions = fixActions(qualityDoc, type).map(function (a, i) {
-        return '<button type="button" class="case__doc-btn ' + (i === 0 ? "case__doc-btn--primary" : "case__doc-btn--ghost") + '"'
-          + ' data-action="' + esc(a.action) + '"'
-          + (a.focus ? ' data-focus="' + esc(a.focus) + '"' : "")
-          + (a.feature ? ' data-feature="' + esc(a.feature) + '"' : "")
-          + ">" + esc(a.label) + "</button>";
-      }).join("");
+      var actions = actionsHtml(fixActions(qualityDoc, type));
       banner = '<div class="mat-banner mat-banner--' + tone + '" role="note">'
         + '<p class="mat-banner__head">' + (tone === "fail"
           ? "This " + esc(docWords(type)) + " failed its quality check."
@@ -357,10 +433,261 @@
         + (actions ? '<div class="mat-banner__acts">' + actions + "</div>" : "")
         + "</div>";
     }
-    return '<div class="mat-score mat-score--' + tone + '" data-qa-disposition="' + esc(d) + '">'
+    return '<div class="mat-score mat-score--' + tone + '" data-qa-disposition="' + esc(d) + '" data-qa-contract="v1">'
       + '<span class="mat-pill mat-pill--' + tone + '">' + esc(pillText(qualityDoc)) + "</span>"
+      + '<p class="mat-score__old">Graded by the old checker. Draft it again for the judge\u2019s read and Repair.</p>'
       + banner
       + rubricHtml(qa, tone === "fail")
+      + "</div>";
+  }
+
+  /* -------------------- D1 · the judge's scorecard (materials.qa.v2) -------------------- */
+
+  var JUDGE_DIMENSIONS = [
+    { id: "role_relevance", label: "Fits this role" },
+    { id: "evidence_quality", label: "Evidence" },
+    { id: "voice", label: "Sounds like you" },
+    { id: "coherence", label: "Holds together" },
+    { id: "economy", label: "No padding" },
+  ];
+  var ISSUE_KIND_WORDS = { fact: "Fact", scope: "Scope", voice: "Voice", relevance: "Relevance", clarity: "Clarity", format: "Format" };
+  var ISSUE_GROUPS = [
+    { id: "facts", head: "Factual blockers", sub: "Fix these before you send it: nothing in your background or the posting supports them." },
+    { id: "check", head: "Facts to confirm", sub: "The judge couldn\u2019t confirm these from your background or the posting." },
+    { id: "writing", head: "Writing feedback", sub: "" },
+  ];
+
+  /* Every issue as the scorecard and the Repair dialog show it, sorted into
+     "facts" (hard: a sentence nothing supports, or a failed hard gate),
+     "check" (a fact or scope question short of that) and "writing". An
+     unsupported sentence or a failed hard gate the issue list left out
+     still shows as a blocker: the verdict must never hide its reason. */
+  function qaIssues(qa) {
+    var sentences = Array.isArray(qa.sentences) ? qa.sentences.filter(Boolean) : [];
+    var textOf = {};
+    sentences.forEach(function (x) { if (x.id) textOf[x.id] = String(x.text || ""); });
+    var quotes = function (ids) {
+      return (Array.isArray(ids) ? ids : []).map(function (id) { return textOf[id] || ""; }).filter(Boolean);
+    };
+    var cited = {};
+    /* A gate's issue carries the gate's reason (and its id, when the record
+       has one): each failed hard gate is matched to its own issue. */
+    var gateIssues = [];
+    var out = [];
+    (Array.isArray(qa.issues) ? qa.issues : []).forEach(function (i) {
+      if (!i) return;
+      (Array.isArray(i.sentenceIds) ? i.sentenceIds : []).forEach(function (id) { cited[id] = 1; });
+      if (i.origin === "gate") gateIssues.push(i);
+      var kind = String(i.kind || "");
+      out.push({
+        id: String(i.id || i.code || ""),
+        kind: kind,
+        group: i.severity === "hard" ? "facts" : (kind === "fact" || kind === "scope" ? "check" : "writing"),
+        reason: String(i.reason || i.message || ""),
+        quotes: quotes(i.sentenceIds),
+      });
+    });
+    sentences.forEach(function (x) {
+      if (cited[x.id] || (x.status !== "unsupported" && x.status !== "uncertain")) return;
+      out.push({ id: "", kind: "fact", group: x.status === "unsupported" ? "facts" : "check", reason: String(x.reason || ""), quotes: quotes([x.id]) });
+    });
+    (Array.isArray(qa.gates) ? qa.gates : []).forEach(function (g) {
+      if (!g || g.kind !== "hard" || g.pass !== false) return;
+      var reason = String(g.reason || "Gate failed.");
+      var covered = gateIssues.some(function (i) {
+        return (i.gateId && i.gateId === g.id) || String(i.reason || "") === reason;
+      });
+      if (!covered) out.push({ id: "", kind: "", group: "facts", reason: String(g.reason || g.id || ""), quotes: quotes(g.sentenceIds) });
+    });
+    return out;
+  }
+
+  function kindWord(kind) {
+    return ISSUE_KIND_WORDS[kind] || cap(String(kind || "").replace(/_/g, " "));
+  }
+
+  function issueItemHtml(it) {
+    return '<li class="mat-issue mat-issue--' + (it.group === "facts" ? "hard" : "soft") + '"' + (it.id ? ' data-issue="' + esc(it.id) + '"' : "") + ">"
+      + (it.kind ? '<span class="mat-issue__kind">' + esc(kindWord(it.kind)) + "</span>" : "")
+      + it.quotes.map(function (q) { return '<q class="mat-issue__quote">' + esc(q) + "</q>"; }).join("")
+      + (it.reason ? '<span class="mat-issue__why">' + esc(it.reason) + "</span>" : "")
+      + "</li>";
+  }
+
+  function issueGroupsHtml(items) {
+    return ISSUE_GROUPS.map(function (g) {
+      var list = items.filter(function (it) { return it.group === g.id; });
+      if (!list.length) return "";
+      return '<section class="mat-issues mat-issues--' + g.id + '" data-group="' + g.id + '" aria-label="' + esc(g.head) + '">'
+        + '<p class="mat-issues__head">' + esc(g.head) + " \u00b7 " + list.length + "</p>"
+        + (g.sub ? '<p class="mat-issues__sub">' + esc(g.sub) + "</p>" : "")
+        + '<ul class="mat-issues__list">' + list.map(issueItemHtml).join("") + "</ul></section>";
+    }).join("");
+  }
+
+  /* Who graded it: an independent judge by name, the writer's own model, or
+     nobody (the judge was down or its answer failed validation). */
+  function judgeLine(qa) {
+    var j = qa.judge && typeof qa.judge === "object" ? qa.judge : null;
+    if (!j) return null;
+    if (j.status && j.status !== "ok") return { kind: "unavailable", text: "Judge unavailable, so this needs your review" };
+    if (j.independent === false) return { kind: "same", text: "Judged by the same model that wrote it" };
+    return { kind: "independent", text: "Judged by " + (j.model || j.provider || "an independent model") };
+  }
+
+  function dimensionsHtml(qa, open) {
+    var ratings = qa.quality && Array.isArray(qa.quality.ratings) ? qa.quality.ratings : [];
+    var score = v2Score(qa);
+    var rows = JUDGE_DIMENSIONS.map(function (dim) {
+      var r = ratings.filter(function (x) { return x && x.dimension === dim.id; })[0];
+      if (!r) return "";
+      var n = Math.max(0, Math.min(4, Number(r.score) || 0));
+      return '<li class="mat-dim' + (n < 3 ? " mat-dim--low" : "") + '" data-dimension="' + esc(dim.id) + '">'
+        + '<span class="mat-dim__label">' + esc(dim.label) + "</span>"
+        + pipsHtml(n, 4)
+        + '<span class="mat-dim__n">' + esc(n + " / 4") + "</span>"
+        + (r.reason ? '<span class="mat-dim__why">' + esc(r.reason) + "</span>" : "")
+        + "</li>";
+    }).join("");
+    if (!rows) return "";
+    return '<details class="mat-dims"' + (open ? " open" : "") + ">"
+      + "<summary>Writing quality" + (score == null ? "" : " \u00b7 " + esc(score + " / 100")) + "</summary>"
+      + '<ul class="mat-dims__rows">' + rows + "</ul></details>";
+  }
+
+  function gapsHtml(qa) {
+    var gaps = (Array.isArray(qa.qualificationGaps) ? qa.qualificationGaps : []).map(function (g) { return String(g || "").trim(); }).filter(Boolean);
+    if (!gaps.length) return "";
+    return '<details class="mat-gaps" data-group="gaps">'
+      + "<summary>Gaps in your background for this role \u00b7 " + gaps.length + "</summary>"
+      + '<p class="mat-gaps__hint">What the posting asks for that your background doesn\u2019t show. This is information for you, not a problem with the writing.</p>'
+      + '<ul class="mat-gaps__list">' + gaps.map(function (g) { return "<li>" + esc(g) + "</li>"; }).join("") + "</ul></details>";
+  }
+
+  function scorecardV2Html(qualityDoc, qa, type) {
+    var d = dispositionOf(qualityDoc);
+    var tone = d === "FAIL" ? "fail" : (d === "REVIEW" ? "review" : "ready");
+    var reason = String(qa.dispositionReason || "").trim();
+    var judge = judgeLine(qa);
+    return '<div class="mat-score mat-score--' + tone + ' mat-score--v2" data-qa-disposition="' + esc(d) + '" data-qa-contract="v2">'
+      + '<span class="mat-pill mat-pill--' + tone + '">' + esc(pillText(qualityDoc)) + "</span>"
+      + '<div class="mat-verdict mat-verdict--' + tone + '">'
+      + (reason ? '<p class="mat-verdict__why">' + esc(reason) + "</p>" : "")
+      + (judge ? '<p class="mat-verdict__judge" data-judge="' + judge.kind + '">' + esc(judge.text) + "</p>" : "")
+      + "</div>"
+      + issueGroupsHtml(qaIssues(qa))
+      + dimensionsHtml(qa, tone !== "ready")
+      + gapsHtml(qa)
+      + '<div class="mat-score__acts">' + actionsHtml(fixActions(qualityDoc, type)) + "</div>"
+      + "</div>";
+  }
+
+  /* -------------------- D3 · the Repair dialog -------------------- */
+
+  var REPAIR_MAX = 600;
+  var REPAIR_PLACEHOLDER = "e.g. make it less formulaic; end on something specific to them";
+
+  /* The issues Repair can be asked to fix: the verdict's own issues, by
+     id (`code` mirrors it). A blocker the issue list left out has no id to
+     send, so the instruction box covers it. */
+  function repairTargets(qualityDoc) {
+    var qa = qaOf(qualityDoc);
+    if (qaVersion(qa) !== 2) return [];
+    return qaIssues(qa).filter(function (it) { return it.id; });
+  }
+
+  /**
+   * state: { instruction, checked: { [issueId]: bool } | null, error, busy }.
+   * Without a choice yet, the hard issues start ticked.
+   */
+  function repairPanelHtml(type, qualityDoc, state) {
+    var st = state || {};
+    var text = String(st.instruction || "").slice(0, REPAIR_MAX);
+    var id = "mat-repair-" + esc(type);
+    var boxes = repairTargets(qualityDoc).map(function (t) {
+      var on = st.checked && Object.prototype.hasOwnProperty.call(st.checked, t.id) ? !!st.checked[t.id] : t.group === "facts";
+      return '<li class="mat-repair__issue"><label>'
+        + '<input type="checkbox" data-repair-issue value="' + esc(t.id) + '"' + (on ? " checked" : "") + ">"
+        + '<span class="mat-repair__issue-text">' + (t.kind ? "<b>" + esc(kindWord(t.kind)) + "</b> " : "") + esc(t.reason || t.quotes[0] || t.id) + "</span>"
+        + "</label></li>";
+    }).join("");
+    var words = docWords(type);
+    return '<form class="mat-repair" data-repair-for="' + esc(type) + '" aria-labelledby="' + id + '-t" novalidate>'
+      + '<p class="mat-repair__title" id="' + id + '-t">Repair the ' + esc(words) + "</p>"
+      + '<label class="mat-repair__label" for="' + id + '-i">What should change?</label>'
+      + '<textarea class="mat-repair__input" id="' + id + '-i" data-repair-instruction rows="3" maxlength="' + REPAIR_MAX + '"'
+      + ' placeholder="' + esc(REPAIR_PLACEHOLDER) + '">' + esc(text) + "</textarea>"
+      + '<span class="mat-repair__count" data-repair-count>' + text.length + " / " + REPAIR_MAX + "</span>"
+      + (boxes ? '<fieldset class="mat-repair__issues"><legend>Issues to fix</legend><ul>' + boxes + "</ul></fieldset>" : "")
+      + (st.error ? '<p class="mat-repair__err" tabindex="-1" role="alert">' + esc(st.error) + "</p>" : "")
+      + '<div class="mat-repair__acts">'
+      + '<button type="submit" class="case__doc-btn case__doc-btn--primary"' + (st.busy ? " disabled" : "") + ">"
+      + esc(st.busy ? "Sending\u2026" : "Repair the " + words) + "</button>"
+      + '<button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-repair-cancel">Cancel</button>'
+      + "</div></form>";
+  }
+
+  /* -------------------- D4 · what a repair changed -------------------- */
+
+  /* The repair's own run in GET /runs (newest first): the one whose repair
+     record names this parent, else the newest other run of the document
+     that finished after the request. */
+  function pickRepairRun(runs, watch) {
+    var w = watch || {};
+    var parent = String(w.parentRunId || "");
+    var list = runsFor(runs, w.feature);
+    var byParent = list.filter(function (r) {
+      return r.runId !== parent && r.repair && parent && r.repair.parentRunId === parent;
+    })[0];
+    if (byParent) return byParent;
+    var since = Date.parse(String(w.since || ""));
+    return list.filter(function (r) {
+      return r.runId !== parent && (!Number.isFinite(since) || Date.parse(String(r.date || "")) >= since);
+    })[0] || null;
+  }
+
+  /* K4's repair record on the run; without it, a run in use was adopted. */
+  function repairResultOf(run, feature) {
+    var r = run && run.repair && typeof run.repair === "object" ? run.repair : {};
+    return {
+      parentRunId: String(r.parentRunId || ""),
+      changed: typeof r.changed === "boolean" ? r.changed : null,
+      adopted: typeof r.adopted === "boolean"
+        ? r.adopted
+        : (run && Array.isArray(run.active) ? run.active.indexOf(feature) >= 0 : null),
+    };
+  }
+
+  /**
+   * o: { feature, changed, adopted, diff, error }. Opens on its own when a
+   * repair finishes. `changed` null reads the diff: no added or removed line
+   * is no material change.
+   */
+  function repairOutcomeHtml(o) {
+    var diff = o && o.diff && Array.isArray(o.diff.lines) ? o.diff : null;
+    var moved = diff ? (Number(diff.added) || 0) + (Number(diff.removed) || 0) > 0 : null;
+    var changed = typeof o.changed === "boolean" ? o.changed : moved;
+    var kind;
+    var head;
+    var sub = "";
+    if (changed === false) {
+      kind = "same";
+      head = "No material change: try a more specific instruction.";
+      sub = "The rewrite came back saying the same thing. Name the sentence or the ending you want changed.";
+    } else if (o.adopted === false) {
+      kind = "kept";
+      head = "Kept your previous version: the rewrite introduced a factual problem.";
+      sub = "Below is what the rewrite tried. Your previous version is still the one in use.";
+    } else {
+      kind = "changed";
+      head = "What changed in the " + docWords(o.feature);
+    }
+    return '<div class="mat-repaired mat-repaired--' + kind + '" role="status" tabindex="-1" data-repaired-for="' + esc(o.feature) + '" data-outcome="' + kind + '">'
+      + '<p class="mat-repaired__head">' + esc(head) + "</p>"
+      + (sub ? '<p class="mat-repaired__sub">' + esc(sub) + "</p>" : "")
+      + (changed !== false && diff ? diffHtml(diff) : "")
+      + (o.error ? '<p class="mat-repaired__sub">' + esc(o.error) + "</p>" : "")
+      + '<div class="mat-repaired__acts"><button type="button" class="case__doc-btn case__doc-btn--ghost" data-action="materials-repair-dismiss">Close</button></div>'
       + "</div>";
   }
 
@@ -403,8 +730,11 @@
 
   /* The in-page confirm a FAIL download asks before it goes (never
      window.confirm). */
-  function failConfirmHtml(type, target) {
+  function failConfirmHtml(type, target, opts) {
     var id = "mat-confirm-" + esc(type);
+    var second = opts && opts.repair === false
+      ? '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-confirm-cancel">Cancel</button>'
+      : '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-repair" data-feature="' + esc(type) + '">Repair first</button>';
     return '<div class="mat-confirm" role="alertdialog" aria-modal="false" aria-labelledby="' + id + '" data-confirm-for="' + esc(type) + '">'
       + '<p class="mat-confirm__q" id="' + id + '">This draft failed its quality check. Download anyway?</p>'
       + '<div class="mat-confirm__acts">'
@@ -413,7 +743,7 @@
       + (target.href ? ' data-href="' + esc(target.href) + '"' : "")
       + (target.filename ? ' data-filename="' + esc(target.filename) + '"' : "")
       + ">Download anyway</button>"
-      + '<button type="button" class="case__doc-btn case__doc-btn--primary" data-action="materials-repair" data-feature="' + esc(type) + '">Repair first</button>'
+      + second
       + "</div></div>";
   }
 
@@ -625,7 +955,18 @@
     intelHtml: intelHtml,
     STAGE_ORDER: STAGE_ORDER,
     TIMELINE_STEPS: TIMELINE_STEPS,
+    K7_STAGE_ORDER: K7_STAGE_ORDER,
+    K7_TIMELINE_STEPS: K7_TIMELINE_STEPS,
     RUBRIC_LABELS: RUBRIC_LABELS,
+    JUDGE_DIMENSIONS: JUDGE_DIMENSIONS,
+    qaVersion: qaVersion,
+    canRepair: canRepair,
+    repairTargets: repairTargets,
+    repairPanelHtml: repairPanelHtml,
+    pickRepairRun: pickRepairRun,
+    repairResultOf: repairResultOf,
+    repairOutcomeHtml: repairOutcomeHtml,
+    REPAIR_MAX: REPAIR_MAX,
     plainReason: plainReason,
     plainDegraded: plainDegraded,
     plainDisposition: plainDisposition,

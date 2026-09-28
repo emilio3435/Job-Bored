@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { auditCoverLetter, auditResume } from "./materials-quality.mjs";
 import { loadVoicePack } from "./materials-delint.mjs";
+import { numerals, tagDraftMetrics } from "./materials-metric-tag.mjs";
 
 const JD_ECHO_WINDOW = 8;
 const HTML_IN_SLOT_RE = /<[a-z]/i;
@@ -357,4 +358,68 @@ export async function critiqueMaterials({
     resume,
     issues,
   };
+}
+
+/**
+ * The deterministic critic's factual checks, without an HTML staging side effect.
+ * @param {object} input
+ * @param {"letter" | "resume"} input.document
+ * @param {{ statement?: string, bullets?: Array<{ claimId?: string, text?: string }>, earlier?: Array<{ claimId?: string, text?: string }>, letter?: Record<string, string> }} [input.draft]
+ * @param {{ claims?: Array<{ id?: string, text?: string, metrics?: Array<{ token?: string }> }>, employers?: Array<{ name?: string }> }} [input.ledger]
+ * @param {{ expectedEmployers?: string[], renderedEmployers?: string[], identity?: { expected?: Record<string, unknown>, actual?: Record<string, unknown> }, history?: { expected?: Array<Record<string, unknown>>, actual?: Array<Record<string, unknown>> } }} [input.protected]
+ * @param {string | { text?: string }} [input.posting]
+ * @param {string} [input.finalText]
+ * @param {string} [input.html]
+ */
+export function criticHardChecks({ document, draft = {}, ledger = {}, protected: protectedFacts = {}, posting = "", finalText = "", html = "" }) {
+  const claims = new Set((ledger.claims || []).map((claim) => claim.id));
+  const slots = document === "resume" ? [...(draft.bullets || []), ...(draft.earlier || [])] : [];
+  const unknown = slots.map((slot) => slot?.claimId).filter((id) => typeof id === "string" && !claims.has(id));
+  const metrics = tagDraftMetrics({ draft: document === "letter" ? { letter: draft.letter || {} } : { statement: draft.statement, bullets: draft.bullets || [], earlier: draft.earlier || [] }, ledger, postingText: typeof posting === "string" ? posting : String(posting?.text || "") });
+  const expectedEmployers = Array.isArray(protectedFacts.expectedEmployers) ? protectedFacts.expectedEmployers : [];
+  const renderedEmployers = Array.isArray(protectedFacts.renderedEmployers) ? protectedFacts.renderedEmployers : [];
+  const missing = expectedEmployers.filter((name) => !renderedEmployers.includes(name));
+  const allowed = new Set((ledger.employers || []).map((employer) => employer.name));
+  const invented = renderedEmployers.filter((name) => allowed.size && !allowed.has(name));
+  const postingText = typeof posting === "string" ? posting : String(posting?.text || "");
+  const metricTokens = new Set((ledger.claims || []).flatMap((claim) => (claim.metrics || []).map((metric) => String(metric.token || ""))));
+  if (document === "letter") for (const token of numerals(postingText)) metricTokens.add(token);
+  const renderedTexts = [finalText, visibleText(html)].filter(Boolean);
+  const metricText = (/** @type {string} */ text) => text
+    .replace(/\b(?:https?:\/\/|www\.)\S+/gi, " ")
+    .replace(/\b[^\s@]+@[^\s@]+\.[^\s@]+\b/g, " ")
+    .replace(/(?<!\w)(?:\+?\d{1,3}[\s.-]?)?\(?\d{3}\)?[\s.-]\d{3}[\s.-]\d{4}(?!\w)/g, " ")
+    .replace(/\b[\p{L}][\p{L}\p{N}]*\d[\p{L}\p{N}]*\b/gu, " ");
+  const inventedMetrics = [...new Set(renderedTexts.flatMap((text) => numerals(metricText(text))))].filter((token) => !metricTokens.has(token));
+  const employerPattern = /\b(?:at|for|with)\s+([A-Z][\p{L}\p{N}'&.-]*(?:\s+[A-Z][\p{L}\p{N}'&.-]*){0,3}\s+(?:Corp(?:oration)?|Labs|Inc\.?|LLC|Ltd\.?|Company|Technologies|Systems|Group))\b/gu;
+  const namedInText = renderedTexts.flatMap((text) => [...text.matchAll(employerPattern)].map((match) => match[1]));
+  const namedInHtml = composedEmployerStrings(html);
+  const knownEmployers = new Set([...(ledger.employers || []).map((employer) => employer.name), ...expectedEmployers, ...renderedEmployers].filter((/** @type {string | undefined} */ name) => typeof name === "string" && name.length > 0).map((name) => String(name).toLowerCase()));
+  const inventedRenderedEmployers = [...new Set([...namedInText, ...namedInHtml])].filter((name) => !knownEmployers.has(name.toLowerCase()) && !postingText.toLowerCase().includes(name.toLowerCase()));
+  const changedProtected = [];
+  const identity = protectedFacts.identity;
+  if (identity?.expected) {
+    for (const [field, value] of Object.entries(identity.expected)) {
+      if (identity.actual?.[field] !== value) changedProtected.push(`identity.${field}`);
+    }
+  }
+  const history = protectedFacts.history;
+  if (history?.expected) {
+    for (const [index, row] of history.expected.entries()) {
+      for (const [field, value] of Object.entries(row)) {
+        if (history.actual?.[index]?.[field] !== value) changedProtected.push(`history.${index}.${field}`);
+      }
+    }
+  }
+  /** @type {string[]} */
+  const slotStrings = [];
+  collectStrings(draft, slotStrings);
+  return [
+    { id: "known_source_ids", pass: unknown.length === 0, reason: unknown.length ? `Unknown claim ids: ${unknown.join(", ")}.` : "All claim ids exist." },
+    { id: "metric_mismatch", pass: metrics.issues.length === 0, reason: metrics.issues.length ? metrics.issues.map((issue) => issue.message).join(" ") : "Metrics trace to their own claims or the posting." },
+    { id: "invented_fact", pass: inventedMetrics.length === 0, reason: inventedMetrics.length ? `Rendered metric(s) absent from approved evidence: ${inventedMetrics.join(", ")}.` : "Rendered metrics trace to approved evidence." },
+    { id: "invented_employer", pass: inventedRenderedEmployers.length === 0, reason: inventedRenderedEmployers.length ? `Rendered employer(s) absent from approved evidence: ${inventedRenderedEmployers.join(", ")}.` : "Rendered employers trace to approved evidence." },
+    { id: "protected_fact", pass: !missing.length && !invented.length && !changedProtected.length, reason: [...missing.map((name) => `Missing protected employer: ${name}.`), ...invented.map((name) => `Invented employer: ${name}.`), ...changedProtected.map((field) => `Changed protected field: ${field}.`)].join(" ") || "Protected facts are preserved." },
+    { id: "html_in_slot", pass: !slotStrings.some((value) => HTML_IN_SLOT_RE.test(value)), reason: "Writer slots must contain plain text." },
+  ];
 }
