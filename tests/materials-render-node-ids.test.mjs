@@ -56,3 +56,20 @@ test("inline venture and toolkit blocks get their own patchable spans", () => {
     }
   }
 });
+
+test("a duplicate claim still renders every family without partial node annotations", () => {
+  const model = structuredClone(fixture);
+  const entry = model.documents.resume.sections[0].entries[0];
+  entry.bullets.push(structuredClone(entry.bullets[0]));
+  assert.throws(() => deriveNodes(model), /duplicate node id: b:acme:c14/);
+  for (const family of Object.keys(unrendered)) {
+    model.template.family = family;
+    for (const doc of ["resume", "coverLetter"]) {
+      const html = renderDocument(model, doc);
+      assert.doesNotMatch(html, /\bdata-node=/, `${family} ${doc} has partial annotations`);
+      if (doc === "resume") {
+        assert.equal(html.split("Measured carrier delays and built a weekly dashboard for the operations team.").length - 1, 2);
+      }
+    }
+  }
+});

@@ -714,50 +714,52 @@ function logoView(logo, family) {
  * Pair the ids from the canonical address book with their source objects.
  * Its per-kind order follows the model, so equal text in two blocks stays
  * distinct without reconstructing any id from employer or claim fields.
+ * If the address book rejects a model, rendering keeps every block but
+ * disables all node annotations for that document.
  * @param {RenderModel} model
  */
 function renderNodeIds(model) {
-  /** @type {Map<string, string[]>} */
-  const byKind = new Map();
-  for (const { kind, id } of deriveNodes(model)) {
-    if (!byKind.has(kind)) byKind.set(kind, []);
-    byKind.get(kind)?.push(id);
-  }
-  /** @param {string} kind */
-  const take = (kind) => {
-    const id = byKind.get(kind)?.shift();
-    if (!id) throw new Error(`missing ${kind} render node`);
-    return id;
-  };
-  /** @type {Map<object, string>} */
-  const seats = new Map();
-  /** @type {Map<object, string>} */
-  const bullets = new Map();
-  /** @type {Map<object, string>} */
-  const lines = new Map();
-  /** @type {Map<object, string>} */
-  const credentials = new Map();
-  /** @type {Map<object, string>} */
-  const groups = new Map();
-  /** @type {Map<object, string>} */
-  const paragraphs = new Map();
-  const resume = model.documents.resume;
-  const statement = resume ? take("statement") : "";
-  const intro = resume?.intro ? take("intro") : "";
-  for (const section of resume?.sections || []) {
-    for (const entry of section.entries || []) {
-      if (entry.seat !== undefined) seats.set(entry, take("seat"));
-      for (const bullet of entry.bullets || []) bullets.set(bullet, take("bullet"));
-      if (entry.line !== undefined) lines.set(entry, take("line"));
+  /** @returns {{ enabled: boolean, statement: string, intro: string, salutation: string, seats: Map<object, string>, bullets: Map<object, string>, lines: Map<object, string>, credentials: Map<object, string>, groups: Map<object, string>, paragraphs: Map<object, string> }} */
+  const empty = () => ({
+    enabled: false, statement: "", intro: "", salutation: "",
+    seats: new Map(), bullets: new Map(), lines: new Map(),
+    credentials: new Map(), groups: new Map(), paragraphs: new Map(),
+  });
+  const ids = empty();
+  try {
+    /** @type {Map<string, string[]>} */
+    const byKind = new Map();
+    for (const { kind, id } of deriveNodes(model)) {
+      if (!byKind.has(kind)) byKind.set(kind, []);
+      byKind.get(kind)?.push(id);
     }
-    for (const line of section.lines || []) credentials.set(line, take("credential"));
-    for (const group of section.groups || []) groups.set(group, take("toolkit"));
+    /** @param {string} kind */
+    const take = (kind) => {
+      const id = byKind.get(kind)?.shift();
+      if (!id) throw new Error(`missing ${kind} render node`);
+      return id;
+    };
+    const resume = model.documents.resume;
+    ids.statement = resume ? take("statement") : "";
+    ids.intro = resume?.intro ? take("intro") : "";
+    for (const section of resume?.sections || []) {
+      for (const entry of section.entries || []) {
+        if (entry.seat !== undefined) ids.seats.set(entry, take("seat"));
+        for (const bullet of entry.bullets || []) ids.bullets.set(bullet, take("bullet"));
+        if (entry.line !== undefined) ids.lines.set(entry, take("line"));
+      }
+      for (const line of section.lines || []) ids.credentials.set(line, take("credential"));
+      for (const group of section.groups || []) ids.groups.set(group, take("toolkit"));
+    }
+    const letter = model.documents.coverLetter;
+    ids.salutation = letter ? take("salutation") : "";
+    for (const paragraph of letter?.paragraphs || []) ids.paragraphs.set(paragraph, take("paragraph"));
+    if ([...byKind.values()].some((remaining) => remaining.length)) throw new Error("unmapped render node");
+    ids.enabled = true;
+    return ids;
+  } catch {
+    return empty();
   }
-  const letter = model.documents.coverLetter;
-  const salutation = letter ? take("salutation") : "";
-  for (const paragraph of letter?.paragraphs || []) paragraphs.set(paragraph, take("paragraph"));
-  if ([...byKind.values()].some((ids) => ids.length)) throw new Error("unmapped render node");
-  return { statement, intro, seats, bullets, lines, credentials, groups, salutation, paragraphs };
 }
 
 /**
@@ -1233,6 +1235,7 @@ export function buildView(model, family, doc, options = {}) {
     : null;
   return {
     title: `${identity.name}: ${docLabel}`,
+    nodeIdsEnabled: nodeIds.enabled,
     family: { id: family.id, label: family.label, version: family.version },
     sheetAttrs: safe(sheetAttrs),
     target: targetCompany ? { company: targetCompany, logo: targetMark } : null,
@@ -1275,6 +1278,7 @@ export function renderDocument(model, doc, options = {}) {
   const view = buildView(model, family, doc, options);
   const template = readFamilyFile(family, doc === "resume" ? family.documents.resume : family.documents.coverLetter);
   const body = renderTemplate(template, view);
+  const annotatedBody = view.nodeIdsEnabled ? body : body.replace(/ data-node="[^"]*"/g, "");
   const css = [inlineFontCss(family.fonts), BASE_CSS, readFamilyFile(family, family.stylesheet)].join("\n");
   return [
     "<!doctype html>",
@@ -1290,7 +1294,7 @@ export function renderDocument(model, doc, options = {}) {
     `<style>\n${css}\n</style>`,
     "</head>",
     "<body>",
-    body.trim(),
+    annotatedBody.trim(),
     "</body>",
     "</html>",
     "",
