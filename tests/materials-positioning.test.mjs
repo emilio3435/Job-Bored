@@ -40,12 +40,12 @@ describe("positioning kind per role", () => {
     assert.equal(positioningPhrase("consultant", null), "", "no guide, no borrowed words");
   });
 
-  it("should reach the hook and the resume statement through the draft prompt", () => {
+  it("should offer supported positioning context without prescribing the opener", () => {
     const positioning = positioningFor({ role: { title: "Director of Performance Media", family: "marketing" } }, AGENCY_POSTING, WORDS);
     const text = positioningLines(positioning).join("\n");
-    assert.match(text, /the hook's first sentence and the resume statement lead with "digital marketing consultant and AI product builder"/);
+    assert.match(text, /choose the strongest supported consultant evidence and describe it in the candidate's own words/);
     const ai = positioningLines(positioningFor({ role: { title: "VP, AI Strategy", family: "operations" } }, AI_POSTING, WORDS)).join("\n");
-    assert.match(ai, /lead with "AI product builder and digital marketing strategist"\. AI-builder proof leads the evidence; do not force a client story\./);
+    assert.match(ai, /choose the strongest supported ai evidence and describe it in the candidate's own words/);
   });
 });
 
@@ -73,13 +73,14 @@ describe("named-client proofs and few-shot examples from voice.md", () => {
     assert.deepEqual(letter?.why, ["No throat-clearing."]);
   });
 
-  it("should give a client role the named-client proofs and the examples, cover-letter first", () => {
+  it("should give a client role one cover-letter example and approved named-client proofs", () => {
     const positioning = positioningFor({ role: { title: "Fleet Director", family: "sales" } }, SALES_POSTING, PROFILE);
     const text = voiceProfileLines(PROFILE, { positioning }).join("\n");
     assert.match(text, /Named-client proof: this role rewards scale and client work, so the evidence paragraph uses ONE of these approved named-client proofs/);
     assert.match(text, /- Lumen Grocers, 40 stores\./);
-    assert.ok(text.indexOf("### Example 2 — Cover letter opening") < text.indexOf("### Example 1 — Resume bullet"), "cover-letter example first");
-    assert.match(text, /His version \(write like this\): I spent six years at Cascade Logistics/);
+    assert.match(text, /### Example 2 — Cover letter opening/);
+    assert.doesNotMatch(text, /### Example 1 — Resume bullet/);
+    assert.match(text, /Candidate version: I spent six years at Cascade Logistics/);
   });
 
   it("should not force a named client on an AI role", () => {
@@ -89,7 +90,7 @@ describe("named-client proofs and few-shot examples from voice.md", () => {
 });
 
 describe("the draft plan asks for one voice and three paragraphs", () => {
-  it("should ask for three paragraphs with the evidence at three or four sentences", () => {
+  it("should ask for three paragraphs without a sentence quota", () => {
     const lines = draftPromptLines({
       outline: { featured: [], earlier: [], letterBeats: { hook: "o1", proof1: "c1", proof1Pain: "o1", proof2: "c2", proof2Pain: "o1" } },
       extract: { role: { company: "Lumen Parcel", title: "Fleet Analyst", family: "analytics" }, outcomes: [{ id: "o1", text: "Own route forecasting." }], nouns: [], companyFacts: [] },
@@ -98,7 +99,9 @@ describe("the draft plan asks for one voice and three paragraphs", () => {
       featuredIds: [],
       earlierIds: [],
     }).join("\n");
-    assert.match(lines, /paragraph 2 \(proof1 \+ proof2, 3-4 sentences\)/);
+    assert.match(lines, /Letter word band: 120-200 words across the three paragraphs/);
+    assert.match(lines, /build the middle from the strongest supported evidence/);
+    assert.doesNotMatch(lines, /3-4 sentences/);
   });
 });
 
@@ -110,13 +113,14 @@ describe("voice v6 prompt order and hook patterns", () => {
     assert.ok(!PROFILE.hookPatterns.includes("Lumen Grocers, 40 stores."));
   });
 
-  it("should put the cover-letter rewrites first, verbatim, as the pattern to imitate, then the hook patterns", () => {
+  it("should put one cover-letter rewrite before the voice guide and hook patterns", () => {
     const text = voiceProfileLines(PROFILE, { positioning: null }).join("\n");
     const pattern = text.indexOf("THE PATTERN TO IMITATE");
     assert.ok(pattern >= 0 && pattern < text.indexOf("THE CANDIDATE'S OWN VOICE GUIDE"));
-    assert.match(text, /Match their rhythm: short clauses, specific nouns \(platforms, clients, numbers\), one landing line\./);
-    assert.match(text, /His version \(write like this\): I spent six years at Cascade Logistics owning the route forecaster for 620 vans, and Lumen Grocers' 40 stores ran on it\./);
-    assert.ok(text.indexOf("### Example 2 — Cover letter opening") < text.indexOf("### Example 1 — Resume bullet"));
+    assert.match(text, /Match its rhythm and concrete nouns while writing new sentences for this role/);
+    assert.match(text, /Candidate version: I spent six years at Cascade Logistics owning the route forecaster for 620 vans, and Lumen Grocers' 40 stores ran on it\./);
+    assert.match(text, /### Example 2 — Cover letter opening/);
+    assert.doesNotMatch(text, /### Example 1 — Resume bullet/);
     assert.match(text, /Hook pattern: when it fits the role, build one hook sentence on one of these lines of his, quoted EXACTLY/);
     assert.ok(text.indexOf("Hook pattern:") < text.indexOf("THE CANDIDATE'S OWN VOICE GUIDE"));
   });

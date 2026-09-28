@@ -15,9 +15,8 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildRenderModelFromDraft } from "../server/materials-render-model-adapter.mjs";
 import { isContextRank, isReadoutMetric } from "../server/materials-numerals.mjs";
-import { letterSentenceGrounding } from "../server/materials-rubric.mjs";
+import { advisoryEvidence } from "../server/materials-rubric.mjs";
 import { resumeScopeUpgrades, scopeUpgrades } from "../server/materials-scope.mjs";
-import { SUPPORT_SYSTEM_PROMPT } from "../server/materials-support.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 import { parseVoiceProfile } from "../server/materials-voice-profile.mjs";
 import { isVerblessOpener, soundsHumanRow } from "../server/materials-voice-tells.mjs";
@@ -89,22 +88,11 @@ describe("5. no scope or scale upgrades", () => {
     assert.deepEqual(hits.map((h) => h.field), ["statement", "bullet:b7"]);
   });
 
-  it("should mark an upgrading letter sentence ungrounded, even with no other fact", () => {
-    const letter = {
-      hook: "At Contoso Austin I supported 12 AE desks through 24+ tracked pitches/month. I plan to contribute hands-on seller development to NorthwindMedia's East Region digital sales team.",
-      proof1: "At Contoso, I directed a $12M+ yearly online media P&L and expanded enterprise accounts across OTT/CTV.",
-      ask: "I would like toward map a sample Regional Region pitch for NorthwindMedia. Worth a quick call this week?",
-    };
-    const judged = letterSentenceGrounding({ draft: { letter }, ledger: LEDGER, postingText: "", company: "NorthwindMedia, Inc." });
-    const bad = judged.filter((j) => !j.grounded);
-    assert.equal(bad.length, 2, JSON.stringify(bad));
-    assert.ok(bad.every((j) => /scope upgrade/.test(j.reason)));
+  it("feeds scope matches to the judge as advisory evidence", () => {
+    const hits = advisoryEvidence({ document: "letter", finalText: "I expanded enterprise accounts.", ledger: { claims: [{ id: "c1", text: ACCOUNTS }] } });
+    assert.ok(hits.some((item) => item.kind === "scope" && item.sentenceIds.includes("L1")));
   });
 
-  it("should tell the support check that scope is a fact", () => {
-    assert.match(SUPPORT_SYSTEM_PROMPT, /upgrades the scope, scale, seniority, team size or technical depth/);
-    assert.match(SUPPORT_SYSTEM_PROMPT, /enterprise accounts/);
-  });
 });
 
 /* A voice guide in the shape of Jordan's: philosophy lines under "Voice

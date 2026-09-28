@@ -25,6 +25,7 @@ import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlash
  * @property {string} updatedAt
  * @property {string} [alias] the spelling the user picked ("local", "ollama") when it differs from provider
  * @property {LlmFallbackConfig} [fallback] Decision 5: per-stage backup model, off unless enabled
+ * @property {LlmFallbackTarget} [judge] independent materials judge pin
  */
 
 /**
@@ -52,6 +53,7 @@ import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlash
  * @property {string} baseUrl
  * @property {boolean} keyPresent
  * @property {string} updatedAt
+ * @property {{ provider: string, model: string, baseUrl: string, keyPresent: boolean } | null} judge
  */
 
 /**
@@ -62,6 +64,7 @@ import { GEMINI_FLASH_FAMILY, normalizeGeminiFlashPreference, resolveGeminiFlash
  * @property {string} baseUrl
  * @property {string} resolvedModel
  * @property {{ stages: Record<string, Omit<ActivePin, "fallback">> }} [fallback] present only when enabled
+ * @property {Omit<ActivePin, "fallback" | "judge">} [judge]
  */
 
 /**
@@ -121,6 +124,17 @@ function asFallbackConfig(value) {
   return { enabled: record.enabled === true, stages };
 }
 
+/** @param {unknown} value @returns {LlmFallbackTarget | undefined} */
+function asJudgeConfig(value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return undefined;
+  const raw = /** @type {Record<string, unknown>} */ (value);
+  const provider = normalizeProvider(asString(raw.provider));
+  const model = asString(raw.model);
+  const baseUrl = asString(raw.baseUrl);
+  if (!provider || !model || model.length > 200 || baseUrl.length > 2048 || (baseUrl && !isHttpUrl(baseUrl))) return undefined;
+  return { provider, model, apiKey: asString(raw.apiKey), baseUrl };
+}
+
 /**
  * @param {unknown} value
  * @returns {LlmConfig | null}
@@ -140,6 +154,8 @@ function asLlmConfig(value) {
   if (alias) config.alias = alias;
   const fallback = asFallbackConfig(record.fallback);
   if (fallback) config.fallback = fallback;
+  const judge = asJudgeConfig(record.judge);
+  if (judge) config.judge = judge;
   return config;
 }
 
@@ -169,6 +185,7 @@ function normalizeLlmConfig(config) {
   };
   if (alias) out.alias = alias;
   if (parsed.fallback) out.fallback = parsed.fallback;
+  if (parsed.judge) out.judge = parsed.judge;
   return out;
 }
 
@@ -313,6 +330,12 @@ export function redactLlmConfig(config) {
     baseUrl: parsed.baseUrl,
     keyPresent: Boolean(parsed.apiKey),
     updatedAt: parsed.updatedAt,
+    judge: parsed.judge ? {
+      provider: parsed.judge.provider,
+      model: parsed.judge.model,
+      baseUrl: parsed.judge.baseUrl || "",
+      keyPresent: Boolean(parsed.judge.apiKey),
+    } : null,
   };
 }
 
@@ -330,6 +353,14 @@ export async function resolveActivePin(config) {
     apiKey: asString(config && config.apiKey),
     baseUrl: asString(config && config.baseUrl),
     resolvedModel: provider === "gemini" ? resolveGeminiFlashWireModel(model) : model,
+  };
+  const judge = asJudgeConfig(config && config.judge);
+  if (judge) pin.judge = {
+    provider: judge.provider,
+    model: judge.model,
+    apiKey: judge.apiKey || "",
+    baseUrl: judge.baseUrl || "",
+    resolvedModel: judge.provider === "gemini" ? resolveGeminiFlashWireModel(judge.model) : judge.model,
   };
   const fallback = asFallbackConfig(config && config.fallback);
   if (fallback && fallback.enabled && Object.keys(fallback.stages).length) {
@@ -435,8 +466,25 @@ export async function handlePostLlmConfig(req, res, env = process.env) {
   // Settings does not edit the fallback block (Decision 5: Jordan sets it by
   // hand), so a Settings save keeps whatever llm.json already holds.
   const stored = loadLlmConfig(env);
+  /** @type {LlmFallbackTarget | undefined} */
+  let judge;
+  if (body.judge === undefined) {
+    judge = stored?.judge;
+  } else if (body.judge !== null) {
+    judge = asJudgeConfig(body.judge);
+    if (!judge) {
+      res.status(400).json({ error: "judge needs a supported provider, model and valid baseUrl.", code: "llm_invalid" });
+      return;
+    }
+    const sameJudge = stored?.judge
+      && stored.judge.provider === judge.provider
+      && asString(stored.judge.baseUrl).replace(/\/+$/, "") === asString(judge.baseUrl).replace(/\/+$/, "");
+    if (body.judge && typeof body.judge === "object" && !("apiKey" in body.judge)) {
+      judge.apiKey = sameJudge && stored?.judge ? stored.judge.apiKey : "";
+    }
+  }
   const saved = await writeLlmConfig(
-    { provider: rawProvider, model, apiKey, baseUrl, ...(stored && stored.fallback ? { fallback: stored.fallback } : {}) },
+    { provider: rawProvider, model, apiKey, baseUrl, ...(stored?.fallback ? { fallback: stored.fallback } : {}), ...(judge ? { judge } : {}) },
     env,
   );
   res.json(redactLlmConfig(saved));

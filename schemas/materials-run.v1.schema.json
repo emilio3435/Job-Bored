@@ -65,6 +65,26 @@
     "runId": { "type": "string", "minLength": 1 },
     "slug": { "type": "string", "pattern": "^[a-z0-9][a-z0-9-]{0,127}$" },
     "feature": { "enum": ["resume", "cover_letter", "both"] },
+    "textHash": {
+      "oneOf": [
+        { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+        { "type": "object", "additionalProperties": false, "properties": {
+          "letter": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" },
+          "resume": { "type": "string", "pattern": "^sha256:[0-9a-f]{64}$" }
+        }, "minProperties": 1 }
+      ]
+    },
+    "repair": {
+      "type": "object", "additionalProperties": false,
+      "properties": {
+        "parentRunId": { "type": ["string", "null"] },
+        "instruction": { "type": "string" },
+        "issueIds": { "type": "array", "items": { "type": "string" } },
+        "changed": { "type": ["boolean", "null"] },
+        "adopted": { "type": ["boolean", "null"] },
+        "reason": { "type": "string" }
+      }
+    },
     "requestedAt": { "type": "string", "format": "date-time" },
     "finishedAt": { "type": "string", "format": "date-time" },
     "executor": { "enum": ["local-inprocess", "hermes-cli", "webhook"] },
@@ -148,6 +168,7 @@
               "render",
               "qa",
               "publish"
+              ,"prepare", "write", "validate", "judge", "save", "repair"
             ]
           },
           "status": { "enum": ["ok", "skipped", "review", "failed"] },
@@ -156,6 +177,7 @@
           "tokensOut": { "type": "integer", "minimum": 0 },
           "out": { "type": "array", "items": { "type": "string" } },
           "detail": { "type": "string" },
+          "degraded": { "type": "boolean" },
           "call": { "$ref": "#/$defs/stageCall" }
         }
       }

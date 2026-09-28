@@ -11,6 +11,8 @@ import { join } from "node:path";
 import {
   handleGetLlmConfig,
   handlePostLlmConfig,
+  loadLlmConfig,
+  resolveActivePin,
 } from "../server/llm-config.mjs";
 
 function mockRes() {
@@ -93,5 +95,32 @@ describe("/api/llm-config", () => {
     assert.equal(res.statusCode, 400);
     assert.equal(res.body.code, "llm_invalid");
     assert.equal("apiKey" in res.body, false);
+  });
+
+  it("round-trips an xAI judge, redacts both keys, preserves omission and clears null", async () => {
+    const first = mockRes();
+    await handlePostLlmConfig({ body: {
+      provider: "gemini", model: "gemini-3.8-flash", apiKey: "writer-example-key", baseUrl: "",
+      judge: { provider: "openai_compatible", model: "grok-example", apiKey: "judge-example-key", baseUrl: "https://api.x.ai/v1" },
+    } }, first, env);
+    assert.equal(first.statusCode, 200);
+    assert.deepEqual(first.body.judge, { provider: "openai_compatible", model: "grok-example", baseUrl: "https://api.x.ai/v1", keyPresent: true });
+    assert.ok(!JSON.stringify(first.body).includes("example-key"));
+    const pin = await resolveActivePin(loadLlmConfig(env));
+    assert.equal(pin.provider, "gemini");
+    assert.equal(pin.judge.provider, "openai_compatible");
+    assert.equal(pin.judge.baseUrl, "https://api.x.ai/v1");
+
+    const keep = mockRes();
+    await handlePostLlmConfig({ body: { provider: "gemini", model: "gemini-3.8-flash" } }, keep, env);
+    assert.equal(keep.body.judge.keyPresent, true);
+    const get = mockRes();
+    await handleGetLlmConfig({}, get, env);
+    assert.deepEqual(get.body.judge, keep.body.judge);
+
+    const clear = mockRes();
+    await handlePostLlmConfig({ body: { provider: "gemini", model: "gemini-3.8-flash", judge: null } }, clear, env);
+    assert.equal(clear.body.judge, null);
+    assert.equal((await resolveActivePin(loadLlmConfig(env))).judge, undefined);
   });
 });

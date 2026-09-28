@@ -15,6 +15,7 @@ import { getBrandLogosTemplateRoot, loadEmployerMarks, loadTargetMark, readResol
 import { geminiGroundedSearch, intelRootDir } from "./materials-intel.mjs";
 import { newRunId } from "./materials-package.mjs";
 import { runPipeline } from "./materials-pipeline.mjs";
+import { recordRepairOutcome } from "./materials-history.mjs";
 import { resolveRunFamily } from "./materials-templates.mjs";
 import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
@@ -122,6 +123,7 @@ export async function reconcileOrphanedPending(options = {}) {
  *   which resume the draft uses and why (set by enqueue, recorded in run.json)
  * @property {"snapshot"} [resumeFrom] F8: a repair re-enters at the draft
  *   stage with the stored draft JSON plus notes as editor instructions
+ * @property {{ feature: "resume" | "cover_letter", instruction: string, issues: Record<string, unknown>[], issueIds: string[], parentRunId: string, sourceText: string, sourceDraft: Record<string, unknown>, requestId?: string }} [repair]
  * @property {string} [template] a registry family named by this request
  * @property {string} [preferredTemplate] the user's saved materialsTemplate
  * @property {"cover_letter"} [then] U-5: the document to queue
@@ -261,7 +263,13 @@ const NEXT_STEP_WORDS = {
   delint: "Checking the facts…",
   "tag-metrics": "Rendering the PDF…",
   fit: "Rendering the PDF…",
+  prepare: "Writing your {doc}…",
+  write: "Checking the facts…",
+  validate: "Rendering the PDF…",
   render: "Checking quality…",
+  judge: "Finishing up…",
+  save: "Finishing up…",
+  repair: "Checking the revision…",
   qa: "Checking quality…",
   publish: "Finishing up…",
 };
@@ -409,6 +417,7 @@ async function writeJdFile(dir, text, meta = {}) {
  * @property {() => Date | string | number} [now]
  * @property {number} [heartbeatMs] F14: queued-job heartbeat interval
  *   (default 60s; tests use a shorter one)
+ * @property {typeof runPipeline} [pipeline] injected for repair contract tests
  */
 
 /**
@@ -485,6 +494,7 @@ export function createMaterialsDrafter(deps = {}) {
   };
   const readSavedResume =
     typeof deps.readSavedResume === "function" ? deps.readSavedResume : () => readCanonicalResume();
+  const pipeline = typeof deps.pipeline === "function" ? deps.pipeline : runPipeline;
 
   /** @type {Array<{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord }>} */
   const queue = [];
@@ -823,19 +833,13 @@ export function createMaterialsDrafter(deps = {}) {
       throw err;
     }
 
-    /* F8 repair: an existing draft plus notes re-enters at the draft
-     * stage with the notes as editor instructions. */
-    let current;
-    let repairInstructions = "";
-    if (payload.resumeFrom) {
-      try {
-        current = JSON.parse(await readFile(join(dir, "draft.json"), "utf8"));
-        repairInstructions = typeof payload.notes === "string" ? payload.notes : "";
-      } catch {
-        current = undefined;
-      }
+    if (payload.resumeFrom && !payload.repair) {
+      throw Object.assign(new Error("The selected run has no readable document draft."), {
+        statusCode: 409,
+        code: "repair_source_missing",
+      });
     }
-    const voiceSamples = await collectVoiceSamples(current ? { ...payload, notes: "" } : payload);
+    const voiceSamples = await collectVoiceSamples(payload.repair ? { ...payload, notes: "" } : payload);
 
     /* RESJ Q3: confidence from what the posting offers (role sections,
      * duty lines, requirements, company facts), not its length. */
@@ -854,7 +858,7 @@ export function createMaterialsDrafter(deps = {}) {
     const runId = newRunId(payload.slug, job.record.requested_at || isoNow());
     /** @type {Promise<void>} */
     let stageWrites = Promise.resolve();
-    await runPipeline({
+    const pipelineResult = await pipeline({
       dir,
       payload,
       pin: resolved,
@@ -919,9 +923,18 @@ export function createMaterialsDrafter(deps = {}) {
           await writePending(pendingPath, job.record);
         }).catch(() => {});
       },
-      current,
-      repairInstructions,
+      ...(payload.repair ? { current: payload.repair.sourceDraft } : {}),
+      ...(payload.repair ? { repair: payload.repair } : {}),
     });
+    if (payload.repair && pipelineResult.outcome !== "cached" && pipelineResult.runId !== payload.repair.parentRunId) {
+      await recordRepairOutcome({
+        root: applicationsRoot,
+        slug: payload.slug,
+        runId: pipelineResult.runId || runId,
+        repair: payload.repair,
+        pipelineResult: /** @type {Record<string, unknown>} */ (pipelineResult),
+      });
+    }
     /* The pipeline wrote the package (or returned the cached one) — the
      * spinner comes down either way. */
     await stageWrites;

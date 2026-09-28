@@ -6,6 +6,7 @@
  */
 
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -17,9 +18,10 @@ import { buildManifest } from "../server/application-materials.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { materialsCacheKey } from "../server/materials-package.mjs";
 import { regeneratePackage } from "../server/materials-regenerate.mjs";
+import { runsToText } from "../server/materials-render.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 import { EXAMPLE_MARKS, EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-example-writer.mjs";
-import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
 /* The drafter reads the profile and builds the claim ledger beside it; keep
  * both out of the real HOME (a run without this overwrote the user's
@@ -145,8 +147,8 @@ describe("each package records its template", () => {
     const drafter = drafterFor(dir);
     await draft(drafter, "acme-key", { template: "dossier" });
     const run = await readJson(join(dir, "acme-key", "run.json"));
-    const intake = run.stages.find((s) => s.stage === "intake");
-    assert.match(intake.detail, /template dossier@1\.4/);
+    assert.equal(run.template.family, "dossier");
+    assert.equal(run.template.version, resolveFamily("dossier").version);
     const a = materialsCacheKey({ jdText: JD, resumeText: "r", family: resolveFamily("signal") });
     const b = materialsCacheKey({ jdText: JD, resumeText: "r", family: resolveFamily("editorial") });
     assert.notEqual(a, b);
@@ -165,6 +167,14 @@ describe("each package records its template", () => {
 });
 
 describe("regenerate in another template", () => {
+  it("C8: labels only the regenerate response as a template change", async () => {
+    const { templateRegenerateResponse } = await import("../server/materials-regenerate.mjs");
+    assert.equal(typeof templateRegenerateResponse, "function");
+    const result = { ok: true, runId: "new-run" };
+    assert.deepEqual(templateRegenerateResponse(result), { ...result, kind: "template" });
+    assert.deepEqual(result, { ok: true, runId: "new-run" });
+  });
+
   let dir;
   beforeEach(async () => {
     dir = await mkdtemp(join(tmpdir(), "jb-regenerate-"));
@@ -174,12 +184,14 @@ describe("regenerate in another template", () => {
     await rm(dir, { recursive: true, force: true });
   });
 
-  it("should re-render in editorial with zero LLM calls, record regeneratedFrom, and leave the original byte-identical", async () => {
+  it("should re-render in editorial, rejudge changed prose, and leave the original byte-identical", async () => {
     await draft(drafterFor(dir), "acme-regen");
     const original = await readJson(join(dir, "acme-regen", "run.json"));
     const originalDir = join(dir, "acme-regen", "runs", original.runId);
     const before = {};
-    for (const name of await readdir(originalDir)) before[name] = await readFile(join(originalDir, name));
+    for (const entry of await readdir(originalDir, { withFileTypes: true })) {
+      if (entry.isFile()) before[entry.name] = await readFile(join(originalDir, entry.name));
+    }
 
     /* Every provider call (materials-writer.mjs) goes out through fetch, so a
        fetch that throws and counts proves the regenerate made no LLM call. */
@@ -193,7 +205,10 @@ describe("regenerate in another template", () => {
     try {
       result = await regeneratePackage(
         { slug: "acme-regen", template: "editorial" },
-        { applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T13:00:00.000Z") },
+        {
+          applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T13:00:00.000Z"),
+          targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+        },
       );
     } finally {
       globalThis.fetch = realFetch;
@@ -207,7 +222,8 @@ describe("regenerate in another template", () => {
     assert.equal(run.template.source, "regenerate");
     assert.equal(run.template.regeneratedFrom, original.runId);
     assert.notEqual(run.runId, original.runId);
-    assert.equal(run.stages.some((s) => s.llm === true), false, "no LLM stage in a regenerate run");
+    assert.equal(run.stages.some((s) => s.stage === "write"), false, "regenerate never rewrites the document");
+    assert.equal(run.stages.some((s) => s.stage === "qa" && s.llm === true), true, "a changed body goes through the judge");
 
     const html = await readFile(join(dir, "acme-regen", "resume.html"), "utf8");
     assert.match(html, /data-family="editorial"/);
@@ -263,10 +279,57 @@ describe("regenerate in another template", () => {
     assert.equal(run.feature, "resume");
     const result = await regeneratePackage(
       { slug: "acme-resume-only", template: "dossier" },
-      { applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T14:00:00.000Z") },
+      {
+        applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T14:00:00.000Z"),
+        targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+      },
     );
     assert.equal(result.ok, true);
     assert.ok(existsSync(join(dir, "acme-resume-only", "resume.html")));
+  });
+
+  it("G4: keeps v2 QA when the judged resume body is unchanged", async () => {
+    await draft(drafterFor(dir), "acme-v2-same", { feature: "resume" });
+    const app = join(dir, "acme-v2-same");
+    const model = await readJson(join(app, "render-model.json"));
+    const body = [
+      runsToText(model.documents.resume.statement.runs),
+      ...model.documents.resume.sections.flatMap((section) => (section.entries || []).flatMap((entry) => (entry.bullets || []).map((bullet) => runsToText(bullet.runs)))),
+    ].filter(Boolean).join("\n");
+    const qa = { contract: "materials.qa.v2", document: "resume", disposition: "READY", textHash: `sha256:${createHash("sha256").update(body).digest("hex")}`, quality: { score: 93 } };
+    await writeFile(join(app, "qa.resume.json"), JSON.stringify(qa));
+    const noJudge = () => { throw new Error("unchanged body should reuse QA"); };
+    await regeneratePackage({ slug: "acme-v2-same", template: "editorial" }, {
+      applicationsRoot: dir, pdfSession: fakeSession,
+      targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+      qaTools: {
+        runHardGates: noJudge, judgeMaterials: noJudge, buildQaRecord: noJudge, splitSentences: noJudge,
+      },
+    });
+    assert.deepEqual(await readJson(join(app, "qa.resume.json")), qa);
+  });
+
+  it("G4: judges a changed v2 body before saving its new QA", async () => {
+    await draft(drafterFor(dir), "acme-v2-changed", { feature: "resume" });
+    const app = join(dir, "acme-v2-changed");
+    const model = await readJson(join(app, "render-model.json"));
+    model.documents.resume.statement.runs = [{ t: "Built a $ 10 M + reporting book." }];
+    await writeFile(join(app, "render-model.json"), JSON.stringify(model));
+    await writeFile(join(app, "qa.resume.json"), JSON.stringify({ contract: "materials.qa.v2", document: "resume", disposition: "READY", textHash: "old-hash" }));
+    const calls = [];
+    await regeneratePackage({ slug: "acme-v2-changed", template: "editorial" }, {
+      applicationsRoot: dir, pdfSession: fakeSession,
+      targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+      qaTools: {
+        runHardGates: async (input) => { calls.push("gates"); assert.equal(input.document, "resume"); return []; },
+        judgeMaterials: async (input) => { calls.push("judge"); assert.equal(input.documents[0].document, "resume"); return { status: "ok", judgment: {}, meta: {} }; },
+        buildQaRecord: async (input) => { calls.push("qa"); return { contract: "materials.qa.v2", document: input.document, disposition: "READY", textHash: input.textHash }; },
+        splitSentences: (text) => [{ id: "R1", text }],
+      },
+    });
+    assert.deepEqual(calls, ["gates", "judge", "qa"]);
+    const currentQa = await readJson(join(app, "qa.resume.json"));
+    assert.notEqual(currentQa.textHash, "old-hash");
   });
 
   it("should 400 an unknown family and 409 a package with no stored render model or a pending draft", async () => {

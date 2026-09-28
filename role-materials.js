@@ -1014,21 +1014,21 @@
       + ' <button type="button" class="case__link" data-action="open-resume">Change</button></p>';
   }
 
-  /* Slice 3b: the package's recorded template, and "Regenerate in…" for the
-     other families. Regenerating re-renders the stored render model: no
-     model call, and the original run stays on disk untouched. */
+  /* Slice 3b: the package's recorded template, and "Change template" for the
+     other families. It re-renders the stored render model and rewrites
+     nothing, so it is a link here, apart from Repair's buttons (MREV D5). */
   function templateBarHtml(manifest) {
     var t = manifest && manifest.template && manifest.template.family ? manifest.template : null;
     if (!t || (manifest && manifest.pending)) return "";
     var others = templateFamilies().filter(function (f) { return f.id !== t.family; });
     var buttons = others.map(function (f) {
       return '<button type="button" class="case__link" data-action="materials-regenerate" data-template="'
-        + escapeHtml(f.id) + '">' + escapeHtml(f.label) + '</button>';
+        + escapeHtml(f.id) + '" aria-label="Change template to ' + escapeHtml(f.label) + '">' + escapeHtml(f.label) + '</button>';
     }).join(" ");
     return '<p class="case__template" data-template-family="' + escapeHtml(t.family) + '">'
       + 'Template: <b>' + escapeHtml(templateLabel(t.family)) + '</b>'
-      + (t.source === "regenerate" ? " (regenerated)" : "")
-      + (buttons ? ' <span class="case__template-regen">Regenerate in ' + buttons + '</span>' : "")
+      + (t.source === "regenerate" ? " (changed)" : "")
+      + (buttons ? ' <span class="case__template-regen">Change template: ' + buttons + '</span>' : "")
       + '</p>';
   }
 
@@ -1237,6 +1237,8 @@
             + (contact ? ' data-contact="' + escapeHtml(contact) + '"' : "") + '></jb-apply-checklist>';
         }
       }
+      var repairBlocks = def.type === "resume" || def.type === "cover_letter"
+        ? repairBlocksHtml(manifest.slug, def.type, qualityForRow, isPending) : "";
       return '<div class="case__doc case__doc--' + status + (fail ? " case__doc--qafail" : "") + '" data-doc="' + escapeHtml(def.type) + '"'
         + (fail ? ' data-qa="fail"' : "") + '>'
         + '<div class="case__doc-n"><span class="case__doc-label">' + escapeHtml(def.label) + '</span></div>'
@@ -1245,6 +1247,7 @@
         + '<div class="case__doc-meta">' + (meta ? escapeHtml(meta) : "") + progressHtml + '</div>'
         + (verdict || coverage || checklist ? '<div class="case__doc-qa">' + verdict + coverage + checklist + '</div>' : "")
         + (actions.length ? '<div class="case__doc-actions">' + actions.join("") + '</div>' : "")
+        + repairBlocks
       + '</div>';
     }).join("");
 
@@ -1444,6 +1447,7 @@
       jobKey: currentManifest.jobKey,
       manifest: manifest,
     });
+    maybeFinishRepair(manifest, base);
     return manifest;
   }
 
@@ -1484,12 +1488,20 @@
     section.addEventListener("change", function (e) {
       var t = e && e.target;
       if (t && t.getAttribute && t.getAttribute("data-materials-outreach") != null) includeOutreach = !!t.checked;
+      if (t && t.getAttribute && t.getAttribute("data-repair-issue") != null) syncRepairForm(t.closest(".mat-repair"));
+    });
+    section.addEventListener("submit", function (e) {
+      var form = e && e.target;
+      if (!form || !form.classList || !form.classList.contains("mat-repair")) return;
+      e.preventDefault();
+      submitRepairForm(form, section);
     });
     section.addEventListener("input", function (e) {
       var t = e && e.target;
       if (t && t.getAttribute && t.getAttribute("data-materials-notes") != null) {
         draftNotes = String(t.value || "");
       }
+      if (t && t.getAttribute && t.getAttribute("data-repair-instruction") != null) syncRepairForm(t.closest(".mat-repair"));
       if (t && t.getAttribute && t.getAttribute("data-materials-outreach") != null) {
         includeOutreach = !!t.checked;
       }
@@ -1618,10 +1630,22 @@
           if (action === "materials-repair") {
             if (typeof e.preventDefault === "function") e.preventDefault();
             removeFailConfirm(t);
-            handleRepair(
-              section.getAttribute("data-slug") || "",
-              t.getAttribute("data-feature") || "",
-            );
+            openRepairForm(t, section);
+            return;
+          }
+          if (action === "materials-repair-cancel") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            closeRepairForm(t.closest(".mat-repair"));
+            return;
+          }
+          if (action === "materials-repair-dismiss") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            dismissRepairOutcome(t);
+            return;
+          }
+          if (action === "materials-confirm-cancel") {
+            if (typeof e.preventDefault === "function") e.preventDefault();
+            removeFailConfirm(t);
             return;
           }
         }
@@ -1634,7 +1658,11 @@
       if (!e || e.key !== "Escape") return;
       var open = section.querySelector(".mat-dl__menu:not([hidden])");
       var confirm = section.querySelector(".mat-confirm");
-      if (open) {
+      var inRepair = e.target && e.target.closest ? e.target.closest(".mat-repair") : null;
+      var repairOpen = inRepair || (!open && !confirm ? section.querySelector(".mat-repair") : null);
+      if (repairOpen) {
+        closeRepairForm(repairOpen);
+      } else if (open) {
         var toggle = open.parentNode && open.parentNode.querySelector(".mat-dl__toggle");
         closeDownloadMenus(section);
         if (toggle && typeof toggle.focus === "function") toggle.focus();
@@ -1715,7 +1743,9 @@
     var prior = host.querySelector(".mat-confirm");
     if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
     var holder = document.createElement("div");
-    holder.innerHTML = mi.failConfirmHtml(docTypeOf(host), target);
+    var type = docTypeOf(host);
+    /* D2: an old run is read-only, so its confirm offers Cancel, not Repair. */
+    holder.innerHTML = mi.failConfirmHtml(type, target, { repair: mi.canRepair(qualityDocFor(type)) });
     var box = holder.firstElementChild || holder.firstChild;
     if (!box) return;
     host.appendChild(box);
@@ -2218,7 +2248,7 @@
   function handleRegenerate(slug, template) {
     if (!slug || !template || !currentContext) return;
     var ctx = currentContext;
-    toast("Regenerating in " + templateLabel(template) + "\u2026", "info");
+    toast("Changing the template to " + templateLabel(template) + "\u2026", "info");
     return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/regenerate", { template: template })
       .then(function () {
         dispatch("jb:materials:changed", { slug: slug, reason: "regenerated" });
@@ -2227,22 +2257,171 @@
       .then(function (manifest) {
         var brief = findMount();
         if (brief && manifest) commitManifest(brief, manifest, ctx.base, ctx.jobKey);
-        toast("Regenerated in " + templateLabel(template) + ". No new AI calls were made.", "success");
+        toast("Changed the template to " + templateLabel(template) + ". Nothing was rewritten.", "success");
       })
       .catch(function (err) {
-        toast("Couldn\u2019t regenerate: " + ((err && err.message) || "unknown error"), "error");
+        toast("Couldn\u2019t change the template: " + ((err && err.message) || "unknown error"), "error");
       });
   }
 
-  function handleRepair(slug, feature) {
+  /* -------------------- MREV D3/D4: Repair with an instruction -------------------- */
+
+  /* The open Repair dialog, the repair in flight, and what the last one
+     changed. They live here rather than in the DOM so a manifest poll that
+     repaints the rows keeps them. */
+  var repairForm = null;    /* { slug, feature, instruction, checked, error, busy, requestId } */
+  var repairWatch = null;   /* { slug, feature, parentRunId, since } */
+  var repairOutcome = null; /* { slug, feature, html } */
+
+  var REPAIR_ERRORS = {
+    repair_base_stale: "This document changed since you opened it; refresh",
+    repair_source_missing: "There’s no saved draft of this version to rewrite from. Draft it again, then Repair.",
+  };
+
+  function qualityDocFor(feature) {
+    var m = currentManifest && currentManifest.manifest;
+    var docs = m && m.quality && m.quality.documents ? m.quality.documents : null;
+    return docs ? docs[feature] : undefined;
+  }
+
+  /* K4's idempotency key: a resend of the same request gets the first result. */
+  function newRequestId() {
+    var c = root.crypto;
+    if (c && typeof c.randomUUID === "function") return c.randomUUID();
+    return "req-" + Date.now().toString(36) + "-" + Math.random().toString(36).slice(2, 12);
+  }
+
+  /* The Case row (or legacy card) for one document inside the section. */
+  function docHostFor(section, feature) {
+    if (!section || !section.querySelector) return null;
+    return section.querySelector('[data-doc="' + feature + '"]') || section.querySelector('[data-doc-type="' + feature + '"]');
+  }
+
+  function currentSection() {
+    var host = findMount();
+    return host && host.querySelector ? host.querySelector("." + SECTION_CLASS) : null;
+  }
+
+  /* The dialog and the last outcome for one row, from state (renderCaseRows). */
+  function repairBlocksHtml(slug, feature, qualityDoc, isPending) {
+    var mi = insights();
+    if (!mi) return "";
+    var out = "";
+    if (repairOutcome && repairOutcome.slug === slug && repairOutcome.feature === feature) out += repairOutcome.html;
+    if (!isPending && repairForm && repairForm.slug === slug && repairForm.feature === feature) {
+      out += mi.repairPanelHtml(feature, qualityDoc, repairForm);
+    }
+    return out;
+  }
+
+  function replaceBlock(host, selector, html) {
+    var prior = host.querySelector(selector);
+    if (prior && prior.parentNode) prior.parentNode.removeChild(prior);
+    if (!html) return null;
+    host.insertAdjacentHTML("beforeend", html);
+    return host.querySelector(selector);
+  }
+
+  /* A repaint replaces the form, so focus lands again: on its message when
+     it has one, else on the instruction box. */
+  function paintRepairForm(section) {
+    var mi = insights();
+    var host = repairForm ? docHostFor(section, repairForm.feature) : null;
+    if (!mi || !host) return null;
+    var form = replaceBlock(host, ".mat-repair", mi.repairPanelHtml(repairForm.feature, qualityDocFor(repairForm.feature), repairForm));
+    var target = form && (form.querySelector('[role="alert"]') || form.querySelector("[data-repair-instruction]"));
+    if (target && typeof target.focus === "function") target.focus();
+    return form;
+  }
+
+  function openRepairForm(btn, section) {
+    var slug = section.getAttribute("data-slug") || "";
+    var feature = btn.getAttribute("data-feature") || docTypeOf(docHostOf(btn));
+    if (!slug || !feature) return;
+    repairForm = { slug: slug, feature: feature, instruction: "", checked: null, error: "", busy: false, requestId: "" };
+    paintRepairForm(section);
+  }
+
+  /* Cancel and Escape: close the dialog and hand focus back to its Repair. */
+  function closeRepairForm(form) {
+    var feature = repairForm ? repairForm.feature : "";
+    repairForm = null;
+    var host = form && form.parentNode;
+    if (form && form.parentNode) form.parentNode.removeChild(form);
+    var again = host && host.querySelector ? host.querySelector('[data-action="materials-repair"]') : null;
+    if (!again && feature) {
+      var section = currentSection();
+      var row = docHostFor(section, feature);
+      again = row && row.querySelector('[data-action="materials-repair"]');
+    }
+    if (again && typeof again.focus === "function") again.focus();
+  }
+
+  /* Typing and ticking update the state, so a repaint keeps them. */
+  function syncRepairForm(form) {
+    if (!repairForm || !form || !form.querySelector) return;
+    var input = form.querySelector("[data-repair-instruction]");
+    if (input) repairForm.instruction = String(input.value || "");
+    var boxes = form.querySelectorAll("[data-repair-issue]");
+    var checked = {};
+    for (var i = 0; i < boxes.length; i++) checked[boxes[i].value] = !!boxes[i].checked;
+    repairForm.checked = checked;
+    var count = form.querySelector("[data-repair-count]");
+    if (count) count.textContent = repairForm.instruction.length + " / " + ((insights() && insights().REPAIR_MAX) || 600);
+  }
+
+  function submitRepairForm(form, section) {
+    if (!repairForm || repairForm.busy) return;
+    syncRepairForm(form);
+    var feature = repairForm.feature;
+    var instruction = repairForm.instruction.trim().slice(0, (insights() && insights().REPAIR_MAX) || 600);
+    var checked = repairForm.checked || {};
+    var issueIds = Object.keys(checked).filter(function (id) { return checked[id]; });
+    if (!instruction && !issueIds.length) {
+      repairForm.error = "Say what should change, or tick an issue to fix.";
+      paintRepairForm(section);
+      return;
+    }
+    var doc = qualityDocFor(feature);
+    var qa = doc && doc.qa ? doc.qa : null;
+    if (!repairForm.requestId) repairForm.requestId = newRequestId();
+    /* K4, plus G5's stale-base guard and idempotency key. */
+    var request = { feature: feature, instruction: instruction, issueIds: issueIds, requestId: repairForm.requestId };
+    if (qa && qa.textHash) request.baseDocumentHash = String(qa.textHash);
+    if (qa && qa.runId) request.parentRunId = String(qa.runId);
+    repairForm.busy = true;
+    repairForm.error = "";
+    paintRepairForm(section);
+    handleRepair(section.getAttribute("data-slug") || repairForm.slug, feature, request);
+  }
+
+  function repairFailed(err) {
+    var code = err && err.body && err.body.code ? String(err.body.code) : "";
+    var message = REPAIR_ERRORS[code] || ("Repair didn’t start: " + ((err && err.message) || "unknown error"));
+    if (!repairForm) {
+      var brief = findMount();
+      if (brief) renderError(brief, message);
+      return;
+    }
+    repairForm.busy = false;
+    repairForm.error = message;
+    /* A refused request is finished; the next submit is a new one. */
+    if (err && err.status >= 400 && err.status < 500) repairForm.requestId = "";
+    paintRepairForm(currentSection());
+  }
+
+  function handleRepair(slug, feature, request) {
     if (!slug || !feature || !currentContext) return;
     var ctx = currentContext;
-    var repairNote = "Repairing Review issues for the " + featureLabel(feature) + ".";
+    var repairNote = request.instruction || ("Repairing the " + featureLabel(feature) + ".");
+    var since = new Date().toISOString();
+    var formSlug = repairForm ? repairForm.slug : "";
 
     function sendRepairRequest() {
       /* C11: a repair re-drafts too, so it carries the same resume. */
       return readResume().then(function (r) {
         var body = { feature: feature, jobUrl: ctx.jobUrl };
+        for (var k in request) if (Object.prototype.hasOwnProperty.call(request, k)) body[k] = request[k];
         if (r.resume) body.resume = r.resume;
         return postJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/repair", body);
       });
@@ -2250,6 +2429,9 @@
 
     function completeRepairRequest() {
       return sendRepairRequest().then(function () {
+        repairForm = null;
+        repairOutcome = null;
+        repairWatch = { slug: slug, feature: feature, parentRunId: request.parentRunId || "", since: since };
         dispatch("jb:materials:changed", { slug: slug, reason: "repair-sent" });
         return fetchJson(ctx.base + "/api/applications/" + encodeURIComponent(slug) + "/manifest");
       }).then(function (manifest) {
@@ -2266,17 +2448,90 @@
       return refreshContextFromLocalMaterials(ctx);
     }).then(function () {
       slug = ctx.slug || slug;
-      renderOptimisticPending(ctx, feature, repairNote, "jobbored-dossier-repair");
       return ensureJobDescription(ctx);
     }).then(completeRepairRequest).catch(function (err) {
       var brief = findMount();
       if (!brief) return;
       if (err && err.code === "JD_PASTE_REQUIRED") {
-        renderJdPasteForm(brief, ctx, feature, repairNote, completeRepairRequest);
+        /* The dialog waits for the paste instead of saying "Sending…". */
+        if (repairForm) {
+          repairForm.busy = false;
+          repairForm.error = "Paste the job description to continue: Repair runs once it’s saved.";
+          paintRepairForm(currentSection());
+        }
+        renderJdPasteForm(brief, ctx, feature, repairNote, function () {
+          /* Cancelled while the paste form was open: send nothing. */
+          if (!repairForm || repairForm.slug !== formSlug || repairForm.feature !== feature) return Promise.resolve();
+          repairForm.busy = true;
+          repairForm.error = "";
+          paintRepairForm(currentSection());
+          /* Its refusal belongs in the dialog, not on the detached paste form. */
+          return completeRepairRequest().catch(repairFailed);
+        });
         return;
       }
-      renderError(brief, "Repair request failed: " + ((err && err.message) || "Unknown error"));
+      repairFailed(err);
     });
+  }
+
+  /* D4: once the repair's run leaves pending, find it and open its diff. */
+  function maybeFinishRepair(manifest, base) {
+    var w = repairWatch;
+    if (!w || !manifest || manifest.slug !== w.slug) return;
+    var p = manifest.pending;
+    var phase = p && p.feature ? String((p.progress && p.progress.phase) || "queued") : "";
+    if (phase && !/^(complete|done|failed)$/i.test(phase)) return;
+    repairWatch = null;
+    if (/^failed$/i.test(phase)) return; /* the row shows the failure */
+    showRepairOutcome(w, base);
+  }
+
+  function showRepairOutcome(w, base) {
+    var mi = insights();
+    if (!mi) return;
+    var api = base + "/api/applications/" + encodeURIComponent(w.slug);
+    var failed = function (err) { return (err && err.message) || "unknown error"; };
+    fetchJson(api + "/runs").then(function (body) {
+      var runs = body && Array.isArray(body.runs) ? body.runs : [];
+      var run = mi.pickRepairRun(runs, w);
+      if (!run) throw new Error("the new version isn’t in your versions list yet");
+      var result = mi.repairResultOf(run, w.feature);
+      var ofDoc = runs.filter(function (r) { return r && Array.isArray(r.documents) && r.documents.indexOf(w.feature) >= 0; });
+      var older = ofDoc[ofDoc.indexOf(run) + 1];
+      var parent = result.parentRunId || w.parentRunId || (older ? older.runId : "");
+      if (!parent) return { result: result, diff: null, error: "There is no earlier version to compare with." };
+      /* G5: the diff route keeps a/b/doc. */
+      return fetchJson(api + "/runs-diff?a=" + encodeURIComponent(parent) + "&b=" + encodeURIComponent(run.runId)
+        + "&doc=" + encodeURIComponent(w.feature)).then(function (diff) {
+        return { result: result, diff: diff };
+      }, function (err) {
+        return { result: result, diff: null, error: "Couldn’t load the comparison: " + failed(err) };
+      });
+    }).then(function (out) {
+      setRepairOutcome(w, mi.repairOutcomeHtml({
+        feature: w.feature, changed: out.result.changed, adopted: out.result.adopted, diff: out.diff, error: out.error,
+      }));
+    }).catch(function (err) {
+      setRepairOutcome(w, mi.repairOutcomeHtml({
+        feature: w.feature, changed: null, adopted: null, diff: null,
+        error: "The repair finished, but its result couldn’t be loaded: " + failed(err),
+      }));
+    });
+  }
+
+  function setRepairOutcome(w, html) {
+    repairOutcome = { slug: w.slug, feature: w.feature, html: html };
+    var section = currentSection();
+    if (!section || section.getAttribute("data-slug") !== w.slug) return;
+    var host = docHostFor(section, w.feature);
+    var panel = host ? replaceBlock(host, ".mat-repaired", html) : null;
+    if (panel && typeof panel.focus === "function") panel.focus();
+  }
+
+  function dismissRepairOutcome(node) {
+    repairOutcome = null;
+    var panel = node && node.closest ? node.closest(".mat-repaired") : null;
+    if (panel && panel.parentNode) panel.parentNode.removeChild(panel);
   }
 
   /* -------------------- network -------------------- */

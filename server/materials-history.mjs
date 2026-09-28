@@ -30,10 +30,10 @@ const MAX_DIFF_LINES = 2000;
 
 /** @typedef {"resume" | "cover_letter"} HistoryDoc */
 
-/** @type {Record<HistoryDoc, { txt: string, html: string, pdf: string, qa: string }>} */
+/** @type {Record<HistoryDoc, { txt: string, html: string, pdf: string, qa: string, draft: string }>} */
 const DOC_FILES = {
-  resume: { txt: "resume.txt", html: "resume.html", pdf: "resume.pdf", qa: "qa.resume.json" },
-  cover_letter: { txt: "cover-letter.txt", html: "cover-letter.html", pdf: "cover-letter.pdf", qa: "qa.letter.json" },
+  resume: { txt: "resume.txt", html: "resume.html", pdf: "resume.pdf", qa: "qa.resume.json", draft: "draft.resume.json" },
+  cover_letter: { txt: "cover-letter.txt", html: "cover-letter.html", pdf: "cover-letter.pdf", qa: "qa.letter.json", draft: "draft.cover_letter.json" },
 };
 
 /* The run-level records a promote carries back with the documents, so
@@ -46,7 +46,6 @@ const RUN_LEVEL_FILES = [
   "jd-extract.json",
   "selection.json",
   "outline.json",
-  "draft.json",
 ];
 
 /**
@@ -124,6 +123,14 @@ async function resolveRunDir(appDir, runId) {
  */
 function verdictOf(qa) {
   if (!qa) return null;
+  const quality = qa.quality && typeof qa.quality === "object" ? /** @type {Record<string, unknown>} */ (qa.quality) : null;
+  if (qa.contract === "materials.qa.v2") {
+    return {
+      disposition: typeof qa.disposition === "string" ? qa.disposition : "",
+      score: quality && typeof quality.score === "number" ? quality.score : null,
+      max: 100,
+    };
+  }
   const rubric = qa.rubric && typeof qa.rubric === "object" ? /** @type {Record<string, unknown>} */ (qa.rubric) : null;
   const score = rubric && typeof rubric.score === "number" ? rubric.score : null;
   const max = rubric && typeof rubric.max === "number" ? rubric.max : null;
@@ -166,6 +173,7 @@ async function docFingerprint(dir, doc) {
  * @property {string} template family id, "" when unknown
  * @property {string} source "request" | "preference" | "regenerate" | …
  * @property {string} [regeneratedFrom]
+ * @property {Record<string, unknown>} [repair]
  * @property {HistoryDoc[]} documents
  * @property {Partial<Record<HistoryDoc, { disposition: string, score: number | null, max: number | null }>>} verdicts
  * @property {HistoryDoc[]} active documents whose served copy is this run's
@@ -235,6 +243,7 @@ export async function listRuns(slug, { root } = {}) {
       active,
     };
     if (template && typeof template.regeneratedFrom === "string") summary.regeneratedFrom = template.regeneratedFrom;
+    if (run && run.repair && typeof run.repair === "object") summary.repair = /** @type {Record<string, unknown>} */ (run.repair);
     runs.push(summary);
   }
   runs.sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.runId.localeCompare(a.runId));
@@ -276,7 +285,7 @@ export async function promoteRun(slug, runId, { root, now = () => new Date() } =
   const copied = [];
   for (const doc of documents) {
     const files = DOC_FILES[doc];
-    for (const name of [files.html, files.pdf, files.txt, files.qa]) {
+    for (const name of [files.html, files.pdf, files.txt, files.qa, files.draft]) {
       if (!existsSync(join(runDir, name))) continue;
       await copyFile(join(runDir, name), join(appDir, name));
       copied.push(name);
@@ -287,6 +296,10 @@ export async function promoteRun(slug, runId, { root, now = () => new Date() } =
     await copyFile(join(runDir, name), join(appDir, name));
     copied.push(name);
   }
+  if (documents.length === 2 && existsSync(join(runDir, "draft.json"))) {
+    await copyFile(join(runDir, "draft.json"), join(appDir, "draft.json"));
+    copied.push("draft.json");
+  }
   const run = await readJson(join(runDir, "run.json"));
   const manifestPath = join(appDir, "manifest.json");
   const manifest = (await readJson(manifestPath)) || {};
@@ -295,6 +308,124 @@ export async function promoteRun(slug, runId, { root, now = () => new Date() } =
   if (run && run.template && typeof run.template === "object") next.template = run.template;
   await writeFile(manifestPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
   return { ok: true, slug, runId, documents, copied };
+}
+
+/** @param {HistoryDoc} feature @param {Record<string, unknown> | null} draft @returns {draft is Record<string, unknown>} */
+export function usableDraft(feature, draft) {
+  if (!draft) return false;
+  const hasText = (/** @type {unknown} */ value) => typeof value === "string" && Boolean(value.trim());
+  const partHasText = (/** @type {unknown} */ value) => hasText(value)
+    || Boolean(value && typeof value === "object" && hasText(/** @type {{ text?: unknown }} */ (value).text));
+  if (feature === "resume") {
+    return hasText(draft.statement)
+      || (Array.isArray(draft.bullets) && draft.bullets.some(partHasText));
+  }
+  const letter = draft.letter && typeof draft.letter === "object"
+    ? /** @type {Record<string, unknown>} */ (draft.letter) : {};
+  const beats = ["hook", "companyInsight", "proof1", "proof2", "ask", "thesis", "whyThem", "whyMe", "whyNow", "closing", "nextStep"];
+  const paragraphs = Array.isArray(draft.paragraphs) ? draft.paragraphs : letter.paragraphs;
+  return beats.some((key) => hasText(letter[key]))
+    || (Array.isArray(paragraphs) && paragraphs.some(partHasText));
+}
+
+/** @param {string} appDir @param {HistoryDoc} feature */
+async function newestFeatureRunId(appDir, feature) {
+  const runsRoot = join(appDir, RUNS_DIR);
+  if (!existsSync(runsRoot)) return undefined;
+  let entries;
+  try {
+    entries = await readdir(runsRoot, { withFileTypes: true });
+  } catch {
+    return undefined;
+  }
+  /** @type {{ runId: string, date: string } | undefined} */
+  let newest;
+  for (const entry of entries) {
+    if (!entry.isDirectory() || !isValidRunId(entry.name)) continue;
+    const dir = join(runsRoot, entry.name);
+    const run = await readJson(join(dir, "run.json"));
+    if (!run || (run.feature !== feature && run.feature !== "both")) continue;
+    let date = typeof run.finishedAt === "string" ? run.finishedAt
+      : typeof run.requestedAt === "string" ? run.requestedAt : "";
+    if (!date) {
+      try {
+        date = (await stat(dir)).mtime.toISOString();
+      } catch {
+        continue;
+      }
+    }
+    if (!newest || date > newest.date || (date === newest.date && entry.name > newest.runId)) {
+      newest = { runId: entry.name, date };
+    }
+  }
+  return newest?.runId;
+}
+
+/**
+ * Load one immutable document source. The newest run of this feature wins
+ * even when its file is missing; an older draft cannot silently replace it.
+ * @param {string} slug
+ * @param {HistoryDoc} feature
+ * @param {string | undefined} parentRunId
+ * @param {{ root?: string }} [options]
+ */
+export async function loadRepairSource(slug, feature, parentRunId, { root } = {}) {
+  if (!isHistoryDoc(feature)) throw httpError("feature must be resume or cover_letter", 400, "invalid_doc");
+  const appDir = await resolveApplicationDir(slug, { root });
+  const selected = parentRunId || await newestFeatureRunId(appDir, feature);
+  if (!selected) throw httpError("No run of this document is available to repair.", 409, "repair_source_missing");
+  const runDir = await resolveRunDir(appDir, selected);
+  const run = await readJson(join(runDir, "run.json"));
+  const files = DOC_FILES[feature];
+  const sourceDraft = await readJson(join(runDir, files.draft));
+  const sourceText = await readText(join(runDir, files.txt));
+  if (!run || (run.feature !== feature && run.feature !== "both") || !usableDraft(feature, sourceDraft) || !sourceText?.trim()) {
+    throw httpError("The selected run has no readable document draft.", 409, "repair_source_missing");
+  }
+  const qa = await readJson(join(runDir, files.qa));
+  return { parentRunId: selected, feature, sourceDraft, sourceText, qa };
+}
+
+/** @param {string} value */
+function normalizedText(value) {
+  return value.replace(/\s+/g, " ").trim();
+}
+
+/**
+ * Add the repair result to the child run after the pipeline has saved it.
+ * The pipeline owns adoption; this function only records its decision.
+ * @param {{ root?: string, slug: string, runId: string, repair: { feature: HistoryDoc, parentRunId: string, sourceText: string, instruction: string, issueIds: string[] }, pipelineResult: Record<string, unknown> }} input
+ */
+export async function recordRepairOutcome({ root, slug, runId, repair, pipelineResult }) {
+  const appDir = await resolveApplicationDir(slug, { root });
+  const runDir = await resolveRunDir(appDir, runId);
+  const files = DOC_FILES[repair.feature];
+  const childText = await readText(join(runDir, files.txt));
+  const run = await readJson(join(runDir, "run.json"));
+  if (childText == null || !run) throw httpError("The repair run has no saved document.", 500, "repair_result_missing");
+  const pipelineRepair = pipelineResult.repair && typeof pipelineResult.repair === "object"
+    ? /** @type {Record<string, unknown>} */ (pipelineResult.repair)
+    : {};
+  const savedRepair = run.repair && typeof run.repair === "object"
+    ? /** @type {Record<string, unknown>} */ (run.repair)
+    : {};
+  const adopted = typeof pipelineRepair.adopted === "boolean" ? pipelineRepair.adopted
+    : typeof savedRepair.adopted === "boolean" ? savedRepair.adopted
+      : pipelineResult.outcome === "published";
+  const result = {
+    parentRunId: repair.parentRunId,
+    instruction: repair.instruction,
+    issueIds: repair.issueIds,
+    changed: normalizedText(childText) !== normalizedText(repair.sourceText),
+    adopted,
+    reason: String(pipelineRepair.reason || savedRepair.reason || (adopted ? "candidate adopted" : "candidate retained for review")),
+  };
+  await writeFile(join(runDir, "run.json"), `${JSON.stringify({ ...run, repair: result }, null, 2)}\n`, "utf8");
+  const served = await readJson(join(appDir, "run.json"));
+  if (served && served.runId === runId) {
+    await writeFile(join(appDir, "run.json"), `${JSON.stringify({ ...served, repair: result }, null, 2)}\n`, "utf8");
+  }
+  return result;
 }
 
 /**

@@ -8,7 +8,8 @@ import {
   createMaterialsDrafter,
   reconcileOrphanedPending,
 } from "../server/materials-drafter.mjs";
-import { EXAMPLE_RESUME_SOURCE, scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-pipeline-stub.mjs";
+import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 
 /* The drafter reads the profile and builds the claim ledger beside it; keep
  * both out of the real HOME (a run without this overwrote the user's

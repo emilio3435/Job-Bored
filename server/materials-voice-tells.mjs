@@ -79,7 +79,6 @@ const CONTRAST_RES = [
   /\bnot (?:just|only|merely|simply) [^.;!?]{1,60}?[,;—–]?\s*but(?: also)?\b/gi,
   /\bnot [a-z][^.;!?,]{0,40}, but\b/gi,
   /\brather than\b/gi,
-  /\binstead of\b/gi,
   /* "X aren't just A — they're B" / "isn't just A, it's B". */
   /\b(?:is|are|was|were)(?:n't|n’t|\s+not)\s+(?:just|only|merely|simply)\s+[^.;!?]{1,60}?[,;—–]\s*(?:it|they|he|she|we|this|that)(?:'|’)?(?:s|re|\s+is|\s+are)\b/gi,
 ];

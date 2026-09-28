@@ -271,8 +271,9 @@ describe("W2 · rows with a pipeline verdict", () => {
     assert.match(r, /This resume failed its quality check\./);
     assert.match(r, /Reading the job fell back to rules: the AI’s answer was cut off\./);
     assert.match(r, /Review your details/);
-    /* The scorecard owns Repair: the action row does not repeat it. */
-    assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 1);
+    /* MREV D2: an old (rubric) verdict is read-only, and with a verdict the
+       action row never adds its own Repair. */
+    assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 0);
   });
 
   it("should gate every Download entry of a FAIL draft, and none of a REVIEW draft", () => {
@@ -295,6 +296,21 @@ describe("W2 · rows with a pipeline verdict", () => {
 
   it("should offer Draft both while nothing is in flight", () => {
     assert.match(render(manifest()), /data-action="materials-draft-both">Draft both</);
+  });
+});
+
+describe("MREV D1 · rows with a judge verdict (materials.qa.v2)", () => {
+  it("should pill the v2 verdict out of 100 and show the judge's scorecard with one Repair", async () => {
+    const { V2_LETTER_FAIL } = await import("./fixtures/materials-qa-v2.mjs");
+    const base = manifest();
+    const html = render({ ...base, quality: { documents: { ...base.quality.documents, cover_letter: V2_LETTER_FAIL } } });
+    const r = row(html, "cover_letter");
+    assert.match(r, /case__docst--qa-fail" data-status="review">fail · 64 \/ 100</);
+    assert.match(r, /data-qa-contract="v2"/);
+    assert.match(r, /Factual blockers/);
+    assert.equal((r.match(/data-action="materials-repair"/g) || []).length, 1, "the scorecard's Repair, not a second one");
+    /* A v2 FAIL still gates Download. */
+    assert.equal((r.match(/data-gate="fail"/g) || []).length, 3, "PDF, text and Word");
   });
 });
 

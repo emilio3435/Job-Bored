@@ -275,11 +275,11 @@ export async function renderPackage({ model: input, feature, session = null, pdf
 
   if (wantsResume(feature) && model.documents.resume) {
     out.resumeHtml = await one("resume", pdfPaths.resumePdfPath);
-    out.resumeTxt = resumeText(model);
+    out.resumeTxt = resumeText(out.fit.resume?.model || model);
   }
   if (wantsLetter(feature) && model.documents.coverLetter) {
     out.letterHtml = await one("coverLetter", pdfPaths.coverLetterPdfPath);
-    out.letterTxt = coverLetterText(model);
+    out.letterTxt = coverLetterText(out.fit.coverLetter?.model || model);
   }
   return out;
 }
@@ -297,6 +297,8 @@ async function writeJson(path, value) {
  * @property {string} runId
  * @property {string} slug
  * @property {string} feature
+ * @property {string | Record<string, string>} [textHash]
+ * @property {{ parentRunId?: string | null, instruction?: string, issueIds?: string[], changed?: boolean | null, adopted?: boolean | null, reason?: string }} [repair]
  * @property {string} requestedAt
  * @property {string} finishedAt
  * @property {RenderModel} model
@@ -364,6 +366,8 @@ export function buildRunRecord(input) {
   if (Array.isArray(input.repairs) && input.repairs.length) run.repairs = input.repairs.slice(0, 2);
   if (input.resume) run.resume = input.resume;
   if (input.inputs) run.inputs = input.inputs;
+  if (input.textHash) run.textHash = input.textHash;
+  if (input.repair) run.repair = input.repair;
   return run;
 }
 
@@ -401,8 +405,10 @@ async function artifactStats(dir, names) {
  * @param {string[]} [input.extraFiles] Wave 3: more files this run wrote
  *   (outreach.json, outreach.txt, intel.json, support.json), copied into
  *   runs/<runId>/ beside the package
+ * @param {boolean} [input.snapshot] false when dir is already the immutable run folder
+ * @param {string} [input.manifestBaseDir] prior app manifest to preserve in a staged run
  */
-export async function writePackageRecords({ dir, rendered, model, run, pages = {}, manifestDefaults = {}, manifestExtra = {}, extraFiles = [] }) {
+export async function writePackageRecords({ dir, rendered, model, run, pages = {}, manifestDefaults = {}, manifestExtra = {}, extraFiles = [], snapshot = true, manifestBaseDir = dir }) {
   if (typeof rendered.resumeTxt === "string") await writeFile(join(dir, "resume.txt"), rendered.resumeTxt, "utf8");
   if (typeof rendered.letterTxt === "string") await writeFile(join(dir, "cover-letter.txt"), rendered.letterTxt, "utf8");
   await writeJson(join(dir, "render-model.json"), model);
@@ -424,9 +430,9 @@ export async function writePackageRecords({ dir, rendered, model, run, pages = {
   const manifestPath = join(dir, "manifest.json");
   /** @type {Record<string, unknown>} */
   let manifest = {};
-  if (existsSync(manifestPath)) {
+  if (existsSync(join(manifestBaseDir, "manifest.json"))) {
     try {
-      const parsed = JSON.parse(await readFile(manifestPath, "utf8"));
+      const parsed = JSON.parse(await readFile(join(manifestBaseDir, "manifest.json"), "utf8"));
       if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) manifest = parsed;
     } catch {
       manifest = {};
@@ -451,7 +457,8 @@ export async function writePackageRecords({ dir, rendered, model, run, pages = {
   }
   await writeJson(manifestPath, nextManifest);
 
-  const runDir = join(dir, RUNS_DIR, run.runId);
+  const runDir = snapshot ? join(dir, RUNS_DIR, run.runId) : dir;
+  if (!snapshot) return { record, manifest: nextManifest, runDir };
   await mkdir(runDir, { recursive: true });
   for (const name of [
     ...packageFiles,
@@ -467,6 +474,8 @@ export async function writePackageRecords({ dir, rendered, model, run, pages = {
     "selection.json",
     "outline.json",
     "draft.json",
+    ...(typeof rendered.resumeHtml === "string" ? ["draft.resume.json"] : []),
+    ...(typeof rendered.letterHtml === "string" ? ["draft.cover_letter.json"] : []),
     /* RESJ Q2: the resume this run used, beside the run (the app-level
      * copy is overwritten by the next draft). */
     "resume-source.json",

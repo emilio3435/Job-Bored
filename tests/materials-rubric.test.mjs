@@ -1,117 +1,81 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
-import { scoreRubric } from "../server/materials-rubric.mjs";
+import { it } from "node:test";
+import { advisoryEvidence, runHardGates } from "../server/materials-rubric.mjs";
+import { buildQaRecord } from "../server/materials-qa.mjs";
+import { hashRenderedText } from "../server/materials-judge.mjs";
 
-const EXTRACT = {
-  jdHash: "sha256:1",
-  outcomes: [
-    { id: "o1", text: "Own pipeline math", weight: 0.9 },
-    { id: "o2", text: "Ship streaming ingestion", weight: 0.8 },
-  ],
-  nouns: [
-    { term: "pipeline", weight: 1.0 },
-    { term: "streaming", weight: 0.9 },
-    { term: "ingestion", weight: 0.8 },
-    { term: "warehouse", weight: 0.7 },
-  ],
-  stack: { required: ["Kafka", "Postgres"], preferred: [] },
-};
+const validDraft = { contract: "materials.draft.v2", jdHash: "sha256:0", ledgerHash: "sha256:0", statement: "", bullets: [], letter: { hook: "", companyInsight: "", proof1: "", proof2: "", ask: "" } };
 
-const LEDGER = {
-  ledgerHash: "sha256:2",
-  employers: [
-    { id: "northwind", name: "Northwind" },
-    { id: "example-app", name: "Example App" },
-  ],
-  claims: [
-    { id: "resume-b1", text: "Owned pipeline math.", metrics: [{ token: "30%" }], tools: [] },
-    { id: "resume-b2", text: "Shipped streaming ingestion with Kafka.", metrics: [], tools: ["Kafka"] },
-  ],
-  toolInventory: [{ tool: "Kafka", level: "owned", evidence: "resume-b2", transferFrom: [] }],
-};
+function disposition(finalText, ledger, draft = validDraft) {
+  const gates = runHardGates({ document: "letter", finalText, ledger, draft, posting: "Fictional Labs needs dispatch forecasting." });
+  return buildQaRecord({ document: "letter", runId: "fictional", finalText, textHash: hashRenderedText(finalText), gates, judge: { status: "unavailable", meta: {} } }).disposition;
+}
 
-const SELECTION = {
-  kept: [
-    { claimId: "resume-b1", mapsTo: ["o1", "pipeline"] },
-    { claimId: "resume-b2", mapsTo: ["o2", "streaming", "ingestion"] },
-  ],
-  omittedEmployers: [{ employerId: "example-app", reason: "not featured", justified: true }],
-};
-
-const DRAFT = {
-  statement: "Platform engineer for pipeline and streaming work.",
-  bullets: [
-    { claimId: "resume-b1", text: "Owned pipeline math, lifting quality 30%." },
-    { claimId: "resume-b2", text: "Shipped streaming ingestion with Kafka for the warehouse." },
-  ],
-  earlier: [],
-  letter: { thesis: "t", analyticsProof: "a", aiOpsProof: "o", nextStep: "n" },
-};
-
-describe("materials rubric (slice 5)", () => {
-  it("scores the resume's eight rows 0..2 with a total, max and threshold", () => {
-    const { rows, total, max, threshold } = scoreRubric({
-      document: "resume",
-      extract: EXTRACT,
-      selection: SELECTION,
-      ledger: LEDGER,
-      draft: DRAFT,
-      delintSpans: [],
-      fill: { ratio: 0.95, basis: "measured" },
-    });
-    assert.deepEqual(rows.map((r) => r.id), [
-      "outcome_coverage", "noun_fidelity", "proof_density", "transfer_honesty",
-      "omission_record", "delint_clean", "metric_dropped", "underfill",
-    ]);
-    for (const row of rows) {
-      assert.ok(row.score >= 0 && row.score <= 2, `${row.id} in range`);
-      assert.equal(row.max, 2);
-    }
-    assert.equal(total, rows.reduce((n, r) => n + r.score, 0));
-    assert.equal(max, 16);
-    assert.equal(threshold, 14, "10 of every 12 points");
-    assert.ok(total >= threshold, `strong package scores READY-level: ${total}`);
-  });
-
-  it("penalizes invented tools, uncovered outcomes, and dirty delint", () => {
-    const bad = scoreRubric({
-      document: "resume",
-      extract: EXTRACT,
-      selection: { kept: [{ claimId: "resume-b1", mapsTo: ["o1"] }], omittedEmployers: [] },
-      ledger: LEDGER,
-      draft: {
-        ...DRAFT,
-        bullets: [{ claimId: "resume-b1", text: "Owned pipeline math with Flink and Spark." }],
-      },
-      delintSpans: [{ code: "banned_filler", severity: "fail", field: "statement" }],
-    });
-    const byId = Object.fromEntries(bad.rows.map((r) => [r.id, r]));
-    assert.equal(byId.transfer_honesty.score, 0);
-    assert.ok(byId.outcome_coverage.score <= 1);
-    assert.equal(byId.delint_clean.score, 0);
-    assert.ok(bad.total < bad.threshold);
-  });
+it("G4: tool support searches every claim with no inventory cap or token length floor", () => {
+  const claims = Array.from({ length: 40 }, (_, index) => ({ id: `claim-${index + 1}`, text: `Built workflow ${index + 1}.` }));
+  claims.push({ id: "claim-41", text: "Used SQL, AWS, GCP, dbt and GA4 for dispatch reports." });
+  const ledger = { claims, toolInventory: [] };
+  assert.equal(disposition("I used SQL, AWS, GCP, dbt and GA4.", ledger), "REVIEW");
+  assert.equal(disposition("I used Kafka.", ledger), "FAIL");
 });
 
-describe("voice v6: letter rows recalibrated for short letters", () => {
-  const nouns = ["streaming audio", "podcasts", "ctv", "attribution", "audience targeting", "rich media"].map((term) => ({ term }));
-  const score = (text, document = "letter") =>
-    scoreRubric({ document, extract: { outcomes: [], nouns }, selection: { kept: [] }, ledger: { claims: [], toolInventory: [] }, draft: document === "letter" ? { letter: { hook: text } } : { statement: text, bullets: [] }, company: "Acme" }).rows;
-  const row = (rows, id) => rows.find((r) => r.id === id);
-
-  it("should give a letter full noun marks at 4 posting nouns and one mark at 2", () => {
-    assert.equal(row(score("Acme sells streaming audio, podcasts, CTV and attribution."), "noun_fidelity").score, 2);
-    assert.equal(row(score("Acme sells streaming audio and podcasts."), "noun_fidelity").score, 1);
-    assert.equal(row(score("Acme sells radio."), "noun_fidelity").score, 0);
+it("G4: critic metric, source-id, protected fact and artifact checks are hard", () => {
+  const ledger = { claims: [{ id: "c1", text: "Grew routes by 10%.", metrics: [{ token: "10%" }] }, { id: "c2", text: "Reduced delays by 20%.", metrics: [{ token: "20%" }] }], employers: [{ id: "e1", name: "Fictional Labs" }] };
+  const bad = runHardGates({ document: "resume", finalText: "Reduced delays by 20%.", ledger,
+    draft: { bullets: [{ claimId: "c1", text: "Grew routes by 20%." }, { claimId: "missing", text: "Unknown claim." }] },
+    artifacts: { renderedText: "Different delivered text", html: "<script>alert(1)</script>", pdf: Buffer.from("not a PDF") },
+    protected: { expectedEmployers: ["Fictional Labs"], renderedEmployers: ["Other Employer"] },
   });
+  for (const id of ["metric_mismatch", "known_source_ids", "protected_fact", "text_parity", "safe_render", "usable_pdf"]) {
+    assert.equal(bad.find((gate) => gate.id === id)?.pass, false, id);
+  }
+});
 
-  it("should keep the resume's noun ratio unchanged", () => {
-    assert.equal(row(score("streaming audio, podcasts, CTV and attribution.", "resume"), "noun_fidelity").score, 1, "4 of 6 is under the resume's 0.7 ratio");
-  });
+it("review P1: delivered text and rendered HTML cannot introduce unclaimed metrics or employers", () => {
+  const ledger = { claims: [{ id: "c1", text: "Built dispatch reports for Fictional Labs.", metrics: [{ token: "10%" }] }], employers: [{ id: "e1", name: "Fictional Labs" }] };
+  const gates = (finalText, html = "") => runHardGates({ document: "letter", finalText, draft: { letter: { hook: "Built dispatch reports." } }, ledger, artifacts: { html } });
+  assert.equal(gates("I saved $4M on dispatch.").find((gate) => gate.id === "invented_fact")?.pass, false);
+  assert.equal(gates("Director at Invented Corp.").find((gate) => gate.id === "invented_employer")?.pass, false);
+  assert.equal(gates("Built dispatch reports.", "<p>Saved $4M on dispatch.</p>").find((gate) => gate.id === "invented_fact")?.pass, false);
+  assert.equal(gates("Built dispatch reports.", '<h2 class="company-name">Invented Corp</h2>').find((gate) => gate.id === "invented_employer")?.pass, false);
+  assert.equal(gates("Built dispatch reports for Fictional Labs and improved 10%.").find((gate) => gate.id === "invented_fact")?.pass, true);
+  assert.equal(gates("Built dispatch reports.", "<header>Avery Example · (555) 010-1111 · avery@example.com</header><p>Built dispatch reports.</p>").find((gate) => gate.id === "invented_fact")?.pass, true);
+});
 
-  it("should not dock a letter that names no tool, and still zero an invented one", () => {
-    assert.equal(row(score("Acme sells radio."), "transfer_honesty").score, 2);
-    assert.equal(row(score("Acme sells radio.", "resume"), "transfer_honesty").score, 1);
-    assert.equal(row(score("I built it on Kafka for Acme."), "transfer_honesty").score, 0);
+it("G4: changed protected identity and history fields fail the fact gate", () => {
+  const gates = runHardGates({ document: "resume", finalText: "Built route reports.",
+    protected: {
+      identity: { expected: { name: "Avery Example", email: "avery@example.com" }, actual: { name: "Avery Example", email: "wrong@example.com" } },
+      history: { expected: [{ employer: "Fictional Labs", start: "2020" }], actual: [{ employer: "Fictional Labs", start: "2021" }] },
+    },
   });
+  assert.equal(gates.find((gate) => gate.id === "protected_fact")?.pass, false);
+});
+
+it("K3: a complete draft with an invalid schema fails before judgment", () => {
+  const gates = runHardGates({ document: "letter", finalText: "Built route reports.", draft: { contract: "materials.draft.v2", letter: { hook: "Built route reports." } } });
+  assert.equal(gates.find((gate) => gate.id === "schema")?.pass, false);
+});
+
+it("review P2: missing draft contract fails even when caller claims schema validity", () => {
+  const gates = runHardGates({ document: "letter", finalText: "Built route reports.", draft: { letter: { hook: "Built route reports." } }, artifacts: { schemaValid: true } });
+  assert.equal(gates.find((gate) => gate.id === "schema")?.pass, false);
+});
+
+it("G4: scope-word matches are advisory evidence and never a hard verdict", () => {
+  const finalText = "I built a production forecasting model.";
+  const ledger = { claims: [{ id: "c1", text: "Built a forecast tool." }] };
+  const gates = runHardGates({ document: "letter", finalText, ledger, draft: {}, posting: "Fictional Labs needs planning." });
+  assert.ok(!gates.some((gate) => gate.id === "scope_upgrade" && gate.kind === "hard"));
+  assert.ok(advisoryEvidence({ document: "letter", finalText, ledger, posting: "Fictional Labs needs planning." }).some((item) => item.kind === "scope"));
+});
+
+it("K3: noun coverage and selected evidence omissions stay advisory", () => {
+  const evidence = advisoryEvidence({ document: "resume", finalText: "Built route reports.",
+    ledger: { claims: [{ id: "c1", employerId: "e1", text: "Reduced delays by 20%.", metrics: [{ token: "20%" }] }], employers: [{ id: "e1", name: "Fictional Labs" }] },
+    draft: { bullets: [{ claimId: "c1", text: "Reduced delays by 20%." }] },
+    posting: "Route forecasts and dispatch reports improve delivery.",
+    postingNouns: ["dispatch", "delivery"],
+  });
+  for (const kind of ["noun_count", "omitted_metric", "omitted_employer"]) assert.ok(evidence.some((item) => item.kind === kind), kind);
 });

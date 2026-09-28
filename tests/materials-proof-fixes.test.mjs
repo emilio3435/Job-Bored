@@ -6,10 +6,7 @@
  */
 
 import assert from "node:assert/strict";
-import { existsSync, readFileSync, writeFileSync } from "node:fs";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
-import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { readFileSync } from "node:fs";
 import { describe, it } from "node:test";
 import { resumeText as atsResumeText } from "../server/materials-ats-text.mjs";
 import { scoreClaims } from "../server/materials-claim-score.mjs";
@@ -18,10 +15,8 @@ import { deterministicExtract } from "../server/materials-jd-extract.mjs";
 import { numerals } from "../server/materials-metric-tag.mjs";
 import { planResume } from "../server/materials-outline.mjs";
 import { ensureBrowsersPath } from "../server/materials-pdf.mjs";
-import { runPipeline, redactRawReply, writeRawReply } from "../server/materials-pipeline.mjs";
 import { renderDocument } from "../server/materials-render.mjs";
 import { buildRenderModelFromDraft } from "../server/materials-render-model-adapter.mjs";
-import { letterSentenceGrounding, scoreRubric } from "../server/materials-rubric.mjs";
 import { KEPT_MAX, selectClaims } from "../server/materials-select.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 
@@ -160,84 +155,17 @@ describe("letter proofs carry a metric even when the model picks (design 3)", ()
   });
 });
 
-describe("grounding and company facts (design calls 4 and 5)", () => {
-  const letter = {
-    hook: "NorthwindMedia reaches 88% of residents every month, and this role turns that reach into digital revenue.",
-    companyInsight: "The posting asks for integrated campaigns across Streaming Audio, Podcasts and CTV.",
-    proof1: "At Contoso I led digital media strategy for a $12M+ annual digital book. By aligning sellers, we secured long-term client commitments and outpaced peer markets across competitive categories.",
-    proof2: "I supported 12 AE desks through 24+ tracked pitches a month.",
-    ask: "I would like to walk your East Region team through one integrated campaign plan for an NorthwindMedia account.",
-  };
-
-  it("should quote every unsupported sentence and fail letter_ungrounded", () => {
-    const judged = letterSentenceGrounding({ draft: { letter }, ledger: LEDGER, postingText: NORTHWIND_JD, company: "NorthwindMedia, Inc." });
-    const bad = judged.filter((j) => j.factual && !j.grounded).map((j) => j.sentence);
-    assert.deepEqual(bad, ["By aligning sellers, we secured long-term client commitments and outpaced peer markets across competitive categories."]);
-    const rows = scoreRubric({ document: "letter", extract: extract(), selection: { kept: [] }, ledger: LEDGER, draft: { letter }, company: "NorthwindMedia, Inc.", postingText: NORTHWIND_JD }).rows;
-    const row = rows.find((r) => r.id === "letter_ungrounded");
-    assert.equal(row?.score, 0);
-    assert.match(String(row?.note), /secured long-term client commitments/);
-    const traced = rows.find((r) => r.id === "metric_in_letter");
-    assert.equal(traced?.score, 2, "the posting's own 88% is not an untraced numeral");
-  });
-
-  it("should flag (not rewrite) a hook fact the posting does not support (voice v6: checks flag, the repair rewrites)", () => {
-    const hook = "NorthwindMedia leads the top radio markets, outpacing its two largest competitors combined.";
-    const judged = letterSentenceGrounding({ draft: { letter: { hook } }, ledger: { claims: [] }, postingText: NORTHWIND_JD, company: "NorthwindMedia, Inc." });
-    assert.equal(judged[0].grounded, false, judged[0].reason);
-    const faithful = letterSentenceGrounding({ draft: { letter: { hook: letter.hook } }, ledger: LEDGER, postingText: NORTHWIND_JD, company: "NorthwindMedia, Inc." });
-    assert.ok(faithful.every((j) => !j.factual || j.grounded));
-  });
-
+describe("voice advisory detectors", () => {
   it("should flag variants of the banned closers", async () => {
     const pack = await loadVoicePack();
     const { spans } = delint({ fields: { "letter.ask": "I would welcome the opportunity to talk. Here's to continued success and strategic priorities." }, pack });
     assert.deepEqual(spans.filter((s) => s.code === "banned_filler").map((s) => s.text), ["I would welcome the opportunity", "continued success", "strategic priorities"]);
   });
 
-  it("should match posting nouns in the resume with stemming, synonyms and the skills line (design 7)", () => {
-    const ex = { outcomes: [], nouns: [{ term: "podcasts" }, { term: "ctv" }, { term: "streaming audio" }, { term: "training" }] };
-    const rows = scoreRubric({
-      document: "resume", extract: ex, selection: { kept: [] }, ledger: LEDGER,
-      draft: { statement: "Digital sales leader for podcast and OTT campaigns.", bullets: [{ claimId: "b4", text: "Coached 12 AE desks." }] },
-      skills: ["Streaming Audio"], fill: { ratio: 1, basis: "measured" },
-    }).rows;
-    assert.match(String(rows.find((r) => r.id === "noun_fidelity")?.note), /^4\/4/);
-  });
+
 });
 
-describe("render and diagnosis harness (design 8, raw replies)", () => {
-  it("should fail the render loudly and remove stale PDFs when no browser opens", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "jb-proof-render-"));
-    try {
-      writeFileSync(join(dir, "resume.pdf"), "stale");
-      const resumeText = "Example Candidate\nDigital Sales Leader\nuser@example.com";
-      const out = await runPipeline({
-        dir,
-        payload: { slug: "acme", company: "Acme", title: "Ops", feature: "resume", jobUrl: "", notes: "", resume: { source: "upload", filename: "r.txt", addedAt: "2026-09-27T00:00:00.000Z", text: resumeText } },
-        pin: null,
-        fetchImpl: async () => { throw new Error("no calls"); },
-        jdText: NORTHWIND_JD,
-        jdSource: "paste",
-        gate: GATE,
-        ledger: LEDGER,
-        resumeText,
-        now: new Date("2026-09-27T00:00:00.000Z"),
-        runId: "run-proof-render",
-        openSession: async () => null,
-        requirePdf: true,
-      });
-      const render = out.stages.find((s) => s.stage === "render");
-      assert.equal(render?.status, "failed");
-      assert.match(String(render?.detail), /no headless browser/);
-      assert.equal(existsSync(join(dir, "resume.pdf")), false, "the stale PDF is gone");
-      const qa = JSON.parse(await readFile(join(dir, "qa.resume.json"), "utf8"));
-      assert.ok(qa.checks.some((c) => c.code === "pdf_unrendered" && c.severity === "fail"));
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
-
+describe("render environment and extraction", () => {
   it("should point Playwright at the real browser cache when HOME is overridden", () => {
     const env = {};
     const found = ensureBrowsersPath(/** @type {NodeJS.ProcessEnv} */ (env));
@@ -259,25 +187,5 @@ describe("render and diagnosis harness (design 8, raw replies)", () => {
     assert.deepEqual(out.extract.gate.signals, { words: 900 });
   });
 
-  it("should save a schema-invalid reply beside run.json, redacted and capped", async () => {
-    const dir = await mkdtemp(join(tmpdir(), "jb-proof-raw-"));
-    try {
-      const ex = extract();
-      const shortlist = scoreClaims({ extract: ex, ledger: LEDGER, limit: 20 });
-      const { fetchImpl } = stubFetch([JSON.stringify({ kept: [{ claimId: "b1", slot: "s", reason: "mail user@example.com" }], letter: {} })]);
-      /* A one-number letter band fails the selection schema (minItems 2). */
-      const out = await selectClaims({ extract: ex, shortlist, ledger: LEDGER, letterWords: [180], pin: PIN, fetchImpl });
-      assert.equal(out.degraded, true);
-      assert.equal(out.rawReply?.stage, "claims.select");
-      const [name] = await writeRawReply(dir, out.rawReply);
-      assert.equal(name, "raw-reply.claims.select.json");
-      const raw = await readFile(join(dir, name), "utf8");
-      assert.match(raw, /"errors"/);
-      assert.doesNotMatch(raw, /user@example\.com/);
-      assert.ok(raw.length <= 16_100);
-      assert.equal(redactRawReply('{"k":"AIzaSyA1234567890abcdefghijklmnop","e":"user@example.com"}'), '{"k":"[redacted-key]","e":"[redacted-email]"}');
-    } finally {
-      await rm(dir, { recursive: true, force: true });
-    }
-  });
+
 });

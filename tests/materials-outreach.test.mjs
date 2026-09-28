@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
+import { buildIntelPack } from "../server/materials-intel.mjs";
 import { normalizeRequestBody } from "../server/materials-request.mjs";
 import {
   EMAIL_MAX_WORDS,
@@ -29,7 +30,7 @@ import {
 import { validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
 
-const PIN = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
+const PIN = { provider: "local", model: "stub", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
 
 const VOICE_MD = [
   "# Voice",
@@ -241,9 +242,9 @@ const INTEL_COMPANY = { text: '```json\n{"domain":"acmeanalytics.com","products"
 const LETTER = {
   hook: "I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads, and I want to run paid acquisition at Acme Analytics.",
   companyInsight: "In August 2026 Acme Analytics launched Spend Graph for retail media measurement.",
-  proof1: "At Northwind I drove 125% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
-  proof2: "I also shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
-  ask: "I want to own the spend reporting at Acme Analytics next. Worth a quick call this week?",
+  proof1: "At Northwind I drove 130% YoY paid-search conversion growth on a flagship account, and I led the market to a 60% digital revenue mix with clear weekly readouts.",
+  proof2: "I also shipped an SEM forecast tool on Gemini that ran 21+ forecasts against $2.4M of pipeline, and I built streaming ingestion for analytics events with Kafka and Postgres.",
+  ask: "I want to own the spend reporting at Acme Analytics next. Could we compare one live account plan?",
 };
 
 /** Answers each stage by its system prompt, so call order does not matter. */
@@ -254,31 +255,28 @@ function stageFetch() {
     const system = body.messages[0].content;
     const user = body.messages[1].content;
     let content;
-    if (/check a cover letter's facts/.test(system)) {
-      calls.push("support");
-      const numbered = [...user.split("Letter sentences:")[1].matchAll(/^(\d+)\. (.*)$/gm)].map((m) => ({ i: Number(m[1]), s: m[2] }));
-      content = JSON.stringify({
-        verdicts: numbered.map(({ i, s }) => ({ i, factual: true, supported: true, source: /Spend Graph/.test(s) ? "intel-1" : "profile-strength-1" })),
-      });
+    if (system.startsWith("Goal: assess whether")) {
+      calls.push("judge");
+      const packet = JSON.parse(user.match(/<untrusted-data type="materials-evidence">\n([\s\S]*?)\n<\/untrusted-data>/)[1]);
+      const claim = packet.sources.claims[0];
+      const intel = packet.sources.research.find((source) => source.id === "intel-1");
+      const doc = packet.documents[0];
+      content = JSON.stringify({ contract: "materials.judge.v1", documents: [{ document: doc.document, textHash: doc.textHash,
+        ratings: ["role_relevance", "evidence_quality", "voice", "coherence", "economy"].map((dimension) => ({ dimension, score: 4, reason: "Stubbed assessment.", sentenceIds: [doc.sentences[0].id] })),
+        sentences: doc.sentences.map((sentence) => {
+          const needsIntel = /Spend Graph/.test(sentence.text);
+          return { id: sentence.id, status: needsIntel && !intel ? "unsupported" : "supported", reason: needsIntel && !intel ? "No sourced company research." : "Source available.",
+            citations: needsIntel && !intel ? [] : [{ sourceId: needsIntel ? intel.id : claim.id, quote: needsIntel ? intel.text : claim.text }] };
+        }), issues: [], qualificationGaps: [] }] });
     } else if (/outreach note/.test(system)) {
       calls.push("outreach");
       content = JSON.stringify({
         linkedin: "Hi Jane, I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads. Saw Acme Analytics is hiring a Growth Marketing Lead. Worth a 15-minute call?",
         email: { subject: "Paid acquisition at Acme Analytics", body: "Hi Jane,\n\nI grew Austin to a top-4 national ranking on a $12M+ book with Google Ads. I want to run paid acquisition at Acme Analytics.\n\nWorth a 15-minute call this week?\n\nJordan" },
       });
-    } else if (/resume slots and a cover letter/.test(system)) {
-      calls.push("draft");
-      const featured = [...user.split("Earlier lines:")[0].matchAll(/^- (\S+): (.*)$/gm)].map((m) => ({ claimId: m[1], text: m[2] }));
-      content = JSON.stringify({ statement: "Performance marketer who ships measurable growth.", bullets: featured, earlier: [], letter: LETTER });
-    } else if (/"kept"|claimId/.test(system) && /select/i.test(system)) {
-      calls.push("select");
-      const ids = [...user.matchAll(/^(\d+)\. (\S+)/gm)].map((m) => m[2]);
-      content = JSON.stringify({
-        kept: ids.slice(0, 5).map((claimId, i) => ({ claimId, slot: `resume.featured.pick.b${i + 1}`, reason: "fits" })),
-        dropped: [],
-        transfers: [],
-        letter: { proof1: ids[0], proof2: ids[1] || ids[0] },
-      });
+    } else if (system.startsWith("Goal: Write truthful")) {
+      calls.push("write");
+      content = JSON.stringify({ statement: "Performance marketer who ships measurable growth.", bullets: [], earlier: [], letter: LETTER });
     } else {
       calls.push("extract");
       content = JSON.stringify({
@@ -351,29 +349,30 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
     };
   }
 
-  it("should build the intel pack, draft the outreach note beside the letter and expose both in the manifest", async () => {
+  it("should use cached sourced intel, draft outreach beside the letter and expose both in the manifest", async () => {
     const { fetchImpl, calls } = stageFetch();
     const searchCalls = [];
-    const out = await runPipeline(base(fetchImpl, searchCalls));
+    const input = base(fetchImpl, searchCalls);
+    const warmed = await buildIntelPack({ company: input.payload.company, title: input.payload.title, jobUrl: input.payload.jobUrl,
+      postingText: JD_TEXT, cacheRoot: input.intel.cacheRoot, now: input.now,
+      search: input.intel.search });
+    assert.equal(warmed.facts.length, 1, JSON.stringify(warmed));
+    const out = await runPipeline(input);
     assert.equal(out.outcome, "published");
-    assert.deepEqual(searchCalls, ["search"], "one grounded search, no retry");
+    assert.deepEqual(searchCalls, ["search"], "the run used the warmed cache without another search");
     assert.ok(calls.includes("outreach"), `stages called: ${calls.join(",")}`);
     assert.equal(calls.filter((c) => c === "outreach").length, 1, "one outreach call, never regenerated by the repair");
 
     const run = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
     assert.equal(validateRunRecord(run).ok, true, JSON.stringify(validateRunRecord(run).errors));
     const stageNames = run.stages.map((s) => s.stage);
-    assert.ok(stageNames.indexOf("intel") > stageNames.indexOf("outline"));
-    assert.ok(stageNames.indexOf("intel") < stageNames.indexOf("draft"));
+    assert.deepEqual(stageNames.filter((stage) => stage !== "outreach"), ["prepare", "write", "validate", "render", "judge", "save"]);
     assert.ok(stageNames.includes("outreach"));
-    assert.match(run.stages.find((s) => s.stage === "intel").detail, /1 sourced fact\(s\) \(1 dated news\); cache miss; 1 search call\(s\) \[search: grounded, 2 source\(s\), 1 query\(ies\) \d+ ms\]/);
+    assert.match(run.stages.find((s) => s.stage === "prepare").detail, /intel cache hit/);
 
-    /* The letter's company insight cites the pack; the support map says so. */
-    const support = JSON.parse(await readFile(join(dir, "support.json"), "utf8"));
-    const cited = support.verdicts.find((v) => v.beat === "companyInsight");
-    assert.equal(cited.supported, true);
-    assert.deepEqual(cited.intel, { id: "intel-1", url: "https://news.example.com/acme-spend-graph", date: "2026-08-14" });
-    assert.ok(support.verdicts.some((v) => v.beat === "outreach.linkedin"));
+    const qa = JSON.parse(await readFile(join(dir, "qa.letter.json"), "utf8"));
+    assert.equal(qa.judge.status, "ok", JSON.stringify(qa.judge));
+    assert.ok(qa.sentences.some((sentence) => sentence.citations.some((citation) => citation.sourceId === "intel-1")), "the judge cites cached research");
 
     const outreach = JSON.parse(await readFile(join(dir, "outreach.json"), "utf8"));
     assert.equal(outreach.greeting, "Hi Jane,");
@@ -381,16 +380,18 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
     assert.equal(outreach.contact.name, "Jane");
     assert.ok(outreach.linkedin.chars <= 300);
     assert.ok(outreach.email.words <= 120);
-    assert.equal(outreach.qa.status, "pass", JSON.stringify(outreach.qa.checks));
+    assert.equal(outreach.qa.status, "review", JSON.stringify(outreach.qa.checks));
+    assert.ok(outreach.qa.checks.some((check) => check.code === "support" && check.severity === "review"));
     assert.match(await readFile(join(dir, "outreach.txt"), "utf8"), /^LinkedIn note/);
 
     const manifest = JSON.parse(await readFile(join(dir, "manifest.json"), "utf8"));
-    assert.deepEqual(manifest.outreach, { json: "outreach.json", txt: "outreach.txt", runId: "run-w3-1", status: "pass", linkedinChars: outreach.linkedin.chars, emailWords: outreach.email.words, contact: "Jane" });
+    assert.deepEqual(manifest.outreach, { json: "outreach.json", txt: "outreach.txt", runId: "run-w3-1", status: "review", linkedinChars: outreach.linkedin.chars, emailWords: outreach.email.words, contact: "Jane" });
     assert.deepEqual(manifest.intel, { json: "intel.json", runId: "run-w3-1", facts: 1, news: 1 });
-    for (const name of ["outreach.json", "outreach.txt", "intel.json", "support.json"]) {
+    for (const name of ["outreach.json", "outreach.txt", "intel.json", "qa.letter.json"]) {
       assert.ok(await readFile(join(dir, "runs", "run-w3-1", name), "utf8"), `runs/run-w3-1/${name}`);
     }
-    assert.match(run.cacheKey || "", /\|cover_letter\+outreach\|/);
+    if (qa.disposition === "READY") assert.match(run.cacheKey || "", /\|cover_letter\+outreach\|/);
+    else assert.equal(run.cacheKey, undefined, "only READY packages are cacheable");
 
     /* Per-role headline: an in-house growth role leads with the performance marketer. */
     const model = JSON.parse(await readFile(join(dir, "render-model.json"), "utf8"));
@@ -415,14 +416,11 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
     const out = await runPipeline(input);
     assert.equal(out.outcome, "published");
     const run = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
-    const intel = run.stages.find((s) => s.stage === "intel");
-    assert.equal(intel.status, "review");
-    assert.match(intel.detail, /search: error HTTP 429/);
-    assert.match(intel.detail, /posting only where it failed: search: HTTP 429/);
-    assert.equal(run.cacheKey, undefined, "a failed intel search is retried next time");
-    const support = JSON.parse(await readFile(join(dir, "support.json"), "utf8"));
-    const insight = support.verdicts.find((v) => v.beat === "companyInsight");
-    assert.equal(insight.supported, false, "with no pack, an intel citation is rejected");
+    assert.match(run.stages.find((s) => s.stage === "prepare").detail, /intel background on miss/);
+    assert.equal(run.cacheKey, undefined, "an unsupported company claim is never cached");
+    const qa = JSON.parse(await readFile(join(dir, "qa.letter.json"), "utf8"));
+    assert.equal(qa.disposition, "FAIL");
+    assert.ok(qa.sentences.some((sentence) => /Spend Graph/.test(sentence.text) && sentence.status === "unsupported"), "research absent from the packet cannot support the claim");
   });
 
   it("should add no intel stage and no outreach when neither is asked for", async () => {

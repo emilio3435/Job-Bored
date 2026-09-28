@@ -1,274 +1,280 @@
 import assert from "node:assert/strict";
-import { mkdtemp, readFile, rm } from "node:fs/promises";
+import { createHash } from "node:crypto";
+import { mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { describe, it, beforeEach, afterEach } from "node:test";
+import { afterEach, beforeEach, describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
-import { validateRunRecord } from "../server/materials-package.mjs";
+import { deterministicExtract } from "../server/materials-jd-extract.mjs";
+import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
 
-const RESUME_TEXT = [
-  "Jordan Rivera",
-  "Austin, TX · jordan.rivera@example.com · 555-010-2030",
-  "Northwind — Digital Sales Manager, 2021–2026",
-  "- Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads.",
-  "- Drove 125% YoY paid-search conversion growth on a flagship account.",
-  "- Led the market to a 55% digital revenue mix with clear weekly readouts.",
-  "Example App — Founder, 2024–present",
-  "- Shipped an SEM forecast tool on Gemini that ran 24+ forecasts against $3.1M of pipeline.",
-  "- Built streaming ingestion for analytics events with Kafka and Postgres.",
+const RESUME = [
+  "Jordan Rivera", "Northwind — Operations Analyst, 2021–2026",
+  "- Built a route forecaster for 620 vans and reduced missed windows from 9.1% to 4.3%.",
+  "- Ran a weekly readout for 14 dispatch leads and 40 stores.",
+  "RouteLab — Founder, 2024–present",
+  "- Shipped a scheduling tool for 80 drivers using Postgres and Kafka.",
 ].join("\n");
-
-const PROFILE = {
-  version: 1,
-  identity: {
-    targetRoles: ["Staff Engineer"],
-    targetSeniority: "ic_staff",
-    primaryNarrative: "Staff engineer who builds durable distributed systems for people.",
-  },
-  strengths: [
-    {
-      name: "Backend systems",
-      rank: 1,
-      evidence: "Shipped services handling 10k RPS with Postgres and Kafka.",
-      keywords: ["Postgres", "Kafka"],
-    },
-  ],
-  experiences: [{ slug: "northwind", company: "Northwind", title: "Digital Sales Manager" }],
-  hardConstraints: { workMode: "any" },
-};
-
-const JD_TEXT = [
-  "Data Platform Engineer at Acme Analytics in Austin, TX. This role builds warehouse",
-  "pipelines and streaming ingestion for analytics events, owns observability dashboards,",
-  "and partners with analysts on pipeline math and spend reporting.",
-  "Requirements: five years with warehouse modeling, streaming ingestion, Python, SQL,",
-  "orchestration with Airflow, observability, and cloud platforms. You have shipped",
-  "production data systems with clear reliability practices and documentation.",
+const POSTING = [
+  "About us:", "Harbor Fleet coordinates regional delivery routes.",
+  "Responsibilities:", "Build route forecasts for dispatch leads and improve delivery reliability.",
+  "Requirements:", "Experience with data analysis, scheduling tools, Postgres and dispatch operations.",
 ].join("\n");
-
-/* Names the company early and twice, carries traced ledger metrics, and
- * grounds each proof paragraph in a claim (rules 1, 2, 4). */
-const GOOD_LETTER = {
-  thesis: "Acme Analytics keeps warehouse pipelines and streaming ingestion honest for the analysts who depend on them, and I've spent years building the weekly readouts that people in that seat actually use to make decisions. Pipelines are my favorite kind of plumbing.",
-  analyticsProof: "At Northwind I grew Austin to a top-4 national ranking on a $12M+ book with Google Ads, and I led the market to a 55% digital revenue mix. Every week I owned the pipeline math with our analysts and turned it into clear weekly readouts for the digital sales team. People read them. That is rarer than it sounds.",
-  aiOpsProof: "I also built streaming ingestion for analytics events with Kafka and Postgres, and I shipped an SEM forecast tool that ran 24+ forecasts against $3.1M of pipeline. It's the same shape of work as your observability dashboards and spend reporting. A quiet data error there becomes a bad budget call.",
-  nextStep: "Here's my offer: I'd trace one Acme Analytics pipeline from source to readout, then write down where it can break and who would notice. Give me a short call with your team and I'll bring the sketch.",
-};
-
-const PIN = { provider: "local", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
 const GATE = { verdict: "usable", confidence: 0.9, signals: {} };
+const PIN = { provider: "local", model: "stub", resolvedModel: "stub", apiKey: "", baseUrl: "http://127.0.0.1:9/v1" };
+const LETTER = {
+  hook: "I build route tools for the people who have to use them. Harbor Fleet's dispatch work is the kind I know from daily field reporting, where a clean forecast changes a real decision before the morning routes leave.",
+  companyInsight: "I would bring that practical view to your regional delivery routes.",
+  proof1: "At Northwind I built a route forecaster for 620 vans and reduced missed windows from 9.1% to 4.3%. The numbers came from the weekly readout that 14 dispatch leads used to check where the schedule was slipping.",
+  proof2: "At RouteLab I shipped a scheduling tool for 80 drivers using Postgres and Kafka. That work taught me to pair clear operating data with tools the drivers and dispatchers could actually keep using, and to write down what broke before the next release.",
+  ask: "I would start with one of Harbor Fleet's route planning bottlenecks and show the working behind a practical fix. Could we review one route together?",
+};
+const EMPTY_LETTER = { hook: "", companyInsight: "", proof1: "", proof2: "", ask: "" };
+const PROFILE = { version: 1, identity: { targetRoles: ["Operations Analyst"], targetSeniority: "ic_senior", primaryNarrative: "Field analyst and tool builder." }, strengths: [], hardConstraints: { workMode: "any" } };
 
-function payload() {
-  return {
-    slug: "acme-role",
-    company: "Acme Analytics",
-    title: "Data Platform Engineer",
-    feature: "both",
-    jobUrl: "https://example.com/job",
-    notes: "",
-    resume: { source: "upload", filename: "resume.txt", addedAt: "2026-09-26T00:00:00.000Z", text: RESUME_TEXT },
-  };
-}
-
-function scriptedFetch(scripts) {
-  const calls = [];
-  const fetchImpl = async (url, init) => {
-    const body = JSON.parse(init.body);
-    calls.push({ system: body.messages[0].content, user: body.messages[1].content });
-    const script = scripts[Math.min(calls.length - 1, scripts.length - 1)];
-    if (script instanceof Error) throw script;
-    const content = typeof script === "function" ? script(calls.length - 1, body) : script;
-    return { ok: true, json: async () => ({ choices: [{ message: { content } }] }) };
-  };
-  return { fetchImpl, calls };
-}
-
-function stageScripts() {
-  return [
-    /* jd.extract fill */
-    JSON.stringify({
-      outcomes: [
-        { id: "pipe-math", text: "Own pipeline math with analysts", weight: 0.9 },
-        { id: "streaming", text: "Ship streaming ingestion for analytics events", weight: 0.9 },
-      ],
-      differentiators: [{ id: "d1", text: "Production data systems with reliability practices" }],
-      bars: [],
-      constraints: [{ type: "location", text: "Austin, TX" }],
-      echoBans: ["leverage synergies"],
-      nounWeights: { streaming: 1.0, pipeline: 0.9 },
-    }),
-    /* claims.select — answered dynamically from the shortlist */
-    (index, body) => {
-      const ids = [...body.messages[1].content.matchAll(/^(\d+)\. (\S+)/gm)].map((m) => m[2]);
-      const kept = ids.slice(0, 5);
-      return JSON.stringify({
-        kept: kept.map((claimId, i) => ({ claimId, slot: `resume.featured.pick.b${i + 1}`, reason: "maps to pipeline nouns" })),
-        dropped: ids.slice(5).map((claimId) => ({ claimId, code: "budget", reason: "outside the kept set" })),
-        transfers: [],
-        letter: { analyticsProof: kept[0], aiOpsProof: kept[1] || kept[0] },
-      });
+function testServices(options = {}) {
+  const calls = { extract: 0, write: [], judge: [], qa: [], hard: [], repairs: [] };
+  const services = {
+    extractJd: async ({ jdText, company, title, gate }) => {
+      calls.extract += 1;
+      const extract = deterministicExtract({ jdText, company, title, gate });
+      extract.companyFacts = ["Fabricated acquisition claim from extraction"]; // prep hint, never judge evidence
+      return { extract, degraded: false };
     },
-    /* draft — answered dynamically from the featured claims; bullets keep
-     * their own claim's words (and so its numbers). */
-    (index, body) => {
-      const user = body.messages[1].content;
-      const featured = [...user.split("Earlier lines:")[0].matchAll(/^- (\S+): (.*)$/gm)].map((m) => ({ claimId: m[1], text: m[2] }));
-      return JSON.stringify({
-        statement: "Revenue and analytics builder who shipped an SEM forecast tool and streaming ingestion for analytics events.",
-        bullets: featured,
-        earlier: [],
-        letter: GOOD_LETTER,
-      });
+    draftSlots: async ({ feature, outline, ledger, repairPrompt }) => {
+      calls.write.push({ feature, repairPrompt });
+      const ids = outline.featured.flatMap((group) => group.claimIds);
+      const bullets = ids.map((claimId) => ({ claimId, text: options.longBullets ? `${ledger.claims.find((claim) => claim.id === claimId)?.text} ${"field report ".repeat(90)}` : `${ledger.claims.find((claim) => claim.id === claimId)?.text || "Verified work."}${options.addTell ? " I leverage best-in-class synergies to drive robust outcomes." : ""}${options.addMetric ? " This saved 9999 hours." : ""}` }));
+      const letter = feature === "cover_letter" ? { ...LETTER, hook: options.addScope ? `${LETTER.hook} I led enterprise transformation across the regional fleet.` : LETTER.hook, ask: repairPrompt && (options.rewriteClose || (options.rewriteCloseOnIssue && repairPrompt.includes("Revise the close"))) ? "I would map one Harbor Fleet route with your dispatch team. Could we compare the forecast to the shift log?" : LETTER.ask } : EMPTY_LETTER;
+      return { draft: { contract: "materials.draft.v2", jdHash: "sha256:0", ledgerHash: ledger.ledgerHash, statement: feature === "resume" ? "Field analyst who built route forecasts for 620 vans." : "", bullets: feature === "resume" ? bullets : [], earlier: [], letter }, sourceRefs: [], degraded: false };
     },
-  ];
+    splitSentences: (text, document) => text.split(/\n+|(?<=[.!?])\s+/).filter(Boolean).map((sentence, i) => ({ id: `${document === "letter" ? "L" : "R"}${i + 1}`, text: sentence })),
+    runHardGates: async (args) => { calls.hard.push(args); return options.hardGate?.(args) || []; },
+    judgeMaterials: async (args) => { calls.judge.push(args); return { status: "ok", judgment: { contract: "materials.judge.v1", documents: [] }, meta: { provider: "local", model: "judge", independent: true, promptVersion: "test", latencyMs: 1 } }; },
+    buildQaRecord: (args) => {
+      calls.qa.push(args);
+      const issue = options.qaIssue?.(args, calls.qa.length);
+      return { contract: "materials.qa.v2", document: args.document, runId: args.runId,
+        disposition: issue?.severity === "hard" || args.gates.some((gate) => gate.kind === "hard" && gate.pass === false) ? "FAIL" : "READY",
+        textHash: args.textHash, gates: args.gates, sentences: [], issues: issue ? [issue] : [],
+        quality: { score: 90, ratings: [] }, qualificationGaps: [], judge: args.judge.meta };
+    },
+    repairInstructionsFromQa: (records) => records.flatMap((record) => record.issues.filter((issue) => issue.severity === "hard" && issue.action === "rewrite")),
+    buildRepairPrompt: async (args) => { calls.repairs.push(args); return `REPAIR ${args.feature}: ${args.instruction}; ${args.issues.map((issue) => issue.reason).join("; ")}; source=${args.sourceText}`; },
+  };
+  return { services, calls };
 }
 
-describe("materials pipeline", () => {
+function base(dir, services, feature = "both", runId = "run-mrev-1") {
+  return { dir, payload: { slug: "harbor-fleet-role", company: "Harbor Fleet", title: "Operations Analyst", feature, jobUrl: "https://example.com/job", resume: { source: "upload", filename: "resume.txt", text: RESUME } },
+    pin: PIN, jdText: POSTING, jdSource: "paste", gate: GATE, ledger: buildLedger({ profile: PROFILE, resumeText: RESUME }), resumeText: RESUME,
+    profileIdentity: { fullName: "Jordan Rivera" }, voiceProfile: null, now: new Date("2026-09-28T12:00:00.000Z"), runId, openSession: async () => null, services };
+}
+const json = async (dir, name) => JSON.parse(await readFile(join(dir, name), "utf8"));
+
+// The old pipeline failed these stage and call assertions before the cut.
+describe("MREV B1 pipeline", () => {
   let dir;
-  beforeEach(async () => {
-    dir = await mkdtemp(join(tmpdir(), "jb-pipeline-"));
-  });
-  afterEach(async () => {
-    await rm(dir, { recursive: true, force: true });
-  });
+  beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "jb-mrev-b1-")); });
+  afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
 
-  function base(slugDir = dir) {
-    return {
-      dir: slugDir,
-      payload: payload(),
-      pin: PIN,
-      jdText: JD_TEXT,
-      jdSource: "paste",
-      gate: GATE,
-      ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT }),
-      resumeText: RESUME_TEXT,
-      voice: ["Short sentences."],
-      now: new Date("2026-09-26T05:00:00.000Z"),
-      runId: "run-pipeline-1",
-      openSession: async () => null,
-      readMarks: async () => [],
-      onStage: () => {},
-    };
-  }
-
-  it("runs extract/select/draft and publishes a validated package + run.json", async () => {
-    const { fetchImpl, calls } = scriptedFetch(stageScripts());
-    const out = await runPipeline({ ...base(), fetchImpl });
+  it("B1/B4/B8/B9: makes one cold extraction, two writes, two judges, and exact K7 stages", async () => {
+    const { services, calls } = testServices();
+    await writeFile(join(dir, "resume-source.json"), JSON.stringify({ source: "upload", text: RESUME }));
+    const out = await runPipeline(base(dir, services));
     assert.equal(out.outcome, "published");
-    assert.equal(calls.length, 4, `three narrow calls plus the letter support check, saw ${calls.length}`);
-    for (const name of ["manifest.json", "resume.html", "cover-letter.html", "resume.txt", "cover-letter.txt", "render-model.json", "run.json", "qa.json", "qa-report.md", "jd-extract.json", "selection.json", "outline.json", "draft.json"]) {
-      const content = await readFile(join(dir, name), "utf8").catch(() => null);
-      assert.ok(content && content.length > 0, `${name} written`);
-    }
-    const run = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
+    assert.deepEqual(out.stages.map((stage) => stage.stage), ["prepare", "write", "validate", "render", "judge", "save"]);
+    assert.equal(calls.extract, 1);
+    assert.deepEqual(calls.write.map((call) => call.feature), ["resume", "cover_letter"]);
+    assert.equal(calls.judge.length, 2);
+    assert.equal(calls.qa.length, 2);
+    assert.ok(calls.qa.every((call) => call.finalText && call.textHash && call.judge && Array.isArray(call.gates) && Array.isArray(call.constraints)));
+    assert.ok(calls.qa.find((call) => call.document === "letter").constraints.every((constraint) => constraint.pass), "the delivered letter holds 3 paragraphs and 120-200 body words");
+    assert.ok(calls.judge.every((call) => !JSON.stringify(call.sources.posting).includes("Fabricated acquisition claim")));
+    assert.deepEqual(calls.judge[0].sources.posting.map((part) => part.id), ["posting:1", "posting:2", "posting:3"]);
+    const run = await json(dir, "run.json");
     assert.equal(validateRunRecord(run).ok, true, JSON.stringify(validateRunRecord(run).errors));
-    assert.ok(run.stages.some((s) => s.stage === "jd.extract" && s.llm === true));
-    assert.ok(run.stages.some((s) => s.stage === "claims.select" && s.llm === true));
-    assert.ok(run.stages.some((s) => s.stage === "draft" && s.llm === true));
-    assert.match(run.cacheKey, /\|both\|local:stub$/);
-    assert.equal(out.qa.status === "pass" || out.qa.status === "review", true);
+    assert.equal(run.feature, "both");
+    assert.deepEqual(Object.keys(run.textHash).sort(), ["letter", "resume"]);
+    for (const name of ["draft.resume.json", "draft.cover_letter.json", "qa.resume.json", "qa.letter.json", "qa.json", "resume.html", "cover-letter.html"]) assert.ok(await readFile(join(dir, name), "utf8"), name);
+    assert.equal((await json(dir, "qa.json")).contract, "materials.qa.v2");
+    assert.ok(await readFile(join(dir, "runs/run-mrev-1/resume-source.json"), "utf8"), "the immutable run keeps its source resume");
+    const next = testServices();
+    await runPipeline(base(dir, next.services, "cover_letter", "run-mrev-2"));
+    assert.equal(next.calls.extract, 0, "posting extraction is reused across documents");
+    assert.equal(next.calls.write.length, 1);
+    assert.equal(next.calls.judge.length, 1);
   });
 
-  it("returns the cached package with zero LLM calls on a repeat key", async () => {
-    const first = scriptedFetch(stageScripts());
-    const one = await runPipeline({ ...base(), fetchImpl: first.fetchImpl });
-    assert.equal(one.outcome, "published");
-    let calls = 0;
-    const cached = await runPipeline({
-      ...base(),
-      runId: "run-pipeline-2",
-      fetchImpl: async () => {
-        calls += 1;
-        throw new Error("must not call");
-      },
-    });
-    assert.equal(cached.outcome, "cached");
-    assert.equal(calls, 0);
-  });
-
-  it("publishes a degraded package with no pin and no calls: resume REVIEW, empty letter FAIL, no repair", async () => {
-    let calls = 0;
-    const out = await runPipeline({
-      ...base(),
-      pin: null,
-      fetchImpl: async () => {
-        calls += 1;
-        throw new Error("must not call");
-      },
-    });
-    assert.equal(out.outcome, "published");
-    assert.equal(calls, 0);
-    const byDoc = Object.fromEntries(out.qa.documents.map((d) => [d.document, d]));
-    assert.equal(byDoc.resume.disposition, "REVIEW");
-    assert.ok(byDoc.resume.checks.some((c) => c.code === "llm_unconfigured"), JSON.stringify(byDoc.resume.checks));
-    /* The deterministic letter is empty: it cannot name the company, so
-     * it is never READY and never silently REVIEW. With no model there is
-     * nothing to repair with. */
-    assert.equal(byDoc.letter.disposition, "FAIL");
-    assert.ok(byDoc.letter.checks.some((c) => c.code === "company_unnamed"), JSON.stringify(byDoc.letter.checks));
-    assert.equal(out.qa.repaired, false);
+  it("B5: binds the judge hash to the fitted body after resume bullets are dropped", async () => {
+    const { services, calls } = testServices({ longBullets: true });
+    await runPipeline(base(dir, services, "resume"));
+    const judged = calls.judge[0].documents[0];
+    const qa = await json(dir, "qa.resume.json");
+    const draft = await json(dir, "draft.resume.json");
     const html = await readFile(join(dir, "resume.html"), "utf8");
-    assert.match(html, /Jordan|Northwind|Example App/);
+    const hash = `sha256:${createHash("sha256").update(judged.text).digest("hex")}`;
+    assert.equal(judged.textHash, hash);
+    assert.equal(qa.textHash, hash);
+    assert.ok(judged.text.length > 0);
+    assert.ok(draft.bullets.some((bullet) => !judged.text.includes(bullet.text)), "fit dropped at least one drafted bullet before judgment");
+    assert.ok(html.includes(judged.text.split("\n")[0].slice(0, 18)));
+    assert.equal((await json(dir, "run.json")).textHash, hash);
+    const txt = await readFile(join(dir, "resume.txt"), "utf8");
+    for (const line of judged.text.split("\n").filter(Boolean)) assert.ok(txt.replace(/\s+/g, " ").includes(line.replace(/\s+/g, " ").slice(0, 25)));
   });
 
-  it("fails ledger_empty when the ledger carries no facts", async () => {
-    const { fetchImpl } = scriptedFetch(stageScripts());
-    await assert.rejects(
-      runPipeline({ ...base(), ledger: { claims: [], employers: [], toolInventory: [] }, fetchImpl }),
-      (e) => e.code === "ledger_empty",
-    );
+  it("G6: fails text parity when a fitted judged line is absent from its text twin", async () => {
+    const { services } = testServices();
+    services.renderPackage = async (args) => ({ ...await renderPackage(args), resumeTxt: "Jordan Rivera\n" });
+    await runPipeline(base(dir, services, "resume"));
+    const qa = await json(dir, "qa.resume.json");
+    assert.ok(qa.gates.some((gate) => gate.id === "text_parity" && gate.kind === "hard" && gate.pass === false));
+    assert.equal(qa.disposition, "FAIL");
   });
 
-  it("should flag letter tells without rewriting the letter, and repair it in one whole-letter draft call (voice v6)", async () => {
-    const scripts = stageScripts();
-    const draftScript = scripts[2];
-    /* The first draft carries a hard tell; the repair draft is clean. */
-    let draftCalls = 0;
-    scripts[2] = (index, body) => {
-      draftCalls += 1;
-      const reply = JSON.parse(draftScript(index, body));
-      if (draftCalls === 1) reply.letter = { ...reply.letter, nextStep: `${reply.letter.nextStep} It is a robust plan.` };
-      return JSON.stringify(reply);
-    };
-    /* Calls in order: extract, select, draft, support, repair draft, support. */
-    const support = (index, body) => {
-      const count = [...String(body.messages[1].content).split("Letter sentences:")[1].matchAll(/^(\d+)\. /gm)].length;
-      return JSON.stringify({ verdicts: Array.from({ length: count }, (_, i) => ({ i: i + 1, factual: true, supported: true, source: "stub" })) });
-    };
-    scripts.splice(3, 0, support, scripts[2], support);
-    const { fetchImpl, calls } = scriptedFetch(scripts);
-    const out = await runPipeline({ ...base(), fetchImpl });
+  it("B6: finishes a cache miss without waiting for optional company research", async () => {
+    const { services } = testServices();
+    const intelRoot = join(dir, "intel-cache");
+    let resolveSearch;
+    const slowSearch = new Promise((resolve) => { resolveSearch = resolve; });
+    const started = Date.now();
+    try {
+      const out = await runPipeline({ ...base(dir, services, "cover_letter"), intel: { cacheRoot: intelRoot, search: () => slowSearch } });
+      assert.equal(out.outcome, "published");
+      assert.ok(Date.now() - started < 1000, "draft did not wait on research");
+      assert.equal((await json(dir, "run.json")).stages[0].stage, "prepare");
+    } finally { resolveSearch({ text: "{}", sources: [], queries: [] }); }
+  });
+
+  it("B7: bypasses package cache for repair, carries instruction through one automatic rewrite, and adopts a changed close", async () => {
+    const first = testServices();
+    await runPipeline(base(dir, first.services, "cover_letter"));
+    const parent = await json(dir, "qa.letter.json");
+    const parentText = first.calls.judge[0].documents[0].text;
+    const issue = { id: "i1", kind: "voice", severity: "hard", action: "rewrite", reason: "Revise the close", sentenceIds: ["L1"] };
+    const second = testServices({ rewriteClose: true, qaIssue: (_args, count) => count === 1 ? issue : null });
+    const out = await runPipeline({ ...base(dir, second.services, "cover_letter", "run-mrev-repair"), repair: { feature: "cover_letter", instruction: "Make the close specific", issues: [issue], parentRunId: "run-mrev-1", sourceText: parentText, sourceDraft: await json(dir, "draft.cover_letter.json") } });
+    assert.equal(out.adopted, true);
+    assert.deepEqual(out.stages.map((stage) => stage.stage), ["prepare", "repair", "write", "validate", "render", "judge", "repair", "write", "validate", "render", "judge", "save"]);
+    assert.equal(second.calls.write.length, 2, "one automatic second pass maximum");
+    assert.ok(second.calls.write.every((call) => call.repairPrompt.includes("Make the close specific")));
+    assert.equal(second.calls.extract, 0, "repair uses cached prep");
+    assert.equal((await json(dir, "run.json")).repair.parentRunId, "run-mrev-1");
+    assert.equal((await json(dir, "qa.letter.json")).textHash !== parent.textHash, true);
+  });
+
+  it("G5: a both repair rewrites only the document with its own hard rewrite issue", async () => {
+    const first = testServices();
+    await runPipeline(base(dir, first.services, "both"));
+    const parentText = first.calls.judge.find((call) => call.documents[0].document === "letter").documents[0].text;
+    const letterIssue = { id: "letter-close", kind: "voice", severity: "hard", action: "rewrite", reason: "Revise the close", sentenceIds: ["L1"] };
+    const wrongDocumentIssue = { id: "wrong-document", kind: "voice", severity: "hard", action: "rewrite", reason: "Ignore wrong sentence", sentenceIds: ["R1"] };
+    const second = testServices({ rewriteCloseOnIssue: true, qaIssue: (args, count) => args.document === "letter" && count === 2 ? letterIssue : null });
+    second.services.repairInstructionsFromQa = (records) => records.flatMap((record) => [...record.issues, ...(record.document === "letter" ? [wrongDocumentIssue] : [])]);
+    const out = await runPipeline({ ...base(dir, second.services, "both", "run-mrev-both-repair"), repair: {
+      feature: "both", instruction: "Keep the verified route numbers", issues: [], parentRunId: "run-mrev-1", sourceText: parentText,
+    } });
     assert.equal(out.outcome, "published");
-    const systems = calls.map((c) => String(c.system));
-    assert.ok(!systems.some((s) => s.startsWith("You rewrite resume and cover-letter fields")), "no delint rewrite call for letter spans");
-    assert.equal(systems.filter((s) => s.includes("resume slots")).length, 2, "one draft plus exactly one repair draft");
-    const repair = calls.filter((c) => String(c.system).includes("resume slots"))[1];
-    assert.match(repair.user, /REPAIR: rewrite the WHOLE letter \(all five beats\) as one piece, in one voice/);
-    assert.match(repair.user, /robust/, "the repair names the issue");
-    assert.match(repair.user, /Sentences the fact check supports \(keep their facts and wording unless an issue above names them\):\n- /);
-    assert.match(repair.user, /never add an outcome, frequency, adjective, scope or cause the facts do not state/);
-    const draft = JSON.parse(await readFile(join(dir, "draft.json"), "utf8"));
-    assert.doesNotMatch(JSON.stringify(draft.letter), /robust/);
+    assert.deepEqual(second.calls.write.map((call) => call.feature), ["resume", "cover_letter", "cover_letter"]);
+    assert.equal(second.calls.repairs.length, 3);
+    assert.deepEqual(second.calls.repairs[2].issues.map((issue) => issue.id), ["letter-close"]);
+    assert.equal(second.calls.repairs[2].instruction, "Keep the verified route numbers");
+    assert.equal(out.qa.repaired, true);
   });
 
-  it("F8: repair re-enters the draft with the current draft + instructions", async () => {
-    const first = scriptedFetch(stageScripts());
-    await runPipeline({ ...base(), fetchImpl: first.fetchImpl });
-    const current = JSON.parse(await readFile(join(dir, "draft.json"), "utf8"));
-    const second = scriptedFetch(stageScripts());
-    const out = await runPipeline({
-      ...base(),
-      runId: "run-pipeline-repair",
-      fetchImpl: second.fetchImpl,
-      current,
-      repairInstructions: "Lead with the forecast tool, not the book.",
-    });
+  it("G5: saves pass 0 when the automatic repair-prompt import is unavailable", async () => {
+    const issue = { id: "close", kind: "voice", severity: "hard", action: "rewrite", reason: "Revise the close", sentenceIds: ["L1"] };
+    const { services, calls } = testServices({ qaIssue: (args, count) => args.document === "letter" && count === 1 ? issue : null });
+    services.buildRepairPrompt = async () => { const error = new Error("Cannot find module materials-repair-prompt.mjs"); error.code = "ERR_MODULE_NOT_FOUND"; throw error; };
+    const out = await runPipeline(base(dir, services, "cover_letter"));
     assert.equal(out.outcome, "published");
-    const draftCall = second.calls.filter((c) => c.system.includes("resume slots")).pop();
-    assert.match(draftCall.user, /REPAIR/);
-    assert.match(draftCall.user, /Lead with the forecast tool/);
-    const run = JSON.parse(await readFile(join(dir, "run.json"), "utf8"));
-    assert.ok(run.repairs && run.repairs.length === 1, "repair recorded");
+    assert.deepEqual(calls.write.map((call) => call.feature), ["cover_letter"]);
+    assert.equal(out.qa.repaired, false);
+    assert.equal((await json(dir, "qa.letter.json")).disposition, "FAIL");
+    assert.equal((await json(dir, "draft.cover_letter.json")).letter.ask, LETTER.ask);
+    assert.ok(out.stages.some((stage) => stage.stage === "repair" && stage.status === "skipped"));
+  });
+
+  it("B7/G5: keeps the parent active when a repair introduces a new hard failure", async () => {
+    const first = testServices();
+    await runPipeline(base(dir, first.services, "cover_letter"));
+    const original = await readFile(join(dir, "cover-letter.html"), "utf8");
+    const parentText = first.calls.judge[0].documents[0].text;
+    const second = testServices({ rewriteClose: true, hardGate: () => [{ id: "invented_fact", kind: "hard", pass: false, reason: "New unsupported claim", sentenceIds: [] }] });
+    const out = await runPipeline({ ...base(dir, second.services, "cover_letter", "run-mrev-rejected"), repair: { feature: "cover_letter", instruction: "Change the close", issues: [], parentRunId: "run-mrev-1", sourceText: parentText } });
+    assert.equal(out.adopted, false);
+    assert.equal((await json(dir, "runs/run-mrev-rejected/run.json")).repair.adopted, false);
+    assert.equal(await readFile(join(dir, "cover-letter.html"), "utf8"), original);
+    assert.notEqual(await readFile(join(dir, "runs/run-mrev-rejected/cover-letter.html"), "utf8"), original);
+  });
+
+  it("B7/G5: an unchanged repair reports no material change and keeps the parent active", async () => {
+    const first = testServices();
+    await runPipeline(base(dir, first.services, "cover_letter"));
+    const original = await readFile(join(dir, "cover-letter.html"), "utf8");
+    const sourceText = first.calls.judge[0].documents[0].text;
+    const second = testServices();
+    const out = await runPipeline({ ...base(dir, second.services, "cover_letter", "run-mrev-noop"), repair: {
+      feature: "cover_letter", instruction: "Try a tighter close", issues: [], parentRunId: "run-mrev-1", sourceText,
+    } });
+    assert.equal(out.repair.changed, false);
+    assert.equal(out.adopted, false);
+    assert.equal(out.repair.reason, "No material change");
+    assert.equal(await readFile(join(dir, "cover-letter.html"), "utf8"), original);
+    assert.equal((await json(dir, "runs/run-mrev-noop/run.json")).repair.changed, false);
+  });
+
+  it("B8/G3: a letter run leaves the resume's draft and QA untouched", async () => {
+    const first = testServices();
+    await runPipeline(base(dir, first.services, "resume"));
+    const resumeDraft = await readFile(join(dir, "draft.resume.json"), "utf8");
+    const resumeQa = await readFile(join(dir, "qa.resume.json"), "utf8");
+    const second = testServices();
+    await runPipeline(base(dir, second.services, "cover_letter", "run-mrev-letter"));
+    assert.equal(await readFile(join(dir, "draft.resume.json"), "utf8"), resumeDraft);
+    assert.equal(await readFile(join(dir, "qa.resume.json"), "utf8"), resumeQa);
+    assert.equal((await json(dir, "runs/run-mrev-letter/draft.cover_letter.json")).contract, "materials.draft.v2");
+    await assert.rejects(readFile(join(dir, "runs/run-mrev-letter/draft.resume.json"), "utf8"));
+    const letterDraft = await readFile(join(dir, "draft.cover_letter.json"), "utf8");
+    const letterQa = await readFile(join(dir, "qa.letter.json"), "utf8");
+    const third = testServices();
+    await runPipeline(base(dir, third.services, "resume", "run-mrev-resume-again"));
+    assert.equal(await readFile(join(dir, "draft.cover_letter.json"), "utf8"), letterDraft);
+    assert.equal(await readFile(join(dir, "qa.letter.json"), "utf8"), letterQa);
+  });
+
+  it("B10: records delint findings as advisory without another writer call", async () => {
+    const { services, calls } = testServices({ addTell: true });
+    await runPipeline(base(dir, services, "both"));
+    assert.equal(calls.write.length, 2);
+    assert.ok(calls.judge.every((packet) => Array.isArray(packet.sources.advisory)));
+    assert.ok(calls.judge.some((packet) => packet.sources.advisory.some((item) => /leverage|synergies|robust/i.test(item.detail))), "delint finding reached the judge");
+    assert.ok((await readFile(join(dir, "draft.resume.json"), "utf8")).includes("leverage best-in-class"), "delint did not mutate prose");
+  });
+
+  it("G4: gives each document its own sentence-linked voice, metric and scope advisory", async () => {
+    const { services, calls } = testServices({ addTell: true, addScope: true, addMetric: true });
+    await runPipeline(base(dir, services, "both"));
+    const [resume, letter] = calls.judge;
+    const resumeVoice = resume.sources.advisory.filter((item) => item.kind === "voice" && /leverage|synergies|robust/i.test(item.detail));
+    assert.ok(resumeVoice.length);
+    assert.ok(resumeVoice.every((item) => item.sentenceIds.length && item.sentenceIds.every((id) => /^R\d+$/.test(id))));
+    const resumeMetric = resume.sources.advisory.filter((item) => item.kind === "metric" && /9999/.test(item.detail));
+    assert.ok(resumeMetric.length);
+    assert.ok(resumeMetric.every((item) => item.sentenceIds.length && item.sentenceIds.every((id) => /^R\d+$/.test(id))));
+    const letterScope = letter.sources.advisory.filter((item) => item.kind === "scope" && /enterprise/i.test(item.detail));
+    assert.ok(letterScope.length, "letter scope upgrade reaches the judge");
+    assert.ok(letterScope.every((item) => item.sentenceIds.length && item.sentenceIds.every((id) => /^L\d+$/.test(id))));
+    assert.ok(!letter.sources.advisory.some((item) => /leverage|synergies|robust/i.test(item.detail)), "resume voice findings stay with resume");
+    assert.ok(!letter.sources.advisory.some((item) => item.kind === "metric" && /9999/.test(item.detail)), "resume metric findings stay with resume");
+    assert.ok(!resume.sources.advisory.some((item) => item.kind === "scope" && /enterprise/i.test(item.detail)), "letter scope findings stay with letter");
+  });
+
+  it("B1: rejects an empty ledger before any writer call", async () => {
+    const { services, calls } = testServices();
+    await assert.rejects(runPipeline({ ...base(dir, services), ledger: { claims: [], employers: [] } }), (error) => error.code === "ledger_empty");
+    assert.equal(calls.write.length, 0);
   });
 });
