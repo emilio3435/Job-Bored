@@ -8,6 +8,6 @@ Success means: R5 is red first, then green; a failed pending record with `progre
 
 Stop when: Your fence is locally committed with floor output in `.lane-evidence/LANE-REPORT-dossier.md`, or a repeated blocker is reported.
 
-Fence: `role-materials.js`, related `styles.css` only if needed, and dedicated `tests/role-materials.test.mjs`. Do not edit server files or shared docs. Consume only the manifest summary and existing failed-pending code shape. A legacy manifest or zero-exclusion run shows no note; avoid showing old-run counts beside a new failed pending request.
+Fence: `role-materials.js`, related `styles.css` only if needed, and dedicated `tests/role-materials.test.mjs`. Do not edit server files or shared docs. Consume only `manifest.selectionSummary` and existing failed-pending code shape. A legacy manifest or zero-exclusion run shows no note; avoid showing old-run counts beside a new failed pending request.
 
 Floor: `npm test -- tests/role-materials.test.mjs`, `npm run lint:repo`, `npm run typecheck:repo`, `gitleaks protect --staged --redact`.

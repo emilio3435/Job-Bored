@@ -4,7 +4,7 @@ Read `KICKOFF-RESD-_SHARED.md` and `SPEC-RESD-20260928.md`.
 
 Goal: Record exactly how selected resume evidence enters the one-page outline or is excluded by its page budget.
 
-Success means: R4 is red first, then green; the saved run and manifest expose a count-only summary `{ selected, featured, earlier, pageBudgetExcluded }` with each selected ID partitioned exactly once.
+Success means: R4 is red first, then green; the saved run and manifest expose `selectionSummary: { selected, featured, earlier, pageBudgetExcluded }` with each selected ID partitioned exactly once.
 
 Stop when: Your fence is locally committed with floor output in `.lane-evidence/LANE-REPORT-account.md`, or a repeated blocker is reported.
 
