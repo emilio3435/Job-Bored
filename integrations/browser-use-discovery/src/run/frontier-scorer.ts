@@ -251,7 +251,7 @@ export function fitScoreToRoleFit(
 }
 
 /**
- * Converts a matcher overall score (0-1) to a 0-10 Match Score for the
+ * Converts a matcher overall score (0-1) to a 0-10 Search Match for the
  * sheet. Lives here so every score-unit conversion shares one home.
  */
 export function matchOverallScoreToMatchScore(

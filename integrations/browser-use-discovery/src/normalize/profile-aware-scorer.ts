@@ -850,11 +850,15 @@ export function buildProfileFitAssessment(params: {
   descriptionText?: string;
 }): string {
   const { role, company, result, applicationComplexity, descriptionText } = params;
-  const { band, fitScore, fitRationale, salaryPenalised, exceptionalWithoutSalary } =
+  const { fitScore, fitRationale, salaryPenalised, exceptionalWithoutSalary } =
     result;
+  // The Pipeline writer stores H as an integer; describe that same score in K.
+  const sheetScore = Math.max(1, Math.min(10, Math.round(fitScore)));
+  const band = sheetScore >= 9 ? "Exceptional" : sheetScore >= 8 ? "Strong"
+    : sheetScore >= 7 ? "Interesting" : "Low";
 
   const parts: string[] = [];
-  parts.push(`${band} fit for ${role} at ${company} (score: ${fitScore}/10).`);
+  parts.push(`${band} fit for ${role} at ${company} (score: ${sheetScore}/10).`);
 
   const rationale =
     fitRationale ||

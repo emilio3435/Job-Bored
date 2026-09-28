@@ -226,8 +226,7 @@ describe("rescoreAllPipelineRows provider behavior", () => {
       const writeBody = JSON.parse(writeCall.body);
       assert.equal(writeBody.data[0].range, "Pipeline!H2");
       assert.equal(writeBody.data[0].values[0][0], "8");
-      assert.equal(writeBody.data[3].range, "Pipeline!U2");
-      assert.equal(writeBody.data[3].values[0][0], "8");
+      assert.deepEqual(writeBody.data.map((cell) => cell.range), ["Pipeline!H2", "Pipeline!K2", "Pipeline!Q2"]);
 
       const rescoredEvent = events.find(
         (event) => event.kind === "progress" && event.status === "rescored",

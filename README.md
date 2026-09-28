@@ -366,10 +366,10 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | E: Link            | Direct URL to listing                                                                 | Auto                             |
 | F: Source          | Where it was found (LinkedIn, etc.)                                                   | Auto                             |
 | G: Salary          | Salary if listed                                                                      | Auto                             |
-| H: Fit Score       | 1-10 match score                                                                      | Auto (you can override)          |
+| H: Fit Score       | 1–10 fit to your profile                                                              | Auto (you can override)          |
 | I: Priority        | 🔥 Hot / ⚡ High / — Normal / ↓ Low                                                   | Auto (you can override)          |
 | J: Tags            | Matched keywords                                                                      | Auto                             |
-| K: Fit Assessment  | Why it matches your profile                                                           | Auto                             |
+| K: Fit Assessment  | Reasons from the same scoring pass as Fit Score                                       | Auto                             |
 | L: Contact         | Recruiter/HM name if found                                                            | Auto                             |
 | M: Status          | New / Researching / Applied / Phone Screen / Interviewing / Offer / Rejected / Passed / Expired | **You** (via dashboard or Sheet) |
 | N: Applied Date    | When you applied                                                                      | **You**                          |
@@ -379,7 +379,7 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | R: Last contact    | Optional. When you last heard from them (shown on cards & in the brief)               | **You** or automation            |
 | S: Did they reply? | Optional. `Yes` / `No` / `Unknown` (`Unknown` shows as “Not sure” in the app)         | **You** or automation            |
 | T: Logo URL        | Optional. Company logo image URL; the dashboard falls back to the job Link domain     | Auto or **You**                  |
-| U: Match Score     | Optional. 0–10 AI match score from discovery worker                                  | Auto                             |
+| U: Search Match    | Optional. 0–10 search-targeting score from discovery's job matcher                   | Auto                             |
 | V: Favorite        | Optional. Manual star — a personal priority marker                                    | **You**                          |
 | W: Dismissed At   | Optional. Timestamp when a row was manually dismissed from the board                 | **You** or automation            |
 | X: Approval Status | Gate 1 approval marker — set to **Approved** before an agent may submit an apply    | **You** (required for apply gate) |

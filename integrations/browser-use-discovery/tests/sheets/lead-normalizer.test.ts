@@ -90,6 +90,8 @@ test("normalizeLead returns a scored normalized lead with stable defaults", asyn
   // match any of the legacy consultant/AI/perf-marketing lanes.
   assert.ok((lead?.fitScore || 0) >= 4);
   assert.ok((lead?.fitScore || 0) <= 7);
+  assert.equal(lead?.matchScore, null, "normalization never seeds Search Match from Fit Score");
+  assert.match(lead?.fitAssessment || "", new RegExp(`score: ${Math.round(lead?.fitScore || 0)}/10`));
   // priority is still derived from the keyword counter (debug-only), which
   // produces a strong match here.
   assert.ok(["⚡", "🔥"].includes(lead?.priority || ""));

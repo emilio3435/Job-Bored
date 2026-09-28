@@ -468,7 +468,8 @@
       facts.push({
         label: "FIT",
         value: String(job.fitScore) + "/10",
-        tone: job.fitScore >= 8 ? "mint" : job.fitScore >= 6 ? "amber" : null,
+        /* Same zones and tokens as the pipeline card ring (pipeline.js fitColorVar). */
+        tone: job.fitScore >= 8 ? "fit-high" : job.fitScore >= 5 ? "fit-mid" : "fit-low",
       });
     }
     var days = daysAgoFromIso(job.foundAt, nowDate);

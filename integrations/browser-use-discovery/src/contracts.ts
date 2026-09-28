@@ -87,7 +87,7 @@ export const PIPELINE_HEADER_ROW = [
   // Appended so existing sheet layouts shift by zero columns. 0–10 AI match
   // score from the job-matcher's overallScore, letting users sort/filter in-
   // sheet rather than having the matcher silently drop marginal jobs.
-  "Match Score",
+  "Search Match",
   "Favorite",
   "Dismissed At",
   // Extension column for the JHOS approval guard (Gate 1). Emilio must set
@@ -685,8 +685,7 @@ export type NormalizedLead = {
   fitScore: number | null;
   /**
    * 0–10 score from the Gemini job-matcher's overallScore (0–1 multiplied by
-   * 10 and rounded). Distinct from fitScore, which is the deterministic
-   * keyword-overlap score. Populated by finalizeMatchDecision in
+   * 10 and rounded). Distinct from profile-aware fitScore. Populated only by finalizeMatchDecision in
    * run-discovery.ts when a matcher decision is available; null when the run
    * skipped the AI matcher.
    */

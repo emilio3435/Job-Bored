@@ -182,7 +182,7 @@ own app: click **Advanced → Go to JobBored (unsafe)**. If Google shows
 it as an existing sheet:
 
 ```text
-Date Found	Title	Company	Location	Link	Source	Salary	Fit Score	Priority	Tags	Fit Assessment	Contact	Status	Applied Date	Notes	Follow-up Date	Talking Points	Last contact	Did they reply?	Logo URL	Match Score	Favorite	Dismissed At	Approval Status	Edit Lock	Work Mode
+Date Found	Title	Company	Location	Link	Source	Salary	Fit Score	Priority	Tags	Fit Assessment	Contact	Status	Applied Date	Notes	Follow-up Date	Talking Points	Last contact	Did they reply?	Logo URL	Search Match	Favorite	Dismissed At	Approval Status	Edit Lock	Work Mode
 ```
 
 **Copy the template:** [Make a copy →](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy).
@@ -409,7 +409,7 @@ safety fields.
 | R      | Last contact    | Optional. When you last heard from them (date or short note). Shown as &ldquo;Last contact&rdquo; in the app.                                                    |
 | S      | Did they reply? | Optional. `Yes` / `No` / `Unknown` — use **Unknown** for &ldquo;not sure&rdquo; in the UI.                                                                       |
 | T      | Logo URL        | Optional. Company logo image URL. Discovery agents auto-populate this via Google Favicons. The dashboard derives a fallback from the job Link domain when empty. |
-| U      | Match Score     | Optional. 0–10 AI match score from the discovery worker.                                                                                              |
+| U      | Search Match    | Optional. 0–10 search-targeting score from discovery's job matcher.                                                                                   |
 | V      | Favorite        | Optional. Manual star used as a personal priority marker.                                                                                              |
 | W      | Dismissed At    | Optional. Timestamp recorded when a role is dismissed from the board.                                                                                  |
 | X      | Approval Status | Apply-gate approval marker; an agent may submit only after this is `Approved`.                                                                          |

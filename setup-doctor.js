@@ -333,7 +333,7 @@
       "Last contact",
       "Did they reply?",
       "Logo URL",
-      "Match Score",
+      "Search Match",
       "Favorite",
       "Dismissed At",
       "Approval Status",
@@ -414,6 +414,7 @@
     if (!Array.isArray(headers) || !Array.isArray(canonicalHeaders)) return false;
     if (headers.length < 25) return false;
     for (let i = 0; i < 25; i += 1) {
+      if (i === 20) continue; // U accepts a legacy or user-owned header.
       if (
         String(headers[i] || "").trim().toLowerCase() !==
         String(canonicalHeaders[i] || "").trim().toLowerCase()
@@ -567,7 +568,8 @@
         const headers = await fetchPipelineHeaders(sheetId, token);
         if (headers == null) return false;
         if (headers.length === 0) return true;
-        return !headersMatchCanonical(headers, contract.headerRow) || !String(headers[25] || "").trim();
+        const u = String(headers[20] || "").trim();
+        return !headersMatchCanonical(headers, contract.headerRow) || !u || u === "Match Score" || !String(headers[25] || "").trim();
       } catch (_) {
         return false;
       }
@@ -600,7 +602,14 @@
         return (err.error && err.error.message) || "header write failed";
       }
       if (!headersMatchCanonical(headers, contract.headerRow)) {
-        const error = await writeHeaderRange("Pipeline!A1:Y1", contract.headerRow.slice(0, 25));
+        const upgraded = contract.headerRow.slice(0, 25);
+        upgraded[20] = headers[20] || "";
+        const error = await writeHeaderRange("Pipeline!A1:Y1", upgraded);
+        if (error) return { ok: false, error };
+      }
+      const u = String(headers[20] || "").trim();
+      if (!u || u === "Match Score") {
+        const error = await writeHeaderRange("Pipeline!U1", ["Search Match"]);
         if (error) return { ok: false, error };
       }
       if (!String(headers[25] || "").trim()) {

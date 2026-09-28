@@ -363,6 +363,27 @@ test("Work Mode Z header is written alone when blank, preserved when occupied", 
   }
 });
 
+test("Search Match U header migrates only legacy or blank U1 and preserves custom U", async () => {
+  for (const [uHeader, expectedWrites, expectedHeader] of [
+    ["Match Score", ["Pipeline!U1"], "Search Match"],
+    ["", ["Pipeline!U1"], "Search Match"],
+    ["Custom Match", [], "Custom Match"],
+  ] as const) {
+    const headers = [...PIPELINE_HEADER_ROW];
+    headers[20] = uHeader;
+    const { fetchImpl, calls, sheet } = createMockFetch({
+      headerRows: [headers], dataRows: [], responses: [],
+    });
+    const writer = createPipelineWriter(runtimeConfig, { fetchImpl, retries: 0 });
+    await writer.write("sheet_123", [makeLead({ matchScore: 9 })]);
+    const headerWrites = writes(calls).filter((call) => /values:batchUpdate$/.test(call.url))
+      .flatMap((call) => JSON.parse(call.body).data.map((entry) => entry.range));
+    assert.deepEqual(headerWrites, expectedWrites);
+    assert.equal(sheet.tabs.get("Pipeline")[0][20], expectedHeader);
+    assert.equal(sheet.tabs.get("Pipeline")[1][20] || "", uHeader === "Custom Match" ? "" : "9");
+  }
+});
+
 test("Work Mode writes a blank for unknown locations", async () => {
   const { fetchImpl, calls } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW], dataRows: [], responses: [],
@@ -567,10 +588,13 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
     headerUpgradeBody.data[0].range,
     "Pipeline!A1:Y1",
   );
-  assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW.slice(0, 25));
-  assert.equal(JSON.parse(calls[2].body).data[0].range, "Pipeline!Z1");
-  assert.deepEqual(JSON.parse(calls[2].body).data[0].values, [["Work Mode"]]);
-  assert.match(calls[3].url, /values\/Blacklist!A2%3AA/);
+  const expectedUpgrade = PIPELINE_HEADER_ROW.slice(0, 25);
+  expectedUpgrade[20] = "";
+  assert.deepEqual(headerUpgradeBody.data[0].values[0], expectedUpgrade);
+  assert.equal(JSON.parse(calls[2].body).data[0].range, "Pipeline!U1");
+  assert.equal(JSON.parse(calls[3].body).data[0].range, "Pipeline!Z1");
+  assert.deepEqual(JSON.parse(calls[3].body).data[0].values, [["Work Mode"]]);
+  assert.match(calls[4].url, /values\/Blacklist!A2%3AA/);
   assert.match(
     writes(calls).at(-1).url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
@@ -908,6 +932,27 @@ test("mergeExistingRow preserves a locked Title while still updating Fit Score o
     "9",
     "a locked identity field must NOT freeze discovery-improved fields like Fit Score",
   );
+});
+
+test("re-discovery writes Fit Score and current assessment together, clearing stale reasons when absent", async () => {
+  const existing = existingMatchRow({ 7: "5", 10: "Old fit (score: 5/10).", 20: "8" });
+  const refreshed = await mergedRowFor(existing, rediscoveredLead({
+    fitScore: 9,
+    fitAssessment: "Strong fit (score: 9/10). New reasons.",
+    matchScore: null,
+  }));
+  assert.equal(refreshed[7], "9");
+  assert.equal(refreshed[10], "Strong fit (score: 9/10). New reasons.");
+  assert.equal(refreshed[20], "8", "a re-find without a matcher decision preserves Search Match");
+
+  const noReasons = await mergedRowFor(existing, rediscoveredLead({
+    fitScore: 4,
+    fitAssessment: "",
+    matchScore: null,
+  }));
+  assert.equal(noReasons[7], "4");
+  assert.equal(noReasons[10], "", "an assessment from an old score must be cleared");
+  assert.equal(noReasons[20], "8");
 });
 
 test("mergeExistingRow with empty/absent Edit Lock overwrites identity fields exactly as before (back-compat)", async () => {

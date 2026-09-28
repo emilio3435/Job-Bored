@@ -209,7 +209,8 @@ function localCalendarDay(value: string | Date): string {
 
 function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
   const dateFound = localCalendarDay(lead.discoveredAt || now);
-  // Match Score is already 0–10 from finalizeMatchDecision; clampScore treats
+  const fitScore = clampScore(lead.fitScore);
+  // Search Match is already 0–10 from finalizeMatchDecision; clampScore treats
   // it the same way as fitScore.
   const matchScore =
     lead.matchScore == null || !Number.isFinite(lead.matchScore)
@@ -229,10 +230,10 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     normalizeLeadUrl(lead.url || ""),
     lead.sourceLabel || lead.sourceId || "",
     lead.compensationText || "",
-    clampScore(lead.fitScore),
+    fitScore,
     lead.priority || "",
     Array.isArray(lead.tags) ? lead.tags.filter(Boolean).join(", ") : "",
-    lead.fitAssessment || "",
+    fitScore ? lead.fitAssessment || "" : "",
     lead.contact || "",
     "New",
     "",
@@ -282,6 +283,12 @@ function mergeExistingRow(existingRow: string[], leadRow: string[]): string[] {
   for (const column of PIPELINE_COLUMNS) {
     const index = column.sheetIndex;
     const incoming = leadRow[index] || "";
+    // A fresh H must carry the assessment from that same scoring pass. An
+    // absent assessment clears stale prose rather than contradicting H.
+    if (column.id === "fitAssessment" && leadRow[PIPELINE_COL.fitScore]) {
+      merged[index] = incoming;
+      continue;
+    }
     if (!incoming) continue;
     switch (column.discoveryMerge) {
       case "overwrite":
@@ -440,15 +447,28 @@ export function createPipelineWriter(
     );
     const headerState = checkPipelineHeader(headerValues[0] || [], sheetName);
     if (headerState.needsUpgrade) {
+      const upgraded: string[] = PIPELINE_HEADER_ROW.slice(0, 25);
+      upgraded[PIPELINE_COL.matchScore] = (headerValues[0] || [])[PIPELINE_COL.matchScore] || "";
       const response = await batchUpdateSheetValues(
         sheetId,
-        [{ range: `${sheetName}!A1:Y1`, values: [PIPELINE_HEADER_ROW.slice(0, 25)] }],
+        [{ range: `${sheetName}!A1:Y1`, values: [upgraded] }],
         accessToken,
         fetchImpl,
         retry,
       );
       if (!response.ok) throw new SheetWriteError({ phase: "update", sheetId,
         message: `Sheet write failed during header upgrade: HTTP ${response.status}` });
+    }
+    if (headerState.searchMatchHeader === "legacy" || headerState.searchMatchHeader === "missing") {
+      const response = await batchUpdateSheetValues(
+        sheetId,
+        [{ range: `${sheetName}!U1`, values: [["Search Match"]] }],
+        accessToken,
+        fetchImpl,
+        retry,
+      );
+      if (!response.ok) throw new SheetWriteError({ phase: "update", sheetId,
+        message: `Sheet write failed during Search Match header upgrade: HTTP ${response.status}` });
     }
     if (headerState.workModeHeader === "missing") {
       const response = await batchUpdateSheetValues(
@@ -532,6 +552,7 @@ export function createPipelineWriter(
     for (const lead of uniqueLeads) {
       const leadRow = buildLeadRow(lead, now());
       if (headerState.workModeHeader === "foreign") leadRow[PIPELINE_COL.workMode] = "";
+      if (headerState.searchMatchHeader === "foreign") leadRow[PIPELINE_COL.matchScore] = "";
       const link = leadRow[PIPELINE_COL.link];
       if (!link) continue;
       const identityHit = findExistingIdentityMatch(
