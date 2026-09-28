@@ -453,6 +453,7 @@ async function runPipelineBody(input, assertBase) {
         outline, ledger, extract, feature, voice: voiceSamples, voiceProfile: profileVoice,
         echoBans: Array.isArray(extract.echoBans) ? extract.echoBans : [], letterWords: [...band],
         enrichment: payload.enrichment || null, jdText, pin, fetchImpl, intelFacts: research,
+        signal: input.signal,
         rankedClaimIds: shortlist.map((entry) => entry.claimId), repairPrompt,
       };
       let written = await withExecutor("write", () => draftWriter(writeInput));

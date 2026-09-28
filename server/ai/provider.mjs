@@ -69,9 +69,8 @@ export const ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
 export const GEMINI_API_BASE = "https://generativelanguage.googleapis.com/v1beta";
 export const DEFAULT_PROVIDER_TIMEOUT_MS = 30_000;
 export const MAX_PROVIDER_TIMEOUT_MS = 120_000;
-/* A materials run can write two documents and judge each serially. Leave
- * room for both 110s judge calls, bounded writes, and cached prep. */
-export const DEFAULT_ROUTE_DEADLINE_MS = 480_000;
+/* Generic interactive routes stay bounded; long workflows set a scoped budget. */
+export const DEFAULT_ROUTE_DEADLINE_MS = 45_000;
 
 /** @param {unknown} raw */
 function canonicalToken(raw) {

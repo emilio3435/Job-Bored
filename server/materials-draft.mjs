@@ -378,6 +378,7 @@ export function draftPromptLines({ outline, extract, ledger, feature, featuredId
  * @param {string[]} [input.rankedClaimIds] deterministic relevance ranking for the writer to choose from
  * @param {string[]} [input.targetEmployerIds] targeted employer IDs for one resume coverage retry
  * @param {string} [input.repairPrompt] feature-specific repair instruction from buildRepairPrompt
+ * @param {AbortSignal} [input.signal] overall materials job deadline for provider calls
  */
 export async function draftSlots({
   outline,
@@ -392,6 +393,7 @@ export async function draftSlots({
   pin,
   fetchImpl,
   repairPrompt = "",
+  signal,
   voiceProfile = null,
   intelFacts = [],
   rankedClaimIds = [],
@@ -445,6 +447,7 @@ export async function draftSlots({
       userText: lines.join("\n"),
       maxOutputTokens: DRAFT_MAX_OUTPUT_TOKENS,
       fetchImpl,
+      signal,
     });
   if (!raw) {
     return { draft: degradedDraft({ extract, ledger, featuredIds, earlierIds }), degraded: true, call };

@@ -2,8 +2,9 @@ import assert from "node:assert/strict";
 import { createHash } from "node:crypto";
 import { it } from "node:test";
 import { JUDGE_PROMPT_VERSION, JUDGE_SCHEMA, judgeMaterials, splitSentences } from "../server/materials-judge.mjs";
-import { DEFAULT_ROUTE_DEADLINE_MS, MAX_PROVIDER_TIMEOUT_MS, chat, clampTimeoutMs, toGeminiSchema } from "../server/ai/provider.mjs";
+import { DEFAULT_ROUTE_DEADLINE_MS, MAX_PROVIDER_TIMEOUT_MS, chat, clampTimeoutMs, routeDeadlineSignal, toGeminiSchema } from "../server/ai/provider.mjs";
 import { buildQaRecord } from "../server/materials-qa.mjs";
+import { MATERIALS_DRAFT_DEADLINE_MS } from "../server/materials-drafter.mjs";
 
 const text = "Dear Hiring Team,\n\nI built the dispatch forecast at Fictional Labs.\n\nBest,\nAvery";
 const textHash = `sha256:${createHash("sha256").update(text).digest("hex")}`;
@@ -200,7 +201,7 @@ it("S2: judge prompt treats grounded spin as supported and rewards a warm, confi
   assert.equal(JUDGE_PROMPT_VERSION, "materials-judge-v2");
 });
 
-it("S4: judge gets 110 seconds within the route deadline and provider ceiling", async () => {
+it("S4: judge gets 110 seconds within the materials job deadline and provider ceiling", async () => {
   const timeouts = [];
   const originalTimeout = AbortSignal.timeout;
   AbortSignal.timeout = (ms) => {
@@ -216,7 +217,23 @@ it("S4: judge gets 110 seconds within the route deadline and provider ceiling", 
   assert.ok(timeouts.includes(110_000), `timeouts: ${timeouts.join(", ")}`);
   assert.equal(clampTimeoutMs(110_000), 110_000);
   assert.equal(clampTimeoutMs(MAX_PROVIDER_TIMEOUT_MS + 1), MAX_PROVIDER_TIMEOUT_MS);
-  assert.ok(DEFAULT_ROUTE_DEADLINE_MS > 2 * 110_000, `route deadline: ${DEFAULT_ROUTE_DEADLINE_MS}`);
+  assert.ok(MATERIALS_DRAFT_DEADLINE_MS > 2 * 110_000, `materials deadline: ${MATERIALS_DRAFT_DEADLINE_MS}`);
+});
+
+it("generic provider routes keep the 45-second default deadline", () => {
+  assert.equal(DEFAULT_ROUTE_DEADLINE_MS, 45_000);
+  const timeouts = [];
+  const originalTimeout = AbortSignal.timeout;
+  AbortSignal.timeout = (ms) => {
+    timeouts.push(ms);
+    return originalTimeout.call(AbortSignal, ms);
+  };
+  try {
+    routeDeadlineSignal(null, null);
+  } finally {
+    AbortSignal.timeout = originalTimeout;
+  }
+  assert.deepEqual(timeouts, [45_000]);
 });
 
 it("K2: invalid schema, missing and duplicate sentences, wrong hashes, unknown sources and fabricated quotes fail closed", async () => {

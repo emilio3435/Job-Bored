@@ -52,8 +52,8 @@ function testServices(options = {}) {
       extract.companyFacts = ["Fabricated acquisition claim from extraction"]; // prep hint, never judge evidence
       return { extract, degraded: false };
     },
-    draftSlots: async ({ feature, outline, ledger, repairPrompt, targetEmployerIds }) => {
-      calls.write.push({ feature, repairPrompt, targetEmployerIds });
+    draftSlots: async ({ feature, outline, ledger, repairPrompt, targetEmployerIds, signal }) => {
+      calls.write.push({ feature, repairPrompt, targetEmployerIds, signal });
       const selectedGroups = Array.isArray(targetEmployerIds)
         ? outline.featured.filter((group) => targetEmployerIds.includes(group.employerId))
         : outline.featured;
@@ -461,6 +461,14 @@ describe("MREV B1 pipeline", () => {
     await runPipeline(base(dir, services, "both"));
     assert.deepEqual(calls.hard.find((call) => call.document === "letter")?.sourceRefs, sourceRefsByFeature.cover_letter);
     assert.deepEqual(calls.hard.find((call) => call.document === "resume")?.sourceRefs, sourceRefsByFeature.resume);
+  });
+
+  it("passes the materials job deadline signal to each writer and judge", async () => {
+    const signal = new AbortController().signal;
+    const { services, calls } = testServices();
+    await runPipeline({ ...base(dir, services, "both"), signal });
+    assert.ok(calls.write.length > 0 && calls.write.every((call) => call.signal === signal));
+    assert.ok(calls.judge.length > 0 && calls.judge.every((call) => call.signal === signal));
   });
 
   it("G4: gives each document its own sentence-linked voice, metric and scope advisory", async () => {

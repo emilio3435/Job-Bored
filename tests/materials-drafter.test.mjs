@@ -3,7 +3,7 @@ import { describe, it, beforeEach, afterEach } from "node:test";
 import { mkdtemp, rm, readFile, mkdir, writeFile, utimes } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
+import * as materialsDrafterExports from "../server/materials-drafter.mjs";
 import { buildManifest } from "../server/application-materials.mjs";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { resolveLedgerPath, writeLedgerAtomic } from "../server/materials-ledger.mjs";
@@ -30,6 +30,8 @@ const USER_RESUME = {
   addedAt: "2026-09-26T00:00:00.000Z",
   text: USER_RESUME_TEXT,
 };
+
+const { createMaterialsDrafter } = materialsDrafterExports;
 
 const pin = {
   provider: "local",
@@ -203,6 +205,31 @@ describe("createMaterialsDrafter", () => {
     assert.match(report, /READY|REVIEW/);
     const run = JSON.parse(await readFile(join(dir, "eab-role", "run.json"), "utf8"));
     assert.ok(run.stages.some((s) => s.stage === "write" && s.llm === true));
+  });
+
+  it("gives the materials write-and-judge job its own long deadline", async () => {
+    assert.equal(materialsDrafterExports.MATERIALS_DRAFT_DEADLINE_MS, 480_000);
+    const seen = [];
+    const timeouts = [];
+    const originalTimeout = AbortSignal.timeout;
+    AbortSignal.timeout = (ms) => {
+      timeouts.push(ms);
+      return originalTimeout.call(AbortSignal, ms);
+    };
+    try {
+      const drafter = createMaterialsDrafter(baseDeps(dir, {
+        pipeline: async (input) => {
+          seen.push(input);
+          return { outcome: "cached", runId: "cached" };
+        },
+      }));
+      await drafter.enqueue(request());
+      await drafter.runUntilIdle();
+    } finally {
+      AbortSignal.timeout = originalTimeout;
+    }
+    assert.ok(timeouts.includes(480_000), `timeouts: ${timeouts.join(", ")}`);
+    assert.ok(seen[0]?.signal instanceof AbortSignal, "drafter did not pass a job deadline signal to the pipeline");
   });
 
   it("returns the existing pending for the same in-flight slug", async () => {

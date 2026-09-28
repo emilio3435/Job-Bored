@@ -29,6 +29,8 @@ import {
 import { scrapeJobPosting } from "./shared/job-scraper-core.mjs";
 import { readProfile } from "./user-profile.mjs";
 
+/* A materials pipeline writes up to two documents and judges each serially. */
+export const MATERIALS_DRAFT_DEADLINE_MS = 480_000;
 
 /* F14: a non-terminal pending with no heartbeat for this long belongs to
  * a dead process (the live drafter heartbeats every minute). */
@@ -897,6 +899,7 @@ export function createMaterialsDrafter(deps = {}) {
       now: now(),
       runId,
       openSession: openSession || (async () => null),
+      signal: AbortSignal.timeout(MATERIALS_DRAFT_DEADLINE_MS),
       /* The production path must render PDFs; a missing browser fails the
        * render loudly instead of leaving stale PDFs behind an "ok". */
       requirePdf: deps.openSession === undefined,

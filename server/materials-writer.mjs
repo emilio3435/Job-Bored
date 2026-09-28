@@ -140,6 +140,7 @@ export const FACT_CHECK_PROMPT = [
  * @property {unknown} [voiceSamples]
  * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
  * @property {number} [timeoutMs]
+ * @property {AbortSignal} [signal] overall materials job deadline
  * @property {number[]} [letterWords] the template family's letter body band
  * @property {string} [systemPrompt] v3 narrow calls: replaces the wide writer prompt
  * @property {string} [userText] v3 narrow calls: replaces the assembled user prompt
@@ -151,6 +152,12 @@ export const FACT_CHECK_PROMPT = [
 /**
  * @typedef {WriterInput & { current: WriterJson, scorecard: object }} EditorInput
  */
+
+/** @param {WriterInput} input */
+function writerRequestSignal(input) {
+  const timeout = AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS);
+  return input.signal ? AbortSignal.any([input.signal, timeout]) : timeout;
+}
 
 export class WriterJsonError extends Error {
   /**
@@ -712,7 +719,7 @@ async function generateGemini(input, extraUserText, maxTokens) {
     method: "POST",
     headers: new Headers({ "Content-Type": "application/json", "x-goog-api-key": apiKey }),
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
+    signal: writerRequestSignal(input),
   });
   const data = await readJsonBody(resp);
   throwIfHttpError(resp, "Gemini", data);
@@ -760,7 +767,7 @@ async function generateOpenAICompatible(input, extraUserText, provider, _maxToke
     method: "POST",
     headers,
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
+    signal: writerRequestSignal(input),
   });
   const data = await readJsonBody(resp);
   const label = provider === "openai" ? "OpenAI" : provider === "openrouter" ? "OpenRouter" : "Local";
@@ -799,7 +806,7 @@ async function generateAnthropic(input, extraUserText, maxTokens) {
       "anthropic-version": "2023-06-01",
     },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
+    signal: writerRequestSignal(input),
   });
   const data = await readJsonBody(resp);
   throwIfHttpError(resp, "Anthropic", data);
@@ -826,7 +833,7 @@ async function generateWebhook(input, extraUserText) {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
-    signal: AbortSignal.timeout(input.timeoutMs || DEFAULT_TIMEOUT_MS),
+    signal: writerRequestSignal(input),
   });
   const data = await readJsonBody(resp);
   throwIfHttpError(resp, "Webhook", data);
@@ -1031,6 +1038,7 @@ export async function callWriter(input) {
  * @property {number} [thinkingBudget] Gemini thinking budget (default JSON_STAGE_THINKING_BUDGET)
  * @property {(input: string | URL, init?: RequestInit) => Promise<HttpResponseLike>} fetchImpl
  * @property {number} [timeoutMs]
+ * @property {AbortSignal} [signal] overall materials job deadline
  * @property {(ms: number) => Promise<void>} [sleep] backoff sleeper (tests)
  * @property {(line: string) => void} [log] fallback switch logger (default console.warn)
  */
@@ -1106,6 +1114,7 @@ export async function runJsonStage(input) {
       maxOutputTokens: input.maxOutputTokens,
       fetchImpl: input.fetchImpl,
       timeoutMs: input.timeoutMs,
+      signal: input.signal,
       thinkingBudget: typeof input.thinkingBudget === "number" ? input.thinkingBudget : JSON_STAGE_THINKING_BUDGET,
     });
     const provider = normalizeWriterProvider(pin.provider);
