@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
-import { mkdtempSync } from "node:fs";
+import { createHash } from "node:crypto";
+import { mkdtempSync, readFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, it } from "node:test";
@@ -125,6 +126,32 @@ describe("materials ledger (slice 1)", () => {
     const third = await ensureLedger({ profile, resumeText: `${RESUME_TEXT}\nExtra line.` });
     assert.equal(third.rebuilt, true);
     assert.notEqual(third.ledgerHash, first.ledgerHash);
+  });
+
+  it("R1 and R3 expose count-only coverage and preserve a saved ledger on current-source failure", async () => {
+    sandbox();
+    const source = [
+      "EXPERIENCE", "Cedar Studio", "Research Lead | 2022 – 2024",
+      "Mapped fictional library visits to improve weekly staffing plans.",
+    ].join("\n");
+    const reply = { employers: [{
+      name: "Cedar Studio", sourceQuote: "Cedar Studio\nResearch Lead",
+      roles: [{ title: "Research Lead", sourceQuote: "Research Lead | 2022 – 2024", claims: [
+        { text: "Mapped fictional library visits to improve weekly staffing plans.", sourceQuote: "Mapped fictional library visits to improve weekly staffing plans." },
+      ] }],
+    }] };
+    const input = { profile: null, resumeText: source, pin: { provider: "gemini", model: "stub" }, fetchImpl: async () => { throw new Error("unexpected network"); } };
+    const ready = await ensureLedger({ ...input, callStage: async () => reply });
+    assert.equal(ready.ingest.status, "ready");
+    assert.equal(ready.ingest.sourceHash, `sha256:${createHash("sha256").update(source).digest("hex")}`);
+    assert.deepEqual(ready.ingest.coverage, { totalEmployers: 1, employersWithClaims: 1, rejectedClaims: 0, looseClaims: 0 });
+    assert.equal(JSON.stringify(ready.ingest).includes("Cedar"), false, "ingest metadata is count-only");
+    const saved = readFileSync(resolveLedgerPath());
+    const failed = await ensureLedger({ ...input, resumeText: `${source}\nChanged source.`, callStage: async () => { throw new Error("model broke"); } });
+    assert.equal(failed.ingest.status, "failed");
+    assert.equal(failed.ingest.code, "model_error");
+    assert.equal(failed.ingest.sourceHash, `sha256:${createHash("sha256").update(`${source}\nChanged source.`).digest("hex")}`);
+    assert.deepEqual(readFileSync(resolveLedgerPath()), saved);
   });
 });
 
