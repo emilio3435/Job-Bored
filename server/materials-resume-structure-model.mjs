@@ -7,7 +7,7 @@
  */
 
 import { callJsonStage } from "./materials-writer.mjs";
-import { BULLET_RE, parseHeaderLine, parseResumeStructure } from "./materials-resume-structure.mjs";
+import { aliasesFor, BULLET_RE, parseHeaderLine, parseResumeStructure } from "./materials-resume-structure.mjs";
 
 /** Stage name: keys run records and the llm.json per-stage fallback. */
 export const RESUME_STRUCTURE_STAGE = "resume.structure";
@@ -156,14 +156,15 @@ function validateQuotedStructure(body, resumeText) {
     if (normalizedQuote.length < 12 || normalizedQuote.length > Math.max(72, normalizedFact.length * 4)) {
       reject(kind, value, "source_quote_length"); return null;
     }
-    if (!wholePhrasePositions(normalizedQuote, normalizedFact).length) {
+    const factPositions = wholePhrasePositions(normalizedQuote, normalizedFact);
+    if (factPositions.length !== 1) {
       reject(kind, value, "value_not_in_source_quote"); return null;
     }
     const positions = wholePhrasePositions(source, normalizedQuote);
     if (positions.length !== 1) {
       reject(kind, value, positions.length ? "ambiguous_source_quote" : "source_quote_not_found"); return null;
     }
-    return { value: fact, at: positions[0] };
+    return { value: fact, at: positions[0] + factPositions[0] };
   };
   /** @param {Record<string, unknown>} item @param {"start" | "end"} key @param {number} boundary @param {number} upper */
   const date = (item, key, boundary, upper) => {
@@ -191,13 +192,35 @@ function validateQuotedStructure(body, resumeText) {
   }
   entries.sort((a, b) => a.at - b.at);
   const lines = String(resumeText || "").split(/\r?\n/).map((line) => line.trim());
+  /** @param {string} name */
+  const entryForName = (name) => {
+    const expected = aliasesFor(name);
+    return entries.find((entry) => aliasesFor(entry.employer.name).some((alias) => expected.includes(alias)));
+  };
+  /* The deterministic parser knows section boundaries, so its confidently
+   * recognized experience headers can veto missing employers without
+   * mistaking a dated education header for another employer. It never adds
+   * model facts or reassigns claims. */
+  for (const sourceEmployer of parseResumeStructure(resumeText).employers) {
+    const entry = entryForName(sourceEmployer.name);
+    if (!entry) { reject("employer", sourceEmployer.name, "missing_source_employer"); continue; }
+    for (const sourceRole of sourceEmployer.roles) {
+      if (sourceRole.title && !list(entry.raw.roles).some((role) => isRecord(role) && groundedText(role.title) === groundedText(sourceRole.title))) {
+        reject("role", sourceRole.title, "missing_source_role");
+      }
+    }
+  }
   for (let i = 0; i + 1 < lines.length; i += 1) {
     const candidate = lines[i];
     const next = parseHeaderLine(lines[i + 1]);
     if (!candidate || candidate.length > 120 || /[.!?]$/.test(candidate) || !next?.title || next.name) continue;
-    const name = groundedText(candidate);
-    if (!entries.some((entry) => groundedText(entry.employer.name) === name)) {
-      reject("employer", candidate, "missing_source_employer");
+    const candidateHeader = parseHeaderLine(candidate);
+    const name = candidateHeader?.name || candidate;
+    const entry = entryForName(name);
+    if (!entry) {
+      reject("employer", name, "missing_source_employer");
+    } else if (!list(entry.raw.roles).some((role) => isRecord(role) && groundedText(role.title) === groundedText(next.title))) {
+      reject("role", next.title, "missing_source_role");
     }
   }
   /** @param {number} at */

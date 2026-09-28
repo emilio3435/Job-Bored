@@ -115,6 +115,97 @@ function geminiReply(payload, finishReason = "STOP") {
 const employerClaims = (structure) => structure.employers.flatMap((e) => e.claims.map((c) => c.text));
 
 describe("RESD source-backed attribution", () => {
+  it("R1 review-gates an omitted conventional employer before its claims can move to the prior employer", async () => {
+    const source = [
+      "EXPERIENCE",
+      "Aster Works — Product Analyst, 2021–2023",
+      "- Improved inventory forecasts for neighborhood shops using weekly sales data.",
+      "Beacon Labs — Data Engineer, 2023–2025",
+      "- Built a nightly import that reconciled fictional catalog records.",
+    ].join("\n");
+    const reply = { employers: [{
+      name: "Aster Works", sourceQuote: "Aster Works — Product Analyst, 2021–2023",
+      roles: [{ title: "Product Analyst", sourceQuote: "Aster Works — Product Analyst, 2021–2023", claims: [
+        { text: "Improved inventory forecasts for neighborhood shops using weekly sales data.", sourceQuote: "Improved inventory forecasts for neighborhood shops using weekly sales data." },
+        { text: "Built a nightly import that reconciled fictional catalog records.", sourceQuote: "Built a nightly import that reconciled fictional catalog records." },
+      ] }],
+    }] };
+    const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
+    assert.equal(result.ingest.status, "failed");
+    assert.ok(result.rejected.some((item) => item.reason === "missing_source_employer"));
+  });
+
+  it("R2 rejects a partial employer and role even when model quote line breaks hide the full header", async () => {
+    const source = [
+      "EXPERIENCE",
+      "Aster Regional Works — Senior Product Analyst, 2021–2023",
+      "- Improved inventory forecasts for neighborhood shops using weekly sales data.",
+    ].join("\n");
+    const reply = { employers: [{
+      name: "Aster", sourceQuote: "Aster\nRegional Works",
+      roles: [{ title: "Product Analyst", sourceQuote: "Senior Product Analyst, 2021–2023", claims: [
+        { text: "Improved inventory forecasts for neighborhood shops using weekly sales data.", sourceQuote: "Improved inventory forecasts for neighborhood shops using weekly sales data." },
+      ] }],
+    }] };
+    const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
+    assert.equal(result.ingest.status, "failed");
+    assert.ok(result.rejected.some((item) => item.reason === "missing_source_employer" || item.reason === "partial_employer_name"));
+  });
+
+  it("R1 accepts a dated umbrella employer with two grounded role lines", async () => {
+    const source = [
+      "EXPERIENCE",
+      "Aster Works | 2020–2025",
+      "Senior Analyst | 2020–2022",
+      "- Improved inventory forecasts for neighborhood shops using weekly sales data.",
+      "Lead Analyst | 2022–2025",
+      "- Built a dashboard that helped store managers spot delayed deliveries.",
+    ].join("\n");
+    const reply = { employers: [{
+      name: "Aster Works", sourceQuote: "Aster Works | 2020–2025",
+      roles: [
+        { title: "Senior Analyst", sourceQuote: "Senior Analyst | 2020–2022", claims: [{ text: "Improved inventory forecasts for neighborhood shops using weekly sales data.", sourceQuote: "Improved inventory forecasts for neighborhood shops using weekly sales data." }] },
+        { title: "Lead Analyst", sourceQuote: "Lead Analyst | 2022–2025", claims: [{ text: "Built a dashboard that helped store managers spot delayed deliveries.", sourceQuote: "Built a dashboard that helped store managers spot delayed deliveries." }] },
+      ],
+    }] };
+    const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
+    assert.equal(result.ingest.status, "ready", JSON.stringify(result.rejected.map((item) => item.reason)));
+    assert.equal(result.structure.employers[0].claims.length, 2);
+  });
+
+  it("R1 does not classify a dated education header as an omitted employer", async () => {
+    const source = [
+      "EXPERIENCE",
+      "Aster Works — Product Analyst, 2021–2023",
+      "- Improved inventory forecasts for neighborhood shops using weekly sales data.",
+      "EDUCATION",
+      "State University — Bachelor of Science, 2017–2021",
+    ].join("\n");
+    const reply = { employers: [{ name: "Aster Works", sourceQuote: "Aster Works — Product Analyst, 2021–2023", roles: [
+      { title: "Product Analyst", sourceQuote: "Aster Works — Product Analyst, 2021–2023", claims: [
+        { text: "Improved inventory forecasts for neighborhood shops using weekly sales data.", sourceQuote: "Improved inventory forecasts for neighborhood shops using weekly sales data." },
+      ] },
+    ] }] };
+    const result = await structureResumeWithModel({ resumeText: source, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => reply });
+    assert.equal(result.ingest.status, "ready", JSON.stringify(result.rejected.map((item) => item.reason)));
+  });
+
+  it("R1 attributes a fact at its own span, not the start of a broad source quote", () => {
+    const aHeader = "Aster Works — Product Analyst, 2021–2023";
+    const a = "Improved inventory forecasts for neighborhood shops using weekly sales data.";
+    const bHeader = "Beacon Labs — Data Engineer, 2023–2025";
+    const b1 = "Built a nightly import that reconciled fictional catalog records.";
+    const b2 = "Reduced duplicate records by checking identifiers before each import.";
+    const source = ["EXPERIENCE", aHeader, a, bHeader, b1, b2].join("\n");
+    const reply = { employers: [
+      { name: "Aster Works", sourceQuote: aHeader, roles: [{ title: "Product Analyst", sourceQuote: aHeader, claims: [
+        { text: a, sourceQuote: a }, { text: b1, sourceQuote: [a, bHeader, b1].join("\n") },
+      ] }] },
+      { name: "Beacon Labs", sourceQuote: bHeader, roles: [{ title: "Data Engineer", sourceQuote: bHeader, claims: [{ text: b2, sourceQuote: b2 }] }] },
+    ] };
+    const { rejected } = validateModelStructure(reply, source);
+    assert.ok(rejected.some((item) => item.reason === "unsupported_employer_attribution"));
+  });
   it("R2 refuses an unquoted legacy reply for a current model request", async () => {
     const result = await structureResumeWithModel({ resumeText: GOLDEN, pin: PIN, fetchImpl: async () => { throw new Error("unexpected network"); }, callStage: async () => VALID });
     assert.equal(result.ingest.status, "failed");
