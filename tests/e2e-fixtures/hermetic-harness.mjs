@@ -202,12 +202,14 @@ export function hermeticConfigJs() {
  * Same-origin paths whose real dev-server handlers act on the host machine:
  * `/__proxy/*` can restart the live discovery worker, rewrite
  * ~/.jobbored .env files and install launchd agents; `/profile*` proxies to
- * the local API. The fence answers these in the browser; the server spy
+ * the local API; `/api/leads/chat` calls a configured model. The fence
+ * answers these in the browser; the server spy
  * below is the backstop that proves it (UX01 C1, incident 2026-09-25, FD-19).
  */
 export function isHostPath(pathname) {
   return (
     pathname.startsWith("/__proxy/") ||
+    pathname === "/api/leads/chat" ||
     pathname === "/profile" ||
     pathname.startsWith("/profile/")
   );
@@ -277,7 +279,8 @@ export async function startHermeticApp({ logger = quietLogger } = {}) {
 /**
  * Install one catch-all route before navigation. Same-origin static assets
  * continue to the in-process server except /config.js, which is always the
- * example file, and the host-acting paths (`/__proxy/*`, `/profile*`), which
+ * example file, and the host-acting paths (`/__proxy/*`, `/profile*`,
+ * `/api/leads/chat`), which
  * the fence stubs so no suite can restart the live worker or edit .env. Every off-origin request must match an explicit mock or it
  * is aborted and recorded.
  */
@@ -334,6 +337,16 @@ export async function installHermeticNetworkFence(page, options = {}) {
             { ok: false, error: "No profile staged" },
             404,
           );
+          return;
+        }
+        if (url.pathname === "/api/leads/chat" && method === "POST") {
+          await fulfillJson(route, {
+            ok: false,
+            hermetic: true,
+            error: "The chat agent is unavailable in the hermetic harness.",
+            code: "agent_not_connected",
+            retryable: false,
+          }, 503);
           return;
         }
         // RESJ K1: every primary-resume save copies the text to the
