@@ -12,6 +12,7 @@ import { createRequire } from "node:module";
 import { describe, it } from "node:test";
 import vm from "node:vm";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const require = createRequire(import.meta.url);
 const repo = (p) => new URL(`../${p}`, import.meta.url);
@@ -53,7 +54,7 @@ describe("P-2: resume uploads keep their line structure", () => {
     const text = await ingest.extractTextFromDocx(arrayBuffer("tests/fixtures/resumes/bulleted.docx"));
     const lines = text.split("\n").filter((l) => l.trim());
     assert.deepEqual(lines, SOURCE_LINES, "every source line survives, in order, bullets included");
-    const ledger = buildLedger({ profile: null, resumeText: text });
+    const ledger = buildLedger({ profile: null, resumeText: text, structure: modelStructureFixture(text) });
     assert.ok(ledger.claims.length >= 10, `claims: ${ledger.claims.length}`);
     assert.equal(ledger.claims.filter((c) => c.employerId).length, SOURCE_BULLETS.length);
   });
@@ -67,7 +68,7 @@ describe("P-2: resume uploads keep their line structure", () => {
     for (const header of SOURCE_LINES.filter((l) => !l.startsWith("- ") && l.length < 90)) {
       assert.ok(lines.includes(header), `header line kept whole: ${header}`);
     }
-    const ledger = buildLedger({ profile: null, resumeText: text });
+    const ledger = buildLedger({ profile: null, resumeText: text, structure: modelStructureFixture(text) });
     assert.ok(ledger.claims.length >= 10, `claims: ${ledger.claims.length}`);
     const claimTexts = ledger.claims.map((c) => c.text);
     for (const bullet of SOURCE_BULLETS) {

@@ -1,10 +1,10 @@
 /**
- * Materials Wave 1 (L1) — deterministic resume structure.
+ * Legacy deterministic resume structure for the resume-read projection.
  *
- * Turns plain resume text into employers, the roles held at each one, and
- * the claims written under each role. It is the fallback for the model pass
- * in materials-resume-structure-model.mjs and the only parser when no model
- * is configured, so it has to cope with the shapes real uploads arrive in:
+ * Turns plain resume text into employers, roles, and claims for the read-only
+ * projection. Materials ledger and profile ingestion use the grounded model
+ * structure in materials-resume-structure-model.mjs; this parser is not a
+ * fallback for those paths. It still handles legacy read shapes such as:
  *
  *   - no bullet markers at all (the flattened upload that gave 0 claims):
  *     inside an experience block, any prose line of 40+ chars is a claim;
@@ -24,25 +24,32 @@
 /**
  * @typedef {object} StructureRole
  * @property {string} title
+ * @property {string} [sourceQuote]
  * @property {string | null} start
+ * @property {string} [startSourceQuote]
  * @property {string | null} end
+ * @property {string} [endSourceQuote]
  */
 
 /**
  * @typedef {object} StructureClaim
  * @property {string} text
+ * @property {string} [sourceQuote]
  * @property {number | null} roleIndex index into the employer's roles
  */
 
 /**
  * @typedef {object} StructureEmployer
  * @property {string} name
+ * @property {string} [sourceQuote]
  * @property {string[]} aliases normalized names this employer answers to
  * @property {string} [location]
  * @property {string} [scope]
  * @property {string} [site]
  * @property {string | null} start
+ * @property {string} [startSourceQuote]
  * @property {string | null} end
+ * @property {string} [endSourceQuote]
  * @property {StructureRole[]} roles
  * @property {StructureClaim[]} claims
  */

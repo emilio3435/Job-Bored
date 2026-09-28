@@ -501,7 +501,9 @@ export function extractGeminiText(payload) {
       ? candidate.content.parts
       : [];
     const text = parts
-      .map((/** @type {unknown} */ p) => (isRecord(p) && typeof p.text === "string" ? p.text : ""))
+      .map((/** @type {unknown} */ p) =>
+        isRecord(p) && p.thought !== true && typeof p.text === "string" ? p.text : "",
+      )
       .join("");
     if (text.trim()) return text;
   }
@@ -555,12 +557,14 @@ function splitSystem(messages) {
  * @property {ChatMessage[]} messages
  * @property {Record<string, unknown>} [schema] JSON schema for a structured reply
  * @property {string} [schemaName]
+ * @property {boolean} [jsonMode] request JSON output without imposing a schema
  * @property {AbortSignal} [signal] the caller's (request) signal
  * @property {number} [timeoutMs]
  * @property {number} [maxTokens]
  * @property {number} [temperature]
  * @property {typeof globalThis.fetch} [fetchImpl]
  * @property {string} [endpoint] overrides the resolved endpoint (worker configs carry their own)
+ * @property {{ mimeType: string, filename?: string, data: string }} [document] original document input; currently native PDF blocks only
  * @property {boolean} [retriedTruncation] internal one-time retry marker
  */
 
@@ -598,6 +602,10 @@ export async function chat(input) {
   const temperature = Number.isFinite(Number(input.temperature)) ? Number(input.temperature) : 0.1;
   const schema = input.schema;
   const { system, rest } = splitSystem(messages);
+  const document = input.document && input.document.mimeType === "application/pdf" && typeof input.document.data === "string"
+    ? input.document
+    : null;
+  const lastUserIndex = rest.map((m) => m.role).lastIndexOf("user");
 
   /** @type {Record<string, string>} */
   let headers;
@@ -607,15 +615,21 @@ export async function chat(input) {
     headers = geminiHeaders(resolved.apiKey);
     body = {
       ...(system ? { systemInstruction: { parts: [{ text: system }] } } : {}),
-      contents: rest.map((m) => ({
+      contents: rest.map((m, index) => ({
         role: m.role === "assistant" ? "model" : "user",
-        parts: [{ text: m.content }],
+        parts: [
+          ...(document && index === lastUserIndex
+            ? [{ inline_data: { mime_type: document.mimeType, data: document.data } }]
+            : []),
+          { text: m.content },
+        ],
       })),
       generationConfig: {
         temperature,
         ...(maxTokens === undefined ? {} : { maxOutputTokens: maxTokens }),
         ...(Object.keys(thinkingConfig).length ? { thinkingConfig } : {}),
-        ...(schema ? { responseMimeType: "application/json", responseSchema: toGeminiSchema(schema) } : {}),
+        ...(schema || input.jsonMode ? { responseMimeType: "application/json" } : {}),
+        ...(schema ? { responseSchema: toGeminiSchema(schema) } : {}),
       },
     };
   } else if (provider === "anthropic") {
@@ -630,7 +644,18 @@ export async function chat(input) {
       // Sampling options travel on every provider's wire, Anthropic included.
       temperature,
       ...(system ? { system } : {}),
-      messages: rest.map((m) => ({ role: m.role === "assistant" ? "assistant" : "user", content: m.content })),
+      messages: rest.map((m, index) => ({
+        role: m.role === "assistant" ? "assistant" : "user",
+        content: document && index === lastUserIndex
+          ? [
+              {
+                type: "document",
+                source: { type: "base64", media_type: document.mimeType, data: document.data },
+              },
+              { type: "text", text: m.content },
+            ]
+          : m.content,
+      })),
       ...(schema ? { output_config: { format: { type: "json_schema", schema } } } : {}),
     };
   } else {
@@ -648,7 +673,24 @@ export async function chat(input) {
     }
     body = {
       model,
-      messages: [...(system ? [{ role: "system", content: system }] : []), ...rest],
+      messages: [
+        ...(system ? [{ role: "system", content: system }] : []),
+        ...rest.map((m, index) => ({
+          role: m.role,
+          content: document && provider === "openai" && index === lastUserIndex
+            ? [
+                {
+                  type: "file",
+                  file: {
+                    filename: (String(document.filename || "resume.pdf").split(/[\\/]/).pop() || "resume.pdf").slice(0, 200),
+                    file_data: `data:${document.mimeType};base64,${document.data}`,
+                  },
+                },
+                { type: "text", text: m.content },
+              ]
+            : m.content,
+        })),
+      ],
       ...(responseFormat ? { response_format: responseFormat } : {}),
       temperature,
       ...(maxTokens === undefined ? {} : { [limitKey]: maxTokens }),

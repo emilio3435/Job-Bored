@@ -2,10 +2,11 @@
  * The user's own resume: the only source of facts a draft may use (UX01 C11).
  *
  * The dashboard sends it with every materials request as
- *   resume: { source, filename, addedAt, text }
+ *   resume: { source, filename, addedAt, text, document? }
  * and the server refuses to draft without it (422 resume_required). The
- * drafter keeps a per-role snapshot (resume-source.json) so a repair can
- * redraft from the same resume the first draft used.
+ * original PDF document is request-only and excluded from the per-role
+ * resume-source.json snapshot, which lets a repair use the same text without
+ * duplicating the upload bytes.
  */
 
 import { readFile, stat, writeFile } from "node:fs/promises";
@@ -29,6 +30,7 @@ const MAX_RESUME_TEXT = 60_000;
  * @property {string} filename Display name, e.g. "jordan-rivera.pdf"; may be "".
  * @property {string} addedAt  ISO time the user added it; may be "".
  * @property {string} text     Plain text of the resume. Never empty.
+ * @property {{ mimeType: "application/pdf", filename?: string, data: string }} [document] original PDF for the current request only
  * @property {boolean} [pinned] the user chose this exact resume for drafts;
  *   it wins over a newer saved resume (never over the garbled-text guard)
  */
@@ -76,6 +78,22 @@ export function normalizeResumeSource(raw) {
     addedAt: cleanString(record.addedAt, 40),
     text,
   };
+  const document = record.document && typeof record.document === "object" && !Array.isArray(record.document)
+    ? /** @type {Record<string, unknown>} */ (record.document)
+    : null;
+  if (
+    document &&
+    document.mimeType === "application/pdf" &&
+    typeof document.data === "string" &&
+    document.data.length <= 70_000_000 &&
+    /^(?:[A-Za-z0-9+/]{4})*(?:[A-Za-z0-9+/]{2}==|[A-Za-z0-9+/]{3}=)?$/.test(document.data)
+  ) {
+    out.document = {
+      mimeType: "application/pdf",
+      ...(typeof document.filename === "string" ? { filename: cleanString(document.filename, 200) } : {}),
+      data: document.data,
+    };
+  }
   if (record.pinned === true) out.pinned = true;
   return out;
 }
@@ -110,8 +128,9 @@ export function formatProvenanceLine(resume) {
  * @param {string} usedAt
  */
 export async function writeResumeSnapshot(dir, resume, usedAt) {
+  const { document: _document, ...persistable } = resume;
   /** @type {ResumeSnapshot} */
-  const snapshot = { ...resume, usedAt };
+  const snapshot = { ...persistable, usedAt };
   await writeFile(join(dir, RESUME_SNAPSHOT_FILE), `${JSON.stringify(snapshot, null, 2)}\n`, "utf8");
 }
 

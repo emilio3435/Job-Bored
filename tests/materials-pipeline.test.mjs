@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 import { deterministicExtract } from "../server/materials-jd-extract.mjs";
 import { buildOutline, summarizeRenderedResumeSelection } from "../server/materials-outline.mjs";
 import { collectMaterialLogoOrgs, resolveMaterialLogos as resolveMaterialLogosForTest } from "../server/materials-logos.mjs";
@@ -90,7 +91,8 @@ function testServices(options = {}) {
 function base(dir, services, feature = "both", runId = "run-mrev-1") {
   services.logoHome = dir;
   return { dir, payload: { slug: "harbor-fleet-role", company: "Harbor Fleet", title: "Operations Analyst", feature, jobUrl: "https://example.com/job", resume: { source: "upload", filename: "resume.txt", text: RESUME } },
-    pin: PIN, jdText: POSTING, jdSource: "paste", gate: GATE, ledger: buildLedger({ profile: PROFILE, resumeText: RESUME }), resumeText: RESUME,
+    pin: PIN, jdText: POSTING, jdSource: "paste", gate: GATE,
+    ledger: buildLedger({ profile: PROFILE, resumeText: RESUME, structure: modelStructureFixture(RESUME) }), resumeText: RESUME,
     profileIdentity: { fullName: "Jordan Rivera" }, voiceProfile: null, now: new Date("2026-09-28T12:00:00.000Z"), runId, openSession: async () => null, services };
 }
 const json = async (dir, name) => JSON.parse(await readFile(join(dir, name), "utf8"));
@@ -263,7 +265,7 @@ describe("MREV B1 pipeline", () => {
     ].join("\n");
     const { services } = testServices({ longBullets: true });
     const input = base(dir, services, "resume");
-    input.ledger = buildLedger({ profile: PROFILE, resumeText: source });
+    input.ledger = buildLedger({ profile: PROFILE, resumeText: source, structure: modelStructureFixture(source) });
     input.resumeText = source;
     input.payload.resume = { source: "upload", filename: "resume.txt", text: source };
     await runPipeline(input);

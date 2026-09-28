@@ -6,12 +6,19 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { setTimeout as sleep } from "node:timers/promises";
 import { after, before, test } from "node:test";
+import { createServer } from "node:http";
+import { modelReplyFixture } from "./fixtures/materials-model-structure.mjs";
+import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../server/materials-resume-structure-model.mjs";
 
 const PORT = 38720 + Math.floor(Math.random() * 100);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+const MODEL_PORT = 38830 + Math.floor(Math.random() * 100);
+const MODEL_URL = `http://127.0.0.1:${MODEL_PORT}`;
+const RESUME_TEXT = "Jordan Rivera\nNorthwind — Manager, 2021-2026\n- Grew revenue 30% on a $2M book.\n";
 
 let tmpDir = "";
 let serverProcess = null;
+let modelServer = null;
 
 async function waitForServer() {
   for (let i = 0; i < 30; i += 1) {
@@ -27,8 +34,31 @@ before(async () => {
   mkdirSync(join(tmpDir, ".jobbored"), { recursive: true });
   writeFileSync(
     join(tmpDir, ".jobbored", "resume.txt"),
-    "Jordan Rivera\nNorthwind — Manager, 2021-2026\n- Grew revenue 30% on a $2M book.\n",
+    RESUME_TEXT,
   );
+  writeFileSync(join(tmpDir, "llm.json"), JSON.stringify({
+    provider: "local",
+    model: "stub",
+    apiKey: "",
+    baseUrl: MODEL_URL,
+    updatedAt: "2026-09-28T00:00:00.000Z",
+  }));
+  modelServer = createServer(async (req, res) => {
+    let body = "";
+    for await (const chunk of req) body += chunk;
+    const request = JSON.parse(body);
+    const messages = Array.isArray(request.messages) ? request.messages : [];
+    const system = String(messages.find((message) => message.role === "system")?.content || "");
+    const content = system === RESUME_STRUCTURE_SYSTEM_PROMPT
+      ? JSON.stringify(modelReplyFixture(RESUME_TEXT))
+      : "{}";
+    res.writeHead(200, { "content-type": "application/json" });
+    res.end(JSON.stringify({ choices: [{ message: { content } }] }));
+  });
+  await new Promise((resolve, reject) => {
+    modelServer.once("error", reject);
+    modelServer.listen(MODEL_PORT, "127.0.0.1", resolve);
+  });
   serverProcess = spawn("node", ["index.mjs"], {
     cwd: join(import.meta.dirname, "..", "server"),
     env: {
@@ -36,6 +66,7 @@ before(async () => {
       PORT: String(PORT),
       LISTEN_HOST: "127.0.0.1",
       JOBBORED_PROFILE_PATH: join(tmpDir, ".jobbored", "profile.json"),
+      JOBBORED_LLM_CONFIG_PATH: join(tmpDir, "llm.json"),
       HERMES_LOGO_RESOLVER_SCRIPT: join(tmpDir, "missing-resolver.py"),
       HOME: tmpDir,
       USERPROFILE: tmpDir,
@@ -47,6 +78,7 @@ before(async () => {
 
 after(() => {
   if (serverProcess && !serverProcess.killed) serverProcess.kill();
+  if (modelServer) modelServer.close();
   if (tmpDir) rmSync(tmpDir, { recursive: true, force: true });
 });
 
@@ -80,6 +112,7 @@ test("F21: GET /profile/ledger serves the built ledger with Saved in/Used by", a
   const saved = await post.json();
   assert.equal(saved.ok, true);
   assert.equal(saved.ledger.ok, true);
+  assert.equal(saved.ledger.ingest.status, "ready");
   assert.ok(saved.ledger.claims >= 2);
 
   const get = await fetch(`${BASE_URL}/profile/ledger`);

@@ -90,7 +90,7 @@ import {
   rescoreAllPipelineRows,
   tryBeginRouteRescore,
 } from "./profile-rescore-worker.mjs";
-import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
+import { handleGetLlmConfig, handlePostLlmConfig, loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { handlePostJudgeModels } from "./judge-models.mjs";
 import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
@@ -509,16 +509,19 @@ app.post("/profile", async (req, res) => {
     /* F21: rebuild the claim ledger from the saved profile + the stored
      * resume. Best-effort like the logo refresh: a ledger failure must
      * never fail the save (claims.load rebuilds on demand anyway). */
-    /** @type {{ ok: boolean, claims?: number, ledgerHash?: string, error?: string }} */
+    /** @type {{ ok: boolean, claims?: number, ledgerHash?: string, error?: string, ingest?: unknown }} */
     let ledger = { ok: false };
     try {
       const stored = await getStoredResumeText().catch(() => null);
+      const config = loadLlmConfig();
       const built = await ensureLedger({
         profile: candidate,
         resumeText: stored ? stored.text : "",
         resumeSource: stored ? stored.source : "upload",
+        pin: config ? await resolveActivePin(config) : null,
+        fetchImpl: globalThis.fetch,
       });
-      ledger = { ok: true, claims: built.claims.length, ledgerHash: built.ledgerHash };
+      ledger = { ok: true, claims: built.claims.length, ledgerHash: built.ledgerHash, ingest: built.ingest };
     } catch (ledgerErr) {
       const code = /** @type {{ code?: unknown }} */ (ledgerErr)?.code;
       ledger = {

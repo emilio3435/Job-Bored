@@ -12,6 +12,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, beforeEach, describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 import { buildIntelPack } from "../server/materials-intel.mjs";
 import { normalizeRequestBody } from "../server/materials-request.mjs";
 import {
@@ -329,7 +330,7 @@ describe("pipeline · intel pack, outreach note and per-role headline", () => {
       jdText: JD_TEXT,
       jdSource: "paste",
       gate: { verdict: "usable", confidence: 0.9, signals: {} },
-      ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT }),
+      ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT, structure: modelStructureFixture(RESUME_TEXT) }),
       resumeText: RESUME_TEXT,
       profileIdentity: PROFILE.identity,
       voiceProfile: VOICE,

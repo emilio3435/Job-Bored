@@ -20,6 +20,7 @@ import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
 import { scriptedMrevFetch } from "./materials-mrev-stub.test.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const REPLIES = join(dirname(fileURLToPath(import.meta.url)), "fixtures", "materials", "stage-replies");
 const reply = (/** @type {string} */ name) => JSON.parse(readFileSync(join(REPLIES, name), "utf8"));
@@ -400,7 +401,7 @@ describe("cache key and degraded runs (P-8)", () => {
     jdText: "Data Platform Engineer at Acme Analytics. Build streaming ingestion and pipeline math with analysts. Requirements: SQL, Python, Kafka.",
     jdSource: "paste",
     gate: { verdict: "usable", confidence: 0.9, signals: {} },
-    ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT }),
+    ledger: buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT, structure: modelStructureFixture(RESUME_TEXT) }),
     resumeText: RESUME_TEXT,
     voice: [],
     now: new Date("2026-09-27T05:00:00.000Z"),

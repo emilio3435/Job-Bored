@@ -7,7 +7,8 @@ import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { buildManifest } from "../server/application-materials.mjs";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { resolveLedgerPath, writeLedgerAtomic } from "../server/materials-ledger.mjs";
-import { parseResumeStructure } from "../server/materials-resume-structure.mjs";
+import { modelReplyFixture, modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
+import { EXAMPLE_RESUME_TEXT } from "./fixtures/materials-example-writer.mjs";
 import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
 import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../server/materials-resume-structure-model.mjs";
 
@@ -57,20 +58,7 @@ function baseDeps(dir, extra = {}) {
     resolvePin: async (loaded) => ({ ...loaded, resolvedModel: "stub" }),
     scrapeJob: async () => ({ description: JD_TEXT }),
     fetchImpl: stub.fetchImpl,
-    structureCallStage: async ({ userText }) => {
-      const source = String(userText).split("<untrusted-resume>\n")[1]?.split("\n</untrusted-resume>")[0] || "";
-      const rules = parseResumeStructure(source);
-      return { employers: rules.employers.map((employer) => ({
-        name: employer.name,
-        sourceQuote: source.split("\n").find((line) => line.includes(employer.name)) || employer.name,
-        roles: employer.roles.map((role, roleIndex) => ({
-          title: role.title,
-          sourceQuote: source.split("\n").find((line) => line.includes(role.title)) || role.title,
-          claims: employer.claims.filter((claim) => claim.roleIndex === roleIndex).map((claim) => ({ text: claim.text, sourceQuote: claim.text })),
-        })),
-        claims: employer.claims.filter((claim) => claim.roleIndex === null).map((claim) => ({ text: claim.text, sourceQuote: claim.text })),
-      })) };
-    },
+    structureCallStage: async ({ userText }) => modelReplyFixture(String(userText).match(/── BEGIN RESUME ──\n([\s\S]*?)\n── END RESUME ──/)?.[1] || ""),
     openSession: null,
     logoLoader: async () => [],
     targetLogoLoader: async () => null,
@@ -113,8 +101,8 @@ describe("createMaterialsDrafter", () => {
   });
 
   it("R3 keeps the last package and ledger when current-source interpretation fails", async () => {
-    const previous = ["EXPERIENCE", "Old Harbor — Analyst, 2020–2022", "- Built a weekly quality report for a fictional catalog."].join("\n");
-    await writeLedgerAtomic(buildLedger({ profile: null, resumeText: previous }));
+    const previous = EXAMPLE_RESUME_TEXT;
+    await writeLedgerAtomic(buildLedger({ profile: null, resumeText: previous, structure: modelStructureFixture(previous) }));
     const beforeLedger = await readFile(resolveLedgerPath());
     const packageDir = join(dir, "eab-role");
     await mkdir(packageDir, { recursive: true });
@@ -149,7 +137,7 @@ describe("createMaterialsDrafter", () => {
     assert.equal(manifest.pending?.progress?.code, "resume_source_review", "failed pending stays visible beside older documents");
   });
 
-  it("publishes a degraded REVIEW package without a pin instead of 409", async () => {
+  it("fails resume ingest without a pin instead of using parser-built claims", async () => {
     const drafter = createMaterialsDrafter({
       ...baseDeps(dir),
       loadPin: () => null,
@@ -160,18 +148,15 @@ describe("createMaterialsDrafter", () => {
     const result = await drafter.enqueue(request());
     assert.equal(result.ok, true);
     await drafter.runUntilIdle();
-    const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
-    /* The resume degrades to REVIEW; the deterministic letter is empty,
-     * so it is FAIL (never silently REVIEW) and there is no model to
-     * repair it with. */
-    assert.match(report, /^## resume: REVIEW/m);
-    assert.match(report, /^## letter: FAIL/m);
-    assert.match(report, /Judge unavailable/);
-    await readFile(join(dir, "eab-role", "resume.html"), "utf8");
-    await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
+    const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
+    assert.equal(pending.progress.phase, "failed");
+    assert.equal(pending.progress.code, "resume_ingest_failed");
+    assert.match(pending.progress.message, /resume|ingest/i);
+    await assert.rejects(readFile(join(dir, "eab-role", "resume.html")));
+    await assert.rejects(readFile(join(dir, "eab-role", "qa-report.md")));
   });
 
-  it("fails ledger_empty when the resume carries no facts", async () => {
+  it("fails resume ingest when the model finds no grounded resume facts", async () => {
     const drafter = createMaterialsDrafter(baseDeps(dir));
     await drafter.enqueue(request({
       resume: { ...USER_RESUME, text: "Jordan Rivera\nNo experience listed." },
@@ -179,7 +164,8 @@ describe("createMaterialsDrafter", () => {
     await drafter.runUntilIdle();
     const pending = JSON.parse(await readFile(join(dir, "eab-role", "pending.json"), "utf8"));
     assert.equal(pending.progress.phase, "failed");
-    assert.equal(pending.progress.code, "resume_source_review");
+    assert.equal(pending.progress.code, "resume_ingest_failed");
+    assert.match(pending.progress.message, /resume could not be interpreted/i);
   });
 
   it("writes REVIEW with jd_unusable when scrape fails on a blurb", async () => {

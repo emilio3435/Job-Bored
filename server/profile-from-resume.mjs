@@ -44,8 +44,10 @@ import {
 import { normalizeProvider as sharedNormalizeProvider } from "./ai/provider.mjs";
 import { normalizeGeminiFlashPreference } from "./model-family.mjs";
 import { outputBudget, geminiThinkingConfig, outputLimitField } from "./llm-output-budget.mjs";
-import { experiencesFromStructure, parseResumeStructure } from "./materials-resume-structure.mjs";
+import { ALIAS_CLAUSE_RE, experiencesFromStructure } from "./materials-resume-structure.mjs";
+import { structureResumeWithModel } from "./materials-resume-structure-model.mjs";
 import { detectGarbledResume, resumeGarbledError } from "./materials-resume-source.mjs";
+import { extractMetrics } from "./materials-ledger-build.mjs";
 import { buildResumeRead } from "./resume-read.mjs";
 
 // Drafting prompt, parser, and clamp live in the sibling shared module
@@ -80,6 +82,71 @@ const {
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 
+/** @param {string} text */
+function readAchievement(text) {
+  const value = String(text || "").replace(/\s+/g, " ").trim().slice(0, 600);
+  return { text: value, metrics: extractMetrics(value).map((metric) => metric.token) };
+}
+
+/**
+ * Keep the shared contact, skills, and summary projection, but use the
+ * quote-grounded model structure for the employer and claim projection too.
+ * @template { { counts: Record<string, number> } } T
+ * @param {T} read
+ * @param {import("./materials-resume-structure.mjs").ResumeStructure} structure
+ * @returns {T & {
+ *   employers: Array<{ name: string, formerly: string[], location: string, start: string | null, end: string | null, roles: Array<{ title: string, start: string | null, end: string | null, present: boolean }>, achievements: Array<{ text: string, metrics: string[] }> }>,
+ *   highlights: Array<{ text: string, metrics: string[] }>,
+ *   education: string[],
+ *   counts: Record<string, number>
+ * }}
+ */
+function applyModelStructureToResumeRead(read, structure) {
+  const employers = structure.employers.map((employer) => {
+    const formerly = [];
+    for (const match of employer.name.matchAll(/\((?:formerly|previously|fka|f\/k\/a|aka|a\.k\.a\.)\s+([^)]+)\)/gi)) {
+      formerly.push(String(match[1]).replace(/\s+/g, " ").trim());
+    }
+    let name = String(employer.name).replace(/\([^)]*\)/g, " ").replace(/\s+/g, " ").trim() || employer.name;
+    const aliasClause = ALIAS_CLAUSE_RE.exec(name);
+    if (aliasClause) {
+      formerly.push(String(aliasClause[1]).replace(/\s+/g, " ").trim());
+      name = name.slice(0, aliasClause.index).trim();
+    }
+    return {
+      name,
+      formerly,
+      location: String(employer.location || ""),
+      start: employer.start,
+      end: employer.end,
+      roles: employer.roles.map((role) => ({
+        title: role.title,
+        start: role.start,
+        end: role.end,
+        present: role.start !== null && role.end === null,
+      })),
+      achievements: employer.claims.map((claim) => readAchievement(claim.text)),
+    };
+  });
+  const highlights = structure.looseClaims.map(readAchievement);
+  const education = structure.education.map((item) => String(item).replace(/\s+/g, " ").trim());
+  const achievements = employers.flatMap((employer) => employer.achievements).concat(highlights);
+  return {
+    ...read,
+    employers,
+    highlights,
+    education,
+    counts: {
+      ...read.counts,
+      employers: employers.length,
+      roles: employers.reduce((count, employer) => count + employer.roles.length, 0),
+      achievements: achievements.length,
+      withNumbers: achievements.filter((achievement) => achievement.metrics.length > 0).length,
+      education: education.length,
+    },
+  };
+}
+
 // Repo-relative fallback that matches the discovery worker's own default.
 const DEFAULT_WORKER_CONFIG_PATH = resolvePath(
   __dirname,
@@ -108,7 +175,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * user has never seen an env var in their life (SIXBEATS-2 NEW-2).
  * @typedef {{ provider: ProfileProvider, apiKey: string, model: string, baseUrl: string, origin?: "server" | "request" }} ProfileProviderConfig
  */
-/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal, retriedTruncation?: boolean }} ProfileCallOptions */
+/** @typedef {{ model?: string, config?: ProfileProviderConfig, signal?: AbortSignal, retriedTruncation?: boolean, document?: { mimeType: string, filename?: string, data: string }, fetchImpl?: typeof globalThis.fetch, structureCallStage?: (input: Record<string, unknown>) => Promise<unknown> | unknown }} ProfileCallOptions */
 /** @typedef {Error & { code: string, provider?: ProfileProvider, upstreamStatus?: number, rawSample?: string, cause?: unknown }} ProfileProviderError */
 /** @typedef {{ name: string, rank: number, evidence?: string, keywords?: string[] }} ProfileStrength */
 /**
@@ -120,7 +187,7 @@ const ANTHROPIC_VERSION = "2023-06-01";
  * @property {{ workMode: string, salaryRequired?: boolean, workAuth?: string, acceptableLocations?: string[], skipTitles?: string[] }} hardConstraints
  * @property {string[]} [wants]
  * @property {string[]} [avoids]
- * @property {Array<Record<string, unknown>>} [experiences] employers, titles and dates parsed from the resume
+ * @property {Array<Record<string, unknown>>} [experiences] employers, titles and dates interpreted from the resume
  */
 
 /**
@@ -1015,9 +1082,8 @@ export async function analyzeResumeToProfile(resumeText, opts = {}) {
 }
 
 /**
- * The profile draft plus "what JobBored read from the resume": the rules
- * read with the model's `resumeFacts` folded in (only strings found in the
- * resume survive), and the provider and model that did the reading.
+ * The profile draft plus "what JobBored read from the resume": model-grounded
+ * employers and roles, with the profile model's `resumeFacts` folded in.
  *
  * @param {string} resumeText
  * @param {ProfileCallOptions} [opts]
@@ -1057,16 +1123,40 @@ export async function analyzeResume(resumeText, opts = {}) {
     raw = await callChatJsonForProfile(text, config, opts);
   }
   const profile = clampToUserProfile(raw);
-  /* The resume's own employers, titles and dates travel with the draft, so
-   * the saved profile carries them and the claim ledger reads them instead
-   * of re-deriving them on every build. Deterministic: parsed from the
-   * resume text, never from the model's reply. */
-  const experiences = experiencesFromStructure(parseResumeStructure(text));
+  const structurePin = {
+    provider: config.provider,
+    model: config.model,
+    resolvedModel: config.model,
+    apiKey: config.apiKey,
+    baseUrl: config.baseUrl,
+  };
+  const interpreted = await structureResumeWithModel({
+    resumeText: text,
+    document: opts.document,
+    pin: structurePin,
+    fetchImpl: opts.fetchImpl || globalThis.fetch,
+    callStage: opts.structureCallStage,
+    signal: opts.signal,
+  });
+  if (interpreted.ingest.status !== "ready" || !interpreted.structure) {
+    const error = /** @type {ProfileProviderError & { ingest?: unknown }} */ (
+      new Error(interpreted.ingest.reason || "The resume could not be grounded in its source text.")
+    );
+    error.code = "profile_resume_ingest_failed";
+    error.provider = config.provider;
+    error.ingest = interpreted.ingest;
+    throw error;
+  }
+  const experiences = experiencesFromStructure(interpreted.structure);
   const read = buildResumeRead(text, {
     facts: resumeFactsOf(raw),
     by: { provider: config.provider, model: String(opts.model || config.model || "") || config.provider },
   });
-  return { profile: experiences.length ? { ...profile, experiences } : profile, read };
+  const readWithIngest = {
+    ...applyModelStructureToResumeRead(read, interpreted.structure),
+    ingest: interpreted.ingest,
+  };
+  return { profile: experiences.length ? { ...profile, experiences } : profile, read: readWithIngest };
 }
 
 // Expose for tests/scratch only — not part of the documented surface.

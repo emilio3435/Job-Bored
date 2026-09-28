@@ -10,6 +10,7 @@ import { delint, loadVoicePack, rewriteFlagged } from "../server/materials-delin
 
 const voicePack = await loadVoicePack();
 import { tagDraftMetrics } from "../server/materials-metric-tag.mjs";
+import { modelStructureFixture } from "./fixtures/materials-model-structure.mjs";
 
 const RESUME_TEXT = [
   "Jordan Rivera",
@@ -60,7 +61,7 @@ function stubFetch(responses) {
 }
 
 async function plan() {
-  const ledger = buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT });
+  const ledger = buildLedger({ profile: PROFILE, resumeText: RESUME_TEXT, structure: modelStructureFixture(RESUME_TEXT) });
   const extract = deterministicExtract({ jdText: JD_TEXT, company: "Acme", title: "Data Platform Engineer", gate: GATE });
   const shortlist = scoreClaims({ extract, ledger, limit: 8 });
   const { fetchImpl } = stubFetch([
