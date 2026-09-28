@@ -4,7 +4,7 @@
  * Walks every row in the user's Pipeline sheet that has a non-empty URL,
  * re-scores it against the current canonical UserProfile, and writes the
  * results back into the three Fit columns (H = Fit Score, K = Fit Assessment,
- * Q = Talking Points) plus column U (Match Score, mirrored from fitScore).
+ * Q = Talking Points). Search Match (U) belongs to discovery's job matcher.
  *
  * Auth model: mirrors integrations/browser-use-discovery/src/sheets/pipeline-writer.ts.
  *   - googleAccessToken (in-process override, useful for tests)
@@ -288,7 +288,6 @@ const COL = {
   FIT_SCORE: 7, // H
   FIT_ASSESSMENT: 10, // K
   TALKING_POINTS: 16, // Q
-  MATCH_SCORE: 20, // U
 };
 
 const SPONSORSHIP_DENY_PHRASES = [
@@ -404,7 +403,6 @@ const SHEET_COLUMN_LETTER = {
   FIT_SCORE: "H",
   FIT_ASSESSMENT: "K",
   TALKING_POINTS: "Q",
-  MATCH_SCORE: "U",
 };
 
 /* ─── Worker-config + service-account discovery ─────────────────────────── */
@@ -686,11 +684,6 @@ async function writeRowScoreCells({
       range: `${PIPELINE_SHEET_NAME}!${SHEET_COLUMN_LETTER.TALKING_POINTS}${rowNumber}`,
       majorDimension: "ROWS",
       values: [[escapeCellText(talkingPoints)]],
-    },
-    {
-      range: `${PIPELINE_SHEET_NAME}!${SHEET_COLUMN_LETTER.MATCH_SCORE}${rowNumber}`,
-      majorDimension: "ROWS",
-      values: [[String(fitScore)]],
     },
   ];
   const resp = await fetch(url, {

@@ -115,7 +115,7 @@ test("D2: a row whose Link vanished before the write is skipped, not written ove
   assert.match(result.warnings.join("\n"), /moved or was removed/i);
 });
 
-test("D4: re-discovery keeps user-edited Source, Priority, Tags, Fit Assessment and Talking Points (p05)", async () => {
+test("D4: re-discovery keeps user-edited Source, Priority, Tags and Talking Points while refreshing Fit Assessment (p05)", async () => {
   const url = "https://boards.greenhouse.io/acme/jobs/1";
   const userRow = pipelineRow({
     date: "2026-09-01", title: "Engineer", company: "Acme", location: "Remote", link: url,
@@ -132,7 +132,7 @@ test("D4: re-discovery keeps user-edited Source, Priority, Tags, Fit Assessment 
   assert.equal(after[5], "Manual", "Source");
   assert.equal(after[8], "🔥", "Priority");
   assert.equal(after[9], "referral, dream", "Tags");
-  assert.equal(after[10], userRow[10], "Fit Assessment (user JD)");
+  assert.equal(after[10], "LLM: decent fit", "Fit Assessment follows the new Fit Score");
   assert.equal(after[16], "my own talking points", "Talking Points");
   assert.equal(after[12], "Researching", "Status");
   assert.equal(after[14], "call Sam", "Notes");

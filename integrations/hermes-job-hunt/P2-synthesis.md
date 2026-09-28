@@ -50,7 +50,7 @@ Additional test files added by T2.4/T2.6:
 Verified via `schemas/pipeline-row.v1.json`:
 - A–Q: 17 required/optional core columns preserved
 - R–T: existing worker/dashboard columns preserved
-- U–W: extension columns preserved (Match Score, Favorite, Dismissed At)
+- U–W: extension columns preserved (Search Match, Favorite, Dismissed At)
 - X: `approvalStatus` — Gate 1 marker, string type, sheet index 23
 
 ### Approval guard skill

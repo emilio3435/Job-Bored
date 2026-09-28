@@ -98,20 +98,26 @@ export class PipelineHeaderMismatchError extends Error {
 /**
  * Check row 1 of the Pipeline tab against the schema. Columns A..Q must sit
  * at their schema positions; optional columns may be blank (a legacy Sheet)
- * but never carry another label. Z is a separate additive column: an empty Z
- * can be filled, while a foreign Z is left untouched.
+ * but never carry another label. U accepts the legacy Match Score label and
+ * leaves a foreign label untouched. Z follows the same foreign-header rule.
  */
 export function checkPipelineHeader(
   headerRow: unknown[],
   sheetName = DEFAULT_SHEET_NAME,
-): { needsUpgrade: boolean; workModeHeader: "missing" | "ready" | "foreign" } {
+): { needsUpgrade: boolean; workModeHeader: "missing" | "ready" | "foreign"; searchMatchHeader: "missing" | "legacy" | "ready" | "foreign" } {
   let needsUpgrade = false;
   let workModeHeader: "missing" | "ready" | "foreign" = "missing";
+  let searchMatchHeader: "missing" | "legacy" | "ready" | "foreign" = "missing";
   for (const column of PIPELINE_COLUMNS) {
     const raw = headerRow[column.sheetIndex];
     const found = typeof raw === "string" ? raw.trim() : "";
     if (column.id === "workMode") {
       workModeHeader = found === column.headerLabel ? "ready" : found ? "foreign" : "missing";
+      continue;
+    }
+    if (column.id === "matchScore") {
+      searchMatchHeader = found === column.headerLabel ? "ready"
+        : found === "Match Score" ? "legacy" : found ? "foreign" : "missing";
       continue;
     }
     if (found === column.headerLabel) continue;
@@ -126,7 +132,7 @@ export function checkPipelineHeader(
       sheetName,
     });
   }
-  return { needsUpgrade, workModeHeader };
+  return { needsUpgrade, workModeHeader, searchMatchHeader };
 }
 
 /* ------------------------------------------------------------------ */

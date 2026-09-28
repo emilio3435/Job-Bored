@@ -64,6 +64,15 @@ describe("G17 · the blank-sheet path lists the starter headers", () => {
     assert.equal(list.length, 26);
     assert.ok(setup().includes(list.join("\t")), "one tab-separated row, pasteable into row 1");
   });
+
+  it("the greenfield Sheets stub accepts the canonical starter header row", () => {
+    const spec = readRepoFile("tests/e2e-onboarding/greenfield-onboarding.spec.mjs");
+    const block = spec.match(/const STARTER_HEADERS = \[([\s\S]*?)\];/);
+    assert.ok(block, "greenfield Sheets stub must declare its accepted header row");
+    const accepted = [...block[1].matchAll(/"([^"]+)"/g)].map((match) => match[1]);
+    const canonical = JSON.parse(readRepoFile("schemas/pipeline-row.v1.json")).headerRow;
+    assert.deepEqual(accepted, canonical, "a stale stub rejects Sheet creation and strands the Google beat");
+  });
 });
 
 describe("G18 · G19 · G20 · G22 · the sheet section", () => {

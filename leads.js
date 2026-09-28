@@ -41,7 +41,7 @@
   var DAY_MS = 24 * 60 * 60 * 1000;
 
   var FIT_STEPS = [0, 6, 7, 8];
-  var MATCH_STEPS = [0, 60, 75, 85];
+  var MATCH_STEPS = [0, 6, 8, 9];
   var SALARY_STEPS = [0, 150000, 175000, 200000];
   var FOUND_STEPS = [0, 1, 7, 14];
 
@@ -49,7 +49,7 @@
     ["fit", "Best fit"],
     ["newest", "Newest"],
     ["salary", "Highest salary"],
-    ["match", "Match score"],
+    ["match", "Search Match"],
     ["company", "Company A–Z"],
   ];
 
@@ -190,7 +190,7 @@
     var out = [];
     if (view.q) out.push(["q", "“" + view.q + "”"]);
     if (view.fitMin) out.push(["fitMin", "Fit " + view.fitMin + "+"]);
-    if (view.matchMin) out.push(["matchMin", "Match " + view.matchMin + "+"]);
+    if (view.matchMin) out.push(["matchMin", "Search Match " + view.matchMin + "+"]);
     if (view.salaryMin) out.push(["salaryMin", "Salary ≥ " + kLabel(view.salaryMin)]);
     if (view.foundWithinDays) out.push(["foundWithinDays", "Found ≤ " + (view.foundWithinDays === 1 ? "24h" : view.foundWithinDays + "d")]);
     if (view.starred) out.push(["starred", "Starred"]);
@@ -723,7 +723,7 @@
     var src = sourceLabel(row.source);
     var where = [company, row.location].filter(Boolean).map(function (x) { return highlight(x, q); }).join(" · ");
     return '<li class="jbl-row' + (hiddenWhy ? " jbl-row--hidden" : "") + (active ? " is-active" : "") + '" data-key="' + key + '" tabindex="' + (active ? 0 : -1) + '" aria-label="' + esc(label) + '">' +
-      '<div class="jbl-fit jbl-fit--' + fitBand(fit) + '"><b>' + fmtFit(fit) + "</b>" + (match === null ? "" : "<small>M " + Math.round(match) + "</small>") + "</div>" +
+      '<div class="jbl-fit jbl-fit--' + fitBand(fit) + '"><b>' + fmtFit(fit) + "</b>" + (match === null ? "" : '<small aria-label="Search Match ' + Math.round(match) + ' out of 10">S ' + Math.round(match) + "</small>") + "</div>" +
       '<div class="jbl-who"><div class="jbl-who__t"><span>' + highlight(title, q) + "</span>" + (hiddenWhy ? '<span class="jbl-hide-why">' + esc(hiddenWhy) + "</span>" : "") + "</div>" +
         (where ? '<div class="jbl-who__s">' + where + "</div>" : "") +
         (row.fitAssessment ? '<div class="jbl-who__why">' + highlight(row.fitAssessment, q) + "</div>" : "") + "</div>" +
@@ -864,7 +864,7 @@
             facet("Stage", '<div data-jbl="stages"></div>') +
             facet("Company", '<label class="jbl-sr" for="leadsCompanyFilter">Filter companies</label><input id="leadsCompanyFilter" class="jbl-company-filter" placeholder="Filter companies" autocomplete="off"><div data-jbl="companies"></div>') +
             facet("Source board", '<div data-jbl="sources"></div>') +
-            facet("Match score", '<div class="jbl-seg" data-jbl="match" role="group" aria-label="Minimum match score"></div>') +
+            facet("Search Match", '<div class="jbl-seg" data-jbl="match" role="group" aria-label="Minimum Search Match"></div>') +
             '<div class="jbl-facet"><label class="jbl-opt"><input type="checkbox" data-jbl="starred"> <span class="jbl-opt__label">Starred only</span><span class="jbl-opt__count" data-jbl="starredCount"></span></label></div>' +
           "</aside>" +
           '<section class="jbl-list" aria-label="Leads list">' +

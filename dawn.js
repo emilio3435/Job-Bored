@@ -57,7 +57,9 @@
         ? " brief-lead__fact-value--mint"
         : f.tone === "amber"
           ? " brief-lead__fact-value--amber"
-          : "";
+          : f.tone === "fit-high" || f.tone === "fit-mid" || f.tone === "fit-low"
+            ? " brief-lead__fact-value--" + f.tone
+            : "";
       return [
         '<div class="brief-lead__fact">',
         '  <div class="brief-lead__fact-label">', escapeHtml(f.label || ""), '</div>',

@@ -82,7 +82,7 @@ function parseReadmePipelineHeaders(readme) {
   const section = end === -1 ? after : after.slice(0, end);
   const byLetter = {};
   // Match all pipeline column letters (A through Z, covering base A-T plus
-  // extension columns U:Match Score, V:Favorite, W:Dismissed At, X:Approval Status,
+  // extension columns U:Search Match, V:Favorite, W:Dismissed At, X:Approval Status,
   // Y:Edit Lock and Z:Work Mode).
   const lineRe = /^\| ([A-Z]):\s*([^|]+?)\s*\|/gm;
   let m;

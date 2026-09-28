@@ -5,7 +5,7 @@
   "schemaVersion": 1,
   "tabName": "Pipeline",
   "discoveryMergeSemantics": {
-    "overwrite": "Discovery owns the cell: a re-discovered non-empty value replaces it.",
+    "overwrite": "Discovery owns the cell: a re-discovered non-empty value replaces it. Fit Assessment is also cleared when a new Fit Score has no assessment.",
     "lockable": "Discovery replaces the cell unless the row's Edit Lock (Y) names the field.",
     "fillIfEmpty": "Discovery writes the cell only while it is empty; a user's value is kept.",
     "preserve": "Discovery never writes the cell on a re-discovered row."
@@ -31,7 +31,7 @@
     "Last contact",
     "Did they reply?",
     "Logo URL",
-    "Match Score",
+    "Search Match",
     "Favorite",
     "Dismissed At",
     "Approval Status",
@@ -127,7 +127,7 @@
       "headerLabel": "Fit Assessment",
       "type": "string",
       "sheetIndex": 10,
-      "discoveryMerge": "fillIfEmpty"
+      "discoveryMerge": "overwrite"
     },
     {
       "id": "contact",
@@ -221,7 +221,7 @@
     {
       "id": "matchScore",
       "letter": "U",
-      "headerLabel": "Match Score",
+      "headerLabel": "Search Match",
       "type": "number",
       "sheetIndex": 20,
       "discoveryMerge": "overwrite",
