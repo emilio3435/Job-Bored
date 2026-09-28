@@ -462,7 +462,7 @@ test("the Case shows one fit number on its gauge, and no second number", async (
   const reasonsPanel = plate.locator("#" + (await reasons.getAttribute("aria-controls")));
   await expect(reasonsPanel).toBeVisible();
   await expect(reasonsPanel).toContainText("Ran a multi-region control plane");
-  await expect(reasonsPanel.locator(".case__fit-list--plain li")).toHaveText([
+  await expect(reasonsPanel.locator(".case__fit-list--plain:not(.case__fit-list--watch) li")).toHaveText([
     "Kubernetes",
     "Observability",
     "Go",
