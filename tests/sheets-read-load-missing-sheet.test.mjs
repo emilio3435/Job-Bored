@@ -189,4 +189,13 @@ describe("Pipeline Work Mode reading", () => {
       assert.equal(job.workModeSource, source);
     }
   });
+
+  it("reads a hand-typed Z cell regardless of case", () => {
+    const { sheetsRead } = createHarness({ activeSheetId: null });
+    const row = Array(26).fill("");
+    row[1] = "Engineer"; row[2] = "Acme"; row[3] = "Austin, TX"; row[25] = " Remote ";
+    const job = sheetsRead.parsePipelineCSV([[], row])[0];
+    assert.equal(job.workMode, "remote");
+    assert.equal(job.workModeSource, "column");
+  });
 });
