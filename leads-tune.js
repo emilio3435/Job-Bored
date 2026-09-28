@@ -506,7 +506,8 @@
   }
 
   /**
-   * An agent reply → { rows, mask, dropped }. The client, not the model:
+   * An agent reply → { rows, mask, dropped, accepted }. `accepted` counts the
+   * suggestions that passed the allowlist, no-ops included. The client, not the model:
    * validates each change against the allowlist and the schema limits,
    * folds repeated fields, drops no-ops, and computes before/after and the
    * scope tags. `default: false` makes a row start unticked.
@@ -559,7 +560,7 @@
       }
       mask.push(!off[id]);
     });
-    return { rows: rows, mask: mask, dropped: dropped };
+    return { rows: rows, mask: mask, dropped: dropped, accepted: list.length - dropped };
   }
 
   /* ------------------------------------------------------------
@@ -615,9 +616,10 @@
         if (typeof resp.reply !== "string" || (resp.changes !== undefined && !Array.isArray(resp.changes))) {
           return { ok: false, error: { code: "invalid_reply", message: "The agent sent back something JobBored couldn't read" } };
         }
-        // A transport that pre-validates (leads-agent.js) reports what it dropped.
-        var dropped = Number.isInteger(resp.dropped) && resp.dropped > 0 ? resp.dropped : 0;
-        return { ok: true, reply: resp.reply, changes: resp.changes || [], dropped: dropped };
+        // A transport that pre-validates (leads-agent.js) reports what it
+        // dropped and what it accepted; a no-op is accepted but makes no change.
+        var count = function (n) { return Number.isInteger(n) && n > 0 ? n : 0; };
+        return { ok: true, reply: resp.reply, changes: resp.changes || [], dropped: count(resp.dropped), accepted: count(resp.accepted) };
       }, function (err) {
         return { ok: false, error: { code: String((err && err.code) || "agent_error"), message: String((err && err.message) || "The agent didn't answer") } };
       });
@@ -1085,8 +1087,9 @@
             if (built.rows.length || dropped) {
               bot.proposal = {
                 rows: built.rows, mask: built.mask, dropped: dropped,
-                // Every suggestion was refused, none was merely a no-op.
-                allDropped: !built.rows.length && dropped === resp.changes.length + resp.dropped,
+                // Every suggestion was refused: none passed the allowlist, in
+                // the transport's pass or in this one.
+                allDropped: !built.rows.length && built.accepted === 0 && resp.accepted === 0,
                 status: built.rows.length ? "open" : "empty", entryId: null, error: "",
               };
             }

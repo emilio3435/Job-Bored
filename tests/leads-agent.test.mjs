@@ -76,6 +76,18 @@ describe('Leads agent transport', () => {
     assert.equal(all.dropped, 1, 'an all-dropped reply still reports its count');
   });
 
+  it('counts a no-op as accepted, so a no-op plus a refusal is not told as all-refused', async () => {
+    const win = load(async () => ({ ok: true, status: 200, json: async () => ({ ok: true, reply: 'Keeping any work mode.', changes: [
+      { field: 'hardConstraints.workMode', op: 'set', value: 'any' },
+      { field: 'tieBreakers.favoredCompanies', op: 'add', value: ['Acme'] },
+    ] }) }));
+    const out = await win.JobBoredLeadsAgent.propose(req);
+    assert.equal(out.ok, true);
+    assert.deepEqual(plain(out.changes), [], 'the no-op makes no row');
+    assert.equal(out.dropped, 1);
+    assert.equal(out.accepted, 1, 'the no-op passed the allowlist');
+  });
+
   it('uses hosted apiFetch so the configured API token reaches the provider route', async () => {
     const calls = [];
     const win = load(async (url, init) => {

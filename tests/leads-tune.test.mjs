@@ -32,7 +32,14 @@ function load() {
   vm.createContext(ctx);
   vm.runInContext(readRepoFile("leads-core.js"), ctx, { filename: "leads-core.js" });
   vm.runInContext(readRepoFile("leads-tune.js"), ctx, { filename: "leads-tune.js" });
-  return { tuneApi: win.JobBoredLeadsTune, core: win.JobBoredApp.leadsCore, win };
+  return { tuneApi: win.JobBoredLeadsTune, core: win.JobBoredApp.leadsCore, win, ctx };
+}
+
+/* Run the real leads-agent.js in the same realm, answering its one POST.
+   resolveTransport() then picks window.JobBoredLeadsAgent at ask time. */
+function withAgent(env, body) {
+  env.win.fetch = async () => ({ ok: true, status: 200, json: async () => body });
+  vm.runInContext(readRepoFile("leads-agent.js"), env.ctx, { filename: "leads-agent.js" });
 }
 
 /* A UserProfile the schema would accept: the fields LT must never drop. */
@@ -462,6 +469,28 @@ describe("leads-tune: the agent transport", () => {
     const bot = await t2.tune.ask("x");
     assert.equal(bot.proposal.allDropped, false);
     assert.match(t2.tuneApi.render(t2.tune).chat, /I left out 1 suggestion.*Your settings already say the rest/);
+  });
+
+  it("through leads-agent.js, a no-op plus a refusal names both, and only refusals read as all-refused", async () => {
+    const noop = { field: "hardConstraints.salaryFloor", op: "set", value: 120000 };
+    const refused = { field: "tieBreakers.favoredCompanies", op: "add", value: ["Acme"] };
+    const mixed = await ready();
+    withAgent(mixed, { ok: true, reply: "ok", changes: [noop, refused] });
+    assert.equal(mixed.tuneApi.resolveTransport(), mixed.win.JobBoredLeadsAgent, "the real agent is the transport");
+    const bot = await mixed.tune.ask("x");
+    assert.equal(bot.proposal.status, "empty");
+    assert.equal(bot.proposal.dropped, 1, "the refusal is counted once, not by both passes");
+    assert.equal(bot.proposal.allDropped, false);
+    const html = mixed.tuneApi.render(mixed.tune).chat;
+    assert.match(html, /I left out 1 suggestion.*Your settings already say the rest/);
+    assert.doesNotMatch(html, /Nothing you asked for/);
+
+    const all = await ready();
+    withAgent(all, { ok: true, reply: "ok", changes: [refused, { field: "experiences", op: "set", value: [] }] });
+    const bot2 = await all.tune.ask("x");
+    assert.equal(bot2.proposal.dropped, 2);
+    assert.equal(bot2.proposal.allDropped, true);
+    assert.match(all.tuneApi.render(all.tune).chat, /Nothing you asked for is a setting I can change/);
   });
 
   it("ignores a dropped count that is not a positive integer", async () => {

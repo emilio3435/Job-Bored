@@ -6,8 +6,9 @@
  * sideways overflow), then compares a screenshot with its baseline. Font
  * rasterization differs by OS, so baselines carry the platform suffix and
  * only exist for the platforms they were recorded on. On a platform with no
- * baseline the pixel compare is skipped with an annotation, never written
- * over; the structural checks still run.
+ * baseline the pixel compare is skipped with an annotation; the structural
+ * checks still run. The suite's config sets updateSnapshots "none", so only
+ * an explicit `--update-snapshots=missing` records a new baseline.
  *
  * Hermetic: the harness fence answers every off-origin and host path, and
  * /profile is stubbed with a fictional document.
@@ -159,11 +160,16 @@ async function expectNoSidewaysScroll(page) {
   expect(overflow).toBeLessThanOrEqual(0);
 }
 
-/** Compare with the baseline when this platform has one; never overwrite. */
+/**
+ * Compare with this platform's baseline. With no baseline the pixel compare
+ * is skipped. The config sets updateSnapshots "none", so a normal run never
+ * writes; recording a new baseline takes an explicit --update-snapshots flag.
+ */
 async function compareScreenshot(page, name) {
   const info = test.info();
   const baseline = info.snapshotPath(name, { kind: "screenshot" });
-  if (!existsSync(baseline) && info.config.updateSnapshots !== "missing") {
+  const recording = info.config.updateSnapshots !== "none";
+  if (!existsSync(baseline) && !recording) {
     info.annotations.push({
       type: "skip-pixels",
       description: `no ${name} baseline for ${process.platform}; structural checks only`,

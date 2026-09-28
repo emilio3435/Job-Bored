@@ -35,8 +35,9 @@
     }
   }
 
-  /* Pre-validates with LT's allowlist. The count of dropped suggestions goes
-     back with the kept changes, so the card can say what it left out. */
+  /* Pre-validates with LT's allowlist. The dropped and accepted counts go
+     back with the kept changes, so the card can say what it left out and
+     tell a refusal from a no-op (accepted, but no change). */
   function validatedChanges(reply, request, tune) {
     var built = tune.proposalRows(reply.changes || [], request.settings, request.view);
     var changes = built.rows.map(function (row, index) {
@@ -45,7 +46,7 @@
       if (built.mask[index] === false) change['default'] = false;
       return change;
     });
-    return { changes: changes, dropped: built.dropped };
+    return { changes: changes, dropped: built.dropped, accepted: built.accepted };
   }
 
   async function propose(request) {
@@ -86,7 +87,7 @@
         (reply.changes !== undefined && !Array.isArray(reply.changes))) return invalidReply();
     try {
       var validated = validatedChanges(reply, request, tune);
-      return { ok: true, reply: reply.reply, changes: validated.changes, dropped: validated.dropped };
+      return { ok: true, reply: reply.reply, changes: validated.changes, dropped: validated.dropped, accepted: validated.accepted };
     } catch (_) {
       return invalidReply();
     }

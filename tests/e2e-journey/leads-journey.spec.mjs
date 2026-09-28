@@ -40,15 +40,20 @@ const LIVE_PORTS = new Set(["8080", "8644", "3847"]);
  * boot asks the example materials origin, :3847, for its queue). What must
  * never happen is a request that reaches a real socket on a live port: a
  * finished response with a server address, or a failure other than the
- * fence's own block.
+ * fence's own block. The finished-request check is async, so each one's
+ * promise goes in `pending` for expectHermetic to await before it asserts.
  */
-function trackLivePortTraffic(page, sink) {
+function trackLivePortTraffic(page, sink, pending) {
   const onLivePort = (req) => LIVE_PORTS.has(new URL(req.url()).port);
-  page.on("requestfinished", async (req) => {
+  page.on("requestfinished", (req) => {
     if (!onLivePort(req)) return;
-    const res = await req.response().catch(() => null);
-    const addr = res ? await res.serverAddr().catch(() => null) : null;
-    if (addr) sink.push(`${req.method()} ${req.url()} reached ${addr.ipAddress}:${addr.port}`);
+    pending.push(
+      (async () => {
+        const res = await req.response().catch(() => null);
+        const addr = res ? await res.serverAddr().catch(() => null) : null;
+        if (addr) sink.push(`${req.method()} ${req.url()} reached ${addr.ipAddress}:${addr.port}`);
+      })(),
+    );
   });
   page.on("requestfailed", (req) => {
     if (!onLivePort(req)) return;
@@ -145,11 +150,12 @@ async function bootLeads(page, { profilePost = "ok", reload = false } = {}) {
   const errors = [];
   const posts = [];
   const livePortRequests = [];
+  const livePortChecks = [];
   let fence = null;
   if (!reload) {
     await page.setViewportSize({ width: 1440, height: 1000 });
     page.on("pageerror", (e) => errors.push(String(e)));
-    trackLivePortTraffic(page, livePortRequests);
+    trackLivePortTraffic(page, livePortRequests, livePortChecks);
     fence = await installHermeticNetworkFence(page, { baseUrl: app.baseUrl });
     let doc = structuredClone(PROFILE);
     // Registered after the fence, so this route answers /profile first.
@@ -211,7 +217,7 @@ async function bootLeads(page, { profilePost = "ok", reload = false } = {}) {
     { rows: structuredClone(ROWS), profile: PROFILE, discovery: DISCOVERY },
   );
   await expect(page.locator('[data-region="leads"] .jbl-row').first()).toBeVisible();
-  return { errors, posts, livePortRequests, fence };
+  return { errors, posts, livePortRequests, livePortChecks, fence };
 }
 
 async function openChat(page) {
@@ -240,7 +246,8 @@ async function raiseFloor(page, value) {
   await expect(page.locator('[data-jbt="review"]')).toBeVisible();
 }
 
-function expectHermetic(ctx) {
+async function expectHermetic(ctx) {
+  await Promise.all(ctx.livePortChecks);
   expect(ctx.errors).toEqual([]);
   expect(ctx.livePortRequests).toEqual([]);
   expect(ctx.fence.unexpectedExternal).toEqual([]);
@@ -284,7 +291,7 @@ test("Filters: filter the list, save a view, reload and reopen it", async ({ pag
   await expect(reopened).toHaveAttribute("aria-pressed", "true");
   await expect(page.locator('input[data-facet="stages"][value="New"]')).toBeChecked();
   await expect(page.locator('[data-region="leads"] .jbl-row').first()).toContainText("Kestrel Health");
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 test("Chat: a control change shows the review bar's before → after counts", async ({ page }) => {
@@ -318,7 +325,7 @@ test("Chat: a control change shows the review bar's before → after counts", as
   await expect(page.locator("#jbtFloor")).toHaveValue("120000");
   expect(ctx.posts).toHaveLength(0);
   expect(await tuneHistoryLength(page)).toBe(0);
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 test("Save: a synced save writes one history entry, and undo reverts it", async ({ page }) => {
@@ -349,7 +356,7 @@ test("Save: a synced save writes one history entry, and undo reverts it", async 
   expect(ctx.posts[1].hardConstraints.salaryFloor).toBe(120000);
   await expect(page.locator("#jbtFloor")).toHaveValue("120000");
   expect(await page.evaluate(() => window.JobBoredLeads.profile().hardConstraints.salaryFloor)).toBe(120000);
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 test("Save: a local_only save keeps the diff open and writes no history", async ({ page }) => {
@@ -371,7 +378,7 @@ test("Save: a local_only save keeps the diff open and writes no history", async 
   // Filters did not move to the unsaved floor.
   expect(await page.evaluate(() => window.JobBoredLeads.profile().hardConstraints.salaryFloor)).toBe(120000);
   expect(ctx.posts).toHaveLength(0);
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 test("Agent: a proposal renders, applies only on Apply, and records history", async ({ page }) => {
@@ -433,7 +440,7 @@ test("Agent: a proposal renders, applies only on Apply, and records history", as
   );
   expect(blocklist).toEqual([]);
   expect(await tuneHistoryLength(page)).toBe(1);
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 // Q1 bug 1: leads-agent.js pre-validates, so it reports what it dropped and
@@ -458,7 +465,7 @@ test("Agent: the card says when the allowlist left a suggestion out", async ({ p
   await page.fill("#jbtAsk", "Nothing under $150k, and favour Northwind");
   await page.locator("#jbtAsk").press("Enter");
   await expect(page.locator(".jbt-msg--bot .jbt-diff")).toContainText("I left out 1 suggestion");
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 test("Agent: when every suggestion is refused, the reply says none was a setting", async ({ page }) => {
@@ -483,7 +490,7 @@ test("Agent: when every suggestion is refused, the reply says none was a setting
   await expect(bot.locator(".jbt-diff")).toHaveCount(0);
   expect(ctx.posts).toHaveLength(0);
   expect(await tuneHistoryLength(page)).toBe(0);
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 test("Agent: the 503 not-connected card shows and nothing is applied", async ({ page }) => {
@@ -505,7 +512,7 @@ test("Agent: the 503 not-connected card shows and nothing is applied", async ({ 
   expect(await tuneHistoryLength(page)).toBe(0);
   await expect(page.locator('[data-jbt="review"]')).toBeHidden();
   expect(await page.evaluate(() => window.JobBoredLeads.profile().hardConstraints.workMode)).toBe("any");
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
 
 test("Keys: toggle Filters and Chat and reach the review bar without a mouse", async ({ page }) => {
@@ -558,5 +565,5 @@ test("Keys: toggle Filters and Chat and reach the review bar without a mouse", a
   await expect(page.locator('[data-jbt="review"]')).toBeHidden();
   expect(ctx.posts).toHaveLength(1);
   expect(ctx.posts[0].hardConstraints.salaryFloor).toBe(150000);
-  expectHermetic(ctx);
+  await expectHermetic(ctx);
 });
