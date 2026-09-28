@@ -98,6 +98,79 @@ function sandbox() {
   };
 }
 
+async function profileRequestWithPdf(provider) {
+  const restore = sandbox();
+  const oldFetch = globalThis.fetch;
+  let request = null;
+  const profileReply = {
+    version: 1,
+    identity: {},
+    strengths: [],
+    hardConstraints: {},
+    resumeFacts: { certifications: [], awards: [], projects: [], languages: [] },
+  };
+  globalThis.fetch = async (url, init) => {
+    request = { url: String(url), body: JSON.parse(String(init?.body || "{}")) };
+    if (provider === "gemini") return { ok: true, status: 200, json: async () => geminiReply(profileReply) };
+    if (provider === "anthropic") {
+      return {
+        ok: true,
+        status: 200,
+        json: async () => ({ stop_reason: "end_turn", content: [{ type: "text", text: JSON.stringify(profileReply) }] }),
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify(profileReply) } }] }),
+    };
+  };
+  try {
+    const baseUrl = provider === "gemini"
+      ? ""
+      : provider === "anthropic"
+        ? "https://api.anthropic.test/v1"
+        : "https://api.openai.test/v1";
+    await analyzeResume(INTERLEAVED, {
+      config: { provider, apiKey: "fictional-key", model: `${provider}-fixture`, baseUrl },
+      document: PDF_DOCUMENT,
+      structureCallStage: async () => INTERLEAVED_MODEL,
+    });
+    assert.ok(request, `${provider} profile facts call was not captured`);
+    return request.body;
+  } finally {
+    globalThis.fetch = oldFetch;
+    restore();
+  }
+}
+
+describe("P2 original PDF reaches profile-facts model calls", () => {
+  it("attaches a native PDF part to Gemini", async () => {
+    const body = await profileRequestWithPdf("gemini");
+    assert.ok(body.contents[0].parts.some((part) =>
+      part.inline_data?.mime_type === "application/pdf" && part.inline_data.data === PDF_DOCUMENT.data,
+    ));
+  });
+
+  it("attaches a native document block to Anthropic", async () => {
+    const body = await profileRequestWithPdf("anthropic");
+    const content = body.messages[0].content;
+    assert.ok(Array.isArray(content));
+    assert.ok(content.some((part) =>
+      part.type === "document" && part.source?.media_type === "application/pdf" && part.source.data === PDF_DOCUMENT.data,
+    ));
+  });
+
+  it("attaches a native file block to OpenAI", async () => {
+    const body = await profileRequestWithPdf("openai");
+    const content = body.messages[1].content;
+    assert.ok(Array.isArray(content));
+    assert.ok(content.some((part) =>
+      part.type === "file" && part.file?.file_data === `data:application/pdf;base64,${PDF_DOCUMENT.data}`,
+    ));
+  });
+});
+
 describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation", () => {
   it("I1 sends the original PDF and the model-sized structure budget to Gemini", async () => {
     const { fetchImpl, calls } = recordedFetch(geminiReply(INTERLEAVED_MODEL));
@@ -462,7 +535,27 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
     const restore = sandbox();
     const oldFetch = globalThis.fetch;
     let documentSeen;
-    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => geminiReply({ version: 1, identity: {}, strengths: [], hardConstraints: {} }) });
+    globalThis.fetch = async () => ({ ok: true, status: 200, json: async () => geminiReply({
+      version: 1,
+      identity: {},
+      strengths: [],
+      hardConstraints: {},
+      resumeFacts: {
+        summary: {
+          text: "MORGAN QUILL",
+          sourceQuote: "MORGAN QUILL",
+        },
+        skills: [{
+          text: "weekly client reviews",
+          kind: "hard",
+          sourceQuote: "Rebuilt seller coaching at Aster Vale Audio around weekly client reviews and shared forecasting.",
+        }],
+        certifications: [],
+        awards: [],
+        projects: [],
+        languages: [],
+      },
+    }) });
     try {
       const result = await analyzeResume(INTERLEAVED, {
         config: { provider: "gemini", apiKey: "fictional-key", model: "gemini-3.8-flash", baseUrl: "" },
@@ -478,6 +571,8 @@ describe("MREV INGEST I1-I7: model-first, quote-grounded resume interpretation",
       assert.equal(result.read.employers[0].roles[0].title, "Digital Sales Director");
       assert.equal(result.read.counts.employers, 3);
       assert.equal(result.read.counts.achievements, 7);
+      assert.equal(result.read.summary, "MORGAN QUILL");
+      assert.deepEqual(result.read.skills.hard, ["weekly client reviews"]);
       assert.deepEqual(documentSeen, PDF_DOCUMENT);
       assert.equal(result.read.ingest.status, "ready");
       assert.deepEqual(result.read.ingest.rejected, []);

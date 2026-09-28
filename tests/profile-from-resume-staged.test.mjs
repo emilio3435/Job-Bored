@@ -35,6 +35,114 @@ async function loadModule() {
 }
 
 describe("F2B-PROFILE02-RESUME — resolveResumeTextForAnalysis", () => {
+  it("P2 accepts only bounded, request-only PDF/DOCX document data", async () => {
+    const mod = await loadModule();
+    const data = Buffer.from("%PDF-1.7 fictional pdf bytes").toString("base64");
+    const accepted = mod.validateResumeDocument({
+      mimeType: "application/pdf",
+      filename: "fictional.pdf",
+      data,
+    });
+    assert.equal(accepted.ok, true);
+    assert.deepEqual(accepted.document, {
+      mimeType: "application/pdf",
+      filename: "fictional.pdf",
+      data,
+    });
+    const pdfWithTextMime = mod.validateResumeDocument({ mimeType: "text/plain", data });
+    assert.equal(pdfWithTextMime.ok, true);
+    assert.equal(pdfWithTextMime.document.mimeType, "application/pdf");
+    assert.equal(mod.validateResumeDocument({ mimeType: "application/pdf", data: "%%%" }).status, 400);
+    const over = "A".repeat(Math.ceil(mod.MAX_PROFILE_DOCUMENT_BYTES / 3) * 4 + 4);
+    assert.equal(mod.validateResumeDocument({ mimeType: "application/pdf", data: over }).status, 413);
+  });
+
+  it("P2 derives the server document type from its signature and rejects mislabeled bytes", async () => {
+    const mod = await loadModule();
+    const pdfData = Buffer.from("%PDF-1.7 fictional pdf bytes").toString("base64");
+    const pdfWithWrongMime = mod.validateResumeDocument({
+      mimeType: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+      filename: "fictional.docx",
+      data: pdfData,
+    });
+    assert.equal(pdfWithWrongMime.ok, true);
+    assert.equal(pdfWithWrongMime.document.mimeType, "application/pdf");
+
+    const docxData = Buffer.from([0x50, 0x4b, 0x03, 0x04, 0x14, 0x00]).toString("base64");
+    const docxWithWrongMime = mod.validateResumeDocument({
+      mimeType: "application/pdf",
+      filename: "fictional.pdf",
+      data: docxData,
+    });
+    assert.equal(docxWithWrongMime.ok, true);
+    assert.equal(
+      docxWithWrongMime.document.mimeType,
+      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    );
+
+    const falsePdf = mod.validateResumeDocument({
+      mimeType: "application/pdf",
+      filename: "fictional.pdf",
+      data: Buffer.from("not a PDF").toString("base64"),
+    });
+    assert.equal(falsePdf.ok, false);
+    assert.equal(falsePdf.status, 400);
+    assert.match(falsePdf.message, /PDF or DOCX/);
+  });
+
+  it("P2 rejects an oversized decoded file before allocating its Buffer", async () => {
+    const mod = await loadModule();
+    const base64 = Buffer.alloc(mod.MAX_PROFILE_DOCUMENT_BYTES + 1, 0x41).toString("base64");
+    const originalFrom = Buffer.from;
+    let decoded = false;
+    try {
+      Buffer.from = function (value, ...args) {
+        if (value === base64) decoded = true;
+        return originalFrom(value, ...args);
+      };
+      const result = mod.validateResumeDocument({ mimeType: "application/pdf", data: base64 });
+      assert.equal(result.ok, false);
+      assert.equal(result.status, 413);
+      assert.equal(decoded, false);
+    } finally {
+      Buffer.from = originalFrom;
+    }
+  });
+
+  it("P2 rejects a large Content-Length before invoking the route JSON parser", async () => {
+    const mod = await loadModule();
+    assert.equal(typeof mod.createProfileFromResumeJsonParser, "function");
+    let parserInvoked = false;
+    let nextInvoked = false;
+    let parserOptions;
+    const middleware = mod.createProfileFromResumeJsonParser((options) => {
+      parserOptions = options;
+      return (_req, _res, next) => {
+        parserInvoked = true;
+        next();
+      };
+    });
+    const res = {
+      statusCode: 0,
+      body: null,
+      status(code) { this.statusCode = code; return this; },
+      json(body) { this.body = body; return this; },
+    };
+
+    middleware(
+      { headers: { "content-length": String(mod.MAX_PROFILE_FROM_RESUME_BODY_BYTES + 1) } },
+      res,
+      () => { nextInvoked = true; },
+    );
+
+    assert.equal(parserOptions.limit, mod.MAX_PROFILE_FROM_RESUME_BODY_BYTES);
+    assert.ok(parserOptions.limit < 15 * 1024 * 1024);
+    assert.equal(parserInvoked, false);
+    assert.equal(nextInvoked, false);
+    assert.equal(res.statusCode, 413);
+    assert.equal(res.body.reason, "resume_file_too_large");
+  });
+
   it("prefers staged request resumeText over any other lookup location", async () => {
     const dir = mkdtempSync(join(tmpdir(), "jobbored-f2b-resume-"));
     temps.push(dir);

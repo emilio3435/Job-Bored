@@ -7,9 +7,8 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 /* ============================================================
    profile-draft-shared.js — the single source for Fit Profile
    drafting, consumed by the browser (B3 serverless fallback) and
-   the server (POST /profile/from-resume). These probes pin the
-   parser/clamp behavior AND the no-drift lock: the server module
-   must re-export these exact bindings, never a local copy.
+   the server (POST /profile/from-resume). These probes pin quote-grounded
+   model facts and the no-drift profile clamp shared by both paths.
    ============================================================ */
 
 const repoRoot = join(dirname(fileURLToPath(import.meta.url)), "..");
@@ -26,6 +25,7 @@ describe("profile-draft-shared · namespace", () => {
       "buildUserPrompt",
       "parseJsonSafe",
       "clampToUserProfile",
+      "validateResumeFacts",
     ]) {
       assert.ok(shared[key] !== undefined, key);
     }
@@ -44,6 +44,23 @@ describe("profile-draft-shared · buildUserPrompt", () => {
   it("clips past the cap with an omission note", () => {
     const prompt = shared.buildUserPrompt("x".repeat(60_005));
     assert.ok(prompt.includes("[resume truncated — 5 characters omitted]"));
+  });
+
+  it("keeps only quote-grounded model facts and never parses headings", () => {
+    const text = "Summary text.\nSQL\nAward of Merit\n";
+    const facts = shared.validateResumeFacts({
+      summary: { text: "Summary text.", sourceQuote: "Summary text." },
+      skills: [
+        { text: "SQL", kind: "tools", sourceQuote: "SQL" },
+        { text: "Kubernetes", kind: "tools", sourceQuote: "missing quote" },
+      ],
+      awards: [{ text: "Award of Merit", sourceQuote: "Award of Merit" }],
+    }, text);
+    assert.equal(facts.summary, "Summary text.");
+    assert.deepEqual(facts.skills.tools, ["SQL"]);
+    assert.deepEqual(facts.awards, ["Award of Merit"]);
+    assert.equal(facts.dropped, 1);
+    assert.equal(shared.readResumeLists, undefined, "the heuristic resume-list parser is retired");
   });
 });
 

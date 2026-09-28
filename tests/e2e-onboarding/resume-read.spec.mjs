@@ -27,10 +27,70 @@ import {
   startHermeticApp,
 } from "../e2e-fixtures/hermetic-harness.mjs";
 import { buildResumeRead } from "../../server/resume-read.mjs";
+import { validateModelStructure } from "../../server/materials-resume-structure-model.mjs";
 
 const RESUME = readFileSync(new URL("../fixtures/resumes/nested-roles-caps.txt", import.meta.url), "utf8");
 const MODEL = "example/model-1";
-const READ = buildResumeRead(RESUME, { by: { provider: "openrouter", model: MODEL } });
+const FACTS = {
+  contact: {
+    name: { text: "ALEX 'SANDY' MARTINEZ-QUINN", sourceQuote: "ALEX 'SANDY' MARTINEZ-QUINN" },
+    email: { text: "user@example.com", sourceQuote: "user@example.com" },
+    phone: { text: "555-555-0177", sourceQuote: "555-555-0177" },
+    location: { text: "Tucson, AZ", sourceQuote: "Tucson, AZ" },
+    links: [{ label: "LinkedIn", url: "linkedin.com/in/example-sandy", sourceQuote: "linkedin.com/in/example-sandy" }],
+  },
+  headline: { text: "Operations Leader", sourceQuote: "Operations Leader" },
+  summary: {
+    text: "Operations leader who builds go-to-market teams and the playbooks that keep them running.",
+    sourceQuote: "Operations leader who builds go-to-market teams and the playbooks that keep them running.",
+  },
+  skills: [
+    { text: "Operations strategy", kind: "hard", sourceQuote: "Operations strategy" },
+    { text: "Process improvement", kind: "hard", sourceQuote: "Process improvement" },
+    { text: "Budgeting", kind: "hard", sourceQuote: "Budgeting" },
+    { text: "Salesforce", kind: "tools", sourceQuote: "Salesforce" },
+    { text: "Excel", kind: "tools", sourceQuote: "Excel" },
+    { text: "Leadership", kind: "soft", sourceQuote: "Leadership" },
+    { text: "Negotiation", kind: "soft", sourceQuote: "Negotiation" },
+  ],
+  certifications: [
+    { text: "Lean Six Sigma Green Belt", sourceQuote: "Lean Six Sigma Green Belt" },
+    { text: "PMP", sourceQuote: "PMP" },
+  ],
+  awards: [{ text: "Tucson Business Journal 40 Under 40, 2021", sourceQuote: "Tucson Business Journal 40 Under 40, 2021" }],
+  projects: [],
+  languages: [
+    { text: "Spanish", sourceQuote: "Spanish" },
+    { text: "English", sourceQuote: "English" },
+  ],
+};
+const STRUCTURE = validateModelStructure({
+  employers: [{
+    name: "Contoso Health (formerly Litware Clinics)",
+    sourceQuote: "Contoso Health (formerly Litware Clinics) — Tucson, AZ Mar 2015 – Present",
+    start: "Mar 2015", startSourceQuote: "Mar 2015", end: "Present", endSourceQuote: "Present",
+    roles: [
+      { title: "Vice President, Operations", sourceQuote: "Vice President, Operations Jan 2022 – Present", start: "Jan 2022", startSourceQuote: "Jan 2022", end: "Present", endSourceQuote: "Present", claims: [
+        { text: "Grew clinic throughput 31% across 12 sites by redesigning scheduling and intake.", sourceQuote: "Grew clinic throughput 31% across 12 sites by redesigning scheduling and intake." },
+        { text: "Built a go-to-market plan for two new service lines that added $4.2M in first-year revenue.", sourceQuote: "Built a go-to-market plan for two new service lines that added $4.2M in first-year revenue." },
+      ] },
+      { title: "Director of Operations", sourceQuote: "Director of Operations Jun 2018 – Dec 2021", start: "Jun 2018", startSourceQuote: "Jun 2018", end: "Dec 2021", endSourceQuote: "Dec 2021", claims: [
+        { text: "Cut patient wait times from 42 to 18 minutes with a new triage workflow.", sourceQuote: "Cut patient wait times from 42 to 18 minutes with a new triage workflow." },
+      ] },
+      { title: "Operations Manager, Litware Clinics", sourceQuote: "Operations Manager, Litware Clinics Mar 2015 – May 2018", start: "Mar 2015", startSourceQuote: "Mar 2015", end: "May 2018", endSourceQuote: "May 2018", claims: [
+        { text: "Hired and trained 25 front-desk staff and wrote the onboarding handbook still in use.", sourceQuote: "Hired and trained 25 front-desk staff and wrote the onboarding handbook still in use." },
+      ] },
+    ],
+    claims: [],
+  }],
+  looseClaims: [],
+  education: [{ text: "MBA | Example Business School — Phoenix, AZ 2014", sourceQuote: "MBA | Example Business School — Phoenix, AZ 2014" }],
+  credentials: [
+    { text: "Lean Six Sigma Green Belt", sourceQuote: "Lean Six Sigma Green Belt" },
+    { text: "PMP", sourceQuote: "PMP" },
+  ],
+}, RESUME).structure;
+const READ = buildResumeRead(RESUME, { facts: FACTS, structure: STRUCTURE, by: { provider: "openrouter", model: MODEL } });
 const DONE_LINE =
   `Read by ${MODEL}: 3 roles across 1 employer, 4 achievements with numbers, 7 skills, ` +
   "education, certifications, awards, languages, links.";

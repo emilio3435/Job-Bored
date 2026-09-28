@@ -822,15 +822,15 @@
 
   /**
    * "Read by gemini-flash: 6 roles across 3 employers, 14 achievements with
-   * numbers, 22 skills, education, certifications, links." A rules-only
-   * read (no model) says so instead of claiming an AI read it.
+   * numbers, 22 skills, education, certifications, links." A browser-only
+   * model-fact projection names only the fields it actually interpreted.
    */
   function summaryLine(read) {
     if (!read || !read.counts) return "";
     var c = read.counts;
     var parts = [];
-    /* A browser-only read has no parser to confirm employers and roles, so
-     * it says when they get checked instead of claiming "0 roles". */
+    /* A browser-only read has no server structure result for employers and
+     * roles, so it says when those fields get checked. */
     var unchecked = read.experienceChecked === false;
     if (!unchecked) {
       parts.push(c.employers ? plural(c.roles, "role", "roles") + " across " + plural(c.employers, "employer", "employers") : "no work history found");
@@ -860,7 +860,7 @@
    * onboarding makes). Resolves { ok: true, read } or { ok: false, message,
    * locked } — locked means no provider is connected, so Try again cannot help.
    */
-  async function readWithAi(resumeText) {
+  async function readWithAi(resumeText, document) {
     var provider = verifiedProvider();
     if (!provider) {
       return {
@@ -870,6 +870,7 @@
       };
     }
     var payload = { resumeText: String(resumeText || "") };
+    if (document) payload.document = document;
     Object.keys(provider).forEach(function (k) {
       payload[k] = provider[k];
     });
@@ -883,13 +884,20 @@
       if (!res.ok || !data || data.ok !== true || !isObject(data.read)) {
         return {
           ok: false,
-          message: (data && (text(data.message) || text(data.error))) || "The reader answered HTTP " + res.status + ".",
+          message: document
+            ? "We couldn't read that file: try again or paste the text."
+            : (data && (text(data.message) || text(data.error))) || "The reader answered HTTP " + res.status + ".",
         };
       }
       announceRead(data.read);
       return { ok: true, read: data.read, profile: data.profile };
     } catch (_) {
-      return { ok: false, message: "Couldn't reach JobBored's local server. Start it, then press Try again." };
+      return {
+        ok: false,
+        message: document
+          ? "We couldn't read that file: try again or paste the text."
+          : "Couldn't reach JobBored's local server. Start it, then press Try again.",
+      };
     }
   }
 

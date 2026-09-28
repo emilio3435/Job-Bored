@@ -236,6 +236,7 @@ function makeHostDouble(overrides = {}) {
  *   host?: Record<string, unknown>,
  *   verifyProvider?: Function,
  *   extractTextFromFile?: Function,
+ *   documentForModel?: Function,
  *   extraFiles?: string[],
  * }} [options]
  */
@@ -299,6 +300,12 @@ export function loadArrival(options = {}) {
         return options.extractTextFromFile(file);
       }
       return `extracted:${(file && file.name) || "resume"}`;
+    },
+    async documentForModel(file) {
+      if (typeof options.documentForModel === "function") {
+        return options.documentForModel(file);
+      }
+      return null;
     },
   };
 

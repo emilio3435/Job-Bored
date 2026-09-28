@@ -78,9 +78,11 @@ import { saveResumeRead } from "./resume-read.mjs";
 import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
   analyzeResume,
+  createProfileFromResumeJsonParser,
   getStoredResumeText,
   parseProfileProviderConfigFromBody,
   resolveResumeTextForAnalysis,
+  validateResumeDocument,
 } from "./profile-from-resume.mjs";
 import {
   endRouteRescore,
@@ -336,7 +338,13 @@ app.use((req, res, next) => {
   }
   return next();
 });
-app.use(express.json({ limit: "2mb" }));
+const profileFromResumeJsonParser = createProfileFromResumeJsonParser((options) => express.json(options));
+app.use((req, res, next) => {
+  if (req.path === "/profile/from-resume") {
+    return profileFromResumeJsonParser(req, res, next);
+  }
+  return express.json({ limit: "2mb" })(req, res, next);
+});
 
 app.get("/health", (_req, res) => {
   const ats = getAtsConfigStatus();
@@ -798,6 +806,15 @@ const PROFILE_ROUTE_DEADLINE_MS = 180_000;
  * 500 { ok: false, reason: "profile_provider_error", message }
  */
 app.post("/profile/from-resume", async (req, res) => {
+  const requestBody = /** @type {Record<string, unknown> | undefined} */ (req.body);
+  const checkedDocument = validateResumeDocument(requestBody?.document);
+  if (!checkedDocument.ok) {
+    return res.status(checkedDocument.status).json({
+      ok: false,
+      reason: checkedDocument.reason,
+      message: checkedDocument.message,
+    });
+  }
   let stored;
   try {
     stored = await resolveResumeTextForAnalysis(req.body);
@@ -826,7 +843,11 @@ app.post("/profile/from-resume", async (req, res) => {
     const signal = routeDeadlineSignal(req, res, PROFILE_ROUTE_DEADLINE_MS);
     const { profile, read } = await analyzeResume(
       stored.text,
-      requestedConfig ? { config: requestedConfig, signal } : { signal },
+      {
+        ...(requestedConfig ? { config: requestedConfig } : {}),
+        ...(checkedDocument.document ? { document: checkedDocument.document } : {}),
+        signal,
+      },
     );
     // RESJ2-EXTRACT: keep what was read for the Settings panel.
     await saveResumeRead(read);
@@ -1387,10 +1408,17 @@ app.get("/api/applications/:slug/files/:filename", async (req, res) => {
   }
 });
 
-app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, _req, res, next) => {
+app.use(/** @type {import("express").ErrorRequestHandler} */ ((err, req, res, next) => {
   if (!err) return next();
   const error = /** @type {{ type?: unknown, status?: unknown, statusCode?: unknown }} */ (err);
   if (error.type === "entity.too.large") {
+    if (req.path === "/profile/from-resume") {
+      return res.status(413).json({
+        ok: false,
+        reason: "resume_file_too_large",
+        message: "This file is over the 10 MB limit. Choose a smaller file or paste the text instead.",
+      });
+    }
     return res.status(413).json({
       error: "Request body is too large.",
       code: "payload_too_large",
