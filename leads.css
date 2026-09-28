@@ -526,9 +526,16 @@ html body.jb-v2[data-jb-view="leads"]:has(#dashboard:not([style*="display: none"
   font-size: 12px;
 }
 
+/* Invisible means unclickable: a click on the row's trailing edge must
+   never delete a view the person could not see. */
+.jb-leads .jbl-view__delete {
+  pointer-events: none;
+}
+
 .jb-leads .jbl-view:hover .jbl-view__delete,
 .jb-leads .jbl-view__delete:focus-visible {
   opacity: 1;
+  pointer-events: auto;
 }
 
 .jb-leads .jbl-save-view {
@@ -1255,6 +1262,47 @@ html body.jb-v2[data-jb-view="leads"]:has(#dashboard:not([style*="display: none"
   .jb-leads .jbl-seg button,
   .jb-leads .jbl-view__open {
     min-height: 44px;
+  }
+
+  /* No hover on a phone: the delete control shows, takes clicks, and is
+     a full 44px target. */
+  .jb-leads .jbl-view__delete {
+    opacity: 1;
+    pointer-events: auto;
+    width: 44px;
+    height: 44px;
+  }
+
+  /* DESIGN §6: every target at least 44px. */
+  .jb-leads .jbl-chip button,
+  .jb-leads .jbl-search__clear,
+  .jb-leads .jbl-hidden-note .jbl-link,
+  .jb-leads .jbl-lens__hint .jbl-link,
+  .jb-leads .jbl-more,
+  .jb-leads .jbl-btn,
+  .jb-leads .jbl-chip--clear,
+  .jb-leads .jbl-save-view,
+  .jb-leads .jbl-company-filter {
+    min-height: 44px;
+    min-width: 44px;
+  }
+
+  .jb-leads .jbl-hidden-note .jbl-link,
+  .jb-leads .jbl-lens__hint .jbl-link,
+  .jb-leads .jbl-more {
+    display: inline-flex;
+    align-items: center;
+  }
+
+  .jb-leads .jbl-chip {
+    padding-block: 0;
+  }
+
+  .jb-leads .jbl-search__clear {
+    top: 0;
+    right: 0;
+    height: 44px;
+    background: transparent;
   }
 
   .jb-leads .jbl-colhead {

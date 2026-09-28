@@ -382,3 +382,157 @@ describe("Row actions", () => {
     assert.match(html, /data-act="star" aria-pressed="false" aria-label="Star RevOps Manager"/);
   });
 });
+
+/* ---------------- Grok LF review (VERDICT-GROK-LF.md) ---------------- */
+
+/** Minimal element: getAttribute over a plain map, plus `value`. */
+function fakeEl(attrs, value) {
+  return { getAttribute: (k) => (k in attrs ? attrs[k] : null), value };
+}
+
+/** The body of `@media (max-width: 900px) { ... }` in leads.css. */
+function phoneBlock(css) {
+  const start = css.indexOf("@media (max-width: 900px) {");
+  assert.ok(start >= 0, "leads.css has a 900px block");
+  let depth = 0;
+  for (let i = css.indexOf("{", start); i < css.length; i++) {
+    if (css[i] === "{") depth++;
+    if (css[i] === "}" && --depth === 0) return css.slice(start, i);
+  }
+  throw new Error("unbalanced 900px block");
+}
+
+describe("LF-1: focus survives a slot repaint", () => {
+  it("names the rebuilt control so paint can focus its replacement", () => {
+    const { leads } = setup();
+    const sel = leads.focusSelectorFor;
+    assert.equal(sel(fakeEl({ "data-min": "fitMin", "data-value": "7" })), '[data-min="fitMin"][data-value="7"]');
+    assert.equal(sel(fakeEl({ "data-facet": "workModes", value: "remote" }, "remote")), 'input[data-facet="workModes"][value="remote"]');
+    assert.equal(sel(fakeEl({ "data-lens": "Revenue Operations" })), '[data-lens="Revenue Operations"]');
+    assert.equal(sel(fakeEl({ "data-chip": "stages:New" })), '[data-chip="stages:New"]');
+    assert.equal(sel(fakeEl({ "data-view": "v1" })), '[data-view="v1"]');
+    assert.equal(sel(fakeEl({ "data-facet": "companies" }, 'Say "hi"')), 'input[data-facet="companies"][value="Say \\"hi\\""]');
+    assert.equal(sel(fakeEl({})), null, "anything else is not a repainted control");
+  });
+
+  it("the selector matches what the renderer writes, so the replacement is found", () => {
+    const { ctl, leads } = setup();
+    const parts = leads.render(ctl.model());
+    assert.match(parts.fit, /data-min="fitMin" data-value="7"/);
+    assert.match(parts.modes, /data-facet="workModes" value="remote"/);
+    assert.match(parts.lens, /data-lens="Revenue Operations"/);
+  });
+});
+
+describe("LF-2: an open row menu owns the keyboard", () => {
+  const base = { typing: false, modified: false, gPending: false, mode: "filters", inSearch: false, onRow: false };
+  it("letters and Enter do nothing to the lead behind the menu", () => {
+    const { leads } = setup();
+    for (const key of ["j", "k", "x", "f", "o", "d", "z", "/", "?", "g", "Enter"]) {
+      assert.equal(leads.routeKey({ ...base, key, menuOpen: true }), "none", key);
+    }
+    assert.equal(leads.routeKey({ ...base, key: "Escape", menuOpen: true }), "escape");
+    assert.equal(leads.routeKey({ ...base, key: "ArrowDown", menuOpen: true }), "menu-next");
+    assert.equal(leads.routeKey({ ...base, key: "ArrowUp", menuOpen: true }), "menu-prev");
+  });
+
+  it("with the menu closed the list keys act, and never while typing", () => {
+    const { leads } = setup();
+    assert.equal(leads.routeKey({ ...base, key: "x", menuOpen: false }), "dismiss");
+    assert.equal(leads.routeKey({ ...base, key: "j", menuOpen: false }), "next");
+    assert.equal(leads.routeKey({ ...base, key: "Enter", menuOpen: false, onRow: true }), "open");
+    assert.equal(leads.routeKey({ ...base, key: "x", menuOpen: false, typing: true }), "none");
+    assert.equal(leads.routeKey({ ...base, key: " ", menuOpen: false, onRow: true }), "none", "Space is never bound");
+  });
+});
+
+describe("LF-3 and LF-4: targets", () => {
+  const css = readRepoFile("leads.css");
+
+  it("the hidden saved-view delete takes no clicks until it shows", () => {
+    assert.match(css, /\.jb-leads \.jbl-view__delete \{\s*pointer-events: none;\s*\}/);
+    assert.match(css, /\.jb-leads \.jbl-view:hover \.jbl-view__delete,\s*\.jb-leads \.jbl-view__delete:focus-visible \{[^}]*pointer-events: auto;/);
+  });
+
+  it("at the sheet breakpoint the delete is visible, clickable and 44px", () => {
+    const phone = phoneBlock(css);
+    assert.match(phone, /\.jb-leads \.jbl-view__delete \{[^}]*opacity: 1;[^}]*pointer-events: auto;[^}]*width: 44px;[^}]*height: 44px;/);
+  });
+
+  it("every small control named in the review is at least 44px on a phone", () => {
+    const phone = phoneBlock(css);
+    const rule = phone.match(/([^{}]+)\{\s*min-height: 44px;\s*min-width: 44px;\s*\}/);
+    assert.ok(rule, "one 44px rule in the 900px block");
+    for (const sel of [".jbl-chip button", ".jbl-search__clear", ".jbl-hidden-note .jbl-link", ".jbl-btn", ".jbl-company-filter"]) {
+      assert.ok(rule[1].includes(`.jb-leads ${sel}`), sel);
+    }
+  });
+});
+
+describe("LF-5: the Undo toast", () => {
+  function fakeClock() {
+    let t = 0;
+    let seq = 0;
+    const timers = new Map();
+    return {
+      now: () => t,
+      set: (fn, ms) => { timers.set(++seq, { fn, at: t + ms }); return seq; },
+      clear: (id) => timers.delete(id),
+      advance(ms) {
+        t += ms;
+        for (const [id, tm] of [...timers]) if (tm.at <= t) { timers.delete(id); tm.fn(); }
+      },
+    };
+  }
+
+  it("lasts 6.5 s", () => {
+    const { leads } = setup();
+    assert.equal(leads.UNDO_TOAST_MS, 6500);
+    const clock = fakeClock();
+    let done = 0;
+    leads.pausableTimer(leads.UNDO_TOAST_MS, () => done++, clock);
+    clock.advance(6499);
+    assert.equal(done, 0);
+    clock.advance(1);
+    assert.equal(done, 1);
+  });
+
+  it("pauses while hovered or focused and resumes with the time it had left", () => {
+    const { leads } = setup();
+    const clock = fakeClock();
+    let done = 0;
+    const timer = leads.pausableTimer(6500, () => done++, clock);
+    clock.advance(3000);
+    timer.hold("hover");
+    timer.hold("focus");
+    clock.advance(20000);
+    assert.equal(done, 0, "held: never dismissed");
+    timer.release("hover");
+    clock.advance(20000);
+    assert.equal(done, 0, "still focused");
+    timer.release("focus");
+    clock.advance(3499);
+    assert.equal(done, 0);
+    clock.advance(1);
+    assert.equal(done, 1);
+  });
+
+  it("the app host asks for a persistent toast and wires hover and focus to the timer", () => {
+    const { leads, win } = setup();
+    const listeners = {};
+    const node = { addEventListener: (type, fn) => { listeners[type] = fn; }, contains: () => false };
+    const calls = [];
+    win.document.getElementById = (id) => (id === "toastContainer" ? { lastElementChild: node } : null);
+    win.showToast = (...args) => { calls.push(args); return () => calls.push(["dismissed"]); };
+    leads.appHost().toast("Starred X", () => {});
+    assert.equal(calls.length, 1);
+    assert.equal(calls[0][2], true, "persistent: leads.js owns the 6.5 s timer, not the app's 3 s");
+    assert.equal(calls[0][3].label, "Undo");
+    assert.deepEqual(Object.keys(listeners).sort(), ["focusin", "focusout", "mouseenter", "mouseleave"]);
+    listeners.mouseenter();
+    listeners.focusin();
+    listeners.focusout({ relatedTarget: null });
+    listeners.mouseleave();
+    assert.equal(calls.length, 1, "not dismissed synchronously");
+  });
+});

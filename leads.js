@@ -967,9 +967,135 @@
       },
       toast: function (message, undo) {
         if (typeof root.showToast !== "function") return null;
-        return root.showToast(message, "info", false, undo ? { label: "Undo", onClick: undo } : undefined);
+        if (undo) return undoToast(message, undo);
+        return root.showToast(message, "info", false);
       },
     };
+  }
+
+  /* ------------------------------------------------------------
+     Focus, keys and toast timing (pure; the DOM glue calls these)
+     ------------------------------------------------------------ */
+
+  function attrValue(value) {
+    return String(value).replace(/["\\]/g, "\\$&");
+  }
+
+  /**
+   * A selector that finds `el`'s replacement after a slot repaint, or null
+   * when `el` is not a control the renderers rebuild (rows are handled
+   * separately, by key).
+   */
+  function focusSelectorFor(el) {
+    if (!el || typeof el.getAttribute !== "function") return null;
+    var get = function (name) { return el.getAttribute(name); };
+    if (get("data-min") !== null) return '[data-min="' + attrValue(get("data-min")) + '"][data-value="' + attrValue(get("data-value")) + '"]';
+    if (get("data-facet") !== null) return 'input[data-facet="' + attrValue(get("data-facet")) + '"][value="' + attrValue(el.value != null ? el.value : get("value")) + '"]';
+    if (get("data-lens") !== null) return '[data-lens="' + attrValue(get("data-lens")) + '"]';
+    if (get("data-view") !== null) return '[data-view="' + attrValue(get("data-view")) + '"]';
+    if (get("data-chip") !== null) return '[data-chip="' + attrValue(get("data-chip")) + '"]';
+    if (get("data-hidden") !== null) return "[data-hidden]";
+    if (get("data-company-all") !== null) return "[data-company-all]";
+    if (get("data-view-delete") !== null) return '[data-jbl="save-view"]';
+    return null;
+  }
+
+  /**
+   * What a keydown does on the Leads view. `ctx`: { key, typing, modified,
+   * menuOpen, gPending, mode, inSearch, onRow }. While the row menu is open
+   * only Escape and the menu's own arrow keys act, so a letter never hits
+   * the lead behind it.
+   */
+  function routeKey(ctx) {
+    var key = ctx.key;
+    if (key === "Escape") return "escape";
+    if (ctx.menuOpen) {
+      if (key === "ArrowDown") return "menu-next";
+      if (key === "ArrowUp") return "menu-prev";
+      if (key === "Home") return "menu-first";
+      if (key === "End") return "menu-last";
+      return "none";
+    }
+    if (ctx.inSearch && (key === "ArrowDown" || key === "Enter")) return "search-to-list";
+    if (ctx.typing || ctx.modified) return "none";
+    if (ctx.gPending) {
+      if (key === "f") return "mode-filters";
+      if (key === "c" || key === "t") return "mode-chat";
+    }
+    if (key === "g") return "g";
+    if (ctx.mode !== "filters") return "none";
+    if (key === "?") return "help";
+    if (key === "/") return "search";
+    if (key === "z") return "undo";
+    if (key === "j" || (key === "ArrowDown" && ctx.onRow)) return "next";
+    if (key === "k" || (key === "ArrowUp" && ctx.onRow)) return "prev";
+    if (key === "o" || (key === "Enter" && ctx.onRow)) return "open";
+    if (key === "f") return "star";
+    if (key === "x") return "dismiss";
+    if (key === "d") return "draft";
+    return "none";
+  }
+
+  var UNDO_TOAST_MS = 6500;
+
+  /**
+   * A timeout that pauses while anything holds it (hover, focus) and
+   * resumes with the time it had left.
+   */
+  function pausableTimer(ms, done, clock) {
+    var c = clock || { set: setTimeout, clear: clearTimeout, now: function () { return Date.now(); } };
+    var remaining = ms;
+    var startedAt = 0;
+    var handle = null;
+    var holds = {};
+    var finished = false;
+    function run() {
+      startedAt = c.now();
+      handle = c.set(function () { finished = true; handle = null; done(); }, remaining);
+    }
+    function held() { return Object.keys(holds).some(function (k) { return holds[k]; }); }
+    run();
+    return {
+      hold: function (reason) {
+        if (finished || holds[reason]) return;
+        var wasHeld = held();
+        holds[reason] = true;
+        if (!wasHeld && handle !== null) {
+          c.clear(handle);
+          handle = null;
+          remaining = Math.max(0, remaining - (c.now() - startedAt));
+        }
+      },
+      release: function (reason) {
+        if (finished || !holds[reason]) return;
+        holds[reason] = false;
+        if (!held()) run();
+      },
+      cancel: function () {
+        finished = true;
+        if (handle !== null) c.clear(handle);
+        handle = null;
+      },
+      remaining: function () { return handle !== null ? Math.max(0, remaining - (c.now() - startedAt)) : remaining; },
+    };
+  }
+
+  /** An Undo toast that stays 6.5 s and pauses while hovered or focused (DESIGN §6). */
+  function undoToast(message, undo) {
+    var d = root.document;
+    var container = d && d.getElementById ? d.getElementById("toastContainer") : null;
+    var dismiss = root.showToast(message, "info", true, { label: "Undo", onClick: undo });
+    var node = container && container.lastElementChild;
+    var timer = pausableTimer(UNDO_TOAST_MS, function () { if (typeof dismiss === "function") dismiss(); });
+    if (node && typeof node.addEventListener === "function") {
+      node.addEventListener("mouseenter", function () { timer.hold("hover"); });
+      node.addEventListener("mouseleave", function () { timer.release("hover"); });
+      node.addEventListener("focusin", function () { timer.hold("focus"); });
+      node.addEventListener("focusout", function (e) {
+        if (!e.relatedTarget || !node.contains(e.relatedTarget)) timer.release("focus");
+      });
+    }
+    return dismiss;
   }
 
   function loadProfile() {
@@ -1039,6 +1165,9 @@
     var focused = d && d.activeElement;
     var focusedRow = focused && typeof focused.closest === "function" ? focused.closest(".jbl-row") : null;
     var focusKey = focusedRow && page.region.contains(focusedRow) ? focusedRow.getAttribute("data-key") : null;
+    /* ...and on the same control (a lens tab, segment, checkbox, chip or
+       saved view) when the slot it sits in is rebuilt. */
+    var focusSel = !focusedRow && focused && page.region.contains(focused) ? focusSelectorFor(focused) : null;
     var m = page.ctl.model();
     var extra = m.status === "no-match" ? { loosen: page.ctl.loosenOptions() } : null;
     var parts = render(m, extra);
@@ -1076,6 +1205,12 @@
         again.tabIndex = 0;
         again.classList.add("is-active");
         try { again.focus({ preventScroll: true }); } catch (_) { again.focus(); }
+      }
+    }
+    if (focusSel && !page.region.contains(d.activeElement)) {
+      var control = page.region.querySelector(focusSel) || page.region.querySelector("#leadsSearch");
+      if (control) {
+        try { control.focus({ preventScroll: true }); } catch (_) { control.focus(); }
       }
     }
     if (reason === "lens" && page.lastLens !== m.view.lens) announce(slot("count").textContent);
@@ -1362,55 +1497,83 @@
     return /^(INPUT|TEXTAREA|SELECT)$/.test(tag) || !!t.isContentEditable;
   }
 
+  function menuItems() {
+    var menu = slot("menu");
+    return menu ? Array.prototype.slice.call(menu.querySelectorAll("button, select")) : [];
+  }
+
+  function focusMenuItem(which) {
+    var items = menuItems();
+    if (!items.length) return;
+    var d = root.document;
+    var at = items.indexOf(d.activeElement);
+    var next = which === "first" ? 0 : which === "last" ? items.length - 1
+      : which === "next" ? (at + 1) % items.length : (at - 1 + items.length) % items.length;
+    items[next].focus();
+  }
+
   function onKeydown(e) {
     if (!page.region || !viewIsLeads()) return;
     var t = e.target;
-    if (e.key === "Escape") {
-      if (closeMenu(true)) { e.preventDefault(); return; }
-      var rail = slot("rail");
-      if (rail && rail.classList.contains("is-open")) { setRail(false); e.preventDefault(); return; }
-      if (t && t.id === "leadsSearch") {
-        if (t.value) { t.value = ""; page.ctl.setQuery(""); syncSearchChrome(); } else t.blur();
-        e.preventDefault();
+    var cur = t && typeof t.closest === "function" ? t.closest(".jbl-row") : null;
+    var action = routeKey({
+      key: e.key,
+      typing: isTyping(t),
+      modified: !!(e.metaKey || e.ctrlKey || e.altKey),
+      menuOpen: page.menuFor !== null,
+      gPending: page.gPending,
+      mode: page.ctl.getMode(),
+      inSearch: !!(t && t.id === "leadsSearch"),
+      onRow: !!cur && cur === t,
+    });
+    if (page.gPending && action !== "g") page.gPending = false;
+    switch (action) {
+      case "escape": {
+        if (closeMenu(true)) { e.preventDefault(); return; }
+        var rail = slot("rail");
+        if (rail && rail.classList.contains("is-open")) { setRail(false); e.preventDefault(); return; }
+        if (t && t.id === "leadsSearch") {
+          if (t.value) { t.value = ""; page.ctl.setQuery(""); syncSearchChrome(); } else t.blur();
+          e.preventDefault();
+        }
+        return;
       }
-      return;
+      case "menu-next": e.preventDefault(); focusMenuItem("next"); return;
+      case "menu-prev": e.preventDefault(); focusMenuItem("prev"); return;
+      case "menu-first": e.preventDefault(); focusMenuItem("first"); return;
+      case "menu-last": e.preventDefault(); focusMenuItem("last"); return;
+      case "search-to-list": {
+        var firstRow = rows()[0];
+        if (firstRow) { e.preventDefault(); focusRow(firstRow); }
+        return;
+      }
+      case "mode-filters": setMode("filters", { focus: true }); return;
+      case "mode-chat": setMode("chat", { focus: true }); return;
+      case "g":
+        page.gPending = true;
+        root.setTimeout(function () { page.gPending = false; }, 800);
+        return;
+      case "help": {
+        var keys = slot("keys-dialog");
+        if (keys && typeof keys.showModal === "function") { e.preventDefault(); keys.showModal(); }
+        return;
+      }
+      case "search": {
+        e.preventDefault();
+        var q = page.region.querySelector("#leadsSearch");
+        if (q) q.focus();
+        return;
+      }
+      case "undo": page.ctl.undo(); return;
+      case "none": return;
+      default: break;
     }
-    if (t && t.id === "leadsSearch" && (e.key === "ArrowDown" || e.key === "Enter")) {
-      var firstRow = rows()[0];
-      if (firstRow) { e.preventDefault(); focusRow(firstRow); }
-      return;
-    }
-    if (isTyping(t) || e.metaKey || e.ctrlKey || e.altKey) return;
-    if (page.gPending) {
-      page.gPending = false;
-      if (e.key === "f") { setMode("filters", { focus: true }); return; }
-      if (e.key === "c" || e.key === "t") { setMode("chat", { focus: true }); return; }
-    }
-    if (e.key === "g") {
-      page.gPending = true;
-      root.setTimeout(function () { page.gPending = false; }, 800);
-      return;
-    }
-    if (page.ctl.getMode() !== "filters") return;
-    if (e.key === "?") {
-      var keys = slot("keys-dialog");
-      if (keys && typeof keys.showModal === "function") { e.preventDefault(); keys.showModal(); }
-      return;
-    }
-    if (e.key === "/") {
-      e.preventDefault();
-      var q = page.region.querySelector("#leadsSearch");
-      if (q) q.focus();
-      return;
-    }
-    if (e.key === "z") { page.ctl.undo(); return; }
     var list = rows();
     if (!list.length) return;
-    var cur = t && typeof t.closest === "function" ? t.closest(".jbl-row") : null;
     var activeKey = page.ctl.getState().activeKey;
     var idx = cur ? list.indexOf(cur) : list.findIndex(function (r) { return Number(r.getAttribute("data-key")) === activeKey; });
-    if (e.key === "j" || (e.key === "ArrowDown" && cur)) { e.preventDefault(); focusRow(list[Math.min(list.length - 1, idx + 1)]); return; }
-    if (e.key === "k" || (e.key === "ArrowUp" && cur)) {
+    if (action === "next") { e.preventDefault(); focusRow(list[Math.min(list.length - 1, idx + 1)]); return; }
+    if (action === "prev") {
       e.preventDefault();
       if (idx <= 0) { var search = page.region.querySelector("#leadsSearch"); if (search) search.focus(); return; }
       focusRow(list[idx - 1]);
@@ -1418,10 +1581,10 @@
     }
     if (idx < 0) return;
     var key = Number(list[idx].getAttribute("data-key"));
-    if (e.key === "o" || (e.key === "Enter" && cur === e.target)) { e.preventDefault(); runAct("open", key); }
-    else if (e.key === "f") runAct("star", key);
-    else if (e.key === "x") runAct("dismiss", key);
-    else if (e.key === "d") runAct("draft", key);
+    if (action === "open") { e.preventDefault(); runAct("open", key); }
+    else if (action === "star") runAct("star", key);
+    else if (action === "dismiss") runAct("dismiss", key);
+    else if (action === "draft") runAct("draft", key);
   }
 
   function onSaveDialogClose() {
@@ -1509,6 +1672,10 @@
     MODES: MODES.slice(),
     MODE_EVENT: MODE_EVENT,
     createController: createController,
+    focusSelectorFor: focusSelectorFor,
+    routeKey: routeKey,
+    pausableTimer: pausableTimer,
+    UNDO_TOAST_MS: UNDO_TOAST_MS,
     render: render,
     shellHtml: shellHtml,
     chipsFor: chipsFor,
