@@ -120,6 +120,9 @@
   /** Every field name the agent may name (LT-ALLOW). */
   var ALLOWLIST = FIELDS.map(function (f) { return f.path; }).concat(VIEW_FIELDS.map(function (f) { return "view." + f.key; }));
 
+  /* Profile fields discoveryPatch also writes into the discovery profile. */
+  var MIRRORED_KEYS = ["targetRoles", "targetSeniority", "workMode", "acceptableLocations"];
+
   var PROFILE_KEYS = FIELDS.filter(function (f) { return f.where === "profile"; }).map(function (f) { return f.key; });
 
   var SOURCE_LABELS = {
@@ -660,6 +663,7 @@
       mtab: "controls",
       side: "ask",
       reviewOpen: false,
+      pendingDiscovery: null,
     };
     state.draft = clone(state.settings);
 
@@ -757,8 +761,11 @@
      */
     function saveSettings(rows, next) {
       var keys = rows.map(function (r) { return r.key; });
+      var discoveryKeys = keys.filter(function (k) { return FIELD[k].where === "discovery"; });
+      var mirrorKeys = keys.filter(function (k) { return MIRRORED_KEYS.indexOf(k) >= 0; });
       var profileKeys = keys.filter(function (k) { return PROFILE_KEYS.indexOf(k) >= 0; });
       var doc;
+      var mirror = null;
       return Promise.resolve()
         .then(function () { return host.getProfile(); })
         .then(function (res) {
@@ -782,16 +789,22 @@
           return Promise.resolve()
             .then(function () { return host.getDiscoveryProfile(); })
             .then(function (cur) {
-              var partial = discoveryPatch(cur || state.discovery, next, keys);
-              if (!Object.keys(partial).length) return cur || state.discovery;
+              var base = cur || state.discovery;
+              /* LT-MIRROR: a mirror that failed last time is resent first;
+                 this save's own keys win over it. */
+              mirror = Object.assign({}, state.pendingDiscovery || {}, discoveryPatch(base, next, mirrorKeys));
+              var partial = Object.assign({}, mirror, discoveryPatch(base, next, discoveryKeys));
+              if (!Object.keys(partial).length) return base;
               return host.saveDiscoveryProfile(partial);
             })
             .then(function (saved) {
               state.discovery = saved || state.discovery;
+              state.pendingDiscovery = null;
               return { ok: true };
             }, function (err) {
-              var failedKeys = keys.filter(function (k) { return FIELD[k].where === "discovery"; });
-              return { ok: true, failedKeys: failedKeys, discoveryError: "Saved your profile, but couldn't save the discovery settings: " + String((err && err.message) || "storage error").replace(/\.\s*$/, "") + ". They're still in your unapplied changes." };
+              var why = String((err && err.message) || "storage error").replace(/\.\s*$/, "");
+              state.pendingDiscovery = mirror && Object.keys(mirror).length ? mirror : null;
+              return { ok: true, failedKeys: discoveryKeys, discoveryReason: why };
             });
         });
     }
@@ -829,6 +842,13 @@
         var failed = out.failedKeys || [];
         var saved = picked.filter(function (r) { return !(r.kind === "setting" && failed.indexOf(r.key) >= 0); });
         var savedSettings = saved.filter(function (r) { return r.kind === "setting"; });
+        /* LT-DISC: nothing was saved, so nothing applied: no history, no
+           success, and the rows stay drafted (or the card stays open). */
+        if (!saved.length) {
+          state.saveError = "Couldn't save the discovery settings: " + out.discoveryReason + ". Nothing changed.";
+          emit("save-error");
+          return { ok: false, message: state.saveError };
+        }
         var nextSettings = clone(res.settings);
         failed.forEach(function (k) { nextSettings[k] = clone(state.settings[k]); });
         var afterCount = visible(nextSettings, res.view);
@@ -843,8 +863,23 @@
           var r = picked.filter(function (x) { return x.kind === "setting" && x.key === k; })[0];
           if (r) keep[k] = clone(r.after);
         });
+        /* LT-DRAFT: a derived union row saved the union; pending edits to
+           that list stay drafted on top of it. */
+        savedSettings.filter(function (r) { return r.derived; }).forEach(function (r) {
+          var pending = state.draft[r.key];
+          var was = r.before;
+          if (same(pending, was)) return;
+          var added = pending.filter(function (x) { return lowerIndex(was, x) < 0; });
+          var removed = was.filter(function (x) { return lowerIndex(pending, x) < 0; });
+          keep[r.key] = unionCI(nextSettings[r.key].filter(function (x) { return lowerIndex(removed, x) < 0; }), added);
+        });
         state.draft = keep;
-        state.saveError = out.discoveryError || "";
+        state.saveError = "";
+        if (out.discoveryReason) {
+          var left = failed.length ? " Those settings are still in your unapplied changes." : "";
+          var retry = state.pendingDiscovery ? " Your profile was saved; discovery will get it on the next save, or choose Retry." : "";
+          state.saveError = "Couldn't save the discovery settings: " + out.discoveryReason + "." + left + retry;
+        }
         if (savedSettings.length && host.publishProfile) {
           var p = Object.assign({}, state.doc || {});
           p.discoveryProfile = state.discovery;
@@ -957,6 +992,33 @@
         emit("draft");
       },
       reviewRows: function () { return changeRows(state.settings, state.draft); },
+      /** LT-MIRROR: resend the discovery mirror a failed save left behind. */
+      retryDiscovery: function () {
+        var pending = state.pendingDiscovery;
+        if (!pending || state.saving) return Promise.resolve({ ok: false });
+        state.saving = true;
+        emit("saving");
+        return Promise.resolve()
+          .then(function () { return host.saveDiscoveryProfile(pending); })
+          .then(function (saved) {
+            state.saving = false;
+            state.discovery = saved || state.discovery;
+            state.pendingDiscovery = null;
+            state.saveError = "";
+            if (host.publishProfile) {
+              var p = Object.assign({}, state.doc || {});
+              p.discoveryProfile = state.discovery;
+              host.publishProfile(p);
+            }
+            emit("draft");
+            return { ok: true };
+          }, function (err) {
+            state.saving = false;
+            state.saveError = "Couldn't save the discovery settings: " + String((err && err.message) || "storage error").replace(/\.\s*$/, "") + ". Your profile was saved; choose Retry to try again.";
+            emit("save-error");
+            return { ok: false, message: state.saveError };
+          });
+      },
       applyDraft: function () {
         var rows = changeRows(state.settings, state.draft);
         return commit(rows, null, { by: "You", summary: summaryFor(rows) }).then(function (out) {
@@ -1279,11 +1341,11 @@
   function renderReview(tune) {
     var st = tune.getState();
     var rows = tune.reviewRows();
-    if (!rows.length && !st.saveError) return { on: false, html: "" };
+    if (!rows.length && !st.saveError && !st.pendingDiscovery) return { on: false, html: "" };
     var before = tune.visible(st.settings);
     var after = tune.visible(Object.assign({}, st.settings, effectiveDraft(st.settings, st.draft)));
     var runs = rows.filter(function (r) { return r.scope.indexOf("runs") >= 0; }).length;
-    var title = rows.length ? plural(rows.length, "unapplied change") : "Changes saved with a problem";
+    var title = rows.length ? plural(rows.length, "unapplied change") : st.pendingDiscovery ? "Discovery settings not saved yet" : "Changes saved with a problem";
     var sub = rows.length
       ? "Find: " + countText(before) + " → " + countText(after) + " leads · Future runs: " + (runs ? plural(runs, "setting") + " change" : "no change")
       : "";
@@ -1297,7 +1359,9 @@
           '<button type="button" class="jbl-btn" data-jbt-act="review" data-fk="rv:review">Review</button>' +
           '<button type="button" class="jbl-btn jbl-btn--primary" data-jbt-act="apply" data-fk="rv:apply"' + (tune.editable() ? "" : " disabled") + ">" + (st.saving ? "Saving…" : "Apply changes") + "</button>" +
           "</div>"
-        : '<div class="jbt-review__acts"><button type="button" class="jbl-btn" data-jbt-act="dismiss-error" data-fk="rv:dismiss">OK</button></div>');
+        : '<div class="jbt-review__acts">' +
+          (st.pendingDiscovery ? '<button type="button" class="jbl-btn jbl-btn--primary" data-jbt-act="retry-discovery" data-fk="rv:retry"' + (st.saving ? " disabled" : "") + ">Retry</button>" : "") +
+          (st.pendingDiscovery ? "" : '<button type="button" class="jbl-btn" data-jbt-act="dismiss-error" data-fk="rv:dismiss">OK</button>') + "</div>");
     return { on: true, html: html };
   }
 
@@ -1719,6 +1783,7 @@
       else if (act === "apply") apply();
       else if (act === "close-review") { var dlg = slot("review-dialog"); if (dlg && dlg.open) dlg.close(); }
       else if (act === "dismiss-error") { tune.getState().saveError = ""; paint("draft"); }
+      else if (act === "retry-discovery") tune.retryDiscovery();
       return;
     }
     if ((b = t.closest("[data-jbt-suggest]"))) { tune.ask(SUGGESTIONS[Number(b.getAttribute("data-jbt-suggest"))]); return; }

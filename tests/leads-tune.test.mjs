@@ -246,6 +246,58 @@ describe("leads-tune: LT-SAVE", () => {
     assert.deepEqual(host.calls.saveDiscovery, [{ seniority: "ic_mid" }], "the enum, never the label \"Mid\"");
   });
 
+  it("a discovery-only save that rejects is not a success: no history, no toast, the card stays open (LT-DISC r2)", async () => {
+    const t = { propose: () => Promise.resolve({ ok: true, reply: "ok", changes: [{ field: "discoveryProfile.companyBlocklist", op: "add", value: ["Globex"] }] }) };
+    const { tune, host, store } = await ready(null, { transport: t });
+    host.saveDiscoveryProfile = () => Promise.reject(new Error("IndexedDB is full"));
+    tune.addItem("companyBlocklist", "Initech");
+    const hand = await tune.applyDraft();
+    assert.equal(hand.ok, false);
+    assert.equal(host.calls.toasts.length, 0, "no \"Applied 0 changes\" toast");
+    assert.deepEqual(plain(tune.reviewRows().map((r) => r.key)), ["companyBlocklist"], "still drafted");
+    tune.discard();
+    const bot = await tune.ask("x");
+    const card = await tune.applyProposal(bot.id);
+    assert.equal(card.ok, false);
+    assert.equal(bot.proposal.status, "open");
+    assert.match(bot.proposal.error, /^Couldn't save the discovery settings: IndexedDB is full\. Nothing changed\.$/);
+    assert.equal((await store.listHistory()).length, 0, "no empty history entry");
+  });
+
+  it("keeps a failed discovery mirror of saved profile fields and resends it (LT-MIRROR)", async () => {
+    const { tune, host, tuneApi } = await ready();
+    const real = host.saveDiscoveryProfile;
+    host.saveDiscoveryProfile = () => Promise.reject(new Error("IndexedDB is full"));
+    tune.setDraft("targetSeniority", "ic_mid");
+    const out = await tune.applyDraft();
+    assert.equal(out.ok, true, "the profile itself saved");
+    assert.equal(host.calls.sync[0].identity.targetSeniority, "ic_mid");
+    const st = tune.getState();
+    assert.deepEqual(plain(st.pendingDiscovery), { seniority: "ic_mid" }, "the mirror is kept, not dropped");
+    assert.doesNotMatch(st.saveError, /still in your unapplied changes/, "nothing is left in the draft, so it doesn't say so");
+    assert.match(st.saveError, /choose Retry/);
+    assert.match(tuneApi.render(tune).review.html, /data-jbt-act="retry-discovery"/);
+    host.saveDiscoveryProfile = real;
+    tune.setDraft("salaryFloor", "150000");
+    await tune.applyDraft();
+    assert.deepEqual(host.calls.saveDiscovery, [{ seniority: "ic_mid" }], "the next save resends the pending mirror");
+    assert.equal(tune.getState().pendingDiscovery, null);
+    assert.equal(host.calls.published.at(-1).discoveryProfile.seniority, "ic_mid", "Filters gets the fixed mirror");
+  });
+
+  it("Retry resends the pending mirror on its own", async () => {
+    const { tune, host } = await ready();
+    const real = host.saveDiscoveryProfile;
+    host.saveDiscoveryProfile = () => Promise.reject(new Error("busy"));
+    tune.addItem("targetRoles", "VP Revenue Operations");
+    await tune.applyDraft();
+    host.saveDiscoveryProfile = real;
+    const r = await tune.retryDiscovery();
+    assert.equal(r.ok, true);
+    assert.deepEqual(host.calls.saveDiscovery, [{ targetRoles: "Director, Revenue Operations, RevOps Manager, VP Revenue Operations" }]);
+    assert.equal(tune.getState().saveError, "");
+  });
+
   it("keeps discovery fields drafted and out of history when saveDiscoveryProfile rejects (LT-DISC)", async () => {
     const { tune, host, store } = await ready();
     host.saveDiscoveryProfile = () => Promise.reject(new Error("IndexedDB is full"));
@@ -259,7 +311,8 @@ describe("leads-tune: LT-SAVE", () => {
     assert.deepEqual(plain(tune.reviewRows().map((r) => r.key)), ["companyBlocklist"], "it stays in the draft");
     const history = await store.listHistory();
     assert.deepEqual(plain(history[0].rows.map((r) => r.key)), ["salaryFloor"], "history holds only what was saved");
-    assert.match(st.saveError, /couldn't save the discovery settings: IndexedDB is full\. They're still in your unapplied changes\./);
+    assert.equal(st.saveError, "Couldn't save the discovery settings: IndexedDB is full. Those settings are still in your unapplied changes.", "no retry sentence: nothing mirrored was left pending");
+    assert.equal(st.pendingDiscovery, null);
   });
 
   it("saves boards as sourcePreset and groundedWebEnabled, never enabledSources", async () => {
@@ -433,6 +486,19 @@ describe("leads-tune: the agent transport", () => {
     const out = await second.tune.applyProposal(bot2.id);
     assert.deepEqual(second.host.calls.saveDiscovery, [{ keywordsExclude: "intern, staffing, SDR" }], "a ticked skip title is unioned at save time");
     assert.deepEqual(plain(out.entry.rows.map((r) => r.key)), ["skipTitles", "keywordsExclude"], "history records the union");
+  });
+
+  it("a derived skip-title union keeps a pending exclude edit drafted on top (LT-DRAFT)", async () => {
+    const t = { propose: () => Promise.resolve({ ok: true, reply: "ok", changes: [{ field: "hardConstraints.skipTitles", op: "add", value: ["SDR"] }] }) };
+    const { tune, host } = await ready(null, { transport: t });
+    tune.addItem("keywordsExclude", "agency");
+    const bot = await tune.ask("x");
+    await tune.applyProposal(bot.id);
+    assert.deepEqual(host.calls.saveDiscovery, [{ keywordsExclude: "intern, staffing, SDR" }], "the saved union holds only committed items");
+    const st = tune.getState();
+    assert.deepEqual(plain(st.settings.keywordsExclude), ["intern", "staffing", "SDR"]);
+    assert.deepEqual(plain(st.draft.keywordsExclude), ["intern", "staffing", "SDR", "agency"], "the pending agency edit survives");
+    assert.deepEqual(plain(tune.reviewRows().map((r) => r.key)), ["keywordsExclude"]);
   });
 
   it("rejects a reply that is not the contract shape", async () => {
