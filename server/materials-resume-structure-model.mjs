@@ -260,7 +260,9 @@ function validateQuotedStructure(body, resumeText) {
       if (!title) continue;
       if (ownerAt(title.at) !== entry) { reject("role", rawRole.title, "unsupported_employer_attribution"); continue; }
       const sourceLine = sourceLines.find((line) => line.at <= title.at && title.at < line.end);
-      const parsedTitle = sourceLine ? parseHeaderLine(sourceLine.line)?.title : "";
+      const employerHeader = parseHeaderLine(String(raw.sourceQuote).split(/\r?\n/)[0]);
+      const inUmbrella = Boolean(employerHeader?.name && !employerHeader.title);
+      const parsedTitle = sourceLine ? parseHeaderLine(sourceLine.line, { inUmbrella })?.title : "";
       const prefix = sourceLine ? source.slice(sourceLine.at, title.at).trim() : "";
       if (!sourceLine || (parsedTitle && groundedText(parsedTitle) !== groundedText(title.value))
         || (!parsedTitle && prefix && !/[-|:]\s*$/.test(prefix))) {
