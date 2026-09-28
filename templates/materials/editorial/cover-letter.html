@@ -21,13 +21,13 @@
   {{#if letter.headline}}<h2 class="headline">{{letter.headline}}</h2>{{/if}}
 
   <p class="standfirst">
-    <span class="salute">{{letter.salutation}}</span>
-    {{#if letter.lede}}<span data-paragraph="{{letter.lede.id}}"{{#if letter.lede.claimId}} data-claim="{{letter.lede.claimId}}"{{/if}}>{{letter.lede.html}}</span>{{/if}}
+    <span class="salute" data-node="{{letter.salutationNodeId}}">{{letter.salutation}}</span>
+    {{#if letter.lede}}<span data-paragraph="{{letter.lede.id}}"{{#if letter.lede.claimId}} data-claim="{{letter.lede.claimId}}"{{/if}} data-node="{{letter.lede.nodeId}}">{{letter.lede.html}}</span>{{/if}}
   </p>
 
   <section class="feature{{#unless letter.pullQuote}} no-margin{{/unless}}">
     <div class="prose">
-      {{#each letter.body}}<p data-paragraph="{{id}}"{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+      {{#each letter.body}}<p data-paragraph="{{id}}"{{#if claimId}} data-claim="{{claimId}}"{{/if}} data-node="{{nodeId}}">{{html}}</p>
       {{/each}}
     </div>
     {{#if letter.pullQuote}}

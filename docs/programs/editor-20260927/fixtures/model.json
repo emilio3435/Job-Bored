@@ -1,0 +1,50 @@
+{
+  "contract": "materials.render-model.v1",
+  "template": { "family": "signal", "version": "1.0", "pageBudget": 1 },
+  "identity": {
+    "name": "Alex Example",
+    "target": "Operations Analyst",
+    "contact": [{ "kind": "email", "text": "user@example.com" }]
+  },
+  "documents": {
+    "resume": {
+      "templateId": "signal.resume",
+      "statement": {
+        "runs": [
+          { "t": "Operations analyst who reduced fulfillment delays " },
+          { "n": "38%" },
+          { "t": " through careful measurement and practical process changes. Builds clear dashboards, tests assumptions, and helps teams turn reliable evidence into daily decisions." }
+        ],
+        "words": 28
+      },
+      "intro": { "runs": [{ "t": "Connects operations data to decisions." }], "claimIds": ["c14"] },
+      "sections": [
+        {
+          "kind": "experience", "label": "Experience",
+          "entries": [{
+            "employerId": "acme", "meta": ["2021–2024"], "org": "Acme Logistics", "seat": "Operations Analyst",
+            "bullets": [
+              { "claimId": "c14", "runs": [{ "t": "Measured carrier delays and built a weekly dashboard for the operations team." }] },
+              { "claimId": "c19", "runs": [{ "t": "Documented the handoff process and trained new coordinators." }] }
+            ]
+          }]
+        },
+        {
+          "kind": "earlier", "label": "Earlier",
+          "entries": [{ "employerId": "beta", "meta": ["2019–2021"], "org": "Beta Supply", "seat": "Coordinator", "line": "Tracked daily shipments and resolved exceptions." }]
+        },
+        { "kind": "credentials", "label": "Credentials", "lines": [{ "claimId": "education", "runs": [{ "t": "B.A. Economics, Example College." }] }] },
+        { "kind": "toolkit", "label": "Toolkit", "groups": [{ "label": "Analytics", "items": ["SQL", "Spreadsheets"] }] }
+      ]
+    },
+    "coverLetter": {
+      "templateId": "signal.letter",
+      "salutation": "Dear hiring team,",
+      "paragraphs": [
+        { "id": "p1", "beat": "thesis", "text": "I connect operations data to decisions that teams can act on." },
+        { "id": "p2", "beat": "analytics-proof", "claimId": "c14", "text": "At Acme Logistics, I helped reduce fulfillment delays 38% through weekly measurement." },
+        { "id": "p3", "beat": "next-step", "text": "I would welcome a conversation about improving your daily operations." }
+      ]
+    }
+  }
+}

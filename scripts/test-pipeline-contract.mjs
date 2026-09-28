@@ -81,10 +81,10 @@ function parseReadmePipelineHeaders(readme) {
   const end = after.indexOf("\n## ");
   const section = end === -1 ? after : after.slice(0, end);
   const byLetter = {};
-  // Match all pipeline column letters (A through Y, covering base A-T plus
+  // Match all pipeline column letters (A through Z, covering base A-T plus
   // extension columns U:Match Score, V:Favorite, W:Dismissed At, X:Approval Status,
-  // Y:Edit Lock).
-  const lineRe = /^\| ([A-Y]):\s*([^|]+?)\s*\|/gm;
+  // Y:Edit Lock and Z:Work Mode).
+  const lineRe = /^\| ([A-Z]):\s*([^|]+?)\s*\|/gm;
   let m;
   while ((m = lineRe.exec(section))) {
     const letter = m[1];
@@ -95,10 +95,10 @@ function parseReadmePipelineHeaders(readme) {
     byLetter[letter] = label;
   }
   const letters = Object.keys(byLetter).sort();
-  // Updated to 25 to cover A-T (base) + U, V, W, X, Y (extension columns).
-  if (letters.length !== 25) {
+  // A-T base columns plus U-Z extensions.
+  if (letters.length !== 26) {
     throw new Error(
-      `README Pipeline table: expected 25 rows A–Y, got ${letters.length}`,
+      `README Pipeline table: expected 26 rows A–Z, got ${letters.length}`,
     );
   }
   return byLetter;

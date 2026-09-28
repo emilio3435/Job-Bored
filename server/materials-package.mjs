@@ -70,7 +70,7 @@ export const PROMPT_VERSION = "materials.writer.v2";
 
 /**
  * @typedef {import("./materials-render.mjs").RenderModel} RenderModel
- * @typedef {"default" | "preference" | "request" | "regenerate"} TemplateSource
+ * @typedef {"default" | "preference" | "request" | "regenerate" | "edit" | "manual" | "restore"} TemplateSource
  */
 
 /**
@@ -302,6 +302,8 @@ async function writeJson(path, value) {
  * @property {RenderModel} model
  * @property {TemplateSource} source
  * @property {string} [regeneratedFrom]
+ * @property {{ prompt: string, proposalId?: string, accepted: string[], rejected: string[], ops: object[] }} [edit]
+ * @property {string} [restoredFrom]
  * @property {{ provider?: string, requestedModel?: string, resolvedModel?: string }} [pin]
  * @property {{ stage: string, status: "ok" | "skipped" | "review" | "failed", ms?: number, llm?: boolean, out?: string[], detail?: string }[]} stages
  * @property {{ path: string, bytes?: number, sha256?: string, pages?: number }[]} [artifacts]
@@ -362,6 +364,8 @@ export function buildRunRecord(input) {
   if (input.artifacts && input.artifacts.length) run.artifacts = input.artifacts;
   if (typeof input.cacheKey === "string" && input.cacheKey) run.cacheKey = input.cacheKey;
   if (Array.isArray(input.repairs) && input.repairs.length) run.repairs = input.repairs.slice(0, 2);
+  if ((input.source === "edit" || input.source === "manual") && input.edit) run.edit = input.edit;
+  if (input.source === "restore" && input.restoredFrom) run.restoredFrom = input.restoredFrom;
   if (input.resume) run.resume = input.resume;
   if (input.inputs) run.inputs = input.inputs;
   return run;

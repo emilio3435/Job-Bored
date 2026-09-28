@@ -90,8 +90,8 @@
           }
         },
         "source": {
-          "description": "default: no preference was set; preference: the saved materialsTemplate; request: the request named a family; regenerate: a re-render of an existing package in another family.",
-          "enum": ["default", "preference", "request", "regenerate"]
+          "description": "default: no preference was set; preference: the saved materialsTemplate; request: the request named a family; regenerate: a re-render of an existing package in another family; edit, manual and restore: a new immutable version from the named action.",
+          "enum": ["default", "preference", "request", "regenerate", "edit", "manual", "restore"]
         },
         "regeneratedFrom": { "description": "runId of the package this one re-rendered. Required when source is regenerate.", "type": "string", "minLength": 1 }
       },
@@ -108,6 +108,20 @@
       }
     },
     "note": { "type": "string" },
+    "edit": {
+      "description": "Accepted edit batch that produced this run. Op objects follow materials.edit-op.v1; the contract script validates them together.",
+      "type": "object",
+      "required": ["prompt", "accepted", "rejected", "ops"],
+      "additionalProperties": false,
+      "properties": {
+        "prompt": { "type": "string" },
+        "proposalId": { "type": "string", "minLength": 1 },
+        "accepted": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "rejected": { "type": "array", "uniqueItems": true, "items": { "type": "string", "minLength": 1 } },
+        "ops": { "type": "array", "items": { "type": "object" } }
+      }
+    },
+    "restoredFrom": { "description": "runId copied into this restore-as-new version.", "type": "string", "minLength": 1 },
     "budget": {
       "type": "object",
       "additionalProperties": {

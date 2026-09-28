@@ -1,0 +1,8 @@
+{
+  "claims": [
+    { "id": "c14", "text": "Measured carrier delays and reduced fulfillment delays 38%.", "metrics": [{ "token": "38%" }] },
+    { "id": "c19", "text": "Documented the handoff process and trained new coordinators.", "metrics": [] },
+    { "id": "c22", "text": "Built a daily exception review for the operations team.", "metrics": [] },
+    { "id": "education", "text": "B.A. Economics, Example College.", "metrics": [] }
+  ]
+}

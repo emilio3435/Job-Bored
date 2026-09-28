@@ -27,6 +27,7 @@ import { fileURLToPath } from "node:url";
 import Ajv2020 from "ajv/dist/2020.js";
 import { letterWordBand, readFamilyFile, resolveFamily, templateIdsFor } from "./materials-templates.mjs";
 import { targetCompanyOf } from "./materials-monogram.mjs";
+import { deriveNodes } from "./materials-nodes.mjs";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const FONTS_DIR = resolvePath(__dirname, "..", "vendor", "fonts");
@@ -710,11 +711,64 @@ function logoView(logo, family) {
 }
 
 /**
+ * Pair the ids from the canonical address book with their source objects.
+ * Its per-kind order follows the model, so equal text in two blocks stays
+ * distinct without reconstructing any id from employer or claim fields.
+ * If the address book rejects a model, rendering keeps every block but
+ * disables all node annotations for that document.
+ * @param {RenderModel} model
+ */
+function renderNodeIds(model) {
+  /** @returns {{ enabled: boolean, statement: string, intro: string, salutation: string, seats: Map<object, string>, bullets: Map<object, string>, lines: Map<object, string>, credentials: Map<object, string>, groups: Map<object, string>, paragraphs: Map<object, string> }} */
+  const empty = () => ({
+    enabled: false, statement: "", intro: "", salutation: "",
+    seats: new Map(), bullets: new Map(), lines: new Map(),
+    credentials: new Map(), groups: new Map(), paragraphs: new Map(),
+  });
+  const ids = empty();
+  try {
+    /** @type {Map<string, string[]>} */
+    const byKind = new Map();
+    for (const { kind, id } of deriveNodes(model)) {
+      if (!byKind.has(kind)) byKind.set(kind, []);
+      byKind.get(kind)?.push(id);
+    }
+    /** @param {string} kind */
+    const take = (kind) => {
+      const id = byKind.get(kind)?.shift();
+      if (!id) throw new Error(`missing ${kind} render node`);
+      return id;
+    };
+    const resume = model.documents.resume;
+    ids.statement = resume ? take("statement") : "";
+    ids.intro = resume?.intro ? take("intro") : "";
+    for (const section of resume?.sections || []) {
+      for (const entry of section.entries || []) {
+        if (entry.seat !== undefined) ids.seats.set(entry, take("seat"));
+        for (const bullet of entry.bullets || []) ids.bullets.set(bullet, take("bullet"));
+        if (entry.line !== undefined) ids.lines.set(entry, take("line"));
+      }
+      for (const line of section.lines || []) ids.credentials.set(line, take("credential"));
+      for (const group of section.groups || []) ids.groups.set(group, take("toolkit"));
+    }
+    const letter = model.documents.coverLetter;
+    ids.salutation = letter ? take("salutation") : "";
+    for (const paragraph of letter?.paragraphs || []) ids.paragraphs.set(paragraph, take("paragraph"));
+    if ([...byKind.values()].some((remaining) => remaining.length)) throw new Error("unmapped render node");
+    ids.enabled = true;
+    return ids;
+  } catch {
+    return empty();
+  }
+}
+
+/**
  * @param {Entry} entry
  * @param {import("./materials-templates.mjs").TemplateFamily} family
+ * @param {ReturnType<typeof renderNodeIds>} nodeIds
  * @param {{ side?: boolean }} [options]
  */
-function entryView(entry, family, options = {}) {
+function entryView(entry, family, nodeIds, options = {}) {
   const logo = logoView(entry.logo, family);
   const meta = Array.isArray(entry.meta) ? entry.meta.filter((m) => typeof m === "string" && m.trim()) : [];
   const dates = meta.filter(isDateLike).join(" ");
@@ -724,6 +778,7 @@ function entryView(entry, family, options = {}) {
     const lead = runs.length > 1 && typeof runs[0].n === "string" ? runs[0].n : "";
     return {
       claimId: bullet.claimId,
+      nodeId: nodeIds.bullets.get(bullet) || "",
       html: safe(runsToHtml(runs)),
       text: runsToText(runs),
       lead,
@@ -746,6 +801,8 @@ function entryView(entry, family, options = {}) {
   return {
     employerId: entry.employerId,
     claimId: entry.claimId || "",
+    seatNodeId: nodeIds.seats.get(entry) || "",
+    lineNodeId: nodeIds.lines.get(entry) || "",
     org: entry.org,
     orgIsDuplicate: Boolean(logo && logo.isWordmark && family.logos.hideNameBesideWordmark),
     logo,
@@ -948,19 +1005,20 @@ function metricTokens(model) {
 /**
  * @param {RenderModel} model
  * @param {import("./materials-templates.mjs").TemplateFamily} family
+ * @param {ReturnType<typeof renderNodeIds>} nodeIds
  */
-function resumeView(model, family) {
+function resumeView(model, family, nodeIds) {
   const resume = /** @type {ResumeDoc} */ (model.documents.resume);
   const sections = Array.isArray(resume.sections) ? resume.sections : [];
   /** @param {string} kind */
   const firstOf = (kind) => sections.find((s) => s.kind === kind) || null;
 
   const experience = firstOf("experience");
-  const experienceEntries = (experience?.entries || []).map((e) => entryView(e, family));
+  const experienceEntries = (experience?.entries || []).map((e) => entryView(e, family, nodeIds));
   const earlierSection = firstOf("earlier");
-  const earlierEntries = (earlierSection?.entries || []).map((e) => entryView(e, family));
+  const earlierEntries = (earlierSection?.entries || []).map((e) => entryView(e, family, nodeIds));
   const venturesSection = firstOf("ventures");
-  const ventureEntries = (venturesSection?.entries || []).map((e) => entryView(e, family, { side: true }));
+  const ventureEntries = (venturesSection?.entries || []).map((e) => entryView(e, family, nodeIds, { side: true }));
 
   /** @type {Map<string, ReturnType<typeof entryView>>} */
   const entriesById = new Map();
@@ -977,7 +1035,7 @@ function resumeView(model, family) {
   const toolkit = toolkitSection && toolkitSection.groups?.length
     ? {
       label: toolkitSection.label,
-      groups: toolkitSection.groups.map((g) => ({ label: g.label, items: g.items, itemsText: g.items.join(", ") })),
+      groups: toolkitSection.groups.map((g) => ({ label: g.label, items: g.items, itemsText: g.items.join(", "), nodeId: nodeIds.groups.get(g) || "" })),
     }
     : null;
 
@@ -987,19 +1045,20 @@ function resumeView(model, family) {
   const skills = skillTokenSections.map((s) => ({ label: s.label, items: s.tokens || [], itemsText: (s.tokens || []).join(", ") }));
 
   const credentialsSection = firstOf("credentials");
-  /** @type {{ html: SafeHtml, text: string, claimId: string, logo: ReturnType<typeof logoView> }[]} */
+  /** @type {{ html: SafeHtml, text: string, claimId: string, nodeId: string, logo: ReturnType<typeof logoView> }[]} */
   const educationLines = [];
   for (const line of credentialsSection?.lines || []) {
     educationLines.push({
       html: safe(runsToHtml(line.runs)),
       text: runsToText(line.runs),
       claimId: line.claimId || "",
+      nodeId: nodeIds.credentials.get(line) || "",
       logo: logoView(line.logo, family),
     });
   }
   for (const s of educationTokenSections) {
     for (const token of s.tokens || []) {
-      educationLines.push({ html: safe(escapeHtml(token)), text: token, claimId: "", logo: null });
+      educationLines.push({ html: safe(escapeHtml(token)), text: token, claimId: "", nodeId: "", logo: null });
     }
   }
   const education = educationLines.length
@@ -1013,6 +1072,7 @@ function resumeView(model, family) {
   const statementText = runsToText(resume.statement?.runs);
   return {
     statement: {
+      nodeId: nodeIds.statement,
       html: safe(runsToHtml(resume.statement?.runs)),
       text: statementText,
       /* A degraded draft falls back to the headline for its summary; the
@@ -1020,7 +1080,7 @@ function resumeView(model, family) {
       show: !repeatsHeadline(statementText, model.identity.target),
     },
     intro: resume.intro && Array.isArray(resume.intro.runs)
-      ? { html: safe(runsToHtml(resume.intro.runs)), claimIds: resume.intro.claimIds.join(" ") }
+      ? { html: safe(runsToHtml(resume.intro.runs)), claimIds: resume.intro.claimIds.join(" "), nodeId: nodeIds.intro }
       : null,
     experience: experienceEntries.length ? { label: experience?.label || "Experience", entries: experienceEntries } : null,
     earlier: earlierEntries.length
@@ -1070,8 +1130,9 @@ export function linkify(html, links) {
  * @param {RenderModel} model
  * @param {import("./materials-templates.mjs").TemplateFamily} family
  * @param {Map<string, ReturnType<typeof entryView>>} entriesById
+ * @param {ReturnType<typeof renderNodeIds>} nodeIds
  */
-function letterView(model, family, entriesById) {
+function letterView(model, family, entriesById, nodeIds) {
   const letter = /** @type {LetterDoc} */ (model.documents.coverLetter);
   const tokens = metricTokens(model);
   const paragraphs = (letter.paragraphs || []).map((p, index) => {
@@ -1082,6 +1143,7 @@ function letterView(model, family, entriesById) {
     const isProof = p.beat === "analytics-proof" || p.beat === "ai-ops-proof";
     return {
       id: p.id,
+      nodeId: nodeIds.paragraphs.get(p) || "",
       beat: p.beat,
       claimId: p.claimId || "",
       html: safe(linkify(tagTokensInText(p.text, tokens), p.links || [])),
@@ -1104,6 +1166,7 @@ function letterView(model, family, entriesById) {
     : null;
   return {
     salutation: letter.salutation,
+    salutationNodeId: nodeIds.salutation,
     lede: paragraphs[0] || null,
     body: paragraphs.slice(1),
     paragraphs,
@@ -1136,13 +1199,14 @@ export function buildView(model, family, doc, options = {}) {
   const accent = model.template.accent && family.accents.includes(model.template.accent)
     ? model.template.accent
     : "volt";
-  const resume = model.documents.resume ? resumeView(model, family) : null;
+  const nodeIds = renderNodeIds(model);
+  const resume = model.documents.resume ? resumeView(model, family, nodeIds) : null;
   /** @type {Map<string, ReturnType<typeof entryView>>} */
   const entriesById = new Map();
   for (const group of [resume?.experience, resume?.earlier, resume?.ventures]) {
     for (const entry of group?.entries || []) if (!entriesById.has(entry.employerId)) entriesById.set(entry.employerId, entry);
   }
-  const letter = doc === "coverLetter" && model.documents.coverLetter ? letterView(model, family, entriesById) : null;
+  const letter = doc === "coverLetter" && model.documents.coverLetter ? letterView(model, family, entriesById, nodeIds) : null;
   const fitTokens = (options.fitTokens || []).filter((t) => /^[a-z][a-z0-9-]*$/.test(t));
   /* Header variant: one the family lists, else its default, else none. */
   const headers = Array.isArray(family.headers) ? family.headers : [];
@@ -1171,6 +1235,7 @@ export function buildView(model, family, doc, options = {}) {
     : null;
   return {
     title: `${identity.name}: ${docLabel}`,
+    nodeIdsEnabled: nodeIds.enabled,
     family: { id: family.id, label: family.label, version: family.version },
     sheetAttrs: safe(sheetAttrs),
     target: targetCompany ? { company: targetCompany, logo: targetMark } : null,
@@ -1213,6 +1278,7 @@ export function renderDocument(model, doc, options = {}) {
   const view = buildView(model, family, doc, options);
   const template = readFamilyFile(family, doc === "resume" ? family.documents.resume : family.documents.coverLetter);
   const body = renderTemplate(template, view);
+  const annotatedBody = view.nodeIdsEnabled ? body : body.replace(/ data-node="[^"]*"/g, "");
   const css = [inlineFontCss(family.fonts), BASE_CSS, readFamilyFile(family, family.stylesheet)].join("\n");
   return [
     "<!doctype html>",
@@ -1228,7 +1294,7 @@ export function renderDocument(model, doc, options = {}) {
     `<style>\n${css}\n</style>`,
     "</head>",
     "<body>",
-    body.trim(),
+    annotatedBody.trim(),
     "</body>",
     "</html>",
     "",
