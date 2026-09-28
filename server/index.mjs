@@ -46,10 +46,10 @@ import {
   assertAllowedUploadName,
   listLogos,
   parseMultipartFile,
-  refreshLogosFromProfile,
   runResolver,
   saveUpload,
 } from "./brand-logos.mjs";
+import { refreshLogosFromLedger } from "./materials-logos.mjs";
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import { regeneratePackage, templateRegenerateResponse } from "./materials-regenerate.mjs";
@@ -527,7 +527,7 @@ app.post("/profile", async (req, res) => {
       };
     }
     try {
-      await refreshLogosFromProfile(candidate);
+      await refreshLogosFromLedger();
     } catch (logoErr) {
       const logoError = /** @type {{ message?: unknown } | null | undefined} */ (logoErr);
       console.warn(

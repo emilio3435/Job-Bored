@@ -4,7 +4,7 @@
   <header class="masthead{{#if identity.nameFit.full}} masthead--full{{/if}}">
     <div>
       <h1 style="font-size:{{identity.nameFit.pt}}pt">{{identity.name}}</h1>
-      <p class="deck">{{identity.target}}</p>
+      <p class="deck">{{#if target.logo}}<img class="target-logo" src="{{target.logo.src}}" alt="{{target.logo.alt}}" />{{/if}}{{identity.target}}</p>
     </div>
     <p class="contact-r">
       {{#each identity.contact.items}}{{#if href}}<a href="{{href}}">{{text}}</a>{{else}}<span>{{text}}</span>{{/if}}{{#unless @last}}<br />{{/unless}}{{/each}}

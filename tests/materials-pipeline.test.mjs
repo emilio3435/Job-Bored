@@ -7,6 +7,7 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { deterministicExtract } from "../server/materials-jd-extract.mjs";
 import { buildOutline, summarizeRenderedResumeSelection } from "../server/materials-outline.mjs";
+import { collectMaterialLogoOrgs, resolveMaterialLogos as resolveMaterialLogosForTest } from "../server/materials-logos.mjs";
 import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
 import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
@@ -36,8 +37,14 @@ const EMPTY_LETTER = { hook: "", companyInsight: "", proof1: "", proof2: "", ask
 const PROFILE = { version: 1, identity: { targetRoles: ["Operations Analyst"], targetSeniority: "ic_senior", primaryNarrative: "Field analyst and tool builder." }, strengths: [], hardConstraints: { workMode: "any" } };
 
 function testServices(options = {}) {
-  const calls = { extract: 0, write: [], judge: [], qa: [], hard: [], repairs: [] };
+  const calls = { extract: 0, write: [], judge: [], qa: [], hard: [], repairs: [], logos: [] };
   const services = {
+    resolveMaterialLogos: async (input) => {
+      const orgs = collectMaterialLogoOrgs(input);
+      const logos = await resolveMaterialLogosForTest({ ...input, home: services.logoHome });
+      calls.logos.push({ input, orgs, logos });
+      return logos;
+    },
     extractJd: async ({ jdText, company, title, gate }) => {
       calls.extract += 1;
       const extract = deterministicExtract({ jdText, company, title, gate });
@@ -81,6 +88,7 @@ function testServices(options = {}) {
 }
 
 function base(dir, services, feature = "both", runId = "run-mrev-1") {
+  services.logoHome = dir;
   return { dir, payload: { slug: "harbor-fleet-role", company: "Harbor Fleet", title: "Operations Analyst", feature, jobUrl: "https://example.com/job", resume: { source: "upload", filename: "resume.txt", text: RESUME } },
     pin: PIN, jdText: POSTING, jdSource: "paste", gate: GATE, ledger: buildLedger({ profile: PROFILE, resumeText: RESUME }), resumeText: RESUME,
     profileIdentity: { fullName: "Jordan Rivera" }, voiceProfile: null, now: new Date("2026-09-28T12:00:00.000Z"), runId, openSession: async () => null, services };
@@ -204,6 +212,26 @@ describe("MREV B1 pipeline", () => {
     assert.equal(next.calls.extract, 0, "posting extraction is reused across documents");
     assert.equal(next.calls.write.length, 1);
     assert.equal(next.calls.judge.length, 1);
+  });
+
+  it("LOGOS G2/G5: resolves five organizations offline and still renders the package", async () => {
+    const { services, calls } = testServices();
+    const request = base(dir, services, "both", "run-logos-g2");
+    request.ledger.employers.push({ id: "employer-maple", name: "Maple Cloud" });
+    request.ledger.claims[0].clientNames = ["Plover Bikes"];
+    await runPipeline(request);
+
+    assert.equal(calls.logos.length, 1);
+    assert.deepEqual(calls.logos[0].orgs.map((org) => org.name).sort(), [
+      "Harbor Fleet", "Maple Cloud", "Northwind", "Plover Bikes", "RouteLab",
+    ]);
+    assert.equal(calls.logos[0].orgs.find((org) => org.name === "Harbor Fleet").target, true);
+    assert.equal(Object.keys(calls.logos[0].logos.logos).length, 5);
+    assert.ok(Object.values(calls.logos[0].logos.logos).every((logo) => logo.tier === "monogram"));
+    const resumeHtml = await readFile(join(dir, "resume.html"), "utf8");
+    const letterHtml = await readFile(join(dir, "cover-letter.html"), "utf8");
+    assert.match(resumeHtml, /alt="Northwind logo"/);
+    assert.match(letterHtml, /alt="Harbor Fleet logo"/);
   });
 
   it("B5: binds the judge hash to the fitted body after resume bullets are dropped", async () => {

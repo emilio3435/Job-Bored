@@ -156,6 +156,51 @@ def test_printable_logo_rejects_tiny_icons_and_html_accepts_marks_and_wordmarks(
     assert not lr.printable_logo(b'<svg xmlns="http://www.w3.org/2000/svg"><script>alert(1)</script></svg>')
 
 
+def test_printable_logo_rejects_active_svg_content_and_external_references():
+    assert not lr.printable_logo(b'<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect width="10" height="10"/></svg>')
+    assert not lr.printable_logo(b'<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><body/></foreignObject></svg>')
+    assert not lr.printable_logo(b'<svg xmlns="http://www.w3.org/2000/svg"><image href="https://attacker.example/pixel"/></svg>')
+
+
+def test_public_addresses_reject_private_and_internal_resolution(monkeypatch):
+    def private_result(host, port, **_kwargs):
+        return [(2, 1, 6, "", ("127.0.0.1", port))]
+
+    monkeypatch.setattr(lr.socket, "getaddrinfo", private_result)
+    assert lr.public_addresses("https://company.example/") is None
+    assert lr.public_addresses("http://127.0.0.1/admin") is None
+    assert lr.public_addresses("http://metadata.google.internal/") is None
+
+
+def test_safe_fetch_revalidates_every_redirect_target(monkeypatch):
+    requests = []
+    monkeypatch.setattr(lr, "public_addresses", lambda url: ["93.184.216.34"] if "company.example" in url else None)
+
+    def redirect(url, _addresses, _limit, _user_agent):
+        requests.append(url)
+        return 302, "http://169.254.169.254/latest/meta-data/", b""
+
+    monkeypatch.setattr(lr, "_request_pinned", redirect)
+    assert lr.safe_fetch("https://company.example/logo", 1024) is None
+    assert requests == ["https://company.example/logo"]
+
+
+def test_safe_fetch_reads_at_most_limit_plus_one_bytes(monkeypatch):
+    monkeypatch.setattr(lr, "public_addresses", lambda _url: ["93.184.216.34"])
+    read_sizes = []
+
+    class Response:
+        status = 200
+        headers = {}
+
+        def read(self, size):
+            read_sizes.append(size)
+            return b"x" * size
+
+    assert lr._read_bounded_response(Response(), 64) == b"x" * 65
+    assert read_sizes == [65]
+
+
 def test_wikidata_logo_needs_a_matching_official_website_and_prefers_the_current_logo():
     def claim(value, rank="normal", ended=False):
         c = {"mainsnak": {"datavalue": {"value": value}}, "rank": rank}
@@ -235,3 +280,15 @@ def test_an_upload_wins_without_any_lookup(tmp_path, monkeypatch):
     entry = lr.LogoEntry(slug="acme", label="Acme", upload="uploads/logo-acme.png")
     assert lr.resolve_entry(entry, tmp_path, force=True).source == "upload"
     assert calls == []
+
+
+def test_upload_path_cannot_read_outside_template_root(tmp_path):
+    outside = tmp_path.parent / f"{tmp_path.name}-outside.png"
+    outside.write_bytes(TINY_PNG)
+    try:
+        entry = lr.LogoEntry(slug="acme", label="Acme", upload=f"../{outside.name}")
+        result = lr.resolve_entry(entry, tmp_path, offline=True, force=True)
+        assert result.source == "missing"
+        assert not result.path.exists()
+    finally:
+        outside.unlink(missing_ok=True)

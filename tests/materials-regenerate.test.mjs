@@ -243,6 +243,26 @@ describe("regenerate in another template", () => {
     );
   });
 
+  it("LOGOS G2: calls the combined ledger resolver before regeneration render", async () => {
+    await draft(drafterFor(dir), "acme-logos-regen");
+    let resolvedInput = null;
+    const mark = { src: "data:image/svg+xml;base64,PHN2Zy8+", alt: "Acme Robotics logo", shape: "mark", source: "monogram" };
+    await regeneratePackage({ slug: "acme-logos-regen", template: "editorial" }, {
+      applicationsRoot: dir,
+      pdfSession: fakeSession,
+      materialLogoResolver: async (input) => {
+        resolvedInput = input;
+        return { marks: [], targetMark: { ...mark, company: "Acme Robotics" } };
+      },
+    });
+    assert.ok(resolvedInput, "the combined resolver ran before render");
+    assert.equal(resolvedInput.company, "Acme Robotics");
+    assert.equal(resolvedInput.backgroundRemote, false, "regenerate reads cache only unless an explicit refresh is requested");
+    assert.ok(resolvedInput.model);
+    const html = await readFile(join(dir, "acme-logos-regen", "cover-letter.html"), "utf8");
+    assert.match(html, /alt="Acme Robotics logo"/);
+  });
+
   it("should refuse without a browser and leave the package exactly as it was", async () => {
     await draft(drafterFor(dir), "acme-nobrowser");
     const pkg = join(dir, "acme-nobrowser");

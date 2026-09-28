@@ -80,6 +80,7 @@ a { color: inherit; text-decoration: none; }
   letter-spacing: 0.005em;
   color: var(--volt);
 }
+.target-logo { display: inline-block; max-height: 0.22in; max-width: 1.1in; margin-right: 0.08in; vertical-align: middle; object-fit: contain; }
 .pull {
   padding-left: 0.3in;
   font-family: var(--display);

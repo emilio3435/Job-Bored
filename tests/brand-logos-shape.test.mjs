@@ -14,7 +14,9 @@ import { fileURLToPath } from "node:url";
 import {
   getBrandLogosTemplateRoot,
   getRepoSampleTemplateRoot,
+  buildLogoManifestFromOrganizations,
   imageDimensions,
+  looksLikeImage,
   logoShape,
   readResolvedMarks,
   saveUpload,
@@ -35,6 +37,27 @@ describe("logo shape", () => {
     assert.equal(logoShape(readFileSync(join(logoDir, "colorado-college.svg")), "lockup"), "lockup");
     assert.equal(logoShape(Buffer.from("not an image")), "mark");
     assert.equal(logoShape(Buffer.alloc(0), "bogus"), "mark");
+  });
+
+  it("rejects active SVG handlers, foreign objects, and external references", () => {
+    const active = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" onload="alert(1)"><rect width="10" height="10"/></svg>');
+    const foreign = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><foreignObject><body/></foreignObject></svg>');
+    const external = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg"><image href="https://attacker.example/pixel"/></svg>');
+    const local = Buffer.from('<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 10 10"><rect width="10" height="10"/></svg>');
+    assert.equal(looksLikeImage(active), false);
+    assert.equal(looksLikeImage(foreign), false);
+    assert.equal(looksLikeImage(external), false);
+    assert.equal(looksLikeImage(local), true);
+  });
+});
+
+describe("logo manifest upload paths", () => {
+  it("normalizes prior upload paths before preserving them", () => {
+    const manifest = buildLogoManifestFromOrganizations(
+      [{ slug: "acme", name: "Acme" }],
+      { logos: [{ slug: "acme", label: "Acme", upload: "../../outside/logo-acme.png" }] },
+    );
+    assert.equal(manifest.logos[0].upload, "uploads/logo-acme.png");
   });
 });
 

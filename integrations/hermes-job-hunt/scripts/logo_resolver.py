@@ -57,10 +57,15 @@ Pillow, when importable, adds the white-on-transparent check.
 from __future__ import annotations
 
 import argparse
+import http.client
+import ipaddress
 import json
 import re
+import socket
+import ssl
 import struct
 import sys
+import xml.etree.ElementTree as ET
 import urllib.error
 import urllib.parse
 import urllib.request
@@ -74,6 +79,7 @@ Source = Literal["upload", "site", "favicon", "missing", "skipped"]
 
 SLUG_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]*[a-z0-9])?$")
 HTTP_TIMEOUT = 8
+MAX_REDIRECTS = 5
 USER_AGENT = "JobBored-logo-resolver/1.0 (+https://github.com/emilio3435/Job-Bored)"
 # Company home pages often refuse unknown agents, so the page fetch presents
 # as a browser. Only public home pages and the images they declare are read.
@@ -83,6 +89,7 @@ BROWSER_UA = (
 )
 MAX_PAGE_BYTES = 1_500_000
 MAX_LOGO_BYTES = 1_000_000
+MAX_UPLOAD_BYTES = 2_000_000
 MIN_MARK_PX = 96
 MIN_WORDMARK_WIDTH_PX = 200
 
@@ -170,6 +177,52 @@ def looks_like_image(data: bytes) -> bool:
     return any(data.startswith(magic) for magic in _IMAGE_MAGIC)
 
 
+_SVG_ELEMENTS = {
+    "svg", "g", "path", "circle", "ellipse", "line", "polyline", "polygon",
+    "rect", "text", "tspan", "defs", "lineargradient", "radialgradient", "stop",
+    "clippath", "mask",
+}
+
+
+def safe_svg(data: bytes) -> bool:
+    """Accept only static SVG geometry with local fragment references."""
+    if not is_svg(data) or len(data) > MAX_LOGO_BYTES or b"\x00" in data:
+        return False
+    lowered = data.lower()
+    if any(token in lowered for token in (b"<!doctype", b"<!entity", b"<?xml-stylesheet")):
+        return False
+    try:
+        root = ET.fromstring(data)
+    except ET.ParseError:
+        return False
+
+    def local_name(tag: str) -> str:
+        return tag.rsplit("}", 1)[-1].lower()
+
+    if local_name(root.tag) != "svg":
+        return False
+    namespace = root.tag[1:].split("}", 1)[0] if root.tag.startswith("{") else ""
+    if namespace not in ("", "http://www.w3.org/2000/svg"):
+        return False
+    for node in root.iter():
+        if local_name(node.tag) not in _SVG_ELEMENTS:
+            return False
+        for raw_name, raw_value in node.attrib.items():
+            name = local_name(raw_name)
+            value = raw_value.strip()
+            if name.startswith("on") or name in {"style", "base", "src"}:
+                return False
+            if name == "href" and value and not value.startswith("#"):
+                return False
+            if re.search(r"(?:javascript|data|https?):", value, flags=re.I):
+                return False
+            for match in re.finditer(r"url\(\s*([^)]*)\)", value, flags=re.I):
+                reference = match.group(1).strip().strip("\"'")
+                if not reference.startswith("#"):
+                    return False
+    return True
+
+
 def image_size(data: bytes) -> tuple[int, int] | None:
     """Pixel size of a PNG, GIF, WebP, ICO (largest entry) or JPEG; None if unknown."""
     try:
@@ -237,7 +290,7 @@ def printable_logo(data: bytes) -> bool:
     if not looks_like_image(data) or len(data) > MAX_LOGO_BYTES:
         return False
     if is_svg(data):
-        return b"<script" not in data.lower()
+        return safe_svg(data)
     size = image_size(data)
     if not size:
         return False
@@ -414,29 +467,150 @@ def load_manifest(path: Path) -> list[LogoEntry]:
 # --------------------------------------------------------------------------- #
 # Resolution
 # --------------------------------------------------------------------------- #
-def _fetch(url: str) -> bytes | None:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+class _PinnedHTTPConnection(http.client.HTTPConnection):
+    """Connect to the address already checked by public_addresses()."""
+
+    def __init__(self, host: str, port: int, address: str) -> None:
+        super().__init__(host, port, timeout=HTTP_TIMEOUT)
+        self.address = address
+
+    def connect(self) -> None:
+        self.sock = socket.create_connection((self.address, self.port), self.timeout)
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    """Pin the TCP peer while keeping TLS SNI and certificate checks on host."""
+
+    def __init__(self, host: str, port: int, address: str) -> None:
+        super().__init__(host, port, timeout=HTTP_TIMEOUT, context=ssl.create_default_context())
+        self.address = address
+
+    def connect(self) -> None:
+        raw = socket.create_connection((self.address, self.port), self.timeout)
+        self.sock = self._context.wrap_socket(raw, server_hostname=self.host)
+
+
+def public_addresses(url: str) -> list[str] | None:
+    """Resolve an HTTP(S) URL once and reject every non-public address."""
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # noqa: S310
-            if resp.status != 200:
-                return None
-            data = resp.read()
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+        parsed = urllib.parse.urlsplit(url)
+        host = parsed.hostname or ""
+        port = parsed.port
+    except (TypeError, ValueError):
         return None
-    return data if looks_like_image(data) else None
+    scheme = parsed.scheme.lower()
+    default_port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    host = host.rstrip(".").lower()
+    if (
+        not default_port
+        or not host
+        or parsed.username is not None
+        or parsed.password is not None
+        or port not in (None, default_port)
+        or host == "localhost"
+        or host.endswith((".localhost", ".local", ".internal"))
+    ):
+        return None
+    try:
+        addresses = [str(ipaddress.ip_address(host))]
+    except ValueError:
+        try:
+            ascii_host = host.encode("idna").decode("ascii")
+            addresses = [
+                str(ipaddress.ip_address(row[4][0]))
+                for row in socket.getaddrinfo(ascii_host, default_port, type=socket.SOCK_STREAM)
+            ]
+        except (UnicodeError, socket.gaierror, OSError, ValueError, IndexError):
+            return None
+    unique = list(dict.fromkeys(addresses))
+    if not unique or any(not ipaddress.ip_address(address).is_global for address in unique):
+        return None
+    return unique
+
+
+def _read_bounded_response(response, limit: int) -> bytes:  # noqa: ANN001
+    """Read one byte past the limit so callers can reject truncation safely."""
+    return response.read(max(0, limit) + 1)
+
+
+def read_bounded_file(path: Path, limit: int) -> bytes | None:
+    """Read a local file with a streaming byte cap."""
+    try:
+        with path.open("rb") as source:
+            data = source.read(limit + 1)
+    except OSError:
+        return None
+    return data if len(data) <= limit else None
+
+
+def _request_pinned(url: str, addresses: list[str], limit: int, user_agent: str) -> tuple[int, str, bytes] | None:
+    parsed = urllib.parse.urlsplit(url)
+    host = parsed.hostname or ""
+    port = 443 if parsed.scheme.lower() == "https" else 80
+    path = urllib.parse.urlunsplit(("", "", parsed.path or "/", parsed.query, ""))
+    headers = {
+        "Host": host,
+        "User-Agent": user_agent,
+        "Connection": "close",
+    }
+    if "JobBored-logo-resolver" in user_agent:
+        headers["Accept"] = "application/json,text/plain,image/*,*/*;q=0.5"
+    else:
+        headers["Accept"] = "text/html,image/*;q=0.9,*/*;q=0.5"
+    for address in addresses:
+        connection = None
+        try:
+            connection_type = _PinnedHTTPSConnection if parsed.scheme.lower() == "https" else _PinnedHTTPConnection
+            connection = connection_type(host, port, address)
+            connection.request("GET", path, headers=headers)
+            response = connection.getresponse()
+            location = response.getheader("Location", "") or ""
+            body = _read_bounded_response(response, limit) if response.status == 200 else b""
+            return response.status, location, body
+        except (http.client.HTTPException, OSError, TimeoutError, ssl.SSLError, ValueError):
+            continue
+        finally:
+            if connection is not None:
+                connection.close()
+    return None
+
+
+def safe_fetch(url: str, limit: int, *, user_agent: str = USER_AGENT) -> tuple[bytes, str] | None:
+    """Fetch a bounded response, pinning public peers and rechecking redirects."""
+    current = url
+    for hop in range(MAX_REDIRECTS + 1):
+        addresses = public_addresses(current)
+        if not addresses:
+            return None
+        response = _request_pinned(current, addresses, limit, user_agent)
+        if not response:
+            return None
+        status, location, data = response
+        if status in (301, 302, 303, 307, 308):
+            if not location or hop >= MAX_REDIRECTS:
+                return None
+            current = urllib.parse.urljoin(current, location)
+            continue
+        if status != 200:
+            return None
+        return data, current
+    return None
+
+
+def _fetch(url: str) -> bytes | None:
+    result = safe_fetch(url, MAX_LOGO_BYTES)
+    if not result:
+        return None
+    data, _ = result
+    if len(data) > MAX_LOGO_BYTES or not looks_like_image(data):
+        return None
+    if is_svg(data) and not safe_svg(data):
+        return None
+    return data
 
 
 def _fetch_raw(url: str, limit: int) -> tuple[bytes, str] | None:
-    req = urllib.request.Request(
-        url, headers={"User-Agent": BROWSER_UA, "Accept": "text/html,image/*;q=0.9,*/*;q=0.5"}
-    )
-    try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # noqa: S310
-            if resp.status != 200:
-                return None
-            return resp.read(limit + 1), resp.geturl()
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
-        return None
+    return safe_fetch(url, limit, user_agent=BROWSER_UA)
 
 
 def fetch_site_logo(domain: str) -> tuple[bytes, str] | None:
@@ -536,13 +710,12 @@ def fetch_wikidata_logo(label: str, domain: str) -> tuple[bytes, str] | None:
 
 
 def _fetch_json(url: str) -> dict | None:
-    req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    result = safe_fetch(url, MAX_PAGE_BYTES)
+    if not result or len(result[0]) > MAX_PAGE_BYTES:
+        return None
     try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # noqa: S310
-            if resp.status != 200:
-                return None
-            data = json.loads(resp.read(MAX_PAGE_BYTES))
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError, ValueError):
+        data = json.loads(result[0])
+    except (json.JSONDecodeError, ValueError):
         return None
     return data if isinstance(data, dict) else None
 
@@ -552,14 +725,10 @@ def domain_for_name(name: str) -> str | None:
     query = re.sub(r",?\s+(inc|llc|ltd|corp|co|plc)\.?$", "", name.strip(), flags=re.I)
     if not query:
         return None
-    req = urllib.request.Request(suggest_url(query), headers={"User-Agent": USER_AGENT})
-    try:
-        with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as resp:  # noqa: S310
-            if resp.status != 200:
-                return None
-            return parse_suggest_for(query, resp.read())
-    except (urllib.error.URLError, urllib.error.HTTPError, TimeoutError, OSError):
+    result = safe_fetch(suggest_url(query), MAX_PAGE_BYTES)
+    if not result or len(result[0]) > MAX_PAGE_BYTES:
         return None
+    return parse_suggest_for(query, result[0])
 
 
 def _name_key(value: str) -> str:
@@ -610,9 +779,15 @@ def resolve_entry(
 
     # 1. upload wins
     if entry.upload:
-        upload_path = (template_dir / entry.upload).resolve()
-        if upload_path.is_file() and upload_path.stat().st_size > 0:
-            target.write_bytes(upload_path.read_bytes())
+        try:
+            root = template_dir.resolve()
+            upload_path = (template_dir / entry.upload).resolve(strict=True)
+            upload_path.relative_to(root)
+            upload_data = read_bounded_file(upload_path, MAX_UPLOAD_BYTES)
+        except (OSError, ValueError):
+            upload_data = None
+        if upload_data and looks_like_image(upload_data) and (not is_svg(upload_data) or safe_svg(upload_data)):
+            target.write_bytes(upload_data)
             return ResolveResult(entry.slug, "upload", target, str(entry.upload))
 
     # 2. the company's own site logo, then 3. its favicon. The domain is the

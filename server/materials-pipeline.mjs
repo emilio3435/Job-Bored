@@ -18,6 +18,7 @@ import { formatProvenanceLine, runResumeBlock } from "./materials-resume-source.
 import { extractJd, extractQuality, hashJd, splitSections } from "./materials-jd-extract.mjs";
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { tagDraftMetrics } from "./materials-metric-tag.mjs";
+import { resolveMaterialLogos } from "./materials-logos.mjs";
 import { renderPackage, writePackageRecords } from "./materials-package.mjs";
 import { withPackagePublishClaim } from "./materials-regenerate.mjs";
 import { buildQaRecord, repairInstructionsFromQa } from "./materials-qa.mjs";
@@ -272,7 +273,7 @@ async function runPipelineBody(input, assertBase) {
   const {
     dir, payload, pin, fetchImpl, jdText, jdSource, gate, ledger, resumeText, profileIdentity,
     voice = [], now, runId = `run-${Date.now()}`, openSession = null,
-    readMarks = async () => [], readEmployerMarks = async () => [], readTargetMark = async () => null,
+    readMarks = async () => [],
     onStage = () => {}, executor = "local-inprocess", requirePdf = false,
     voiceProfile, intel, repair = null, services = {},
   } = input;
@@ -389,11 +390,6 @@ async function runPipelineBody(input, assertBase) {
     .map((/** @type {any} */ claim) => ({ id: `claim:${claim.id}`, text: claim.text }));
   const researchSources = research.map((fact) => ({ id: fact.id, text: fact.text, url: fact.url }));
   const sourceText = { posting, claims, voice: profileVoice?.guideText || voiceSamples.join("\n"), research: researchSources };
-  const marks = [
-    ...(await readMarks()),
-    ...(await readEmployerMarks((ledger.employers || []).map((/** @type {any} */ employer) => String(employer?.name || "")).filter(Boolean)).catch(() => [])),
-  ];
-  const targetMark = payload.company ? await readTargetMark(String(payload.company)) : null;
   let outreach = null;
   /** @type {Array<any>} */
   const passes = [];
@@ -543,6 +539,15 @@ async function runPipelineBody(input, assertBase) {
       ].filter((line) => typeof line === "string" && line.trim()),
       letter: documents.includes("letter") ? draft.letter : null, company: roleCompany, pack,
     });
+    const materialLogos = await (services.resolveMaterialLogos || resolveMaterialLogos)({
+      ledger, sourceRefs, draft, company: payload.company || roleCompany,
+      companyDomain: payload.companyDomain, jobUrl: payload.jobUrl, postingText: jdText,
+      home: services.logoHome, resolveAssets: services.resolveLogoAssets,
+      force: Boolean(services.refreshLogos),
+    });
+    const previousMarks = await readMarks().catch(() => []);
+    const marks = [...(materialLogos.marks || []), ...previousMarks];
+    const targetMark = materialLogos.targetMark || null;
     const model = buildRenderModelFromDraft({
       draft, outline, ledger, links: profileVoice?.links || [], resumeText, profile: profileIdentity,
       request: { company: payload.company, title: payload.title }, family, roleHeadline, marks, nowIso: isoNow(),
