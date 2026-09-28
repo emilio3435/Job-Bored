@@ -123,6 +123,7 @@ html body.jb-v2[data-jb-view="leads"]:has(#dashboard:not([style*="display: none"
 /* The mode toggle: two plainly-labelled halves, the pressed one
    filled mint with navy ink so the current mode reads at a glance. */
 .jb-leads .jbl-modes {
+  justify-self: start;
   display: inline-flex;
   padding: 3px;
   gap: 2px;
@@ -1244,6 +1245,7 @@ html body.jb-v2[data-jb-view="leads"]:has(#dashboard:not([style*="display: none"
 
   .jb-leads .jbl-rail__title {
     margin: 0;
+    font-family: var(--jb-font-body);
     font-size: 17px;
     font-weight: 600;
     color: var(--jb-ink);
