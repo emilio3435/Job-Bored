@@ -53,12 +53,18 @@
       };
     }
     if (name === "scribe") {
+      /* Scribe v2 mounts only when a role's Edit button binds it to a
+         package, so the flag arriving boots nothing visible; the flag
+         leaving closes an open desk. */
       return {
         mount: function () {
-          var api = root.JB_SCRIBE;
+          var api = root.JB_SCRIBE_V2;
           if (api && typeof api.boot === "function") api.boot();
         },
-        unmount: function () {},
+        unmount: function () {
+          var api = root.JB_SCRIBE_V2;
+          if (api && typeof api.closeAll === "function") api.closeAll();
+        },
       };
     }
     if (name === "lattice") {

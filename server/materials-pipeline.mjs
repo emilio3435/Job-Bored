@@ -19,6 +19,7 @@ import { extractJd, extractQuality, hashJd, splitSections } from "./materials-jd
 import { ledgerEmptyError } from "./materials-ledger-build.mjs";
 import { tagDraftMetrics } from "./materials-metric-tag.mjs";
 import { renderPackage, writePackageRecords } from "./materials-package.mjs";
+import { withPackagePublishClaim } from "./materials-regenerate.mjs";
 import { buildQaRecord, repairInstructionsFromQa } from "./materials-qa.mjs";
 import { selectRankedClaims } from "./materials-select.mjs";
 import { describeUpgrades, scopeUpgrades } from "./materials-scope.mjs";
@@ -260,6 +261,13 @@ async function contractServices(services) {
 
 /** @param {Record<string, any> & { onStage?: (stage: string, status: "ok" | "skipped" | "review" | "failed") => void }} input */
 export async function runPipeline(input) {
+  const previous = await readJson(join(input.dir, "run.json"));
+  return withPackagePublishClaim(input.dir, String(previous?.runId || ""),
+    (assertBase) => runPipelineBody(input, assertBase), { allowPending: true });
+}
+
+/** @param {Record<string, any>} input @param {() => Promise<void>} assertBase */
+async function runPipelineBody(input, assertBase) {
   const {
     dir, payload, pin, fetchImpl, jdText, jdSource, gate, ledger, resumeText, profileIdentity,
     voice = [], now, runId = `run-${Date.now()}`, openSession = null,
@@ -663,6 +671,7 @@ export async function runPipeline(input) {
   const pages = {};
   if (chosen.rendered.pdf.resume) pages["resume.pdf"] = chosen.rendered.pdf.resume.pages;
   if (chosen.rendered.pdf.coverLetter) pages["cover-letter.pdf"] = chosen.rendered.pdf.coverLetter.pages;
+  await assertBase();
   await writePackageRecords({ dir: runDir, rendered: chosen.rendered, model: chosen.model, pages,
     snapshot: false, manifestBaseDir: dir, manifestExtra, extraFiles,
     manifestDefaults: { company: payload.company, title: payload.title, job_url: payload.jobUrl || "" },
@@ -676,6 +685,7 @@ export async function runPipeline(input) {
     },
   });
   if (adopted) {
+    await assertBase();
     const names = ["manifest.json", "run.json", "qa.json", "qa-report.md", "render-model.json", "jd-extract.json", "selection.json", "outline.json", "draft.json", "writer-sources.json",
       ...(intelPack ? ["intel.json"] : []), ...(outreach ? ["outreach.json", "outreach.txt"] : []),
       ...(documents.includes("resume") ? ["resume.html", "resume.txt", "resume.pdf", "draft.resume.json", "qa.resume.json"] : []),

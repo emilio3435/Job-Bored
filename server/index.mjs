@@ -53,6 +53,7 @@ import {
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import { regeneratePackage, templateRegenerateResponse } from "./materials-regenerate.mjs";
+import { registerMaterialsEditRoutes } from "./materials-versions.mjs";
 import { diffRuns, listRuns, loadRepairSource, promoteRun } from "./materials-history.mjs";
 import { loadChecklist, setChecklistItem } from "./materials-checklist.mjs";
 import { buildDocx, DOCX_CONTENT_TYPE, EXPORTS, isExportName, linkedinText, servedRenderModel } from "./materials-export.mjs";
@@ -92,6 +93,7 @@ import {
 import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
 import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
+import { leadsChatHandler } from "./leads-chat.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
 /** 127.0.0.1 for local dev; set LISTEN_HOST=0.0.0.0 on Render/Fly/Docker so the service accepts external traffic. */
@@ -444,6 +446,8 @@ app.post("/api/ats-scorecard", async (req, res) => {
     );
   }
 });
+
+app.post("/api/leads/chat", leadsChatHandler);
 
 /* ----- User profile (Task #4) -----
  * GET  /profile                     → returns saved profile or { ok: false, reason: "no_profile" }
@@ -1156,6 +1160,9 @@ app.post("/api/applications/:slug/regenerate", async (req, res) => {
     sendAppError(res, e);
   }
 });
+
+/* Scribe v2 edits and immutable version history share the materials guards. */
+registerMaterialsEditRoutes(app, { sendError: sendAppError });
 
 /* Dismisses a stuck/failed pending.json by archiving it (rename, not
  * delete) so the JobBored UI clears its FAILED card without losing

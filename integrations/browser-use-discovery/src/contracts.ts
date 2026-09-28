@@ -99,6 +99,7 @@ export const PIPELINE_HEADER_ROW = [
   // an identity field so re-discovery preserves it. Empty/absent => no lock =>
   // discovery overwrites identity fields exactly as before.
   "Edit Lock",
+  "Work Mode",
 ] as const;
 
 export type SupportedSourceId = (typeof SUPPORTED_SOURCE_IDS)[number];

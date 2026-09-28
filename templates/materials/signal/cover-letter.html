@@ -23,9 +23,9 @@
     </div>
 
     <div class="prose">
-      <p class="salute">{{letter.salutation}}</p>
-      {{#if letter.lede}}<p class="lede" data-paragraph="{{letter.lede.id}}"{{#if letter.lede.claimId}} data-claim="{{letter.lede.claimId}}"{{/if}}>{{letter.lede.html}}</p>{{/if}}
-      {{#each letter.body}}<p data-paragraph="{{id}}"{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+      <p class="salute" data-node="{{letter.salutationNodeId}}">{{letter.salutation}}</p>
+      {{#if letter.lede}}<p class="lede" data-paragraph="{{letter.lede.id}}"{{#if letter.lede.claimId}} data-claim="{{letter.lede.claimId}}"{{/if}} data-node="{{letter.lede.nodeId}}">{{letter.lede.html}}</p>{{/if}}
+      {{#each letter.body}}<p data-paragraph="{{id}}"{{#if claimId}} data-claim="{{claimId}}"{{/if}} data-node="{{nodeId}}">{{html}}</p>
       {{/each}}
 
       <div class="sign">

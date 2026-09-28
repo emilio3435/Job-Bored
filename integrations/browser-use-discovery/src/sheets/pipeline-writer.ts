@@ -13,7 +13,7 @@ import {
   reconstructIntakeIdentityFromRow,
   serializeIntakeIdentity,
 } from "../normalize/intake-identity.ts";
-import { normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
+import { inferRemoteBucket, normalizeLeadUrl } from "../normalize/lead-normalizer.ts";
 import { PIPELINE_COLUMNS } from "./pipeline-columns.generated.ts";
 import {
   DEFAULT_SHEET_NAME,
@@ -215,6 +215,12 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     lead.matchScore == null || !Number.isFinite(lead.matchScore)
       ? ""
       : String(Math.min(10, Math.max(0, Math.round(lead.matchScore))));
+  const remoteBucket = inferRemoteBucket({
+    remoteBucket: lead.metadata?.remoteBucket,
+    location: lead.location,
+    fitAssessment: lead.fitAssessment,
+    title: lead.title,
+  });
   return [
     dateFound,
     lead.title || "",
@@ -241,6 +247,7 @@ function buildLeadRow(lead: NormalizedLead, now: Date): string[] {
     lead.dismissedAt ?? "",
     lead.approvalStatus ?? "",
     "",
+    remoteBucket === "unknown" ? "" : remoteBucket,
   ];
 }
 
@@ -433,14 +440,26 @@ export function createPipelineWriter(
     );
     const headerState = checkPipelineHeader(headerValues[0] || [], sheetName);
     if (headerState.needsUpgrade) {
-      await batchUpdateRows(
+      const response = await batchUpdateSheetValues(
         sheetId,
-        [{ rowNumber: 1, values: [...PIPELINE_HEADER_ROW] }],
+        [{ range: `${sheetName}!A1:Y1`, values: [PIPELINE_HEADER_ROW.slice(0, 25)] }],
         accessToken,
         fetchImpl,
-        sheetName,
         retry,
       );
+      if (!response.ok) throw new SheetWriteError({ phase: "update", sheetId,
+        message: `Sheet write failed during header upgrade: HTTP ${response.status}` });
+    }
+    if (headerState.workModeHeader === "missing") {
+      const response = await batchUpdateSheetValues(
+        sheetId,
+        [{ range: `${sheetName}!Z1`, values: [["Work Mode"]] }],
+        accessToken,
+        fetchImpl,
+        retry,
+      );
+      if (!response.ok) throw new SheetWriteError({ phase: "update", sheetId,
+        message: `Sheet write failed during Work Mode header upgrade: HTTP ${response.status}` });
     }
     // A missing blacklist tab is normal (HTTP 400 "Unable to parse range") and
     // means "no blacklist". Any other error (429/5xx/network) is transient and
@@ -512,6 +531,7 @@ export function createPipelineWriter(
 
     for (const lead of uniqueLeads) {
       const leadRow = buildLeadRow(lead, now());
+      if (headerState.workModeHeader === "foreign") leadRow[PIPELINE_COL.workMode] = "";
       const link = leadRow[PIPELINE_COL.link];
       if (!link) continue;
       const identityHit = findExistingIdentityMatch(
@@ -555,7 +575,7 @@ export function createPipelineWriter(
         skippedLinks.push({ url: link, reason: "blacklisted" });
         continue;
       }
-      appends.push(leadRow);
+      appends.push(headerState.workModeHeader === "foreign" ? leadRow.slice(0, 25) : leadRow);
       rememberExistingIdentity(
         { rowNumber: existingRows.length + appends.length + 1, row: leadRow },
         existingByLink,
@@ -700,7 +720,7 @@ export function createPipelineWriter(
         try {
           response = await appendSheetValues(
             sheetId,
-            `${sheetName}!A:${LAST_COLUMN_LETTER}`,
+            `${sheetName}!A:${headerState.workModeHeader === "foreign" ? "Y" : LAST_COLUMN_LETTER}`,
             appends,
             accessToken,
             fetchImpl,

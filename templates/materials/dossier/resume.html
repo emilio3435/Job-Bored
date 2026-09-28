@@ -17,7 +17,7 @@
       </div>
       <div class="main">
         {{#if resume.statement.show}}<section data-section="summary">
-          <p class="summary">{{resume.statement.html}}</p>
+          <p class="summary" data-node="{{resume.statement.nodeId}}">{{resume.statement.html}}</p>
         </section>{{else}}<section data-section="summary" data-omitted="repeats-headline" hidden></section>{{/if}}
       </div>
     </div>
@@ -38,20 +38,20 @@
           <div class="role"><h3 class="title">{{seatHtml}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
           {{#if hasBullets}}
           <ul>
-            {{#each bullets}}<li data-claim="{{claimId}}">{{#if hasLead}}<span class="k">{{lead}}</span><span>{{restHtml}}</span>{{else}}<span class="k k--dash" aria-hidden="true"></span><span>{{html}}</span>{{/if}}</li>
+            {{#each bullets}}<li data-claim="{{claimId}}" data-node="{{nodeId}}">{{#if hasLead}}<span class="k">{{lead}}</span><span>{{restHtml}}</span>{{else}}<span class="k k--dash" aria-hidden="true"></span><span>{{html}}</span>{{/if}}</li>
             {{/each}}
           </ul>
           {{/if}}
           {{/each}}
           {{else}}
-          {{#if hasSeat}}<div class="role"><h3 class="title">{{seatHtml}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>{{/if}}
+          {{#if hasSeat}}<div class="role"><h3 class="title" data-node="{{seatNodeId}}">{{seatHtml}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>{{/if}}
           {{#if hasBullets}}
           <ul>
-            {{#each bullets}}<li data-claim="{{claimId}}">{{#if hasLead}}<span class="k">{{lead}}</span><span>{{restHtml}}</span>{{else}}<span class="k k--dash" aria-hidden="true"></span><span>{{html}}</span>{{/if}}</li>
+            {{#each bullets}}<li data-claim="{{claimId}}" data-node="{{nodeId}}">{{#if hasLead}}<span class="k">{{lead}}</span><span>{{restHtml}}</span>{{else}}<span class="k k--dash" aria-hidden="true"></span><span>{{html}}</span>{{/if}}</li>
             {{/each}}
           </ul>
           {{else}}
-          {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
+          {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span data-node="{{lineNodeId}}">{{line}}</span></li></ul>{{/if}}
           {{/if}}
           {{/if}}
         </div>
@@ -69,8 +69,8 @@
         <div class="main">
           {{#each resume.earlier.entries}}
           <div class="earlier" data-claim-group="{{employerId}}">
-            <div class="role"><h3 class="title">{{#if showOrg}}{{org}}{{#if hasSeat}} <small>/ {{seatHtml}}</small>{{/if}}{{else}}{{seatHtml}}{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
-            {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
+            <div class="role"><h3 class="title"{{#unless showOrg}}{{#if hasSeat}} data-node="{{seatNodeId}}"{{/if}}{{/unless}}>{{#if showOrg}}{{org}}{{#if hasSeat}} <small>/ <span data-node="{{seatNodeId}}">{{seatHtml}}</span></small>{{/if}}{{else}}{{seatHtml}}{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
+            {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span data-node="{{lineNodeId}}">{{line}}</span></li></ul>{{/if}}
           </div>
           {{/each}}
         </div>
@@ -84,7 +84,7 @@
         <section class="cred" data-section="education">
           {{#if resume.education.logo}}<img class="logo logo--{{resume.education.logo.shape}}" src="{{resume.education.logo.src}}" alt="{{resume.education.logo.alt}}" style="{{resume.education.logo.style}}" />{{/if}}
           <p class="cred-h">{{resume.education.label}}</p>
-          {{#each resume.education.lines}}<p{{#if claimId}} data-claim="{{claimId}}"{{/if}}>{{html}}</p>
+          {{#each resume.education.lines}}<p{{#if claimId}} data-claim="{{claimId}}"{{/if}}{{#if nodeId}} data-node="{{nodeId}}"{{/if}}>{{html}}</p>
           {{/each}}
         </section>
         {{/if}}
@@ -94,8 +94,8 @@
         <section class="ventures" data-section="ventures">
           {{#each resume.ventures.entries}}
           <div data-claim-group="{{employerId}}">
-            <div class="role"><h3 class="title">{{org}}{{#if hasSeat}} <small>{{seatHtml}}</small>{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
-            {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
+            <div class="role"><h3 class="title">{{org}}{{#if hasSeat}} <small data-node="{{seatNodeId}}">{{seatHtml}}</small>{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
+            {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span data-node="{{lineNodeId}}">{{line}}</span></li></ul>{{/if}}
           </div>
           {{/each}}
         </section>
@@ -104,7 +104,7 @@
         <section class="fit" data-section="skills">
           {{#if resume.showSkillLabels}}
           <dl>
-            {{#each resume.toolkit.groups}}<dt>{{label}}</dt><dd>{{itemsText}}</dd>
+            {{#each resume.toolkit.groups}}<dt>{{label}}</dt><dd data-node="{{nodeId}}">{{itemsText}}</dd>
             {{/each}}
             {{#each resume.skills}}<dt>{{label}}</dt><dd>{{itemsText}}</dd>
             {{/each}}

@@ -335,8 +335,38 @@
     if (!Number.isFinite(v)) return "";
     if (v >= 8) return "Strong fit";
     if (v >= 6) return "Solid fit";
-    if (v >= 4) return "Mixed fit";
+    if (v >= 5) return "Mixed fit";
     return "Weak fit";
+  }
+  /* The dial's colour zone. A mirror of pipeline.js fitColorVar (≥8 high,
+     ≥5 mid, else low): the card ring and the dial share thresholds and
+     tokens, so a 6 is the same colour in both places. */
+  function fitZone(value) {
+    var v = Number(value);
+    if (!Number.isFinite(v)) return "low";
+    if (v >= 8) return "high";
+    if (v >= 5) return "mid";
+    return "low";
+  }
+  /* DFIT: column H is the one canonical fit score. The units mirror
+     dawn-data.js normalizeFitUnits exactly (0 stays 0, a 0–1 fraction
+     scales ×10, 1–10 rounds, a 11–100 percent scales ÷10), so the card
+     ring and the Dossier dial can never disagree. Anything unscored —
+     "", null, undefined, a boolean, non-numeric — is null, never 0. */
+  function canonicalFit(job) {
+    var raw = job ? job.fitScore : null;
+    if (raw == null || typeof raw === "boolean") return null;
+    if (typeof raw === "string" && !raw.trim()) return null;
+    var n = Number(raw);
+    if (!Number.isFinite(n)) return null;
+    var value = null;
+    if (n === 0) value = 0;
+    else if (n > 0 && n < 1) value = Math.round(n * 10);
+    else if (n >= 1 && n <= 10) value = Math.round(n);
+    else if (n > 10 && n <= 100) value = Math.round(n / 10);
+    if (value == null) return null;
+    var fit = { value: value, max: 10 };
+    return { value: value, max: 10, standing: fitStanding(fit), zone: fitZone(value) };
   }
   function plural(n, word) { return n + " " + word + (Math.abs(n) === 1 ? "" : "s"); }
   function docByType(materials, type) {
@@ -409,6 +439,18 @@
       return v;
     }
     var requirements = Array.isArray(bag.requirements) ? bag.requirements : [];
+    /* DFIT: with the instrument present the dial is the one home of the
+       number, so the normal rung drops its standing clause and keeps gap +
+       next + note. Loading and terminal rungs (above) are unchanged. */
+    if (bag.instrument) {
+      v.standing = "";
+      v.gap = materialsGap(bag.materials);
+      v.next = urgentNext(bag);
+      if (!bag.hasMatchData && requirements.length) {
+        v.note = "Add a resume to see which of the " + plural(requirements.length, "requirement") + " you actually answer.";
+      }
+      return v;
+    }
     var matched = requirements.filter(function (r) { return r && r.status === "found"; }).length;
     var missing = bag.keywords ? Number(bag.keywords.missing) || 0 : 0;
     var standing = fitStanding(bag.fit);
@@ -605,10 +647,99 @@
     });
     return out;
   }
-  function matchScoreOf(v) {
-    if (v == null || v === "" || typeof v === "boolean") return null;
-    var n = Number(v);
-    return Number.isFinite(n) && n >= 0 && n <= 10 ? { value: n, max: 10 } : null;
+  /* DFIT: H is the worker's clamped integer while K keeps the model's
+     tenth, so the two compare the way H was written: 7.4 in K and 7 in H
+     is the same score. Moved here from the renderer; the renderer reads
+     reasons.writtenAt instead of comparing. */
+  function sheetScore(n) { return Math.min(10, Math.max(1, Math.round(Number(n)))); }
+
+  /* DFIT: the fit instrument model (DESIGN §3–§5). bag carries fit (the
+     canonical score or null), assessment (parsed K or null), requirements
+     (the ranked They-want list), keywordNumbers, keywords (raw analysis),
+     terminal, loadingEnrichment, loadingKeywords, resume and hasMatchData.
+     Returns null when there is nothing at all to show: no dial, no
+     reasons, no readouts and no call-to-action cell. */
+  function dialIndex(value) {
+    var theta = (150 + 24 * value) * Math.PI / 180;
+    function at(r) { return [+(100 + r * Math.cos(theta)).toFixed(2), +(100 + r * Math.sin(theta)).toFixed(2)]; }
+    var inner = at(70), outer = at(91);
+    return { x1: inner[0], y1: inner[1], x2: outer[0], y2: outer[1] };
+  }
+  function gaugeReasons(assessment, score) {
+    if (!assessment) return null;
+    /* A parsed K with no lists names nothing to reveal, so it stays out;
+       an unparsed K is the person's own note and always shows. */
+    if (assessment.parsed && !(assessment.matches.length + assessment.concerns.length)) return null;
+    var writtenAt = null;
+    if (assessment.parsed && assessment.score != null && score) {
+      writtenAt = sheetScore(assessment.score) !== score.value ? assessment.score : null;
+    }
+    return {
+      parsed: !!assessment.parsed, rationale: assessment.rationale || "", raw: assessment.raw || "",
+      matches: assessment.matches.slice(), concerns: assessment.concerns.slice(),
+      application: assessment.application || "", writtenAt: writtenAt,
+    };
+  }
+  function gaugeRequirements(requirements) {
+    var groups = { missing: [], partial: [], met: [] };
+    requirements.forEach(function (r) {
+      if (!r) return;
+      var item = {
+        text: r.text || "",
+        evidence: r.evidence && r.evidence.snippet
+          ? { snippet: String(r.evidence.snippet), source: String(r.evidence.source || "profile") }
+          : null,
+      };
+      /* Unknown is unmeasured: it stays out of the gauge rather than
+         colouring a segment dishonestly. */
+      if (r.status === "found") groups.met.push(item);
+      else if (r.status === "partial") groups.partial.push(item);
+      else if (r.status === "missing") groups.missing.push(item);
+    });
+    var met = groups.met.length, partial = groups.partial.length, missing = groups.missing.length;
+    if (!met && !partial && !missing) return null;
+    return { met: met, partial: partial, missing: missing, total: met + partial + missing, groups: groups };
+  }
+  function gaugeKeywords(keywordNumbers, keywords) {
+    if (!keywordNumbers) return null;
+    var terms = { missing: [], partial: [], found: [] };
+    termList(keywords).forEach(function (t) {
+      var item = {
+        label: t.label,
+        evidence: t.evidence && t.evidence.snippet ? { snippet: String(t.evidence.snippet) } : null,
+      };
+      if (t.status === "found") terms.found.push(item);
+      else if (t.status === "partial") terms.partial.push(item);
+      else if (t.status === "missing") terms.missing.push(item);
+    });
+    return {
+      percentage: keywordNumbers.percentage, found: keywordNumbers.found,
+      partial: keywordNumbers.partial, missing: keywordNumbers.missing,
+      total: keywordNumbers.found + keywordNumbers.partial + keywordNumbers.missing,
+      terms: terms,
+    };
+  }
+  function buildFitGauge(bag) {
+    var state = "full";
+    if (bag.terminal) state = "closed";
+    else if (bag.loadingEnrichment) state = "loading";
+    else if (!bag.keywords && bag.resume === null) state = "no-resume";
+    else if (!bag.keywords && bag.resume && bag.loadingKeywords) state = "matching";
+    var score = bag.fit || null;
+    var dial = score ? { pct: score.value * 10, index: dialIndex(score.value) } : null;
+    var reasons = gaugeReasons(bag.assessment, score);
+    /* Only the full state shows evidence readouts: closed keeps dial and
+       reasons, loading shows a skeleton cell, and no-resume/matching show
+       one call-to-action cell. */
+    var requirements = state === "full" && bag.hasMatchData ? gaugeRequirements(bag.requirements) : null;
+    var keywords = state === "full" ? gaugeKeywords(bag.keywordNumbers, bag.keywords) : null;
+    var hasCta = state === "loading" || state === "no-resume" || state === "matching";
+    if (!score && !reasons && !requirements && !keywords && !hasCta) return null;
+    return {
+      state: state, score: score, dial: dial, reasons: reasons,
+      requirements: requirements, keywords: keywords,
+      requirementsTotal: bag.requirements.length,
+    };
   }
 
   function buildCaseModel(jobKey, deps) {
@@ -635,9 +766,16 @@
     people.nextMove = nextMove(people);
     var stage = buildStage(job, deps.stages);
     var nextAction = buildNextAction(job, deps);
-    var fit = Number.isFinite(Number(job.fitScore)) && job.fitScore !== null ? { value: Number(job.fitScore), max: 10 } : null;
+    var fit = canonicalFit(job);
     var keywordNumbers = keywords ? { percentage: Math.round(Number(keywords.percentage) || 0), found: Number(keywords.foundCount) || 0, partial: Number(keywords.partialCount) || 0, missing: (keywords.missingTerms || []).length } : null;
     var stages = deps.stages;
+    var fitAssessment = parseFitAssessment(enr.fitAssessment);
+    var loading = { enrichment: enr.status === "loading", keywords: !keywords && !!(deps.keywordsPending), materials: !!deps.materialsPending };
+    var fitGauge = buildFitGauge({
+      fit: fit, assessment: fitAssessment, requirements: requirements, keywordNumbers: keywordNumbers, keywords: keywords,
+      terminal: stage.terminal, loadingEnrichment: loading.enrichment, loadingKeywords: loading.keywords,
+      resume: deps.resume === undefined ? undefined : (deps.resume || null), hasMatchData: !!keywords,
+    });
 
     return {
       jobKey: String(jobKey || job.jobKey || ""),
@@ -656,8 +794,6 @@
       health: deps.health || { state: "unknown", label: "", detail: "", checkedAt: "" },
       numbers: {
         fit: fit,
-        /* Column U, 0–10, only when the worker measured it (D5). */
-        matchScore: matchScoreOf(job.matchScore),
         ats: deps.scorecard && deps.scorecard.result && scoreOf(deps.scorecard.result.overallScore) != null ? atsNumber(deps.scorecard) : null,
         keywords: keywordNumbers,
         reply: { value: job.replied || "Unknown" },
@@ -666,7 +802,7 @@
       /* The lede (SPEC §4): derived here so the renderer never has to decide
          what the numbers mean, and unit-tested branch by branch. */
       verdict: buildVerdict({
-        loading: enr.status === "loading",
+        loading: loading.enrichment,
         terminal: stage.terminal,
         terminalLabel: stages && stages.toLabel ? stages.toLabel(stage.current) : stage.current,
         appliedAt: stage.appliedAt,
@@ -679,8 +815,10 @@
         followUp: nextAction,
         daysInStage: stage.daysInStage,
         stageLabel: stages && stages.toLabel ? stages.toLabel(stage.current) : stage.current,
+        instrument: !!fitGauge,
       }),
-      fitAssessment: parseFitAssessment(enr.fitAssessment),
+      fitGauge: fitGauge,
+      fitAssessment: fitAssessment,
       oneLine: inline(enr.roleInOneLine),
       theyWant: { requirements: requirements, visibleCount: 8, niceToHaves: niceToHaves, stack: stack, stackHidden: stackHidden, hasMatchData: !!keywords },
       youHave: buildYouHave(deps.scorecard),
@@ -699,7 +837,7 @@
       notes: job.notes ? { body: String(job.notes.body || ""), editedAt: String(job.notes.editedAt || "") } : null,
       record: buildRecord(jobForRecord, enr, materials, deps),
       provenance: buildProvenance(enr, deps),
-      loading: { enrichment: enr.status === "loading", keywords: !keywords && !!(deps.keywordsPending), materials: !!deps.materialsPending },
+      loading: loading,
       meta: { providerLabel: deps.providerLabel || "" },
       /* C12 (TA-18, TR-24, AX-22): the missing-AI-provider notice, said once
          inline in the dossier instead of two red toasts per open. */

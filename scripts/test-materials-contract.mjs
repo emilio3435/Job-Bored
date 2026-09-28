@@ -12,12 +12,15 @@
  * Both live outside lane M's fence (shared AI-provider path, slice-7
  * dashboard territory) and are deferred to their owning lanes.
  */
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import Ajv2020 from "ajv/dist/2020.js";
+import addFormats from "ajv-formats";
 import { MATERIALS_BUDGETS } from "../server/materials-fit-budget.mjs";
 import { auditCoverLetter, auditResume } from "../server/materials-quality.mjs";
 import { buildRepairPrompt } from "../server/materials-repair-prompt.mjs";
+import { validateRenderModel } from "../server/materials-render.mjs";
 import { letterWordBand, listFamilies, resolveFamily } from "../server/materials-templates.mjs";
 
 let failures = 0;
@@ -38,6 +41,35 @@ function words(n) {
 
 const dir = mkdtempSync(join(tmpdir(), "jb-budget-contract-"));
 try {
+  const schema = (name) => JSON.parse(readFileSync(new URL(`../schemas/${name}.schema.json`, import.meta.url), "utf8"));
+  const fixture = (name) => JSON.parse(readFileSync(new URL(`../docs/programs/editor-20260927/fixtures/${name}.json`, import.meta.url), "utf8"));
+  const ajv = new Ajv2020({ allErrors: true, strict: false });
+  addFormats(ajv);
+  const validateOp = ajv.compile(schema("materials-edit-op.v1"));
+  const validateRun = ajv.compile(schema("materials-run.v1"));
+  const ops = fixture("ops");
+  const transcript = fixture("sse-transcript");
+  const allOps = [...Object.values(ops).flat(), ...transcript.filter((event) => event.data?.op).map((event) => event.data.op)];
+  check(allOps.every((op) => validateOp(op)), "every edit-op fixture and SSE op follows materials.edit-op.v1");
+  check(!validateOp({ opId: "bad", op: "insert", after: "b:acme:c14", text: "Missing ledger claim" }), "insert without claimId is rejected");
+  check(validateRenderModel(fixture("model")).ok, "editor fixture follows materials.render-model.v1");
+  check(fixture("ledger").claims.some((claim) => claim.id === "c22"), "insert fixture has a ledger claim");
+  const run = {
+    contract: "materials.run.v1", runId: "sample-v1", slug: "example", feature: "both",
+    requestedAt: "2026-09-27T12:00:00.000Z", executor: "local-inprocess",
+    template: { family: "signal", version: "1.0", templateIds: { resume: "signal.resume", coverLetter: "signal.letter" }, source: "default" },
+    stages: [{ stage: "publish", status: "ok" }],
+  };
+  check(validateRun(run), "legacy materials.run.v1 remains valid");
+  for (const source of ["edit", "manual", "restore"]) {
+    const record = structuredClone(run);
+    record.template.source = source;
+    if (source === "restore") record.restoredFrom = "sample-v0";
+    else record.edit = { prompt: source === "manual" ? "Manual edit" : "Shorter summary", accepted: ["o1"], rejected: [], ops: [ops.valid[0]] };
+    check(validateRun(record), `${source} materials.run.v1 validates`);
+    if (record.edit) check(record.edit.ops.every((op) => validateOp(op)), `${source} run edit ops validate`);
+  }
+
   const [bandMin, bandMax] = MATERIALS_BUDGETS.letter.bodyWords;
   const tooCodes = async (n) => {
     const path = join(dir, `letter-${n}.html`);

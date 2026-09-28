@@ -255,7 +255,7 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
 
   const rail = page.locator(`${ROLE_REGION} .case__rail`);
   const nowStep = page.locator(`${ROLE_REGION} .case__stepper .case__step--now`);
-  const fit = page.locator(`${ROLE_REGION} .case__numbers [data-num="fit"]`);
+  const fit = page.locator(`${ROLE_REGION} .case__fit-dial`);
   const theyWant = page.locator(`${ROLE_REGION} .case__section--they li[data-status]`);
   const materials = page.locator(
     `${ROLE_REGION} .case__ledger [data-mount="materials"]`,
@@ -265,7 +265,7 @@ test("The Case renders in a real browser from seeded pipeline data", async ({ pa
 
   await expectClickableBox(rail, "status rail");
   await expectClickableBox(nowStep, "current stepper step");
-  await expectClickableBox(fit, "fit number tile");
+  await expectClickableBox(fit, "fit dial");
   await expectClickableBox(theyWant.first(), "they-want requirement");
   await expectClickableBox(materials, "materials mount");
   await expectClickableBox(notes, "notes textarea");

@@ -5,10 +5,8 @@ import { PIPELINE_HEADER_ROW } from "../../src/contracts.ts";
 import { SheetWriteError, createPipelineWriter } from "../../src/sheets/pipeline-writer.ts";
 import { createFakeSheets } from "./fake-sheets.ts";
 
-// COLUMN_COUNT is derived (PIPELINE_HEADER_ROW.length). The Edit-Lock work
-// widens the header to include column Y (sheetIndex 24), so the count must be
-// 25. We pin both the derived count AND the literal 25 so a regression that
-// drops the Y column (or fails to widen the header) is caught here.
+// COLUMN_COUNT is derived (PIPELINE_HEADER_ROW.length). Edit Lock stays at Y;
+// Work Mode widens the row to Z. Pin the literal width so Z cannot be dropped.
 const COLUMN_COUNT = PIPELINE_HEADER_ROW.length;
 // Sheet column indices for the user-lockable identity fields, mirroring the
 // LOCKABLE_INDEX map inside mergeExistingRow: title=B(1), company=C(2),
@@ -342,6 +340,56 @@ test("createPipelineWriter rejects a sheet with the wrong Pipeline headers", asy
   );
 });
 
+test("Work Mode Z header is written alone when blank, preserved when occupied", async () => {
+  for (const [zHeader, expectedWidth, expectedHeaderWrites] of [
+    ["", 26, ["Pipeline!Z1"]],
+    ["Work Mode", 26, []],
+    ["Custom", 25, []],
+  ] as const) {
+    const headers = [...PIPELINE_HEADER_ROW.slice(0, 25), zHeader];
+    const { fetchImpl, calls, sheet } = createMockFetch({
+      headerRows: [headers], dataRows: [], responses: [],
+    });
+    const writer = createPipelineWriter(runtimeConfig, { fetchImpl, retries: 0 });
+    const result = await writer.write("sheet_123", [makeLead({ location: "Hybrid" })]);
+    assert.equal(result.appended, 1);
+    const headerWrites = writes(calls).filter((call) => /values:batchUpdate$/.test(call.url))
+      .flatMap((call) => JSON.parse(call.body).data.map((entry) => entry.range));
+    assert.deepEqual(headerWrites, expectedHeaderWrites);
+    assert.equal(sheet.tabs.get("Pipeline")[0][25], zHeader || "Work Mode");
+    const append = writes(calls).find((call) => /:append/.test(call.url));
+    assert.equal(JSON.parse(append.body).values[0].length, expectedWidth);
+    assert.match(decodeURIComponent(append.url), new RegExp(`Pipeline!A:${expectedWidth === 26 ? "Z" : "Y"}:append`));
+  }
+});
+
+test("Work Mode writes a blank for unknown locations", async () => {
+  const { fetchImpl, calls } = createMockFetch({
+    headerRows: [PIPELINE_HEADER_ROW], dataRows: [], responses: [],
+  });
+  const writer = createPipelineWriter(runtimeConfig, { fetchImpl, retries: 0 });
+  await writer.write("sheet_123", [makeLead({ location: "Austin, TX" })]);
+  const append = writes(calls).find((call) => /:append/.test(call.url));
+  assert.equal(JSON.parse(append.body).values[0][25], "");
+});
+
+test("a foreign Z header and existing Z value survive re-discovery", async () => {
+  const headers = [...PIPELINE_HEADER_ROW.slice(0, 25), "Custom"];
+  const existing = row(["2026-04-01", "Backend Engineer", "Acme", "Remote",
+    "https://jobs.example.com/backend-engineer?jobId=1"]);
+  existing[25] = "keep custom";
+  const { fetchImpl, calls, sheet } = createMockFetch({
+    headerRows: [headers], dataRows: [existing], responses: [],
+  });
+  const writer = createPipelineWriter(runtimeConfig, { fetchImpl, retries: 0 });
+  const result = await writer.write("sheet_123", [makeLead({ location: "Hybrid" })]);
+  assert.equal(result.updated, 1);
+  assert.equal(sheet.tabs.get("Pipeline")[1][25], "keep custom");
+  const updateRanges = writes(calls).filter((call) => /values:batchUpdate$/.test(call.url))
+    .flatMap((call) => JSON.parse(call.body).data.map((entry) => entry.range));
+  assert.equal(updateRanges.includes("Pipeline!Z2"), false);
+});
+
 test("createPipelineWriter skips incoming leads whose URL is in the Blacklist tab", async () => {
   const { fetchImpl, calls } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
@@ -517,10 +565,12 @@ test("createPipelineWriter upgrades blank trailing optional headers", async () =
   const headerUpgradeBody = JSON.parse(calls[1].body);
   assert.equal(
     headerUpgradeBody.data[0].range,
-    `Pipeline!A1:${LAST_COLUMN_LETTER}1`,
+    "Pipeline!A1:Y1",
   );
-  assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW);
-  assert.match(calls[2].url, /values\/Blacklist!A2%3AA/);
+  assert.deepEqual(headerUpgradeBody.data[0].values[0], PIPELINE_HEADER_ROW.slice(0, 25));
+  assert.equal(JSON.parse(calls[2].body).data[0].range, "Pipeline!Z1");
+  assert.deepEqual(JSON.parse(calls[2].body).data[0].values, [["Work Mode"]]);
+  assert.match(calls[3].url, /values\/Blacklist!A2%3AA/);
   assert.match(
     writes(calls).at(-1).url,
     new RegExp(`values/Pipeline!A%3A${LAST_COLUMN_LETTER}:append`),
@@ -922,12 +972,11 @@ test("buildLeadRow uses the local calendar day when discovery happens at 23:50 i
   }
 });
 
-test("buildLeadRow emits COLUMN_COUNT (25) cells with a trailing empty Edit Lock", async () => {
+test("buildLeadRow emits 26 cells with Edit Lock at Y and Work Mode at Z", async () => {
   // buildLeadRow is private; we observe its output via the append path (a
   // brand-new lead with no existing match). The appended row must be exactly
-  // COLUMN_COUNT wide with an empty trailing Edit-Lock cell so rows never go
-  // ragged after the header widens to column Y.
-  assert.equal(COLUMN_COUNT, 25, "header must widen to 25 columns (Edit Lock = Y)");
+  // COLUMN_COUNT wide with Edit Lock at Y and Work Mode at Z.
+  assert.equal(COLUMN_COUNT, 26, "header must widen to 26 columns (Work Mode = Z)");
 
   const { fetchImpl, calls } = createMockFetch({
     headerRows: [PIPELINE_HEADER_ROW],
@@ -947,13 +996,14 @@ test("buildLeadRow emits COLUMN_COUNT (25) cells with a trailing empty Edit Lock
   assert.equal(
     appendedRow.length,
     COLUMN_COUNT,
-    "an appended lead row must be COLUMN_COUNT (25) wide",
+    "an appended lead row must be COLUMN_COUNT (26) wide",
   );
   assert.equal(
     appendedRow[24],
     "",
     "a newly-discovered row carries an EMPTY Edit Lock cell (nothing locked yet)",
   );
+  assert.equal(appendedRow[25], "remote");
 });
 
 test("F1D-PIPE07-ID merges alternate ATS URLs for the same provider job id", async () => {

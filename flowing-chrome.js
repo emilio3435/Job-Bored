@@ -34,11 +34,14 @@
   var PILLS = [
     { id: "today",    label: "Today",    num: "01" },
     { id: "pipeline", label: "Pipeline", num: "02" },
-    { id: "role",     label: "Dossier",  num: "03" },
+    { id: "leads",    label: "Leads",    num: "03" },
+    { id: "role",     label: "Dossier",  num: "04" },
   ];
+  /* LEADTABS: one Leads view; its Filters / Chat toggle lives in leads.js. */
   var VIEW_REGIONS = {
     today: ["today", "dawn"],
     pipeline: ["pipeline", "lattice"],
+    leads: ["leads"],
     role: ["role", "scribe"],
   };
   var VIEW_ATTR = "data-jb-view";
@@ -428,6 +431,7 @@
     var heading = null;
     if (id === "today") heading = region.querySelector(".today-head__title");
     else if (id === "role") heading = region.querySelector(".case__title-h, .jb-shelf__title");
+    else if (id === "leads") heading = region.querySelector(".jbl-title");
     var target = heading || region;
     if (!target.hasAttribute("tabindex")) target.setAttribute("tabindex", "-1");
     return target;
@@ -811,7 +815,7 @@
     isMounted: isMounted,
     scrollToRegion: scrollToRegion,
   };
-  /* C18: one view at a time. show(id, { focus }) with id today | pipeline | role. */
+  /* C18: one view at a time. show(id, { focus }) with id today | pipeline | leads | role. */
   root.JobBoredFlowing.views = {
     show: showView,
     current: getView,

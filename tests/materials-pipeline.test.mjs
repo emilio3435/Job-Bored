@@ -8,6 +8,7 @@ import { buildLedger } from "../server/materials-ledger-build.mjs";
 import { deterministicExtract } from "../server/materials-jd-extract.mjs";
 import { renderPackage, validateRunRecord } from "../server/materials-package.mjs";
 import { runPipeline } from "../server/materials-pipeline.mjs";
+import { withPackagePublishClaim } from "../server/materials-regenerate.mjs";
 
 const RESUME = [
   "Jordan Rivera", "Northwind — Operations Analyst, 2021–2026",
@@ -78,6 +79,41 @@ describe("MREV B1 pipeline", () => {
   let dir;
   beforeEach(async () => { dir = await mkdtemp(join(tmpdir(), "jb-mrev-b1-")); });
   afterEach(async () => { await rm(dir, { recursive: true, force: true }); });
+
+  it("B2-10 shares the publish claim with the editor", async () => {
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "r0" }));
+    let release;
+    const held = new Promise((resolve) => { release = resolve; });
+    let entered;
+    const claimed = new Promise((resolve) => { entered = resolve; });
+    const editor = withPackagePublishClaim(dir, "r0", async () => { entered(); await held; });
+    try {
+      await claimed;
+      const { services } = testServices();
+      await assert.rejects(runPipeline(base(dir, services)), { statusCode: 409, code: "materials_pending" });
+      assert.equal((await json(dir, "run.json")).runId, "r0");
+    } finally { release(); await editor; }
+  });
+
+  it("B2-11 leaves published stage JSON untouched if the base moves during render", async () => {
+    const names = ["jd-extract.json", "selection.json", "outline.json", "draft.json", "qa.json"];
+    await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "r0" }));
+    for (const name of names) await writeFile(join(dir, name), JSON.stringify({ priorRunId: "r0", name }));
+    const { services } = testServices();
+    let moved = false;
+    services.renderPackage = async (args) => {
+      const rendered = await renderPackage(args);
+      if (!moved) {
+        moved = true;
+        await writeFile(join(dir, "run.json"), JSON.stringify({ runId: "moved-during-render" }));
+      }
+      return rendered;
+    };
+    await assert.rejects(runPipeline(base(dir, services)), { statusCode: 409, code: "stale_base" });
+    assert.equal(moved, true);
+    for (const name of names) assert.deepEqual(await json(dir, name), { priorRunId: "r0", name });
+    assert.equal((await json(dir, "run.json")).runId, "moved-during-render");
+  });
 
   it("B1/B4/B8/B9: makes one cold extraction, two writes, two judges, and exact K7 stages", async () => {
     const { services, calls } = testServices();

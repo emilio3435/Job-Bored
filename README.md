@@ -198,7 +198,7 @@ Open http://localhost:8080 and follow the one setup flow — step 1 signs you in
   "JobBored Pipeline {date}" in your Google Drive with only the `Pipeline`
   headers.
 - **Connect existing:** in step 1, choose **Connect an existing sheet instead**
-  and paste its link. It needs a `Pipeline` tab; the 25 headers are listed in
+  and paste its link. It needs a `Pipeline` tab; the 26 headers are listed in
   [SETUP.md](SETUP.md#2-create-or-connect-your-sheet).
 
 Manual fallback: [**→ Copy Template Sheet**](https://docs.google.com/spreadsheets/d/1pVFwPlvu3FqIhlC8YDuRpVA2v6A2fOjRX02TEiMoXRI/copy)
@@ -384,6 +384,7 @@ The dashboard reads the **Pipeline** tab (and ignores other tabs).
 | W: Dismissed At   | Optional. Timestamp when a row was manually dismissed from the board                 | **You** or automation            |
 | X: Approval Status | Gate 1 approval marker — set to **Approved** before an agent may submit an apply    | **You** (required for apply gate) |
 | Y: Edit Lock       | Optional. Comma-separated identity fields you edited in-app (`title`,`company`,`location`,`salary`); discovery skips these so your renames stick | App (set when **You** edit a card) |
+| Z: Work Mode       | Optional. `remote`, `hybrid`, or `onsite`; blank means unknown. Discovery fills an empty cell. | Auto or **You** |
 
 ## Agentic discovery (optional)
 

@@ -6,7 +6,6 @@
  */
 
 import assert from "node:assert/strict";
-import { createHash } from "node:crypto";
 import { existsSync, mkdtempSync } from "node:fs";
 import { mkdtemp, readdir, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
@@ -15,10 +14,10 @@ import { afterEach, beforeEach, describe, it } from "node:test";
 import Ajv2020 from "ajv/dist/2020.js";
 import addFormats from "ajv-formats";
 import { buildManifest } from "../server/application-materials.mjs";
+import { critiqueMaterials } from "../server/materials-critic.mjs";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { materialsCacheKey } from "../server/materials-package.mjs";
 import { regeneratePackage } from "../server/materials-regenerate.mjs";
-import { runsToText } from "../server/materials-render.mjs";
 import { resolveFamily } from "../server/materials-templates.mjs";
 import { EXAMPLE_MARKS, EXAMPLE_RESUME_SOURCE } from "./fixtures/materials-example-writer.mjs";
 import { scriptedMrevFetch as scriptedPipelineFetch } from "./materials-mrev-stub.test.mjs";
@@ -93,6 +92,8 @@ async function fakeSession() {
     close: async () => {},
   };
 }
+
+const noNetworkLookups = { targetLogoLoader: async () => null, employerLogoLoader: async () => [], pin: { provider: "gemini", model: "stub" } };
 
 /** @param {string} path */
 async function readJson(path) {
@@ -207,7 +208,7 @@ describe("regenerate in another template", () => {
         { slug: "acme-regen", template: "editorial" },
         {
           applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T13:00:00.000Z"),
-          targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+          ...noNetworkLookups,
         },
       );
     } finally {
@@ -266,6 +267,35 @@ describe("regenerate in another template", () => {
     assert.deepEqual(await snapshot(pkg), before, "nothing in the package changed");
   });
 
+  it("SYNC-1 checks invented employers against the chosen saved resume", async () => {
+    const garbled = await readFile(new URL("./fixtures/materials-garbled-resume.txt", import.meta.url), "utf8");
+    const saved = { ...EXAMPLE_RESUME_SOURCE, source: "saved", filename: "resume.txt",
+      addedAt: "2026-09-28T12:00:00.000Z", text: EXAMPLE_RESUME_SOURCE.text.replace("Northwind Logistics,", "Example Carrier,") };
+    for (const snapshotKind of ["missing", "garbled"]) {
+      const slug = `acme-source-${snapshotKind}`;
+      await draft(drafterFor(dir), slug);
+      const pkg = join(dir, slug);
+      const snapshotPath = join(pkg, "resume-source.json");
+      if (snapshotKind === "missing") await rm(snapshotPath);
+      else await writeFile(snapshotPath, JSON.stringify({ ...EXAMPLE_RESUME_SOURCE, text: garbled, usedAt: "2026-09-27T12:00:00.000Z" }));
+      let scoredText = "";
+      await regeneratePackage({ slug, template: "editorial" }, {
+        ...noNetworkLookups, applicationsRoot: dir, pdfSession: fakeSession,
+        readSavedResume: async () => saved,
+        critic: async (input) => { scoredText = String(input.sourceResumeText || ""); return critiqueMaterials(input); },
+      });
+      assert.equal(scoredText, saved.text, `${snapshotKind}: the critic scores the selected source`);
+      const qa = await readJson(join(pkg, "qa.resume.json"));
+      const invented = qa.contract === "materials.qa.v2"
+        ? qa.gates.find((gate) => gate.id === "invented_employer")
+        : qa.checks.find((check) => check.code === "invented_employer");
+      assert.match(invented?.reason || invented?.message || "", /Northwind Logistics/);
+      assert.equal(qa.disposition, "FAIL");
+      const run = await readJson(join(pkg, "run.json"));
+      assert.equal(run.resume.reason, snapshotKind === "missing" ? "saved_only" : "request_garbled");
+    }
+  });
+
   it("should regenerate a resume-only package whose stored model carries an empty letter shell", async () => {
     /* A real resume-only package stored coverLetter.paragraphs = [], and
        regenerate 422'd on it (render_model_invalid) though it never renders
@@ -281,7 +311,7 @@ describe("regenerate in another template", () => {
       { slug: "acme-resume-only", template: "dossier" },
       {
         applicationsRoot: dir, pdfSession: fakeSession, now: () => new Date("2026-09-25T14:00:00.000Z"),
-        targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+        ...noNetworkLookups,
       },
     );
     assert.equal(result.ok, true);
@@ -291,17 +321,12 @@ describe("regenerate in another template", () => {
   it("G4: keeps v2 QA when the judged resume body is unchanged", async () => {
     await draft(drafterFor(dir), "acme-v2-same", { feature: "resume" });
     const app = join(dir, "acme-v2-same");
-    const model = await readJson(join(app, "render-model.json"));
-    const body = [
-      runsToText(model.documents.resume.statement.runs),
-      ...model.documents.resume.sections.flatMap((section) => (section.entries || []).flatMap((entry) => (entry.bullets || []).map((bullet) => runsToText(bullet.runs)))),
-    ].filter(Boolean).join("\n");
-    const qa = { contract: "materials.qa.v2", document: "resume", disposition: "READY", textHash: `sha256:${createHash("sha256").update(body).digest("hex")}`, quality: { score: 93 } };
-    await writeFile(join(app, "qa.resume.json"), JSON.stringify(qa));
+    const qa = await readJson(join(app, "qa.resume.json"));
     const noJudge = () => { throw new Error("unchanged body should reuse QA"); };
-    await regeneratePackage({ slug: "acme-v2-same", template: "editorial" }, {
+    await regeneratePackage({ slug: "acme-v2-same", template: "signal" }, {
       applicationsRoot: dir, pdfSession: fakeSession,
-      targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+      ...noNetworkLookups,
+      critic: async () => ({ status: "pass", issues: [] }),
       qaTools: {
         runHardGates: noJudge, judgeMaterials: noJudge, buildQaRecord: noJudge, splitSentences: noJudge,
       },
@@ -319,7 +344,7 @@ describe("regenerate in another template", () => {
     const calls = [];
     await regeneratePackage({ slug: "acme-v2-changed", template: "editorial" }, {
       applicationsRoot: dir, pdfSession: fakeSession,
-      targetLogoLoader: async () => null, employerLogoLoader: async () => [],
+      ...noNetworkLookups,
       qaTools: {
         runHardGates: async (input) => { calls.push("gates"); assert.equal(input.document, "resume"); return []; },
         judgeMaterials: async (input) => { calls.push("judge"); assert.equal(input.documents[0].document, "resume"); return { status: "ok", judgment: {}, meta: {} }; },

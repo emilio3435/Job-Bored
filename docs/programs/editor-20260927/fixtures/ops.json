@@ -1,0 +1,10 @@
+{
+  "valid": [
+    { "opId": "o1", "op": "replace", "node": "b:acme:c14", "text": "Measured carrier delays and reduced delays through a weekly operations dashboard.", "rationale": "Lead with the outcome", "flags": [], "facts": [] },
+    { "opId": "o2", "op": "insert", "after": "b:acme:c14", "claimId": "c22", "text": "Built a daily exception review for the operations team." },
+    { "opId": "o3", "op": "remove", "node": "b:acme:c19" }
+  ],
+  "locked": [{ "opId": "o4", "op": "replace", "node": "stmt", "text": "Operations analyst who improved fulfillment delays through careful measurement and practical process changes. Builds clear dashboards, tests assumptions, and helps teams turn reliable evidence into daily decisions." }],
+  "outOfScope": [{ "opId": "o5", "op": "replace", "node": "p:p1", "text": "I turn clear operations data into useful decisions." }],
+  "overShape": [{ "opId": "o6", "op": "remove", "node": "b:acme:c19" }]
+}

