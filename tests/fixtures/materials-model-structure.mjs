@@ -78,6 +78,26 @@ const digitalPipelineReply = {
   credentials: [],
 };
 
+const w2DrafterReply = {
+  employers: [
+    employer("Northwind", "Northwind — Digital Sales Manager, 2021–2026", [
+      role("Digital Sales Manager", "Northwind — Digital Sales Manager, 2021–2026", "2021", "2026", [
+        claim("Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads."),
+        claim("Drove 125% YoY paid-search conversion growth on a flagship account."),
+      ]),
+    ], [], "2021", "2026"),
+    employer("Example App", "Example App — Founder, 2024–present", [
+      role("Founder", "Example App — Founder, 2024–present", "2024", "present", [
+        claim("Shipped an SEM forecast tool that ran 24+ forecasts against $3.1M of pipeline."),
+        claim("Built streaming ingestion for analytics events with Kafka and Postgres."),
+      ]),
+    ], [], "2024", "present"),
+  ],
+  looseClaims: [],
+  education: [],
+  credentials: [],
+};
+
 const digitalOutreachReply = {
   employers: [
     employer("Northwind", "Northwind — Digital Sales Manager, 2021–2026", [
@@ -141,7 +161,7 @@ const northwindOpsReply = {
 
 const bulletedUploadReply = {
   employers: [
-    employer("Northwind Media (formerly Contoso Radio)", "Northwind Media (formerly Contoso Radio)", [
+    employer("Northwind Media (formerly Contoso Radio)", "Northwind Media (formerly Contoso Radio) — Austin Market Sep 2016 – Present", [
       role("Director, Digital Sales", "Director, Digital Sales, Northwind Media Jan 2022 – Present", "Jan 2022", "Present", [
         claim("Led digital strategy for a $12M annual book and kept Austin a top-5 national market in digital revenue for three straight years."),
         claim("Coached 8 account-executive desks through 25+ tracked pitches a month with weekly office hours and a quarterly contest calendar."),
@@ -157,7 +177,7 @@ const bulletedUploadReply = {
         claim("Cut average campaign launch time from 9 days to 4 by templating the trafficking checklist in Google Sheets."),
       ]),
     ], [], "Sep 2016", "Present", "Sep 2016 – Present"),
-    employer("Example Labs", "Example Labs", [
+    employer("Example Labs", "Founder | Example Labs — Austin, TX 2023 – Present", [
       role("Founder", "Founder | Example Labs — Austin, TX 2023 – Present", "2023", "Present", [
         claim("Built a lead-scoring pipeline in Python on Cloud Run that ranks 2,000+ inbound leads a week for three agency clients."),
         claim("Shipped a forecasting assistant that ran 30+ pitch forecasts against $3.1M of open pipeline."),
@@ -250,7 +270,7 @@ const exampleWriterReply = {
 
 const realshapeReply = {
   employers: [
-    employer("Brightwave Media (formerly Tidewater Radio)", "Brightwave Media (formerly Tidewater Radio)", [
+    employer("Brightwave Media (formerly Tidewater Radio)", "Brightwave Media (formerly Tidewater Radio) — Portland Market · Sep 2017 – 2026", [
       role("Digital Sales Manager", "Digital Sales Manager, Brightwave Media May 2021 – 2026", "May 2021", "2026", [
         claim("Ran digital planning for an $8M+ yearly digital book, advising a wide mix of local clients in legal, landscaping, veterinary, furniture, fitness, and auto repair on combined on-air and online campaigns."),
         claim("Kept Portland in the top five of Brightwave's twenty-two markets for digital revenue per seller even though Portland ranks #24 among U.S. markets by population; hit the annual digital target in four of five years."),
@@ -268,25 +288,25 @@ const realshapeReply = {
         claim("Set up, trafficked, monitored, and reported on search, social, connected TV, and display campaigns for local and regional advertisers — the platform groundwork behind every later sales role."),
       ]),
     ], [], "Sep 2017", "2026", "Portland Market · Sep 2017 – 2026"),
-    employer("Lumen Signal Studio", "Lumen Signal Studio", [
+    employer("Lumen Signal Studio", "Founder & ML Engineer | Lumen Signal Studio", [
       role("Founder & ML Engineer", "Founder & ML Engineer | Lumen Signal Studio", "2024", "Present", [
         claim("Built and runs a small retrieval assistant on a managed cloud platform that answers questions over past proposals, call notes, and rate cards, choosing between two hosted language models by cost and response time."),
         claim("Shipped a budget-pacing checker that flags under-delivering campaigns each morning, run against 14 client accounts and about $1.1M in active spend."),
         claim("Set up scheduled jobs for weekly client summaries and daily market-news digests with chat delivery, managing a handful of API keys and two cloud service accounts."),
-      ], "Portland, OR 2024 – Present"),
-    ], [], "2024", "Present", "Portland, OR 2024 – Present"),
-    employer("Quiet Fox Works & ShelfScout", "Quiet Fox Works & ShelfScout", [
+      ], "Lumen Signal Studio (example.dev) — Portland, OR 2024 – Present"),
+    ], [], "2024", "Present", "Lumen Signal Studio (example.dev) — Portland, OR 2024 – Present"),
+    employer("Quiet Fox Works & ShelfScout", "Founder | Quiet Fox Works & ShelfScout", [
       role("Founder", "Founder | Quiet Fox Works & ShelfScout", "2024", "Present", [
         claim("Quiet Fox Works: a two-person studio building reporting and follow-up automations for local service businesses, with a written playbook of 12 reusable workflows."),
         claim("ShelfScout: designing a small web app that tracks price changes on used books across three marketplaces and sends a weekly email of the best finds."),
-      ], "Portland, OR 2024 – Present"),
-    ], [], "2024", "Present", "Portland, OR 2024 – Present"),
-    employer("Panelry", "Panelry — Recruited survey panelists", [
+      ], "Quiet Fox Works & ShelfScout — Portland, OR 2024 – Present"),
+    ], [], "2024", "Present", "Quiet Fox Works & ShelfScout — Portland, OR 2024 – Present"),
+    employer("Panelry", "Cofounder, Panelry", [
       role("Cofounder", "Cofounder, Panelry", "2016", "2017", [
         claim("Recruited survey panelists for small research agencies through paid social and search campaigns."),
       ], "campaigns. 2016 – 2017"),
     ], [], "2016", "2017", "campaigns. 2016 – 2017"),
-    employer("Summit Ridge Lending Inc.", "Summit Ridge Lending Inc.", [
+    employer("Summit Ridge Lending Inc.", "Digital Marketing Strategist, Summit Ridge Lending Inc.", [
       role("Digital Marketing Strategist", "Digital Marketing Strategist, Summit Ridge Lending Inc.", "2015", "2016", [
         claim("Ran search campaigns and blog content for loan officers and real-estate partners across 6 states."),
       ], "across 6 states. 2015 – 2016"),
@@ -304,6 +324,10 @@ const realshapeReply = {
 };
 
 const fixtures = [
+  {
+    matches: (text) => text.includes("Northwind — Digital Sales Manager, 2021–2026") && text.includes("Grew Austin to a top-4 national ranking on a $12M+ book with Google Ads.") && text.includes("Example App — Founder, 2024–present"),
+    reply: w2DrafterReply,
+  },
   {
     matches: (text) => text.includes("Northwind — Digital Sales Manager, 2021–2026") && text.includes("Example App — Founder, 2024–present") && text.includes("Led the market to a 60% digital revenue mix across Google Ads and Meta") && text.includes("Operate scheduled workflows across 8-10 API keys."),
     reply: resumeTextReply,

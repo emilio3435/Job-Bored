@@ -1,6 +1,6 @@
 /** One materials funnel: prepare, write, validate, render, judge, save. */
 import { createHash } from "node:crypto";
-import { copyFile, mkdir, readFile, writeFile } from "node:fs/promises";
+import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { buildOutline, summarizeRenderedResumeSelection } from "./materials-outline.mjs";
 import { buildRenderModelFromDraft } from "./materials-render-model-adapter.mjs";
@@ -750,6 +750,13 @@ async function runPipelineBody(input, assertBase) {
       } else {
         await copyFile(join(runDir, name), join(dir, name));
       }
+    }
+    const renderedPdfs = new Set([
+      ...(documents.includes("resume") && chosen.rendered.pdf.resume ? ["resume.pdf"] : []),
+      ...(documents.includes("letter") && chosen.rendered.pdf.coverLetter ? ["cover-letter.pdf"] : []),
+    ]);
+    for (const name of ["resume.pdf", "cover-letter.pdf"]) {
+      if (!renderedPdfs.has(name)) await rm(join(dir, name), { force: true });
     }
   }
   return {

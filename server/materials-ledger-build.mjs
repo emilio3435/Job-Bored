@@ -586,19 +586,20 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
       looseClaims: resumeClaims.filter((claim) => !claim.employerId && claim.kind !== "education" && claim.kind !== "credential").length,
     };
   };
-  /** @param {"ready" | "failed" | "not_required"} status @param {string} [reason] @param {Array<{kind:string,text:string,reason:string}>} [rejected] @param {Record<string, unknown> | null} [ledger] */
-  const ingest = (status, reason = "", rejected = [], ledger = null) => ({
+  /** @param {"ready" | "failed" | "not_required"} status @param {string} [reason] @param {Array<{kind:string,text:string,reason:string}>} [rejected] @param {Record<string, unknown> | null} [ledger] @param {Array<{kind:string,reason:string}>} [notes] */
+  const ingest = (status, reason = "", rejected = [], ledger = null, notes = []) => ({
     status,
     sourceHash,
     code: status === "failed" ? reason.match(/\(([a-z0-9_]+)\)/)?.[1] || "invalid_structure" : "",
     reason,
     rejected: [],
+    notes: notes.map(({ kind, reason: noteReason }) => ({ kind, reason: noteReason })),
     coverage: coverageFor(ledger, rejected.filter((item) => item.kind === "claim").length),
   });
-  /** @param {string} reason @param {Array<{kind:string,text:string,reason:string}>} [rejected] @param {{persistNote?: boolean}} [options] */
-  const recordFailure = async (reason, rejected = [], { persistNote = true } = {}) => {
+  /** @param {string} reason @param {Array<{kind:string,text:string,reason:string}>} [rejected] @param {{persistNote?: boolean,notes?:Array<{kind:string,reason:string}>}} [options] */
+  const recordFailure = async (reason, rejected = [], { persistNote = true, notes = [] } = {}) => {
     if (stored.ok) {
-      return { ...stored.ledger, note: `ingest:failed — ${reason}`, rebuilt: false, ingest: ingest("failed", reason, rejected) };
+      return { ...stored.ledger, note: `ingest:failed — ${reason}`, rebuilt: false, ingest: ingest("failed", reason, rejected, null, notes) };
     }
     try {
       /* Existing profile facts remain usable while a first resume ingest is
@@ -611,12 +612,12 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
         note: persistNote ? `ingest:failed — ${reason}` : "",
       });
       const { ledgerHash } = await writeLedgerAtomic(profileOnly);
-      return { ...profileOnly, ledgerHash, rebuilt: true, ingest: ingest("failed", reason, rejected) };
+      return { ...profileOnly, ledgerHash, rebuilt: true, ingest: ingest("failed", reason, rejected, null, notes) };
     } catch (error) {
       if (isRecord(error) && error.code === "ledger_empty") {
         const failure = /** @type {Error & { code: string, ingest: unknown }} */ (new Error(reason));
         failure.code = "resume_ingest_failed";
-        failure.ingest = ingest("failed", reason, rejected);
+        failure.ingest = ingest("failed", reason, rejected, null, notes);
         throw failure;
       }
       throw error;
@@ -653,7 +654,7 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
 
   /** @type {{ structure?: import("./materials-resume-structure.mjs").ResumeStructure, note?: string }} */
   let structured = {};
-  /** @type {{ status?: string, reason?: string, rejected?: Array<{kind:string,text:string,reason:string}> }} */
+  /** @type {{ status?: string, reason?: string, rejected?: Array<{kind:string,text:string,reason:string}>, notes?: Array<{kind:string,reason:string}> }} */
   let modelIngest = ingest("not_required");
   if (canModel && pin && typeof fetchImpl === "function") {
     const result = await structureResumeWithModel({
@@ -667,7 +668,7 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
     });
     modelIngest = result.ingest;
     if (result.ingest.status !== "ready" || !result.structure) {
-      return recordFailure(result.ingest.reason || "The model did not return a grounded resume structure.", result.rejected);
+      return recordFailure(result.ingest.reason || "The model did not return a grounded resume structure.", result.rejected, { notes: result.ingest.notes });
     }
     structured = { structure: result.structure, note: result.note };
   } else if (
@@ -684,25 +685,34 @@ export async function ensureLedger({ profile, resumeText = "", resumeSource = "u
     built = buildLedger({ profile, resumeText: resume, resumeSource, ...structured });
   } catch (error) {
     if (resume && isRecord(error) && error.code === "ledger_empty") {
-      return recordFailure("The model structure produced no usable ledger claims.", modelIngest.rejected);
+      return recordFailure("The model structure produced no usable ledger claims.", modelIngest.rejected, { notes: modelIngest.notes });
     }
     throw error;
   }
-  if (stored.ok) {
-    const previousEmployers = Array.isArray(stored.ledger.employers) ? stored.ledger.employers.length : 0;
-    const previousClaims = /** @type {Array<{id?: unknown}>} */ (
-      Array.isArray(stored.ledger.claims) ? stored.ledger.claims : []
+  if (canModel && coverageFor(built).employersWithClaims === 0) {
+    return recordFailure("The model returned no employer-attributed resume claims.", modelIngest.rejected, { notes: modelIngest.notes });
+  }
+  if (canModel && stored.ok) {
+    const oldSources = /** @type {Array<{ kind?: unknown, hash?: unknown }>} */ (
+      Array.isArray(stored.ledger.sources) ? stored.ledger.sources : []
     );
-    const previousResumeClaims = previousClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
-    const rebuiltClaims = /** @type {Array<{id?: unknown}>} */ (built.claims);
-    const rebuiltResumeClaims = rebuiltClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
-    if (built.employers.length < previousEmployers) {
-      return recordFailure("The model returned fewer grounded employers than the saved ledger.", modelIngest.rejected);
-    }
-    if (rebuiltResumeClaims < previousResumeClaims) {
-      return recordFailure("The model returned fewer grounded resume claims than the saved ledger.", modelIngest.rejected);
+    const sameResumeSource = oldSources.some((source) => source?.kind === "resume" && source.hash === sha(resume));
+    if (sameResumeSource) {
+      const previousEmployers = Array.isArray(stored.ledger.employers) ? stored.ledger.employers.length : 0;
+      const previousClaims = /** @type {Array<{id?: unknown}>} */ (
+        Array.isArray(stored.ledger.claims) ? stored.ledger.claims : []
+      );
+      const previousResumeClaims = previousClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
+      const rebuiltClaims = /** @type {Array<{id?: unknown}>} */ (built.claims);
+      const rebuiltResumeClaims = rebuiltClaims.filter((claim) => typeof claim.id === "string" && claim.id.startsWith("resume-")).length;
+      if (built.employers.length < previousEmployers) {
+        return recordFailure("The model returned fewer grounded employers than the saved ledger.", modelIngest.rejected, { notes: modelIngest.notes });
+      }
+      if (rebuiltResumeClaims < previousResumeClaims) {
+        return recordFailure("The model returned fewer grounded resume claims than the saved ledger.", modelIngest.rejected, { notes: modelIngest.notes });
+      }
     }
   }
   const { ledgerHash } = await writeLedgerAtomic(built);
-  return { ...built, ledgerHash, rebuilt: true, ingest: ingest(modelIngest.status === "ready" ? "ready" : "not_required", modelIngest.reason, modelIngest.rejected, built) };
+  return { ...built, ledgerHash, rebuilt: true, ingest: ingest(modelIngest.status === "ready" ? "ready" : "not_required", modelIngest.reason, modelIngest.rejected, built, modelIngest.notes) };
 }

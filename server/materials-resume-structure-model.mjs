@@ -92,19 +92,26 @@ function groundingText(value) {
 }
 
 /** @param {string} text @param {string} phrase */
-function containsWholePhrase(text, phrase) {
-  if (!phrase) return false;
+function wholePhrasePositions(text, phrase) {
+  /** @type {number[]} */
+  const positions = [];
+  if (!phrase) return positions;
   let offset = 0;
   while (offset <= text.length - phrase.length) {
     const index = text.indexOf(phrase, offset);
-    if (index < 0) return false;
+    if (index < 0) break;
     const before = index > 0 ? text[index - 1] : "";
     const afterIndex = index + phrase.length;
     const after = afterIndex < text.length ? text[afterIndex] : "";
-    if ((!before || !/[\p{L}\p{N}]/u.test(before)) && (!after || !/[\p{L}\p{N}]/u.test(after))) return true;
+    if ((!before || !/[\p{L}\p{N}]/u.test(before)) && (!after || !/[\p{L}\p{N}]/u.test(after))) positions.push(index);
     offset = index + 1;
   }
-  return false;
+  return positions;
+}
+
+/** @param {string} text @param {string} phrase */
+function containsWholePhrase(text, phrase) {
+  return wholePhrasePositions(text, phrase).length > 0;
 }
 
 /** @param {string} quote @param {string} normalizedEmployer */
@@ -155,21 +162,27 @@ function safeText(value) {
   }
 }
 
+const INSTRUCTION_RE = /\b(?:ignore (?:all |prior |previous )?instructions|disregard (?:all |prior |previous )?instructions|system prompt|developer message|assign every claim|return only json|you are (?:an? )?assistant)\b/i;
+
 /**
  * Validate a model structure without consulting the rule parser. A value is
  * retained only when both its quote and the value itself are grounded.
  * @param {unknown} raw
  * @param {string} resumeText
- * @returns {{ structure: import("./materials-resume-structure.mjs").ResumeStructure, rejected: Array<{ kind: string, text: string, reason: string }>, matchedEmployers: number, matchedClaims: number }}
+ * @returns {{ structure: import("./materials-resume-structure.mjs").ResumeStructure, rejected: Array<{ kind: string, text: string, reason: string }>, notes: Array<{ kind: string, reason: string }>, matchedEmployers: number, matchedClaims: number }}
  */
 export function validateModelStructure(raw, resumeText) {
   const documentText = groundingText(resumeText);
   /** @type {Array<{ kind: string, text: string, reason: string }>} */
   const rejected = [];
+  /** @type {Array<{ kind: string, reason: string }>} */
+  const notes = [];
   /** @param {string} kind @param {unknown} value @param {string} reason */
   const reject = (kind, value, reason) => rejected.push({ kind, text: safeText(value), reason });
-  /** @param {unknown} value @param {unknown} quote @param {string} kind */
-  const grounded = (value, quote, kind) => {
+  /** @param {string} kind @param {string} reason */
+  const addNote = (kind, reason) => notes.push({ kind, reason });
+  /** @param {unknown} value @param {unknown} quote @param {string} kind @param {{start:number,end:number}|null} [span] */
+  const grounded = (value, quote, kind, span = null) => {
     const fact = clean(value);
     const cited = quoteString(quote);
     if (!fact) {
@@ -182,6 +195,11 @@ export function validateModelStructure(raw, resumeText) {
     }
     const normalizedQuote = groundingText(cited);
     const quoteLength = Array.from(normalizedQuote).length;
+    const normalizedFact = groundingText(fact);
+    if (INSTRUCTION_RE.test(fact) || INSTRUCTION_RE.test(cited)) {
+      reject(kind, value, "source_instruction");
+      return null;
+    }
     if (quoteLength < 12) {
       reject(kind, value, "source_quote_too_short");
       return null;
@@ -190,12 +208,17 @@ export function validateModelStructure(raw, resumeText) {
       reject(kind, value, "source_quote_missing_token");
       return null;
     }
-    if (!normalizedQuote || !containsWholePhrase(documentText, normalizedQuote)) {
-      reject(kind, value, "source_quote_not_found");
+    if (quoteLength > Math.max(72, Array.from(normalizedFact).length * 4)) {
+      reject(kind, value, "source_quote_too_broad");
       return null;
     }
-    const normalizedFact = groundingText(fact);
-    if (!/[\p{L}\p{N}]/u.test(normalizedFact) || !containsWholePhrase(normalizedQuote, normalizedFact)) {
+    const quotePositions = wholePhrasePositions(documentText, normalizedQuote);
+    if (quotePositions.length !== 1) {
+      reject(kind, value, quotePositions.length ? "ambiguous_source_quote" : "source_quote_not_found");
+      return null;
+    }
+    const factPositions = wholePhrasePositions(normalizedQuote, normalizedFact);
+    if (!/[\p{L}\p{N}]/u.test(normalizedFact) || factPositions.length !== 1) {
       reject(kind, value, "value_not_in_source_quote");
       return null;
     }
@@ -207,25 +230,27 @@ export function validateModelStructure(raw, resumeText) {
       reject(kind, value, "employer_name_partial_phrase");
       return null;
     }
-    if (quoteLength > Math.max(72, Array.from(normalizedFact).length * 4)) {
-      reject(kind, value, "source_quote_too_broad");
+    const at = quotePositions[0];
+    const end = at + normalizedQuote.length;
+    if (span && (at < span.start || end > span.end)) {
+      reject(kind, value, "unsupported_employer_attribution");
       return null;
     }
-    return { value: fact, sourceQuote: cited };
+    return { value: fact, sourceQuote: cited, at, end };
   };
-  /** @param {Record<string, unknown>} rawItem @param {"start"|"end"} key @param {string} kind */
-  const dateValue = (rawItem, key, kind) => {
+  /** @param {Record<string, unknown>} rawItem @param {"start"|"end"} key @param {string} kind @param {{start:number,end:number}|null} [span] */
+  const dateValue = (rawItem, key, kind, span = null) => {
     const date = rawItem[key];
     if (date === null || date === undefined || date === "") return { value: null, sourceQuote: null };
-    return grounded(date, rawItem[`${key}SourceQuote`], kind);
+    return grounded(date, rawItem[`${key}SourceQuote`], kind, span);
   };
-  /** @param {Record<string, unknown>} rawItem @param {"start" | "end"} key @param {string} kind @param {string} parentReason */
-  const rejectBoundDate = (rawItem, key, kind, parentReason) => {
-    const date = dateValue(rawItem, key, kind);
+  /** @param {Record<string, unknown>} rawItem @param {"start" | "end"} key @param {string} kind @param {string} parentReason @param {{start:number,end:number}|null} [span] */
+  const rejectBoundDate = (rawItem, key, kind, parentReason, span = null) => {
+    const date = dateValue(rawItem, key, kind, span);
     if (date) reject(kind, date.value, parentReason);
   };
-  /** @param {unknown} rawClaim @param {number | null} roleIndex @param {string} kind */
-  const readClaim = (rawClaim, roleIndex, kind = "claim") => {
+  /** @param {unknown} rawClaim @param {number | null} roleIndex @param {string} kind @param {{span:{start:number,end:number},employerIndex:number,employerSpans:Array<{name:string,start:number,end:number}>}|null} [attribution] */
+  const readClaim = (rawClaim, roleIndex, kind = "claim", attribution = null) => {
     if (!isRecord(rawClaim)) {
       reject(kind, rawClaim, "invalid_item");
       return null;
@@ -237,6 +262,22 @@ export function validateModelStructure(raw, resumeText) {
       reject(kind, rawClaim.text, "invalid_source_quote");
       return null;
     }
+    if (attribution && (claim.at < attribution.span.start || claim.end > attribution.span.end)) {
+      addNote(kind, "out_of_span");
+      const ownerAliases = aliasesFor(attribution.employerSpans[attribution.employerIndex].name);
+      const otherSpan = attribution.employerSpans.find((candidate, index) =>
+        index !== attribution.employerIndex &&
+        !ownerAliases.some((alias) => aliasesFor(candidate.name).includes(alias)) &&
+        claim.at >= candidate.start && claim.end <= candidate.end,
+      );
+      const namesOtherEmployer = Boolean(otherSpan && aliasesFor(otherSpan.name).some((alias) =>
+        containsWholePhrase(groundingText(claim.value), groundingText(alias)),
+      ));
+      if (namesOtherEmployer) {
+        reject(kind, rawClaim.text, "misattributed_out_of_span");
+        return null;
+      }
+    }
     return { text, sourceQuote: claim.sourceQuote, roleIndex };
   };
 
@@ -245,6 +286,7 @@ export function validateModelStructure(raw, resumeText) {
     return {
       structure: { source: "model", employers: [], education: [], credentials: [], looseClaims: [] },
       rejected,
+      notes,
       matchedEmployers: 0,
       matchedClaims: 0,
     };
@@ -253,6 +295,8 @@ export function validateModelStructure(raw, resumeText) {
   /** @type {import("./materials-resume-structure.mjs").ResumeStructure["employers"]} */
   const employers = [];
   let matchedClaims = 0;
+  /** @type {Array<{rawEmployer:Record<string, unknown>,employerFact:{value:string,sourceQuote:string,at:number,end:number}}>} */
+  const employerCandidates = [];
   for (const rawEmployer of list(raw.employers)) {
     if (!isRecord(rawEmployer)) {
       reject("employer", rawEmployer, "invalid_item");
@@ -282,8 +326,24 @@ export function validateModelStructure(raw, resumeText) {
       }
       continue;
     }
-    const employerStart = dateValue(rawEmployer, "start", "employer_date");
-    const employerEnd = dateValue(rawEmployer, "end", "employer_date");
+    employerCandidates.push({ rawEmployer, employerFact });
+  }
+  employerCandidates.sort((left, right) => left.employerFact.at - right.employerFact.at);
+  const employerSpans = employerCandidates.map(({ employerFact }, employerIndex) => ({
+    name: employerFact.value,
+    start: employerFact.at,
+    end: employerCandidates[employerIndex + 1]?.employerFact.at ?? documentText.length,
+  }));
+  for (let employerIndex = 0; employerIndex < employerCandidates.length; employerIndex += 1) {
+    const { rawEmployer, employerFact } = employerCandidates[employerIndex];
+    const span = employerSpans[employerIndex];
+    const attribution = { span, employerIndex, employerSpans };
+    if (employerFact.end > span.end) {
+      reject("employer", rawEmployer.name, "unsupported_employer_attribution");
+      continue;
+    }
+    const employerStart = dateValue(rawEmployer, "start", "employer_date", span);
+    const employerEnd = dateValue(rawEmployer, "end", "employer_date", span);
     /** @type {import("./materials-resume-structure.mjs").ResumeStructure["employers"][number]["roles"]} */
     const roles = [];
     /** @type {import("./materials-resume-structure.mjs").ResumeStructure["employers"][number]["claims"]} */
@@ -293,18 +353,18 @@ export function validateModelStructure(raw, resumeText) {
         reject("role", rawRole, "invalid_item");
         continue;
       }
-      const roleFact = grounded(rawRole.title, rawRole.sourceQuote, "role");
+      const roleFact = grounded(rawRole.title, rawRole.sourceQuote, "role", span);
       if (!roleFact) {
-        rejectBoundDate(rawRole, "start", "role_date", "role_not_grounded");
-        rejectBoundDate(rawRole, "end", "role_date", "role_not_grounded");
+        rejectBoundDate(rawRole, "start", "role_date", "role_not_grounded", span);
+        rejectBoundDate(rawRole, "end", "role_date", "role_not_grounded", span);
         for (const rawClaim of list(rawRole.claims)) {
-          const claim = readClaim(rawClaim, null);
+          const claim = readClaim(rawClaim, null, "claim", attribution);
           if (claim) reject("claim", claim.text, "role_not_grounded");
         }
         continue;
       }
-      const roleStart = dateValue(rawRole, "start", "role_date");
-      const roleEnd = dateValue(rawRole, "end", "role_date");
+      const roleStart = dateValue(rawRole, "start", "role_date", span);
+      const roleEnd = dateValue(rawRole, "end", "role_date", span);
       const roleIndex = roles.length;
       roles.push({
         title: roleFact.value,
@@ -315,7 +375,7 @@ export function validateModelStructure(raw, resumeText) {
         ...(roleEnd?.sourceQuote ? { endSourceQuote: roleEnd.sourceQuote } : {}),
       });
       for (const rawClaim of list(rawRole.claims)) {
-        const claim = readClaim(rawClaim, roleIndex);
+        const claim = readClaim(rawClaim, roleIndex, "claim", attribution);
         if (claim) {
           claims.push(claim);
           matchedClaims += 1;
@@ -323,7 +383,7 @@ export function validateModelStructure(raw, resumeText) {
       }
     }
     for (const rawClaim of list(rawEmployer.claims)) {
-      const claim = readClaim(rawClaim, null);
+      const claim = readClaim(rawClaim, null, "claim", attribution);
       if (claim) {
         claims.push(claim);
         matchedClaims += 1;
@@ -361,6 +421,7 @@ export function validateModelStructure(raw, resumeText) {
   return {
     structure: { source: "model", employers, education, credentials, looseClaims },
     rejected,
+    notes,
     matchedEmployers: employers.length,
     matchedClaims,
   };
@@ -489,13 +550,16 @@ export async function structureResumeWithModel({ resumeText, pin, fetchImpl, cal
       fallbackReason: reason,
       note: `ingest:failed — ${reason}`,
       rejected: [],
-      ingest: { status: "failed", reason, rejected: [] },
+      notes: [],
+      ingest: { status: "failed", reason, rejected: [], notes: [] },
     };
   }
 
   const result = validateModelStructure(raw, resumeText);
-  if (!result.matchedEmployers && !result.matchedClaims) {
-    const reason = "Model returned no grounded employers or claims.";
+  if (!result.matchedEmployers || !result.matchedClaims || result.rejected.length) {
+    const reason = result.rejected.length
+      ? "Model returned a partial structure with rejected items."
+      : "Model returned no grounded employers or claims.";
     return {
       ...result,
       structure: null,
@@ -503,7 +567,8 @@ export async function structureResumeWithModel({ resumeText, pin, fetchImpl, cal
       status: "failed",
       fallbackReason: reason,
       note: `ingest:failed — ${reason}`,
-      ingest: { status: "failed", reason, rejected: result.rejected },
+      ingest: { status: "failed", reason, rejected: result.rejected, notes: result.notes },
+      notes: result.notes,
     };
   }
   return {
@@ -512,6 +577,6 @@ export async function structureResumeWithModel({ resumeText, pin, fetchImpl, cal
     status: "ready",
     fallbackReason: "",
     note: "structure:model",
-    ingest: { status: "ready", reason: "", rejected: result.rejected },
+    ingest: { status: "ready", reason: "", rejected: result.rejected, notes: result.notes },
   };
 }
