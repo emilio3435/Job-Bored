@@ -10,7 +10,7 @@
  * - Column map generated from schemas/pipeline-row.v1.json.
  * - Formula escaping: every USER_ENTERED text cell that starts with = + - @
  *   is written with a leading apostrophe, so it is stored as text.
- * - Retry: 429 and 5xx answers are retried with exponential backoff.
+ * - Retry: transient network errors and 429/5xx answers are retried with backoff.
  */
 import { createHash, createSign } from "node:crypto";
 import { readFile } from "node:fs/promises";
@@ -196,6 +196,11 @@ function asText(value: unknown): string {
   return typeof value === "string" ? value.trim() : "";
 }
 
+function googleErrorCode(body: string): string {
+  try { return asText((JSON.parse(body) as { error?: unknown }).error); }
+  catch { return ""; }
+}
+
 function toBase64Url(input: string | Buffer): string {
   return Buffer.from(input)
     .toString("base64")
@@ -269,18 +274,22 @@ async function exchangeServiceAccountToken(
   signer.end();
   const assertion = `${unsigned}.${toBase64Url(signer.sign(serviceAccount.private_key))}`;
 
-  const response = await fetchImpl(serviceAccount.token_uri || GOOGLE_TOKEN_URI, {
+  const response = await sendWithRetry(fetchImpl, new URL(serviceAccount.token_uri || GOOGLE_TOKEN_URI), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
       grant_type: "urn:ietf:params:oauth:grant-type:jwt-bearer",
       assertion,
     }).toString(),
-  });
+  }, { retries: 2 });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
+    const errorCode = googleErrorCode(body);
+    if (errorCode === "invalid_grant") {
+      throw new Error("Google service account credentials were rejected (invalid_grant). Check the configured key and system time, then retry the write.");
+    }
     throw new Error(
-      `Failed to exchange service account token: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+      `Failed to exchange service account token: HTTP ${response.status}${errorCode ? ` (${errorCode})` : ""}`,
     );
   }
   const data = (await response.json()) as { access_token?: string; expires_in?: number };
@@ -310,7 +319,7 @@ async function refreshOAuthAccessToken(
       "Google OAuth token JSON must include refresh_token, client_id, and client_secret when the cached access token is expired.",
     );
   }
-  const response = await fetchImpl(tokenConfig.token_uri || GOOGLE_TOKEN_URI, {
+  const response = await sendWithRetry(fetchImpl, new URL(tokenConfig.token_uri || GOOGLE_TOKEN_URI), {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams({
@@ -319,11 +328,15 @@ async function refreshOAuthAccessToken(
       client_id: tokenConfig.client_id,
       client_secret: tokenConfig.client_secret,
     }).toString(),
-  });
+  }, { retries: 2 });
   if (!response.ok) {
     const body = await response.text().catch(() => "");
+    const errorCode = googleErrorCode(body);
+    if (errorCode === "invalid_grant") {
+      throw new Error("Google authorization expired or was revoked. Reconnect Google in Settings, then retry the write.");
+    }
     throw new Error(
-      `Failed to refresh Google OAuth token: HTTP ${response.status}${body ? ` - ${body}` : ""}`,
+      `Failed to refresh Google OAuth token: HTTP ${response.status}${errorCode ? ` (${errorCode})` : ""}`,
     );
   }
   const data = (await response.json()) as { access_token?: string; expires_in?: number };
@@ -416,7 +429,7 @@ export async function resolveAccessToken(
 /* ------------------------------------------------------------------ */
 
 export type RetryOptions = {
-  /** Attempts after the first (default 3). */
+  /** Attempts after the first (default 2). */
   retries?: number;
   /** First backoff delay; doubles per attempt (default 400 ms). */
   retryBaseMs?: number;
@@ -438,25 +451,63 @@ export function isRetryableStatus(status: number): boolean {
   return status === 429 || status >= 500;
 }
 
+export class GoogleTransportError extends Error {
+  readonly code: string;
+  readonly host: string;
+
+  constructor(host: string, code: string, cause: unknown) {
+    const service = host === "sheets.googleapis.com" ? "Google Sheets" : "Google token service";
+    super(`Couldn't reach ${service} (${code}) at ${host}.`, { cause });
+    this.name = "GoogleTransportError";
+    this.code = code;
+    this.host = host;
+  }
+}
+
+function transportCode(error: unknown): string {
+  const cause = error instanceof Error ? error.cause : undefined;
+  const raw = cause && typeof cause === "object" && "code" in cause
+    ? String(cause.code) : "NETWORK_ERROR";
+  return /^[A-Z][A-Z0-9_]{1,40}$/.test(raw) ? raw : "NETWORK_ERROR";
+}
+
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 /**
- * Send a request, retrying 429/5xx answers with backoff. A network error is
- * not retried here: for a write it is unknown whether the Sheet applied it.
+ * Send a request, retrying transient failures with backoff. Append callers
+ * set retries=0 and re-read links before their next attempt.
  */
-async function sendWithRetry(
+export async function sendWithRetry(
   fetchImpl: FetchLike,
   url: URL,
   init: RequestInit,
   retry: RetryOptions = {},
 ): Promise<Response> {
-  const retries = Math.max(0, retry.retries ?? 3);
+  const retries = Math.max(0, retry.retries ?? 2);
   const base = Math.max(0, retry.retryBaseMs ?? 400);
   let attempt = 0;
   for (;;) {
-    const response = await fetchImpl(url, init);
+    let response: Response;
+    try {
+      response = await fetchImpl(url, init);
+    } catch (error) {
+      if (error instanceof Error && error.name === "AbortError") throw error;
+      const isNetworkError = error instanceof TypeError ||
+        (error instanceof Error && error.cause && typeof error.cause === "object" && "code" in error.cause);
+      if (!isNetworkError) throw error;
+      if (attempt < retries) {
+        await sleep(base * 2 ** attempt);
+        attempt += 1;
+        continue;
+      }
+      const failure = new GoogleTransportError(url.hostname, transportCode(error), error);
+      console.error("[browser-use-discovery]", JSON.stringify({
+        event: "discovery.google_fetch.failed", host: failure.host, code: failure.code,
+      }));
+      throw failure;
+    }
     if (response.ok || !isRetryableStatus(response.status) || attempt >= retries) {
       return response;
     }

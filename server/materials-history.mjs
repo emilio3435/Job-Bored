@@ -1,0 +1,370 @@
+/**
+ * Materials version history (Wave 2 · U-6).
+ *
+ * Every draft already leaves an immutable copy of its package under
+ * <slug>/runs/<runId>/ (materials-package.mjs writePackageRecords). This
+ * module reads those folders back:
+ *
+ *   listRuns(slug)            each run: id, date, template, feature, per-document
+ *                             verdict (disposition + rubric score) and whether
+ *                             it is the version the dashboard serves now
+ *   promoteRun(slug, runId)   copy a run's package back to the top level so
+ *                             Preview / Download serve it again
+ *   diffRuns(slug, a, b, doc) a line diff of two runs' ATS text twins
+ *                             (resume.txt / cover-letter.txt)
+ *
+ * Nothing here calls a model or renders anything. Every path is validated
+ * against the slug pattern, a run-id pattern and a realpath check, the same
+ * way application-materials.mjs guards the file routes.
+ */
+
+import { copyFile, readFile, readdir, realpath, stat, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { join, sep } from "node:path";
+import { resolveApplicationDir } from "./application-materials.mjs";
+import { RUNS_DIR } from "./materials-package.mjs";
+
+const RUN_ID_PATTERN = /^[A-Za-z0-9][A-Za-z0-9_.-]{0,159}$/;
+const MAX_RUNS = 50;
+const MAX_DIFF_LINES = 2000;
+
+/** @typedef {"resume" | "cover_letter"} HistoryDoc */
+
+/** @type {Record<HistoryDoc, { txt: string, html: string, pdf: string, qa: string }>} */
+const DOC_FILES = {
+  resume: { txt: "resume.txt", html: "resume.html", pdf: "resume.pdf", qa: "qa.resume.json" },
+  cover_letter: { txt: "cover-letter.txt", html: "cover-letter.html", pdf: "cover-letter.pdf", qa: "qa.letter.json" },
+};
+
+/* The run-level records a promote carries back with the documents, so
+ * run.json, the render model and the report describe the promoted run. */
+const RUN_LEVEL_FILES = [
+  "render-model.json",
+  "run.json",
+  "qa.json",
+  "qa-report.md",
+  "jd-extract.json",
+  "selection.json",
+  "outline.json",
+  "draft.json",
+];
+
+/**
+ * @param {string} message
+ * @param {number} statusCode
+ * @param {string} [code]
+ */
+function httpError(message, statusCode, code) {
+  return Object.assign(new Error(message), { statusCode, ...(code ? { code } : {}) });
+}
+
+/** @param {unknown} runId */
+export function isValidRunId(runId) {
+  return typeof runId === "string" && RUN_ID_PATTERN.test(runId) && !runId.includes("..");
+}
+
+/** @param {unknown} doc @returns {doc is HistoryDoc} */
+export function isHistoryDoc(doc) {
+  return doc === "resume" || doc === "cover_letter";
+}
+
+/**
+ * @param {string} path
+ * @returns {Promise<Record<string, unknown> | null>}
+ */
+async function readJson(path) {
+  if (!existsSync(path)) return null;
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8"));
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * @param {string} path
+ * @returns {Promise<string | null>}
+ */
+async function readText(path) {
+  if (!existsSync(path)) return null;
+  try {
+    return await readFile(path, "utf8");
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * The run folder for a run id, proven to sit inside <app>/runs/.
+ * @param {string} appDir
+ * @param {string} runId
+ */
+async function resolveRunDir(appDir, runId) {
+  if (!isValidRunId(runId)) throw httpError("Invalid run id", 400, "invalid_run_id");
+  const runsRoot = join(appDir, RUNS_DIR);
+  const dir = join(runsRoot, runId);
+  if (!existsSync(dir)) throw httpError("Run not found", 404, "run_not_found");
+  let real;
+  try {
+    real = await realpath(dir);
+  } catch {
+    throw httpError("Run not found", 404, "run_not_found");
+  }
+  const realRoot = await realpath(runsRoot);
+  if (!real.startsWith(realRoot + sep)) throw httpError("Path escape detected", 400);
+  const st = await stat(real);
+  if (!st.isDirectory()) throw httpError("Run not found", 404, "run_not_found");
+  return real;
+}
+
+/**
+ * @param {Record<string, unknown> | null} qa
+ * @returns {{ disposition: string, score: number | null, max: number | null } | null}
+ */
+function verdictOf(qa) {
+  if (!qa) return null;
+  const rubric = qa.rubric && typeof qa.rubric === "object" ? /** @type {Record<string, unknown>} */ (qa.rubric) : null;
+  const score = rubric && typeof rubric.score === "number" ? rubric.score : null;
+  const max = rubric && typeof rubric.max === "number" ? rubric.max : null;
+  const disposition = typeof qa.disposition === "string" ? qa.disposition : "";
+  return { disposition, score, max };
+}
+
+/**
+ * Which documents a run produced: its feature, confirmed by the files.
+ * @param {string} runDir
+ * @returns {HistoryDoc[]}
+ */
+function docsInRun(runDir) {
+  return /** @type {HistoryDoc[]} */ (["resume", "cover_letter"]).filter((doc) => {
+    const files = DOC_FILES[doc];
+    return existsSync(join(runDir, files.txt)) || existsSync(join(runDir, files.html));
+  });
+}
+
+/**
+ * The comparison key for "is this the version the dashboard serves": the
+ * HTML (it differs per template family, where the ATS twin does not) plus
+ * the text twin.
+ * @param {string} dir
+ * @param {HistoryDoc} doc
+ */
+async function docFingerprint(dir, doc) {
+  const files = DOC_FILES[doc];
+  const html = await readText(join(dir, files.html));
+  const txt = await readText(join(dir, files.txt));
+  if (html == null && txt == null) return null;
+  return `html:${html ?? ""}\u0000txt:${txt ?? ""}`;
+}
+
+/**
+ * @typedef {object} RunSummary
+ * @property {string} runId
+ * @property {string} date ISO finishedAt (else requestedAt, else folder mtime)
+ * @property {string} feature
+ * @property {string} template family id, "" when unknown
+ * @property {string} source "request" | "preference" | "regenerate" | …
+ * @property {string} [regeneratedFrom]
+ * @property {HistoryDoc[]} documents
+ * @property {Partial<Record<HistoryDoc, { disposition: string, score: number | null, max: number | null }>>} verdicts
+ * @property {HistoryDoc[]} active documents whose served copy is this run's
+ */
+
+/**
+ * @param {string} slug
+ * @param {{ root?: string }} [options]
+ * @returns {Promise<{ slug: string, runs: RunSummary[] }>}
+ */
+export async function listRuns(slug, { root } = {}) {
+  const appDir = await resolveApplicationDir(slug, { root });
+  const runsRoot = join(appDir, RUNS_DIR);
+  if (!existsSync(runsRoot)) return { slug, runs: [] };
+  /** @type {string[]} */
+  let names = [];
+  try {
+    names = (await readdir(runsRoot, { withFileTypes: true }))
+      .filter((d) => d.isDirectory() && isValidRunId(d.name))
+      .map((d) => d.name);
+  } catch {
+    names = [];
+  }
+  /** @type {Partial<Record<HistoryDoc, string | null>>} */
+  const served = {};
+  for (const doc of /** @type {HistoryDoc[]} */ (["resume", "cover_letter"])) {
+    served[doc] = await docFingerprint(appDir, doc);
+  }
+  /** @type {RunSummary[]} */
+  const runs = [];
+  for (const runId of names) {
+    const runDir = join(runsRoot, runId);
+    const run = await readJson(join(runDir, "run.json"));
+    let date = "";
+    if (run && typeof run.finishedAt === "string") date = run.finishedAt;
+    else if (run && typeof run.requestedAt === "string") date = run.requestedAt;
+    else {
+      try {
+        date = (await stat(runDir)).mtime.toISOString();
+      } catch {
+        date = "";
+      }
+    }
+    const template = run && run.template && typeof run.template === "object"
+      ? /** @type {Record<string, unknown>} */ (run.template)
+      : null;
+    const documents = docsInRun(runDir);
+    /** @type {RunSummary["verdicts"]} */
+    const verdicts = {};
+    /** @type {HistoryDoc[]} */
+    const active = [];
+    for (const doc of documents) {
+      const verdict = verdictOf(await readJson(join(runDir, DOC_FILES[doc].qa)));
+      if (verdict) verdicts[doc] = verdict;
+      const print = await docFingerprint(runDir, doc);
+      if (print != null && print === served[doc]) active.push(doc);
+    }
+    /** @type {RunSummary} */
+    const summary = {
+      runId,
+      date,
+      feature: run && typeof run.feature === "string" ? run.feature : documents.length === 2 ? "both" : documents[0] || "",
+      template: template && typeof template.family === "string" ? template.family : "",
+      source: template && typeof template.source === "string" ? template.source : "",
+      documents,
+      verdicts,
+      active,
+    };
+    if (template && typeof template.regeneratedFrom === "string") summary.regeneratedFrom = template.regeneratedFrom;
+    runs.push(summary);
+  }
+  runs.sort((a, b) => String(b.date).localeCompare(String(a.date)) || b.runId.localeCompare(a.runId));
+  /* Two runs can hold identical files; only one is "in use": the run the
+   * manifest names when it is among them, else the newest. */
+  const manifest = await readJson(join(appDir, "manifest.json"));
+  const manifestRun = manifest && typeof manifest.runId === "string" ? manifest.runId : "";
+  for (const doc of /** @type {HistoryDoc[]} */ (["resume", "cover_letter"])) {
+    const holders = runs.filter((r) => r.active.includes(doc));
+    if (holders.length < 2) continue;
+    const keep = holders.find((r) => r.runId === manifestRun) || holders[0];
+    for (const run of holders) if (run !== keep) run.active = run.active.filter((d) => d !== doc);
+  }
+  return { slug, runs: runs.slice(0, MAX_RUNS) };
+}
+
+/**
+ * Copy a run's package back to the top level. Only the documents the run
+ * produced are replaced; the other document keeps whatever version it has.
+ * Refuses while a draft is in flight for this role (409 draft_in_flight).
+ *
+ * @param {string} slug
+ * @param {string} runId
+ * @param {{ root?: string, now?: () => Date }} [options]
+ */
+export async function promoteRun(slug, runId, { root, now = () => new Date() } = {}) {
+  const appDir = await resolveApplicationDir(slug, { root });
+  const runDir = await resolveRunDir(appDir, runId);
+  const pending = await readJson(join(appDir, "pending.json"));
+  const phase = pending && pending.progress && typeof pending.progress === "object"
+    ? String(/** @type {Record<string, unknown>} */ (pending.progress).phase || "")
+    : "";
+  if (pending && !/^(failed|complete|done)$/i.test(phase)) {
+    throw httpError("A draft is running for this role. Wait for it to finish, then try again.", 409, "draft_in_flight");
+  }
+  const documents = docsInRun(runDir);
+  if (!documents.length) throw httpError("This version has no documents to restore.", 404, "run_empty");
+  /** @type {string[]} */
+  const copied = [];
+  for (const doc of documents) {
+    const files = DOC_FILES[doc];
+    for (const name of [files.html, files.pdf, files.txt, files.qa]) {
+      if (!existsSync(join(runDir, name))) continue;
+      await copyFile(join(runDir, name), join(appDir, name));
+      copied.push(name);
+    }
+  }
+  for (const name of RUN_LEVEL_FILES) {
+    if (!existsSync(join(runDir, name))) continue;
+    await copyFile(join(runDir, name), join(appDir, name));
+    copied.push(name);
+  }
+  const run = await readJson(join(runDir, "run.json"));
+  const manifestPath = join(appDir, "manifest.json");
+  const manifest = (await readJson(manifestPath)) || {};
+  /** @type {Record<string, unknown>} */
+  const next = { ...manifest, runId, updated_at: now().toISOString(), promotedFrom: runId };
+  if (run && run.template && typeof run.template === "object") next.template = run.template;
+  await writeFile(manifestPath, `${JSON.stringify(next, null, 2)}\n`, "utf8");
+  return { ok: true, slug, runId, documents, copied };
+}
+
+/**
+ * Line diff (longest common subsequence) of two texts.
+ * @param {string} a
+ * @param {string} b
+ * @returns {{ op: "same" | "add" | "del", text: string }[]}
+ */
+export function diffLines(a, b) {
+  const left = String(a || "").replace(/\r\n/g, "\n").split("\n").slice(0, MAX_DIFF_LINES);
+  const right = String(b || "").replace(/\r\n/g, "\n").split("\n").slice(0, MAX_DIFF_LINES);
+  if (left.length && left[left.length - 1] === "") left.pop();
+  if (right.length && right[right.length - 1] === "") right.pop();
+  const n = left.length;
+  const m = right.length;
+  /* lcs[i][j] = LCS length of left[i..] and right[j..]. */
+  const lcs = Array.from({ length: n + 1 }, () => new Uint16Array(m + 1));
+  for (let i = n - 1; i >= 0; i -= 1) {
+    for (let j = m - 1; j >= 0; j -= 1) {
+      lcs[i][j] = left[i] === right[j] ? lcs[i + 1][j + 1] + 1 : Math.max(lcs[i + 1][j], lcs[i][j + 1]);
+    }
+  }
+  /** @type {{ op: "same" | "add" | "del", text: string }[]} */
+  const out = [];
+  let i = 0;
+  let j = 0;
+  while (i < n && j < m) {
+    if (left[i] === right[j]) {
+      out.push({ op: "same", text: left[i] });
+      i += 1;
+      j += 1;
+    } else if (lcs[i + 1][j] >= lcs[i][j + 1]) {
+      out.push({ op: "del", text: left[i] });
+      i += 1;
+    } else {
+      out.push({ op: "add", text: right[j] });
+      j += 1;
+    }
+  }
+  while (i < n) out.push({ op: "del", text: left[i++] });
+  while (j < m) out.push({ op: "add", text: right[j++] });
+  return out;
+}
+
+/**
+ * @param {string} slug
+ * @param {string} a older run id (the "from" side)
+ * @param {string} b newer run id (the "to" side)
+ * @param {string} doc "resume" | "cover_letter"
+ * @param {{ root?: string }} [options]
+ */
+export async function diffRuns(slug, a, b, doc, { root } = {}) {
+  if (!isHistoryDoc(doc)) throw httpError("doc must be resume or cover_letter", 400, "invalid_doc");
+  const appDir = await resolveApplicationDir(slug, { root });
+  const dirA = await resolveRunDir(appDir, a);
+  const dirB = await resolveRunDir(appDir, b);
+  const name = DOC_FILES[doc].txt;
+  const textA = await readText(join(dirA, name));
+  const textB = await readText(join(dirB, name));
+  if (textA == null || textB == null) {
+    throw httpError(`Both versions need a ${name} to compare.`, 404, "text_missing");
+  }
+  const lines = diffLines(textA, textB);
+  return {
+    slug,
+    doc,
+    a,
+    b,
+    added: lines.filter((l) => l.op === "add").length,
+    removed: lines.filter((l) => l.op === "del").length,
+    lines,
+  };
+}

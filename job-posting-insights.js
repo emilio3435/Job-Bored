@@ -8,6 +8,12 @@
    ============================================ */
 
 (function () {
+  const output = window.JobBoredLlmOutputBudget || {
+    outputBudget: () => undefined,
+    shortOutputBudget: () => undefined,
+    geminiThinkingConfig: () => undefined,
+    outputLimitField: () => ({}),
+  };
   // ── Shared output schema ─────────────────────────────────────────────────────
   // Gemini: responseSchema in generationConfig (constrained sampling).
   // OpenAI: json_schema + strict:true (grammar-constrained, gpt-5.4/4o+) or json_object fallback.
@@ -354,18 +360,6 @@
     return err instanceof Error ? err : new Error(String(err));
   }
 
-  // gpt-5.x and all o-series reasoning models use max_completion_tokens;
-  // gpt-4o and older use max_tokens.
-  function openAIUsesMaxCompletionTokens(model) {
-    const m = String(model || "").toLowerCase();
-    return (
-      m.startsWith("gpt-5") || // gpt-5.4, gpt-5.4-mini, gpt-5.4-nano
-      m.startsWith("o1") ||
-      m.startsWith("o3") ||
-      m.startsWith("o4")
-    );
-  }
-
   // Models that support strict json_schema structured output.
   // As of April 2026: gpt-5.4/mini/nano (current flagship), gpt-4o series,
   // gpt-4-turbo, and all o-series reasoning models.
@@ -462,7 +456,7 @@
     return clean(schema);
   }
 
-  async function callGeminiJson(userPrompt, apiKey, model) {
+  async function callGeminiJson(userPrompt, apiKey, model, retriedTruncation = false) {
     const wireModel = resolveGeminiWireModel(model);
     // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
     const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(wireModel)}:generateContent`;
@@ -471,7 +465,8 @@
       contents: [{ role: "user", parts: [{ text: userPrompt }] }],
       generationConfig: {
         temperature: 0.3,
-        maxOutputTokens: 3500,
+        maxOutputTokens: output.outputBudget("gemini", wireModel),
+        thinkingConfig: output.geminiThinkingConfig(wireModel),
         responseMimeType: "application/json",
         responseSchema: toGeminiSchema(ENRICHMENT_SCHEMA),
       },
@@ -491,6 +486,10 @@
       throw new Error(
         data.error?.message || JSON.stringify(data) || `HTTP ${resp.status}`,
       );
+    if (data.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+      if (!retriedTruncation) return callGeminiJson(userPrompt, apiKey, model, true);
+      throw new Error(`Gemini model ${wireModel} reached its output limit after a retry.`);
+    }
     const rawText =
       data.candidates?.[0]?.content?.parts?.map((p) => p.text || "").join("") ||
       "";
@@ -499,9 +498,6 @@
   }
 
   async function callOpenAIJson(userPrompt, apiKey, model) {
-    const limitKey = openAIUsesMaxCompletionTokens(model)
-      ? "max_completion_tokens"
-      : "max_tokens";
     const useStrict = openAISupportsStrictSchema(model);
     const responseFormat = useStrict
       ? {
@@ -522,7 +518,7 @@
       ],
       response_format: responseFormat,
       temperature: 0.3,
-      [limitKey]: 3500,
+      ...output.outputLimitField("openai", model),
     };
     let resp;
     try {
@@ -559,7 +555,7 @@
         { role: "user", content: userPrompt },
       ],
       temperature: 0.3,
-      max_tokens: 3500,
+      ...output.outputLimitField("openrouter", model),
     };
     let resp;
     try {
@@ -586,7 +582,7 @@
     // Response arrives as a guaranteed-valid JSON string in content[0].text.
     const body = {
       model,
-      max_tokens: 3500,
+      ...(output.outputBudget("anthropic", model) === undefined ? {} : { max_tokens: output.outputBudget("anthropic", model) }),
       system: SYSTEM,
       messages: [{ role: "user", content: userPrompt }],
       output_config: {
@@ -785,7 +781,8 @@
       tools: [{ url_context: {} }],
       generationConfig: {
         temperature: 0.1,
-        maxOutputTokens: 4500,
+        maxOutputTokens: output.shortOutputBudget("gemini", model, 16384),
+        thinkingConfig: output.geminiThinkingConfig(model),
       },
     };
     const ctrl = new AbortController();
@@ -793,12 +790,13 @@
        the local-scraper budget because the value of success is higher. */
     const timer = setTimeout(() => ctrl.abort(), 25_000);
     try {
-      const resp = await fetch(url, {
+      const send = () => fetch(url, {
         method: "POST",
         headers: { "Content-Type": "application/json", "x-goog-api-key": g.resumeGeminiApiKey },
         body: JSON.stringify(body),
         signal: ctrl.signal,
       });
+      let resp = await send();
       if (!resp.ok) {
         /* Surface auth/quota errors so the outer pipeline can show a
            specific toast. Other failures (4xx on the URL itself,
@@ -812,7 +810,13 @@
         }
         return null;
       }
-      const data = await resp.json().catch(() => null);
+      let data = await resp.json().catch(() => null);
+      if (data?.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+        resp = await send();
+        if (!resp.ok) return null;
+        data = await resp.json().catch(() => null);
+        if (data?.candidates?.[0]?.finishReason === "MAX_TOKENS") return null;
+      }
       if (!data) return null;
       const text =
         data.candidates?.[0]?.content?.parts

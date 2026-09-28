@@ -2,7 +2,7 @@
 <article class="sheet page" data-page="1" {{sheetAttrs}}>
 
   <header class="masthead">
-    <h1 class="name">{{identity.name}}</h1>
+    <h1 class="name{{#if identity.nameFit.full}} name--full{{/if}}" style="font-size:{{identity.nameFit.pt}}pt">{{identity.name}}</h1>
     <p class="target">{{identity.target}}</p>
   </header>
 
@@ -16,9 +16,9 @@
         </address>
       </div>
       <div class="main">
-        <section data-section="summary">
+        {{#if resume.statement.show}}<section data-section="summary">
           <p class="summary">{{resume.statement.html}}</p>
-        </section>
+        </section>{{else}}<section data-section="summary" data-omitted="repeats-headline" hidden></section>{{/if}}
       </div>
     </div>
 
@@ -33,6 +33,17 @@
           {{#if place}}<p class="where">{{place}}</p>{{/if}}
         </div>
         <div class="main">
+          {{#if hasRoles}}
+          {{#each roles}}
+          <div class="role"><h3 class="title">{{seatHtml}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
+          {{#if hasBullets}}
+          <ul>
+            {{#each bullets}}<li data-claim="{{claimId}}">{{#if hasLead}}<span class="k">{{lead}}</span><span>{{restHtml}}</span>{{else}}<span class="k k--dash" aria-hidden="true"></span><span>{{html}}</span>{{/if}}</li>
+            {{/each}}
+          </ul>
+          {{/if}}
+          {{/each}}
+          {{else}}
           {{#if hasSeat}}<div class="role"><h3 class="title">{{seatHtml}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>{{/if}}
           {{#if hasBullets}}
           <ul>
@@ -41,6 +52,7 @@
           </ul>
           {{else}}
           {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
+          {{/if}}
           {{/if}}
         </div>
       </div>
@@ -57,7 +69,7 @@
         <div class="main">
           {{#each resume.earlier.entries}}
           <div class="earlier" data-claim-group="{{employerId}}">
-            <div class="role"><h3 class="title">{{org}}{{#if hasSeat}} <small>/ {{seatHtml}}</small>{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
+            <div class="role"><h3 class="title">{{#if showOrg}}{{org}}{{#if hasSeat}} <small>/ {{seatHtml}}</small>{{/if}}{{else}}{{seatHtml}}{{/if}}</h3>{{#if dates}}<span class="span">{{dates}}</span>{{/if}}</div>
             {{#if line}}<ul><li data-claim="{{claimId}}"><span class="k k--dash" aria-hidden="true"></span><span>{{line}}</span></li></ul>{{/if}}
           </div>
           {{/each}}

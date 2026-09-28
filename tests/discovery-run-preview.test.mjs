@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { createRequire } from "node:module";
 import { readFileSync } from "node:fs";
@@ -285,6 +286,7 @@ test("P0-F seam: closing the drawer uses the stubbed a11y handle for focus resto
     },
   };
   vm.createContext(context);
+  vm.runInContext(outputBudgetJs, context, { filename: "llm-output-budget.js" });
   vm.runInContext(source, context, { filename: "discovery-drawer.js" });
 
   context.window.JobBoredDiscovery.drawer.closeDiscoveryDrawer();

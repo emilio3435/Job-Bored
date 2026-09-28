@@ -25,11 +25,16 @@
   const MOUNT_ID = "oneFlowMount";
   const FLOW_STATE_VERSION = 3;
 
-  /** The six beats, in the order spec §3.1 locks. */
+  /** The beats, in the order spec §3.1 locks. */
   const BEAT_IDS = Object.freeze([
     "google",
     "ai",
     "resume",
+    // "Your details" (profile contact identity) follows the resume it
+    // pre-fills from and precedes the fit review that saves it.
+    "details",
+    // "Your voice" (the voice guide drafts follow) comes right after.
+    "voice",
     "fit",
     "discovery",
     "payoff",
@@ -40,6 +45,8 @@
     google: "Google",
     ai: "AI",
     resume: "Resume",
+    details: "Your details",
+    voice: "Your voice",
     fit: "Your fit",
     discovery: "Discovery",
     payoff: "Done",
@@ -82,12 +89,15 @@
 
   /**
    * Beat-local drafts that survive a refresh (spec §3.2, SIXBEATS2 locked
-   * decision 4). Two keys, both written by the beat that owns them:
+   * decision 4). Four keys, each written by the beat that owns them:
    * `resumeText` by B3 on input, `profileDraft` by B3 when the draft lands
-   * and by B4 on every correction. Anything else is refused — a beat is
+   * and by B4 on every correction, `contactDraft` by "Your details" (the
+   * name and contact the user confirmed, which B4's save carries into the
+   * profile), `voiceDraft` by "Your voice" (the guide text before it is
+   * saved). Anything else is refused — a beat is
    * never allowed to talk this store into holding a key or a token.
    */
-  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft"]);
+  const DRAFT_KEYS = Object.freeze(["resumeText", "profileDraft", "contactDraft", "voiceDraft"]);
 
   /** One write per typing burst, not one per keystroke (spec §3.2). */
   const DRAFT_SAVE_DELAY_MS = 400;
@@ -196,7 +206,9 @@
     if (typeof raw.render !== "function") {
       throw new Error(`[JobBored] one-flow: beat "${id}" needs a render(container, ctx).`);
     }
-    const order = Number.isInteger(raw.order) ? raw.order : BEAT_IDS.indexOf(id) + 1;
+    // A finite order, not only an integer: "Your details" slots in at 3.5
+    // between the resume (3) and the fit review (4).
+    const order = Number.isFinite(raw.order) ? raw.order : BEAT_IDS.indexOf(id) + 1;
     const beat = {
       id,
       order,
@@ -686,6 +698,8 @@
         id: beat.id,
         label: beat.label,
         done: completed.has(beat.id),
+        // "Your details" can be skipped; the spine keeps it unfinished.
+        skipped: !completed.has(beat.id) && !!(state.skipped && state.skipped[beat.id]),
       })),
       current: currentId,
       timeLabel: current ? current.timeLabel : "",

@@ -966,7 +966,7 @@ test("VAL-CROSS-004: one-lane failure in browser_plus_ats produces partial statu
 
 // === VAL-CROSS-004: Write failure also produces partial (not full success) ===
 
-test("VAL-CROSS-004: write failure after successful collection produces partial status", async () => {
+test("VAL-CROSS-004: write failure after successful collection produces write_failed status", async () => {
   const runStatusStore = createMemoryRunStatusStore();
 
   const dependencies = makeDependencies({
@@ -1078,11 +1078,11 @@ test("VAL-CROSS-004: write failure after successful collection produces partial 
   const ackBody = JSON.parse(response.body);
   const terminalStatus = runStatusStore.get(ackBody.runId);
 
-  // Write failure → partial, not completed
+  // Discovery succeeded, but the saved write can be retried separately.
   assert.equal(
     terminalStatus.status,
-    "partial",
-    "Write failure must produce 'partial' status",
+    "write_failed",
+    "Write failure must produce a retryable write_failed status",
   );
   assert.equal(terminalStatus.terminal, true);
 

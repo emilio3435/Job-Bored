@@ -1,0 +1,19 @@
+{
+  "note": "Hand-built reply in the shape the support stage parses, over a fictional letter. Sentence 2 mirrors the round-2 failure: an invented connective claim whose words all overlap a claim.",
+  "letter": {
+    "hook": "I'm a fleet analyst and tool builder with six years at Cascade Logistics. I rebuilt the route forecaster for the Harbor Co-op's 90 drivers.",
+    "companyInsight": "",
+    "proof1": "At Cascade I rebuilt the route forecaster for 620 vans and cut missed windows from 9.1% to 4.3%.",
+    "proof2": "I ran a Monday readout for 14 dispatch leads.",
+    "ask": "Send me one week of Lumen Parcel's route data and I'll show you where the model and the drivers disagree."
+  },
+  "reply": {
+    "verdicts": [
+      { "i": 1, "factual": true, "supported": true, "source": "voice-1", "reason": "" },
+      { "i": 2, "factual": true, "supported": false, "source": "c1", "reason": "no source says the forecaster was built for the Harbor Co-op" },
+      { "i": 3, "factual": true, "supported": true, "source": "c1", "reason": "" },
+      { "i": 4, "factual": true, "supported": true, "source": "c2", "reason": "" },
+      { "i": 5, "factual": false, "supported": null, "source": "", "reason": "an offer" }
+    ]
+  }
+}

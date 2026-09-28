@@ -218,7 +218,7 @@
       err.code = reason;
       throw err;
     }
-    return { profile: data.profile, source: data.source };
+    return { profile: data.profile, source: data.source, requestGarbled: data.requestGarbled === true };
   }
 
   async function fetchProfile() {
@@ -1140,6 +1140,8 @@
       el("div", { class: "fp-wizard__progress-fill", style: { width: "16%" } }),
     ]);
     var errorEl = el("div", { class: "fp-wizard__error", style: { display: "none" } });
+    // RESJ K5: where a resume pre-fill came from, when it wasn't this browser's copy.
+    var noteEl = el("p", { class: "fp-wizard__note", role: "status", style: { display: "none" } });
 
     var panels = {};
     [
@@ -1198,6 +1200,7 @@
     ]);
 
     inner.appendChild(errorEl);
+    inner.appendChild(noteEl);
     inner.appendChild(actions);
     root.appendChild(el("div", { class: "fp-wizard__head-wrap" }, [head]));
     root.insertBefore(progress, root.firstChild ? root.firstChild.nextSibling : null);
@@ -1212,6 +1215,7 @@
       nextBtn: nextBtn,
       saveBtn: saveBtn,
       errorEl: errorEl,
+      noteEl: noteEl,
     };
   }
 
@@ -1345,6 +1349,7 @@
 
   async function applyResumePrefill() {
     showWizardError("");
+    showWizardNote("");
     resumePrefillState = { status: "loading", message: "" };
     repaintTemplateStep();
     try {
@@ -1357,6 +1362,11 @@
       repaintTemplateStep();
       // Advance to step 2 (Identity) so the user can immediately review.
       goToStep(2);
+      if (result.requestGarbled) {
+        showWizardNote(
+          "Filled from your saved resume, because this browser's copy came out broken. Check each step, then save.",
+        );
+      }
     } catch (err) {
       if (err && err.code === "no_resume_stored") {
         resumePrefillState = { status: "missing", message: "" };
@@ -1372,6 +1382,8 @@
 
   async function applyTemplate(id) {
     showWizardError("");
+    // RESJ K5-NOTE: the draft is the template now, not the saved resume.
+    showWizardNote("");
     if (id === "blank") {
       wizardState = emptyProfile();
       wizardState.starterTemplate = "blank";
@@ -1483,6 +1495,12 @@
     }
     wizardEls.errorEl.textContent = msg;
     wizardEls.errorEl.style.display = "";
+  }
+
+  function showWizardNote(msg) {
+    if (!wizardEls.noteEl) return;
+    wizardEls.noteEl.textContent = msg || "";
+    wizardEls.noteEl.style.display = msg ? "" : "none";
   }
 
   function onWizardChange() {

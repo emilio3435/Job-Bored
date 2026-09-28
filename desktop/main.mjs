@@ -28,7 +28,7 @@ import { createLogSink } from "./log-file.mjs";
 import { DASHBOARD_URL, createLaunchGate, parseJobBoredUrl } from "./protocol.mjs";
 import { DEFAULT_PORTS, SERVICE_NAMES, createSupervisor } from "./supervisor.mjs";
 import { ICON_SIZE, briefcaseBitmap } from "./tray-icon.mjs";
-import { createUpdater } from "./updater.mjs";
+import { createUpdater, updateMenuLabel } from "./updater.mjs";
 
 const DESKTOP_DIR = dirname(fileURLToPath(import.meta.url));
 const smoke = isSmokeMode(process.env);
@@ -159,7 +159,11 @@ function refreshTray() {
   const updateItem =
     update?.state === "ready"
       ? { label: `Restart to update${update.version ? ` (${update.version})` : ""}`, click: () => void installUpdate() }
-      : { label: "Check for updates", enabled: Boolean(updater?.enabled), click: () => updater?.check() };
+      : {
+          label: updateMenuLabel(update),
+          enabled: Boolean(updater?.enabled) && update?.state !== "checking" && update?.state !== "downloading",
+          click: () => updater?.check(),
+        };
   const menu = Menu.buildFromTemplate([
     { label: "Open JobBored", click: () => void openTarget(DASHBOARD_URL) },
     { type: "separator" },

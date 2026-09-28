@@ -3,19 +3,24 @@
  * One draft at a time. Does not talk to Hermes or Telegram.
  */
 
-import { mkdir, readFile, readdir, rm, writeFile } from "node:fs/promises";
+import { jdEvidence } from "./materials-jd-extract.mjs";
+import { randomUUID } from "node:crypto";
+import { mkdir, readFile, readdir, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { getApplicationsRoot } from "./application-materials.mjs";
 import { loadLlmConfig, resolveActivePin } from "./llm-config.mjs";
 import { resolveJobDescription, isUsableJobDescription } from "./materials-jd-gate.mjs";
 import { openPdfSession } from "./materials-pdf.mjs";
-import { readResolvedMarks } from "./brand-logos.mjs";
+import { getBrandLogosTemplateRoot, loadEmployerMarks, loadTargetMark, readResolvedMarks, targetSlug } from "./brand-logos.mjs";
+import { geminiGroundedSearch, intelRootDir } from "./materials-intel.mjs";
 import { newRunId } from "./materials-package.mjs";
 import { runPipeline } from "./materials-pipeline.mjs";
 import { resolveRunFamily } from "./materials-templates.mjs";
 import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
+  chooseResumeSource,
   normalizeResumeSource,
+  readCanonicalResume,
   resumeProvenance,
   resumeRequiredError,
   writeResumeSnapshot,
@@ -113,10 +118,16 @@ export async function reconcileOrphanedPending(options = {}) {
  * @property {import("./materials-resume-source.mjs").ResumeSource | null} [resume]
  *   The user's own resume — the only source of facts. enqueue() refuses
  *   (422 resume_required) without it.
+ * @property {import("./materials-resume-source.mjs").ResumeChoice} [resumeChoice]
+ *   which resume the draft uses and why (set by enqueue, recorded in run.json)
  * @property {"snapshot"} [resumeFrom] F8: a repair re-enters at the draft
  *   stage with the stored draft JSON plus notes as editor instructions
  * @property {string} [template] a registry family named by this request
  * @property {string} [preferredTemplate] the user's saved materialsTemplate
+ * @property {"cover_letter"} [then] U-5: the document to queue
+ *   as its own run once this one finishes ("Draft both")
+ * @property {string[]} [thenExtras] extras for that follow-up run
+ * @property {string[]} [extras] Wave 3 extras for this run ("outreach")
  */
 
 /**
@@ -128,6 +139,8 @@ export async function reconcileOrphanedPending(options = {}) {
  * @property {string} updated_at
  * @property {number} attempt
  * @property {number} elapsed_seconds
+ * @property {Array<{ stage: string, status: string, reason?: string }>} [stages]
+ *   U-4: every finished pipeline stage, in order
  */
 
 /**
@@ -140,8 +153,9 @@ export async function reconcileOrphanedPending(options = {}) {
  * @property {string} notes
  * @property {string} requested_at
  * @property {string} source
+ * @property {string} [next] U-5: the document queued after this one
  * @property {PendingProgress} progress
- * @property {{ source: string, filename: string, addedAt: string }} [resume] provenance, no text
+ * @property {{ source: string, filename: string, addedAt: string, choice?: { used: string, reason: string, message?: string } }} [resume] provenance, no text
  * @property {{ llm?: { provider: string, requestedModel: string, resolvedModel: string } }} [debug]
  */
 
@@ -227,6 +241,77 @@ function defaultProgressMessage(phase, feature) {
   return "";
 }
 
+/* Wave 2 U-4: what the user reads while a stage runs. onStage fires as
+ * each pipeline stage finishes, so the sentence names the step that comes
+ * next. Raw stage ids ("claims.select: running") never reach the message;
+ * the ids travel structured in progress.stages for the dashboard timeline. */
+/** @type {Record<string, string>} */
+const NEXT_STEP_WORDS = {
+  intake: "Reading the job…",
+  "jd.resolve": "Reading the job…",
+  "jd.gate": "Loading your facts…",
+  "claims.load": "Loading your facts…",
+  "cache.lookup": "Reading the job…",
+  "jd.extract": "Picking the facts that fit this job…",
+  "claims.score": "Picking the facts that fit this job…",
+  "claims.select": "Picking the facts that fit this job…",
+  outline: "Writing your {doc}…",
+  draft: "Checking the facts…",
+  support: "Tidying the wording…",
+  delint: "Checking the facts…",
+  "tag-metrics": "Rendering the PDF…",
+  fit: "Rendering the PDF…",
+  render: "Checking quality…",
+  qa: "Checking quality…",
+  publish: "Finishing up…",
+};
+
+/**
+ * @param {string} stage the stage that just finished
+ * @param {unknown} feature
+ */
+export function stageProgressMessage(stage, feature) {
+  const f = String(feature || "");
+  const doc = f === "resume" ? "resume" : f === "cover_letter" ? "cover letter" : "resume and cover letter";
+  return (NEXT_STEP_WORDS[stage] || `Writing your ${doc}…`).replace("{doc}", doc);
+}
+
+/* Why a stage finished below "ok", in words. The model stages' own reason
+ * (e.g. "output cut off at 4096 tokens") comes from the files the pipeline
+ * wrote; the dashboard turns it into plain words. */
+/** @type {Record<string, string>} */
+const STAGE_REVIEW_REASONS = {
+  "jd.extract": "fell back to rules",
+  "claims.select": "the AI's picks couldn't be used",
+  draft: "the AI's draft couldn't be used, so your own lines were kept",
+  support: "some sentences could not be matched to your facts",
+  delint: "a few phrases still read like boilerplate",
+  "tag-metrics": "some numbers could not be traced to your facts",
+  render: "the PDF could not be rendered",
+  qa: "needs your review",
+};
+
+/**
+ * @param {string} dir
+ * @param {string} stage
+ * @param {string} status
+ * @returns {Promise<string>}
+ */
+async function stageReason(dir, stage, status) {
+  if (status === "ok" || status === "skipped") return "";
+  if (stage === "qa" && status === "failed") return "failed its quality check";
+  if (stage === "jd.extract") {
+    try {
+      const extract = JSON.parse(await readFile(join(dir, "jd-extract.json"), "utf8"));
+      const reason = extract && extract.degraded && typeof extract.degraded.reason === "string" ? extract.degraded.reason : "";
+      if (reason) return `fell back to rules: ${reason}`;
+    } catch {
+      /* the generic reason below */
+    }
+  }
+  return STAGE_REVIEW_REASONS[stage] || "fell back";
+}
+
 /**
  * @param {unknown} stamp
  * @param {unknown} nowIso
@@ -307,6 +392,20 @@ async function writeJdFile(dir, text, meta = {}) {
  *   with. Defaults to openPdfSession; null renders unmeasured (tests).
  * @property {() => Promise<import("./materials-render-model-adapter.mjs").ResolvedMark[]>} [logoLoader]
  *   Resolved brand-logo marks (defaults to readResolvedMarks, read-only).
+ * @property {(companies: string[]) => Promise<import("./materials-render-model-adapter.mjs").ResolvedMark[]>} [employerLogoLoader]
+ *   Marks for the resume's employers (defaults to loadEmployerMarks: cache,
+ *   then one bounded resolver run per company; never fails the draft).
+ * @property {boolean} [intel] Wave 3: false turns the company intel stage off
+ * @property {string} [intelRoot] Wave 3: the per-domain intel cache dir ("" = no cache)
+ * @property {import("./materials-intel.mjs").IntelSearch} [intelSearch] Wave 3: the grounded search (tests stub it)
+ * @property {number} [intelBudgetMs] Wave 3: the intel stage's time budget (default 60 s)
+ * @property {(company: string) => Promise<import("./materials-render.mjs").Logo | null>} [targetLogoLoader]
+ *   The addressed company's mark (defaults to loadTargetMark: cache, then
+ *   one bounded resolver run; null means the renderer draws a monogram).
+ * @property {() => Promise<import("./materials-resume-source.mjs").ResumeSource | null>} [readSavedResume]
+ *   The user's saved resume (defaults to resume.txt beside profile.json).
+ *   A draft uses it over the request's copy when that copy is older or
+ *   garbled (chooseResumeSource).
  * @property {() => Date | string | number} [now]
  * @property {number} [heartbeatMs] F14: queued-job heartbeat interval
  *   (default 60s; tests use a shorter one)
@@ -339,7 +438,53 @@ export function createMaterialsDrafter(deps = {}) {
         : () => openPdfSession();
   const logoLoader =
     typeof deps.logoLoader === "function" ? deps.logoLoader : () => readResolvedMarks();
+  const employerLogoLoader =
+    typeof deps.employerLogoLoader === "function"
+      ? deps.employerLogoLoader
+      : (/** @type {string[]} */ companies) => loadEmployerMarks(companies);
+  const targetLogoLoader =
+    typeof deps.targetLogoLoader === "function"
+      ? deps.targetLogoLoader
+      : (/** @type {string} */ company) => loadTargetMark(company);
   const now = typeof deps.now === "function" ? deps.now : () => new Date();
+  /* Wave 3 intel pack (C-6). The grounded search runs only on the real
+   * network path: a test that injects fetchImpl gets a posting-only pack
+   * unless it passes intelSearch. The per-domain cache lives under
+   * $JOBBORED_HOME/intel; a drafter given its own applicationsRoot (tests)
+   * caches nothing unless it names intelRoot. `intel: false` turns the
+   * stage off. */
+  const intelEnabled = deps.intel !== false;
+  const intelCacheRoot =
+    typeof deps.intelRoot === "string"
+      ? deps.intelRoot
+      : typeof deps.applicationsRoot === "string" && deps.applicationsRoot
+        ? ""
+        : intelRootDir();
+  /**
+   * @param {import("./materials-writer.mjs").WriterPin | null} pin
+   * @returns {import("./materials-intel.mjs").IntelSearch | null}
+   */
+  const intelSearchFor = (pin) => {
+    if (typeof deps.intelSearch === "function") return deps.intelSearch;
+    if (typeof deps.fetchImpl === "function" || !pin) return null;
+    const provider = String(pin.provider || "gemini").toLowerCase();
+    const apiKey = String(pin.apiKey || "");
+    const model = String(pin.resolvedModel || pin.model || "");
+    if (provider !== "gemini" || !apiKey || !model) return null;
+    return geminiGroundedSearch({ apiKey, model, fetchImpl });
+  };
+  /** @type {import("./materials-intel.mjs").BrandResolver} */
+  const intelBrand = async (company) => {
+    const mark = await targetLogoLoader(company);
+    if (!mark) return { logoPath: "", source: "monogram" };
+    const injected = typeof deps.targetLogoLoader === "function";
+    return {
+      logoPath: injected ? "" : join(getBrandLogosTemplateRoot(), "targets", "assets", `logo-${targetSlug(company)}.png`),
+      source: typeof (/** @type {{ source?: unknown }} */ (mark)).source === "string" ? String((/** @type {{ source?: unknown }} */ (mark)).source) : "logo_resolver",
+    };
+  };
+  const readSavedResume =
+    typeof deps.readSavedResume === "function" ? deps.readSavedResume : () => readCanonicalResume();
 
   /** @type {Array<{ payload: MaterialsRequestPayload, pin: object, dir: string, pendingPath: string, record: PendingRecord }>} */
   const queue = [];
@@ -410,8 +555,18 @@ export function createMaterialsDrafter(deps = {}) {
    * @param {string} path
    * @param {PendingRecord} record
    */
+  /* Atomic: write a sibling temp file, then rename over pending.json, so a
+   * reader (the dashboard poll, a restart scan) never sees a half-written
+   * file while the heartbeat and phase writes race. */
   async function writePending(path, record) {
-    await writeFile(path, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+    const tmp = `${path}.${process.pid}.${randomUUID()}.tmp`;
+    try {
+      await writeFile(tmp, `${JSON.stringify(record, null, 2)}\n`, "utf8");
+      await rename(tmp, path);
+    } catch (err) {
+      await rm(tmp, { force: true }).catch(() => {});
+      throw err;
+    }
   }
 
   /**
@@ -474,6 +629,9 @@ export function createMaterialsDrafter(deps = {}) {
         updated_at: t,
         attempt: (record.progress && record.progress.attempt) || 1,
         elapsed_seconds: elapsedSeconds(started || t, t),
+        /* U-4: the finished stages survive every phase change, so a failed
+         * run's timeline still shows where it stopped. */
+        ...(record.progress && Array.isArray(record.progress.stages) ? { stages: record.progress.stages } : {}),
       },
     };
   }
@@ -495,14 +653,20 @@ export function createMaterialsDrafter(deps = {}) {
         const job = queue.shift();
         if (!job) continue;
         activeJob = job;
+        let finished = false;
         try {
           await runJob(job);
+          finished = !(job.record && job.record.progress && job.record.progress.phase === "failed");
         } catch (err) {
           await failJob(job, err);
         } finally {
           activeJob = null;
           inFlight.delete(job.payload.slug);
         }
+        /* U-5 "Draft both": the resume finished, so its letter goes in line
+         * as its own run with its own verdict. A failed first document stops
+         * the chain; its failed card offers Try again. */
+        if (finished && job.payload.then) await enqueueFollowUp(job);
       }
     } finally {
       running = false;
@@ -647,7 +811,7 @@ export function createMaterialsDrafter(deps = {}) {
     }
     let ledger;
     try {
-      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source });
+      ledger = await ensureLedger({ profile, resumeText, resumeSource: resumeSource.source, pin: resolved, fetchImpl });
     } catch (err) {
       if (err && /** @type {{ code?: unknown }} */ (err).code === "ledger_empty") {
         await failJob(job, {
@@ -673,13 +837,23 @@ export function createMaterialsDrafter(deps = {}) {
     }
     const voiceSamples = await collectVoiceSamples(current ? { ...payload, notes: "" } : payload);
 
-    const words = jdText.split(/\s+/).filter(Boolean).length;
+    /* RESJ Q3: confidence from what the posting offers (role sections,
+     * duty lines, requirements, company facts), not its length. */
+    const evidence = jdEvidence(jdText);
     const gate = {
       verdict: "usable",
-      confidence: Math.min(0.95, Math.round((0.5 + words / 2000) * 100) / 100),
-      signals: { words, source: jd.source },
+      confidence: evidence.confidence,
+      signals: {
+        words: evidence.words,
+        roleSections: evidence.roleSections,
+        requirementSections: evidence.requirementSections,
+        dutyLines: evidence.dutyLines,
+        companyFacts: evidence.companyFacts,
+      },
     };
     const runId = newRunId(payload.slug, job.record.requested_at || isoNow());
+    /** @type {Promise<void>} */
+    let stageWrites = Promise.resolve();
     await runPipeline({
       dir,
       payload,
@@ -690,10 +864,16 @@ export function createMaterialsDrafter(deps = {}) {
       gate,
       ledger,
       resumeText,
+      /* "Your details": the confirmed name and contact win over whatever
+       * the attached resume text says. */
+      profileIdentity: profile && typeof profile === "object" ? /** @type {Record<string, unknown>} */ (profile).identity : undefined,
       voice: voiceSamples,
       now: now(),
       runId,
       openSession: openSession || (async () => null),
+      /* The production path must render PDFs; a missing browser fails the
+       * render loudly instead of leaving stale PDFs behind an "ok". */
+      requirePdf: deps.openSession === undefined,
       readMarks: async () => {
         try {
           return await logoLoader();
@@ -701,15 +881,50 @@ export function createMaterialsDrafter(deps = {}) {
           return [];
         }
       },
+      readEmployerMarks: async (/** @type {string[]} */ companies) => {
+        try {
+          return await employerLogoLoader(companies);
+        } catch {
+          return [];
+        }
+      },
+      readTargetMark: async (/** @type {string} */ company) => {
+        try {
+          return await targetLogoLoader(company);
+        } catch {
+          return null;
+        }
+      },
+      ...(intelEnabled
+        ? {
+          intel: {
+            search: intelSearchFor(resolved),
+            resolveBrand: intelBrand,
+            cacheRoot: intelCacheRoot,
+            fetchImpl,
+            ...(typeof deps.intelBudgetMs === "number" ? { budgetMs: deps.intelBudgetMs } : {}),
+          },
+        }
+        : {}),
       onStage: (stage, status) => {
-        job.record = withPhase(job.record, "drafting", `Drafting… (${stage}: ${status})`);
-        void writePending(pendingPath, job.record).catch(() => {});
+        /* U-4: structured stages in pending.json, plain words in the
+         * message. Writes are chained so they land in order, and the chain
+         * is drained before pending.json is removed below. */
+        stageWrites = stageWrites.then(async () => {
+          const reason = await stageReason(dir, stage, status);
+          const prior = job.record.progress && Array.isArray(job.record.progress.stages) ? job.record.progress.stages : [];
+          const entry = reason ? { stage, status, reason } : { stage, status };
+          const next = withPhase(job.record, "drafting", stageProgressMessage(stage, payload.feature));
+          job.record = { ...next, progress: { ...next.progress, stages: [...prior, entry] } };
+          await writePending(pendingPath, job.record);
+        }).catch(() => {});
       },
       current,
       repairInstructions,
     });
     /* The pipeline wrote the package (or returned the cached one) — the
      * spinner comes down either way. */
+    await stageWrites;
     await rm(pendingPath, { force: true });
   }
 
@@ -717,8 +932,12 @@ export function createMaterialsDrafter(deps = {}) {
    * @param {MaterialsRequestPayload} payload
    */
   async function enqueue(payload) {
-    const resumeSource = normalizeResumeSource(payload && payload.resume);
-    if (!resumeSource) throw resumeRequiredError();
+    const requestedResume = normalizeResumeSource(payload && payload.resume);
+    if (!requestedResume) throw resumeRequiredError();
+    /* The draft uses the user's current resume: never garbled text, never
+     * an older copy one browser still holds when a newer one is saved. */
+    const saved = await readSavedResume().catch(() => null);
+    const { resume: resumeSource, choice: resumeChoice } = chooseResumeSource({ requested: requestedResume, saved });
     /* An unknown template is a 400 before anything is queued. */
     resolveRunFamily({ template: payload.template, preferredTemplate: payload.preferredTemplate });
     /* A missing pin no longer rejects: the run degrades to a deterministic
@@ -751,7 +970,12 @@ export function createMaterialsDrafter(deps = {}) {
       notes: payload.notes || "",
       requested_at: requestedAt,
       source: "jobbored-dossier",
-      resume: resumeProvenance(resumeSource),
+      /* U-5 "Draft both": the document queued after this one. */
+      ...(payload.then ? { next: payload.then } : {}),
+      /* The choice rides along only when the server had to choose. */
+      resume: resumeChoice.message
+        ? { ...resumeProvenance(resumeSource), choice: { used: resumeChoice.used, reason: resumeChoice.reason, message: resumeChoice.message } }
+        : resumeProvenance(resumeSource),
       progress: {
         phase: "queued",
         message: defaultProgressMessage("queued", payload.feature),
@@ -780,7 +1004,7 @@ export function createMaterialsDrafter(deps = {}) {
 
       await writePending(pendingPath, record);
       queue.push({
-        payload: { ...payload, resume: resumeSource },
+        payload: { ...payload, resume: resumeSource, resumeChoice },
         pin: /** @type {object} */ (pin),
         dir,
         pendingPath,
@@ -798,6 +1022,20 @@ export function createMaterialsDrafter(deps = {}) {
     } catch (err) {
       inFlight.delete(slug);
       throw err;
+    }
+  }
+
+  /**
+   * @param {{ payload: MaterialsRequestPayload }} job
+   */
+  async function enqueueFollowUp(job) {
+    const { then, thenExtras, resumeChoice: _choice, ...rest } = /** @type {MaterialsRequestPayload & { resumeChoice?: unknown }} */ (job.payload);
+    if (then !== "cover_letter") return;
+    try {
+      await enqueue({ ...rest, feature: then, ...(Array.isArray(thenExtras) && thenExtras.length ? { extras: [...thenExtras] } : {}) });
+    } catch (err) {
+      // eslint-disable-next-line no-console
+      console.error(`[materials] slug=${job.payload.slug} follow-up ${then} not queued:`, err);
     }
   }
 

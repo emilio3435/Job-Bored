@@ -1,11 +1,12 @@
 /**
  * Template letters are written and checked against their family's letter
- * band (family.json budgets.letterWords, 180–260 today), not the legacy
+ * band (family.json budgets.letterWords, 120–200 today), not the legacy
  * whole-page 325–475 rule, so a template letter is never falsely flagged
  * cover_letter_too_short.
  */
 
 import assert from "node:assert/strict";
+import { mkdtempSync } from "node:fs";
 import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -19,6 +20,11 @@ import { letterWordBand, resolveFamily, validateFamily } from "../server/materia
 import { callWriter } from "../server/materials-writer.mjs";
 import { EXAMPLE_RESUME_SOURCE, EXAMPLE_RESUME_TEXT, EXAMPLE_WRITER_JSON } from "./fixtures/materials-example-writer.mjs";
 import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+
+/* The drafter reads the profile and builds the claim ledger beside it; keep
+ * both out of the real HOME (a run without this overwrote the user's
+ * ~/.jobbored/claim-ledger.json on 2026-09-27). */
+process.env.JOBBORED_PROFILE_PATH = join(mkdtempSync(join(tmpdir(), "jb-letter-budget-home-")), ".jobbored", "profile.json");
 
 const FAMILIES = ["signal", "dossier", "editorial"];
 
@@ -52,9 +58,9 @@ async function audit(html) {
 }
 
 describe("family letter band", () => {
-  it("should be 180–260 for every family, inside the hard letter band", () => {
+  it("should be 120–200 for every family, inside the hard letter band", () => {
     for (const family of FAMILIES) {
-      assert.deepEqual(letterWordBand(resolveFamily(family)), [180, 260]);
+      assert.deepEqual(letterWordBand(resolveFamily(family)), [120, 200]);
     }
     const signal = resolveFamily("signal");
     const { dir: _dir, ...json } = signal;
@@ -66,33 +72,42 @@ describe("family letter band", () => {
 describe("cover letter length QA for template letters", () => {
   for (const family of FAMILIES) {
     it(`${family}: counts only the body and passes a letter inside the band`, async () => {
-      const html = letterHtml(family, [words(50), words(60), words(60), words(50)]);
-      assert.match(html, /<meta name="materials-letter-words" content="180-260" \/>/);
-      assert.equal(letterBodyWords(html), 220);
+      const html = letterHtml(family, [words(40), words(50), words(50), words(30)]);
+      assert.match(html, /<meta name="materials-letter-words" content="120-200" \/>/);
+      assert.equal(letterBodyWords(html), 170);
       const result = await audit(html);
       assert.deepEqual(result.issues.filter((i) => /cover_letter_too/.test(i.code)), []);
     });
   }
 
   it("should flag a template letter below or above its band, with the band in the message", async () => {
-    const short = await audit(letterHtml("signal", [words(30), words(30), words(30), words(30)]));
+    const short = await audit(letterHtml("signal", [words(25), words(25), words(25), words(25)]));
     const tooShort = short.issues.find((i) => i.code === "cover_letter_too_short");
     assert.ok(tooShort);
-    assert.match(tooShort.message, /120 body words \(target 180–260\)/);
+    assert.match(tooShort.message, /100 body words \(target 120–200\)/);
     const long = await audit(letterHtml("editorial", [words(80), words(80), words(80), words(80)]));
     assert.ok(long.issues.some((i) => i.code === "cover_letter_too_long"));
   });
 
   it("should judge a letter with no band whole-page against the budget band", async () => {
-    const inBand = `<html><body><article class="page"><p>${words(250)}</p></article></body></html>`;
+    const inBand = `<html><body><article class="page"><p>${words(170)}</p></article></body></html>`;
     assert.deepEqual(
       (await audit(inBand)).issues.filter((i) => /cover_letter_too/.test(i.code)),
       [],
     );
-    const short = `<html><body><article class="page"><p>${words(120)}</p></article></body></html>`;
+    const short = `<html><body><article class="page"><p>${words(100)}</p></article></body></html>`;
     const tooShort = (await audit(short)).issues.find((i) => i.code === "cover_letter_too_short");
     assert.ok(tooShort);
-    assert.match(tooShort.message, /120 words \(target 180–260\)/);
+    assert.match(tooShort.message, /100 words \(target 120–200\)/);
+  });
+
+  it("should put the letter floor at 120 words (fewer words over more) and keep 200 as the ceiling", async () => {
+    const page = (/** @type {number} */ n) => `<html><body><article class="page"><p>${words(n)}</p></article></body></html>`;
+    const codes = async (/** @type {number} */ n) => (await audit(page(n))).issues.map((i) => i.code).filter((c) => /cover_letter_too/.test(c));
+    assert.deepEqual(await codes(119), ["cover_letter_too_short"]);
+    assert.deepEqual(await codes(120), []);
+    assert.deepEqual(await codes(200), []);
+    assert.deepEqual(await codes(201), ["cover_letter_too_long"]);
   });
 });
 
@@ -104,13 +119,13 @@ describe("the writer is asked for the family's band", () => {
       jdText: "jd",
       masterResumeHtml: "",
       resumeText: "resume",
-      letterWords: [180, 260],
+      letterWords: [120, 200],
       fetchImpl: async (_url, init) => {
         sent = String(init && init.body);
         return { ok: true, status: 200, json: async () => ({ candidates: [{ content: { parts: [{ text: JSON.stringify(EXAMPLE_WRITER_JSON) }] } }] }) };
       },
     });
-    assert.match(sent, /total 180–260 words/);
+    assert.match(sent, /total 120–200 words/);
   });
 
   it("should carry the family's letter band into the draft call for a registry draft", async () => {
@@ -124,12 +139,14 @@ describe("the writer is asked for the family's band", () => {
         fetchImpl: stub.fetchImpl,
         openSession: null,
         logoLoader: async () => [],
+        targetLogoLoader: async () => null,
+        employerLogoLoader: async () => [],
       });
       await drafter.enqueue({ slug: "acme-band", company: "Acme", title: "Ops", feature: "both", jobUrl: "", notes: "", jobDescription: "operations analytics carrier scorecard forecasting ".repeat(30), resume: EXAMPLE_RESUME_SOURCE, template: "dossier" });
       await drafter.runUntilIdle();
       const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
       assert.ok(draftCall, "draft call issued");
-      assert.match(draftCall.system, /180-260 words/);
+      assert.match(draftCall.system, /120-200 words/);
     } finally {
       await rm(dir, { recursive: true, force: true });
     }

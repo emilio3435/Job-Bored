@@ -90,12 +90,12 @@ function threeEPlan() {
 
 test("the budget table is the single copy of the numbers v2 got wrong", () => {
   // The 325-word letter floor is what forced the filler the 3E run was flagged for.
-  assert.deepEqual(MATERIALS_BUDGETS.letter.bodyWords, [180, 260]);
-  assert.equal(MATERIALS_BUDGETS.letter.bodyWordsHardMax, 280);
-  assert.equal(MATERIALS_BUDGETS.letter.paragraphs, 4);
+  assert.deepEqual(MATERIALS_BUDGETS.letter.bodyWords, [120, 200]);
+  assert.equal(MATERIALS_BUDGETS.letter.bodyWordsHardMax, 230);
+  assert.equal(MATERIALS_BUDGETS.letter.paragraphs, 3, "voice v5: hook, evidence, close");
   assert.equal(MATERIALS_BUDGETS.resume.pages, 1);
   assert.equal(MATERIALS_BUDGETS.resume.pagesMax, 2);
-  assert.deepEqual(MATERIALS_BUDGETS.resume.bulletsPerFeatured, [2, 4]);
+  assert.deepEqual(MATERIALS_BUDGETS.resume.bulletsPerFeatured, [2, 5]);
   assert.equal(MATERIALS_BUDGETS.run.llmCallsMax, 4);
   assert.ok(Object.isFrozen(MATERIALS_BUDGETS));
 });

@@ -906,6 +906,73 @@ describe("fit-profile-wizard — resume prefill (Gemini draft) with honest degra
     assert.deepEqual(payload.identity.targetRoles, ["Staff Engineer"]);
   });
 
+  it("RESJ K5: when the server skipped garbled browser text for the saved resume, Identity says so", async () => {
+    const env = loadWizard({
+      fetchImpl: resumeFetch({
+        ok: true,
+        status: 200,
+        json: async () => ({
+          ok: true,
+          profile: ENGINEER_TEMPLATE,
+          source: "jobbored_text",
+          requestGarbled: true,
+        }),
+      }),
+    });
+    env.window.openFitProfileWizard({ mode: "create" });
+    clickResumeCard(env);
+    await flush();
+    assert.equal(activeStep(env.root()), 2);
+    const note = findAll(env.root(), (n) => hasClass(n, "fp-wizard__note"))[0];
+    assert.ok(note, "a note sits in the wizard");
+    assert.notEqual(note.style.display, "none");
+    assert.equal(
+      note.textContent,
+      "Filled from your saved resume, because this browser's copy came out broken. Check each step, then save.",
+    );
+  });
+
+  it("RESJ K5-NOTE: picking a template after the fallback pre-fill clears the saved-resume note", async () => {
+    const env = loadWizard({
+      fetchImpl: async (url, opts) => {
+        if (String(url).includes("/profile/from-resume")) {
+          return {
+            ok: true,
+            status: 200,
+            json: async () => ({ ok: true, profile: ENGINEER_TEMPLATE, source: "jobbored_text", requestGarbled: true }),
+          };
+        }
+        return templateAndSaveFetch()(url, opts);
+      },
+    });
+    env.window.openFitProfileWizard({ mode: "create" });
+    clickResumeCard(env);
+    await flush();
+    const note = () => findAll(env.root(), (n) => hasClass(n, "fp-wizard__note"))[0];
+    assert.notEqual(note().style.display, "none", "the fallback note is up");
+    shellControls(env.root()).backBtn._fire("click");
+    assert.equal(activeStep(env.root()), 1);
+    findTemplateCard(env.root(), "Engineer")._fire("click");
+    await flush();
+    assert.equal(note().style.display, "none", "the draft is the template now, not the saved resume");
+    assert.equal(note().textContent, "");
+  });
+
+  it("RESJ K5: a pre-fill from the browser's own text shows no saved-resume note", async () => {
+    const env = loadWizard({
+      fetchImpl: resumeFetch({
+        ok: true,
+        status: 200,
+        json: async () => ({ ok: true, profile: ENGINEER_TEMPLATE, source: "staged_request", requestGarbled: false }),
+      }),
+    });
+    env.window.openFitProfileWizard({ mode: "create" });
+    clickResumeCard(env);
+    await flush();
+    const note = findAll(env.root(), (n) => hasClass(n, "fp-wizard__note"))[0];
+    assert.ok(!note || note.style.display === "none" || !note.textContent);
+  });
+
   it("404/no resume flips the card to its 'missing' state (disabled) and keeps the template picker fully usable", async () => {
     const env = loadWizard({
       fetchImpl: resumeFetch({

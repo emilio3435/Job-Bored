@@ -84,6 +84,7 @@ import {
 } from "../match/job-matcher.ts";
 import { runPreFilter } from "../normalize/profile-aware-scorer.ts";
 import { SheetWriteError, type PipelineWriter } from "../sheets/pipeline-writer.ts";
+import { GoogleTransportError } from "../sheets/sheets-client.ts";
 import {
   createBudgetTracker,
   type BudgetCheckpoint,
@@ -189,6 +190,8 @@ export type RunDiscoveryDependencies = {
   sourceTimeoutMs?: number;
   matcherTimeoutMs?: number;
   checkpointRunProgress?(progress: DiscoveryRunProgress): void;
+  /** Persist the selected write set before the first Sheets request. */
+  checkpointSelectedLeads?(sheetId: string, leads: NormalizedLead[]): void;
   /**
    * Optional caller abort. Linked to the run-scoped AbortController so an
    * outer timeout or F1-B cancel can stop in-flight browser/fetch/provider work.
@@ -1920,6 +1923,7 @@ export async function runDiscovery(
   });
 
   throwIfRunCancelled(dependencies.abortSignal);
+  if (leadsToWrite.length) dependencies.checkpointSelectedLeads?.(config.sheetId, leadsToWrite);
   checkpointRunProgress("write");
   let writeResult: PipelineWriteResult;
   if (leadsToWrite.length === 0) {
@@ -1938,6 +1942,11 @@ export async function runDiscovery(
         leadsToWrite,
       );
     } catch (error) {
+      let cause: unknown = error;
+      for (let depth = 0; depth < 3 && cause instanceof Error && !(cause instanceof GoogleTransportError); depth++) {
+        cause = cause.cause;
+      }
+      const transport = cause instanceof GoogleTransportError ? cause : null;
       if (error instanceof SheetWriteError) {
         dependencies.log?.("discovery.run.write_failed", {
           runId,
@@ -1945,6 +1954,7 @@ export async function runDiscovery(
           phase: error.phase,
           httpStatus: error.httpStatus,
           message: error.message,
+          ...(transport ? { code: transport.code, host: transport.host } : {}),
         });
         // Build a writeResult with the error info so it can be stored in status.
         // Also add a warning so the lifecycle state becomes "partial".
@@ -1970,10 +1980,25 @@ export async function runDiscovery(
             message: error.message,
             httpStatus: error.httpStatus,
             detail: error.detail,
+            ...(transport ? { code: transport.code, host: transport.host } : {}),
           },
         };
       } else {
-        throw error;
+        const phase = /token|OAuth/i.test(error instanceof Error ? error.message : "") ? "token" : "read";
+        const message = error instanceof Error ? error.message : String(error);
+        dependencies.log?.("discovery.run.write_failed", {
+          runId, sheetId: config.sheetId, phase, message,
+          ...(transport ? { code: transport.code, host: transport.host } : {}),
+        });
+        writeResult = {
+          sheetId: config.sheetId, appended: 0, updated: 0,
+          skippedDuplicates: 0, skippedBlacklist: 0,
+          warnings: [`Sheet write failed during ${phase} phase: ${message}`],
+          writeError: {
+            phase, message,
+            ...(transport ? { code: transport.code, host: transport.host } : {}),
+          },
+        };
       }
     }
   }

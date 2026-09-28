@@ -65,6 +65,15 @@ const LIMIT_SOURCES = {
   acceptableLocations: [`${P}/hardConstraints/${P}/acceptableLocations`, "items"],
   skipTitles: [`${P}/hardConstraints/${P}/skipTitles`, "items"],
   writingSamples: [`${P}/writingSamples`, "items"],
+  fullName: [`${P}/identity/${P}/fullName`],
+  headline: [`${P}/identity/${P}/headline`],
+  email: [`${P}/identity/${P}/email`],
+  phone: [`${P}/identity/${P}/phone`],
+  locationCity: [`${P}/identity/${P}/location/${P}/city`],
+  locationState: [`${P}/identity/${P}/location/${P}/state`],
+  linkUrl: ["$defs/httpUrl"],
+  otherLinks: [`${P}/identity/${P}/links/${P}/other`],
+  otherLinkLabel: [`${P}/identity/${P}/links/${P}/other/items/${P}/label`],
 };
 const KEYWORDS = ["minItems", "maxItems", "minLength", "maxLength", "minimum", "maximum"];
 

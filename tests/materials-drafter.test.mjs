@@ -5,6 +5,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { createMaterialsDrafter } from "../server/materials-drafter.mjs";
 import { scriptedPipelineFetch } from "./fixtures/materials-pipeline-stub.mjs";
+import { RESUME_STRUCTURE_SYSTEM_PROMPT } from "../server/materials-resume-structure-model.mjs";
 
 /* C11: every draft carries the user's resume; Jordan Rivera stands in. */
 const USER_RESUME_TEXT = [
@@ -54,6 +55,8 @@ function baseDeps(dir, extra = {}) {
     fetchImpl: stub.fetchImpl,
     openSession: null,
     logoLoader: async () => [],
+    targetLogoLoader: async () => null,
+    employerLogoLoader: async () => [],
     ...extra,
   };
 }
@@ -103,7 +106,11 @@ describe("createMaterialsDrafter", () => {
     assert.equal(result.ok, true);
     await drafter.runUntilIdle();
     const report = await readFile(join(dir, "eab-role", "qa-report.md"), "utf8");
-    assert.match(report, /^Status:\s*REVIEW/im);
+    /* The resume degrades to REVIEW; the deterministic letter is empty,
+     * so it is FAIL (never silently REVIEW) and there is no model to
+     * repair it with. */
+    assert.match(report, /^## Resume: REVIEW/m);
+    assert.match(report, /^## Cover letter: FAIL/m);
     assert.match(report, /llm_unconfigured/);
     await readFile(join(dir, "eab-role", "resume.html"), "utf8");
     await assert.rejects(readFile(join(dir, "eab-role", "pending.json")));
@@ -170,7 +177,10 @@ describe("createMaterialsDrafter", () => {
     assert.equal(second.requested_at, first.requested_at);
     release();
     await drafter.runUntilIdle();
-    assert.ok(stub.calls.length <= 4, `duplicate enqueue must not start a second run (saw ${stub.calls.length} calls)`);
+    /* The one-time resume.structure call (L1) builds the ledger, not a run. */
+    const runCalls = stub.calls.filter((c) => c.system !== RESUME_STRUCTURE_SYSTEM_PROMPT);
+    /* One run is at most six calls (extract, select, draft, delint rewrite, support, repair); a second run would double it. */
+    assert.ok(runCalls.length <= 6, `duplicate enqueue must not start a second run (saw ${runCalls.length} calls)`);
   });
 
   it("F13: failed pending carries a neutral code, never raw internals", async () => {
@@ -230,7 +240,7 @@ describe("createMaterialsDrafter", () => {
     await repair.runUntilIdle();
     const draftCall = stub.calls.find((c) => c.system.includes("resume slots"));
     assert.ok(draftCall, "draft call issued");
-    assert.match(draftCall.user, /REPAIR: edit the current draft/);
+    assert.match(draftCall.user, /REPAIR: rewrite the WHOLE letter \(all five beats\) as one piece, in one voice/);
     assert.match(draftCall.user, /Instructions: Fix the Córdoba typo/);
     assert.match(draftCall.user, /Current draft:/);
     assert.doesNotMatch(draftCall.user, /Voice \(match it, never quote it\)/);

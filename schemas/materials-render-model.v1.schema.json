@@ -89,6 +89,7 @@
       "properties": {
         "name": { "type": "string", "minLength": 1 },
         "target": { "type": "string", "minLength": 1 },
+        "targetSource": { "description": "Wave 3: 'role' when the headline is the per-role positioning headline (kept over an unconfirmed profile headline on regenerate).", "type": "string", "enum": ["role"] },
         "contact": {
           "type": "array",
           "minItems": 1,
@@ -97,7 +98,7 @@
             "required": ["kind", "text"],
             "additionalProperties": false,
             "properties": {
-              "kind": { "enum": ["location", "phone", "email", "site", "linkedin", "other"] },
+              "kind": { "enum": ["location", "phone", "email", "site", "linkedin", "github", "other"] },
               "text": { "type": "string" },
               "href": { "type": "string" }
             }
@@ -162,7 +163,7 @@
                         "bullets": {
                           "type": "array",
                           "minItems": 2,
-                          "maxItems": 4,
+                          "maxItems": 5,
                           "items": {
                             "type": "object",
                             "required": ["claimId", "runs"],
@@ -170,6 +171,20 @@
                             "properties": {
                               "claimId": { "type": "string", "minLength": 1 },
                               "runs": { "$ref": "#/$defs/runs" }
+                            }
+                          }
+                        },
+                        "roles": {
+                          "description": "Several dated roles at one employer (the adapter's P-4 grouping). Each names its bullets by claim id; the bullets themselves stay on the entry.",
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "required": ["seat", "meta", "claimIds"],
+                            "additionalProperties": false,
+                            "properties": {
+                              "seat": { "$ref": "#/$defs/textOrRuns" },
+                              "meta": { "type": "array", "items": { "type": "string" } },
+                              "claimIds": { "type": "array", "items": { "type": "string" } }
                             }
                           }
                         }
@@ -266,7 +281,17 @@
                   "supportClaimIds": { "type": "array", "items": { "type": "string" } },
                   "transferId": { "type": "string" },
                   "words": { "type": "integer" },
-                  "text": { "type": "string", "minLength": 1 }
+                  "text": { "type": "string", "minLength": 1 },
+                  "links": {
+                    "description": "Project names in this paragraph that render as links (the user's hyperlink convention). Each text appears verbatim in the paragraph.",
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": ["text", "href"],
+                      "additionalProperties": false,
+                      "properties": { "text": { "type": "string", "minLength": 1 }, "href": { "type": "string", "pattern": "^https?://" } }
+                    }
+                  }
                 }
               }
             },

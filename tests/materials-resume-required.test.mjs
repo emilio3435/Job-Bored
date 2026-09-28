@@ -193,6 +193,8 @@ describe("C11 drafter drafts from the user's resume", () => {
       openSession: null,
       /* Hermetic: never read the host's resolved brand logos. */
       logoLoader: async () => [],
+      targetLogoLoader: async () => null,
+      employerLogoLoader: async () => [],
       now: () => new Date("2026-09-25T12:00:00.000Z"),
       ...extra,
     };

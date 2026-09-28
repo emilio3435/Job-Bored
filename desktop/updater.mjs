@@ -10,6 +10,16 @@ export const CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 /** @typedef {{ state: "disabled" | "idle" | "checking" | "downloading" | "ready" | "error", version?: string, message?: string }} UpdateState */
 
+/** @param {UpdateState | undefined} update */
+export function updateMenuLabel(update) {
+  switch (update?.state) {
+    case "checking": return "Checking for updates…";
+    case "downloading": return `Downloading update${update.version ? ` (${update.version})` : ""}…`;
+    case "error": return "Update failed — Check for updates";
+    default: return "Check for updates";
+  }
+}
+
 /**
  * @param {object} options
  * @param {any} options.autoUpdater electron-updater's autoUpdater

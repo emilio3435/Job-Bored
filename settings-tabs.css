@@ -147,6 +147,71 @@
   flex-shrink: 0;
 }
 
+/* ── Drafting model (CDESK MODELUI) ──────────────────────────────────
+   Sits under the AI receipt: which model the server drafts with, what the
+   last draft used, and a warning when this browser disagrees. Scoped under
+   .settings-llm-status so `body.jb-v2 p` (0,1,1) cannot restyle the lines. */
+.settings-llm-status {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1, 4px);
+  margin: calc(-1 * var(--space-2, 8px)) 0 var(--space-4, 16px);
+  padding: 0 var(--space-4, 16px);
+  border-left: 2px solid var(--divider);
+}
+
+.settings-llm-status:empty {
+  display: none;
+}
+
+.settings-llm-status .settings-llm-status__line {
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  color: var(--text);
+  overflow-wrap: anywhere;
+}
+
+.settings-llm-status .settings-llm-status__line--primary {
+  font-weight: 600;
+}
+
+.settings-llm-status .settings-llm-status__line--muted {
+  color: var(--text-muted, var(--text));
+}
+
+.settings-llm-status .settings-llm-status__warn {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2, 8px) var(--space-3, 12px);
+  margin-top: var(--space-2, 8px);
+  padding: var(--space-3, 12px);
+  color: var(--jb-ink, var(--text));
+  background: var(--jb-warn-bg, Canvas);
+  border: 1px solid var(--jb-warn, currentColor);
+  border-radius: var(--radius-md);
+}
+
+.settings-llm-status .settings-llm-status__warn-text {
+  flex: 1 1 240px;
+  margin: 0;
+  font-size: var(--text-sm);
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}
+
+.settings-llm-status .settings-llm-status__fix {
+  flex-shrink: 0;
+}
+
+@media (max-width: 600px) {
+  .settings-llm-status .settings-llm-status__fix {
+    min-height: 44px;
+    width: 100%;
+  }
+}
+
 /* ── Modal structure overrides for tabbed layout ────────────────────── */
 .settings-modal--tabbed {
   display: flex;

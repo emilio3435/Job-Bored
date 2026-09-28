@@ -627,3 +627,102 @@ describe("the verdict", () => {
     assert.deepEqual(v, { standing: "", gap: "", next: "", note: "" });
   });
 });
+
+/* ------------------------------------------------------------
+   CASEWHY (DOSSIER-RECS Phase A): the reason behind the fit number.
+   Column K (Fit Assessment) is one flattened string written by the
+   discovery worker in one of two shapes (lead-normalizer.ts
+   buildLlmFitAssessment, profile-aware-scorer.ts
+   buildProfileFitAssessment); column U (Match Score) is 0–10. The
+   model parses K defensively and carries U only when it is a real
+   0–10 number (D5: an unmeasured number stays absent).
+   ------------------------------------------------------------ */
+describe("CASEWHY — the model carries the fit reason and the match score", () => {
+  const LLM_K = "Strong fit (score: 8/10). Deep design-systems ownership and a11y leadership, e.g. a WCAG 2.2 audit. " +
+    "Matches: Design systems · Accessibility · React · Token pipelines. Concerns: No Go experience · Austin onsite 3 days. " +
+    "Application: Clean ATS — Greenhouse/Lever/Ashby.";
+  const PROFILE_K = "Interesting fit for Senior PM at Meridian Labs (score: 6/10). Fit rationale: AI relevance · senior scope. " +
+    "⚠️ Location may require attention — verify before applying. ⚠️ Salary not published. Application: Standard — manage direct apply.";
+  function withJob(patch) {
+    const d = baseDeps();
+    d.vm = { job: { ...d.vm.job, ...patch, enrichment: { ...d.vm.job.enrichment, ...(patch.enrichment || {}) } } };
+    return build(d);
+  }
+
+  it("parses the LLM shape: band, rationale, matches, concerns, application", () => {
+    const f = withJob({ enrichment: { fitAssessment: LLM_K } }).fitAssessment;
+    assert.equal(f.parsed, true);
+    assert.equal(f.band, "Strong");
+    assert.equal(f.score, 8);
+    assert.equal(f.rationale, "Deep design-systems ownership and a11y leadership, e.g. a WCAG 2.2 audit.");
+    assert.deepEqual(f.matches, ["Design systems", "Accessibility", "React", "Token pipelines"]);
+    assert.deepEqual(f.concerns, ["No Go experience", "Austin onsite 3 days"]);
+    assert.equal(f.application, "Clean ATS — Greenhouse/Lever/Ashby");
+    assert.equal(f.raw, LLM_K);
+  });
+
+  it("parses the profile-heuristic shape: flags become matches or concerns", () => {
+    const f = withJob({ enrichment: { fitAssessment: PROFILE_K + " ✅ Remote/location aligned. 💰 Salary band published." } }).fitAssessment;
+    assert.equal(f.parsed, true);
+    assert.equal(f.band, "Interesting");
+    assert.equal(f.rationale, "AI relevance · senior scope.");
+    assert.deepEqual(f.concerns, ["Location may require attention — verify before applying", "Salary not published"]);
+    assert.deepEqual(f.matches, ["Remote/location aligned", "Salary band published"]);
+    assert.equal(f.application, "Standard — manage direct apply");
+  });
+
+  /* Grok CW-2: a role title with its own parentheses ("Engineer (Contract)")
+     used to stop the head match and drop the whole K to raw text. */
+  it("parses a head whose role title carries parentheses", () => {
+    const k = "Strong fit for Platform Engineer (Contract) at Chronicle (score: 7.4/10). Fit rationale: Go depth. ⚠️ Salary not published. Application: Standard — manage direct apply.";
+    const f = withJob({ enrichment: { fitAssessment: k } }).fitAssessment;
+    assert.equal(f.parsed, true);
+    assert.equal(f.band, "Strong");
+    assert.equal(f.score, 7.4);
+    assert.equal(f.rationale, "Go depth.");
+    assert.deepEqual(f.concerns, ["Salary not published"]);
+    const noScore = withJob({ enrichment: { fitAssessment: "Strong fit for Engineer (Contract) at Chronicle. Great team." } }).fitAssessment;
+    assert.equal(noScore.parsed, false, "without a (score: n/10) marker it stays raw text");
+  });
+
+  it("keeps a clipped K (the card clips at 800) without inventing the missing tail", () => {
+    const f = withJob({ enrichment: { fitAssessment: "Low fit (score: 3/10). Thin overlap. Matches: SQL. Concerns: Relocation required · Needs 10+ yea…" } }).fitAssessment;
+    assert.equal(f.parsed, true);
+    assert.deepEqual(f.matches, ["SQL"]);
+    assert.deepEqual(f.concerns, ["Relocation required", "Needs 10+ yea…"]);
+    assert.equal(f.application, "");
+  });
+
+  it("falls back to the raw text when K is not in a shape it knows", () => {
+    const raw = "Great team, I like the product. Ask Dana about the loop.";
+    const f = withJob({ enrichment: { fitAssessment: raw } }).fitAssessment;
+    assert.equal(f.parsed, false);
+    assert.equal(f.score, null);
+    assert.equal(f.raw, raw);
+    assert.equal(f.band, "");
+    assert.deepEqual(f.matches, []);
+    assert.deepEqual(f.concerns, []);
+  });
+
+  it("an empty K is absent, never an empty shell", () => {
+    for (const v of [undefined, null, "", "   \n  "]) {
+      assert.equal(withJob({ enrichment: { fitAssessment: v } }).fitAssessment, null, JSON.stringify(v));
+    }
+  });
+
+  it("carries Match Score only when it is a real 0–10 number", () => {
+    assert.deepEqual(withJob({ matchScore: 7.4 }).numbers.matchScore, { value: 7.4, max: 10 });
+    assert.deepEqual(withJob({ matchScore: 0 }).numbers.matchScore, { value: 0, max: 10 });
+    for (const v of [null, undefined, "", NaN, 74, -1, "abc"]) {
+      assert.equal(withJob({ matchScore: v }).numbers.matchScore, null, "matchScore " + String(v));
+    }
+  });
+
+  it("exposes the parser for direct use and it never throws", () => {
+    const parse = load().parseFitAssessment;
+    assert.equal(typeof parse, "function");
+    assert.equal(parse(null), null);
+    assert.equal(parse({ not: "a string" }), null);
+    assert.equal(parse(42), null);
+  });
+});

@@ -1,0 +1,15 @@
+{
+  "note": "Recorded live reply: gemini-3.8-flash support check on the round-3 Harbor Circle Media first draft, 2026-09-27 23:56 UTC. Sentences are the letter as judged; reply is the model's raw text. The claims and voice facts it judged against are omitted.",
+  "sentences": [
+    "As a performance marketer and AI product builder, I supported 12 AE desks while directly managing up to 3 Digital Campaign Managers across fast-paced performance campaigns.",
+    "I want to bring that operational discipline to Harbor Circle Media as Director of Performance Media.",
+    "At Contoso, I managed the digital media plan for a $12M+ yearly online portfolio across hundreds of accounts.",
+    "It took tight budget allocation.",
+    "Through it, we consistently hit our revenue targets and protected profit margins.",
+    "I steered high-stakes pitches and account reviews as lead strategist for flagship accounts.",
+    "The work paid off.",
+    "For a key financial-services client across search and programmatic channels, we drove 125% YoY paid-search conversion growth and a 16% YoY new-user lift.",
+    "I would like to run a teardown of one of Harbor Circle Media's live client paid search campaigns; when can we schedule a call?"
+  ],
+  "replyText": "{\n  \"verdicts\": [\n    {\"i\": 1, \"factual\": true, \"supported\": true, \"source\": \"voice-1, resume-b4, resume-b5\", \"reason\": \"\"},\n    {\"i\": 2, \"factual\": false, \"supported\": true, \"source\": \"posting\", \"reason\": \"\"},\n    {\"i\": 3, \"factual\": true, \"supported\": true, \"source\": \"resume-b1\", \"reason\": \"\"},\n    {\"i\": 4, \"factual\": false, \"supported\": true, \"source\": \"\", \"reason\": \"\"},\n    {\"i\": 5, \"factual\": true, \"supported\": false, \"source\": \"resume-b2\", \"reason\": \"protected profit margins not in sources\"},\n    {\"i\": 6, \"factual\": true, \"supported\": true, \"source\": \"resume-b6\", \"reason\": \"\"},\n    {\"i\": 7, \"factual\": false, \"supported\": true, \"source\": \"\", \"reason\": \"\"},\n    {\"i\": 8, \"factual\": true, \"supported\": true, \"source\": \"resume-b6, resume-b8, resume-b10\", \"reason\": \"\"},\n    {\"i\": 9, \"factual\": false, \"supported\": true, \"source\": \"\", \"reason\": \"\"}\n  ]\n}"
+}

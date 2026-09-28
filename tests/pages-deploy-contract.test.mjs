@@ -48,6 +48,15 @@ describe("GitHub Pages deployment contract", () => {
     assert.match(assembled, /id="discoveryRunPreviewTemplate"/);
     assert.match(assembled, /id="discoveryRunPreviewMount"/);
   });
+
+  it("loads the public output-budget helper before its browser callers", () => {
+    const assembled = assembleIndex(repoRoot);
+    const helperAt = assembled.indexOf('src="llm-output-budget.js"');
+    assert.ok(helperAt >= 0);
+    for (const caller of ["oneflow-beat-resume.js", "resume-generate.js", "job-posting-insights.js", "discovery-drawer.js"]) {
+      assert.ok(assembled.indexOf(`src="${caller}`) > helperAt, `${caller} must follow the helper`);
+    }
+  });
 });
 
 // ASSET-1 — a deployed Pages HTML revision cannot silently reference stale
@@ -518,7 +527,12 @@ describe("ASSET-1: deployed HTML cannot reference stale browser JavaScript", () 
 // never server/, scripts/, tests/ or integrations/ sources. The one named
 // exception is server/profile-draft-shared.js (#129): B3's browser-direct
 // draft fallback loads it as a classic script so Pages users can draft.
-const PAGES_SERVER_EXCEPTIONS = Object.freeze(["server/profile-draft-shared.js"]);
+// server/profile-voice-shared.js joins it: the "Your voice" step's prompt
+// and guide checks, pure code the page runs.
+const PAGES_SERVER_EXCEPTIONS = Object.freeze([
+  "server/profile-draft-shared.js",
+  "server/profile-voice-shared.js",
+]);
 
 describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
   it("G13: injectContentSecurityPolicyMeta places the policy after the charset", () => {
@@ -562,6 +576,7 @@ describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
     withTempRoot((root) => {
       writeFileSync(join(root, "index.html"), "<head></head><script src=\"a.js\"></script>");
       writeFileSync(join(root, "a.js"), "window.a = 1;\n");
+      writeFileSync(join(root, "llm-output-budget.js"), "window.JobBoredLlmOutputBudget = {};\n");
       writeFileSync(join(root, "config.example.js"), "window.C = {};\n");
       mkdirSync(join(root, "vendor"), { recursive: true });
       writeFileSync(join(root, "vendor", "x.js"), "window.x = 1;\n");
@@ -569,18 +584,20 @@ describe("G13: Pages ships a CSP meta and only allowlisted assets", () => {
       writeFileSync(join(root, "server", "index.mjs"), "secret server\n");
       writeFileSync(join(root, "server", "profile-from-resume.mjs"), "secret server\n");
       writeFileSync(join(root, "server", "profile-draft-shared.js"), "window.P = {};\n");
+      writeFileSync(join(root, "server", "profile-voice-shared.js"), "window.V = {};\n");
       mkdirSync(join(root, "scripts"), { recursive: true });
       writeFileSync(join(root, "scripts", "a.mjs"), "secret script\n");
       const siteDir = join(root, "_site");
       const copied = buildSite(root, siteDir);
       assert.ok(copied.includes("index.html"));
       assert.ok(copied.includes("a.js"));
+      assert.ok(copied.includes("llm-output-budget.js"));
       assert.ok(copied.includes(join("vendor", "x.js")));
       assert.ok(copied.includes("config.js"));
       assert.deepEqual(
         copied.filter((entry) => entry.startsWith("server")),
         [...PAGES_SERVER_EXCEPTIONS],
-        "only the #129 shared draft module may ship from server/",
+        "only the named shared modules may ship from server/",
       );
       assert.ok(!copied.some((entry) => entry.startsWith("scripts")), "scripts/ must not ship");
       const index = readFileSync(join(siteDir, "index.html"), "utf8");

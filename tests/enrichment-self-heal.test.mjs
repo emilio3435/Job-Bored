@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /* ============================================================
    enrichment-self-heal.test.mjs
    ------------------------------------------------------------
@@ -48,6 +49,7 @@ function loadPostingInsights({ config = {}, fetchImpl } = {}) {
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
   return ctx.window.CommandCenterJobPostingInsights;
@@ -112,6 +114,7 @@ function loadPostingEnrichment({ online = true } = {}) {
     setTimeout,
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(postingEnrichmentJs, ctx, { filename: "posting-enrichment.js" });
   return {
     api: window.JobBoredApp.postingEnrichment,
@@ -502,7 +505,8 @@ describe("posting insights — OpenRouter/local provider routing", () => {
     assert.equal(calls[0].options.headers.Authorization, "Bearer sk-or-test");
     const body = JSON.parse(calls[0].options.body);
     assert.equal(body.model, "vendor/model:free");
-    assert.equal(body.max_tokens, 3500);
+    assert.ok(!("max_tokens" in body));
+    assert.ok(!("max_completion_tokens" in body));
     assert.ok(!("response_format" in body), "OpenRouter/local path stays provider-compatible");
     assert.match(body.messages[0].content, /Return only a valid JSON object/);
     assert.match(body.messages[1].content, /Posting URL: https:\/\/jobs\.example\/roles\/123/);
@@ -528,7 +532,8 @@ describe("posting insights — OpenRouter/local provider routing", () => {
     assert.ok(!("Authorization" in calls[0].options.headers));
     const body = JSON.parse(calls[0].options.body);
     assert.equal(body.model, "gemma4:e2b");
-    assert.equal(body.max_tokens, 3500);
+    assert.ok(!("max_tokens" in body));
+    assert.ok(!("max_completion_tokens" in body));
   });
 
   it("local structured insights tolerate key-value text when the model ignores JSON-only instructions", async () => {
@@ -626,7 +631,7 @@ describe("enrichment pipeline — Gemini URL Context lane", () => {
   function urlContextSlice() {
     const start = insightsJs.indexOf("async function fetchViaGeminiUrlContext");
     assert.ok(start > 0, "fetchViaGeminiUrlContext must be defined");
-    return insightsJs.slice(start, start + 4000);
+    return insightsJs.slice(start, start + 6500);
   }
 
   it("fetchViaGeminiUrlContext is exported on CommandCenterJobPostingInsights", () => {

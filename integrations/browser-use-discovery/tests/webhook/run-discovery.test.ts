@@ -2500,6 +2500,7 @@ test("runDiscovery treats missing optional Google Search as advisory when anothe
 test("runDiscovery captures write error with update phase and returns partial status (VAL-DATA-003, VAL-DATA-005)", async () => {
   let writeCalls = 0;
   let writeLog: Record<string, unknown> | null = null;
+  let selectedSnapshot: { sheetId: string; leads: any[] } | null = null;
 
   const dependencies = {
     runtimeConfig: {
@@ -2570,6 +2571,8 @@ test("runDiscovery captures write error with update phase and returns partial st
         leads: any[],
       ): Promise<any> {
         writeCalls++;
+        assert.equal(selectedSnapshot?.sheetId, sheetId, "selected leads must be durable before the write starts");
+        assert.deepEqual(selectedSnapshot?.leads, leads);
         // Simulate a write error during update phase
         const { SheetWriteError } = await import(
           "../../src/sheets/pipeline-writer.ts"
@@ -2611,6 +2614,9 @@ test("runDiscovery captures write error with update phase and returns partial st
       }
     },
     runId: "test_run_write_error",
+    checkpointSelectedLeads: (sheetId: string, leads: any[]) => {
+      selectedSnapshot = { sheetId, leads: structuredClone(leads) };
+    },
     now: (() => {
       let index = 0;
       const dates = [
@@ -2651,6 +2657,10 @@ test("runDiscovery captures write error with update phase and returns partial st
 
   // Verify the lifecycle state is "partial" due to write error warning
   assert.equal(result.lifecycle.state, "partial", "Lifecycle should be partial due to write error");
+  assert.equal(buildCompletedRunStatus(result, {
+    acceptedAt: "2026-04-09T12:00:00.000Z",
+    startedAt: "2026-04-09T12:00:00.000Z",
+  }).status, "write_failed");
 
   // Verify the writeResult contains the error info
   assert.ok(result.writeResult, "writeResult should exist");

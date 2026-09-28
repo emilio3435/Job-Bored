@@ -1,0 +1,32 @@
+PRIYA "PJ" NARAYAN-OKAFOR
+Senior Data Engineer
+CONTACT
+Austin, CO
+555-555-0142
+user@example.com
+github.com/example-pj
+SKILLS
+Python • SQL • Go • Airflow • dbt
+Snowflake • Kafka • Terraform
+Stakeholder management • Mentoring
+EDUCATION
+Master of Science, Computer Science | Example Tech University — Boulder, CO 2016
+LANGUAGES
+English (native), Hindi (fluent)
+PROFILE
+Data engineer who turns messy event streams into warehouse tables analysts trust, and the go-to reviewer for pipeline design on her team.
+EXPERIENCE
+Senior Data Engineer, Fabrikam Freight Jan 2021 – Present
+• Rebuilt the shipment event pipeline on Kafka and dbt, cutting warehouse lag from 6 hours to 15 minutes.
+• Led a team of 4 engineers through a Snowflake migration of 2,400 tables with zero missed reporting deadlines.
+Data Engineer, Fabrikam Freight Jun 2018 – Dec 2020
+• Wrote 124+ Airflow jobs that feed the finance and operations dashboards.
+Analyst, Tailspin Analytics Jul 2016 – May 2018
+• Automated weekly client reports in Python, saving the team about 10 hours a week.
+PROJECTS
+Railyard — open-source Airflow lint rules (github.com/example-pj/railyard)
+Tidepool: a small Go CLI that diffs warehouse schemas
+AWARDS
+Fabrikam Engineering Award for Reliability, 2023
+CERTIFICATIONS
+SnowPro Core Certification

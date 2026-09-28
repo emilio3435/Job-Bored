@@ -1,6 +1,10 @@
 /* signal 1.0 — "signal instrument" (visual spec §9.3). Ported from the
    reference fixture docs/materials-v3/mocks/3e-ai-marketing-analytics-manager/signal/.
-   Faces: Archivo, Martian Mono, Caveat, all vendored (vendor/fonts/fonts.css). */
+   Faces: Marcellus for the name (a flared, glyphic serif, the closest open
+   face to the brand wordmark), Geist for text, Geist Mono for
+   figures, dates, contact and the ticker; Caveat for the signature. All
+   printed from static instances (vendor/fonts/materials,
+   scripts/build-materials-fonts.py). */
 :root {
   --volt: #4a24ff;
   --ink: #15112e;
@@ -9,13 +13,34 @@
   --paper: #ffffff;
   --band-soft: #d3cbff;
   --band-ink: #ffffff;
-  --sans: "Archivo", Arial, sans-serif;
-  --mono: "Martian Mono", "JetBrains Mono", ui-monospace, monospace;
+  /* The wordmark: navy letters, four colored dots. */
+  --navy: #0e2554;
+  --dot-1: #fe3f67;
+  --dot-2: #7b39ff;
+  --dot-3: #ff8311;
+  --dot-4: #0088ff;
+  --display: "Marcellus", "Georgia", serif;
+  --sans: "Geist", "Helvetica Neue", Arial, sans-serif;
+  --mono: "Geist Mono", "JetBrains Mono", ui-monospace, monospace;
   --hand: "Caveat", "Segoe Script", cursive;
   --pad-x: 0.55in;
   --gutter: 1.02in;
   --gap: 0.2in;
 }
+/* Header variants (family.json `headers`, default "paper"), both after the
+   brand wordmark (navy letters, four colored dots). Every text/background pair passes WCAG AA (checked
+   in tests/materials-text-layer.test.mjs); the dots are decoration.
+     paper  white header, navy name and contact, a four-color segmented rule
+     ink    navy band, paper-white name and contact, the white scale */
+.sheet[data-header="paper"] { --band-bg: var(--paper); --band-ink: var(--navy); --band-soft: #4a5876; --chip-line: rgba(14, 37, 84, 0.4); --chip-fill: rgba(14, 37, 84, 0.05); }
+.sheet[data-header="ink"] { --band-bg: var(--navy); --band-ink: #ffffff; --band-soft: rgba(255, 255, 255, 0.8); --chip-line: rgba(255, 255, 255, 0.7); --chip-fill: rgba(255, 255, 255, 0.1); }
+.sheet[data-header] .band { background: var(--band-bg); }
+.sheet[data-header="paper"] .band { padding-bottom: 0.24in; }
+.sheet[data-header="paper"] .band::after { /* four-color segmented rule in place of the scale */
+  height: 2.5pt;
+  background: linear-gradient(90deg, var(--dot-1) 0 25%, var(--dot-2) 25% 50%, var(--dot-3) 50% 75%, var(--dot-4) 75% 100%);
+}
+
 /* Rule 10: the ink accent prints in grayscale with no information lost. */
 .sheet[data-accent="ink"] { --volt: #15112e; --band-soft: #d9d5f2; }
 
@@ -44,7 +69,7 @@ body {
 .band {
   background: var(--volt);
   color: var(--band-ink);
-  padding: 0.3in var(--pad-x) 0.25in;
+  padding: 0.36in var(--pad-x) 0.3in;
   display: grid;
   grid-template-columns: 1fr auto;
   align-items: end;
@@ -61,31 +86,83 @@ body {
     repeating-linear-gradient(90deg, rgba(255,255,255,.95) 0 1pt, transparent 1pt 0.5in) bottom left / 100% 7pt no-repeat,
     repeating-linear-gradient(90deg, rgba(255,255,255,.55) 0 0.6pt, transparent 0.6pt 0.1in) bottom left / 100% 3.5pt no-repeat;
 }
+/* The name, in the display face. letter-spacing and line-height must match
+   family.json `nameDots` (the renderer places the tittle dots from them). */
+.name-wrap { font-family: var(--display); font-size: 34pt; }
 .name {
   margin: 0;
-  font-size: 25pt;
-  font-weight: 800;
-  font-stretch: 125%;
-  letter-spacing: -0.01em;
-  line-height: 0.95;
+  font-size: 1em;
+  font-weight: 400;
+  letter-spacing: -0.005em;
+  /* Above 1 on purpose: pypdf starts a new line only when the next line
+     drops by more than the font size, so at line-height 1 (or less) a name
+     that wraps extracts as one run with no break ("“A.J.”LEE"). */
+  line-height: 1.1;
+}
+/* The wordmark's colored tittles. The name stays one plain text run; each
+   dot is an empty box (no text, so nothing in the PDF text layer or in any
+   HTML text extract) that the renderer places over an i or j tittle from
+   the face's advance widths (nameDots in server/materials-render.mjs). That
+   arithmetic needs kerning and ligatures off and the name on one line; a
+   name too wide for one line gets no tittles, only the closing dot. */
+/* One line, always (nameFit sizes it to fit; see server/materials-render.mjs):
+   never a break at the hyphen of "SMITH-JONES" or anywhere else. */
+.name { white-space: nowrap; font-kerning: none; font-variant-ligatures: none; }
+/* A name too long to share its row even at the minimum size takes the full
+   width; the contact block moves under it. */
+.band-id--full { grid-column: 1 / -1; }
+.band-id--full ~ .contact { grid-column: 1 / -1; justify-self: end; margin-top: 6pt; }
+.nd {
+  position: absolute;
+  width: 0.17em;
+  height: 0.17em;
+  border-radius: 50%;
+  transform: translate(-50%, -50%);
+  background: var(--dot-1);
+}
+.nd--2 { background: var(--dot-2); }
+.nd--3 { background: var(--dot-3); }
+.nd--4 { background: var(--dot-4); }
+.name::after { /* the closing dot, like the wordmark's ".com" period */
+  content: "";
+  display: inline-block;
+  width: 0.15em;
+  height: 0.15em;
+  margin-left: 0.07em;
+  border-radius: 50%;
+  background: var(--dot-4);
 }
 .target {
   margin: 6pt 0 0;
   font-size: 10pt;
   font-weight: 500;
-  font-stretch: 112%;
   color: var(--band-soft);
 }
+/* Contact: one line per channel, each with its own line glyph, every one a
+   real link in the PDF (mailto:, tel:, https:). The portfolio or site rides
+   in an outlined chip so the one thing a reader should open stands apart. */
 .contact {
   margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 2.5pt;
   font-family: var(--mono);
-  font-stretch: 75%;
   font-size: 7.6pt;
-  line-height: 1.6;
-  text-align: right;
+  line-height: 1.25;
   color: var(--band-ink);
 }
-.contact a { color: inherit; text-decoration: none; }
+.ct { display: inline-flex; align-items: center; gap: 4.5pt; color: inherit; text-decoration: none; }
+.ct-icon { width: 8pt; height: 8pt; flex: none; opacity: 0.8; }
+.ct--site {
+  order: 9;
+  margin-top: 2pt;
+  padding: 2pt 7pt 2pt 5.5pt;
+  border: 0.75pt solid var(--chip-line, rgba(255, 255, 255, 0.7));
+  border-radius: 99px;
+  background: var(--chip-fill, rgba(255, 255, 255, 0.12));
+}
+.ct--site .ct-icon { opacity: 1; }
 
 /* ---------- readout strip ---------- */
 .readout {
@@ -120,7 +197,7 @@ body {
   line-height: 1.2;
   color: var(--graphite);
 }
-.channel .src b { font-weight: 700; font-stretch: 112%; color: var(--ink); }
+.channel .src b { font-weight: 600; color: var(--ink); }
 .channel .logo { display: block; flex: none; }
 .reading { margin: 4pt 0 0; padding-right: 0.1in; grid-row: 2; }
 .reading + .reading { border-left: 0.5pt solid var(--grat); padding-left: 0.1in; }
@@ -128,8 +205,8 @@ body {
 .reading.ch-split { border-left: 0.75pt solid var(--ink); padding-left: 0.12in; }
 .fig {
   display: block;
-  font-family: var(--mono);
-  font-stretch: 75%;
+  font-family: var(--sans); /* not Geist Mono: see .n */
+  font-variant-numeric: tabular-nums lining-nums;
   font-weight: 600;
   font-size: 21pt;
   line-height: 1.05;
@@ -144,19 +221,37 @@ body {
   color: var(--graphite);
 }
 
+/* ---------- resume ticker ----------
+   One lean row of verified figures directly under the resume's band. No
+   employer brackets: the experience log already carries employers and dates.
+   (The letter keeps its bottom readout strip.) */
+.ticker {
+  margin: 0;
+  padding: 0.12in var(--pad-x) 0.11in;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  row-gap: 3pt;
+  border-bottom: 0.75pt solid var(--ink);
+}
+.tick { margin: 0; font-size: 8.4pt; white-space: nowrap; line-height: 1.3; color: var(--graphite); }
+.tick + .tick { margin-left: 0.12in; padding-left: 0.12in; border-left: 1pt solid var(--volt); }
+.tick .fig { display: inline; font-size: 10pt; line-height: 1.3; letter-spacing: 0; }
+.tick .cap { display: inline; margin: 0; font-size: inherit; line-height: inherit; }
+
 /* ---------- body ---------- */
-.body { padding: 0.14in var(--pad-x) 0.36in; flex: 1; display: flex; flex-direction: column; }
+.body { padding: 0.26in var(--pad-x) 0.36in; flex: 1; display: flex; flex-direction: column; }
 .statement {
-  margin: 0 0 8pt calc(var(--gutter) + var(--gap));
+  margin: 0 0 16pt calc(var(--gutter) + var(--gap));
   max-width: 6in;
 }
 .statement p {
   margin: 0;
   font-size: 10.6pt;
   line-height: 1.38;
-  font-weight: 450;
+  font-weight: 400;
 }
-.statement .hl { font-weight: 650; }
+.statement .hl { font-weight: 600; }
 .row {
   display: grid;
   grid-template-columns: var(--gutter) 1fr;
@@ -173,8 +268,7 @@ body {
 .sec-label h2 {
   margin: 0;
   font-size: 9pt;
-  font-weight: 700;
-  font-stretch: 112%;
+  font-weight: 600;
   color: var(--volt);
 }
 .sec-label i {
@@ -182,12 +276,19 @@ body {
   height: 3pt;
 }
 .entry { margin-bottom: 7pt; }
-.gut { padding-top: 0.06in; }
-.mark { display: block; flex: none; }
+.gut { padding-top: 0.02in; display: flex; flex-direction: column; align-items: flex-start; gap: 5pt; }
+/* Employer marks sit in the date gutter, one column of marks down the log.
+   A square mark gets a fixed optical box so a favicon, an upload and a
+   monogram read at the same size; a wordmark keeps its own width. */
+.socket { display: flex; align-items: center; justify-content: flex-start; flex: none; }
+.socket--mark, .socket--lockup { width: 0.34in; height: 0.34in; }
+.socket--wordmark { height: 0.2in; max-width: var(--gutter); }
+.socket .mark { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+.socket--mark .mark, .socket--lockup .mark { width: 100%; height: 100%; }
+.mark-inline { display: inline-block; height: 0.15in; width: auto; max-width: 0.6in; margin-right: 5pt; vertical-align: -0.03in; object-fit: contain; }
 .when {
   display: block;
   font-family: var(--mono);
-  font-stretch: 75%;
   font-size: 7.8pt;
   line-height: 1.45;
   color: var(--graphite);
@@ -202,11 +303,14 @@ body {
 .org {
   margin: 0;
   font-size: 10.6pt;
-  font-weight: 700;
-  font-stretch: 112%;
+  font-weight: 600;
   letter-spacing: -0.005em;
 }
 .seat { font-size: 9.3pt; color: var(--graphite); }
+/* P-4: a role at the same company, with its own dates */
+.subrole { display: flex; justify-content: space-between; align-items: baseline; gap: 10pt; margin: 3pt 0 1.6pt; }
+.subrole-title { font-size: 9.3pt; font-weight: 600; color: var(--graphite); }
+.subrole-when { font-family: var(--mono); font-size: 8.4pt; color: var(--graphite); white-space: nowrap; }
 /* the hidden ATS copy of a wordmark's name takes no visible gap */
 .sheet .head .visually-dup { margin-left: -8pt !important; }
 ul { margin: 0; padding: 0; list-style: none; }
@@ -226,22 +330,25 @@ li::before {
   background: var(--volt);
 }
 .line { margin: 0; font-size: 9.4pt; line-height: 1.36; }
+/* Figures stay in the text face (tabular, semibold): Geist Mono's glyph
+   advances made pypdf 6.13 read "$10M +" and "$3.1M  of" out of the PDF
+   text layer, an ATS risk. Whole tokens in one face extract whole. */
 .n {
-  font-family: var(--mono);
-  font-stretch: 75%;
+  font-family: var(--sans);
   font-weight: 600;
-  font-size: 0.95em;
-  letter-spacing: -0.02em;
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: 0;
+  white-space: nowrap; /* a figure never breaks at its hyphen ("top-/3") */
 }
 
 .earlier p, .ventures p { margin: 0; font-size: 9.4pt; line-height: 1.36; }
 .earlier p + p { margin-top: 2.4pt; }
-.earlier b, .ventures b { font-weight: 700; font-stretch: 112%; }
+.earlier b, .ventures b { font-weight: 600; }
 .earlier .when, .ventures .when { display: inline; margin: 0 0 0 5pt; }
 .ventures { display: grid; grid-template-columns: 1fr 1fr; column-gap: 0.2in; }
 
 .spec { margin: 0; display: grid; grid-template-columns: 0.9in 1fr; row-gap: 1.5pt; }
-.spec dt { font-size: 9.4pt; font-weight: 600; font-stretch: 112%; line-height: 1.36; }
+.spec dt { font-size: 9.4pt; font-weight: 600; line-height: 1.36; }
 .spec dd { margin: 0; font-size: 9.4pt; line-height: 1.36; }
 
 .cred { display: grid; grid-template-columns: auto 1fr; column-gap: 10pt; align-items: center; }
@@ -251,7 +358,17 @@ li::before {
 .sec + .sec { margin-top: 7pt; }
 
 /* ---------- letter: channel gutter + prose ---------- */
+/* The letter's gutter is wider than the resume's: it carries the
+   addressee's mark and the To / Re / Date rail, whose lines (a role title,
+   a long date) must not break mid-phrase. */
+.sheet[data-doc="cover-letter"] { --gutter: 1.5in; }
 .sheet[data-doc="cover-letter"] .band { padding: 0.34in var(--pad-x) 0.27in; }
+.rail { padding-top: 3pt; min-width: 0; }
+.addressee { display: flex; align-items: center; margin-bottom: 12pt; }
+.addressee.socket--mark, .addressee.socket--lockup { width: 0.5in; height: 0.5in; }
+.addressee.socket--wordmark { height: 0.3in; max-width: 1.4in; }
+.addressee .mark { display: block; max-width: 100%; max-height: 100%; width: auto; height: auto; object-fit: contain; }
+.addressee.socket--mark .mark { width: 100%; height: 100%; }
 .main {
   flex: 1;
   padding: 0.62in var(--pad-x) 0;
@@ -263,8 +380,7 @@ li::before {
 .meta { margin: 0; padding-top: 3pt; }
 .meta dt {
   font-size: 8.5pt;
-  font-weight: 700;
-  font-stretch: 112%;
+  font-weight: 600;
   color: var(--volt);
   padding-top: 5pt;
   border-top: 1pt solid var(--volt);
@@ -275,6 +391,8 @@ li::before {
   font-size: 8.8pt;
   line-height: 1.4;
   color: var(--ink);
+  text-wrap: balance;
+  overflow-wrap: break-word;
 }
 .prose { max-width: 5.6in; }
 .prose p {
@@ -284,13 +402,12 @@ li::before {
   color: var(--ink);
   hyphens: manual;
 }
-.prose .salute { font-weight: 600; font-stretch: 112%; margin-bottom: 12pt; }
+.prose .salute { font-weight: 600; margin-bottom: 12pt; }
 .prose .lede {
   font-size: 16pt;
   line-height: 1.34;
   font-weight: 500;
   letter-spacing: -0.012em;
-  font-stretch: 104%;
   margin-bottom: 14pt;
   padding-left: 12pt;
   border-left: 2.4pt solid var(--volt);
@@ -307,11 +424,10 @@ li::before {
   transform: rotate(-2deg);
   transform-origin: left center;
 }
-.sign .who { font-size: 11.2pt; font-weight: 700; font-stretch: 112%; }
+.sign .who { font-size: 11.2pt; font-weight: 600; }
 .sign .how {
   margin-top: 2pt;
   font-family: var(--mono);
-  font-stretch: 75%;
   font-size: 7.8pt;
   color: var(--graphite);
 }
@@ -333,6 +449,26 @@ li::before {
 .letter-readout .channel { min-height: 0.3in; }
 .sheet[data-doc="cover-letter"] .main + .letter-readout { margin-top: 0.2in; }
 .sheet[data-doc="cover-letter"] .main:last-child { padding-bottom: 0.5in; }
+
+/* Air (materials-fit.mjs): a page that fits with an inch or more to spare
+   opens its setting up rather than ending in a blank band. It never runs
+   together with a tighter step. */
+.sheet[data-fit~="air"] .body { padding-top: 0.22in; }
+.sheet[data-fit~="air"] .ticker { padding-top: 0.15in; padding-bottom: 0.14in; }
+.sheet[data-fit~="air"] .statement { margin-bottom: 14pt; }
+.sheet[data-fit~="air"] .statement p { font-size: 11.4pt; line-height: 1.42; }
+.sheet[data-fit~="air"] .sec-label { margin-bottom: 10pt; }
+.sheet[data-fit~="air"] .entry { margin-bottom: 14pt; }
+.sheet[data-fit~="air"] li, .sheet[data-fit~="air"] .line,
+.sheet[data-fit~="air"] .earlier p, .sheet[data-fit~="air"] .ventures p,
+.sheet[data-fit~="air"] .spec dt, .sheet[data-fit~="air"] .spec dd,
+.sheet[data-fit~="air"] .cred p { font-size: 10pt; line-height: 1.45; }
+.sheet[data-fit~="air"] li { margin-bottom: 4pt; }
+.sheet[data-fit~="air"] .head { margin-bottom: 5pt; }
+.sheet[data-fit~="air"] .org { font-size: 11.4pt; }
+.sheet[data-fit~="air"] .sec { margin-top: 8pt; }
+.sheet[data-fit~="air"] .sec + .sec { margin-top: 14pt; }
+.sheet[data-fit~="air"] .main { padding-top: 0.8in; }
 
 /* Letter fit ladder (family.json fit.letterLadder). Each step tightens the
    setting of a longer letter; none hides text. */
@@ -358,3 +494,6 @@ li::before {
    layer, in DOM order, so ATS extraction reads the header first. Inline runs
    stay in flow so metric spans extract inside their sentence. */
 .sheet :is(header, footer, section, article, div, p, ul, ol, li, dl, dt, dd, h1, h2, h3), .head > * { position: relative; }
+
+/* Project links in a letter (the user's hyperlink convention). */
+a.proj { color: inherit; text-decoration: underline; text-decoration-thickness: 0.06em; text-underline-offset: 0.15em; }

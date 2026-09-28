@@ -4,12 +4,12 @@
   <header class="opener">
     <div>
       {{! The two name lines keep a real text space (a preserved trailing space on line one), so extraction reads "First Last", never "FirstLast" (rule 7). }}
-      <h1 class="name">{{#if identity.hasNameLast}}<span class="l1">{{identity.nameFirst}} </span><span class="l2">{{identity.nameLast}}</span>{{else}}{{identity.name}}{{/if}}</h1>
+      <h1 class="name" style="font-size:{{identity.nameFit.pt}}pt">{{#if identity.hasNameLast}}<span class="l1">{{identity.nameFirst}} </span><span class="l2">{{identity.nameLast}}</span>{{else}}{{identity.name}}{{/if}}</h1>
       <p class="deck">{{identity.target}}</p>
     </div>
-    <section class="pull-wrap" data-section="summary">
+    {{#if resume.statement.show}}<section class="pull-wrap" data-section="summary">
       <blockquote class="pull">{{resume.statement.html}}</blockquote>
-    </section>
+    </section>{{else}}<section data-section="summary" data-omitted="repeats-headline" hidden></section>{{/if}}
   </header>
 
   <p class="contact">
@@ -33,6 +33,17 @@
           <h2 class="company-name{{#if orgIsDuplicate}} visually-dup{{/if}}">{{org}}</h2>
           {{#if hasSeat}}<span class="role">{{seatHtml}}</span>{{/if}}
         </div>
+        {{#if hasRoles}}
+        {{#each roles}}
+        <p class="subrole"><span class="role">{{seatHtml}}</span>{{#if dates}} <span class="subrole-when">{{dates}}</span>{{/if}}</p>
+        {{#if hasBullets}}
+        <ul>
+          {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
+          {{/each}}
+        </ul>
+        {{/if}}
+        {{/each}}
+        {{else}}
         {{#if hasBullets}}
         <ul>
           {{#each bullets}}<li data-claim="{{claimId}}">{{html}}</li>
@@ -40,6 +51,7 @@
         </ul>
         {{else}}
         {{#if line}}<ul><li data-claim="{{claimId}}">{{line}}</li></ul>{{/if}}
+        {{/if}}
         {{/if}}
       </div>
     </article>
@@ -65,7 +77,7 @@
       </div>
       <div class="story">
         <div class="org">
-          <h3 class="sub-org">{{org}}</h3>
+          {{#if showOrg}}<h3 class="sub-org">{{org}}</h3>{{/if}}
           {{#if hasSeat}}<span class="role">{{seatHtml}}</span>{{/if}}
         </div>
         {{#if line}}<ul><li data-claim="{{claimId}}">{{line}}</li></ul>{{/if}}

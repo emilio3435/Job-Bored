@@ -1,0 +1,125 @@
+{
+  "contract": "materials.selection.v1",
+  "jdHash": "sha256:11da816d0da0bb1c",
+  "ledgerHash": "sha256:4f5f70c84d123416",
+  "budget": {
+    "pages": 1,
+    "pagesReason": "one-page target",
+    "featuredEmployers": 2,
+    "bulletsPerFeatured": 3,
+    "earlierLines": 2,
+    "tokens": 13,
+    "letterWords": [
+      180,
+      260
+    ]
+  },
+  "kept": [
+    {
+      "claimId": "profile-strength-2",
+      "rank": 1,
+      "slot": "resume.featured.pick.b1",
+      "score": {
+        "noun": 0.14,
+        "outcome": 0.03,
+        "differentiator": 0,
+        "recency": 0.7,
+        "proof": 1,
+        "total": 0.28
+      },
+      "mapsTo": [
+        "digital",
+        "managers",
+        "monthly"
+      ],
+      "reason": "deterministic rank 1 (model select unavailable)"
+    },
+    {
+      "claimId": "profile-strength-1",
+      "rank": 2,
+      "slot": "resume.featured.pick.b2",
+      "score": {
+        "noun": 0.06,
+        "outcome": 0,
+        "differentiator": 0,
+        "recency": 0.7,
+        "proof": 1,
+        "total": 0.24
+      },
+      "mapsTo": [
+        "digital"
+      ],
+      "reason": "deterministic rank 2 (model select unavailable)"
+    },
+    {
+      "claimId": "profile-strength-4",
+      "rank": 3,
+      "slot": "resume.featured.pick.b3",
+      "score": {
+        "noun": 0.04,
+        "outcome": 0.1,
+        "differentiator": 0,
+        "recency": 0.7,
+        "proof": 0.5,
+        "total": 0.18
+      },
+      "mapsTo": [
+        "clients"
+      ],
+      "reason": "deterministic rank 3 (model select unavailable)"
+    },
+    {
+      "claimId": "profile-strength-3",
+      "rank": 4,
+      "slot": "resume.featured.pick.b4",
+      "score": {
+        "noun": 0,
+        "outcome": 0.1,
+        "differentiator": 0,
+        "recency": 0.7,
+        "proof": 0.5,
+        "total": 0.17
+      },
+      "mapsTo": [],
+      "reason": "deterministic rank 4 (model select unavailable)"
+    }
+  ],
+  "dropped": [],
+  "omittedEmployers": [
+    {
+      "employerId": "contoso-formerly-fabrikam",
+      "reason": "not featured in this run",
+      "justified": true
+    },
+    {
+      "employerId": "digital-sales-manager-contoso-may-2021",
+      "reason": "not featured in this run",
+      "justified": true
+    },
+    {
+      "employerId": "digital-campaign-manager-fabrikam-sep-2017",
+      "reason": "not featured in this run",
+      "justified": true
+    },
+    {
+      "employerId": "founder-ai-engineer",
+      "reason": "not featured in this run",
+      "justified": true
+    },
+    {
+      "employerId": "founder",
+      "reason": "not featured in this run",
+      "justified": true
+    },
+    {
+      "employerId": "bachelor-of-arts-mathematical-economics",
+      "reason": "not featured in this run",
+      "justified": true
+    }
+  ],
+  "transfers": [],
+  "letter": {
+    "analyticsProof": "profile-strength-2",
+    "aiOpsProof": "profile-strength-1"
+  }
+}

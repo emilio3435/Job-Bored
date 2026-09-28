@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 import assert from "node:assert/strict";
 import { readFileSync, mkdtempSync, mkdirSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -74,6 +75,7 @@ test("GFX-SOL-4 B3 provider fetch receives its cancellation signal", async () =>
     console: { log() {}, warn() {}, error() {} },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(source, ctx, { filename: "resume-generate.js" });
   const controller = new AbortController();
   await window.CommandCenterResumeGenerate.callConfiguredAi("system", "user", { signal: controller.signal });

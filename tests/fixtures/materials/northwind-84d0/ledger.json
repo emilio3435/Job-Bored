@@ -1,0 +1,283 @@
+{
+  "contract": "materials.claim-ledger.v1",
+  "ledgerHash": "sha256:4f5f70c84d123416",
+  "note": "Wave 1 L4 fixture: the ledger shape behind the recorded _84d0 letter \u2014 four profile strengths with no employer (the K1 failure), employers only as omissions.",
+  "employers": [
+    {
+      "id": "contoso-formerly-fabrikam",
+      "name": "Contoso Formerly Fabrikam"
+    },
+    {
+      "id": "digital-sales-manager-contoso-may-2021",
+      "name": "Digital Sales Manager Contoso May 2021"
+    },
+    {
+      "id": "digital-campaign-manager-fabrikam-sep-2017",
+      "name": "Digital Campaign Manager Fabrikam Sep 2017"
+    },
+    {
+      "id": "founder-ai-engineer",
+      "name": "Founder Ai Engineer"
+    },
+    {
+      "id": "founder",
+      "name": "Founder"
+    },
+    {
+      "id": "bachelor-of-arts-mathematical-economics",
+      "name": "Bachelor Of Arts Mathematical Economics"
+    }
+  ],
+  "claims": [
+    {
+      "id": "profile-strength-1",
+      "employerId": null,
+      "kind": "achievement",
+      "text": "Guided online plan for a $12M+ yearly portfolio at Contoso, driving the Austin region to a steady top-4 national placement in Online Growth Offerings revenue.",
+      "metrics": [
+        {
+          "token": "$12M+",
+          "unit": "$"
+        },
+        {
+          "token": "top-4",
+          "unit": "rank"
+        }
+      ],
+      "tools": [],
+      "sourceRefs": [
+        "profile"
+      ],
+      "verified": true
+    },
+    {
+      "id": "profile-strength-2",
+      "employerId": null,
+      "kind": "achievement",
+      "text": "Guided program leads, mentored 12 AE desks with 24+ per-month pitches, and established structured enablement programs like Online Cafe and Happy Half-Hour sessions.",
+      "metrics": [
+        {
+          "token": "12"
+        },
+        {
+          "token": "24+"
+        }
+      ],
+      "tools": [],
+      "sourceRefs": [
+        "profile"
+      ],
+      "verified": true
+    },
+    {
+      "id": "profile-strength-3",
+      "employerId": null,
+      "kind": "achievement",
+      "text": "Built a production AI service in Cloud Run with several models, retrieval over internal records, scheduled agents, and grounded web lookup.",
+      "metrics": [],
+      "tools": [
+        "Cloud Run",
+        "GCP",
+        "RAG"
+      ],
+      "sourceRefs": [
+        "profile"
+      ],
+      "verified": true
+    },
+    {
+      "id": "profile-strength-4",
+      "employerId": null,
+      "kind": "achievement",
+      "text": "Guided clients on emerging AI search readiness, including AI Overviews (AIO/GEO) and multi-touch attribution to expand enterprise accounts.",
+      "metrics": [],
+      "tools": [],
+      "sourceRefs": [
+        "profile"
+      ],
+      "verified": true
+    }
+  ],
+  "toolInventory": [
+    {
+      "tool": "SEM",
+      "level": "owned",
+      "evidence": "Digital Media Sales & Strategy",
+      "transferFrom": []
+    },
+    {
+      "tool": "OTT/CTV",
+      "level": "owned",
+      "evidence": "Digital Media Sales & Strategy",
+      "transferFrom": []
+    },
+    {
+      "tool": "Amazon DSP",
+      "level": "owned",
+      "evidence": "Digital Media Sales & Strategy",
+      "transferFrom": []
+    },
+    {
+      "tool": "Paid Social",
+      "level": "owned",
+      "evidence": "Digital Media Sales & Strategy",
+      "transferFrom": []
+    },
+    {
+      "tool": "Streaming Audio",
+      "level": "owned",
+      "evidence": "Digital Media Sales & Strategy",
+      "transferFrom": []
+    },
+    {
+      "tool": "Programmatic Display",
+      "level": "owned",
+      "evidence": "Digital Media Sales & Strategy",
+      "transferFrom": []
+    },
+    {
+      "tool": "GA4",
+      "level": "owned",
+      "evidence": "Digital Media Sales & Strategy",
+      "transferFrom": []
+    },
+    {
+      "tool": "seller enablement",
+      "level": "owned",
+      "evidence": "Sales Leadership & Enablement",
+      "transferFrom": []
+    },
+    {
+      "tool": "consultative selling",
+      "level": "owned",
+      "evidence": "Sales Leadership & Enablement",
+      "transferFrom": []
+    },
+    {
+      "tool": "pitch cadence",
+      "level": "owned",
+      "evidence": "Sales Leadership & Enablement",
+      "transferFrom": []
+    },
+    {
+      "tool": "QBRs",
+      "level": "owned",
+      "evidence": "Sales Leadership & Enablement",
+      "transferFrom": []
+    },
+    {
+      "tool": "team management",
+      "level": "owned",
+      "evidence": "Sales Leadership & Enablement",
+      "transferFrom": []
+    },
+    {
+      "tool": "SampleCRM",
+      "level": "owned",
+      "evidence": "Sales Leadership & Enablement",
+      "transferFrom": []
+    },
+    {
+      "tool": "Python",
+      "level": "owned",
+      "evidence": "AI Product Engineering",
+      "transferFrom": []
+    },
+    {
+      "tool": "React",
+      "level": "owned",
+      "evidence": "AI Product Engineering",
+      "transferFrom": []
+    },
+    {
+      "tool": "GCP Cloud Run",
+      "level": "owned",
+      "evidence": "AI Product Engineering",
+      "transferFrom": []
+    },
+    {
+      "tool": "RAG",
+      "level": "owned",
+      "evidence": "AI Product Engineering",
+      "transferFrom": []
+    },
+    {
+      "tool": "Vertex AI",
+      "level": "owned",
+      "evidence": "AI Product Engineering",
+      "transferFrom": []
+    },
+    {
+      "tool": "Claude API",
+      "level": "owned",
+      "evidence": "AI Product Engineering",
+      "transferFrom": []
+    },
+    {
+      "tool": "agentic workflows",
+      "level": "owned",
+      "evidence": "AI Product Engineering",
+      "transferFrom": []
+    },
+    {
+      "tool": "AI Overviews",
+      "level": "owned",
+      "evidence": "Search Disruption & Attribution Modeling",
+      "transferFrom": []
+    },
+    {
+      "tool": "GEO",
+      "level": "owned",
+      "evidence": "Search Disruption & Attribution Modeling",
+      "transferFrom": []
+    },
+    {
+      "tool": "attribution modeling",
+      "level": "owned",
+      "evidence": "Search Disruption & Attribution Modeling",
+      "transferFrom": []
+    },
+    {
+      "tool": "SEO",
+      "level": "owned",
+      "evidence": "Search Disruption & Attribution Modeling",
+      "transferFrom": []
+    },
+    {
+      "tool": "Google Tag Manager",
+      "level": "owned",
+      "evidence": "Search Disruption & Attribution Modeling",
+      "transferFrom": []
+    },
+    {
+      "tool": "Looker Studio",
+      "level": "owned",
+      "evidence": "Search Disruption & Attribution Modeling",
+      "transferFrom": []
+    },
+    {
+      "tool": "Cloud Run",
+      "level": "adjacent",
+      "evidence": "profile-strength-3",
+      "transferFrom": []
+    },
+    {
+      "tool": "GCP",
+      "level": "adjacent",
+      "evidence": "profile-strength-3",
+      "transferFrom": []
+    },
+    {
+      "tool": "SQL",
+      "level": "adjacent",
+      "evidence": "resume-b4",
+      "transferFrom": []
+    },
+    {
+      "tool": "Looker",
+      "level": "adjacent",
+      "evidence": "resume-b6",
+      "transferFrom": []
+    }
+  ]
+}

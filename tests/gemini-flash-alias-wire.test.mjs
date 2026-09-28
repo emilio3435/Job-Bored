@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /**
  * The `gemini-flash` family alias must never reach the Google API literally
  * (Google 404s it). resume-generate.js resolves it to the provider's moving alias and
@@ -30,6 +31,7 @@ function loadDrawer(fetchImpl) {
     },
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   vm.runInContext(drawerJs, ctx, { filename: "discovery-drawer.js" });
   return { drawer: ctx.window.JobBoredDiscovery.drawer, calls };
@@ -56,6 +58,7 @@ function loadInsights(fetchImpl) {
     clearTimeout,
   };
   vm.createContext(ctx);
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
   vm.runInContext(resumeGenerateJs, ctx, { filename: "resume-generate.js" });
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
@@ -90,13 +93,16 @@ describe("gemini-flash alias — every call site sends a concrete id", () => {
     assert.equal(calls.length, 1);
     assert.ok(calls[0].includes(`models/${FLASH_WIRE}:`));
     assert.equal(bodies[0].generationConfig.maxOutputTokens, 8192);
+    assert.equal(bodies[0].generationConfig.thinkingConfig.thinkingLevel, "low");
   });
 
   it("posting-insights URL-context lane resolves the alias before the wire call", async () => {
     const extract = `Acme is hiring a Staff Backend Engineer to own payments services, Kafka pipelines, and PostgreSQL reliability. You will mentor engineers and ship production APIs.`;
     assert.ok(extract.length >= 80);
-    const { insights, calls } = loadInsights(async () =>
-      json(200, {
+    let requestBody;
+    const { insights, calls } = loadInsights(async (_url, init) => {
+      requestBody = JSON.parse(init.body);
+      return json(200, {
         candidates: [
           {
             content: { parts: [{ text: extract }] },
@@ -105,11 +111,22 @@ describe("gemini-flash alias — every call site sends a concrete id", () => {
             },
           },
         ],
-      }),
-    );
+      });
+    });
     const result = await insights.fetchViaGeminiUrlContext("https://jobs.example.com/role");
     assert.equal(result && result._scrapeSource, "gemini-url-context");
     assert.equal(calls.length, 1);
+    assert.equal(requestBody.generationConfig.maxOutputTokens, 16384);
+    assert.equal(requestBody.generationConfig.thinkingConfig.thinkingLevel, "low");
     assert.ok(calls[0].includes(`models/${FLASH_WIRE}:`), `got ${calls[0]}`);
+  });
+
+  it("posting-insights retries one truncated URL-context extract", async () => {
+    const { insights, calls } = loadInsights(async () =>
+      json(200, { candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: "partial" }] } }] }),
+    );
+    const result = await insights.fetchViaGeminiUrlContext("https://jobs.example.com/role");
+    assert.equal(result, null);
+    assert.equal(calls.length, 2);
   });
 });

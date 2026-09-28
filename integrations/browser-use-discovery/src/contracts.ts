@@ -842,10 +842,12 @@ export type PipelineWriteResult = {
    * happened (update or append) and the error details.
    */
   writeError?: {
-    phase: "update" | "append";
+    phase: "token" | "read" | "update" | "append";
     message: string;
     httpStatus?: number;
     detail?: string;
+    code?: string;
+    host?: string;
   };
 };
 
@@ -1059,6 +1061,7 @@ export type DiscoveryRunStatus =
   | "completed"
   | "partial"
   | "empty"
+  | "write_failed"
   | "failed";
 
 export type DiscoveryRunStats = {
@@ -1112,6 +1115,8 @@ export type DiscoveryRunStatusPayload = {
   completedAt?: string;
   lifecycle?: DiscoveryRunLifecycle;
   writeResult?: PipelineWriteResult;
+  /** Private retry payload; never returned by the HTTP status route. */
+  selectedLeads?: NormalizedLead[];
   runStats?: DiscoveryRunStats;
   warnings: string[];
   sources: DiscoverySourceSummary[];

@@ -52,6 +52,9 @@ import {
 import { reconcileOrphanedPending } from "./materials-drafter.mjs";
 import { buildRepairRequestPayload } from "./materials-repair.mjs";
 import { regeneratePackage } from "./materials-regenerate.mjs";
+import { diffRuns, listRuns, promoteRun } from "./materials-history.mjs";
+import { loadChecklist, setChecklistItem } from "./materials-checklist.mjs";
+import { buildDocx, DOCX_CONTENT_TYPE, EXPORTS, isExportName, linkedinText, servedRenderModel } from "./materials-export.mjs";
 import { listFamilies } from "./materials-templates.mjs";
 import {
   buildStarterTemplate,
@@ -60,10 +63,19 @@ import {
   writeProfileAtomic,
 } from "./user-profile.mjs";
 import { migrateLegacyProfileIfPresent } from "./legacy-profile-migrator.mjs";
+import {
+  carryForwardContact,
+  contactOf,
+  normalizeContact,
+  withContact,
+} from "./profile-identity.mjs";
+import { isVoiceError, readVoice, removeVoice, saveVoice } from "./profile-voice.mjs";
 import { readLedger, resolveLedgerPath } from "./materials-ledger.mjs";
+import { mountProfileResume, suggestContactFromSources } from "./profile-resume-sync.mjs";
+import { saveResumeRead } from "./resume-read.mjs";
 import { ensureLedger } from "./materials-ledger-build.mjs";
 import {
-  analyzeResumeToProfile,
+  analyzeResume,
   getStoredResumeText,
   parseProfileProviderConfigFromBody,
   resolveResumeTextForAnalysis,
@@ -77,6 +89,7 @@ import {
   tryBeginRouteRescore,
 } from "./profile-rescore-worker.mjs";
 import { handleGetLlmConfig, handlePostLlmConfig } from "./llm-config.mjs";
+import { readLastDraft } from "./materials-last-draft.mjs";
 import { codeForStatus } from "./api-error-codes.mjs";
 
 const PORT = Number(process.env.PORT) || 3847;
@@ -298,7 +311,7 @@ app.use((req, res, next) => {
     trustedHosts: API_TRUSTED_HOSTS,
   });
 
-  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,OPTIONS");
+  res.setHeader("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS");
   res.setHeader(
     "Access-Control-Allow-Headers",
     "Content-Type, Authorization, X-Api-Token",
@@ -347,7 +360,9 @@ if (process.env.JOBBORED_SERVE_STATIC || process.env.JOBBORED_STATIC_ROOT) {
   app.use(express.static(staticRoot, { index: "index.html", extensions: ["html"] }));
 }
 
-app.get("/api/llm-config", (req, res) => handleGetLlmConfig(req, res));
+app.get("/api/llm-config", (req, res) =>
+  handleGetLlmConfig(req, res, process.env, { readLastDraft: () => readLastDraft() }),
+);
 app.post("/api/llm-config", (req, res) => handlePostLlmConfig(req, res));
 
 app.post("/api/scrape-job", async (req, res) => {
@@ -464,13 +479,23 @@ app.get("/profile", async (_req, res) => {
 });
 
 app.post("/profile", async (req, res) => {
-  const candidate = req.body;
-  if (!isRecord(candidate)) {
+  const body = req.body;
+  if (!isRecord(body)) {
     return res.status(400).json({
       ok: false,
       reason: "invalid_profile",
       errors: [{ message: "Request body must be a JSON object" }],
     });
+  }
+  /* "Your details" backcompat: an editor that predates the contact fields
+   * sends identity without them; keep the saved ones so saving the fit
+   * profile never erases the user's name (profile-identity.mjs). */
+  let candidate = body;
+  try {
+    const prior = await readProfile();
+    candidate = carryForwardContact(body, prior.ok ? prior.profile : null);
+  } catch {
+    candidate = body;
   }
   try {
     const { updatedAt } = await writeProfileAtomic(candidate);
@@ -527,6 +552,148 @@ app.post("/profile", async (req, res) => {
       reason: "write_failed",
       detail: redactFsPaths(errorMessage(err, "write failed")),
     });
+  }
+});
+
+/* ----- "Your details" (profile contact identity) -----
+ * POST /profile/contact          → replace the contact half of identity
+ *                                  (fullName, headline, email, phone,
+ *                                  location, links). A key left out is
+ *                                  cleared. 409 no_profile before the fit
+ *                                  profile exists — onboarding carries the
+ *                                  details in its draft until then.
+ * POST /profile/contact/suggest  → { resumeText? } → suggestions with a
+ *                                  confidence per field, parsed from the
+ *                                  given text and/or the stored resume
+ *                                  (source: request | stored | merged |
+ *                                  none). Never saves, never caches.
+ */
+app.post("/profile/contact", async (req, res) => {
+  const body = isRecord(req.body) ? req.body : null;
+  if (!body) {
+    return res.status(400).json({
+      ok: false,
+      reason: "invalid_profile",
+      errors: [{ message: "Request body must be a JSON object" }],
+    });
+  }
+  const contact = normalizeContact(isRecord(body.identity) ? body.identity : body);
+  try {
+    const current = await readProfile();
+    if (!current.ok) {
+      return res.status(409).json({
+        ok: false,
+        reason: current.reason === "no_profile" ? "no_profile" : "profile_unreadable",
+        message:
+          current.reason === "no_profile"
+            ? "Save your fit profile first, then your details."
+            : "Your saved profile can't be read. Open Settings → Fit Profile and save it again.",
+        contact,
+      });
+    }
+    const next = withContact(/** @type {Record<string, unknown>} */ (current.profile), contact);
+    const { updatedAt } = await writeProfileAtomic(next);
+    return res.json({ ok: true, updatedAt, contact: contactOf(next.identity) });
+  } catch (err) {
+    const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
+    if (error && error.code === "invalid_profile") {
+      return res.status(400).json({
+        ok: false,
+        reason: "invalid_profile",
+        errors: error.errors || [],
+      });
+    }
+    return res.status(500).json({
+      ok: false,
+      reason: "write_failed",
+      detail: redactFsPaths(errorMessage(err, "write failed")),
+    });
+  }
+});
+
+/* RESJ K1: PUT /profile/resume writes the canonical resume.txt (profile-resume-sync.mjs). */
+mountProfileResume(app);
+
+/* RESJ K2: garbled or empty request text falls back to the saved resume;
+ * when both are usable each field comes from whichever has it. */
+app.post("/profile/contact/suggest", async (req, res) => {
+  return res.json(await suggestContactFromSources(isRecord(req.body) ? req.body : {}));
+});
+
+/* ----- "Your voice" (the voice guide drafts follow) -----
+ * GET    /profile/voice  → { ok, exists, text, updatedAt, words }
+ * PUT    /profile/voice  ← { text, ifUpdatedAt? } Markdown, ≤ 64 KB, not
+ *                          empty, not binary. Atomic write; any previous
+ *                          guide is kept as voice.md.bak.<timestamp>.
+ *                          `ifUpdatedAt` (what the caller read; null for
+ *                          "none") makes a stale save a 409, never a
+ *                          silent overwrite.
+ * DELETE /profile/voice  → moves the guide to a backup; 404 when none.
+ * Stored at ~/.jobbored/profile/voice.md, the file the materials pipeline
+ * reads (server/profile-voice.mjs). Same Host/Origin/token gates as every
+ * /profile route (the app-wide middleware above).
+ */
+/**
+ * @param {import("express").Response} res
+ * @param {unknown} err
+ */
+function sendVoiceError(res, err) {
+  if (isVoiceError(err)) {
+    return res.status(err.status).json({
+      ok: false,
+      reason: err.reason,
+      message: err.message,
+      ...err.extra,
+    });
+  }
+  return res.status(500).json({
+    ok: false,
+    reason: "write_failed",
+    detail: redactFsPaths(errorMessage(err, "voice guide write failed")),
+  });
+}
+
+app.get("/profile/voice", async (_req, res) => {
+  try {
+    const voice = await readVoice();
+    return res.json({ ok: true, ...voice });
+  } catch (err) {
+    return res.status(500).json({
+      ok: false,
+      reason: "read_failed",
+      detail: redactFsPaths(errorMessage(err, "voice guide read failed")),
+    });
+  }
+});
+
+app.put("/profile/voice", async (req, res) => {
+  const body = isRecord(req.body) ? req.body : null;
+  if (!body || typeof body.text !== "string") {
+    return res.status(400).json({
+      ok: false,
+      reason: "invalid_body",
+      message: "Send the guide as JSON: { \"text\": \"…Markdown…\" }.",
+    });
+  }
+  /** @type {{ ifUpdatedAt?: string | null }} */
+  const options = {};
+  if (Object.prototype.hasOwnProperty.call(body, "ifUpdatedAt")) {
+    options.ifUpdatedAt = typeof body.ifUpdatedAt === "string" ? body.ifUpdatedAt : null;
+  }
+  try {
+    const saved = await saveVoice(body.text, options);
+    return res.json({ ok: true, ...saved });
+  } catch (err) {
+    return sendVoiceError(res, err);
+  }
+});
+
+app.delete("/profile/voice", async (_req, res) => {
+  try {
+    const removed = await removeVoice();
+    return res.json({ ok: true, ...removed });
+  } catch (err) {
+    return sendVoiceError(res, err);
   }
 });
 
@@ -614,7 +781,9 @@ const PROFILE_ROUTE_DEADLINE_MS = 180_000;
  * UserProfile for review. Does NOT save the profile — the user confirms
  * that on the next screen.
  *
- * 200 { ok: true, profile, source }   — got a draft profile
+ * 200 { ok: true, profile, read, source } — got a draft profile; `read`
+ *       is what was read from the resume (server/resume-read.mjs), with
+ *       read.by naming the provider and model
  * 404 { ok: false, reason: "no_resume_stored" }
  * 500 { ok: false, reason: "profile_provider_error", message }
  */
@@ -623,6 +792,11 @@ app.post("/profile/from-resume", async (req, res) => {
   try {
     stored = await resolveResumeTextForAnalysis(req.body);
   } catch (err) {
+    // RESJ K5: garbled browser text and no clean saved resume to use.
+    const lookupError = /** @type {{ code?: unknown, message?: unknown } | null | undefined} */ (err);
+    if (lookupError && lookupError.code === "resume_garbled") {
+      return res.status(422).json({ ok: false, reason: "resume_garbled", message: String(lookupError.message || "") });
+    }
     return res.status(500).json({
       ok: false,
       reason: "resume_lookup_failed",
@@ -640,11 +814,13 @@ app.post("/profile/from-resume", async (req, res) => {
     // E11: a closed tab aborts the provider call. Drafting a profile from a
     // long resume on a local model can take minutes, hence the long deadline.
     const signal = routeDeadlineSignal(req, res, PROFILE_ROUTE_DEADLINE_MS);
-    const profile = await analyzeResumeToProfile(
+    const { profile, read } = await analyzeResume(
       stored.text,
       requestedConfig ? { config: requestedConfig, signal } : { signal },
     );
-    return res.json({ ok: true, profile, source: stored.source });
+    // RESJ2-EXTRACT: keep what was read for the Settings panel.
+    await saveResumeRead(read);
+    return res.json({ ok: true, profile, read, source: stored.source, requestGarbled: stored.requestGarbled === true });
   } catch (err) {
     const error = /** @type {Record<string, unknown> | null | undefined} */ (err);
     const code = error && error.code ? String(error.code) : "";
@@ -945,7 +1121,8 @@ app.post("/api/applications/:slug/repair", async (req, res) => {
 
 /* Re-renders the published package in another template family from its
  * stored render model: fit → render → qa only, no LLM call. Body:
- * { template: "<family>", from?: "<runId>" }. Unknown family → 400. */
+ * { template: "<family>", from?: "<runId>", header?: "<variant>" }. Unknown
+ * family → 400; an unknown header variant falls back to the family default. */
 app.post("/api/applications/:slug/regenerate", async (req, res) => {
   try {
     const body = isRecord(req.body) ? req.body : {};
@@ -953,6 +1130,12 @@ app.post("/api/applications/:slug/regenerate", async (req, res) => {
       slug: req.params.slug,
       template: body.template,
       from: typeof body.from === "string" ? body.from : undefined,
+      header: typeof body.header === "string" ? body.header : undefined,
+    }, {
+      profileIdentityLoader: async () => {
+        const saved = await readProfile();
+        return saved.ok && isRecord(saved.profile) ? saved.profile.identity : null;
+      },
     });
     res.json(result);
   } catch (e) {
@@ -1061,6 +1244,92 @@ app.post("/api/applications/:slug/scrape-job-description", async (req, res) => {
   } catch (e) {
     const failure = toScrapeFailureResponse(e, targetUrl);
     res.status(failure.status).json({ ok: false, ...failure.body });
+  }
+});
+
+/* ----- Wave 2 (U-3, U-6): version history and exports -----
+ * GET  /api/applications/:slug/runs                    every run under runs/,
+ *                                                      newest first
+ * POST /api/applications/:slug/runs/:runId/promote     serve that run again
+ * GET  /api/applications/:slug/runs-diff?a=&b=&doc=    line diff of two runs'
+ *                                                      resume.txt / cover-letter.txt
+ * GET  /api/applications/:slug/export/:name            resume.docx,
+ *                                                      cover-letter.docx (Word,
+ *                                                      from the render model) or
+ *                                                      linkedin.json
+ * Read-only except promote, which copies files inside the role's folder. */
+app.get("/api/applications/:slug/runs", async (req, res) => {
+  try {
+    res.json(await listRuns(req.params.slug));
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.post("/api/applications/:slug/runs/:runId/promote", async (req, res) => {
+  try {
+    res.json(await promoteRun(req.params.slug, req.params.runId));
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.get("/api/applications/:slug/runs-diff", async (req, res) => {
+  try {
+    const q = req.query;
+    res.json(await diffRuns(req.params.slug, String(q.a || ""), String(q.b || ""), String(q.doc || "")));
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.get("/api/applications/:slug/export/:name", async (req, res) => {
+  try {
+    const name = req.params.name;
+    if (!isExportName(name)) {
+      res.status(400).json({ error: "Unknown export", code: "unknown_export", valid: Object.keys(EXPORTS) });
+      return;
+    }
+    const spec = EXPORTS[name];
+    const model = await servedRenderModel(req.params.slug, spec.doc);
+    res.setHeader("Cache-Control", "no-store");
+    if (spec.kind === "linkedin") {
+      res.json(linkedinText(model));
+      return;
+    }
+    const bytes = buildDocx(model, spec.doc);
+    res.setHeader("Content-Type", DOCX_CONTENT_TYPE);
+    res.setHeader("Content-Length", String(bytes.length));
+    if (String(req.query.download || "") === "1") {
+      res.setHeader("Content-Disposition", `attachment; filename="${name}"`);
+    }
+    res.end(bytes);
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+/* ----- Wave 2: the manual-apply checklist -----
+ * GET /api/applications/:slug/checklist?contact=   build (no model call),
+ *                                                  keep saved ticks, store
+ *                                                  checklist.json, return it
+ * PUT /api/applications/:slug/checklist            { id, done } ticks one item */
+app.get("/api/applications/:slug/checklist", async (req, res) => {
+  try {
+    const contact = typeof req.query.contact === "string" ? req.query.contact : "";
+    res.json(await loadChecklist(req.params.slug, { contact }));
+  } catch (e) {
+    sendAppError(res, e);
+  }
+});
+
+app.put("/api/applications/:slug/checklist", async (req, res) => {
+  try {
+    const body = isRecord(req.body) ? req.body : {};
+    const contact = typeof body.contact === "string" ? body.contact : "";
+    res.json(await setChecklistItem(req.params.slug, body.id, body.done, { contact }));
+  } catch (e) {
+    sendAppError(res, e);
   }
 });
 

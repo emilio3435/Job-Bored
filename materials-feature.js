@@ -360,15 +360,27 @@
         return;
       }
       const label = "My resume";
-      await UC.setPrimaryResume({
+      const saved = await UC.savePrimaryResumeChecked({
         source: "paste",
         rawMime: "text/plain",
         label,
         extractedText: text,
       });
+      if (!saved) {
+        // RESJ K3: the user kept their resume instead of broken text.
+        showToast("Resume not saved. Paste clean text or upload the .docx instead.", "info");
+        return;
+      }
       if (textEl) textEl.value = "";
       await refreshMaterialsUI();
-      showToast("Resume updated from paste", "success");
+      const sync = saved && saved.serverSync ? await saved.serverSync : null;
+      const warning =
+        typeof UC.describeResumeServerSync === "function"
+          ? UC.describeResumeServerSync(sync)
+          : "";
+      if (warning) showToast(warning, "warning", true);
+      else showToast("Resume updated from paste", "success");
+      await profileMaterialsMod().readResumeWithAi(text);
     });
   }
 

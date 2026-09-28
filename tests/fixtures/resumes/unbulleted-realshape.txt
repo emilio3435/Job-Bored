@@ -1,0 +1,91 @@
+MORGAN “MO” ELLISON-PARK
+
+Regional Media Sales Leader • Workflow Automation Builder
+
+Portland, OR 97201 • 555-555-0100 • user@example.com • example.dev • linkedin.com/in/example
+
+PROFESSIONAL SUMMARY
+
+Media sales leader and automation builder with 11 years in local advertising — including 8+ years and four roles at Brightwave Media (formerly Tidewater Radio) Portland, moving from Digital Campaign Coordinator to Account Executive to Senior Account Executive to Digital Sales Manager while the station group shifted from on-air spots to a mixed audio and digital offer. Combines team leadership, client planning, seller coaching, and hands-on scripting (Python, TypeScript, cloud functions, retrieval search, scheduled jobs). Known for steady book growth, practical digital adoption in traditional markets, and shipping small internal tools that people keep using.
+
+CORE COMPETENCIES
+
+Digital Media & Advertising: Search, social, connected TV, streaming audio, display, geofencing; campaign measurement; local listings and review programs
+
+Sales Leadership: Book growth, team coaching, seller onboarding, pitch rhythm, incentive design
+
+Client Strategy & Presentation: Annual planning, quarterly reviews, renewal meetings, needs discovery, results reporting, retention through budget cuts
+
+Automation & Engineering: Scheduled data jobs, retrieval search over sales notes, cloud function deployment, lightweight internal dashboards
+
+PROFESSIONAL EXPERIENCE
+
+Brightwave Media (formerly Tidewater Radio) — Portland Market · Sep 2017 – 2026
+
+Digital Sales Manager, Brightwave Media May 2021 – 2026
+
+Ran digital planning for an $8M+ yearly digital book, advising a wide mix of local clients in legal, landscaping, veterinary, furniture, fitness, and auto repair on combined on-air and online campaigns.
+
+Kept Portland in the top five of Brightwave's twenty-two markets for digital revenue per seller even though Portland ranks #24 among U.S. markets by population; hit the annual digital target in four of five years.
+
+Moved the market's revenue mix from mostly on-air spots to roughly half digital, starting from a client base that had only tested online ads in small pilots.
+
+Coached 9 account-executive desks through a digital-first sales rhythm: 15+ logged pitches a week, one-on-one ride-alongs, weekly drop-in hours, and a monthly Lunch & Learn series on search, connected TV, and measurement.
+
+Supervised up to 4 campaign coordinators and worked with in-house producers, outside agencies, and ad-tech vendors to launch and tune campaigns against client goals such as calls, bookings, and cost per lead.
+
+Became the market's trusted client-facing strategist and speaker — leading renewal meetings, quarterly reviews, and annual plans that kept anchor accounts, including 110% YoY search conversion growth and 17% YoY new-customer lift for a regional credit union.
+
+Advised clients on measurement design, local search changes, and landing-page structure — helping the sales team talk about new ad products before competing stations did.
+
+Account Executive → Senior Account Executive, Tidewater Radio May 2019 – May 2021
+
+Handled a book of mid-size Portland accounts as the team's digital specialist, pairing with on-air sellers to keep and grow spend across search, social, connected TV, and streaming audio.
+
+Promoted to Senior Account Executive after two years of high renewal rates and digital growth; moved into the Digital Sales Manager role when the station group rebranded as Brightwave Media in May 2021.
+
+Digital Campaign Coordinator, Tidewater Radio Sep 2017 – Apr 2019
+
+Set up, trafficked, monitored, and reported on search, social, connected TV, and display campaigns for local and regional advertisers — the platform groundwork behind every later sales role.
+
+Founder & ML Engineer | Lumen Signal Studio (example.dev) — Portland, OR 2024 – Present
+
+Built and runs a small retrieval assistant on a managed cloud platform that answers questions over past proposals, call notes, and rate cards, choosing between two hosted language models by cost and response time.
+
+Shipped a budget-pacing checker that flags under-delivering campaigns each morning, run against 14 client accounts and about $1.1M in active spend.
+
+Set up scheduled jobs for weekly client summaries and daily market-news digests with chat delivery, managing a handful of API keys and two cloud service accounts.
+
+Founder | Quiet Fox Works & ShelfScout — Portland, OR 2024 – Present
+
+Quiet Fox Works: a two-person studio building reporting and follow-up automations for local service businesses, with a written playbook of 12 reusable workflows.
+
+ShelfScout: designing a small web app that tracks price changes on used books across three marketplaces and sends a weekly email of the best finds.
+
+EARLIER EXPERIENCE
+
+Cofounder, Panelry — Recruited survey panelists for small research agencies through paid social and search campaigns. 2016 – 2017
+
+Digital Marketing Strategist, Summit Ridge Lending Inc. — Ran search campaigns and blog content for loan officers and real-estate partners across 6 states. 2015 – 2016
+
+EDUCATION
+
+Bachelor of Arts, Economics and Statistics | Example State University — Eugene, OR 2017
+
+TECHNICAL SKILLS
+
+Languages: Python, TypeScript, SQL, HTML/CSS
+
+AI / Cloud: hosted language model APIs, cloud functions, managed container hosting, retrieval search, scheduled jobs
+
+Adtech & Analytics: search ads, social ads manager, connected TV buying tools, web analytics, tag manager, call tracking, spreadsheet reporting
+
+Dev Workflow: git, terminal multiplexers, code editors, notebook tools
+
+Business Tools: office suites, shared drives, invoicing software
+
+CERTIFICATIONS & LANGUAGES
+
+Certifications: Search advertising fundamentals; web analytics certificate.
+
+Languages: English and Portuguese; basic German.

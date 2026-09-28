@@ -44,7 +44,14 @@ export function scriptedPipelineFetch(extra = {}) {
     calls.push({ system: String(system), user: String(user) });
     if (extra.gate && calls.length === (extra.gateAt || 1)) await extra.gate;
     let content;
-    if (calls.length === 1) {
+    /* The letter support check (voice v5) answers by prompt, not by call
+     * index: every sentence supported. */
+    const supportCall = String(system).startsWith("You check a cover letter's facts");
+    const stageIndex = calls.filter((c) => !c.system.startsWith("You check a cover letter's facts")).length;
+    if (supportCall) {
+      const count = [...String(user).split("Letter sentences:")[1]?.matchAll(/^(\d+)\. /gm) || []].length;
+      content = JSON.stringify({ verdicts: Array.from({ length: count }, (_, i) => ({ i: i + 1, factual: true, supported: true, source: "stub" })) });
+    } else if (stageIndex === 1) {
       content = JSON.stringify({
         outcomes: [{ id: "pipe-math", text: "Own pipeline math with analysts", weight: 0.9 }],
         differentiators: [],
@@ -53,7 +60,7 @@ export function scriptedPipelineFetch(extra = {}) {
         echoBans: [],
         nounWeights: {},
       });
-    } else if (calls.length === 2) {
+    } else if (stageIndex === 2) {
       const ids = [...user.matchAll(/^(\d+)\. (\S+)/gm)].map((m) => m[2]);
       const kept = ids.slice(0, 5);
       content = JSON.stringify({
@@ -69,7 +76,7 @@ export function scriptedPipelineFetch(extra = {}) {
         bullets: featured.map((claimId, i) => ({ claimId, text: `Drafted work item ${SPELLED[i] || "nine"} with concrete outcomes.` })),
         earlier: [],
         letter: {
-          thesis: "You are hiring someone to keep pipelines honest, and that is the work I have done for years with clear weekly readouts.",
+          thesis: "You are hiring someone to keep pipelines honest, and that is the work I have done for years with clear weekly readouts. Honest pipelines are quiet.",
           analyticsProof: "I owned pipeline math with analysts and shipped reporting the business trusted every single week.",
           aiOpsProof: "I built streaming ingestion for analytics events with Kafka and Postgres in production for customers.",
           nextStep: "I would start by tracing one pipeline from source to readout, and I would be glad to walk through it.",

@@ -60,6 +60,11 @@ test("A18: run statuses built by the store helpers validate as run-status.v1", (
   });
   const running = buildRunningRunStatus(accepted, "2026-09-25T10:00:01.000Z");
   const failed = buildFailedRunStatus(running, new Error("Cancelled by user."), "2026-09-25T10:00:02.000Z");
+  const writeFailed = {
+    ...running, status: "write_failed", terminal: true,
+    error: "The Google sign-in from the dashboard expired during the run; reopen the dashboard and press Retry write.",
+    completedAt: "2026-09-25T10:00:02.000Z",
+  };
   const completed = buildCompletedRunStatus(
     {
       run: {
@@ -82,7 +87,7 @@ test("A18: run statuses built by the store helpers validate as run-status.v1", (
     } as never,
     { acceptedAt: accepted.acceptedAt, startedAt: "2026-09-25T10:00:01.000Z" },
   );
-  for (const [label, status] of Object.entries({ accepted, running, failed, completed })) {
+  for (const [label, status] of Object.entries({ accepted, running, failed, writeFailed, completed })) {
     check("run-status.v1", { ok: true, ...status }, label);
   }
 });

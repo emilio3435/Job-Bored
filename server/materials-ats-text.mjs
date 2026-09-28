@@ -76,8 +76,18 @@ function entryLines(entry, opts) {
   /** @type {string[]} */
   const lines = [[entry.org, seat].filter(Boolean).join(", ")];
   if (meta) lines.push(meta);
-  for (const bullet of entry.bullets || []) {
-    lines.push(wrapText(runsToText(bullet.runs), opts.wrap, opts.marker, " ".repeat(opts.marker.length)));
+  const bullets = entry.bullets || [];
+  const bulletLine = (/** @type {{ runs: import("./materials-render.mjs").Run[] }} */ bullet) =>
+    wrapText(runsToText(bullet.runs), opts.wrap, opts.marker, " ".repeat(opts.marker.length));
+  if (Array.isArray(entry.roles) && entry.roles.length) {
+    /* P-4: one dated line per role, then that role's bullets. */
+    for (const role of entry.roles) {
+      const ids = new Set(role.claimIds || []);
+      lines.push([runsToText(role.seat), (role.meta || []).filter(Boolean).join(" ")].filter(Boolean).join(" | "));
+      for (const bullet of bullets) if (ids.has(bullet.claimId)) lines.push(bulletLine(bullet));
+    }
+  } else {
+    for (const bullet of bullets) lines.push(bulletLine(bullet));
   }
   if (!(entry.bullets || []).length && entry.line) {
     lines.push(wrapText(entry.line, opts.wrap, opts.marker, " ".repeat(opts.marker.length)));

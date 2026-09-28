@@ -8,6 +8,12 @@
    AI suggestions, subtabs, event binding, and run button wiring.
    ============================================ */
 (() => {
+  const output = window.JobBoredLlmOutputBudget || {
+    outputBudget: () => undefined,
+    shortOutputBudget: () => undefined,
+    geminiThinkingConfig: () => undefined,
+    outputLimitField: () => ({}),
+  };
   const root = window.JobBoredDiscovery || (window.JobBoredDiscovery = {});
   const drawer = root.drawer || (root.drawer = {});
 
@@ -1475,7 +1481,7 @@ function resolveGeminiModel(explicit) {
   return "gemini-flash";
 }
 
-async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
+async function callDiscoveryAiGemini(system, user, apiKey, model, opts, retriedTruncation = false) {
   const resolvedModel = resolveGeminiModel(model);
   // Resolve the "gemini-flash" family preference to Google's moving alias before the
   // wire call (Google 404s the literal alias). Shared with
@@ -1487,19 +1493,10 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
       : resolvedModel === "gemini-flash" ? "gemini-flash-latest" : resolvedModel;
   // BEAUDIT B17: the key travels in x-goog-api-key, never in the URL.
   const url = `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(wireModel)}:generateContent`;
-  // Detect thinking models (gemini-flash family alias and 2.5+/3.x snapshots).
-  // Those models burn "thinking tokens" against the output budget, so a
-  // 2048-cap on a long-system-prompt JSON response can silently produce
-  // zero visible characters with finishReason=MAX_TOKENS.
-  // Also pin response MIME to JSON whenever the caller marks the request
-  // as JSON-only — this dramatically improves reliability vs. free-form
-  // prose responses that have to be regex-extracted later.
   const wantJson = !!(opts && opts.json);
-  const isThinkingModel =
-    wireModel === "gemini-flash-latest" ||
-    /^gemini-(2\.[5-9]|3(\.\d+)?)/.test(wireModel);
   const generationConfig = {
-    maxOutputTokens: isThinkingModel || wantJson ? 8192 : 2048,
+    maxOutputTokens: wantJson ? output.outputBudget("gemini", wireModel) : output.shortOutputBudget("gemini", wireModel),
+    thinkingConfig: output.geminiThinkingConfig(wireModel),
     temperature: 0.5,
   };
   if (wantJson) generationConfig.responseMimeType = "application/json";
@@ -1518,6 +1515,10 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
     throw new Error(data.error?.message || `Gemini HTTP ${resp.status}`);
   }
   const candidate = data.candidates?.[0];
+  if (candidate?.finishReason === "MAX_TOKENS") {
+    if (!retriedTruncation) return callDiscoveryAiGemini(system, user, apiKey, model, opts, true);
+    throw new Error(`Gemini model ${wireModel} reached its output limit after a retry.`);
+  }
   const text =
     candidate?.content?.parts?.map((p) => p.text || "").join("") || "";
   if (!text.trim()) {
@@ -1526,11 +1527,6 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
     // RECITATION, or upstream finish reasons that need the user to retry
     // with different input rather than silently fail.
     const reason = candidate?.finishReason || data.promptFeedback?.blockReason;
-    if (reason === "MAX_TOKENS") {
-      throw new Error(
-        "Gemini hit the output token cap before producing visible text. Try Show me more, or shorten your resume.",
-      );
-    }
     if (reason === "SAFETY" || reason === "RECITATION") {
       throw new Error(
         `Gemini blocked the response (${reason}). Try Show me more, or remove sensitive content from your resume.`,
@@ -1544,9 +1540,6 @@ async function callDiscoveryAiGemini(system, user, apiKey, model, opts) {
 
 async function callDiscoveryAiOpenAI(system, user, apiKey, model) {
   const m = model || "gpt-4o-mini";
-  const limitKey = m.toLowerCase().startsWith("gpt-5")
-    ? "max_completion_tokens"
-    : "max_tokens";
   const body = {
     model: m,
     messages: [
@@ -1554,7 +1547,7 @@ async function callDiscoveryAiOpenAI(system, user, apiKey, model) {
       { role: "user", content: user },
     ],
     temperature: 0.5,
-    [limitKey]: 2048,
+    ...output.outputLimitField("openai", m, 8192),
   };
   const resp = await fetch("https://api.openai.com/v1/chat/completions", {
     method: "POST",
@@ -1575,7 +1568,7 @@ async function callDiscoveryAiOpenAI(system, user, apiKey, model) {
 async function callDiscoveryAiAnthropic(system, user, apiKey, model) {
   const body = {
     model: model || "claude-sonnet-4-6",
-    max_tokens: 2048,
+    ...(output.shortOutputBudget("anthropic", model || "claude-sonnet-4-6") === undefined ? {} : { max_tokens: output.shortOutputBudget("anthropic", model || "claude-sonnet-4-6") }),
     system,
     messages: [{ role: "user", content: user }],
   };
@@ -1617,7 +1610,7 @@ async function callDiscoveryAiOpenAICompatible(endpoint, system, user, apiKey, m
       { role: "user", content: user },
     ],
     temperature: 0.5,
-    max_tokens: wantJson ? 4096 : 2048,
+    ...output.outputLimitField("openrouter", model, wantJson ? undefined : 8192),
   };
   const headers = { "Content-Type": "application/json" };
   if (apiKey) headers.Authorization = `Bearer ${apiKey}`;

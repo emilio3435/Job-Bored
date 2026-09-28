@@ -40,6 +40,7 @@ const RUN_STATUS_VALUES = [
   "completed",
   "partial",
   "empty",
+  "write_failed",
   "failed",
 ] as const satisfies readonly DiscoveryRunStatus[];
 const RUN_STATUS_VALUE_SET = new Set<string>(RUN_STATUS_VALUES);
@@ -58,6 +59,7 @@ export interface DiscoveryRunStatusStoreOptions {
 
 export interface DiscoveryRunStatusStore {
   put(payload: DurableDiscoveryRunStatusPayload): void;
+  finishWriteRetry(payload: DurableDiscoveryRunStatusPayload): void;
   get(runId: string): DurableDiscoveryRunStatusPayload | null;
   list(options?: { limit?: number; before?: string }): DiscoveryRunListPage | null;
   markNonTerminalRunsAbandoned?(abandonedAt: string): number;
@@ -153,9 +155,11 @@ export function buildCompletedRunStatus(
   });
   return {
     runId: result.run.runId,
-    status: result.lifecycle.state,
+    status: result.writeResult.writeError ? "write_failed" : result.lifecycle.state,
     terminal: true,
-    message: buildCompletedMessage(result.lifecycle),
+    message: result.writeResult.writeError
+      ? `Discovery found leads, but couldn't write them to Google Sheets. ${result.writeResult.writeError.message} Retry this run's write after fixing the connection.`
+      : buildCompletedMessage(result.lifecycle),
     trigger: result.run.trigger,
     request: {
       sheetId: requestSheetId,
@@ -242,6 +246,9 @@ export function createDiscoveryRunStatusStore(
       ...payload,
       runId,
       updatedAt,
+      ...(payload.status === "write_failed" && existing?.selectedLeads && !payload.selectedLeads
+        ? { selectedLeads: existing.selectedLeads }
+        : {}),
       ...(existing?.progress && !payload.progress && !payload.terminal
         ? { progress: existing.progress }
         : {}),
@@ -256,6 +263,21 @@ export function createDiscoveryRunStatusStore(
 
   return {
     put,
+    finishWriteRetry(payload) {
+      const runId = String(payload.runId || "").trim();
+      const existing = statuses.get(runId);
+      if (existing?.status !== "write_failed" || !existing.selectedLeads?.length) {
+        throw new Error("Run has no saved write to retry.");
+      }
+      const updated: DurableDiscoveryRunStatusPayload = {
+        ...payload,
+        runId,
+        ...(payload.status === "write_failed" ? { selectedLeads: existing.selectedLeads } : { selectedLeads: undefined }),
+      };
+      const wireSafePayload = toWireSafeRunStatus(updated);
+      if (persistenceEnabled) writeRunStatusSnapshot(resolvedDirectory, wireSafePayload);
+      statuses.set(runId, wireSafePayload);
+    },
     get(runId) {
       return statuses.get(String(runId || "").trim()) || null;
     },
@@ -296,9 +318,11 @@ export function createDiscoveryRunStatusStore(
           : [...current.warnings, reason];
         put({
           ...current,
-          status: "failed",
+          status: current.selectedLeads?.length ? "write_failed" : "failed",
           terminal: true,
-          message: "Discovery worker restarted before this run completed.",
+          message: current.selectedLeads?.length
+            ? "Discovery found leads, but the worker restarted before the Sheet write outcome was known. Retry this run's write."
+            : "Discovery worker restarted before this run completed.",
           completedAt: recoveredAt,
           updatedAt: recoveredAt,
           warnings,
@@ -322,7 +346,7 @@ function summarizeRun(status: DurableDiscoveryRunStatusPayload): DiscoveryRunLis
   return {
     runId: status.runId,
     status: status.status,
-    ...(status.terminal ? { sheetStatus: status.status === "partial" ? "partial" : status.status === "failed" ? "failure" : "success" } : {}),
+    ...(status.terminal ? { sheetStatus: status.status === "partial" ? "partial" : status.status === "failed" || status.status === "write_failed" ? "failure" : "success" } : {}),
     trigger: status.trigger,
     ...(status.startedAt ? { startedAt: status.startedAt } : {}),
     ...(status.completedAt ? { completedAt: status.completedAt } : {}),

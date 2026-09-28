@@ -154,8 +154,11 @@ export async function writeLedgerAtomic(ledger) {
 /* ─── Queries ─────────────────────────────────────────────────────────── */
 
 /**
- * @param {{ claims?: Array<{ id?: unknown, text?: unknown, employerId?: unknown, tools?: unknown }> }} ledger
+ * The claim with this id, typed as the caller's own claim shape.
+ * @template {{ id?: unknown }} C
+ * @param {{ claims?: C[] }} ledger
  * @param {unknown} id
+ * @returns {C | null}
  */
 export function claimById(ledger, id) {
   return (ledger.claims || []).find((c) => c && c.id === id) || null;

@@ -25,10 +25,15 @@ function isRelayReadOnlyPath(pathname) {
   return pathname === "/runs" || pathname.startsWith("/runs/");
 }
 
+function isRelayWriteRetryPath(pathname) {
+  return typeof pathname === "string" && /^\/runs\/[^/]+\/retry-write$/.test(pathname);
+}
+
 /**
  * POST paths the relay forwards to the upstream worker: the discovery webhook
  * plus the dashboard's sibling worker routes (Settings profile run, Add URL,
- * expired-row cleanup). `/` maps to TARGET_URL itself. Anything else, such as
+ * expired-row cleanup). Write retry has its own exact-path matcher below.
+ * `/` maps to TARGET_URL itself. Anything else, such as
  * /pipeline-update (agents call the worker directly) or /health, is 404.
  */
 const RELAY_POST_PATHS = new Set([
@@ -116,17 +121,19 @@ export default {
       useTargetPath = true;
     } else if (
       !RELAY_POST_PATHS.has(relayPath) &&
-      !isRelayReadOnlyPath(relayPath)
+      !isRelayReadOnlyPath(relayPath) &&
+      !isRelayWriteRetryPath(relayPath)
     ) {
       return new Response("Not found", { status: 404, headers: h });
     }
 
     // GET is allowed only for the read-only run-status path; POST only for
-    // RELAY_POST_PATHS.
+    // the dashboard's fixed routes and one run write-retry path.
     const isReadOnlyGet =
       request.method === "GET" && isRelayReadOnlyPath(relayPath);
     const isAllowedPost =
-      request.method === "POST" && RELAY_POST_PATHS.has(relayPath);
+      request.method === "POST" &&
+      (RELAY_POST_PATHS.has(relayPath) || isRelayWriteRetryPath(relayPath));
     if (!isAllowedPost && !isReadOnlyGet) {
       return new Response("Method Not Allowed", { status: 405, headers: h });
     }

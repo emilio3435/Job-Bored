@@ -27,15 +27,20 @@ const row = {
 for (const status of [429, 401, 403, 503]) {
   test(`D13: HTTP ${status} on the header read is not "tab missing" (p10a)`, async () => {
     const sheet = createFakeSheets({ DiscoveryRuns: [RUNS] });
-    sheet.hooks.failNext.push({ kind: "values.get", status, body: "RESOURCE_EXHAUSTED" });
+    const attempts = status === 429 || status === 503 ? 3 : 1;
+    for (let i = 0; i < attempts; i++) {
+      sheet.hooks.failNext.push({ kind: "values.get", status, body: "RESOURCE_EXHAUSTED" });
+    }
     const events: string[] = [];
     const result = await appendDiscoveryRunRow("fake-sheet", row, {
       runtimeConfig,
       fetchImpl: sheet.fetchImpl,
+      retryBaseMs: 0,
       log: (event) => events.push(event),
     });
     assert.equal(result.ok, false);
     assert.match((result as { reason: string }).reason, new RegExp(`HTTP ${status}`));
+    assert.equal(sheet.calls.filter((c) => c.kind === "values.get").length, attempts);
     assert.equal(sheet.calls.some((c) => c.kind === "spreadsheets.batchUpdate"), false, "no addSheet");
     assert.equal(events.includes("discovery.runs_log.tab_created"), false);
   });

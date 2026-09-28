@@ -38,6 +38,7 @@ import {
   resolveActivePin,
 } from "./llm-config.mjs";
 import { geminiGenerateContentUrl, geminiHeaders } from "./ai/provider.mjs";
+import { outputBudget, geminiThinkingConfig, outputLimitField } from "./llm-output-budget.mjs";
 import { readProfile } from "./user-profile.mjs";
 
 const __filename = fileURLToPath(import.meta.url);
@@ -1133,9 +1134,9 @@ function buildChatJsonSystemPrompt(profile) {
 }
 
 /**
- * @param {{ profile: UserProfile, rawListing: RawListing, geminiApiKey: string, geminiModel: string, signal?: AbortSignal }} input
+ * @param {{ profile: UserProfile, rawListing: RawListing, geminiApiKey: string, geminiModel: string, signal?: AbortSignal, retriedTruncation?: boolean }} input
  */
-async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel, signal }) {
+async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel, signal, retriedTruncation = false }) {
   const model = geminiModel || DEFAULT_GEMINI_MODEL;
   // The key rides in x-goog-api-key, never the URL (BEAUDIT B17).
   const url = geminiGenerateContentUrl(model);
@@ -1144,7 +1145,8 @@ async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiMod
     contents: [{ role: "user", parts: [{ text: buildUserPrompt(rawListing) }] }],
     generationConfig: {
       temperature: 0.2,
-      maxOutputTokens: 2048,
+      ...(outputBudget("gemini", model) === undefined ? {} : { maxOutputTokens: outputBudget("gemini", model) }),
+      ...(Object.keys(geminiThinkingConfig(model)).length ? { thinkingConfig: geminiThinkingConfig(model) } : {}),
       responseMimeType: "application/json",
       responseSchema: buildResponseSchema(profile),
     },
@@ -1159,15 +1161,19 @@ async function scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiMod
     throw new Error(`Gemini HTTP ${resp.status}`);
   }
   const json = await resp.json().catch(() => null);
+  if (json?.candidates?.[0]?.finishReason === "MAX_TOKENS") {
+    if (!retriedTruncation) return scoreOneWithGemini({ profile, rawListing, geminiApiKey, geminiModel, signal, retriedTruncation: true });
+    throw new Error(`Gemini model ${model} hit its maximum output limit after a retry.`);
+  }
   const text = extractGeminiText(json);
   if (!text) throw new Error("Gemini returned empty content");
   return normalizeScoreResponse(parseJsonFromProviderText(text, "Gemini"), "Gemini");
 }
 
 /**
- * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput, signal?: AbortSignal }} input
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput, signal?: AbortSignal, retriedTruncation?: boolean }} input
  */
-async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig, signal }) {
+async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig, signal, retriedTruncation = false }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   const label = providerDisplayName(cfg.provider);
   const body = {
@@ -1177,7 +1183,7 @@ async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig
       { role: "user", content: buildUserPrompt(rawListing) },
     ],
     temperature: 0.2,
-    max_tokens: 2048,
+    ...outputLimitField(cfg.provider, cfg.model),
   };
   /** @type {Record<string, string>} */
   const headers = { "Content-Type": "application/json" };
@@ -1191,21 +1197,25 @@ async function scoreOneWithChatCompletions({ profile, rawListing, providerConfig
   if (!resp.ok) {
     throw new Error(`${label} HTTP ${resp.status}`);
   }
-  const json = /** @type {{ choices?: Array<{ message?: { content?: string } }> } | null} */ (
+  const json = /** @type {{ choices?: Array<{ finish_reason?: string, message?: { content?: string } }> } | null} */ (
     await resp.json().catch(() => null)
   );
+  if (json?.choices?.[0]?.finish_reason === "length") {
+    if (!retriedTruncation) return scoreOneWithChatCompletions({ profile, rawListing, providerConfig, signal, retriedTruncation: true });
+    throw new Error(`${label} model ${cfg.model} hit its maximum output limit after a retry.`);
+  }
   const text = String(json?.choices?.[0]?.message?.content || "");
   return normalizeScoreResponse(parseJsonFromProviderText(text, label), label);
 }
 
 /**
- * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput, signal?: AbortSignal }} input
+ * @param {{ profile: UserProfile, rawListing: RawListing, providerConfig: ProviderConfigInput, signal?: AbortSignal, retriedTruncation?: boolean }} input
  */
-async function scoreOneWithAnthropic({ profile, rawListing, providerConfig, signal }) {
+async function scoreOneWithAnthropic({ profile, rawListing, providerConfig, signal, retriedTruncation = false }) {
   const cfg = normalizeProfileRescoreProviderConfig(providerConfig);
   const body = {
     model: cfg.model,
-    max_tokens: 2048,
+    ...(outputBudget("anthropic", cfg.model) === undefined ? {} : { max_tokens: outputBudget("anthropic", cfg.model) }),
     temperature: 0.2,
     system: buildChatJsonSystemPrompt(profile),
     messages: [{ role: "user", content: buildUserPrompt(rawListing) }],
@@ -1223,9 +1233,13 @@ async function scoreOneWithAnthropic({ profile, rawListing, providerConfig, sign
   if (!resp.ok) {
     throw new Error(`Anthropic HTTP ${resp.status}`);
   }
-  const json = /** @type {{ content?: Array<{ type?: string, text?: string }> } | null} */ (
+  const json = /** @type {{ stop_reason?: string, content?: Array<{ type?: string, text?: string }> } | null} */ (
     await resp.json().catch(() => null)
   );
+  if (json?.stop_reason === "max_tokens") {
+    if (!retriedTruncation) return scoreOneWithAnthropic({ profile, rawListing, providerConfig, signal, retriedTruncation: true });
+    throw new Error(`Anthropic model ${cfg.model} hit its maximum output limit after a retry.`);
+  }
   const text = Array.isArray(json?.content)
     ? json.content
         .filter((part) => part && part.type === "text")
@@ -1656,6 +1670,7 @@ export async function rescoreAllPipelineRows({
 /* ─── Exported helpers (for tests) ─────────────────────────────────────── */
 
 export const _internal = {
+  scoreOneWithChatCompletions,
   classifyRowForRescore,
   runPreFilter,
   parseSalaryMax,

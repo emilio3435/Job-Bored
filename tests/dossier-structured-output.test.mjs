@@ -1,3 +1,4 @@
+const outputBudgetJs = readFileSync(new URL("../llm-output-budget.js", import.meta.url), "utf8");
 /* ============================================================
    dossier-structured-output.test.mjs
    ------------------------------------------------------------
@@ -98,6 +99,7 @@ function loadInsightsWithValidator() {
   vm.runInContext(jbTextJs, ctx, { filename: "jb-text.js" });
   assert.equal(typeof ctx.window.JobBoredText.stripControlTokens, "function", "jb-text must load before the validator");
   vm.runInContext(validatorSrc, ctx, { filename: "structured-output-validator.js" });
+  vm.runInContext(outputBudgetJs, ctx, { filename: "llm-output-budget.js" });
   vm.runInContext(insightsJs, ctx, { filename: "job-posting-insights.js" });
   return ctx.window.CommandCenterJobPostingInsights;
 }

@@ -211,7 +211,9 @@ describe("GFX B3-8 · B3-9 · B3-10 · B3-11 · N-B3-2 · copy and stages", () =
 
   it("two stages, no baked-in ✓; done comes from state", async () => {
     const env = await openBeat();
-    assert.deepEqual([...env.beats.resume.STAGE_LABELS], ["Reading your resume", "Drafting your profile"]);
+    // RESJ2-EXTRACT renamed them for what each one is: the browser's own
+    // save, then the AI read.
+    assert.deepEqual([...env.beats.resume.STAGE_LABELS], ["Saving your resume in this browser", "Reading your resume with AI"]);
     for (const label of env.beats.resume.STAGE_LABELS) assert.doesNotMatch(label, /✓/);
     await env.beats.resume.ingestText(RESUME, "paste");
     const stages = env.beats.resume.getRenderedStages();

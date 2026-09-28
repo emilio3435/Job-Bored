@@ -93,6 +93,31 @@ function buildAccepted(runId: string): DiscoveryRunStatusPayload {
   });
 }
 
+test("saved selected leads survive restart until an explicit write retry completes", async () => {
+  const { tempDirectory, runDirectory } = await makeRunDirectory();
+  try {
+    const store = createDiscoveryRunStatusStore(runDirectory);
+    const running = buildRunningRunStatus(buildAccepted("run_retry"), "2026-08-30T12:00:02.000Z");
+    const selectedLeads = [{ url: "https://example.com/jobs/1", title: "Role" }] as never;
+    store.put({ ...running, selectedLeads });
+    store.put({ ...running, status: "write_failed", terminal: true, message: "Write failed", error: "ECONNRESET" });
+    store.close();
+
+    const restarted = createDiscoveryRunStatusStore(runDirectory);
+    assert.deepEqual(restarted.get("run_retry")?.selectedLeads, selectedLeads);
+    const failed = restarted.get("run_retry");
+    assert.ok(failed);
+    restarted.put({ ...failed, status: "completed" });
+    assert.equal(restarted.get("run_retry")?.status, "write_failed", "ordinary terminal writes remain immutable");
+    restarted.finishWriteRetry({ ...failed, status: "completed", selectedLeads: undefined, error: undefined });
+    assert.equal(restarted.get("run_retry")?.status, "completed");
+    assert.equal(restarted.get("run_retry")?.selectedLeads, undefined);
+    restarted.close();
+  } finally {
+    await rm(tempDirectory, { recursive: true, force: true });
+  }
+});
+
 test("run status snapshots rehydrate complete phase and budget state in a fresh store", async () => {
   const { tempDirectory, runDirectory } = await makeRunDirectory();
 

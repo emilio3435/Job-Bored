@@ -101,6 +101,19 @@ test("A5: a failing history logger never blocks boot", async () => {
   }
 });
 
+test("boot recovery keeps a selected write retryable and retention preserves it", async () => {
+  const dir = mkdtempSync(join(tmpdir(), "boot-write-retry-"));
+  try {
+    const store = createDiscoveryRunStatusStore(dir);
+    store.put({ ...running("run_selected"), selectedLeads: [{ url: "https://example.com/jobs/1" }] } as never);
+    const restarted = createDiscoveryRunStatusStore(dir);
+    assert.equal(restarted.markNonTerminalRunsAbandoned?.("2026-09-28T00:00:00Z"), 1);
+    assert.equal(restarted.get("run_selected")?.status, "write_failed");
+    assert.equal(restarted.get("run_selected")?.selectedLeads?.length, 1);
+    assert.equal(pruneRunStatusSnapshots(dir, { now: () => new Date("2027-09-28T00:00:00Z"), keep: 0 }), 0);
+  } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
 test("A17: boot prune drops terminal snapshots past the age limit and beyond the keep cap, never live runs", () => {
   const dir = mkdtempSync(join(tmpdir(), "boot-prune-"));
   try {

@@ -403,4 +403,16 @@ describe("discovery run status polling", () => {
     assert.equal(history.error, "watchdog");
     assert.equal(history.variationKey, "var_local");
   });
+
+  it("write_failed is terminal and appears as a failure in local history", () => {
+    const api = loadRunTracker();
+    const tracker = new api.DiscoveryRunTracker("write_failed_terminal");
+    tracker.beginTracking({ runId: "run_write", statusPath: "/runs/run_write" });
+    tracker.updateFromStatusResponse({
+      runId: "run_write", terminal: true, status: "write_failed",
+      error: "The Google sign-in from the dashboard expired during the run; reopen the dashboard and press Retry write.",
+    });
+    assert.equal(tracker.isTerminal(), true);
+    assert.equal(tracker.toHistoryRow().status, "failure");
+  });
 });

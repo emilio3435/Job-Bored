@@ -62,6 +62,19 @@ async function pin(p) {
 }
 
 describe("E9 URL-context success check reads the REST lowerCamelCase fields", () => {
+  it("uses a bounded schema-less output limit and retries a truncated answer once", async () => {
+    const bodies = [];
+    const hit = await scrapeViaGeminiUrlContext("https://jobs.example.com/roles/staff-backend", {
+      geminiApiKey: "k", geminiModel: "gemini-3.8-flash",
+      fetchImpl: async (_url, init) => {
+        bodies.push(JSON.parse(init.body));
+        return json({ candidates: [{ finishReason: "MAX_TOKENS", content: { parts: [{ text: EXTRACT }] } }] });
+      },
+    });
+    assert.equal(hit, null);
+    assert.equal(bodies.length, 2);
+    assert.deepEqual(bodies.map((body) => body.generationConfig.maxOutputTokens), [16384, 16384]);
+  });
   it("accepts urlContextMetadata.urlMetadata[].urlRetrievalStatus", async () => {
     const hit = await scrapeViaGeminiUrlContext("https://jobs.example.com/roles/staff-backend", {
       geminiApiKey: "k",

@@ -243,11 +243,12 @@
     var resumeText = normalizeResumeText(text);
     if (!resumeText) return false;
     var UC = getUserContentStore();
-    if (!UC || typeof UC.setPrimaryResume !== "function") return false;
+    if (!UC || typeof UC.savePrimaryResumeChecked !== "function") return false;
     if (typeof UC.openDb === "function") {
       await UC.openDb();
     }
-    await UC.setPrimaryResume({
+    // RESJ K3: broken PDF text is saved only after the user confirms.
+    var record = await UC.savePrimaryResumeChecked({
       source: file ? "file" : "paste",
       rawMime:
         file && ingest && typeof ingest.guessMime === "function"
@@ -256,7 +257,14 @@
       label: file ? resumeLabelFromFile(file) : "My resume",
       extractedText: resumeText,
     });
-    return true;
+    if (!record) return { declined: true, serverWarning: "" };
+    // RESJ K1: the line to show when the server copy was not saved ("" when it was).
+    var sync = record && record.serverSync ? await record.serverSync : null;
+    var serverWarning =
+      typeof UC.describeResumeServerSync === "function"
+        ? UC.describeResumeServerSync(sync)
+        : "";
+    return { declined: false, serverWarning: serverWarning };
   }
 
   async function loadSavedProfileResume() {
@@ -324,6 +332,7 @@
       var text = await ingest.extractTextFromFile(file);
       if (els.textarea) els.textarea.value = text || "";
       var charCount = (text || "").length;
+      /** @type {false | { declined: boolean, serverWarning: string }} */
       var saved = false;
       var saveFailed = false;
       if (charCount > 0) {
@@ -351,6 +360,29 @@
             charCount.toLocaleString() +
             " characters but could not save to profile (storage error). " +
             "Paste the text into Profile > Resume to retry.",
+          "warn",
+        );
+        return;
+      }
+      if (saved && saved.declined) {
+        setStatus(
+          "Extracted " +
+            charCount.toLocaleString() +
+            " characters from " +
+            file.name +
+            ", but didn't save them: the text came out broken. Paste the text or upload the .docx instead.",
+          "warn",
+        );
+        return;
+      }
+      if (saved && saved.serverWarning) {
+        setStatus(
+          "Extracted " +
+            charCount.toLocaleString() +
+            " characters from " +
+            file.name +
+            ". " +
+            saved.serverWarning,
           "warn",
         );
         return;
@@ -1081,11 +1113,19 @@
     }
     if (resumeText) {
       try {
-        await saveResumeToUserProfile(
+        var saved = await saveResumeToUserProfile(
           resumeText,
           null,
           window.CommandCenterResumeIngest,
         );
+        // RESJ K3-RUN: the user kept their resume over broken text, so
+        // that text must not reach the discovery worker either.
+        if (saved && saved.declined) {
+          setError(
+            "Discovery didn't run: this resume text came out broken. Paste clean text or upload the .docx, then run again.",
+          );
+          return;
+        }
       } catch (saveErr) {
         try {
           console.warn(

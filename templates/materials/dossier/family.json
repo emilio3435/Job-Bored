@@ -2,22 +2,27 @@
   "id": "dossier",
   "label": "Dossier",
   "description": "Every proof point at once. A rail that indexes each employer, and bullets hung on their lead figure.",
-  "version": "1.0",
+  "version": "1.4",
   "documents": { "resume": "resume.html", "coverLetter": "cover-letter.html" },
   "stylesheet": "dossier.css",
   "fonts": ["Source Sans 3", "JetBrains Mono", "Caveat"],
   "accents": ["volt", "ink"],
   "densities": ["standard"],
+  "nameFit": {
+    "resume": { "metrics": "sourcesans3-700-normal", "maxPt": 25, "minPt": 16, "boxPt": 511.2, "fullRowPt": 532.8, "letterSpacingEm": -0.018, "reserve": { "from": "target", "fontPt": 11.5, "advanceEm": 0.55, "extraPt": 4 } },
+    "coverLetter": { "metrics": "sourcesans3-700-normal", "maxPt": 25, "minPt": 16, "boxPt": 511.2, "fullRowPt": 532.8, "letterSpacingEm": -0.018, "reserve": { "from": "target", "fontPt": 11.5, "advanceEm": 0.55, "extraPt": 4 } }
+  },
   "logos": {
     "opticalSizesIn": { "mark": 0.42, "wordmark": 0.24, "lockup": 0.3 },
-    "hideNameBesideWordmark": false
+    "hideNameBesideWordmark": false,
+    "monogramFallback": true
   },
   "fit": {
     "bottomMarginIn": 0.25,
     "resumeLadderTail": ["drop_section:ventures", "drop_section:earlier"],
     "letterLadder": ["css:tight-1", "css:tight-2", "drop_letter_readouts", "css:tight-3"]
   },
-  "budgets": { "visibleWords": [360, 520], "featuredEmployers": 3, "bulletsPerFeatured": [2, 4], "letterWords": [180, 260] },
+  "budgets": { "visibleWords": [360, 520], "featuredEmployers": 3, "bulletsPerFeatured": [2, 5], "letterWords": [120, 200] },
   "reads": ["logo", "ventures", "credentials", "toolkit", "letterReadouts"],
   "signatureMoves": [
     "The hung ledger gutter: a bullet that opens on its verified figure sets that figure in a mono gutter; others get a quiet dash.",
