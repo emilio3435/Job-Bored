@@ -2,7 +2,7 @@
 import { readFileSync } from "node:fs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { claimById } from "./materials-ledger.mjs";
-import { callJsonStage, EDIT_SYSTEM_PROMPT, WriterJsonError } from "./materials-writer.mjs";
+import { callJsonStage, EDIT_SYSTEM_PROMPT, FACT_CHECK_PROMPT, WriterJsonError } from "./materials-writer.mjs";
 
 /** @param {unknown} text */
 const words = (text) => String(text || "").trim().split(/\s+/).filter(Boolean);
@@ -112,6 +112,100 @@ function titlePhrases(value, knownTitleWords) {
 /** @param {string} name @param {unknown} value */
 const dataBlock = (name, value) => `<untrusted-data name="${name}">\n${JSON.stringify(value).replace(/</g, "\\u003c").replace(/>/g, "\\u003e")}\n</untrusted-data>`;
 
+/** The stage caller parses objects, so adapt a strict JSON array at the transport edge. */
+/** @param {import('./materials-writer.mjs').WriterInput['fetchImpl']} fetchImpl @param {import('./materials-writer.mjs').WriterPin} pin @param {AbortSignal} signal */
+function factCheckFetch(fetchImpl, pin, signal) {
+  /** @param {string | URL} url @param {RequestInit} [init] */
+  return async (url, init = {}) => {
+    let body = init.body;
+    if (typeof body === "string") {
+      const request = JSON.parse(body);
+      // The shared stage requests an object for OpenAI; this check's wire shape is an array.
+      if (request.response_format) { delete request.response_format; body = JSON.stringify(request); }
+    }
+    const response = await fetchImpl(url, { ...init, body, signal: AbortSignal.any([signal, ...(init.signal ? [init.signal] : [])]) });
+    if (!response?.ok) return response;
+    const data = /** @type {any} */ (await response.json?.());
+    const provider = String(pin.provider || "openai").toLowerCase();
+    let content;
+    if (provider === "gemini") content = data?.candidates?.[0]?.content?.parts?.find((/** @type {any} */ part) => part?.thought !== true && typeof part?.text === "string");
+    else if (provider === "anthropic") content = data?.content?.find((/** @type {any} */ part) => typeof part?.text === "string");
+    else if (provider === "webhook") content = typeof data === "string" ? { text: data } : data;
+    else content = data?.choices?.[0]?.message;
+    if (typeof content?.text !== "string" && typeof content?.content !== "string") throw new Error("invalid fact-check reply");
+    const raw = content.text ?? content.content;
+    let rows;
+    try { rows = JSON.parse(raw); } catch { throw new Error("invalid fact-check JSON"); }
+    if (!Array.isArray(rows)) throw new Error("fact-check reply must be an array");
+    const wrapped = JSON.stringify({ results: rows });
+    if (provider === "webhook") return { ok: true, status: response.status, json: async () => ({ text: wrapped }) };
+    if (typeof content.text === "string") content.text = wrapped;
+    else content.content = wrapped;
+    return { ok: true, status: response.status, json: async () => data };
+  };
+}
+
+/** @param {unknown} result @param {Array<any>} ops */
+function validateFactCheck(result, ops) {
+  const rows = /** @type {any} */ (result).results;
+  if (!Array.isArray(rows) || rows.length !== ops.length) throw new Error("fact-check reply has the wrong op count");
+  const ids = new Set(ops.map((op) => op.opId));
+  const byId = new Map(ops.map((op) => [op.opId, op]));
+  const seen = new Set();
+  for (const row of rows) {
+    if (!row || typeof row !== "object" || Array.isArray(row) || Object.keys(row).sort().join(",") !== "opId,reason,supported" ||
+      typeof row.opId !== "string" || !ids.has(row.opId) || seen.has(row.opId) ||
+      typeof row.supported !== "boolean" || byId.get(row.opId)?.op === "remove" && !row.supported ||
+      typeof row.reason !== "string" || !row.reason.trim() || /[\r\n]/.test(row.reason) || row.reason.length > 240) {
+      throw new Error("invalid fact-check row");
+    }
+    seen.add(row.opId);
+  }
+  return /** @type {Array<{opId:string,supported:boolean,reason:string}>} */ (rows);
+}
+
+/** @param {unknown} error */
+function factCheckFailureReason(error) {
+  const message = error instanceof Error ? error.message : "";
+  const status = message.match(/HTTP (\d{3})/);
+  if (status) return `Model fact check HTTP ${status[1]}; token check used.`;
+  if (/timeout|abort/i.test(message) || /** @type {any} */ (error)?.name === "TimeoutError") return "Model fact check timed out; token check used.";
+  return "Model fact-check reply was invalid; token check used.";
+}
+
+/** @param {{ops:Array<any>,model:any,nodes:Array<any>,profile:any,ledger:any,jdExtract:any,pin:import('./materials-writer.mjs').WriterPin,fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl']}} input */
+async function checkFactsWithModel({ ops, model, nodes, profile, ledger, jdExtract, pin, fetchImpl }) {
+  const userText = [
+    dataBlock("resume", { identity: model.identity, nodes }),
+    dataBlock("profile", profile),
+    dataBlock("ledger", ledger),
+    dataBlock("job_posting", jdExtract),
+    dataBlock("proposed_ops", ops.map((/** @type {any} */ { opId, op, node, after, claimId, text }) => ({ opId, op, node, after, claimId, text }))),
+  ].join("\n");
+  const controller = new AbortController();
+  let timeout;
+  const deadline = new Promise((_, reject) => {
+    timeout = setTimeout(() => { controller.abort(); reject(new Error("fact-check timeout")); }, 20_000);
+  });
+  try {
+    for (let attempt = 0; attempt < 3; attempt += 1) {
+      try {
+        const result = await Promise.race([deadline, callJsonStage({
+          pin, systemPrompt: FACT_CHECK_PROMPT, userText, maxOutputTokens: 1024,
+          fetchImpl: factCheckFetch(fetchImpl, pin, controller.signal), timeoutMs: 20_000,
+        })]);
+        return validateFactCheck(result, ops);
+      } catch (error) {
+        const status = (error instanceof Error ? error.message : "").match(/HTTP (\d{3})/);
+        const transient = status ? status[1] === "429" || Number(status[1]) >= 500 : /timeout|abort/i.test(error instanceof Error ? error.message : "");
+        if (!transient || attempt === 2) throw error;
+        await Promise.race([deadline, new Promise((resolve) => setTimeout(resolve, 200 * 2 ** attempt))]);
+      }
+    }
+    throw new Error("fact-check retry limit reached");
+  } finally { clearTimeout(timeout); controller.abort(); }
+}
+
 /** @param {unknown} value @returns {string[]} */
 function stringLeaves(value) {
   if (typeof value === "string") return [value];
@@ -178,11 +272,11 @@ function unverifiedFacts(op, beforeText, trusted, ledger, writtenText) {
 export function flagUnverifiedOps(model, ops, ledger = {}) {
   const nodes = deriveNodes(model);
   const byId = new Map(nodes.map((node) => [node.id, node.text]));
-  const trusted = trustedFacts(ledger, model, nodes);
+  const trusted = trustedFacts(ledger, model, nodes, {}, {});
   return ops.map((source) => {
     const op = { ...source };
     const id = op.op === "insert" ? op.after : op.node;
-    const facts = unverifiedFacts(op, byId.get(id) || "", trusted, ledger);
+    const facts = unverifiedFacts(op, byId.get(id) || "", trusted, ledger, op.text || "");
     if (facts.length) {
       op.flags = [...new Set([...(op.flags || []), "unverified"])];
       op.facts = [...new Set([...(op.facts || []), ...facts])];
@@ -192,9 +286,9 @@ export function flagUnverifiedOps(model, ops, ledger = {}) {
 }
 
 /**
- * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, profile?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl']}} input
+ * @param {{model:import('./materials-render.mjs').RenderModel, nodes?:Array<{id:string,text:string}>, instruction:string, scope?:'all'|string[], lockFacts?:boolean, jdExtract?:object, ledger?:any, profile?:any, pin:import('./materials-writer.mjs').WriterPin, fetchImpl:import('./materials-writer.mjs').WriterInput['fetchImpl'], onFactCheck?:()=>Promise<void>}} input
  */
-export async function proposeEdits({ model, nodes, instruction, scope = "all", lockFacts = true, jdExtract = {}, ledger = {}, profile = {}, pin, fetchImpl }) {
+export async function proposeEdits({ model, nodes, instruction, scope = "all", lockFacts = true, jdExtract = {}, ledger = {}, profile = {}, pin, fetchImpl, onFactCheck }) {
   const baseNodes = deriveNodes(model);
   const suppliedNodes = Array.isArray(nodes) ? nodes : baseNodes;
   const userText = [
@@ -223,6 +317,7 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
   let removedWords = 0;
   for (const proposed of response.ops) {
     const op = proposed && typeof proposed === "object" && !Array.isArray(proposed) ? { ...proposed } : proposed;
+    if (op && typeof op === "object") { delete op.flags; delete op.facts; }
     const id = op?.op === "insert" ? op.after : op?.node;
     const candidateNodes = deriveNodes(candidate);
     const before = candidateNodes.find((node) => node.id === id)?.text || "";
@@ -250,9 +345,32 @@ export async function proposeEdits({ model, nodes, instruction, scope = "all", l
       blocked.push({ op: proposed, reason: error.reason, detail: error.detail });
     }
   }
+  let factCheck = "fallback";
+  let factCheckReason = "No validated ops to check; token check used.";
+  if (ops.length) {
+    await onFactCheck?.();
+    try {
+      const checked = await checkFactsWithModel({ ops, model, nodes: baseNodes, profile, ledger, jdExtract, pin, fetchImpl });
+      const byId = new Map(checked.map((row) => [row.opId, row]));
+      for (const op of ops) {
+        delete op.flags;
+        delete op.facts;
+        const row = byId.get(op.opId);
+        if (!row) throw new Error("missing fact-check row");
+        if (!row.supported) {
+          op.flags = ["unverified"];
+          op.facts = [row.reason.trim()];
+        }
+      }
+      factCheck = "model";
+      factCheckReason = "Model checked the proposed ops against resume, profile, and ledger.";
+    } catch (error) {
+      factCheckReason = factCheckFailureReason(error);
+    }
+  }
   const baseWords = count(baseNodes);
   const wordsDelta = count(deriveNodes(candidate)) - baseWords;
-  return { ops, blocked, summary: {
+  return { ops, blocked, factCheck, factCheckReason, summary: {
     changes: ops.length,
     removals: ops.filter((op) => op.op === "remove").length,
     wordsDelta,

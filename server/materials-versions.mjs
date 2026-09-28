@@ -11,6 +11,7 @@ import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
 import { commitModelAsRun, withPackagePublishClaim } from "./materials-regenerate.mjs";
 import { renderDocument } from "./materials-render.mjs";
+import { readProfile } from "./user-profile.mjs";
 
 const RUN_ID = /^[a-zA-Z0-9_-]+$/;
 const PROPOSAL_ID = /^[a-f0-9-]{36}$/;
@@ -228,6 +229,7 @@ export function createMaterialsVersionService(deps = {}) {
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "drafting" });
       const ledgerResult = await readLedger();
+      const profileResult = await readProfile();
       const config = loadLlmConfig();
       if (!deps.pin && !config) throw failure("No LLM pin configured", 409, "llm_unconfigured");
       const pin = deps.pin || await resolveActivePin(/** @type {import('./llm-config.mjs').LlmConfig} */ (config));
@@ -235,7 +237,8 @@ export function createMaterialsVersionService(deps = {}) {
       const result = await (deps.propose || proposeEdits)({
         model: /** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model)), nodes: deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))), instruction: proposal.instruction,
         scope: proposal.scope, lockFacts: proposal.lockFacts, ledger: ledgerResult.ok ? ledgerResult.ledger : {},
-        jdExtract, pin, fetchImpl: deps.fetchImpl || fetch,
+        profile: profileResult.ok ? profileResult.profile : {}, jdExtract, pin, fetchImpl: deps.fetchImpl || fetch,
+        onFactCheck: () => emit(proposal, "stage", { stage: "checking facts" }),
       });
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "checking", done: result.ops.length, total: result.ops.length + result.blocked.length });
@@ -251,8 +254,10 @@ export function createMaterialsVersionService(deps = {}) {
       if (proposal.status !== "pending") return;
       await emit(proposal, "stage", { stage: "measuring" });
       proposal.summary = result.summary;
+      proposal.factCheck = result.factCheck;
+      proposal.factCheckReason = result.factCheckReason;
       proposal.status = "ready";
-      await emit(proposal, "proposal", { summary: result.summary });
+      await emit(proposal, "proposal", { summary: result.summary, factCheck: result.factCheck, factCheckReason: result.factCheckReason });
       await emit(proposal, "done", { status: "ready" });
     } catch (error) {
       if (proposal.status !== "pending") return;
@@ -431,7 +436,9 @@ export function createMaterialsVersionService(deps = {}) {
         const docIds = new Set(deriveNodes(base).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
         if (selected.some((op) => !docIds.has(op.op === "insert" ? op.after : op.node))) throw failure("Edit targets another document", 400, "out_of_scope");
         const ledgerResult = await readLedger();
-        const checked = flagUnverifiedOps(base, selected, ledgerResult.ok ? ledgerResult.ledger : {});
+        const checked = proposal?.factCheck === "model"
+          ? [...selectedProposal, ...flagUnverifiedOps(base, manualOps, ledgerResult.ok ? ledgerResult.ledger : {})]
+          : flagUnverifiedOps(base, selected, ledgerResult.ok ? ledgerResult.ledger : {});
         if (checked.some((op) => op.flags?.includes("unverified") && !confirmed.includes(op.opId))) throw failure("Confirm each unverified edit", 400, "unverified_confirmation_required");
         let candidate;
         try {
