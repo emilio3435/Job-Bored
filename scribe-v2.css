@@ -404,3 +404,82 @@ jb-scribe.scribe .scribe__compare-confirm p { margin: 0; font-size: var(--jb-typ
   jb-scribe.scribe .scribe__compare-ab [role="tab"] { flex: 1; }
   jb-scribe.scribe .scribe__compare-rowacts { margin-left: 0; }
 }
+
+/* ---------- Proposal marks and review (lane F2) ----------
+   The marks themselves live inside the preview frame (styles written by
+   scribe-v2-diff.js markStyles from these same tokens). Out here: the
+   margin rail beside the page, the review bar, the phone's change card
+   and the Show changes toggle. Pending is navy, accepted mint, removals
+   --jb-err, Unverified --jb-warn (SPEC §2, §4). */
+jb-scribe.scribe [data-scribe="show-changes"][aria-pressed="true"] { background: var(--jb-action); border-color: var(--jb-action); color: var(--jb-on-action); }
+jb-scribe.scribe [data-scribe="show-changes"][aria-pressed="true"] .scribe__compare-kbd { background: transparent; border-color: currentColor; }
+jb-scribe.scribe .scribe__paper { display: flex; justify-content: center; align-items: flex-start; }
+jb-scribe.scribe .scribe__paper .scribe__page { margin: 0; }
+jb-scribe.scribe .scribe__rail {
+  position: relative; flex: none; width: 168px; align-self: stretch;
+  border-left: 1px dashed var(--jb-line); margin-left: var(--jb-space-2);
+}
+jb-scribe.scribe .scribe__mm {
+  position: absolute; left: 0; right: 0; top: 0;
+  display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; align-items: start;
+  padding: 2px var(--jb-space-2) 2px 10px; border-radius: 0 var(--jb-radius-sm) var(--jb-radius-sm) 0;
+  font-size: var(--jb-type-small); line-height: 1.35; color: var(--jb-ink-2); hyphens: manual;
+}
+jb-scribe.scribe .scribe__mm[data-focus="true"] { background: var(--jb-info-tint); }
+jb-scribe.scribe .scribe__mm:focus { outline: none; }
+jb-scribe.scribe .scribe__mm:focus-visible { box-shadow: var(--jb-shadow-focus); }
+jb-scribe.scribe .scribe__mm-glyph {
+  width: 14px; text-align: center; font-family: var(--jb-font-mono); font-size: var(--jb-type-body); font-weight: 600; line-height: 1.3;
+  color: var(--jb-action);
+}
+jb-scribe.scribe .scribe__mm-glyph[data-g="+"] { color: var(--jb-accent-ink); }
+jb-scribe.scribe .scribe__mm-glyph[data-g="−"] { color: var(--jb-err); }
+jb-scribe.scribe .scribe__mm-note { font-family: var(--jb-font-display); font-size: 1.1rem; line-height: 1.1; color: var(--jb-ink); overflow-wrap: anywhere; }
+jb-scribe.scribe .scribe__mm-acts,
+jb-scribe.scribe .scribe__mm-done { grid-column: 1 / -1; display: flex; flex-wrap: wrap; align-items: center; gap: 4px; margin-top: 4px; }
+jb-scribe.scribe .scribe__mm-done { color: var(--jb-ink-2); }
+jb-scribe.scribe .scribe__mm[data-state="accepted"] .scribe__mm-done { color: var(--jb-accent-ink); font-weight: 600; }
+jb-scribe.scribe .scribe__mm-done .scribe__btn { min-height: 28px; padding: 0 6px; font-weight: 500; color: var(--jb-ink); }
+jb-scribe.scribe .scribe__ok,
+jb-scribe.scribe .scribe__no { min-width: 32px; padding: 0 var(--jb-space-2); font-weight: 600; }
+jb-scribe.scribe .scribe__ok:hover { background: var(--jb-mint); border-color: var(--jb-mint); color: var(--jb-on-accent); }
+jb-scribe.scribe .scribe__no:hover { background: var(--jb-err-tint); border-color: var(--jb-err); color: var(--jb-err); }
+jb-scribe.scribe .scribe__mm-flag { grid-column: 1 / -1; margin: 4px 0 0; font-size: var(--jb-type-small); line-height: 1.35; font-weight: 600; color: var(--jb-warn); }
+jb-scribe.scribe .scribe__mm-missing { grid-column: 1 / -1; margin: 4px 0 0; font-size: var(--jb-type-small); line-height: 1.35; color: var(--jb-ink-3); }
+jb-scribe.scribe .scribe__loss { font-family: var(--jb-font-mono); color: var(--jb-ink); }
+jb-scribe.scribe .scribe__loss-banner {
+  flex-basis: 100%; margin: 0; padding: var(--jb-space-2) var(--jb-space-3);
+  border-left: 3px solid var(--jb-warn); background: var(--jb-warn-tint); border-radius: 0 var(--jb-radius-sm) var(--jb-radius-sm) 0;
+  font-size: var(--jb-type-small); line-height: 1.5; font-weight: 600; color: var(--jb-ink);
+}
+jb-scribe.scribe .scribe__autosave { flex-basis: 100%; margin: 0; font-size: var(--jb-type-small); line-height: 1.5; color: var(--jb-ink-2); }
+jb-scribe.scribe .scribe__card { display: none; }
+@media (max-width: 1023px) {
+  jb-scribe.scribe .scribe__rail { width: 128px; }
+  jb-scribe.scribe .scribe__mm-note { font-size: 1rem; }
+}
+/* Under 600px the page fills the pane; one card carries the focused
+   change, with 44px targets, above the sticky review bar. */
+@media (max-width: 599px) {
+  jb-scribe.scribe .scribe__rail { display: none; }
+  jb-scribe.scribe [data-scribe="show-changes"] .scribe__compare-kbd { display: none; }
+  jb-scribe.scribe .scribe__card {
+    flex-basis: 100%; display: grid; grid-template-columns: 44px minmax(0, 1fr) 44px; gap: 6px var(--jb-space-2); align-items: center;
+    padding: 6px; background: var(--jb-paper-2); border: 1px solid var(--jb-line-soft); border-radius: var(--jb-radius-md);
+  }
+  jb-scribe.scribe .scribe__card:focus { outline: none; }
+  jb-scribe.scribe .scribe__card:focus-visible { box-shadow: var(--jb-shadow-focus); }
+  jb-scribe.scribe .scribe__card-nav { grid-row: 1; min-width: 44px; padding: 0; font-size: var(--jb-type-heading); }
+  jb-scribe.scribe .scribe__card-nav[data-review="next"] { grid-column: 3; }
+  jb-scribe.scribe .scribe__card-body {
+    grid-column: 2; grid-row: 1; display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 0 6px; align-items: start;
+    font-size: var(--jb-type-small); line-height: 1.4; color: var(--jb-ink-2);
+  }
+  jb-scribe.scribe .scribe__card-label b { color: var(--jb-ink); font-weight: 600; }
+  jb-scribe.scribe .scribe__card-body .scribe__mm-flag { margin: 2px 0 0; }
+  jb-scribe.scribe .scribe__card-acts,
+  jb-scribe.scribe .scribe__card-done { grid-column: 1 / -1; grid-row: 2; display: flex; gap: 6px; align-items: center; }
+  jb-scribe.scribe .scribe__card-acts .scribe__btn { flex: 1; }
+  jb-scribe.scribe .scribe__card-done { justify-content: space-between; padding-left: var(--jb-space-2); font-size: var(--jb-type-small); color: var(--jb-ink-2); }
+  jb-scribe.scribe .scribe__card[data-state="accepted"] .scribe__card-done { color: var(--jb-accent-ink); font-weight: 600; }
+}

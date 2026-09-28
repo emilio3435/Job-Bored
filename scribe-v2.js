@@ -189,6 +189,10 @@
       /* region:F2-header — Show changes (D) joins this group. */
       /* region:F3-header — Compare (C) joins this group. */
       h("div", { class: "scribe__group scribe__group--tools" }, [
+        r.showBtn = h("button", {
+          type: "button", class: "scribe__btn scribe__btn--small", "data-scribe": "show-changes", "aria-pressed": "true",
+          "aria-keyshortcuts": "D", title: "Show or hide the marks (D)", hidden: true,
+        }, ["Show changes ", h("kbd", { class: "scribe__compare-kbd", text: "D" })]),
         r.compareBtn = root.JBScribeVersions ? h("button", {
           type: "button", class: "scribe__btn scribe__btn--small", "data-ver-compare": "", "aria-pressed": "false",
           "aria-keyshortcuts": "C", title: "Compare two versions (C)",
@@ -209,6 +213,14 @@
     r.docscroll = h("div", { class: "scribe__docscroll", id: ids.doc, role: "region", tabindex: "-1", "aria-busy": "true" }, [r.docNote, r.pageBox]);
     /* region:F2-marks — proposal marks and the margin rail render over
        the preview here, keyed by data-node inside the iframe. */
+    /* The page and its margin rail sit side by side: the marks live in
+       the frame, the controls in the rail beside each changed block. */
+    r.rail = h("div", { class: "scribe__rail", role: "group", "aria-label": "Changes", hidden: true });
+    r.paper = h("div", { class: "scribe__paper" });
+    r.docscroll.removeChild(r.pageBox);
+    r.paper.appendChild(r.pageBox);
+    r.paper.appendChild(r.rail);
+    r.docscroll.appendChild(r.paper);
     r.reviewbar = h("div", { class: "scribe__reviewbar" });
 
     var docpane = h("section", { class: "scribe__docpane", "aria-label": "Document" }, [r.stage, r.docscroll, r.reviewbar]);
@@ -327,7 +339,11 @@
       for (var i = 0; i < STAGES.length; i++) if (STAGES[i].key === st.stage) idx = i;
       var list = h("ol", { class: "scribe__stages" });
       STAGES.forEach(function (s, j) {
-        var state = j < idx ? "done" : (j === idx ? "now" : "todo");
+        /* "checking facts" (the model's check) and "checking" (the
+           tally) are one step on the line, not two. */
+        if (s.key === "checking facts") return;
+        var at = STAGES[idx] && STAGES[idx].key === "checking facts" ? idx + 1 : idx;
+        var state = j < at ? "done" : (j === at ? "now" : "todo");
         list.appendChild(h("li", { "data-s": state }, [h("span", { class: "scribe__dot", "aria-hidden": "true" }), s.label(st.doc, j === idx ? st.stageDetail : null)]));
       });
       var now = STAGES[Math.max(0, idx)];
@@ -352,6 +368,10 @@
     var el = ctl.refs.reviewbar;
     clear(el);
     var p = ctl.state.proposal;
+    /* region:F2-review — once the run ends, an open proposal's review
+       (summary, loss meter, Accept all, Reject all, Save) owns the bar. */
+    renderRail(ctl);
+    if (p && p.changes && p.changes.length && !ctl.state.busy) { renderReview(ctl); return; }
     if (!p || !p.summary) {
       var v = currentVersion(ctl);
       el.appendChild(h("p", { class: "scribe__reviewbar-sum", text: v
@@ -500,7 +520,8 @@
     var el = inner.documentElement;
     var natW = Math.max(el.scrollWidth || 0, 1);
     var natH = Math.max(el.scrollHeight || 0, 1);
-    var avail = ctl.refs.docscroll.clientWidth || natW;
+    /* The margin rail (lane F2) takes its width beside the page. */
+    var avail = (ctl.refs.docscroll.clientWidth || natW) - (ctl.refs.rail.hasAttribute("hidden") ? 0 : ctl.refs.rail.offsetWidth || 0);
     var pad = 32;
     var scale = Math.min(1, Math.max(0.2, (avail - pad) / natW));
     frame.style.width = natW + "px";
@@ -511,6 +532,7 @@
     var pages = inner.querySelectorAll ? inner.querySelectorAll("[data-page]").length : 0;
     ctl.state.measuredPages = pages || null;
     renderPages(ctl);
+    layoutRail(ctl);
   }
 
   /* A click in the preview moves focus into the iframe's document, where
@@ -608,11 +630,12 @@
     } else if (frame.event === "op" && data.op) {
       p.ops.push(data.op);
       /* region:F2-ops — each validated op becomes a mark in the preview. */
+      markOp(ctl, data.op);
     } else if (frame.event === "blocked") {
       p.blocked.push(data);
-      var detail = data.detail ? "“" + data.detail + "”" : "a locked fact";
-      logMessage(ctl, "blocked", [h("b", { text: "Blocked: " }), "would change " + detail + "."]);
-      announce("Blocked: would change " + detail + ".", true);
+      var line = blockedLine(data);
+      logMessage(ctl, "blocked", [h("b", { text: "Blocked: " }), line]);
+      announce("Blocked: " + line, true);
     } else if (frame.event === "proposal") {
       p.summary = data.summary || null;
     } else if (frame.event === "error") {
@@ -701,10 +724,26 @@
     });
   }
 
+  /* Stop keeps every op already validated and marks the proposal partial
+     (SPEC §2 Progress); the server's reply may carry ops the stream had
+     not delivered yet. */
   function stop(ctl) {
     var p = ctl.state.proposal;
     if (!ctl.state.busy) return;
-    if (p && p.id) ctl.api.stopEdit(p.id).catch(function () { /* the abort below still ends the run */ });
+    if (p) {
+      p.status = "partial";
+      if (!p.summary && p.changes && p.changes.length) p.summary = reviewSummary(ctl);
+    }
+    if (p && p.id) {
+      ctl.api.stopEdit(p.id).then(function (res) {
+        if (ctl.closed || ctl.state.proposal !== p) return;
+        var known = {};
+        p.ops.forEach(function (op) { known[op.opId] = true; });
+        var late = ((res && res.ops) || []).filter(function (op) { return op && !known[op.opId]; });
+        late.forEach(function (op) { p.ops.push(op); markOp(ctl, op); });
+        if (late.length && !ctl.state.busy) renderAll(ctl);
+      }).catch(function () { /* the abort below still ends the run */ });
+    }
     if (ctl.abort && typeof ctl.abort.abort === "function") ctl.abort.abort();
   }
 
@@ -712,10 +751,574 @@
     var p = ctl.state.proposal;
     if (!p) return;
     if (p.id) ctl.api.rejectEdit(p.id).catch(function () { /* nothing was saved either way */ });
+    clearReview(ctl);
     ctl.state.proposal = null;
     logMessage(ctl, "note", ["Changes discarded. Nothing was saved."]);
     announce("Changes discarded.");
     renderAll(ctl);
+    fitFrame(ctl);
+  }
+
+  /* ---------------- Review (lane F2) ----------------
+     Each validated op becomes a suggesting-mode mark on the real render:
+     scribe-v2-diff.js rewrites the block the template names with
+     data-node, inside the script-less frame. The controls live in the
+     page's margin rail (≥600px) or a change card (<600px), and in the
+     review bar. Nothing reaches disk until Save (SPEC §2). */
+
+  var AUTO_SAVE_MS = 3000;
+  var LOSS_BANNER_PCT = 20;
+  var KIND_NAME = { stmt: "summary", intro: "intro", seat: "role title", line: "earlier role", cred: "education", sal: "greeting" };
+  var DEFAULT_NOTE = { replace: "rewrite", insert: "new line", remove: "removal" };
+
+  function differ() { return root.JBScribeDiff || null; }
+
+  function frameDoc(ctl) {
+    try { return ctl.refs.frame.contentDocument || null; } catch (e) { return null; }
+  }
+
+  function tokenValue(name, fallback) {
+    try {
+      var v = root.getComputedStyle(doc().documentElement).getPropertyValue(name);
+      return String(v || "").trim() || fallback;
+    } catch (e) { return fallback; }
+  }
+
+  /* Every block the render names, by id, in reading order. A block the
+     family doesn't render (intro in Signal and Dossier) is simply absent. */
+  function frameNodes(inner) {
+    var map = {};
+    if (!inner || typeof inner.querySelectorAll !== "function") return map;
+    var list = inner.querySelectorAll("[data-node]");
+    for (var i = 0; i < list.length; i++) map[list[i].getAttribute("data-node")] = list[i];
+    return map;
+  }
+
+  function insertAfter(ref, el) {
+    var parent = ref.parentNode;
+    if (!parent) return;
+    if (typeof parent.insertBefore === "function") { parent.insertBefore(el, ref.nextSibling); return; }
+    var kids = Array.prototype.slice.call(parent.children || []);
+    while (parent.firstChild) parent.removeChild(parent.firstChild);
+    kids.forEach(function (k) { parent.appendChild(k); if (k === ref) parent.appendChild(el); });
+  }
+
+  function stub(inner, text) {
+    var s = inner.createElement("span");
+    s.className = "scribe-stub";
+    s.textContent = text;
+    return s;
+  }
+
+  function capital(s) { return s ? s.charAt(0).toUpperCase() + s.slice(1) : s; }
+
+  /* A name a reader recognises: "summary", "bullet 2, Operations
+     Analyst", "new bullet, Coordinator", "paragraph 3". */
+  function labelFor(op, nodes) {
+    var insert = op.op === "insert";
+    var id = String((insert ? op.after : op.node) || "");
+    var bits = id.split(":");
+    var ids = Object.keys(nodes);
+    function ordinal(prefix) {
+      var list = ids.filter(function (k) { return k.indexOf(prefix) === 0; });
+      var at = list.indexOf(id);
+      return at >= 0 ? at + 1 : null;
+    }
+    if (bits[0] === "b") {
+      var seatEl = nodes["seat:" + bits[1]];
+      var seat = seatEl ? String(seatEl.textContent || "").trim() : bits[1];
+      if (insert) return "new bullet, " + seat;
+      var nb = ordinal("b:" + bits[1] + ":");
+      return "bullet" + (nb ? " " + nb : "") + ", " + seat;
+    }
+    if (bits[0] === "p") {
+      if (insert) return "new paragraph";
+      var np = ordinal("p:");
+      return "paragraph" + (np ? " " + np : "");
+    }
+    if (bits[0] === "tool") return "toolkit, " + bits.slice(1).join(":");
+    if (insert) return "new line";
+    return KIND_NAME[bits[0]] || "block";
+  }
+
+  function ensureMarkStyles(inner) {
+    if (!inner || !inner.head || typeof inner.getElementById !== "function" || inner.getElementById("scribe-marks")) return;
+    var style = inner.createElement("style");
+    style.id = "scribe-marks";
+    style.textContent = differ().markStyles(tokenValue);
+    inner.head.appendChild(style);
+  }
+
+  function setMarkState(change, state) {
+    if (change.el) change.el.setAttribute("data-scribe-state", state);
+  }
+
+  /* One op → one mark (region:F2-ops). */
+  function markOp(ctl, op) {
+    var p = ctl.state.proposal;
+    var D = differ();
+    if (!p || !D || !op || !op.opId) return;
+    if (!p.changes) {
+      p.changes = [];
+      p.decisions = {};
+      p.focus = -1;
+      p.baseWords = baseWords(ctl);
+    }
+    if (p.decisions[op.opId]) return;
+    var inner = frameDoc(ctl);
+    var nodes = frameNodes(inner);
+    var target = op.op === "insert" ? nodes[op.after] : nodes[op.node];
+    var change = D.changesFromOps([op], function (id) { return nodes[id] ? nodes[id].textContent : ""; })[0];
+    change.label = labelFor(op, nodes);
+    change.el = null;
+    change.anchor = null;
+    if (!target && change.kind !== "insert") change.delta = 0; /* its words aren't on this page */
+    if (target) {
+      ensureMarkStyles(inner);
+      if (change.kind === "insert") {
+        var el;
+        if (typeof target.cloneNode === "function") el = target.cloneNode(true);
+        else { el = inner.createElement(target.tagName); if (target.getAttribute("class")) el.setAttribute("class", target.getAttribute("class")); }
+        ["data-node", "data-claim", "id"].forEach(function (a) { el.removeAttribute(a); });
+        D.unmarkElement(el); /* the neighbour may already carry its own marks */
+        insertAfter(target, el);
+        D.markInserted(el, change.after);
+        el.appendChild(stub(inner, "New line rejected"));
+        change.el = el;
+      } else if (target.hasAttribute("data-scribe-op")) {
+        change.anchor = target; /* a second op on one block: listed, marked once */
+      } else {
+        D.markElement(target, change.parts);
+        if (change.kind === "remove") target.appendChild(stub(inner, "Removed"));
+        change.el = target;
+      }
+      if (change.el) {
+        change.el.setAttribute("data-scribe-op", change.kind);
+        change.el.setAttribute("data-scribe-id", op.opId);
+        change.el.setAttribute("data-scribe-state", "pending");
+        if (change.unverified) change.el.setAttribute("data-scribe-flag", "unverified");
+        change.anchor = change.el;
+      }
+    }
+    p.decisions[op.opId] = "pending";
+    p.changes.push(change);
+    orderChanges(p, inner);
+    fitFrame(ctl);
+    renderRail(ctl); /* notes join as ops arrive; controls wait for the run to end */
+  }
+
+  /* j/k walk the changes in reading order; a change whose block isn't
+     on this page comes first, as its rail note does. */
+  function orderChanges(p, inner) {
+    var rank = {};
+    if (inner && typeof inner.querySelectorAll === "function") {
+      var marked = inner.querySelectorAll("[data-scribe-op]");
+      for (var i = 0; i < marked.length; i++) rank[marked[i].getAttribute("data-scribe-id")] = i;
+    }
+    var focused = p.focus >= 0 ? p.changes[p.focus] : null;
+    p.changes.forEach(function (c, i) {
+      var at = c.el ? rank[c.opId] : null;
+      if (at == null && c.anchor) at = rank[c.anchor.getAttribute("data-scribe-id")] + 0.5;
+      c.rank = at == null ? -1 : at;
+      c.seq = i;
+    });
+    p.changes.sort(function (a, b) { return a.rank - b.rank || a.seq - b.seq; });
+    if (focused) p.focus = p.changes.indexOf(focused);
+  }
+
+  function baseWords(ctl) {
+    var v = currentVersion(ctl);
+    if (v && typeof v.words === "number" && v.words > 0) return v.words;
+    var inner = frameDoc(ctl);
+    return inner && inner.body ? differ().wordCount(inner.body.textContent) : 0;
+  }
+
+  function reviewSummary(ctl) {
+    var p = ctl.state.proposal;
+    var s = differ().summarize(p.changes, p.decisions, p.baseWords);
+    var v = currentVersion(ctl);
+    s.pages = (p.summary && p.summary.pages) || (v && v.pages) || ctl.state.measuredPages || null;
+    return s;
+  }
+
+  function nextVersionN(ctl) {
+    var max = -1;
+    (ctl.state.versions || []).forEach(function (v) { if (typeof v.n === "number" && v.n > max) max = v.n; });
+    return max + 1;
+  }
+
+  function stateWord(p, c) {
+    var st = p.decisions[c.opId] || "pending";
+    return st + (st === "pending" && c.unverified ? ", unverified" : "");
+  }
+
+  function changeName(p, c) {
+    return "change " + (p.changes.indexOf(c) + 1) + " of " + p.changes.length + ": " + c.label;
+  }
+
+  function flagText(c) {
+    var facts = (c.op.facts || []).filter(function (f) { return !/^claimId:/.test(f); });
+    return "Unverified: please confirm." + (facts.length ? " " + facts[0] : "");
+  }
+
+  /* The margin rail: one note per change, beside its block. */
+  function renderRail(ctl) {
+    var r = ctl.refs;
+    var p = ctl.state.proposal;
+    var on = !!(p && p.changes && p.changes.length);
+    var was = !r.rail.hasAttribute("hidden");
+    clear(r.rail);
+    if (on) r.rail.removeAttribute("hidden"); else r.rail.setAttribute("hidden", "");
+    if (on) r.showBtn.removeAttribute("hidden"); else r.showBtn.setAttribute("hidden", "");
+    r.showBtn.setAttribute("aria-pressed", ctl.state.showChanges === false ? "false" : "true");
+    if (!on) { if (was) fitFrame(ctl); return; }
+    p.changes.forEach(function (c, i) {
+      var st = p.decisions[c.opId] || "pending";
+      var name = changeName(p, c);
+      var item = h("div", {
+        class: "scribe__mm", "data-op": c.opId, "data-state": st, "data-flag": c.unverified ? "unverified" : null,
+        "data-focus": i === p.focus ? "true" : null, tabindex: "-1", role: "group",
+        "aria-label": capital(name) + ", " + stateWord(p, c),
+      }, [
+        h("span", { class: "scribe__mm-glyph", "data-g": c.glyph, "aria-hidden": "true", text: c.glyph }),
+        h("span", { class: "scribe__mm-note", text: c.op.rationale || DEFAULT_NOTE[c.kind] }),
+      ]);
+      if (!ctl.state.busy) item.appendChild(decisionControls(p, c, name, "scribe__mm"));
+      if (st === "pending" && c.unverified) item.appendChild(h("p", { class: "scribe__mm-flag", text: flagText(c) }));
+      if (!c.anchor) item.appendChild(h("p", { class: "scribe__mm-missing", text: capital(c.label) + " isn’t shown in this template." }));
+      r.rail.appendChild(item);
+    });
+    if (!was) fitFrame(ctl); else layoutRail(ctl);
+  }
+
+  /* ✓ / ✗ in the rail; the phone's card has room to spell them out. */
+  function decisionControls(p, c, name, cls) {
+    var words = cls === "scribe__card";
+    var st = p.decisions[c.opId] || "pending";
+    if (st !== "pending") {
+      return h("span", { class: cls + "-done" }, [
+        st === "accepted" ? "Accepted" : "Rejected",
+        h("button", { type: "button", class: "scribe__btn scribe__btn--small scribe__btn--ghost", "data-review": "undo", "data-op": c.opId, "aria-label": "Undo decision on " + name, text: "Undo" }),
+      ]);
+    }
+    return h("span", { class: cls + "-acts" }, [
+      h("button", {
+        type: "button", class: "scribe__btn scribe__btn--small scribe__ok", "data-review": "accept", "data-op": c.opId,
+        "aria-label": (c.unverified ? "Confirm and accept " : "Accept ") + name, text: c.unverified ? "Confirm" : (words ? "✓ Accept" : "✓"),
+      }),
+      h("button", { type: "button", class: "scribe__btn scribe__btn--small scribe__no", "data-review": "reject", "data-op": c.opId, "aria-label": "Reject " + name, text: words ? "✗ Reject" : "✗" }),
+    ]);
+  }
+
+  /* Place each note level with its block (the frame is scaled into the
+     pane), pushing a note down when the one above would overlap. */
+  function layoutRail(ctl) {
+    var r = ctl.refs;
+    var p = ctl.state.proposal;
+    if (!p || !p.changes || r.rail.hasAttribute("hidden")) return;
+    var scale = parseFloat(r.pageBox.style.width) / parseFloat(r.frame.style.width);
+    if (!isFinite(scale) || scale <= 0) scale = 1;
+    var items = r.rail.children || [];
+    var floor = 0;
+    for (var i = 0; i < items.length; i++) {
+      var c = p.changes[i];
+      var top = 0;
+      if (c && c.anchor && typeof c.anchor.getBoundingClientRect === "function") top = c.anchor.getBoundingClientRect().top * scale;
+      top = Math.max(top, floor);
+      items[i].style.top = Math.round(top) + "px";
+      floor = top + (items[i].offsetHeight || 0) + 6;
+    }
+    r.rail.style.minHeight = Math.round(Math.max(floor, parseFloat(r.pageBox.style.height) || 0)) + "px";
+  }
+
+  /* The review bar: summary, loss meter, bulk actions and Save. */
+  function renderReview(ctl) {
+    var el = ctl.refs.reviewbar;
+    var p = ctl.state.proposal;
+    var s = reviewSummary(ctl);
+    var decided = s.accepted + s.rejected > 0;
+    var noun = DOC_NOUN[ctl.state.doc];
+    if (s.lossPct > LOSS_BANNER_PCT) {
+      el.appendChild(h("p", { class: "scribe__loss-banner", text: "This removes " + s.lossPct + "% of your " + noun + ". Review each removal." }));
+    }
+    if (ctl.isNarrow()) el.appendChild(renderCard(ctl));
+    /* The loss meter counts words removed, as the banner does; words
+       added are said apart, so the two never disagree. */
+    var added = s.wordsDelta + s.lossWords;
+    var loss = "−" + s.lossWords + " words (" + s.lossPct + "%)";
+    el.appendChild(h("p", { class: "scribe__reviewbar-sum" }, [
+      h("b", { text: decided ? s.pending + " of " + plural(s.changes, "change") + " to review" : plural(s.changes, "change") }),
+      s.removals ? " · " + plural(s.removals, "removal") : "",
+      s.unverified ? " · " + s.unverified + " to check" : "",
+      " · ",
+      h("span", { class: "scribe__loss", title: "Words removed if you save now", text: loss }),
+      added > 0 ? " · +" + plural(added, "word") + " added" : "",
+      s.pages ? " · still " + plural(s.pages, "page") : "",
+    ]));
+    var verified = s.pending - s.unverified;
+    var n = nextVersionN(ctl);
+    var saveBtn;
+    if (!s.pending && !s.accepted) {
+      saveBtn = h("button", { type: "button", class: "scribe__btn scribe__btn--primary", "data-review": "discard", text: "Close without saving" });
+    } else {
+      saveBtn = h("button", {
+        type: "button", class: "scribe__btn" + (verified > 0 ? "" : " scribe__btn--primary"), "data-review": "save",
+        "aria-disabled": s.accepted && !p.saving ? "false" : "true",
+        text: p.saving ? "Saving…" : "Save as v" + n + (s.accepted ? " (" + s.accepted + " accepted)" : ""),
+      });
+    }
+    el.appendChild(h("div", { class: "scribe__reviewbar-acts" }, [
+      h("button", { type: "button", class: "scribe__btn scribe__btn--ghost", "data-review": "reject-all", "aria-disabled": s.pending ? "false" : "true", text: "Reject all" }),
+      h("button", {
+        type: "button", class: "scribe__btn" + (verified > 0 ? " scribe__btn--primary" : ""), "data-review": "accept-all",
+        "aria-disabled": verified > 0 ? "false" : "true", "aria-keyshortcuts": "Shift+A",
+        text: "Accept all" + (s.unverified ? " verified" : ""),
+      }),
+      saveBtn,
+    ]));
+    if (ctl.autoSave) {
+      el.appendChild(h("p", { class: "scribe__autosave", text: "Every change is decided. Saving as v" + n + " in a moment." }));
+    }
+  }
+
+  /* Under 600px the rail has no room: one card for the focused change. */
+  function renderCard(ctl) {
+    var p = ctl.state.proposal;
+    var c = p.changes[Math.max(0, p.focus)];
+    var name = changeName(p, c);
+    var st = p.decisions[c.opId];
+    return h("div", { class: "scribe__card", role: "group", tabindex: "-1", "data-state": st, "aria-label": capital(name) + ", " + stateWord(p, c) }, [
+      h("button", { type: "button", class: "scribe__btn scribe__card-nav", "data-review": "prev", "aria-label": "Previous change", "aria-keyshortcuts": "K", text: "‹" }),
+      h("div", { class: "scribe__card-body" }, [
+        h("span", { class: "scribe__mm-glyph", "data-g": c.glyph, "aria-hidden": "true", text: c.glyph }),
+        h("span", { class: "scribe__card-label" }, [
+          h("b", { text: capital(c.label) }),
+          " · " + (c.op.rationale || DEFAULT_NOTE[c.kind]),
+        ]),
+        st === "pending" && c.unverified ? h("span", { class: "scribe__mm-flag", text: flagText(c) }) : null,
+      ]),
+      decisionControls(p, c, name, "scribe__card"),
+      h("button", { type: "button", class: "scribe__btn scribe__card-nav", "data-review": "next", "aria-label": "Next change", "aria-keyshortcuts": "J", text: "›" }),
+    ]);
+  }
+
+  /* Re-render the review, keeping keyboard focus on the same change. */
+  function refreshReview(ctl) {
+    var active = doc().activeElement;
+    var inReview = active && (within(ctl.refs.rail, active) || within(ctl.refs.reviewbar, active));
+    var keepOp = inReview && active.getAttribute ? active.getAttribute("data-op") : null;
+    var keepAct = inReview && active.getAttribute ? active.getAttribute("data-review") : null;
+    renderReviewbar(ctl);
+    renderRegionLabel(ctl);
+    if (!inReview) return;
+    var scope = ctl.isNarrow() ? ctl.refs.reviewbar : ctl.refs.rail;
+    var target = null;
+    if (keepAct && !keepOp) target = ctl.refs.reviewbar.querySelector('[data-review="' + keepAct + '"]');
+    if (!target && keepOp) {
+      target = scope.querySelector('[data-op="' + keepOp + '"] button') || scope.querySelector('button[data-op="' + keepOp + '"]');
+    }
+    if (!target) target = focusedItem(ctl);
+    if (target) target.focus();
+  }
+
+  function focusedItem(ctl) {
+    var p = ctl.state.proposal;
+    if (!p || p.focus < 0) return null;
+    if (ctl.isNarrow()) return ctl.refs.reviewbar.querySelector(".scribe__card");
+    return ctl.refs.rail.children[p.focus] || null;
+  }
+
+  function decide(ctl, opId, state) {
+    var p = ctl.state.proposal;
+    if (!p || !p.changes || p.saving) return;
+    var c = null;
+    p.changes.forEach(function (x) { if (x.opId === opId) c = x; });
+    if (!c) return;
+    p.decisions[opId] = state;
+    setMarkState(c, state);
+    p.focus = p.changes.indexOf(c);
+    markFocus(ctl);
+    var verb = state === "accepted" ? "Accepted" : (state === "rejected" ? "Rejected" : "Reopened");
+    announce(verb + " " + changeName(p, c) + ".");
+    armAutoSave(ctl);
+    refreshReview(ctl);
+  }
+
+  function decideAll(ctl, state) {
+    var p = ctl.state.proposal;
+    if (!p || !p.changes || p.saving) return;
+    var done = 0;
+    var skipped = 0;
+    p.changes.forEach(function (c) {
+      if (p.decisions[c.opId] !== "pending") return;
+      /* Accept all never takes an Unverified change: each needs its own ✓. */
+      if (state === "accepted" && c.unverified) { skipped++; return; }
+      p.decisions[c.opId] = state;
+      setMarkState(c, state);
+      done++;
+    });
+    if (state === "accepted") {
+      announce("Accepted " + plural(done, "change") + "." + (skipped ? " " + plural(skipped, "unverified change") + " still " + (skipped === 1 ? "needs" : "need") + " your check." : ""));
+    } else {
+      announce("Rejected " + plural(done, "remaining change") + ".");
+    }
+    armAutoSave(ctl);
+    refreshReview(ctl);
+  }
+
+  function markFocus(ctl) {
+    var p = ctl.state.proposal;
+    p.changes.forEach(function (c, i) {
+      if (!c.anchor) return;
+      if (i === p.focus) c.anchor.setAttribute("data-scribe-focus", "");
+      else c.anchor.removeAttribute("data-scribe-focus");
+    });
+  }
+
+  /* j / k (SPEC §4): next or previous change, brought into view. */
+  function move(ctl, d) {
+    var p = ctl.state.proposal;
+    var n = p.changes.length;
+    p.focus = p.focus < 0 ? (d > 0 ? 0 : n - 1) : (p.focus + d + n) % n;
+    if (ctl.isNarrow()) ctl.setSeg("doc");
+    markFocus(ctl);
+    renderReviewbar(ctl);
+    var c = p.changes[p.focus];
+    scrollToChange(ctl, c);
+    var item = focusedItem(ctl);
+    if (item) item.focus();
+    announce(capital(changeName(p, c)) + ", " + stateWord(p, c) + ".");
+  }
+
+  function scrollToChange(ctl, c) {
+    var r = ctl.refs;
+    if (!c.anchor || typeof c.anchor.getBoundingClientRect !== "function") return;
+    var scale = parseFloat(r.pageBox.style.width) / parseFloat(r.frame.style.width);
+    if (!isFinite(scale) || scale <= 0) scale = 1;
+    var top = (r.paper.offsetTop || 0) + c.anchor.getBoundingClientRect().top * scale;
+    r.docscroll.scrollTop = Math.max(0, Math.round(top - (r.docscroll.clientHeight || 0) / 3));
+  }
+
+  /* D (SPEC §2): hide the marks and read the clean proposed text. */
+  function toggleShow(ctl) {
+    var p = ctl.state.proposal;
+    if (!p || !p.changes || !p.changes.length) return;
+    ctl.state.showChanges = ctl.state.showChanges === false;
+    var inner = frameDoc(ctl);
+    if (inner && inner.documentElement && inner.documentElement.classList) {
+      inner.documentElement.classList.toggle("scribe-clean", !ctl.state.showChanges);
+    }
+    ctl.refs.showBtn.setAttribute("aria-pressed", ctl.state.showChanges ? "true" : "false");
+    announce(ctl.state.showChanges ? "Showing changes." : "Showing the clean proposed text.");
+    fitFrame(ctl);
+  }
+
+  /* Every change decided and at least one accepted: save after 3 s idle. */
+  function armAutoSave(ctl) {
+    var p = ctl.state.proposal;
+    if (ctl.autoSave) root.clearTimeout(ctl.autoSave);
+    ctl.autoSave = null;
+    if (!p || !p.changes || p.saving) return;
+    var s = differ().summarize(p.changes, p.decisions, p.baseWords);
+    if (s.pending || !s.accepted) return;
+    ctl.autoSave = root.setTimeout(function () {
+      ctl.autoSave = null;
+      if (ctl.closed || ctl.state.proposal !== p) return;
+      save(ctl);
+    }, AUTO_SAVE_MS);
+  }
+
+  function save(ctl) {
+    var p = ctl.state.proposal;
+    if (!p || !p.changes || p.saving || ctl.state.busy) return;
+    if (ctl.autoSave) { root.clearTimeout(ctl.autoSave); ctl.autoSave = null; }
+    var accepted = p.changes.filter(function (c) { return p.decisions[c.opId] === "accepted"; });
+    if (!accepted.length) { announce("Accept at least one change first."); return; }
+    if (!p.id) { announce("This proposal has no server copy to save.", true); return; }
+    p.saving = true;
+    refreshReview(ctl);
+    ctl.api.acceptEdit(p.id, {
+      accept: accepted.map(function (c) { return c.opId; }),
+      confirmUnverified: accepted.filter(function (c) { return c.unverified; }).map(function (c) { return c.opId; }),
+    }).then(function (res) {
+      if (ctl.closed || ctl.state.proposal !== p) return null;
+      var run = (res && res.run) || {};
+      var n = typeof run.n === "number" ? run.n : nextVersionN(ctl);
+      var note = "Saved as v" + n + " (" + plural(accepted.length, "change") + ").";
+      if (run.pdf === "stale") note += " The PDF catches up when the materials browser is back.";
+      logMessage(ctl, "scribe", [h("span", { class: "scribe__hand", text: "Saved as v" + n }), note.replace(/^Saved as v\d+ /, "")]);
+      announce("Saved as version " + n + ".");
+      ctl.state.proposal = null;
+      return loadDoc(ctl);
+    }, function (err) {
+      if (ctl.closed || ctl.state.proposal !== p) return;
+      p.saving = false;
+      var message = (err && err.message) || "The changes did not save.";
+      logMessage(ctl, "blocked", [h("b", { text: "Not saved: " }), message]);
+      announce("Not saved: " + message, true);
+      refreshReview(ctl);
+    });
+  }
+
+  function clearReview(ctl) {
+    if (ctl.autoSave) { root.clearTimeout(ctl.autoSave); ctl.autoSave = null; }
+    var inner = frameDoc(ctl);
+    var D = differ();
+    if (!inner || !D || typeof inner.querySelectorAll !== "function") return;
+    var marked = inner.querySelectorAll("[data-scribe-op]");
+    for (var i = 0; i < marked.length; i++) {
+      var el = marked[i];
+      if (el.getAttribute("data-scribe-op") === "insert") { if (el.parentNode) el.parentNode.removeChild(el); }
+      else D.unmarkElement(el);
+    }
+    if (inner.documentElement && inner.documentElement.classList) inner.documentElement.classList.remove("scribe-clean");
+    ctl.state.showChanges = true;
+  }
+
+  function reviewAction(ctl, act, opId, btn) {
+    if (btn && btn.getAttribute("aria-disabled") === "true") {
+      if (act === "save") announce("Accept at least one change first.");
+      return;
+    }
+    var p = ctl.state.proposal;
+    if (act === "accept") decide(ctl, opId, "accepted");
+    else if (act === "reject") decide(ctl, opId, "rejected");
+    else if (act === "undo") decide(ctl, opId, "pending");
+    else if (act === "accept-all") decideAll(ctl, "accepted");
+    else if (act === "reject-all") decideAll(ctl, "rejected");
+    else if (act === "save") save(ctl);
+    else if (act === "discard") discard(ctl);
+    else if ((act === "next" || act === "prev") && p && p.changes && p.changes.length) move(ctl, act === "next" ? 1 : -1);
+  }
+
+  /* region:F2-keys handler. True when the key was a review key. */
+  function reviewKey(ctl, e) {
+    var p = ctl.state.proposal;
+    if (!p || !p.changes || !p.changes.length || ctl.state.busy || p.saving) return false;
+    /* A key is activity: an armed auto-save waits for 3 s of quiet. */
+    if (ctl.autoSave) armAutoSave(ctl);
+    var k = e.key;
+    var focused = p.focus >= 0 ? p.changes[p.focus] : null;
+    if (k === "j" || k === "k") { move(ctl, k === "j" ? 1 : -1); }
+    else if (k === "A" && e.shiftKey) { decideAll(ctl, "accepted"); }
+    else if (k === "a" || k === "r") {
+      if (!focused) announce("Press J to pick a change first.");
+      else decide(ctl, focused.opId, k === "a" ? "accepted" : "rejected");
+    }
+    else if (k === "d" || k === "D") { toggleShow(ctl); }
+    else return false;
+    e.preventDefault();
+    return true;
+  }
+
+  /* The blocked-op chat line (SPEC §2 Guards), worded by reason. */
+  function blockedLine(data) {
+    var detail = data && data.detail ? "“" + data.detail + "”" : "";
+    var reason = data && data.reason;
+    if (reason === "out_of_scope") return "that change was outside what you asked Scribe to edit.";
+    if (reason === "shape") return "that change would break the template's shape" + (data.detail ? " (" + data.detail + ")" : "") + ".";
+    if (reason === "invalid_model") return "Scribe returned a change the template can't hold.";
+    return "would change " + (detail || "a locked fact") + ".";
   }
 
   /* ---------------- Events ---------------- */
@@ -811,6 +1414,7 @@
       else { if (ctl.isNarrow()) ctl.setSeg(zone); else ctl.setSide(zone); (zone === "chat" ? r.prompt : r.sideTabs[1]).focus(); }
     }
     /* region:F2-keys — j/k/a/r, Shift+A, D and Cmd/Ctrl+Z bind here. */
+    if (reviewKey(ctl, e)) return;
     /* region:F3-keys — c (Compare) binds here. */
     if ((e.key === "c" || e.key === "C") && !e.shiftKey && ctl.versionsUi) {
       e.preventDefault();
@@ -825,6 +1429,8 @@
       if (act === "close" || act === "scrim") { ctl.close(act === "scrim" ? "scrim" : "button"); return; }
       if (act === "stop") { stop(ctl); return; }
       if (act === "discard") { discard(ctl); return; }
+      if (act === "show-changes") { toggleShow(ctl); return; }
+      if (t.getAttribute && t.getAttribute("data-review") != null) { reviewAction(ctl, t.getAttribute("data-review"), t.getAttribute("data-op"), t); return; }
       if (t.getAttribute && t.getAttribute("data-doc") != null && t.getAttribute("role") === "tab") { ctl.setDoc(t.getAttribute("data-doc")); return; }
       if (t.getAttribute && t.getAttribute("data-side") != null) { ctl.setSide(t.getAttribute("data-side")); return; }
       if (t.getAttribute && t.getAttribute("data-seg") != null && t.getAttribute("role") === "tab") { ctl.setSeg(t.getAttribute("data-seg")); return; }
@@ -867,6 +1473,7 @@
     this.closed = false;
     this.loadToken = 0;
     this.abort = null;
+    this.autoSave = null;
     this.now = typeof opts.now === "function" ? opts.now : function () { return Date.now(); };
     this.state = {
       doc: opts.doc === "cover_letter" ? "cover_letter" : "resume",
@@ -882,6 +1489,7 @@
       proposal: null,
       chipsUsed: [],
       focusZone: "doc",
+      showChanges: true,
     };
     this.api = opts.api || root.JBScribeApi.create({
       base: opts.base,
@@ -962,6 +1570,7 @@
     this.closed = true;
     var r = this.refs;
     if (this.state.busy) stop(this);
+    if (this.autoSave) { root.clearTimeout(this.autoSave); this.autoSave = null; }
     doc().removeEventListener("keydown", this.onKey, true);
     unwatchFrameKeys(this);
     if (root.visualViewport && typeof root.visualViewport.removeEventListener === "function") {
