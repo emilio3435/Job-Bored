@@ -30,4 +30,4 @@ UNKNOWN: The archived run lacks its raw structure reply, and no live-provider or
 
 ## Publication
 
-Local branch: `fix/resume-dossier-grounding`. No push, pull request, upstream merge, or deployment.
+Local branch: `fix/resume-dossier-grounding`. It was cut from pinned `origin/main` commit `ec34030f`; while work ran, `origin/main` advanced one separate pipeline/discovery commit (`4614d8cd`). That later change is not in this verified snapshot. No push, pull request, upstream merge, or deployment.
