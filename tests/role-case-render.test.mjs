@@ -861,4 +861,12 @@ describe("DFIT — the fit instrument renders one number and its evidence", () =
     assert.match(caseCssSource, /@media \(prefers-reduced-motion: reduce\) \{\s*body\.jb-v2 \[data-region="role"\] \.case \.case__fit[^{]*\{[^}]*animation: none/,
       "reduced motion stops the sweep and the reveal");
   });
+
+  /* Floor fix: the CTA cell inherited display:grid from the readout rows,
+     which blockified its button into a stretched box tall enough to read
+     as four shredded lines. The cell is block and its button is one pill. */
+  it("the CTA cell never stretches or shreds its button", () => {
+    assert.match(caseCssSource, /\.case__fit-cta \{[^}]*display: block;/);
+    assert.match(caseCssSource, /\.case__fit-cta button \{[^}]*display: inline-block;[^}]*white-space: nowrap;/);
+  });
 });

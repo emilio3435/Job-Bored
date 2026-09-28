@@ -666,8 +666,8 @@ body.jb-v2 [data-region="role"] .case .case__fit-meter--stacked i { display: blo
 body.jb-v2 [data-region="role"] .case .case__fit-meter--stacked i[data-status="found"] { background: var(--case-mint-on-light); }
 body.jb-v2 [data-region="role"] .case .case__fit-meter--stacked i[data-status="partial"] { background: var(--amber); }
 body.jb-v2 [data-region="role"] .case .case__fit-meter--stacked i[data-status="missing"] { background: var(--crimson); }
-body.jb-v2 [data-region="role"] .case .case__fit-cta { padding: 14px 16px 16px; font-family: var(--serif); font-size: 15px; line-height: 1.45; color: var(--navy); }
-body.jb-v2 [data-region="role"] .case .case__fit-cta button { margin-top: 10px; min-height: 34px; padding: 7px 14px; border: 1px solid var(--navy); background: var(--navy); color: var(--parchment); border-radius: 999px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
+body.jb-v2 [data-region="role"] .case .case__fit-readouts > li.case__fit-cta { display: block; padding: 14px 16px 16px; font-family: var(--serif); font-size: 15px; line-height: 1.45; color: var(--navy); }
+body.jb-v2 [data-region="role"] .case .case__fit-cta button { display: inline-block; white-space: nowrap; margin-top: 10px; min-height: 34px; padding: 7px 14px; border: 1px solid var(--navy); background: var(--navy); color: var(--parchment); border-radius: 999px; font-family: var(--mono); font-size: 11px; letter-spacing: 0.1em; text-transform: uppercase; cursor: pointer; }
 body.jb-v2 [data-region="role"] .case .case__fit-cta button:hover { background: transparent; color: var(--navy); }
 body.jb-v2 [data-region="role"] .case .case__fit-cta button:focus-visible { outline: 2px solid var(--navy); outline-offset: 2px; }
 body.jb-v2 [data-region="role"] .case .case__fit-cta .case__shimmer { margin-top: 10px; }
