@@ -30,4 +30,6 @@ UNKNOWN: The archived run lacks its raw structure reply, and no live-provider or
 
 ## Publication
 
-Local branch: `fix/resume-dossier-grounding`. It was cut from pinned `origin/main` commit `ec34030f`; while work ran, `origin/main` advanced one separate pipeline/discovery commit (`4614d8cd`). That later change is not in this verified snapshot. No push, pull request, upstream merge, or deployment.
+Local branch: `fix/resume-dossier-grounding`. It was cut from pinned `origin/main` commit `ec34030f`; before PR publication, the newer pipeline/discovery commit `4614d8cd` was merged locally without conflicts. This report records local implementation evidence; GitHub tracks the subsequent PR and merge status.
+
+After that base sync, `npm test` completed 5,968 tests: 5,960 passed, one inherited local cache-key assertion failed, and seven remained todo. `npm run test:browser-use-discovery` passed 1,090/1,090. Contracts, lint, typecheck, production audits, and the commit-range secret scan passed. The same cache-key assertion also makes local `npm run test:coverage` exit 1, while coverage reached 91.44% statements and 79.25% branches. Base CI run `36462765819` on `4614d8cd` passed; the PR must prove its own required checks before merge.
