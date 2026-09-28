@@ -1008,6 +1008,8 @@
     menuAnchor: null,
     qTimer: null,
     lastLens: null,
+    shown: false,
+    profileSet: false,
   };
 
   function slot(name) {
@@ -1458,10 +1460,24 @@
     if (saveDlg) saveDlg.addEventListener("close", onSaveDialogClose);
     if (page.ctl.model().rows.length) page.ctl.setLoaded(true);
     paint("mount");
-    page.ctl.loadViews();
-    loadProfile().then(function (profile) { if (page.ctl) page.ctl.setProfile(profile); });
     d.addEventListener("jb:view:changed", function (e) {
-      if (e && e.detail && e.detail.view === "leads" && page.ctl) page.ctl.refresh();
+      if (e && e.detail && e.detail.view === "leads" && page.ctl) {
+        firstShow();
+        page.ctl.refresh();
+      }
+    });
+    if (viewIsLeads()) firstShow();
+  }
+
+  /* The profile (GET /profile) and the views store open the first time
+     Leads is shown, so no other view pays for them at boot. */
+  function firstShow() {
+    if (!page.ctl || page.shown) return;
+    page.shown = true;
+    page.ctl.loadViews();
+    if (page.profileSet) return;
+    loadProfile().then(function (profile) {
+      if (page.ctl && !page.profileSet) page.ctl.setProfile(profile);
     });
   }
 
@@ -1509,9 +1525,16 @@
     },
     rows: function () { return page.ctl ? appHost().getJobs() : []; },
     profile: function () { return page.ctl ? page.ctl.getProfile() : null; },
-    setProfile: function (p) { if (page.ctl) page.ctl.setProfile(p); },
+    setProfile: function (p) {
+      page.profileSet = true;
+      if (page.ctl) page.ctl.setProfile(p);
+    },
     reloadProfile: function () {
-      return loadProfile().then(function (p) { if (page.ctl) page.ctl.setProfile(p); return p; });
+      return loadProfile().then(function (p) {
+        page.profileSet = true;
+        if (page.ctl) page.ctl.setProfile(p);
+        return p;
+      });
     },
   };
 })(typeof window !== "undefined" ? window : globalThis);
