@@ -10,7 +10,7 @@ import { readLedger } from "./materials-ledger.mjs";
 import { applyOps, deriveNodes, MaterialsEditError } from "./materials-nodes.mjs";
 import { newRunId, renderPackage, RUNS_DIR, writePackageRecords } from "./materials-package.mjs";
 import { commitModelAsRun, withPackagePublishClaim, writeVersionQa } from "./materials-regenerate.mjs";
-import { renderDocument } from "./materials-render.mjs";
+import { renderDocument, runsToText } from "./materials-render.mjs";
 import { readProfile } from "./user-profile.mjs";
 
 const RUN_ID = /^[a-zA-Z0-9_-]+$/;
@@ -101,6 +101,43 @@ async function assertCurrent(dir, runId) {
 /** @param {unknown} value */
 function wordCount(value) { return String(value || "").trim().split(/\s+/).filter(Boolean).length; }
 
+/** Count document copy without requiring globally unique edit addresses in older runs. */
+/** @param {Record<string, any>} model @param {string} doc */
+function documentWords(model, doc) {
+  const parts = [];
+  if (doc === "resume") {
+    const resume = model.documents?.resume;
+    if (!resume) return 0;
+    parts.push(runsToText(resume.statement?.runs));
+    if (resume.intro) parts.push(runsToText(resume.intro.runs));
+    for (const section of resume.sections || []) {
+      for (const entry of section.entries || []) {
+        if (entry.seat !== undefined) parts.push(runsToText(entry.seat));
+        for (const bullet of entry.bullets || []) parts.push(runsToText(bullet.runs));
+        if (entry.line !== undefined) parts.push(entry.line);
+      }
+      for (const line of section.lines || []) parts.push(runsToText(line.runs));
+      for (const group of section.groups || []) parts.push(group.items.join(", "));
+    }
+  } else {
+    const letter = model.documents?.coverLetter;
+    if (!letter) return 0;
+    parts.push(letter.salutation);
+    for (const paragraph of letter.paragraphs || []) parts.push(paragraph.text);
+  }
+  return wordCount(parts.join(" "));
+}
+
+/** Read-only views have no editable addresses when a historical model reused an ID. */
+/** @param {import('./materials-render.mjs').RenderModel} model */
+function readableNodes(model) {
+  try { return deriveNodes(model); }
+  catch (error) {
+    if (error instanceof MaterialsEditError && error.reason === "invalid_model" && error.detail.startsWith("duplicate node id: ")) return [];
+    throw error;
+  }
+}
+
 /** @param {Record<string, any>} run @param {number} n @param {Record<string, any>} stars @param {Record<string, any>} model @param {string} doc */
 function version(run, n, stars, model, doc) {
   const source = ["edit", "manual", "restore", "regenerate"].includes(run.template?.source) ? run.template.source : "draft";
@@ -112,7 +149,7 @@ function version(run, n, stars, model, doc) {
     source, label, ...(prompt ? { prompt } : {}),
     pinned: n === 0, starred: stars[run.runId] === true,
     ...(Number.isFinite(pages) ? { pages } : {}),
-    words: wordCount(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.text).join(" ")),
+    words: documentWords(model, doc),
     family: run.template?.family || model.template?.family,
   });
 }
@@ -324,7 +361,7 @@ export function createMaterialsVersionService(deps = {}) {
     async model(slug, id) {
       const dir = await dirFor(slug); pendingGuard(dir);
       const { model } = await runFiles(dir, id);
-      return { model, nodes: deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))) };
+      return { model, nodes: readableNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))) };
     },
     /** @param {string} slug @param {Record<string, any>} body */
     async preview(slug, body) {
@@ -332,8 +369,10 @@ export function createMaterialsVersionService(deps = {}) {
       const doc = documentName(body.doc);
       const { model } = await runFiles(dir, checkedId(body.baseRunId, RUN_ID, "run_id"));
       if (!model.documents?.[doc]) throw failure("Document not in version", 404, "document_not_found");
-      const docIds = new Set(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
-      if (Array.isArray(body.ops) && body.ops.some((/** @type {any} */ op) => !docIds.has(op?.op === "insert" ? op.after : op?.node))) throw failure("Edit targets another document", 400, "out_of_scope");
+      if (Array.isArray(body.ops) && body.ops.length) {
+        const docIds = new Set(deriveNodes(/** @type {import('./materials-render.mjs').RenderModel} */ (/** @type {unknown} */ (model))).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.id));
+        if (body.ops.some((/** @type {any} */ op) => !docIds.has(op?.op === "insert" ? op.after : op?.node))) throw failure("Edit targets another document", 400, "out_of_scope");
+      }
       // A published draft can be renderable while falling outside edit shape
       // limits. Only validate edit shape when there are edits to apply.
       const ops = body.ops ?? [];
@@ -344,7 +383,7 @@ export function createMaterialsVersionService(deps = {}) {
       } else {
         candidate = applyOps(baseModel, ops);
       }
-      return { html: renderDocument(candidate, doc), words: wordCount(deriveNodes(candidate).filter((node) => doc === "resume" ? !["paragraph", "salutation"].includes(node.kind) : ["paragraph", "salutation"].includes(node.kind)).map((node) => node.text).join(" ")), pageBudget: candidate.template.pageBudget };
+      return { html: renderDocument(candidate, doc), words: documentWords(candidate, doc), pageBudget: candidate.template.pageBudget };
     },
     /** @param {string} slug @param {Record<string, any>} body */
     async start(slug, body) {

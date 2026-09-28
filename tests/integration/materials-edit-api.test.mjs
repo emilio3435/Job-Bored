@@ -431,6 +431,44 @@ it("GET versions and model expose immutable runs, nodes and 404 errors", async (
   assert.equal((await request(`${pkg.path}/versions/missing/model`)).status, 404);
 });
 
+it("legacy duplicate node ids do not block version history or read-only preview", async (t) => {
+  if (!(await needsSocket(t))) return;
+  const oldModel = structuredClone(model);
+  const entries = oldModel.documents.resume.sections[0].entries;
+  entries[0].line = "Built a planning tool.";
+  entries.push({ employerId: entries[0].employerId, org: "Example", meta: [], line: "Led another project." });
+  const pkg = await seed(oldModel);
+  const nextRun = { runId: "r1", slug: pkg.slug, requestedAt: "2026-09-28T10:00:00.000Z", finishedAt: "2026-09-28T10:00:00.000Z", template: { family: "signal", source: "edit" } };
+  await mkdir(join(pkg.dir, "runs", "r1"), { recursive: true });
+  await writeFile(join(pkg.dir, "runs", "r1", "run.json"), JSON.stringify(nextRun));
+  await writeFile(join(pkg.dir, "runs", "r1", "render-model.json"), JSON.stringify(model));
+  await writeFile(join(pkg.dir, "run.json"), JSON.stringify(nextRun));
+
+  const list = await request(`${pkg.path}/versions?doc=resume`);
+  assert.equal(list.status, 200);
+  assert.deepEqual(list.data.versions.map((row) => row.runId), ["r1", "r0"]);
+  assert.equal(list.data.currentRunId, "r1");
+  assert.ok(list.data.versions.every((row) => row.words > 0));
+  const letterList = await request(`${pkg.path}/versions?doc=cover_letter`);
+  assert.equal(letterList.status, 200);
+  assert.equal(letterList.data.versions.length, 2);
+
+  const selected = await request(`${pkg.path}/versions/r0/model`);
+  assert.equal(selected.status, 200);
+  assert.deepEqual(selected.data.nodes, []);
+  const preview = await request(`${pkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0", ops: [] });
+  assert.equal(preview.status, 200);
+  assert.ok(preview.data.html.startsWith("<!doctype html>"));
+  assert.equal(preview.data.html.includes("data-node="), false);
+  assert.ok(preview.data.words > 0);
+  const letterPreview = await request(`${pkg.path}/preview`, "POST", { doc: "cover_letter", baseRunId: "r0" });
+  assert.equal(letterPreview.status, 200);
+  assert.ok(letterPreview.data.words > 0);
+  const edited = await request(`${pkg.path}/preview`, "POST", { doc: "resume", baseRunId: "r0", ops: [op] });
+  assert.equal(edited.status, 400);
+  assert.equal(edited.data.code, "invalid_model");
+});
+
 it("POST preview renders base plus validated ops without a browser", async (t) => {
   if (!(await needsSocket(t))) return;
   const pkg = await seed();
