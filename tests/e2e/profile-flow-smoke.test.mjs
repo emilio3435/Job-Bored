@@ -33,6 +33,17 @@ import { setTimeout as sleep } from "node:timers/promises";
 
 const PORT = 38470 + Math.floor(Math.random() * 100);
 const BASE_URL = `http://127.0.0.1:${PORT}`;
+const PROFILE_RESUME_TEXT =
+  "Senior backend engineer with Node.js APIs, automation, platform tooling, and AI integration experience.";
+const STRUCTURE_DRAFT = {
+  employers: [],
+  looseClaims: [{
+    text: "Senior backend engineer with Node.js APIs",
+    sourceQuote: "Senior backend engineer with Node.js APIs",
+  }],
+  education: [],
+  credentials: [],
+};
 let tmpDir = "";
 let profilePath = "";
 let workerConfigPath = "";
@@ -96,13 +107,18 @@ async function startOpenRouterMock() {
       res.end(JSON.stringify({ error: { message: "not found" } }));
       return;
     }
+    const requestBody = JSON.parse(body);
+    const systemPrompt = requestBody.messages?.[0]?.content || "";
+    const reply = systemPrompt.includes("Every employer, role title, non-null date, and claim")
+      ? STRUCTURE_DRAFT
+      : buildProfileDraft();
     res.writeHead(200, { "content-type": "application/json" });
     res.end(
       JSON.stringify({
         choices: [
           {
             message: {
-              content: JSON.stringify(buildProfileDraft()),
+              content: JSON.stringify(reply),
             },
           },
         ],
@@ -320,8 +336,7 @@ test("POST /profile/from-resume drafts a profile through OpenRouter chat JSON wi
     workerConfigPath,
     JSON.stringify({
       candidateProfile: {
-        resumeText:
-          "Senior backend engineer with Node.js APIs, automation, platform tooling, and AI integration experience.",
+        resumeText: PROFILE_RESUME_TEXT,
       },
     }),
   );
@@ -340,8 +355,9 @@ test("POST /profile/from-resume drafts a profile through OpenRouter chat JSON wi
   ]);
   assert.equal(data.profile.strengths[0].rank, 1);
 
-  assert.equal(openRouterRequests.length, 1);
+  assert.equal(openRouterRequests.length, 2);
   const request = openRouterRequests[0];
+  const structureRequest = openRouterRequests[1];
   assert.equal(request.method, "POST");
   assert.equal(request.url, "/v1/chat/completions");
   assert.equal(request.headers.authorization, "Bearer sk-or-profile-test");
@@ -355,4 +371,13 @@ test("POST /profile/from-resume drafts a profile through OpenRouter chat JSON wi
   assert.match(body.messages[0].content, /strict JSON object/);
   assert.match(body.messages[1].content, /Senior backend engineer/);
   assert.doesNotMatch(request.body, /responseSchema|systemInstruction|generateContent/);
+
+  assert.equal(structureRequest.method, "POST");
+  assert.equal(structureRequest.url, "/v1/chat/completions");
+  assert.equal(structureRequest.headers.authorization, "Bearer sk-or-profile-test");
+  const structureBody = JSON.parse(structureRequest.body);
+  assert.equal(structureBody.model, "openrouter/profile-test");
+  assert.match(structureBody.messages[0].content, /Every employer, role title, non-null date, and claim/);
+  assert.match(structureBody.messages[1].content, /Senior backend engineer with Node\.js APIs/);
+  assert.doesNotMatch(structureRequest.body, /responseSchema|systemInstruction|generateContent/);
 });

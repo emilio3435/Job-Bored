@@ -31,6 +31,8 @@ const BASE_URL = `http://127.0.0.1:${PORT}`;
 
 let tmpDir = "";
 let templateRoot = "";
+let logoHome = "";
+let ledgerLogosRoot = "";
 let profilePath = "";
 let resolverScript = "";
 let serverProcess = null;
@@ -97,11 +99,15 @@ async function waitForServer() {
 before(async () => {
   tmpDir = mkdtempSync(join(tmpdir(), "jb-brand-logos-"));
   templateRoot = join(tmpDir, "resume-template");
+  logoHome = join(tmpDir, "jobbored-home");
+  ledgerLogosRoot = join(logoHome, "logos");
   profilePath = join(tmpDir, "profile.json");
   resolverScript = join(tmpDir, "resolver-stub.py");
   mkdirSync(join(templateRoot, "assets"), { recursive: true });
   mkdirSync(join(templateRoot, "uploads"), { recursive: true });
   writeFileSync(join(templateRoot, "logos.json"), JSON.stringify({ logos: [] }, null, 2));
+  mkdirSync(ledgerLogosRoot, { recursive: true });
+  writeFileSync(join(ledgerLogosRoot, "logos.json"), JSON.stringify({ logos: [] }, null, 2));
   writeResolverStub(resolverScript);
 
   serverProcess = spawn("node", ["index.mjs"], {
@@ -111,6 +117,7 @@ before(async () => {
       PORT: String(PORT),
       LISTEN_HOST: "127.0.0.1",
       JOBBORED_PROFILE_PATH: profilePath,
+      JOBBORED_HOME: logoHome,
       HERMES_RESUME_TEMPLATE_DIR: templateRoot,
       HERMES_LOGO_RESOLVER_SCRIPT: resolverScript,
       HOME: tmpDir,
@@ -241,15 +248,18 @@ test("POST /api/brand-logos/:slug rejects uploads when uploads dir escapes templ
   }
 });
 
-test("POST /profile regenerates logos.json from experiences and projects", async () => {
+test("POST /profile regenerates the employer logo registry from the materials ledger", async () => {
   writeFileSync(
     join(templateRoot, "logos.json"),
+    JSON.stringify({ logos: [{ slug: "jobbored", label: "Prior JobBored" }] }, null, 2),
+  );
+  writeFileSync(
+    join(ledgerLogosRoot, "logos.json"),
     JSON.stringify({
       logos: [
         {
-          slug: "jobbored",
-          label: "Prior JobBored",
-          upload: "uploads/logo-jobbored.png",
+          slug: "stale-project",
+          label: "Stale project entry",
         },
       ],
     }, null, 2),
@@ -262,7 +272,11 @@ test("POST /profile regenerates logos.json from experiences and projects", async
       primaryNarrative:
         "I'm a staff backend engineer focused on durable distributed systems and applied AI tooling.",
     },
-    strengths: [{ name: "backend systems", rank: 1 }],
+    strengths: [{
+      name: "backend systems",
+      rank: 1,
+      evidence: "Built reliable backend systems and APIs for Audacy.",
+    }],
     experiences: [
       {
         slug: "audacy",
@@ -293,26 +307,15 @@ test("POST /profile regenerates logos.json from experiences and projects", async
   assert.equal(post.status, 200);
   const data = await post.json();
   assert.equal(data.ok, true);
+  assert.equal(data.ledger.ok, true);
   assert.equal(data.logoRefresh.ok, true);
 
-  const manifest = JSON.parse(readFileSync(join(templateRoot, "logos.json"), "utf8"));
-  assert.deepEqual(
-    manifest.logos.map((entry) => ({
-      slug: entry.slug,
-      label: entry.label,
-      domain: entry.domain,
-      upload: entry.upload || "",
-    })),
-    [
-      { slug: "audacy", label: "Audacy", domain: "audacy.com", upload: "" },
-      {
-        slug: "jobbored",
-        label: "JobBored",
-        domain: "jobbored.dev",
-        upload: "uploads/logo-jobbored.png",
-      },
-    ],
-  );
-  assert.ok(existsSync(join(templateRoot, "assets", "logo-audacy.png")));
-  assert.ok(existsSync(join(templateRoot, "assets", "logo-jobbored.png")));
+  const manifest = JSON.parse(readFileSync(join(ledgerLogosRoot, "logos.json"), "utf8"));
+  assert.deepEqual(manifest.logos.map((entry) => entry.label), ["Audacy"]);
+  assert.ok(!JSON.stringify(manifest).includes("Stale project entry"));
+  assert.ok(!JSON.stringify(manifest).includes("JobBored"), "project-only organizations do not enter the employer ledger registry");
+  assert.ok(existsSync(join(ledgerLogosRoot, "assets", `logo-${manifest.logos[0].slug}.svg`)));
+
+  const legacyManifest = JSON.parse(readFileSync(join(templateRoot, "logos.json"), "utf8"));
+  assert.deepEqual(legacyManifest.logos.map((entry) => entry.slug), ["jobbored"]);
 });
